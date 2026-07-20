@@ -2218,35 +2218,57 @@ def _flag_human_assisted_if_foreign(event, client) -> None:
 
   This is the self-resolution disqualifier: if anyone other than the thread's
   originator answers, the originator did not self-serve. Observe-only — never
-  posts. Gated on the thread being bot-owned so we never create a conversation
-  for a thread the bot never engaged, and deduped in-process so a chatty thread
-  PATCHes at most once.
+  posts. The durable conversation lookup recovers ownership and originator
+  metadata after a bot restart without using the create/upsert endpoint, so an
+  unrelated Slack thread can never create a phantom conversation. The local
+  caches remain fast-path/dedup hints only.
   """
   thread_ts = event.get("thread_ts")
   sender_id = event.get("user")
-  if not thread_ts or not sender_id:
-    return
-
-  # Only threads the bot already engaged have an owner + a conversation row.
-  if session_manager.get_thread_owner(thread_ts) is None:
-    return
-
-  originator_id = session_manager.get_thread_originator(thread_ts)
-  # Unknown originator (e.g. cache lost across restart before any mention) —
-  # can't attribute, so leave the thread as-is rather than guess.
-  if originator_id is None or sender_id == originator_id:
-    return
-
-  if session_manager.is_human_assisted(thread_ts):
-    return
-
   channel_id = event.get("channel")
+  if not thread_ts or not sender_id or not channel_id:
+    return
+
+  # Originator replies are the overwhelmingly common path and need no durable
+  # lookup while the cache is warm. A persisted human-assisted flag is also
+  # mirrored locally after the first observation/PATCH.
+  cached_originator_id = session_manager.get_thread_originator(thread_ts)
+  if cached_originator_id == sender_id or session_manager.is_human_assisted(thread_ts):
+    return
+
   try:
-    conversation_id = _resolve_conversation_id(
-      thread_ts,
-      channel_id,
-      agent_id=session_manager.get_thread_owner(thread_ts) or "",
-    )
+    conversation = sse_client.get_conversation_by_idempotency_key(thread_ts)
+    if conversation is None:
+      return
+
+    metadata = conversation.get("metadata", {})
+    conversation_id = conversation.get("conversation_id")
+    owner_id = metadata.get("thread_owner_agent_id")
+    originator_id = metadata.get("originator_slack_user_id")
+
+    # Both anchors are written only for a real Slack conversation after the
+    # bot successfully responds. Require an exact channel match as a second
+    # guard around the integration idempotency key.
+    if (
+      not isinstance(conversation_id, str)
+      or not isinstance(owner_id, str)
+      or not isinstance(originator_id, str)
+      or not conversation_id
+      or not owner_id
+      or not originator_id
+      or metadata.get("channel_id") != channel_id
+    ):
+      return
+
+    session_manager.set_thread_owner(thread_ts, owner_id)
+    session_manager.set_thread_originator(thread_ts, originator_id)
+
+    if metadata.get("human_assisted") is True:
+      session_manager.set_human_assisted(thread_ts)
+      return
+    if sender_id == originator_id:
+      return
+
     sse_client.update_conversation_metadata(conversation_id, {"human_assisted": True})
     session_manager.set_human_assisted(thread_ts)
     logger.info(f"[{thread_ts}] Human-assisted: reply from {sender_id} (originator {originator_id}){_msg_link(channel_id, thread_ts)}")

@@ -62,20 +62,33 @@ def _reply_event(*, thread_ts="111.222", ts="111.900", user="U_OTHER", channel="
     return {"thread_ts": thread_ts, "ts": ts, "user": user, "channel": channel}
 
 
+def _existing_conversation(**metadata_overrides: object) -> dict[str, object]:
+    return {
+        "conversation_id": "conv-1",
+        "metadata": {
+            "channel_id": "C123",
+            "thread_owner_agent_id": "test-agent",
+            "originator_slack_user_id": "U_ORIG",
+            **metadata_overrides,
+        },
+    }
+
+
 class TestFlagHumanAssistedIfForeign:
     def test_foreign_reply_flags_thread(self, monkeypatch):
         app = _load_slack_app(monkeypatch)
         with patch.object(app, "session_manager") as sm, \
-             patch.object(app, "sse_client") as sse, \
-             patch.object(app, "_resolve_conversation_id", return_value="conv-1") as resolve:
-            sm.get_thread_owner.return_value = "test-agent"
+             patch.object(app, "sse_client") as sse:
             sm.get_thread_originator.return_value = "U_ORIG"
             sm.is_human_assisted.return_value = False
+            sse.get_conversation_by_idempotency_key.return_value = _existing_conversation()
 
             app._flag_human_assisted_if_foreign(_reply_event(user="U_OTHER"), Mock())
 
-            resolve.assert_called_once()
+            sse.get_conversation_by_idempotency_key.assert_called_once_with("111.222")
             sse.update_conversation_metadata.assert_called_once_with("conv-1", {"human_assisted": True})
+            sm.set_thread_owner.assert_called_once_with("111.222", "test-agent")
+            sm.set_thread_originator.assert_called_once_with("111.222", "U_ORIG")
             sm.set_human_assisted.assert_called_once_with("111.222")
 
     def test_originator_reply_does_not_flag(self, monkeypatch):
@@ -88,28 +101,49 @@ class TestFlagHumanAssistedIfForeign:
 
             app._flag_human_assisted_if_foreign(_reply_event(user="U_ORIG"), Mock())
 
+            sse.get_conversation_by_idempotency_key.assert_not_called()
             sse.update_conversation_metadata.assert_not_called()
             sm.set_human_assisted.assert_not_called()
 
-    def test_non_bot_owned_thread_skipped(self, monkeypatch):
-        """No thread owner ⇒ bot never engaged ⇒ never create a phantom conversation."""
+    def test_cache_cold_after_restart_uses_durable_anchors(self, monkeypatch):
+        app = _load_slack_app(monkeypatch)
+        with patch.object(app, "session_manager") as sm, \
+             patch.object(app, "sse_client") as sse:
+            sm.get_thread_originator.return_value = None
+            sm.is_human_assisted.return_value = False
+            sse.get_conversation_by_idempotency_key.return_value = _existing_conversation()
+
+            app._flag_human_assisted_if_foreign(_reply_event(user="U_OTHER"), Mock())
+
+            sse.update_conversation_metadata.assert_called_once_with("conv-1", {"human_assisted": True})
+            sm.set_thread_owner.assert_called_once_with("111.222", "test-agent")
+            sm.set_thread_originator.assert_called_once_with("111.222", "U_ORIG")
+
+    def test_unknown_thread_does_not_create_phantom_conversation(self, monkeypatch):
         app = _load_slack_app(monkeypatch)
         with patch.object(app, "session_manager") as sm, \
              patch.object(app, "sse_client") as sse, \
              patch.object(app, "_resolve_conversation_id") as resolve:
-            sm.get_thread_owner.return_value = None
+            sm.get_thread_originator.return_value = None
+            sm.is_human_assisted.return_value = False
+            sse.get_conversation_by_idempotency_key.return_value = None
 
             app._flag_human_assisted_if_foreign(_reply_event(), Mock())
 
-            resolve.assert_not_called()
+            sse.get_conversation_by_idempotency_key.assert_called_once_with("111.222")
+            sse.create_conversation.assert_not_called()
             sse.update_conversation_metadata.assert_not_called()
+            resolve.assert_not_called()
 
-    def test_unknown_originator_skipped(self, monkeypatch):
+    def test_incomplete_durable_anchors_are_skipped(self, monkeypatch):
         app = _load_slack_app(monkeypatch)
         with patch.object(app, "session_manager") as sm, \
              patch.object(app, "sse_client") as sse:
-            sm.get_thread_owner.return_value = "test-agent"
             sm.get_thread_originator.return_value = None
+            sm.is_human_assisted.return_value = False
+            sse.get_conversation_by_idempotency_key.return_value = _existing_conversation(
+                thread_owner_agent_id="",
+            )
 
             app._flag_human_assisted_if_foreign(_reply_event(), Mock())
 
@@ -119,10 +153,39 @@ class TestFlagHumanAssistedIfForeign:
         app = _load_slack_app(monkeypatch)
         with patch.object(app, "session_manager") as sm, \
              patch.object(app, "sse_client") as sse:
-            sm.get_thread_owner.return_value = "test-agent"
             sm.get_thread_originator.return_value = "U_ORIG"
             sm.is_human_assisted.return_value = True
 
             app._flag_human_assisted_if_foreign(_reply_event(user="U_OTHER"), Mock())
+
+            sse.get_conversation_by_idempotency_key.assert_not_called()
+            sse.update_conversation_metadata.assert_not_called()
+
+    def test_persisted_human_assisted_skips_duplicate_patch(self, monkeypatch):
+        app = _load_slack_app(monkeypatch)
+        with patch.object(app, "session_manager") as sm, \
+             patch.object(app, "sse_client") as sse:
+            sm.get_thread_originator.return_value = None
+            sm.is_human_assisted.return_value = False
+            sse.get_conversation_by_idempotency_key.return_value = _existing_conversation(
+                human_assisted=True,
+            )
+
+            app._flag_human_assisted_if_foreign(_reply_event(), Mock())
+
+            sse.update_conversation_metadata.assert_not_called()
+            sm.set_human_assisted.assert_called_once_with("111.222")
+
+    def test_channel_mismatch_is_skipped(self, monkeypatch):
+        app = _load_slack_app(monkeypatch)
+        with patch.object(app, "session_manager") as sm, \
+             patch.object(app, "sse_client") as sse:
+            sm.get_thread_originator.return_value = None
+            sm.is_human_assisted.return_value = False
+            sse.get_conversation_by_idempotency_key.return_value = _existing_conversation(
+                channel_id="C_OTHER",
+            )
+
+            app._flag_human_assisted_if_foreign(_reply_event(channel="C123"), Mock())
 
             sse.update_conversation_metadata.assert_not_called()

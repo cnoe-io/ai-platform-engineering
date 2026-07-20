@@ -324,6 +324,52 @@ class SSEClient:
       "metadata": conversation.get("metadata", {}),
     }
 
+  def get_conversation_by_idempotency_key(
+    self,
+    idempotency_key: str,
+  ) -> Optional[Dict[str, Any]]:
+    """Look up an existing Slack conversation without creating one.
+
+    Calls the read-only conversation lookup endpoint. ``None`` means no active
+    Slack conversation exists for the key; other HTTP failures are surfaced so
+    callers can distinguish an absent thread from a failed lookup.
+    """
+    url = f"{self.base_url}/api/chat/conversations/lookup"
+    headers = self._get_headers()
+    headers["Accept"] = "application/json"
+
+    with httpx.Client(timeout=30) as client:
+      response = client.get(
+        url,
+        params={
+          "idempotency_key": idempotency_key,
+          "client_type": "slack",
+        },
+        headers=headers,
+      )
+
+    if response.status_code == 404:
+      return None
+    if response.status_code != 200:
+      logger.error(
+        "Failed to look up conversation: status={} body={}",
+        response.status_code,
+        response.text[:500],
+      )
+      raise Exception(f"Failed to look up conversation: HTTP {response.status_code}")
+
+    data = response.json()
+    result = data.get("data", data)
+    conversation = result.get("conversation", {})
+    conversation_id = conversation.get("_id", "")
+    if not conversation_id:
+      raise Exception("Conversation lookup response did not include an ID")
+
+    return {
+      "conversation_id": conversation_id,
+      "metadata": conversation.get("metadata", {}),
+    }
+
   def update_conversation_metadata(
     self,
     conversation_id: str,

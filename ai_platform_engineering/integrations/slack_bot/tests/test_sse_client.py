@@ -5,7 +5,7 @@
 import json
 import uuid
 
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from ai_platform_engineering.integrations.slack_bot.sse_client import (
   SSEClient,
@@ -116,6 +116,51 @@ class TestSSEClientInit:
     client = SSEClient("http://example.com")
     headers = client._get_headers()
     assert "Authorization" not in headers
+
+
+class TestSSEClientConversationLookup:
+  """Tests for the read-only idempotency-key lookup."""
+
+  @patch("ai_platform_engineering.integrations.slack_bot.sse_client.httpx.Client")
+  def test_returns_existing_conversation(self, http_client):
+    response = Mock(status_code=200)
+    response.json.return_value = {
+      "success": True,
+      "data": {
+        "conversation": {
+          "_id": "conv-1",
+          "metadata": {"originator_slack_user_id": "U_ORIG"},
+        },
+      },
+    }
+    transport = http_client.return_value.__enter__.return_value
+    transport.get.return_value = response
+    client = SSEClient("http://example.com")
+
+    result = client.get_conversation_by_idempotency_key("111.222")
+
+    assert result == {
+      "conversation_id": "conv-1",
+      "metadata": {"originator_slack_user_id": "U_ORIG"},
+    }
+    transport.get.assert_called_once_with(
+      "http://example.com/api/chat/conversations/lookup",
+      params={"idempotency_key": "111.222", "client_type": "slack"},
+      headers={
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "X-Client-Source": "slack-bot",
+      },
+    )
+
+  @patch("ai_platform_engineering.integrations.slack_bot.sse_client.httpx.Client")
+  def test_returns_none_when_conversation_does_not_exist(self, http_client):
+    response = Mock(status_code=404)
+    transport = http_client.return_value.__enter__.return_value
+    transport.get.return_value = response
+    client = SSEClient("http://example.com")
+
+    assert client.get_conversation_by_idempotency_key("111.222") is None
 
 
 class TestSSEClientParseEvent:
