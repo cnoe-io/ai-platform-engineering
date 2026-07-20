@@ -114,7 +114,13 @@ describe("POST /api/mcp-servers/agent-context", () => {
     expect(body.data.server_ids.sort()).toEqual(["argocd", "jira"]);
     expect(body.data.headers["X-CAIPE-Agent-Context"]).toEqual(expect.any(String));
     expect(body.data.headers["X-CAIPE-Agent-Context-Signature"]).toEqual(expect.any(String));
-    expect(decodeAgentContextPayload(body.data.headers).kind).toBe("local");
+    const payload = decodeAgentContextPayload(body.data.headers);
+    expect(payload.kind).toBe("local");
+    // Local contexts get an 8h TTL (see AGENT_CONTEXT_TTL_SECONDS.local in
+    // mcp-http-server-client.ts) — guards against a regression back to 12h or
+    // an unbounded lifetime, since the exp is the only lifetime bound on a
+    // local context.
+    expect(payload.exp - payload.iat).toBe(60 * 60 * 8);
 
     // No OpenFGA tuples are granted or revoked — a "local" context carries no
     // delegated authority to bound, so there's nothing to write.
