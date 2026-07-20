@@ -244,7 +244,7 @@ test.describe("Platform Health widget", () => {
 
     await healthLink.click();
     await expect(page).toHaveURL(/\/admin\/operations\/health$/);
-    await expect(page.getByRole("link", { name: "Health" })).toHaveAttribute("aria-current", "page");
+    await expect(page.getByRole("link",{ exact: true,name: "Health" })).toHaveAttribute("aria-current","page");
   });
 
   test("audit-service capability degradation is visible but non-blocking", async ({ page }) => {
@@ -337,7 +337,7 @@ test.describe("Platform Health widget", () => {
     await page.goto("/admin/operations/health");
     await dismissReleaseUpgradeDialog(page);
 
-    await expect(page.getByRole("link", { name: "Health" })).toHaveAttribute("aria-current", "page");
+    await expect(page.getByRole("link",{ exact: true,name: "Health" })).toHaveAttribute("aria-current","page");
     await expect(page.getByText("Platform Capabilities", { exact: true })).toBeVisible();
     await expect(page.getByText("Chat Runtime", { exact: true })).toBeVisible();
     await expect(page.getByText("Checks the runtime health endpoint used by the chat experience.")).toBeVisible();

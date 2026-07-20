@@ -758,7 +758,12 @@ export function MCPServersTab({
               const rowActionError = rowActionErrors[server._id];
               const toolHealth = toolHealthStatus(server, probe);
               return (
-                <div key={server._id} className="space-y-2">
+                <div
+                  aria-label={`MCP server ${server.name}`}
+                  className="space-y-2"
+                  key={server._id}
+                  role="group"
+                >
                   <div
                     className={`grid grid-cols-12 gap-4 py-3 px-2 rounded-lg hover:bg-muted/50 items-center ${
                       serverCanManage(server) ? "cursor-pointer" : "cursor-default"

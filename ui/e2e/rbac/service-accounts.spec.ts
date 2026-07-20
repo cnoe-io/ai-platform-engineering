@@ -1105,7 +1105,7 @@ test.describe("mocked service accounts browser regression", () => {
       handlers: [handler],
     });
 
-    await page.goto("/admin?cat=settings&tab=service-accounts", {
+    await page.goto("/admin/platform/service-accounts", {
       waitUntil: "domcontentloaded",
     });
 
@@ -1176,7 +1176,7 @@ test.describe("mocked service accounts browser regression", () => {
       handlers: [searchHandler],
     });
 
-    await page.goto("/admin?cat=settings&tab=service-accounts", {
+    await page.goto("/admin/platform/service-accounts", {
       waitUntil: "domcontentloaded",
     });
 
@@ -1237,7 +1237,7 @@ test.describe("mocked service accounts browser regression", () => {
       handlers: [paginationHandler],
     });
 
-    await page.goto("/admin?cat=settings&tab=service-accounts", {
+    await page.goto("/admin/platform/service-accounts", {
       waitUntil: "domcontentloaded",
     });
 

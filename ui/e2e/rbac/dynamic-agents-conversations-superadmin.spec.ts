@@ -250,9 +250,8 @@ test.describe("mocked RBAC Dynamic Agents workspace", () => {
     await page.goto("/dynamic-agents?tab=agents",{ waitUntil: "domcontentloaded" });
 
     const navigation = page.getByRole("navigation",{ name: "Agent sections" });
-    const modelsDisclosure = navigation.getByRole("button",{
-      exact: true,
-      name: "LLM Models",
+    const modelsDisclosure = navigation.locator("button[aria-controls]",{
+      hasText: /^LLM Models$/,
     });
     await expect(modelsDisclosure).toHaveAttribute("aria-expanded","false");
     await modelsDisclosure.click();
@@ -296,11 +295,11 @@ test.describe("mocked RBAC Dynamic Agents workspace", () => {
     await expect(page.getByText("Web cost review")).toBeVisible();
     await expect(page.getByText("Slack incident bridge")).toHaveCount(0);
 
-    const agentSelect = page.locator("select").first();
+    const agentSelect = page.getByLabel("Filter conversations by agent");
     await agentSelect.selectOption("agent-finops");
     await expect(page.getByText("1 conversation found")).toBeVisible();
 
-    const rowsSelect = page.locator("label", { hasText: "Rows" }).locator("..").locator("select");
+    const rowsSelect = page.getByLabel("Rows per page");
     await rowsSelect.selectOption("20");
     await expect(page.getByText("Showing 1–1 of 1")).toBeVisible();
 
