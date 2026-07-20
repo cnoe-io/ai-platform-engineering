@@ -11,6 +11,7 @@ DialogFooter,
 DialogHeader,
 DialogTitle,
 } from "@/components/ui/dialog";
+import { AgentPicker, type AgentPickerOption } from "@/components/ui/agent-picker";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { toYaml } from "@/lib/yaml-serializer";
@@ -1233,6 +1234,14 @@ function MCPToolTestDialog({
   }, [open, server]);
 
   const selectedToolDetails = tools.find((tool) => tool.name === selectedTool);
+  const toolPickerOptions: AgentPickerOption[] = React.useMemo(
+    () =>
+      tools.map((tool) => ({
+        value: tool.name,
+        label: tool.name,
+      })),
+    [tools],
+  );
   const selectedProperties = React.useMemo(
     () => schemaProperties(selectedToolDetails),
     [selectedToolDetails],
@@ -1347,21 +1356,20 @@ function MCPToolTestDialog({
                 <label htmlFor="mcp-test-tool" className="text-sm font-medium">
                   Tool
                 </label>
-                <select
+                <AgentPicker
                   id="mcp-test-tool"
+                  ariaLabel="Tool"
+                  options={toolPickerOptions}
                   value={selectedTool}
-                  onChange={(event) => {
-                    setSelectedTool(event.target.value);
+                  onChange={(value) => {
+                    setSelectedTool(value);
                     setResult(null);
                   }}
-                  className="h-10 rounded-md border border-input bg-background px-3 text-sm"
-                >
-                  {tools.map((tool) => (
-                    <option key={tool.namespaced_name || tool.name} value={tool.name}>
-                      {tool.name}
-                    </option>
-                  ))}
-                </select>
+                  placeholder="Select tool..."
+                  searchPlaceholder="Search tools..."
+                  emptyLabel="No tools match"
+                  hideIdSuffix
+                />
                 {selectedToolDetails?.description && (
                   <p className="text-xs text-muted-foreground">{selectedToolDetails.description}</p>
                 )}

@@ -1057,4 +1057,208 @@ test.describe("mocked service accounts browser regression", () => {
       )
       .toBe(true);
   });
+
+  test("admin without a team filter sees service accounts across every team", async ({ page }) => {
+    const handler: MockRouteHandler = async ({ route, path, method }) => {
+      if (path === "/api/auth/my-roles" && method === "GET") {
+        await fulfillJson(route, {
+          teams: [{ _id: "team-1", slug: "team-sre", name: "SRE Team" }],
+        });
+        return true;
+      }
+
+      if (path === "/api/admin/service-accounts" && method === "GET") {
+        await fulfillJson(route, {
+          success: true,
+          data: {
+            items: [
+              {
+                id: "sa-sre",
+                name: "sre-bot",
+                owning_team_id: "team-sre",
+                created_by: "user-sre",
+                created_at: "2026-06-15T12:00:00.000Z",
+                status: "active",
+                scope_counts: { agents: 0, tools: 0 },
+              },
+              {
+                id: "sa-platform",
+                name: "platform-bot",
+                owning_team_id: "team-platform",
+                created_by: "user-platform",
+                created_at: "2026-06-16T12:00:00.000Z",
+                status: "active",
+                scope_counts: { agents: 0, tools: 0 },
+              },
+            ],
+          },
+        });
+        return true;
+      }
+
+      return false;
+    };
+
+    await installMockedRbacApp(page, {
+      isAdmin: true,
+      session: adminSession,
+      handlers: [handler],
+    });
+
+    await page.goto("/admin?cat=settings&tab=service-accounts", {
+      waitUntil: "domcontentloaded",
+    });
+
+    await expect(page.getByRole("heading", { name: "Service Accounts", exact: true })).toBeVisible();
+    const sreRow = page.getByRole("row", { name: /sre-bot/ });
+    const platformRow = page.getByRole("row", { name: /platform-bot/ });
+    await expect(sreRow).toContainText("team-sre");
+    await expect(platformRow).toContainText("team-platform");
+  });
+
+  test("search input filters the service accounts list", async ({ page }) => {
+    const allItems: ServiceAccountItem[] = [
+      {
+        id: "sa-incident",
+        name: "incident-bot",
+        owning_team_id: "team-sre",
+        created_by: "user-admin",
+        created_at: "2026-06-15T12:00:00.000Z",
+        status: "active",
+        scope_counts: { agents: 0, tools: 0 },
+      },
+      {
+        id: "sa-pager",
+        name: "pager-bot",
+        owning_team_id: "team-sre",
+        created_by: "user-admin",
+        created_at: "2026-06-15T12:00:00.000Z",
+        status: "active",
+        scope_counts: { agents: 0, tools: 0 },
+      },
+      {
+        id: "sa-deploy",
+        name: "deploy-bot",
+        owning_team_id: "team-sre",
+        created_by: "user-admin",
+        created_at: "2026-06-15T12:00:00.000Z",
+        status: "active",
+        scope_counts: { agents: 0, tools: 0 },
+      },
+    ];
+
+    const searchHandler: MockRouteHandler = async ({ route, path, method, url }) => {
+      if (path === "/api/auth/my-roles" && method === "GET") {
+        await fulfillJson(route, {
+          teams: [{ _id: "team-1", slug: "team-sre", name: "SRE Team" }],
+        });
+        return true;
+      }
+
+      if (path === "/api/admin/service-accounts" && method === "GET") {
+        const search = (url.searchParams.get("search") || "").toLowerCase();
+        const items = allItems.filter(
+          (item) => !search || item.name.toLowerCase().includes(search),
+        );
+        await fulfillJson(route, {
+          success: true,
+          data: { items, total: items.length, page: 1, page_size: 24 },
+        });
+        return true;
+      }
+
+      return false;
+    };
+
+    await installMockedRbacApp(page, {
+      isAdmin: true,
+      session: adminSession,
+      handlers: [searchHandler],
+    });
+
+    await page.goto("/admin?cat=settings&tab=service-accounts", {
+      waitUntil: "domcontentloaded",
+    });
+
+    await expect(page.getByRole("row", { name: /incident-bot/ })).toBeVisible();
+    await expect(page.getByRole("row", { name: /pager-bot/ })).toBeVisible();
+    await expect(page.getByRole("row", { name: /deploy-bot/ })).toBeVisible();
+
+    await page.getByLabel("Search service accounts").fill("pager");
+    await expect(page.getByRole("row", { name: /pager-bot/ })).toBeVisible();
+    await expect(page.getByRole("row", { name: /incident-bot/ })).toHaveCount(0);
+    await expect(page.getByRole("row", { name: /deploy-bot/ })).toHaveCount(0);
+
+    await page.getByLabel("Search service accounts").fill("no-such-bot");
+    await expect(
+      page.getByRole("heading", { name: "No matching service accounts" }),
+    ).toBeVisible();
+    await expect(page.getByText(/No service accounts match/)).toBeVisible();
+  });
+
+  test("paginates service accounts with working prev/next controls", async ({ page }) => {
+    const PAGE_SIZE = 24;
+    const allItems: ServiceAccountItem[] = Array.from({ length: 50 }, (_, index) => ({
+      id: `sa-page-${index + 1}`,
+      name: `bot-${String(index + 1).padStart(2, "0")}`,
+      owning_team_id: "team-sre",
+      created_by: "user-admin",
+      created_at: "2026-06-15T12:00:00.000Z",
+      status: "active",
+      scope_counts: { agents: 0, tools: 0 },
+    }));
+
+    const paginationHandler: MockRouteHandler = async ({ route, path, method, url }) => {
+      if (path === "/api/auth/my-roles" && method === "GET") {
+        await fulfillJson(route, {
+          teams: [{ _id: "team-1", slug: "team-sre", name: "SRE Team" }],
+        });
+        return true;
+      }
+
+      if (path === "/api/admin/service-accounts" && method === "GET") {
+        const page = Number(url.searchParams.get("page") || "1");
+        const pageSize = Number(url.searchParams.get("page_size") || String(PAGE_SIZE));
+        const start = (page - 1) * pageSize;
+        const items = allItems.slice(start, start + pageSize);
+        await fulfillJson(route, {
+          success: true,
+          data: { items, total: allItems.length, page, page_size: pageSize },
+        });
+        return true;
+      }
+
+      return false;
+    };
+
+    await installMockedRbacApp(page, {
+      isAdmin: true,
+      session: adminSession,
+      handlers: [paginationHandler],
+    });
+
+    await page.goto("/admin?cat=settings&tab=service-accounts", {
+      waitUntil: "domcontentloaded",
+    });
+
+    await expect(page.getByRole("heading", { name: "Service Accounts", exact: true })).toBeVisible();
+    await expect(page.getByText("Page 1 of 3 (50 total)")).toBeVisible();
+    await expect(page.getByRole("row", { name: /bot-01/ })).toBeVisible();
+    await expect(page.getByRole("row", { name: /bot-24/ })).toBeVisible();
+    await expect(page.getByRole("row", { name: /bot-25/ })).toHaveCount(0);
+
+    const prevButton = page.getByRole("button", { name: "Previous page" });
+    const nextButton = page.getByRole("button", { name: "Next page" });
+    await expect(prevButton).toBeDisabled();
+    await expect(nextButton).toBeEnabled();
+
+    await nextButton.click();
+    await expect(page.getByText("Page 2 of 3 (50 total)")).toBeVisible();
+    await expect(page.getByRole("row", { name: /bot-25/ })).toBeVisible();
+    await expect(prevButton).toBeEnabled();
+
+    await prevButton.click();
+    await expect(page.getByText("Page 1 of 3 (50 total)")).toBeVisible();
+    await expect(page.getByRole("row", { name: /bot-01/ })).toBeVisible();
+  });
 });
