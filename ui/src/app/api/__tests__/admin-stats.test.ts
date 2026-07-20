@@ -556,8 +556,9 @@ describe('GET /api/admin/stats — Top Users', () => {
   it('classifies leaderboard owners by identity type', async () => {
     const { convCol, usersCol } = setupAdminWithCollections();
 
-    // Three owners: a linked user (email), an unlinked Slack user (raw "U…",
-    // not flagged, no users row), and a Slack bot/app (flagged owner_is_bot).
+    // Four owners: a linked user (email), an unlinked Slack user (raw "U…", not
+    // flagged, no users row), a Slack bot/app (flagged owner_is_bot), and a
+    // platform service account (service-account-* id — an API caller, not a bot).
     convCol.aggregate.mockImplementation((pipeline: Record<string, unknown>[]) => ({
       toArray: async () =>
         pipeline.some((s) => s.$group?._id === '$owner_id')
@@ -565,6 +566,7 @@ describe('GET /api/admin/stats — Top Users', () => {
               { _id: 'alice@example.com', count: 9 },
               { _id: 'U01HUMANXYZ', count: 7 },
               { _id: 'U05LC2AV99N', count: 5 },
+              { _id: 'service-account-caipe-sa-forge-smoke-tests-5ccdf9', count: 3 },
             ]
           : [],
     }));
@@ -586,6 +588,7 @@ describe('GET /api/admin/stats — Top Users', () => {
     expect(byId['alice@example.com']).toBe('linked');
     expect(byId['U01HUMANXYZ']).toBe('unlinked_slack');
     expect(byId['U05LC2AV99N']).toBe('slack_bot');
+    expect(byId['service-account-caipe-sa-forge-smoke-tests-5ccdf9']).toBe('service_account');
   });
 
   it('top users by messages uses $lookup through conversations', async () => {

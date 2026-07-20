@@ -62,7 +62,7 @@ import { withAdminSimulationParams } from "@/lib/rbac/admin-simulation-query";
 import { cn } from "@/lib/utils";
 import type { SkillMetricsAdmin } from "@/types/agent-skill";
 import type { Team as TeamType } from "@/types/teams";
-import { Activity,Archive,Bot,CheckCircle2,ChevronLeft,ChevronRight,Clock,Database,ExternalLink,Eye,FileText,Filter,Globe,Hash,HelpCircle,Layers,Link2,ListChecks,Loader2,MessageSquare,RefreshCw,Search,Settings,Shield,ShieldCheck,ThumbsDown,ThumbsUp,Trash2,TrendingUp,Unlink,User,UserPlus,Users,UsersIcon,Wrench,X,Zap,type LucideIcon } from "lucide-react";
+import { Activity,Archive,Bot,CheckCircle2,ChevronLeft,ChevronRight,Clock,Database,ExternalLink,Eye,FileText,Filter,Globe,Hash,HelpCircle,KeyRound,Layers,Link2,ListChecks,Loader2,MessageSquare,RefreshCw,Search,Settings,Shield,ShieldCheck,ThumbsDown,ThumbsUp,Trash2,TrendingUp,Unlink,User,UserPlus,Users,UsersIcon,Wrench,X,Zap,type LucideIcon } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { usePathname,useRouter,useSearchParams } from "next/navigation";
 import React,{ useCallback,useEffect,useEffectEvent,useMemo,useRef,useState } from "react";
@@ -71,7 +71,7 @@ import { SlackIcon } from "@/components/ui/icons";
 
 // Owner classification for the Top Users leaderboards (server-computed in
 // /api/admin/stats). Drives the identity badge next to each name.
-type OwnerType = 'slack_bot' | 'linked' | 'unlinked_slack';
+type OwnerType = 'service_account' | 'slack_bot' | 'linked' | 'unlinked_slack';
 
 interface AdminStats {
   platform_summary?: {
@@ -422,32 +422,40 @@ function ArchivedBadge() {
   );
 }
 
-// Identity badge shown next to a Top Users name. The three cases the server
-// can reliably distinguish today: a Slack bot/app poster, a linked (federated)
-// person, and an unlinked Slack user who never connected their account.
+// Identity badge shown next to a Top Users name so an admin can tell at a glance
+// what kind of owner a row is. The four cases the server can reliably tell apart:
+//   • service_account — a platform API caller (e.g. a smoke-test SA); NOT a person.
+//   • slack_bot       — a Slack bot/app poster (alert bots, MR bots).
+//   • linked          — a person whose account is connected to the platform.
+//   • unlinked_slack  — a Slack user who chats via the bot without linking.
+const OWNER_TYPE_BADGE: Record<OwnerType, { title: string; icon: React.ReactNode }> = {
+  service_account: {
+    title: "Service account (API access, not a person)",
+    icon: <KeyRound className="h-3.5 w-3.5 text-violet-500 dark:text-violet-400" aria-hidden="true" />,
+  },
+  slack_bot: {
+    title: "Slack bot or app",
+    icon: <SlackIcon className="h-3.5 w-3.5 text-muted-foreground" />,
+  },
+  linked: {
+    title: "Linked account (connected to the platform)",
+    icon: <Link2 className="h-3.5 w-3.5 text-emerald-500 dark:text-emerald-400" aria-hidden="true" />,
+  },
+  unlinked_slack: {
+    title: "Slack user with no linked account",
+    icon: <Unlink className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" aria-hidden="true" />,
+  },
+};
+
 function OwnerTypeBadge({ ownerType }: { ownerType?: OwnerType }) {
-  if (ownerType === 'slack_bot') {
-    const title = "Slack bot or app";
-    return (
-      <span className="inline-flex shrink-0" title={title} aria-label={title}>
-        <SlackIcon className="h-3.5 w-3.5 text-muted-foreground" />
-      </span>
-    );
-  }
-  if (ownerType === 'unlinked_slack') {
-    const title = "Unlinked Slack user (account not connected)";
-    return (
-      <span className="inline-flex items-center gap-0.5 shrink-0" title={title} aria-label={title}>
-        <Unlink className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" aria-hidden="true" />
-        <SlackIcon className="h-3 w-3 text-muted-foreground" />
-      </span>
-    );
-  }
-  if (ownerType === 'linked') {
-    const title = "Linked user";
-    return <Link2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-label={title} />;
-  }
-  return null;
+  if (!ownerType) return null;
+  const badge = OWNER_TYPE_BADGE[ownerType];
+  if (!badge) return null;
+  return (
+    <span className="inline-flex shrink-0" title={badge.title} aria-label={badge.title}>
+      {badge.icon}
+    </span>
+  );
 }
 
 function isValidTab(tab: string | null): tab is typeof VALID_TABS[number] {

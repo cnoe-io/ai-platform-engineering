@@ -67,6 +67,9 @@ interface ChannelStatsDocument extends Document {
 
 type BucketUnit = 'minute' | 'hour' | 'day';
 
+/** Identity classification for a Top Users leaderboard owner (see classifyOwner). */
+type OwnerType = 'service_account' | 'slack_bot' | 'linked' | 'unlinked_slack';
+
 const MINUTE_MS = 60 * 1000;
 const HOUR_MS = 60 * MINUTE_MS;
 const DAY_MS = 24 * HOUR_MS;
@@ -913,18 +916,21 @@ async function getAdminStats(request: NextRequest) {
       }
     }
 
-    // Classify each leaderboard owner so the UI can badge it:
-    //   • slack_bot      — flagged owner_is_bot, or an ID-shaped bot/service id
-    //     (B-prefixed, USLACKBOT, service-account-*).
-    //   • linked         — has a `users` row (federated), or a web email owner.
-    //   • unlinked_slack — a raw Slack user id ("U…"/"W…") with no `users` row;
-    //     a real person who never linked their account.
-    const classifyOwner = (id: string): 'slack_bot' | 'linked' | 'unlinked_slack' => {
+    // Classify each leaderboard owner so the UI can badge it. Order matters:
+    //   • service_account — a platform API caller (service-account-* owner id).
+    //     NOT a Slack bot — it's the SA identity behind automated API access.
+    //   • slack_bot        — a Slack bot/app poster: flagged owner_is_bot, or an
+    //     ID-shaped Slack bot id (B-prefixed / USLACKBOT sentinel).
+    //   • linked           — a federated person: has a `users` row, or a web
+    //     email owner.
+    //   • unlinked_slack    — a raw Slack user id ("U…"/"W…") with no `users`
+    //     row: a real person who never linked their account.
+    const classifyOwner = (id: string): OwnerType => {
+      if (id.startsWith('service-account-')) return 'service_account';
       if (
         botOwnerIdSet.has(id) ||
         BOT_OWNER_EXACT.includes(id) ||
-        /^B[A-Z0-9]{6,}$/.test(id) ||
-        id.startsWith('service-account-')
+        /^B[A-Z0-9]{6,}$/.test(id)
       ) return 'slack_bot';
       if (linkedOwnerIds.has(id) || id.includes('@')) return 'linked';
       return 'unlinked_slack';
