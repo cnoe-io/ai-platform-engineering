@@ -534,10 +534,11 @@ describe('GET /api/admin/stats — Top Users', () => {
     }));
     // Not a row in the users collection → no name from there.
     usersCol.find.mockReturnValue({ toArray: async () => [] });
-    // The thread carries the app's display name, persisted at ingestion.
+    // The thread is flagged owner_is_bot and carries the app's display name,
+    // both persisted at ingestion.
     convCol.find.mockImplementation((filter: Record<string, unknown>) => ({
       toArray: async () =>
-        (filter as { 'metadata.owner_display_name'?: unknown })['metadata.owner_display_name']
+        (filter as { 'metadata.owner_is_bot'?: unknown })['metadata.owner_is_bot']
           ? [{ owner_id: 'U05LC2AV99N', metadata: { owner_display_name: 'GitLab' } }]
           : [],
     }));
@@ -548,7 +549,43 @@ describe('GET /api/admin/stats — Top Users', () => {
     expect(body.data.top_users.by_conversations[0]).toMatchObject({
       _id: 'U05LC2AV99N',
       name: 'GitLab',
+      owner_type: 'slack_bot',
     });
+  });
+
+  it('classifies leaderboard owners by identity type', async () => {
+    const { convCol, usersCol } = setupAdminWithCollections();
+
+    // Three owners: a linked user (email), an unlinked Slack user (raw "U…",
+    // not flagged, no users row), and a Slack bot/app (flagged owner_is_bot).
+    convCol.aggregate.mockImplementation((pipeline: Record<string, unknown>[]) => ({
+      toArray: async () =>
+        pipeline.some((s) => s.$group?._id === '$owner_id')
+          ? [
+              { _id: 'alice@example.com', count: 9 },
+              { _id: 'U01HUMANXYZ', count: 7 },
+              { _id: 'U05LC2AV99N', count: 5 },
+            ]
+          : [],
+    }));
+    usersCol.find.mockReturnValue({
+      toArray: async () => [{ email: 'alice@example.com', name: 'Alice' }],
+    });
+    convCol.find.mockReturnValue({
+      toArray: async () => [
+        { owner_id: 'U05LC2AV99N', metadata: { owner_display_name: 'GitLab' } },
+      ],
+    });
+
+    const res = await GET(makeRequest('/api/admin/stats?include_bots=true'));
+    const body = await res.json();
+
+    const byId = Object.fromEntries(
+      body.data.top_users.by_conversations.map((u: { _id: string; owner_type: string }) => [u._id, u.owner_type]),
+    );
+    expect(byId['alice@example.com']).toBe('linked');
+    expect(byId['U01HUMANXYZ']).toBe('unlinked_slack');
+    expect(byId['U05LC2AV99N']).toBe('slack_bot');
   });
 
   it('top users by messages uses $lookup through conversations', async () => {

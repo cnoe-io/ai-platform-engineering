@@ -882,34 +882,61 @@ async function getAdminStats(request: NextRequest) {
       : [];
 
     const nameByOwner = new Map<string, string>();
+    // Owners with a `users` row are linked (federated) identities — a known
+    // person regardless of the surface they chat from.
+    const linkedOwnerIds = new Set<string>();
     for (const u of userDocs) {
-      if (u.email) nameByOwner.set(u.email, u.name || u.email);
-      if (u.slack_user_id) nameByOwner.set(u.slack_user_id, u.name || u.email);
+      if (u.email) { nameByOwner.set(u.email, u.name || u.email); linkedOwnerIds.add(u.email); }
+      if (u.slack_user_id) { nameByOwner.set(u.slack_user_id, u.name || u.email); linkedOwnerIds.add(u.slack_user_id); }
     }
 
-    // Bot/app owners (e.g. GitLab) aren't rows in `users`, so their "U…"
-    // owner_id has no name above. The Slack bot persists the app's display name
-    // on the thread (metadata.owner_display_name); resolve those here so the
-    // leaderboard shows "GitLab" instead of the raw id when bots are included.
+    // Bot/app owners (e.g. GitLab) aren't rows in `users`. The Slack bot flags
+    // their threads (metadata.owner_is_bot) and persists the app's display name
+    // (metadata.owner_display_name). Query both over the top owners so we can
+    // (a) label the "U…" id with "GitLab" and (b) classify the row as a bot.
     // Users-collection names win, so a real user is never shadowed by a bot label.
-    const unresolvedOwnerIds = topOwnerIds.filter((id) => !nameByOwner.has(id));
-    if (unresolvedOwnerIds.length > 0) {
+    const botOwnerIdSet = new Set<string>();
+    if (topOwnerIds.length > 0) {
       const botOwnerDocs = await conversations
         .find(
-          { owner_id: { $in: unresolvedOwnerIds }, 'metadata.owner_display_name': { $exists: true } },
+          { owner_id: { $in: topOwnerIds }, 'metadata.owner_is_bot': true },
           { projection: { owner_id: 1, 'metadata.owner_display_name': 1 } },
         )
         .toArray();
       for (const d of botOwnerDocs) {
+        if (typeof d.owner_id !== 'string') continue;
+        botOwnerIdSet.add(d.owner_id);
         const label = d.metadata?.owner_display_name;
-        if (typeof d.owner_id === 'string' && typeof label === 'string' && label && !nameByOwner.has(d.owner_id)) {
+        if (typeof label === 'string' && label && !nameByOwner.has(d.owner_id)) {
           nameByOwner.set(d.owner_id, label);
         }
       }
     }
 
+    // Classify each leaderboard owner so the UI can badge it:
+    //   • slack_bot      — flagged owner_is_bot, or an ID-shaped bot/service id
+    //     (B-prefixed, USLACKBOT, service-account-*).
+    //   • linked         — has a `users` row (federated), or a web email owner.
+    //   • unlinked_slack — a raw Slack user id ("U…"/"W…") with no `users` row;
+    //     a real person who never linked their account.
+    const classifyOwner = (id: string): 'slack_bot' | 'linked' | 'unlinked_slack' => {
+      if (
+        botOwnerIdSet.has(id) ||
+        BOT_OWNER_EXACT.includes(id) ||
+        /^B[A-Z0-9]{6,}$/.test(id) ||
+        id.startsWith('service-account-')
+      ) return 'slack_bot';
+      if (linkedOwnerIds.has(id) || id.includes('@')) return 'linked';
+      return 'unlinked_slack';
+    };
+
     const enrichTopUsers = (raw: typeof rawTopByConvs) =>
-      raw.map((u) => ({ _id: u._id, count: u.count, name: nameByOwner.get(u._id) || u._id }));
+      raw.map((u) => ({
+        _id: u._id,
+        count: u.count,
+        name: nameByOwner.get(u._id) || u._id,
+        owner_type: classifyOwner(u._id),
+      }));
 
     const topUsersByConversations = enrichTopUsers(rawTopByConvs);
     const topUsersByMessages = enrichTopUsers(rawTopByMsgs);

@@ -62,10 +62,16 @@ import { withAdminSimulationParams } from "@/lib/rbac/admin-simulation-query";
 import { cn } from "@/lib/utils";
 import type { SkillMetricsAdmin } from "@/types/agent-skill";
 import type { Team as TeamType } from "@/types/teams";
-import { Activity,Archive,Bot,CheckCircle2,ChevronLeft,ChevronRight,Clock,Database,ExternalLink,Eye,FileText,Filter,Globe,Hash,HelpCircle,Layers,ListChecks,Loader2,MessageSquare,RefreshCw,Search,Settings,Shield,ShieldCheck,ThumbsDown,ThumbsUp,Trash2,TrendingUp,User,UserPlus,Users,UsersIcon,Wrench,X,Zap,type LucideIcon } from "lucide-react";
+import { Activity,Archive,Bot,CheckCircle2,ChevronLeft,ChevronRight,Clock,Database,ExternalLink,Eye,FileText,Filter,Globe,Hash,HelpCircle,Layers,Link2,ListChecks,Loader2,MessageSquare,RefreshCw,Search,Settings,Shield,ShieldCheck,ThumbsDown,ThumbsUp,Trash2,TrendingUp,Unlink,User,UserPlus,Users,UsersIcon,Wrench,X,Zap,type LucideIcon } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { usePathname,useRouter,useSearchParams } from "next/navigation";
 import React,{ useCallback,useEffect,useEffectEvent,useMemo,useRef,useState } from "react";
+
+import { SlackIcon } from "@/components/ui/icons";
+
+// Owner classification for the Top Users leaderboards (server-computed in
+// /api/admin/stats). Drives the identity badge next to each name.
+type OwnerType = 'slack_bot' | 'linked' | 'unlinked_slack';
 
 interface AdminStats {
   platform_summary?: {
@@ -95,8 +101,8 @@ interface AdminStats {
     messages: number;
   }>;
   top_users: {
-    by_conversations: Array<{ _id: string; count: number; name?: string }>;
-    by_messages: Array<{ _id: string; count: number; name?: string }>;
+    by_conversations: Array<{ _id: string; count: number; name?: string; owner_type?: OwnerType }>;
+    by_messages: Array<{ _id: string; count: number; name?: string; owner_type?: OwnerType }>;
   };
   top_agents: Array<{ _id: string; count: number }>;
   feedback_summary: {
@@ -414,6 +420,34 @@ function ArchivedBadge() {
       </span>
     </span>
   );
+}
+
+// Identity badge shown next to a Top Users name. The three cases the server
+// can reliably distinguish today: a Slack bot/app poster, a linked (federated)
+// person, and an unlinked Slack user who never connected their account.
+function OwnerTypeBadge({ ownerType }: { ownerType?: OwnerType }) {
+  if (ownerType === 'slack_bot') {
+    const title = "Slack bot or app";
+    return (
+      <span className="inline-flex shrink-0" title={title} aria-label={title}>
+        <SlackIcon className="h-3.5 w-3.5 text-muted-foreground" />
+      </span>
+    );
+  }
+  if (ownerType === 'unlinked_slack') {
+    const title = "Unlinked Slack user (account not connected)";
+    return (
+      <span className="inline-flex items-center gap-0.5 shrink-0" title={title} aria-label={title}>
+        <Unlink className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" aria-hidden="true" />
+        <SlackIcon className="h-3 w-3 text-muted-foreground" />
+      </span>
+    );
+  }
+  if (ownerType === 'linked') {
+    const title = "Linked user";
+    return <Link2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-label={title} />;
+  }
+  return null;
 }
 
 function isValidTab(tab: string | null): tab is typeof VALID_TABS[number] {
@@ -2492,6 +2526,7 @@ function AdminPage() {
                               <div key={u._id} className="flex items-center justify-between">
                                 <div className="flex items-center gap-2 min-w-0">
                                   <div className="w-6 text-sm text-muted-foreground shrink-0">#{i + 1}</div>
+                                  <OwnerTypeBadge ownerType={u.owner_type} />
                                   <div className="text-sm truncate max-w-[200px] text-primary hover:underline cursor-pointer" onClick={() => setSelectedUserEmail(u._id)} title={u._id}>{u.name || u._id}</div>
                                 </div>
                                 <div className="text-sm font-medium shrink-0">{u.count} chats</div>
@@ -2513,6 +2548,7 @@ function AdminPage() {
                               <div key={u._id} className="flex items-center justify-between">
                                 <div className="flex items-center gap-2 min-w-0">
                                   <div className="w-6 text-sm text-muted-foreground shrink-0">#{i + 1}</div>
+                                  <OwnerTypeBadge ownerType={u.owner_type} />
                                   <div className="text-sm truncate max-w-[200px] text-primary hover:underline cursor-pointer" onClick={() => setSelectedUserEmail(u._id)} title={u._id}>{u.name || u._id}</div>
                                 </div>
                                 <div className="text-sm font-medium shrink-0">{u.count} messages</div>
