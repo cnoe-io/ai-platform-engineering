@@ -228,7 +228,7 @@ test.describe("mocked Webex workflow agent routing regression", () => {
       handlers: [webexHandler({ routeWrites, defaultsRequests, routes })],
     });
 
-    await page.goto("/admin?cat=integrations&tab=webex", {
+    await page.goto("/admin/integrations/webex", {
       waitUntil: "domcontentloaded",
     });
     await expect(
@@ -314,7 +314,7 @@ test.describe("mocked Webex workflow agent routing regression", () => {
       handlers: [webexHandler({ routeWrites, defaultsRequests: [], routes })],
     });
 
-    await page.goto("/admin?cat=integrations&tab=webex", {
+    await page.goto("/admin/integrations/webex", {
       waitUntil: "domcontentloaded",
     });
     await expect(page.getByText("My Webex Space Settings")).toBeVisible();
@@ -357,7 +357,7 @@ test.describe("mocked Webex workflow agent routing regression", () => {
       handlers: [webexHandler({ routeWrites, defaultsRequests: [], routes })],
     });
 
-    await page.goto("/admin?cat=integrations&tab=webex", {
+    await page.goto("/admin/integrations/webex", {
       waitUntil: "domcontentloaded",
     });
     await expect(page.getByText("My Webex Space Settings")).toBeVisible();

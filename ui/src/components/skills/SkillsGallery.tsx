@@ -991,7 +991,7 @@ export function SkillsGallery({
                 </div>
                 <p className="text-sm text-muted-foreground leading-snug">
                   Catalog skills and templates — repo hubs in{" "}
-                  <Link href="/admin?tab=skills" className="text-primary hover:underline">
+                  <Link href="/admin/platform/skill-hubs" className="text-primary hover:underline">
                     Admin
                   </Link>
                 </p>
@@ -1574,7 +1574,7 @@ export function SkillsGallery({
               <Sparkles className="h-12 w-12 text-muted-foreground/50" />
               <p className="text-muted-foreground text-center max-w-md">
                 No skills match your search or filters. Try another source filter, or add repo-backed skills via{" "}
-                <Link href="/admin?tab=skills" className="text-primary font-medium hover:underline">
+                <Link href="/admin/platform/skill-hubs" className="text-primary font-medium hover:underline">
                   Admin → Skill Hubs
                 </Link>
                 .

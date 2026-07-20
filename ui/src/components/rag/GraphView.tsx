@@ -91,7 +91,7 @@ export default function GraphView({ exploreEntityData, onExploreComplete }: Grap
                             <GitFork className="h-5 w-5 text-white" />
                         </div>
                         <div>
-                            <h1 className="text-lg font-bold gradient-text">Knowledge Graph</h1>
+                            <h2 className="text-lg font-bold gradient-text">Knowledge Graph</h2>
                             <p className="text-muted-foreground text-xs">
                                 Loading configuration...
                             </p>
@@ -127,7 +127,7 @@ export default function GraphView({ exploreEntityData, onExploreComplete }: Grap
                             <GitFork className="h-5 w-5 text-muted-foreground" />
                         </div>
                         <div>
-                            <h1 className="text-lg font-bold text-muted-foreground">Knowledge Graph</h1>
+                            <h2 className="text-lg font-bold text-muted-foreground">Knowledge Graph</h2>
                             <p className="text-muted-foreground text-xs">
                                 Graph RAG is currently disabled
                             </p>
@@ -189,7 +189,7 @@ export default function GraphView({ exploreEntityData, onExploreComplete }: Grap
                             <GitFork className="h-5 w-5 text-white" />
                         </div>
                         <div>
-                            <h1 className="text-lg font-bold gradient-text">Knowledge Graph</h1>
+                            <h2 className="text-lg font-bold gradient-text">Knowledge Graph</h2>
                             <p className="text-muted-foreground text-xs">
                                 Explore entity relationships and ontology
                             </p>

@@ -9,7 +9,7 @@ jest.mock("@/components/ui/toast", () => ({
 const replaceMock = jest.fn();
 let currentSearchParams = new URLSearchParams();
 jest.mock("next/navigation", () => ({
-  usePathname: () => "/admin",
+  usePathname: () => "/admin/security/ai-review",
   useRouter: () => ({ replace: replaceMock }),
   useSearchParams: () => currentSearchParams,
 }));
@@ -112,10 +112,10 @@ it("writes the active target to the subtab URL param", async () => {
   render(<ReviewConfigsTab />);
 
   fireEvent.click(await screen.findByRole("tab", { name: "Skills" }));
-  expect(replaceMock).toHaveBeenLastCalledWith("/admin?subtab=skill-md", { scroll: false });
+  expect(replaceMock).toHaveBeenLastCalledWith("/admin/security/ai-review?subtab=skill-md", { scroll: false });
 
   fireEvent.click(screen.getByRole("tab", { name: "Agents" }));
-  expect(replaceMock).toHaveBeenLastCalledWith("/admin?subtab=agent-system-prompt", { scroll: false });
+  expect(replaceMock).toHaveBeenLastCalledWith("/admin/security/ai-review?subtab=agent-system-prompt", { scroll: false });
 });
 
 it("opens the target named by the subtab URL param on load", async () => {

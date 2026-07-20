@@ -216,11 +216,11 @@ export function ConversationsTab() {
   };
 
   return (
-    <Card>
-      <CardHeader>
+    <Card className="rounded-none border-0 bg-transparent shadow-none">
+      <CardHeader className="px-0 pb-5 pt-0">
         <div className="flex items-center justify-between">
           <div>
-            <CardTitle>Conversations</CardTitle>
+            <CardTitle className="text-xl">Conversations</CardTitle>
             <CardDescription>
               View and manage Dynamic Agent conversations. Clear checkpoint data to remove message history.
             </CardDescription>
@@ -231,7 +231,7 @@ export function ConversationsTab() {
           </Button>
         </div>
       </CardHeader>
-      <CardContent>
+      <CardContent className="px-0 pt-6">
         {/* Search and Filters */}
         <div className="flex items-center gap-4 mb-4">
           <form onSubmit={handleSearch} className="flex-1 flex gap-2">

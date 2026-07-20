@@ -20,7 +20,7 @@ function minimalSessionEnv() {
 
 async function assertCredentialsPageAvailable(
   page: import("@playwright/test").Page,
-  target = "/credentials#connections",
+  target = "/credentials/connections",
 ): Promise<void> {
   await page.goto(target, { waitUntil: "domcontentloaded" });
   await dismissReleaseUpgradeDialog(page);
@@ -36,7 +36,7 @@ async function assertCredentialsPageAvailable(
   }
 }
 
-test.describe("credentials hash-tab layout", () => {
+test.describe("credentials workspace navigation", () => {
   test.beforeEach(() => {
     test.skip(
       !mockedRbacEnabled(),
@@ -54,33 +54,34 @@ test.describe("credentials hash-tab layout", () => {
     });
   });
 
-  test("defaults to Connections and normalizes /credentials to #connections", async ({ page }) => {
+  test("redirects the base route to Connections and marks the routed section active", async ({ page }) => {
     await assertCredentialsPageAvailable(page, "/credentials");
 
     await expect(page.getByRole("heading", { name: "Connected Apps" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Saved Secrets" })).toHaveCount(0);
-    await expect(page.getByRole("tab", { name: "Connections" })).toHaveAttribute(
-      "aria-selected",
-      "true",
+    await expect(page.getByRole("link", { name: /Connected apps/ })).toHaveAttribute(
+      "aria-current",
+      "page",
     );
-    await expect(page).toHaveURL(/\/credentials#connections$/);
+    await expect(page.getByRole("tab")).toHaveCount(0);
+    await expect(page).toHaveURL(/\/credentials\/connections$/);
   });
 
-  test("shows each empty state on its hash-backed tab", async ({ page }) => {
+  test("shows each empty state on its routed workspace section", async ({ page }) => {
     await assertCredentialsPageAvailable(page);
 
     await expect(page.getByText("No apps connected yet.")).toBeVisible();
     await expect(page.getByText("No secrets yet.")).toHaveCount(0);
 
-    await page.getByRole("tab", { name: "Secrets" }).click();
+    await page.getByRole("link", { name: /Saved secrets/ }).click();
 
-    await expect(page).toHaveURL(/\/credentials#secrets$/);
+    await expect(page).toHaveURL(/\/credentials\/secrets$/);
     await expect(page.getByText("No secrets yet.")).toBeVisible();
     await expect(page.getByText("No apps connected yet.")).toHaveCount(0);
   });
 
   test("stays on the same page URL after adding a secret", async ({ page }) => {
-    await assertCredentialsPageAvailable(page, "/credentials#secrets");
+    await assertCredentialsPageAvailable(page, "/credentials/secrets");
     const urlBefore = page.url();
 
     await page.getByRole("button", { name: /add secret/i }).click();
@@ -113,7 +114,7 @@ test.describe("credentials hash-tab layout", () => {
         },
       ],
     });
-    await assertCredentialsPageAvailable(page, "/credentials#secrets");
+    await assertCredentialsPageAvailable(page, "/credentials/secrets");
 
     await context.route("**/oauth-callback-relay", async (route) => {
       await route.fulfill({
@@ -140,9 +141,10 @@ test.describe("credentials hash-tab layout", () => {
     await relayPage.waitForLoadState("domcontentloaded");
     await relayPage.close().catch(() => undefined);
 
-    await expect(page).toHaveURL(/\/credentials#connections$/);
+    await expect(page).toHaveURL(/\/credentials\/connections$/);
     await expect(page.getByRole("heading", { name: "Connected Apps" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Saved Secrets" })).toHaveCount(0);
     await expect(page.getByText("Atlassian Cloud")).toBeVisible();
   });
+
 });

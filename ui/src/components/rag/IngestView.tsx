@@ -1012,7 +1012,7 @@ export default function IngestView() {
                 <Database className="h-5 w-5 text-white" />
               </div>
               <div>
-                <h1 className="text-lg font-bold gradient-text">Data Sources</h1>
+                <h2 className="text-lg font-bold gradient-text">Data Sources</h2>
                 <p className="text-muted-foreground text-xs">
                   Ingest and manage your knowledge base sources
                 </p>

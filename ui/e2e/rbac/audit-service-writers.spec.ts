@@ -176,7 +176,7 @@ test.describe("audit-service-backed admin audit browser flows", () => {
       handlers: [auditHandler],
     });
 
-    await page.goto("/admin?cat=security&tab=action-audit", {
+    await page.goto("/admin/security/rbac-audit", {
       waitUntil: "domcontentloaded",
     });
 
@@ -241,7 +241,7 @@ test.describe("audit-service-backed admin audit browser flows", () => {
       handlers: [makeAuditHandler(records, auditQueries)],
     });
 
-    await page.goto("/admin?cat=security&tab=action-audit", {
+    await page.goto("/admin/security/rbac-audit", {
       waitUntil: "domcontentloaded",
     });
 
@@ -298,7 +298,7 @@ test.describe("audit-service-backed admin audit browser flows", () => {
       handlers: [auditHandler],
     });
 
-    await page.goto("/admin?cat=security&tab=action-audit", {
+    await page.goto("/admin/security/rbac-audit", {
       waitUntil: "domcontentloaded",
     });
 

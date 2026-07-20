@@ -130,6 +130,19 @@ describe("PlatformAnnouncementsSettings",() => {
     });
   });
 
+  it("disables the platform control in read-only simulation",async () => {
+    global.fetch = jest.fn(async () => jsonResponse({
+      success: true,
+      data: { release_notes: { enabled: true } },
+    }));
+
+    render(<PlatformAnnouncementsSettings readOnly />);
+
+    expect(await screen.findByRole("switch",{
+      name: "Enable release announcements for the platform",
+    })).toBeDisabled();
+  });
+
   it("rolls back and offers retry when the platform write fails",async () => {
     global.fetch = jest.fn(async (_input: RequestInfo | URL,init?: RequestInit) => {
       if (init?.method === "PATCH") {

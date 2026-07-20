@@ -2,6 +2,7 @@
 
 import type { ChangelogRelease } from "@/app/api/changelog/route";
 import { Button } from "@/components/ui/button";
+import { useSettingsDialog } from "@/components/settings/SettingsDialogProvider";
 import {
   Dialog,
   DialogContent,
@@ -27,6 +28,7 @@ export function UserMenu(): React.ReactElement | null {
   const [releases,setReleases] = useState<ChangelogRelease[]>([]);
   const [changelogLoading,setChangelogLoading] = useState(false);
   const [changelogError,setChangelogError] = useState<string | null>(null);
+  const { openSettings } = useSettingsDialog();
   const changelogFetched = useRef(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -169,14 +171,17 @@ export function UserMenu(): React.ReactElement | null {
             </div>
 
             <div className="border-b border-border">
-              <Link
+              <button
                 className="flex w-full items-center justify-between px-4 py-2 text-xs font-medium transition-colors hover:bg-muted/50"
-                href="/settings/chat"
-                onClick={() => setOpen(false)}
+                onClick={() => {
+                  setOpen(false);
+                  openSettings("chat");
+                }}
+                type="button"
               >
                 <span className="flex items-center gap-2"><Settings className="h-3.5 w-3.5" />Settings</span>
                 <ChevronRight className="h-3.5 w-3.5" />
-              </Link>
+              </button>
             </div>
 
             {config.mongodbEnabled ? (

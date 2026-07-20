@@ -335,7 +335,7 @@ async function probeOpenFgaBootstrap(openfgaUrl: string): Promise<DiagnosticProb
   const storeName = envValue("OPENFGA_STORE_NAME") || "caipe-openfga";
   const remediation = {
     label: "OpenFGA",
-    href: "/admin?cat=security&tab=openfga",
+    href: "/admin/security/access-explorer",
     description: "Inspect OpenFGA connectivity and seeded authorization model.",
   };
 
@@ -424,7 +424,7 @@ async function probeOpenFgaBootstrap(openfgaUrl: string): Promise<DiagnosticProb
 async function probeKeycloakBootstrap(): Promise<DiagnosticProbeResult> {
   const remediation = {
     label: "Keycloak Health",
-    href: "/admin?cat=security&tab=keycloak",
+    href: "/admin/security/keycloak",
     description: "Inspect Keycloak realm, credentials, and reconciliation status.",
   };
   try {
@@ -484,7 +484,7 @@ async function probeKeycloakBootstrap(): Promise<DiagnosticProbeResult> {
 async function probeRebacMigrations(): Promise<DiagnosticProbeResult> {
   const remediation = {
     label: "Migration Assistant",
-    href: "/admin?cat=security&tab=migrations",
+    href: "/admin/security/migrations",
     description: "Open the migration assistant to review and apply required schema migrations.",
   };
   try {
@@ -584,7 +584,7 @@ async function buildDiagnosticProbes(): Promise<DiagnosticProbeResult[]> {
       target: `${keycloakUrl}/realms/${keycloakRealm}/protocol/openid-connect/certs`,
       remediation: {
         label: "Keycloak Health",
-        href: "/admin?cat=security&tab=keycloak",
+        href: "/admin/security/keycloak",
         description: "Inspect Keycloak realm, credentials, and reconciliation status.",
       },
     }),
@@ -595,7 +595,7 @@ async function buildDiagnosticProbes(): Promise<DiagnosticProbeResult[]> {
       target: `${openfgaUrl}/healthz`,
       remediation: {
         label: "OpenFGA",
-        href: "/admin?cat=security&tab=openfga",
+        href: "/admin/security/access-explorer",
         description: "Inspect OpenFGA connectivity and seeded authorization model.",
       },
     }),
@@ -627,7 +627,7 @@ async function buildDiagnosticProbes(): Promise<DiagnosticProbeResult[]> {
       },
       remediation: {
         label: "AgentGateway",
-        href: "/admin?cat=platform&tab=health",
+        href: "/admin/operations/health",
         description: "Check AgentGateway config bridge logs and target sync token configuration.",
       },
     }),
@@ -638,7 +638,7 @@ async function buildDiagnosticProbes(): Promise<DiagnosticProbeResult[]> {
       target: agentgatewayAdminUrl,
       remediation: {
         label: "AgentGateway",
-        href: "/admin?cat=platform&tab=health",
+        href: "/admin/operations/health",
         description: "Check AgentGateway listener and static target configuration.",
       },
     }),
@@ -658,7 +658,7 @@ async function buildDiagnosticProbes(): Promise<DiagnosticProbeResult[]> {
       failureDetailPrefix: "optional audit path unavailable",
       remediation: {
         label: "Audit Service",
-        href: "/admin?cat=platform&tab=health",
+        href: "/admin/operations/health",
         description: "Check audit-service logs, queue status, and local/S3 storage configuration.",
       },
     }),
