@@ -655,6 +655,45 @@ describe('GET /api/admin/stats — Top Users', () => {
     );
     expect(flaggedBotQuery).toBe(false);
   });
+
+  // Detects the row-level (pre-$group) owner_id exclusion the section's
+  // non-leaderboard aggregations (Top Agents, Response Time, Activity by Hour)
+  // carry so the "Show bot users" toggle governs the whole Top Users section,
+  // not just the two leaderboards. Matches an owner_id-keyed $nin/$not clause
+  // in the FIRST $match stage (before any $group).
+  const hasRowLevelOwnerExclusion = (calls: unknown[]) =>
+    calls.some((call: unknown[]) => {
+      const pipeline = call[0];
+      if (!Array.isArray(pipeline)) return false;
+      const first = pipeline.find((s: Record<string, unknown>) => s.$match) as
+        | Record<string, unknown>
+        | undefined;
+      const and = (first?.$match as Record<string, unknown> | undefined)?.$and;
+      if (!Array.isArray(and)) return false;
+      return and.some((c: Record<string, unknown>) =>
+        Array.isArray(c.owner_id?.$nin) || c.owner_id?.$not instanceof RegExp
+      );
+    });
+
+  it('excludes bot owners from the non-leaderboard section stats by default', async () => {
+    const { convCol, msgCol } = setupAdminWithCollections();
+    convCol.distinct.mockResolvedValue(['U05LC2AV99N']);
+
+    await GET(makeRequest('/api/admin/stats'));
+
+    // Top Agents (conversations side), Response Time + Activity by Hour (messages).
+    expect(hasRowLevelOwnerExclusion(convCol.aggregate.mock.calls)).toBe(true);
+    expect(hasRowLevelOwnerExclusion(msgCol.aggregate.mock.calls)).toBe(true);
+  });
+
+  it('does not row-level exclude section stats when include_bots=true', async () => {
+    const { convCol, msgCol } = setupAdminWithCollections();
+
+    await GET(makeRequest('/api/admin/stats?include_bots=true'));
+
+    expect(hasRowLevelOwnerExclusion(convCol.aggregate.mock.calls)).toBe(false);
+    expect(hasRowLevelOwnerExclusion(msgCol.aggregate.mock.calls)).toBe(false);
+  });
 });
 
 // ============================================================================

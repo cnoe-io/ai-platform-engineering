@@ -440,21 +440,44 @@ async function getAdminStats(request: NextRequest) {
     const messages = await getCollection('messages');
     const workflowRuns = await getCollection('workflow_runs');
 
-    // Bot/service exclusion for the Top Users leaderboards. Off when the caller
-    // opted into "Show bot users". Otherwise drop:
-    //   1. Owners whose ID itself is bot-shaped (HUMAN_OWNER_MATCH).
+    // Bot/service exclusion for the whole "Top Users" section — the block that
+    // spans both Top-Users leaderboards, Top Agents, Response Time, and Activity
+    // by Hour. Off when the caller opted into "Show bot users". Otherwise drop:
+    //   1. Owners whose ID itself is bot-shaped (HUMAN_OWNER_MATCH / the owner_id
+    //      pattern rules below).
     //   2. Slack bot/app owners flagged at ingestion (metadata.owner_is_bot) —
     //      e.g. the GitLab app, whose "U…" user ID looks human. Their owner_ids
-    //      are collected here and excluded by value, since the leaderboards
-    //      group on owner_id (not conversation metadata).
+    //      are collected here and excluded by value.
+    // The Overview cards and activity charts ABOVE the section keep using the
+    // unfiltered convSourceFilter/msgOwnerFilter, so the toggle governs only the
+    // Top Users section.
+    const sectionConvMatch: Document = { ...convSourceFilter };
+    const sectionMsgMatch: Document = { ...msgOwnerFilter };
     if (!includeBots) {
       const botOwnerIds = (await conversations.distinct('owner_id', {
         'metadata.owner_is_bot': true,
       })).filter((id): id is string => typeof id === 'string' && id.length > 0);
+      // Post-group $match for the leaderboards, which group on owner_id → _id.
       const humanOwnerMatch = botOwnerIds.length > 0
         ? { $and: [HUMAN_OWNER_MATCH, { _id: { $nin: botOwnerIds } }] }
         : HUMAN_OWNER_MATCH;
       topUserOwnerMatch = [{ $match: humanOwnerMatch }];
+      // Row-level exclusion for the section's non-grouped aggregations (Top
+      // Agents, Response Time, Activity by Hour), which filter documents before
+      // grouping. Same rules as HUMAN_OWNER_MATCH but keyed on the owner_id
+      // field, plus the ingestion-flagged Slack bot/app owners. Documents with
+      // no owner_id (legacy rows) are kept — $nin/$not treat a missing field as
+      // a non-match, so only genuine bot owners are dropped.
+      const ownerFieldExclusion: Record<string, unknown> = {
+        $and: [
+          { owner_id: { $nin: BOT_OWNER_EXACT } },
+          { owner_id: { $not: /^B[A-Z0-9]{6,}$/ } },
+          { owner_id: { $not: /^service-account-/ } },
+          ...(botOwnerIds.length > 0 ? [{ owner_id: { $nin: botOwnerIds } }] : []),
+        ],
+      };
+      andInto(sectionConvMatch, ownerFieldExclusion);
+      andInto(sectionMsgMatch, ownerFieldExclusion);
     }
 
     // ── workflow_runs scope ─────────────────────────────────────────
@@ -696,7 +719,7 @@ async function getAdminStats(request: NextRequest) {
       // (id 'default') is a real configured dynamic_agent, so it counts.
       Promise.all([
         conversations.aggregate([
-          { $match: { created_at: { $gte: rangeStart }, 'metadata.thread_owner_agent_id': { $nin: [null, '', 'unknown'] }, ...convSourceFilter } },
+          { $match: { created_at: { $gte: rangeStart }, 'metadata.thread_owner_agent_id': { $nin: [null, '', 'unknown'] }, ...sectionConvMatch } },
           { $group: { _id: '$metadata.thread_owner_agent_id', count: { $sum: 1 } } },
         ]).toArray(),
         // Count DISTINCT conversations per agent via a two-stage $group
@@ -713,7 +736,7 @@ async function getAdminStats(request: NextRequest) {
         sourceFilter === 'slack'
           ? Promise.resolve([] as { _id: string; count: number }[])
           : messages.aggregate([
-              { $match: { role: 'assistant', 'metadata.source': { $ne: 'slack' }, 'metadata.agent_name': { $nin: [null, '', 'unknown'] }, created_at: { $gte: rangeStart }, ...msgOwnerFilter } },
+              { $match: { role: 'assistant', 'metadata.source': { $ne: 'slack' }, 'metadata.agent_name': { $nin: [null, '', 'unknown'] }, created_at: { $gte: rangeStart }, ...sectionMsgMatch } },
               { $group: { _id: { agent: '$metadata.agent_name', conv: '$conversation_id' } } },
               { $group: { _id: '$_id.agent', count: { $sum: 1 } } },
             ]).toArray(),
@@ -756,7 +779,7 @@ async function getAdminStats(request: NextRequest) {
 
       // Response latency (overall)
       messages.aggregate([
-        { $match: { role: 'assistant', 'metadata.latency_ms': { $exists: true, $gt: 0 }, created_at: { $gte: rangeStart }, ...msgOwnerFilter } },
+        { $match: { role: 'assistant', 'metadata.latency_ms': { $exists: true, $gt: 0 }, created_at: { $gte: rangeStart }, ...sectionMsgMatch } },
         { $group: { _id: null, avg_latency: { $avg: '$metadata.latency_ms' }, min_latency: { $min: '$metadata.latency_ms' }, max_latency: { $max: '$metadata.latency_ms' }, count: { $sum: 1 } } },
       ]).toArray(),
 
@@ -766,7 +789,7 @@ async function getAdminStats(request: NextRequest) {
       // of its messages; the UI plots one point per bucket and draws the
       // average line client-side. Same filter as the overall latency stat.
       messages.aggregate([
-        { $match: { role: 'assistant', 'metadata.latency_ms': { $exists: true, $gt: 0 }, created_at: { $gte: rangeStart }, ...msgOwnerFilter } },
+        { $match: { role: 'assistant', 'metadata.latency_ms': { $exists: true, $gt: 0 }, created_at: { $gte: rangeStart }, ...sectionMsgMatch } },
         { $group: { _id: { $dateToString: { format: BUCKET_DATE_FORMAT[bucketUnit], date: '$created_at' } }, avg_latency: { $avg: '$metadata.latency_ms' } } },
       ]).toArray(),
 
@@ -800,7 +823,7 @@ async function getAdminStats(request: NextRequest) {
       // when source=web|slack was explicitly requested; unfiltered, this
       // counts every message regardless of metadata.source.
       messages.aggregate([
-        { $match: { created_at: { $gte: rangeStart }, ...msgOwnerFilter } },
+        { $match: { created_at: { $gte: rangeStart }, ...sectionMsgMatch } },
         { $addFields: { _ts: { $toDate: '$created_at' } } },
         { $group: { _id: { $hour: '$_ts' }, count: { $sum: 1 } } },
       ]).toArray(),
