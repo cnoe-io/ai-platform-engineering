@@ -26,7 +26,7 @@ import type { NextRequest } from "next/server";
 type AgentContextKind = "dynamic" | "local";
 const AGENT_CONTEXT_TTL_SECONDS: Record<AgentContextKind, number> = {
   dynamic: 300,
-  local: 60 * 60 * 12,
+  local: 60 * 60 * 8,
 };
 
 type AuthSession = {

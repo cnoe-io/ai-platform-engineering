@@ -66,7 +66,7 @@ AGENT_CONTEXT_MAX_AGE_SECONDS = int(os.environ.get("CAIPE_AGENT_CONTEXT_MAX_AGE_
 # few minutes. They're safe to allow longer because they carry no delegated
 # authority — see the "local" branch in OpenFgaAuthorizationService.Check.
 AGENT_CONTEXT_LOCAL_MAX_AGE_SECONDS = int(
-    os.environ.get("CAIPE_AGENT_CONTEXT_LOCAL_MAX_AGE_SECONDS", "43200")  # 12h
+    os.environ.get("CAIPE_AGENT_CONTEXT_LOCAL_MAX_AGE_SECONDS", "28800")  # 8h
 )
 # Caller-keyed tool-authorization rollout flag (FR-012c / SC-011 / T022a).
 # When OFF (default), the bridge keeps the legacy agent-only tool check so
@@ -871,7 +871,7 @@ class OpenFgaAuthorizationService:
                         subject=sub,
                         user=user,
                         relation="can_call",
-                        obj=f"agent:{agent_id}",
+                        obj=f"tool:{tool_call[0]}/{tool_call[1]}",
                         outcome="allow",
                         reason_code="OK_LOCAL_AGENT_CONTEXT",
                         duration_ms=(time.perf_counter() - start) * 1000,
