@@ -72,6 +72,8 @@ interface AdminStats {
     satisfaction_rate: number;
     estimated_hours_automated: number;
     web_hours_saved?: number;
+    agent_hours_saved?: number;
+    workflow_hours_saved?: number;
     slack_hours_saved?: number;
     web_workflows?: number;
   };
@@ -111,14 +113,15 @@ interface AdminStats {
     min_ms: number;
     max_ms: number;
     sample_count: number;
+    samples?: Array<{ ts: string; latency_ms: number }>;
   };
   hourly_heatmap: Array<{ hour: number; count: number }>;
   completed_workflows: {
     total: number;
     today: number;
-    interrupted: number;
+    failed: number;
     completion_rate: number;
-    avg_messages_per_workflow: number;
+    avg_steps_per_workflow: number;
   };
   slack?: {
     channels: { total: number; qanda_enabled: number; alerts_enabled: number; ai_enabled: number };
@@ -502,18 +505,19 @@ function OverviewStatsCards({
                 <span className="absolute top-full left-1/2 -translate-x-1/2 mt-2 w-64 p-2 rounded bg-popover border border-border text-[10px] text-popover-foreground shadow-lg opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity z-50 text-left font-normal normal-case">
                   A conservative estimate of engineering time the platform saved:
                   <ul className="list-disc pl-3 mt-1 space-y-0.5">
-                    <li>Web: {platformSummary.web_workflows ?? 0} completed workflows (~{platformSummary.web_hours_saved ?? 0}h), scaled by tool calls per task</li>
-                    <li>Slack: resolved user questions (~{platformSummary.slack_hours_saved ?? 0}h): 30 min if rated helpful, else 20 min; escalated or thumbs-down count as 0</li>
+                    <li>Agents: credited per tool call an agent ran on your behalf (~{platformSummary.agent_hours_saved ?? 0}h)</li>
+                    <li>Workflows: credited per completed step across finished workflow runs (~{platformSummary.workflow_hours_saved ?? 0}h)</li>
+                    <li>Slack: credited per resolved user question, weighted by whether it was rated helpful (~{platformSummary.slack_hours_saved ?? 0}h)</li>
                   </ul>
                   Automated bot/alert posts are excluded.
                 </span>
               </span>
             )}
           </CardTitle>
-          <Clock className="h-4 w-4 text-orange-500" />
+          <Clock className="h-4 w-4 text-muted-foreground" />
         </CardHeader>
         <CardContent>
-          <div className="text-2xl font-bold text-orange-500">
+          <div className="text-2xl font-bold">
             ~{platformSummary?.estimated_hours_automated ?? 0}h
           </div>
           <p className="text-xs text-muted-foreground mt-1">
@@ -2652,25 +2656,69 @@ function AdminPage() {
                       </Card>
                     </div>
 
-                    {/* Feedback Trend Chart */}
-                    {stats.feedback_summary?.daily && stats.feedback_summary.daily.length > 0 && (
-                      <Card>
-                        <CardHeader>
-                          <CardTitle>Feedback Trend ({rangeLabel})</CardTitle>
-                          <CardDescription>Daily positive vs negative feedback</CardDescription>
-                        </CardHeader>
-                        <CardContent>
-                          <SimpleLineChart
-                            data={stats.feedback_summary.daily.map((day) => ({
-                              label: formatBucketLabel(day.date),
-                              value: day.positive + day.negative,
-                            }))}
-                            height={180}
-                            color="rgb(34, 197, 94)"
-                          />
-                        </CardContent>
-                      </Card>
-                    )}
+                    {/* Feedback Trend + Response Time — 50/50 split. Response Time
+                        is platform-wide (web + Slack); the source filter narrows
+                        it. It sits here rather than in the Web section so it
+                        renders for Slack-only stacks too. */}
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                      {stats.feedback_summary?.daily && stats.feedback_summary.daily.length > 0 && (
+                        <Card>
+                          <CardHeader>
+                            <CardTitle>Feedback Trend ({rangeLabel})</CardTitle>
+                            <CardDescription>Daily positive vs negative feedback</CardDescription>
+                          </CardHeader>
+                          <CardContent>
+                            <SimpleLineChart
+                              data={stats.feedback_summary.daily.map((day) => ({
+                                label: formatBucketLabel(day.date),
+                                value: day.positive + day.negative,
+                              }))}
+                              height={180}
+                              color="rgb(34, 197, 94)"
+                            />
+                          </CardContent>
+                        </Card>
+                      )}
+
+                      {/* Always shown so filtering to an agent with no latency
+                          samples renders an empty chart, not a missing card. */}
+                      {stats.response_time && (
+                        <Card>
+                          <CardHeader>
+                            <CardTitle className="flex items-center gap-2">
+                              <Zap className="h-5 w-5" />
+                              Response Time
+                            </CardTitle>
+                            <CardDescription>AI response latency across conversations</CardDescription>
+                          </CardHeader>
+                          <CardContent>
+                            {(() => {
+                              const samples = stats.response_time.samples ?? [];
+                              if (samples.length === 0) {
+                                return (
+                                  <p className="text-sm text-muted-foreground text-center py-4">Not enough data to plot yet</p>
+                                );
+                              }
+                              // Average computed here (client-side) from the raw samples.
+                              const avgMs = samples.reduce((sum, s) => sum + s.latency_ms, 0) / samples.length;
+                              return (
+                                <SimpleLineChart
+                                  data={samples.map((s) => ({
+                                    label: formatBucketLabel(s.ts),
+                                    value: s.latency_ms,
+                                  }))}
+                                  height={180}
+                                  color="rgb(234, 179, 8)"
+                                  avgLine={avgMs}
+                                  avgLabel={`avg ${(avgMs / 1000).toFixed(1)}s`}
+                                  formatValue={(ms) => `${(ms / 1000).toFixed(1)}s`}
+                                />
+                              );
+                            })()}
+                          </CardContent>
+                        </Card>
+                      )}
+                    </div>
 
                     {/* Hourly Activity Heatmap */}
                     {stats.hourly_heatmap && (
@@ -2750,7 +2798,7 @@ function AdminPage() {
                     )}
 
                     {/* ─── Web Section ─── */}
-                    {(stats.response_time || stats.completed_workflows) && (
+                    {stats.completed_workflows && (
                       <>
                         <div className="flex items-center gap-2 pt-2">
                           <Globe className="h-5 w-5 text-muted-foreground" />
@@ -2759,41 +2807,6 @@ function AdminPage() {
                         <div className="h-px bg-border" />
 
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                          {/* Response Time — always shown within the Web section so
-                              filtering to an agent with no latency samples renders
-                              empty stats rather than removing the card entirely. */}
-                          {stats.response_time && (
-                            <Card>
-                              <CardHeader>
-                                <CardTitle className="flex items-center gap-2">
-                                  <Zap className="h-5 w-5" />
-                                  Response Time
-                                </CardTitle>
-                                <CardDescription>AI response latency from web conversations</CardDescription>
-                              </CardHeader>
-                              <CardContent>
-                                {stats.response_time.sample_count > 0 ? (
-                                  <div className="grid grid-cols-3 gap-4 text-center">
-                                    <div>
-                                      <p className="text-2xl font-bold">{(stats.response_time.avg_ms / 1000).toFixed(1)}s</p>
-                                      <p className="text-xs text-muted-foreground">Average</p>
-                                    </div>
-                                    <div>
-                                      <p className="text-2xl font-bold text-green-500">{(stats.response_time.min_ms / 1000).toFixed(1)}s</p>
-                                      <p className="text-xs text-muted-foreground">Fastest</p>
-                                    </div>
-                                    <div>
-                                      <p className="text-2xl font-bold text-orange-500">{(stats.response_time.max_ms / 1000).toFixed(1)}s</p>
-                                      <p className="text-xs text-muted-foreground">Slowest</p>
-                                    </div>
-                                  </div>
-                                ) : (
-                                  <p className="text-sm text-muted-foreground text-center py-4">No latency data for this selection</p>
-                                )}
-                              </CardContent>
-                            </Card>
-                          )}
-
                           {/* Completed Workflows */}
                           {stats.completed_workflows && (
                             <Card>
@@ -2802,7 +2815,7 @@ function AdminPage() {
                                   <CheckCircle2 className="h-5 w-5" />
                                   Completed Workflows
                                 </CardTitle>
-                                <CardDescription>Agentic task completion tracking</CardDescription>
+                                <CardDescription>Workflow run completion tracking</CardDescription>
                               </CardHeader>
                               <CardContent>
                                 <div className="grid grid-cols-2 gap-3 text-center">
@@ -2811,19 +2824,19 @@ function AdminPage() {
                                     <p className="text-[10px] text-muted-foreground">Completed</p>
                                   </div>
                                   <div className="p-2 rounded-lg bg-orange-500/10">
-                                    <p className="text-xl font-bold text-orange-500">{stats.completed_workflows.interrupted}</p>
-                                    <p className="text-[10px] text-muted-foreground">Interrupted</p>
+                                    <p className="text-xl font-bold text-orange-500">{stats.completed_workflows.failed}</p>
+                                    <p className="text-[10px] text-muted-foreground">Failed</p>
                                   </div>
                                   <div className="p-2 rounded-lg bg-primary/10">
                                     <p className="text-xl font-bold text-primary">{stats.completed_workflows.completion_rate}%</p>
                                     <p className="text-[10px] text-muted-foreground">Completion Rate</p>
                                   </div>
                                   <div className="p-2 rounded-lg bg-purple-500/10">
-                                    <p className="text-xl font-bold text-purple-500">{stats.completed_workflows.avg_messages_per_workflow}</p>
-                                    <p className="text-[10px] text-muted-foreground">Avg Msgs/Workflow</p>
+                                    <p className="text-xl font-bold text-purple-500">{stats.completed_workflows.avg_steps_per_workflow}</p>
+                                    <p className="text-[10px] text-muted-foreground">Avg Steps/Workflow</p>
                                   </div>
                                 </div>
-                                {(stats.completed_workflows.total + stats.completed_workflows.interrupted) > 0 && (
+                                {(stats.completed_workflows.total + stats.completed_workflows.failed) > 0 && (
                                   <div className="mt-3">
                                     <div className="h-2 bg-orange-100 dark:bg-orange-900/20 rounded-full overflow-hidden">
                                       <div
