@@ -168,6 +168,7 @@ jobs:
       - name: 🚀 Create GitHub Release (Draft)
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          RELEASE_INITIATOR: ${{ github.actor }}
         run: |
           set -euo pipefail
 
@@ -178,6 +179,7 @@ jobs:
             --repo "${{ github.repository }}" \
             --title "Release $NEW_VERSION" \
             --generate-notes \
+            --notes "<!-- release-initiator:$RELEASE_INITIATOR -->" \
             --draft
 
           echo "✅ Draft release created"

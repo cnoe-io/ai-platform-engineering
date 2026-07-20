@@ -102,6 +102,7 @@ jobs:
           ANY_FAILED=false
           ANY_RUNNING=false
           MISSING_RUNS=()
+          FAILED_RUNS=()
 
           for WF_NAME in "${REQUIRED_WORKFLOWS[@]}"; do
             echo -n "  📦 $WF_NAME: "
@@ -126,6 +127,7 @@ jobs:
 
             STATUS=$(echo "$RUN_DATA" | jq -r '.[0].status // "unknown"')
             CONCLUSION=$(echo "$RUN_DATA" | jq -r '.[0].conclusion // "null"')
+            RUN_ID=$(echo "$RUN_DATA" | jq -r '.[0].databaseId')
 
             if [[ "$STATUS" == "completed" ]]; then
               if [[ "$CONCLUSION" == "success" ]]; then
@@ -136,6 +138,8 @@ jobs:
                 echo "❌ failed ($CONCLUSION)"
                 ALL_PASSED=false
                 ANY_FAILED=true
+                RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/$RUN_ID"
+                FAILED_RUNS+=("- [$WF_NAME]($RUN_URL) — \`$CONCLUSION\`")
               fi
             elif [[ "$STATUS" == "in_progress" || "$STATUS" == "queued" || "$STATUS" == "waiting" ]]; then
               echo "🔄 $STATUS"
@@ -148,9 +152,15 @@ jobs:
           done
 
           echo ""
-          echo "all_passed=$ALL_PASSED" >> $GITHUB_OUTPUT
-          echo "any_failed=$ANY_FAILED" >> $GITHUB_OUTPUT
-          echo "any_running=$ANY_RUNNING" >> $GITHUB_OUTPUT
+          FAILED_RUNS_DELIMITER="failed-runs-$RANDOM-$(date +%s)"
+          {
+            echo "all_passed=$ALL_PASSED"
+            echo "any_failed=$ANY_FAILED"
+            echo "any_running=$ANY_RUNNING"
+            echo "failed_runs<<$FAILED_RUNS_DELIMITER"
+            printf '%s\n' "${FAILED_RUNS[@]}"
+            echo "$FAILED_RUNS_DELIMITER"
+          } >> "$GITHUB_OUTPUT"
 
           if [[ "$ALL_PASSED" == "true" ]]; then
             echo "✅ All CI workflows passed!"
@@ -259,29 +269,74 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.payload.outputs.tag }}
+          FAILED_RUNS: ${{ steps.check-cis.outputs.failed_runs }}
         run: |
           echo "❌ CI builds failed for $TAG"
 
-          # Add a note to the release
+          # Add or refresh a note on the release. The markers let subsequent
+          # workflow completions update the complete list of failed runs.
           RELEASE_INFO=$(gh release view "$TAG" --repo="${{ github.repository }}" --json body 2>/dev/null || echo '{}')
           CURRENT_BODY=$(echo "$RELEASE_INFO" | jq -r '.body // ""')
+          FAILURE_START_MARKER="<!-- ci-build-failure:start -->"
+          FAILURE_END_MARKER="<!-- ci-build-failure:end -->"
 
-          # Only add failure note if not already present
-          if [[ "$CURRENT_BODY" != *"CI BUILD FAILURE"* ]]; then
-            NEW_BODY="${CURRENT_BODY}
+          # release-manual.yml records the original workflow_dispatch actor in
+          # the draft release body. Tag-push and repository_dispatch actors are
+          # GitHub Apps, so they cannot identify the human release initiator.
+          RELEASE_INITIATOR=$(printf '%s\n' "$CURRENT_BODY" | sed -nE \
+            's/^<!-- release-initiator:([A-Za-z0-9-]{1,39}) -->$/\1/p' | head -n 1)
+          if [[ -n "$RELEASE_INITIATOR" ]]; then
+            INVESTIGATION_REQUEST="@$RELEASE_INITIATOR, please investigate and either:"
+            echo "👤 Release initiated by @$RELEASE_INITIATOR"
+          else
+            INVESTIGATION_REQUEST="Please investigate and either:"
+            echo "⚠️ Release initiator metadata was not found"
+          fi
+
+          if [[ "$CURRENT_BODY" == *"$FAILURE_START_MARKER"* ]]; then
+            BASE_BODY=$(printf '%s\n' "$CURRENT_BODY" | awk \
+              -v start="$FAILURE_START_MARKER" \
+              -v end="$FAILURE_END_MARKER" '
+                $0 == start { in_failure_note = 1; next }
+                $0 == end { in_failure_note = 0; next }
+                !in_failure_note { print }
+              ')
+          else
+            BASE_BODY="$CURRENT_BODY"
+
+            # Remove notes created before the managed markers were introduced.
+            LEGACY_FAILURE_HEADING=$'\n---\n⚠️ **CI BUILD FAILURE** ⚠️'
+            if [[ "$BASE_BODY" == *"$LEGACY_FAILURE_HEADING"* ]]; then
+              BASE_BODY="${BASE_BODY%%"$LEGACY_FAILURE_HEADING"*}"
+            fi
+          fi
+
+          FAILURE_NOTE="$FAILURE_START_MARKER
 
           ---
           ⚠️ **CI BUILD FAILURE** ⚠️
 
-          One or more CI builds failed for this release. Please investigate and either:
-          1. Fix the issues and re-run the failed workflows
-          2. Delete this draft release and create a new one
+          One or more CI builds failed for this release.
+          $INVESTIGATION_REQUEST
+          1. Re-run the failed workflows (often retrigger of the same workflow run is sufficient as most fails are transient)
+          2. If the failures are persistent, investigate and fix the underlying issue, then create a new release
 
-          _Updated: $(date -u '+%Y-%m-%d %H:%M:%S UTC')_"
+          Failed CI workflow runs:
+          $FAILED_RUNS
 
-            gh release edit "$TAG" --repo="${{ github.repository }}" --notes "$NEW_BODY"
-            echo "📝 Added failure note to release"
+          _Updated: $(date -u '+%Y-%m-%d %H:%M:%S UTC')_
+          $FAILURE_END_MARKER"
+
+          if [[ -n "$BASE_BODY" ]]; then
+            NEW_BODY="${BASE_BODY}
+
+          ${FAILURE_NOTE}"
+          else
+            NEW_BODY="$FAILURE_NOTE"
           fi
+
+          gh release edit "$TAG" --repo="${{ github.repository }}" --notes "$NEW_BODY"
+          echo "📝 Updated failure note with links to failed CI runs"
 
       - name: 📊 Summary
         if: always() && steps.payload.outputs.tag != ''
