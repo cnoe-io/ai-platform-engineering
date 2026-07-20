@@ -2,6 +2,12 @@
 
 import { AutoSaveStatus } from "@/components/settings/shared/AutoSaveStatus";
 import { SettingsSwitch } from "@/components/settings/shared/SettingsSwitch";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useKeyedAutoSave } from "@/hooks/use-keyed-auto-save";
 import { cn } from "@/lib/utils";
 import {
@@ -12,8 +18,8 @@ import {
   type FeatureFlagCategory,
   type FeatureFlagIcon,
 } from "@/store/feature-flag-store";
-import { ArrowDownToLine,Brain,Bug,Clock,ExternalLink,Eye,Info } from "lucide-react";
-import { useEffect,useRef,useState } from "react";
+import { ArrowDownToLine,Brain,Bug,Clock,Eye,Info } from "lucide-react";
+import { useEffect,useRef } from "react";
 
 const FLAG_ICONS: Record<FeatureFlagIcon,React.ReactNode> = {
   Brain: <Brain className="h-4 w-4" />,
@@ -41,8 +47,6 @@ function PreferenceRow({
   saveState: ReturnType<ReturnType<typeof useKeyedAutoSave<string,boolean>>["stateFor"]>;
   value: boolean;
 }): React.ReactElement {
-  const [showInfo,setShowInfo] = useState(false);
-
   return (
     <div className="rounded-lg border border-border/70">
       <div className="flex items-center gap-3 px-4 py-3">
@@ -57,18 +61,24 @@ function PreferenceRow({
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
             <span className="text-sm font-medium">{flag.label}</span>
-            <button
-              aria-expanded={showInfo}
-              aria-label={`More about ${flag.label}`}
-              className={cn(
-                "rounded p-0.5 transition-colors",
-                showInfo ? "text-primary" : "text-muted-foreground/50 hover:text-muted-foreground",
-              )}
-              onClick={() => setShowInfo((current) => !current)}
-              type="button"
-            >
-              <Info className="h-3 w-3" />
-            </button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  aria-label={`More about ${flag.label}`}
+                  className="rounded p-0.5 text-muted-foreground/50 transition-colors hover:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                  type="button"
+                >
+                  <Info className="h-3 w-3" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent
+                className="max-w-xs whitespace-normal px-3 py-2 text-xs font-normal leading-relaxed"
+                side="top"
+                sideOffset={6}
+              >
+                {flag.detail}
+              </TooltipContent>
+            </Tooltip>
           </div>
           <p className="text-xs text-muted-foreground">{flag.description}</p>
           <AutoSaveStatus
@@ -84,24 +94,6 @@ function PreferenceRow({
           testId={`preference-${flag.id}`}
         />
       </div>
-      {showInfo ? (
-        <div className="px-4 pb-3">
-          <div className="rounded-lg border border-border/50 bg-muted/40 p-2.5 text-xs leading-relaxed text-muted-foreground">
-            {flag.detail}
-            {flag.docsUrl ? (
-              <a
-                className="mt-1.5 flex items-center gap-1 font-medium text-primary hover:underline"
-                href={flag.docsUrl}
-                rel="noopener noreferrer"
-                target="_blank"
-              >
-                Learn more
-                <ExternalLink className="h-2.5 w-2.5" />
-              </a>
-            ) : null}
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }
@@ -150,17 +142,19 @@ export function FeaturePreferences({
   };
 
   return (
-    <div className="space-y-3">
-      {visibleFlags.map((flag) => (
-        <PreferenceRow
-          flag={flag}
-          key={flag.id}
-          onChange={(value) => handleChange(flag,value)}
-          onRetry={() => retry(flag.id)}
-          saveState={autoSave.stateFor(flag.id)}
-          value={flags[flag.id] ?? flag.defaultValue}
-        />
-      ))}
-    </div>
+    <TooltipProvider delayDuration={150}>
+      <div className="space-y-3">
+        {visibleFlags.map((flag) => (
+          <PreferenceRow
+            flag={flag}
+            key={flag.id}
+            onChange={(value) => handleChange(flag,value)}
+            onRetry={() => retry(flag.id)}
+            saveState={autoSave.stateFor(flag.id)}
+            value={flags[flag.id] ?? flag.defaultValue}
+          />
+        ))}
+      </div>
+    </TooltipProvider>
   );
 }

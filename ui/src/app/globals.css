@@ -865,9 +865,18 @@ pre code.hljs {
   background: linear-gradient(to bottom right, var(--gradient-from), var(--gradient-to));
 }
 
-/* Restrained brand-gradient selection for Settings navigation. The first
+/* Each active top-nav pill reveals its local slice of one gradient spanning
+   the full navigation strip. JS supplies the strip width and pill offset. */
+.app-header-nav-gradient-window {
+  background-image: linear-gradient(to right, var(--gradient-from), var(--gradient-to));
+  background-position: var(--app-header-nav-gradient-offset, 0) center;
+  background-repeat: no-repeat;
+  background-size: var(--app-header-nav-gradient-width, 100%) 100%;
+}
+
+/* Restrained brand-gradient selection for workspace navigation. The first
    layer supplies a quiet tinted surface; the second becomes the border. */
-.settings-navigation-active {
+.workspace-navigation-active {
   background:
     linear-gradient(
       to right,

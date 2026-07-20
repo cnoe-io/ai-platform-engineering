@@ -7,7 +7,7 @@ import { fireEvent,render,screen } from "@testing-library/react";
 import { SettingsSwitch } from "../SettingsSwitch";
 
 describe("SettingsSwitch",() => {
-  it("anchors the thumb inside the track in both states",() => {
+  it("exposes its state and requests the inverse value when activated",() => {
     const onCheckedChange = jest.fn();
     const { rerender } = render(
       <SettingsSwitch
@@ -18,8 +18,9 @@ describe("SettingsSwitch",() => {
     );
 
     const toggle = screen.getByRole("switch",{ name: "Example setting" });
-    const thumb = toggle.querySelector("span > span");
-    expect(thumb).toHaveClass("left-0","translate-x-0.5");
+    expect(toggle).toHaveAttribute("aria-checked","false");
+    fireEvent.click(toggle);
+    expect(onCheckedChange).toHaveBeenLastCalledWith(true);
 
     rerender(
       <SettingsSwitch
@@ -28,9 +29,25 @@ describe("SettingsSwitch",() => {
         onCheckedChange={onCheckedChange}
       />,
     );
-    expect(thumb).toHaveClass("left-0","translate-x-[18px]");
-
+    expect(toggle).toHaveAttribute("aria-checked","true");
     fireEvent.click(toggle);
-    expect(onCheckedChange).toHaveBeenCalledWith(false);
+    expect(onCheckedChange).toHaveBeenLastCalledWith(false);
+  });
+
+  it("does not request a change when disabled",() => {
+    const onCheckedChange = jest.fn();
+    render(
+      <SettingsSwitch
+        checked
+        disabled
+        label="Example setting"
+        onCheckedChange={onCheckedChange}
+      />,
+    );
+
+    const toggle = screen.getByRole("switch",{ name: "Example setting" });
+    expect(toggle).toBeDisabled();
+    fireEvent.click(toggle);
+    expect(onCheckedChange).not.toHaveBeenCalled();
   });
 });

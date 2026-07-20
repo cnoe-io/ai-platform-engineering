@@ -21,12 +21,17 @@ import { render, screen, fireEvent } from "@testing-library/react";
 
 const mockSignIn = jest.fn();
 const mockSignOut = jest.fn();
+const mockOpenSettings = jest.fn();
 let mockUseSession: jest.Mock;
 
 jest.mock("next-auth/react", () => ({
   useSession: () => mockUseSession(),
   signIn: (...args: unknown[]) => mockSignIn(...args),
   signOut: (...args: unknown[]) => mockSignOut(...args),
+}));
+
+jest.mock("@/components/settings/SettingsDialogProvider",() => ({
+  useSettingsDialog: () => ({ openSettings: mockOpenSettings }),
 }));
 
 let mockConfig: Record<string, unknown> = {
@@ -221,10 +226,8 @@ describe("UserMenu", () => {
     expect(screen.getByText("Settings")).toBeInTheDocument();
     expect(screen.getByText("About")).toBeInTheDocument();
     expect(screen.getByText("Sign Out")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute(
-      "href",
-      "/settings/chat",
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    expect(mockOpenSettings).toHaveBeenCalledWith("chat");
   });
 
   it("shows Admin badge and Personal Insights when role is admin and mongodb is enabled", () => {

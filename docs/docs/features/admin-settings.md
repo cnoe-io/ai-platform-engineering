@@ -2,37 +2,57 @@
 sidebar_position: 3
 ---
 
-# Settings Center and Admin Settings
+# Settings and Admin
 
-CAIPE keeps personal preferences and platform configuration in one routed
-Settings Center while clearly separating their scope.
+CAIPE separates configuration from platform operations:
 
-Open it from:
+- **Settings** opens as a dialog over the current page. It contains personal
+  preferences and the small set of platform-wide preferences available to
+  admins.
+- **Admin** is a routed workspace for managing people, resources,
+  integrations, operations, and security policy.
 
-- **Profile picture → Settings** for personal settings.
-- The **Appearance** shortcut in the application header.
-- The **Platform** group inside the Settings Center for admin-only settings.
+Open Settings from **Profile picture → Settings**. The Appearance shortcut in
+the application header opens the same dialog directly at Appearance. Closing
+the dialog returns you to the page where you opened it.
 
-## Settings Map
+## Settings map
 
-| Scope | Route | Purpose |
-|---|---|---|
-| Personal | `/settings/appearance` | Theme, typography, and accent gradient |
-| Personal | `/settings/chat` | Per-surface default agents and chat behavior |
-| Personal | `/settings/notifications` | Personal release-note notifications |
-| Personal | `/settings/access` | Your identity, platform role, and teams |
-| Personal | `/settings/developer` | Debug preferences and session diagnostics |
-| Platform | `/settings/platform/defaults` | Fallback agent for users without a personal choice |
-| Platform | `/settings/platform/access` | Starting access before Slack or Webex identity linking |
-| Platform | `/settings/platform/announcements` | Platform-wide release announcements |
-| Platform | `/settings/platform/ai-review` | AI review policies |
+### Personal
 
-Platform routes and their navigation group are visible only to admins. The
-Admin Dashboard manages resources such as users, teams, agents, skills,
-credentials, integrations, metrics, health, and policy; it does not duplicate
-Settings Center controls or show redirect panels.
+- **Appearance** — theme, typography, and accent gradient.
+- **Chat & agents** — per-surface default agents and conversation behavior.
+- **Notifications** — personal release-note notifications.
+- **Account & access** — your identity, platform role, and teams.
+- **Developer** — debug preferences and session diagnostics.
 
-## Saving Changes
+### Platform settings
+
+Admins also see:
+
+- **Defaults** — fallback agent for people without a personal choice.
+- **Announcements** — platform-wide release announcements.
+
+AI Review and access-before-sign-in policy remain in **Admin → Security &
+Policy** because they are governance and access-management workflows.
+
+## Admin map
+
+Admin opens at **Teams & Users → Users**. Its category buttons disclose their
+destinations without navigating, allowing an administrator to choose the exact
+page before leaving the current one.
+
+- **Resources** — agent configuration, Skill Hubs, service accounts, and
+  credential administration.
+- **Teams & Users** — users, teams, and identity sync.
+- **Integrations** — Slack and Webex administration.
+- **Insights** — statistics and feedback.
+- **Metrics & Health** — operational metrics, health, and authorization
+  insights.
+- **Security & Policy** — access policy, AI Review, authorization tools,
+  audits, identity health, and migrations.
+
+## Saving changes
 
 Single-setting controls save when you interact with them:
 
@@ -41,10 +61,9 @@ Single-setting controls save when you interact with them:
 - Failed server-authoritative changes roll back and can be retried.
 - Web, Slack, and Webex default-agent choices save independently.
 
-Multi-field policy and access forms keep an explicit review/apply action. A
-quiet inline status replaces repetitive success notifications.
+Multi-field policy and access forms retain an explicit review/apply action.
 
-## Platform Default Agent
+## Platform default agent
 
 The platform default applies only when a person has not chosen a personal
 default. Choosing one makes that agent available to every signed-in user, so
@@ -57,18 +76,18 @@ Resolution order:
 3. The `DEFAULT_AGENT_ID` deployment fallback.
 4. No default agent; the user chooses an accessible agent.
 
-If the configured agent is missing or no longer visible, the Settings Center
-shows a warning. Choose another agent or remove the platform default.
+If the configured agent is missing or no longer visible, Settings shows a
+warning. Choose another agent or remove the platform default.
 
-## Access Control
+## Access control
 
 - Any signed-in user can manage personal preferences and inspect their own
   account and access information.
-- Only admins can open or change platform settings.
-- Read-only admin simulation does not expose platform editing actions.
+- Only admins can see or change Platform settings.
+- Admin View as remains read-only for operational and policy controls.
 - Sensitive session and token values remain concealed until explicitly opened.
 
-## Related Pages
+## Related pages
 
 - [UI customization and branding](../ui/customization.md)
 - [Custom agents](./custom-agents.md)

@@ -2,10 +2,11 @@
  * @jest-environment jsdom
  */
 
-import { act,render,screen,waitFor } from "@testing-library/react";
+import { act,fireEvent,render,screen,waitFor } from "@testing-library/react";
 
 const mockGetSettings = jest.fn();
 const mockSetTheme = jest.fn();
+const mockOpenSettings = jest.fn();
 let mockTheme = "dark";
 let mockConfig: Record<string,string> = {};
 
@@ -15,6 +16,10 @@ jest.mock("next-themes",() => ({
 
 jest.mock("@/lib/api-client",() => ({
   apiClient: { getSettings: (...args: unknown[]) => mockGetSettings(...args) },
+}));
+
+jest.mock("@/components/settings/SettingsDialogProvider",() => ({
+  useSettingsDialog: () => ({ openSettings: mockOpenSettings }),
 }));
 
 jest.mock("@/lib/config",() => ({
@@ -47,14 +52,16 @@ describe("SettingsPanel",() => {
     });
   });
 
-  it("is a direct link to the canonical Appearance settings route",async () => {
+  it("opens the shared Settings dialog directly to Appearance",async () => {
     await act(async () => {
       render(<SettingsPanel />);
     });
 
-    const link = screen.getByRole("link",{ name: "Appearance settings" });
-    expect(link).toHaveAttribute("href","/settings/appearance");
-    expect(link).toHaveTextContent("Dark");
+    const button = screen.getByRole("button",{ name: "Appearance settings" });
+    expect(button).toHaveTextContent("Dark");
+
+    fireEvent.click(button);
+    expect(mockOpenSettings).toHaveBeenCalledWith("appearance");
   });
 
   it("hydrates cached appearance immediately",async () => {

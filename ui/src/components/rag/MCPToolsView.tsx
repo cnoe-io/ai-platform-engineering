@@ -1260,7 +1260,7 @@ export default function MCPToolsView() {
             <Wrench className="h-4 w-4 text-white" />
           </div>
           <div>
-            <h1 className="text-lg font-semibold">MCP Tools</h1>
+            <h2 className="text-lg font-semibold">MCP Tools</h2>
             <p className="text-xs text-muted-foreground">Configure search tools exposed to the MCP client</p>
           </div>
         </div>

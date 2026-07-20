@@ -6,18 +6,24 @@
 
 **Date:** 2026-07-16
 
+> **Final IA revision:** Settings is an in-context dialog. It owns personal
+> preferences plus the lightweight Defaults and Announcements controls shown
+> only to admins. Operational administration remains in the routed
+> [Admin workspace](../2026-07-16-admin-workspace/plan.md).
+
 ## Goal
 
-Replace the overlapping profile modal, appearance drawer, and mixed admin settings cards with one routed Settings Center.
+Replace the overlapping profile modal, appearance drawer, and mixed admin
+settings cards with one Settings dialog that preserves the page underneath.
 
 ```text
 Avatar menu ──────────┐
-Appearance shortcut ─┴──> /settings/<section>
+Appearance shortcut ─┴──> Settings dialog -> selected section
 ```
 
 - Give every setting one canonical home.
 - Keep personal and platform scope visibly separate.
-- Make sections linkable, refresh-safe, keyboard accessible, and responsive.
+- Keep sections keyboard accessible and responsive without changing page context.
 - Auto-save reversible, single-setting changes without losing or reordering writes.
 - Keep explicit confirmation for consequential platform changes.
 
@@ -33,40 +39,40 @@ Settings
 │   └── Developer
 └── Platform                       admin only
     ├── Defaults
-    ├── Access before sign-in
-    ├── Announcements
-    └── AI review
+    └── Announcements
 ```
 
 ### Personal
 
-| Route | Content | Save behavior |
+| Section | Content | Save behavior |
 |---|---|---|
-| `/settings/appearance` | Theme, gradient, font family, font size, preview | Auto-save |
-| `/settings/chat` | Web, Slack, and Webex default agents; memory; activity details; auto-scroll; timestamps | Auto-save per setting |
-| `/settings/notifications` | Release-note notification preference and preview | Auto-save |
-| `/settings/access` | Platform role, realm roles, teams | Read-only |
-| `/settings/developer` | Debug mode, OIDC/session information, diagnostics | Auto-save reversible preferences; sensitive values remain concealed by default |
+| Appearance | Theme, gradient, font family, font size, preview | Auto-save |
+| Chat & agents | Web, Slack, and Webex default agents; memory; activity details; auto-scroll; timestamps | Auto-save per setting |
+| Notifications | Release-note notification preference and preview | Auto-save |
+| Account & access | Platform role, realm roles, teams | Read-only |
+| Developer | Debug mode, OIDC/session information, diagnostics | Auto-save reversible preferences; sensitive values remain concealed by default |
 
 ### Platform
 
-| Route | Content | Save behavior |
+| Section | Content | Save behavior |
 |---|---|---|
-| `/settings/platform/defaults` | Platform default agent | Select, confirm consequence, persist |
-| `/settings/platform/access` | Access granted before a user signs in | Review/apply in existing management flow |
-| `/settings/platform/announcements` | Platform release-note switch | Auto-save |
-| `/settings/platform/ai-review` | AI review configuration | Explicit save for multi-field edits |
+| Defaults | Platform default agent | Select, confirm consequence, persist |
+| Announcements | Platform release-note switch | Auto-save |
+
+Access before sign-in and AI Review remain in Admin → Security & Policy.
 
 ## Desktop and mobile layout
 
-- Use a real page under the application header, not a conventional modal.
-- Desktop: 220–240 px left navigation; focused 720–800 px content column.
-- Keep one page scroll container.
+- Use a large modal dialog so closing Settings restores the caller's context.
+- Desktop: 256 px left navigation and a focused content column inside a
+  responsive dialog capped at 1,152 px.
+- Keep one dialog-content scroll container and a fixed dialog header.
 - Show Personal and Platform as separate navigation groups.
 - Hide Platform navigation for users without platform-admin access.
-- Mobile: compact section picker above the content; preserve the current route.
-- Redirect `/settings` to `/settings/chat`.
-- Unknown or unauthorized routes fall back to the nearest valid personal section.
+- Mobile: compact section picker above the content.
+- Profile Settings opens at Chat & agents; the header shortcut opens directly
+  at Appearance.
+- Unauthorized platform selections fall back to Chat & agents.
 
 ## Auto-save contract
 
@@ -87,10 +93,10 @@ idle -> saving -> saved
 
 ## Implementation phases
 
-### 1. Routed workspace
+### 1. Shared settings workspace
 
-- Add the catch-all settings route and route registry.
-- Add responsive navigation, page header, scope labels, empty/loading/error states.
+- Add a typed section registry and in-context dialog host.
+- Add responsive navigation, dialog header, scope labels, empty/loading/error states.
 - Add shared setting row, switch, and auto-save status primitives.
 
 ### 2. Safe persistence
@@ -110,27 +116,27 @@ idle -> saving -> saved
 
 ### 4. Platform sections
 
-- Remove personal content from the current admin platform-default card.
 - Preserve confirmation when changing the platform default agent.
-- Move unlinked access, platform announcements, and AI review to scoped routes.
-- Preserve read-only admin simulation behavior.
+- Keep Defaults and Announcements in the admin-only Platform settings group.
+- Keep access-before-sign-in and AI Review in Admin → Security & Policy.
 
-### 5. Entry points and compatibility
+### 5. Entry points and route cleanup
 
-- Route avatar Settings to `/settings/chat`.
-- Route the header appearance shortcut to `/settings/appearance`.
-- Keep Settings Center out of the primary navigation selection state.
+- Open avatar Settings at Chat & agents without changing the current URL.
+- Open the header appearance shortcut at Appearance in the same dialog.
+- Preserve the active primary navigation item beneath the dialog.
 - Remove duplicate Admin General and AI Review proxy tabs.
-- Retire the profile settings dialog and appearance drawer after parity is covered.
-- Redirect legacy Admin settings URLs to the first canonical Admin resource tab.
+- Retire the old profile settings dialog and appearance drawer after parity is covered.
+- Remove legacy Admin query routes and credentials hash navigation instead of preserving compatibility redirects.
 
 ### 6. Verification and docs
 
 - Unit-test route selection, admin visibility, keyed write ordering, coalescing, retry, rollback, and unmount safety.
 - Test personal default agents independently for Web, Slack, and Webex.
-- Test direct URLs, refresh, keyboard navigation, mobile layout, and admin-only routes.
+- Test caller-context preservation, keyboard navigation, mobile layout, and admin-only sections.
 - Update user customization, admin settings, and RBAC usage documentation.
-- Run `nvm use`, targeted Jest tests, `npm run lint`, and `npm run build`.
+- Run the Jest suite, `npm run lint`, TypeScript, and the affected Playwright specs.
+- Omit `npm run build` for this review cycle at the reviewer's request.
 
 ## Non-goals
 
@@ -141,22 +147,22 @@ idle -> saving -> saved
 
 ## Definition of done
 
-- One canonical routed settings workspace exists.
+- One canonical Settings dialog exists.
 - Personal and platform settings never share the same card.
 - Personal single-setting controls have no Save buttons.
 - Every auto-save exposes saving, saved, and actionable error states.
 - Rapid interaction cannot lose or reorder writes.
 - Consequential platform changes remain confirmed.
-- Old settings modal/drawer entry points route to the correct section.
-- Deep links, browser navigation, mobile layout, and keyboard use work.
+- Profile and appearance entry points open the correct section.
+- Caller context, mobile layout, and keyboard use work.
 - Per-surface default-agent behavior remains intact.
 
 ## Verification status
 
-- Focused Jest: 12 suites, 119 tests passed.
+- Jest: 531 suites, 6,530 tests passed.
 - ESLint: passed.
 - TypeScript (`tsc --noEmit --incremental false`): passed.
-- Playwright: 17 affected tests discovered across the Settings Center, admin
-  settings regression, and service-account flows.
-- Browser execution is deferred to the local review pass.
+- Affected Playwright coverage was updated and audited for retired routes and
+  implementation-detail assertions. Browser execution is deferred to the joint
+  local review pass.
 - `npm run build` was intentionally omitted at the request of the reviewer.

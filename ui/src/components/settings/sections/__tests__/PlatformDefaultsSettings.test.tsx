@@ -66,6 +66,14 @@ describe("PlatformDefaultsSettings",() => {
     expect(screen.queryByRole("button",{ name: /^save$/i })).not.toBeInTheDocument();
   });
 
+  it("disables the platform agent picker in read-only simulation",async () => {
+    render(<PlatformDefaultsSettings readOnly />);
+
+    expect(
+      await screen.findByRole("button",{ name: /Platform default agent for new chats/i }),
+    ).toBeDisabled();
+  });
+
   it("opens confirmation as soon as a consequential selection is made",async () => {
     const fetchMock = installFetchMock();
     render(<PlatformDefaultsSettings />);

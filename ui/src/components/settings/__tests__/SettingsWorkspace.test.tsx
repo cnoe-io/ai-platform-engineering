@@ -2,19 +2,11 @@
  * @jest-environment jsdom
  */
 
-import { render,screen,waitFor } from "@testing-library/react";
-
-let pathname = "/settings/chat";
-let adminState = { isAdmin: false,loading: false };
-const replace = jest.fn();
+import { render,screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 
 jest.mock("next/navigation",() => ({
-  usePathname: () => pathname,
-  useRouter: () => ({ push: jest.fn(),replace }),
-}));
-
-jest.mock("@/hooks/use-admin-role",() => ({
-  useAdminRole: () => adminState,
+  useRouter: () => ({ push: jest.fn() }),
 }));
 
 jest.mock("@/components/settings/sections/AppearanceSettings",() => ({ AppearanceSettings: () => <div>Appearance content</div> }));
@@ -23,72 +15,61 @@ jest.mock("@/components/settings/sections/NotificationsSettings",() => ({ Notifi
 jest.mock("@/components/settings/sections/AccessSettings",() => ({ AccessSettings: () => <div>Access content</div> }));
 jest.mock("@/components/settings/sections/DeveloperSettings",() => ({ DeveloperSettings: () => <div>Developer content</div> }));
 jest.mock("@/components/settings/sections/PlatformDefaultsSettings",() => ({ PlatformDefaultsSettings: () => <div>Platform defaults content</div> }));
-jest.mock("@/components/settings/sections/PlatformAccessSettings",() => ({ PlatformAccessSettings: () => <div>Platform access content</div> }));
 jest.mock("@/components/settings/sections/PlatformAnnouncementsSettings",() => ({ PlatformAnnouncementsSettings: () => <div>Platform announcements content</div> }));
-jest.mock("@/components/admin/settings/ReviewConfigsTab",() => ({ ReviewConfigsTab: () => <div>AI review content</div> }));
 
 import { SettingsWorkspace } from "../SettingsWorkspace";
 
 describe("SettingsWorkspace",() => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-    pathname = "/settings/chat";
-    adminState = { isAdmin: false,loading: false };
-  });
+  it("renders the selected personal section and exposes its current state",() => {
+    render(
+      <SettingsWorkspace
+        activeRouteId="appearance"
+        isAdmin={false}
+        onRouteChange={jest.fn()}
+      />,
+    );
 
-  it("renders a deep-linked personal section with Personal scope",() => {
-    pathname = "/settings/appearance";
-    render(<SettingsWorkspace />);
-
-    expect(screen.getByRole("heading",{ name: "Settings" })).toBeInTheDocument();
-    expect(screen.getByText("Manage your experience.")).toBeInTheDocument();
-    const headerIcon = screen.getByTestId("settings-header-icon");
-    expect(headerIcon).toHaveClass("group");
-    expect(headerIcon.firstElementChild).toHaveClass("motion-safe:group-hover:rotate-90");
     expect(screen.getByRole("heading",{ name: "Appearance" })).toBeInTheDocument();
-    expect(screen.getAllByText("Personal").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Personal",{ exact: true }).length).toBeGreaterThan(0);
     expect(screen.getByText("Appearance content")).toBeInTheDocument();
-    expect(screen.queryByText("Platform defaults content")).not.toBeInTheDocument();
 
     const navigation = screen.getByRole("navigation",{ name: "Settings sections" });
-    const activeLink = screen.getByRole("link",{ name: "Appearance" });
-    expect(navigation).toContainElement(activeLink);
-    expect(activeLink).toHaveAttribute("aria-current","page");
-    expect(activeLink).toHaveClass("min-h-12","settings-navigation-active");
-    expect(activeLink.querySelector("[aria-hidden='true']")).toHaveClass("gradient-primary-br");
-    expect(screen.getByRole("link",{ name: "Chat & agents" })).not.toHaveAttribute("aria-current");
+    const activeButton = screen.getByRole("button",{ name: "Appearance" });
+    expect(navigation).toContainElement(activeButton);
+    expect(activeButton).toHaveAttribute("aria-current","page");
+    expect(screen.getByRole("button",{ name: "Chat & agents" })).not.toHaveAttribute(
+      "aria-current",
+    );
   });
 
-  it("hides all platform navigation from a non-admin",() => {
-    render(<SettingsWorkspace />);
+  it("shows platform settings only to admins",() => {
+    const { rerender } = render(
+      <SettingsWorkspace activeRouteId="chat" isAdmin={false} onRouteChange={jest.fn()} />,
+    );
 
-    expect(screen.queryByRole("link",{ name: "Defaults" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("link",{ name: "Access before sign-in" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button",{ name: "Defaults" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button",{ name: "Announcements" })).not.toBeInTheDocument();
+
+    rerender(
+      <SettingsWorkspace activeRouteId="chat" isAdmin onRouteChange={jest.fn()} />,
+    );
+
+    expect(screen.getByRole("button",{ name: "Defaults" })).toBeInTheDocument();
+    expect(screen.getByRole("button",{ name: "Announcements" })).toBeInTheDocument();
+    expect(screen.queryByRole("button",{ name: "AI Review" })).not.toBeInTheDocument();
   });
 
-  it("redirects a non-admin away from a direct platform URL",async () => {
-    pathname = "/settings/platform/defaults";
-    render(<SettingsWorkspace />);
-
-    await waitFor(() => expect(replace).toHaveBeenCalledWith("/settings/chat"));
-    expect(screen.queryByText("Platform defaults content")).not.toBeInTheDocument();
-  });
-
-  it("renders admin-only platform routes with explicit Platform scope",() => {
-    pathname = "/settings/platform/defaults";
-    adminState = { isAdmin: true,loading: false };
-    render(<SettingsWorkspace />);
+  it("selects platform sections without navigating away from the current page",async () => {
+    const user = userEvent.setup();
+    const onRouteChange = jest.fn();
+    render(
+      <SettingsWorkspace activeRouteId="defaults" isAdmin onRouteChange={onRouteChange} />,
+    );
 
     expect(screen.getByText("Platform · Admins")).toBeInTheDocument();
     expect(screen.getByText("Platform defaults content")).toBeInTheDocument();
-    expect(screen.getByRole("link",{ name: "Announcements" })).toBeInTheDocument();
-    expect(screen.getByRole("region",{ name: "Platform" })).toBeInTheDocument();
-  });
 
-  it("redirects an unknown settings path to the default personal section",async () => {
-    pathname = "/settings/not-a-real-section";
-    render(<SettingsWorkspace />);
-
-    await waitFor(() => expect(replace).toHaveBeenCalledWith("/settings/chat"));
+    await user.click(screen.getByRole("button",{ name: "Announcements" }));
+    expect(onRouteChange).toHaveBeenCalledWith("announcements");
   });
 });

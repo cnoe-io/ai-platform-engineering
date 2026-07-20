@@ -131,7 +131,7 @@ test.describe("mocked Slack Run as browser regression", () => {
       handlers: [slackHandler],
     });
 
-    await page.goto("/admin?cat=integrations&tab=slack", {
+    await page.goto("/admin/integrations/slack", {
       waitUntil: "domcontentloaded",
     });
 
@@ -268,7 +268,7 @@ test.describe("mocked Slack Run as browser regression", () => {
       handlers: [slackHandler],
     });
 
-    await page.goto("/admin?cat=integrations&tab=slack", {
+    await page.goto("/admin/integrations/slack", {
       waitUntil: "domcontentloaded",
     });
 
@@ -426,15 +426,15 @@ test.describe("mocked Slack Run as browser regression", () => {
       handlers: [slackHandler],
     });
 
-    await page.goto("/admin?cat=integrations&tab=slack", {
+    await page.goto("/admin/integrations/slack", {
       waitUntil: "domcontentloaded",
     });
 
     // assisted-by Codex Codex-sonnet-4-6
     // A team-shared Slack channel should show the non-admin configured view and
     // allow route edits when the selected team grants channel manage.
-    await expect(page.getByRole("button", { name: "Integrations" })).toBeVisible();
-    await expect(page.getByRole("tab", { name: "Slack" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Integrations" })).toHaveAttribute("data-active", "true");
+    await expect(page.getByRole("link", { name: "Slack" })).toHaveAttribute("aria-current", "page");
     await expect(page.getByText("My Slack Channel Settings")).toBeVisible();
     await expect(page.getByText("Manage Slack bot routing for channels shared with your team.")).toBeVisible();
     await expect(page.getByText(/Members of the assigned team can update this Slack channel/)).toBeVisible();
@@ -585,7 +585,7 @@ test.describe("mocked Slack Run as browser regression", () => {
       handlers: [slackHandler],
     });
 
-    await page.goto("/admin?cat=integrations&tab=slack", {
+    await page.goto("/admin/integrations/slack", {
       waitUntil: "domcontentloaded",
     });
 
@@ -733,7 +733,7 @@ test.describe("mocked Slack Run as browser regression", () => {
       handlers: [slackHandler],
     });
 
-    await page.goto("/admin?cat=integrations&tab=slack&subtab=onboard", {
+    await page.goto("/admin/integrations/slack?subtab=onboard", {
       waitUntil: "domcontentloaded",
     });
 
@@ -807,7 +807,7 @@ test.describe("mocked Slack Run as browser regression", () => {
       handlers: [slackHandler],
     });
 
-    await page.goto("/admin?cat=integrations&tab=slack", {
+    await page.goto("/admin/integrations/slack", {
       waitUntil: "domcontentloaded",
     });
 
@@ -931,7 +931,7 @@ test.describe("mocked Slack Run as browser regression", () => {
       handlers: [slackHandler],
     });
 
-    await page.goto("/admin?cat=integrations&tab=slack", {
+    await page.goto("/admin/integrations/slack", {
       waitUntil: "domcontentloaded",
     });
 
@@ -1047,7 +1047,7 @@ test.describe("mocked Slack Run as browser regression", () => {
       handlers: [slackHandler],
     });
 
-    await page.goto("/admin?cat=integrations&tab=slack", {
+    await page.goto("/admin/integrations/slack", {
       waitUntil: "domcontentloaded",
     });
 

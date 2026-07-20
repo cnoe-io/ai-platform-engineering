@@ -23,8 +23,6 @@ export interface FeatureFlag {
   defaultValue: boolean;
   /** MongoDB preferences field name used for server sync */
   preferencesKey: string;
-  /** URL to documentation page (opened when the info button is clicked) */
-  docsUrl?: string;
 }
 
 export const FEATURE_FLAGS: FeatureFlag[] = [
@@ -38,7 +36,6 @@ export const FEATURE_FLAGS: FeatureFlag[] = [
     category: "ai",
     defaultValue: true,
     preferencesKey: "memory_enabled",
-    docsUrl: "/docs/features/cross-thread-memory",
   },
   {
     id: "showThinking",

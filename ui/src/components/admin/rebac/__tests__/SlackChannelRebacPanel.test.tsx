@@ -14,7 +14,7 @@ jest.mock("@/components/ui/toast", () => ({
 const replaceMock = jest.fn();
 let currentSearchParams = new URLSearchParams();
 jest.mock("next/navigation", () => ({
-  usePathname: () => "/admin",
+  usePathname: () => "/admin/integrations/slack",
   useRouter: () => ({ replace: replaceMock }),
   useSearchParams: () => currentSearchParams,
 }));
@@ -1220,17 +1220,17 @@ it("writes the active sub-tab to the subtab URL param", async () => {
   await screen.findByRole("tab", { name: "Configured channels" });
 
   await switchToTab("Advanced");
-  expect(replaceMock).toHaveBeenLastCalledWith("/admin?subtab=advanced", {
+  expect(replaceMock).toHaveBeenLastCalledWith("/admin/integrations/slack?subtab=advanced", {
     scroll: false,
   });
 
   await switchToTab("Onboard channels");
-  expect(replaceMock).toHaveBeenLastCalledWith("/admin?subtab=onboard", {
+  expect(replaceMock).toHaveBeenLastCalledWith("/admin/integrations/slack?subtab=onboard", {
     scroll: false,
   });
 
   await switchToTab("Configured channels");
-  expect(replaceMock).toHaveBeenLastCalledWith("/admin?subtab=channels", {
+  expect(replaceMock).toHaveBeenLastCalledWith("/admin/integrations/slack?subtab=channels", {
     scroll: false,
   });
 });

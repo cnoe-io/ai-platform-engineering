@@ -10,8 +10,6 @@ import { Card,CardContent,CardDescription,CardHeader,CardTitle } from "@/compone
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-import { LLMModelsTab,type LLMModelsTabProps } from "./LLMModelsTab";
-
 type ProviderField = {
   id: string;
   label: string;
@@ -201,10 +199,7 @@ function ProviderCredentialDialog({
   );
 }
 
-export function LLMProvidersTab({
-  selectedModelId,
-  onSelectedModelChange,
-}: LLMModelsTabProps = {}) {
+export function LLMProvidersTab() {
   const [models, setModels] = React.useState<LlmModel[]>([]);
   const [secrets, setSecrets] = React.useState<SecretMetadata[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -246,11 +241,11 @@ export function LLMProvidersTab({
 
   return (
     <section className="space-y-6">
-      <Card>
-        <CardHeader>
+      <Card className="rounded-none border-0 bg-transparent shadow-none">
+        <CardHeader className="px-0 pb-5 pt-0">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <CardTitle>Model Providers</CardTitle>
+              <CardTitle className="text-xl">Model Providers</CardTitle>
               <CardDescription>
                 Save the provider keys agents need to use each model.
               </CardDescription>
@@ -261,7 +256,7 @@ export function LLMProvidersTab({
             </Button>
           </div>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-4 px-0 pt-6">
           {error && (
             <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-3">
               <AlertTriangle className="mt-0.5 h-4 w-4 text-destructive" />
@@ -314,11 +309,6 @@ export function LLMProvidersTab({
           </div>
         </CardContent>
       </Card>
-
-      <LLMModelsTab
-        selectedModelId={selectedModelId}
-        onSelectedModelChange={onSelectedModelChange}
-      />
 
       {editingProvider && (
         <ProviderCredentialDialog

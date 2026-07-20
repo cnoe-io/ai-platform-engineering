@@ -141,7 +141,7 @@ test.describe("mocked popover-in-dialog regression", () => {
       handlers: [slackHandler(routeWrites, routesRef)],
     });
 
-    await page.goto("/admin?cat=integrations&tab=slack", {
+    await page.goto("/admin/integrations/slack", {
       waitUntil: "domcontentloaded",
     });
 
