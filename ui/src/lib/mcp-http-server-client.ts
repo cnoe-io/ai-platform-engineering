@@ -12,7 +12,22 @@ import { writeOpenFgaTuples, type OpenFgaTupleKey } from "@/lib/rbac/openfga";
 import type { MCPServerConfig, MCPToolInfo } from "@/types/dynamic-agent";
 import type { NextRequest } from "next/server";
 
-const AGENT_CONTEXT_TTL_SECONDS = 300;
+// "local" contexts (minted by POST /api/mcp-servers/agent-context for CLI/
+// local callers, e.g. Claude Code's forge-rag MCP server) get a much longer
+// TTL than "dynamic" ones (Dynamic Agents runtime, the diagnostic test-tool
+// flow below). Those clients cache MCP headers for the life of a whole
+// session/connection rather than refreshing per request, so a short TTL
+// would force a re-auth or a failed-then-retried tool call every few
+// minutes. A longer TTL is safe here because the openfga-authz-bridge skips
+// the agent:<id> can_use/can_call checks entirely for "local" contexts —
+// they carry no delegated authority beyond what the signed-in user already
+// has, so there's no separate grant window to bound tightly. See the
+// "kind" handling in deploy/openfga/bridge/main.py.
+type AgentContextKind = "dynamic" | "local";
+const AGENT_CONTEXT_TTL_SECONDS: Record<AgentContextKind, number> = {
+  dynamic: 300,
+  local: 60 * 60 * 12,
+};
 
 type AuthSession = {
   sub?: string;
@@ -47,13 +62,16 @@ export function diagnosticAgentId(serverId: string, session: AuthSession): strin
   return `mcp-test-${serverId}-${hash}`.replace(/[^A-Za-z0-9._~@|*+=,/-]/g, "-").slice(0, 191);
 }
 
-export function multiServerAgentContextId(session: AuthSession): string {
+export function localAgentContextId(session: AuthSession): string {
   const subject = typeof session?.sub === "string" && session.sub.trim() ? session.sub.trim() : "unknown";
   const hash = crypto.createHash("sha256").update(subject).digest("hex").slice(0, 16);
-  return `mcp-agent-context-${hash}`.replace(/[^A-Za-z0-9._~@|*+=,/-]/g, "-").slice(0, 191);
+  return `mcp-local-agent-${hash}`.replace(/[^A-Za-z0-9._~@|*+=,/-]/g, "-").slice(0, 191);
 }
 
-export function buildAgentContextHeaders(agentId: string): Record<string, string> {
+export function buildAgentContextHeaders(
+  agentId: string,
+  kind: AgentContextKind = "dynamic",
+): Record<string, string> {
   const secret = process.env.CAIPE_AGENT_CONTEXT_HMAC_SECRET?.trim();
   if (!secret) return {};
 
@@ -61,7 +79,8 @@ export function buildAgentContextHeaders(agentId: string): Record<string, string
   const payload = {
     agent_id: agentId,
     iat: issuedAt,
-    exp: issuedAt + AGENT_CONTEXT_TTL_SECONDS,
+    exp: issuedAt + AGENT_CONTEXT_TTL_SECONDS[kind],
+    kind,
   };
   const encoded = b64url(JSON.stringify(payload));
   const signature = crypto.createHmac("sha256", secret).update(encoded).digest("hex");
@@ -105,22 +124,6 @@ export async function grantDiagnosticAgentAccess(
 ): Promise<OpenFgaTupleKey[]> {
   const writes = diagnosticOpenFgaTuples(serverId, agentId, session);
   if (!writes.length) return [];
-  await writeOpenFgaTuples({ writes, deletes: [] });
-  return writes;
-}
-
-export async function grantDiagnosticAgentAccessForServers(
-  serverIds: string[],
-  agentId: string,
-  session: AuthSession,
-): Promise<OpenFgaTupleKey[]> {
-  const subject = typeof session?.sub === "string" ? session.sub.trim() : "";
-  if (!subject || serverIds.length === 0) return [];
-
-  const writes: OpenFgaTupleKey[] = [{ user: `user:${subject}`, relation: "user", object: `agent:${agentId}` }];
-  for (const serverId of serverIds) {
-    writes.push({ user: `agent:${agentId}`, relation: "caller", object: `tool:${serverId}/*` });
-  }
   await writeOpenFgaTuples({ writes, deletes: [] });
   return writes;
 }

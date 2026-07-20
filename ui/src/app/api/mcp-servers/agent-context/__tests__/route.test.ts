@@ -80,6 +80,15 @@ function mcpServer(id: string) {
   };
 }
 
+function decodeAgentContextPayload(headers: Record<string, string>): {
+  agent_id: string;
+  kind: string;
+  iat: number;
+  exp: number;
+} {
+  return JSON.parse(Buffer.from(headers["X-CAIPE-Agent-Context"], "base64url").toString("utf8"));
+}
+
 describe("POST /api/mcp-servers/agent-context", () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -105,22 +114,11 @@ describe("POST /api/mcp-servers/agent-context", () => {
     expect(body.data.server_ids.sort()).toEqual(["argocd", "jira"]);
     expect(body.data.headers["X-CAIPE-Agent-Context"]).toEqual(expect.any(String));
     expect(body.data.headers["X-CAIPE-Agent-Context-Signature"]).toEqual(expect.any(String));
+    expect(decodeAgentContextPayload(body.data.headers).kind).toBe("local");
 
-    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
-      writes: [
-        expect.objectContaining({ user: "user:user-sub", relation: "user" }),
-        expect.objectContaining({ relation: "caller", object: "tool:argocd/*" }),
-        expect.objectContaining({ relation: "caller", object: "tool:jira/*" }),
-      ],
-      deletes: [],
-    });
-    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
-      writes: [],
-      deletes: expect.arrayContaining([
-        expect.objectContaining({ object: "tool:argocd/*" }),
-        expect.objectContaining({ object: "tool:jira/*" }),
-      ]),
-    });
+    // No OpenFGA tuples are granted or revoked — a "local" context carries no
+    // delegated authority to bound, so there's nothing to write.
+    expect(mockWriteOpenFgaTuples).not.toHaveBeenCalled();
   });
 
   it("scopes the context to only the requested serverIds", async () => {
@@ -174,10 +172,7 @@ describe("POST /api/mcp-servers/agent-context", () => {
     const response = await POST(request({ serverIds: ["argocd"] }));
 
     expect(response.status).toBe(503);
-    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
-      writes: [],
-      deletes: expect.arrayContaining([expect.objectContaining({ object: "tool:argocd/*" })]),
-    });
+    expect(mockWriteOpenFgaTuples).not.toHaveBeenCalled();
   });
 
   it("rejects a non-array serverIds body with 400", async () => {

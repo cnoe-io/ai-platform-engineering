@@ -1,18 +1,28 @@
 /**
- * Mint a short-lived signed agent context covering one or more MCP servers
- * for CLI/local callers invoking tools directly through AgentGateway.
+ * Mint a signed "local" agent context covering one or more MCP servers, for
+ * CLI/local callers (e.g. a Claude Code or Codex MCP client) invoking tools
+ * directly through AgentGateway under the caller's own identity.
  *
  * AgentGateway's openfga-authz-bridge rejects tools/call requests with
  * "missing or invalid signed agent context" once CAIPE_AGENT_CONTEXT_HMAC_SECRET
  * is set, because that header pair is normally only produced by the Dynamic
  * Agents runtime (or this UI's own diagnostic test-tool flow). A bare local
  * client authenticates with a user's bearer token but has no way to produce
- * that signature itself, since the HMAC secret must stay in-cluster. This
- * route lets an authenticated user mint one context that authorizes calls
- * against every server they request (or every server they can invoke, if
- * none are requested), since the signature itself carries no per-server
- * scope — scoping comes entirely from the OpenFGA `caller` tuples granted
- * for the minted agent id before signing.
+ * that signature itself, since the HMAC secret must stay in-cluster.
+ *
+ * Unlike the Dynamic Agent / diagnostic flows, this route does NOT grant or
+ * revoke any OpenFGA tuples: the minted context is marked `kind: "local"`,
+ * and the bridge (deploy/openfga/bridge/main.py) skips the agent:<id>
+ * can_use/can_call checks entirely for that kind, since a local context
+ * grants no authority beyond what the signed-in caller already has via the
+ * `can_invoke`/caller-keyed checks it performs unconditionally on every
+ * request. That's what makes it safe to hand this context to a caller for
+ * use in later, separate requests — there's no tuple to expire out from
+ * under them (see the removed grant-then-immediately-revoke code this
+ * replaced, which broke every tools/call after the mint request returned).
+ * The signature's own `exp` (see buildAgentContextHeaders' "local" TTL) is
+ * the only lifetime bound left, chosen long enough to outlast a normal MCP
+ * client session/connection rather than to gate authorization.
  */
 
 import {
@@ -22,12 +32,7 @@ import {
   withErrorHandler,
 } from "@/lib/api-middleware";
 import { getCollection } from "@/lib/mongodb";
-import {
-  buildAgentContextHeaders,
-  grantDiagnosticAgentAccessForServers,
-  multiServerAgentContextId,
-  revokeDiagnosticAgentAccess,
-} from "@/lib/mcp-http-server-client";
+import { buildAgentContextHeaders, localAgentContextId } from "@/lib/mcp-http-server-client";
 import { filterResourcesByPermission } from "@/lib/rbac/resource-authz";
 import type { MCPServerConfig } from "@/types/dynamic-agent";
 import { NextRequest } from "next/server";
@@ -75,20 +80,14 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   }
 
   const serverIds = invokableServers.map((server) => String(server._id));
-  const agentId = multiServerAgentContextId(session);
-  const tuples = await grantDiagnosticAgentAccessForServers(serverIds, agentId, session);
-
-  try {
-    const headers = buildAgentContextHeaders(agentId);
-    if (Object.keys(headers).length === 0) {
-      throw new ApiError(
-        "Agent context signing is not configured on this deployment.",
-        503,
-        "AGENT_CONTEXT_UNAVAILABLE",
-      );
-    }
-    return successResponse({ headers, server_ids: serverIds });
-  } finally {
-    await revokeDiagnosticAgentAccess(tuples, "mcp-servers-agent-context");
+  const agentId = localAgentContextId(session);
+  const headers = buildAgentContextHeaders(agentId, "local");
+  if (Object.keys(headers).length === 0) {
+    throw new ApiError(
+      "Agent context signing is not configured on this deployment.",
+      503,
+      "AGENT_CONTEXT_UNAVAILABLE",
+    );
   }
+  return successResponse({ headers, server_ids: serverIds });
 });
