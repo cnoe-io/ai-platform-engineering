@@ -245,6 +245,7 @@ export function ConversationsTab() {
               />
             </div>
             <select
+              aria-label="Filter conversations by agent"
               value={agentFilter}
               onChange={(e) => {
                 setAgentFilter(e.target.value);
@@ -468,8 +469,10 @@ export function ConversationsTab() {
 
                 {/* Page size dropdown */}
                 <div className="flex items-center gap-2">
-                  <label className="text-sm text-muted-foreground whitespace-nowrap">Rows</label>
+                  <label className="text-sm text-muted-foreground whitespace-nowrap" htmlFor="conversation-page-size">Rows</label>
                   <select
+                    aria-label="Rows per page"
+                    id="conversation-page-size"
                     value={pageSize}
                     onChange={(e) => {
                       setPageSize(Number(e.target.value));

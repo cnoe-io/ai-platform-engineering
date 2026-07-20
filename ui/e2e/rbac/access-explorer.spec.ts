@@ -352,7 +352,7 @@ test.describe("mocked Access Explorer browser regression", () => {
     const search = page.getByPlaceholder(accessExplorerPlaceholder);
     await search.focus();
 
-    const explorer = page.getByLabel("Access Explorer");
+    const explorer = page.getByTestId("access-explorer-search-stage");
     await expect(explorer.getByText("Users", { exact: true })).toBeVisible();
     await expect(explorer.getByText("Agents", { exact: true })).toBeVisible();
     await expect(explorer.getByText("Skills", { exact: true })).toBeVisible();
@@ -381,7 +381,7 @@ test.describe("mocked Access Explorer browser regression", () => {
       .getByPlaceholder(accessExplorerPlaceholder)
       .fill("sri");
 
-    const explorer = page.getByLabel("Access Explorer");
+    const explorer = page.getByTestId("access-explorer-search-stage");
     await expect(explorer.getByText("Users", { exact: true })).toBeVisible();
     await expect(explorer.getByText("Teams", { exact: true })).toBeVisible();
     await expect(explorer.getByText("Service Accounts", { exact: true })).toBeVisible();

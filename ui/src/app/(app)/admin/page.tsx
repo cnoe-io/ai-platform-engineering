@@ -1546,7 +1546,7 @@ function AdminPage() {
                 </DialogContent>
               </Dialog>
 
-              {!adminTabGatesLoading && visibleCategories.length === 0 && (
+              {visibleCategories.length === 0 && (
                 <div
                   role="status"
                   className="rounded-lg border border-dashed border-amber-500/40 bg-amber-500/5 px-6 py-10 text-center"
