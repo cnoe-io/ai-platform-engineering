@@ -212,7 +212,17 @@ async function openSettings(
   page: Page,
   section?: "Appearance" | "Chat & agents" | "Notifications" | "Defaults" | "Announcements",
 ): Promise<Locator> {
-  await page.getByRole("button",{ exact: true,name: "Appearance settings" }).click();
+  const settingsTrigger = page.getByRole("button",{
+    exact: true,
+    name: "Appearance settings",
+  });
+
+  // DOMContentLoaded can fire while React is still hydrating the server-rendered
+  // header. Waiting for the persisted theme label proves SettingsPanel's client
+  // effect has completed, so Playwright does not chase a trigger being replaced
+  // during hydration.
+  await expect(settingsTrigger).toContainText("Dark");
+  await settingsTrigger.click();
   const dialog = page.getByRole("dialog",{ name: "Settings" });
   await expect(dialog).toBeVisible();
   const requestedSection = section ?? "Chat & agents";
@@ -415,8 +425,7 @@ test.describe("mocked Settings dialog browser regression",() => {
     await installSettingsCenterMocks(page,state,true);
     await page.goto("/",{ waitUntil: "domcontentloaded" });
 
-    await page.getByRole("button",{ name: "Appearance settings" }).click();
-    let dialog = page.getByRole("dialog",{ name: "Settings" });
+    let dialog = await openSettings(page,"Appearance");
     await expect(dialog.getByRole("heading",{ level: 2,name: "Appearance" })).toBeVisible();
     await dialog.getByRole("button",{ name: "Close" }).click();
     await expect(dialog).toBeHidden();
