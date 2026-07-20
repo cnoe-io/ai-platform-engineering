@@ -418,29 +418,20 @@ describe('AppHeader — nav tabs', () => {
       expect(pill.getAttribute('href')).toBe('/')
     })
 
-    it('Home has active styling when pathname is /', () => {
+    it('marks Home as the current page when pathname is /', () => {
       mockPathname = '/'
       render(<AppHeader />)
       const pill = getHomeNavPill()
-      expect(pill.className).toContain('text-white')
-      expect(pill.querySelector('.app-header-active-pill')).toHaveClass('gradient-primary')
+      expect(pill).toHaveAttribute('aria-current', 'page')
     })
 
-    it('Home does not have active styling on other paths', () => {
+    it('does not mark Home as current on other paths', () => {
       mockPathname = '/chat'
       render(<AppHeader />)
       const pill = getHomeNavPill()
-      expect(pill.className).toContain('text-muted-foreground')
-      expect(pill.querySelector('.app-header-active-pill')).not.toBeInTheDocument()
+      expect(pill).not.toHaveAttribute('aria-current')
     })
 
-    it('does not select a primary nav item on Settings routes', () => {
-      mockPathname = '/settings/chat'
-      render(<AppHeader />)
-
-      expect(document.querySelectorAll('.app-header-active-pill')).toHaveLength(0)
-      expect(getHomeNavPill()).toHaveClass('text-muted-foreground')
-    })
   })
 
   describe('core tabs', () => {
@@ -459,9 +450,10 @@ describe('AppHeader — nav tabs', () => {
       render(<AppHeader />)
 
       // Nav items overflow into More
-      const moreButton = screen.getByRole('button', { name: /more navigation/i })
+      const moreButton = screen.getByRole('button', {
+        name: /more navigation; chat is current/i,
+      })
       expect(moreButton).toHaveTextContent('More')
-      expect(moreButton.querySelector('.app-header-active-pill')).toHaveClass('bg-sky-600')
       // All items still accessible (inside the always-open popover mock)
       expect(screen.getByText('Home')).toBeInTheDocument()
       expect(screen.getByTestId('link-/chat')).toHaveTextContent('Chat')
@@ -479,16 +471,14 @@ describe('AppHeader — nav tabs', () => {
       mockPathname = '/skills'
       render(<AppHeader />)
       const link = screen.getByTestId('link-/skills')
-      expect(link.className).toContain('text-amber-950')
-      expect(link.querySelector('.app-header-active-pill')).toHaveClass('bg-amber-500')
+      expect(link).toHaveAttribute('aria-current', 'page')
     })
 
     it('shows Chat as active on /chat', () => {
       mockPathname = '/chat'
       render(<AppHeader />)
       const link = screen.getByTestId('link-/chat')
-      expect(link.className).toContain('text-white')
-      expect(link.querySelector('.app-header-active-pill')).toHaveClass('bg-sky-600')
+      expect(link).toHaveAttribute('aria-current', 'page')
     })
 
     it('shows Knowledge Bases tab only when RAG is enabled', () => {
@@ -555,25 +545,22 @@ describe('AppHeader — nav tabs', () => {
       expect(screen.queryByTestId('link-/admin')).not.toBeInTheDocument()
     })
 
-    it('Admin tab shows red styling when active for admin user', () => {
+    it('marks Admin as current on a nested Admin route for an admin user', () => {
       mockIsAdmin = true
-      mockPathname = '/admin'
+      mockPathname = '/admin/security/ai-review'
       mockStorageMode = 'mongodb'
       render(<AppHeader />)
       const link = screen.getByTestId('link-/admin')
-      expect(link.className).toContain('text-white')
-      expect(link.querySelector('.app-header-active-pill')).toHaveClass('bg-red-600')
+      expect(link).toHaveAttribute('aria-current', 'page')
     })
 
-    it('Admin tab shows primary styling when active for non-admin user', () => {
+    it('marks Admin as current on a nested Admin route for a read-only user', () => {
       mockIsAdmin = false
-      mockPathname = '/admin'
+      mockPathname = '/admin/people/users'
       mockStorageMode = 'mongodb'
       render(<AppHeader />)
       const link = screen.getByTestId('link-/admin')
-      expect(link.className).toContain('text-white')
-      expect(link.querySelector('.app-header-active-pill')).toHaveClass('bg-rose-600')
-      expect(link.querySelector('.app-header-active-pill')).not.toHaveClass('bg-red-600')
+      expect(link).toHaveAttribute('aria-current', 'page')
     })
   })
 
@@ -697,7 +684,7 @@ describe('AppHeader — connection status badge', () => {
       render(<AppHeader />)
 
       const link = screen.getByRole('link', { name: /open admin health status/i })
-      expect(link).toHaveAttribute('href', '/admin?cat=platform&tab=health')
+      expect(link).toHaveAttribute('href', '/admin/operations/health')
       expect(mockRouterPush).not.toHaveBeenCalled()
     })
 
@@ -1139,7 +1126,7 @@ describe('AppHeader — Chat tab notification dots', () => {
     // <button>s that programmatically push the route. Verify that the
     // click handler actually fires and targets the migrations tab.
     fireEvent.click(row!)
-    expect(mockRouterPush).toHaveBeenCalledWith('/admin?cat=security&tab=migrations')
+    expect(mockRouterPush).toHaveBeenCalledWith('/admin/security/migrations')
   })
 
   it('shows the admin alerts pill for version-metadata bootstrap (amber-severity)', () => {
@@ -1168,7 +1155,7 @@ describe('AppHeader — Chat tab notification dots', () => {
     const row = findAlertRow('Version metadata needed')
     expect(row).not.toBeNull()
     fireEvent.click(row!)
-    expect(mockRouterPush).toHaveBeenCalledWith('/admin?cat=security&tab=migrations')
+    expect(mockRouterPush).toHaveBeenCalledWith('/admin/security/migrations')
   })
 
   it('renders one popover row per active admin alert source and picks worst severity for the trigger', () => {
@@ -1223,9 +1210,9 @@ describe('AppHeader — Chat tab notification dots', () => {
     // must push the Keycloak tab and clicking the version row must
     // push the Migrations tab (no cross-talk).
     fireEvent.click(keycloakRow!)
-    expect(mockRouterPush).toHaveBeenLastCalledWith('/admin?cat=security&tab=keycloak')
+    expect(mockRouterPush).toHaveBeenLastCalledWith('/admin/security/keycloak')
     fireEvent.click(versionRow!)
-    expect(mockRouterPush).toHaveBeenLastCalledWith('/admin?cat=security&tab=migrations')
+    expect(mockRouterPush).toHaveBeenLastCalledWith('/admin/security/migrations')
     expect(mockRouterPush).toHaveBeenCalledTimes(2)
   })
 
@@ -1287,7 +1274,7 @@ describe('AppHeader — Chat tab notification dots', () => {
     expect(row).not.toBeNull()
     expect(row?.textContent ?? '').toContain('4')
     fireEvent.click(row!)
-    expect(mockRouterPush).toHaveBeenCalledWith('/admin?cat=security&tab=keycloak')
+    expect(mockRouterPush).toHaveBeenCalledWith('/admin/security/keycloak')
   })
 
   it('hides the admin alerts pill when no admin alert sources are active', () => {
@@ -1369,7 +1356,7 @@ describe('AppHeader — Chat tab notification dots', () => {
     expect(row).not.toBeNull()
     fireEvent.click(row!)
 
-    expect(mockRouterPush).toHaveBeenCalledWith('/admin?cat=security&tab=keycloak')
+    expect(mockRouterPush).toHaveBeenCalledWith('/admin/security/keycloak')
     // …AND AppHeader sets alertsPopoverOpen to false on the same
     // click, so the user lands on the destination tab without a
     // dangling floating layer.

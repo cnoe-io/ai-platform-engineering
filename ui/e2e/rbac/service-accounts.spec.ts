@@ -247,7 +247,7 @@ test.describe("mocked service accounts browser regression", () => {
       handlers: [serviceAccountHandler],
     });
 
-    await page.goto("/admin?cat=settings&tab=service-accounts", {
+    await page.goto("/admin/platform/service-accounts", {
       waitUntil: "domcontentloaded",
     });
 
@@ -431,7 +431,7 @@ test.describe("mocked service accounts browser regression", () => {
       handlers: [handler],
     });
 
-    await page.goto("/admin?cat=settings&tab=service-accounts", {
+    await page.goto("/admin/platform/service-accounts", {
       waitUntil: "domcontentloaded",
     });
 
@@ -560,7 +560,7 @@ test.describe("mocked service accounts browser regression", () => {
       handlers: [heldOnlyHandler],
     });
 
-    await page.goto("/admin?cat=settings&tab=service-accounts", {
+    await page.goto("/admin/platform/service-accounts", {
       waitUntil: "domcontentloaded",
     });
 
@@ -706,7 +706,7 @@ test.describe("mocked service accounts browser regression", () => {
     });
     await forceCredentialClientConfig(page);
 
-    await page.goto("/admin?cat=settings&tab=service-accounts", {
+    await page.goto("/admin/platform/service-accounts", {
       waitUntil: "domcontentloaded",
     });
 
@@ -843,7 +843,7 @@ test.describe("mocked service accounts browser regression", () => {
       handlers: [disabledTokensHandler],
     });
 
-    await page.goto("/admin?cat=settings&tab=service-accounts", {
+    await page.goto("/admin/platform/service-accounts", {
       waitUntil: "domcontentloaded",
     });
 
@@ -926,7 +926,7 @@ test.describe("mocked service accounts browser regression", () => {
       handlers: [unlinkedHandler],
     });
 
-    await page.goto("/settings/platform/access", {
+    await page.goto("/admin/security/access-before-sign-in", {
       waitUntil: "domcontentloaded",
     });
 
@@ -1031,7 +1031,7 @@ test.describe("mocked service accounts browser regression", () => {
       handlers: [unlinkedEmptyToolsHandler],
     });
 
-    await page.goto("/settings/platform/access", {
+    await page.goto("/admin/security/access-before-sign-in", {
       waitUntil: "domcontentloaded",
     });
 

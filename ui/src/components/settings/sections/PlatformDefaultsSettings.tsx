@@ -19,7 +19,11 @@ import { useEffect,useState } from "react";
 
 type PendingAction = "set" | "clear";
 
-export function PlatformDefaultsSettings(): React.ReactElement {
+export function PlatformDefaultsSettings({
+  readOnly = false,
+}: {
+  readOnly?: boolean;
+}): React.ReactElement {
   const [agents,setAgents] = useState<DynamicAgentConfig[]>([]);
   const [selectedAgentId,setSelectedAgentId] = useState<string | null>(null);
   const [savedAgentId,setSavedAgentId] = useState<string | null>(null);
@@ -160,6 +164,7 @@ export function PlatformDefaultsSettings(): React.ReactElement {
               <label className="text-sm font-medium" htmlFor="platform-default-agent">Agent for new chats</label>
               <AgentPicker
                 ariaLabel="Platform default agent for new chats"
+                disabled={readOnly}
                 emptyLabel="No agents match"
                 hideIdSuffix
                 id="platform-default-agent"

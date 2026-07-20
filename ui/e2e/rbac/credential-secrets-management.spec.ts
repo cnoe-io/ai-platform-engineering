@@ -210,7 +210,7 @@ test.describe("RBAC e2e — credential secrets management", () => {
     const env = rbacEnvOrSkip();
     await signIn(page, env);
 
-    await page.goto("/admin?tab=credentials", { waitUntil: "domcontentloaded" });
+    await page.goto("/admin/platform/credentials", { waitUntil: "domcontentloaded" });
     await dismissReleaseUpgradeDialog(page);
 
     await expect(page.getByRole("heading", { name: "Secrets" })).toBeVisible({
@@ -253,7 +253,7 @@ test.describe("RBAC e2e — credential secrets management", () => {
     const env = rbacEnvOrSkip();
     await signIn(page, env);
 
-    await page.goto("/credentials#secrets", { waitUntil: "domcontentloaded" });
+    await page.goto("/credentials/secrets", { waitUntil: "domcontentloaded" });
     await dismissReleaseUpgradeDialog(page);
 
     await expect(page.getByRole("heading", { name: "Saved Secrets" })).toBeVisible({
@@ -285,7 +285,7 @@ test.describe("RBAC e2e — credential secrets management", () => {
     const env = rbacEnvOrSkip();
     await signIn(page, env);
 
-    await page.goto("/credentials#secrets", { waitUntil: "domcontentloaded" });
+    await page.goto("/credentials/secrets", { waitUntil: "domcontentloaded" });
     await dismissReleaseUpgradeDialog(page);
 
     await expect(page.getByRole("heading", { name: "Saved Secrets" })).toBeVisible({
@@ -342,7 +342,7 @@ test.describe("RBAC e2e — credential secrets management", () => {
     const env = rbacEnvOrSkip();
     await signIn(page, env);
 
-    await page.goto("/credentials#secrets", { waitUntil: "domcontentloaded" });
+    await page.goto("/credentials/secrets", { waitUntil: "domcontentloaded" });
     await dismissReleaseUpgradeDialog(page);
     await expect(page.getByText("GitHub token")).toBeVisible({ timeout: 30_000 });
 
@@ -367,7 +367,7 @@ test.describe("RBAC e2e — credential secrets management", () => {
     const env = rbacEnvOrSkip();
     await signIn(page, env);
 
-    await page.goto("/credentials#secrets", { waitUntil: "domcontentloaded" });
+    await page.goto("/credentials/secrets", { waitUntil: "domcontentloaded" });
     await dismissReleaseUpgradeDialog(page);
     await expect(page.getByText("GitHub token")).toBeVisible({ timeout: 30_000 });
 
@@ -492,7 +492,7 @@ test.describe("RBAC e2e — credential secrets management", () => {
     });
 
     await signIn(page, env);
-    await page.goto("/credentials#secrets", { waitUntil: "domcontentloaded" });
+    await page.goto("/credentials/secrets", { waitUntil: "domcontentloaded" });
     await dismissReleaseUpgradeDialog(page);
     await expect(page.getByRole("heading", { name: "Saved Secrets" })).toBeVisible({
       timeout: 30_000,
@@ -506,9 +506,7 @@ test.describe("RBAC e2e — credential secrets management", () => {
     await relayPage.waitForLoadState("domcontentloaded");
     await relayPage.close().catch(() => undefined);
 
-    await expect
-      .poll(() => new URL(page.url()).hash, { timeout: 15_000 })
-      .toBe("#connections");
+    await expect(page).toHaveURL(/\/credentials\/connections$/,{ timeout: 15_000 });
     await expect(page.getByRole("heading", { name: "Connected Apps" })).toBeVisible();
     await expect(page.getByText("Atlassian Cloud")).toBeVisible();
     await expect(page.getByText("healthy")).toBeVisible();
@@ -573,7 +571,7 @@ test.describe("RBAC e2e — credential secrets management", () => {
     });
 
     await signIn(page, env);
-    await page.goto("/admin?cat=security&tab=migrations", { waitUntil: "domcontentloaded" });
+    await page.goto("/admin/security/migrations", { waitUntil: "domcontentloaded" });
     await dismissReleaseUpgradeDialog(page);
 
     await expect(page.getByRole("heading", { name: "Platform Data Updates" })).toBeVisible({

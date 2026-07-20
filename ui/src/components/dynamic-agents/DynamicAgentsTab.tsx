@@ -373,11 +373,11 @@ export function DynamicAgentsTab({
   }
 
   return (
-    <Card>
-      <CardHeader>
+    <Card className="rounded-none border-0 bg-transparent shadow-none">
+      <CardHeader className="px-0 pb-5 pt-0">
         <div className="flex items-center justify-between">
           <div>
-            <CardTitle>Agents</CardTitle>
+            <CardTitle className="text-xl">Agents</CardTitle>
             <CardDescription>
               Build agents and choose the instructions, tools, and model they use.
             </CardDescription>
@@ -403,7 +403,7 @@ export function DynamicAgentsTab({
           </div>
         </div>
       </CardHeader>
-      <CardContent>
+      <CardContent className="px-0 pt-6">
         {loading ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />

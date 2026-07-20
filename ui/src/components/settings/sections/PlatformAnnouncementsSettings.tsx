@@ -24,7 +24,11 @@ async function persistPlatformAnnouncement(
   }
 }
 
-export function PlatformAnnouncementsSettings(): React.ReactElement {
+export function PlatformAnnouncementsSettings({
+  readOnly = false,
+}: {
+  readOnly?: boolean;
+}): React.ReactElement {
   const [enabled,setEnabled] = useState(true);
   const [loading,setLoading] = useState(true);
   const [loadError,setLoadError] = useState<string | null>(null);
@@ -106,6 +110,7 @@ export function PlatformAnnouncementsSettings(): React.ReactElement {
             </div>
             <SettingsSwitch
               checked={enabled}
+              disabled={readOnly}
               label="Enable release announcements for the platform"
               onCheckedChange={change}
               testId="release-notes-platform-toggle"

@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * ReviewConfigsTab — Settings Center editor for AI Review configuration.
+ * ReviewConfigsTab — Admin workspace editor for AI Review configuration.
  *
  * The set of review targets is fixed in code (see
  * `lib/server/ai-review/defaults.ts`); this tab renders one nested tab per

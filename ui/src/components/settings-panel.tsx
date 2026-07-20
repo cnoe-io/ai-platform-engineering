@@ -10,19 +10,20 @@ import {
   snapshotAppearanceInteractions,
 } from "@/lib/appearance-preferences";
 import { apiClient } from "@/lib/api-client";
+import { useSettingsDialog } from "@/components/settings/SettingsDialogProvider";
 import { Palette } from "lucide-react";
 import { useTheme } from "next-themes";
-import Link from "next/link";
 import { useEffect } from "react";
 
 /**
  * Header shortcut plus the global appearance hydrator.
  *
- * The controls themselves live at /settings/appearance so there is only one
- * canonical editing surface.
+ * The controls themselves live in the shared Settings dialog so there is only
+ * one canonical editing surface.
  */
 export function SettingsPanel(): React.ReactElement {
   const { theme,setTheme } = useTheme();
+  const { openSettings } = useSettingsDialog();
 
   useEffect(() => {
     let cancelled = false;
@@ -57,16 +58,17 @@ export function SettingsPanel(): React.ReactElement {
   const currentTheme = COLOR_THEMES.find((option) => option.id === theme);
 
   return (
-    <Link
+    <button
       aria-label="Appearance settings"
       className="flex h-8 items-center gap-1.5 rounded-md px-2 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-      href="/settings/appearance"
+      onClick={() => openSettings("appearance")}
       title="Appearance settings"
+      type="button"
     >
       <Palette className="h-3.5 w-3.5 shrink-0" />
       <span className="hidden whitespace-nowrap sm:block">
         {currentTheme?.label ?? "Appearance"}
       </span>
-    </Link>
+    </button>
   );
 }

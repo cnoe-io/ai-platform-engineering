@@ -6,7 +6,11 @@ import { Button } from "@/components/ui/button";
 import { Shield } from "lucide-react";
 import { useState } from "react";
 
-export function PlatformAccessSettings(): React.ReactElement {
+export function PlatformAccessSettings({
+  readOnly = false,
+}: {
+  readOnly?: boolean;
+}): React.ReactElement {
   const [open,setOpen] = useState(false);
 
   return (
@@ -15,7 +19,7 @@ export function PlatformAccessSettings(): React.ReactElement {
         description="Set starting access for people who message CAIPE from Slack or Webex before linking their identity."
         title={<span className="flex items-center gap-2"><Shield className="h-5 w-5 text-primary" />Access before sign-in</span>}
       >
-        <div className="space-y-4">
+        <div className="max-w-4xl space-y-4">
           <p className="text-sm text-muted-foreground">
             Agents and tools granted here are available to every unlinked caller and bot. Review the complete grant set before applying changes.
           </p>
@@ -26,7 +30,7 @@ export function PlatformAccessSettings(): React.ReactElement {
         </div>
       </SettingsCard>
       <UnlinkedServiceAccountModal
-        isAdmin
+        isAdmin={!readOnly}
         onOpenChange={setOpen}
         open={open}
       />

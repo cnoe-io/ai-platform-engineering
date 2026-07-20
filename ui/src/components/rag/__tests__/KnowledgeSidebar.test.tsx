@@ -30,19 +30,14 @@ jest.mock("next/link", () => {
 
 jest.mock("next/navigation", () => ({
   usePathname: () => "/knowledge-bases/search",
-}));
-
-jest.mock("framer-motion", () => ({
-  motion: { div: ({ children, ...rest }: unknown) => <div {...rest}>{children}</div> },
+  useRouter: () => ({ push: jest.fn() }),
 }));
 
 jest.mock("lucide-react", () => ({
   Database: (p: unknown) => <svg data-testid="icon-database" {...p} />,
   Search: (p: unknown) => <svg data-testid="icon-search" {...p} />,
   GitFork: (p: unknown) => <svg data-testid="icon-gitfork" {...p} />,
-  ChevronLeft: (p: unknown) => <svg data-testid="icon-chev-left" {...p} />,
-  ChevronRight: (p: unknown) => <svg data-testid="icon-chev-right" {...p} />,
-  BookOpen: (p: unknown) => <svg data-testid="icon-bookopen" {...p} />,
+  ChevronDown: (p: unknown) => <svg data-testid="icon-chev-down" {...p} />,
   Wrench: (p: unknown) => <svg data-testid="icon-wrench" {...p} />,
   Lock: (p: unknown) => <svg data-testid="icon-lock" {...p} />,
   ShieldQuestion: (p: unknown) => <svg data-testid="icon-shieldq" {...p} />,
@@ -113,7 +108,7 @@ describe("<KnowledgeSidebar /> RBAC gates", () => {
       kb_count: -1,
       orgAdminBypass: true,
     });
-    render(<KnowledgeSidebar collapsed={false} onCollapse={() => {}} graphRagEnabled={true} />);
+    render(<KnowledgeSidebar graphRagEnabled={true} />);
 
     expect(screen.getByTestId("kb-link-/knowledge-bases/search")).toBeInTheDocument();
     expect(screen.getByTestId("kb-link-/knowledge-bases/ingest")).toBeInTheDocument();
@@ -132,7 +127,7 @@ describe("<KnowledgeSidebar /> RBAC gates", () => {
       kb_count: 0,
       orgAdminBypass: false,
     });
-    render(<KnowledgeSidebar collapsed={false} onCollapse={() => {}} graphRagEnabled={true} />);
+    render(<KnowledgeSidebar graphRagEnabled={true} />);
 
     expect(screen.getByTestId("kb-sidebar-no-access-banner")).toBeInTheDocument();
     expect(screen.queryByTestId("kb-link-/knowledge-bases/search")).not.toBeInTheDocument();
@@ -161,7 +156,7 @@ describe("<KnowledgeSidebar /> RBAC gates", () => {
       can_search: true,
       orgAdminBypass: false,
     });
-    render(<KnowledgeSidebar collapsed={false} onCollapse={() => {}} graphRagEnabled={true} />);
+    render(<KnowledgeSidebar graphRagEnabled={true} />);
 
     expect(screen.queryByTestId("kb-sidebar-no-access-banner")).not.toBeInTheDocument();
     expect(screen.getByTestId("kb-link-/knowledge-bases/search")).toBeInTheDocument();
@@ -181,7 +176,7 @@ describe("<KnowledgeSidebar /> RBAC gates", () => {
       kb_count: 2,
       orgAdminBypass: false,
     });
-    render(<KnowledgeSidebar collapsed={false} onCollapse={() => {}} graphRagEnabled={true} />);
+    render(<KnowledgeSidebar graphRagEnabled={true} />);
 
     expect(screen.queryByTestId("kb-sidebar-no-access-banner")).not.toBeInTheDocument();
     expect(screen.getByTestId("kb-link-/knowledge-bases/search")).toBeInTheDocument();
@@ -199,7 +194,7 @@ describe("<KnowledgeSidebar /> RBAC gates", () => {
       has_any_kb: true,
       kb_count: 1,
     });
-    render(<KnowledgeSidebar collapsed={false} onCollapse={() => {}} graphRagEnabled={false} />);
+    render(<KnowledgeSidebar graphRagEnabled={false} />);
 
     expect(screen.getByTestId("kb-tab-disabled-graph")).toBeInTheDocument();
     expect(screen.queryByTestId("kb-link-/knowledge-bases/graph")).not.toBeInTheDocument();
@@ -215,14 +210,15 @@ describe("<KnowledgeSidebar /> RBAC gates", () => {
       kb_count: 1,
       loading: true,
     });
-    render(<KnowledgeSidebar collapsed={false} onCollapse={() => {}} graphRagEnabled={true} />);
+    render(<KnowledgeSidebar graphRagEnabled={true} />);
     expect(screen.queryByTestId("kb-link-/knowledge-bases/search")).not.toBeInTheDocument();
     expect(screen.getByTestId("kb-tab-disabled-search")).toBeInTheDocument();
   });
 
-  it("collapsed sidebar suppresses the empty-state banner", () => {
+  it("uses the page-style navigation without a collapse control", () => {
     setGates({ has_any_kb: false });
-    render(<KnowledgeSidebar collapsed={true} onCollapse={() => {}} graphRagEnabled={true} />);
-    expect(screen.queryByTestId("kb-sidebar-no-access-banner")).not.toBeInTheDocument();
+    render(<KnowledgeSidebar graphRagEnabled={true} />);
+    expect(screen.getByTestId("kb-sidebar-no-access-banner")).toBeInTheDocument();
+    expect(screen.queryByRole("button",{ name: /knowledge base navigation/i })).not.toBeInTheDocument();
   });
 });
