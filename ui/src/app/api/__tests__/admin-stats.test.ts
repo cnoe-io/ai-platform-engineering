@@ -612,6 +612,49 @@ describe('GET /api/admin/stats — Top Users', () => {
     expect(hasHumanOwnerFilter(convCol.aggregate.mock.calls)).toBe(false);
     expect(hasHumanOwnerFilter(msgCol.aggregate.mock.calls)).toBe(false);
   });
+
+  // Detects the extra `_id: { $nin: [...botOwnerIds] }` exclusion folded in
+  // when Slack bot/app owners are flagged via metadata.owner_is_bot — their
+  // "U…" user IDs pass the ID-pattern filter, so they're dropped by value.
+  const excludesOwnerIds = (calls: unknown[], ids: string[]) =>
+    calls.some((call: unknown[]) => {
+      const pipeline = call[0];
+      if (!Array.isArray(pipeline)) return false;
+      const groupIdx = pipeline.findIndex((s: Record<string, unknown>) => s.$group);
+      if (groupIdx === -1) return false;
+      return pipeline.slice(groupIdx + 1).some((stage: Record<string, unknown>) => {
+        const and = stage.$match?.$and;
+        if (!Array.isArray(and)) return false;
+        return and.some((c: Record<string, unknown>) => {
+          const nin = c._id?.$nin;
+          return Array.isArray(nin) && ids.every((id) => nin.includes(id));
+        });
+      });
+    });
+
+  it('excludes Slack bot/app owners flagged via owner_is_bot from both rankings', async () => {
+    const { convCol, msgCol } = setupAdminWithCollections();
+    // The GitLab app owns threads under a human-looking "U…" id; ingestion
+    // flagged its conversations owner_is_bot, so distinct() surfaces the id.
+    convCol.distinct.mockResolvedValue(['U05LC2AV99N']);
+
+    await GET(makeRequest('/api/admin/stats'));
+
+    expect(convCol.distinct).toHaveBeenCalledWith('owner_id', { 'metadata.owner_is_bot': true });
+    expect(excludesOwnerIds(convCol.aggregate.mock.calls, ['U05LC2AV99N'])).toBe(true);
+    expect(excludesOwnerIds(msgCol.aggregate.mock.calls, ['U05LC2AV99N'])).toBe(true);
+  });
+
+  it('does not query owner_is_bot when include_bots=true', async () => {
+    const { convCol } = setupAdminWithCollections();
+
+    await GET(makeRequest('/api/admin/stats?include_bots=true'));
+
+    const flaggedBotQuery = convCol.distinct.mock.calls.some(
+      (c: unknown[]) => (c[1] as Record<string, unknown>)?.['metadata.owner_is_bot'] === true,
+    );
+    expect(flaggedBotQuery).toBe(false);
+  });
 });
 
 // ============================================================================

@@ -280,8 +280,12 @@ async function getAdminStats(request: NextRequest) {
     // posters, MR bots, service accounts). `include_bots=true` shows them —
     // surfaced as a "Show Bot Users" toggle in the UI.
     const includeBots = searchParams.get('include_bots') === 'true';
-    // A no-op $match spread when bots are included; drops non-humans otherwise.
-    const topUserOwnerMatch: Record<string, unknown>[] = includeBots ? [] : [{ $match: HUMAN_OWNER_MATCH }];
+    // Populated after the collections are available (below): a no-op $match
+    // spread when bots are included, else a $match that drops bot/service
+    // identities — both those detectable by ID pattern (HUMAN_OWNER_MATCH) and
+    // Slack bot/app owners flagged at ingestion (metadata.owner_is_bot), whose
+    // "U…"-prefixed IDs are indistinguishable from humans.
+    let topUserOwnerMatch: Record<string, unknown>[] = [];
 
     // Build reusable filter fragments for conversations and messages.
     // Support both legacy (source/slack_meta) and new (client_type/metadata) schemas.
@@ -435,6 +439,23 @@ async function getAdminStats(request: NextRequest) {
     const conversations = await getCollection('conversations');
     const messages = await getCollection('messages');
     const workflowRuns = await getCollection('workflow_runs');
+
+    // Bot/service exclusion for the Top Users leaderboards. Off when the caller
+    // opted into "Show bot users". Otherwise drop:
+    //   1. Owners whose ID itself is bot-shaped (HUMAN_OWNER_MATCH).
+    //   2. Slack bot/app owners flagged at ingestion (metadata.owner_is_bot) —
+    //      e.g. the GitLab app, whose "U…" user ID looks human. Their owner_ids
+    //      are collected here and excluded by value, since the leaderboards
+    //      group on owner_id (not conversation metadata).
+    if (!includeBots) {
+      const botOwnerIds = (await conversations.distinct('owner_id', {
+        'metadata.owner_is_bot': true,
+      })).filter((id): id is string => typeof id === 'string' && id.length > 0);
+      const humanOwnerMatch = botOwnerIds.length > 0
+        ? { $and: [HUMAN_OWNER_MATCH, { _id: { $nin: botOwnerIds } }] }
+        : HUMAN_OWNER_MATCH;
+      topUserOwnerMatch = [{ $match: humanOwnerMatch }];
+    }
 
     // ── workflow_runs scope ─────────────────────────────────────────
     // The Completed Workflows metric reads the real `workflow_runs` collection

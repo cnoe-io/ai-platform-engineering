@@ -1478,6 +1478,11 @@ def handle_mention(event, say, client, context=None):
           # human flips the thread to human-assisted. Server keeps the value
           # from the first create; idempotent retrievals don't overwrite it.
           **({"originator_slack_user_id": user_id} if user_id else {}),
+          # Flag threads owned by a Slack bot/app (e.g. GitLab, alert bots).
+          # Their Slack user IDs are "U…"-prefixed like humans, so stats can't
+          # tell them apart by ID — this lets the leaderboard exclude them when
+          # "Show bot users" is off.
+          **({"owner_is_bot": True} if is_bot else {}),
           **({"workspace_url": SLACK_WORKSPACE_URL} if SLACK_WORKSPACE_URL else {}),
         },
       )
@@ -1776,6 +1781,8 @@ def _route_to_agent(event, say, client, channel_config, agent_match, is_bot, bot
         # Set-once anchor for self-resolution (see handle_mention). Bot-authored
         # messages aren't originators, so only stamp it for real users.
         **({"originator_slack_user_id": user_id} if not is_bot and user_id else {}),
+        # Flag bot/app-owned threads so stats can exclude them (see handle_mention).
+        **({"owner_is_bot": True} if is_bot else {}),
         **({"workspace_url": SLACK_WORKSPACE_URL} if SLACK_WORKSPACE_URL else {}),
       },
     )

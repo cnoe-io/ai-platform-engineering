@@ -184,6 +184,41 @@ def test_human_mention_empty_text_prompts_for_question(monkeypatch: pytest.Monke
     assert "include a question" in say.call_args.kwargs["text"]
 
 
+def test_bot_mention_flags_conversation_owner_is_bot(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A bot/app-owned thread must persist metadata.owner_is_bot so stats can
+    exclude it from the human leaderboard (bot user IDs look like humans)."""
+    app_module = _load_slack_app(monkeypatch)
+    monkeypatch.setattr(app_module.utils, "get_bot_info_by_id", lambda _bot_id: ("GitLab", "U05LC2AV99N"))
+    monkeypatch.setattr(app_module, "_slack_agent_channel_grant_check", lambda *_a, **_k: None)
+    create_conversation = MagicMock(return_value={"conversation_id": "conv-1", "created": True, "metadata": {}})
+    monkeypatch.setattr(app_module.sse_client, "create_conversation", create_conversation)
+    # Stop right after create so we only assert on the create call.
+    monkeypatch.setattr(app_module.sse_client, "update_conversation_metadata", MagicMock())
+    monkeypatch.setattr(app_module, "_route_to_agent", MagicMock())
+
+    client = _Client()
+    app_module.handle_mention(_bot_mention_event(), say=MagicMock(), client=client, context={})
+
+    create_conversation.assert_called_once()
+    assert create_conversation.call_args.kwargs["metadata"]["owner_is_bot"] is True
+
+
+def test_human_mention_does_not_flag_owner_is_bot(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Regression: human-owned threads must NOT carry owner_is_bot."""
+    app_module = _load_slack_app(monkeypatch)
+    monkeypatch.setattr(app_module, "_slack_agent_channel_grant_check", lambda *_a, **_k: None)
+    create_conversation = MagicMock(return_value={"conversation_id": "conv-1", "created": True, "metadata": {}})
+    monkeypatch.setattr(app_module.sse_client, "create_conversation", create_conversation)
+    monkeypatch.setattr(app_module.sse_client, "update_conversation_metadata", MagicMock())
+    monkeypatch.setattr(app_module, "_route_to_agent", MagicMock())
+
+    client = _Client()
+    app_module.handle_mention(_human_mention_event(), say=MagicMock(), client=client, context={})
+
+    create_conversation.assert_called_once()
+    assert "owner_is_bot" not in create_conversation.call_args.kwargs["metadata"]
+
+
 def test_bot_mention_passes_resolved_sender_id_not_own_bot_id(monkeypatch: pytest.MonkeyPatch) -> None:
     """The sender bot's resolved user id must reach routing — not CAIPE's own bot_user_id from auth_test().
 
