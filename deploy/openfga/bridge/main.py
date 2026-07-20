@@ -810,15 +810,23 @@ class OpenFgaAuthorizationService:
                 agent_id = agent_context.agent_id
 
                 # "local" contexts identify the caller acting as themselves —
-                # there is no separate delegated identity to bound, since the
-                # signed-in user's own `can_call mcp_gateway:list` check above
-                # (and the caller-keyed check below, when enabled) already
-                # gate everything this request is allowed to do. Skipping the
-                # agent:<id> can_use/can_call checks here isn't a broadened
-                # grant: a user with a Dynamic Agent configured to call the
-                # same tool already has this same reach today, just through
-                # different plumbing. See ui/lib/mcp-http-server-client.ts
-                # and deploy/openfga/model.fga's agent/tool relations.
+                # there is no separate delegated identity to bound, so we skip
+                # the agent:<id> can_use/can_call checks and rely on the
+                # caller-keyed tool check below to scope the request.
+                #
+                # IMPORTANT: that scoping holds ONLY when CALLER_TOOL_CHECK_ENABLED
+                # is on. With the flag off (the upstream chart default), the
+                # caller-keyed check below is skipped and a "local" context falls
+                # back to just the coarse `can_call mcp_gateway:list` gate above —
+                # which every onboarded user holds — granting reach to every tool
+                # on every MCP server. Unlike a Dynamic Agent (whose tool grants
+                # are explicitly enumerated per-agent), a "local" context has no
+                # other tool-scoping mechanism, so the no-broadened-grant property
+                # is conditional on the flag, not a structural invariant. This
+                # repo's dev/prod helm values set callerToolCheck.enabled: true,
+                # so the property holds in those deployments. See
+                # ui/lib/mcp-http-server-client.ts and deploy/openfga/model.fga's
+                # agent/tool relations.
                 if agent_context.kind != AGENT_CONTEXT_KIND_LOCAL:
                     agent_allowed = _check_openfga(user, "can_use", f"agent:{agent_id}")
                     exact_tool_allowed = _check_openfga(
