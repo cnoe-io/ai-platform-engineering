@@ -200,7 +200,10 @@ def test_bot_mention_flags_conversation_owner_is_bot(monkeypatch: pytest.MonkeyP
     app_module.handle_mention(_bot_mention_event(), say=MagicMock(), client=client, context={})
 
     create_conversation.assert_called_once()
-    assert create_conversation.call_args.kwargs["metadata"]["owner_is_bot"] is True
+    metadata = create_conversation.call_args.kwargs["metadata"]
+    assert metadata["owner_is_bot"] is True
+    # The app's display name is persisted so stats can label the "U…" owner_id.
+    assert metadata["owner_display_name"] == "GitLab"
 
 
 def test_human_mention_does_not_flag_owner_is_bot(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -216,7 +219,9 @@ def test_human_mention_does_not_flag_owner_is_bot(monkeypatch: pytest.MonkeyPatc
     app_module.handle_mention(_human_mention_event(), say=MagicMock(), client=client, context={})
 
     create_conversation.assert_called_once()
-    assert "owner_is_bot" not in create_conversation.call_args.kwargs["metadata"]
+    metadata = create_conversation.call_args.kwargs["metadata"]
+    assert "owner_is_bot" not in metadata
+    assert "owner_display_name" not in metadata
 
 
 def test_bot_mention_passes_resolved_sender_id_not_own_bot_id(monkeypatch: pytest.MonkeyPatch) -> None:

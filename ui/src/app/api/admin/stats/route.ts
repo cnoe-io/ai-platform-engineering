@@ -887,6 +887,27 @@ async function getAdminStats(request: NextRequest) {
       if (u.slack_user_id) nameByOwner.set(u.slack_user_id, u.name || u.email);
     }
 
+    // Bot/app owners (e.g. GitLab) aren't rows in `users`, so their "U…"
+    // owner_id has no name above. The Slack bot persists the app's display name
+    // on the thread (metadata.owner_display_name); resolve those here so the
+    // leaderboard shows "GitLab" instead of the raw id when bots are included.
+    // Users-collection names win, so a real user is never shadowed by a bot label.
+    const unresolvedOwnerIds = topOwnerIds.filter((id) => !nameByOwner.has(id));
+    if (unresolvedOwnerIds.length > 0) {
+      const botOwnerDocs = await conversations
+        .find(
+          { owner_id: { $in: unresolvedOwnerIds }, 'metadata.owner_display_name': { $exists: true } },
+          { projection: { owner_id: 1, 'metadata.owner_display_name': 1 } },
+        )
+        .toArray();
+      for (const d of botOwnerDocs) {
+        const label = d.metadata?.owner_display_name;
+        if (typeof d.owner_id === 'string' && typeof label === 'string' && label && !nameByOwner.has(d.owner_id)) {
+          nameByOwner.set(d.owner_id, label);
+        }
+      }
+    }
+
     const enrichTopUsers = (raw: typeof rawTopByConvs) =>
       raw.map((u) => ({ _id: u._id, count: u.count, name: nameByOwner.get(u._id) || u._id }));
 

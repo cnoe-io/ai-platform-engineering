@@ -1483,6 +1483,11 @@ def handle_mention(event, say, client, context=None):
           # tell them apart by ID — this lets the leaderboard exclude them when
           # "Show bot users" is off.
           **({"owner_is_bot": True} if is_bot else {}),
+          # Bot/app owners aren't rows in our users collection, so stats can't
+          # resolve their "U…" owner_id to a name. Persist the app's display
+          # name here so the leaderboard shows "GitLab" instead of the raw id
+          # when "Show bot users" is on.
+          **({"owner_display_name": bot_username} if is_bot and bot_username else {}),
           **({"workspace_url": SLACK_WORKSPACE_URL} if SLACK_WORKSPACE_URL else {}),
         },
       )
@@ -1783,6 +1788,9 @@ def _route_to_agent(event, say, client, channel_config, agent_match, is_bot, bot
         **({"originator_slack_user_id": user_id} if not is_bot and user_id else {}),
         # Flag bot/app-owned threads so stats can exclude them (see handle_mention).
         **({"owner_is_bot": True} if is_bot else {}),
+        # Persist the bot/app display name so stats can label the "U…" owner_id
+        # (see handle_mention).
+        **({"owner_display_name": bot_username} if is_bot and bot_username else {}),
         **({"workspace_url": SLACK_WORKSPACE_URL} if SLACK_WORKSPACE_URL else {}),
       },
     )

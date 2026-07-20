@@ -522,6 +522,35 @@ describe('GET /api/admin/stats — Top Users', () => {
     expect(Array.isArray(body.data.top_users.by_messages)).toBe(true);
   });
 
+  it('labels a bot/app owner with its persisted owner_display_name', async () => {
+    const { convCol, usersCol } = setupAdminWithCollections();
+
+    // Leaderboard (group on $owner_id) returns the GitLab app's "U…" owner id.
+    convCol.aggregate.mockImplementation((pipeline: Record<string, unknown>[]) => ({
+      toArray: async () =>
+        pipeline.some((s) => s.$group?._id === '$owner_id')
+          ? [{ _id: 'U05LC2AV99N', count: 5 }]
+          : [],
+    }));
+    // Not a row in the users collection → no name from there.
+    usersCol.find.mockReturnValue({ toArray: async () => [] });
+    // The thread carries the app's display name, persisted at ingestion.
+    convCol.find.mockImplementation((filter: Record<string, unknown>) => ({
+      toArray: async () =>
+        (filter as { 'metadata.owner_display_name'?: unknown })['metadata.owner_display_name']
+          ? [{ owner_id: 'U05LC2AV99N', metadata: { owner_display_name: 'GitLab' } }]
+          : [],
+    }));
+
+    const res = await GET(makeRequest('/api/admin/stats?include_bots=true'));
+    const body = await res.json();
+
+    expect(body.data.top_users.by_conversations[0]).toMatchObject({
+      _id: 'U05LC2AV99N',
+      name: 'GitLab',
+    });
+  });
+
   it('top users by messages uses $lookup through conversations', async () => {
     const { msgCol } = setupAdminWithCollections();
 
