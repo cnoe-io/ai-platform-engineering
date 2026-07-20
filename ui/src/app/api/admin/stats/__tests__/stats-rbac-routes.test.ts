@@ -73,13 +73,4 @@ describe("admin stats RBAC routes", () => {
     await expectStatsDenied(response);
     expect(mockGetCollection).not.toHaveBeenCalled();
   });
-
-  it("denies bearer users without admin_ui#view before loading checkpoint stats", async () => {
-    const { GET } = await import("../checkpoints/route");
-
-    const response = await GET(request("/api/admin/stats/checkpoints"));
-
-    await expectStatsDenied(response);
-    expect(mockConnectToDatabase).not.toHaveBeenCalled();
-  });
 });

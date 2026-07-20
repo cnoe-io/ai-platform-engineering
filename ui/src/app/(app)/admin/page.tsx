@@ -10,7 +10,6 @@ RunStatsTable,
 TopCreatorsCard,
 VisibilityBreakdown,
 } from "@/components/admin/insights/SkillMetricsCards";
-import { CheckpointStatsSection } from "@/components/admin/platform/CheckpointStatsSection";
 import { CrawlConsoleDialog } from "@/components/admin/platform/CrawlConsoleDialog";
 import { CrawlConsoleHeaderPill } from "@/components/admin/platform/CrawlConsoleHeaderPill";
 import { HealthTab } from "@/components/admin/platform/HealthTab";
@@ -63,15 +62,26 @@ import { withAdminSimulationParams } from "@/lib/rbac/admin-simulation-query";
 import { cn } from "@/lib/utils";
 import type { SkillMetricsAdmin } from "@/types/agent-skill";
 import type { Team as TeamType } from "@/types/teams";
-import { Activity,Archive,Bot,CheckCircle2,ChevronLeft,ChevronRight,Clock,Database,ExternalLink,Eye,FileText,Filter,Globe,Hash,HelpCircle,Layers,ListChecks,Loader2,MessageSquare,RefreshCw,Search,Settings,Share2,Shield,ShieldCheck,ThumbsDown,ThumbsUp,Trash2,TrendingUp,User,UserPlus,Users,UsersIcon,Wrench,X,Zap,type LucideIcon } from "lucide-react";
+import { Activity,Archive,Bot,CheckCircle2,ChevronLeft,ChevronRight,Clock,Database,ExternalLink,Eye,FileText,Filter,Globe,Hash,HelpCircle,KeyRound,Layers,Link2,ListChecks,Loader2,MessageSquare,RefreshCw,Search,Settings,Shield,ShieldCheck,ThumbsDown,ThumbsUp,Trash2,TrendingUp,Unlink,User,UserPlus,Users,UsersIcon,Wrench,X,Zap,type LucideIcon } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { usePathname,useRouter,useSearchParams } from "next/navigation";
 import React,{ useCallback,useEffect,useEffectEvent,useMemo,useRef,useState } from "react";
+
+import { SlackIcon } from "@/components/ui/icons";
+
+// Owner classification for the Top Users leaderboards (server-computed in
+// /api/admin/stats). Drives the identity badge next to each name.
+type OwnerType = 'service_account' | 'slack_bot' | 'linked' | 'unlinked_slack';
 
 interface AdminStats {
   platform_summary?: {
     satisfaction_rate: number;
     estimated_hours_automated: number;
+    web_hours_saved?: number;
+    agent_hours_saved?: number;
+    workflow_hours_saved?: number;
+    slack_hours_saved?: number;
+    web_workflows?: number;
   };
   overview: {
     total_users: number;
@@ -91,8 +101,8 @@ interface AdminStats {
     messages: number;
   }>;
   top_users: {
-    by_conversations: Array<{ _id: string; count: number; name?: string }>;
-    by_messages: Array<{ _id: string; count: number; name?: string }>;
+    by_conversations: Array<{ _id: string; count: number; name?: string; owner_type?: OwnerType }>;
+    by_messages: Array<{ _id: string; count: number; name?: string; owner_type?: OwnerType }>;
   };
   top_agents: Array<{ _id: string; count: number }>;
   feedback_summary: {
@@ -109,14 +119,15 @@ interface AdminStats {
     min_ms: number;
     max_ms: number;
     sample_count: number;
+    samples?: Array<{ ts: string; latency_ms: number }>;
   };
   hourly_heatmap: Array<{ hour: number; count: number }>;
   completed_workflows: {
     total: number;
     today: number;
-    interrupted: number;
+    failed: number;
     completion_rate: number;
-    avg_messages_per_workflow: number;
+    avg_steps_per_workflow: number;
   };
   slack?: {
     channels: { total: number; qanda_enabled: number; alerts_enabled: number; ai_enabled: number };
@@ -132,6 +143,7 @@ interface AdminStats {
     top_channels: Array<{ channel_name: string; interactions: number; resolved: number; resolution_rate: number }>;
   };
   available_channels?: string[];
+  available_agents?: Array<{ id: string; name: string }>;
 }
 
 interface FeedbackEntry {
@@ -153,6 +165,12 @@ interface FeedbackEntry {
 interface FeedbackData {
   entries: FeedbackEntry[];
   channels?: string[];
+  summary?: {
+    positive: number;
+    negative: number;
+    total: number;
+    positive_rate: number;
+  };
   pagination: {
     page: number;
     limit: number;
@@ -404,6 +422,42 @@ function ArchivedBadge() {
   );
 }
 
+// Identity badge shown next to a Top Users name so an admin can tell at a glance
+// what kind of owner a row is. The four cases the server can reliably tell apart:
+//   • service_account — a platform API caller (e.g. a smoke-test SA); NOT a person.
+//   • slack_bot       — a Slack bot/app poster (alert bots, MR bots).
+//   • linked          — a person whose account is connected to the platform.
+//   • unlinked_slack  — a Slack user who chats via the bot without linking.
+const OWNER_TYPE_BADGE: Record<OwnerType, { title: string; icon: React.ReactNode }> = {
+  service_account: {
+    title: "Service account (API access, not a person)",
+    icon: <KeyRound className="h-3.5 w-3.5 text-violet-500 dark:text-violet-400" aria-hidden="true" />,
+  },
+  slack_bot: {
+    title: "Slack bot or app",
+    icon: <SlackIcon className="h-3.5 w-3.5 text-muted-foreground" />,
+  },
+  linked: {
+    title: "Linked account (connected to the platform)",
+    icon: <Link2 className="h-3.5 w-3.5 text-emerald-500 dark:text-emerald-400" aria-hidden="true" />,
+  },
+  unlinked_slack: {
+    title: "Slack user with no linked account",
+    icon: <Unlink className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" aria-hidden="true" />,
+  },
+};
+
+function OwnerTypeBadge({ ownerType }: { ownerType?: OwnerType }) {
+  if (!ownerType) return null;
+  const badge = OWNER_TYPE_BADGE[ownerType];
+  if (!badge) return null;
+  return (
+    <span className="inline-flex shrink-0" title={badge.title} aria-label={badge.title}>
+      {badge.icon}
+    </span>
+  );
+}
+
 function isValidTab(tab: string | null): tab is typeof VALID_TABS[number] {
   return Boolean(tab && (VALID_TABS as readonly string[]).includes(tab));
 }
@@ -421,7 +475,25 @@ function movedAdminTab(tab: string | null): typeof VALID_TABS[number] | null {
   return (MOVED_ADMIN_TAB_MAP as Record<string, typeof VALID_TABS[number]>)[tab] ?? null;
 }
 
-function OverviewStatsCards({ overview }: { overview: AdminStats['overview'] | null }) {
+// Bucket keys carry a time component ("2026-07-10T14:30") for hour/minute
+// buckets and are date-only ("2026-07-10") for day buckets — use that to
+// decide whether to label chart points by time-of-day or by calendar date.
+function formatBucketLabel(dateStr: string): string {
+  if (dateStr.includes('T')) {
+    return new Date(dateStr).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  }
+  return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+function OverviewStatsCards({
+  overview,
+  platformSummary,
+  rangeLabel,
+}: {
+  overview: AdminStats['overview'] | null;
+  platformSummary?: AdminStats['platform_summary'];
+  rangeLabel: string;
+}) {
   if (!overview) return null;
 
   return (
@@ -467,16 +539,31 @@ function OverviewStatsCards({ overview }: { overview: AdminStats['overview'] | n
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-sm font-medium">Shared (Web)</CardTitle>
-          <Share2 className="h-4 w-4 text-muted-foreground" />
+          <CardTitle className="text-sm font-medium flex items-center gap-1">
+            Est. Hours Saved
+            {platformSummary && (
+              <span className="relative group">
+                <HelpCircle className="h-3 w-3 text-muted-foreground cursor-help" />
+                <span className="absolute top-full left-1/2 -translate-x-1/2 mt-2 w-64 p-2 rounded bg-popover border border-border text-[10px] text-popover-foreground shadow-lg opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity z-50 text-left font-normal normal-case">
+                  A conservative estimate of engineering time the platform saved:
+                  <ul className="list-disc pl-3 mt-1 space-y-0.5">
+                    <li>Agents: credited per tool call an agent ran on your behalf (~{platformSummary.agent_hours_saved ?? 0}h)</li>
+                    <li>Workflows: credited per completed step across finished workflow runs (~{platformSummary.workflow_hours_saved ?? 0}h)</li>
+                    <li>Slack: credited per resolved user question, weighted by whether it was rated helpful (~{platformSummary.slack_hours_saved ?? 0}h)</li>
+                  </ul>
+                  Automated bot/alert posts are excluded.
+                </span>
+              </span>
+            )}
+          </CardTitle>
+          <Clock className="h-4 w-4 text-muted-foreground" />
         </CardHeader>
         <CardContent>
-          <div className="text-2xl font-bold">{overview.shared_conversations}</div>
+          <div className="text-2xl font-bold">
+            ~{platformSummary?.estimated_hours_automated ?? 0}h
+          </div>
           <p className="text-xs text-muted-foreground mt-1">
-            {overview.total_conversations > 0
-              ? ((overview.shared_conversations / overview.total_conversations) * 100).toFixed(1)
-              : '0.0'}
-            % of all conversations
+            {rangeLabel} · Web ~{platformSummary?.web_hours_saved ?? 0}h · Slack ~{platformSummary?.slack_hours_saved ?? 0}h
           </p>
         </CardContent>
       </Card>
@@ -866,6 +953,13 @@ function AdminPage() {
   const [statsRefreshing, setStatsRefreshing] = useState(false);
   const [statsChannelFilter, setStatsChannelFilter] = useState<string[]>([]);
   const [statsChannels, setStatsChannels] = useState<string[]>([]);
+  // Agent filter: selected agent NAMES (dropdown labels), mapped to ids for the
+  // query param via statsAgents. Options are scoped by the API to what the
+  // caller can see (owned agents for non-admins, all agents for admins).
+  const [statsAgentFilter, setStatsAgentFilter] = useState<string[]>([]);
+  const [statsAgents, setStatsAgents] = useState<Array<{ id: string; name: string }>>([]);
+  // Top-users leaderboard: hide bot/service identities by default; toggle to show.
+  const [showBotUsers, setShowBotUsers] = useState(false);
   const rangeLabel = datePreset === "1h" ? "1 Hour" : datePreset === "12h" ? "12 Hours" : datePreset === "24h" ? "24 Hours" : datePreset === "7d" ? "7 Days" : datePreset === "90d" ? "90 Days" : datePreset === "custom" ? "Custom Range" : "30 Days";
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
 
@@ -1005,8 +1099,15 @@ function AdminPage() {
   };
 
   // Re-fetch stats when filters change (lightweight — only refetch stats endpoint)
-  const statsFilterRef = React.useRef({ range: dateRange, source: sourceFilter, users: userFilter, channels: statsChannelFilter, teams });
-  const fetchStatsWithFilters = async (range?: DateRange, source?: 'all' | 'web' | 'slack', userEmails?: string[], channels?: string[]) => {
+  const statsFilterRef = React.useRef({ range: dateRange, source: sourceFilter, users: userFilter, channels: statsChannelFilter, agents: statsAgentFilter, showBots: showBotUsers, teams });
+  // Map selected agent display names → their ids for the `agent` query param.
+  const agentIdsForNames = React.useCallback(
+    (names: string[]) => names
+      .map((n) => statsAgents.find((a) => a.name === n)?.id)
+      .filter((id): id is string => !!id),
+    [statsAgents],
+  );
+  const fetchStatsWithFilters = async (range?: DateRange, source?: 'all' | 'web' | 'slack', userEmails?: string[], channels?: string[], agents?: string[]) => {
     if (status !== "authenticated" && getConfig('ssoEnabled')) return;
     const requestScopeKey = simulationScopeKey;
     setStatsRefreshing(true);
@@ -1015,16 +1116,21 @@ function AdminPage() {
       const s = source ?? sourceFilter;
       const u = userEmails ?? expandStatsUsers(userFilter);
       const ch = channels ?? statsChannelFilter;
+      const ag = agents ?? statsAgentFilter;
       const params = new URLSearchParams({ from: r.from, to: r.to });
       if (s !== 'all') params.set('source', s);
       if (u.length > 0) params.set('user', u.join(','));
       if (s === 'slack' && ch.length > 0) params.set('channel', ch.join(','));
+      const agentIds = agentIdsForNames(ag);
+      if (agentIds.length > 0) params.set('agent', agentIds.join(','));
+      if (showBotUsers) params.set('include_bots', 'true');
       const res = await fetch(withAdminSimulationParams(`/api/admin/stats?${params}`, simulationTarget));
       if (res.ok) {
         const json = await res.json();
         if (json.success && activeDataScopeKeyRef.current === requestScopeKey) {
           setStats(json.data);
           if (json.data.available_channels) setStatsChannels(json.data.available_channels);
+          if (json.data.available_agents) setStatsAgents(json.data.available_agents);
         }
       }
     } catch {
@@ -1037,15 +1143,17 @@ function AdminPage() {
   };
   const fetchStatsWithFiltersEvent = useEffectEvent(fetchStatsWithFilters);
   useEffect(() => {
-    const current = { range: dateRange, source: sourceFilter, users: userFilter, channels: statsChannelFilter, teams };
+    const current = { range: dateRange, source: sourceFilter, users: userFilter, channels: statsChannelFilter, agents: statsAgentFilter, showBots: showBotUsers, teams };
     if (statsFilterRef.current.range === current.range
       && statsFilterRef.current.source === current.source
       && statsFilterRef.current.users === current.users
       && statsFilterRef.current.channels === current.channels
+      && statsFilterRef.current.agents === current.agents
+      && statsFilterRef.current.showBots === current.showBots
       && statsFilterRef.current.teams === current.teams) return; // skip initial
     statsFilterRef.current = current;
     fetchStatsWithFiltersEvent();
-  }, [dateRange, sourceFilter, userFilter, statsChannelFilter, status, teams]);
+  }, [dateRange, sourceFilter, userFilter, statsChannelFilter, statsAgentFilter, showBotUsers, status, teams]);
 
   const loadStats = async () => {
     const requestScopeKey = simulationScopeKey;
@@ -1056,6 +1164,7 @@ function AdminPage() {
       const p = new URLSearchParams({ from: dateRange.from, to: dateRange.to });
       if (sourceFilter !== 'all') p.set('source', sourceFilter);
       if (userFilter.length > 0) p.set('user', userFilter.join(','));
+      if (showBotUsers) p.set('include_bots', 'true');
       const [statsRes, globalStatsRes] = await Promise.all([
         fetch(withAdminSimulationParams(`/api/admin/stats?${p}`, simulationTarget)),
         hasStatsFilters
@@ -1084,6 +1193,7 @@ function AdminPage() {
       if (statsResponse.success) {
         setStats(statsResponse.data);
         if (statsResponse.data.available_channels) setStatsChannels(statsResponse.data.available_channels);
+        if (statsResponse.data.available_agents) setStatsAgents(statsResponse.data.available_agents);
         const overviewData = globalStatsResponse?.success ? globalStatsResponse.data.overview : statsResponse.data.overview;
         setGlobalOverview(overviewData);
       } else if (!statsForbidden) {
@@ -2014,6 +2124,36 @@ function AdminPage() {
                   />
                 </div>
 
+                {/* Summary — positive rate across the current (scoped + filtered) set */}
+                {feedbackData?.summary && feedbackData.summary.total > 0 && (
+                  <div className="grid grid-cols-3 gap-4">
+                    <Card>
+                      <CardContent className="pt-6 text-center">
+                        <div className="flex items-center justify-center gap-1 mb-1">
+                          <ThumbsUp className="h-4 w-4 text-green-500" />
+                        </div>
+                        <p className="text-2xl font-bold text-green-500">{feedbackData.summary.positive}</p>
+                        <p className="text-xs text-muted-foreground">Positive</p>
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardContent className="pt-6 text-center">
+                        <div className="flex items-center justify-center gap-1 mb-1">
+                          <ThumbsDown className="h-4 w-4 text-red-500" />
+                        </div>
+                        <p className="text-2xl font-bold text-red-500">{feedbackData.summary.negative}</p>
+                        <p className="text-xs text-muted-foreground">Negative</p>
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardContent className="pt-6 text-center">
+                        <p className="text-2xl font-bold text-primary">{feedbackData.summary.positive_rate}%</p>
+                        <p className="text-xs text-muted-foreground">Positive Rate</p>
+                      </CardContent>
+                    </Card>
+                  </div>
+                )}
+
                 {/* Feedback entries */}
                 {feedbackLoading ? (
                   <div className="flex justify-center py-8">
@@ -2141,8 +2281,6 @@ function AdminPage() {
 
               {/* Usage Statistics Tab */}
               <TabsContent value="stats" className="space-y-4">
-                <OverviewStatsCards overview={globalOverview} />
-
                 {/* Stats Filters */}
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3 flex-wrap">
@@ -2173,6 +2311,20 @@ function AdminPage() {
                         searchPlaceholder="Search channels..."
                         emptyLabel="No channels found"
                         badgeLabel="channels"
+                      />
+                    )}
+                    {statsAgents.length > 0 && (
+                      <MultiSelect
+                        options={statsAgents.map((a) => a.name)}
+                        selected={statsAgentFilter}
+                        onChange={(agents) => {
+                          setStatsAgentFilter(agents);
+                          fetchStatsWithFilters(undefined, undefined, undefined, undefined, agents);
+                        }}
+                        placeholder="All Agents"
+                        searchPlaceholder="Search agents..."
+                        emptyLabel="No agents found"
+                        badgeLabel="agents"
                       />
                     )}
                     <MultiSelect
@@ -2238,53 +2390,11 @@ function AdminPage() {
                         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                       </div>
                     )}
-                    {/* Platform Summary Cards */}
-                    {stats.platform_summary && (
-                      <div className="grid grid-cols-2 gap-4">
-                        <Card>
-                          <CardContent className="pt-6">
-                            <div className="text-center">
-                              <div className="flex items-center justify-center gap-1 mb-1">
-                                <ThumbsUp className="h-4 w-4 text-green-500" />
-                              </div>
-                              <p className={`text-2xl font-bold ${
-                                stats.platform_summary.satisfaction_rate >= 80 ? 'text-green-500' :
-                                stats.platform_summary.satisfaction_rate >= 60 ? 'text-yellow-500' :
-                                'text-red-500'
-                              }`}>
-                                {stats.platform_summary.satisfaction_rate}%
-                              </p>
-                              <p className="text-xs text-muted-foreground">Satisfaction Rate</p>
-                            </div>
-                          </CardContent>
-                        </Card>
-                        <Card>
-                          <CardContent className="pt-6">
-                            <div className="text-center">
-                              <div className="flex items-center justify-center gap-1 mb-1">
-                                <Clock className="h-4 w-4 text-orange-500" />
-                              </div>
-                              <p className="text-2xl font-bold text-orange-500">
-                                {stats.platform_summary.estimated_hours_automated}h
-                              </p>
-                              <div className="text-xs text-muted-foreground flex items-center justify-center gap-1">
-                                Hours Automated (Estimated)
-                                <span className="relative group">
-                                  <HelpCircle className="h-3 w-3 text-muted-foreground cursor-help" />
-                                  <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-52 p-2 rounded bg-popover border border-border text-[10px] text-popover-foreground shadow-lg opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity z-50 text-left">
-                                    This is an estimate based on:
-                                    <ul className="list-disc pl-3 mt-1 space-y-0.5">
-                                      <li>Slack thread interactions</li>
-                                      <li>Agents used to automate tasks</li>
-                                    </ul>
-                                  </span>
-                                </span>
-                              </div>
-                            </div>
-                          </CardContent>
-                        </Card>
-                      </div>
-                    )}
+                    <OverviewStatsCards
+                      overview={globalOverview ?? stats.overview}
+                      platformSummary={stats.platform_summary}
+                      rangeLabel={rangeLabel}
+                    />
 
                     {/* DAU and MAU Trend Charts */}
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -2296,7 +2406,7 @@ function AdminPage() {
                         <CardContent>
                           <SimpleLineChart
                             data={stats.daily_activity.map((day) => ({
-                              label: new Date(day.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+                              label: formatBucketLabel(day.date),
                               value: day.active_users,
                             }))}
                             height={250}
@@ -2329,7 +2439,7 @@ function AdminPage() {
                         <CardContent>
                           <SimpleLineChart
                             data={stats.daily_activity.map((day) => ({
-                              label: new Date(day.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+                              label: formatBucketLabel(day.date),
                               value: day.conversations,
                             }))}
                             height={250}
@@ -2364,7 +2474,7 @@ function AdminPage() {
                       <CardContent>
                         <SimpleLineChart
                           data={stats.daily_activity.map((day) => ({
-                            label: new Date(day.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+                            label: formatBucketLabel(day.date),
                             value: day.messages,
                           }))}
                           height={200}
@@ -2396,6 +2506,21 @@ function AdminPage() {
                     </Card>
 
                     {/* Top Users */}
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-lg font-semibold">Top Users</h3>
+                      <label
+                        className="flex cursor-pointer select-none items-center gap-2 rounded-md border border-input bg-background px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground"
+                        title="Include bot and service-account identities (alert posters, MR bots) in the leaderboards"
+                      >
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 rounded border-input accent-primary"
+                          checked={showBotUsers}
+                          onChange={(event) => setShowBotUsers(event.target.checked)}
+                        />
+                        Show bot users
+                      </label>
+                    </div>
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                       <Card>
                         <CardHeader>
@@ -2409,6 +2534,7 @@ function AdminPage() {
                               <div key={u._id} className="flex items-center justify-between">
                                 <div className="flex items-center gap-2 min-w-0">
                                   <div className="w-6 text-sm text-muted-foreground shrink-0">#{i + 1}</div>
+                                  <OwnerTypeBadge ownerType={u.owner_type} />
                                   <div className="text-sm truncate max-w-[200px] text-primary hover:underline cursor-pointer" onClick={() => setSelectedUserEmail(u._id)} title={u._id}>{u.name || u._id}</div>
                                 </div>
                                 <div className="text-sm font-medium shrink-0">{u.count} chats</div>
@@ -2430,6 +2556,7 @@ function AdminPage() {
                               <div key={u._id} className="flex items-center justify-between">
                                 <div className="flex items-center gap-2 min-w-0">
                                   <div className="w-6 text-sm text-muted-foreground shrink-0">#{i + 1}</div>
+                                  <OwnerTypeBadge ownerType={u.owner_type} />
                                   <div className="text-sm truncate max-w-[200px] text-primary hover:underline cursor-pointer" onClick={() => setSelectedUserEmail(u._id)} title={u._id}>{u.name || u._id}</div>
                                 </div>
                                 <div className="text-sm font-medium shrink-0">{u.count} messages</div>
@@ -2509,7 +2636,7 @@ function AdminPage() {
                                   <p className="text-2xl font-bold text-primary mt-5">
                                     {stats.feedback_summary.satisfaction_rate ?? Math.round((stats.feedback_summary.positive / stats.feedback_summary.total) * 100)}%
                                   </p>
-                                  <p className="text-xs text-muted-foreground">Satisfaction</p>
+                                  <p className="text-xs text-muted-foreground">Positive</p>
                                 </div>
                               </div>
                               {/* Satisfaction bar */}
@@ -2573,25 +2700,69 @@ function AdminPage() {
                       </Card>
                     </div>
 
-                    {/* Feedback Trend Chart */}
-                    {stats.feedback_summary?.daily && stats.feedback_summary.daily.length > 0 && (
-                      <Card>
-                        <CardHeader>
-                          <CardTitle>Feedback Trend ({rangeLabel})</CardTitle>
-                          <CardDescription>Daily positive vs negative feedback</CardDescription>
-                        </CardHeader>
-                        <CardContent>
-                          <SimpleLineChart
-                            data={stats.feedback_summary.daily.map((day) => ({
-                              label: new Date(day.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-                              value: day.positive + day.negative,
-                            }))}
-                            height={180}
-                            color="rgb(34, 197, 94)"
-                          />
-                        </CardContent>
-                      </Card>
-                    )}
+                    {/* Feedback Trend + Response Time — 50/50 split. Response Time
+                        is platform-wide (web + Slack); the source filter narrows
+                        it. It sits here rather than in the Web section so it
+                        renders for Slack-only stacks too. */}
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                      {stats.feedback_summary?.daily && stats.feedback_summary.daily.length > 0 && (
+                        <Card>
+                          <CardHeader>
+                            <CardTitle>Feedback Trend ({rangeLabel})</CardTitle>
+                            <CardDescription>Daily positive vs negative feedback</CardDescription>
+                          </CardHeader>
+                          <CardContent>
+                            <SimpleLineChart
+                              data={stats.feedback_summary.daily.map((day) => ({
+                                label: formatBucketLabel(day.date),
+                                value: day.positive + day.negative,
+                              }))}
+                              height={180}
+                              color="rgb(34, 197, 94)"
+                            />
+                          </CardContent>
+                        </Card>
+                      )}
+
+                      {/* Always shown so filtering to an agent with no latency
+                          samples renders an empty chart, not a missing card. */}
+                      {stats.response_time && (
+                        <Card>
+                          <CardHeader>
+                            <CardTitle className="flex items-center gap-2">
+                              <Zap className="h-5 w-5" />
+                              Response Time
+                            </CardTitle>
+                            <CardDescription>AI response latency across conversations</CardDescription>
+                          </CardHeader>
+                          <CardContent>
+                            {(() => {
+                              const samples = stats.response_time.samples ?? [];
+                              if (samples.length === 0) {
+                                return (
+                                  <p className="text-sm text-muted-foreground text-center py-4">Not enough data to plot yet</p>
+                                );
+                              }
+                              // Average computed here (client-side) from the raw samples.
+                              const avgMs = samples.reduce((sum, s) => sum + s.latency_ms, 0) / samples.length;
+                              return (
+                                <SimpleLineChart
+                                  data={samples.map((s) => ({
+                                    label: formatBucketLabel(s.ts),
+                                    value: s.latency_ms,
+                                  }))}
+                                  height={180}
+                                  color="rgb(234, 179, 8)"
+                                  avgLine={avgMs}
+                                  avgLabel={`avg ${(avgMs / 1000).toFixed(1)}s`}
+                                  formatValue={(ms) => `${(ms / 1000).toFixed(1)}s`}
+                                />
+                              );
+                            })()}
+                          </CardContent>
+                        </Card>
+                      )}
+                    </div>
 
                     {/* Hourly Activity Heatmap */}
                     {stats.hourly_heatmap && (
@@ -2671,7 +2842,7 @@ function AdminPage() {
                     )}
 
                     {/* ─── Web Section ─── */}
-                    {(stats.response_time?.sample_count > 0 || stats.completed_workflows) && (
+                    {stats.completed_workflows && (
                       <>
                         <div className="flex items-center gap-2 pt-2">
                           <Globe className="h-5 w-5 text-muted-foreground" />
@@ -2680,35 +2851,6 @@ function AdminPage() {
                         <div className="h-px bg-border" />
 
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                          {/* Response Time */}
-                          {stats.response_time && stats.response_time.sample_count > 0 && (
-                            <Card>
-                              <CardHeader>
-                                <CardTitle className="flex items-center gap-2">
-                                  <Zap className="h-5 w-5" />
-                                  Response Time
-                                </CardTitle>
-                                <CardDescription>AI response latency from web conversations</CardDescription>
-                              </CardHeader>
-                              <CardContent>
-                                <div className="grid grid-cols-3 gap-4 text-center">
-                                  <div>
-                                    <p className="text-2xl font-bold">{(stats.response_time.avg_ms / 1000).toFixed(1)}s</p>
-                                    <p className="text-xs text-muted-foreground">Average</p>
-                                  </div>
-                                  <div>
-                                    <p className="text-2xl font-bold text-green-500">{(stats.response_time.min_ms / 1000).toFixed(1)}s</p>
-                                    <p className="text-xs text-muted-foreground">Fastest</p>
-                                  </div>
-                                  <div>
-                                    <p className="text-2xl font-bold text-orange-500">{(stats.response_time.max_ms / 1000).toFixed(1)}s</p>
-                                    <p className="text-xs text-muted-foreground">Slowest</p>
-                                  </div>
-                                </div>
-                              </CardContent>
-                            </Card>
-                          )}
-
                           {/* Completed Workflows */}
                           {stats.completed_workflows && (
                             <Card>
@@ -2717,7 +2859,7 @@ function AdminPage() {
                                   <CheckCircle2 className="h-5 w-5" />
                                   Completed Workflows
                                 </CardTitle>
-                                <CardDescription>Agentic task completion tracking</CardDescription>
+                                <CardDescription>Workflow run completion tracking</CardDescription>
                               </CardHeader>
                               <CardContent>
                                 <div className="grid grid-cols-2 gap-3 text-center">
@@ -2726,19 +2868,19 @@ function AdminPage() {
                                     <p className="text-[10px] text-muted-foreground">Completed</p>
                                   </div>
                                   <div className="p-2 rounded-lg bg-orange-500/10">
-                                    <p className="text-xl font-bold text-orange-500">{stats.completed_workflows.interrupted}</p>
-                                    <p className="text-[10px] text-muted-foreground">Interrupted</p>
+                                    <p className="text-xl font-bold text-orange-500">{stats.completed_workflows.failed}</p>
+                                    <p className="text-[10px] text-muted-foreground">Failed</p>
                                   </div>
                                   <div className="p-2 rounded-lg bg-primary/10">
                                     <p className="text-xl font-bold text-primary">{stats.completed_workflows.completion_rate}%</p>
                                     <p className="text-[10px] text-muted-foreground">Completion Rate</p>
                                   </div>
                                   <div className="p-2 rounded-lg bg-purple-500/10">
-                                    <p className="text-xl font-bold text-purple-500">{stats.completed_workflows.avg_messages_per_workflow}</p>
-                                    <p className="text-[10px] text-muted-foreground">Avg Msgs/Workflow</p>
+                                    <p className="text-xl font-bold text-purple-500">{stats.completed_workflows.avg_steps_per_workflow}</p>
+                                    <p className="text-[10px] text-muted-foreground">Avg Steps/Workflow</p>
                                   </div>
                                 </div>
-                                {(stats.completed_workflows.total + stats.completed_workflows.interrupted) > 0 && (
+                                {(stats.completed_workflows.total + stats.completed_workflows.failed) > 0 && (
                                   <div className="mt-3">
                                     <div className="h-2 bg-orange-100 dark:bg-orange-900/20 rounded-full overflow-hidden">
                                       <div
@@ -2759,9 +2901,6 @@ function AdminPage() {
                     {stats.slack && (
                       <SlackStatsSection slack={stats.slack} rangeLabel={rangeLabel} />
                     )}
-
-                    {/* Checkpoint Persistence */}
-                    {canMutateAdminData && <CheckpointStatsSection />}
                   </div>
                 )}
 

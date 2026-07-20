@@ -116,10 +116,6 @@ jest.mock('@/components/admin/insights/SkillMetricsCards', () => ({
   TopCreatorsCard: () => <div />,
 }));
 
-jest.mock('@/components/admin/platform/CheckpointStatsSection', () => ({
-  CheckpointStatsSection: () => <div data-testid="checkpoint-stats">CheckpointStatsSection</div>,
-}));
-
 jest.mock('@/components/admin/security/AccessExplorerTab', () => ({
   AccessExplorerTab: () => <div data-testid="access-explorer-tab">AccessExplorerTab</div>,
 }));
