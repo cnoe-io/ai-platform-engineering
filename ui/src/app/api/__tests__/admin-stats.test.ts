@@ -122,6 +122,9 @@ function createMockCollection() {
         }),
         toArray: jest.fn().mockResolvedValue([]),
       }),
+      // Real cursors expose toArray() at the top level too (e.g. the
+      // workflow_runs owner-sub resolution does `find(...).toArray()`).
+      toArray: jest.fn().mockResolvedValue([]),
     }),
     findOne: jest.fn().mockResolvedValue(null),
     insertOne: jest.fn().mockResolvedValue({ insertedId: new ObjectId() }),
@@ -650,15 +653,17 @@ describe('GET /api/admin/stats — Top Agents', () => {
     await GET(makeRequest('/api/admin/stats'));
 
     // Web routes per-message: agent lives on messages.metadata.agent_name.
-    // We count distinct conversations per agent, excluding the Default fallback.
+    // Count distinct conversations per agent, excluding only empty sentinels —
+    // the "Default" agent is a real configured dynamic_agent and must count.
     const hasWebAgentPipeline = msgCol.aggregate.mock.calls.some((call: unknown[]) => {
       const pipeline = call[0];
       return (
         Array.isArray(pipeline) &&
         pipeline.some(
-          (stage: Record<string, unknown>) =>
-            Array.isArray(stage.$match?.['metadata.agent_name']?.$nin) &&
-            stage.$match['metadata.agent_name'].$nin.includes('Default')
+          (stage: Record<string, unknown>) => {
+            const nin = stage.$match?.['metadata.agent_name']?.$nin;
+            return Array.isArray(nin) && !nin.includes('Default') && !nin.includes('default');
+          }
         ) &&
         // Distinct conversations per agent via a two-stage $group (DocumentDB
         // compatible — no $project/$size): first group by agent+conversation…
@@ -675,6 +680,29 @@ describe('GET /api/admin/stats — Top Agents', () => {
       );
     });
     expect(hasWebAgentPipeline).toBe(true);
+  });
+
+  it('excludes Slack from the web-side top-agents count (no double-count)', async () => {
+    const { msgCol } = setupAdminWithCollections();
+
+    await GET(makeRequest('/api/admin/stats'));
+
+    // Slack agent usage is counted from conversations.thread_owner_agent_id;
+    // Slack messages now also carry metadata.agent_name, so the messages-side
+    // agent aggregation MUST exclude Slack or the same conversation is counted
+    // twice.
+    const webAgentPipelineExcludesSlack = msgCol.aggregate.mock.calls.some((call: unknown[]) => {
+      const pipeline = call[0];
+      return (
+        Array.isArray(pipeline) &&
+        pipeline.some(
+          (stage: Record<string, unknown>) =>
+            Array.isArray(stage.$match?.['metadata.agent_name']?.$nin) &&
+            (stage.$match['metadata.source'] as Record<string, unknown>)?.$ne === 'slack'
+        )
+      );
+    });
+    expect(webAgentPipelineExcludesSlack).toBe(true);
   });
 
   it('returns top_agents as an array', async () => {
@@ -798,6 +826,7 @@ describe('GET /api/admin/stats — Response Time', () => {
       min_ms: 0,
       max_ms: 0,
       sample_count: 0,
+      samples: [],
     });
   });
 });
@@ -1410,5 +1439,51 @@ describe('GET /api/admin/stats — Configured Channels', () => {
     for (let i = 1; i < daily.length; i++) {
       expect(daily[i].total).toBeGreaterThanOrEqual(daily[i - 1].total);
     }
+  });
+});
+
+describe('GET /api/admin/stats — Slack self-resolution', () => {
+  beforeEach(resetMocks);
+
+  /** Stub conversations.find(slackFilter).toArray() → the given slack convs. */
+  function stubSlackConvs(convCol: ReturnType<typeof createMockCollection>, convs: Record<string, unknown>[]) {
+    convCol.find = jest.fn().mockReturnValue({ toArray: jest.fn().mockResolvedValue(convs) });
+  }
+
+  function q(id: string, extra: Record<string, unknown> = {}) {
+    return { _id: id, metadata: { interaction_type: 'mention', ...extra } };
+  }
+
+  it('excludes human_assisted threads from resolved (not self-service)', async () => {
+    const { convCol, feedbackCol } = setupAdminWithCollections();
+    convCol.countDocuments.mockResolvedValue(3);
+    stubSlackConvs(convCol, [
+      q('a'),                              // self-resolved
+      q('b'),                              // self-resolved
+      q('c', { human_assisted: true }),    // colleague stepped in → not resolved
+    ]);
+    feedbackCol.find = jest.fn().mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) });
+
+    const res = await GET(makeRequest('/api/admin/stats'));
+    const body = await res.json();
+
+    const resolution = body.data.slack.resolution;
+    expect(resolution.total_threads).toBe(3);
+    expect(resolution.resolved_threads).toBe(2);
+    // 2 / 3 → 66.7%
+    expect(resolution.resolution_rate).toBe(66.7);
+  });
+
+  it('originator↔bot back-and-forth (no human_assisted) still counts as resolved', async () => {
+    const { convCol, feedbackCol } = setupAdminWithCollections();
+    convCol.countDocuments.mockResolvedValue(2);
+    stubSlackConvs(convCol, [q('a'), q('b')]);
+    feedbackCol.find = jest.fn().mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) });
+
+    const res = await GET(makeRequest('/api/admin/stats'));
+    const body = await res.json();
+
+    expect(body.data.slack.resolution.resolved_threads).toBe(2);
+    expect(body.data.slack.resolution.resolution_rate).toBe(100);
   });
 });

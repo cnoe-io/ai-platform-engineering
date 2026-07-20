@@ -65,7 +65,9 @@ class SessionManager:
     self._skipped_cache = TTLCache(ttl_seconds=300)
     self._channel_info_cache = TTLCache(ttl_seconds=3600)
     self._thread_owner_cache = TTLCache(ttl_seconds=86400)
+    self._thread_originator_cache = TTLCache(ttl_seconds=86400)
     self._escalated_threads: set[str] = set()
+    self._human_assisted_threads: set[str] = set()
 
   # ------------------------------------------------------------------
   # Skipped (overthink mode)
@@ -101,6 +103,22 @@ class SessionManager:
       self._thread_owner_cache.set(thread_ts, agent_id)
 
   # ------------------------------------------------------------------
+  # Thread originator — the Slack user who first engaged the bot in a
+  # thread. Anchors self-resolution: a later reply from any *other* human
+  # means the originator did not solve it themselves. Distinct from
+  # metadata.user_id, which is overwritten to the last interactor each turn.
+  # ------------------------------------------------------------------
+
+  def get_thread_originator(self, thread_ts: str) -> Optional[str]:
+    """Return the Slack user_id that first engaged the bot in this thread."""
+    return self._thread_originator_cache.get(thread_ts)
+
+  def set_thread_originator(self, thread_ts: str, user_id: str) -> None:
+    """Record the thread's originating Slack user (first write wins)."""
+    if self._thread_originator_cache.get(thread_ts) is None:
+      self._thread_originator_cache.set(thread_ts, user_id)
+
+  # ------------------------------------------------------------------
   # Escalation dedup
   # ------------------------------------------------------------------
 
@@ -111,6 +129,21 @@ class SessionManager:
   def set_escalated(self, thread_ts: str) -> None:
     """Mark a thread as escalated (idempotent)."""
     self._escalated_threads.add(thread_ts)
+
+  # ------------------------------------------------------------------
+  # Human-assisted dedup — a thread where a non-originator human replied
+  # is no longer self-resolved. This set short-circuits repeat metadata
+  # PATCHes once the flag is persisted (process-local; the durable record
+  # is the conversation's metadata.human_assisted).
+  # ------------------------------------------------------------------
+
+  def is_human_assisted(self, thread_ts: str) -> bool:
+    """Check if this thread was already flagged human-assisted."""
+    return thread_ts in self._human_assisted_threads
+
+  def set_human_assisted(self, thread_ts: str) -> None:
+    """Mark a thread as human-assisted (idempotent)."""
+    self._human_assisted_threads.add(thread_ts)
 
   # ------------------------------------------------------------------
   # User info cache (pure local — avoids Slack API rate limits)

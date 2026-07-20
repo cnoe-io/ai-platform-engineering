@@ -240,7 +240,7 @@ async function getAdminStats(request: NextRequest) {
   // conversations, AND the agents they own (directly or via a team). The
   // owned-agent axis lets an agent owner see usage of their agent even in
   // channels they can't read / web chats that aren't theirs.
-  let nonAdminScope: { channelNames: string[]; ownerEmail: string; ownedAgents: OwnedAgent[] } | null = null;
+  let nonAdminScope: { channelNames: string[]; ownerEmail: string; ownedAgents: OwnedAgent[]; sub: string } | null = null;
   if (!isFullAdmin) {
     const openfgaUser = simulationScope?.openfgaUser ?? (
       typeof session.sub === 'string' && session.sub.trim()
@@ -260,7 +260,10 @@ async function getAdminStats(request: NextRequest) {
       openfgaUser ? getReadableSlackChannelNames(openfgaUser) : Promise.resolve([]),
       openfgaUser ? getOwnedAgents(openfgaUser) : Promise.resolve([]),
     ]);
-    nonAdminScope = { channelNames, ownerEmail: email, ownedAgents };
+    // workflow_runs are owner-keyed by JWT sub (owner_subject.id), not email —
+    // openfgaUser is `user:<sub>`, so strip the prefix to recover the raw sub.
+    const sub = openfgaUser.startsWith('user:') ? openfgaUser.slice('user:'.length) : '';
+    nonAdminScope = { channelNames, ownerEmail: email, ownedAgents, sub };
   }
 
     const { rangeStart, days, bucketUnit, bucketCount } = parseRange(searchParams);
@@ -386,14 +389,14 @@ async function getAdminStats(request: NextRequest) {
             categories: [],
             daily: [],
           },
-          response_time: { avg_ms: 0, min_ms: 0, max_ms: 0, sample_count: 0 },
+          response_time: { avg_ms: 0, min_ms: 0, max_ms: 0, sample_count: 0, samples: [] },
           hourly_heatmap: Array.from({ length: 24 }, (_, hour) => ({ hour, count: 0 })),
           completed_workflows: {
             total: 0,
             today: 0,
-            interrupted: 0,
+            failed: 0,
             completion_rate: 0,
-            avg_messages_per_workflow: 0,
+            avg_steps_per_workflow: 0,
           },
           available_channels: [],
           available_agents: [],
@@ -431,6 +434,42 @@ async function getAdminStats(request: NextRequest) {
     const users = await getCollection('users');
     const conversations = await getCollection('conversations');
     const messages = await getCollection('messages');
+    const workflowRuns = await getCollection('workflow_runs');
+
+    // ── workflow_runs scope ─────────────────────────────────────────
+    // The Completed Workflows metric reads the real `workflow_runs` collection
+    // (the workflow engine), NOT finished chats. Runs are owner-keyed by JWT
+    // sub in `owner_subject.id`, not by email, so this filter is built
+    // separately from msgOwnerFilter/convSourceFilter:
+    //   - source=slack   → workflows are web-only; match nothing.
+    //   - non-admin      → only the caller's own runs (owner_subject.id = sub).
+    //   - admin + user=  → resolve the requested emails to Keycloak subs.
+    //   - admin, no user → all runs.
+    let workflowRunFilter: Document | null = {};
+    if (sourceFilter === 'slack') {
+      workflowRunFilter = null; // web-only concept; skip the queries entirely
+    } else if (nonAdminScope) {
+      workflowRunFilter = nonAdminScope.sub
+        ? { 'owner_subject.type': 'user', 'owner_subject.id': nonAdminScope.sub }
+        : null;
+    } else if (userEmails.length > 0) {
+      const owners = await users
+        .find(
+          { email: { $in: userEmails } },
+          { projection: { keycloak_sub: 1, 'metadata.keycloak_sub': 1 } },
+        )
+        .toArray();
+      const subs = [
+        ...new Set(
+          owners
+            .map((u) => u.keycloak_sub || u.metadata?.keycloak_sub)
+            .filter((s): s is string => typeof s === 'string' && s.length > 0),
+        ),
+      ];
+      workflowRunFilter = subs.length > 0
+        ? { 'owner_subject.type': 'user', 'owner_subject.id': { $in: subs } }
+        : null; // requested users have no resolvable sub → match nothing
+    }
 
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -569,9 +608,9 @@ async function getAdminStats(request: NextRequest) {
       fbCategories,
       fbDaily,
       latencyAgg,
-      completedWorkflows,
+      latencyDaily,
+      workflowRunAgg,
       completedToday,
-      conversationsWithAssistant,
       hourlyActivity,
       availableChannelsResult,
       webWorkflowEffort,
@@ -632,10 +671,11 @@ async function getAdminStats(request: NextRequest) {
       //     (e.g. "Hello Agent")
       // We count DISTINCT conversations per agent on each side (comparable units),
       // humanize both to a common display label, and merge by that label below.
-      // 'default'/'Default'/'unknown'/'' are the non-routed fallback, not real agents.
+      // Exclude only empty sentinels ('', null, 'unknown'); the "Default" agent
+      // (id 'default') is a real configured dynamic_agent, so it counts.
       Promise.all([
         conversations.aggregate([
-          { $match: { created_at: { $gte: rangeStart }, 'metadata.thread_owner_agent_id': { $nin: [null, '', 'default', 'unknown'] }, ...convSourceFilter } },
+          { $match: { created_at: { $gte: rangeStart }, 'metadata.thread_owner_agent_id': { $nin: [null, '', 'unknown'] }, ...convSourceFilter } },
           { $group: { _id: '$metadata.thread_owner_agent_id', count: { $sum: 1 } } },
         ]).toArray(),
         // Count DISTINCT conversations per agent via a two-stage $group
@@ -643,11 +683,19 @@ async function getAdminStats(request: NextRequest) {
         // $project/$size — DocumentDB supports $group/$sum but not all
         // aggregation expression operators — mirroring the pattern used
         // elsewhere in this route.
-        messages.aggregate([
-          { $match: { role: 'assistant', 'metadata.agent_name': { $nin: [null, '', 'default', 'Default', 'unknown'] }, created_at: { $gte: rangeStart }, ...msgOwnerFilter } },
-          { $group: { _id: { agent: '$metadata.agent_name', conv: '$conversation_id' } } },
-          { $group: { _id: '$_id.agent', count: { $sum: 1 } } },
-        ]).toArray(),
+        //
+        // Slack messages also carry metadata.agent_name now, but Slack agent
+        // usage is counted from conversations.thread_owner_agent_id above — so
+        // the messages side must EXCLUDE Slack to avoid double-counting. When
+        // the caller explicitly filters source=slack there is no web side at
+        // all, so skip this aggregation entirely.
+        sourceFilter === 'slack'
+          ? Promise.resolve([] as { _id: string; count: number }[])
+          : messages.aggregate([
+              { $match: { role: 'assistant', 'metadata.source': { $ne: 'slack' }, 'metadata.agent_name': { $nin: [null, '', 'unknown'] }, created_at: { $gte: rangeStart }, ...msgOwnerFilter } },
+              { $group: { _id: { agent: '$metadata.agent_name', conv: '$conversation_id' } } },
+              { $group: { _id: '$_id.agent', count: { $sum: 1 } } },
+            ]).toArray(),
       ]).then(([slackAgents, webAgents]) => {
         const byLabel = new Map<string, number>();
         for (const row of [...slackAgents, ...webAgents] as Array<{ _id: string; count: number }>) {
@@ -685,32 +733,47 @@ async function getAdminStats(request: NextRequest) {
         { $group: { _id: { date: { $dateToString: { format: BUCKET_DATE_FORMAT[bucketUnit], date: '$created_at' } }, rating: '$rating' }, count: { $sum: 1 } } },
       ]).toArray(),
 
-      // Response latency
+      // Response latency (overall)
       messages.aggregate([
         { $match: { role: 'assistant', 'metadata.latency_ms': { $exists: true, $gt: 0 }, created_at: { $gte: rangeStart }, ...msgOwnerFilter } },
         { $group: { _id: null, avg_latency: { $avg: '$metadata.latency_ms' }, min_latency: { $min: '$metadata.latency_ms' }, max_latency: { $max: '$metadata.latency_ms' }, count: { $sum: 1 } } },
       ]).toArray(),
 
-      // Completed workflows (total)
+      // Latency trend, bucketed at the range's granularity (minute/hour/day)
+      // so the x-axis scales with the selected window: per-minute for ≤2h,
+      // per-hour for ≤1d, per-day beyond. Each bucket carries the MEAN latency
+      // of its messages; the UI plots one point per bucket and draws the
+      // average line client-side. Same filter as the overall latency stat.
       messages.aggregate([
-        { $match: { role: 'assistant', 'metadata.is_final': true, created_at: { $gte: rangeStart }, ...msgOwnerFilter } },
-        { $group: { _id: '$conversation_id' } },
-        { $count: 'total' },
+        { $match: { role: 'assistant', 'metadata.latency_ms': { $exists: true, $gt: 0 }, created_at: { $gte: rangeStart }, ...msgOwnerFilter } },
+        { $group: { _id: { $dateToString: { format: BUCKET_DATE_FORMAT[bucketUnit], date: '$created_at' } }, avg_latency: { $avg: '$metadata.latency_ms' } } },
       ]).toArray(),
 
-      // Completed workflows (today)
-      messages.aggregate([
-        { $match: { role: 'assistant', 'metadata.is_final': true, created_at: { $gte: today }, ...msgOwnerFilter } },
-        { $group: { _id: '$conversation_id' } },
-        { $count: 'total' },
-      ]).toArray(),
+      // Completed Workflows metric — real workflow-engine runs (workflow_runs
+      // collection), NOT finished chats. A "workflow" is one document in
+      // workflow_runs; "completed"/"failed" come from its `status`. Range is
+      // keyed on `started_at` (the only always-present timestamp). Returns
+      // total runs, completed, failed (failed+cancelled), and — over completed
+      // runs only — the step count needed for the avg-steps card.
+      // `workflowRunFilter` is null when this scope produces no runs (Slack-only
+      // view, or a user filter that resolves to no subject), so the metric is 0.
+      workflowRunFilter
+        ? workflowRuns.aggregate([
+            { $match: { started_at: { $gte: rangeStart }, ...workflowRunFilter } },
+            { $group: {
+              _id: null,
+              total_runs: { $sum: 1 },
+              completed: { $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] } },
+              failed: { $sum: { $cond: [{ $in: ['$status', ['failed', 'cancelled']] }, 1, 0] } },
+              completed_steps: { $sum: { $cond: [{ $eq: ['$status', 'completed'] }, { $size: { $ifNull: ['$steps', []] } }, 0] } },
+            } },
+          ]).toArray()
+        : Promise.resolve([]),
 
-      // All conversations with assistant messages (for interrupted count)
-      messages.aggregate([
-        { $match: { role: 'assistant', created_at: { $gte: rangeStart }, ...msgOwnerFilter } },
-        { $group: { _id: '$conversation_id', has_final: { $max: { $cond: [{ $eq: ['$metadata.is_final', true] }, 1, 0] } }, last_msg_at: { $max: '$created_at' }, msg_count: { $sum: 1 } } },
-        { $sort: { last_msg_at: -1 } },
-      ]).toArray(),
+      // Completed workflows today — runs that reached `completed` today.
+      workflowRunFilter
+        ? workflowRuns.countDocuments({ status: 'completed', completed_at: { $gte: today }, ...workflowRunFilter })
+        : Promise.resolve(0),
 
       // Hourly heatmap — msgOwnerFilter already carries metadata.source
       // when source=web|slack was explicitly requested; unfiltered, this
@@ -837,26 +900,42 @@ async function getAdminStats(request: NextRequest) {
       ? Math.round((totalMessages / totalConversations) * 10) / 10
       : 0;
 
+    // Latency trend points, oldest→newest, one per non-empty bucket. `ts` is
+    // the bucket key ($dateToString format), which formatBucketLabel renders
+    // as a date for day buckets ("Jul 20") and a time for hour/minute buckets
+    // ("10:00 AM"). Empty buckets are omitted rather than plotted as 0ms so the
+    // client-side average line reflects only real samples. Ordered by bucket
+    // key, which is lexicographically chronological for every granularity.
+    const latencyByBucket = new Map<string, number>(
+      latencyDaily.map((s) => [String(s._id), Math.round(s.avg_latency)]),
+    );
+    const latencySamples = generateBucketKeys(now, bucketCount, bucketUnit)
+      .filter((key) => latencyByBucket.has(key))
+      .map((key) => ({ ts: key, latency_ms: latencyByBucket.get(key)! }));
+
     const responseTime = latencyAgg[0]
       ? {
           avg_ms: Math.round(latencyAgg[0].avg_latency),
           min_ms: latencyAgg[0].min_latency,
           max_ms: latencyAgg[0].max_latency,
           sample_count: latencyAgg[0].count,
+          samples: latencySamples,
         }
-      : { avg_ms: 0, min_ms: 0, max_ms: 0, sample_count: 0 };
+      : { avg_ms: 0, min_ms: 0, max_ms: 0, sample_count: 0, samples: [] };
 
-    const completedCount = completedWorkflows[0]?.total || 0;
-    const completedTodayCount = completedToday[0]?.total || 0;
-    const totalWithAssistant = conversationsWithAssistant.length;
-    const interruptedCount = conversationsWithAssistant.filter((c) => c.has_final === 0).length;
-    const completionRate = totalWithAssistant > 0
-      ? Math.round((completedCount / totalWithAssistant) * 1000) / 10
+    // Completed Workflows — derived from workflow_runs (see the aggregation
+    // above). completion_rate = completed / total runs; avg_steps is over
+    // completed runs only.
+    const wfRun = workflowRunAgg[0] || { total_runs: 0, completed: 0, failed: 0, completed_steps: 0 };
+    const totalRuns = wfRun.total_runs || 0;
+    const completedCount = wfRun.completed || 0;
+    const completedTodayCount = completedToday || 0;
+    const failedCount = wfRun.failed || 0;
+    const completionRate = totalRuns > 0
+      ? Math.round((completedCount / totalRuns) * 1000) / 10
       : 0;
-
-    const completedConvs = conversationsWithAssistant.filter((c) => c.has_final === 1);
-    const avgMsgsCompleted = completedConvs.length > 0
-      ? Math.round((completedConvs.reduce((sum, c) => sum + c.msg_count, 0) / completedConvs.length) * 10) / 10
+    const avgStepsCompleted = completedCount > 0
+      ? Math.round((wfRun.completed_steps / completedCount) * 10) / 10
       : 0;
 
     const hourlyMap = new Map<number, number>();
@@ -912,6 +991,15 @@ async function getAdminStats(request: NextRequest) {
         const channelName = { $ifNull: ['$metadata.channel_name', '$slack_meta.channel_name'] };
         const channelId = { $ifNull: ['$metadata.channel_id', '$slack_meta.channel_id'] };
         const interactionType = { $ifNull: ['$metadata.interaction_type', '$slack_meta.interaction_type'] };
+        // A non-originator human replying in the thread means the asker did not
+        // self-serve — a colleague stepped in. The Slack bot sets this flag when
+        // it observes a thread reply from anyone other than the thread's
+        // originator (originator↔bot back-and-forth stays self-resolved).
+        const humanAssisted = { $ifNull: ['$metadata.human_assisted', false] };
+        // A thread is NOT self-resolved when it was escalated to a human or a
+        // non-originator human assisted. (Negative feedback is applied per-thread
+        // in the app-side loop below, where the rating join lives.)
+        const unresolved = { $or: [escalated, humanAssisted] };
 
         // Self-resolution is only meaningful over threads a human actually
         // started (mention/qanda/dm/user). Automated posts (bot alerts,
@@ -941,14 +1029,14 @@ async function getAdminStats(request: NextRequest) {
             // Daily breakdown (user-initiated threads only, to match the rate)
             conversations.aggregate([
               { $match: slackFilter },
-              { $addFields: { _isUserQuestion: isUserQuestion, _escalated: escalated } },
+              { $addFields: { _isUserQuestion: isUserQuestion, _escalated: escalated, _unresolved: unresolved } },
               { $match: { _isUserQuestion: true } },
               {
                 $group: {
                   _id: { $dateToString: { format: BUCKET_DATE_FORMAT[bucketUnit], date: '$created_at' } },
                   interactions: { $sum: 1 },
                   unique_users: { $addToSet: userId },
-                  resolved: { $sum: { $cond: [{ $not: ['$_escalated'] }, 1, 0] } },
+                  resolved: { $sum: { $cond: [{ $not: ['$_unresolved'] }, 1, 0] } },
                   escalated: { $sum: { $cond: ['$_escalated', 1, 0] } },
                 },
               },
@@ -959,7 +1047,7 @@ async function getAdminStats(request: NextRequest) {
             // like "CFW7VL1GX" don't leak into the UI.
             conversations.aggregate([
               { $match: slackFilter },
-              { $addFields: { _channelId: channelId, _channelName: channelName, _isUserQuestion: isUserQuestion, _escalated: escalated } },
+              { $addFields: { _channelId: channelId, _channelName: channelName, _isUserQuestion: isUserQuestion, _unresolved: unresolved } },
               { $match: { _channelId: { $ne: null } } },
               {
                 $group: {
@@ -968,7 +1056,7 @@ async function getAdminStats(request: NextRequest) {
                   // name; keep the first non-null we see.
                   name: { $first: '$_channelName' },
                   interactions: { $sum: 1 },
-                  resolved: { $sum: { $cond: [{ $and: ['$_isUserQuestion', { $not: ['$_escalated'] }] }, 1, 0] } },
+                  resolved: { $sum: { $cond: [{ $and: ['$_isUserQuestion', { $not: ['$_unresolved'] }] }, 1, 0] } },
                   user_questions: { $sum: { $cond: ['$_isUserQuestion', 1, 0] } },
                 },
               },
@@ -1052,6 +1140,7 @@ async function getAdminStats(request: NextRequest) {
               _id: 1,
               'slack_meta.escalated': 1, 'metadata.escalated': 1,
               'slack_meta.interaction_type': 1, 'metadata.interaction_type': 1,
+              'metadata.human_assisted': 1,
             },
           }).toArray(),
           feedbackColl.find(
@@ -1077,7 +1166,10 @@ async function getAdminStats(request: NextRequest) {
         }
 
         // Application-side resolution over user-initiated threads: a thread is
-        // "resolved" when it wasn't escalated and wasn't rated negative.
+        // "resolved" (self-served) only when it wasn't escalated, wasn't rated
+        // negative, and no non-originator human replied. A non-originator human
+        // (metadata.human_assisted) means a colleague stepped in, so it doesn't
+        // count as self-service; originator↔bot back-and-forth still does.
         let userQuestionThreads = 0;
         let resolvedThreadsCount = 0;
         let escalatedThreadsCount = 0;
@@ -1089,11 +1181,12 @@ async function getAdminStats(request: NextRequest) {
 
           const rating = fbByConv.get(String(conv._id));
           const escalated = conv.metadata?.escalated ?? conv.slack_meta?.escalated;
+          const humanAssisted = conv.metadata?.human_assisted === true;
 
           if (escalated) escalatedThreadsCount += 1;
 
-          if (rating === 'negative' || escalated) {
-            continue; // not resolved, no time saved
+          if (rating === 'negative' || escalated || humanAssisted) {
+            continue; // not self-resolved, no time saved
           }
           resolvedThreadsCount += 1;
           estimatedMinutesSaved += rating === 'positive' ? POSITIVE_FEEDBACK_MINUTES : SELF_RESOLVED_MINUTES;
@@ -1173,18 +1266,23 @@ async function getAdminStats(request: NextRequest) {
     const includeWeb = sourceFilter !== 'slack';
     const includeSlack = sourceFilter !== 'web';
 
-    // Web hours saved: each completed web workflow stands in for a manual task.
-    // We credit a small fixed base per workflow plus a little per tool call it
-    // ran (tool calls proxy how much work was automated — a 6-tool
-    // investigation saved more time than a one-shot answer). Kept deliberately
-    // conservative so the headline number stays defensible.
-    const WEB_WORKFLOW_BASE_MINUTES = 5;
-    const WEB_PER_TOOL_CALL_MINUTES = 2;
+    // Hours saved — two independent web signals plus Slack:
+    //   1. Agent chats: each tool call an agent ran in a completed chat proxies
+    //      a small manual step it did for the user (~seconds each).
+    //   2. Workflow runs: each completed step in a completed workflow_runs run
+    //      stands in for a manual task the automation performed (~minutes each).
+    // Kept deliberately conservative so the headline number stays defensible.
+    const AGENT_PER_TOOL_CALL_SECONDS = 5;
+    const WORKFLOW_PER_STEP_MINUTES = 5;
     const webWorkflowStats = webWorkflowEffort as { workflows: number; tool_calls: number };
-    const webMinutesSaved = includeWeb
-      ? webWorkflowStats.workflows * WEB_WORKFLOW_BASE_MINUTES + webWorkflowStats.tool_calls * WEB_PER_TOOL_CALL_MINUTES
-      : 0;
-    const webHoursSaved = Math.round((webMinutesSaved / 60) * 10) / 10;
+    const agentSecondsSaved = includeWeb ? webWorkflowStats.tool_calls * AGENT_PER_TOOL_CALL_SECONDS : 0;
+    const agentHoursSaved = Math.round((agentSecondsSaved / 3600) * 10) / 10;
+    // wfRun.completed_steps = total steps across completed runs (see the
+    // Completed Workflows aggregation above); it already respects the range,
+    // owner, and source scope. Slack-only views set workflowRunFilter=null → 0.
+    const workflowMinutesSaved = includeWeb ? (wfRun.completed_steps || 0) * WORKFLOW_PER_STEP_MINUTES : 0;
+    const workflowHoursSaved = Math.round((workflowMinutesSaved / 60) * 10) / 10;
+    const webHoursSaved = Math.round((agentHoursSaved + workflowHoursSaved) * 10) / 10;
 
     const slackHoursSaved = includeSlack ? (slack?.resolution?.estimated_hours_saved || 0) : 0;
 
@@ -1206,8 +1304,11 @@ async function getAdminStats(request: NextRequest) {
       satisfaction_rate: feedbackSummary.satisfaction_rate || 0,
       estimated_hours_automated: totalHoursAutomated,
       web_hours_saved: webHoursSaved,
+      agent_hours_saved: agentHoursSaved,
+      workflow_hours_saved: workflowHoursSaved,
       slack_hours_saved: slackHoursSaved,
-      web_workflows: includeWeb ? webWorkflowStats.workflows : 0,
+      // Real completed workflow_runs in scope (drives the tooltip breakdown).
+      web_workflows: includeWeb ? completedCount : 0,
     };
 
     return successResponse({
@@ -1237,9 +1338,9 @@ async function getAdminStats(request: NextRequest) {
       completed_workflows: {
         total: completedCount,
         today: completedTodayCount,
-        interrupted: interruptedCount,
+        failed: failedCount,
         completion_rate: completionRate,
-        avg_messages_per_workflow: avgMsgsCompleted,
+        avg_steps_per_workflow: avgStepsCompleted,
       },
       ...(slack ? { slack } : {}),
       available_channels: availableChannels.sort(),

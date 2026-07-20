@@ -959,6 +959,79 @@ def _track_interaction(
     logger.warning(f"[{thread_ts}] Failed to update interaction metadata")
 
 
+def _record_message_turns(
+  conversation_id: str,
+  thread_ts: str,
+  channel_id: str,
+  trigger_ts: str,
+  agent_id: str,
+  response_time_ms: int | None = None,
+  channel_name: str | None = None,
+) -> None:
+  """Persist per-turn message rows (metadata-only) for a Slack exchange.
+
+  Slack turn content lives in Slack / the LangGraph checkpointer, so we do NOT
+  duplicate it here. We write two content-less ``messages`` rows — one ``user``
+  turn and one ``assistant`` turn — carrying just the metadata admin stats need
+  to count Slack messages the same way as web (source, agent, latency) and to
+  deep-link back to the source thread.
+
+  Called ONLY after a genuine, successful Forge response (never on skipped or
+  retry/error turns). ``message_id`` is derived from the triggering message ts
+  so the upsert is idempotent across Slack event retries.
+
+  ``agent_id`` is sent as-is; the server resolves it to the canonical display
+  name so Slack and web message rows share the same ``agent_name`` label. The
+  row's ``owner_id`` (the user-attribution key for stats) is inherited from the
+  conversation server-side — which the bot set to the Slack user's email — so
+  the same person's Slack and web activity aggregate to one bucket.
+  """
+  # Deep-link back to the Slack thread (same shape as _track_interaction).
+  slack_permalink = None
+  workspace = _WORKSPACE_URL
+  if workspace and thread_ts:
+    slack_permalink = f"{workspace}/archives/{channel_id}/p{thread_ts.replace('.', '')}"
+
+  link_meta: dict[str, object] = {
+    "source": "slack",
+    "agent_id": agent_id,
+    "channel_id": channel_id,
+    "thread_ts": thread_ts,
+  }
+  if channel_name:
+    link_meta["channel_name"] = channel_name
+  if slack_permalink:
+    link_meta["slack_permalink"] = slack_permalink
+
+  # Stable per-turn base id from the triggering message ts (dedupe key).
+  base_id = f"slack-{conversation_id}-{trigger_ts}"
+
+  try:
+    sse_client.add_message(
+      conversation_id=conversation_id,
+      message_id=f"{base_id}-user",
+      role="user",
+      metadata={
+        **link_meta,
+        "turn_id": f"{trigger_ts}-user",
+      },
+    )
+    sse_client.add_message(
+      conversation_id=conversation_id,
+      message_id=f"{base_id}-assistant",
+      role="assistant",
+      metadata={
+        **link_meta,
+        "turn_id": f"{trigger_ts}-assistant",
+        "is_final": True,
+        **({"latency_ms": response_time_ms} if response_time_ms is not None else {}),
+      },
+    )
+  except Exception:
+    # Best-effort telemetry: never let a stats write break the Slack response.
+    logger.warning(f"[{thread_ts}] Failed to record Slack message turns")
+
+
 def _call_ai(
   client,
   channel_id,
@@ -1401,6 +1474,10 @@ def handle_mention(event, say, client, context=None):
           "thread_ts": thread_ts,
           "channel_id": channel_id,
           "channel_name": channel_config.name,
+          # Set-once anchor for self-resolution: a later reply from any other
+          # human flips the thread to human-assisted. Server keeps the value
+          # from the first create; idempotent retrievals don't overwrite it.
+          **({"originator_slack_user_id": user_id} if user_id else {}),
           **({"workspace_url": SLACK_WORKSPACE_URL} if SLACK_WORKSPACE_URL else {}),
         },
       )
@@ -1421,6 +1498,29 @@ def handle_mention(event, say, client, context=None):
     conversation_id = conv_result["conversation_id"]
     conv_created = conv_result["created"]
     conv_metadata = conv_result.get("metadata", {})
+
+    # Warm the in-memory originator anchor (hot path for reply detection),
+    # preferring the server's set-once value so it survives bot restarts.
+    originator_user_id = conv_metadata.get("originator_slack_user_id") or (user_id if not is_bot else None)
+    if originator_user_id:
+      session_manager.set_thread_originator(thread_ts, originator_user_id)
+
+    # A @mention from a human other than the thread's originator is also a
+    # self-resolution disqualifier (someone else stepped in to help). Flag it
+    # here — unlike ambient replies, this path still answers the mention.
+    if (
+      not is_bot
+      and not conv_created
+      and originator_user_id
+      and user_id != originator_user_id
+      and not session_manager.is_human_assisted(thread_ts)
+    ):
+      try:
+        sse_client.update_conversation_metadata(conversation_id, {"human_assisted": True})
+        session_manager.set_human_assisted(thread_ts)
+        logger.info(f"[{thread_ts}] Human-assisted: @mention from {user_id} (originator {originator_user_id}){_msg_link(channel_id, thread_ts)}")
+      except Exception:
+        logger.warning(f"[{thread_ts}] Failed to flag thread human-assisted on mention")
 
     # Thread ownership: resolve from in-memory cache (hot path) or server
     # metadata (survives restarts). Only applies to thread replies — root
@@ -1536,6 +1636,7 @@ def handle_mention(event, say, client, context=None):
     # updates `last_processed_ts` (delta-context fast path on follow-ups,
     # spec from commit 706a1994), so this single call replaces what was
     # previously an inline `update_conversation_metadata` POST.
+    elapsed_ms = int((time.monotonic() - t0) * 1000)
     _track_interaction(
       conversation_id=conversation_id,
       thread_ts=thread_ts,
@@ -1544,10 +1645,23 @@ def handle_mention(event, say, client, context=None):
       user_id=user_id,
       user_email=user_email,
       user_name=user_name,
-      response_time_ms=int((time.monotonic() - t0) * 1000),
+      response_time_ms=elapsed_ms,
       last_processed_ts=event.get("ts"),
       thread_owner_agent_id=agent_id,
     )
+
+    # Persist per-turn message rows for stats/linking — only on a genuine
+    # successful response (skip retry/error turns, which fall through above).
+    if not (isinstance(result, dict) and result.get("retry_needed")):
+      _record_message_turns(
+        conversation_id=conversation_id,
+        thread_ts=thread_ts,
+        channel_id=channel_id,
+        trigger_ts=event.get("ts") or thread_ts,
+        agent_id=agent_id,
+        response_time_ms=elapsed_ms,
+        channel_name=channel_config.name if channel_config else None,
+      )
 
   except Exception as e:
     logger.exception(f"Error handling CAIPE mention: {e}")
@@ -1659,11 +1773,20 @@ def _route_to_agent(event, say, client, channel_config, agent_match, is_bot, bot
         "thread_ts": thread_ts,
         "channel_id": channel_id,
         "channel_name": channel_config.name,
+        # Set-once anchor for self-resolution (see handle_mention). Bot-authored
+        # messages aren't originators, so only stamp it for real users.
+        **({"originator_slack_user_id": user_id} if not is_bot and user_id else {}),
         **({"workspace_url": SLACK_WORKSPACE_URL} if SLACK_WORKSPACE_URL else {}),
       },
     )
     conversation_id = conv_result["conversation_id"]
     conv_metadata = conv_result.get("metadata", {})
+
+    # Warm the in-memory originator anchor, preferring the server's set-once
+    # value so it survives restarts (see handle_mention).
+    originator_user_id = conv_metadata.get("originator_slack_user_id") or (user_id if not is_bot else None)
+    if originator_user_id:
+      session_manager.set_thread_originator(event.get("thread_ts") or thread_ts, originator_user_id)
 
     # Thread ownership: bot messages start new threads so are never replies;
     # for user messages, honour whoever responded first in this thread.
@@ -1742,6 +1865,7 @@ def _route_to_agent(event, say, client, channel_config, agent_match, is_bot, bot
     session_manager.set_thread_owner(thread_root_ts or thread_ts, agent_id)
     logger.info(f"[{thread_ts}] Completed {sender_label} request for {user_name}")
 
+    elapsed_ms = int((time.monotonic() - t0) * 1000)
     _track_interaction(
       conversation_id=conversation_id,
       thread_ts=thread_ts,
@@ -1750,8 +1874,20 @@ def _route_to_agent(event, say, client, channel_config, agent_match, is_bot, bot
       user_id=user_id,
       user_email=user_email,
       user_name=user_name,
-      response_time_ms=int((time.monotonic() - t0) * 1000),
+      response_time_ms=elapsed_ms,
       thread_owner_agent_id=agent_id,
+    )
+
+    # Persist per-turn message rows for stats/linking (successful turn only —
+    # skipped turns return above; this handler has no retry fallthrough).
+    _record_message_turns(
+      conversation_id=conversation_id,
+      thread_ts=thread_ts,
+      channel_id=channel_id,
+      trigger_ts=event.get("ts") or thread_ts,
+      agent_id=agent_id,
+      response_time_ms=elapsed_ms,
+      channel_name=channel_config.name if channel_config else None,
     )
 
   except AgentAccessDeniedError as e:
@@ -2024,6 +2160,7 @@ def handle_dm_message(event, say, client, context=None):
     # Telemetry: record interaction metadata. _track_interaction also
     # updates `last_processed_ts` (delta-context fast path on follow-ups),
     # so this single call replaces the older inline metadata POST.
+    elapsed_ms = int((time.monotonic() - t0) * 1000)
     _track_interaction(
       conversation_id=conversation_id,
       thread_ts=thread_ts,
@@ -2032,9 +2169,22 @@ def handle_dm_message(event, say, client, context=None):
       user_id=user_id,
       user_email=user_email,
       user_name=user_name,
-      response_time_ms=int((time.monotonic() - t0) * 1000),
+      response_time_ms=elapsed_ms,
       last_processed_ts=event.get("ts"),
     )
+
+    # Persist per-turn message rows for stats/linking — only on a genuine
+    # successful response (skip retry/error turns, which fall through above).
+    # DMs have no channel config, so no channel_name.
+    if not (isinstance(result, dict) and result.get("retry_needed")):
+      _record_message_turns(
+        conversation_id=conversation_id,
+        thread_ts=thread_ts,
+        channel_id=channel_id,
+        trigger_ts=event.get("ts") or thread_ts,
+        agent_id=agent_id,
+        response_time_ms=elapsed_ms,
+      )
 
   except Exception as e:
     logger.exception(f"Error handling DM message: {e}")
@@ -2046,6 +2196,47 @@ def handle_dm_message(event, say, client, context=None):
       )
     except Exception as say_error:
       logger.exception(f"Failed to send error message: {say_error}")
+
+
+def _flag_human_assisted_if_foreign(event, client) -> None:
+  """Mark a bot-engaged thread human-assisted when a non-originator human replies.
+
+  This is the self-resolution disqualifier: if anyone other than the thread's
+  originator answers, the originator did not self-serve. Observe-only — never
+  posts. Gated on the thread being bot-owned so we never create a conversation
+  for a thread the bot never engaged, and deduped in-process so a chatty thread
+  PATCHes at most once.
+  """
+  thread_ts = event.get("thread_ts")
+  sender_id = event.get("user")
+  if not thread_ts or not sender_id:
+    return
+
+  # Only threads the bot already engaged have an owner + a conversation row.
+  if session_manager.get_thread_owner(thread_ts) is None:
+    return
+
+  originator_id = session_manager.get_thread_originator(thread_ts)
+  # Unknown originator (e.g. cache lost across restart before any mention) —
+  # can't attribute, so leave the thread as-is rather than guess.
+  if originator_id is None or sender_id == originator_id:
+    return
+
+  if session_manager.is_human_assisted(thread_ts):
+    return
+
+  channel_id = event.get("channel")
+  try:
+    conversation_id = _resolve_conversation_id(
+      thread_ts,
+      channel_id,
+      agent_id=session_manager.get_thread_owner(thread_ts) or "",
+    )
+    sse_client.update_conversation_metadata(conversation_id, {"human_assisted": True})
+    session_manager.set_human_assisted(thread_ts)
+    logger.info(f"[{thread_ts}] Human-assisted: reply from {sender_id} (originator {originator_id}){_msg_link(channel_id, thread_ts)}")
+  except Exception:
+    logger.warning(f"[{thread_ts}] Failed to flag thread human-assisted")
 
 
 @app.event("message")
@@ -2078,6 +2269,11 @@ def handle_message_events(body, say, client, context=None):
   # event is delivered, so checking thread_ts is not None is too broad.
   is_thread_reply = event.get("thread_ts") is not None and event.get("thread_ts") != event.get("ts")
   if is_thread_reply:
+    # Self-resolution signal: a reply from any human other than the thread's
+    # originator means the originator did not solve it themselves. Flip the
+    # conversation to human-assisted (observe-only — the bot does not respond).
+    if not is_bot:
+      _flag_human_assisted_if_foreign(event, client)
     return
 
   # Skip @mentions — handled by handle_mention
