@@ -18,6 +18,7 @@ import time
 import uuid
 from concurrent import futures
 from pathlib import Path
+from typing import NamedTuple
 import importlib.util
 
 import grpc
@@ -57,6 +58,16 @@ BYPASS_SUBS = frozenset(
 )
 AGENT_CONTEXT_HMAC_SECRET = os.environ.get("CAIPE_AGENT_CONTEXT_HMAC_SECRET", "").strip()
 AGENT_CONTEXT_MAX_AGE_SECONDS = int(os.environ.get("CAIPE_AGENT_CONTEXT_MAX_AGE_SECONDS", "300"))
+# "local" contexts (minted by /api/mcp-servers/agent-context for CLI/local
+# callers, see ui/src/lib/mcp-http-server-client.ts) get a longer max age than
+# Dynamic Agent contexts: they're re-signed per MCP connection, not per
+# request (Claude Code/Codex cache MCP headers for a whole session), so a
+# short TTL would force a re-auth or a failed-then-retried tool call every
+# few minutes. They're safe to allow longer because they carry no delegated
+# authority — see the "local" branch in OpenFgaAuthorizationService.Check.
+AGENT_CONTEXT_LOCAL_MAX_AGE_SECONDS = int(
+    os.environ.get("CAIPE_AGENT_CONTEXT_LOCAL_MAX_AGE_SECONDS", "28800")  # 8h
+)
 # Caller-keyed tool-authorization rollout flag (FR-012c / SC-011 / T022a).
 # When OFF (default), the bridge keeps the legacy agent-only tool check so
 # enabling the new subject→tool check in a shared environment never silently
@@ -456,20 +467,50 @@ def _b64url_decode(text: str) -> bytes:
     return base64.urlsafe_b64decode(text + "=" * (-len(text) % 4))
 
 
-def build_agent_context_header(agent_id: str, *, secret: str, now: int | None = None) -> tuple[str, str]:
+# "kind" values recognized in the signed agent-context payload. Absent for
+# older producers (Dynamic Agents runtime, the diagnostic test-tool route) —
+# those are treated as "dynamic", the pre-existing, fully-checked behavior.
+# "local" identifies a context minted for a CLI/local caller (see
+# ui/src/app/api/mcp-servers/agent-context/route.ts) acting as the signed-in
+# user themselves rather than as a delegated agent — see the "local" branch
+# in OpenFgaAuthorizationService.Check for what that changes.
+AGENT_CONTEXT_KIND_DYNAMIC = "dynamic"
+AGENT_CONTEXT_KIND_LOCAL = "local"
+_AGENT_CONTEXT_MAX_AGE_BY_KIND = {
+    AGENT_CONTEXT_KIND_DYNAMIC: AGENT_CONTEXT_MAX_AGE_SECONDS,
+    AGENT_CONTEXT_KIND_LOCAL: AGENT_CONTEXT_LOCAL_MAX_AGE_SECONDS,
+}
+
+
+class AgentContext(NamedTuple):
+    agent_id: str
+    kind: str
+
+
+def build_agent_context_header(
+    agent_id: str,
+    *,
+    secret: str,
+    now: int | None = None,
+    kind: str = AGENT_CONTEXT_KIND_DYNAMIC,
+) -> tuple[str, str]:
     """Build a signed agent context header pair for tests and diagnostics."""
     issued_at = int(now if now is not None else time.time())
+    max_age = _AGENT_CONTEXT_MAX_AGE_BY_KIND.get(kind, AGENT_CONTEXT_MAX_AGE_SECONDS)
     payload = {
         "agent_id": agent_id,
         "iat": issued_at,
-        "exp": issued_at + AGENT_CONTEXT_MAX_AGE_SECONDS,
+        "exp": issued_at + max_age,
+        "kind": kind,
     }
     encoded = _b64url(json.dumps(payload, separators=(",", ":"), sort_keys=True).encode())
     signature = hmac.new(secret.encode(), encoded.encode(), hashlib.sha256).hexdigest()
     return encoded, signature
 
 
-def _agent_id_from_context_headers(headers: dict[str, str], *, now: int | None = None) -> str | None:
+def _agent_context_from_headers(
+    headers: dict[str, str], *, now: int | None = None
+) -> AgentContext | None:
     if not AGENT_CONTEXT_HMAC_SECRET:
         return None
     encoded = headers.get("x-caipe-agent-context", "")
@@ -487,14 +528,28 @@ def _agent_id_from_context_headers(headers: dict[str, str], *, now: int | None =
         payload = json.loads(_b64url_decode(encoded))
     except Exception:
         return None
-    current = int(now if now is not None else time.time())
+
+    iat = payload.get("iat")
     exp = payload.get("exp")
     agent_id = payload.get("agent_id")
-    if not isinstance(exp, int) or exp < current:
+    kind = payload.get("kind", AGENT_CONTEXT_KIND_DYNAMIC)
+    if not isinstance(exp, int) or not isinstance(agent_id, str) or not agent_id:
         return None
-    if not isinstance(agent_id, str) or not agent_id:
+    if not isinstance(kind, str) or kind not in _AGENT_CONTEXT_MAX_AGE_BY_KIND:
         return None
-    return agent_id
+
+    current = int(now if now is not None else time.time())
+    if exp < current:
+        return None
+    # Defense in depth: even though the payload is signed by caipe-ui (the
+    # only holder of AGENT_CONTEXT_HMAC_SECRET), cap the lifetime a signer
+    # could claim to this kind's configured max age rather than trusting an
+    # arbitrary exp - iat span from the payload.
+    max_age = _AGENT_CONTEXT_MAX_AGE_BY_KIND[kind]
+    if isinstance(iat, int) and exp - iat > max_age:
+        return None
+
+    return AgentContext(agent_id=agent_id, kind=kind)
 
 
 def _request_body_text(request: CheckRequest) -> str:
@@ -735,8 +790,8 @@ class OpenFgaAuthorizationService:
                 )
             tool_call = mcp_tool_call_from_request(request)
             if allowed and tool_call and AGENT_CONTEXT_HMAC_SECRET:
-                agent_id = _agent_id_from_context_headers(headers)
-                if not agent_id:
+                agent_context = _agent_context_from_headers(headers)
+                if not agent_context:
                     _audit_decision(
                         request=request,
                         subject=sub,
@@ -752,50 +807,82 @@ class OpenFgaAuthorizationService:
                         code=PERMISSION_DENIED,
                         message="missing or invalid signed agent context",
                     )
-                agent_allowed = _check_openfga(user, "can_use", f"agent:{agent_id}")
-                exact_tool_allowed = _check_openfga(
-                    f"agent:{agent_id}",
-                    "can_call",
-                    f"tool:{tool_call[0]}/{tool_call[1]}",
-                )
-                wildcard_tool_allowed = False
-                if not exact_tool_allowed:
-                    wildcard_tool_allowed = _check_openfga(
+                agent_id = agent_context.agent_id
+
+                # "local" contexts identify the caller acting as themselves —
+                # there is no separate delegated identity to bound, so we skip
+                # the agent:<id> can_use/can_call checks and rely on the
+                # caller-keyed tool check below to scope the request.
+                #
+                # IMPORTANT: that scoping holds ONLY when CALLER_TOOL_CHECK_ENABLED
+                # is on. With the flag off (the upstream chart default), the
+                # caller-keyed check below is skipped and a "local" context falls
+                # back to just the coarse `can_call mcp_gateway:list` gate above —
+                # which every onboarded user holds — granting reach to every tool
+                # on every MCP server. Unlike a Dynamic Agent (whose tool grants
+                # are explicitly enumerated per-agent), a "local" context has no
+                # other tool-scoping mechanism, so the no-broadened-grant property
+                # is conditional on the flag, not a structural invariant. This
+                # repo's dev/prod helm values set callerToolCheck.enabled: true,
+                # so the property holds in those deployments. See
+                # ui/lib/mcp-http-server-client.ts and deploy/openfga/model.fga's
+                # agent/tool relations.
+                if agent_context.kind != AGENT_CONTEXT_KIND_LOCAL:
+                    agent_allowed = _check_openfga(user, "can_use", f"agent:{agent_id}")
+                    exact_tool_allowed = _check_openfga(
                         f"agent:{agent_id}",
                         "can_call",
-                        f"tool:{tool_call[0]}/*",
+                        f"tool:{tool_call[0]}/{tool_call[1]}",
                     )
-                if not agent_allowed:
+                    wildcard_tool_allowed = False
+                    if not exact_tool_allowed:
+                        wildcard_tool_allowed = _check_openfga(
+                            f"agent:{agent_id}",
+                            "can_call",
+                            f"tool:{tool_call[0]}/*",
+                        )
+                    if not agent_allowed:
+                        _audit_decision(
+                            request=request,
+                            subject=sub,
+                            user=user,
+                            relation="can_use",
+                            obj=f"agent:{agent_id}",
+                            outcome="deny",
+                            reason_code="DENY_AGENT_USE",
+                            duration_ms=(time.perf_counter() - start) * 1000,
+                        )
+                        return build_check_response(
+                            allowed=False,
+                            code=PERMISSION_DENIED,
+                            message="user lacks dynamic agent grant",
+                        )
+                    if not (exact_tool_allowed or wildcard_tool_allowed):
+                        _audit_decision(
+                            request=request,
+                            subject=sub,
+                            user=f"agent:{agent_id}",
+                            relation="can_call",
+                            obj=f"tool:{tool_call[0]}/{tool_call[1]}",
+                            outcome="deny",
+                            reason_code="DENY_AGENT_TOOL",
+                            duration_ms=(time.perf_counter() - start) * 1000,
+                        )
+                        return build_check_response(
+                            allowed=False,
+                            code=PERMISSION_DENIED,
+                            message="dynamic agent lacks agent tool grant",
+                        )
+                else:
                     _audit_decision(
                         request=request,
                         subject=sub,
                         user=user,
-                        relation="can_use",
-                        obj=f"agent:{agent_id}",
-                        outcome="deny",
-                        reason_code="DENY_AGENT_USE",
-                        duration_ms=(time.perf_counter() - start) * 1000,
-                    )
-                    return build_check_response(
-                        allowed=False,
-                        code=PERMISSION_DENIED,
-                        message="user lacks dynamic agent grant",
-                    )
-                if not (exact_tool_allowed or wildcard_tool_allowed):
-                    _audit_decision(
-                        request=request,
-                        subject=sub,
-                        user=f"agent:{agent_id}",
                         relation="can_call",
                         obj=f"tool:{tool_call[0]}/{tool_call[1]}",
-                        outcome="deny",
-                        reason_code="DENY_AGENT_TOOL",
+                        outcome="allow",
+                        reason_code="OK_LOCAL_AGENT_CONTEXT",
                         duration_ms=(time.perf_counter() - start) * 1000,
-                    )
-                    return build_check_response(
-                        allowed=False,
-                        code=PERMISSION_DENIED,
-                        message="dynamic agent lacks agent tool grant",
                     )
                 # Caller-keyed tool authorization (FR-012/012a/012b). The agent
                 # being allowed to call the tool is NOT sufficient — the calling
