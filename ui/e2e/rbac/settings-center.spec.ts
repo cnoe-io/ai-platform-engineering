@@ -212,12 +212,26 @@ async function openSettings(
   page: Page,
   section?: "Appearance" | "Chat & agents" | "Notifications" | "Defaults" | "Announcements",
 ): Promise<Locator> {
-  await page.getByRole("button",{ name: /User menu for Settings/ }).click();
-  await page.getByRole("button",{ name: "Settings",exact: true }).click();
+  await page.getByRole("button",{ exact: true,name: "Appearance settings" }).click();
   const dialog = page.getByRole("dialog",{ name: "Settings" });
   await expect(dialog).toBeVisible();
-  if (section && section !== "Chat & agents") {
-    await dialog.getByRole("button",{ name: section,exact: true }).click();
+  const requestedSection = section ?? "Chat & agents";
+  if (requestedSection !== "Appearance") {
+    const routeId = {
+      "Announcements": "announcements",
+      "Chat & agents": "chat",
+      "Defaults": "defaults",
+      "Notifications": "notifications",
+    }[requestedSection];
+    const navigationButton = dialog.getByRole("button",{
+      exact: true,
+      name: requestedSection,
+    });
+    if (await navigationButton.isVisible()) {
+      await navigationButton.click();
+    } else {
+      await dialog.getByLabel("Settings section",{ exact: true }).selectOption(routeId);
+    }
   }
   return dialog;
 }
@@ -389,14 +403,14 @@ test.describe("mocked Settings dialog browser regression",() => {
     await page.goto("/",{ waitUntil: "domcontentloaded" });
     const dialog = await openSettings(page);
 
-    const sectionPicker = dialog.getByLabel("Settings section");
+    const sectionPicker = dialog.getByLabel("Settings section",{ exact: true });
     await expect(sectionPicker).toBeVisible();
     await sectionPicker.selectOption("notifications");
     await expect(dialog.getByRole("heading",{ level: 2,name: "Notifications" })).toBeVisible();
     await expect(page).toHaveURL(/\/$/);
   });
 
-  test("opens the expected section from each header entry point",async ({ page }) => {
+  test("opens Appearance from the header and can reopen at Chat & agents",async ({ page }) => {
     const state = createState();
     await installSettingsCenterMocks(page,state,true);
     await page.goto("/",{ waitUntil: "domcontentloaded" });
@@ -405,6 +419,7 @@ test.describe("mocked Settings dialog browser regression",() => {
     let dialog = page.getByRole("dialog",{ name: "Settings" });
     await expect(dialog.getByRole("heading",{ level: 2,name: "Appearance" })).toBeVisible();
     await dialog.getByRole("button",{ name: "Close" }).click();
+    await expect(dialog).toBeHidden();
 
     dialog = await openSettings(page);
     await expect(dialog.getByRole("heading",{ level: 2,name: "Chat & agents" })).toBeVisible();

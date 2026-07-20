@@ -47,6 +47,13 @@ test.describe("mocked Admin workspace browser regression",() => {
 
   test("discloses any category without navigating to an unwanted destination",async ({ page }) => {
     await installMockedRbacApp(page,{
+      gates: {
+        ...DEFAULT_ADMIN_GATES,
+        feedback: true,
+        slack: true,
+        stats: true,
+        webex: true,
+      },
       isAdmin: true,
       session: adminSession,
     });
@@ -127,7 +134,7 @@ test.describe("mocked Admin workspace browser regression",() => {
     });
     await page.goto("/admin/people/users",{ waitUntil: "domcontentloaded" });
 
-    const picker = page.getByLabel("Admin section");
+    const picker = page.getByLabel("Admin section",{ exact: true });
     await expect(picker).toBeVisible();
     await picker.selectOption("/admin/operations/health");
     await expect(page).toHaveURL(/\/admin\/operations\/health$/);
