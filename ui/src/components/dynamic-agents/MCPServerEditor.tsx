@@ -216,6 +216,14 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel, initialVal
   const [oauthConnectorOptions, setOauthConnectorOptions] = React.useState<OAuthConnectorOption[]>([]);
   const [endpointProbe, setEndpointProbe] = React.useState<EndpointProbeResult | null>(null);
   const [endpointProbeLoading, setEndpointProbeLoading] = React.useState(false);
+  const [credentialProbe, setCredentialProbe] = React.useState<{
+    ok: boolean;
+    status?: number;
+    error?: string;
+    credentialOrigins: { name: string; origin: string; provider?: string }[];
+    missingCredentials: string[];
+  } | null>(null);
+  const [credentialProbeLoading, setCredentialProbeLoading] = React.useState(false);
 
   // Arg input state
   const [newArg, setNewArg] = React.useState("");
@@ -453,6 +461,53 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel, initialVal
       setEndpointProbeLoading(false);
     }
   };
+
+  const handleProbeCredentials = async () => {
+    setCredentialProbeLoading(true);
+    setCredentialProbe(null);
+    setError(null);
+    try {
+      const normalizedSources = credentialSources
+        .map((source) => normalizedCredentialSource(source, providerConnectionOptions))
+        .filter((source): source is MCPCredentialSource => source !== null);
+      const response = await fetch("/api/mcp-servers/credential-probe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: endpoint, credential_sources: normalizedSources }),
+      });
+      const payload = (await response.json()) as {
+        success?: boolean;
+        data?: typeof credentialProbe;
+        error?: string;
+      };
+      if (!response.ok || payload.success === false || !payload.data) {
+        throw new Error(payload.error || "Could not test connection");
+      }
+      setCredentialProbe(payload.data);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Could not test connection");
+    } finally {
+      setCredentialProbeLoading(false);
+    }
+  };
+
+  const handleOAuthConnect = (provider: string) => {
+    const url = `/api/credentials/oauth/${encodeURIComponent(provider)}/connect`;
+    const features = "popup=yes,width=640,height=760,resizable=yes,scrollbars=yes";
+    const popup = window.open(url, `caipe-oauth-${provider}`, features);
+    popup?.focus?.();
+  };
+
+  React.useEffect(() => {
+    const handleOAuthMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
+      if (event.data?.type !== "caipe.oauth.connection") return;
+      void handleProbeCredentials();
+    };
+    window.addEventListener("message", handleOAuthMessage);
+    return () => window.removeEventListener("message", handleOAuthMessage);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [endpoint, credentialSources, providerConnectionOptions]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1074,6 +1129,13 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel, initialVal
                               ? "No OAuth providers"
                               : "Select a provider"}
                           </option>
+                          {/* Show a placeholder when the pre-filled provider isn't configured yet */}
+                          {source.provider &&
+                            !oauthConnectorOptions.some((c) => c.provider === source.provider) && (
+                              <option value={source.provider}>
+                                {source.provider} (not yet connected — set up in Credentials)
+                              </option>
+                            )}
                           {oauthConnectorOptions.map((connector) => (
                             <option key={connector.id} value={connector.provider}>
                               {connector.name}
@@ -1104,6 +1166,114 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel, initialVal
               </div>
             )}
           </div>
+
+          {/* Test Connection */}
+          {credentialSources.length > 0 && endpoint.trim() && (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleProbeCredentials}
+                  disabled={loading || readOnly || credentialProbeLoading || !endpoint.trim()}
+                >
+                  {credentialProbeLoading ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                      Testing...
+                    </>
+                  ) : (
+                    "Test Connection"
+                  )}
+                </Button>
+                {credentialProbe && (() => {
+                  const hasMissing = credentialProbe.missingCredentials.length > 0;
+                  const fullyOk = credentialProbe.ok && !hasMissing;
+                  const reachableButAuth = credentialProbe.ok && hasMissing;
+                  const colorClass = fullyOk
+                    ? "text-green-600 dark:text-green-400"
+                    : reachableButAuth
+                      ? "text-yellow-600 dark:text-yellow-400"
+                      : "text-destructive";
+                  const label = fullyOk
+                    ? `Connected (HTTP ${credentialProbe.status})`
+                    : reachableButAuth
+                      ? `Reachable (HTTP ${credentialProbe.status}) — credentials not resolved`
+                      : credentialProbe.error
+                        ? credentialProbe.error
+                        : `Failed (HTTP ${credentialProbe.status})`;
+                  return <span className={`text-sm font-medium ${colorClass}`}>{label}</span>;
+                })()}
+              </div>
+              {credentialProbe && credentialProbe.missingCredentials.length > 0 && (() => {
+                const providerSources = credentialSources.filter(
+                  (s) => s.kind === "provider_connection" && s.provider,
+                );
+                const connectableProviders = providerSources.map((s) => ({
+                  provider: s.provider!,
+                  name:
+                    oauthConnectorOptions.find((c) => c.provider === s.provider)?.name ??
+                    s.provider!,
+                  hasConnector: oauthConnectorOptions.some((c) => c.provider === s.provider),
+                }));
+                return (
+                  <div className="space-y-1.5">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-xs text-muted-foreground">
+                        Missing:{" "}
+                        <span className="text-destructive font-mono">
+                          {credentialProbe.missingCredentials.join(", ")}
+                        </span>
+                      </p>
+                      {connectableProviders.map(({ provider, name, hasConnector }) =>
+                        hasConnector ? (
+                          <Button
+                            key={provider}
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleOAuthConnect(provider)}
+                          >
+                            Connect {name}
+                          </Button>
+                        ) : (
+                          <span key={provider} className="text-xs text-muted-foreground">
+                            —{" "}
+                            <a
+                              href="/credentials"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="underline underline-offset-2 hover:text-foreground"
+                            >
+                              set up {name} in Credentials
+                            </a>{" "}
+                            first, then reconnect here.
+                          </span>
+                        ),
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+              {credentialProbe && credentialProbe.credentialOrigins.filter((o) => o.origin !== "none").length > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  Resolved:{" "}
+                  {credentialProbe.credentialOrigins
+                    .filter((o) => o.origin !== "none")
+                    .map((o, i) => (
+                      <span key={i}>
+                        {i > 0 ? ", " : ""}
+                        <span className="font-mono">{o.name}</span>
+                        {" via "}
+                        <span className="font-mono">{o.origin}</span>
+                        {o.provider ? ` (${o.provider})` : ""}
+                      </span>
+                    ))}
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Error */}
           {error && (
