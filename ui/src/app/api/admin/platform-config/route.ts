@@ -34,6 +34,59 @@ interface PlatformConfigDoc extends PlatformDefaultAgentDocument {
   release_notes?: unknown;
   discovery_cache_ttl_minutes?: unknown;
   top_nav?: unknown;
+  remote_mcp_catalog?: unknown;
+}
+
+export interface CustomMCPCatalogEntry {
+  id: string;
+  name: string;
+  description: string;
+  endpoint: string;
+  logo_url?: string;
+  provider_key: string;
+}
+
+export interface RemoteMCPCatalogConfig {
+  enabled_providers: string[] | null;
+  custom_entries: CustomMCPCatalogEntry[];
+}
+
+function normalizeCustomMCPEntry(entry: unknown, idx: number): CustomMCPCatalogEntry | null {
+  if (!isRecord(entry)) return null;
+  const name = typeof entry.name === 'string' ? entry.name.trim() : '';
+  if (!name) return null;
+  const endpoint = typeof entry.endpoint === 'string' ? entry.endpoint.trim() : '';
+  if (!endpoint) return null;
+  try { new URL(endpoint); } catch { return null; }
+  const provider_key = typeof entry.provider_key === 'string' ? entry.provider_key.trim().toLowerCase() : '';
+  if (!provider_key) return null;
+  const id = typeof entry.id === 'string' && entry.id.trim() ? entry.id.trim() : `custom-${idx}`;
+  return {
+    id,
+    name,
+    description: typeof entry.description === 'string' ? entry.description.trim() : '',
+    endpoint,
+    logo_url: typeof entry.logo_url === 'string' && entry.logo_url.trim() ? entry.logo_url.trim() : undefined,
+    provider_key,
+  };
+}
+
+function normalizeRemoteMCPCatalog(input: unknown): RemoteMCPCatalogConfig {
+  const source = isRecord(input) ? input : {};
+  let enabled_providers: string[] | null = null;
+  if (Array.isArray(source.enabled_providers)) {
+    enabled_providers = (source.enabled_providers as unknown[])
+      .filter((v): v is string => typeof v === 'string' && Boolean(v.trim()))
+      .map((v) => v.trim().toLowerCase());
+  }
+  const custom_entries: CustomMCPCatalogEntry[] = [];
+  if (Array.isArray(source.custom_entries)) {
+    for (let i = 0; i < (source.custom_entries as unknown[]).length; i++) {
+      const entry = normalizeCustomMCPEntry((source.custom_entries as unknown[])[i], i);
+      if (entry) custom_entries.push(entry);
+    }
+  }
+  return { enabled_providers, custom_entries };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -112,6 +165,7 @@ async function getPlatformConfig(request: NextRequest) {
         release_notes: normalizeReleaseNotesConfig(doc?.release_notes),
         discovery_cache_ttl_minutes: discoveryTtlMinutes,
         top_nav: normalizeTopNavConfig(doc?.top_nav),
+        remote_mcp_catalog: normalizeRemoteMCPCatalog(doc?.remote_mcp_catalog),
       },
     });
   });
@@ -159,6 +213,10 @@ export const PATCH = withErrorHandler(async (request: NextRequest) => {
     // `null` clears the override (= "use the default 60 min"); otherwise
     // we strictly require an integer in [MIN, MAX] so a fat-fingered
     // PATCH can't silently disable caching for everyone.
+    if (Object.prototype.hasOwnProperty.call(body, 'remote_mcp_catalog')) {
+      update.remote_mcp_catalog = normalizeRemoteMCPCatalog(body.remote_mcp_catalog);
+    }
+
     if (Object.prototype.hasOwnProperty.call(body, 'discovery_cache_ttl_minutes')) {
       const raw = body.discovery_cache_ttl_minutes;
       if (raw === null) {
@@ -246,6 +304,9 @@ export const PATCH = withErrorHandler(async (request: NextRequest) => {
           : {}),
         ...(Object.prototype.hasOwnProperty.call(update, 'top_nav')
           ? { top_nav: update.top_nav }
+          : {}),
+        ...(Object.prototype.hasOwnProperty.call(update, 'remote_mcp_catalog')
+          ? { remote_mcp_catalog: update.remote_mcp_catalog }
           : {}),
       },
     });

@@ -16,6 +16,7 @@ DialogHeader,
 DialogTitle,
 } from "@/components/ui/dialog";
 import { AdminBadge } from "@/components/admin/shared/AdminBadge";
+import { MCPCatalogSettingsCard } from "@/components/admin/settings/MCPCatalogSettingsCard";
 import { UnlinkedServiceAccountModal } from "@/components/admin/UnlinkedServiceAccountModal";
 import { UserDefaultAgentsPanel } from "@/components/settings/DefaultAgents/UserDefaultAgentsPanel";
 import { AgentPicker,type AgentPickerOption } from "@/components/ui/agent-picker";
@@ -279,6 +280,10 @@ export function PlatformSettingsTab({ isAdmin, readOnly = false }: PlatformSetti
             </Button>
           </CardContent>
         </Card>
+      )}
+
+      {isAdmin && (
+        <MCPCatalogSettingsCard isAdmin={isAdmin} readOnly={readOnly} />
       )}
 
       {/* [TS-S3] Guard the modal under isAdmin so non-admins never mount it. */}
