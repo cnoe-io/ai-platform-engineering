@@ -76,3 +76,12 @@ override these by setting config.SUPERVISOR_URL / config.DYNAMIC_AGENTS_URL.
 {{- define "autonomous-agents.dynamicAgentsUrl" -}}
 {{- .Values.config.DYNAMIC_AGENTS_URL | default (printf "http://%s-dynamic-agents:8001" .Release.Name) -}}
 {{- end -}}
+
+{{/*
+Default OAuth token endpoint for authenticated service-to-service calls to
+Dynamic Agents. Operators using an external identity provider can override it
+with dynamicAgentsAuth.tokenUrl.
+*/}}
+{{- define "autonomous-agents.dynamicAgentsTokenUrl" -}}
+{{- .Values.dynamicAgentsAuth.tokenUrl | default (printf "http://%s-keycloak:8080/realms/caipe/protocol/openid-connect/token" .Release.Name) -}}
+{{- end -}}

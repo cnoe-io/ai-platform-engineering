@@ -30,6 +30,16 @@ tags:
 
 ######### Autonomous Agents Configuration #########
 autonomous-agents:
+  # Authenticate calls to Dynamic Agents. These defaults use the bundled
+  # Keycloak platform client. Override tokenUrl and clientSecretRef when using
+  # an external identity provider.
+  dynamicAgentsAuth:
+    enabled: true
+    clientId: "caipe-platform"
+    clientSecretRef:
+      name: "caipe-platform-secret"
+      key: "OIDC_CLIENT_SECRET"
+
   config:
     # Defaults track the in-release supervisor; override for an external one.
     # SUPERVISOR_URL: "http://external-supervisor-agent:8000"

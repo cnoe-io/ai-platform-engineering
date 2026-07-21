@@ -54,6 +54,12 @@ caipe-ui:
 
 autonomous-agents:
   existingSecret: autonomous-agents-secret
+  dynamicAgentsAuth:
+    enabled: true
+    clientId: caipe-platform
+    clientSecretRef:
+      name: caipe-platform-secret
+      key: OIDC_CLIENT_SECRET
   config:
     MONGODB_DATABASE: caipe
     # Optional overrides. When empty, the subchart defaults to the in-release
@@ -73,6 +79,25 @@ kubectl create secret generic autonomous-agents-secret \
 `MONGODB_URI` is required. `WEBHOOK_SECRET` is required before webhook ingress is
 enabled. Add `WEBEX_BOT_TOKEN`, `WEBEX_WEBHOOK_SECRET`, and
 `WEBEX_BOT_PUBLIC_URL` to the same Secret when using Webex-triggered tasks.
+
+Autonomous Agents must also authenticate to Dynamic Agents. With bundled
+Keycloak, `dynamicAgentsAuth` uses the `caipe-platform` client and defaults its
+token URL to the release's Keycloak service. The client secret is read directly
+from `caipe-platform-secret`; it is not copied into a ConfigMap.
+
+For an external identity provider, set its token endpoint and Secret reference:
+
+```yaml
+autonomous-agents:
+  dynamicAgentsAuth:
+    enabled: true
+    tokenUrl: https://sso.example.com/realms/caipe/protocol/openid-connect/token
+    clientId: caipe-platform
+    scope: "openid profile email"
+    clientSecretRef:
+      name: external-platform-client
+      key: client-secret
+```
 
 ## OpenFGA and on-behalf-of runs
 
@@ -131,6 +156,10 @@ the CAIPE UI proxy, not by the Autonomous Agents service itself.
 | `ENABLE_AUTONOMOUS_AGENTS` | `caipe-ui.config` | Shows the Autonomous UI and enables the BFF proxy. |
 | `AUTONOMOUS_AGENTS_URL` | `caipe-ui.config` | Cluster URL the UI proxy uses to reach the service. |
 | `DYNAMIC_AGENTS_URL` | `autonomous-agents.config` | Runtime endpoint used when a task targets a Dynamic Agent. |
+| `DYNAMIC_AGENTS_OAUTH2_TOKEN_URL` | `autonomous-agents.dynamicAgentsAuth.tokenUrl` | Token endpoint used to mint the service bearer token. |
+| `DYNAMIC_AGENTS_OAUTH2_CLIENT_ID` | `autonomous-agents.dynamicAgentsAuth.clientId` | OAuth client used for service-to-service authentication. |
+| `DYNAMIC_AGENTS_OAUTH2_CLIENT_SECRET` | `autonomous-agents.dynamicAgentsAuth.clientSecretRef` | Secret-backed OAuth client credential. |
+| `DYNAMIC_AGENTS_OAUTH2_SCOPE` | `autonomous-agents.dynamicAgentsAuth.scope` | Scopes requested for the service bearer token. |
 | `MONGODB_URI` | `autonomous-agents.existingSecret` or ExternalSecret | Shared MongoDB connection for tasks and run history. |
 | `MONGODB_DATABASE` | `autonomous-agents.config` | MongoDB database name, normally `caipe`. |
 | `WEBHOOK_SECRET` | `autonomous-agents.existingSecret` or ExternalSecret | HMAC fallback secret for incoming webhooks. |

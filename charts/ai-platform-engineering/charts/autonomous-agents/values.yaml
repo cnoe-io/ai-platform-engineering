@@ -163,6 +163,21 @@ config:
   # rejects "*" at startup by design.
   CORS_ORIGINS: ""
 
+# OAuth client used by Autonomous Agents to authenticate its calls to Dynamic
+# Agents. The standalone chart keeps this disabled because it cannot assume an
+# identity provider or Secret name. The umbrella chart enables it for the
+# bundled Keycloak caipe-platform client.
+dynamicAgentsAuth:
+  enabled: false
+  # Defaults to the bundled Keycloak token endpoint for this Helm release.
+  # Set an explicit URL when using an external identity provider.
+  tokenUrl: ""
+  clientId: "caipe-platform"
+  scope: "openid profile email"
+  clientSecretRef:
+    name: ""
+    key: "OIDC_CLIENT_SECRET"
+
 # Pre-existing secret with sensitive values:
 #   MONGODB_URI            (required -- same MongoDB the CAIPE UI uses)
 #   WEBHOOK_SECRET         (required before exposing webhook ingress -- global

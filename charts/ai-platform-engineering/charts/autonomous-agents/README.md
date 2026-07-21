@@ -58,6 +58,12 @@ helm show values oci://ghcr.io/cnoe-io/charts/autonomous-agents --version 0.4.10
 | config.DYNAMIC_AGENTS_URL | string | `""` |  |
 | config.MONGODB_DATABASE | string | `"caipe"` |  |
 | config.SUPERVISOR_URL | string | `""` |  |
+| dynamicAgentsAuth.clientId | string | `"caipe-platform"` |  |
+| dynamicAgentsAuth.clientSecretRef.key | string | `"OIDC_CLIENT_SECRET"` |  |
+| dynamicAgentsAuth.clientSecretRef.name | string | `""` |  |
+| dynamicAgentsAuth.enabled | bool | `false` |  |
+| dynamicAgentsAuth.scope | string | `"openid profile email"` |  |
+| dynamicAgentsAuth.tokenUrl | string | `""` |  |
 | existingSecret | string | `""` |  |
 | externalSecrets.apiVersion | string | `"v1beta1"` |  |
 | externalSecrets.data | list | `[]` |  |
