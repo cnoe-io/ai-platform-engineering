@@ -30,6 +30,7 @@ interface RemoteMCPCatalogDialogProps {
 interface ProviderEntry extends RemoteMCPTemplate {
   key: string;
   logoSrc: string;
+  logoBg?: string;
   accentClass: string;
   note?: string;
 }
@@ -54,7 +55,7 @@ const REMOTE_MCP_PROVIDERS: ProviderEntry[] = [
     name: "Amplitude",
     description: "Query analytics events, charts, funnels, and user cohorts",
     endpoint: "https://mcp.amplitude.com/mcp",
-    logoSrc: "/provider-logos/amplitude.svg",
+    logoSrc: "https://www.vectorlogo.zone/logos/amplitude/amplitude-icon.svg",
     accentClass: "hover:border-blue-500/50 hover:bg-blue-500/5",
     credential_sources: [
       {
@@ -70,7 +71,7 @@ const REMOTE_MCP_PROVIDERS: ProviderEntry[] = [
     name: "Atlassian",
     description: "Search Jira issues, Confluence pages, and project data",
     endpoint: "https://mcp.atlassian.com/v1/mcp/authv2",
-    logoSrc: "/provider-logos/atlassian.svg",
+    logoSrc: "",
     accentClass: "hover:border-sky-500/50 hover:bg-sky-500/5",
     credential_sources: [
       {
@@ -86,7 +87,7 @@ const REMOTE_MCP_PROVIDERS: ProviderEntry[] = [
     name: "AWS",
     description: "Query AWS resources, CloudWatch metrics, and infrastructure across accounts",
     endpoint: "https://aws-mcp.us-east-1.api.aws/mcp",
-    logoSrc: "",
+    logoSrc: "https://upload.wikimedia.org/wikipedia/commons/9/93/Amazon_Web_Services_Logo.svg",
     accentClass: "hover:border-orange-500/50 hover:bg-orange-500/5",
     credential_sources: [
       {
@@ -103,7 +104,7 @@ const REMOTE_MCP_PROVIDERS: ProviderEntry[] = [
     name: "Figma",
     description: "Inspect design files, components, assets, and variable tokens",
     endpoint: "https://www.figma.com/api/mcp",
-    logoSrc: "/provider-logos/figma.svg",
+    logoSrc: "https://upload.wikimedia.org/wikipedia/commons/3/33/Figma-logo.svg",
     accentClass: "hover:border-purple-500/50 hover:bg-purple-500/5",
     credential_sources: [
       {
@@ -136,7 +137,8 @@ const REMOTE_MCP_PROVIDERS: ProviderEntry[] = [
     name: "Linear",
     description: "Browse issues, projects, cycles, and teams in Linear",
     endpoint: "https://mcp.linear.app/mcp",
-    logoSrc: "",
+    logoSrc: "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/linear.svg",
+    logoBg: "bg-white",
     accentClass: "hover:border-violet-500/50 hover:bg-violet-500/5",
     credential_sources: [
       {
@@ -152,7 +154,7 @@ const REMOTE_MCP_PROVIDERS: ProviderEntry[] = [
     name: "Notion",
     description: "Read and search pages, databases, and blocks in Notion",
     endpoint: "https://mcp.notion.com/mcp",
-    logoSrc: "",
+    logoSrc: "https://upload.wikimedia.org/wikipedia/commons/e/e9/Notion-logo.svg",
     accentClass: "hover:border-neutral-500/50 hover:bg-neutral-500/5",
     credential_sources: [
       {
@@ -168,7 +170,7 @@ const REMOTE_MCP_PROVIDERS: ProviderEntry[] = [
     name: "PagerDuty",
     description: "List incidents, services, escalation policies, and on-call schedules",
     endpoint: "https://mcp.pagerduty.com/mcp",
-    logoSrc: "",
+    logoSrc: "https://www.vectorlogo.zone/logos/pagerduty/pagerduty-icon.svg",
     accentClass: "hover:border-green-500/50 hover:bg-green-500/5",
     credential_sources: [
       {
@@ -180,11 +182,28 @@ const REMOTE_MCP_PROVIDERS: ProviderEntry[] = [
     ],
   },
   {
+    key: "thousandeyes",
+    name: "ThousandEyes",
+    description: "Query network intelligence, test results, alerts, and endpoint visibility",
+    endpoint: "https://api.thousandeyes.com/mcp",
+    logoSrc: "https://www.freelogovectors.net/wp-content/uploads/2022/12/thousandeyes-logo-freelogovectors.net_-400x287.png",
+    logoBg: "bg-white",
+    accentClass: "hover:border-cyan-500/50 hover:bg-cyan-500/5",
+    credential_sources: [
+      {
+        kind: "provider_connection",
+        name: "X-CAIPE-Provider-Token",
+        provider: "thousandeyes",
+        target: "header",
+      },
+    ],
+  },
+  {
     key: "zapier",
     name: "Zapier",
     description: "Trigger Zaps and run automations across thousands of connected apps",
     endpoint: "https://mcp.zapier.com/mcp",
-    logoSrc: "",
+    logoSrc: "https://static.cdnlogo.com/logos/z/75/zapier.svg",
     accentClass: "hover:border-orange-500/50 hover:bg-orange-500/5",
     credential_sources: [
       {
@@ -196,6 +215,36 @@ const REMOTE_MCP_PROVIDERS: ProviderEntry[] = [
     ],
   },
 ];
+
+function AmplitudeIcon() {
+  return (
+    <svg aria-hidden="true" className="h-8 w-8" viewBox="0 0 32 32" fill="none">
+      <circle cx="16" cy="16" r="16" fill="#007fd2"/>
+      <path fill="white" d="M16 6.5c-.7 0-1.3.4-1.7 1L7.2 22.5c-.3.5-.1 1.1.4 1.4.2.1.4.1.5.1h2c.6 0 1.1-.3 1.3-.9l.8-2h7.6l.8 2c.2.5.7.9 1.3.9h2c.6 0 1-.5.9-1.1 0-.1-.1-.3-.1-.4L17.7 7.5c-.4-.6-1-1-1.7-1zm0 4.2 2.6 6.8h-5.2L16 10.7z"/>
+    </svg>
+  );
+}
+
+function AtlassianIcon() {
+  return (
+    <svg aria-hidden="true" className="h-8 w-8" viewBox="0 0 32 32" fill="none">
+      <path fill="#2684FF" d="M14.9 3.3c-.2-.3-.7-.3-.9.1L3.2 27c-.1.3.1.7.5.7H10c.3 0 .6-.2.7-.5l3.5-8.6 3.5 8.6c.1.3.4.5.7.5h6.4c.3 0 .6-.3.5-.7L15.7 3.4c-.2-.1-.6-.1-.8-.1z"/>
+    </svg>
+  );
+}
+
+function FigmaIcon() {
+  return (
+    <svg aria-hidden="true" className="h-8 w-8" viewBox="0 0 32 32" fill="none">
+      <rect x="4" y="4" width="12" height="12" rx="6" fill="#FF7262"/>
+      <rect x="4" y="16" width="12" height="12" rx="6" fill="#0ACF83"/>
+      <rect x="16" y="4" width="12" height="12" rx="6" fill="#F24E1E"/>
+      <circle cx="22" cy="22" r="6" fill="#1ABCFE"/>
+      <rect x="4" y="10" width="12" height="12" rx="0" fill="#A259FF"/>
+      <circle cx="10" cy="16" r="6" fill="#A259FF"/>
+    </svg>
+  );
+}
 
 function GitHubIcon() {
   return (
@@ -244,7 +293,7 @@ function PagerDutyIcon() {
 
 function ZapierIcon() {
   return (
-    <svg aria-hidden="true" className="h-8 w-8" viewBox="0 0 24 24" fill="#FF4A00">
+    <svg aria-hidden="true" className="h-8 w-8" viewBox="0 0 28 28" fill="#FF4A00">
       <path d="M14.47 12A8.56 8.56 0 0 1 12 19.47 8.56 8.56 0 0 1 9.53 12 8.56 8.56 0 0 1 12 4.53 8.56 8.56 0 0 1 14.47 12ZM23.47 10.5h-7.24a8.61 8.61 0 0 0-1.5-3.61l5.11-5.1a.53.53 0 0 0 0-.75l-1.38-1.38a.53.53 0 0 0-.75 0l-5.1 5.11A8.61 8.61 0 0 0 10 3.27V.53A.53.53 0 0 0 9.47 0h-1.94A.53.53 0 0 0 7 .53v7.24a8.61 8.61 0 0 0-3.61 1.5L.29 4.16a.53.53 0 0 0-.75 0L-.84 5.54a.53.53 0 0 0 0 .75l5.11 5.1A8.61 8.61 0 0 0 2.77 15H.53A.53.53 0 0 0 0 15.47v1.94A.53.53 0 0 0 .53 18h7.24a8.61 8.61 0 0 0 1.5 3.61l-5.11 5.1a.53.53 0 0 0 0 .75l1.38 1.38a.53.53 0 0 0 .75 0l5.1-5.11A8.61 8.61 0 0 0 15 25.23v2.24a.53.53 0 0 0 .53.53h1.94a.53.53 0 0 0 .53-.53v-7.24a8.61 8.61 0 0 0 3.61-1.5l5.11 5.11a.53.53 0 0 0 .75 0l1.38-1.38a.53.53 0 0 0 0-.75L23.74 16.4A8.61 8.61 0 0 0 25.23 13H27.47A.53.53 0 0 0 28 12.47v-1.94A.53.53 0 0 0 27.47 10.5Z"/>
     </svg>
   );
@@ -252,8 +301,8 @@ function ZapierIcon() {
 
 function ProviderLogo({ provider }: { provider: ProviderEntry }) {
   if (provider.logoSrc) {
-    return (
-      // eslint-disable-next-line @next/next/no-img-element
+    // eslint-disable-next-line @next/next/no-img-element
+    const img = (
       <img
         alt=""
         aria-hidden="true"
@@ -263,9 +312,20 @@ function ProviderLogo({ provider }: { provider: ProviderEntry }) {
         width={32}
       />
     );
+    if (provider.logoBg) {
+      return (
+        <div className={`h-8 w-8 rounded flex items-center justify-center ${provider.logoBg}`}>
+          {img}
+        </div>
+      );
+    }
+    return img;
   }
   switch (provider.name) {
+    case "Amplitude": return <AmplitudeIcon />;
+    case "Atlassian": return <AtlassianIcon />;
     case "AWS": return <AWSIcon />;
+    case "Figma": return <FigmaIcon />;
     case "GitHub Copilot": return <GitHubIcon />;
     case "Linear": return <LinearIcon />;
     case "Notion": return <NotionIcon />;
