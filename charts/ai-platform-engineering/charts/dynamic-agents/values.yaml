@@ -166,7 +166,9 @@ config:
   CAIPE_CREDENTIALS_ENABLED: "false"
   CREDENTIAL_API_URL: ""
   CREDENTIAL_SERVICE_AUDIENCE: "caipe-credential-service"
-  USE_IMPERSONATION_TOKENS: "false"
+  # When AgentGateway is enabled, the Deployment defaults this to "true" unless
+  # explicitly set here. Leave empty to accept the gateway-aware default.
+  USE_IMPERSONATION_TOKENS: ""
   # Agent runtime TTL in seconds (purged after this much inactivity)
   AGENT_RUNTIME_TTL_SECONDS: "60"
   # Set to "true" to enable multi-turn conversation history via POST /invoke.

@@ -101,6 +101,20 @@ True when metrics run on a port different from the main service port.
 {{- and .Values.service.metricsPort (ne (int .Values.service.metricsPort) (int .Values.service.port)) -}}
 {{- end -}}
 
+{{/*
+AgentGateway MCP URL — mirrors caipe-ui deployment defaults (#2252).
+*/}}
+{{- define "dynamic-agents.agentgateway.enabled" -}}
+{{- dig "agentgateway" "enabled" false (.Values.global | default dict) -}}
+{{- end -}}
+
+{{- define "dynamic-agents.agentgateway.mcpUrl" -}}
+{{- $agwStatic := eq (dig "agentgateway" "routingMode" "static" (.Values.global | default dict)) "static" -}}
+{{- $host := ternary (printf "%s-agentgateway" .Release.Name) (printf "%s-agentgateway-proxy" .Release.Name) $agwStatic -}}
+{{- $port := ternary 4000 (int (dig "agentgateway" "proxyPort" 8080 (.Values.global | default dict))) $agwStatic -}}
+{{- printf "http://%s:%v" $host $port -}}
+{{- end -}}
+
 {/*
 Resolve maintained CAIPE image repositories for release vs pre-release channels.
 

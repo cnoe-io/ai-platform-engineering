@@ -59,6 +59,18 @@ spec:
               value: {{ index .Values.config "KEYCLOAK_URL" | default (printf "http://%s-keycloak:8080" .Release.Name) | quote }}
             - name: OPENFGA_HTTP
               value: {{ index .Values.config "OPENFGA_HTTP" | default (printf "http://%s-openfga:8080" .Release.Name) | quote }}
+            - name: CAIPE_API_URL
+              value: {{ index .Values.config "CAIPE_API_URL" | default (printf "http://%s-caipe-ui:3000" .Release.Name) | quote }}
+            - name: AUTHZ_SERVICE_URL
+              value: {{ index .Values.config "AUTHZ_SERVICE_URL" | default (printf "http://%s-caipe-ui:3000" .Release.Name) | quote }}
+            - name: OPENFGA_STORE_NAME
+              value: {{ index .Values.config "OPENFGA_STORE_NAME" | default "caipe-openfga" | quote }}
+            {{- if eq (include "dynamic-agents.agentgateway.enabled" .) "true" }}
+            - name: AGENT_GATEWAY_URL
+              value: {{ index .Values.config "AGENT_GATEWAY_URL" | default (include "dynamic-agents.agentgateway.mcpUrl" .) | quote }}
+            - name: USE_IMPERSONATION_TOKENS
+              value: {{ index .Values.config "USE_IMPERSONATION_TOKENS" | default "true" | quote }}
+            {{- end }}
             - name: CREDENTIAL_API_URL
               value: {{ index .Values.config "CREDENTIAL_API_URL" | default (printf "http://%s-caipe-ui:3000/api/credentials" .Release.Name) | quote }}
             - name: AUDIT_SERVICE_URL

@@ -889,6 +889,12 @@ caipe-ui:
     #   redirectUri: "https://caipe.example.com/api/credentials/oauth/webex_secondary/callback"
 
   # ── Okta directory sync (Identity Sync admin tab) ──────────────────────────
+  # Mirror `keycloak.idp` here when Keycloak brokers an upstream IdP so the
+  # UI auto-wires OIDC_IDP_HINT and login-time group-claim sync defaults.
+  keycloakIdp:
+    enabled: false
+    alias: "duo-sso"
+
   # Structured config modeled after the Backstage Okta entity provider. The
   # chart flattens this into IDENTITY_SYNC_OKTA_* env vars on the caipe-ui
   # Deployment (non-sensitive → ConfigMap; sensitive → Secret) so the app can
