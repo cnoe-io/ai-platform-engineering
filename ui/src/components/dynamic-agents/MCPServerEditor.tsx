@@ -31,11 +31,19 @@ TransportType,
 import { ArrowLeft,Info,Loader2,Plus,X } from "lucide-react";
 import React from "react";
 
+export interface MCPServerInitialValues {
+  name?: string;
+  description?: string;
+  endpoint?: string;
+  credential_sources?: MCPCredentialSource[];
+}
+
 interface MCPServerEditorProps {
   server: MCPServerConfig | null; // null = creating new
   readOnly?: boolean;
   onSave: () => void;
   onCancel: () => void;
+  initialValues?: MCPServerInitialValues;
 }
 
 const TRANSPORT_OPTIONS: { value: TransportType; label: string; description: string }[] = [
@@ -176,21 +184,21 @@ function normalizedCredentialSource(
   };
 }
 
-export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServerEditorProps) {
+export function MCPServerEditor({ server, readOnly, onSave, onCancel, initialValues }: MCPServerEditorProps) {
   const isEditing = !!server;
 
   // Form state
   const [id, setId] = React.useState(server?._id || "");
   const [idManuallyEdited, setIdManuallyEdited] = React.useState(Boolean(server?._id));
   const [showGeneratedNameEditor, setShowGeneratedNameEditor] = React.useState(false);
-  const [name, setName] = React.useState(server?.name || "");
-  const [description, setDescription] = React.useState(server?.description || "");
+  const [name, setName] = React.useState(server?.name || initialValues?.name || "");
+  const [description, setDescription] = React.useState(server?.description || initialValues?.description || "");
   const [transport, setTransport] = React.useState<TransportType>(server?.transport || "http");
   const [endpoint, setEndpoint] = React.useState(
-    server?.agentgateway_target_endpoint || server?.endpoint || "",
+    server?.agentgateway_target_endpoint || server?.endpoint || initialValues?.endpoint || "",
   );
   const [pickedAgentGatewayUpstream, setPickedAgentGatewayUpstream] = React.useState(
-    server?.agentgateway_target_endpoint?.trim() || "",
+    server?.agentgateway_target_endpoint?.trim() || initialValues?.endpoint?.trim() || "",
   );
   const [command, setCommand] = React.useState(server?.command || "");
   const [args, setArgs] = React.useState<string[]>(server?.args || []);
@@ -198,7 +206,7 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
     server?.env ? Object.entries(server.env).map(([key, value]) => ({ key, value })) : []
   );
   const [credentialSources, setCredentialSources] = React.useState<MCPCredentialSource[]>(
-    normalizeCredentialSourcesForEditor(server?.credential_sources),
+    normalizeCredentialSourcesForEditor(server?.credential_sources ?? initialValues?.credential_sources),
   );
 
   const [loading, setLoading] = React.useState(false);
