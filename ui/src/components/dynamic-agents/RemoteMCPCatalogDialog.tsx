@@ -50,22 +50,6 @@ const REMOTE_MCP_PROVIDERS: ProviderEntry[] = [
     ],
   },
   {
-    name: "Figma",
-    description: "Inspect design files, components, assets, and variable tokens",
-    endpoint: "https://www.figma.com/api/mcp",
-    logoSrc: "/provider-logos/figma.svg",
-    accentClass: "hover:border-purple-500/50 hover:bg-purple-500/5",
-    credential_sources: [
-      {
-        kind: "provider_connection",
-        name: "X-CAIPE-Provider-Token",
-        provider: "figma",
-        target: "header",
-      },
-    ],
-    note: "Verify endpoint — Figma MCP is in early access",
-  },
-  {
     name: "Atlassian",
     description: "Search Jira issues, Confluence pages, and project data",
     endpoint: "https://mcp.atlassian.com/v1/mcp/authv2",
@@ -79,6 +63,22 @@ const REMOTE_MCP_PROVIDERS: ProviderEntry[] = [
         target: "header",
       },
     ],
+  },
+  {
+    name: "Figma",
+    description: "Inspect design files, components, assets, and variable tokens",
+    endpoint: "https://www.figma.com/api/mcp",
+    logoSrc: "/provider-logos/figma.svg",
+    accentClass: "hover:border-purple-500/50 hover:bg-purple-500/5",
+    credential_sources: [
+      {
+        kind: "provider_connection",
+        name: "X-CAIPE-Provider-Token",
+        provider: "figma",
+        target: "header",
+      },
+    ],
+    note: "Early access — verify endpoint before use",
   },
   {
     name: "GitHub Copilot",
@@ -95,6 +95,51 @@ const REMOTE_MCP_PROVIDERS: ProviderEntry[] = [
       },
     ],
   },
+  {
+    name: "Linear",
+    description: "Browse issues, projects, cycles, and teams in Linear",
+    endpoint: "https://mcp.linear.app/mcp",
+    logoSrc: "",
+    accentClass: "hover:border-violet-500/50 hover:bg-violet-500/5",
+    credential_sources: [
+      {
+        kind: "provider_connection",
+        name: "X-CAIPE-Provider-Token",
+        provider: "linear",
+        target: "header",
+      },
+    ],
+  },
+  {
+    name: "Notion",
+    description: "Read and search pages, databases, and blocks in Notion",
+    endpoint: "https://mcp.notion.com/mcp",
+    logoSrc: "",
+    accentClass: "hover:border-neutral-500/50 hover:bg-neutral-500/5",
+    credential_sources: [
+      {
+        kind: "provider_connection",
+        name: "X-CAIPE-Provider-Token",
+        provider: "notion",
+        target: "header",
+      },
+    ],
+  },
+  {
+    name: "Zapier",
+    description: "Trigger Zaps and run automations across thousands of connected apps",
+    endpoint: "https://mcp.zapier.com/mcp",
+    logoSrc: "",
+    accentClass: "hover:border-orange-500/50 hover:bg-orange-500/5",
+    credential_sources: [
+      {
+        kind: "provider_connection",
+        name: "X-CAIPE-Provider-Token",
+        provider: "zapier",
+        target: "header",
+      },
+    ],
+  },
 ];
 
 function GitHubIcon() {
@@ -105,19 +150,53 @@ function GitHubIcon() {
   );
 }
 
-function ProviderLogo({ provider }: { provider: ProviderEntry }) {
-  if (!provider.logoSrc) return <GitHubIcon />;
+function LinearIcon() {
   return (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
-      alt=""
-      aria-hidden="true"
-      className="h-8 w-8 object-contain"
-      height={32}
-      src={provider.logoSrc}
-      width={32}
-    />
+    <svg aria-hidden="true" className="h-8 w-8" viewBox="0 0 100 100" fill="currentColor">
+      <path d="M1.22 61.5L38.5 98.78a50.08 50.08 0 0 1-37.28-37.28ZM0 49.44 50.56 100A50 50 0 0 1 0 49.44ZM10.52 23.5l65.98 65.98a50.27 50.27 0 0 1-8.1 5.44L5.08 31.6a50.27 50.27 0 0 1 5.44-8.1ZM23.5 10.52a50 50 0 0 1 66 66L23.5 10.52ZM49.44 0 100 50.56A50 50 0 0 1 49.44 0ZM61.5 1.22A50.08 50.08 0 0 1 98.78 38.5L61.5 1.22Z" />
+    </svg>
   );
+}
+
+function NotionIcon() {
+  return (
+    <svg aria-hidden="true" className="h-8 w-8" viewBox="0 0 100 100" fill="currentColor">
+      <path d="M6 4.75C6 2.68 7.68 1 9.75 1h68.5C80.32 1 82 2.68 82 4.75v5.5C82 12.32 80.32 14 78.25 14H9.75C7.68 14 6 12.32 6 10.25V4.75Z"/>
+      <path fillRule="evenodd" d="M6 24.75C6 22.68 7.68 21 9.75 21h29.5C41.32 21 43 22.68 43 24.75v50.5C43 77.32 41.32 79 39.25 79H9.75C7.68 79 6 77.32 6 75.25V24.75Zm8 5.25v40h20V30H14Z" clipRule="evenodd"/>
+      <path d="M55 24.75C55 22.68 56.68 21 58.75 21h19.5C80.32 21 82 22.68 82 24.75v5.5C82 32.32 80.32 34 78.25 34H58.75C56.68 34 55 32.32 55 30.25v-5.5ZM55 49.75C55 47.68 56.68 46 58.75 46h19.5C80.32 46 82 47.68 82 49.75v5.5C82 57.32 80.32 59 78.25 59H58.75C56.68 59 55 57.32 55 55.25v-5.5ZM55 74.75C55 72.68 56.68 71 58.75 71h19.5C80.32 71 82 72.68 82 74.75v5.5C82 82.32 80.32 84 78.25 84H58.75C56.68 84 55 82.32 55 80.25v-5.5Z"/>
+    </svg>
+  );
+}
+
+function ZapierIcon() {
+  return (
+    <svg aria-hidden="true" className="h-8 w-8" viewBox="0 0 24 24" fill="#FF4A00">
+      <path d="M14.47 12A8.56 8.56 0 0 1 12 19.47 8.56 8.56 0 0 1 9.53 12 8.56 8.56 0 0 1 12 4.53 8.56 8.56 0 0 1 14.47 12ZM23.47 10.5h-7.24a8.61 8.61 0 0 0-1.5-3.61l5.11-5.1a.53.53 0 0 0 0-.75l-1.38-1.38a.53.53 0 0 0-.75 0l-5.1 5.11A8.61 8.61 0 0 0 10 3.27V.53A.53.53 0 0 0 9.47 0h-1.94A.53.53 0 0 0 7 .53v7.24a8.61 8.61 0 0 0-3.61 1.5L.29 4.16a.53.53 0 0 0-.75 0L-.84 5.54a.53.53 0 0 0 0 .75l5.11 5.1A8.61 8.61 0 0 0 2.77 15H.53A.53.53 0 0 0 0 15.47v1.94A.53.53 0 0 0 .53 18h7.24a8.61 8.61 0 0 0 1.5 3.61l-5.11 5.1a.53.53 0 0 0 0 .75l1.38 1.38a.53.53 0 0 0 .75 0l5.1-5.11A8.61 8.61 0 0 0 15 25.23v2.24a.53.53 0 0 0 .53.53h1.94a.53.53 0 0 0 .53-.53v-7.24a8.61 8.61 0 0 0 3.61-1.5l5.11 5.11a.53.53 0 0 0 .75 0l1.38-1.38a.53.53 0 0 0 0-.75L23.74 16.4A8.61 8.61 0 0 0 25.23 13H27.47A.53.53 0 0 0 28 12.47v-1.94A.53.53 0 0 0 27.47 10.5Z"/>
+    </svg>
+  );
+}
+
+function ProviderLogo({ provider }: { provider: ProviderEntry }) {
+  if (provider.logoSrc) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        alt=""
+        aria-hidden="true"
+        className="h-8 w-8 object-contain"
+        height={32}
+        src={provider.logoSrc}
+        width={32}
+      />
+    );
+  }
+  switch (provider.name) {
+    case "GitHub Copilot": return <GitHubIcon />;
+    case "Linear": return <LinearIcon />;
+    case "Notion": return <NotionIcon />;
+    case "Zapier": return <ZapierIcon />;
+    default: return <GitHubIcon />;
+  }
 }
 
 export function RemoteMCPCatalogDialog({
