@@ -772,7 +772,13 @@ function Donut({
   ];
   const radius = 30;
   const circumference = 2 * Math.PI * radius;
-  let offset = 0;
+  const segments = buckets.reduce<{ offset: number; length: number }[]>((acc, b) => {
+    const fraction = b.count / total;
+    const length = fraction * circumference;
+    const prevOffset = acc.length > 0 ? acc[acc.length - 1].offset + acc[acc.length - 1].length : 0;
+    acc.push({ offset: prevOffset, length });
+    return acc;
+  }, []);
   return (
     <svg viewBox="0 0 80 80" className="h-20 w-20 -rotate-90" aria-hidden>
       <circle
@@ -784,9 +790,8 @@ function Donut({
         fill="none"
       />
       {buckets.map((b, i) => {
-        const fraction = b.count / total;
-        const length = fraction * circumference;
-        const segment = (
+        const { offset, length } = segments[i];
+        return (
           <circle
             key={b.kind}
             cx={40}
@@ -800,8 +805,6 @@ function Donut({
             strokeLinecap="butt"
           />
         );
-        offset += length;
-        return segment;
       })}
     </svg>
   );

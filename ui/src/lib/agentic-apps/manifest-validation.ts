@@ -549,7 +549,7 @@ export function validateAgenticAppManifest(input: unknown): ManifestValidationRe
         }
       });
 
-      const agentsOk = root.agents.every((agent, index) => {
+      const agentsOk = root.agents.every((agent) => {
         if (!isPlainObject(agent)) {
           return false;
         }

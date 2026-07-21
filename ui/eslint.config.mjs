@@ -25,10 +25,23 @@ const eslintConfig = [
     },
     rules: {
       "@next/next/no-img-element": "error",
-      "@typescript-eslint/no-unused-vars": "error",
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        { argsIgnorePattern: "^_", varsIgnorePattern: "^_", caughtErrorsIgnorePattern: "^_" },
+      ],
       "@typescript-eslint/no-explicit-any": "error",
       "react-hooks/exhaustive-deps": "error",
       "react-hooks/set-state-in-effect": "error",
+    },
+  },
+  // The Tome MCP shell reshapes arbitrary, deeply-nested JSON forwarded from
+  // other internal API routes (see the file's own header comment) rather
+  // than duplicating each route's response type — `any` is the pragmatic
+  // choice at this dynamic-JSON boundary, not an oversight.
+  {
+    files: ["src/app/api/tome/mcp/route.ts"],
+    rules: {
+      "@typescript-eslint/no-explicit-any": "off",
     },
   },
   // CAS silo boundary: the OpenFGA transport adapters are private. The CAS

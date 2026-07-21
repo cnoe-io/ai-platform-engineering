@@ -452,7 +452,7 @@ export function AppHeader() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [mongoNavEnabled]);
   // Active tab. A pinned agentic-app tab (href like /apps/embed/ttt or
   // /apps/agentic-sdlc) must win over the generic "Apps" tab when its route is
   // open — otherwise getActiveTab()'s broad `/apps` match highlights "Apps"

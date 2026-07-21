@@ -61,11 +61,9 @@ const HEALTH_CLASS: Record<RepoListItem["webhook_status"], string> = {
 export function RepoGrid({ className }: { className?: string }) {
   const [items, setItems] = useState<RepoListItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [favoriteRepos, setFavoriteRepos] = useState<string[]>([]);
+  const [favoriteRepos, setFavoriteRepos] = useState<string[]>(readFavoriteRepos);
 
   useEffect(() => {
-    setFavoriteRepos(readFavoriteRepos());
-
     let cancelled = false;
 
     async function loadRepos() {

@@ -129,7 +129,10 @@ export function AgenticSdlcAssistantBubble() {
     ? isConversationStreaming(conversationId)
     : false;
 
+  // Client-mount guard to avoid SSR/hydration mismatches for portal-rendered
+  // UI below — must flip after mount, not be derived from render.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setMounted(true);
   }, []);
 

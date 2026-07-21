@@ -108,7 +108,7 @@ async function startWorker(): Promise<void> {
         } catch {
           // Last-resort: log and move on to keep the worker draining.
         }
-        // eslint-disable-next-line no-console
+         
         console.error("[ship-loop worker] projection failed", err);
       }
     }

@@ -531,7 +531,7 @@ export function ProjectsHub() {
         setCreatingBhag(null);
       }
     },
-    [router],
+    [router, toast],
   );
 
   useEffect(() => {

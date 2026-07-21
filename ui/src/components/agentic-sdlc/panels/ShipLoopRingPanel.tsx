@@ -350,14 +350,18 @@ function SvgRing({
 
 function CinematicRing({ eventsPerMin }: { eventsPerMin: number }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const fallback = useRef(false);
+  const [fallback, setFallback] = useState(false);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) {
-      fallback.current = true;
+      // Reacting to canvas 2D context availability (an external platform
+      // API, not derivable render state) — flips the render to the SVG
+      // fallback below.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setFallback(true);
       return;
     }
     const dpr = window.devicePixelRatio || 1;
@@ -435,7 +439,7 @@ function CinematicRing({ eventsPerMin }: { eventsPerMin: number }) {
     return () => cancelAnimationFrame(raf);
   }, [eventsPerMin]);
 
-  if (fallback.current) {
+  if (fallback) {
     return <SvgRing eventsPerMin={eventsPerMin} failures={null} />;
   }
   return (

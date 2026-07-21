@@ -99,6 +99,9 @@ export function AuthGuard({ children }: AuthGuardProps) {
 
   useEffect(() => {
     if (!getConfig('ssoEnabled')) {
+      // Short-circuits the same session-status reconciliation this effect
+      // performs below for the SSO-enabled path — not a separate concern.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setAuthChecked(true);
       return;
     }

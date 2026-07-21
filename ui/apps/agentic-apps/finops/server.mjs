@@ -630,10 +630,6 @@ function formatCompact(value) {
   }).format(toNumber(value));
 }
 
-function markdownCell(value) {
-  return String(value || "unknown").replaceAll("|", "\\|").replace(/\s+/g, " ").trim();
-}
-
 function renderDashboard({ compact }) {
   return `<!doctype html>
 <html lang="en">

@@ -1933,101 +1933,6 @@ function renderDashboard({ compact }) {
 </html>`;
 }
 
-function buildWeatherRecommendations(forecast) {
-  const today = forecast.daily[0];
-  const rainiest = forecast.daily.reduce((best, day) =>
-    day.rainChance > best.rainChance ? day : best,
-  today);
-  const recommendations = [];
-
-  if (today?.rainChance >= 50) {
-    recommendations.push(`Carry rain gear today; Open-Meteo shows ${today.rainChance}% precipitation risk.`);
-  } else {
-    recommendations.push("Good window for outdoor plans today; precipitation risk is currently low.");
-  }
-  if (rainiest && rainiest.rainChance >= 40) {
-    recommendations.push(`${rainiest.label} is the watch day with ${rainiest.rainChance}% precipitation risk.`);
-  }
-  if (forecast.current.windKmh >= 25) {
-    recommendations.push("Wind is elevated; review outdoor setup and travel assumptions.");
-  }
-
-  return recommendations;
-}
-
-function buildDailyGuidance(forecast) {
-  const today = forecast.daily[0];
-  const current = forecast.current;
-  const aqi = forecast.airQuality?.usAqi;
-  const alerts = forecast.nationalWeatherAlerts?.alerts ?? [];
-  const bestWindow = findBestWeatherWindow(forecast.hourly);
-  const riskSignals = [];
-
-  if (alerts.length > 0) {
-    riskSignals.push(`${alerts.length} active national weather alert${alerts.length === 1 ? "" : "s"}`);
-  }
-  if (today?.rainChance >= 50) {
-    riskSignals.push(`rain risk ${today.rainChance}%`);
-  }
-  if (current.windKmh >= 25) {
-    riskSignals.push(`wind ${current.windKmh} km/h`);
-  }
-  if (Number.isFinite(Number(aqi)) && Number(aqi) >= 101) {
-    riskSignals.push(`AQI ${aqi} (${aqiCategory(aqi)})`);
-  }
-
-  const verdict = riskSignals.length
-    ? "Plan with caution"
-    : "Good day for normal outdoor plans";
-  const summary = [
-    `${forecast.city}: ${current.condition.toLowerCase()}, ${current.temperatureC}C now.`,
-    bestWindow
-      ? `Best outdoor window looks like ${bestWindow.label}.`
-      : "No clear best outdoor window in the next 24 hours.",
-    riskSignals.length ? `Watch: ${riskSignals.join(", ")}.` : "No major weather, air, or alert risks are visible right now.",
-  ].join(" ");
-
-  return {
-    verdict,
-    summary,
-    bestWindow,
-    riskSignals,
-    howIsMyDay: summary,
-  };
-}
-
-function findBestWeatherWindow(hourly) {
-  const candidates = hourly
-    .slice(0, 24)
-    .map((hour) => {
-      const comfort = Math.max(0, 30 - Math.abs(Number(hour.tempC) - 21) * 2);
-      const rainPenalty = Number(hour.rainChance || 0) * 0.55;
-      const score = comfort - rainPenalty;
-      return { ...hour, score };
-    })
-    .sort((a, b) => b.score - a.score);
-  const best = candidates[0];
-  if (!best) return null;
-  return {
-    label: best.label,
-    tempC: best.tempC,
-    rainChance: best.rainChance,
-    condition: best.condition,
-    score: Math.round(best.score),
-  };
-}
-
-function aqiCategory(value) {
-  const aqi = Number(value);
-  if (!Number.isFinite(aqi)) return "Unavailable";
-  if (aqi <= 50) return "Good";
-  if (aqi <= 100) return "Moderate";
-  if (aqi <= 150) return "Unhealthy for sensitive groups";
-  if (aqi <= 200) return "Unhealthy";
-  if (aqi <= 300) return "Very unhealthy";
-  return "Hazardous";
-}
-
 async function readJsonBody(request) {
   const chunks = [];
   let size = 0;
@@ -2069,32 +1974,6 @@ function normalizeBasePath(value) {
   const trimmed = String(value || "").trim();
   if (!trimmed || trimmed === "/") return "/";
   return trimmed.startsWith("/") ? trimmed.replace(/\/+$/, "") : `/${trimmed.replace(/\/+$/, "")}`;
-}
-
-function weatherCodeToLabel(code) {
-  if (code === 0) return "Clear sky";
-  if ([1, 2].includes(code)) return "Partly cloudy";
-  if (code === 3) return "Overcast";
-  if ([45, 48].includes(code)) return "Fog";
-  if ([51, 53, 55, 56, 57].includes(code)) return "Drizzle";
-  if ([61, 63, 65, 66, 67, 80, 81, 82].includes(code)) return "Rain";
-  if ([71, 73, 75, 77, 85, 86].includes(code)) return "Snow";
-  if ([95, 96, 99].includes(code)) return "Thunderstorm";
-  return "Mixed conditions";
-}
-
-function formatWeekday(date) {
-  return new Date(`${date}T00:00:00`).toLocaleDateString("en-US", { weekday: "short" });
-}
-
-function round(value) {
-  const numeric = Number(value);
-  return Number.isFinite(numeric) ? Math.round(numeric) : 0;
-}
-
-function numberOrNull(value) {
-  const numeric = Number(value);
-  return Number.isFinite(numeric) ? Math.round(numeric) : null;
 }
 
 function escapeHtml(value) {

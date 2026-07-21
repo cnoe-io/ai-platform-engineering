@@ -16,6 +16,7 @@ import {
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
+import Link from "next/link";
 
 import { apiClient } from "@/lib/api-client";
 import { resolveAgenticAppLaunchUrl } from "@/lib/agentic-apps/launch-url";
@@ -95,7 +96,7 @@ export function AgenticAppsHub({ apps }: AgenticAppsHubProps) {
                 RBAC, tokens, and policy while app runtimes stay independently owned.
               </p>
             </div>
-            <a
+            <Link
               href="/apps/create"
               className="group relative inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-cyan-200/30 bg-cyan-300/10 text-cyan-100 shadow-lg shadow-cyan-950/20 transition hover:scale-105 hover:bg-cyan-300/20"
               aria-label="Create or add your app"
@@ -105,7 +106,7 @@ export function AgenticAppsHub({ apps }: AgenticAppsHubProps) {
               <span className="pointer-events-none absolute right-0 top-full mt-2 hidden whitespace-nowrap rounded-full border border-white/10 bg-slate-950/95 px-3 py-1.5 text-xs font-semibold text-slate-100 shadow-xl group-hover:block">
                 Create or add your app
               </span>
-            </a>
+            </Link>
           </div>
         </section>
 
@@ -126,7 +127,7 @@ export function AgenticAppsHub({ apps }: AgenticAppsHubProps) {
               at the separately running app.
             </p>
             <p className="mt-5 text-sm text-slate-400">
-              Start with <a className="font-semibold text-cyan-200" href="/apps/create">Create or add your app</a>{" "}
+              Start with <Link className="font-semibold text-cyan-200" href="/apps/create">Create or add your app</Link>{" "}
               to choose a manifest, runtime, access policy, and integrated rendering mode.
             </p>
           </section>
@@ -350,7 +351,10 @@ function RuntimeInfoTooltip({ app }: { app: AgenticAppManifest }) {
   const [coords, setCoords] = useState<{ top: number; left: number } | null>(null);
   const [mounted, setMounted] = useState(false);
 
+  // Client-mount guard for the `createPortal` below — `document.body` isn't
+  // available during SSR, so this must flip after mount, not be derived.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setMounted(true);
   }, []);
 
