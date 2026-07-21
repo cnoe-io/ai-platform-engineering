@@ -1,3 +1,10 @@
+## 0.5.55 (2026-07-17)
+
+### Feat
+
+- support multiple Webex bots and 1:1 direct messages (#2184)
+- **platform**: add per-surface default agents for web, Slack, and Webex (#2233)
+
 ## 0.5.54-dev.3 (2026-07-17)
 
 ### Feat
@@ -13,6 +20,22 @@
 - **platform**: add per-surface default agents (#2233)
 
 ## 0.5.54 (2026-07-16)
+
+### Feat
+
+- **ui**: improve admin access preview and default agents (#2218)
+- **ui**: animate shared tab selectors (#2217)
+
+### Fix
+
+- **admin-users**: create team_membership_sources index at boot, not via migration
+- **admin-users**: drop stray teams dep causing double-fetch on Users tab
+- **admin-users**: paginate team membership lookup in Mongo, not Node
+- **admin-users**: page team-scoped Keycloak lookups for plain members
+- **slack-bot**: resolve channel_id from view.private_metadata for modal submits
+- **slack-bot**: bind OBO token in feedback/retry/escalation handlers
+- **slack-bot**: register conversation before VictorOps on-call lookup
+- **ui**: eliminate lint violations and enforce CI (#2211)
 
 ## 0.5.53-dev.5 (2026-07-16)
 
@@ -54,6 +77,17 @@
 - **ui**: animate shared tab selectors (#2217)
 
 ## 0.5.53 (2026-07-15)
+
+### Feat
+
+- **keycloak**: configurable SSO session lifetime, default 7d idle / 14d max
+- **ui**: add 'Choose agent' button alongside 'Resume with default agent' in deprecated-agent banner
+
+### Fix
+
+- **ui**: remove AccessTokenMissing dead code and clear auth flag on recovery
+- **ui**: patch Zustand store after re-linking deprecated-agent conversation
+- **ui**: show history and resume CTA for deprecated-agent conversations
 
 ## 0.5.52-dev.2 (2026-07-15)
 
