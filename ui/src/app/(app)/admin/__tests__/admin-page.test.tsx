@@ -3,7 +3,7 @@
  *
  * Covers:
  * - Loading state
- * - Error state with retry
+ * - Fatal auth errors and card-local stats errors
  * - Read-only badge and descriptions for non-admin users
  * - Admin actions visibility (role change, team CRUD) for admin users
  * - Admin actions hidden for read-only users
@@ -484,16 +484,15 @@ describe('Admin Dashboard Page', () => {
   });
 
   describe('Error state', () => {
-    it('shows error message and retry button on fetch failure', async () => {
+    it('keeps the page usable and shows card-local errors on stats fetch failure', async () => {
       // Must be on a tab with a loader (stats) so a fetch is actually triggered.
       currentSearchParams = new URLSearchParams('cat=insights&tab=stats');
       (global.fetch as jest.Mock) = jest.fn().mockRejectedValue(new Error('Network error'));
       render(<AdminPage />);
 
-      await waitFor(() => {
-        expect(screen.getByText(/network error/i)).toBeInTheDocument();
-      });
-      expect(screen.getByText('Retry')).toBeInTheDocument();
+      expect((await screen.findAllByText(/network error/i)).length).toBeGreaterThan(1);
+      expect(screen.getByRole('heading', { name: 'Admin' })).toBeInTheDocument();
+      expect(screen.queryByText('Retry')).not.toBeInTheDocument();
     });
 
     it('shows auth error on 401 response', async () => {
@@ -720,7 +719,8 @@ describe('Admin Dashboard Page', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Insights' }));
       await waitFor(() => {
         expect(global.fetch).toHaveBeenCalledWith(
-          expect.stringMatching(/\/api\/admin\/stats\?.*simulate_type=user.*simulate_id=kc-user/)
+          expect.stringMatching(/\/api\/admin\/stats\?.*simulate_type=user.*simulate_id=kc-user/),
+          expect.objectContaining({ signal: expect.any(AbortSignal) })
         );
       });
       expect(await screen.findByRole('tab', { name: 'Statistics' })).toBeInTheDocument();
@@ -1628,6 +1628,76 @@ describe('Admin Dashboard Page', () => {
       expect(screen.getByText('Daily Active Users (DAU)')).toBeInTheDocument();
     });
 
+    it('updates cards independently and issues one request per section when a filter changes', async () => {
+      const baseFetch = setupFetchMock();
+      let resolveFeedback: ((response: unknown) => void) | undefined;
+      let deferFeedback = false;
+      const fetchMock = jest.fn((url: string) => {
+        const section = url.includes('/api/admin/stats?')
+          ? new URL(url, 'http://localhost').searchParams.get('section')
+          : null;
+        if (deferFeedback && section === 'feedback') {
+          return new Promise((resolve) => {
+            resolveFeedback = resolve;
+          });
+        }
+        return baseFetch(url);
+      });
+      global.fetch = fetchMock as unknown as typeof fetch;
+
+      render(<AdminPage />);
+      fireEvent.click(await screen.findByRole('button', { name: 'Insights' }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId('stats-card-top-agents')).toHaveAttribute('aria-busy', 'false');
+      });
+
+      const callsBeforeFilter = fetchMock.mock.calls.length;
+      deferFeedback = true;
+      fireEvent.change(screen.getByDisplayValue('All Sources'), { target: { value: 'web' } });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('stats-card-feedback-summary')).toHaveAttribute('aria-busy', 'true');
+        expect(screen.getByTestId('stats-card-top-agents')).toHaveAttribute('aria-busy', 'false');
+      });
+      expect(screen.getByText('Top Agents by Usage')).toBeInTheDocument();
+
+      const refreshCalls = fetchMock.mock.calls
+        .slice(callsBeforeFilter)
+        .map(([url]) => new URL(url, 'http://localhost').searchParams.get('section'))
+        .filter(Boolean);
+      expect(refreshCalls).toHaveLength(9);
+      expect(new Set(refreshCalls).size).toBe(9);
+      expect(refreshCalls).not.toContain('filters');
+
+      resolveFeedback?.({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({
+          success: true,
+          data: { feedback_summary: mockStatsResponse.data.feedback_summary },
+        }),
+      });
+      await waitFor(() => {
+        expect(screen.getByTestId('stats-card-feedback-summary')).toHaveAttribute('aria-busy', 'false');
+      });
+
+      const callsBeforeBotFilter = fetchMock.mock.calls.length;
+      fireEvent.click(screen.getByLabelText(/show bot users/i));
+      await waitFor(() => {
+        expect(fetchMock.mock.calls.length).toBe(callsBeforeBotFilter + 4);
+      });
+      const botFilterSections = fetchMock.mock.calls
+        .slice(callsBeforeBotFilter)
+        .map(([url]) => new URL(url, 'http://localhost').searchParams.get('section'));
+      expect(new Set(botFilterSections)).toEqual(new Set([
+        'top_users',
+        'top_agents',
+        'response_time',
+        'hourly_heatmap',
+      ]));
+    });
+
     it('renders user list with correct data', async () => {
       render(<AdminPage />);
 
@@ -1651,13 +1721,15 @@ describe('Admin Dashboard Page', () => {
 
       await waitFor(() => {
         expect(fetchMock).toHaveBeenCalledWith(
-          expect.stringContaining('/api/admin/stats?from=')
+          expect.stringContaining('/api/admin/stats?from='),
+          expect.objectContaining({ signal: expect.any(AbortSignal) })
         );
       });
 
       // Initial fetch uses from/to date params instead of range=30d
       expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining('/api/admin/stats?from=')
+        expect.stringContaining('/api/admin/stats?from='),
+        expect.objectContaining({ signal: expect.any(AbortSignal) })
       );
     });
 
