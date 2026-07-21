@@ -312,8 +312,10 @@ describe("org-admin bypass for the unlinked SA (TS-B1)", () => {
     expect(mockDeleteExactOpenFgaTuples).toHaveBeenCalled();
   });
 
-  it("POST: org-admin is still blocked on a NORMAL SA (bypass only for unlinked SA)", async () => {
-    // can_manage on the SA → false; org-admin → true; but target doc is NOT unlinked.
+  it("POST: org-admin can also add a scope to a NORMAL SA (bypass is not unlinked-only)", async () => {
+    // can_manage on the SA → false (not on the owning team); org-admin → true;
+    // target doc is a normal SA. The org-admin bypass now applies uniformly
+    // across all service accounts (mirrors the detail/rotate/credentials routes).
     mockCheckOpenFgaTuple.mockImplementation(
       async (t: { relation: string; object: string }) => {
         if (t.relation === "can_manage" && t.object.startsWith("service_account:")) {
@@ -333,9 +335,8 @@ describe("org-admin bypass for the unlinked SA (TS-B1)", () => {
     });
 
     const res = await POST(scopeRequest({ type: "tool", ref: "jira/search" }), ctx());
-    // Must still 404 — org-admin bypass does NOT widen authority for normal SAs.
-    expect(res.status).toBe(404);
-    expect(mockWriteOpenFgaTuples).not.toHaveBeenCalled();
+    expect(res.status).toBe(200);
+    expect(mockWriteOpenFgaTuples).toHaveBeenCalled();
   });
 
   it("POST: non-org-admin is blocked even on the unlinked SA", async () => {

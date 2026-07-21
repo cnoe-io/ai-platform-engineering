@@ -75,7 +75,6 @@ export interface Conversation {
     /** UI version (from package.json) when client_type is 'webui' */
     ui_version?: string;
     total_messages: number;
-    total_tokens?: number;
     /** @deprecated Kept for backward compat with old conversations */
     agent_version?: string;
     /** @deprecated Kept for backward compat with old conversations */
@@ -153,7 +152,6 @@ export interface Message {
     turn_id: string;
     source?: string;
     model?: string;
-    tokens_used?: number;
     latency_ms?: number;
     agent_name?: string;
     is_final?: boolean;
@@ -161,6 +159,12 @@ export interface Message {
     task_id?: string;
     turn_status?: string;
     is_interrupted?: boolean;
+    // Slack linking metadata — set on messages persisted by the Slack bot so
+    // stats/audit views can deep-link back to the source thread.
+    channel_id?: string;
+    channel_name?: string;
+    thread_ts?: string;
+    slack_permalink?: string;
   };
   artifacts?: Artifact[];
   stream_events?: StoredStreamEvent[];
@@ -362,22 +366,35 @@ export interface ShareConversationRequest {
 export interface AddMessageRequest {
   message_id?: string; // Client-generated ID for cross-reference
   role: 'user' | 'assistant' | 'system';
-  content: string;
+  // Optional: integration turns (e.g. the Slack bot) persist metadata only and
+  // omit content to avoid duplicating content that already lives in Slack.
+  content?: string;
   // Sender identity for shared conversations (optional for backward compatibility)
   sender_email?: string;
   sender_name?: string;
   sender_image?: string;
   metadata?: {
     turn_id: string;
+    // Source of the message; defaults to 'web' when omitted. Integrations
+    // (Slack bot, scheduler) set this so stats attribute per-surface.
+    source?: string;
     model?: string;
-    tokens_used?: number;
     latency_ms?: number;
     agent_name?: string;
+    // Integrations (Slack bot) know only the agent_id; the server resolves it
+    // to the canonical display name (agent_name) so both surfaces store the
+    // same label. Ignored when agent_name is provided directly.
+    agent_id?: string;
     is_final?: boolean;
     turn_status?: string; // "done" | "interrupted" | "waiting_for_input"
     is_interrupted?: boolean;
     task_id?: string;
     timeline_segments?: TimelineSegment[]; // Plan/thinking/answer reconstruction
+    // Slack linking metadata (deep-link back to the source thread)
+    channel_id?: string;
+    channel_name?: string;
+    thread_ts?: string;
+    slack_permalink?: string;
   };
   artifacts?: Artifact[];
   stream_events?: StoredStreamEvent[];

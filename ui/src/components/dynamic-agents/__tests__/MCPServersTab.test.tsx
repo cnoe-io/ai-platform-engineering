@@ -1,8 +1,17 @@
 import React from "react";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MCP_SERVERS_REFRESH_INTERVAL_MS, MCPServersTab } from "../MCPServersTab";
 
 // assisted-by Codex Codex-sonnet-4-6
+
+/** Opens the `Tool` AgentPicker, searches for `toolName`, and picks it. */
+async function selectTool(toolName: string): Promise<void> {
+  fireEvent.click(await screen.findByLabelText("Tool"));
+  fireEvent.change(await screen.findByLabelText("Search tools..."), {
+    target: { value: toolName },
+  });
+  fireEvent.click(await screen.findByRole("option", { name: toolName }));
+}
 
 const jiraServer = {
   _id: "jira",
@@ -173,7 +182,7 @@ describe("MCPServersTab AgentGateway repair", () => {
     fireEvent.click(screen.getByRole("button", { name: /test mcp tools for jira/i }));
 
     expect(await screen.findByRole("dialog")).toHaveTextContent(/Test MCP tools/i);
-    expect(await screen.findByRole("option", { name: "version" })).toBeInTheDocument();
+    expect(await screen.findByLabelText("Tool")).toHaveTextContent("version");
     expect(screen.getByRole("button", { name: "Fields" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Add parameter" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /run tool/i }));
@@ -195,14 +204,36 @@ describe("MCPServersTab AgentGateway repair", () => {
     expect(screen.getByText(/1.2.3/i)).toBeInTheDocument();
   });
 
+  it("filters the tool picker's options by search text", async () => {
+    render(<MCPServersTab />);
+
+    await screen.findByText("Jira");
+    fireEvent.click(screen.getByRole("button", { name: /test mcp tools for jira/i }));
+
+    fireEvent.click(await screen.findByLabelText("Tool"));
+    const listbox = await screen.findByRole("listbox", { name: "Tool" });
+    expect(within(listbox).getAllByRole("option")).toHaveLength(2);
+
+    fireEvent.change(screen.getByLabelText("Search tools..."), {
+      target: { value: "sea" },
+    });
+    expect(within(listbox).getAllByRole("option")).toHaveLength(1);
+    expect(within(listbox).getByRole("option", { name: "search" })).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Search tools..."), {
+      target: { value: "no-match" },
+    });
+    expect(within(listbox).queryAllByRole("option")).toHaveLength(0);
+    expect(screen.getByText("No tools match")).toBeInTheDocument();
+  });
+
   it("renders schema parameters as fields and sends them as JSON", async () => {
     render(<MCPServersTab />);
 
     await screen.findByText("Jira");
     fireEvent.click(screen.getByRole("button", { name: /test mcp tools for jira/i }));
 
-    const toolSelect = await screen.findByLabelText("Tool");
-    fireEvent.change(toolSelect, { target: { value: "search" } });
+    await selectTool("search");
 
     expect(await screen.findByLabelText("Value for jql")).toBeInTheDocument();
     expect(screen.getByText("Required")).toBeInTheDocument();
@@ -230,7 +261,7 @@ describe("MCPServersTab AgentGateway repair", () => {
     await screen.findByText("Jira");
     fireEvent.click(screen.getByRole("button", { name: /test mcp tools for jira/i }));
 
-    await screen.findByRole("option", { name: "version" });
+    await screen.findByLabelText("Tool");
     fireEvent.change(screen.getByLabelText("Parameter value 1"), { target: { value: "5" } });
     fireEvent.change(screen.getByPlaceholderText("parameter_name"), { target: { value: "limit" } });
     fireEvent.click(screen.getByRole("button", { name: /run tool/i }));
@@ -256,8 +287,7 @@ describe("MCPServersTab AgentGateway repair", () => {
     await screen.findByText("Jira");
     fireEvent.click(screen.getByRole("button", { name: /test mcp tools for jira/i }));
 
-    const toolSelect = await screen.findByLabelText("Tool");
-    fireEvent.change(toolSelect, { target: { value: "search" } });
+    await selectTool("search");
 
     fireEvent.change(await screen.findByLabelText("Value for jql"), {
       target: { value: "project = MERAKI" },
