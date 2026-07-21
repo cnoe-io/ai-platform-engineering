@@ -65,6 +65,22 @@ const REMOTE_MCP_PROVIDERS: ProviderEntry[] = [
     ],
   },
   {
+    name: "AWS",
+    description: "Query AWS resources, CloudWatch metrics, and infrastructure across accounts",
+    endpoint: "https://aws-mcp.us-east-1.api.aws/mcp",
+    logoSrc: "",
+    accentClass: "hover:border-orange-500/50 hover:bg-orange-500/5",
+    credential_sources: [
+      {
+        kind: "provider_connection",
+        name: "X-CAIPE-Provider-Token",
+        provider: "aws",
+        target: "header",
+      },
+    ],
+    note: "Requires AWS to allowlist your redirect URI before OAuth client registration",
+  },
+  {
     name: "Figma",
     description: "Inspect design files, components, assets, and variable tokens",
     endpoint: "https://www.figma.com/api/mcp",
@@ -126,6 +142,21 @@ const REMOTE_MCP_PROVIDERS: ProviderEntry[] = [
     ],
   },
   {
+    name: "PagerDuty",
+    description: "List incidents, services, escalation policies, and on-call schedules",
+    endpoint: "https://mcp.pagerduty.com/mcp",
+    logoSrc: "",
+    accentClass: "hover:border-green-500/50 hover:bg-green-500/5",
+    credential_sources: [
+      {
+        kind: "provider_connection",
+        name: "X-CAIPE-Provider-Token",
+        provider: "pagerduty",
+        target: "header",
+      },
+    ],
+  },
+  {
     name: "Zapier",
     description: "Trigger Zaps and run automations across thousands of connected apps",
     endpoint: "https://mcp.zapier.com/mcp",
@@ -168,6 +199,25 @@ function NotionIcon() {
   );
 }
 
+function AWSIcon() {
+  return (
+    <svg aria-hidden="true" className="h-8 w-8" viewBox="0 0 304 182" fill="none">
+      <path fill="#FF9900" d="M86 66c0 3 .4 5.4 1 7 .7 1.6 1.7 3.3 3 5 .5.7.7 1.4.7 2 0 .9-.5 1.8-1.6 2.7l-5.3 3.5c-.8.5-1.5.7-2.2.7-1 0-2-.5-3-1.4a30.7 30.7 0 0 1-3.5-4.6 76.2 76.2 0 0 1-3-5.8c-7.5 8.9-17 13.3-28.4 13.3-8.1 0-14.6-2.3-19.2-7-4.7-4.6-7-10.8-7-18.4 0-8.1 2.9-14.7 8.6-19.6 5.7-5 13.4-7.4 23-7.4 3.2 0 6.5.3 10 .8 3.4.5 7 1.3 10.6 2.2v-6.7c0-7-1.5-12-4.4-14.9-3-3-8-4.4-15.2-4.4-3.3 0-6.6.4-10 1.2-3.4.8-6.7 1.9-10 3.3-.5.2-1 .4-1.2.4-.7.2-1.2.3-1.5.3-1.3 0-2-.9-2-2.8V12c0-1.5.2-2.6.7-3.2.5-.7 1.4-1.4 2.8-2 3.3-1.7 7.3-3.2 12-4.3 4.7-1.2 9.7-1.8 15-1.8 11.4 0 19.8 2.6 25.2 7.8 5.3 5.2 8 13 8 23.4V66zm-39.2 14.6c3.1 0 6.3-.6 9.7-1.7 3.4-1.1 6.5-3.2 9-6 1.5-1.8 2.7-3.8 3.2-6.1.6-2.3.9-5 .9-8.3v-4c-2.8-.7-5.8-1.3-8.9-1.7-3-.4-6-.6-9-.6-6.4 0-11.2 1.3-14.3 3.9-3.2 2.6-4.7 6.3-4.7 11.2 0 4.6 1.2 8 3.5 10.4 2.3 2.3 5.6 3.4 10.6 3ZM140 88c-1.7 0-2.8-.3-3.6-1-.7-.6-1.4-2-2-3.9L107 10.3C106.5 8.3 106 7 106 6.1c0-1.6.8-2.5 2.4-2.5h9.8c1.7 0 2.9.3 3.6 1 .8.6 1.4 2 2 3.9l21.7 85.5 20.1-85.5c.5-2 1.1-3.3 1.9-3.9.8-.7 2-.9 3.7-.9h8c1.7 0 2.9.3 3.7 1 .8.6 1.4 2 1.9 3.9l20.3 86.6 22.3-86.6c.5-2 1.2-3.3 2-3.9.7-.7 2-.9 3.5-.9h9.3c1.6 0 2.5.9 2.5 2.5 0 .5 0 1-.2 1.6l-.6 2-27.7 83c-.6 2-1.2 3.3-2 3.9-.8.7-2 1-3.6 1h-8.7c-1.7 0-2.9-.3-3.7-1-.7-.6-1.4-2-1.8-4l-20-83-19.9 82.9c-.5 2-1 3.3-1.8 4-.8.6-2 .9-3.7.9H140zm148.1 3c-5.3 0-10.6-.6-15.7-1.8-5.1-1.2-9.1-2.5-11.7-4-.7-.4-1.2-.9-1.4-1.3-.2-.5-.3-1-.3-1.5v-5.4c0-1.9.7-2.8 2.1-2.8.6 0 1.1.1 1.6.3.5.2 1.3.6 2.1 1 2.9 1.3 6 2.3 9.3 3 3.4.7 6.7 1 10.1 1 5.4 0 9.5-1 12.4-2.8 2.9-1.9 4.4-4.6 4.4-8 0-2.4-.8-4.4-2.3-6-1.5-1.6-4.4-3.1-8.6-4.5l-12.3-3.8c-6.2-2-10.8-4.8-13.6-8.6-2.8-3.7-4.2-7.8-4.2-12.2 0-3.5.8-6.6 2.3-9.3 1.5-2.7 3.5-5 6-6.9 2.5-2 5.3-3.4 8.6-4.4 3.3-1 6.8-1.4 10.5-1.4 1.8 0 3.7.1 5.5.3 1.9.2 3.6.5 5.3.9 1.7.4 3.3.8 4.8 1.3 1.5.5 2.7 1 3.5 1.5.8.5 1.3.8 1.7 1.3.4.5.5 1 .5 1.7v5c0 1.9-.7 2.9-2.1 2.9-.7 0-1.8-.4-3.2-1.1-4.8-2.2-10.2-3.3-16.2-3.3-4.9 0-8.7.8-11.4 2.5-2.7 1.7-4 4.2-4 7.7 0 2.4.8 4.4 2.5 6 1.7 1.6 4.7 3.2 9.2 4.6l12.1 3.8c6.1 2 10.5 4.7 13.2 8.2 2.7 3.5 4 7.5 4 11.8 0 3.6-.7 6.8-2.2 9.7-1.5 2.9-3.5 5.4-6.2 7.5-2.6 2.2-5.7 3.8-9.4 4.9-3.8 1.2-7.8 1.8-12.2 1.8z"/>
+      <path fill="#FF9900" d="M274.4 144.7c-32.2 23.8-79 36.4-119.2 36.4-56.4 0-107.2-20.8-145.6-55.5-3-2.7-.3-6.4 3.3-4.3 41.5 24.1 92.8 38.7 145.8 38.7 35.7 0 74.9-7.4 111.1-22.8 5.4-2.4 10 3.6 4.6 7.5z"/>
+      <path fill="#FF9900" d="M287.8 129.4c-4.1-5.3-27.2-2.5-37.6-1.3-3.1.4-3.6-2.4-.8-4.4 18.4-13 48.6-9.2 52.1-4.9 3.5 4.4-1 34.6-18.2 49-2.6 2.2-5.1 1-4-2 3.9-9.7 12.6-31.2 8.5-36.4z"/>
+    </svg>
+  );
+}
+
+function PagerDutyIcon() {
+  return (
+    <svg aria-hidden="true" className="h-8 w-8" viewBox="0 0 64 64" fill="none">
+      <rect width="64" height="64" rx="8" fill="#06AC38"/>
+      <path fill="white" d="M40.5 10H27.2c-1 0-1.8.8-1.8 1.8v14.3H20v7.8h5.4V46h7.8V33.9h7.3c7.2 0 13-5.8 13-13S47.7 10 40.5 10zm0 18.2h-7.3v-10.4h7.3c2.9 0 5.2 2.3 5.2 5.2s-2.3 5.2-5.2 5.2zM20 38.5h7.8V54H20z"/>
+    </svg>
+  );
+}
+
 function ZapierIcon() {
   return (
     <svg aria-hidden="true" className="h-8 w-8" viewBox="0 0 24 24" fill="#FF4A00">
@@ -191,9 +241,11 @@ function ProviderLogo({ provider }: { provider: ProviderEntry }) {
     );
   }
   switch (provider.name) {
+    case "AWS": return <AWSIcon />;
     case "GitHub Copilot": return <GitHubIcon />;
     case "Linear": return <LinearIcon />;
     case "Notion": return <NotionIcon />;
+    case "PagerDuty": return <PagerDutyIcon />;
     case "Zapier": return <ZapierIcon />;
     default: return <GitHubIcon />;
   }
