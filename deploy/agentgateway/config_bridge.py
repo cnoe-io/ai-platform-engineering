@@ -793,7 +793,24 @@ def reconcile_once(
 ) -> dict[str, Any]:
     """Render and write one AgentGateway config generation."""
 
-    targets = _load_targets()
+    try:
+        targets = _load_targets()
+    except (OSError, urllib.error.URLError, json.JSONDecodeError, ValueError) as exc:
+        if config_path.exists():
+            LOGGER.warning(
+                "UI Backend unavailable; keeping existing config at %s (%s)",
+                config_path,
+                exc,
+            )
+            _mark_reconcile_ok(config_path)
+            return {
+                "changed": False,
+                "skipped": True,
+                "reason": "bff_unavailable",
+                "config_path": str(config_path),
+            }
+        raise
+
     try:
         baseline = load_baseline_config(
             admin_config_url,
