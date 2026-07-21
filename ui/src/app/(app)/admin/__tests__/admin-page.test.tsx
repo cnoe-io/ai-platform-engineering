@@ -348,17 +348,20 @@ function setupFetchMock(overrides: {
       });
     }
     if (url.includes('/api/admin/stats') && !url.includes('skills')) {
+      const statsResponse = typeof overrides.stats === 'function'
+        ? overrides.stats(url)
+        : overrides.stats;
       if (overrides.statsStatus) {
         return Promise.resolve({
           ok: overrides.statsStatus >= 200 && overrides.statsStatus < 300,
           status: overrides.statsStatus,
-          json: () => Promise.resolve(overrides.stats || { success: false, error: 'Forbidden' }),
+          json: () => Promise.resolve(statsResponse || { success: false, error: 'Forbidden' }),
         });
       }
       return Promise.resolve({
         ok: true,
         status: 200,
-        json: () => Promise.resolve(overrides.stats || mockStatsResponse),
+        json: () => Promise.resolve(statsResponse || mockStatsResponse),
       });
     }
     if (url.includes('/api/admin/users')) {
@@ -1656,6 +1659,46 @@ describe('Admin Dashboard Page', () => {
       expect(fetchMock).toHaveBeenCalledWith(
         expect.stringContaining('/api/admin/stats?from=')
       );
+    });
+
+    it('updates all overview cards when the date range changes', async () => {
+      const shortRangeStats = {
+        ...mockStatsResponse,
+        data: {
+          ...mockStatsResponse.data,
+          overview: {
+            ...mockStatsResponse.data.overview,
+            total_users: 2,
+            total_conversations: 3,
+            total_messages: 4,
+          },
+        },
+      };
+      setupFetchMock({
+        stats: (url: string) => {
+          const requestUrl = new URL(url, 'http://localhost:3000');
+          const from = new Date(requestUrl.searchParams.get('from') || 0);
+          const to = new Date(requestUrl.searchParams.get('to') || 0);
+          return to.getTime() - from.getTime() <= 2 * 60 * 60 * 1000
+            ? shortRangeStats
+            : mockStatsResponse;
+        },
+      });
+
+      render(<AdminPage />);
+      fireEvent.click(await screen.findByRole('button', { name: 'Insights' }));
+      await screen.findByText('42');
+
+      fireEvent.click(screen.getByRole('button', { name: '1h' }));
+
+      await waitFor(() => {
+        const usersCard = screen.getByText('Total Users').closest('.rounded-lg');
+        const conversationsCard = screen.getByText('Conversations').closest('.rounded-lg');
+        const messagesCard = screen.getByText('Messages').closest('.rounded-lg');
+        expect(within(usersCard as HTMLElement).getByText('2')).toBeInTheDocument();
+        expect(within(conversationsCard as HTMLElement).getByText('3')).toBeInTheDocument();
+        expect(within(messagesCard as HTMLElement).getByText('4')).toBeInTheDocument();
+      });
     });
   });
 });

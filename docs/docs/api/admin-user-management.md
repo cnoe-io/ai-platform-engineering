@@ -783,6 +783,29 @@ Replaces `keycloak_roles` on the team.
 
 ---
 
+## User Activity
+
+### GET `/api/admin/users/activity/{identity}`
+
+**Auth:** Organization audit access.
+
+Returns the MongoDB-backed activity used by the admin Insights user drawer.
+`identity` may be a user email or an integration user ID. Linked email and
+integration identities are combined so the response includes activity from
+both surfaces.
+
+The response contains:
+
+- Profile metadata from the `users` collection.
+- Conversation and feedback totals.
+- The 20 most recent conversations.
+- The 10 most recent feedback entries.
+
+This endpoint is separate from `GET /api/admin/users/{id}`, which accepts a
+Keycloak subject ID and returns identity-management data.
+
+---
+
 ## Platform Statistics
 
 ### GET `/api/admin/stats`

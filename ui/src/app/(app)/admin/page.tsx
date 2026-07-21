@@ -1077,11 +1077,26 @@ function AdminPage() {
       const agentIds = agentIdsForNames(ag);
       if (agentIds.length > 0) params.set('agent', agentIds.join(','));
       if (showBotUsers) params.set('include_bots', 'true');
-      const res = await fetch(withAdminSimulationParams(`/api/admin/stats?${params}`, simulationTarget));
+      const hasNonRangeFilters = s !== 'all'
+        || u.length > 0
+        || agentIds.length > 0;
+      const overviewParams = new URLSearchParams({ from: r.from, to: r.to });
+      const [res, overviewRes] = await Promise.all([
+        fetch(withAdminSimulationParams(`/api/admin/stats?${params}`, simulationTarget)),
+        hasNonRangeFilters
+          ? fetch(withAdminSimulationParams(`/api/admin/stats?${overviewParams}`, simulationTarget))
+          : null,
+      ]);
       if (res.ok) {
-        const json = await res.json();
+        const [json, overviewJson] = await Promise.all([
+          res.json(),
+          overviewRes?.ok ? overviewRes.json() : Promise.resolve(null),
+        ]);
         if (json.success && activeDataScopeKeyRef.current === requestScopeKey) {
           setStats(json.data);
+          setGlobalOverview(
+            overviewJson?.success ? overviewJson.data.overview : json.data.overview,
+          );
           if (json.data.available_channels) setStatsChannels(json.data.available_channels);
           if (json.data.available_agents) setStatsAgents(json.data.available_agents);
         }
@@ -1115,13 +1130,14 @@ function AdminPage() {
     try {
       const hasStatsFilters = sourceFilter !== 'all' || userFilter.length > 0;
       const p = new URLSearchParams({ from: dateRange.from, to: dateRange.to });
+      const globalP = new URLSearchParams({ from: dateRange.from, to: dateRange.to });
       if (sourceFilter !== 'all') p.set('source', sourceFilter);
       if (userFilter.length > 0) p.set('user', userFilter.join(','));
       if (showBotUsers) p.set('include_bots', 'true');
       const [statsRes, globalStatsRes] = await Promise.all([
         fetch(withAdminSimulationParams(`/api/admin/stats?${p}`, simulationTarget)),
         hasStatsFilters
-          ? fetch(withAdminSimulationParams('/api/admin/stats', simulationTarget))
+          ? fetch(withAdminSimulationParams(`/api/admin/stats?${globalP}`, simulationTarget))
           : null,
       ]);
 
