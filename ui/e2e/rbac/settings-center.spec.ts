@@ -265,7 +265,9 @@ test.describe("mocked Settings dialog browser regression",() => {
     await expect(page).toHaveURL(/\/$/);
     await expect(dialog.getByRole("heading",{ name: "Settings" })).toBeVisible();
     await expect(dialog.getByRole("heading",{ level: 2,name: "Chat & agents" })).toBeVisible();
-    await expect(dialog.getByText("Personal",{ exact: true })).toBeVisible();
+    await expect(
+      dialog.getByRole("region",{ name: "Chat & agents" }).getByText("Personal",{ exact: true }),
+    ).toBeVisible();
     await expect(dialog.getByRole("button",{ name: "Chat & agents" })).toHaveAttribute(
       "aria-current",
       "page",
