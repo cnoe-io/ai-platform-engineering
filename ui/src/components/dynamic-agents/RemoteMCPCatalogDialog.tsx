@@ -28,13 +28,23 @@ interface RemoteMCPCatalogDialogProps {
 }
 
 interface ProviderEntry extends RemoteMCPTemplate {
+  key: string;
   logoSrc: string;
   accentClass: string;
   note?: string;
 }
 
+// Comma-separated allowlist of provider keys (e.g. "amplitude,pagerduty,github").
+// Unset or "*" → show all.
+const ENABLED_KEYS: Set<string> | null = (() => {
+  const raw = process.env.NEXT_PUBLIC_REMOTE_MCP_CATALOG_PROVIDERS ?? "";
+  if (!raw || raw === "*") return null;
+  return new Set(raw.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean));
+})();
+
 const REMOTE_MCP_PROVIDERS: ProviderEntry[] = [
   {
+    key: "amplitude",
     name: "Amplitude",
     description: "Query analytics events, charts, funnels, and user cohorts",
     endpoint: "https://mcp.amplitude.com/mcp",
@@ -50,6 +60,7 @@ const REMOTE_MCP_PROVIDERS: ProviderEntry[] = [
     ],
   },
   {
+    key: "atlassian",
     name: "Atlassian",
     description: "Search Jira issues, Confluence pages, and project data",
     endpoint: "https://mcp.atlassian.com/v1/mcp/authv2",
@@ -65,6 +76,7 @@ const REMOTE_MCP_PROVIDERS: ProviderEntry[] = [
     ],
   },
   {
+    key: "aws",
     name: "AWS",
     description: "Query AWS resources, CloudWatch metrics, and infrastructure across accounts",
     endpoint: "https://aws-mcp.us-east-1.api.aws/mcp",
@@ -81,6 +93,7 @@ const REMOTE_MCP_PROVIDERS: ProviderEntry[] = [
     note: "Requires AWS to allowlist your redirect URI before OAuth client registration",
   },
   {
+    key: "figma",
     name: "Figma",
     description: "Inspect design files, components, assets, and variable tokens",
     endpoint: "https://www.figma.com/api/mcp",
@@ -97,6 +110,7 @@ const REMOTE_MCP_PROVIDERS: ProviderEntry[] = [
     note: "Early access — verify endpoint before use",
   },
   {
+    key: "github",
     name: "GitHub Copilot",
     description: "Code search, pull request review, and repository insights via Copilot",
     endpoint: "https://api.githubcopilot.com/mcp",
@@ -112,6 +126,7 @@ const REMOTE_MCP_PROVIDERS: ProviderEntry[] = [
     ],
   },
   {
+    key: "linear",
     name: "Linear",
     description: "Browse issues, projects, cycles, and teams in Linear",
     endpoint: "https://mcp.linear.app/mcp",
@@ -127,6 +142,7 @@ const REMOTE_MCP_PROVIDERS: ProviderEntry[] = [
     ],
   },
   {
+    key: "notion",
     name: "Notion",
     description: "Read and search pages, databases, and blocks in Notion",
     endpoint: "https://mcp.notion.com/mcp",
@@ -142,6 +158,7 @@ const REMOTE_MCP_PROVIDERS: ProviderEntry[] = [
     ],
   },
   {
+    key: "pagerduty",
     name: "PagerDuty",
     description: "List incidents, services, escalation policies, and on-call schedules",
     endpoint: "https://mcp.pagerduty.com/mcp",
@@ -157,6 +174,7 @@ const REMOTE_MCP_PROVIDERS: ProviderEntry[] = [
     ],
   },
   {
+    key: "zapier",
     name: "Zapier",
     description: "Trigger Zaps and run automations across thousands of connected apps",
     endpoint: "https://mcp.zapier.com/mcp",
@@ -268,7 +286,7 @@ export function RemoteMCPCatalogDialog({
         </DialogHeader>
 
         <div className="grid grid-cols-2 gap-3 mt-1">
-          {REMOTE_MCP_PROVIDERS.map((provider) => (
+          {REMOTE_MCP_PROVIDERS.filter((p) => !ENABLED_KEYS || ENABLED_KEYS.has(p.key)).map((provider) => (
             <button
               key={provider.name}
               type="button"
