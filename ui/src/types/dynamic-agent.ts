@@ -50,6 +50,13 @@ export interface MCPServerConfig {
   credential_sources?: MCPCredentialSource[];
   enabled: boolean;
   config_driven?: boolean;  // Whether loaded from config.yaml (not editable)
+  /**
+   * When true, APP_CONFIG_PATH seed must not replace this MCP server document
+   * on startup (e.g. after an admin Repair AgentGateway with explicit lock).
+   */
+  seed_config_locked?: boolean;
+  seed_config_locked_at?: string;
+  seed_config_locked_by?: string;
   source?: 'manual' | 'config' | 'agentgateway';
   agentgateway_discovered?: boolean;
   agentgateway_endpoint?: string;

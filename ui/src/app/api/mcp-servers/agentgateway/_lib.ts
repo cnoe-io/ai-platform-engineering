@@ -32,8 +32,40 @@ export async function fetchAgentGatewayMcpDiscovery(): Promise<AgentGatewayMcpDi
   return buildAgentGatewayMcpDiscovery(config, existingServers);
 }
 
-export async function syncSelectedAgentGatewayMcpServers(ids?: string[]) {
+export type SyncAgentGatewayMcpServersOptions = {
+  ids?: string[];
+  /** When true, synced MCP servers are excluded from APP_CONFIG_PATH seed overwrites. */
+  lockFromSeed?: boolean;
+  lockedBy?: string;
+};
+
+async function lockMcpServersFromSeed(
+  collection: Awaited<ReturnType<typeof getCollection<MCPServerConfig>>>,
+  serverIds: string[],
+  lockedBy?: string,
+): Promise<string[]> {
+  const now = new Date().toISOString();
+  const locked: string[] = [];
+  for (const id of serverIds) {
+    const result = await collection.updateOne({ _id: id } as never, {
+      $set: {
+        seed_config_locked: true,
+        seed_config_locked_at: now,
+        ...(lockedBy ? { seed_config_locked_by: lockedBy } : {}),
+      },
+    } as never);
+    if (result.matchedCount > 0) {
+      locked.push(id);
+    }
+  }
+  return locked;
+}
+
+export async function syncSelectedAgentGatewayMcpServers(
+  options: SyncAgentGatewayMcpServersOptions = {},
+) {
   const discovery = await fetchAgentGatewayMcpDiscovery();
+  const ids = options.ids;
   const selectedIds = new Set(
     ids && ids.length > 0 ? ids : discovery.targets.map((target) => target.id),
   );
@@ -92,11 +124,21 @@ export async function syncSelectedAgentGatewayMcpServers(ids?: string[]) {
     }
   }
 
+  const seed_locked =
+    options.lockFromSeed === true
+      ? await lockMcpServersFromSeed(
+          collection,
+          [...added, ...migrated, ...refreshed],
+          options.lockedBy,
+        )
+      : [];
+
   return {
     added,
     migrated,
     refreshed,
     skipped,
+    seed_locked,
     summary: {
       added: added.length,
       existing: discovery.targets.filter((target) => target.status === "existing").length,
@@ -104,6 +146,7 @@ export async function syncSelectedAgentGatewayMcpServers(ids?: string[]) {
       refreshed: refreshed.length,
       conflicts: conflicts.length,
       skipped: skipped.length,
+      seed_locked: seed_locked.length,
     },
     conflicts,
     migration_warnings,

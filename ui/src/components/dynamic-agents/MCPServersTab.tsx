@@ -215,6 +215,7 @@ export function MCPServersTab({
     AgentGatewayMigrationWarning[]
   >([]);
   const [agentGatewaySyncing, setAgentGatewaySyncing] = React.useState(false);
+  const [agentGatewayRepairConfirmOpen, setAgentGatewayRepairConfirmOpen] = React.useState(false);
   const [agentGatewayMessage, setAgentGatewayMessage] = React.useState<string | null>(null);
   const [agentGatewayError, setAgentGatewayError] = React.useState<string | null>(null);
   const [testingServer, setTestingServer] = React.useState<MCPServerConfigWithPermissions | null>(null);
@@ -460,7 +461,7 @@ export function MCPServersTab({
     }
   };
 
-  const handleSyncAgentGateway = async () => {
+  const handleSyncAgentGateway = async (lockFromSeed: boolean) => {
     setAgentGatewaySyncing(true);
     setAgentGatewayError(null);
     setAgentGatewayMessage(null);
@@ -469,7 +470,7 @@ export function MCPServersTab({
       const response = await fetch("/api/mcp-servers/agentgateway/sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ lock_from_seed: lockFromSeed }),
       });
       const data = await response.json();
       if (!data.success) {
@@ -478,10 +479,15 @@ export function MCPServersTab({
       const addedCount = data.data.added?.length || 0;
       const migratedCount = data.data.migrated?.length || 0;
       const refreshedCount = data.data.refreshed?.length || 0;
+      const seedLockedCount = data.data.seed_locked?.length || 0;
+      const lockSuffix =
+        lockFromSeed && seedLockedCount > 0
+          ? ` ${seedLockedCount} server${seedLockedCount === 1 ? "" : "s"} excluded from APP_CONFIG seed overwrites.`
+          : "";
       setAgentGatewayMessage(
         `Added ${addedCount}, migrated ${migratedCount}, and refreshed ${refreshedCount} MCP server${
           addedCount + migratedCount + refreshedCount === 1 ? "" : "s"
-        } from AgentGateway.`,
+        } from AgentGateway.${lockSuffix}`,
       );
       setAgentGatewayMigrationWarnings(data.data.migration_warnings || []);
       await fetchServers();
@@ -489,6 +495,7 @@ export function MCPServersTab({
       setAgentGatewayError(errorMessage(err, "Failed to sync AgentGateway MCP servers"));
     } finally {
       setAgentGatewaySyncing(false);
+      setAgentGatewayRepairConfirmOpen(false);
     }
   };
 
@@ -622,7 +629,7 @@ export function MCPServersTab({
               <Button
                 variant="outline"
                 size="sm"
-                onClick={handleSyncAgentGateway}
+                onClick={() => setAgentGatewayRepairConfirmOpen(true)}
                 disabled={agentGatewaySyncing}
                 title="Admin repair: re-import built-in AgentGateway MCP routes and repair stale registrations"
               >
@@ -758,6 +765,15 @@ export function MCPServersTab({
                                 title="Registered from AgentGateway discovery"
                               >
                                 AgentGateway
+                              </Badge>
+                            )}
+                            {server.seed_config_locked && (
+                              <Badge
+                                variant="outline"
+                                className="gap-1 bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/30"
+                                title="Excluded from APP_CONFIG seed overwrites after Repair AgentGateway"
+                              >
+                                Seed locked
                               </Badge>
                             )}
                           </div>
@@ -1010,6 +1026,43 @@ export function MCPServersTab({
           </div>
         )}
       </CardContent>
+      <Dialog open={agentGatewayRepairConfirmOpen} onOpenChange={setAgentGatewayRepairConfirmOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Repair AgentGateway MCP servers?</DialogTitle>
+            <DialogDescription>
+              This re-imports AgentGateway MCP routes into MongoDB and repairs stale registrations.
+              Synced servers will be marked seed locked so APP_CONFIG startup seed no longer
+              overwrites them on pod restart. Use git-owned appConfig.mcp_servers as the long-term
+              source of truth; seed lock protects runtime repairs until git catches up.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={agentGatewaySyncing}
+              onClick={() => setAgentGatewayRepairConfirmOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={agentGatewaySyncing}
+              onClick={() => void handleSyncAgentGateway(true)}
+            >
+              {agentGatewaySyncing ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Repairing...
+                </>
+              ) : (
+                "Repair and lock from seed"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <MCPToolTestDialog
         server={testingServer}
         open={Boolean(testingServer)}
