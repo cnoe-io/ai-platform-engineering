@@ -10,8 +10,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import type { MCPCredentialSource } from "@/types/dynamic-agent";
-import { ArrowRight, Plus } from "lucide-react";
-import React from "react";
+import { ArrowRight, Loader2, Plug, Plus } from "lucide-react";
+import React, { useEffect, useState } from "react";
 
 export interface RemoteMCPTemplate {
   name: string;
@@ -34,13 +34,19 @@ interface ProviderEntry extends RemoteMCPTemplate {
   note?: string;
 }
 
-// Comma-separated allowlist of provider keys (e.g. "amplitude,pagerduty,github").
-// Unset or "*" → show all.
-const ENABLED_KEYS: Set<string> | null = (() => {
-  const raw = process.env.NEXT_PUBLIC_REMOTE_MCP_CATALOG_PROVIDERS ?? "";
-  if (!raw || raw === "*") return null;
-  return new Set(raw.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean));
-})();
+interface CustomCatalogEntry {
+  id: string;
+  name: string;
+  description: string;
+  endpoint: string;
+  logo_url?: string;
+  provider_key: string;
+}
+
+interface CatalogConfig {
+  enabled_providers: string[] | null;
+  custom_entries: CustomCatalogEntry[];
+}
 
 const REMOTE_MCP_PROVIDERS: ProviderEntry[] = [
   {
@@ -269,15 +275,122 @@ function ProviderLogo({ provider }: { provider: ProviderEntry }) {
   }
 }
 
+function ProviderTile({
+  name,
+  hostname,
+  description,
+  note,
+  logo,
+  accentClass,
+  onClick,
+}: {
+  name: string;
+  hostname: string;
+  description: string;
+  note?: string;
+  logo: React.ReactNode;
+  accentClass: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={[
+        "group relative flex flex-col gap-3 rounded-lg border bg-card p-4 text-left",
+        "transition-colors duration-150 cursor-pointer",
+        accentClass,
+      ].join(" ")}
+    >
+      <div className="flex items-start justify-between">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-md border bg-background">
+            {logo}
+          </div>
+          <div>
+            <div className="font-semibold text-sm">{name}</div>
+            <div className="font-mono text-[10px] text-muted-foreground truncate max-w-[180px]">{hostname}</div>
+          </div>
+        </div>
+        <ArrowRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity mt-0.5 flex-shrink-0" />
+      </div>
+      <p className="text-xs text-muted-foreground leading-relaxed">{description}</p>
+      {note && <p className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">⚠ {note}</p>}
+    </button>
+  );
+}
+
+function CustomEntryLogo({ logoUrl }: { logoUrl?: string }) {
+  if (logoUrl) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img alt="" aria-hidden className="h-8 w-8 object-contain" height={32} src={logoUrl} width={32} />
+    );
+  }
+  return <Plug className="h-5 w-5 text-muted-foreground" />;
+}
+
 export function RemoteMCPCatalogDialog({
   open,
   onOpenChange,
   onSelect,
   onSelectCustom,
 }: RemoteMCPCatalogDialogProps) {
+  const [catalogConfig, setCatalogConfig] = useState<CatalogConfig | null>(null);
+  const [loadingConfig, setLoadingConfig] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    setLoadingConfig(true);
+    fetch("/api/admin/platform-config")
+      .then((r) => r.json())
+      .catch(() => ({ success: false }))
+      .then((data) => {
+        if (data.success && data.data?.remote_mcp_catalog) {
+          setCatalogConfig(data.data.remote_mcp_catalog as CatalogConfig);
+        } else {
+          setCatalogConfig({ enabled_providers: null, custom_entries: [] });
+        }
+        setLoadingConfig(false);
+      });
+  }, [open]);
+
+  const enabledKeys = catalogConfig?.enabled_providers
+    ? new Set(catalogConfig.enabled_providers)
+    : null;
+
+  const visibleBuiltins = REMOTE_MCP_PROVIDERS.filter((p) => !enabledKeys || enabledKeys.has(p.key));
+  const customEntries = catalogConfig?.custom_entries ?? [];
+
+  const selectBuiltin = (provider: ProviderEntry) => {
+    onOpenChange(false);
+    onSelect(provider);
+  };
+
+  const selectCustom = (entry: CustomCatalogEntry) => {
+    onOpenChange(false);
+    onSelect({
+      name: entry.name,
+      description: entry.description,
+      endpoint: entry.endpoint,
+      credential_sources: [
+        {
+          kind: "provider_connection",
+          name: "X-CAIPE-Provider-Token",
+          provider: entry.provider_key,
+          target: "header",
+        },
+      ],
+    });
+  };
+
+  const safeHostname = (url: string) => {
+    try { return new URL(url).hostname; } catch { return url; }
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Add MCP Server</DialogTitle>
           <DialogDescription>
@@ -285,71 +398,58 @@ export function RemoteMCPCatalogDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid grid-cols-2 gap-3 mt-1">
-          {REMOTE_MCP_PROVIDERS.filter((p) => !ENABLED_KEYS || ENABLED_KEYS.has(p.key)).map((provider) => (
+        {loadingConfig ? (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-3 mt-1">
+            {visibleBuiltins.map((provider) => (
+              <ProviderTile
+                key={provider.key}
+                name={provider.name}
+                hostname={safeHostname(provider.endpoint)}
+                description={provider.description}
+                note={provider.note}
+                logo={<ProviderLogo provider={provider} />}
+                accentClass={provider.accentClass}
+                onClick={() => selectBuiltin(provider)}
+              />
+            ))}
+
+            {customEntries.map((entry) => (
+              <ProviderTile
+                key={entry.id}
+                name={entry.name}
+                hostname={safeHostname(entry.endpoint)}
+                description={entry.description}
+                logo={<CustomEntryLogo logoUrl={entry.logo_url} />}
+                accentClass="hover:border-primary/50 hover:bg-primary/5"
+                onClick={() => selectCustom(entry)}
+              />
+            ))}
+
+            {/* Blank form tile */}
             <button
-              key={provider.name}
               type="button"
-              onClick={() => {
-                onOpenChange(false);
-                onSelect(provider);
-              }}
-              className={[
-                "group relative flex flex-col gap-3 rounded-lg border bg-card p-4 text-left",
-                "transition-colors duration-150 cursor-pointer",
-                provider.accentClass,
-              ].join(" ")}
+              onClick={() => { onOpenChange(false); onSelectCustom(); }}
+              className="group flex flex-col gap-3 rounded-lg border border-dashed bg-card p-4 text-left transition-colors duration-150 cursor-pointer hover:border-primary/50 hover:bg-primary/5"
             >
-              <div className="flex items-start justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-md border bg-background">
-                    <ProviderLogo provider={provider} />
-                  </div>
-                  <div>
-                    <div className="font-semibold text-sm">{provider.name}</div>
-                    <div className="font-mono text-[10px] text-muted-foreground truncate max-w-[180px]">
-                      {new URL(provider.endpoint).hostname}
-                    </div>
-                  </div>
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-md border bg-background">
+                  <Plus className="h-5 w-5 text-muted-foreground" />
                 </div>
-                <ArrowRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity mt-0.5 flex-shrink-0" />
+                <div>
+                  <div className="font-semibold text-sm">Custom</div>
+                  <div className="text-[10px] text-muted-foreground">Blank form</div>
+                </div>
               </div>
-
               <p className="text-xs text-muted-foreground leading-relaxed">
-                {provider.description}
+                Configure any MCP server manually — local process, internal service, or any remote endpoint.
               </p>
-
-              {provider.note && (
-                <p className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">
-                  ⚠ {provider.note}
-                </p>
-              )}
             </button>
-          ))}
-
-          {/* Custom / blank option */}
-          <button
-            type="button"
-            onClick={() => {
-              onOpenChange(false);
-              onSelectCustom();
-            }}
-            className="group flex flex-col gap-3 rounded-lg border border-dashed bg-card p-4 text-left transition-colors duration-150 cursor-pointer hover:border-primary/50 hover:bg-primary/5"
-          >
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-md border bg-background">
-                <Plus className="h-5 w-5 text-muted-foreground" />
-              </div>
-              <div>
-                <div className="font-semibold text-sm">Custom</div>
-                <div className="text-[10px] text-muted-foreground">Blank form</div>
-              </div>
-            </div>
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              Configure any MCP server manually — local process, internal service, or any remote endpoint.
-            </p>
-          </button>
-        </div>
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );
