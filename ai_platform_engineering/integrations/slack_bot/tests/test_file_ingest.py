@@ -3,7 +3,12 @@
 Verifies ``download_slack_files`` authenticates with the bot token, base64-
 encodes downloaded bytes into the ``InputFile`` dict shape, and skips files it
 cannot or should not ingest (no token, missing url/mime, oversize, HTTP error)
-without sinking the rest of the turn.
+without sinking the rest of the turn. It returns an ``IngestResult(files,
+notices)``: ``files`` are the usable attachments, ``notices`` are user-facing
+strings for files that were attached but **inaccessible** (missing token, bad
+url, download failure, or the ``files:read`` HTML-login-page failure) so the
+agent can tell the user rather than silently dropping them — while benign
+size-cap skips add no notice.
 """
 
 from __future__ import annotations
@@ -52,8 +57,8 @@ def _install_fake_get(
 
 def test_returns_empty_when_no_files(monkeypatch):
     monkeypatch.setenv("SLACK_BOT_TOKEN", "xoxb-test")
-    assert fi.download_slack_files(None) == []
-    assert fi.download_slack_files([]) == []
+    assert fi.download_slack_files(None) == ([], [])
+    assert fi.download_slack_files([]) == ([], [])
 
 
 def test_single_file_is_downloaded_and_base64_encoded(monkeypatch):
@@ -67,14 +72,15 @@ def test_single_file_is_downloaded_and_base64_encoded(monkeypatch):
         }
     ]
 
-    out = fi.download_slack_files(files, bot_token="xoxb-abc")
+    result = fi.download_slack_files(files, bot_token="xoxb-abc")
 
-    assert len(out) == 1
-    assert out[0] == {
+    assert len(result.files) == 1
+    assert result.files[0] == {
         "mime_type": "image/png",
         "data": base64.b64encode(_PNG).decode("ascii"),
         "name": "shot.png",
     }
+    assert result.notices == []
     # Auth header carries the bot token — the whole point of ingress.
     assert calls[0]["headers"]["Authorization"] == "Bearer xoxb-abc"
 
@@ -92,7 +98,7 @@ def test_multiple_files_preserve_order(monkeypatch):
         {"name": "b.pdf", "mimetype": "application/pdf", "url_private": "https://files.slack.com/b.pdf"},
     ]
 
-    out = fi.download_slack_files(files, bot_token="t")
+    out = fi.download_slack_files(files, bot_token="t").files
 
     assert [o["name"] for o in out] == ["a.png", "b.pdf"]
     assert out[0]["data"] == base64.b64encode(_PNG).decode("ascii")
@@ -122,7 +128,11 @@ def test_missing_url_or_mimetype_is_skipped(monkeypatch):
         {"name": "no-mime", "url_private": "https://files.slack.com/x"},  # no mimetype
     ]
 
-    assert fi.download_slack_files(files, bot_token="t") == []
+    result = fi.download_slack_files(files, bot_token="t")
+
+    assert result.files == []
+    # Both were attached but unreadable, so each produces a notice.
+    assert len(result.notices) == 2
 
 
 def test_no_token_skips_all(monkeypatch):
@@ -131,9 +141,11 @@ def test_no_token_skips_all(monkeypatch):
     called = _install_fake_get(monkeypatch)
     files = [{"name": "x.png", "mimetype": "image/png", "url_private": "https://files.slack.com/x"}]
 
-    out = fi.download_slack_files(files)  # no explicit token, none in env
+    result = fi.download_slack_files(files)  # no explicit token, none in env
 
-    assert out == []
+    assert result.files == []
+    # No token is an inaccessible case, so the user should be told.
+    assert len(result.notices) == 1
     # We must NOT fire an unauthenticated request (it would fetch a login page).
     assert called == []
 
@@ -144,7 +156,7 @@ def test_token_falls_back_to_env(monkeypatch):
     calls = _install_fake_get(monkeypatch)
     files = [{"name": "x.png", "mimetype": "image/png", "url_private": "https://files.slack.com/x"}]
 
-    out = fi.download_slack_files(files)
+    out = fi.download_slack_files(files).files
 
     assert len(out) == 1
     assert calls[0]["headers"]["Authorization"] == "Bearer xoxb-env"
@@ -161,9 +173,11 @@ def test_declared_oversize_is_skipped_without_download(monkeypatch):
         }
     ]
 
-    out = fi.download_slack_files(files, bot_token="t", max_file_bytes=100)
+    result = fi.download_slack_files(files, bot_token="t", max_file_bytes=100)
 
-    assert out == []
+    assert result.files == []
+    # A size skip is benign — the file was reachable, just too big — so no notice.
+    assert result.notices == []
     # Declared-size guard should short-circuit before any HTTP call.
     assert calls == []
 
@@ -173,9 +187,11 @@ def test_downloaded_oversize_is_skipped(monkeypatch):
     _install_fake_get(monkeypatch, default=b"x" * 200)
     files = [{"name": "big", "mimetype": "text/plain", "url_private": "https://files.slack.com/big"}]
 
-    out = fi.download_slack_files(files, bot_token="t", max_file_bytes=100)
+    result = fi.download_slack_files(files, bot_token="t", max_file_bytes=100)
 
-    assert out == []
+    assert result.files == []
+    # Post-download size skip is also benign — no notice.
+    assert result.notices == []
 
 
 def test_total_cap_stops_ingestion(monkeypatch):
@@ -187,7 +203,9 @@ def test_total_cap_stops_ingestion(monkeypatch):
 
     # Each is 60 bytes; per-file cap allows them, but total cap of 100 admits
     # only the first.
-    out = fi.download_slack_files(files, bot_token="t", max_file_bytes=100, max_total_bytes=100)
+    out = fi.download_slack_files(
+        files, bot_token="t", max_file_bytes=100, max_total_bytes=100
+    ).files
 
     assert [o["name"] for o in out] == ["a"]
 
@@ -204,9 +222,11 @@ def test_http_error_on_one_file_does_not_sink_others(monkeypatch):
         {"name": "good", "mimetype": "image/png", "url_private": "https://files.slack.com/good"},
     ]
 
-    out = fi.download_slack_files(files, bot_token="t")
+    result = fi.download_slack_files(files, bot_token="t")
 
-    assert [o["name"] for o in out] == ["good"]
+    assert [o["name"] for o in result.files] == ["good"]
+    # The failed download is inaccessible, so it produces a notice.
+    assert len(result.notices) == 1
 
 
 # --- Content/type sanity checks (Slack files:read scope regression) ----------
@@ -222,9 +242,13 @@ def test_html_login_page_by_content_type_is_skipped(monkeypatch):
     )
     files = [{"name": "x.png", "mimetype": "image/png", "url_private": "https://files.slack.com/x"}]
 
-    out = fi.download_slack_files(files, bot_token="t")
+    result = fi.download_slack_files(files, bot_token="t")
 
-    assert out == []
+    assert result.files == []
+    # This is the files:read failure — the notice should hint at the scope.
+    assert len(result.notices) == 1
+    assert "files:read" in result.notices[0]
+    assert "x.png" in result.notices[0]
 
 
 def test_html_login_page_without_content_type_is_sniffed(monkeypatch):
@@ -236,9 +260,12 @@ def test_html_login_page_without_content_type_is_sniffed(monkeypatch):
     )
     files = [{"name": "x.png", "mimetype": "image/png", "url_private": "https://files.slack.com/x"}]
 
-    out = fi.download_slack_files(files, bot_token="t")
+    result = fi.download_slack_files(files, bot_token="t")
 
-    assert out == []
+    assert result.files == []
+    # Still the files:read failure, just detected by sniffing the body.
+    assert len(result.notices) == 1
+    assert "files:read" in result.notices[0]
 
 
 def test_declared_image_with_wrong_magic_bytes_is_skipped(monkeypatch):
@@ -247,9 +274,12 @@ def test_declared_image_with_wrong_magic_bytes_is_skipped(monkeypatch):
     _install_fake_get(monkeypatch, default=b"not-an-image-at-all")
     files = [{"name": "x.png", "mimetype": "image/png", "url_private": "https://files.slack.com/x"}]
 
-    out = fi.download_slack_files(files, bot_token="t")
+    result = fi.download_slack_files(files, bot_token="t")
 
-    assert out == []
+    assert result.files == []
+    # A content/type mismatch is inaccessible-to-the-model — notify the user
+    # (without the files:read hint, since the cause is a generic mismatch).
+    assert len(result.notices) == 1
 
 
 def test_jpeg_and_webp_magic_bytes_pass(monkeypatch):
@@ -266,9 +296,10 @@ def test_jpeg_and_webp_magic_bytes_pass(monkeypatch):
         {"name": "w.webp", "mimetype": "image/webp", "url_private": "https://files.slack.com/w.webp"},
     ]
 
-    out = fi.download_slack_files(files, bot_token="t")
+    result = fi.download_slack_files(files, bot_token="t")
 
-    assert [o["name"] for o in out] == ["j.jpg", "w.webp"]
+    assert [o["name"] for o in result.files] == ["j.jpg", "w.webp"]
+    assert result.notices == []
 
 
 def test_text_upload_containing_html_is_not_rejected(monkeypatch):
@@ -281,6 +312,7 @@ def test_text_upload_containing_html_is_not_rejected(monkeypatch):
     )
     files = [{"name": "page.html", "mimetype": "text/html", "url_private": "https://files.slack.com/p"}]
 
-    out = fi.download_slack_files(files, bot_token="t")
+    result = fi.download_slack_files(files, bot_token="t")
 
-    assert [o["name"] for o in out] == ["page.html"]
+    assert [o["name"] for o in result.files] == ["page.html"]
+    assert result.notices == []

@@ -28,11 +28,27 @@ from __future__ import annotations
 import base64
 import logging
 import os
-from typing import Any, Mapping, Optional, Sequence
+from typing import Any, Mapping, NamedTuple, Optional, Sequence
 
 import requests
 
 logger = logging.getLogger("caipe.slack_bot.file_ingest")
+
+
+class IngestResult(NamedTuple):
+    """Outcome of ingesting a message's Slack attachments.
+
+    ``files`` are the usable attachments (``{"mime_type", "data", "name"}``
+    dicts) to send to the model. ``notices`` are human-readable strings for
+    files that were attached but could **not** be made available — e.g. the
+    bot lacks the ``files:read`` scope so Slack served a login page instead of
+    the bytes. Callers append these to the message so the agent can tell the
+    user a file was attached but unreadable, rather than silently ignoring it.
+    Benign skips (files over the size cap) do not produce a notice.
+    """
+
+    files: list[dict[str, Any]]
+    notices: list[str]
 
 # Cap on a single file's raw (pre-base64) size. base64 inflates bytes ~33%, and
 # every attached file rides inline in one LLM request, so an unbounded upload
@@ -137,13 +153,28 @@ def _sniff_ok(data: bytes, mime_type: str) -> bool:
     return any(data.startswith(sig) for sig in sigs)
 
 
+def _inaccessible_notice(name: Optional[str], *, scope_hint: bool = False) -> str:
+    """User-facing string for a file that was attached but couldn't be read.
+
+    ``scope_hint`` adds the likely cause (missing ``files:read`` scope) for the
+    HTML-login-page case, which is the most common and most actionable one.
+    """
+    label = f"'{name}'" if name else "A file"
+    if scope_hint:
+        return (
+            f"{label} was attached but couldn't be accessed — the Slack bot is "
+            f"likely missing the 'files:read' permission, so I can't read it."
+        )
+    return f"{label} was attached but couldn't be accessed, so I can't read it."
+
+
 def download_slack_files(
     files: Optional[Sequence[Mapping[str, Any]]],
     *,
     bot_token: Optional[str] = None,
     max_file_bytes: int = DEFAULT_MAX_FILE_BYTES,
     max_total_bytes: int = DEFAULT_MAX_TOTAL_BYTES,
-) -> list[dict[str, Any]]:
+) -> IngestResult:
     """Download Slack attachments into ``ChatRequest.files`` dicts.
 
     Args:
@@ -156,13 +187,17 @@ def download_slack_files(
         max_total_bytes: Stop once the cumulative raw size would exceed this.
 
     Returns:
-        A list of ``{"mime_type", "data" (base64), "name"}`` dicts, in the same
-        order as the input, omitting any file that could not be downloaded,
-        lacked a URL/MIME type, or exceeded the size caps. Returns ``[]`` when
-        there is nothing usable (caller should send no ``files`` field).
+        An ``IngestResult(files, notices)``. ``files`` are
+        ``{"mime_type", "data" (base64), "name"}`` dicts in input order,
+        omitting any file that could not be made available. ``notices`` are
+        user-facing strings for files that were attached but **inaccessible**
+        (no bot token, missing url/mime, download failure, or an HTML login
+        page from a missing ``files:read`` scope) so the agent can tell the
+        user rather than silently dropping them. Files skipped only for size
+        do not add a notice.
     """
     if not files:
-        return []
+        return IngestResult([], [])
 
     token = _resolve_bot_token(bot_token)
     if not token:
@@ -171,9 +206,16 @@ def download_slack_files(
             "skipping %d file(s) — the model will not see them",
             len(files),
         )
-        return []
+        return IngestResult(
+            [],
+            [
+                "One or more files were attached but couldn't be accessed "
+                "(the Slack bot has no token configured to download them)."
+            ],
+        )
 
     out: list[dict[str, Any]] = []
+    notices: list[str] = []
     total = 0
     for f in files:
         name = f.get("name")
@@ -187,6 +229,7 @@ def download_slack_files(
                 "[file_ingest] Skipping attachment (name=%r): missing url or mimetype",
                 name,
             )
+            notices.append(_inaccessible_notice(name))
             continue
 
         # Trust Slack's declared size for a cheap pre-download guard; re-check
@@ -205,6 +248,7 @@ def download_slack_files(
             logger.warning(
                 "[file_ingest] Failed to download %r: %s", name, exc
             )
+            notices.append(_inaccessible_notice(name))
             continue
 
         # Defense-in-depth: Slack returns an HTML login page (HTTP 200) when the
@@ -217,6 +261,7 @@ def download_slack_files(
                 "page, not %s — check the bot token has the files:read scope",
                 name, mime_type,
             )
+            notices.append(_inaccessible_notice(name, scope_hint=True))
             continue
 
         if not _sniff_ok(data, mime_type):
@@ -225,6 +270,7 @@ def download_slack_files(
                 "type %s (Content-Type=%r) — not forwarding bad bytes to the model",
                 name, mime_type, content_type,
             )
+            notices.append(_inaccessible_notice(name))
             continue
 
         if len(data) > max_file_bytes:
@@ -252,4 +298,4 @@ def download_slack_files(
 
     if out:
         logger.info("[file_ingest] Prepared %d/%d attachment(s) for the model", len(out), len(files))
-    return out
+    return IngestResult(out, notices)

@@ -14,7 +14,7 @@ import re
 import time
 from collections.abc import AsyncGenerator
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 from uuid import uuid4
 
 from cnoe_agent_utils.tracing import TracingManager
@@ -59,6 +59,10 @@ from dynamic_agents.services.builtin_tools import (
 from dynamic_agents.services.credential_exchange import CredentialExchangeClient
 from dynamic_agents.services.gridfs_store import MongoDBGridFSStore
 from dynamic_agents.services.llm_clients import get_llm
+from dynamic_agents.services.model_capabilities import (
+    ModelCapabilities,
+    get_model_capabilities,
+)
 from dynamic_agents.services.mcp_client import (
     McpCredentialUnavailableError,
     build_mcp_connections,
@@ -248,26 +252,71 @@ _SUPPORTED_DOC_MIME_TYPES = frozenset(
 )
 
 
-def _build_user_content(message: str, files: "list[InputFile] | None") -> "str | list[dict[str, Any]]":
+# Reasons a file was dropped from the user turn, in machine-readable form so
+# the caller can build the right user-facing degradation message.
+SKIP_UNSUPPORTED_BY_PROVIDER = "unsupported_by_provider"
+SKIP_NOT_ACCEPTED_BY_MODEL = "not_accepted_by_model"
+
+
+class SkippedFile(NamedTuple):
+    """A file that was attached but not sent to the model, and why.
+
+    ``reason`` is one of ``SKIP_UNSUPPORTED_BY_PROVIDER`` (Bedrock/the adapter
+    cannot ingest this MIME type at all) or ``SKIP_NOT_ACCEPTED_BY_MODEL`` (the
+    provider supports it, but this agent's model declared it does not accept
+    that modality — e.g. a text-only model handed an image).
+    """
+
+    name: str | None
+    mime_type: str
+    reason: str
+
+
+def _skipped_file_warning(skip: SkippedFile) -> str:
+    """User-facing copy explaining why an attached file was not sent to the model."""
+    label = f"'{skip.name}'" if skip.name else f"a {skip.mime_type} file"
+    if skip.reason == SKIP_NOT_ACCEPTED_BY_MODEL:
+        kind = "image" if skip.mime_type in _SUPPORTED_IMAGE_MIME_TYPES else "document"
+        return (
+            f"Attached {label} wasn't read: this agent's model doesn't accept "
+            f"{kind} input — answering from your text only."
+        )
+    return (
+        f"Attached {label} wasn't read: its file type ({skip.mime_type}) isn't "
+        f"supported for model input — answering from your text only."
+    )
+
+
+def _build_user_content(
+    message: str,
+    files: "list[InputFile] | None",
+    capabilities: "ModelCapabilities | None" = None,
+) -> "tuple[str | list[dict[str, Any]], list[SkippedFile]]":
     """Build the user-turn content for the agent's message list.
 
-    Without files, returns the plain ``message`` string (the fast path).
-    With one or more attachable files, returns a multimodal content list: a
-    text block followed by one block per file. Images become ``image`` blocks
-    and documents (PDF, CSV, Office, HTML, txt, md) become ``file`` blocks, so
-    the model reads every supported file — not just images. Both use
-    LangChain's standard shape (``{"type": ..., "mime_type": ...,
-    "base64"|"url": ...}``), which the langchain_aws Bedrock converse adapter
-    converts natively.
+    Without files, returns ``(message, [])`` (the fast path). With one or more
+    attachable files, returns ``(content_list, skipped)`` where ``content_list``
+    is a multimodal list — a text block followed by one block per surviving
+    file. Images become ``image`` blocks and documents (PDF, CSV, Office, HTML,
+    txt, md) become ``file`` blocks, so the model reads every supported file —
+    not just images. Both use LangChain's standard shape (``{"type": ...,
+    "mime_type": ..., "base64"|"url": ...}``), which the langchain_aws Bedrock
+    converse adapter converts natively.
 
-    Files whose MIME type Bedrock cannot ingest are skipped with a warning
-    (passing them through would raise in the adapter). If no file survives,
-    the plain string is returned unchanged.
+    A file is dropped (and recorded in ``skipped``) when either the provider
+    cannot ingest its MIME type at all, or ``capabilities`` declares this
+    agent's model does not accept that modality — so a no-vision model degrades
+    cleanly to text instead of erroring at the provider. ``capabilities=None``
+    means "accept everything the provider supports" (unchanged legacy behavior).
+    If no file survives, the plain string is returned unchanged so the model
+    still answers from the text.
     """
     if not files:
-        return message
+        return message, []
 
+    caps = capabilities or ModelCapabilities()  # permissive default
     blocks: list[dict[str, Any]] = [{"type": "text", "text": message}]
+    skipped: list[SkippedFile] = []
     for f in files:
         if f.mime_type in _SUPPORTED_IMAGE_MIME_TYPES:
             block_type = "image"
@@ -278,6 +327,18 @@ def _build_user_content(message: str, files: "list[InputFile] | None") -> "str |
                 f"[stream] Skipping file with unsupported type '{f.mime_type}' "
                 f"(name={f.name!r}); Bedrock cannot ingest it"
             )
+            skipped.append(SkippedFile(f.name, f.mime_type, SKIP_UNSUPPORTED_BY_PROVIDER))
+            continue
+
+        # Provider supports the type, but the selected model may not accept the
+        # modality — degrade cleanly rather than let it error downstream.
+        accepted = caps.accepts_images if block_type == "image" else caps.accepts_documents
+        if not accepted:
+            logger.info(
+                f"[stream] Skipping {block_type} '{f.name!r}' ({f.mime_type}): "
+                f"the agent's model does not accept this input modality"
+            )
+            skipped.append(SkippedFile(f.name, f.mime_type, SKIP_NOT_ACCEPTED_BY_MODEL))
             continue
 
         block: dict[str, Any] = {"type": block_type, "mime_type": f.mime_type}
@@ -291,7 +352,8 @@ def _build_user_content(message: str, files: "list[InputFile] | None") -> "str |
         blocks.append(block)
 
     # Only switch to multimodal if at least one file survived filtering.
-    return blocks if len(blocks) > 1 else message
+    content = blocks if len(blocks) > 1 else message
+    return content, skipped
 
 
 class AgentRuntime:
@@ -1356,8 +1418,16 @@ class AgentRuntime:
 
         # ── Core lifecycle: chunks ──
         # Build the user turn: plain string normally, or a multimodal content
-        # list (text + image blocks) when files are attached.
-        user_content = _build_user_content(message, files)
+        # list (text + image blocks) when files are attached. Files the model
+        # can't accept (unsupported type, or a modality this model declares it
+        # doesn't take) are dropped and surfaced to the user as warnings so the
+        # degradation is visible instead of silent.
+        user_content, skipped_files = _build_user_content(
+            message, files, get_model_capabilities(self.config.model.id)
+        )
+        for skip in skipped_files:
+            for frame in encoder.on_warning(_skipped_file_warning(skip)):
+                yield frame
         state_input: dict[str, Any] = {"messages": [{"role": "user", "content": user_content}]}
         # Inject skills files into state for StateBackend (non-GridFS mode).
         # In GridFS mode, skills are pre-populated in the store at init time.

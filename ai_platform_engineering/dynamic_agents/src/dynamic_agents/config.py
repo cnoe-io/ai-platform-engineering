@@ -111,6 +111,14 @@ class Settings(BaseSettings):
     oauth2_scope: str = ""
     oauth2_audience: str = ""
 
+    # Per-model input-capability overrides (env: MODEL_CAPABILITIES_JSON). JSON object
+    # mapping model id (or family prefix) to accepted modalities, e.g.
+    # '{"some-text-only-model": {"accepts_images": false}}'. Merged over the
+    # seed defaults in services/model_capabilities.py; malformed JSON is ignored.
+    # This is the values-driven seam for declaring per-model file acceptance
+    # from Helm values without a code change.
+    model_capabilities_json: str = ""
+
 
 @lru_cache
 def get_settings() -> Settings:
