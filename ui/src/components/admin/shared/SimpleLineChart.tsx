@@ -13,6 +13,12 @@ interface SimpleLineChartProps {
   color?: string;
   showGrid?: boolean;
   title?: string;
+  /** Draw a dashed horizontal reference line at this y-value (e.g. the average). */
+  avgLine?: number;
+  /** Label shown next to the reference line; defaults to the value. */
+  avgLabel?: string;
+  /** Format y-axis tick + reference-line values (e.g. ms → "3.6s"). */
+  formatValue?: (value: number) => string;
 }
 
 export function SimpleLineChart({
@@ -21,6 +27,9 @@ export function SimpleLineChart({
   color = "rgb(59, 130, 246)", // blue-500
   showGrid = true,
   title,
+  avgLine,
+  avgLabel,
+  formatValue,
 }: SimpleLineChartProps) {
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const [dragStart, setDragStart] = useState<number | null>(null);
@@ -42,8 +51,10 @@ export function SimpleLineChart({
   const innerWidth = chartWidth - padding.left - padding.right;
   const innerHeight = chartHeight - padding.top - padding.bottom;
 
-  const maxValue = Math.max(...data.map((d) => d.value));
-  const minValue = Math.min(...data.map((d) => d.value));
+  // Include avgLine in the y-domain so the reference line is always visible.
+  const domainValues = [...data.map((d) => d.value), ...(avgLine != null ? [avgLine] : [])];
+  const maxValue = Math.max(...domainValues);
+  const minValue = Math.min(...domainValues);
   const valueRange = maxValue - minValue || 1;
 
   const xScale = (index: number) => (index / (data.length - 1 || 1)) * innerWidth + padding.left;
@@ -200,6 +211,30 @@ export function SimpleLineChart({
           strokeLinejoin="round"
         />
 
+        {/* Average reference line */}
+        {avgLine != null && (
+          <g style={{ pointerEvents: "none" }}>
+            <line
+              x1={padding.left}
+              y1={yScale(avgLine)}
+              x2={chartWidth - padding.right}
+              y2={yScale(avgLine)}
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeDasharray="6 3"
+              className="text-muted-foreground opacity-70"
+            />
+            <text
+              x={chartWidth - padding.right}
+              y={yScale(avgLine) - 5}
+              textAnchor="end"
+              className="text-xs fill-current text-muted-foreground"
+            >
+              {avgLabel ?? (formatValue ? formatValue(avgLine) : String(avgLine))}
+            </text>
+          </g>
+        )}
+
         {/* Drag selection boundary lines */}
         {hasDragSelection && (
           <>
@@ -304,7 +339,7 @@ export function SimpleLineChart({
         {/* Single-point hover tooltip (only when not dragging and no selection) */}
         {!hasDragSelection && !isDragging && tooltipPoint && tooltipIndex !== null && (() => {
           const labelText = tooltipPoint.label;
-          const valueText = tooltipPoint.value.toLocaleString();
+          const valueText = formatValue ? formatValue(tooltipPoint.value) : tooltipPoint.value.toLocaleString();
           const totalChars = labelText.length + valueText.length + 3;
           const boxWidth = Math.max(totalChars * 7.5 + 20, 80);
           const halfBox = boxWidth / 2;
@@ -357,7 +392,7 @@ export function SimpleLineChart({
             alignmentBaseline="middle"
             className="text-xs fill-current text-muted-foreground"
           >
-            {value}
+            {formatValue ? formatValue(value) : value}
           </text>
         ))}
 

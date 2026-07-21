@@ -1,3 +1,53 @@
+## 0.5.55-dev.6 (2026-07-21)
+
+### Fix
+
+- **insights**: remove self-resolution and est. hours saved stats (#2256)
+
+## 0.5.55-dev.5 (2026-07-20)
+
+### Fix
+
+- **ci**: scope GitHub App token permissions in prebuild artifact comment workflow (#2250)
+
+## 0.5.55-dev.4 (2026-07-20)
+
+## 0.5.55-dev.3 (2026-07-20)
+
+### Feat
+
+- **ui**: mint signed agent context for MCP tool callers
+
+### Fix
+
+- **openfga-bridge**: shorten local context TTL to 8h, fix audit obj, add prebuild image flow
+- **ui**: stop revoking agent-context grants before caller can use them
+
+## 0.5.55-dev.2 (2026-07-20)
+
+### Feat
+
+- **ui**: scope admin insights by owned agents and add agent filter (#2209)
+
+## 0.5.55-dev.1 (2026-07-20)
+
+### Feat
+
+- **auth**: OIDC_GROUP_INCLUDELIST and OIDC_GROUP_EXCLUDELIST for AD group sync filtering (#2237)
+- **ci**: link failed CIs and initiated gh user in the release draft to take action
+
+### Fix
+
+- **e2e**: drive the MCP tool picker as a combobox, not a <select>
+- **service-accounts**: let org admins manage service accounts outside their own team
+- **service-accounts**: org admins see all SAs; add search + pagination
+
+### Refactor
+
+- **mcp**: restyle MCP lab tool picker as a searchable combobox
+
+## 0.5.55 (2026-07-17)
+
 ## 0.5.54-dev.3 (2026-07-17)
 
 ### Feat

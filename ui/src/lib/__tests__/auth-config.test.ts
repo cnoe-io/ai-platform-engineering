@@ -1007,6 +1007,118 @@ describe('auth-config', () => {
         else process.env.OIDC_GROUP_CLAIM = previous
       }
     })
+
+    // assisted-by claude code claude-sonnet-4-6
+    describe('OIDC_GROUP_INCLUDELIST', () => {
+      it('passes all groups through when OIDC_GROUP_INCLUDELIST is unset', () => {
+        jest.isolateModules(() => {
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          const { extractGroups } = require('../auth-config')
+          expect(extractGroups({ groups: ['platform-engineering', 'temp-test', 'sre'] }))
+            .toEqual(expect.arrayContaining(['platform-engineering', 'temp-test', 'sre']))
+        })
+      })
+
+      it('keeps only groups matching the includelist pattern', () => {
+        const prev = process.env.OIDC_GROUP_INCLUDELIST
+        process.env.OIDC_GROUP_INCLUDELIST = '^platform-engineering$,^sre$'
+        try {
+          jest.isolateModules(() => {
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const { extractGroups } = require('../auth-config')
+            expect(extractGroups({ groups: ['platform-engineering', 'temp-test', 'sre', 'other'] }))
+              .toEqual(['platform-engineering', 'sre'])
+          })
+        } finally {
+          if (prev === undefined) delete process.env.OIDC_GROUP_INCLUDELIST
+          else process.env.OIDC_GROUP_INCLUDELIST = prev
+        }
+      })
+
+      it('supports regex patterns in the includelist', () => {
+        const prev = process.env.OIDC_GROUP_INCLUDELIST
+        process.env.OIDC_GROUP_INCLUDELIST = '^caipe-.*'
+        try {
+          jest.isolateModules(() => {
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const { extractGroups } = require('../auth-config')
+            expect(extractGroups({ groups: ['caipe-admins', 'caipe-users', 'unrelated'] }))
+              .toEqual(['caipe-admins', 'caipe-users'])
+          })
+        } finally {
+          if (prev === undefined) delete process.env.OIDC_GROUP_INCLUDELIST
+          else process.env.OIDC_GROUP_INCLUDELIST = prev
+        }
+      })
+
+      it('returns empty array when no groups match the includelist', () => {
+        const prev = process.env.OIDC_GROUP_INCLUDELIST
+        process.env.OIDC_GROUP_INCLUDELIST = '^no-match$'
+        try {
+          jest.isolateModules(() => {
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const { extractGroups } = require('../auth-config')
+            expect(extractGroups({ groups: ['platform-engineering', 'sre'] })).toEqual([])
+          })
+        } finally {
+          if (prev === undefined) delete process.env.OIDC_GROUP_INCLUDELIST
+          else process.env.OIDC_GROUP_INCLUDELIST = prev
+        }
+      })
+    })
+
+    describe('OIDC_GROUP_EXCLUDELIST', () => {
+      it('drops groups matching the excludelist pattern', () => {
+        const prev = process.env.OIDC_GROUP_EXCLUDELIST
+        process.env.OIDC_GROUP_EXCLUDELIST = '^temp-.*,^test-.*'
+        try {
+          jest.isolateModules(() => {
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const { extractGroups } = require('../auth-config')
+            expect(extractGroups({ groups: ['platform-engineering', 'temp-trial', 'test-group', 'sre'] }))
+              .toEqual(['platform-engineering', 'sre'])
+          })
+        } finally {
+          if (prev === undefined) delete process.env.OIDC_GROUP_EXCLUDELIST
+          else process.env.OIDC_GROUP_EXCLUDELIST = prev
+        }
+      })
+
+      it('passes all groups through when OIDC_GROUP_EXCLUDELIST is unset', () => {
+        jest.isolateModules(() => {
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          const { extractGroups } = require('../auth-config')
+          expect(extractGroups({ groups: ['platform-engineering', 'temp-test'] }))
+            .toEqual(expect.arrayContaining(['platform-engineering', 'temp-test']))
+        })
+      })
+    })
+
+    describe('OIDC_GROUP_INCLUDELIST + OIDC_GROUP_EXCLUDELIST combined', () => {
+      it('applies includelist first then excludelist', () => {
+        const prevIn = process.env.OIDC_GROUP_INCLUDELIST
+        const prevEx = process.env.OIDC_GROUP_EXCLUDELIST
+        process.env.OIDC_GROUP_INCLUDELIST = '^caipe-.*'
+        process.env.OIDC_GROUP_EXCLUDELIST = '^caipe-temp-.*'
+        try {
+          jest.isolateModules(() => {
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const { extractGroups } = require('../auth-config')
+            const groups = extractGroups({
+              groups: ['caipe-admins', 'caipe-temp-trial', 'unrelated', 'caipe-users'],
+            })
+            expect(groups).toEqual(['caipe-admins', 'caipe-users'])
+            expect(groups).not.toContain('caipe-temp-trial')
+            expect(groups).not.toContain('unrelated')
+          })
+        } finally {
+          if (prevIn === undefined) delete process.env.OIDC_GROUP_INCLUDELIST
+          else process.env.OIDC_GROUP_INCLUDELIST = prevIn
+          if (prevEx === undefined) delete process.env.OIDC_GROUP_EXCLUDELIST
+          else process.env.OIDC_GROUP_EXCLUDELIST = prevEx
+        }
+      })
+    })
   })
 
   describe('OIDC claim group cache', () => {
