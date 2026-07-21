@@ -70,6 +70,7 @@ function createState(): SettingsMockState {
       gradient_theme: "default",
       memory_enabled: "true",
       releaseNotesNotificationsEnabled: true,
+      releaseNotesDismissedVersions: ["playwright"],
       show_thinking_enabled: "true",
       show_timestamps_enabled: "false",
       theme: "dark",
