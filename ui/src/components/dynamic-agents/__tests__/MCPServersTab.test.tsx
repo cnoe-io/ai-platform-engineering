@@ -141,12 +141,17 @@ describe("MCPServersTab AgentGateway repair", () => {
     await screen.findByText("Jira");
     fireEvent.click(screen.getByRole("button", { name: /Repair AgentGateway/i }));
 
+    expect(
+      await screen.findByRole("dialog", { name: /Repair AgentGateway MCP servers/i }),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Repair and lock from seed/i }));
+
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledWith(
         "/api/mcp-servers/agentgateway/sync",
         expect.objectContaining({
           method: "POST",
-          body: JSON.stringify({}),
+          body: JSON.stringify({ lock_from_seed: true }),
         }),
       );
     });
@@ -173,6 +178,20 @@ describe("MCPServersTab AgentGateway repair", () => {
 
     expect(screen.getByText("AgentGateway")).toBeInTheDocument();
     expect(screen.getByText(/Target: http:\/\/rag-server:9446\/mcp/i)).toBeInTheDocument();
+  });
+
+  it("shows a seed locked badge for MCP servers excluded from APP_CONFIG seed", async () => {
+    serverItems = [
+      {
+        ...agentGatewayRagServer,
+        seed_config_locked: true,
+        seed_config_locked_at: "2026-07-21T04:00:00.000Z",
+      },
+    ];
+    render(<MCPServersTab />);
+
+    await screen.findByText("RAG");
+    expect(screen.getByText("Seed locked")).toBeInTheDocument();
   });
 
   it("opens a test modal and invokes a saved MCP tool", async () => {

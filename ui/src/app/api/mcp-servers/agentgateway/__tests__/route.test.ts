@@ -425,4 +425,81 @@ describe("AgentGateway MCP server discovery API", () => {
       { type: "mcp_server", id: "agentgateway", action: "admin" },
     );
   });
+
+  it("locks synced MCP servers from APP_CONFIG seed when lock_from_seed is true", async () => {
+    const insertOne = jest.fn();
+    const updateOne = jest.fn();
+    mockGetCollection.mockResolvedValue({
+      find: jest.fn().mockReturnValue({
+        toArray: jest.fn().mockResolvedValue([
+          {
+            _id: "jira",
+            name: "Jira",
+            transport: "http",
+            endpoint: "http://mcp-jira:8000/mcp",
+            enabled: true,
+          },
+        ]),
+      }),
+      insertOne,
+      updateOne: updateOne.mockResolvedValue({ matchedCount: 1 }),
+      findOne: jest.fn().mockResolvedValue({
+        _id: "jira",
+        name: "Jira",
+        transport: "http",
+        endpoint: "http://mcp-jira:8000/mcp",
+        enabled: true,
+      }),
+    });
+    const { POST } = await import("../sync/route");
+
+    const response = await POST(
+      request("/api/mcp-servers/agentgateway/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lock_from_seed: true }),
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(updateOne).toHaveBeenCalledWith(
+      { _id: "rag" },
+      {
+        $set: expect.objectContaining({
+          seed_config_locked: true,
+          seed_config_locked_at: expect.any(String),
+          seed_config_locked_by: "admin-sub",
+        }),
+      },
+    );
+    expect(updateOne).toHaveBeenCalledWith(
+      { _id: "jira" },
+      {
+        $set: expect.objectContaining({
+          seed_config_locked: true,
+          seed_config_locked_at: expect.any(String),
+          seed_config_locked_by: "admin-sub",
+        }),
+      },
+    );
+    expect(body.data).toMatchObject({
+      seed_locked: expect.arrayContaining(["rag", "jira"]),
+      summary: expect.objectContaining({ seed_locked: 2 }),
+    });
+  });
+
+  it("rejects non-boolean lock_from_seed values", async () => {
+    const { POST } = await import("../sync/route");
+
+    await expect(
+      POST(
+        request("/api/mcp-servers/agentgateway/sync", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ lock_from_seed: "yes" }),
+        }),
+      ),
+    ).rejects.toThrow("lock_from_seed must be a boolean");
+  });
 });

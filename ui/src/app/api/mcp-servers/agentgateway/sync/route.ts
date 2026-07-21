@@ -27,7 +27,14 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   ) {
     throw new ApiError("ids must be an array of AgentGateway MCP target IDs", 400);
   }
+  if (body.lock_from_seed !== undefined && typeof body.lock_from_seed !== "boolean") {
+    throw new ApiError("lock_from_seed must be a boolean", 400);
+  }
 
-  const result = await syncSelectedAgentGatewayMcpServers(body.ids);
+  const result = await syncSelectedAgentGatewayMcpServers({
+    ids: body.ids,
+    lockFromSeed: body.lock_from_seed === true,
+    lockedBy: body.lock_from_seed === true ? String(session.sub ?? "").trim() || undefined : undefined,
+  });
   return successResponse(result);
 });

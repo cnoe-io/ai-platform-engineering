@@ -370,7 +370,7 @@ export async function adoptConfigImportedAgents(
   return { adopted, skipped };
 }
 
-async function seedMCPServers(
+export async function seedMCPServers(
   servers: Record<string, unknown>[],
 ): Promise<number> {
   if (servers.length === 0) return 0;
@@ -387,10 +387,18 @@ async function seedMCPServers(
       continue;
     }
 
+    // Preserve seed-locked rows managed via Repair AgentGateway (admin confirmed).
+    const existing = await collection.findOne({ _id: serverId });
+    if (existing?.seed_config_locked) {
+      console.log(
+        `[seed-config] Skipping seed-locked MCP server: ${serverId}`,
+      );
+      continue;
+    }
+
     const now = new Date().toISOString();
 
     // Preserve created_at if document already exists
-    const existing = await collection.findOne({ _id: serverId });
     const createdAt = existing?.created_at ?? now;
     const source: MCPServerConfig["source"] | undefined =
       serverData.source === "manual" ||
