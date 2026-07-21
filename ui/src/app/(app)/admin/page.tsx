@@ -62,7 +62,7 @@ import { withAdminSimulationParams } from "@/lib/rbac/admin-simulation-query";
 import { cn } from "@/lib/utils";
 import type { SkillMetricsAdmin } from "@/types/agent-skill";
 import type { Team as TeamType } from "@/types/teams";
-import { Activity,Archive,Bot,CheckCircle2,ChevronLeft,ChevronRight,Clock,Database,ExternalLink,Eye,FileText,Filter,Globe,Hash,HelpCircle,KeyRound,Layers,Link2,ListChecks,Loader2,MessageSquare,RefreshCw,Search,Settings,Shield,ShieldCheck,ThumbsDown,ThumbsUp,Trash2,TrendingUp,Unlink,User,UserPlus,Users,UsersIcon,Wrench,X,Zap,type LucideIcon } from "lucide-react";
+import { Activity,Archive,Bot,CheckCircle2,ChevronLeft,ChevronRight,Clock,Database,ExternalLink,Eye,FileText,Filter,Globe,Hash,KeyRound,Layers,Link2,ListChecks,Loader2,MessageSquare,RefreshCw,Search,Settings,Shield,ShieldCheck,ThumbsDown,ThumbsUp,Trash2,TrendingUp,Unlink,User,UserPlus,Users,UsersIcon,Wrench,X,Zap,type LucideIcon } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { usePathname,useRouter,useSearchParams } from "next/navigation";
 import React,{ useCallback,useEffect,useEffectEvent,useMemo,useRef,useState } from "react";
@@ -76,12 +76,6 @@ type OwnerType = 'service_account' | 'slack_bot' | 'linked' | 'unlinked_slack';
 interface AdminStats {
   platform_summary?: {
     satisfaction_rate: number;
-    estimated_hours_automated: number;
-    web_hours_saved?: number;
-    agent_hours_saved?: number;
-    workflow_hours_saved?: number;
-    slack_hours_saved?: number;
-    web_workflows?: number;
   };
   overview: {
     total_users: number;
@@ -133,14 +127,8 @@ interface AdminStats {
     channels: { total: number; qanda_enabled: number; alerts_enabled: number; ai_enabled: number };
     total_interactions: number;
     unique_users: number;
-    resolution: {
-      total_threads: number;
-      resolved_threads: number;
-      resolution_rate: number;
-      estimated_hours_saved: number;
-    };
-    daily: Array<{ date: string; interactions: number; unique_users: number; resolved: number; escalated: number }>;
-    top_channels: Array<{ channel_name: string; interactions: number; resolved: number; resolution_rate: number }>;
+    daily: Array<{ date: string; interactions: number; unique_users: number; escalated: number }>;
+    top_channels: Array<{ channel_name: string; interactions: number }>;
   };
   available_channels?: string[];
   available_agents?: Array<{ id: string; name: string }>;
@@ -487,17 +475,13 @@ function formatBucketLabel(dateStr: string): string {
 
 function OverviewStatsCards({
   overview,
-  platformSummary,
-  rangeLabel,
 }: {
   overview: AdminStats['overview'] | null;
-  platformSummary?: AdminStats['platform_summary'];
-  rangeLabel: string;
 }) {
   if (!overview) return null;
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
           <CardTitle className="text-sm font-medium">Total Users</CardTitle>
@@ -533,37 +517,6 @@ function OverviewStatsCards({
           <div className="text-2xl font-bold">{overview.total_messages}</div>
           <p className="text-xs text-muted-foreground mt-1">
             Today: +{overview.messages_today}
-          </p>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-sm font-medium flex items-center gap-1">
-            Est. Hours Saved
-            {platformSummary && (
-              <span className="relative group">
-                <HelpCircle className="h-3 w-3 text-muted-foreground cursor-help" />
-                <span className="absolute top-full left-1/2 -translate-x-1/2 mt-2 w-64 p-2 rounded bg-popover border border-border text-[10px] text-popover-foreground shadow-lg opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity z-50 text-left font-normal normal-case">
-                  A conservative estimate of engineering time the platform saved:
-                  <ul className="list-disc pl-3 mt-1 space-y-0.5">
-                    <li>Agents: credited per tool call an agent ran on your behalf (~{platformSummary.agent_hours_saved ?? 0}h)</li>
-                    <li>Workflows: credited per completed step across finished workflow runs (~{platformSummary.workflow_hours_saved ?? 0}h)</li>
-                    <li>Slack: credited per resolved user question, weighted by whether it was rated helpful (~{platformSummary.slack_hours_saved ?? 0}h)</li>
-                  </ul>
-                  Automated bot/alert posts are excluded.
-                </span>
-              </span>
-            )}
-          </CardTitle>
-          <Clock className="h-4 w-4 text-muted-foreground" />
-        </CardHeader>
-        <CardContent>
-          <div className="text-2xl font-bold">
-            ~{platformSummary?.estimated_hours_automated ?? 0}h
-          </div>
-          <p className="text-xs text-muted-foreground mt-1">
-            {rangeLabel} · Web ~{platformSummary?.web_hours_saved ?? 0}h · Slack ~{platformSummary?.slack_hours_saved ?? 0}h
           </p>
         </CardContent>
       </Card>
@@ -2392,8 +2345,6 @@ function AdminPage() {
                     )}
                     <OverviewStatsCards
                       overview={globalOverview ?? stats.overview}
-                      platformSummary={stats.platform_summary}
-                      rangeLabel={rangeLabel}
                     />
 
                     {/* DAU and MAU Trend Charts */}

@@ -1111,7 +1111,7 @@ describe('GET /api/admin/stats — Custom Date Range (from/to)', () => {
 describe('GET /api/admin/stats — Platform Summary', () => {
   beforeEach(resetMocks);
 
-  it('includes platform_summary with questions, users, satisfaction, hours', async () => {
+  it('includes platform_summary with satisfaction rate', async () => {
     setupAdminWithCollections();
 
     const req = makeRequest('/api/admin/stats');
@@ -1120,7 +1120,6 @@ describe('GET /api/admin/stats — Platform Summary', () => {
 
     expect(body.data.platform_summary).toBeDefined();
     expect(body.data.platform_summary).toHaveProperty('satisfaction_rate');
-    expect(body.data.platform_summary).toHaveProperty('estimated_hours_automated');
     expect(typeof body.data.platform_summary.satisfaction_rate).toBe('number');
   });
 });
@@ -1593,48 +1592,3 @@ describe('GET /api/admin/stats — Configured Channels', () => {
   });
 });
 
-describe('GET /api/admin/stats — Slack self-resolution', () => {
-  beforeEach(resetMocks);
-
-  /** Stub conversations.find(slackFilter).toArray() → the given slack convs. */
-  function stubSlackConvs(convCol: ReturnType<typeof createMockCollection>, convs: Record<string, unknown>[]) {
-    convCol.find = jest.fn().mockReturnValue({ toArray: jest.fn().mockResolvedValue(convs) });
-  }
-
-  function q(id: string, extra: Record<string, unknown> = {}) {
-    return { _id: id, metadata: { interaction_type: 'mention', ...extra } };
-  }
-
-  it('excludes human_assisted threads from resolved (not self-service)', async () => {
-    const { convCol, feedbackCol } = setupAdminWithCollections();
-    convCol.countDocuments.mockResolvedValue(3);
-    stubSlackConvs(convCol, [
-      q('a'),                              // self-resolved
-      q('b'),                              // self-resolved
-      q('c', { human_assisted: true }),    // colleague stepped in → not resolved
-    ]);
-    feedbackCol.find = jest.fn().mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) });
-
-    const res = await GET(makeRequest('/api/admin/stats'));
-    const body = await res.json();
-
-    const resolution = body.data.slack.resolution;
-    expect(resolution.total_threads).toBe(3);
-    expect(resolution.resolved_threads).toBe(2);
-    // 2 / 3 → 66.7%
-    expect(resolution.resolution_rate).toBe(66.7);
-  });
-
-  it('originator↔bot back-and-forth (no human_assisted) still counts as resolved', async () => {
-    const { convCol, feedbackCol } = setupAdminWithCollections();
-    convCol.countDocuments.mockResolvedValue(2);
-    stubSlackConvs(convCol, [q('a'), q('b')]);
-    feedbackCol.find = jest.fn().mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) });
-
-    const res = await GET(makeRequest('/api/admin/stats'));
-    const body = await res.json();
-
-    expect(body.data.slack.resolution.resolved_threads).toBe(2);
-    expect(body.data.slack.resolution.resolution_rate).toBe(100);
-  });
-});

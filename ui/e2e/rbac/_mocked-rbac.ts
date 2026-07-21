@@ -183,7 +183,6 @@ export async function installMockedRbacApp(page: Page, options: MockedRbacOption
           },
           hourly_heatmap: [],
           platform_summary: {
-            estimated_hours_automated: 0,
             satisfaction_rate: 0,
           },
           response_time: {
