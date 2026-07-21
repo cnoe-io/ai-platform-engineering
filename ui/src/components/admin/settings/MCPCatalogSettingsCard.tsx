@@ -6,7 +6,6 @@ import { AdminBadge } from "@/components/admin/shared/AdminBadge";
 import { SaveButton } from "@/components/admin/shared/SaveButton";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -29,6 +28,7 @@ const BUILTIN_PROVIDERS = [
   { key: "linear", name: "Linear" },
   { key: "notion", name: "Notion" },
   { key: "pagerduty", name: "PagerDuty" },
+  { key: "thousandeyes", name: "ThousandEyes" },
   { key: "zapier", name: "Zapier" },
 ] as const;
 
@@ -296,11 +296,13 @@ export function MCPCatalogSettingsCard({ isAdmin, readOnly = false }: MCPCatalog
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                   {BUILTIN_PROVIDERS.map((p) => (
                     <div key={p.key} className="flex items-center gap-2">
-                      <Checkbox
+                      <input
+                        type="checkbox"
                         id={`mcp-builtin-${p.key}`}
                         checked={isProviderEnabled(p.key)}
-                        onCheckedChange={() => toggleProvider(p.key)}
+                        onChange={() => toggleProvider(p.key)}
                         disabled={!isAdmin || readOnly}
+                        className="h-4 w-4 rounded border-border accent-primary cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
                       />
                       <label htmlFor={`mcp-builtin-${p.key}`} className="text-sm select-none cursor-pointer">
                         {p.name}
