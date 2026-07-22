@@ -97,6 +97,49 @@ describe("TimeseriesChart", () => {
 
     expect(screen.queryByText(/more \(hover to explore\)/)).not.toBeInTheDocument();
   });
+
+  it("keeps existing chart data visible with a loading overlay during refresh", () => {
+    const data = [makeSeriesMetric("primary", [1, 2])];
+
+    render(
+      <TimeseriesChart
+        title="Refreshing chart"
+        state={{ data, loading: true, error: null, configured: true }}
+      />,
+    );
+
+    expect(screen.getByText("primary")).toBeInTheDocument();
+    expect(screen.getByLabelText("Loading metric")).toBeInTheDocument();
+    expect(screen.getByText("Refreshing chart").closest(".relative")).toHaveAttribute("aria-busy", "true");
+  });
+
+  it("shows an explicit empty state after a successful query with no observations", () => {
+    render(
+      <TimeseriesChart
+        title="Empty chart"
+        state={{ data: [], loading: false, error: null, configured: true }}
+      />,
+    );
+
+    expect(screen.getByText("No observations in this range")).toBeInTheDocument();
+  });
+
+  it("does not turn NaN histogram points into misleading zeroes", () => {
+    render(
+      <TimeseriesChart
+        title="Empty histogram"
+        state={{
+          configured: true,
+          data: [{ metric: { agent_name: "primary" }, values: [[1000, "NaN"]] }],
+          error: null,
+          loading: false,
+        }}
+      />,
+    );
+
+    expect(screen.getByText("No observations in this range")).toBeInTheDocument();
+    expect(screen.queryByText("primary")).not.toBeInTheDocument();
+  });
 });
 
 // ────────────────────────────────────────────────────────────────
