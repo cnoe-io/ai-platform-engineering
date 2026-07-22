@@ -11,6 +11,7 @@ import {
   JIRA_MCP_UPSTREAM_ONLY_SERVER,
   openMcpServerEditor,
   openMcpTestModal,
+  selectMcpTestTool,
   waitForMcpTestToolsLoaded,
   type TestToolResponseBody,
 } from "./_mcp-browser-fixtures";
@@ -176,7 +177,7 @@ test.describe("RBAC e2e — MCP upstream-only credentials (mocked)", () => {
 
     await openMcpTestModal(page, "Jira");
     await waitForMcpTestToolsLoaded(page);
-    await page.locator("#mcp-test-tool").selectOption("get_current_user_account_id");
+    await selectMcpTestTool(page, "get_current_user_account_id");
     await page.getByRole("button", { name: "Run tool" }).click();
 
     await expect(

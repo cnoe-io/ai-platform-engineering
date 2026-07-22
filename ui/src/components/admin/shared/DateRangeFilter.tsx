@@ -2,7 +2,7 @@
 
 import { Button } from "@/components/ui/button";
 import { Calendar,ChevronDown } from "lucide-react";
-import { useEffect,useRef,useState } from "react";
+import { useEffect,useId,useRef,useState } from "react";
 
 export type DateRangePreset = "1h" | "12h" | "24h" | "7d" | "30d" | "90d" | "custom";
 
@@ -43,17 +43,51 @@ function presetToRange(preset: DateRangePreset): DateRange {
 }
 
 function toDateInputValue(iso: string): string {
-  return iso.slice(0, 10);
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function dateInputToLocalBoundary(value: string, endOfDay: boolean): Date {
+  const [year, month, day] = value.split("-").map(Number);
+  return new Date(
+    year,
+    month - 1,
+    day,
+    endOfDay ? 23 : 0,
+    endOfDay ? 59 : 0,
+    endOfDay ? 59 : 0,
+    endOfDay ? 999 : 0,
+  );
 }
 
 export function DateRangeFilter({ value, customRange, onChange }: DateRangeFilterProps) {
+  const id = useId();
+  const customRangeFrom = customRange?.from;
+  const customRangeTo = customRange?.to;
+  const customRangeKey = `${customRangeFrom ?? "default"}|${customRangeTo ?? "default"}`;
   const [customOpen, setCustomOpen] = useState(false);
-  const [customFrom, setCustomFrom] = useState(
-    () => customRange ? toDateInputValue(customRange.from) : toDateInputValue(new Date(Date.now() - 30 * 86400000).toISOString())
-  );
-  const [customTo, setCustomTo] = useState(
-    () => customRange ? toDateInputValue(customRange.to) : toDateInputValue(new Date().toISOString())
-  );
+  const [customDraft, setCustomDraft] = useState(() => ({
+    rangeKey: customRangeKey,
+    from: customRangeFrom
+      ? toDateInputValue(customRangeFrom)
+      : toDateInputValue(new Date(Date.now() - 30 * 86400000).toISOString()),
+    to: customRangeTo
+      ? toDateInputValue(customRangeTo)
+      : toDateInputValue(new Date().toISOString()),
+  }));
+  const activeCustomDraft = customDraft.rangeKey === customRangeKey
+    ? customDraft
+    : {
+        rangeKey: customRangeKey,
+        from: customRangeFrom ? toDateInputValue(customRangeFrom) : customDraft.from,
+        to: customRangeTo ? toDateInputValue(customRangeTo) : customDraft.to,
+      };
+  const customFrom = activeCustomDraft.from;
+  const customTo = activeCustomDraft.to;
   const dropdownRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
 
@@ -85,9 +119,8 @@ export function DateRangeFilter({ value, customRange, onChange }: DateRangeFilte
   };
 
   const handleCustomApply = () => {
-    const from = new Date(customFrom);
-    const to = new Date(customTo);
-    to.setHours(23, 59, 59, 999);
+    const from = dateInputToLocalBoundary(customFrom, false);
+    const to = dateInputToLocalBoundary(customTo, true);
     onChange("custom", { from: from.toISOString(), to: to.toISOString() });
     setCustomOpen(false);
   };
@@ -136,29 +169,42 @@ export function DateRangeFilter({ value, customRange, onChange }: DateRangeFilte
             <div className="text-xs font-medium">Custom Date Range</div>
             <div className="flex items-center gap-2">
               <div className="space-y-1">
-                <label className="text-[10px] text-muted-foreground">From</label>
+                <label htmlFor={`${id}-from`} className="text-[10px] text-muted-foreground">From</label>
                 <input
+                  id={`${id}-from`}
                   type="date"
                   value={customFrom}
-                  onChange={(e) => setCustomFrom(e.target.value)}
+                  onChange={(e) => setCustomDraft({
+                    ...activeCustomDraft,
+                    from: e.target.value,
+                  })}
                   max={customTo}
                   className="h-8 rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
                 />
               </div>
               <span className="text-muted-foreground mt-4">–</span>
               <div className="space-y-1">
-                <label className="text-[10px] text-muted-foreground">To</label>
+                <label htmlFor={`${id}-to`} className="text-[10px] text-muted-foreground">To</label>
                 <input
+                  id={`${id}-to`}
                   type="date"
                   value={customTo}
-                  onChange={(e) => setCustomTo(e.target.value)}
+                  onChange={(e) => setCustomDraft({
+                    ...activeCustomDraft,
+                    to: e.target.value,
+                  })}
                   min={customFrom}
                   max={toDateInputValue(new Date().toISOString())}
                   className="h-8 rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
                 />
               </div>
             </div>
-            <Button size="sm" className="w-full h-7 text-xs" onClick={handleCustomApply}>
+            <Button
+              size="sm"
+              className="w-full h-7 text-xs"
+              disabled={!customFrom || !customTo || customFrom > customTo}
+              onClick={handleCustomApply}
+            >
               Apply
             </Button>
           </div>

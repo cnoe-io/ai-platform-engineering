@@ -51,8 +51,20 @@ const mockCheckPermission = jest.requireMock<{ checkPermission: jest.Mock }>(
 ).checkPermission;
 
 const mockGetReadableSlackChannelNames = jest.fn<Promise<string[]>, [string]>();
+const mockGetOwnedAgents = jest.fn<Promise<Array<{ id: string; name: string }>>, [string]>();
+const mockGetOwnedAgentConversationIds = jest.fn<
+  Promise<{ ids: string[]; capped: boolean }>,
+  [Array<{ id: string; name: string }>]
+>();
 jest.mock('@/lib/rbac/user-insights-scope', () => ({
   getReadableSlackChannelNames: (...args: unknown[]) => mockGetReadableSlackChannelNames(...args),
+  getOwnedAgents: (...args: unknown[]) => mockGetOwnedAgents(...args),
+  getOwnedAgentConversationIds: (...args: unknown[]) => mockGetOwnedAgentConversationIds(...args),
+}));
+
+const mockLoadTeamMembersForSlugs = jest.fn();
+jest.mock('@/lib/rbac/team-membership-store', () => ({
+  loadTeamMembersForSlugs: (...args: unknown[]) => mockLoadTeamMembersForSlugs(...args),
 }));
 
 const mockCheckOpenFgaTuple = jest.fn();
@@ -226,6 +238,12 @@ describe('GET /api/admin/feedback', () => {
     }));
     mockGetRealmUserByIdOrNull.mockReset();
     mockGetRealmUserByIdOrNull.mockResolvedValue(null);
+    mockGetOwnedAgents.mockReset();
+    mockGetOwnedAgents.mockResolvedValue([]);
+    mockGetOwnedAgentConversationIds.mockReset();
+    mockGetOwnedAgentConversationIds.mockResolvedValue({ ids: [], capped: false });
+    mockLoadTeamMembersForSlugs.mockReset();
+    mockLoadTeamMembersForSlugs.mockResolvedValue(new Map());
     mockIsMongoDBConfigured = true;
     mockFeedbackEnabled = true;
   });
@@ -499,6 +517,34 @@ describe('GET /api/admin/feedback', () => {
     await GET(makeRequest('/api/admin/feedback?user=alice@co.com'));
     const filter = feedbackCol.find.mock.calls[0][0];
     expect(filter.user_email).toBe('alice@co.com');
+  });
+
+  it('resolves a team filter from canonical membership records', async () => {
+    mockGetServerSession.mockResolvedValue(adminSession());
+    mockLoadTeamMembersForSlugs.mockResolvedValue(new Map([
+      ['platform-team', [
+        { user_email: 'alice@example.com' },
+        { user_email: 'bob@example.com' },
+      ]],
+    ]));
+    const feedbackCol = setupFeedbackCollection([], 0);
+
+    await GET(makeRequest('/api/admin/feedback?team=platform-team'));
+
+    expect(mockLoadTeamMembersForSlugs).toHaveBeenCalledWith(['platform-team']);
+    expect(feedbackCol.find.mock.calls[0][0].user_email).toEqual({
+      $in: ['alice@example.com', 'bob@example.com'],
+    });
+  });
+
+  it('fails closed when a selected team has no canonical members', async () => {
+    mockGetServerSession.mockResolvedValue(adminSession());
+    mockLoadTeamMembersForSlugs.mockResolvedValue(new Map([['empty-team', []]]));
+    const feedbackCol = setupFeedbackCollection([], 0);
+
+    await GET(makeRequest('/api/admin/feedback?team=empty-team'));
+
+    expect(feedbackCol.find.mock.calls[0][0].user_email).toEqual({ $in: [] });
   });
 
   it('filters by search terms as regex OR on comment and value', async () => {

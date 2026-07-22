@@ -7,13 +7,16 @@ import {
   DEFAULT_GITHUB_MCP_SERVER,
   DEFAULT_JIRA_MCP_SERVER,
   GITHUB_MCP_GET_ME_TOOLS,
+  JIRA_MCP_PROBE_TOOLS,
   MCP_BROWSER_GENERIC_USER_SESSION,
   fillNewMcpServerBasics,
   gotoMcpServersTab,
   installMcpBrowserMocks,
+  mcpTestToolValue,
   openAddMcpServerEditor,
   openMcpTestModal,
   selectAgentGatewayTarget,
+  selectMcpTestTool,
   waitForMcpTestToolsLoaded,
 } from "./_mcp-browser-fixtures";
 import { mockedRbacEnabled } from "./_mocked-rbac";
@@ -180,11 +183,39 @@ test.describe("RBAC e2e — MCP AgentGateway picker and test modal", () => {
       await waitForMcpTestToolsLoaded(page);
 
       await expect.poll(() => mocks.probeRequests).toContain("mcp-jira");
-      await expect(page.locator("#mcp-test-tool")).toHaveValue("version");
+      await expect.poll(() => mcpTestToolValue(page)).toBe("version");
       await expect(page.getByTestId("mcp-tool-test-scroll")).toBeVisible();
       await expect(
         page.getByText(/Run a saved tool from Jira MCP/i),
       ).toBeVisible();
+    });
+
+    test("filters and selects tools via the searchable tool picker", async ({ page }) => {
+      await installMcpBrowserMocks(page);
+
+      await gotoMcpServersTab(page);
+      await openMcpTestModal(page, "Jira MCP");
+      await waitForMcpTestToolsLoaded(page);
+
+      await page.locator("#mcp-test-tool").click();
+      const listbox = page.getByRole("listbox", { name: "Tool" });
+      await expect(listbox).toBeVisible();
+      await expect(listbox.getByRole("option")).toHaveCount(JIRA_MCP_PROBE_TOOLS.length);
+
+      const search = page.getByLabel("Search tools...");
+      await search.fill("get_i");
+      await expect(listbox.getByRole("option")).toHaveCount(1);
+      await expect(listbox.getByRole("option", { name: "get_issue" })).toBeVisible();
+
+      await search.fill("nonexistent-tool");
+      await expect(listbox.getByRole("option")).toHaveCount(0);
+      await expect(page.getByText("No tools match")).toBeVisible();
+
+      await search.fill("get_issue");
+      await listbox.getByRole("option", { name: "get_issue" }).click();
+
+      await expect(listbox).toBeHidden();
+      await expect.poll(() => mcpTestToolValue(page)).toBe("get_issue");
     });
 
     test("runs the version tool and shows credential resolution for Atlassian OAuth", async ({
@@ -218,7 +249,7 @@ test.describe("RBAC e2e — MCP AgentGateway picker and test modal", () => {
       await openMcpTestModal(page, "Jira MCP");
       await waitForMcpTestToolsLoaded(page);
 
-      await page.locator("#mcp-test-tool").selectOption("search");
+      await selectMcpTestTool(page, "search");
       await expect(page.getByText(/JQL query string/i)).toBeVisible();
 
       const jqlInput = page.getByLabel(/^Value for jql$/i);
@@ -244,7 +275,7 @@ test.describe("RBAC e2e — MCP AgentGateway picker and test modal", () => {
       await openMcpTestModal(page, "Jira MCP");
       await waitForMcpTestToolsLoaded(page);
 
-      await page.locator("#mcp-test-tool").selectOption("search");
+      await selectMcpTestTool(page, "search");
       await page.getByLabel(/^Value for jql$/i).fill("");
       await page.getByRole("button", { name: "Run tool" }).click();
 
@@ -259,7 +290,7 @@ test.describe("RBAC e2e — MCP AgentGateway picker and test modal", () => {
       await openMcpTestModal(page, "Jira MCP");
       await waitForMcpTestToolsLoaded(page);
 
-      await page.locator("#mcp-test-tool").selectOption("get_issue");
+      await selectMcpTestTool(page, "get_issue");
       await page.getByLabel(/^Value for issue_key$/i).fill("SRE-10109");
       await page.getByRole("button", { name: "Run tool" }).click();
 
@@ -278,7 +309,7 @@ test.describe("RBAC e2e — MCP AgentGateway picker and test modal", () => {
       await openMcpTestModal(page, "Jira MCP");
       await waitForMcpTestToolsLoaded(page);
 
-      await page.locator("#mcp-test-tool").selectOption("search");
+      await selectMcpTestTool(page, "search");
       await page.getByRole("button", { name: "JSON", exact: true }).click();
       await page.locator("#mcp-test-params").fill(
         JSON.stringify({
@@ -302,7 +333,7 @@ test.describe("RBAC e2e — MCP AgentGateway picker and test modal", () => {
       await openMcpTestModal(page, "Jira MCP");
       await waitForMcpTestToolsLoaded(page);
 
-      await page.locator("#mcp-test-tool").selectOption("get_current_user_account_id");
+      await selectMcpTestTool(page, "get_current_user_account_id");
       await page.getByPlaceholder("parameter_name").first().fill("debug");
       await page.getByLabel(/^Value for debug$/i).fill("true");
       await page.getByRole("button", { name: "Run tool" }).click();
@@ -321,7 +352,7 @@ test.describe("RBAC e2e — MCP AgentGateway picker and test modal", () => {
       await openMcpTestModal(page, "Jira MCP");
       await waitForMcpTestToolsLoaded(page);
 
-      await page.locator("#mcp-test-tool").selectOption("search");
+      await selectMcpTestTool(page, "search");
       await page.getByLabel(/^Value for jql$/i).fill("project = SRE");
       await page.getByLabel(/^Value for max_results$/i).first().fill("3");
       await page.getByRole("button", { name: "Run tool" }).click();
@@ -446,7 +477,7 @@ test.describe("RBAC e2e — MCP AgentGateway picker and test modal", () => {
       await expect(page.getByRole("button", { name: /Delete Jira MCP/i })).toHaveCount(0);
       await openMcpTestModal(page, "Jira MCP");
       await waitForMcpTestToolsLoaded(page);
-      await expect(page.locator("#mcp-test-tool")).toHaveValue("version");
+      await expect.poll(() => mcpTestToolValue(page)).toBe("version");
     });
 
     test("read-only rows hide the test action entirely", async ({ page }) => {
@@ -527,7 +558,7 @@ test.describe("RBAC e2e — MCP AgentGateway picker and test modal", () => {
       await openMcpTestModal(page, "Jira E2E");
       await waitForMcpTestToolsLoaded(page);
 
-      await page.locator("#mcp-test-tool").selectOption("search");
+      await selectMcpTestTool(page, "search");
       await page.getByLabel(/^Value for jql$/i).fill("project = MERAKI ORDER BY updated DESC");
       await page.getByRole("button", { name: "Run tool" }).click();
 
@@ -600,7 +631,7 @@ test.describe("RBAC e2e — MCP AgentGateway picker and test modal", () => {
       await openMcpTestModal(page, "GitHub MCP");
       await waitForMcpTestToolsLoaded(page);
 
-      await page.locator("#mcp-test-tool").selectOption("get_me");
+      await selectMcpTestTool(page, "get_me");
       await page.getByRole("button", { name: "Run tool" }).click();
 
       await expect.poll(() => mocks.testToolRequests.length).toBe(1);

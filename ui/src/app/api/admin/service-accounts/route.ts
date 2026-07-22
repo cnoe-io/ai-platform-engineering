@@ -3,7 +3,6 @@ import type { NextRequest } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth-config";
 import { ApiError } from "@/lib/api-error";
-import { getAuthFromBearerOrSession } from "@/lib/api-middleware";
 import {
   checkOpenFgaTuple,
   deleteExactOpenFgaTuples,
@@ -18,8 +17,10 @@ import {
 } from "@/lib/rbac/keycloak-admin";
 import { logOpenFgaRebacAuditEvent } from "@/lib/rbac/audit";
 import { resolveAuthorizedAdminSimulationScope } from "@/lib/rbac/admin-simulation-server";
+import { hasOrganizationAdmin } from "@/lib/rbac/platform-admin";
 import { organizationObjectId } from "@/lib/rbac/organization";
 import {
+  countByOwningTeams,
   createServiceAccountDoc,
   isNameTakenInTeam,
   listByOwningTeams,
@@ -98,15 +99,20 @@ function parseCreateBody(raw: unknown): { body?: CreateBody; error?: string } {
  *
  * List service accounts the caller can manage — active SAs in teams the caller
  * belongs to (FR-014, FR-021). Owning-team membership is the visibility
- * boundary: callers only ever see SAs owned by their own teams.
+ * boundary: callers only ever see SAs owned by their own teams. Organization
+ * admins (`hasOrganizationAdmin`) instead see SAs across every team.
  *
  * `?include_revoked=true` optionally includes revoked SAs (audit view).
+ *
+ * Pagination + server-side search are OPT-IN via the `page` query param,
+ * mirroring `admin/teams`: callers that omit `page` (e.g. `ServiceAccountSelect`)
+ * still get the full unpaginated list, exactly as before.
  *
  * NEVER returns credential material (FR-005). `scope_counts` come from the
  * display snapshot (cheap); the per-SA detail route reads authoritative scopes
  * from OpenFGA.
  *
- * Response: { success, data: { items: [...] } }
+ * Response: { success, data: { items: [...], total, page?, page_size? } }
  */
 
 interface ServiceAccountListItem {
@@ -152,8 +158,6 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  // Read the caller's role so admins can see SAs for teams they don't belong to.
-  const { user: callerUser } = await getAuthFromBearerOrSession(request);
   let simulationScope;
   try {
     simulationScope = await resolveAuthorizedAdminSimulationScope(
@@ -170,6 +174,10 @@ export async function GET(request: NextRequest) {
     throw error;
   }
   const effectiveSubject = simulationScope?.openfgaUser ?? `user:${session.sub}`;
+  // Org admins (real, session-backed) see every team's SAs unless a preview
+  // subject narrows the view. `hasOrganizationAdmin` works for both Bearer
+  // and session-cookie callers — unlike the stale `session.role === "admin"`
+  // check this replaces, which was always false for Bearer callers.
   const isAdmin = simulationScope
     ? await checkOpenFgaTuple({
         user: effectiveSubject,
@@ -178,7 +186,7 @@ export async function GET(request: NextRequest) {
       })
         .then((decision) => decision.allowed)
         .catch(() => false)
-    : callerUser.role === "admin";
+    : await hasOrganizationAdmin(session);
 
   const searchParams = new URL(request.url).searchParams;
   const includeRevoked = searchParams.get("include_revoked") === "true";
@@ -187,8 +195,18 @@ export async function GET(request: NextRequest) {
   // so this only ever filters within what the caller may already see.
   const teamFilter = searchParams.get("team")?.trim() || null;
 
+  // Pagination + search are OPT-IN via `page`, mirroring `admin/teams`: a
+  // caller that omits `page` still gets the full unpaginated list.
+  const paginated = searchParams.has("page");
+  const page = paginated ? Math.max(1, parseInt(searchParams.get("page") || "1", 10) || 1) : 1;
+  const pageSizeRaw = parseInt(searchParams.get("page_size") || "24", 10) || 24;
+  const pageSize = Math.min(100, Math.max(1, pageSizeRaw));
+  const search = (searchParams.get("search") || "").trim();
+
   try {
-    let owningTeamIds: string[];
+    // `null` means "unbounded" (org admin, no team/preview narrowing) — every
+    // team's SAs are visible. Any other value bounds the query to those teams.
+    let owningTeamIds: string[] | null;
 
     if (teamFilter && isAdmin) {
       // Admins can see SAs for any team — no membership intersection needed.
@@ -201,6 +219,9 @@ export async function GET(request: NextRequest) {
       if (teamFilter && teamFilter !== simulationScope.subjectId) {
         owningTeamIds = [];
       }
+    } else if (isAdmin && !simulationScope) {
+      // Org admin, no team filter, no preview subject: the full org-wide view.
+      owningTeamIds = null;
     } else {
       // Visibility boundary: the caller's own team memberships (FR-021).
       const teamObjects = await listOpenFgaObjects({
@@ -217,11 +238,23 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    if (owningTeamIds.length === 0) {
-      return NextResponse.json({ success: true, data: { items: [] } });
+    if (owningTeamIds !== null && owningTeamIds.length === 0) {
+      return NextResponse.json({
+        success: true,
+        data: paginated
+          ? { items: [], total: 0, page, page_size: pageSize }
+          : { items: [] },
+      });
     }
 
-    const docs = await listByOwningTeams(owningTeamIds, { includeRevoked });
+    const listOptions = { includeRevoked, search: search || undefined };
+    const docs = await listByOwningTeams(owningTeamIds, {
+      ...listOptions,
+      ...(paginated ? { skip: (page - 1) * pageSize, limit: pageSize } : {}),
+    });
+    const total = paginated
+      ? await countByOwningTeams(owningTeamIds, listOptions)
+      : docs.length;
 
     const items: ServiceAccountListItem[] = docs.map((doc) => ({
       id: doc.sa_sub,
@@ -235,7 +268,10 @@ export async function GET(request: NextRequest) {
       scope_counts: scopeCounts(doc.scopes_snapshot),
     }));
 
-    return NextResponse.json({ success: true, data: { items } });
+    return NextResponse.json({
+      success: true,
+      data: paginated ? { items, total, page, page_size: pageSize } : { items },
+    });
   } catch (error) {
     console.error("[service-accounts:list] failed:", error);
     return NextResponse.json(

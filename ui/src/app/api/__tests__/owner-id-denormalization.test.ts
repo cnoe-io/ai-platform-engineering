@@ -460,7 +460,6 @@ describe('POST /api/chat/conversations/[id]/messages — owner_id', () => {
           turn_id: 'turn-meta',
           is_final: true,
           model: 'gpt-4o',
-          tokens_used: 350,
           latency_ms: 800,
           agent_name: 'aws',
         },

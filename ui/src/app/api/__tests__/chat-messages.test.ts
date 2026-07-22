@@ -450,13 +450,53 @@ describe('POST /api/chat/conversations/[id]/messages', () => {
 
     const req = makeRequest(`/api/chat/conversations/${testConversationId}/messages`, {
       method: 'POST',
-      body: JSON.stringify({ role: 'user' }), // missing 'content'
+      body: JSON.stringify({ content: 'hello' }), // missing 'role'
     });
 
     const res = await POST(req, { params: Promise.resolve({ id: testConversationId }) });
     expect(res.status).toBe(400);
     const body = await res.json();
-    expect(body.error).toContain('content');
+    expect(body.error).toContain('role');
+  });
+
+  it('accepts a metadata-only message with no content (integration turns)', async () => {
+    mockGetServerSession.mockResolvedValue(authenticatedSession());
+
+    const usersCol = createMockCollection();
+    usersCol.findOne.mockResolvedValue(null);
+    mockCollections['users'] = usersCol;
+
+    const convCol = createMockCollection();
+    convCol.findOne.mockResolvedValue({
+      _id: testConversationId,
+      owner_id: 'user@example.com',
+    });
+    mockCollections['conversations'] = convCol;
+
+    const msgCol = createMockCollection();
+    msgCol.updateOne.mockResolvedValue({ upsertedId: 'new-id', upsertedCount: 1, modifiedCount: 0, acknowledged: true });
+    msgCol.findOne.mockResolvedValue({ _id: new ObjectId(), role: 'assistant', conversation_id: testConversationId });
+    mockCollections['messages'] = msgCol;
+
+    const sharingCol = createMockCollection();
+    mockCollections['sharing_access'] = sharingCol;
+
+    const req = makeRequest(`/api/chat/conversations/${testConversationId}/messages`, {
+      method: 'POST',
+      body: JSON.stringify({
+        message_id: 'slack-turn-assistant',
+        role: 'assistant',
+        metadata: { turn_id: 't1', source: 'slack', agent_name: 'Hello Agent', latency_ms: 1200 },
+      }),
+    });
+
+    const res = await POST(req, { params: Promise.resolve({ id: testConversationId }) });
+    expect(res.status).toBe(201);
+    const updateDoc = msgCol.updateOne.mock.calls[0][1];
+    expect(updateDoc.$set.content).toBe('');
+    expect(updateDoc.$set.metadata.source).toBe('slack');
+    expect(updateDoc.$set.metadata.agent_name).toBe('Hello Agent');
+    expect(updateDoc.$set.metadata.latency_ms).toBe(1200);
   });
 
   it('returns 403 when user does not have access to conversation', async () => {
@@ -490,6 +530,176 @@ describe('POST /api/chat/conversations/[id]/messages', () => {
 
     const res = await POST(req, { params: Promise.resolve({ id: testConversationId }) });
     expect(res.status).toBe(403);
+  });
+
+  it('allows a service-account caller to write despite not being owner-by-email', async () => {
+    // The Slack bot authenticates as a service account and is NOT the human
+    // owner, so requireConversationAccess would 403. It is instead authorized
+    // by its OpenFGA writer grant (requireConversationResourcePermission, mocked
+    // to pass here). owner_id is inherited from the conversation.
+    mockGetServerSession.mockResolvedValue({
+      ...authenticatedSession('slack-bot@service'),
+      isServiceAccount: true,
+    });
+
+    const convCol = createMockCollection();
+    convCol.findOne.mockResolvedValue({
+      _id: testConversationId,
+      owner_id: 'kevin@example.com', // the real Slack user's email
+      sharing: { shared_with: [] },
+    });
+    mockCollections['conversations'] = convCol;
+
+    const msgCol = createMockCollection();
+    msgCol.updateOne.mockResolvedValue({ upsertedId: 'new-id', upsertedCount: 1, modifiedCount: 0, acknowledged: true });
+    msgCol.findOne.mockResolvedValue({ _id: new ObjectId(), role: 'assistant', conversation_id: testConversationId });
+    mockCollections['messages'] = msgCol;
+
+    const sharingCol = createMockCollection();
+    mockCollections['sharing_access'] = sharingCol;
+
+    const req = makeRequest(`/api/chat/conversations/${testConversationId}/messages`, {
+      method: 'POST',
+      body: JSON.stringify({
+        message_id: 'slack-turn-assistant',
+        role: 'assistant',
+        metadata: { turn_id: 't1', source: 'slack', agent_name: 'Hello Agent' },
+      }),
+    });
+
+    const res = await POST(req, { params: Promise.resolve({ id: testConversationId }) });
+    expect(res.status).toBe(201);
+    // owner_id inherited from the conversation → merges with the user's web activity.
+    const updateDoc = msgCol.updateOne.mock.calls[0][1];
+    expect(updateDoc.$setOnInsert.owner_id).toBe('kevin@example.com');
+    expect(updateDoc.$set.metadata.source).toBe('slack');
+  });
+
+  it('records a service-account turn even when the caller is not an org member', async () => {
+    // Regression: the route must NOT gate on the coarse `chat#invoke` org
+    // permission (`can_chat` = org member/admin). The unlinked Slack SA is
+    // neither, so that gate 403'd its turns even though it held the
+    // conversation writer grant — its messages never reached Insights.
+    // Force the org-level OpenFGA check to deny; the writer grant
+    // (requireConversationResourcePermission, mocked) still authorizes the write.
+    mockCheckOpenFgaTuple.mockResolvedValueOnce({ allowed: false });
+    mockGetServerSession.mockResolvedValue({
+      ...authenticatedSession('slack-bot@service'),
+      isServiceAccount: true,
+    });
+
+    const convCol = createMockCollection();
+    convCol.findOne.mockResolvedValue({ _id: testConversationId, owner_id: 'mnavalta@example.com' });
+    mockCollections['conversations'] = convCol;
+
+    const msgCol = createMockCollection();
+    msgCol.updateOne.mockResolvedValue({ upsertedId: 'new-id', upsertedCount: 1, modifiedCount: 0, acknowledged: true });
+    msgCol.findOne.mockResolvedValue({ _id: new ObjectId(), role: 'user', conversation_id: testConversationId });
+    mockCollections['messages'] = msgCol;
+
+    const req = makeRequest(`/api/chat/conversations/${testConversationId}/messages`, {
+      method: 'POST',
+      body: JSON.stringify({
+        message_id: 'slack-turn-user',
+        role: 'user',
+        metadata: { turn_id: 't1', source: 'slack' },
+      }),
+    });
+
+    const res = await POST(req, { params: Promise.resolve({ id: testConversationId }) });
+    expect(res.status).toBe(201);
+    const updateDoc = msgCol.updateOne.mock.calls[0][1];
+    expect(updateDoc.$setOnInsert.owner_id).toBe('mnavalta@example.com');
+  });
+
+  it('resolves agent_id to the display name when agent_name is absent', async () => {
+    mockGetServerSession.mockResolvedValue({
+      ...authenticatedSession('slack-bot@service'),
+      isServiceAccount: true,
+    });
+
+    const convCol = createMockCollection();
+    convCol.findOne.mockResolvedValue({ _id: testConversationId, owner_id: 'kevin@example.com' });
+    mockCollections['conversations'] = convCol;
+
+    // dynamic_agents lookup: agent-hello-agent → "Hello Agent"
+    const agentsCol = createMockCollection();
+    agentsCol.findOne.mockResolvedValue({ _id: 'agent-hello-agent', name: 'Hello Agent' });
+    mockCollections['dynamic_agents'] = agentsCol;
+
+    const msgCol = createMockCollection();
+    msgCol.updateOne.mockResolvedValue({ upsertedId: 'new-id', upsertedCount: 1, modifiedCount: 0, acknowledged: true });
+    msgCol.findOne.mockResolvedValue({ _id: new ObjectId(), role: 'assistant', conversation_id: testConversationId });
+    mockCollections['messages'] = msgCol;
+
+    const sharingCol = createMockCollection();
+    mockCollections['sharing_access'] = sharingCol;
+
+    const req = makeRequest(`/api/chat/conversations/${testConversationId}/messages`, {
+      method: 'POST',
+      body: JSON.stringify({
+        message_id: 'slack-turn-assistant',
+        role: 'assistant',
+        metadata: { turn_id: 't1', source: 'slack', agent_id: 'agent-hello-agent' },
+      }),
+    });
+
+    const res = await POST(req, { params: Promise.resolve({ id: testConversationId }) });
+    expect(res.status).toBe(201);
+    const updateDoc = msgCol.updateOne.mock.calls[0][1];
+    // Stored as the display name web uses — same label across both surfaces.
+    expect(updateDoc.$set.metadata.agent_name).toBe('Hello Agent');
+    expect(updateDoc.$set.metadata).not.toHaveProperty('agent_id');
+  });
+
+  it('derives agent_name from the conversation agent participant when the client sends none (web)', async () => {
+    // The web client frequently drops agent_name (agent config not loaded at
+    // stream-finalize). The conversation's agent participant is the source of
+    // truth, so the server resolves the display name from it regardless.
+    mockGetServerSession.mockResolvedValue(authenticatedSession('user@example.com'));
+
+    const usersCol = createMockCollection();
+    usersCol.findOne.mockResolvedValue(null);
+    mockCollections['users'] = usersCol;
+
+    const convCol = createMockCollection();
+    convCol.findOne.mockResolvedValue({
+      _id: testConversationId,
+      owner_id: 'user@example.com',
+      participants: [
+        { type: 'user', id: 'user@example.com' },
+        { type: 'agent', id: 'agent-hello-agent' },
+      ],
+    });
+    mockCollections['conversations'] = convCol;
+
+    const agentsCol = createMockCollection();
+    agentsCol.findOne.mockResolvedValue({ _id: 'agent-hello-agent', name: 'Hello Agent' });
+    mockCollections['dynamic_agents'] = agentsCol;
+
+    const msgCol = createMockCollection();
+    msgCol.updateOne.mockResolvedValue({ upsertedId: 'new-id', upsertedCount: 1, modifiedCount: 0, acknowledged: true });
+    msgCol.findOne.mockResolvedValue({ _id: new ObjectId(), role: 'assistant', conversation_id: testConversationId });
+    mockCollections['messages'] = msgCol;
+
+    const sharingCol = createMockCollection();
+    mockCollections['sharing_access'] = sharingCol;
+
+    const req = makeRequest(`/api/chat/conversations/${testConversationId}/messages`, {
+      method: 'POST',
+      body: JSON.stringify({
+        message_id: 'web-turn-assistant',
+        role: 'assistant',
+        content: 'hi there',
+        metadata: { turn_id: 't1' }, // no agent_name / agent_id from the client
+      }),
+    });
+
+    const res = await POST(req, { params: Promise.resolve({ id: testConversationId }) });
+    expect(res.status).toBe(201);
+    const updateDoc = msgCol.updateOne.mock.calls[0][1];
+    expect(updateDoc.$set.metadata.agent_name).toBe('Hello Agent');
+    expect(updateDoc.$set.metadata.source).toBe('web');
   });
 
   it('returns 200 when updating an existing message (upsert matched)', async () => {
@@ -582,7 +792,7 @@ describe('POST /api/chat/conversations/[id]/messages', () => {
       role: 'assistant',
       content: 'Final answer after streaming',
       created_at: new Date(),
-      metadata: { turn_id: 'turn-abc', is_final: true, tokens_used: 150 },
+      metadata: { turn_id: 'turn-abc', is_final: true },
     });
     mockCollections['messages'] = msgCol;
 
@@ -598,7 +808,6 @@ describe('POST /api/chat/conversations/[id]/messages', () => {
         metadata: {
           turn_id: 'turn-abc',
           is_final: true,
-          tokens_used: 150,
           model: 'gpt-4o',
         },
       }),
@@ -612,7 +821,8 @@ describe('POST /api/chat/conversations/[id]/messages', () => {
     expect(updateDoc.$set.metadata.turn_id).toBe('turn-abc');
     expect(updateDoc.$set.metadata.is_final).toBe(true);
     expect(updateDoc.$set.metadata.model).toBe('gpt-4o');
-    expect(updateDoc.$set.metadata.tokens_used).toBe(150);
+    // tokens_used is no longer persisted — dynamic agents emit no usage data.
+    expect(updateDoc.$set.metadata).not.toHaveProperty('tokens_used');
   });
 
   it('upsert updates stream_events on existing message', async () => {

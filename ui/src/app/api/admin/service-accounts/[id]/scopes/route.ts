@@ -17,15 +17,14 @@ import {
   type ScopeRef,
 } from "@/lib/service-account-scopes";
 import type { ServiceAccountScope } from "@/types/mongodb";
-// [unlinked-sa][TS-B1] Import shared helpers for the org-admin bypass.
-import { isPlatformAdmin } from "@/lib/rbac/unlinked-service-account";
+import { hasOrganizationAdmin as isPlatformAdmin } from "@/lib/rbac/platform-admin";
 
 /**
  * Scope management for a service account (US3).
  *
  * `[id]` is the SA's OpenFGA subject id (`sa_sub`). Both verbs require the
- * caller to be able to MANAGE the SA (owning-team membership):
- *   check(user:<caller>, can_manage, service_account:<id>).
+ * caller to be able to MANAGE the SA (owning-team membership) OR be an org
+ * admin: check(user:<caller>, can_manage, service_account:<id>).
  *
  * POST  — add a scope (FR-015): non-admin editors must ALSO hold the scope
  *         being granted (check(user:<editor>, <rel>, <object>) → 403 if
@@ -99,32 +98,27 @@ async function authorizeScopeMutation(
     };
   }
 
-  // can_manage gate (owning-team membership). 404 to non-members (don't reveal).
+  // can_manage gate (owning-team membership) OR org admin. 404 to neither
+  // (don't reveal existence — FR-022). Org admins get the same bypass here
+  // that every other shareable resource type grants (see resource-authz.ts's
+  // `bypassForOrgAdmin`); this also subsumes the narrower unlinked-SA-only
+  // bypass this route used to have (platform admins could already manage the
+  // unlinked SA's scopes — now that extends to every SA, consistent with the
+  // detail/rotate/credentials routes).
   const canManage = await checkOpenFgaTuple({
     user: `user:${session.sub}`,
     relation: "can_manage",
     object: `service_account:${id}`,
   });
-  const targetDoc = await getBySub(id);
-  const isUnlinkedSa = targetDoc?.is_platform_unlinked === true;
   const platformAdmin = await isPlatformAdmin(session);
-  const unlinkedPlatformAdmin = isUnlinkedSa && platformAdmin;
 
-  if (!canManage.allowed) {
-    // [unlinked-sa][TS-B1] Org-admin bypass for the unlinked SA.
-    // The unlinked SA is owned by super-admins, but its scopes are intended to be
-    // managed by any platform/org-admin (mirrors the unlinked GET route's auth gate).
-    // ADDITIVE: normal SAs still require owning-team can_manage; the bypass ONLY
-    // fires for is_platform_unlinked===true docs when the caller is a platform admin.
-    if (!unlinkedPlatformAdmin) {
-      return {
-        response: NextResponse.json(
-          { success: false, error: "Service account not found" },
-          { status: 404 },
-        ),
-      };
-    }
-    // Org-admin managing the unlinked SA — allow.
+  if (!canManage.allowed && !platformAdmin) {
+    return {
+      response: NextResponse.json(
+        { success: false, error: "Service account not found" },
+        { status: 404 },
+      ),
+    };
   }
 
   return {
