@@ -187,6 +187,7 @@ jobs:
 
       - name: 🔑 Generate GitHub App token
         id: app-token
+        if: ${{ github.event_name != 'pull_request' }}
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         with:
           app-id: ${{ secrets.CI_BUILD_APP_ID }}
