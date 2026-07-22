@@ -230,6 +230,8 @@ const mockStatsResponse = {
       completion_rate: 0,
       avg_messages_per_workflow: 0,
     },
+    available_channels: ['primary-channel'],
+    available_agents: [{ id: 'agent-primary', name: 'Primary Agent' }],
   },
 };
 
@@ -269,19 +271,13 @@ const mockTeamsResponse = {
       {
         _id: 'team-1',
         name: 'Platform Team',
+        slug: 'platform-team',
         description: 'The platform engineering team',
         owner_id: 'admin@example.com',
         created_at: new Date().toISOString(),
-        // Commit 4/8 + 5/8 of the canonical-team-membership refactor:
-        // `member_count` is the new server-aggregated truth from
-        // `team_membership_sources`. We still emit a legacy `members[]`
-        // so older defensive readers (search/filter UX) keep working
-        // through the dual-write window.
+        // Production list responses expose the canonical count and intentionally
+        // omit the retired embedded members[]. Team filters must use the slug.
         member_count: 2,
-        members: [
-          { user_id: 'admin@example.com', role: 'owner', added_at: new Date().toISOString() },
-          { user_id: 'user@example.com', role: 'member', added_at: new Date().toISOString() },
-        ],
       },
     ],
   },
@@ -1626,6 +1622,7 @@ describe('Admin Dashboard Page', () => {
       expect(screen.getByText('Conversations')).toBeInTheDocument();
       expect(screen.getByText('Messages')).toBeInTheDocument();
       expect(screen.getByText('Daily Active Users (DAU)')).toBeInTheDocument();
+      expect(screen.queryByText('NaN')).not.toBeInTheDocument();
     });
 
     it('updates cards independently and issues one request per section when a filter changes', async () => {
@@ -1669,6 +1666,19 @@ describe('Admin Dashboard Page', () => {
       expect(refreshCalls).toHaveLength(9);
       expect(new Set(refreshCalls).size).toBe(9);
       expect(refreshCalls).not.toContain('filters');
+      const refreshUrls = fetchMock.mock.calls
+        .slice(callsBeforeFilter)
+        .map(([url]) => new URL(url, 'http://localhost'))
+        .filter((url) => url.pathname === '/api/admin/stats');
+      expect(refreshUrls).toHaveLength(9);
+      expect(refreshUrls.every((url) => url.searchParams.get('source') === 'web')).toBe(true);
+      await waitFor(() => {
+        expect(fetchMock.mock.calls.slice(callsBeforeFilter).some(([url]) => {
+          const parsed = new URL(url, 'http://localhost');
+          return parsed.pathname === '/api/admin/stats/skills'
+            && parsed.searchParams.get('source') === 'web';
+        })).toBe(true);
+      });
 
       resolveFeedback?.({
         ok: true,
@@ -1698,6 +1708,114 @@ describe('Admin Dashboard Page', () => {
       ]));
     });
 
+    it('applies an agent selection to every card, including overview', async () => {
+      const filteredStats = {
+        ...mockStatsResponse,
+        data: {
+          ...mockStatsResponse.data,
+          overview: {
+            ...mockStatsResponse.data.overview,
+            total_users: 7,
+            total_conversations: 8,
+            total_messages: 9,
+          },
+        },
+      };
+      const fetchMock = setupFetchMock({
+        stats: (url: string) => new URL(url, 'http://localhost').searchParams.has('agent')
+          ? filteredStats
+          : mockStatsResponse,
+      });
+
+      render(<AdminPage />);
+      fireEvent.click(await screen.findByRole('button', { name: 'Insights' }));
+      await screen.findByText('42');
+
+      const callsBeforeFilter = fetchMock.mock.calls.length;
+      fireEvent.click(await screen.findByRole('button', { name: 'All Agents' }));
+      fireEvent.click(await screen.findByRole('button', { name: 'Primary Agent' }));
+
+      await waitFor(() => {
+        const usersCard = screen.getByText('Total Users').closest('.rounded-lg');
+        expect(within(usersCard as HTMLElement).getByText('7')).toBeInTheDocument();
+      });
+
+      const refreshUrls = fetchMock.mock.calls
+        .slice(callsBeforeFilter)
+        .map(([url]) => new URL(url, 'http://localhost'))
+        .filter((url) => url.pathname === '/api/admin/stats');
+      expect(refreshUrls).toHaveLength(9);
+      expect(refreshUrls.every((url) => url.searchParams.get('agent') === 'agent-primary')).toBe(true);
+      expect(refreshUrls.find((url) => url.searchParams.get('section') === 'overview'))
+        .toBeDefined();
+    });
+
+    it('applies a Slack channel selection to every card request', async () => {
+      const fetchMock = setupFetchMock();
+      render(<AdminPage />);
+      fireEvent.click(await screen.findByRole('button', { name: 'Insights' }));
+      await screen.findByText('42');
+
+      fireEvent.change(screen.getByDisplayValue('All Sources'), { target: { value: 'slack' } });
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'All Channels' })).toBeInTheDocument();
+      });
+      await waitFor(() => {
+        const sourceRefreshes = fetchMock.mock.calls.filter(([url]) => {
+          const parsed = new URL(url, 'http://localhost');
+          return parsed.pathname === '/api/admin/stats' && parsed.searchParams.get('source') === 'slack';
+        });
+        expect(sourceRefreshes.length).toBeGreaterThanOrEqual(9);
+      });
+
+      const callsBeforeChannel = fetchMock.mock.calls.length;
+      fireEvent.click(screen.getByRole('button', { name: 'All Channels' }));
+      fireEvent.click(await screen.findByRole('button', { name: 'primary-channel' }));
+
+      await waitFor(() => {
+        const channelRefreshes = fetchMock.mock.calls
+          .slice(callsBeforeChannel)
+          .map(([url]) => new URL(url, 'http://localhost'))
+          .filter((url) => url.pathname === '/api/admin/stats');
+        expect(channelRefreshes).toHaveLength(9);
+        expect(channelRefreshes.every((url) => (
+          url.searchParams.get('source') === 'slack'
+          && url.searchParams.get('channel') === 'primary-channel'
+        ))).toBe(true);
+      });
+    });
+
+    it('refreshes every card with the canonical team slug when members are not embedded', async () => {
+      const fetchMock = setupFetchMock();
+      render(<AdminPage />);
+      fireEvent.click(await screen.findByRole('button', { name: 'Insights' }));
+      await screen.findByText('42');
+
+      fireEvent.click(screen.getByRole('button', { name: 'All Users & Teams' }));
+      const callsBeforeTeam = fetchMock.mock.calls.length;
+      fireEvent.click(await screen.findByRole('button', { name: 'team:Platform Team' }));
+
+      await waitFor(() => {
+        const teamRefreshes = fetchMock.mock.calls
+          .slice(callsBeforeTeam)
+          .map(([url]) => new URL(url, 'http://localhost'))
+          .filter((url) => url.pathname === '/api/admin/stats');
+        expect(teamRefreshes).toHaveLength(9);
+        expect(teamRefreshes.every((url) => (
+          url.searchParams.get('team') === 'platform-team'
+          && url.searchParams.has('user') === false
+        ))).toBe(true);
+      });
+      await waitFor(() => {
+        expect(fetchMock.mock.calls.slice(callsBeforeTeam).some(([url]) => {
+          const parsed = new URL(url, 'http://localhost');
+          return parsed.pathname === '/api/admin/stats/skills'
+            && parsed.searchParams.get('team') === 'platform-team'
+            && parsed.searchParams.has('user') === false;
+        })).toBe(true);
+      });
+    });
+
     it('renders user list with correct data', async () => {
       render(<AdminPage />);
 
@@ -1710,7 +1828,7 @@ describe('Admin Dashboard Page', () => {
       expect(screen.getByText('Regular User')).toBeInTheDocument();
     });
 
-    it('fetches stats with date range params', async () => {
+    it('fetches stats with a relative date preset', async () => {
       const fetchMock = setupFetchMock();
 
       render(<AdminPage />);
@@ -1721,14 +1839,14 @@ describe('Admin Dashboard Page', () => {
 
       await waitFor(() => {
         expect(fetchMock).toHaveBeenCalledWith(
-          expect.stringContaining('/api/admin/stats?from='),
+          expect.stringMatching(/\/api\/admin\/stats\?.*range=30d/),
           expect.objectContaining({ signal: expect.any(AbortSignal) })
         );
       });
 
-      // Initial fetch uses from/to date params instead of range=30d
+      // Presets stay relative, so a manual refresh advances the range endpoint.
       expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining('/api/admin/stats?from='),
+        expect.stringMatching(/\/api\/admin\/stats\?.*range=30d/),
         expect.objectContaining({ signal: expect.any(AbortSignal) })
       );
     });
@@ -1749,11 +1867,17 @@ describe('Admin Dashboard Page', () => {
       setupFetchMock({
         stats: (url: string) => {
           const requestUrl = new URL(url, 'http://localhost:3000');
-          const from = new Date(requestUrl.searchParams.get('from') || 0);
-          const to = new Date(requestUrl.searchParams.get('to') || 0);
-          return to.getTime() - from.getTime() <= 2 * 60 * 60 * 1000
-            ? shortRangeStats
-            : mockStatsResponse;
+          if (requestUrl.searchParams.get('range') === '1h') return shortRangeStats;
+          const fromParam = requestUrl.searchParams.get('from');
+          const toParam = requestUrl.searchParams.get('to');
+          if (fromParam && toParam) {
+            const from = new Date(fromParam);
+            const to = new Date(toParam);
+            if (to.getTime() - from.getTime() <= 2 * 60 * 60 * 1000) {
+              return shortRangeStats;
+            }
+          }
+          return mockStatsResponse;
         },
       });
 
@@ -1770,6 +1894,13 @@ describe('Admin Dashboard Page', () => {
         expect(within(usersCard as HTMLElement).getByText('2')).toBeInTheDocument();
         expect(within(conversationsCard as HTMLElement).getByText('3')).toBeInTheDocument();
         expect(within(messagesCard as HTMLElement).getByText('4')).toBeInTheDocument();
+      });
+      await waitFor(() => {
+        expect((global.fetch as jest.Mock).mock.calls.some(([url]) => {
+          const parsed = new URL(url, 'http://localhost');
+          return parsed.pathname === '/api/admin/stats/skills'
+            && parsed.searchParams.get('range') === '1h';
+        })).toBe(true);
       });
     });
   });
