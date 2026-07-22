@@ -43,8 +43,10 @@ export function LabelComboBox({
   inputClassName?: string;
 }) {
   const [open, setOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
   const [dropdownStyle, setDropdownStyle] = useState<React.CSSProperties>({});
   const wrapRef = useRef<HTMLDivElement | null>(null);
+  const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
   useEffect(() => {
     if (!open) return;
@@ -77,6 +79,38 @@ export function LabelComboBox({
     )
     .slice(0, 50);
 
+  // Reset highlight when the list changes.
+  useEffect(() => {
+    setActiveIndex(-1);
+    itemRefs.current = [];
+  }, [open, filtered.length]);
+
+  const selectItem = (o: { value: string; label: string }) => {
+    onChange(applyComboSelection(value, o.value, multi));
+    onType?.("");
+    setOpen(false);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!open || filtered.length === 0) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      const next = Math.min(activeIndex + 1, filtered.length - 1);
+      setActiveIndex(next);
+      itemRefs.current[next]?.scrollIntoView({ block: "nearest" });
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      const prev = Math.max(activeIndex - 1, 0);
+      setActiveIndex(prev);
+      itemRefs.current[prev]?.scrollIntoView({ block: "nearest" });
+    } else if (e.key === "Enter" && activeIndex >= 0) {
+      e.preventDefault();
+      selectItem(filtered[activeIndex]);
+    } else if (e.key === "Escape") {
+      setOpen(false);
+    }
+  };
+
   const dropdown =
     open && filtered.length > 0
       ? createPortal(
@@ -84,17 +118,17 @@ export function LabelComboBox({
             style={dropdownStyle}
             className="max-h-56 overflow-auto rounded-xl border border-border/60 bg-card shadow-xl"
           >
-            {filtered.map((o) => (
+            {filtered.map((o, i) => (
               <button
                 type="button"
                 key={o.value}
+                ref={(el) => { itemRefs.current[i] = el; }}
                 onMouseDown={(e) => {
                   e.preventDefault();
-                  onChange(applyComboSelection(value, o.value, multi));
-                  onType?.("");
-                  setOpen(false);
+                  selectItem(o);
                 }}
-                className="block w-full px-3 py-2 text-left transition hover:bg-accent/60"
+                onMouseEnter={() => setActiveIndex(i)}
+                className={`block w-full px-3 py-2 text-left transition ${i === activeIndex ? "bg-accent/80" : "hover:bg-accent/60"}`}
               >
                 <span className="block truncate text-sm">{o.label}</span>
                 {o.label !== o.value ? (
@@ -111,6 +145,9 @@ export function LabelComboBox({
     <div ref={wrapRef} className="relative">
       <input
         aria-label={ariaLabel}
+        aria-expanded={open && filtered.length > 0}
+        aria-autocomplete="list"
+        role="combobox"
         value={value}
         placeholder={placeholder}
         onChange={(e) => {
@@ -119,6 +156,7 @@ export function LabelComboBox({
           setOpen(true);
         }}
         onFocus={() => setOpen(true)}
+        onKeyDown={handleKeyDown}
         className={inputClassName}
       />
       {dropdown}
