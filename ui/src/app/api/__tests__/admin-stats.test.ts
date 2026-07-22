@@ -404,6 +404,9 @@ describe('GET /api/admin/stats — Overview', () => {
         shared_conversations: 2,
       })
     );
+    expect(usersCol.countDocuments).toHaveBeenNthCalledWith(1, {
+      last_login: { $gte: expect.any(Date) },
+    });
   });
 
   it('computes avg_messages_per_conversation correctly', async () => {
@@ -520,6 +523,27 @@ describe('GET /api/admin/stats — Top Users', () => {
     expect(body.data.top_users).toHaveProperty('by_messages');
     expect(Array.isArray(body.data.top_users.by_conversations)).toBe(true);
     expect(Array.isArray(body.data.top_users.by_messages)).toBe(true);
+  });
+
+  it('ignores legacy ownerless rows in a 90-day leaderboard', async () => {
+    const { convCol } = setupAdminWithCollections();
+    convCol.aggregate.mockImplementation((pipeline: Record<string, unknown>[]) => ({
+      toArray: async () =>
+        pipeline.some((stage) => stage.$group?._id === '$owner_id')
+          ? [
+              { _id: null, count: 4 },
+              { _id: 'test-user@example.com', count: 2 },
+            ]
+          : [],
+    }));
+
+    const response = await GET(makeRequest('/api/admin/stats?range=90d'));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.top_users.by_conversations).toEqual([
+      expect.objectContaining({ _id: 'test-user@example.com', count: 2 }),
+    ]);
   });
 
   it('labels a bot/app owner with its persisted owner_display_name', async () => {
@@ -1591,4 +1615,3 @@ describe('GET /api/admin/stats — Configured Channels', () => {
     }
   });
 });
-

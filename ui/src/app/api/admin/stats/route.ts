@@ -517,15 +517,16 @@ async function getAdminStats(request: NextRequest) {
       messagesToday,
       sharedConversations,
     ] = await Promise.all([
-      // Non-admins must not see platform-wide headcount — derive their
-      // total_users from distinct owners of the conversations they can see.
+      // Total users is range-aware like the conversation and message totals.
+      // Non-admins derive it from activity in conversations they can see;
+      // full admins use the existing last-login activity source.
       nonAdminScope
         ? conversations.aggregate([
-            { $match: { ...convSourceFilter } },
+            { $match: { updated_at: { $gte: rangeStart }, ...convSourceFilter } },
             { $group: { _id: '$owner_id' } },
             { $count: 'total' },
           ]).toArray().then((r) => r[0]?.total || 0)
-        : users.countDocuments({}),
+        : users.countDocuments({ last_login: { $gte: rangeStart } }),
       // Scoped to the selected date range (rangeStart), matching daily_activity
       // and every other range-aware metric below — previously these were
       // always lifetime totals regardless of the selected range.
@@ -841,7 +842,7 @@ async function getAdminStats(request: NextRequest) {
     const topOwnerIds = [...new Set([
       ...rawTopByConvs.map((u) => u._id),
       ...rawTopByMsgs.map((u) => u._id),
-    ])].filter(Boolean);
+    ].filter((id): id is string => typeof id === 'string' && id.trim().length > 0))];
 
     const userDocs = topOwnerIds.length > 0
       ? await users.find(
@@ -902,13 +903,19 @@ async function getAdminStats(request: NextRequest) {
       return 'unlinked_slack';
     };
 
+    // Legacy activity can have a missing owner_id. Wider windows (notably 90d)
+    // are more likely to include those rows, so discard them before calling
+    // string-only identity helpers such as classifyOwner().
     const enrichTopUsers = (raw: typeof rawTopByConvs) =>
-      raw.map((u) => ({
-        _id: u._id,
-        count: u.count,
-        name: nameByOwner.get(u._id) || u._id,
-        owner_type: classifyOwner(u._id),
-      }));
+      raw.flatMap((u) => {
+        if (typeof u._id !== 'string' || !u._id.trim()) return [];
+        return [{
+          _id: u._id,
+          count: u.count,
+          name: nameByOwner.get(u._id) || u._id,
+          owner_type: classifyOwner(u._id),
+        }];
+      });
 
     const topUsersByConversations = enrichTopUsers(rawTopByConvs);
     const topUsersByMessages = enrichTopUsers(rawTopByMsgs);
