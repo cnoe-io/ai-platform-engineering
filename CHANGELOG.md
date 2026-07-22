@@ -1,3 +1,29 @@
+## 0.5.56-dev.4 (2026-07-22)
+
+### Fix
+
+- **insights**: apply filters consistently across cards (#2270)
+
+## 0.5.56-dev.3 (2026-07-22)
+
+### Fix
+
+- **insights**: count only assistant messages (#2267)
+
+## 0.5.56-dev.2 (2026-07-22)
+
+### Fix
+
+- **ui**: load admin insights cards independently (#2260)
+
+## 0.5.56-dev.1 (2026-07-22)
+
+### Fix
+
+- **insights**: refresh stats and restore user activity (#2259)
+
+## 0.5.56 (2026-07-21)
+
 ## 0.5.55-dev.6 (2026-07-21)
 
 ### Fix
