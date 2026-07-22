@@ -1,5 +1,5 @@
 import { isMongoDBConfigured } from "@/lib/mongodb";
-import type { ExternalGroup,TeamMembershipSource } from "@/types/identity-group-sync";
+import type { ExternalGroup,IdentityGroupSyncRule,TeamMembershipSource } from "@/types/identity-group-sync";
 
 import { planIdentityGroupSync,sourceTypeForProvider } from "./identity-group-sync-planner";
 import { applyIdentityGroupSyncPlan } from "./identity-group-sync-reconciler";
@@ -7,6 +7,31 @@ import { listIdentityGroupSyncRules } from "./identity-group-sync-rule-store";
 import { listActiveTeamMembershipSourcesForUser } from "./team-membership-source-store";
 
 const DEFAULT_OIDC_CLAIM_PROVIDER_ID = "oidc-claims";
+
+// Synthesized when no stored rules exist but allowTeamCreation is on.
+// Maps every OIDC group name directly to a team slug of the same name so
+// that login-time reconciliation writes membership tuples without requiring
+// an admin to pre-configure identity-group-sync rules.
+function buildPassthroughRule(providerId: string, now: string): IdentityGroupSyncRule {
+  return {
+    id: "passthrough-auto",
+    provider_id: providerId,
+    name: "Auto passthrough",
+    priority: 0,
+    enabled: true,
+    review_status: "enabled",
+    include_patterns: ["(?<name>.+)"],
+    exclude_patterns: [],
+    team_name_template: "{{name}}",
+    team_slug_template: "{{name}}",
+    role_map: {},
+    auto_create_team: true,
+    created_by: "system",
+    created_at: now,
+    updated_by: "system",
+    updated_at: now,
+  };
+}
 
 interface ExistingTeam {
   id?: string;
@@ -95,8 +120,13 @@ export async function reconcileOidcClaimGroupsForUser(input: {
   const providerId = input.providerId ?? DEFAULT_OIDC_CLAIM_PROVIDER_ID;
   const now = input.now ?? new Date().toISOString();
   const actor = `login:${providerId}`;
-  const rules = await listIdentityGroupSyncRules(providerId);
-  if (rules.length === 0) return;
+  const storedRules = await listIdentityGroupSyncRules(providerId);
+  // When no rules are configured AND auto-create teams is opted in, synthesize
+  // a passthrough rule so that OIDC group names map directly to team slugs.
+  // Without this, the reconciler would no-op even when auto-create is enabled,
+  // leaving OpenFGA membership tuples unwritten and team dropdowns empty.
+  if (storedRules.length === 0 && !input.allowTeamCreation) return;
+  const rules = storedRules.length > 0 ? storedRules : [buildPassthroughRule(providerId, now)];
 
   // Source type must follow the provider so the existing-rows lookup matches
   // the rows the planner writes (e.g. provider "okta" → source_type "okta").

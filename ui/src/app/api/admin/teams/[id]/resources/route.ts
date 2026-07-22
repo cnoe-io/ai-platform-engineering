@@ -41,6 +41,7 @@ TEAM_TOOL_WILDCARD_SENTINEL_OBJECT,
 } from "@/lib/rbac/openfga";
 import { TeamResourceListingCache } from "@/lib/rbac/team-resource-listing";
 import { requireTeamMembershipManagementPermission } from "@/lib/rbac/team-admin-guards";
+import { reconcileSecretRefShare, deleteSecretRefShare } from "@/lib/credentials/secret-openfga";
 import type { Team } from "@/types/teams";
 import { ObjectId } from "mongodb";
 import { NextRequest,NextResponse } from "next/server";
@@ -53,11 +54,17 @@ interface DynamicAgentLite {
   enabled?: boolean;
 }
 
+interface MCPCredentialSourceLite {
+  kind: string;
+  secret_ref?: string;
+}
+
 interface MCPServerLite {
   _id: string;
   name?: string;
   description?: string;
   enabled?: boolean;
+  credential_sources?: MCPCredentialSourceLite[];
 }
 
 interface SkillLite {
@@ -178,7 +185,7 @@ export const GET = withErrorHandler(
           .toArray()
           .catch(() => [] as DynamicAgentLite[]),
         mcpCol
-          .find({ enabled: { $ne: false } } as never, { projection: { _id: 1, name: 1, description: 1 } })
+          .find({ enabled: { $ne: false } } as never, { projection: { _id: 1, name: 1, description: 1, credential_sources: 1 } })
           .sort({ name: 1 })
           .toArray()
           .catch(() => [] as MCPServerLite[]),
@@ -296,8 +303,11 @@ export const GET = withErrorHandler(
           agents: allAgents.map((a) => ({ id: a._id, name: a.name ?? a._id, description: a.description ?? "" })),
           tools: toolPrefixes.map((id, i) => ({
             id,
-            name: id,
+            name: allServers[i].name ?? id,
             description: allServers[i].description ?? "",
+            credential_refs: (allServers[i].credential_sources ?? [])
+              .filter((s) => s.kind === "secret_ref" && s.secret_ref)
+              .map((s) => s.secret_ref as string),
           })),
           // NOTE: no `knowledge_bases` here. KB assignment uses its own picker
           // (`TeamKbAssignmentPanel`), backed by the RAG datasource catalog +
@@ -369,10 +379,13 @@ export const PUT = withErrorHandler(
 
       const mcpCol = await getCollection<MCPServerLite>("mcp_servers");
       const allMcpServers = await mcpCol
-        .find({ enabled: { $ne: false } } as never, { projection: { _id: 1 } })
+        .find({ enabled: { $ne: false } } as never, { projection: { _id: 1, credential_sources: 1 } })
         .toArray()
         .catch(() => [] as MCPServerLite[]);
       const allMcpServerIds = allMcpServers.map((server) => String(server._id));
+      const serverCredMap = new Map<string, MCPCredentialSourceLite[]>(
+        allMcpServers.map((s): [string, MCPCredentialSourceLite[]] => [String(s._id), s.credential_sources ?? []])
+      );
 
       // Wildcard == select-all-servers (identical tuples), so expand it into
       // explicit `<server>/*` prefixes and reconcile plain per-server grants.
@@ -443,7 +456,60 @@ export const PUT = withErrorHandler(
         tenantId: session.org,
       });
 
-      // ── 3. Touch updated_at and drop any legacy `resources` array (FGA is the
+      // ── 3. Auto-sync credential shares for MCP tool grant changes.
+      //    When a team gains access to an MCP server, also grant access to its
+      //    linked secret_ref credentials so agents can resolve them at runtime.
+      //    Revocation is conservative: only revoke a credential share when the
+      //    team has no remaining tool grants that reference the same credential.
+      const addedServerIds = toolDiff.added.map((t) => t.replace(/\/\*$/, ""));
+      const removedServerIds = toolDiff.removed.map((t) => t.replace(/\/\*$/, ""));
+
+      if (addedServerIds.length > 0 || removedServerIds.length > 0) {
+        const nextServerIds = new Set(nextTools.map((t) => t.replace(/\/\*$/, "")));
+        const secretsToAdd = new Set<string>();
+        const secretsToRevoke = new Set<string>();
+
+        for (const sid of addedServerIds) {
+          for (const src of serverCredMap.get(sid) ?? []) {
+            if (src.kind === "secret_ref" && src.secret_ref) secretsToAdd.add(src.secret_ref);
+          }
+        }
+
+        for (const sid of removedServerIds) {
+          for (const src of serverCredMap.get(sid) ?? []) {
+            if (!src.secret_ref || src.kind !== "secret_ref") continue;
+            const credId = src.secret_ref;
+            const stillInUse = [...nextServerIds].some((nextSid) =>
+              (serverCredMap.get(nextSid) ?? []).some(
+                (s) => s.kind === "secret_ref" && s.secret_ref === credId
+              )
+            );
+            if (!stillInUse) secretsToRevoke.add(credId);
+          }
+        }
+
+        const secretsCol = await getCollection<{ id: string }>("secret_refs");
+        await Promise.allSettled([
+          ...[...secretsToAdd].map((secretId) =>
+            reconcileSecretRefShare(secretId, slug).then(() =>
+              secretsCol.updateOne(
+                { id: secretId },
+                { $addToSet: { sharedWithTeams: slug } } as never
+              )
+            )
+          ),
+          ...[...secretsToRevoke].map((secretId) =>
+            deleteSecretRefShare(secretId, slug).then(() =>
+              secretsCol.updateOne(
+                { id: secretId },
+                { $pull: { sharedWithTeams: slug } } as never
+              )
+            )
+          ),
+        ]);
+      }
+
+      // ── 4. Touch updated_at and drop any legacy `resources` array (FGA is the
       //    single source of truth; the migration backfills + unsets in bulk,
       //    this keeps re-saved teams clean immediately).
       const now = new Date();
