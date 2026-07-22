@@ -39,6 +39,11 @@ jest.mock("@/lib/rbac/audit", () => ({
   logAuthzDecision: jest.fn(),
 }));
 
+const mockLoadTeamMembersForSlugs = jest.fn();
+jest.mock("@/lib/rbac/team-membership-store", () => ({
+  loadTeamMembersForSlugs: (...args: unknown[]) => mockLoadTeamMembersForSlugs(...args),
+}));
+
 jest.mock("@/lib/mongodb", () => ({
   getCollection: (...args: unknown[]) => mockGetCollection(...args),
   connectToDatabase: (...args: unknown[]) => mockConnectToDatabase(...args),
@@ -62,6 +67,7 @@ async function expectStatsDenied(response: Response): Promise<void> {
 beforeEach(() => {
   jest.clearAllMocks();
   mockCheckPermission.mockResolvedValue({ allowed: false, reason: "DENY_NO_CAPABILITY" });
+  mockLoadTeamMembersForSlugs.mockResolvedValue(new Map());
 });
 
 describe("admin stats RBAC routes", () => {
@@ -72,5 +78,77 @@ describe("admin stats RBAC routes", () => {
 
     await expectStatsDenied(response);
     expect(mockGetCollection).not.toHaveBeenCalled();
+  });
+
+  it("applies date, user, and web-only source filters to skill metrics", async () => {
+    mockCheckPermission.mockResolvedValue({ allowed: true, reason: "ALLOW" });
+    const configs = {
+      find: jest.fn().mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) }),
+      aggregate: jest.fn().mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) }),
+    };
+    const runs = {
+      aggregate: jest.fn().mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) }),
+    };
+    mockGetCollection.mockImplementation((name: string) => (
+      name === "agent_skills" ? Promise.resolve(configs) : Promise.resolve(runs)
+    ));
+    const { GET } = await import("../skills/route");
+    const from = "2026-06-01T00:00:00.000Z";
+    const to = "2026-06-30T23:59:59.999Z";
+
+    const response = await GET(request(
+      `/api/admin/stats/skills?from=${from}&to=${to}&source=slack&user=person@example.com`,
+    ));
+
+    expect(response.status).toBe(200);
+    expect(configs.find).toHaveBeenCalledWith({
+      created_at: { $gte: new Date(from), $lte: new Date(to) },
+      owner_id: "person@example.com",
+    });
+    expect(configs.aggregate.mock.calls[0][0][0].$match).toEqual(expect.objectContaining({
+      created_at: { $gte: new Date(from), $lte: new Date(to) },
+      owner_id: "person@example.com",
+    }));
+    for (const [pipeline] of runs.aggregate.mock.calls) {
+      expect(pipeline[0].$match).toEqual({
+        started_at: { $gte: new Date(from), $lte: new Date(to) },
+        owner_id: "person@example.com",
+        _id: null,
+      });
+    }
+  });
+
+  it("resolves a selected team from the canonical roster for skill metrics", async () => {
+    mockCheckPermission.mockResolvedValue({ allowed: true, reason: "ALLOW" });
+    mockLoadTeamMembersForSlugs.mockResolvedValue(new Map([
+      ["platform-team", [
+        { user_email: "alice@example.com" },
+        { user_email: "bob@example.com" },
+      ]],
+    ]));
+    const configs = {
+      find: jest.fn().mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) }),
+      aggregate: jest.fn().mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) }),
+    };
+    const runs = {
+      aggregate: jest.fn().mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) }),
+    };
+    mockGetCollection.mockImplementation((name: string) => (
+      name === "agent_skills" ? Promise.resolve(configs) : Promise.resolve(runs)
+    ));
+    const { GET } = await import("../skills/route");
+
+    const response = await GET(request("/api/admin/stats/skills?team=platform-team"));
+
+    expect(response.status).toBe(200);
+    expect(mockLoadTeamMembersForSlugs).toHaveBeenCalledWith(["platform-team"]);
+    expect(configs.find).toHaveBeenCalledWith(expect.objectContaining({
+      owner_id: { $in: ["alice@example.com", "bob@example.com"] },
+    }));
+    for (const [pipeline] of runs.aggregate.mock.calls) {
+      expect(pipeline[0].$match.owner_id).toEqual({
+        $in: ["alice@example.com", "bob@example.com"],
+      });
+    }
   });
 });

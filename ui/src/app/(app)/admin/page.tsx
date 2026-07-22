@@ -872,44 +872,53 @@ function AdminPage() {
   const rangeLabel = datePreset === "1h" ? "1 Hour" : datePreset === "12h" ? "12 Hours" : datePreset === "24h" ? "24 Hours" : datePreset === "7d" ? "7 Days" : datePreset === "90d" ? "90 Days" : datePreset === "custom" ? "Custom Range" : "30 Days";
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
 
-  const expandedStatsUsers = useMemo(() => {
-    const emails = new Set<string>();
+  const selectedStatsFilters = useMemo(() => {
+    const userEmails = new Set<string>();
+    const teamSlugs = new Set<string>();
     for (const selection of userFilter) {
       if (selection.startsWith('team:')) {
         const team = teams.find((candidate) => candidate.name === selection.slice(5));
-        for (const member of team?.members ?? []) emails.add(member.user_id);
+        // Team rosters are canonical in team_membership_sources and are no
+        // longer embedded in list responses. Send the stable slug so the API
+        // can resolve members server-side while preserving its RBAC scope.
+        teamSlugs.add(team?.slug?.trim() || team?._id || selection.slice(5));
       } else {
-        emails.add(selection);
+        userEmails.add(selection);
       }
     }
-    return [...emails];
+    return { teamSlugs: [...teamSlugs], userEmails: [...userEmails] };
   }, [teams, userFilter]);
 
   const getStatsSectionUrl = useCallback((section: AdminStatsSection): string => {
-    const params = new URLSearchParams({
-      from: dateRange.from,
-      section,
-      to: dateRange.to,
-    });
-    // Overview is intentionally global across source/user/agent filters, while
-    // still honoring the selected date range. This preserves the dashboard's
-    // platform-wide headline metrics without issuing a duplicate stats wave.
-    if (section !== 'overview') {
-      if (sourceFilter !== 'all') params.set('source', sourceFilter);
-      if (expandedStatsUsers.length > 0) params.set('user', expandedStatsUsers.join(','));
-      if (sourceFilter === 'slack' && statsChannelFilter.length > 0) {
-        params.set('channel', statsChannelFilter.join(','));
-      }
-      const agentIds = statsAgentFilter
-        .map((name) => statsAgents.find((agent) => agent.name === name)?.id)
-        .filter((id): id is string => Boolean(id));
-      if (agentIds.length > 0) params.set('agent', agentIds.join(','));
-      if (showBotUsers) params.set('include_bots', 'true');
+    const params = new URLSearchParams({ section });
+    if (datePreset === 'custom') {
+      params.set('from', dateRange.from);
+      params.set('to', dateRange.to);
+    } else {
+      // Relative presets stay relative when the dashboard is manually refreshed;
+      // custom ranges remain fixed to their explicit endpoints.
+      params.set('range', datePreset);
     }
+    if (sourceFilter !== 'all') params.set('source', sourceFilter);
+    if (selectedStatsFilters.userEmails.length > 0) {
+      params.set('user', selectedStatsFilters.userEmails.join(','));
+    }
+    if (selectedStatsFilters.teamSlugs.length > 0) {
+      params.set('team', selectedStatsFilters.teamSlugs.join(','));
+    }
+    if (sourceFilter === 'slack' && statsChannelFilter.length > 0) {
+      params.set('channel', statsChannelFilter.join(','));
+    }
+    const agentIds = statsAgentFilter
+      .map((name) => statsAgents.find((agent) => agent.name === name)?.id)
+      .filter((id): id is string => Boolean(id));
+    if (agentIds.length > 0) params.set('agent', agentIds.join(','));
+    if (showBotUsers) params.set('include_bots', 'true');
     return withAdminSimulationParams(`/api/admin/stats?${params.toString()}`, simulationTarget);
   }, [
     dateRange,
-    expandedStatsUsers,
+    datePreset,
+    selectedStatsFilters,
     showBotUsers,
     simulationTarget,
     sourceFilter,
@@ -917,6 +926,24 @@ function AdminPage() {
     statsAgents,
     statsChannelFilter,
   ]);
+
+  const getSkillStatsUrl = useCallback((): string => {
+    const params = new URLSearchParams();
+    if (datePreset === 'custom') {
+      params.set('from', dateRange.from);
+      params.set('to', dateRange.to);
+    } else {
+      params.set('range', datePreset);
+    }
+    if (sourceFilter !== 'all') params.set('source', sourceFilter);
+    if (selectedStatsFilters.userEmails.length > 0) {
+      params.set('user', selectedStatsFilters.userEmails.join(','));
+    }
+    if (selectedStatsFilters.teamSlugs.length > 0) {
+      params.set('team', selectedStatsFilters.teamSlugs.join(','));
+    }
+    return withAdminSimulationParams(`/api/admin/stats/skills?${params.toString()}`, simulationTarget);
+  }, [datePreset, dateRange, selectedStatsFilters, simulationTarget, sourceFilter]);
 
   const {
     data: stats,
@@ -1062,17 +1089,29 @@ function AdminPage() {
     agents: statsAgentFilter,
     channels: statsChannelFilter,
     from: dateRange.from,
+    range: datePreset,
     source: sourceFilter,
     to: dateRange.to,
-    users: expandedStatsUsers,
+    teams: selectedStatsFilters.teamSlugs,
+    users: selectedStatsFilters.userEmails,
   }), [
     dateRange.from,
     dateRange.to,
-    expandedStatsUsers,
+    datePreset,
+    selectedStatsFilters,
     sourceFilter,
     statsAgentFilter,
     statsChannelFilter,
   ]);
+  const skillStatsFilterKey = useMemo(() => JSON.stringify({
+    from: dateRange.from,
+    range: datePreset,
+    source: sourceFilter,
+    to: dateRange.to,
+    teams: selectedStatsFilters.teamSlugs,
+    users: selectedStatsFilters.userEmails,
+  }), [datePreset, dateRange.from, dateRange.to, selectedStatsFilters, sourceFilter]);
+  const skillStatsFilterRef = useRef(skillStatsFilterKey);
   const statsFilterRef = useRef(statsFilterKey);
   useEffect(() => {
     if (statsFilterRef.current === statsFilterKey) return;
@@ -1107,17 +1146,31 @@ function AdminPage() {
     }
   };
 
-  const loadSkillStats = async () => {
+  const loadSkillStats = useCallback(async (): Promise<void> => {
+    const requestScopeKey = simulationScopeKey;
     try {
-      const res = await fetch('/api/admin/stats/skills');
+      const res = await fetch(getSkillStatsUrl());
       if (res.ok) {
         const data = await res.json().catch(() => ({ success: false }));
-        if (data.success) setSkillStats(data.data);
+        if (data.success && activeDataScopeKeyRef.current === requestScopeKey) {
+          setSkillStats(data.data);
+        }
       }
     } catch (err) {
       console.error('[Admin] Failed to load skill stats:', err);
     }
-  };
+  }, [getSkillStatsUrl, simulationScopeKey]);
+
+  useEffect(() => {
+    if (skillStatsFilterRef.current === skillStatsFilterKey) return;
+    skillStatsFilterRef.current = skillStatsFilterKey;
+    if (!visitedTabsRef.current.has('_stats-loaded')) return;
+    if (status !== "authenticated" && getConfig('ssoEnabled')) return;
+    const handle = window.setTimeout(() => {
+      void loadSkillStats();
+    }, 150);
+    return () => window.clearTimeout(handle);
+  }, [loadSkillStats, skillStatsFilterKey, status]);
 
   const loadFeedbackOnce = async () => {
     if (!getConfig('feedbackEnabled')) return;
@@ -1206,8 +1259,19 @@ function AdminPage() {
       }
       const tags = searchTags ?? feedbackSearchTags;
       if (tags.length > 0) params.set('search', tags.join(','));
-      const usrs = users ?? userFilter;
-      if (usrs.length > 0) params.set('user', usrs.join(','));
+      const selections = users ?? userFilter;
+      const selectedUsers = new Set<string>();
+      const selectedTeams = new Set<string>();
+      for (const selection of selections) {
+        if (selection.startsWith('team:')) {
+          const team = teams.find((candidate) => candidate.name === selection.slice(5));
+          selectedTeams.add(team?.slug?.trim() || team?._id || selection.slice(5));
+        } else {
+          selectedUsers.add(selection);
+        }
+      }
+      if (selectedUsers.size > 0) params.set('user', [...selectedUsers].join(','));
+      if (selectedTeams.size > 0) params.set('team', [...selectedTeams].join(','));
       const dr = range ?? dateRange;
       if (dr.from) params.set('from', dr.from);
       if (dr.to) params.set('to', dr.to);
@@ -1966,19 +2030,7 @@ function AdminPage() {
                           selected={userFilter}
                           onChange={(selected) => {
                             setUserFilter(selected);
-                            const emails = new Set<string>();
-                            for (const s of selected) {
-                              if (s.startsWith('team:')) {
-                                const team = teams.find((t) => t.name === s.slice(5));
-                                // Defensive read — see `filteredTeams` for the
-                                // canonical-team-membership refactor context.
-                                if (team) (team.members ?? []).forEach((m) => emails.add(m.user_id));
-                              } else {
-                                emails.add(s);
-                              }
-                            }
-                            const emailList = [...emails];
-                            loadFeedback(feedbackFilter, 1, undefined, undefined, undefined, emailList);
+                            loadFeedback(feedbackFilter, 1, undefined, undefined, undefined, selected);
                             updateSharedFilterUrl({ users: selected.length > 0 ? selected.join(',') : null });
                           }}
                           placeholder="All Users & Teams"
@@ -2239,7 +2291,7 @@ function AdminPage() {
                     size="sm"
                     className="gap-1.5"
                     disabled={statsRefreshing}
-                    onClick={() => void loadStatsSections()}
+                    onClick={() => void Promise.all([loadStatsSections(), loadSkillStats()])}
                   >
                     <RefreshCw className={cn("h-3.5 w-3.5", statsRefreshing && "animate-spin")} />
                     Refresh
@@ -2286,7 +2338,7 @@ function AdminPage() {
                             </div>
                             <div>
                               <p className="text-2xl font-bold text-green-500">
-                                {Math.round((stats.daily_activity.reduce((sum, d) => sum + d.active_users, 0) / stats.daily_activity.length))}
+                                {Math.round(stats.daily_activity.reduce((sum, d) => sum + d.active_users, 0) / Math.max(stats.daily_activity.length, 1))}
                               </p>
                               <p className="text-xs text-muted-foreground">Avg/Day</p>
                             </div>
@@ -2326,7 +2378,7 @@ function AdminPage() {
                             </div>
                             <div>
                               <p className="text-2xl font-bold text-purple-500">
-                                {Math.round((stats.daily_activity.reduce((sum, d) => sum + d.conversations, 0) / stats.daily_activity.length))}
+                                {Math.round(stats.daily_activity.reduce((sum, d) => sum + d.conversations, 0) / Math.max(stats.daily_activity.length, 1))}
                               </p>
                               <p className="text-xs text-muted-foreground">Avg/Day</p>
                             </div>
@@ -2368,13 +2420,13 @@ function AdminPage() {
                           </div>
                           <div>
                             <p className="text-2xl font-bold text-orange-500">
-                              {Math.round((stats.daily_activity.reduce((sum, d) => sum + d.messages, 0) / stats.daily_activity.length))}
+                              {Math.round(stats.daily_activity.reduce((sum, d) => sum + d.messages, 0) / Math.max(stats.daily_activity.length, 1))}
                             </p>
                             <p className="text-xs text-muted-foreground">Avg/Day</p>
                           </div>
                           <div>
                             <p className="text-2xl font-bold text-blue-500">
-                              {(stats.overview.total_messages / stats.overview.total_conversations).toFixed(1)}
+                              {stats.overview.avg_messages_per_conversation.toFixed(1)}
                             </p>
                             <p className="text-xs text-muted-foreground">Msgs/Chat</p>
                           </div>
@@ -2844,7 +2896,7 @@ function AdminPage() {
                     <div>
                       <h3 className="text-lg font-semibold">Skills</h3>
                       <p className="text-sm text-muted-foreground">
-                        Skill creation and usage across the platform
+                        Date and user filters apply to creation and runs; source applies to runs. Legacy skill runs have no agent or channel attribution.
                       </p>
                     </div>
 
@@ -2852,19 +2904,19 @@ function AdminPage() {
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                       <Card>
                         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                          <CardTitle className="text-sm font-medium">Total Skills</CardTitle>
+                          <CardTitle className="text-sm font-medium">Skills Created</CardTitle>
                           <Layers className="h-4 w-4 text-muted-foreground" />
                         </CardHeader>
                         <CardContent>
                           <div className="text-2xl font-bold">{skillStats.total_skills}</div>
                           <p className="text-xs text-muted-foreground mt-1">
-                            {skillStats.system_skills} system, {skillStats.user_skills} user-created
+                            {rangeLabel} · {skillStats.system_skills} system, {skillStats.user_skills} user-created
                           </p>
                         </CardContent>
                       </Card>
                       <Card>
                         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                          <CardTitle className="text-sm font-medium">User Skills</CardTitle>
+                          <CardTitle className="text-sm font-medium">User Skills Created</CardTitle>
                           <Users className="h-4 w-4 text-muted-foreground" />
                         </CardHeader>
                         <CardContent>
@@ -2930,7 +2982,7 @@ function AdminPage() {
                     {skillStats.daily_created.length > 0 && (
                       <Card>
                         <CardHeader>
-                          <CardTitle>Skills Created (Last 30 Days)</CardTitle>
+                          <CardTitle>Skills Created ({rangeLabel})</CardTitle>
                           <CardDescription>New user-created skills per day</CardDescription>
                         </CardHeader>
                         <CardContent>
