@@ -340,5 +340,12 @@ export function SlackChannelRebacPanel({
     }),
     [simulationTarget],
   );
-  return <ConnectorAdminPanel adapter={adapter} disabled={disabled} selfService={selfService} />;
+  return (
+    <ConnectorAdminPanel
+      adapter={adapter}
+      configuredSearchParam="slackChannelSearch"
+      disabled={disabled}
+      selfService={selfService}
+    />
+  );
 }

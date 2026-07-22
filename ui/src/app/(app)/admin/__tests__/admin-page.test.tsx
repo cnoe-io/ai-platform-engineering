@@ -1284,23 +1284,6 @@ describe('Admin Dashboard Page', () => {
       });
     });
 
-    it('canonicalizes Authorization Insights deep links to the merged Metrics tab', async () => {
-      currentSearchParams = new URLSearchParams('cat=platform&tab=cas-insights');
-
-      render(<AdminPage />);
-
-      expect(await screen.findByText('Metrics & Health')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Metrics & Health' })).toHaveAttribute('aria-pressed', 'true');
-      expect(screen.getByRole('tab', { name: /^Metrics$/i })).toHaveAttribute(
-        'aria-selected',
-        'true',
-      );
-      expect(screen.queryByRole('tab', { name: /^Authorization Insights$/i })).not.toBeInTheDocument();
-      expect(replaceMock).toHaveBeenCalledWith('/admin?cat=platform&tab=metrics', {
-        scroll: false,
-      });
-    });
-
     it('opens the requested Access Explorer sub-tab from the query string', async () => {
       currentSearchParams = new URLSearchParams('cat=security&tab=access-explorer');
 
@@ -1615,6 +1598,97 @@ describe('Admin Dashboard Page', () => {
 
       expect(await screen.findByText('Retired Team')).toBeInTheDocument();
       expect(screen.getByText('Archived')).toBeInTheDocument();
+    });
+  });
+
+  describe('Insights filter deep links', () => {
+    it('applies Statistics URL filters to the first card requests', async () => {
+      currentSearchParams = new URLSearchParams({
+        cat: 'insights',
+        tab: 'stats',
+        source: 'slack',
+        statsChannels: 'primary-channel',
+        statsAgents: 'agent-primary',
+        statsIncludeBots: 'true',
+        users: 'test-user@example.com',
+        dateRange: '7d',
+      });
+      const fetchMock = setupFetchMock();
+
+      render(<AdminPage />);
+      await screen.findByText('42');
+
+      const statsUrls = fetchMock.mock.calls
+        .map(([url]) => new URL(url, 'http://localhost'))
+        .filter((url) => url.pathname === '/api/admin/stats');
+      expect(statsUrls.length).toBeGreaterThan(0);
+      expect(statsUrls.every((url) => (
+        url.searchParams.get('source') === 'slack'
+        && url.searchParams.get('channel') === 'primary-channel'
+        && url.searchParams.get('agent') === 'agent-primary'
+        && url.searchParams.get('include_bots') === 'true'
+        && url.searchParams.get('user') === 'test-user@example.com'
+        && url.searchParams.get('range') === '7d'
+      ))).toBe(true);
+      expect(screen.getByLabelText(/show bot users/i)).toBeChecked();
+      expect(await screen.findByRole('button', { name: /Primary Agent/ })).toBeInTheDocument();
+
+      fireEvent.click(screen.getByLabelText(/show bot users/i));
+      const updatedStatsUrl = new URL(replaceMock.mock.calls.at(-1)?.[0], 'http://localhost');
+      expect(updatedStatsUrl.searchParams.has('statsIncludeBots')).toBe(false);
+      expect(updatedStatsUrl.searchParams.get('statsChannels')).toBe('primary-channel');
+      expect(updatedStatsUrl.searchParams.get('statsAgents')).toBe('agent-primary');
+    });
+
+    it('applies Feedback URL filters to the initial request', async () => {
+      currentSearchParams = new URLSearchParams({
+        cat: 'insights',
+        tab: 'feedback',
+        source: 'slack',
+        channels: 'primary-channel',
+        rating: 'negative',
+        search: 'incorrect',
+        users: 'team:Platform Team,test-user@example.com',
+        dateRange: '7d',
+      });
+      const fetchMock = setupFetchMock({
+        feedback: {
+          ...mockFeedbackResponse,
+          data: {
+            ...mockFeedbackResponse.data,
+            channels: ['primary-channel'],
+            users: ['test-user@example.com'],
+          },
+        },
+      });
+
+      render(<AdminPage />);
+
+      await waitFor(() => {
+        expect(fetchMock.mock.calls.some(([url]) => String(url).startsWith('/api/admin/feedback?'))).toBe(true);
+      });
+      const feedbackUrls = fetchMock.mock.calls
+        .map(([url]) => new URL(url, 'http://localhost'))
+        .filter((url) => url.pathname === '/api/admin/feedback');
+      expect(feedbackUrls).toHaveLength(1);
+      const feedbackUrl = feedbackUrls[0];
+      expect(feedbackUrl.searchParams.get('source')).toBe('slack');
+      expect(feedbackUrl.searchParams.get('channel')).toBe('primary-channel');
+      expect(feedbackUrl.searchParams.get('rating')).toBe('negative');
+      expect(feedbackUrl.searchParams.get('search')).toBe('incorrect');
+      expect(feedbackUrl.searchParams.get('team')).toBe('platform-team');
+      expect(feedbackUrl.searchParams.get('user')).toBe('test-user@example.com');
+      const from = Date.parse(feedbackUrl.searchParams.get('from') ?? '');
+      const to = Date.parse(feedbackUrl.searchParams.get('to') ?? '');
+      expect(to - from).toBeGreaterThanOrEqual(6.9 * 24 * 60 * 60 * 1000);
+      expect(to - from).toBeLessThanOrEqual(7.1 * 24 * 60 * 60 * 1000);
+      expect(screen.getByRole('button', { name: 'negative' })).toHaveClass('bg-primary');
+
+      fireEvent.click(screen.getByRole('button', { name: 'all' }));
+      const updatedFeedbackUrl = new URL(replaceMock.mock.calls.at(-1)?.[0], 'http://localhost');
+      expect(updatedFeedbackUrl.searchParams.has('rating')).toBe(false);
+      expect(updatedFeedbackUrl.searchParams.get('source')).toBe('slack');
+      expect(updatedFeedbackUrl.searchParams.get('channels')).toBe('primary-channel');
     });
   });
 

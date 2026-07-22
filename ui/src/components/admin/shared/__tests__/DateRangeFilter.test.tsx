@@ -42,4 +42,35 @@ describe("DateRangeFilter", () => {
     expect(screen.getByRole("button", { name: "Apply" })).toBeDisabled();
     expect(onChange).not.toHaveBeenCalled();
   });
+
+  it("adopts custom endpoints changed by URL navigation", () => {
+    const onChange = jest.fn();
+    const { rerender } = render(
+      <DateRangeFilter
+        value="custom"
+        customRange={{
+          from: "2026-06-01T12:00:00.000Z",
+          to: "2026-06-03T12:00:00.000Z",
+        }}
+        onChange={onChange}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /2026-06-01/ }));
+    expect(screen.getByLabelText("From")).toHaveValue("2026-06-01");
+    expect(screen.getByLabelText("To")).toHaveValue("2026-06-03");
+
+    rerender(
+      <DateRangeFilter
+        value="custom"
+        customRange={{
+          from: "2026-07-05T12:00:00.000Z",
+          to: "2026-07-08T12:00:00.000Z",
+        }}
+        onChange={onChange}
+      />,
+    );
+
+    expect(screen.getByLabelText("From")).toHaveValue("2026-07-05");
+    expect(screen.getByLabelText("To")).toHaveValue("2026-07-08");
+  });
 });
