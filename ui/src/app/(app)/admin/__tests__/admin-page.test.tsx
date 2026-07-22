@@ -69,6 +69,14 @@ jest.mock('@/components/admin/shared/SimpleLineChart', () => ({
   SimpleLineChart: () => <div data-testid="line-chart" />,
 }));
 
+jest.mock('@/components/admin/shared/FeedbackTrendChart', () => ({
+  FeedbackTrendChart: ({
+    data,
+  }: {
+    data: Array<{ label: string; positive: number; negative: number }>;
+  }) => <div data-testid="feedback-trend-chart">{JSON.stringify(data)}</div>,
+}));
+
 jest.mock('@/components/admin/platform/MetricsTab', () => ({
   MetricsTab: () => <div data-testid="metrics-tab">MetricsTab</div>,
 }));
@@ -1623,6 +1631,31 @@ describe('Admin Dashboard Page', () => {
       expect(screen.getByText('Messages')).toBeInTheDocument();
       expect(screen.getByText('Daily Active Users (DAU)')).toBeInTheDocument();
       expect(screen.queryByText('NaN')).not.toBeInTheDocument();
+    });
+
+    it('passes positive and negative daily feedback as separate chart series', async () => {
+      setupFetchMock({
+        stats: {
+          ...mockStatsResponse,
+          data: {
+            ...mockStatsResponse.data,
+            feedback_summary: {
+              positive: 8,
+              negative: 3,
+              total: 11,
+              daily: [{ date: '2026-07-20', positive: 8, negative: 3 }],
+            },
+          },
+        },
+      });
+      render(<AdminPage />);
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Insights' }));
+
+      const chart = await screen.findByTestId('feedback-trend-chart');
+      expect(chart).toHaveTextContent('"positive":8');
+      expect(chart).toHaveTextContent('"negative":3');
+      expect(chart).not.toHaveTextContent('"value":11');
     });
 
     it('updates cards independently and issues one request per section when a filter changes', async () => {

@@ -31,6 +31,7 @@ import { PlatformSettingsTab } from "@/components/admin/settings/PlatformSetting
 import { ReleaseNotesSettingsTab } from "@/components/admin/settings/ReleaseNotesSettingsTab";
 import { ReviewConfigsTab } from "@/components/admin/settings/ReviewConfigsTab";
 import { DateRangeFilter,presetToRange,type DateRange,type DateRangePreset } from "@/components/admin/shared/DateRangeFilter";
+import { FeedbackTrendChart } from "@/components/admin/shared/FeedbackTrendChart";
 import { SimpleLineChart } from "@/components/admin/shared/SimpleLineChart";
 import { CreateTeamDialog } from "@/components/admin/teams/CreateTeamDialog";
 import { IdentitySyncPanel } from "@/components/admin/teams/IdentitySyncPanel";
@@ -2678,13 +2679,13 @@ function AdminPage() {
                             <CardDescription>Daily positive vs negative feedback</CardDescription>
                           </CardHeader>
                           <CardContent>
-                            <SimpleLineChart
+                            <FeedbackTrendChart
                               data={stats.feedback_summary.daily.map((day) => ({
                                 label: formatBucketLabel(day.date),
-                                value: day.positive + day.negative,
+                                positive: day.positive,
+                                negative: day.negative,
                               }))}
                               height={180}
-                              color="rgb(34, 197, 94)"
                             />
                           </CardContent>
                           </Card> : undefined}
