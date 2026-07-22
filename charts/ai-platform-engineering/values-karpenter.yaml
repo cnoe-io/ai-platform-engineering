@@ -1,0 +1,167 @@
+# Karpenter / EKS Auto Mode values overlay for ai-platform-engineering
+#
+# Apply on top of your base values:
+#
+#   helm upgrade --install ai-platform-engineering \
+#     oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \
+#     -f charts/ai-platform-engineering/values.yaml \
+#     -f charts/ai-platform-engineering/values-karpenter.yaml
+#
+# Design
+# ------
+# - RAG workloads are pinned to a dedicated `rag` NodePool (on-demand,
+#   memory-optimised). RAG is memory-bound and stateful, so it warrants its
+#   own instance class; the taint also keeps cheaper pods off the pricey
+#   memory-optimised nodes. Apply deploy/eks/karpenter/nodepool-rag.yaml first.
+# - Everything else — the dynamic-agents runtime, the mcp-* tool servers, and
+#   the platform services — rides the Auto Mode `general-purpose` pool, which
+#   already bin-packs and consolidates. No custom pool or taint is needed for
+#   them, which keeps scheduling out of the per-tool config path.
+# - PodDisruptionBudgets are enabled so Auto Mode node consolidation does not
+#   take a workload fully offline during voluntary disruptions. They take real
+#   effect once a workload runs >1 replica (bump replicaCount or enable HPA).
+#
+# Prerequisite: kubectl apply -f deploy/eks/karpenter/nodepool-rag.yaml
+
+# ---------------------------------------------------------------------------
+# RAG tier: dedicated `rag` NodePool (on-demand, memory-optimised)
+# Taint: workload-type=rag:NoSchedule
+# ---------------------------------------------------------------------------
+
+rag-stack:
+  rag-server:
+    nodeSelector:
+      workload-type: rag
+    tolerations:
+      - key: workload-type
+        operator: Equal
+        value: rag
+        effect: NoSchedule
+    podDisruptionBudget:
+      enabled: true
+
+  agent-ontology:
+    nodeSelector:
+      workload-type: rag
+    tolerations:
+      - key: workload-type
+        operator: Equal
+        value: rag
+        effect: NoSchedule
+    podDisruptionBudget:
+      enabled: true
+
+  rag-redis:
+    nodeSelector:
+      workload-type: rag
+    tolerations:
+      - key: workload-type
+        operator: Equal
+        value: rag
+        effect: NoSchedule
+    podDisruptionBudget:
+      enabled: true
+
+  # Optional graph backend (external chart). neo4j reads `nodeSelector` at the
+  # top level but `tolerations` under `podSpec.tolerations`, so the rag taint
+  # toleration must be set there. A top-level `tolerations:` is silently ignored
+  # and would leave neo4j Pending on the tainted rag nodes.
+  neo4j:
+    nodeSelector:
+      workload-type: rag
+    podSpec:
+      tolerations:
+        - key: workload-type
+          operator: Equal
+          value: rag
+          effect: NoSchedule
+
+  # Vector backend (external chart). milvus's own components (proxy, datanode,
+  # querynode, mixcoord, streamingnode) inherit the chart-global nodeSelector/
+  # tolerations below. Its bundled stateful deps (etcd, minio) are separate
+  # subcharts and need their own blocks.
+  milvus:
+    nodeSelector:
+      workload-type: rag
+    tolerations:
+      - key: workload-type
+        operator: Equal
+        value: rag
+        effect: NoSchedule
+    etcd:
+      nodeSelector:
+        workload-type: rag
+      tolerations:
+        - key: workload-type
+          operator: Equal
+          value: rag
+          effect: NoSchedule
+    minio:
+      nodeSelector:
+        workload-type: rag
+      tolerations:
+        - key: workload-type
+          operator: Equal
+          value: rag
+          effect: NoSchedule
+
+# ---------------------------------------------------------------------------
+# General-purpose tier: Auto Mode `general-purpose` pool.
+# No nodeSelector / tolerations — these workloads are bin-packed and
+# consolidated by Auto Mode. PDBs only, to survive node consolidation.
+# ---------------------------------------------------------------------------
+
+# Agent runtime + orchestrator. The default agents (e.g. SRE) and any
+# runtime-created agents all run inside this single deployment, so it stays on
+# the stable general-purpose pool rather than spot.
+dynamic-agents:
+  podDisruptionBudget:
+    enabled: true
+
+# MCP tool servers (mcp-argocd, mcp-github, ...) need no entries here: the
+# mcp-server chart enables a PodDisruptionBudget by default, which renders only
+# for http-mode servers (stdio servers have no Deployment). New mcp-* tools are
+# covered automatically.
+
+# Platform services
+caipe-ui:
+  podDisruptionBudget:
+    enabled: true
+
+# caipe-ui-mongodb is pulled in under the `mongodb` dependency alias
+# (condition: caipe-ui.mongodb.enabled), so its values live under `mongodb`.
+mongodb:
+  podDisruptionBudget:
+    enabled: true
+
+agentgateway:
+  podDisruptionBudget:
+    enabled: true
+
+audit-service:
+  podDisruptionBudget:
+    enabled: true
+
+skill-scanner:
+  podDisruptionBudget:
+    enabled: true
+
+slack-bot:
+  podDisruptionBudget:
+    enabled: true
+
+webex-bot:
+  podDisruptionBudget:
+    enabled: true
+
+keycloak:
+  podDisruptionBudget:
+    enabled: true
+
+openfga:
+  podDisruptionBudget:
+    enabled: true
+
+openfga-authz-bridge:
+  podDisruptionBudget:
+    enabled: true
