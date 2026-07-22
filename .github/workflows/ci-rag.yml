@@ -1,4 +1,3 @@
-# assisted-by claude code claude-sonnet-4-6
 name: "[CI] CAIPE RAG Build and Push"
 description: "Build and push CAIPE RAG Docker image"
 
