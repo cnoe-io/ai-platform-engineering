@@ -176,7 +176,6 @@ jobs:
             console.log(`Agents to retag: ${agentsToRetag.join(', ') || 'none'}`);
             console.log(`Image prefix: '${imagePrefix}'`);
 
-  # assisted-by claude code claude-sonnet-4-6
   # Build natively per-platform (no QEMU) and push by digest only;
   # merge-manifests combines the per-arch digests into the final tagged
   # multi-arch manifest list. See ci-rag.yml for the incident this pattern

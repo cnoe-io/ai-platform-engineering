@@ -164,7 +164,6 @@ jobs:
           echo "image_prefix=$IMAGE_PREFIX" >> $GITHUB_OUTPUT
           echo "Outputs: build=$SHOULD_BUILD, retag=$SHOULD_RETAG, prefix=$IMAGE_PREFIX"
 
-  # assisted-by claude code claude-sonnet-4-6
   # Build natively per-platform (no QEMU) and push by digest only;
   # merge-manifests combines the per-arch digests into the final tagged
   # multi-arch manifest list. See ci-rag.yml for the incident this pattern

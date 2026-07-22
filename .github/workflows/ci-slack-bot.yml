@@ -160,7 +160,6 @@ jobs:
           cd ../../..
           uv run --project ai_platform_engineering/integrations/slack_bot pytest ai_platform_engineering/integrations/slack_bot/tests/ -v -m "not integration"
 
-  # assisted-by claude code claude-sonnet-4-6
   # Build natively per-platform (no QEMU) and push by digest only;
   # merge-manifests combines the per-arch digests into the final tagged
   # multi-arch manifest list. See ci-rag.yml for the incident this pattern
