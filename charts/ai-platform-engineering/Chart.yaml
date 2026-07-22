@@ -221,3 +221,9 @@ dependencies:
   - name: agentgateway
     version: 0.5.56-dev.3 # Do NOT bump this. It will be updated automatically using the PR or release workflow
     condition: agentgateway.enabled
+  # LiteLLM proxy: the default central LLM routing layer. Default-off and stateless
+  # (no database). Agents route via provider=openai to this proxy, which translates to the
+  # real upstream provider. See charts/litellm/README.md.
+  - name: litellm
+    version: 0.5.55 # Do NOT bump this. It will be updated automatically using the PR or release workflow
+    condition: llmRouting.litellm.enabled
