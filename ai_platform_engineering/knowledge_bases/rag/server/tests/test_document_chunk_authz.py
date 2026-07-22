@@ -55,7 +55,7 @@ def client() -> TestClient:
 
 @pytest.fixture(autouse=True)
 def _wire(monkeypatch: pytest.MonkeyPatch):
-    restapi.app.dependency_overrides[require_authenticated_user] = lambda: _user()
+    restapi.app.dependency_overrides[require_authenticated_user] = _user
     monkeypatch.setattr(restapi, "vector_db", MagicMock(), raising=False)
     yield
     restapi.app.dependency_overrides.clear()

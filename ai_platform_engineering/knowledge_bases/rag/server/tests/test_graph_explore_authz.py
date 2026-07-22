@@ -66,7 +66,7 @@ def client() -> TestClient:
 
 @pytest.fixture(autouse=True)
 def _wire(monkeypatch: pytest.MonkeyPatch):
-    restapi.app.dependency_overrides[require_authenticated_user] = lambda: _user()
+    restapi.app.dependency_overrides[require_authenticated_user] = _user
     graph_db = AsyncMock()
     monkeypatch.setattr(restapi, "data_graph_db", graph_db, raising=False)
     yield graph_db
