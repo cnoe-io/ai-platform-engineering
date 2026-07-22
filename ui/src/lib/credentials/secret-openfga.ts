@@ -55,6 +55,15 @@ export function buildSecretRefOwnerTuples(input: {
     );
   }
 
+  if (input.owner.type === "organization" && validId(input.owner.id)) {
+    tuples.push(
+      { user: `organization:${input.owner.id}#member`, relation: "metadata_reader", object },
+      { user: `organization:${input.owner.id}#member`, relation: "user", object },
+      { user: `organization:${input.owner.id}#admin`, relation: "manager", object },
+      { user: `organization:${input.owner.id}#admin`, relation: "auditor", object },
+    );
+  }
+
   return unique(tuples);
 }
 
