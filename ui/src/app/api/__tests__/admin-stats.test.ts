@@ -1094,6 +1094,53 @@ describe('GET /api/admin/stats — Full Response Shape', () => {
 });
 
 // ============================================================================
+// Tests: independently loadable sections
+// ============================================================================
+
+describe('GET /api/admin/stats — Section Responses', () => {
+  beforeEach(resetMocks);
+
+  it('returns only the requested section and skips unrelated database queries', async () => {
+    const { feedbackCol } = setupAdminWithCollections();
+
+    const res = await GET(makeRequest('/api/admin/stats?section=overview'));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.data).toHaveProperty('overview');
+    expect(body.data).not.toHaveProperty('daily_activity');
+    expect(body.data).not.toHaveProperty('feedback_summary');
+    expect(body.data).not.toHaveProperty('top_users');
+    expect(feedbackCol.aggregate).not.toHaveBeenCalled();
+    expect(mockGetAllAgents).not.toHaveBeenCalled();
+  });
+
+  it('isolates feedback queries and payload fields from the other cards', async () => {
+    const { feedbackCol } = setupAdminWithCollections();
+
+    const res = await GET(makeRequest('/api/admin/stats?section=feedback'));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.data).toHaveProperty('feedback_summary');
+    expect(body.data).toHaveProperty('platform_summary');
+    expect(body.data).not.toHaveProperty('overview');
+    expect(body.data).not.toHaveProperty('response_time');
+    expect(feedbackCol.aggregate).toHaveBeenCalledTimes(4);
+  });
+
+  it('rejects unknown section names', async () => {
+    setupAdminWithCollections();
+
+    const res = await GET(makeRequest('/api/admin/stats?section=unknown'));
+    const body = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(body.code).toBe('INVALID_STATS_SECTION');
+  });
+});
+
+// ============================================================================
 // Tests: parseRange — from/to support and sub-day presets
 // ============================================================================
 
