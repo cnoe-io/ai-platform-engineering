@@ -1,17 +1,17 @@
 name: "[Release] Tome Agent Release"
-description: "Tag and build a tome-agent release from the current main HEAD."
+description: "Tag and build a tome-agent release from the current branch HEAD (main or a release/* branch)."
 
 # Usage:
-#   GitHub UI → Actions → "[Release] Tome Agent Release" → Run workflow
-#   gh workflow run release-tome.yml
+#   GitHub UI → Actions → "[Release] Tome Agent Release" → Run workflow (choose branch: main or release/*)
+#   gh workflow run release-tome.yml --ref main
 #
 # What this does:
-#   1. Reads the nearest semver release tag on main to determine X.Y.Z.
-#   2. Computes the short SHA of HEAD.
-#   3. Derives image/git tag: X.Y.Z-tome-<sha>
+#   1. Reads the nearest semver release tag to determine X.Y.Z.
+#   2. Computes the short SHA of HEAD and a branch tag ("main" or "release").
+#   3. Derives image/git tag: X.Y.Z-tome-<branch-tag>-<sha>
 #   4. Bumps ai_platform_engineering/agents/tome/pyproject.toml to that version.
-#   5. Commits to main and creates annotated git tag tome-agent-X.Y.Z-tome-<sha>.
-#   6. Dispatches ci-tome-agent.yml with tag_version=X.Y.Z-tome-<sha>.
+#   5. Commits to the branch and creates annotated git tag tome-agent-X.Y.Z-tome-<branch-tag>-<sha>.
+#   6. Dispatches ci-tome-agent.yml with tag_version=X.Y.Z-tome-<branch-tag>-<sha>.
 #   7. Creates a draft GitHub release.
 
 on:
@@ -33,10 +33,10 @@ jobs:
         with:
           egress-policy: audit
 
-      - name: 📥 Checkout main
+      - name: 📥 Checkout branch
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v4
         with:
-          ref: main
+          ref: ${{ github.ref_name }}
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -51,15 +51,26 @@ jobs:
             exit 1
           fi
 
+          REF_NAME="${{ github.ref_name }}"
+          if [[ "$REF_NAME" == "main" ]]; then
+            BRANCH_TAG="main"
+          elif [[ "$REF_NAME" == release/* ]]; then
+            BRANCH_TAG="release"
+          else
+            echo "❌ Releases can only be cut from 'main' or a 'release/*' branch (got '$REF_NAME')"
+            exit 1
+          fi
+
           SHORT=$(git rev-parse --short HEAD)
-          VERSION="${BASE}-tome-${SHORT}"
+          VERSION="${BASE}-tome-${BRANCH_TAG}-${SHORT}"
           GIT_TAG="tome-agent-${VERSION}"
 
-          echo "base=$BASE"       >> "$GITHUB_OUTPUT"
-          echo "short=$SHORT"     >> "$GITHUB_OUTPUT"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "git_tag=$GIT_TAG" >> "$GITHUB_OUTPUT"
-          echo "✅ base=$BASE  sha=$SHORT  version=$VERSION"
+          echo "base=$BASE"             >> "$GITHUB_OUTPUT"
+          echo "branch_tag=$BRANCH_TAG" >> "$GITHUB_OUTPUT"
+          echo "short=$SHORT"           >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION"       >> "$GITHUB_OUTPUT"
+          echo "git_tag=$GIT_TAG"       >> "$GITHUB_OUTPUT"
+          echo "✅ base=$BASE  branch_tag=$BRANCH_TAG  sha=$SHORT  version=$VERSION"
 
       - name: 🔍 Check tag doesn't already exist
         run: |
@@ -93,7 +104,7 @@ jobs:
           echo "📦 Dispatching ci-tome-agent.yml with tag_version=$VERSION"
           gh workflow run ci-tome-agent.yml \
             --repo "${{ github.repository }}" \
-            --ref main \
+            --ref "${{ github.ref_name }}" \
             -f tag_version="$VERSION"
           echo "✅ Dispatch sent"
 
@@ -121,6 +132,7 @@ jobs:
           | Item | Value |
           |------|-------|
           | Base release | \`${{ steps.ver.outputs.base }}\` |
+          | Branch | \`${{ github.ref_name }}\` (\`${{ steps.ver.outputs.branch_tag }}\`) |
           | Short SHA | \`${{ steps.ver.outputs.short }}\` |
           | Version | \`$VERSION\` |
           | Git tag | \`$GIT_TAG\` |
