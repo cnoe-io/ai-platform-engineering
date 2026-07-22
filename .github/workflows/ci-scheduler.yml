@@ -114,8 +114,12 @@ jobs:
           echo "image_prefix=$IMAGE_PREFIX"              >> $GITHUB_OUTPUT
           echo "Outputs: scheduler=$BUILD_SCHED, cron_runner=$BUILD_RUNNER, prefix=$IMAGE_PREFIX"
 
+  # Build natively per-platform (no QEMU) and push by digest only;
+  # merge-manifests combines the per-arch digests into the final tagged
+  # multi-arch manifest list. See ci-rag.yml for the incident this pattern
+  # was introduced to fix (QEMU-emulated arm64 timing out/OOMing).
   build-and-push:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     needs: determine-changes
     permissions:
       contents: read
@@ -129,11 +133,33 @@ jobs:
             context: .
             dockerfile: build/Dockerfile.scheduler
             should_build: ${{ needs.determine-changes.outputs.should_build_scheduler }}
+            platform: linux/amd64
+            runner: ubuntu-latest
+            arch: amd64
+          - name: scheduler
+            image: caipe-scheduler
+            context: .
+            dockerfile: build/Dockerfile.scheduler
+            should_build: ${{ needs.determine-changes.outputs.should_build_scheduler }}
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            arch: arm64
           - name: cron-runner
             image: caipe-cron-runner
             context: .
             dockerfile: build/Dockerfile.cron-runner
             should_build: ${{ needs.determine-changes.outputs.should_build_cron_runner }}
+            platform: linux/amd64
+            runner: ubuntu-latest
+            arch: amd64
+          - name: cron-runner
+            image: caipe-cron-runner
+            context: .
+            dockerfile: build/Dockerfile.cron-runner
+            should_build: ${{ needs.determine-changes.outputs.should_build_cron_runner }}
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            arch: arm64
     env:
       REGISTRY: ghcr.io
       IMAGE_NAME: ${{ github.repository_owner }}/${{ needs.determine-changes.outputs.image_prefix }}${{ matrix.image }}
@@ -141,7 +167,7 @@ jobs:
     steps:
       - name: Skip if not building this image
         if: matrix.should_build != 'true'
-        run: echo "Nothing to build for ${{ matrix.name }}; exiting."
+        run: echo "Nothing to build for ${{ matrix.name }} (${{ matrix.arch }}); exiting."
 
       - name: Harden runner
         if: matrix.should_build == 'true'
@@ -177,22 +203,112 @@ jobs:
             type=ref,event=tag,prefix=
             type=sha,format=short,prefix=
 
-      - name: Set up QEMU
+      - name: Build and push by digest
         if: matrix.should_build == 'true'
-        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4
-
-      - name: Build and Push Docker image
-        if: matrix.should_build == 'true'
+        id: build
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
-          # Push only on tag or manual dispatch; PR builds validate without publishing.
-          push: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/') }}
-          tags: ${{ steps.meta.outputs.tags }}
+          platforms: ${{ matrix.platform }}
           labels: ${{ steps.meta.outputs.labels }}
-          platforms: linux/amd64,linux/arm64
-          cache-from: type=gha,scope=${{ matrix.name }}
-          cache-to: type=gha,mode=min,scope=${{ matrix.name }}
+          # Push only on tag or manual dispatch; PR builds validate without publishing.
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=${{ github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/') }}
+          cache-from: type=gha,scope=${{ matrix.name }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=min,scope=${{ matrix.name }}-${{ matrix.arch }}
           provenance: false
           sbom: false
+
+      - name: Export digest
+        if: matrix.should_build == 'true' && (github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/'))
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        if: matrix.should_build == 'true' && (github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/'))
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: digests-${{ matrix.name }}-${{ matrix.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # Combine the per-arch digests into a single tagged multi-arch manifest
+  # list, one matrix entry per image (scheduler, cron-runner).
+  merge-manifests:
+    runs-on: ubuntu-latest
+    needs: [determine-changes, build-and-push]
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: scheduler
+            image: caipe-scheduler
+            should_build: ${{ needs.determine-changes.outputs.should_build_scheduler }}
+          - name: cron-runner
+            image: caipe-cron-runner
+            should_build: ${{ needs.determine-changes.outputs.should_build_cron_runner }}
+    env:
+      REGISTRY: ghcr.io
+      IMAGE_NAME: ${{ github.repository_owner }}/${{ needs.determine-changes.outputs.image_prefix }}${{ matrix.image }}
+    steps:
+      - name: Skip if not building this image
+        if: matrix.should_build != 'true'
+        run: echo "Nothing to merge for ${{ matrix.name }}; exiting."
+
+      - name: Harden runner
+        if: matrix.should_build == 'true'
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
+      - name: Download digests
+        if: matrix.should_build == 'true'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: digests-${{ matrix.name }}-*
+          path: /tmp/digests
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        if: matrix.should_build == 'true'
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
+
+      - name: Log in to GitHub Container Registry
+        if: matrix.should_build == 'true'
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Extract metadata for Docker
+        if: matrix.should_build == 'true'
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' || (startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-rc.') && !contains(github.ref_name, '-hotfix.') && !contains(github.ref_name, '-chart.')) }}
+            type=raw,value=${{ needs.determine-changes.outputs.tag_version }},enable=${{ needs.determine-changes.outputs.tag_version != '' }}
+            type=ref,event=tag,prefix=
+            type=sha,format=short,prefix=
+
+      - name: Create manifest list and push
+        if: matrix.should_build == 'true'
+        working-directory: /tmp/digests
+        run: |
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf '${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@sha256:%s ' *)
+
+      - name: Inspect image
+        if: matrix.should_build == 'true'
+        run: |
+          docker buildx imagetools inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}
