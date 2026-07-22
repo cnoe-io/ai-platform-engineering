@@ -11,8 +11,8 @@
  * - Authentication: 401 when unauthenticated
  * - Authorization: 403 when non-admin (OIDC + MongoDB fallback)
  * - MongoDB guard: 503 when MongoDB is not configured
- * - Overview stats: total users, conversations, messages, DAU, MAU, shared,
- *   avg messages per conversation
+ * - Overview stats: total users, conversations, assistant messages, DAU, MAU,
+ *   shared, avg assistant messages per conversation
  * - Daily activity: optimized 30-day aggregation (3 pipelines vs 90 queries)
  * - Top users by conversations: direct owner_id group
  * - Top users by messages: $lookup fallback for legacy messages without owner_id
@@ -369,9 +369,8 @@ describe('GET /api/admin/stats — Overview', () => {
     // Promise.all order (no filters):
     // users: totalUsers, dau, mau
     // conversations: totalConversations, conversationsToday, sharedConversations
-    // messages: totalMessages, messagesToday — a single unfiltered count each,
-    // covering every metadata.source (not just 'web'/'slack'), so message
-    // counts stay in sync with conversation counts.
+    // messages: totalMessages, messagesToday — assistant rows across every
+    // metadata.source (not just 'web'/'slack').
     usersCol.countDocuments
       .mockResolvedValueOnce(15)   // totalUsers
       .mockResolvedValueOnce(3)    // dau
@@ -407,6 +406,41 @@ describe('GET /api/admin/stats — Overview', () => {
     expect(usersCol.countDocuments).toHaveBeenNthCalledWith(1, {
       last_login: { $gte: expect.any(Date) },
     });
+  });
+
+  it('excludes human messages from overview and activity metrics', async () => {
+    const { msgCol } = setupAdminWithCollections();
+
+    await GET(makeRequest('/api/admin/stats'));
+
+    // Overview total + today must both count only AI-platform output.
+    expect(msgCol.countDocuments).toHaveBeenCalledTimes(2);
+    for (const [filter] of msgCol.countDocuments.mock.calls) {
+      expect(filter).toEqual(expect.objectContaining({ role: 'assistant' }));
+    }
+
+    // The daily activity and top-users aggregations share the same invariant.
+    type PipelineStage = {
+      $group?: Record<string, unknown>;
+      $lookup?: { from?: string };
+      $match?: Record<string, unknown>;
+    };
+    const pipelines = msgCol.aggregate.mock.calls.map(
+      (call: unknown[]) => call[0] as PipelineStage[]
+    );
+    const dailyPipeline = pipelines.find((pipeline) =>
+      pipeline.some((stage) => stage.$group?.messages)
+    );
+    const topUsersPipeline = pipelines.find((pipeline) =>
+      pipeline.some((stage) => stage.$lookup?.from === 'conversations')
+    );
+
+    expect(dailyPipeline?.[0].$match).toEqual(
+      expect.objectContaining({ role: 'assistant' })
+    );
+    expect(topUsersPipeline?.[0].$match).toEqual(
+      expect.objectContaining({ role: 'assistant' })
+    );
   });
 
   it('computes avg_messages_per_conversation correctly', async () => {
