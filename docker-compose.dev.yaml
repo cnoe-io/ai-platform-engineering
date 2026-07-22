@@ -1065,6 +1065,31 @@ services:
       - dynamic-agents
 
   ####################################################################################################
+  #              Observability — Prometheus (local dev, opt-in via `monitoring` profile)             #
+  #  Scrapes caipe-ui-prod, dynamic-agents, and tome-agent's /metrics. Set PROMETHEUS_URL=            #
+  #  http://localhost:9090 in .env so the Admin > Metrics/Health tabs pick it up.                     #
+  ####################################################################################################
+
+  prometheus:
+    image: prom/prometheus:v3.13.1
+    container_name: caipe-prometheus-dev
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    extra_hosts:
+      # Docker Desktop (macOS/Windows) provides host.docker.internal out of
+      # the box; this makes the tome-agent scrape target also resolve on
+      # Linux hosts (see deploy/prometheus/prometheus.yml).
+      - "host.docker.internal:host-gateway"
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=6h
+    restart: unless-stopped
+    profiles:
+      - monitoring
+
+  ####################################################################################################
   #                                      RAG Services                                                #
   ####################################################################################################
 

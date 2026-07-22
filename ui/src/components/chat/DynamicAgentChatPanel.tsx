@@ -6,7 +6,6 @@ import { MarkdownRenderer } from "@/components/shared/timeline";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/components/ui/toast";
-import { Tooltip,TooltipContent,TooltipProvider,TooltipTrigger } from "@/components/ui/tooltip";
 import { useAgentTimeline } from "@/hooks/useDynamicAgentTimeline";
 import { apiClient,APIClientError } from "@/lib/api-client";
 import { authErrorToastTitle,type AuthError } from "@/lib/auth-error";
@@ -21,7 +20,7 @@ import { useFeatureFlagStore } from "@/store/feature-flag-store";
 import { buildParticipants,ChatMessage as ChatMessageType,Conversation,TurnStatus } from "@/types/a2a";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 import { AnimatePresence,motion } from "framer-motion";
-import { Activity,ArrowDown,ArrowLeft,Check,ChevronUp,Copy,Loader2,RotateCcw,Send,ShieldCheck,Sparkles,Square,User } from "lucide-react";
+import { Activity,ArrowDown,ArrowLeft,ChevronUp,Loader2,RotateCcw,Send,ShieldCheck,Sparkles,Square,User } from "lucide-react";
 import { resolveUsableChatAgentId } from "@/lib/chat-agent-selection";
 import { AgentPicker } from "@/components/ui/agent-picker";
 import { signIn,useSession } from "next-auth/react";
@@ -31,7 +30,9 @@ import React,{ useCallback,useEffect,useMemo,useRef,useState } from "react";
 import TextareaAutosize from "react-textarea-autosize";
 import { DEFAULT_AGENTS } from "./CustomCallButtons";
 import { AgentTimeline,type SubagentLookupInfo } from "./DynamicAgentTimeline";
-import { Feedback,FeedbackButton } from "./FeedbackButton";
+import type { Feedback } from "./FeedbackButton";
+import { MessageActions } from "./MessageActions";
+import { AuditNotice } from "./AuditNotice";
 import { MetadataInputForm,type InputField,type UserInputMetadata } from "./MetadataInputForm";
 import { getFilteredCommands,SlashCommandMenu,type SlashCommand } from "./SlashCommandMenu";
 import { ToolApprovalCard } from "./ToolApprovalCard";
@@ -109,7 +110,6 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
   }, [session?.user?.name]);
 
   const [input, setInput] = useState("");
-  const [copiedId, setCopiedId] = useState<string | null>(null);
   const [queuedMessages, setQueuedMessages] = useState<string[]>([]);
   const [showSlashMenu, setShowSlashMenu] = useState(false);
   const [slashFilter, setSlashFilter] = useState("");
@@ -715,12 +715,6 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeConversationId, conversation?.messages?.length, conversation?.streamEvents?.length, lastMsgEventsLen, isThisConversationStreaming, agentId]);
-
-  const handleCopy = async (content: string, id: string) => {
-    await navigator.clipboard.writeText(content);
-    setCopiedId(id);
-    setTimeout(() => setCopiedId(null), 2000);
-  };
 
   // ═══════════════════════════════════════════════════════════════
   // Streaming state & helpers
@@ -1762,8 +1756,6 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
                         <ChatMessage
                           key={msg.id}
                           message={msg}
-                          onCopy={handleCopy}
-                          isCopied={copiedId === msg.id}
                           isStreaming={isAssistantStreaming}
                           isLatestAnswer={isLastAssistantMessage}
                           onRetry={getRetryContent() ? () => handleRetry(getRetryContent()!) : undefined}
@@ -2070,8 +2062,7 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
           </div>
 
           <p className="text-xs text-muted-foreground text-center">
-            {getConfig('appName')} can make mistakes. Verify important info.
-            {getConfig('auditLogsEnabled') && ' · Conversations are logged for audit.'}
+            <AuditNotice />
           </p>
         </div>
       </div>
@@ -2192,8 +2183,6 @@ const LoadEarlierDivider = React.memo(function LoadEarlierDivider({
 
 interface ChatMessageProps {
   message: ChatMessageType;
-  onCopy: (content: string, id: string) => void;
-  isCopied: boolean;
   isStreaming?: boolean;
   isLatestAnswer?: boolean;
   onRetry?: () => void;
@@ -2223,8 +2212,6 @@ interface ChatMessageProps {
 
 const ChatMessage = React.memo(function ChatMessage({
   message,
-  onCopy,
-  isCopied,
   isStreaming = false,
   isLatestAnswer = false,
   onRetry,
@@ -2364,49 +2351,16 @@ const ChatMessage = React.memo(function ChatMessage({
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: isHovered ? 1 : 0.8 }}
-              className="flex items-center gap-1 mt-2 justify-end"
+              className="mt-2"
             >
-              {onRetry && (
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7 text-muted-foreground hover:text-foreground hover:bg-muted"
-                        onClick={onRetry}
-                      >
-                        <RotateCcw className="h-3.5 w-3.5" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      Retry this prompt
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              )}
-
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 text-muted-foreground hover:text-foreground hover:bg-muted"
-                      onClick={() => onCopy(message.content, message.id)}
-                    >
-                      {isCopied ? (
-                        <Check className="h-3.5 w-3.5 text-green-400" />
-                      ) : (
-                        <Copy className="h-3.5 w-3.5" />
-                      )}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    {isCopied ? "Copied!" : "Copy message"}
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
+              <MessageActions
+                content={message.content}
+                messageId={message.id}
+                onRetry={onRetry}
+                retryLabel="Retry this prompt"
+                copyLabel="Copy message"
+                className="justify-end"
+              />
             </motion.div>
           </>
         ) : (
@@ -2481,60 +2435,21 @@ const ChatMessage = React.memo(function ChatMessage({
               </div>
             ) : null}
 
-            {/* Action buttons (copy, retry, collapse) */}
+            {/* Action buttons (copy, retry, feedback) */}
             {displayContent && (
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: isHovered ? 1 : 0.8 }}
-                className="flex items-center gap-1 mt-2"
+                className="mt-2"
               >
-                {onRetry && (
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 text-muted-foreground hover:text-foreground hover:bg-muted"
-                          onClick={onRetry}
-                        >
-                          <RotateCcw className="h-3.5 w-3.5" />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        Regenerate response
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                )}
-
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7 text-muted-foreground hover:text-foreground hover:bg-muted"
-                        onClick={() => onCopy(displayContent, message.id)}
-                      >
-                        {isCopied ? (
-                          <Check className="h-3.5 w-3.5 text-green-500" />
-                        ) : (
-                          <Copy className="h-3.5 w-3.5" />
-                        )}
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {isCopied ? "Copied!" : "Copy response"}
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-
-                <div className="h-4 w-px bg-border/50" />
-
-                <FeedbackButton
+                <MessageActions
+                  content={displayContent}
                   messageId={message.id}
                   conversationId={conversationId}
+                  onRetry={onRetry}
+                  retryLabel="Regenerate response"
+                  copyLabel="Copy response"
+                  showFeedback
                   feedback={feedback}
                   onFeedbackChange={onFeedbackChange}
                 />

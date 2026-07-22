@@ -13,6 +13,7 @@ dependencies = [
     "pydantic==2.13.4",
     "pydantic-settings==2.14.1",
     "pyyaml==6.0.3",
+    "prometheus-client==0.23.1",
 ]
 
 [build-system]

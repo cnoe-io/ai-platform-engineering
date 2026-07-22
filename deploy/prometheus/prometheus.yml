@@ -1,0 +1,29 @@
+# Local dev Prometheus — scrapes the services that expose /metrics in this
+# compose stack. Opt-in via the `monitoring` profile (see docker-compose.dev.yaml);
+# not part of the default first-install path.
+#
+# tome-agent is scraped via `host.docker.internal`, not a compose service name,
+# because it runs in a separate compose project (docker-compose.tome.yaml) with
+# its own default network. It publishes its container port 8766 to host port
+# 9500 (see docker-compose.tome.yaml), so this works whether or not that
+# project's network has been bridged into this one. host.docker.internal is
+# provided out of the box by Docker Desktop (macOS/Windows); on Linux add
+# `extra_hosts: ["host.docker.internal:host-gateway"]` to the prometheus
+# service (already set in docker-compose.dev.yaml).
+
+global:
+  scrape_interval: 15s
+  scrape_timeout: 10s
+
+scrape_configs:
+  - job_name: caipe-ui
+    static_configs:
+      - targets: ["caipe-ui-prod:3000"]
+
+  - job_name: dynamic-agents
+    static_configs:
+      - targets: ["dynamic-agents:8001"]
+
+  - job_name: tome-agent
+    static_configs:
+      - targets: ["host.docker.internal:9500"]

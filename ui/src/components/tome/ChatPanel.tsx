@@ -4,6 +4,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowUp, Bot, Eraser, Loader2, Sparkles, Wrench } from "lucide-react";
 import TextareaAutosize from "react-textarea-autosize";
 
+import { AuditNotice } from "@/components/chat/AuditNotice";
+import type { Feedback } from "@/components/chat/FeedbackButton";
+import { MessageActions } from "@/components/chat/MessageActions";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -37,12 +40,23 @@ type Role = "user" | "assistant";
 // `ChatPart` (@/types/tome) so a reloaded transcript re-renders faithfully.
 
 interface ChatMsg {
+  /** Client-generated, stable for the life of the session — used as the
+   *  copy/feedback key (`MessageActions`). Not persisted; a reload gets a
+   *  fresh id, which is fine since feedback is a point-in-time action. */
+  id: string;
   role: Role;
   parts: Part[];
   pending?: boolean;
   /** Rendered as a centered system notice (e.g. "Context compacted"), not a chat bubble. */
   system?: boolean;
+  /** Thumbs up/down state for assistant turns (via shared `MessageActions`). */
+  feedback?: Feedback;
 }
+
+const newMessageId = (): string =>
+  typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `tmp-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
 interface Props {
   slug: string;
@@ -65,6 +79,9 @@ export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }:
   // sdk_session_id (agent resume hint) + tome session _id (durable transcript).
   const sessionRef = useRef<string | null>(null);
   const sessionIdRef = useRef<string | null>(null);
+  // Mirrors sessionIdRef in state so it can be passed as a reactive prop
+  // (feedback/Langfuse grouping) — the ref itself doesn't trigger re-renders.
+  const [sessionId, setSessionId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   // Keep the transcript pinned to the latest turn, but only if the user
@@ -104,8 +121,10 @@ export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }:
         if (cancelled || !data) return;
         sessionIdRef.current = data.session?.id ?? null;
         sessionRef.current = data.session?.sdkSessionId ?? null;
+        setSessionId(sessionIdRef.current);
         const msgs: ChatMsg[] = (data.messages ?? []).map(
           (m: { role: Role; content?: string; parts?: Part[] | null }) => ({
+            id: newMessageId(),
             role: m.role,
             parts:
               Array.isArray(m.parts) && m.parts.length
@@ -147,7 +166,10 @@ export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }:
         });
         if (res.ok) {
           const sid = (await res.json().catch(() => null))?.data?.sessionId;
-          if (typeof sid === "string") sessionIdRef.current = sid;
+          if (typeof sid === "string") {
+            sessionIdRef.current = sid;
+            setSessionId(sid);
+          }
         }
       } catch {
         /* best-effort persistence */
@@ -158,6 +180,15 @@ export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }:
 
   const textOf = (parts: Part[]): string =>
     parts.map((p) => (p.kind === "text" ? p.text : "")).join("");
+
+  // Thumbs up/down for a single turn (shared `MessageActions`/`FeedbackButton`).
+  // Feedback itself is best-effort telemetry (Langfuse + Mongo `feedback`
+  // collection) — it doesn't touch the tome-owned transcript/session state.
+  const updateFeedback = useCallback((id: string, feedback: Feedback) => {
+    setMessages((msgs) =>
+      msgs.map((m) => (m.id === id ? { ...m, feedback } : m)),
+    );
+  }, []);
 
   // Clear: start a fresh session. Wipes the visible transcript and the SDK
   // resume hint together — a deliberate full reset, not just an internal
@@ -172,6 +203,7 @@ export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }:
         ? (await res.json().catch(() => null))?.data?.sessionId
         : null;
       sessionIdRef.current = typeof sid === "string" ? sid : null;
+      setSessionId(sessionIdRef.current);
     } finally {
       sessionRef.current = null;
       setMessages([]);
@@ -197,7 +229,7 @@ export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }:
         const detail = await res.text().catch(() => "");
         setMessages((m) => [
           ...m,
-          { role: "assistant", system: true, parts: [{ kind: "text", text: `⚠️ Compact failed. ${detail.slice(0, 300)}` }] },
+          { id: newMessageId(), role: "assistant", system: true, parts: [{ kind: "text", text: `⚠️ Compact failed. ${detail.slice(0, 300)}` }] },
         ]);
         return;
       }
@@ -232,24 +264,24 @@ export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }:
         : `⚠️ Compact did not complete${erroredMessage ? `: ${erroredMessage}` : " (no confirmation from the agent)."}`;
       setMessages((m) => [
         ...m,
-        { role: "assistant", system: true, parts: [{ kind: "text", text }] },
+        { id: newMessageId(), role: "assistant", system: true, parts: [{ kind: "text", text }] },
       ]);
     } finally {
       setCompacting(false);
     }
   }, [slug, streaming, compacting]);
 
-  const send = useCallback(async () => {
-    const text = input.trim();
+  const send = useCallback(async (overrideText?: string) => {
+    const text = (overrideText ?? input).trim();
     // Also blocked while compacting: both calls resume the same sdk_session_id,
     // so a concurrent send would race the SDK's compaction turn.
     if (!text || streaming || compacting) return;
-    setInput("");
+    if (overrideText === undefined) setInput("");
     setStreaming(true);
     setMessages((m) => [
       ...m,
-      { role: "user", parts: [{ kind: "text", text }] },
-      { role: "assistant", parts: [], pending: true },
+      { id: newMessageId(), role: "user", parts: [{ kind: "text", text }] },
+      { id: newMessageId(), role: "assistant", parts: [], pending: true },
     ]);
 
     // Persist the user turn — this also creates the durable session on the very
@@ -357,6 +389,18 @@ export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }:
     }
   }, [input, streaming, compacting, slug, onPagesChanged, persist]);
 
+  // Regenerate: re-sends the same prompt as a fresh turn (append, not
+  // in-place replace — the SDK session already has the prior answer in its
+  // own history, so this mirrors the main chat's retry semantics rather than
+  // attempting a true rewrite of agent-side context).
+  const handleRegenerate = useCallback(
+    (text: string) => {
+      if (streaming || compacting) return;
+      void send(text);
+    },
+    [streaming, compacting, send],
+  );
+
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-end gap-1 border-b px-3 py-1.5">
@@ -398,14 +442,34 @@ export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }:
       <ScrollArea viewportRef={scrollRef} className="flex-1">
         <div className="mx-auto flex max-w-4xl flex-col gap-5 px-6 py-8">
           {messages.length === 0 && !loadingHistory && <EmptyState slug={slug} />}
-          {messages.map((m, i) => (
-            <MessageRow
-              key={i}
-              msg={m}
-              onOpenPage={onOpenPage}
-              glossaryPreview={glossaryPreview}
-            />
-          ))}
+          {messages.map((m, i) => {
+            // Regenerate needs the prompt that produced this turn: the
+            // message's own text if it's a user turn, else the nearest
+            // preceding user turn (mirrors the main chat's getRetryContent).
+            let retryText: string | null = null;
+            if (m.role === "user") {
+              retryText = textOfParts(m.parts);
+            } else {
+              for (let j = i - 1; j >= 0; j--) {
+                if (messages[j].role === "user") {
+                  retryText = textOfParts(messages[j].parts);
+                  break;
+                }
+              }
+            }
+            return (
+              <MessageRow
+                key={m.id}
+                msg={m}
+                conversationId={sessionId ?? `tome-${slug}`}
+                onOpenPage={onOpenPage}
+                glossaryPreview={glossaryPreview}
+                onFeedbackChange={(feedback) => updateFeedback(m.id, feedback)}
+                onRetry={retryText ? () => handleRegenerate(retryText!) : undefined}
+                retryDisabled={streaming || compacting}
+              />
+            );
+          })}
         </div>
       </ScrollArea>
 
@@ -441,6 +505,9 @@ export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }:
             )}
           </Button>
         </div>
+        <p className="pointer-events-none mt-1.5 text-center text-xs text-muted-foreground">
+          <AuditNotice />
+        </p>
       </div>
 
       <Dialog open={confirmDialog === "compact"} onOpenChange={(open) => !open && setConfirmDialog(null)}>
@@ -513,12 +580,20 @@ function EmptyState({ slug }: { slug: string }) {
 
 function MessageRow({
   msg,
+  conversationId,
   onOpenPage,
   glossaryPreview,
+  onFeedbackChange,
+  onRetry,
+  retryDisabled,
 }: {
   msg: ChatMsg;
+  conversationId?: string;
   onOpenPage?: (path: string) => void;
   glossaryPreview?: GlossaryResolver;
+  onFeedbackChange?: (feedback: Feedback) => void;
+  onRetry?: () => void;
+  retryDisabled?: boolean;
 }) {
   if (msg.system) {
     const text = msg.parts.map((p) => (p.kind === "text" ? p.text : "")).join("");
@@ -536,10 +611,19 @@ function MessageRow({
   if (isUser) {
     const text = msg.parts.map((p) => (p.kind === "text" ? p.text : "")).join("");
     return (
-      <div className="flex justify-end gap-3">
+      <div className="group flex flex-col items-end gap-1">
         <div className="max-w-[80%] whitespace-pre-wrap rounded-2xl bg-primary px-4 py-2 text-sm text-primary-foreground">
           <span className="selection:bg-primary-foreground selection:text-primary">{text}</span>
         </div>
+        <MessageActions
+          content={text}
+          messageId={msg.id}
+          copyLabel="Copy message"
+          onRetry={onRetry}
+          retryLabel="Retry this prompt"
+          disabled={retryDisabled}
+          className="justify-end"
+        />
       </div>
     );
   }
@@ -556,9 +640,10 @@ function MessageRow({
   const showDots =
     msg.pending && (msg.parts.length === 0 || lastPart?.kind === "tool");
   const groups = groupToolParts(msg.parts);
+  const hasText = msg.parts.some((p) => p.kind === "text" && p.text.trim());
 
   return (
-    <div className="flex gap-3">
+    <div className="group flex gap-3">
       <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10">
         <Bot className="h-4 w-4 text-primary" />
       </div>
@@ -586,9 +671,27 @@ function MessageRow({
             <PendingDots />
           </div>
         )}
+        {!msg.pending && hasText && (
+          <MessageActions
+            content={textOfParts(msg.parts)}
+            messageId={msg.id}
+            conversationId={conversationId}
+            copyLabel="Copy response"
+            onRetry={onRetry}
+            retryLabel="Regenerate response"
+            disabled={retryDisabled}
+            showFeedback
+            feedback={msg.feedback}
+            onFeedbackChange={onFeedbackChange}
+          />
+        )}
       </div>
     </div>
   );
+}
+
+function textOfParts(parts: Part[]): string {
+  return parts.map((p) => (p.kind === "text" ? p.text : "")).join("");
 }
 
 type ToolPart = Extract<Part, { kind: "tool" }>;

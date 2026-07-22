@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Activity,
   ArrowLeft,
   ArrowUpRight,
   ChevronRight,
@@ -53,6 +54,7 @@ import { parseTomeHref } from "@/lib/tome/tome-links";
 import { StandupView } from "@/components/tome/StandupView";
 import { IngestPanel } from "@/components/tome/IngestPanel";
 import { IngestRunView } from "@/components/tome/IngestRunView";
+import { EngagementPanel } from "@/components/tome/EngagementPanel";
 import { PageHistoryView } from "@/components/tome/PageHistoryView";
 import { Breadcrumb, type Crumb } from "@/components/tome/Breadcrumb";
 import { McpConnectDialog } from "@/components/tome/McpConnectDialog";
@@ -89,6 +91,7 @@ type MainView =
   | { kind: "gists" }
   | { kind: "gist"; id: string }
   | { kind: "settings" }
+  | { kind: "insights" }
   | { kind: "page"; path: string }
   | { kind: "pageHistory"; path: string }
   | { kind: "ingest" }
@@ -116,6 +119,8 @@ function viewToPath(slug: string, view: MainView): string {
       return `${base}/gists/${encodeURIComponent(view.id)}`;
     case "settings":
       return `${base}/settings`;
+    case "insights":
+      return `${base}/insights`;
     case "ingest":
       return `${base}/ingest`;
     case "ingestRun":
@@ -141,6 +146,8 @@ function pathToView(segments: string[]): MainView {
       return rest[0] ? { kind: "gist", id: rest[0] } : { kind: "gists" };
     case "settings":
       return { kind: "settings" };
+    case "insights":
+      return { kind: "insights" };
     case "ingest":
       return rest[0]
         ? { kind: "ingestRun", runId: rest[0] }
@@ -561,6 +568,8 @@ export function TomeWiki({ slug }: { slug: string }) {
         ];
       case "settings":
         return [{ label: "Settings" }];
+      case "insights":
+        return [{ label: "Insights" }];
       case "page": {
         const pages = data?.pages ?? {};
         const md = pages[view.path] ?? "";
@@ -626,6 +635,7 @@ export function TomeWiki({ slug }: { slug: string }) {
     feed: view.kind === "feed",
     gists: view.kind === "gists" || view.kind === "gist",
     settings: view.kind === "settings",
+    insights: view.kind === "insights",
     ingest: view.kind === "ingest" || view.kind === "ingestRun",
     page:
       view.kind === "page" || view.kind === "pageHistory" ? view.path : null,
@@ -818,6 +828,14 @@ export function TomeWiki({ slug }: { slug: string }) {
                     onClick={() => navigate({ kind: "gists" })}
                     tipTitle="Gists"
                     tipDescription="Quick, non-committal chunks of context (a prompt, an agent memory, a snippet) saved without becoming part of the curated wiki. Share one into the activity feed when a teammate should see it."
+                  />
+                  <NavItem
+                    icon={<Activity className="h-4 w-4" />}
+                    label="Insights"
+                    active={navActive.insights}
+                    onClick={() => navigate({ kind: "insights" })}
+                    tipTitle="Insights"
+                    tipDescription="How this project's wiki and chat are being used: who's chatting, how much, and this project's own ingestion and wiki-size numbers."
                   />
                   <NavItem
                     icon={<Settings className="h-4 w-4" />}
@@ -1112,6 +1130,10 @@ export function TomeWiki({ slug }: { slug: string }) {
             ) : view.kind === "settings" ? (
               <div className="min-w-0 flex-1">
                 <ProjectSettingsPanel slug={slug} />
+              </div>
+            ) : view.kind === "insights" ? (
+              <div className="min-w-0 flex-1 overflow-auto">
+                <EngagementPanel slug={slug} />
               </div>
             ) : view.kind === "ingest" ? (
               <div className="min-w-0 flex-1">
