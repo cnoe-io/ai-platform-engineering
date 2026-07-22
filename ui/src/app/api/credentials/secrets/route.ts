@@ -16,6 +16,7 @@ import type {
   CredentialSecretType,
 } from "@/lib/credentials/types";
 import { getCredentialFeatureConfig } from "@/lib/feature-flags/credentials";
+import { caipeOrgKey } from "@/lib/rbac/organization";
 import { requireResourcePermission } from "@/lib/rbac/resource-authz";
 
 function assertFeatureEnabled(): void {
@@ -64,9 +65,14 @@ async function ownerFromRequest(
   const requestedOwnerId = body?.ownerId;
   const type: CredentialOwnerType =
     requestedOwnerType === "team" || requestedOwnerType === "organization" ? requestedOwnerType : "user";
-  const id = type === "user" ? subject : String(requestedOwnerId || "").trim();
+  const rawId = type === "user"
+    ? subject
+    : type === "organization"
+      ? String(requestedOwnerId || "").trim() || caipeOrgKey()
+      : String(requestedOwnerId || "").trim();
+  const id = rawId;
   if (!id) {
-    throw new ApiError("ownerId is required for team or organization credentials", 400, "VALIDATION_ERROR");
+    throw new ApiError("ownerId is required for team credentials", 400, "VALIDATION_ERROR");
   }
   if (type === "team") {
     await requireResourcePermission(session, { type: "team", id, action: "manage" });
