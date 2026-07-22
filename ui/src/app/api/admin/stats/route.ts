@@ -331,8 +331,11 @@ async function getAdminStats(request: NextRequest) {
     let topUserOwnerMatch: Record<string, unknown>[] = [];
 
     // Build reusable filter fragments for conversations and messages.
+    // Message analytics measure platform output, so human and system rows stay
+    // available for chat history/audit without inflating Insights metrics.
     // Support both legacy (source/slack_meta) and new (client_type/metadata) schemas.
     const SLACK_CONV_MATCH = { $or: [{ source: 'slack' }, { client_type: 'slack' }] };
+    const AI_MESSAGE_MATCH: Document = { role: 'assistant' };
 
     // A non-admin view is always "filtered" — DAU/MAU and daily-user activity
     // must derive from the scoped conversations, never from the platform-wide
@@ -606,12 +609,10 @@ async function getAdminStats(request: NextRequest) {
         // and every other range-aware metric below — previously these were
         // always lifetime totals regardless of the selected range.
         conversations.countDocuments({ created_at: { $gte: rangeStart }, ...convSourceFilter }),
-        // msgOwnerFilter already carries 'metadata.source' when the caller
-        // explicitly filtered by source=web|slack; unfiltered, this counts
-        // every message regardless of metadata.source (including messages
-        // missing that field or tagged with other values, e.g. 'scheduler'),
-        // matching how totalConversations counts every conversation.
-        messages.countDocuments({ created_at: { $gte: rangeStart }, ...msgOwnerFilter }),
+        // Count only assistant rows (messages sent by the AI platform).
+        // msgOwnerFilter also carries metadata.source when explicitly filtered;
+        // without a source filter, assistant rows from every source are counted.
+        messages.countDocuments({ created_at: { $gte: rangeStart }, ...AI_MESSAGE_MATCH, ...msgOwnerFilter }),
         // DAU/MAU: derive from conversations when filters are applied, otherwise from users
         hasFilters
           ? conversations.aggregate([
@@ -628,7 +629,7 @@ async function getAdminStats(request: NextRequest) {
             ]).toArray().then((r) => r[0]?.total || 0)
           : users.countDocuments({ last_login: { $gte: thisMonth } }),
         conversations.countDocuments({ created_at: { $gte: today }, ...convSourceFilter }),
-        messages.countDocuments({ created_at: { $gte: today }, ...msgOwnerFilter }),
+        messages.countDocuments({ created_at: { $gte: today }, ...AI_MESSAGE_MATCH, ...msgOwnerFilter }),
         // `andInto` rather than spreading a literal `$or` — the non-admin scope
         // can itself be an `$or`, which a spread would clobber (leaking shared
         // conversation counts outside the caller's scope).
@@ -745,12 +746,11 @@ async function getAdminStats(request: NextRequest) {
           ]).toArray()
         : Promise.resolve([]),
 
-      // Daily messages — msgOwnerFilter already carries metadata.source
-      // when source=web|slack was explicitly requested; unfiltered, this
-      // counts every message regardless of metadata.source.
+      // Daily AI messages. Human prompts remain persisted but are excluded by
+      // the assistant-role invariant in AI_MESSAGE_MATCH.
       includesSection('activity')
         ? messages.aggregate([
-            { $match: { created_at: { $gte: rangeStart }, ...msgOwnerFilter } },
+            { $match: { created_at: { $gte: rangeStart }, ...AI_MESSAGE_MATCH, ...msgOwnerFilter } },
             { $group: { _id: { $dateToString: { format: BUCKET_DATE_FORMAT[bucketUnit], date: '$created_at' } }, messages: { $sum: 1 } } },
           ]).toArray()
         : Promise.resolve([]),
@@ -767,10 +767,10 @@ async function getAdminStats(request: NextRequest) {
           ]).toArray()
         : Promise.resolve([]),
 
-      // Top users by messages ($lookup for legacy owner_id). Same bot handling.
+      // Top users by AI messages ($lookup for legacy owner_id). Same bot handling.
       includesSection('top_users')
         ? messages.aggregate([
-            { $match: { created_at: { $gte: rangeStart }, ...msgOwnerFilter } },
+            { $match: { created_at: { $gte: rangeStart }, ...AI_MESSAGE_MATCH, ...msgOwnerFilter } },
             { $lookup: { from: 'conversations', localField: 'conversation_id', foreignField: '_id', as: '_conv' } },
             { $addFields: { _owner: { $ifNull: ['$owner_id', { $arrayElemAt: ['$_conv.owner_id', 0] }] } } },
             { $match: { _owner: { $ne: null } } },
@@ -811,7 +811,7 @@ async function getAdminStats(request: NextRequest) {
             sourceFilter === 'slack'
               ? Promise.resolve([] as { _id: string; count: number }[])
               : messages.aggregate([
-                  { $match: { role: 'assistant', 'metadata.source': { $ne: 'slack' }, 'metadata.agent_name': { $nin: [null, '', 'unknown'] }, created_at: { $gte: rangeStart }, ...sectionMsgMatch } },
+                  { $match: { ...AI_MESSAGE_MATCH, 'metadata.source': { $ne: 'slack' }, 'metadata.agent_name': { $nin: [null, '', 'unknown'] }, created_at: { $gte: rangeStart }, ...sectionMsgMatch } },
                   { $group: { _id: { agent: '$metadata.agent_name', conv: '$conversation_id' } } },
                   { $group: { _id: '$_id.agent', count: { $sum: 1 } } },
                 ]).toArray(),
@@ -864,7 +864,7 @@ async function getAdminStats(request: NextRequest) {
       // Response latency (overall)
       includesSection('response_time')
         ? messages.aggregate([
-            { $match: { role: 'assistant', 'metadata.latency_ms': { $exists: true, $gt: 0 }, created_at: { $gte: rangeStart }, ...sectionMsgMatch } },
+            { $match: { ...AI_MESSAGE_MATCH, 'metadata.latency_ms': { $exists: true, $gt: 0 }, created_at: { $gte: rangeStart }, ...sectionMsgMatch } },
             { $group: { _id: null, avg_latency: { $avg: '$metadata.latency_ms' }, min_latency: { $min: '$metadata.latency_ms' }, max_latency: { $max: '$metadata.latency_ms' }, count: { $sum: 1 } } },
           ]).toArray()
         : Promise.resolve([]),
@@ -876,7 +876,7 @@ async function getAdminStats(request: NextRequest) {
       // average line client-side. Same filter as the overall latency stat.
       includesSection('response_time')
         ? messages.aggregate([
-            { $match: { role: 'assistant', 'metadata.latency_ms': { $exists: true, $gt: 0 }, created_at: { $gte: rangeStart }, ...sectionMsgMatch } },
+            { $match: { ...AI_MESSAGE_MATCH, 'metadata.latency_ms': { $exists: true, $gt: 0 }, created_at: { $gte: rangeStart }, ...sectionMsgMatch } },
             { $group: { _id: { $dateToString: { format: BUCKET_DATE_FORMAT[bucketUnit], date: '$created_at' } }, avg_latency: { $avg: '$metadata.latency_ms' } } },
           ]).toArray()
         : Promise.resolve([]),
@@ -907,12 +907,10 @@ async function getAdminStats(request: NextRequest) {
         ? workflowRuns.countDocuments({ status: 'completed', completed_at: { $gte: today }, ...workflowRunFilter })
         : Promise.resolve(0),
 
-      // Hourly heatmap — msgOwnerFilter already carries metadata.source
-      // when source=web|slack was explicitly requested; unfiltered, this
-      // counts every message regardless of metadata.source.
+      // Hourly AI-message heatmap, combined with the section's owner filters.
       includesSection('hourly_heatmap')
         ? messages.aggregate([
-            { $match: { created_at: { $gte: rangeStart }, ...sectionMsgMatch } },
+            { $match: { created_at: { $gte: rangeStart }, ...AI_MESSAGE_MATCH, ...sectionMsgMatch } },
             { $addFields: { _ts: { $toDate: '$created_at' } } },
             { $group: { _id: { $hour: '$_ts' }, count: { $sum: 1 } } },
           ]).toArray()
