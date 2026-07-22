@@ -38,20 +38,11 @@ interface SlackStats {
     date: string;
     escalated: number;
     interactions: number;
-    resolved: number;
     unique_users: number;
   }>;
-  resolution: {
-    estimated_hours_saved: number;
-    resolution_rate: number;
-    resolved_threads: number;
-    total_threads: number;
-  };
   top_channels: Array<{
     channel_name: string;
     interactions: number;
-    resolution_rate: number;
-    resolved: number;
   }>;
   total_interactions: number;
   unique_users: number;
@@ -179,15 +170,6 @@ const HUMAN_OWNER_MATCH: Record<string, unknown> = {
     { _id: { $not: /^service-account-/ } },
   ],
 };
-
-/**
- * A Slack thread is a "user question" (a candidate for self-resolution and
- * hours-saved credit) only when a human initiated it. Automated posts
- * (`bot`, `alert`) and threads with no interaction type are excluded — they
- * are broadcasts, not questions the assistant resolved. This mirrors the
- * distribution seen in the data: mention/qanda/dm are human-initiated.
- */
-const USER_QUESTION_INTERACTION_TYPES = ['mention', 'qanda', 'dm', 'user'];
 
 /** Turn an internal agent id/name into a display label ("agent-gitlab-agent" → "Gitlab Agent"). */
 function humanizeAgentName(raw: string): string {
@@ -372,7 +354,7 @@ async function getAdminStats(request: NextRequest) {
         return successResponse({
           range: searchParams.get('range') || '30d',
           days,
-          platform_summary: { satisfaction_rate: 0, estimated_hours_automated: 0 },
+          platform_summary: { satisfaction_rate: 0 },
           overview: {
             total_users: 0,
             total_conversations: 0,
@@ -660,7 +642,6 @@ async function getAdminStats(request: NextRequest) {
       completedToday,
       hourlyActivity,
       availableChannelsResult,
-      webWorkflowEffort,
     ] = await Promise.all([
       // Daily active users
       hasFilters
@@ -840,21 +821,6 @@ async function getAdminStats(request: NextRequest) {
             conversations.distinct('slack_meta.channel_name', { source: 'slack', 'slack_meta.channel_name': { $ne: null } }),
             conversations.distinct('metadata.channel_name', { client_type: 'slack', 'metadata.channel_name': { $ne: null } }),
           ]),
-
-      // Web workflow effort for the hours-saved estimate. Each completed web
-      // workflow (assistant `is_final` message, non-Slack) stands in for a task
-      // the user would otherwise have done by hand; the number of tool calls in
-      // its timeline is a cheap proxy for how much work it did. We return the
-      // workflow count and the summed tool-call count so the estimate can scale
-      // effort by complexity rather than treating every message equally.
-      // Single aggregation, no join — cheap.
-      sourceFilter !== 'slack'
-        ? messages.aggregate([
-            { $match: { role: 'assistant', 'metadata.is_final': true, 'metadata.source': { $ne: 'slack' }, created_at: { $gte: rangeStart }, ...msgOwnerFilter } },
-            { $addFields: { _toolCalls: { $size: { $filter: { input: { $ifNull: ['$metadata.timeline_segments', []] }, as: 's', cond: { $eq: ['$$s.type', 'tool_call'] } } } } } },
-            { $group: { _id: null, workflows: { $sum: 1 }, tool_calls: { $sum: '$_toolCalls' } } },
-          ]).toArray().then((r) => r[0] || { workflows: 0, tool_calls: 0 })
-        : Promise.resolve({ workflows: 0, tool_calls: 0 }),
     ]);
 
     // ── Post-process daily activity ─────────────────────────────────
@@ -1088,22 +1054,6 @@ async function getAdminStats(request: NextRequest) {
         const escalated = { $ifNull: ['$metadata.escalated', '$slack_meta.escalated'] };
         const channelName = { $ifNull: ['$metadata.channel_name', '$slack_meta.channel_name'] };
         const channelId = { $ifNull: ['$metadata.channel_id', '$slack_meta.channel_id'] };
-        const interactionType = { $ifNull: ['$metadata.interaction_type', '$slack_meta.interaction_type'] };
-        // A non-originator human replying in the thread means the asker did not
-        // self-serve — a colleague stepped in. The Slack bot sets this flag when
-        // it observes a thread reply from anyone other than the thread's
-        // originator (originator↔bot back-and-forth stays self-resolved).
-        const humanAssisted = { $ifNull: ['$metadata.human_assisted', false] };
-        // A thread is NOT self-resolved when it was escalated to a human or a
-        // non-originator human assisted. (Negative feedback is applied per-thread
-        // in the app-side loop below, where the rating join lives.)
-        const unresolved = { $or: [escalated, humanAssisted] };
-
-        // Self-resolution is only meaningful over threads a human actually
-        // started (mention/qanda/dm/user). Automated posts (bot alerts,
-        // scheduled-pipeline notifications) aren't questions the assistant
-        // "resolved", so counting them made the rate a meaningless ~100%.
-        const isUserQuestion = { $in: [interactionType, USER_QUESTION_INTERACTION_TYPES] };
 
         const channelMappingColl = await getCollection<{
           slack_channel_id?: string;
@@ -1124,18 +1074,15 @@ async function getAdminStats(request: NextRequest) {
               { $group: { _id: userId } },
               { $count: 'total' },
             ]).toArray(),
-            // Daily breakdown (user-initiated threads only, to match the rate)
+            // Daily breakdown
             conversations.aggregate([
               { $match: slackFilter },
-              { $addFields: { _isUserQuestion: isUserQuestion, _escalated: escalated, _unresolved: unresolved } },
-              { $match: { _isUserQuestion: true } },
               {
                 $group: {
                   _id: { $dateToString: { format: BUCKET_DATE_FORMAT[bucketUnit], date: '$created_at' } },
                   interactions: { $sum: 1 },
                   unique_users: { $addToSet: userId },
-                  resolved: { $sum: { $cond: [{ $not: ['$_unresolved'] }, 1, 0] } },
-                  escalated: { $sum: { $cond: ['$_escalated', 1, 0] } },
+                  escalated: { $sum: { $cond: [escalated, 1, 0] } },
                 },
               },
               { $sort: { _id: 1 } },
@@ -1145,7 +1092,7 @@ async function getAdminStats(request: NextRequest) {
             // like "CFW7VL1GX" don't leak into the UI.
             conversations.aggregate([
               { $match: slackFilter },
-              { $addFields: { _channelId: channelId, _channelName: channelName, _isUserQuestion: isUserQuestion, _unresolved: unresolved } },
+              { $addFields: { _channelId: channelId, _channelName: channelName } },
               { $match: { _channelId: { $ne: null } } },
               {
                 $group: {
@@ -1154,8 +1101,6 @@ async function getAdminStats(request: NextRequest) {
                   // name; keep the first non-null we see.
                   name: { $first: '$_channelName' },
                   interactions: { $sum: 1 },
-                  resolved: { $sum: { $cond: [{ $and: ['$_isUserQuestion', { $not: ['$_unresolved'] }] }, 1, 0] } },
-                  user_questions: { $sum: { $cond: ['$_isUserQuestion', 1, 0] } },
                 },
               },
               { $sort: { interactions: -1 } },
@@ -1217,95 +1162,11 @@ async function getAdminStats(request: NextRequest) {
           return { date: dateKey, total: runningConfigured };
         });
 
-        // ── Hours-saved estimation (Slack) ─────────────────────────────
-        // Only user-initiated threads (mention/qanda/dm/user) count — a
-        // bot/alert broadcast didn't save anyone time. Per qualifying thread:
-        //   positive feedback                     → 30 min saved
-        //   negative feedback OR escalated        → 0    (not actually resolved)
-        //   no feedback, not escalated (self-res) → 20 min (conservative)
-        // These are intentionally modest, defensible figures rather than the
-        // old 4h/thread that produced implausible totals.
-        //
-        // DocumentDB does not support $lookup with let/pipeline (correlated
-        // subqueries), so we fetch conversations and feedback separately and
-        // join in application code.
-        const POSITIVE_FEEDBACK_MINUTES = 30;
-        const SELF_RESOLVED_MINUTES = 20;
-
-        const [slackConvs, slackFeedback] = await Promise.all([
-          conversations.find(slackFilter, {
-            projection: {
-              _id: 1,
-              'slack_meta.escalated': 1, 'metadata.escalated': 1,
-              'slack_meta.interaction_type': 1, 'metadata.interaction_type': 1,
-              'metadata.human_assisted': 1,
-            },
-          }).toArray(),
-          feedbackColl.find(
-            {
-              source: 'slack',
-              created_at: { $gte: rangeStart },
-              ...(slackChannelScope.length === 1
-                ? { channel_name: slackChannelScope[0] }
-                : slackChannelScope.length > 1
-                  ? { channel_name: { $in: slackChannelScope } }
-                  : {}),
-            },
-            { projection: { conversation_id: 1, rating: 1, created_at: 1 } },
-          ).toArray(),
-        ]);
-
-        // Build map: conversation_id -> latest feedback rating
-        const fbByConv = new Map<string, string>();
-        for (const fb of slackFeedback) {
-          const cid = fb.conversation_id;
-          if (!cid) continue;
-          if (!fbByConv.has(cid)) fbByConv.set(cid, fb.rating);
-        }
-
-        // Application-side resolution over user-initiated threads: a thread is
-        // "resolved" (self-served) only when it wasn't escalated, wasn't rated
-        // negative, and no non-originator human replied. A non-originator human
-        // (metadata.human_assisted) means a colleague stepped in, so it doesn't
-        // count as self-service; originator↔bot back-and-forth still does.
-        let userQuestionThreads = 0;
-        let resolvedThreadsCount = 0;
-        let escalatedThreadsCount = 0;
-        let estimatedMinutesSaved = 0;
-        for (const conv of slackConvs) {
-          const it = conv.metadata?.interaction_type ?? conv.slack_meta?.interaction_type;
-          if (!USER_QUESTION_INTERACTION_TYPES.includes(it)) continue;
-          userQuestionThreads += 1;
-
-          const rating = fbByConv.get(String(conv._id));
-          const escalated = conv.metadata?.escalated ?? conv.slack_meta?.escalated;
-          const humanAssisted = conv.metadata?.human_assisted === true;
-
-          if (escalated) escalatedThreadsCount += 1;
-
-          if (rating === 'negative' || escalated || humanAssisted) {
-            continue; // not self-resolved, no time saved
-          }
-          resolvedThreadsCount += 1;
-          estimatedMinutesSaved += rating === 'positive' ? POSITIVE_FEEDBACK_MINUTES : SELF_RESOLVED_MINUTES;
-        }
-        const estimatedHoursSaved = Math.round((estimatedMinutesSaved / 60) * 10) / 10;
-
-        const resolution = {
-          total_threads: userQuestionThreads,
-          escalated_threads: escalatedThreadsCount,
-        };
-        const resolvedThreads = resolvedThreadsCount;
-        const resolutionRate = userQuestionThreads > 0
-          ? Math.round((resolvedThreads / userQuestionThreads) * 1000) / 10
-          : 0;
-
         // Build daily array with gaps filled
         const slackDailyMap = new Map(
           slackDailyAgg.map((d) => [d._id, {
             interactions: d.interactions,
             unique_users: d.unique_users?.length || 0,
-            resolved: d.resolved,
             escalated: d.escalated,
           }])
         );
@@ -1315,7 +1176,6 @@ async function getAdminStats(request: NextRequest) {
             date: dateKey,
             interactions: entry?.interactions || 0,
             unique_users: entry?.unique_users || 0,
-            resolved: entry?.resolved || 0,
             escalated: entry?.escalated || 0,
           };
         });
@@ -1328,27 +1188,17 @@ async function getAdminStats(request: NextRequest) {
           configured_channels_daily: configuredChannelsDaily,
           total_interactions: slackTotal,
           unique_users: slackUniqueUsers[0]?.total || 0,
-          resolution: {
-            total_threads: resolution.total_threads,
-            resolved_threads: resolvedThreads,
-            resolution_rate: resolutionRate,
-            estimated_hours_saved: estimatedHoursSaved,
-          },
           daily: slackDaily,
           // Resolve each channel id to a human name: prefer the authoritative
           // channel_team_mappings entry, then the conversation's own
           // metadata.channel_name, and only fall back to the raw id if neither
-          // is available. resolution_rate is over the channel's user questions
-          // (not all interactions), matching the platform-wide rate.
+          // is available.
           top_channels: slackTopChannels.map((c) => {
             const id: string = c._id;
             const resolvedName = channelNameById.get(id) || normalizeChannelName(c.name, id) || id;
-            const denom = c.user_questions || 0;
             return {
               channel_name: resolvedName,
               interactions: c.interactions,
-              resolved: c.resolved,
-              resolution_rate: denom > 0 ? Math.round((c.resolved / denom) * 1000) / 10 : 0,
             };
           }),
         };
@@ -1361,31 +1211,6 @@ async function getAdminStats(request: NextRequest) {
     // ═══════════════════════════════════════════════════════════════
     // PLATFORM SUMMARY — respects source/user filters
     // ═══════════════════════════════════════════════════════════════
-    const includeWeb = sourceFilter !== 'slack';
-    const includeSlack = sourceFilter !== 'web';
-
-    // Hours saved — two independent web signals plus Slack:
-    //   1. Agent chats: each tool call an agent ran in a completed chat proxies
-    //      a small manual step it did for the user (~seconds each).
-    //   2. Workflow runs: each completed step in a completed workflow_runs run
-    //      stands in for a manual task the automation performed (~minutes each).
-    // Kept deliberately conservative so the headline number stays defensible.
-    const AGENT_PER_TOOL_CALL_SECONDS = 5;
-    const WORKFLOW_PER_STEP_MINUTES = 5;
-    const webWorkflowStats = webWorkflowEffort as { workflows: number; tool_calls: number };
-    const agentSecondsSaved = includeWeb ? webWorkflowStats.tool_calls * AGENT_PER_TOOL_CALL_SECONDS : 0;
-    const agentHoursSaved = Math.round((agentSecondsSaved / 3600) * 10) / 10;
-    // wfRun.completed_steps = total steps across completed runs (see the
-    // Completed Workflows aggregation above); it already respects the range,
-    // owner, and source scope. Slack-only views set workflowRunFilter=null → 0.
-    const workflowMinutesSaved = includeWeb ? (wfRun.completed_steps || 0) * WORKFLOW_PER_STEP_MINUTES : 0;
-    const workflowHoursSaved = Math.round((workflowMinutesSaved / 60) * 10) / 10;
-    const webHoursSaved = Math.round((agentHoursSaved + workflowHoursSaved) * 10) / 10;
-
-    const slackHoursSaved = includeSlack ? (slack?.resolution?.estimated_hours_saved || 0) : 0;
-
-    const totalHoursAutomated = Math.round((webHoursSaved + slackHoursSaved) * 10) / 10;
-
     const [oldChannels, newChannels] = availableChannelsResult;
     const availableChannels = nonAdminScope
       ? [...new Set(nonAdminChannelNames)]
@@ -1400,13 +1225,6 @@ async function getAdminStats(request: NextRequest) {
 
     const platformSummary = {
       satisfaction_rate: feedbackSummary.satisfaction_rate || 0,
-      estimated_hours_automated: totalHoursAutomated,
-      web_hours_saved: webHoursSaved,
-      agent_hours_saved: agentHoursSaved,
-      workflow_hours_saved: workflowHoursSaved,
-      slack_hours_saved: slackHoursSaved,
-      // Real completed workflow_runs in scope (drives the tooltip breakdown).
-      web_workflows: includeWeb ? completedCount : 0,
     };
 
     return successResponse({
