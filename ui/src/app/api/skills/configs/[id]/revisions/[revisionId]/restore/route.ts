@@ -46,12 +46,12 @@ export const POST = withErrorHandler(
       throw new ApiError("Skill id and revision id are required", 400);
     }
     return await withAuth(request, async (_req, user, session) => {
-      const skill = await getAgentSkillVisibleToUser(id, user.email);
+      const skill = await getAgentSkillVisibleToUser(id);
       if (!skill) {
         throw new ApiError("Skill not found", 404);
       }
       await requireSkillPermission(session, id, "write");
-      if (!userCanModifyAgentSkill(skill, user)) {
+      if (!userCanModifyAgentSkill(skill)) {
         throw new ApiError(
           "You don't have permission to edit this skill",
           403,

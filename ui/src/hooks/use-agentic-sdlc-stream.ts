@@ -117,7 +117,13 @@ export function useAgenticSdlcStream({
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const terminalRef = useRef(false);
   const onEventRef = useRef(onEvent);
-  onEventRef.current = onEvent;
+  useEffect(() => {
+    onEventRef.current = onEvent;
+  }, [onEvent]);
+  // Holds the latest `connect` so the reconnect closure below (scheduled via
+  // setTimeout, and invoked long after this render) can call the current
+  // version instead of closing over `connect` before it's declared.
+  const connectRef = useRef<(currentUrl: string, attempt: number) => void>(() => {});
 
   const cleanup = useCallback(() => {
     if (retryTimerRef.current) {
@@ -183,11 +189,14 @@ export function useAgenticSdlcStream({
         const delay = nextBackoffMs(next);
         setStatus("reconnecting");
         setRetryCount(next);
-        retryTimerRef.current = setTimeout(() => connect(currentUrl, next), delay);
+        retryTimerRef.current = setTimeout(() => connectRef.current(currentUrl, next), delay);
       };
     },
     [cleanup, disableReconnect],
   );
+  useEffect(() => {
+    connectRef.current = connect;
+  }, [connect]);
 
   const reconnect = useCallback(() => {
     cleanup();
@@ -205,6 +214,10 @@ export function useAgenticSdlcStream({
     cleanup();
     terminalRef.current = false;
     if (!url) {
+      // Resetting status/retry state here is part of tearing down the
+      // EventSource connection for the no-url case — the same external-system
+      // sync this effect performs for the connect(url, 0) case below.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setStatus("idle");
       setRetryCount(0);
       return cleanup;

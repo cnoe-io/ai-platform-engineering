@@ -3,6 +3,7 @@
 // assisted-by Codex Codex-sonnet-4-6
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { ExternalLink } from "lucide-react";
 
@@ -134,6 +135,11 @@ export function AgenticAppEmbed({ appId, onUnauthorized }: AgenticAppEmbedProps)
 
   useEffect(() => {
     if (!assistantEnabled) {
+      // Force-closing the assistant when it becomes disabled (e.g. app config
+      // changes mid-session) is a genuine reaction to a prop change, not
+      // derivable state — it must run here alongside the message-listener
+      // setup below, which this same effect also owns.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setAssistantOpen(false);
       setAssistantContext(null);
       return;
@@ -210,7 +216,7 @@ export function AgenticAppEmbed({ appId, onUnauthorized }: AgenticAppEmbedProps)
         <EmbedToolbar app={state.app} />
         <iframe
           ref={iframeRef}
-          // eslint-disable-next-line jsx-a11y/iframe-has-title
+           
           title={state.app.displayName}
           src={state.app.mountPath}
           className="flex-1 w-full border-0 bg-slate-950"
@@ -311,13 +317,13 @@ function EmbedError({ title, description }: { title: string; description: string
       <div className="max-w-md rounded-2xl border border-red-400/30 bg-red-500/10 p-6 text-center">
         <h2 className="text-lg font-semibold text-red-100">{title}</h2>
         <p className="mt-2 text-sm text-red-200/80">{description}</p>
-        <a
+        <Link
           className="mt-4 inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs text-slate-100 transition hover:bg-white/[0.08]"
           href="/apps"
         >
           Back to Apps Hub
           <ExternalLink className="h-3 w-3" aria-hidden />
-        </a>
+        </Link>
       </div>
     </div>
   );

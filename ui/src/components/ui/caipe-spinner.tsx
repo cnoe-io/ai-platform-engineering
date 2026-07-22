@@ -2,6 +2,7 @@
 
 import { getConfig,getLogoFilterClass } from "@/lib/config";
 import { cn } from "@/lib/utils";
+import Image from "next/image";
 
 interface CAIPESpinnerProps {
   /** Size of the spinner */
@@ -76,10 +77,13 @@ export function CAIPESpinner({
           "relative rounded-xl gradient-primary-br flex items-center justify-center shadow-xl",
           config.container
         )}>
-          <img 
-            src={getConfig('logoUrl')} 
-            alt={getConfig('appName')} 
-            className={cn(config.logo, getLogoFilterClass())} 
+          <Image
+            src={getConfig('logoUrl')}
+            alt={getConfig('appName')}
+            width={48}
+            height={48}
+            unoptimized
+            className={cn(config.logo, getLogoFilterClass())}
           />
         </div>
       </div>

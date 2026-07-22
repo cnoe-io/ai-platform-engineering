@@ -22,6 +22,12 @@ import type { NextAuthOptions } from "next-auth";
  * - BOOTSTRAP_ADMIN_EMAILS: Comma-separated emails granted admin on login (bootstrap only)
  * - OIDC_ENABLE_REFRESH_TOKEN: "true" to enable refresh token support (default: true if not set)
  * - OIDC_IDP_HINT: Keycloak IdP alias to auto-redirect (e.g., "duo-sso"). Omit to show login form.
+ * - OIDC_GROUP_INCLUDELIST: Comma-separated regex patterns. Only groups matching at least one pattern
+ *     are synced. Unset = all groups pass through.
+ *     Example: "^platform-engineering$,^sre$,^caipe-.*"
+ * - OIDC_GROUP_EXCLUDELIST: Comma-separated regex patterns. Groups matching any pattern are dropped.
+ *     Excluded groups also trigger removal of any existing membership on next login.
+ *     Example: "^test-.*,^temp-.*"
  * - IDENTITY_SYNC_LOGIN_CLAIMS_ENABLED: Set to "false" to disable signed-in user's OIDC group claim reconciliation
  * - IDENTITY_SYNC_OIDC_CLAIM_PROVIDER_ID: Provider id for claim-derived sync rules (default: "oidc-claims")
  * - IDENTITY_SYNC_LOGIN_AUTO_CREATE_TEAMS: Set to "true" to allow login-time reconciliation to CREATE
@@ -39,6 +45,33 @@ export const ENABLE_REFRESH_TOKEN = process.env.OIDC_ENABLE_REFRESH_TOKEN !== "f
 // Supports single value or comma-separated list (e.g., "groups,members,roles")
 // If not set, will auto-detect from common claim names
 export const GROUP_CLAIM = process.env.OIDC_GROUP_CLAIM || "";
+
+// assisted-by claude code claude-sonnet-4-6
+// OIDC_GROUP_INCLUDELIST: comma-separated regex patterns. When set, only groups
+// whose name matches at least one pattern are passed to the reconciler.
+// Unset means all groups are included (existing behaviour).
+// Example: "^platform-engineering$,^sre$,^caipe-.*"
+//
+// OIDC_GROUP_EXCLUDELIST: comma-separated regex patterns. Groups matching any
+// pattern are dropped — including active removal of any existing membership
+// derived from an excluded group on the user's next login.
+// Example: "^test-.*,^temp-.*"
+//
+// Both lists can be used together: includelist runs first, then excludelist.
+function _parsePatterns(envVar: string): RegExp[] | null {
+  const raw = process.env[envVar]?.trim();
+  if (!raw) return null;
+  return raw.split(",").map(s => s.trim()).filter(Boolean).map(p => {
+    try {
+      return new RegExp(p);
+    } catch {
+      console.warn(`${envVar}: invalid regex "${p}", skipping`);
+      return null;
+    }
+  }).filter((r): r is RegExp => r !== null);
+}
+const _groupIncludelistPatterns = _parsePatterns("OIDC_GROUP_INCLUDELIST");
+const _groupExcludelistPatterns = _parsePatterns("OIDC_GROUP_EXCLUDELIST");
 
 /**
  * Resolve the identity-sync provider id for the current login so that
@@ -109,9 +142,6 @@ function bootstrapAdminEmails(): Set<string> {
   );
 }
 
-const BOOTSTRAP_ADMIN_EMAILS = bootstrapAdminEmails();
-
-
 export function isBootstrapAdmin(email: string | undefined | null): boolean {
   if (!email) return false;
   const emails = bootstrapAdminEmails();
@@ -162,7 +192,7 @@ export function extractGroups(profile: Record<string, unknown>): string[] {
     if (allGroups.size === 0) {
       console.warn(`OIDC group claim(s) "${GROUP_CLAIM}" not found in profile`);
     }
-    return Array.from(allGroups);
+    return applyGroupFilters(Array.from(allGroups));
   }
 
   // Auto-detect: check ALL common group claim names and combine them
@@ -174,7 +204,24 @@ export function extractGroups(profile: Record<string, unknown>): string[] {
     }
   }
 
-  return Array.from(allGroups);
+  return applyGroupFilters(Array.from(allGroups));
+}
+
+/**
+ * Apply OIDC_GROUP_INCLUDELIST and OIDC_GROUP_EXCLUDELIST filters.
+ * Includelist runs first (keep only matching), then excludelist (drop matching).
+ * Groups absent from the resulting list trigger removal of existing memberships
+ * on the user's next login via the reconciler's normal removal path.
+ */
+function applyGroupFilters(groups: string[]): string[] {
+  let result = groups;
+  if (_groupIncludelistPatterns && _groupIncludelistPatterns.length > 0) {
+    result = result.filter(g => _groupIncludelistPatterns!.some(re => re.test(g)));
+  }
+  if (_groupExcludelistPatterns && _groupExcludelistPatterns.length > 0) {
+    result = result.filter(g => !_groupExcludelistPatterns!.some(re => re.test(g)));
+  }
+  return result;
 }
 
 async function reconcileLoginGroupsFromClaims(input: {
@@ -269,6 +316,11 @@ type ExchangeResult = {
   refresh_token?: string;
   expires_in?: number;
 } | null; // null = graceful race (see safety net 2)
+
+type OidcExchangeResponse = Exclude<ExchangeResult, null> & {
+  error?: string;
+  error_description?: string;
+};
 
 const _inflightRefreshes = new Map<string, Promise<ExchangeResult>>();
 
@@ -413,10 +465,10 @@ async function refreshAccessToken(token: {
 
       // Check content-type before parsing - OIDC providers may return HTML error pages
       const contentType = response.headers.get("content-type") || "";
-      let data: any;
+      let data: OidcExchangeResponse;
 
       if (contentType.includes("application/json")) {
-        data = await response.json();
+        data = await response.json() as OidcExchangeResponse;
       } else {
         const text = await response.text();
         console.error("[Auth] Token refresh returned non-JSON response:", text.substring(0, 200));
@@ -826,15 +878,13 @@ export const authOptions: NextAuthOptions = {
           idToken: token.idToken as string | undefined,
         });
       }
-      const {
-        accessToken: _at,
-        refreshToken: _rt,
-        idToken: _idt,
-        ...slimToken
-      } = (token ?? {}) as Record<string, unknown>;
+      const slimToken = { ...(token ?? {}) } as Record<string, unknown>;
+      delete slimToken.accessToken;
+      delete slimToken.refreshToken;
+      delete slimToken.idToken;
       // Dynamic import avoids top-level ESM/CJS conflict with jose in test environments
       const { encode } = await import("next-auth/jwt");
-      return encode({ token: slimToken as any, secret, maxAge });
+      return encode({ token: slimToken, secret, maxAge });
     },
     async decode({ token, secret }) {
       const { decode } = await import("next-auth/jwt");

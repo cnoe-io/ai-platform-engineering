@@ -1,11 +1,13 @@
 "use client";
 
+import { getErrorMessage } from "@/lib/error-utils";
+
 import { apiClient } from "@/lib/api-client";
 import { useChatStore } from "@/store/chat-store";
 import type { UserPublicInfo } from "@/types/mongodb";
 import type { Team } from "@/types/teams";
 import { Check,Copy,Mail,Trash2,Users,X } from "lucide-react";
-import { useEffect,useState } from "react";
+import { useCallback,useEffect,useState } from "react";
 import { createPortal } from "react-dom";
 
 type SharePermission = 'view' | 'comment';
@@ -78,23 +80,15 @@ export function ShareDialog({
   const shareUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/chat/${conversationId}`;
   const sharedByLabel = sharedBy?.trim();
 
-  const applySharingSnapshot = (sharing?: SharingSnapshot) => {
+  const applySharingSnapshot = useCallback((sharing?: SharingSnapshot) => {
     setSharedWith(sharing?.shared_with || []);
     const teamIds = sharing?.shared_with_teams || [];
     setSharedWithTeams(teamIds);
     setTeamPermissions(sharing?.team_permissions || {});
     setUserPermissions({});
-  };
+  }, []);
 
-  // Load current sharing info
-  useEffect(() => {
-    if (open) {
-      applySharingSnapshot(initialSharing);
-      loadSharingInfo();
-    }
-  }, [open, conversationId, canManageSharing]);
-
-  const loadSharingInfo = async () => {
+  const loadSharingInfo = useCallback(async () => {
     try {
       const response = await fetch(`/api/chat/conversations/${conversationId}/share`);
       if (response.ok) {
@@ -164,7 +158,15 @@ export function ShareDialog({
       // Don't assume legacy on network errors — only on explicit 404 + localStorage mode
       setIsLegacyConversation(false);
     }
-  };
+  }, [conversationId, updateConversationSharing]);
+
+  // Load current sharing info
+  useEffect(() => {
+    if (open) {
+      applySharingSnapshot(initialSharing);
+      void loadSharingInfo();
+    }
+  }, [open, canManageSharing, initialSharing, applySharingSnapshot, loadSharingInfo]);
 
   // Search users and teams as they type
   useEffect(() => {
@@ -258,9 +260,9 @@ export function ShareDialog({
       setUserResults([]);
       setTeamResults([]);
       setNoResults(false);
-    } catch (err: any) {
+    } catch (err) {
       console.error("Failed to share:", err);
-      const errorMessage = err?.message || "Failed to share conversation";
+      const errorMessage = getErrorMessage(err, "") || "Failed to share conversation";
       
       if (errorMessage.includes("not found") || errorMessage.includes("404")) {
         alert("This conversation doesn't exist in the database. Please create a new conversation to use sharing features.");
@@ -321,9 +323,9 @@ export function ShareDialog({
       setUserResults([]);
       setTeamResults([]);
       setNoResults(false);
-    } catch (err: any) {
+    } catch (err) {
       console.error("Failed to share with team:", err);
-      alert(`Failed to share with team: ${err?.message || 'Unknown error'}`);
+      alert(`Failed to share with team: ${getErrorMessage(err, "") || 'Unknown error'}`);
     } finally {
       setLoading(false);
     }

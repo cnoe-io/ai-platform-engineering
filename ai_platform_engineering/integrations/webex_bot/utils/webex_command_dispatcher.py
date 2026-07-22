@@ -42,7 +42,6 @@ from .text_commands import (
     handle_use_command,
     parse_command_text,
 )
-from .user_preferences_client import UserPreferencesClient
 
 logger = logging.getLogger("caipe.webex_bot.command_dispatcher")
 
@@ -92,14 +91,12 @@ class WebexCommandDispatcher:
         webex_api: _WebexApiProto,
         accessible_agents_client: AccessibleAgentsClient | None = None,
         dm_authz_client: DmAuthzClient | None = None,
-        user_preferences_client: UserPreferencesClient | None = None,
         override_store: OverrideStore | None = None,
         rate_limiter: CommandRateLimiter | None = None,
     ) -> None:
         self._webex_api = webex_api
         self._accessible = accessible_agents_client or AccessibleAgentsClient()
         self._authz = dm_authz_client or DmAuthzClient()
-        self._prefs = user_preferences_client or UserPreferencesClient()
         self._overrides = override_store or get_default_override_store()
         self._rate_limiter = rate_limiter or CommandRateLimiter()
 
@@ -155,7 +152,6 @@ class WebexCommandDispatcher:
             override_key=override_key,
             override_store=self._overrides,
             dm_authz_client=self._authz,
-            user_preferences_client=self._prefs,
             accessible_agents_client=self._accessible,
             rate_limiter=self._rate_limiter,
         )

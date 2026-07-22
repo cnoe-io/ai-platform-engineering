@@ -23,11 +23,8 @@ jest.mock("../CustomCallButtons", () => ({
 
 import { useSlashCommands } from "../useSlashCommands";
 
-type FetchInit = RequestInit | undefined;
-type FetchUrl = RequestInfo | URL;
-
 function mockSkillsResponse(skills: Array<Record<string, unknown>>) {
-  global.fetch = jest.fn(async (_url: FetchUrl, _init?: FetchInit) => {
+  global.fetch = jest.fn(async () => {
     return {
       ok: true,
       json: async () => ({ skills }),

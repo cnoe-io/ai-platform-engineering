@@ -72,7 +72,7 @@ jest.mock("@/lib/rbac/team-membership-store", () => ({
   loadActiveTeamMembersPage: (...args: unknown[]) => mockLoadActiveTeamMembersPage(...args),
 }));
 
-const mockCollections: Record<string, any> = {};
+const mockCollections: Record<string, unknown> = {};
 let mockIsMongoDBConfigured = true;
 
 jest.mock("@/lib/mongodb", () => ({

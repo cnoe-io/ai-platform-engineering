@@ -67,12 +67,12 @@ export const POST = withErrorHandler(
     }
 
     return await withAuth(request, async (_req, user, session) => {
-      const existing = await getAgentSkillVisibleToUser(id, user.email);
+      const existing = await getAgentSkillVisibleToUser(id);
       if (!existing) {
         throw new ApiError("Agent config not found", 404);
       }
 
-      if (!userCanModifyAgentSkill(existing, user)) {
+      if (!userCanModifyAgentSkill(existing)) {
         throw new ApiError("You don't have permission to scan this skill", 403);
       }
 

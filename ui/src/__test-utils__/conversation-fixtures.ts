@@ -59,7 +59,7 @@ export interface FixtureMessage {
   role: "user" | "assistant";
   content: string;
   timestamp?: Date;
-  streamEvents?: any[];
+  streamEvents?: unknown[];
   turnId?: string;
   isFinal?: boolean;
 }
@@ -70,7 +70,7 @@ export interface FixtureConversation {
   createdAt: Date;
   updatedAt: Date;
   messages: FixtureMessage[];
-  streamEvents: any[];
+  streamEvents: unknown[];
 }
 
 /**

@@ -17,7 +17,7 @@ import { render, screen, fireEvent } from '@testing-library/react'
 // ============================================================================
 
 const mockSession = {
-  data: { user: { name: 'Test User', email: 'test@test.com' } } as any,
+  data: { user: { name: 'Test User', email: 'test@test.com' } } as unknown,
   status: 'authenticated' as const,
   update: jest.fn(),
 }
@@ -36,23 +36,29 @@ jest.mock('next/navigation', () => ({
 jest.mock('framer-motion', () => ({
   motion: {
     // eslint-disable-next-line react/display-name
-    div: React.forwardRef(({ children, initial, animate, exit, transition, ...props }: any, ref: any) => (
-      <div ref={ref} {...props}>{children}</div>
-    )),
+    div: React.forwardRef((props: unknown, ref: unknown) => {
+      const domProps = { ...props }
+      delete domProps.initial
+      delete domProps.animate
+      delete domProps.exit
+      delete domProps.transition
+      const { children, ...rest } = domProps
+      return <div ref={ref} {...rest}>{children}</div>
+    }),
   },
-  AnimatePresence: ({ children }: any) => <>{children}</>,
+  AnimatePresence: ({ children }: unknown) => <>{children}</>,
 }))
 
-let mockConversations: any[] = []
+let mockConversations: unknown[] = []
 let mockActiveConversationId: string | null = null
 const mockSetActiveConversation = jest.fn()
 const mockCreateConversation = jest.fn(() => 'new-conv-id')
 const mockDeleteConversation = jest.fn()
 const mockLoadConversationsFromServer = jest.fn().mockResolvedValue(undefined)
 const mockLoadMessagesFromServer = jest.fn().mockResolvedValue(undefined)
-const mockIsConversationStreaming = jest.fn((_id: string) => false)
-const mockHasUnviewedMessages = jest.fn((_id: string) => false)
-const mockIsConversationInputRequired = jest.fn((_id: string) => false)
+const mockIsConversationStreaming = jest.fn(() => false)
+const mockHasUnviewedMessages = jest.fn(() => false)
+const mockIsConversationInputRequired = jest.fn(() => false)
 
 jest.mock('@/store/chat-store', () => {
   const getState = () => ({
@@ -60,7 +66,7 @@ jest.mock('@/store/chat-store', () => {
     activeConversationId: mockActiveConversationId,
   })
 
-  const store = (selector?: (s: any) => any) => {
+  const store = (selector?: (s: unknown) => unknown) => {
     const state = {
       conversations: mockConversations,
       activeConversationId: mockActiveConversationId,
@@ -84,40 +90,40 @@ jest.mock('@/store/chat-store', () => {
 })
 
 jest.mock('lucide-react', () => ({
-  MessageSquare: (props: any) => <span data-testid="icon-message-square" {...props} />,
-  MessageCircleQuestion: (props: any) => <span data-testid="icon-message-circle-question" {...props} />,
-  Radio: (props: any) => <span data-testid="icon-radio" {...props} />,
-  History: (props: any) => <span data-testid="icon-history" {...props} />,
-  Plus: (props: any) => <span data-testid="icon-plus" {...props} />,
-  Archive: (props: any) => <span data-testid="icon-archive" {...props} />,
-  ArchiveRestore: (props: any) => <span data-testid="icon-archive-restore" {...props} />,
-  ChevronLeft: (props: any) => <span data-testid="icon-chevron-left" {...props} />,
-  ChevronRight: (props: any) => <span data-testid="icon-chevron-right" {...props} />,
-  Sparkles: (props: any) => <span data-testid="icon-sparkles" {...props} />,
-  Zap: (props: any) => <span data-testid="icon-zap" {...props} />,
-  Database: (props: any) => <span data-testid="icon-database" {...props} />,
+  MessageSquare: (props: unknown) => <span data-testid="icon-message-square" {...props} />,
+  MessageCircleQuestion: (props: unknown) => <span data-testid="icon-message-circle-question" {...props} />,
+  Radio: (props: unknown) => <span data-testid="icon-radio" {...props} />,
+  History: (props: unknown) => <span data-testid="icon-history" {...props} />,
+  Plus: (props: unknown) => <span data-testid="icon-plus" {...props} />,
+  Archive: (props: unknown) => <span data-testid="icon-archive" {...props} />,
+  ArchiveRestore: (props: unknown) => <span data-testid="icon-archive-restore" {...props} />,
+  ChevronLeft: (props: unknown) => <span data-testid="icon-chevron-left" {...props} />,
+  ChevronRight: (props: unknown) => <span data-testid="icon-chevron-right" {...props} />,
+  Sparkles: (props: unknown) => <span data-testid="icon-sparkles" {...props} />,
+  Zap: (props: unknown) => <span data-testid="icon-zap" {...props} />,
+  Database: (props: unknown) => <span data-testid="icon-database" {...props} />,
   Globe: (props: React.ComponentProps<'span'>) => <span data-testid="icon-globe" {...props} />,
-  HardDrive: (props: any) => <span data-testid="icon-hard-drive" {...props} />,
-  Users2: (props: any) => <span data-testid="icon-users2" {...props} />,
-  Shield: (props: any) => <span data-testid="icon-shield" {...props} />,
-  Users: (props: any) => <span data-testid="icon-users" {...props} />,
-  TrendingUp: (props: any) => <span data-testid="icon-trending-up" {...props} />,
-  RefreshCw: (props: any) => <span data-testid="icon-refresh" {...props} />,
+  HardDrive: (props: unknown) => <span data-testid="icon-hard-drive" {...props} />,
+  Users2: (props: unknown) => <span data-testid="icon-users2" {...props} />,
+  Shield: (props: unknown) => <span data-testid="icon-shield" {...props} />,
+  Users: (props: unknown) => <span data-testid="icon-users" {...props} />,
+  TrendingUp: (props: unknown) => <span data-testid="icon-trending-up" {...props} />,
+  RefreshCw: (props: unknown) => <span data-testid="icon-refresh" {...props} />,
 }))
 
 jest.mock('@/components/ui/button', () => ({
-  Button: ({ children, ...props }: any) => <button {...props}>{children}</button>,
+  Button: ({ children, ...props }: unknown) => <button {...props}>{children}</button>,
 }))
 
 jest.mock('@/components/ui/scroll-area', () => ({
-  ScrollArea: ({ children, ...props }: any) => <div {...props}>{children}</div>,
+  ScrollArea: ({ children, ...props }: unknown) => <div {...props}>{children}</div>,
 }))
 
 jest.mock('@/components/ui/tooltip', () => ({
-  Tooltip: ({ children }: any) => <>{children}</>,
-  TooltipContent: ({ children }: any) => <>{children}</>,
-  TooltipProvider: ({ children }: any) => <>{children}</>,
-  TooltipTrigger: ({ children }: any) => <>{children}</>,
+  Tooltip: ({ children }: unknown) => <>{children}</>,
+  TooltipContent: ({ children }: unknown) => <>{children}</>,
+  TooltipProvider: ({ children }: unknown) => <>{children}</>,
+  TooltipTrigger: ({ children }: unknown) => <>{children}</>,
 }))
 
 jest.mock('@/components/ui/toast', () => ({
@@ -130,8 +136,8 @@ jest.mock('@/lib/storage-config', () => ({
 }))
 
 jest.mock('@/lib/utils', () => ({
-  cn: (...args: any[]) => args.filter(Boolean).join(' '),
-  formatDate: (d: any) => 'Jan 1, 2026',
+  cn: (...args: unknown[]) => args.filter(Boolean).join(' '),
+  formatDate: () => 'Jan 1, 2026',
   truncateText: (text: string) => text,
 }))
 
@@ -144,7 +150,7 @@ jest.mock('@/components/chat/RecycleBinDialog', () => ({
 }))
 
 jest.mock('@/components/chat/ShareButton', () => ({
-  ShareButton: ({ isOwner, isSharedWithViewer, sharedBy, sharing }: any) => {
+  ShareButton: ({ isOwner, isSharedWithViewer, sharedBy, sharing }: unknown) => {
     const hasSharingConfig = Boolean(
       (sharing?.shared_with?.length ?? 0) > 0 ||
       (sharing?.shared_with_teams?.length ?? 0) > 0 ||
@@ -195,7 +201,7 @@ import { Sidebar } from '../Sidebar'
 // Helpers
 // ============================================================================
 
-function makeConv(id: string, title: string, overrides: any = {}) {
+function makeConv(id: string, title: string, overrides: unknown = {}) {
   return {
     id,
     title,
@@ -209,7 +215,6 @@ function makeConv(id: string, title: string, overrides: any = {}) {
 
 const defaultProps = {
   activeTab: 'chat' as const,
-  onTabChange: jest.fn(),
   collapsed: false,
   onCollapse: jest.fn(),
 }

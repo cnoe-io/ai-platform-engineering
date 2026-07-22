@@ -55,7 +55,8 @@ function validateSteps(steps: StepEntry[]): void {
       );
     }
     if (entry.type !== "step") {
-      throw new ApiError(`Unknown step type: ${(entry as any).type}`, 400);
+      const unsupported = entry as { type?: unknown };
+      throw new ApiError(`Unknown step type: ${String(unsupported.type)}`, 400);
     }
     if (!entry.display_text || !entry.agent_id || !entry.prompt) {
       throw new ApiError(
@@ -92,7 +93,7 @@ function validateVisibility(
   }
 }
 
-async function getVisibleConfigs(_ownerEmail: string): Promise<WorkflowConfig[]> {
+async function getVisibleConfigs(): Promise<WorkflowConfig[]> {
   const collection = await getCollection<WorkflowConfig>("workflow_configs");
 
   return collection
@@ -103,7 +104,6 @@ async function getVisibleConfigs(_ownerEmail: string): Promise<WorkflowConfig[]>
 
 async function getVisibleConfigById(
   id: string,
-  _ownerEmail: string
 ): Promise<WorkflowConfig | null> {
   const collection = await getCollection<WorkflowConfig>("workflow_configs");
 
@@ -127,7 +127,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     if (user.role === "admin") {
       const collection = await getCollection<WorkflowConfig>("workflow_configs");
       if (id) {
-        const config = await collection.findOne({ _id: id as any });
+        const config = await collection.findOne({ _id: id });
         if (!config) throw new ApiError("Workflow config not found", 404);
         return NextResponse.json(config) as NextResponse;
       }
@@ -138,7 +138,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     const userTeamSlugs = await resolveUserTeamSlugsForWorkflow(user.email, session);
 
     if (id) {
-      const config = await getVisibleConfigById(id, user.email);
+      const config = await getVisibleConfigById(id);
       if (!config) {
         throw new ApiError("Workflow config not found", 404);
       }
@@ -161,7 +161,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       return NextResponse.json(config) as NextResponse;
     }
 
-    const configs = await getVisibleConfigs(user.email);
+    const configs = await getVisibleConfigs();
     const teamRefToSlug = await buildTeamRefToSlugMap();
     const byVisibility = filterWorkflowConfigsByRunAccess(
       configs,
@@ -210,7 +210,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     const id = `wf-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const now = new Date();
 
-    const config = {
+    const config: WorkflowConfig = {
       _id: id,
       name: body.name,
       description: body.description,
@@ -222,8 +222,8 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       updated_at: now,
     };
 
-    const collection = await getCollection("workflow_configs");
-    await collection.insertOne(config as any);
+    const collection = await getCollection<WorkflowConfig>("workflow_configs");
+    await collection.insertOne(config);
 
     await reconcileWorkflowConfigAccess(session, config);
 
@@ -254,12 +254,12 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     }
 
     const collection = await getCollection<WorkflowConfig>("workflow_configs");
-    const existing = await collection.findOne({ _id: id as any });
+    const existing = await collection.findOne({ _id: id });
 
     if (!existing) {
       throw new ApiError("Workflow config not found", 404);
     }
-    if ((existing as any).config_driven) {
+    if (existing.config_driven) {
       throw new ApiError("Cannot modify a config-driven workflow. Edit app-config.yaml instead.", 403);
     }
 
@@ -315,7 +315,7 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
       updateFields.shared_with_teams = undefined;
     }
 
-    await collection.updateOne({ _id: id as any }, { $set: updateFields });
+    await collection.updateOne({ _id: id }, { $set: updateFields });
 
     const merged = {
       ...existing,
@@ -348,12 +348,12 @@ export const DELETE = withErrorHandler(async (request: NextRequest) => {
 
   return await withAuth(request, async (_req, user, session) => {
     const collection = await getCollection<WorkflowConfig>("workflow_configs");
-    const existing = await collection.findOne({ _id: id as any });
+    const existing = await collection.findOne({ _id: id });
 
     if (!existing) {
       throw new ApiError("Workflow config not found", 404);
     }
-    if ((existing as any).config_driven) {
+    if (existing.config_driven) {
       throw new ApiError("Cannot delete a config-driven workflow. Remove it from app-config.yaml instead.", 403);
     }
 
@@ -370,7 +370,7 @@ export const DELETE = withErrorHandler(async (request: NextRequest) => {
       );
     }
 
-    await collection.deleteOne({ _id: id as any });
+    await collection.deleteOne({ _id: id });
     return successResponse({ id, message: "Workflow config deleted successfully" });
   });
 });

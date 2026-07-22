@@ -20,12 +20,12 @@ import { render, screen } from '@testing-library/react'
 // ============================================================================
 
 jest.mock('lucide-react', () => ({
-  Sparkles: (props: any) => <svg data-testid="icon-sparkles" {...props} />,
-  Settings: (props: any) => <svg data-testid="icon-settings" {...props} />,
+  Sparkles: (props: unknown) => <svg data-testid="icon-sparkles" {...props} />,
+  Settings: (props: unknown) => <svg data-testid="icon-settings" {...props} />,
 }))
 
 jest.mock('@/lib/utils', () => ({
-  cn: (...args: any[]) => args.filter(Boolean).join(' '),
+  cn: (...args: unknown[]) => args.filter(Boolean).join(' '),
 }))
 
 // ============================================================================
@@ -109,63 +109,63 @@ describe('getGreeting', () => {
 
   it('returns "Good morning" before noon', () => {
     jest.spyOn(global, 'Date').mockImplementation(
-      () => ({ getHours: () => 9 }) as any
+      () => ({ getHours: () => 9 }) as unknown
     )
     expect(getGreeting()).toBe('Good morning')
   })
 
   it('returns "Good afternoon" between noon and 5pm', () => {
     jest.spyOn(global, 'Date').mockImplementation(
-      () => ({ getHours: () => 14 }) as any
+      () => ({ getHours: () => 14 }) as unknown
     )
     expect(getGreeting()).toBe('Good afternoon')
   })
 
   it('returns "Good evening" after 5pm', () => {
     jest.spyOn(global, 'Date').mockImplementation(
-      () => ({ getHours: () => 20 }) as any
+      () => ({ getHours: () => 20 }) as unknown
     )
     expect(getGreeting()).toBe('Good evening')
   })
 
   it('returns "Good morning" at hour 0 (midnight)', () => {
     jest.spyOn(global, 'Date').mockImplementation(
-      () => ({ getHours: () => 0 }) as any
+      () => ({ getHours: () => 0 }) as unknown
     )
     expect(getGreeting()).toBe('Good morning')
   })
 
   it('returns "Good morning" at hour 11', () => {
     jest.spyOn(global, 'Date').mockImplementation(
-      () => ({ getHours: () => 11 }) as any
+      () => ({ getHours: () => 11 }) as unknown
     )
     expect(getGreeting()).toBe('Good morning')
   })
 
   it('returns "Good afternoon" at hour 12 (noon)', () => {
     jest.spyOn(global, 'Date').mockImplementation(
-      () => ({ getHours: () => 12 }) as any
+      () => ({ getHours: () => 12 }) as unknown
     )
     expect(getGreeting()).toBe('Good afternoon')
   })
 
   it('returns "Good afternoon" at hour 16', () => {
     jest.spyOn(global, 'Date').mockImplementation(
-      () => ({ getHours: () => 16 }) as any
+      () => ({ getHours: () => 16 }) as unknown
     )
     expect(getGreeting()).toBe('Good afternoon')
   })
 
   it('returns "Good evening" at hour 17', () => {
     jest.spyOn(global, 'Date').mockImplementation(
-      () => ({ getHours: () => 17 }) as any
+      () => ({ getHours: () => 17 }) as unknown
     )
     expect(getGreeting()).toBe('Good evening')
   })
 
   it('returns "Good evening" at hour 23', () => {
     jest.spyOn(global, 'Date').mockImplementation(
-      () => ({ getHours: () => 23 }) as any
+      () => ({ getHours: () => 23 }) as unknown
     )
     expect(getGreeting()).toBe('Good evening')
   })

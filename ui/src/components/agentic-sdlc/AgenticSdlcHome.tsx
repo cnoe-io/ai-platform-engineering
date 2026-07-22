@@ -318,11 +318,9 @@ function HomeActiveReposRow({
   setActiveTab: (tab: AgenticSdlcTab) => void;
 }) {
   const [repos, setRepos] = useState<HomeRepoItem[] | null>(null);
-  const [starredRepos, setStarredRepos] = useState<string[]>([]);
+  const [starredRepos, setStarredRepos] = useState<string[]>(readFavoriteRepos);
 
   useEffect(() => {
-    setStarredRepos(readFavoriteRepos());
-
     let cancelled = false;
     async function loadRepos() {
       try {

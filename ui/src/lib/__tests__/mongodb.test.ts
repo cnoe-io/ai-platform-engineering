@@ -54,7 +54,7 @@ describe('mongodb index creation logic', () => {
 
   // Reimplementation of safeCreateIndex for testing (mirrors mongodb.ts logic)
   async function safeCreateIndex(
-    db: any,
+    db: unknown,
     collectionName: string,
     keys: Record<string, 1 | -1>,
     options?: { unique?: boolean },
@@ -62,7 +62,7 @@ describe('mongodb index creation logic', () => {
     try {
       await db.collection(collectionName).createIndex(keys, options ?? {});
       return true;
-    } catch (error: any) {
+    } catch (error: unknown) {
       const code = error?.code;
 
       if (code === 11000 && options?.unique) {
@@ -86,7 +86,7 @@ describe('mongodb index creation logic', () => {
 
   // Reimplementation of deduplicateCollection for testing
   async function deduplicateCollection(
-    db: any,
+    db: unknown,
     collectionName: string,
     keyFields: string[],
   ): Promise<void> {

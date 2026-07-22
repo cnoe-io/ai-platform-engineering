@@ -14,6 +14,7 @@ import {
   getDirectSharingAccessConversationIds,
 } from '@/lib/rbac/conversation-implicit-authz';
 import type { Conversation } from '@/types/mongodb';
+import type { Document } from 'mongodb';
 import { NextRequest,NextResponse } from 'next/server';
 import { deleteConversationsPermanently } from '../delete-permanently';
 
@@ -54,9 +55,9 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     }
 
     // Query for soft-deleted conversation candidates, then filter by ReBAC.
-    const query = {
+    const query: Document = {
       $and: [
-        { source: { $ne: 'slack' } as any },
+        { source: { $ne: 'slack' } },
         { deleted_at: { $exists: true, $ne: null } },
         conversationVisibilityCandidateQuery(user.email, directShareConversationIds),
       ],

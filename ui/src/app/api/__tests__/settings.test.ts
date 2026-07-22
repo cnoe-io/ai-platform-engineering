@@ -32,7 +32,7 @@ import { ObjectId } from 'mongodb';
 // Mock NextAuth
 const mockGetServerSession = jest.fn();
 jest.mock('next-auth', () => ({
-  getServerSession: (...args: any[]) => mockGetServerSession(...args),
+  getServerSession: (...args: unknown[]) => mockGetServerSession(...args),
 }));
 
 // Mock auth config
@@ -47,7 +47,7 @@ jest.mock('@/lib/config', () => ({
 }));
 
 // Mock MongoDB
-const mockCollections: Record<string, any> = {};
+const mockCollections: Record<string, unknown> = {};
 const mockGetCollection = jest.fn((name: string) => {
   if (!mockCollections[name]) {
     mockCollections[name] = createMockCollection();
@@ -56,7 +56,7 @@ const mockGetCollection = jest.fn((name: string) => {
 });
 
 jest.mock('@/lib/mongodb', () => ({
-  getCollection: (...args: any[]) => mockGetCollection(...args),
+  getCollection: (...args: unknown[]) => mockGetCollection(...args),
   isMongoDBConfigured: true,
 }));
 

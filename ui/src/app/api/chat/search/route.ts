@@ -13,6 +13,7 @@ import {
   getDirectSharingAccessConversationIds,
 } from '@/lib/rbac/conversation-implicit-authz';
 import type { Conversation } from '@/types/mongodb';
+import type { Document } from 'mongodb';
 import { NextRequest } from 'next/server';
 
 // GET /api/chat/search
@@ -29,7 +30,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     const directShareConversationIds = await getDirectSharingAccessConversationIds(user.email, getCollection);
 
     // Build search query from content filters and privacy-safe conversation candidates.
-    const searchQuery: any = {
+    const searchQuery: Document = {
       $and: [conversationVisibilityCandidateQuery(user.email, directShareConversationIds)],
     };
 

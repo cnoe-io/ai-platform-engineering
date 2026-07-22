@@ -73,24 +73,11 @@ export default function HomePage() {
       try {
         if (isMongoMode) {
           const response = await apiClient.getConversations({ page_size: 8 });
-          setRecentChats(
-            response.items.map(mapMongoConversation)
-          );
+          setRecentChats(response.items.map(mapMongoConversation));
         } else {
-          // localStorage mode: use chat store conversations
+          // Hydrate the local store. A separate effect derives the cards from
+          // the reactive conversation list after hydration completes.
           await loadConversationsFromServer();
-          const sorted = [...localConversations]
-            .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
-            .slice(0, 8);
-          setRecentChats(
-            sorted.map((c) => ({
-              id: c.id,
-              title: c.title,
-              updatedAt: c.updatedAt,
-              totalMessages: c.messages.length,
-              agentName: getAgentId(c),
-            }))
-          );
         }
       } catch (err) {
         console.error("[HomePage] Failed to load recent chats:", err);
@@ -100,7 +87,23 @@ export default function HomePage() {
     };
 
     loadRecent();
-  }, [isAuthenticated, isMongoMode]);
+  }, [isAuthenticated, isMongoMode, loadConversationsFromServer, mapMongoConversation]);
+
+  useEffect(() => {
+    if (!isAuthenticated || isMongoMode) return;
+    const sorted = [...localConversations]
+      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+      .slice(0, 8);
+    setRecentChats(
+      sorted.map((conversation) => ({
+        id: conversation.id,
+        title: conversation.title,
+        updatedAt: conversation.updatedAt,
+        totalMessages: conversation.messages.length,
+        agentName: getAgentId(conversation),
+      })),
+    );
+  }, [isAuthenticated, isMongoMode, localConversations]);
 
   // Load shared conversations (MongoDB only)
   useEffect(() => {
@@ -132,7 +135,7 @@ export default function HomePage() {
     };
 
     loadShared();
-  }, [isAuthenticated, isMongoMode]);
+  }, [isAuthenticated, isMongoMode, mapMongoConversation]);
 
   // Load user stats (MongoDB only)
   useEffect(() => {

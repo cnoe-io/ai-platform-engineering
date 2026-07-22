@@ -8,6 +8,7 @@ withErrorHandler,
 } from "@/lib/api-middleware";
 import { parseWebexSpaceRouteParams } from "@/lib/rbac/webex-space-openfga";
 import { checkWebexSpaceAccess } from "@/lib/rbac/webex-space-rebac";
+import { requireAvailableWebexBotPolicy } from "@/lib/webex-bot-policy";
 import type { UniversalRebacResourceAction,UniversalRebacResourceRef } from "@/types/rbac-universal";
 
 interface RouteContext {
@@ -35,6 +36,11 @@ export const POST = withErrorHandler(async (request: NextRequest, context: Route
   const { workspaceId, spaceId } = parseWebexSpaceRouteParams(raw.workspaceId, raw.spaceId);
 
   const body = (await request.json()) as Record<string, unknown>;
+  const botId = (
+    await requireAvailableWebexBotPolicy(
+      typeof body.bot_id === "string" ? body.bot_id : "",
+    )
+  ).id;
   const action =
     typeof body.action === "string" && body.action.trim()
       ? (body.action.trim() as UniversalRebacResourceAction)
@@ -44,6 +50,7 @@ export const POST = withErrorHandler(async (request: NextRequest, context: Route
   }
 
   const result = await checkWebexSpaceAccess({
+    bot_id: botId,
     workspace_id: workspaceId,
     space_id: spaceId,
     resource: parseResource(body.resource),

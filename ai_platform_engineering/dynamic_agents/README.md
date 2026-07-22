@@ -43,7 +43,10 @@ Dynamic Agents provide a flexible way to create purpose-built AI assistants with
 ### Tracing & Observability
 - Langfuse integration for LLM tracing
 - Per-session trace grouping
-- Tool call and token count tracking
+- Prometheus metrics at `/metrics` for requests, turns, model calls, tools, and runtime saturation
+- Model usage by configured model ID, including provider-reported input and output tokens
+- Exactly one terminal outcome per turn: `success`, `error`, `interrupted`, or `cancelled`
+- Time to first user-visible response and end-to-end turn latency histograms
 
 ## Running Locally
 

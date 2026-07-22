@@ -17,7 +17,7 @@
  */
 
 const mockNextResponseJson = jest.fn(
-  (data: any, init?: { headers?: Record<string, string>; status?: number }) => ({
+  (data: unknown, init?: { headers?: Record<string, string>; status?: number }) => ({
     json: async () => data,
     status: init?.status ?? 200,
     headers: new Map(Object.entries(init?.headers ?? {})),
@@ -25,7 +25,7 @@ const mockNextResponseJson = jest.fn(
 );
 
 jest.mock('next/server', () => ({
-  NextResponse: { json: (...args: any[]) => mockNextResponseJson(...args) },
+  NextResponse: { json: (...args: unknown[]) => mockNextResponseJson(...args) },
 }));
 
 jest.mock('fs', () => ({
@@ -65,7 +65,7 @@ afterAll(() => {
 // auto-injection of legacy params is necessary.
 const callGET = async (url: string) => {
   const res = await GET(new Request(url));
-  return res.json() as Promise<any>;
+  return res.json() as Promise<unknown>;
 };
 
 describe('GET /api/skills/update-skills — defaults', () => {

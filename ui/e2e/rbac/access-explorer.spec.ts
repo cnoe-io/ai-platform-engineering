@@ -323,7 +323,7 @@ test.describe("mocked Access Explorer browser regression", () => {
     await gotoAccessExplorer(page);
 
     await expect(page).toHaveURL(/\/admin\?cat=security&tab=access-explorer$/);
-    await expect(page.getByRole("button", { name: "Security & Policy" })).toHaveClass(/bg-primary/);
+    await expect(page.getByRole("button", { name: "Security & Policy" })).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByRole("heading", { name: "Access Explorer" })).toHaveCount(0);
     await expect(page.getByTestId("access-explorer-search-stage")).toBeVisible();
     await expect(page.getByTestId("access-explorer-header")).toHaveCount(0);

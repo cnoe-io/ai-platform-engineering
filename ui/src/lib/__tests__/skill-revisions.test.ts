@@ -94,11 +94,12 @@ function buildCollection() {
           rows = rows.slice(0, n);
           return cursor;
         },
-        project: <T,>(_p: Record<string, number>): typeof cursor => {
+        project: <T,>(projection: Record<string, number>): typeof cursor => {
           // We pass through the full row — every consumer in the
           // module under test only relies on the fields it requested
           // existing, not on absence of the others.
-          return cursor as unknown as typeof cursor;
+          Object.keys(projection);
+          return cursor as typeof cursor & { __documentType?: T };
         },
         toArray: async () => rows.map((r) => ({ ...r })),
       };

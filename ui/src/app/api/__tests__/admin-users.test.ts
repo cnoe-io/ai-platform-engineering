@@ -63,6 +63,7 @@ const mockListUsersWithRole = jest.fn();
 const mockListRealmRoleMappingsForUser = jest.fn();
 const mockGetUserFederatedIdentities = jest.fn();
 const mockGetRealmUserById = jest.fn();
+const mockGetRealmUserByIdOrNull = jest.fn();
 const mockIsValidTeamSlug = jest.fn();
 const mockFindRealmUsersByExactEmail = jest.fn();
 
@@ -75,6 +76,7 @@ jest.mock('@/lib/rbac/keycloak-admin', () => ({
   getUserFederatedIdentities: (...args: unknown[]) =>
     mockGetUserFederatedIdentities(...args),
   getRealmUserById: (...args: unknown[]) => mockGetRealmUserById(...args),
+  getRealmUserByIdOrNull: (...args: unknown[]) => mockGetRealmUserByIdOrNull(...args),
   isValidTeamSlug: (...args: unknown[]) => mockIsValidTeamSlug(...args),
   findRealmUsersByExactEmail: (...args: unknown[]) =>
     mockFindRealmUsersByExactEmail(...args),
@@ -122,6 +124,7 @@ function resetMocks() {
   mockListRealmRoleMappingsForUser.mockReset();
   mockGetUserFederatedIdentities.mockReset();
   mockGetRealmUserById.mockReset();
+  mockGetRealmUserByIdOrNull.mockReset();
   mockIsValidTeamSlug.mockReset();
   mockFindRealmUsersByExactEmail.mockReset();
   mockFindRealmUsersByExactEmail.mockResolvedValue([]);
@@ -133,6 +136,7 @@ function resetMocks() {
   mockListOpenFgaObjects.mockResolvedValue({ objects: [] });
   mockListRealmRoleMappingsForUser.mockResolvedValue([{ name: 'user' }]);
   mockGetUserFederatedIdentities.mockResolvedValue([]);
+  mockGetRealmUserByIdOrNull.mockResolvedValue(null);
   mockIsValidTeamSlug.mockReturnValue(true);
 }
 
@@ -309,7 +313,7 @@ describe('GET /api/admin/users — Keycloak list', () => {
         }),
       }),
       findOne: jest.fn(),
-    } as any;
+    } as unknown;
 
     const res = await GET(makeRequest('/api/admin/users?slackStatus=pending'));
 
@@ -371,6 +375,29 @@ describe("GET /api/admin/users — non-admin team-scoped view", () => {
     );
   }
 
+  function mockPreviewAuthorization(target: string, targetCanAudit = false) {
+    mockGetServerSession.mockResolvedValue(adminSession());
+    mockCheckOpenFgaTuple.mockImplementation(
+      async (tuple: { user: string; relation: string; object: string }) => ({
+        allowed:
+          (tuple.user === "user:admin-sub"
+            && tuple.relation === "can_read"
+            && tuple.object === "admin_surface:users")
+          || (tuple.user === "user:admin-sub"
+            && tuple.relation === "can_manage"
+            && tuple.object === "organization:caipe")
+          || (targetCanAudit
+            && tuple.user === `user:${target}`
+            && tuple.relation === "can_audit"
+            && tuple.object === "organization:caipe"),
+      }),
+    );
+    mockGetRealmUserByIdOrNull.mockResolvedValue({
+      id: target,
+      email: `${target}@example.com`,
+    });
+  }
+
   // The route probes OpenFGA twice: `team#admin` (to widen team admins to the
   // full-list view) and `team#member` (the plain-member self/team scope). These
   // tests exercise the plain-member path, so the caller administers no teams —
@@ -383,16 +410,40 @@ describe("GET /api/admin/users — non-admin team-scoped view", () => {
     );
   }
 
-  // Membership is resolved via `listActiveTeamMembershipSourcesBySlug`, which
-  // queries `team_membership_sources` by { team_slug, status: 'active' } — NOT
-  // by team_id. Keying these mocks by slug guards the prod bug where the slug
-  // from OpenFGA was passed to a team_id-keyed lookup and matched nobody.
+  // Membership is resolved two ways against `team_membership_sources`:
+  // `listActiveTeamMemberEmailsBySlugsPaged` (plain-member team scope) runs
+  // two aggregations (`{ $match: { team_slug: { $in }, status: 'active' } }`
+  // → dedupe/count, and → dedupe/sort/page), while
+  // `listActiveTeamMembershipSourcesBySlug` (team-admin editable-emails scope)
+  // still does a plain `.find({ team_slug, status: 'active' }).sort(...)`.
+  // NOT a team_id lookup either way. Keying these mocks by slug guards the
+  // prod bug where the slug from OpenFGA was passed to a team_id-keyed lookup
+  // and matched nobody. The aggregate mock emulates Mongo's own dedupe + sort
+  // + skip/limit so tests exercise the same pagination contract as the real
+  // aggregation.
   function setMembershipBySlug(
     bySlug: Record<string, string[]>
   ) {
     mockGetCollection.mockImplementation((name: string) => {
       if (name === 'team_membership_sources') {
         return Promise.resolve({
+          aggregate: jest.fn().mockImplementation((pipeline: Array<Record<string, unknown>>) => {
+            const match = pipeline[0]?.$match as { team_slug?: { $in?: string[] } } | undefined;
+            const slugs = match?.team_slug?.$in ?? [];
+            const emails = [...new Set(slugs.flatMap((slug) => bySlug[slug] ?? []))]
+              .map((e) => e.trim().toLowerCase())
+              .sort();
+            const isCount = pipeline.some((stage) => '$count' in stage);
+            if (isCount) {
+              return { toArray: jest.fn().mockResolvedValue([{ total: emails.length }]) };
+            }
+            const skipStage = pipeline.find((stage) => '$skip' in stage) as { $skip: number } | undefined;
+            const limitStage = pipeline.find((stage) => '$limit' in stage) as { $limit: number } | undefined;
+            const skip = skipStage?.$skip ?? 0;
+            const limit = limitStage?.$limit ?? emails.length;
+            const page = emails.slice(skip, skip + limit).map((email) => ({ _id: email }));
+            return { toArray: jest.fn().mockResolvedValue(page) };
+          }),
           find: jest.fn().mockImplementation((filter: { team_slug?: string }) => {
             const emails = bySlug[filter?.team_slug ?? ''] ?? [];
             const docs = emails.map((user_email) => ({ user_email, status: 'active' }));
@@ -510,5 +561,116 @@ describe("GET /api/admin/users — non-admin team-scoped view", () => {
     // alice is in both teams but appears once.
     expect(emails).toEqual(['alice@example.com', 'dave@example.com', 'erin@example.com']);
     expect(body.total).toBe(3);
+  });
+
+  // Regression test for the prod incident: a large (e.g. Okta-synced,
+  // org-wide) team used to resolve every member's email via Keycloak in one
+  // unbounded `Promise.all`, firing thousands of concurrent admin API calls
+  // that OOMKilled the istio-proxy sidecar. This asserts the route now only
+  // resolves the requested page's slice of members per request.
+  it("pages large teams instead of resolving every member in one request", async () => {
+    const emails = Array.from({ length: 45 }, (_, i) => `member${String(i).padStart(2, '0')}@example.com`);
+    setMemberTeams(['team:org-wide']);
+    setMembershipBySlug({ 'org-wide': emails });
+    resolveUsersByEmail(
+      Object.fromEntries(emails.map((email, i) => [email, { id: `u-${i}` }]))
+    );
+
+    const page1 = await GET(makeRequest('/api/admin/users?page=1&pageSize=20'));
+    expect(page1.status).toBe(200);
+    const body1 = await page1.json();
+    expect(body1.scoped).toBe('team');
+    expect(body1.total).toBe(45);
+    expect(body1.page).toBe(1);
+    expect(body1.pageSize).toBe(20);
+    expect(body1.users).toHaveLength(20);
+    // Only this page's 20 emails were resolved via Keycloak, not all 45.
+    expect(mockFindRealmUsersByExactEmail).toHaveBeenCalledTimes(20);
+    expect(body1.users.map((u: { email: string }) => u.email).sort()).toEqual(
+      emails.slice(0, 20).sort()
+    );
+
+    mockFindRealmUsersByExactEmail.mockClear();
+
+    const page3 = await GET(makeRequest('/api/admin/users?page=3&pageSize=20'));
+    const body3 = await page3.json();
+    // Final page only has the remaining 5 members.
+    expect(body3.users).toHaveLength(5);
+    expect(mockFindRealmUsersByExactEmail).toHaveBeenCalledTimes(5);
+    expect(body3.total).toBe(45);
+  });
+
+  it("uses the selected user's memberships instead of the viewing admin's", async () => {
+    mockPreviewAuthorization("preview-user");
+    setMemberTeams(["team:platform-eng"]);
+    setMembershipBySlug({
+      "platform-eng": ["preview@example.com", "teammate@example.com"],
+    });
+    resolveUsersByEmail({
+      "preview@example.com": { id: "preview-user" },
+      "teammate@example.com": { id: "teammate" },
+    });
+
+    const res = await GET(makeRequest(
+      "/api/admin/users?simulate_type=user&simulate_id=preview-user",
+    ));
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.scoped).toBe("team");
+    expect(body.users.map((user: { id: string }) => user.id).sort()).toEqual([
+      "preview-user",
+      "teammate",
+    ]);
+    expect(mockListOpenFgaObjects).toHaveBeenCalledWith({
+      user: "user:preview-user",
+      relation: "member",
+      type: "team",
+    });
+    expect(mockListOpenFgaObjects).not.toHaveBeenCalledWith(
+      expect.objectContaining({ user: "user:admin-sub" }),
+    );
+  });
+
+  it("returns the full user list for an organization-admin preview", async () => {
+    mockPreviewAuthorization("target-admin", true);
+    mockSearchRealmUsers.mockResolvedValue([
+      { id: "u1", email: "one@example.com", username: "one", attributes: {} },
+      { id: "u2", email: "two@example.com", username: "two", attributes: {} },
+    ]);
+    mockCountRealmUsers.mockResolvedValue(2);
+
+    const res = await GET(makeRequest(
+      "/api/admin/users?simulate_type=user&simulate_id=target-admin",
+    ));
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.users).toHaveLength(2);
+    expect(body.scoped).toBeUndefined();
+    expect(mockSearchRealmUsers).toHaveBeenCalled();
+  });
+
+  it("applies the existing full-list policy for a team-admin preview", async () => {
+    mockPreviewAuthorization("unused-user-id");
+    setMembershipBySlug({
+      platform: ["managed@example.com"],
+    });
+    mockSearchRealmUsers.mockResolvedValue([
+      { id: "managed", email: "managed@example.com", username: "managed", attributes: {} },
+      { id: "other", email: "other@example.com", username: "other", attributes: {} },
+    ]);
+    mockCountRealmUsers.mockResolvedValue(2);
+
+    const res = await GET(makeRequest(
+      "/api/admin/users?simulate_type=team&simulate_id=platform&simulate_relation=admin",
+    ));
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.users).toHaveLength(2);
+    expect(body.users.find((user: { id: string }) => user.id === "managed").can_edit).toBe(true);
+    expect(body.users.find((user: { id: string }) => user.id === "other").can_edit).toBe(false);
+    expect(mockListOpenFgaObjects).not.toHaveBeenCalled();
   });
 });

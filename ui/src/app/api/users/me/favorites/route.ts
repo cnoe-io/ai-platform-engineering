@@ -8,8 +8,20 @@ withAuth,
 withErrorHandler,
 } from '@/lib/api-middleware';
 import { getCollection,isMongoDBConfigured } from '@/lib/mongodb';
-import type { User } from '@/types/mongodb';
+import type { Document } from 'mongodb';
 import { NextRequest } from 'next/server';
+
+interface UserFavoritesDocument extends Document {
+  created_at?: Date;
+  email: string;
+  favorites?: string[];
+  name?: string;
+  updated_at?: Date;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
 
 /**
  * User Favorites API
@@ -25,7 +37,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   }
 
   return withAuth(request, async (req, user) => {
-    const users = await getCollection<User>('users');
+    const users = await getCollection<UserFavoritesDocument>('users');
 
     // Upsert: ensure user exists (atomic — no race with /api/users/me).
     // $setOnInsert only applies when creating a new doc, so it won't
@@ -41,12 +53,12 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
           favorites: [],
         },
         $set: { updated_at: now },
-      } as any,
+      },
       { upsert: true }
     );
 
     const userProfile = await users.findOne({ email: user.email });
-    const favorites = (userProfile as any)?.favorites || [];
+    const favorites = userProfile?.favorites || [];
 
     return successResponse({ favorites });
   });
@@ -59,22 +71,22 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
   }
 
   return withAuth(request, async (req, user) => {
-    const body = await request.json();
+    const body: unknown = await request.json();
 
     // Validate favorites array
-    if (!Array.isArray(body.favorites)) {
+    if (!isRecord(body) || !Array.isArray(body.favorites)) {
       throw new ApiError('favorites must be an array', 400);
     }
 
     // Validate all favorites are strings (config IDs)
-    if (!body.favorites.every((id: any) => typeof id === 'string')) {
+    if (!body.favorites.every((id: unknown): id is string => typeof id === 'string')) {
       throw new ApiError('All favorites must be string IDs', 400);
     }
 
     // Remove duplicates
     const uniqueFavorites = [...new Set(body.favorites)];
 
-    const users = await getCollection<User>('users');
+    const users = await getCollection<UserFavoritesDocument>('users');
 
     // Upsert: ensure user exists and set favorites atomically.
     // $setOnInsert creates a minimal user doc if missing (won't overwrite
@@ -93,7 +105,7 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
           favorites: uniqueFavorites as string[],
           updated_at: now,
         },
-      } as any,
+      },
       { upsert: true }
     );
 

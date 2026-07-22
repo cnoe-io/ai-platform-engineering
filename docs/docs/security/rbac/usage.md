@@ -1099,8 +1099,9 @@ status. Webex dispatch creates or reuses a `client_type=webex` CAIPE
 conversation before calling `/api/v1/chat/stream/start`; a `404 Conversation not
 found` means that conversation upsert step did not run or failed.
 
-Keep `WEBEX_AUTO_ASSIGN_UNMAPPED_SPACES=false` unless the configured default team
-and agent are intentionally safe for newly observed spaces.
+Use `spaces.accessMode: all_spaces` only when that bot's configured default team
+and agent are intentionally safe for every newly observed group space. Use
+`allowlist` when an administrator must approve each space.
 
 ---
 

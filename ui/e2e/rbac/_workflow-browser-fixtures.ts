@@ -151,7 +151,6 @@ export function buildMcpWorkflowAgentFixture(): WorkflowAgentFixture {
 export function buildDefaultWorkflowCatalog(
   privateAgentId = "agent-private",
 ): WorkflowFixture[] {
-  const privateAgent = buildPrivateAgentFixture();
   const mcpAgent = buildMcpWorkflowAgentFixture();
 
   return [
@@ -190,7 +189,7 @@ export function buildDefaultWorkflowCatalog(
         {
           type: "step",
           display_text: "Use private agent",
-          agent_id: privateAgent.id,
+          agent_id: privateAgentId,
           prompt: "Run the private agent",
           on_error: "abort",
           retry: null,
@@ -211,7 +210,7 @@ export function buildDefaultWorkflowCatalog(
         {
           type: "step",
           display_text: "Personal step",
-          agent_id: privateAgent.id,
+          agent_id: privateAgentId,
           prompt: "Run privately",
           on_error: "abort",
           retry: null,

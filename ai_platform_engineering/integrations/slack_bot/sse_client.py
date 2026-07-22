@@ -359,6 +359,60 @@ class SSEClient:
 
     logger.debug("Updated metadata for conversation {}: {}", conversation_id, metadata)
 
+  def add_message(
+    self,
+    conversation_id: str,
+    message_id: str,
+    role: str,
+    metadata: Optional[Dict[str, Any]] = None,
+    content: str = "",
+  ) -> None:
+    """Persist a single message row via the shared API (metadata-only).
+
+    Calls ``POST /api/chat/conversations/{id}/messages``. The Slack bot records
+    per-turn message metadata (source, agent, latency, linking) so admin stats
+    count Slack messages like web messages — WITHOUT duplicating the message
+    content that already lives in Slack. ``content`` defaults to empty.
+
+    The upsert is keyed on ``message_id``, so this is idempotent — re-posting
+    the same turn updates the row instead of duplicating it.
+
+    Args:
+        conversation_id: UUID of the conversation this turn belongs to.
+        message_id: Stable per-turn id (dedupe key for the upsert).
+        role: "user" | "assistant".
+        metadata: Message metadata (source, agent_id, latency_ms, channel_id,
+            channel_name, thread_ts, slack_permalink, turn_id, is_final, ...).
+        content: Optional content; omitted (empty) for Slack turns.
+
+    Raises:
+        Exception: On HTTP errors.
+    """
+    url = f"{self.base_url}/api/chat/conversations/{conversation_id}/messages"
+    headers = self._get_headers()
+    headers["Accept"] = "application/json"
+
+    payload: Dict[str, Any] = {
+      "message_id": message_id,
+      "role": role,
+      "content": content,
+    }
+    if metadata:
+      payload["metadata"] = metadata
+
+    with httpx.Client(timeout=30) as client:
+      response = client.post(url, json=payload, headers=headers)
+
+    if response.status_code not in (200, 201):
+      logger.error(
+        "Failed to add message: status={} body={}",
+        response.status_code,
+        response.text[:500],
+      )
+      raise Exception(f"Failed to add message: HTTP {response.status_code}")
+
+    logger.debug("Added {} message for conversation {}", role, conversation_id)
+
   def stream_chat(
     self,
     message: str,

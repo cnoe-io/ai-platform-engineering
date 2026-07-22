@@ -54,7 +54,6 @@ jest.mock("@/components/skills/workspace/tabs/HistoryTab", () => ({
 
 // Mock the form hook to give us deterministic state — we toggle `isDirty`
 // via setters captured in `formState`.
-type SetState<T> = React.Dispatch<React.SetStateAction<T>>;
 type FormShape = {
   isDirty: boolean;
   isSubmitting: boolean;
@@ -116,7 +115,11 @@ jest.mock("@/store/unsaved-changes-store", () => ({
 import { SkillWorkspace } from "../SkillWorkspace";
 import type { AgentSkill } from "@/types/agent-skill";
 
-const SAMPLE_SKILL: AgentSkill = {
+const SAMPLE_SKILL: AgentSkill & {
+  shared_team_ids: string[];
+  source: string;
+  user_id: string;
+} = {
   id: "skill-1",
   name: "Triage",
   description: "",
@@ -126,10 +129,12 @@ const SAMPLE_SKILL: AgentSkill = {
   visibility: "private",
   shared_team_ids: [],
   user_id: "u1",
+  tasks: [],
+  owner_id: "u1",
+  is_system: false,
   created_at: new Date(),
   updated_at: new Date(),
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-} as any;
+};
 
 beforeEach(() => {
   pushMock.mockClear();

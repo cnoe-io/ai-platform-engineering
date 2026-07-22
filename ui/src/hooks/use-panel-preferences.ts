@@ -153,6 +153,10 @@ export function usePanelPreferences(
   // Hydration: localStorage first, then server (server wins).
   useEffect(() => {
     const local = readLocal(surface);
+    // Re-hydrating from localStorage when `surface` changes (not just on
+    // mount — see the `[surface]` dep below) is the effect's actual job,
+    // alongside the server fetch race below it.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (local) setPreferencesState(local);
     setIsHydrated(true);
 
@@ -175,7 +179,7 @@ export function usePanelPreferences(
       cancelled = true;
     };
     // surface is stable per mount; intentional empty dep
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [surface]);
 
   // Cross-tab sync via storage events.

@@ -87,11 +87,11 @@ jest.mock("next-auth/react", () => ({
 jest.mock("framer-motion", () => ({
   motion: {
     // eslint-disable-next-line react/display-name
-    div: React.forwardRef(({ children, ...rest }: any, ref: any) => (
+    div: React.forwardRef(({ children, ...rest }: unknown, ref: unknown) => (
       <div ref={ref} {...rest}>{children}</div>
     )),
   },
-  AnimatePresence: ({ children }: any) => <>{children}</>,
+  AnimatePresence: ({ children }: unknown) => <>{children}</>,
 }));
 
 // `SkillFolderViewer` (used by gallery's view-files dialog) imports
@@ -100,7 +100,7 @@ jest.mock("framer-motion", () => ({
 // exercise the viewer's markdown rendering.
 jest.mock("react-markdown", () => ({
   __esModule: true,
-  default: ({ children }: any) => <div>{children}</div>,
+  default: ({ children }: unknown) => <div>{children}</div>,
 }));
 
 jest.mock("remark-gfm", () => ({
@@ -109,7 +109,7 @@ jest.mock("remark-gfm", () => ({
 }));
 
 jest.mock("@/components/ui/caipe-spinner", () => ({
-  CAIPESpinner: ({ message }: any) => <div data-testid="spinner">{message}</div>,
+  CAIPESpinner: ({ message }: unknown) => <div data-testid="spinner">{message}</div>,
 }));
 
 jest.mock("@/components/ui/toast", () => ({

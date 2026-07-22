@@ -93,6 +93,18 @@ def _log_stage(event: dict, stage: str, **extra) -> None:
     event.get("ts"), stage, _ingestion_lag_ms(event), fields,
   )
 
+
+def _channel_id_from_view_metadata(body: dict) -> str | None:
+  """Recover channel_id for view_submission payloads (modal submits).
+
+  Unlike block_actions/event bodies, a view_submission body carries no
+  top-level channel field at all — the channel only lives in
+  view.private_metadata, which our feedback modal encodes as
+  "channel_id|thread_ts|message_ts|agent_id|feedback_type".
+  """
+  private_metadata = body.get("view", {}).get("private_metadata", "")
+  return private_metadata.split("|")[0] or None if private_metadata else None
+
 # 098 Enterprise RBAC enforcement
 RBAC_ENABLED = os.environ.get("SLACK_RBAC_ENABLED", "false").lower() == "true"
 
@@ -142,6 +154,7 @@ if RBAC_ENABLED:
             body.get("event", {}).get("channel")
             or body.get("channel", {}).get("id")
             or body.get("channel_id")  # slash command bodies
+            or _channel_id_from_view_metadata(body)  # view_submission (modal submit)
         )
         if channel_id:
             context["slack_channel_id"] = channel_id
@@ -946,6 +959,79 @@ def _track_interaction(
     logger.warning(f"[{thread_ts}] Failed to update interaction metadata")
 
 
+def _record_message_turns(
+  conversation_id: str,
+  thread_ts: str,
+  channel_id: str,
+  trigger_ts: str,
+  agent_id: str,
+  response_time_ms: int | None = None,
+  channel_name: str | None = None,
+) -> None:
+  """Persist per-turn message rows (metadata-only) for a Slack exchange.
+
+  Slack turn content lives in Slack / the LangGraph checkpointer, so we do NOT
+  duplicate it here. We write two content-less ``messages`` rows — one ``user``
+  turn and one ``assistant`` turn — carrying just the metadata admin stats need
+  to count Slack messages the same way as web (source, agent, latency) and to
+  deep-link back to the source thread.
+
+  Called ONLY after a genuine, successful Forge response (never on skipped or
+  retry/error turns). ``message_id`` is derived from the triggering message ts
+  so the upsert is idempotent across Slack event retries.
+
+  ``agent_id`` is sent as-is; the server resolves it to the canonical display
+  name so Slack and web message rows share the same ``agent_name`` label. The
+  row's ``owner_id`` (the user-attribution key for stats) is inherited from the
+  conversation server-side — which the bot set to the Slack user's email — so
+  the same person's Slack and web activity aggregate to one bucket.
+  """
+  # Deep-link back to the Slack thread (same shape as _track_interaction).
+  slack_permalink = None
+  workspace = _WORKSPACE_URL
+  if workspace and thread_ts:
+    slack_permalink = f"{workspace}/archives/{channel_id}/p{thread_ts.replace('.', '')}"
+
+  link_meta: dict[str, object] = {
+    "source": "slack",
+    "agent_id": agent_id,
+    "channel_id": channel_id,
+    "thread_ts": thread_ts,
+  }
+  if channel_name:
+    link_meta["channel_name"] = channel_name
+  if slack_permalink:
+    link_meta["slack_permalink"] = slack_permalink
+
+  # Stable per-turn base id from the triggering message ts (dedupe key).
+  base_id = f"slack-{conversation_id}-{trigger_ts}"
+
+  try:
+    sse_client.add_message(
+      conversation_id=conversation_id,
+      message_id=f"{base_id}-user",
+      role="user",
+      metadata={
+        **link_meta,
+        "turn_id": f"{trigger_ts}-user",
+      },
+    )
+    sse_client.add_message(
+      conversation_id=conversation_id,
+      message_id=f"{base_id}-assistant",
+      role="assistant",
+      metadata={
+        **link_meta,
+        "turn_id": f"{trigger_ts}-assistant",
+        "is_final": True,
+        **({"latency_ms": response_time_ms} if response_time_ms is not None else {}),
+      },
+    )
+  except Exception:
+    # Best-effort telemetry: never let a stats write break the Slack response.
+    logger.warning(f"[{thread_ts}] Failed to record Slack message turns")
+
+
 def _call_ai(
   client,
   channel_id,
@@ -1167,6 +1253,7 @@ def rbac_global_middleware(body, context, next, logger):
         body.get("event", {}).get("channel")
         or body.get("channel", {}).get("id")
         or body.get("channel_id")  # slash command bodies
+        or _channel_id_from_view_metadata(body)  # view_submission (modal submit)
     )
 
     if rbac_status == "unlinked":
@@ -1387,6 +1474,16 @@ def handle_mention(event, say, client, context=None):
           "thread_ts": thread_ts,
           "channel_id": channel_id,
           "channel_name": channel_config.name,
+          # Flag threads owned by a Slack bot/app (e.g. GitLab, alert bots).
+          # Their Slack user IDs are "U…"-prefixed like humans, so stats can't
+          # tell them apart by ID — this lets the leaderboard exclude them when
+          # "Show bot users" is off.
+          **({"owner_is_bot": True} if is_bot else {}),
+          # Bot/app owners aren't rows in our users collection, so stats can't
+          # resolve their "U…" owner_id to a name. Persist the app's display
+          # name here so the leaderboard shows "GitLab" instead of the raw id
+          # when "Show bot users" is on.
+          **({"owner_display_name": bot_username} if is_bot and bot_username else {}),
           **({"workspace_url": SLACK_WORKSPACE_URL} if SLACK_WORKSPACE_URL else {}),
         },
       )
@@ -1522,6 +1619,7 @@ def handle_mention(event, say, client, context=None):
     # updates `last_processed_ts` (delta-context fast path on follow-ups,
     # spec from commit 706a1994), so this single call replaces what was
     # previously an inline `update_conversation_metadata` POST.
+    elapsed_ms = int((time.monotonic() - t0) * 1000)
     _track_interaction(
       conversation_id=conversation_id,
       thread_ts=thread_ts,
@@ -1530,10 +1628,23 @@ def handle_mention(event, say, client, context=None):
       user_id=user_id,
       user_email=user_email,
       user_name=user_name,
-      response_time_ms=int((time.monotonic() - t0) * 1000),
+      response_time_ms=elapsed_ms,
       last_processed_ts=event.get("ts"),
       thread_owner_agent_id=agent_id,
     )
+
+    # Persist per-turn message rows for stats/linking — only on a genuine
+    # successful response (skip retry/error turns, which fall through above).
+    if not (isinstance(result, dict) and result.get("retry_needed")):
+      _record_message_turns(
+        conversation_id=conversation_id,
+        thread_ts=thread_ts,
+        channel_id=channel_id,
+        trigger_ts=event.get("ts") or thread_ts,
+        agent_id=agent_id,
+        response_time_ms=elapsed_ms,
+        channel_name=channel_config.name if channel_config else None,
+      )
 
   except Exception as e:
     logger.exception(f"Error handling CAIPE mention: {e}")
@@ -1645,6 +1756,11 @@ def _route_to_agent(event, say, client, channel_config, agent_match, is_bot, bot
         "thread_ts": thread_ts,
         "channel_id": channel_id,
         "channel_name": channel_config.name,
+        # Flag bot/app-owned threads so stats can exclude them (see handle_mention).
+        **({"owner_is_bot": True} if is_bot else {}),
+        # Persist the bot/app display name so stats can label the "U…" owner_id
+        # (see handle_mention).
+        **({"owner_display_name": bot_username} if is_bot and bot_username else {}),
         **({"workspace_url": SLACK_WORKSPACE_URL} if SLACK_WORKSPACE_URL else {}),
       },
     )
@@ -1728,6 +1844,7 @@ def _route_to_agent(event, say, client, channel_config, agent_match, is_bot, bot
     session_manager.set_thread_owner(thread_root_ts or thread_ts, agent_id)
     logger.info(f"[{thread_ts}] Completed {sender_label} request for {user_name}")
 
+    elapsed_ms = int((time.monotonic() - t0) * 1000)
     _track_interaction(
       conversation_id=conversation_id,
       thread_ts=thread_ts,
@@ -1736,8 +1853,20 @@ def _route_to_agent(event, say, client, channel_config, agent_match, is_bot, bot
       user_id=user_id,
       user_email=user_email,
       user_name=user_name,
-      response_time_ms=int((time.monotonic() - t0) * 1000),
+      response_time_ms=elapsed_ms,
       thread_owner_agent_id=agent_id,
+    )
+
+    # Persist per-turn message rows for stats/linking (successful turn only —
+    # skipped turns return above; this handler has no retry fallthrough).
+    _record_message_turns(
+      conversation_id=conversation_id,
+      thread_ts=thread_ts,
+      channel_id=channel_id,
+      trigger_ts=event.get("ts") or thread_ts,
+      agent_id=agent_id,
+      response_time_ms=elapsed_ms,
+      channel_name=channel_config.name if channel_config else None,
     )
 
   except AgentAccessDeniedError as e:
@@ -2010,6 +2139,7 @@ def handle_dm_message(event, say, client, context=None):
     # Telemetry: record interaction metadata. _track_interaction also
     # updates `last_processed_ts` (delta-context fast path on follow-ups),
     # so this single call replaces the older inline metadata POST.
+    elapsed_ms = int((time.monotonic() - t0) * 1000)
     _track_interaction(
       conversation_id=conversation_id,
       thread_ts=thread_ts,
@@ -2018,9 +2148,22 @@ def handle_dm_message(event, say, client, context=None):
       user_id=user_id,
       user_email=user_email,
       user_name=user_name,
-      response_time_ms=int((time.monotonic() - t0) * 1000),
+      response_time_ms=elapsed_ms,
       last_processed_ts=event.get("ts"),
     )
+
+    # Persist per-turn message rows for stats/linking — only on a genuine
+    # successful response (skip retry/error turns, which fall through above).
+    # DMs have no channel config, so no channel_name.
+    if not (isinstance(result, dict) and result.get("retry_needed")):
+      _record_message_turns(
+        conversation_id=conversation_id,
+        thread_ts=thread_ts,
+        channel_id=channel_id,
+        trigger_ts=event.get("ts") or thread_ts,
+        agent_id=agent_id,
+        response_time_ms=elapsed_ms,
+      )
 
   except Exception as e:
     logger.exception(f"Error handling DM message: {e}")
@@ -2174,8 +2317,9 @@ def handle_hitl_action(ack, body, client):
 # Feedback Action Handler
 # =============================================================================
 @app.action("caipe_feedback")
-def handle_caipe_feedback(ack, body, client):
+def handle_caipe_feedback(ack, body, client, context=None):
   ack()
+  _bind_obo_for_handler(context)
   try:
     user_id = body.get("user", {}).get("id")
     channel_id = body.get("channel", {}).get("id")
@@ -2256,8 +2400,9 @@ def handle_feedback_less_verbose(ack, body, client):
 
 
 @app.action("caipe_retry")
-def handle_caipe_retry(ack, body, client):
+def handle_caipe_retry(ack, body, client, context=None):
   ack()
+  _bind_obo_for_handler(context)
   try:
     user_id = body.get("user", {}).get("id")
     action = body.get("actions", [{}])[0]
@@ -2330,8 +2475,9 @@ def handle_caipe_retry(ack, body, client):
 # Escalation Action Handlers
 # =============================================================================
 @app.action("caipe_escalation_get_help")
-def handle_escalation_get_help(ack, body, client):
+def handle_escalation_get_help(ack, body, client, context=None):
   ack()
+  _bind_obo_for_handler(context)
   try:
     from utils.escalation import execute_escalation
 
@@ -2424,8 +2570,9 @@ def handle_escalation_get_help(ack, body, client):
 
 
 @app.action("caipe_delete_message")
-def handle_delete_message(ack, body, client):
+def handle_delete_message(ack, body, client, context=None):
   ack()
+  _bind_obo_for_handler(context)
   try:
     user_id = body.get("user", {}).get("id")
     channel_id = body.get("channel", {}).get("id")
@@ -2600,8 +2747,9 @@ def _regen_message_text(feedback_type: str, comment: str) -> str:
 
 
 @app.view("caipe_feedback_modal")
-def handle_feedback_modal_submission(ack, body, client, view):
+def handle_feedback_modal_submission(ack, body, client, view, context=None):
   ack()
+  _bind_obo_for_handler(context)
   try:
     user_id = body.get("user", {}).get("id")
     team_id = body.get("team", {}).get("id")

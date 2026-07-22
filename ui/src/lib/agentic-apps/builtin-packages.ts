@@ -1,6 +1,5 @@
 // assisted-by Codex Codex-sonnet-4-6
 
-import type { AgenticAppManifest } from "@/types/agentic-app";
 import {
   AGENTIC_SDLC_APP_ID,
   AGENTIC_SDLC_MANIFEST,

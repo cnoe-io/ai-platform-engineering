@@ -1,4 +1,5 @@
-import { create } from "zustand";
+import { getErrorMessage } from "@/lib/error-utils";
+import { create, type StateCreator } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { Conversation, ChatMessage, MessageFeedback, TurnStatus, getAgentId, buildParticipants } from "@/types/a2a";
 import { StreamEvent } from "@/lib/streaming/types";
@@ -6,6 +7,7 @@ import { generateId } from "@/lib/utils";
 import type { StreamAdapter } from "@/lib/streaming";
 import { apiClient } from "@/lib/api-client";
 import { getStorageMode, shouldUseLocalStorage } from "@/lib/storage-config";
+import type { Message as StoredMessage, StoredStreamEvent } from "@/types/mongodb";
 
 const LAST_ACTIVE_CONVERSATION_KEY = "caipe-chat-last-active-conversation";
 
@@ -108,6 +110,26 @@ interface ChatState {
   isConversationInputRequired: (conversationId: string) => boolean;
 }
 
+interface DebugLocalConversation {
+  id?: string;
+  title?: string;
+  messages?: Array<Partial<ChatMessage>>;
+}
+
+interface CaipeDebugTools {
+  messages: () => unknown;
+  compare: () => Promise<unknown>;
+  mongo: () => Promise<unknown>;
+  localStorage: () => void;
+  storageMode: () => unknown;
+}
+
+declare global {
+  interface Window {
+    __caipeDebug?: CaipeDebugTools;
+  }
+}
+
 // Coalesce concurrent conversation-list fetches (Sidebar + /chat redirect race).
 let loadConversationsInFlight: Promise<void> | null = null;
 
@@ -138,7 +160,7 @@ const pendingSaveTimestamps = new Map<string, number>();
 const PENDING_SAVE_GRACE_MS = 5000; // 5 second grace period after streaming ends
 
 // Serialize stream event for MongoDB storage (strip raw data, preserve structured fields)
-function serializeStreamEvent(event: StreamEvent): Record<string, unknown> {
+function serializeStreamEvent(event: StreamEvent): StoredStreamEvent {
   return {
     id: event.id,
     timestamp: event.timestamp,
@@ -161,7 +183,7 @@ function serializeStreamEvent(event: StreamEvent): Record<string, unknown> {
 }
 
 // Create store with conditional persistence
-const storeImplementation = (set: any, get: any) => ({
+const storeImplementation: StateCreator<ChatState> = (set, get) => ({
       conversations: [],
       activeConversationId: null,
       isStreaming: false,
@@ -543,9 +565,9 @@ const storeImplementation = (set: any, get: any) => ({
           try {
             await apiClient.deleteConversation(id);
             console.log('[ChatStore] Deleted conversation from MongoDB:', id);
-          } catch (error: any) {
+          } catch (error) {
             // 404 is expected for conversations that were never saved to MongoDB
-            if (error?.message?.includes('404') || error?.message?.includes('not found')) {
+            if (getErrorMessage(error, "")?.includes('404') || getErrorMessage(error, "")?.includes('not found')) {
               console.log('[ChatStore] Conversation not in MongoDB (expected for new conversations):', id);
             } else {
               console.error('[ChatStore] Failed to delete from MongoDB:', error);
@@ -810,7 +832,7 @@ const storeImplementation = (set: any, get: any) => ({
           console.error('[ChatStore] Failed to load conversations from MongoDB:', error);
           console.error('[ChatStore] Error details:', {
             error,
-            errorMessage: error instanceof Error ? error.message : String(error),
+            errorMessage: error instanceof Error ? getErrorMessage(error, "") : String(error),
             errorStack: error instanceof Error ? error.stack : undefined
           });
           // Don't clear conversations on error - preserve what we have
@@ -889,7 +911,7 @@ const storeImplementation = (set: any, get: any) => ({
 
           try {
             // Attach conversation-level stream events to the last assistant message.
-            let serializedStreamEvents: Record<string, unknown>[] | undefined;
+            let serializedStreamEvents: StoredStreamEvent[] | undefined;
             if (idx === lastAssistantIdx && convStreamEvents.length > 0) {
               serializedStreamEvents = convStreamEvents.map(serializeStreamEvent);
               console.log(`[ChatStore] Attaching ${convStreamEvents.length} conversation-level stream events to assistant message ${msg.id}`);
@@ -922,8 +944,8 @@ const storeImplementation = (set: any, get: any) => ({
             });
 
             savedCount++;
-          } catch (error: any) {
-            console.error(`[ChatStore] Failed to save message ${msg.id}:`, error?.message);
+          } catch (error) {
+            console.error(`[ChatStore] Failed to save message ${msg.id}:`, getErrorMessage(error, ""));
           }
         }
 
@@ -989,14 +1011,15 @@ const storeImplementation = (set: any, get: any) => ({
           // We need to know whether a "not final" assistant message is actually
           // followed by a subsequent user message — if so the response completed
           // successfully but the original session crashed before writing is_final=true.
-          const rawItems: any[] = response.items;
+          const rawItems = response.items;
 
           // Convert MongoDB messages to ChatMessage format
-          const messages: ChatMessage[] = rawItems.map((msg: any, idx: number) => {
+          const messages: ChatMessage[] = rawItems.map((msg, idx) => {
             // Deserialize stream events (for Dynamic Agents). Legacy records may
             // store them under `sse_events`.
-            const streamEvents: StreamEvent[] = (msg.stream_events || msg.sse_events || []).map((e: any) => ({
+            const streamEvents: StreamEvent[] = (msg.stream_events || msg.sse_events || []).map((e) => ({
               ...e,
+              raw: e.raw ?? null,
               timestamp: new Date(e.timestamp),
             }));
 
@@ -1013,7 +1036,7 @@ const storeImplementation = (set: any, get: any) => ({
             // crashed before persisting is_final=true.  Fix the flag so the
             // "Response was interrupted" banner does not show.
             if (msg.role === 'assistant' && !isFinal) {
-              const hasFollowUp = rawItems.slice(idx + 1).some((m: any) => m.role === 'user');
+              const hasFollowUp = rawItems.slice(idx + 1).some((message) => message.role === 'user');
               if (hasFollowUp) {
                 console.log(`[ChatStore] Healing stale is_final=false for assistant message ${msg.message_id || msg._id} (followed by user message)`);
                 isFinal = true;
@@ -1021,7 +1044,7 @@ const storeImplementation = (set: any, get: any) => ({
             }
 
             const isExplicitlyInterrupted = Boolean(msg.metadata?.is_interrupted);
-            const hasHitlForm = streamEvents.some((e: any) => e.type === 'input_required');
+            const hasHitlForm = streamEvents.some((event) => event.type === 'input_required');
             const chatMsg: ChatMessage = {
               id: msg.message_id || msg._id?.toString() || generateId(),
               role: msg.role as "user" | "assistant",
@@ -1146,10 +1169,10 @@ const storeImplementation = (set: any, get: any) => ({
             console.log(`[ChatStore] Loaded ${messages.length} messages with ${lastTurnStreamEvents.length} stream events from MongoDB for: ${conversationId}`);
           }
 
-        } catch (error: any) {
-          if (error?.message?.includes('401') || error?.message?.includes('Unauthorized')) {
+        } catch (error) {
+          if (getErrorMessage(error, "")?.includes('401') || getErrorMessage(error, "")?.includes('Unauthorized')) {
             console.log('[ChatStore] Not authenticated, skipping message load');
-          } else if (error?.message?.includes('404')) {
+          } else if (getErrorMessage(error, "")?.includes('404')) {
             console.log('[ChatStore] Conversation not found in MongoDB (normal for new conversations)');
           } else {
             console.error('[ChatStore] Failed to load messages from MongoDB:', error);
@@ -1301,7 +1324,7 @@ export const useChatStore = shouldUseLocalStorage()
 //                           __caipeDebug.localStorage()    — raw localStorage data
 // ═══════════════════════════════════════════════════════════════
 if (typeof window !== 'undefined') {
-  (window as any).__caipeDebug = {
+  window.__caipeDebug = {
     /** Show local messages for the active conversation */
     messages: () => {
       const state = useChatStore.getState();
@@ -1339,14 +1362,14 @@ if (typeof window !== 'undefined') {
         console.log(`Local: ${localMsgs.length} messages | MongoDB: ${mongoMsgs.length} messages`);
 
         const maxLen = Math.max(localMsgs.length, mongoMsgs.length);
-        const rows: any[] = [];
+        const rows = [];
         for (let i = 0; i < maxLen; i++) {
           const local = localMsgs[i] as ChatMessage | undefined;
-          const mongo = mongoMsgs[i] as any | undefined;
+          const mongo = mongoMsgs[i] as StoredMessage | undefined;
           rows.push({
             '#': i,
             localId: local?.id?.substring(0, 8) || '—',
-            mongoId: (mongo?.message_id || mongo?._id)?.substring(0, 8) || '—',
+            mongoId: (mongo?.message_id || mongo?._id?.toString())?.substring(0, 8) || '—',
             role: local?.role || mongo?.role || '—',
             localContentLen: local?.content?.length || 0,
             mongoContentLen: mongo?.content?.length || 0,
@@ -1372,17 +1395,17 @@ if (typeof window !== 'undefined') {
       if (!convId) { console.log('No active conversation'); return; }
       const res = await fetch(`/api/chat/conversations/${convId}/messages?pageSize=100`);
       const data = await res.json();
-      const items = data.items || data.data || [];
+      const items = (data.items || data.data || []) as StoredMessage[];
       console.log(`MongoDB: ${items.length} messages for ${convId}`);
-      console.table(items.map((m: any) => ({
-        id: (m.message_id || m._id)?.substring(0, 8),
-        role: m.role,
-        contentLen: m.content?.length || 0,
-        contentPreview: (m.content || '').substring(0, 80),
-        is_final: m.metadata?.is_final,
-        is_interrupted: m.metadata?.is_interrupted,
-        task_id: m.metadata?.task_id?.substring(0, 8),
-        events: m.stream_events?.length || 0,
+      console.table(items.map((message) => ({
+        id: (message.message_id || message._id?.toString())?.substring(0, 8),
+        role: message.role,
+        contentLen: message.content?.length || 0,
+        contentPreview: (message.content || '').substring(0, 80),
+        is_final: message.metadata?.is_final,
+        is_interrupted: message.metadata?.is_interrupted,
+        task_id: message.metadata?.task_id?.substring(0, 8),
+        events: message.stream_events?.length || 0,
       })));
       return items;
     },
@@ -1393,18 +1416,18 @@ if (typeof window !== 'undefined') {
         if (raw) {
           try {
             const parsed = JSON.parse(raw);
-            const convs = parsed?.state?.conversations || [];
+            const convs = (parsed?.state?.conversations || []) as DebugLocalConversation[];
             console.log(`\n=== ${key} ===`);
             console.log(`Conversations: ${convs.length}`);
             for (const conv of convs) {
               console.log(`  ${conv.id?.substring(0, 8)}: "${conv.title}" — ${conv.messages?.length || 0} messages`);
               if (conv.messages) {
-                console.table(conv.messages.map((m: any) => ({
-                  id: m.id?.substring(0, 8),
-                  role: m.role,
-                  contentLen: m.content?.length || 0,
-                  isFinal: m.isFinal,
-                  isInterrupted: m.isInterrupted,
+                console.table(conv.messages.map((message) => ({
+                  id: message.id?.substring(0, 8),
+                  role: message.role,
+                  contentLen: message.content?.length || 0,
+                  isFinal: message.isFinal,
+                  isInterrupted: message.isInterrupted,
                 })));
               }
             }

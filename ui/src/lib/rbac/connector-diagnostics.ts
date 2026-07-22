@@ -77,7 +77,7 @@ export interface ConnectorDiagnosticsAdapter {
   auditResourceRef: (workspaceId: string, itemId: string) => string;
   // Returns `agent_id`s the bot has OpenFGA tuples for. Slack's
   // implementation reads `slack_channel:<id>` as user; Webex reads
-  // `webex_space:<id>` as user. Both ultimately enumerate `agent:*`
+  // `webex_bot_installation:<bot>--<workspace>--<space>` as user. Both enumerate `agent:*`
   // objects.
   listOpenFgaAgentIds: (workspaceId: string, itemId: string) => Promise<string[]>;
   // Returns Mongo route metadata rows for this item. Each row needs

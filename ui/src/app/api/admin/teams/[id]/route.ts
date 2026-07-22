@@ -24,13 +24,16 @@ listOpenFgaObjects,
 writeOpenFgaTuples,
 type OpenFgaTupleKey,
 } from '@/lib/rbac/openfga';
+import type { Conversation } from '@/types/mongodb';
 import type { UpdateTeamRequest } from '@/types/teams';
 import { ObjectId,type Document } from 'mongodb';
 import { NextRequest,NextResponse } from 'next/server';
 
 interface TeamDocument extends Document {
+  description?: string;
   slug?: string;
   name?: string;
+  updated_at?: Date;
 }
 
 function requireMongoDB() {
@@ -141,7 +144,9 @@ export const PATCH = withErrorHandler(async (
     // `admin_ui#admin`.
     await requireTeamMembershipManagementPermission(session, user.email, team);
 
-    const update: Record<string, any> = { updated_at: new Date() };
+    const update: Pick<TeamDocument, 'description' | 'name' | 'updated_at'> = {
+      updated_at: new Date(),
+    };
 
     if (body.name !== undefined) {
       if (!body.name.trim()) {
@@ -258,10 +263,10 @@ export const DELETE = withErrorHandler(async (
 
     // Remove team references from conversations shared_with_teams
     try {
-      const conversations = await getCollection('conversations');
+      const conversations = await getCollection<Conversation>('conversations');
       await conversations.updateMany(
         { 'sharing.shared_with_teams': params.id },
-        { $pull: { 'sharing.shared_with_teams': params.id } as any }
+        { $pull: { 'sharing.shared_with_teams': params.id } }
       );
     } catch (err) {
       console.warn('[Admin] Failed to clean up conversation team references:', err);

@@ -22,7 +22,7 @@
  */
 
 const mockNextResponseJson = jest.fn(
-  (data: any, init?: { headers?: Record<string, string>; status?: number }) => ({
+  (data: unknown, init?: { headers?: Record<string, string>; status?: number }) => ({
     json: async () => data,
     status: init?.status ?? 200,
     headers: new Map(Object.entries(init?.headers ?? {})),
@@ -30,7 +30,7 @@ const mockNextResponseJson = jest.fn(
 );
 
 jest.mock('next/server', () => ({
-  NextResponse: { json: (...args: any[]) => mockNextResponseJson(...args) },
+  NextResponse: { json: (...args: unknown[]) => mockNextResponseJson(...args) },
 }));
 
 jest.mock('fs', () => ({
@@ -62,7 +62,7 @@ afterAll(() => {
 
 const callGET = async (url: string) => {
   const res = await GET(new Request(url));
-  return res.json() as Promise<any>;
+  return res.json() as Promise<unknown>;
 };
 
 describe('GET /api/skills/live-skills — defaults', () => {
@@ -104,7 +104,7 @@ describe('GET /api/skills/live-skills — defaults', () => {
     // Catalog of all 5 supported agents (continue and specify dropped).
     expect(Array.isArray(data.agents)).toBe(true);
     expect(data.agents).toHaveLength(5);
-    const ids = data.agents.map((a: any) => a.id).sort();
+    const ids = data.agents.map((a: unknown) => a.id).sort();
     expect(ids).toEqual(['claude', 'codex', 'cursor', 'gemini', 'opencode']);
 
     expect(data.defaults.command_name).toBe('caipe-skills');
@@ -220,7 +220,7 @@ describe('GET /api/skills/live-skills — per-agent rendering', () => {
     const data = await callGET(
       'https://app.example.com/api/skills/live-skills',
     );
-    const ids = data.agents.map((a: any) => a.id);
+    const ids = data.agents.map((a: unknown) => a.id);
     expect(ids).not.toContain('continue');
     expect(ids).not.toContain('specify');
   });
@@ -401,9 +401,9 @@ describe('GET /api/skills/live-skills — response shape', () => {
     const data = await callGET(
       'https://app.example.com/api/skills/live-skills?command_name=catalog',
     );
-    const claudeMeta = data.agents.find((a: any) => a.id === 'claude');
-    const codexMeta = data.agents.find((a: any) => a.id === 'codex');
-    const opencodeMeta = data.agents.find((a: any) => a.id === 'opencode');
+    const claudeMeta = data.agents.find((a: unknown) => a.id === 'claude');
+    const codexMeta = data.agents.find((a: unknown) => a.id === 'codex');
+    const opencodeMeta = data.agents.find((a: unknown) => a.id === 'opencode');
 
     // Claude has a native discovery path plus the shared target.
     expect(claudeMeta.install_paths.user).toEqual([

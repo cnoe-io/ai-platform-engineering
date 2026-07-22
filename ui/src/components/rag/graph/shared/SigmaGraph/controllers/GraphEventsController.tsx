@@ -2,10 +2,12 @@
 
 import { useRegisterEvents,useSigma } from "@react-sigma/core";
 import { FC,PropsWithChildren,useEffect } from "react";
+import type { SigmaNodeEventPayload } from 'sigma/types';
+import type { GraphEdgeAttributes,GraphNodeAttributes } from '../../graphTypes';
 
 interface GraphEventsControllerProps {
     setHoveredNode: (node: string | null) => void;
-    onNodeClick: (nodeId: string, nodeData: any, event?: any) => void;
+    onNodeClick: (nodeId: string, nodeData: GraphNodeAttributes, event?: SigmaNodeEventPayload) => void;
     isDragging: boolean;
 }
 
@@ -19,9 +21,9 @@ const GraphEventsController: FC<PropsWithChildren<GraphEventsControllerProps>> =
     isDragging,
     children,
 }) => {
-    const sigma = useSigma();
+    const sigma = useSigma<GraphNodeAttributes,GraphEdgeAttributes>();
     const graph = sigma.getGraph();
-    const registerEvents = useRegisterEvents();
+    const registerEvents = useRegisterEvents<GraphNodeAttributes,GraphEdgeAttributes>();
 
     /**
      * Initialize event handlers

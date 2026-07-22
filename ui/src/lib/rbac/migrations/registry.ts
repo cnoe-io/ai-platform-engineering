@@ -14,8 +14,16 @@ import {
 import { caipeOrgKey } from "@/lib/rbac/organization";
 import { slackChannelTeamVisibilityRelationships } from "@/lib/rbac/slack-channel-rebac";
 import { buildUniversalRebacTupleDiff } from "@/lib/rbac/tuple-builders";
+import {
+  webexBotInstallationAgentTuple,
+  webexBotInstallationIdentityTuples,
+  webexBotInstallationId,
+} from "@/lib/rbac/webex-bot-openfga";
 import { webexSpaceTeamVisibilityRelationships } from "@/lib/rbac/webex-space-rebac";
 import type { UniversalRebacRelationship } from "@/types/rbac-universal";
+import type { Document } from "mongodb";
+
+type PlatformConfigDocument = Document & { _id: string };
 
 import {
 applyConversationOwnerIdentityMigration,
@@ -31,6 +39,13 @@ import {
   LEGACY_RUNTIME_CLEANUP_CONFIRMATION,
   LEGACY_RUNTIME_CLEANUP_MIGRATION_ID,
 } from "./legacy-runtime-cleanup";
+import {
+  applyUserPreferencesDefaultAgentCleanupMigration,
+  deriveUserPreferencesDefaultAgentCleanupPlan,
+  LEGACY_DM_DEFAULT_AGENT_FILTER,
+  USER_PREFERENCES_DEFAULT_AGENT_CLEANUP_CONFIRMATION,
+  USER_PREFERENCES_DEFAULT_AGENT_CLEANUP_MIGRATION_ID,
+} from "./user-preferences-default-agent-cleanup";
 import {
   applyTeamToolWildcardSlashMigration,
   planTeamToolWildcardSlashMigration,
@@ -484,7 +499,7 @@ export const MIGRATION_DEFINITIONS: MigrationDefinition[] = [
     to_version: 2,
     kind: "explicit",
     title: "Webex space ReBAC grants",
-    description: "Backfill Webex space resource grants and route-owned agent grants into OpenFGA provenance.",
+    description: "Backfill physical-space resource grants and bot-scoped route-owned agent grants into OpenFGA provenance. Botless legacy routes require explicit bot assignment in the Webex migration UI.",
     confirmation: "MIGRATE webex_space_rebac TO v2",
     required: true,
     implemented: true,
@@ -560,6 +575,20 @@ export const MIGRATION_DEFINITIONS: MigrationDefinition[] = [
     dependencies: [KNOWLEDGE_BASE_SHARED_TEAM_GRANTS_MIGRATION_ID],
   },
   KEYCLOAK_RBAC_MIGRATION_DEFINITION,
+  {
+    id: USER_PREFERENCES_DEFAULT_AGENT_CLEANUP_MIGRATION_ID,
+    release: RELEASE_060,
+    schema_area: "user_preferences",
+    from_version: 1,
+    to_version: 2,
+    kind: "explicit",
+    title: "Remove legacy shared DM default-agent preference",
+    description:
+      "Remove the ignored `dm_default_agent_id` field from user preference documents after Slack and Webex moved to independent per-surface defaults. Existing values are intentionally not copied; unset surfaces follow the platform default.",
+    confirmation: USER_PREFERENCES_DEFAULT_AGENT_CLEANUP_CONFIRMATION,
+    required: false,
+    implemented: true,
+  },
   {
     id: LEGACY_RUNTIME_CLEANUP_MIGRATION_ID,
     release: RELEASE_060,
@@ -659,7 +688,7 @@ function uniqueTuples(tuples: OpenFgaTupleKey[]): OpenFgaTupleKey[] {
   return out;
 }
 
-function userSubject(user: Record<string, any>): string | null {
+function userSubject(user: Document): string | null {
   return (
     normalizeString(user.keycloak_sub) ??
     normalizeString(user.metadata?.keycloak_sub) ??
@@ -669,7 +698,7 @@ function userSubject(user: Record<string, any>): string | null {
   );
 }
 
-function buildEmailSubjectIndex(users: Array<Record<string, any>>): Map<string, string> {
+function buildEmailSubjectIndex(users: Array<Document>): Map<string, string> {
   const out = new Map<string, string>();
   for (const user of users) {
     const email = normalizeEmail(user.email);
@@ -689,10 +718,10 @@ function addRelationship(
 }
 
 function deriveUniversalRebacPlan(input: {
-  teams: Array<Record<string, any>>;
-  users: Array<Record<string, any>>;
-  dynamicAgents: Array<Record<string, any>>;
-  platformConfig: Record<string, any> | null;
+  teams: Array<Document>;
+  users: Array<Document>;
+  dynamicAgents: Array<Document>;
+  platformConfig: Document | null;
 }): MigrationRuntimePlan {
   const tuples: OpenFgaTupleKey[] = [];
   const relationships: NonNullable<MigrationRuntimePlan["relationships"]> = [];
@@ -807,7 +836,7 @@ function deriveUniversalRebacPlan(input: {
 }
 
 export function deriveOrganizationMembershipPlan(
-  users: Array<Record<string, any>>,
+  users: Array<Document>,
   organizationId = caipeOrgKey(),
 ): MigrationRuntimePlan {
   const tuples: OpenFgaTupleKey[] = [];
@@ -877,16 +906,16 @@ function normalizeStringArray(values: unknown): string[] {
   return normalized;
 }
 
-function mongoId(doc: Record<string, any>): string | null {
+function mongoId(doc: Document): string | null {
   if (!doc._id) return null;
   if (typeof doc._id?.toHexString === "function") return doc._id.toHexString();
   return String(doc._id);
 }
 
 export function deriveSkillHubTeamGrantPlan(input: {
-  hubs: Array<Record<string, any>>;
-  hubSkills: Array<Record<string, any>>;
-  teams: Array<Record<string, any>>;
+  hubs: Array<Document>;
+  hubSkills: Array<Document>;
+  teams: Array<Document>;
 }): MigrationRuntimePlan {
   const tuples: OpenFgaTupleKey[] = [];
   const warnings: string[] = [];
@@ -990,7 +1019,7 @@ export function deriveSkillHubTeamGrantPlan(input: {
   };
 }
 
-function deriveAgentToolPlan(agents: Array<Record<string, any>>): MigrationRuntimePlan {
+function deriveAgentToolPlan(agents: Array<Document>): MigrationRuntimePlan {
   const tuples: OpenFgaTupleKey[] = [];
   const warnings: string[] = [];
   let agentsWithTools = 0;
@@ -1051,7 +1080,7 @@ function deriveAgentToolPlan(agents: Array<Record<string, any>>): MigrationRunti
 }
 
 export function deriveAgentOrganizationInheritancePlan(
-  agents: Array<Record<string, any>>,
+  agents: Array<Document>,
   organizationId = caipeOrgKey(),
 ): MigrationRuntimePlan {
   const tuples: OpenFgaTupleKey[] = [];
@@ -1118,8 +1147,8 @@ export function deriveAgentOrganizationInheritancePlan(
  * time and OpenFGA's tuple store no-ops on identical writes.
  */
 export function deriveAgentSharedTeamGrantsPlan(
-  agents: Array<Record<string, any>>,
-  teams: Array<Record<string, any>>,
+  agents: Array<Document>,
+  teams: Array<Document>,
 ): MigrationRuntimePlan {
   const slugById = new Map<string, string>();
   const knownSlugs = new Set<string>();
@@ -1727,6 +1756,7 @@ type MessagingGrantSurface = {
   subjectType: "slack_channel" | "webex_space";
   idField: "channel_id" | "space_id";
   routeIdField: "channel_id" | "space_id";
+  botScopedAgentRoutes?: boolean;
 };
 
 function relationshipForAction(action: unknown): string | null {
@@ -1736,7 +1766,7 @@ function relationshipForAction(action: unknown): string | null {
 
 function addMessagingRelationship(
   relationships: NonNullable<MigrationRuntimePlan["relationships"]>,
-  subjectType: "slack_channel" | "webex_space",
+  subjectType: "slack_channel" | "webex_space" | "webex_bot_installation",
   subjectId: string,
   action: string,
   resource: { type: string; id: string }
@@ -1746,8 +1776,8 @@ function addMessagingRelationship(
 
 export function deriveMessagingRebacPlan(input: {
   surface: MessagingGrantSurface;
-  grants: Array<Record<string, any>>;
-  routes: Array<Record<string, any>>;
+  grants: Array<Document>;
+  routes: Array<Document>;
 }): MigrationRuntimePlan {
   const tuples: OpenFgaTupleKey[] = [];
   const relationships: NonNullable<MigrationRuntimePlan["relationships"]> = [];
@@ -1756,6 +1786,8 @@ export function deriveMessagingRebacPlan(input: {
   let unsupportedActions = 0;
   let activeGrants = 0;
   let activeRoutes = 0;
+  let agentGrantsSkipped = 0;
+  let legacyRoutesRequiringBotAssignment = 0;
 
   for (const grant of input.grants) {
     if (grant.status && grant.status !== "active") continue;
@@ -1773,6 +1805,13 @@ export function deriveMessagingRebacPlan(input: {
     if (![workspaceId, resourceOwnerId, subjectId, resourceType, resourceId].every(isOpenFgaId)) {
       invalidIdentifiers += 1;
       warnings.push(`Skipping ${input.surface.subjectType} grant with invalid OpenFGA identifiers.`);
+      continue;
+    }
+    if (input.surface.botScopedAgentRoutes && resourceType === "agent") {
+      agentGrantsSkipped += 1;
+      warnings.push(
+        "Skipping Webex space agent grant; bot-scoped authorization is derived from routes with bot_id.",
+      );
       continue;
     }
 
@@ -1808,6 +1847,36 @@ export function deriveMessagingRebacPlan(input: {
       warnings.push(`Skipping ${input.surface.subjectType} route with incomplete identifiers.`);
       continue;
     }
+
+    if (input.surface.botScopedAgentRoutes) {
+      const botId = normalizeString(route.bot_id);
+      if (!botId) {
+        legacyRoutesRequiringBotAssignment += 1;
+        warnings.push(
+          `Skipping legacy Webex route for ${workspaceId}--${resourceOwnerId}; assign a bot in the Webex Legacy migration tab.`,
+        );
+        continue;
+      }
+      const installationId = webexBotInstallationId(botId, workspaceId, resourceOwnerId);
+      if (![botId, installationId].every(isOpenFgaId)) {
+        invalidIdentifiers += 1;
+        warnings.push("Skipping Webex route with invalid bot-scoped OpenFGA identifiers.");
+        continue;
+      }
+      tuples.push(...webexBotInstallationIdentityTuples(botId, workspaceId, resourceOwnerId));
+      tuples.push(
+        webexBotInstallationAgentTuple(botId, workspaceId, resourceOwnerId, agentId),
+      );
+      addMessagingRelationship(
+        relationships,
+        "webex_bot_installation",
+        installationId,
+        "use",
+        { type: "agent", id: agentId },
+      );
+      continue;
+    }
+
     const subjectId = `${workspaceId}--${resourceOwnerId}`;
     if (![workspaceId, resourceOwnerId, subjectId, agentId].every(isOpenFgaId)) {
       invalidIdentifiers += 1;
@@ -1841,6 +1910,8 @@ export function deriveMessagingRebacPlan(input: {
       relationships_planned: relationships.length,
       invalid_identifiers: invalidIdentifiers,
       unsupported_actions: unsupportedActions,
+      agent_grants_skipped: agentGrantsSkipped,
+      legacy_routes_requiring_bot_assignment: legacyRoutesRequiringBotAssignment,
     },
     warnings,
     sample_diffs: unique.slice(0, 10).map((tuple, index) => ({
@@ -1857,9 +1928,9 @@ export function deriveMessagingRebacPlan(input: {
 }
 
 export function deriveMessagingTeamMappingPlan(input: {
-  teams: Array<Record<string, any>>;
-  slackMappings: Array<Record<string, any>>;
-  webexMappings: Array<Record<string, any>>;
+  teams: Array<Document>;
+  slackMappings: Array<Document>;
+  webexMappings: Array<Document>;
 }): MigrationRuntimePlan {
   const warnings: string[] = [];
   const teamIds = new Set(input.teams.map((team) => normalizeString(team._id)).filter(Boolean));
@@ -1871,7 +1942,7 @@ export function deriveMessagingTeamMappingPlan(input: {
   const repairs: NonNullable<MigrationRuntimePlan["teamMappingRepairs"]> = [];
   let missingTeams = 0;
 
-  const resolveTeamId = (mapping: Record<string, any>) => {
+  const resolveTeamId = (mapping: Document) => {
     const id = normalizeString(mapping.team_id);
     if (id && teamIds.has(id)) return id;
     const slug = normalizeString(mapping.team_slug);
@@ -1960,9 +2031,9 @@ export function deriveMessagingTeamMappingPlan(input: {
 //
 // Idempotent: writeOpenFgaTuples no-ops on identical writes.
 export function deriveMessagingTeamVisibilityPlan(input: {
-  teams: Array<Record<string, any>>;
-  slackMappings: Array<Record<string, any>>;
-  webexMappings: Array<Record<string, any>>;
+  teams: Array<Document>;
+  slackMappings: Array<Document>;
+  webexMappings: Array<Document>;
 }): MigrationRuntimePlan {
   const warnings: string[] = [];
   const teamIds = new Set(input.teams.map((team) => normalizeString(team._id)).filter(Boolean));
@@ -1977,7 +2048,7 @@ export function deriveMessagingTeamVisibilityPlan(input: {
       .filter(([slug, id]) => Boolean(slug && id)),
   );
 
-  const resolveTeamSlug = (mapping: Record<string, any>): string | null => {
+  const resolveTeamSlug = (mapping: Document): string | null => {
     const directSlug = normalizeString(mapping.team_slug);
     if (directSlug && teamIdsBySlug.has(directSlug)) return directSlug;
     const teamId = normalizeString(mapping.team_id);
@@ -2181,6 +2252,11 @@ async function loadLegacyRuntimeCleanupInputs() {
   return { collectionNames, conversationsWithDeprecatedFields, messagesWithA2aEvents };
 }
 
+async function loadUserPreferencesDefaultAgentCleanupInputs(): Promise<number> {
+  const userPreferences = await getCollection("user_preferences");
+  return userPreferences.countDocuments(LEGACY_DM_DEFAULT_AGENT_FILTER);
+}
+
 /** Apply-time collection adapter for the 0.6.0 legacy-runtime cleanup. Wraps
  *  the raw mongodb driver so the migration module stays driver-agnostic. */
 async function buildLegacyRuntimeCleanupCollections() {
@@ -2200,13 +2276,13 @@ async function loadUniversalMigrationInputs() {
     getCollection("teams"),
     getCollection("users"),
     getCollection("dynamic_agents"),
-    getCollection<Record<string, any>>("platform_config"),
+    getCollection<PlatformConfigDocument>("platform_config"),
   ]);
   const [teamDocs, userDocs, agentDocs, configDoc] = await Promise.all([
     teams.find({}).toArray(),
     users.find({}).toArray(),
     dynamicAgents.find({}).toArray(),
-    platformConfig.findOne({ _id: "platform_settings" } as any),
+    platformConfig.findOne({ _id: "platform_settings" }),
   ]);
   return { teamDocs, userDocs, agentDocs, configDoc };
 }
@@ -2531,7 +2607,7 @@ function manifestDefinition(doc: MigrationManifestDoc): MigrationDefinition {
   };
 }
 
-function isMigrationComplete(definition: MigrationDefinition, version?: SchemaVersionDoc, run?: SchemaMigrationDoc): boolean {
+function isMigrationComplete(definition: MigrationDefinition, version?: SchemaVersionDoc): boolean {
   return (version?.version ?? 0) >= definition.to_version;
 }
 
@@ -2543,7 +2619,7 @@ function migrationListStatus(
   // assisted-by Codex Codex-sonnet-4-6
   // data_schema_versions is the source of truth; completed run rows can drift
   // and must not hide a repairable version mismatch from the admin UI.
-  if (isMigrationComplete(definition, version, run)) return "completed";
+  if (isMigrationComplete(definition, version)) return "completed";
   if (run?.status && run.status !== "completed") return run.status;
   return "not_started";
 }
@@ -2915,40 +2991,45 @@ export async function planMigration(migrationId: string, now = new Date().toISOS
   if (migrationId === LEGACY_RUNTIME_CLEANUP_MIGRATION_ID) {
     return deriveLegacyRuntimeCleanupPlan(await loadLegacyRuntimeCleanupInputs());
   }
+  if (migrationId === USER_PREFERENCES_DEFAULT_AGENT_CLEANUP_MIGRATION_ID) {
+    return deriveUserPreferencesDefaultAgentCleanupPlan(
+      await loadUserPreferencesDefaultAgentCleanupInputs(),
+    );
+  }
   if (migrationId === UNIVERSAL_REBAC_MIGRATION_ID) {
     const { teamDocs, userDocs, agentDocs, configDoc } = await loadUniversalMigrationInputs();
     return deriveUniversalRebacPlan({
-      teams: teamDocs as Array<Record<string, any>>,
-      users: userDocs as Array<Record<string, any>>,
-      dynamicAgents: agentDocs as Array<Record<string, any>>,
-      platformConfig: configDoc as Record<string, any> | null,
+      teams: teamDocs as Array<Document>,
+      users: userDocs as Array<Document>,
+      dynamicAgents: agentDocs as Array<Document>,
+      platformConfig: configDoc as Document | null,
     });
   }
   if (migrationId === SKILL_HUB_TEAM_GRANTS_MIGRATION_ID) {
     const { hubDocs, hubSkillDocs, teamDocs } = await loadSkillHubTeamGrantMigrationInputs();
     return deriveSkillHubTeamGrantPlan({
-      hubs: hubDocs as Array<Record<string, any>>,
-      hubSkills: hubSkillDocs as Array<Record<string, any>>,
-      teams: teamDocs as Array<Record<string, any>>,
+      hubs: hubDocs as Array<Document>,
+      hubSkills: hubSkillDocs as Array<Document>,
+      teams: teamDocs as Array<Document>,
     });
   }
   if (migrationId === ORGANIZATION_MEMBERSHIP_MIGRATION_ID) {
     const userDocs = await loadOrganizationMembershipMigrationInputs();
-    return deriveOrganizationMembershipPlan(userDocs as Array<Record<string, any>>);
+    return deriveOrganizationMembershipPlan(userDocs as Array<Document>);
   }
   if (migrationId === AGENT_TOOL_MIGRATION_ID) {
     const agentDocs = await loadAgentToolMigrationInputs();
-    return deriveAgentToolPlan(agentDocs as Array<Record<string, any>>);
+    return deriveAgentToolPlan(agentDocs as Array<Document>);
   }
   if (migrationId === AGENT_ORG_ADMIN_MIGRATION_ID) {
     const agentDocs = await loadAgentToolMigrationInputs();
-    return deriveAgentOrganizationInheritancePlan(agentDocs as Array<Record<string, any>>);
+    return deriveAgentOrganizationInheritancePlan(agentDocs as Array<Document>);
   }
   if (migrationId === AGENT_SHARED_TEAM_GRANTS_MIGRATION_ID) {
     const { agentDocs, teamDocs } = await loadAgentSharedTeamGrantInputs();
     return deriveAgentSharedTeamGrantsPlan(
-      agentDocs as Array<Record<string, any>>,
-      teamDocs as Array<Record<string, any>>,
+      agentDocs as Array<Document>,
+      teamDocs as Array<Document>,
     );
   }
   if (migrationId === ADMIN_SURFACE_RAG_DATASOURCES_ADMIN_GRANT_MIGRATION_ID) {
@@ -3013,8 +3094,8 @@ export async function planMigration(migrationId: string, now = new Date().toISOS
         idField: "channel_id",
         routeIdField: "channel_id",
       },
-      grants: grantDocs as Array<Record<string, any>>,
-      routes: routeDocs as Array<Record<string, any>>,
+      grants: grantDocs as Array<Document>,
+      routes: routeDocs as Array<Document>,
     });
   }
   if (migrationId === WEBEX_SPACE_REBAC_MIGRATION_ID) {
@@ -3027,17 +3108,18 @@ export async function planMigration(migrationId: string, now = new Date().toISOS
         subjectType: "webex_space",
         idField: "space_id",
         routeIdField: "space_id",
+        botScopedAgentRoutes: true,
       },
-      grants: grantDocs as Array<Record<string, any>>,
-      routes: routeDocs as Array<Record<string, any>>,
+      grants: grantDocs as Array<Document>,
+      routes: routeDocs as Array<Document>,
     });
   }
   if (migrationId === MESSAGING_TEAM_MAPPING_MIGRATION_ID) {
     const { teamDocs, slackDocs, webexDocs } = await loadMessagingTeamMappingInputs();
     return deriveMessagingTeamMappingPlan({
-      teams: teamDocs as Array<Record<string, any>>,
-      slackMappings: slackDocs as Array<Record<string, any>>,
-      webexMappings: webexDocs as Array<Record<string, any>>,
+      teams: teamDocs as Array<Document>,
+      slackMappings: slackDocs as Array<Document>,
+      webexMappings: webexDocs as Array<Document>,
     });
   }
   if (migrationId === MESSAGING_REBAC_INDEXES_MIGRATION_ID) {
@@ -3046,9 +3128,9 @@ export async function planMigration(migrationId: string, now = new Date().toISOS
   if (migrationId === MESSAGING_TEAM_VISIBILITY_MIGRATION_ID) {
     const { teamDocs, slackDocs, webexDocs } = await loadMessagingTeamMappingInputs();
     return deriveMessagingTeamVisibilityPlan({
-      teams: teamDocs as Array<Record<string, any>>,
-      slackMappings: slackDocs as Array<Record<string, any>>,
-      webexMappings: webexDocs as Array<Record<string, any>>,
+      teams: teamDocs as Array<Document>,
+      slackMappings: slackDocs as Array<Document>,
+      webexMappings: webexDocs as Array<Document>,
     });
   }
   if (migrationId === KEYCLOAK_RBAC_RECONCILIATION_MIGRATION_ID) {
@@ -3263,6 +3345,20 @@ export async function applyMigration(input: {
       actor: input.actor,
       now,
       collections,
+    });
+    await recordCompletedMigration({ definition, result, now, actor: input.actor });
+    return result;
+  }
+
+  if (input.migrationId === USER_PREFERENCES_DEFAULT_AGENT_CLEANUP_MIGRATION_ID) {
+    const userPreferences = await getCollection("user_preferences");
+    const result = await applyUserPreferencesDefaultAgentCleanupMigration({
+      actor: input.actor,
+      now,
+      collection: {
+        countDocuments: (filter) => userPreferences.countDocuments(filter),
+        updateMany: (filter, update) => userPreferences.updateMany(filter, update),
+      },
     });
     await recordCompletedMigration({ definition, result, now, actor: input.actor });
     return result;

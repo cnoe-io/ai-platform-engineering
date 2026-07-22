@@ -5,11 +5,16 @@
 import { NextRequest } from "next/server";
 
 const mockCheckUniversalRebacRelationship = jest.fn();
+const mockRequireAvailableWebexBotPolicy = jest.fn();
 
 jest.mock("@/lib/rbac/openfga", () => ({
   checkOpenFgaTuple: jest.fn(),
   checkUniversalRebacRelationship: (...args: unknown[]) =>
     mockCheckUniversalRebacRelationship(...args),
+}));
+jest.mock("@/lib/webex-bot-policy", () => ({
+  requireAvailableWebexBotPolicy: (...args: unknown[]) =>
+    mockRequireAvailableWebexBotPolicy(...args),
 }));
 
 jest.mock("@/lib/rbac/resource-authz", () => ({
@@ -79,6 +84,11 @@ describe("Webex runtime access-check route", () => {
   beforeEach(() => {
     jest.resetModules();
     mockCheckUniversalRebacRelationship.mockReset();
+    mockRequireAvailableWebexBotPolicy.mockResolvedValue({
+      id: "primary",
+      name: "Primary",
+      available: true,
+    });
   });
 
   it("checks space grant only (user can_use is enforced by conversations API)", async () => {
@@ -89,6 +99,7 @@ describe("Webex runtime access-check route", () => {
       request("/api/integrations/webex/spaces/CAIPE-WEBEX/space-abc/access-check", {
         method: "POST",
         body: JSON.stringify({
+          bot_id: "primary",
           resource: { type: "agent", id: "incident-agent" },
           action: "use",
         }),
@@ -105,7 +116,10 @@ describe("Webex runtime access-check route", () => {
     });
     expect(mockCheckUniversalRebacRelationship).toHaveBeenCalledTimes(1);
     expect(mockCheckUniversalRebacRelationship).toHaveBeenCalledWith({
-      subject: { type: "webex_space", id: "CAIPE-WEBEX--space-abc" },
+      subject: {
+        type: "webex_bot_installation",
+        id: "primary--CAIPE-WEBEX--space-abc",
+      },
       action: "use",
       resource: { type: "agent", id: "incident-agent" },
     });
@@ -119,6 +133,7 @@ describe("Webex runtime access-check route", () => {
       request("/api/integrations/webex/spaces/CAIPE-WEBEX/space-abc/access-check", {
         method: "POST",
         body: JSON.stringify({
+          bot_id: "primary",
           resource: { type: "agent", id: "incident-agent" },
           action: "use",
         }),

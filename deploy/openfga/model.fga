@@ -139,6 +139,13 @@ type webex_workspace
     define can_manage: manager
     define can_audit: auditor or can_manage
 
+type webex_bot
+
+type webex_bot_installation
+  relations
+    define bot: [webex_bot]
+    define space: [webex_space]
+
 type webex_space
   relations
     define owner: [user, service_account]
@@ -158,8 +165,8 @@ type agent
   relations
     define creator: [user]
     define owner: [user, service_account]
-    define reader: [user, service_account, team#member, team#admin, external_group#member, slack_channel, webex_space]
-    define user: [user, user:*, service_account, team#member, team#admin, external_group#member, slack_channel, webex_space]
+    define reader: [user, service_account, team#member, team#admin, external_group#member, slack_channel, webex_bot_installation]
+    define user: [user, user:*, service_account, team#member, team#admin, external_group#member, slack_channel, webex_bot_installation]
     define writer: [user, service_account, team#member, team#admin]
     define manager: [user, service_account, team#member, team#admin, organization#admin]
     define auditor: [user, service_account, team#admin]

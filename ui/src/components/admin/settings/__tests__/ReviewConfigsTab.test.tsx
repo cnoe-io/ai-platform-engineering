@@ -84,7 +84,7 @@ it("keeps the AI Review save action in the page header row", async () => {
 
   const header = screen.getByRole("region", { name: "AI Review configurations header" });
   expect(
-    within(header).getByRole("heading", { name: "AI Review configurations" }),
+    within(header).getByRole("heading", { name: "AI Review configurations Admin" }),
   ).toBeInTheDocument();
   const save = within(header).getByRole("button", { name: "Save" });
   expect(save).toBeInTheDocument();

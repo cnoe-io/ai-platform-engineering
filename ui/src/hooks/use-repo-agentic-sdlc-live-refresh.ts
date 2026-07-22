@@ -66,13 +66,14 @@ export function useRepoAgenticSdlcLiveRefresh({
   );
 
   useEffect(() => {
+    const pendingArtifactIds = pendingArtifactIdsRef.current;
     return () => {
       if (refreshTimerRef.current) {
         clearTimeout(refreshTimerRef.current);
         refreshTimerRef.current = null;
       }
       pendingEventCountRef.current = 0;
-      pendingArtifactIdsRef.current.clear();
+      pendingArtifactIds.clear();
     };
   }, [owner, repo]);
 

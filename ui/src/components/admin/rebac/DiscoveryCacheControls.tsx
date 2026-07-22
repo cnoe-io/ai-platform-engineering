@@ -63,6 +63,7 @@ interface DiscoveryCacheControlsProps {
    * fresh server-side cache. Slack/Webex panels pass `onDiscover` here.
    */
   onAfterRefresh?: () => void;
+  refreshQuery?: Record<string, string>;
 }
 
 const ROUTE_BY_PROVIDER: Record<DiscoveryCacheProvider, string> = {
@@ -79,6 +80,7 @@ export function DiscoveryCacheControls({
   provider,
   isAdmin,
   onAfterRefresh,
+  refreshQuery,
 }: DiscoveryCacheControlsProps) {
   const [open, setOpen] = useState(false);
   const [loadingConfig, setLoadingConfig] = useState(false);
@@ -170,7 +172,8 @@ export function DiscoveryCacheControls({
     setRefreshResult(null);
     try {
       const route = ROUTE_BY_PROVIDER[provider];
-      const res = await fetch(`${route}?refresh=1&limit=1`);
+      const params = new URLSearchParams({ refresh: "1", limit: "1", ...refreshQuery });
+      const res = await fetch(`${route}?${params.toString()}`);
       // 200 OK = fresh snapshot built. 503 = the connector isn't
       // configured (e.g. no SLACK_BOT_TOKEN), which is "not an error"
       // from the admin's POV — there's just nothing to refresh. We

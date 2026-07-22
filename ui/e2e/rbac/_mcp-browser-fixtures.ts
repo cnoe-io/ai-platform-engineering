@@ -612,3 +612,19 @@ export async function selectAgentGatewayTarget(page: Page, targetLabel: string |
   );
   await page.getByRole("option", { name: targetLabel }).click();
 }
+
+/** Reads the currently-selected tool name off the `#mcp-test-tool` AgentPicker trigger. */
+export async function mcpTestToolValue(page: Page): Promise<string> {
+  return (await page.locator("#mcp-test-tool").innerText()).trim();
+}
+
+/** Opens the `#mcp-test-tool` AgentPicker, searches (if given), and picks the named tool. */
+export async function selectMcpTestTool(
+  page: Page,
+  toolName: string,
+  { search }: { search?: string } = {},
+): Promise<void> {
+  await page.locator("#mcp-test-tool").click();
+  await page.getByLabel("Search tools...").fill(search ?? toolName);
+  await page.getByRole("option", { name: toolName, exact: true }).click();
+}

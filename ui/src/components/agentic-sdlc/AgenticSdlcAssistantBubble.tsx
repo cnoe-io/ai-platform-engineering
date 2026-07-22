@@ -100,7 +100,6 @@ export function AgenticSdlcAssistantBubble() {
   const pathname = usePathname() ?? "/apps/agentic-sdlc";
   const { enabled, assistantEnabled } = useAgenticSdlcFeature();
   const dynamicAgentsEnabled = getConfig("dynamicAgentsEnabled");
-  const dynamicAgentsUrl = getConfig("dynamicAgentsUrl");
   const createConversation = useChatStore((s) => s.createConversation);
   const setActiveConversation = useChatStore((s) => s.setActiveConversation);
   const isConversationStreaming = useChatStore((s) => s.isConversationStreaming);
@@ -130,7 +129,10 @@ export function AgenticSdlcAssistantBubble() {
     ? isConversationStreaming(conversationId)
     : false;
 
+  // Client-mount guard to avoid SSR/hydration mismatches for portal-rendered
+  // UI below — must flip after mount, not be derived from render.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setMounted(true);
   }, []);
 
@@ -407,9 +409,7 @@ export function AgenticSdlcAssistantBubble() {
             >
               <ChatView
                 key={conversationId}
-                endpoint={`${dynamicAgentsUrl}/agents/${agent._id}/chat`}
                 conversationId={conversationId}
-                conversationTitle="Agentic SDLC Assistant"
                 selectedAgentId={agent._id}
                 agent={agent}
                 clientContext={pageContext}

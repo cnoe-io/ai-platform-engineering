@@ -24,7 +24,7 @@ import { render, screen } from '@testing-library/react'
 
 jest.mock('next/link', () => {
   // eslint-disable-next-line react/display-name
-  return React.forwardRef(({ children, href, className, ...props }: any, ref: any) => (
+  return React.forwardRef(({ children, href, className, ...props }: unknown, ref: unknown) => (
     <a ref={ref} href={href} className={className} data-testid={props['data-testid'] || `link-${href}`} {...props}>
       {children}
     </a>
@@ -32,14 +32,14 @@ jest.mock('next/link', () => {
 })
 
 jest.mock('lucide-react', () => ({
-  MessageSquare: (props: any) => <svg data-testid="icon-message-square" {...props} />,
-  TrendingUp: (props: any) => <svg data-testid="icon-trending-up" {...props} />,
-  Bot: (props: any) => <svg data-testid="icon-bot" {...props} />,
-  ArrowRight: (props: any) => <svg data-testid="icon-arrow-right" {...props} />,
+  MessageSquare: (props: unknown) => <svg data-testid="icon-message-square" {...props} />,
+  TrendingUp: (props: unknown) => <svg data-testid="icon-trending-up" {...props} />,
+  Bot: (props: unknown) => <svg data-testid="icon-bot" {...props} />,
+  ArrowRight: (props: unknown) => <svg data-testid="icon-arrow-right" {...props} />,
 }))
 
 jest.mock('@/lib/utils', () => ({
-  cn: (...args: any[]) => args.filter(Boolean).join(' '),
+  cn: (...args: unknown[]) => args.filter(Boolean).join(' '),
 }))
 
 // ============================================================================
@@ -52,7 +52,7 @@ import { InsightsWidget } from '../InsightsWidget'
 // Helpers
 // ============================================================================
 
-function makeStats(overrides: Record<string, any> = {}) {
+function makeStats(overrides: Record<string, unknown> = {}) {
   return {
     total_conversations: 42,
     conversations_this_week: 7,

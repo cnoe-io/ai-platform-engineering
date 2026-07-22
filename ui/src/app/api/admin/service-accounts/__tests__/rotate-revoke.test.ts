@@ -48,6 +48,11 @@ jest.mock("@/lib/service-accounts", () => ({
   updateStatus: (...args: unknown[]) => mockUpdateStatus(...args),
 }));
 
+const mockHasOrganizationAdmin = jest.fn();
+jest.mock("@/lib/rbac/platform-admin", () => ({
+  hasOrganizationAdmin: (...args: unknown[]) => mockHasOrganizationAdmin(...args),
+}));
+
 import { POST as ROTATE } from "../[id]/rotate/route";
 import { DELETE as REVOKE } from "../[id]/route";
 
@@ -80,6 +85,7 @@ beforeEach(() => {
   mockDeleteExactOpenFgaTuples.mockResolvedValue({ enabled: true, writes: 0, deletes: 3 });
   mockUpdateStatus.mockResolvedValue(true);
   mockListOpenFgaObjects.mockResolvedValue({ objects: [] });
+  mockHasOrganizationAdmin.mockResolvedValue(false);
 });
 
 describe("POST .../[id]/rotate", () => {
@@ -115,6 +121,14 @@ describe("POST .../[id]/rotate", () => {
     mockGetServerSession.mockResolvedValue(null);
     const res = await ROTATE(req("POST"), ctx());
     expect(res.status).toBe(401);
+  });
+
+  it("org admin can rotate a SA owned by a team they don't belong to", async () => {
+    mockCheckOpenFgaTuple.mockResolvedValue({ allowed: false });
+    mockHasOrganizationAdmin.mockResolvedValue(true);
+    const res = await ROTATE(req("POST"), ctx());
+    expect(res.status).toBe(200);
+    expect(mockRegenerateClientSecret).toHaveBeenCalledWith("kc-uuid-1");
   });
 });
 
@@ -179,5 +193,13 @@ describe("DELETE .../[id] (revoke)", () => {
     expect(mockDeleteServiceAccountClient).not.toHaveBeenCalled();
     expect(mockDeleteExactOpenFgaTuples).not.toHaveBeenCalled();
     expect(mockUpdateStatus).not.toHaveBeenCalled();
+  });
+
+  it("org admin can revoke a SA owned by a team they don't belong to", async () => {
+    mockCheckOpenFgaTuple.mockResolvedValue({ allowed: false });
+    mockHasOrganizationAdmin.mockResolvedValue(true);
+    const res = await REVOKE(req("DELETE"), ctx());
+    expect(res.status).toBe(200);
+    expect(mockDeleteServiceAccountClient).toHaveBeenCalledWith("kc-uuid-1");
   });
 });

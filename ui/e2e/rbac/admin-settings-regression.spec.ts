@@ -28,7 +28,7 @@ test.describe("mocked admin settings browser regression", () => {
     await page.goto("/admin", { waitUntil: "domcontentloaded" });
 
     await expect(page).toHaveURL(/\/admin\?cat=settings&tab=settings$/);
-    await expect(page.getByRole("button", { name: "Settings", exact: true })).toHaveClass(/bg-primary/);
+    await expect(page.getByRole("button", { name: "Settings", exact: true })).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByRole("tab", { name: "General" })).toHaveAttribute(
       "aria-selected",
       "true",
@@ -48,7 +48,7 @@ test.describe("mocked admin settings browser regression", () => {
     });
 
     await expect(page).toHaveURL(/\/admin\?cat=settings&tab=settings$/);
-    await expect(page.getByRole("button", { name: "Settings", exact: true })).toHaveClass(/bg-primary/);
+    await expect(page.getByRole("button", { name: "Settings", exact: true })).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByRole("tab", { name: "General" })).toHaveAttribute(
       "aria-selected",
       "true",

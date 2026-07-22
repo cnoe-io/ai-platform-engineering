@@ -56,10 +56,10 @@ describe("userCanModifyAgentSkill — built-in lock integration", () => {
     const { userCanModifyAgentSkill } = await reload();
     const skill = baseSkill({ is_system: true, owner_id: "system" });
     expect(
-      userCanModifyAgentSkill(skill, { email: "alice@example.com" }),
+      userCanModifyAgentSkill(skill),
     ).toBe(false);
     expect(
-      userCanModifyAgentSkill(skill, { email: "alice@example.com", role: "admin" }),
+      userCanModifyAgentSkill(skill),
     ).toBe(false);
   });
 
@@ -68,7 +68,7 @@ describe("userCanModifyAgentSkill — built-in lock integration", () => {
     const { userCanModifyAgentSkill } = await reload();
     const skill = baseSkill({ is_system: true, owner_id: "system" });
     expect(
-      userCanModifyAgentSkill(skill, { email: "anyone@example.com" }),
+      userCanModifyAgentSkill(skill),
     ).toBe(true);
   });
 
@@ -77,7 +77,7 @@ describe("userCanModifyAgentSkill — built-in lock integration", () => {
     const { userCanModifyAgentSkill } = await reload();
     const skill = baseSkill({ is_system: false, owner_id: "alice@example.com" });
     expect(
-      userCanModifyAgentSkill(skill, { email: "alice@example.com" }),
+      userCanModifyAgentSkill(skill),
     ).toBe(true);
   });
 
@@ -94,7 +94,7 @@ describe("userCanModifyAgentSkill — built-in lock integration", () => {
     const { userCanModifyAgentSkill } = await reload();
     const skill = baseSkill({ is_system: false, owner_id: "alice@example.com" });
     expect(
-      userCanModifyAgentSkill(skill, { email: "bob@example.com" }),
+      userCanModifyAgentSkill(skill),
     ).toBe(true);
   });
 });

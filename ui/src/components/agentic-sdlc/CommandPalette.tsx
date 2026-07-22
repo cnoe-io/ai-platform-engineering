@@ -67,6 +67,10 @@ export function CommandPalette() {
 
   useEffect(() => {
     if (open) {
+      // Resetting transient filter/highlight state alongside focusing the
+      // DOM input is one "palette just opened" side effect, not derivable
+      // render state.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setQuery("");
       setHighlight(0);
       setTimeout(() => inputRef.current?.focus(), 0);

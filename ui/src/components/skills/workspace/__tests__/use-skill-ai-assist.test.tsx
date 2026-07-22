@@ -11,6 +11,8 @@ import {
   ENHANCE_PRESETS,
 } from "../use-skill-ai-assist";
 
+const fetchMock = jest.fn() as jest.MockedFunction<typeof fetch>;
+
 // ---------------------------------------------------------------------------
 // Mocks
 // ---------------------------------------------------------------------------
@@ -50,7 +52,7 @@ function makeSSEResponse(events: Array<Record<string, unknown>>): unknown {
         };
       },
     },
-  };
+  } as unknown as Response;
 }
 
 /** Same shape but for a non-OK HTTP error. */
@@ -61,7 +63,7 @@ function makeHttpErrorResponse(payload: unknown, status = 500): unknown {
     statusText: "Server Error",
     json: async () => payload,
     body: null,
-  };
+  } as unknown as Response;
 }
 
 function setup(overrides?: {
@@ -86,8 +88,8 @@ function setup(overrides?: {
 }
 
 beforeEach(() => {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (global as any).fetch = jest.fn();
+  fetchMock.mockReset();
+  global.fetch = fetchMock;
 });
 
 // ---------------------------------------------------------------------------
@@ -112,8 +114,7 @@ describe("useSkillAiAssist — initial state", () => {
 
 describe("useSkillAiAssist — generate", () => {
   it("calls /api/skills/generate with the right shape and applies the result", async () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (global.fetch as any).mockResolvedValueOnce(
+    fetchMock.mockResolvedValueOnce(
       makeSSEResponse([
         { type: "content", text: "---\nname: gen\n---\nbody " },
         { type: "content", text: "more body" },
@@ -149,8 +150,7 @@ describe("useSkillAiAssist — generate", () => {
   });
 
   it("surfaces SSE error events as `error`", async () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (global.fetch as any).mockResolvedValueOnce(
+    fetchMock.mockResolvedValueOnce(
       makeSSEResponse([
         { type: "content", text: "partial" },
         { type: "error", message: "model exploded" },
@@ -165,8 +165,7 @@ describe("useSkillAiAssist — generate", () => {
   });
 
   it("surfaces non-OK HTTP responses as `error`", async () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (global.fetch as any).mockResolvedValueOnce(
+    fetchMock.mockResolvedValueOnce(
       makeHttpErrorResponse({ error: "server boom" }, 500),
     );
     const { result } = setup();
@@ -187,8 +186,7 @@ describe("useSkillAiAssist — generate", () => {
       // Ignore intentional cleanup
       void reject;
     });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (global.fetch as any).mockImplementationOnce(
+    fetchMock.mockImplementationOnce(
       (_url: string, init: RequestInit) => {
         return new Promise((_resolve, reject) => {
           init.signal?.addEventListener("abort", () => {
@@ -243,8 +241,7 @@ describe("useSkillAiAssist — enhance", () => {
   });
 
   it("composes preset instructions into the body", async () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (global.fetch as any).mockResolvedValueOnce(
+    fetchMock.mockResolvedValueOnce(
       makeSSEResponse([{ type: "content", text: "ok" }]),
     );
     const { result } = setup({ current: "existing body" });
@@ -264,8 +261,7 @@ describe("useSkillAiAssist — enhance", () => {
   });
 
   it("prefers an explicit instruction over presets when both supplied", async () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (global.fetch as any).mockResolvedValueOnce(
+    fetchMock.mockResolvedValueOnce(
       makeSSEResponse([{ type: "content", text: "ok" }]),
     );
     const { result } = setup({ current: "x" });
@@ -287,8 +283,7 @@ describe("useSkillAiAssist — enhance", () => {
 
 describe("useSkillAiAssist — debug", () => {
   it("populates debug log and promptSent during a run", async () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (global.fetch as any).mockResolvedValueOnce(
+    fetchMock.mockResolvedValueOnce(
       makeSSEResponse([
         { type: "content", text: "---\nname: x\n---\nb" },
       ]),
@@ -304,8 +299,7 @@ describe("useSkillAiAssist — debug", () => {
   });
 
   it("resetDebug() clears the log and promptSent", async () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (global.fetch as any).mockResolvedValueOnce(
+    fetchMock.mockResolvedValueOnce(
       makeSSEResponse([{ type: "content", text: "---\nname: x\n---\nb" }]),
     );
     const { result } = setup();

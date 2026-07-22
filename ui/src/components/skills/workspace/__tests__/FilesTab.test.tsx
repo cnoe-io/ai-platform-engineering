@@ -106,8 +106,7 @@ function makeForm(
   );
   const setFormData = jest.fn();
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const form: any = {
+  const form = {
     isEditMode: false,
     formData: { name: "", description: "", category: "", difficulty: "intermediate", thumbnail: "" },
     setFormData,
@@ -148,26 +147,30 @@ function makeForm(
     toolSyncRef: { current: false },
     __skillContent: skillContent,
     __ancillary: ancillary,
+  } as unknown as UseSkillFormResult & {
+    __skillContent: { current: string };
+    __ancillary: { current: Record<string, string> };
   };
   return form;
 }
 
 beforeEach(() => {
   mockToast.mockClear();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (window as any).confirm = jest.fn(() => true);
+  window.confirm = jest.fn(() => true);
   // JSDOM doesn't ship File.prototype.text(); polyfill via the FileReader
   // path so our component code (which uses `file.text()`) works.
   if (typeof File !== "undefined" && typeof File.prototype.text !== "function") {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (File.prototype as any).text = function () {
-      return new Promise<string>((resolve, reject) => {
-        const fr = new FileReader();
-        fr.onload = () => resolve(String(fr.result || ""));
-        fr.onerror = () => reject(fr.error);
-        fr.readAsText(this);
-      });
-    };
+    Object.defineProperty(File.prototype, "text", {
+      configurable: true,
+      value: function fileText(this: File): Promise<string> {
+        return new Promise<string>((resolve, reject) => {
+          const fr = new FileReader();
+          fr.onload = () => resolve(String(fr.result || ""));
+          fr.onerror = () => reject(fr.error);
+          fr.readAsText(this);
+        });
+      },
+    });
   }
 });
 

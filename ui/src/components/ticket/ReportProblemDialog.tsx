@@ -1,5 +1,7 @@
 "use client";
 
+import { getErrorMessage } from "@/lib/error-utils";
+
 import { Button } from "@/components/ui/button";
 import {
 Dialog,
@@ -15,6 +17,7 @@ type FeedbackContext,
 type TicketResult,
 } from "@/lib/ticket-client";
 import { AnimatePresence,motion } from "framer-motion";
+import Image from "next/image";
 import {
 AlertCircle,
 CheckCircle2,
@@ -42,6 +45,12 @@ interface ReportProblemDialogProps {
   onOpenChange: (open: boolean) => void;
   /** Pre-populated feedback context for the combo flow */
   feedbackContext?: FeedbackContext;
+}
+
+interface ImageCaptureConstructor {
+  new (track: MediaStreamTrack): {
+    grabFrame: () => Promise<ImageBitmap>;
+  };
 }
 
 export function ReportProblemDialog({
@@ -106,8 +115,7 @@ export function ReportProblemDialog({
       });
       const track = stream.getVideoTracks()[0];
       // ImageCapture gives a clean single frame without needing a <video> element.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const IC = (window as any).ImageCapture;
+      const IC = (window as Window & { ImageCapture?: ImageCaptureConstructor }).ImageCapture;
       if (IC) {
         const capture = new IC(track);
         const bitmap = await capture.grabFrame();
@@ -206,7 +214,7 @@ export function ReportProblemDialog({
           feedbackContext,
           screenshotDataUrl: screenshotDataUrl ?? undefined,
         },
-        accessToken: (session as any)?.accessToken,
+        accessToken: session?.accessToken,
         signal: controller.signal,
         onEvent: (_event, logLine) => {
           appendLog(logLine);
@@ -225,14 +233,14 @@ export function ReportProblemDialog({
         setErrorMessage("No ticket ID was returned. The agent may not have created the ticket successfully.");
         setStatus("error");
       }
-    } catch (err: any) {
-      if (err?.name === "AbortError" || controller.signal.aborted) {
+    } catch (err) {
+      if ((err instanceof Error && err.name === "AbortError") || controller.signal.aborted) {
         appendLog("Cancelled by user.");
         resetState();
         return;
       }
-      appendLog(`Error: ${err.message || "Unknown error"}`);
-      setErrorMessage(err.message || "Failed to create ticket");
+      appendLog(`Error: ${getErrorMessage(err, "") || "Unknown error"}`);
+      setErrorMessage(getErrorMessage(err, "") || "Failed to create ticket");
       setStatus("error");
     }
   }, [
@@ -310,9 +318,12 @@ export function ReportProblemDialog({
               <div className="relative rounded-lg overflow-hidden border border-border group cursor-zoom-in"
                 onClick={() => setLightboxOpen(true)}
               >
-                <img
+                <Image
                   src={screenshotDataUrl}
                   alt="Screenshot preview"
+                  width={1280}
+                  height={720}
+                  unoptimized
                   className="w-full h-32 object-cover object-top"
                 />
                 <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
@@ -577,9 +588,12 @@ export function ReportProblemDialog({
             className="relative max-w-5xl max-h-[90vh] w-full"
             onClick={(e) => e.stopPropagation()}
           >
-            <img
+            <Image
               src={screenshotDataUrl}
               alt="Screenshot full view"
+              width={1920}
+              height={1080}
+              unoptimized
               className="w-full h-auto max-h-[90vh] object-contain rounded-lg shadow-2xl"
             />
             <button

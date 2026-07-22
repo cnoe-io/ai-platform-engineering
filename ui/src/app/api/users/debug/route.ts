@@ -11,7 +11,7 @@ import { NextRequest } from 'next/server';
 
 // GET /api/users/debug
 export const GET = withErrorHandler(async (request: NextRequest) => {
-  return withAuth(request, async (req, user) => {
+  return withAuth(request, async () => {
     const users = await getCollection<User>('users');
 
     // Get all users

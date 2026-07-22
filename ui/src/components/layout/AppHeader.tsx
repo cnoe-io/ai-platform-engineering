@@ -2,6 +2,7 @@
 
 import React from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
@@ -451,7 +452,7 @@ export function AppHeader() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [mongoNavEnabled]);
   // Active tab. A pinned agentic-app tab (href like /apps/embed/ttt or
   // /apps/agentic-sdlc) must win over the generic "Apps" tab when its route is
   // open — otherwise getActiveTab()'s broad `/apps` match highlights "Apps"
@@ -772,9 +773,12 @@ export function AppHeader() {
             href="/"
             className="brand-link flex items-center gap-2.5 cursor-pointer"
           >
-            <img
+            <Image
               src={config.logoUrl}
               alt={`${config.appName} Logo`}
+              width={32}
+              height={32}
+              unoptimized
               className={`h-8 w-auto ${getLogoFilterClass(config.logoStyle)}`}
             />
             <span className="brand-lockup relative hidden sm:inline-block">

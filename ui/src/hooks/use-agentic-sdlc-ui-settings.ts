@@ -25,8 +25,8 @@ export function useAgenticSdlcUiSettings(): {
   }, [settings]);
 
   useEffect(() => {
-    setSettings(readAgenticSdlcUiSettings());
-
+    // Initial value is already read lazily in useState above; this effect
+    // only needs to subscribe to subsequent external changes.
     function onSettingsChanged(event: Event) {
       const detail = (event as CustomEvent<AgenticSdlcUiSettings>).detail;
       setSettings(detail ?? readAgenticSdlcUiSettings());

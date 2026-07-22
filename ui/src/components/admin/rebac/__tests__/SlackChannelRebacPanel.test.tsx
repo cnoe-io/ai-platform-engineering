@@ -1250,6 +1250,37 @@ it("opens the sub-tab named by the subtab URL param on load", async () => {
   ).toBeInTheDocument();
 });
 
+it("deep-links and updates the configured channel search", async () => {
+  currentSearchParams = new URLSearchParams(
+    "cat=integrations&tab=slack&subtab=channels&slackChannelSearch=incidents",
+  );
+  const { rerender } = render(<SlackChannelRebacPanel />);
+
+  const searchInput = await screen.findByRole("textbox", {
+    name: "Search configured channels",
+  });
+  expect(searchInput).toHaveValue("incidents");
+  expect(await screen.findByText("#incidents")).toBeInTheDocument();
+
+  fireEvent.change(searchInput, { target: { value: "platform-engineering" } });
+  expect(replaceMock).toHaveBeenLastCalledWith(
+    "/admin?cat=integrations&tab=slack&subtab=channels&slackChannelSearch=platform-engineering",
+    { scroll: false },
+  );
+
+  currentSearchParams = new URLSearchParams(
+    "cat=integrations&tab=slack&subtab=channels&slackChannelSearch=C123456789",
+  );
+  rerender(<SlackChannelRebacPanel />);
+  expect(searchInput).toHaveValue("C123456789");
+
+  fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+  expect(replaceMock).toHaveBeenLastCalledWith(
+    "/admin?cat=integrations&tab=slack&subtab=channels",
+    { scroll: false },
+  );
+});
+
 it("shows Slack bot runtime sync status and triggers reload/config sync", async () => {
   render(<SlackChannelRebacPanel />);
   await switchToTab("Advanced");

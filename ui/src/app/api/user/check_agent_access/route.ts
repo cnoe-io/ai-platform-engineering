@@ -17,13 +17,14 @@
  * legitimate denies.
  */
 
-import { NextRequest,NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
 import {
-getAuthFromBearerOrSession,
-successResponse,
-withErrorHandler,
+  getAuthFromBearerOrSession,
+  successResponse,
+  withErrorHandler,
 } from "@/lib/api-middleware";
+import { getCollection } from "@/lib/mongodb";
 import { evaluateAgentAccess } from "@/lib/rbac/pdp-shared";
 
 const OPENFGA_ID_PATTERN = /^[A-Za-z0-9._-]+$/;
@@ -46,6 +47,7 @@ function resolveSubject(session: { sub?: unknown }): string | null {
 
 interface PostBody {
   agent_id?: unknown;
+  team_slug?: unknown;
 }
 
 export const POST = withErrorHandler(async (request: NextRequest) => {
@@ -83,9 +85,41 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     });
   }
 
+  const rawTeamSlug = body.team_slug;
+  if (
+    rawTeamSlug !== undefined &&
+    (typeof rawTeamSlug !== "string" || !OPENFGA_ID_PATTERN.test(rawTeamSlug))
+  ) {
+    return errorResponse(400, {
+      error: "team_slug must be an OpenFGA-safe identifier when provided",
+      code: "INVALID_BODY",
+      reason: "invalid_body",
+      action: "fix_request",
+    });
+  }
+
+  const agents = await getCollection<{ _id: string; enabled?: boolean }>(
+    "dynamic_agents",
+  );
+  const agent = await agents.findOne({
+    _id: raw,
+    enabled: { $ne: false },
+  } as never);
+  if (!agent) {
+    return successResponse({
+      allowed: false,
+      reason: "DENY_AGENT_NOT_FOUND",
+      path: "denied",
+    });
+  }
+
   let decision;
   try {
-    decision = await evaluateAgentAccess({ subject, agentId: raw });
+    decision = await evaluateAgentAccess({
+      subject,
+      agentId: raw,
+      ...(typeof rawTeamSlug === "string" ? { teamSlug: rawTeamSlug } : {}),
+    });
   } catch (err) {
     // PDP infrastructure error — the bot is expected to translate this
     // to a user-facing "auth temporarily unavailable" deny.

@@ -9,8 +9,7 @@ import { SkillFileTree } from "../SkillFileTree";
 
 beforeEach(() => {
   // suppress JSDOM confirm prompt
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (window as any).confirm = jest.fn(() => true);
+  window.confirm = jest.fn(() => true);
 });
 
 const baseProps = {
@@ -67,8 +66,7 @@ describe("SkillFileTree", () => {
   });
 
   it("does not delete when confirm returns false", () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (window as any).confirm = jest.fn(() => false);
+    window.confirm = jest.fn(() => false);
     render(<SkillFileTree {...baseProps} />);
     fireEvent.click(screen.getByLabelText("Delete a.json"));
     expect(baseProps.onDeleteFile).not.toHaveBeenCalled();

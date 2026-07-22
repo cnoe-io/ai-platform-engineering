@@ -18,8 +18,8 @@ import { NextRequest } from 'next/server';
 
 // GET /api/chat/bookmarks
 export const GET = withErrorHandler(async (request: NextRequest) => {
-  return withAuth(request, async (req, user, session) => {
-    const { page, pageSize, skip } = getPaginationParams(request);
+  return withAuth(request, async (req, user) => {
+    const { page, pageSize, skip } = getPaginationParams(req);
 
     const bookmarks = await getCollection<ConversationBookmark>('conversation_bookmarks');
 
@@ -39,7 +39,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
 // POST /api/chat/bookmarks
 export const POST = withErrorHandler(async (request: NextRequest) => {
   return withAuth(request, async (req, user, session) => {
-    const body: CreateBookmarkRequest = await request.json();
+    const body: CreateBookmarkRequest = await req.json();
 
     validateRequired(body, ['conversation_id']);
 
