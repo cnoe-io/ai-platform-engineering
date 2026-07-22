@@ -66,13 +66,28 @@ function dateInputToLocalBoundary(value: string, endOfDay: boolean): Date {
 
 export function DateRangeFilter({ value, customRange, onChange }: DateRangeFilterProps) {
   const id = useId();
+  const customRangeFrom = customRange?.from;
+  const customRangeTo = customRange?.to;
+  const customRangeKey = `${customRangeFrom ?? "default"}|${customRangeTo ?? "default"}`;
   const [customOpen, setCustomOpen] = useState(false);
-  const [customFrom, setCustomFrom] = useState(
-    () => customRange ? toDateInputValue(customRange.from) : toDateInputValue(new Date(Date.now() - 30 * 86400000).toISOString())
-  );
-  const [customTo, setCustomTo] = useState(
-    () => customRange ? toDateInputValue(customRange.to) : toDateInputValue(new Date().toISOString())
-  );
+  const [customDraft, setCustomDraft] = useState(() => ({
+    rangeKey: customRangeKey,
+    from: customRangeFrom
+      ? toDateInputValue(customRangeFrom)
+      : toDateInputValue(new Date(Date.now() - 30 * 86400000).toISOString()),
+    to: customRangeTo
+      ? toDateInputValue(customRangeTo)
+      : toDateInputValue(new Date().toISOString()),
+  }));
+  const activeCustomDraft = customDraft.rangeKey === customRangeKey
+    ? customDraft
+    : {
+        rangeKey: customRangeKey,
+        from: customRangeFrom ? toDateInputValue(customRangeFrom) : customDraft.from,
+        to: customRangeTo ? toDateInputValue(customRangeTo) : customDraft.to,
+      };
+  const customFrom = activeCustomDraft.from;
+  const customTo = activeCustomDraft.to;
   const dropdownRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
 
@@ -159,7 +174,10 @@ export function DateRangeFilter({ value, customRange, onChange }: DateRangeFilte
                   id={`${id}-from`}
                   type="date"
                   value={customFrom}
-                  onChange={(e) => setCustomFrom(e.target.value)}
+                  onChange={(e) => setCustomDraft({
+                    ...activeCustomDraft,
+                    from: e.target.value,
+                  })}
                   max={customTo}
                   className="h-8 rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
                 />
@@ -171,7 +189,10 @@ export function DateRangeFilter({ value, customRange, onChange }: DateRangeFilte
                   id={`${id}-to`}
                   type="date"
                   value={customTo}
-                  onChange={(e) => setCustomTo(e.target.value)}
+                  onChange={(e) => setCustomDraft({
+                    ...activeCustomDraft,
+                    to: e.target.value,
+                  })}
                   min={customFrom}
                   max={toDateInputValue(new Date().toISOString())}
                   className="h-8 rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"

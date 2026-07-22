@@ -58,6 +58,7 @@ import { SlidingSelectorIndicator } from "@/components/ui/sliding-selector";
 import { Tabs,TabsContent,TabsList,TabsTrigger } from "@/components/ui/tabs";
 import { useAdminRole } from "@/hooks/use-admin-role";
 import { useAdminStatsSections } from "@/hooks/use-admin-stats-sections";
+import { useUrlFilterParams } from "@/hooks/use-url-filter-params";
 import { useAdminTabGates,type AdminTabGateSimulationTarget } from "@/hooks/useAdminTabGates";
 import { getConfig } from "@/lib/config";
 import { withAdminSimulationParams } from "@/lib/rbac/admin-simulation-query";
@@ -192,7 +193,6 @@ interface SimulationTeamOption {
 const VALID_TABS = ['users', 'teams', 'identity-sync', 'stats', 'skills', 'feedback', 'metrics', 'health', 'credentials', 'audit-logs', 'action-audit', 'access-explorer', 'rbac-self-check', 'keycloak', 'migrations', 'ai-review', 'settings', 'agents', 'release-notes', 'slack', 'webex', 'rag-access', 'service-accounts'] as const;
 const VALID_OPENFGA_SUBTABS = ['builder', 'explorer', 'graph', 'tuples', 'access', 'baseline', 'diagnostics'] as const;
 const MOVED_ADMIN_TAB_MAP = {
-  'cas-insights': 'metrics',
   insights: 'stats',
   openfga: 'access-explorer',
 } as const;
@@ -501,11 +501,27 @@ function simulationTargetFromParams(searchParams: { get(name: string): string | 
   };
 }
 
+function commaSeparatedFilter(value: string | null): string[] {
+  if (!value) return [];
+  return [...new Set(value.split(',').map((item) => item.trim()).filter(Boolean))];
+}
+
+function isValidDateRange(from: string | null, to: string | null): from is string {
+  return Boolean(
+    from &&
+    to &&
+    Number.isFinite(Date.parse(from)) &&
+    Number.isFinite(Date.parse(to)) &&
+    Date.parse(from) <= Date.parse(to)
+  );
+}
+
 function AdminPage() {
   const { status } = useSession();
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
+  const updateUrlFilters = useUrlFilterParams();
   const { isAdmin, loading: adminRoleLoading } = useAdminRole();
   const simulationTarget = useMemo(() => simulationTargetFromParams(searchParams), [searchParams]);
   const simulationScopeKey = simulationTarget
@@ -689,17 +705,14 @@ function AdminPage() {
       const firstVisible = cat.tabs.find((t) => tabGateValues[t.gateKey]);
       if (firstVisible) {
         setActiveTab(firstVisible.value);
-        const params = new URLSearchParams(searchParams.toString());
-        params.set('cat', catKey);
-        params.set('tab', firstVisible.value);
-        if (firstVisible.value !== 'access-explorer') {
-          params.delete('subtab');
-          params.delete('openfgaTab');
-        }
-        router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+        updateUrlFilters({
+          cat: catKey,
+          tab: firstVisible.value,
+          ...(firstVisible.value === 'access-explorer' ? {} : { subtab: null, openfgaTab: null }),
+        });
       }
     },
-    [pathname, router, searchParams, tabGateValues]
+    [tabGateValues, updateUrlFilters]
   );
 
   useEffect(() => {
@@ -790,28 +803,32 @@ function AdminPage() {
   const [deletingTeam, setDeletingTeam] = useState<string | null>(null);
   const [teamPendingDelete, setTeamPendingDelete] = useState<Team | null>(null);
   // ── Shared filters (source, users, date range) across feedback + stats tabs ──
-  const initSource = searchParams.get('source') as 'all' | 'web' | 'slack' | null;
-  const initUsers = searchParams.get('users');
-  const initDatePreset = searchParams.get('dateRange') as DateRangePreset | null;
-  const initFrom = searchParams.get('from');
-  const initTo = searchParams.get('to');
+  const requestedSource = searchParams.get('source');
+  const sourceFromUrl: 'all' | 'web' | 'slack' =
+    requestedSource === 'web' || requestedSource === 'slack' ? requestedSource : 'all';
+  const usersFromUrl = commaSeparatedFilter(searchParams.get('users'));
+  const requestedDatePreset = searchParams.get('dateRange');
+  const requestedFrom = searchParams.get('from');
+  const requestedTo = searchParams.get('to');
+  const validDatePreset = requestedDatePreset &&
+    ['1h', '12h', '24h', '7d', '30d', '90d', 'custom'].includes(requestedDatePreset);
+  const datePresetFromUrl: DateRangePreset = validDatePreset &&
+    (requestedDatePreset !== 'custom' || isValidDateRange(requestedFrom, requestedTo))
+    ? requestedDatePreset as DateRangePreset
+    : '30d';
+  const dateRangeFromUrl: DateRange = datePresetFromUrl === 'custom'
+    ? { from: requestedFrom as string, to: requestedTo as string }
+    : presetToRange(datePresetFromUrl);
 
   const [sourceFilter, setSourceFilter] = useState<'all' | 'web' | 'slack'>(
-    initSource && ['all', 'web', 'slack'].includes(initSource) ? initSource : 'all'
+    sourceFromUrl
   );
-  const [userFilter, setUserFilter] = useState<string[]>(
-    initUsers ? initUsers.split(',').filter(Boolean) : []
-  );
-  const [datePreset, setDatePreset] = useState<DateRangePreset>(
-    initDatePreset && ['1h', '12h', '24h', '7d', '30d', '90d', 'custom'].includes(initDatePreset) ? initDatePreset : '30d'
-  );
-  const [dateRange, setDateRange] = useState<DateRange>(
-    initFrom ? { from: initFrom, to: initTo || new Date().toISOString() } : presetToRange(initDatePreset || '30d')
-  );
+  const [userFilter, setUserFilter] = useState<string[]>(usersFromUrl);
+  const [datePreset, setDatePreset] = useState<DateRangePreset>(datePresetFromUrl);
+  const [dateRange, setDateRange] = useState<DateRange>(dateRangeFromUrl);
 
   // Helper to sync shared filters to URL
   const updateSharedFilterUrl = (overrides: Record<string, string | null> = {}) => {
-    const params = new URLSearchParams(searchParams.toString());
     const shared: Record<string, string | null> = {
       source: sourceFilter !== 'all' ? sourceFilter : null,
       users: userFilter.length > 0 ? userFilter.join(',') : null,
@@ -820,55 +837,88 @@ function AdminPage() {
       to: datePreset === 'custom' ? dateRange.to : null,
       ...overrides,
     };
-    for (const [key, val] of Object.entries(shared)) {
-      if (val) { params.set(key, val); } else { params.delete(key); }
-    }
-    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+    updateUrlFilters(shared);
   };
 
   // ── Feedback-only filters ──
-  const initRating = searchParams.get('rating') as 'all' | 'positive' | 'negative' | null;
-  const initChannels = searchParams.get('channels');
-  const initSearch = searchParams.get('search');
+  const requestedRating = searchParams.get('rating');
+  const feedbackRatingFromUrl: 'all' | 'positive' | 'negative' =
+    requestedRating === 'positive' || requestedRating === 'negative' ? requestedRating : 'all';
+  const feedbackChannelsFromUrl = commaSeparatedFilter(searchParams.get('channels'));
+  const feedbackSearchFromUrl = commaSeparatedFilter(searchParams.get('search'));
 
   const [feedbackData, setFeedbackData] = useState<FeedbackData | null>(null);
   const [feedbackFilter, setFeedbackFilter] = useState<'all' | 'positive' | 'negative'>(
-    initRating && ['all', 'positive', 'negative'].includes(initRating) ? initRating : 'all'
+    feedbackRatingFromUrl
   );
-  const [feedbackChannelFilter, setFeedbackChannelFilter] = useState<string[]>(
-    initChannels ? initChannels.split(',').filter(Boolean) : []
-  );
+  const [feedbackChannelFilter, setFeedbackChannelFilter] = useState<string[]>(feedbackChannelsFromUrl);
   const [feedbackChannels, setFeedbackChannels] = useState<string[]>([]);
-  const [feedbackSearchTags, setFeedbackSearchTags] = useState<string[]>(
-    initSearch ? initSearch.split(',').filter(Boolean) : []
-  );
+  const [feedbackSearchTags, setFeedbackSearchTags] = useState<string[]>(feedbackSearchFromUrl);
   const [feedbackUsers, setFeedbackUsers] = useState<string[]>([]);
   const [feedbackLoading, setFeedbackLoading] = useState(false);
 
   // Sync feedback-only filters to URL
   const updateFeedbackUrl = (overrides: Record<string, string | null>) => {
-    const params = new URLSearchParams(searchParams.toString());
     const defaults: Record<string, string | null> = {
       tab: activeTab,
       rating: feedbackFilter !== 'all' ? feedbackFilter : null,
       channels: feedbackChannelFilter.length > 0 ? feedbackChannelFilter.join(',') : null,
       search: feedbackSearchTags.length > 0 ? feedbackSearchTags.join(',') : null,
     };
-    const merged = { ...defaults, ...overrides };
-    for (const [key, val] of Object.entries(merged)) {
-      if (val) { params.set(key, val); } else { params.delete(key); }
-    }
-    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+    updateUrlFilters({ ...defaults, ...overrides });
   };
-  const [statsChannelFilter, setStatsChannelFilter] = useState<string[]>([]);
+  const statsChannelsFromUrl = commaSeparatedFilter(searchParams.get('statsChannels'));
+  const statsAgentsFromUrl = commaSeparatedFilter(searchParams.get('statsAgents'));
+  const statsIncludeBotsFromUrl = searchParams.get('statsIncludeBots') === 'true';
+  const [statsChannelFilter, setStatsChannelFilter] = useState<string[]>(statsChannelsFromUrl);
   const [statsChannels, setStatsChannels] = useState<string[]>([]);
-  // Agent filter: selected agent NAMES (dropdown labels), mapped to ids for the
-  // query param via statsAgents. Options are scoped by the API to what the
-  // caller can see (owned agents for non-admins, all agents for admins).
-  const [statsAgentFilter, setStatsAgentFilter] = useState<string[]>([]);
+  // Store stable agent IDs in URL/state and map them to labels only for the
+  // dropdown. This lets the first deep-linked request apply the filter before
+  // the scoped agent option list has loaded.
+  const [statsAgentFilter, setStatsAgentFilter] = useState<string[]>(statsAgentsFromUrl);
   const [statsAgents, setStatsAgents] = useState<Array<{ id: string; name: string }>>([]);
   // Top-users leaderboard: hide bot/service identities by default; toggle to show.
-  const [showBotUsers, setShowBotUsers] = useState(false);
+  const [showBotUsers, setShowBotUsers] = useState(statsIncludeBotsFromUrl);
+  const insightsFilterUrlKey = [
+    searchParams.get('source'),
+    searchParams.get('users'),
+    searchParams.get('dateRange'),
+    searchParams.get('from'),
+    searchParams.get('to'),
+    searchParams.get('rating'),
+    searchParams.get('channels'),
+    searchParams.get('search'),
+    searchParams.get('statsChannels'),
+    searchParams.get('statsAgents'),
+    searchParams.get('statsIncludeBots'),
+  ].map((value) => value ?? '').join('\u0000');
+  const [previousInsightsFilterUrlKey, setPreviousInsightsFilterUrlKey] = useState(insightsFilterUrlKey);
+
+  if (insightsFilterUrlKey !== previousInsightsFilterUrlKey) {
+    setPreviousInsightsFilterUrlKey(insightsFilterUrlKey);
+    setSourceFilter(sourceFromUrl);
+    setUserFilter(usersFromUrl);
+    setDatePreset(datePresetFromUrl);
+    setDateRange(dateRangeFromUrl);
+    setFeedbackFilter(feedbackRatingFromUrl);
+    setFeedbackChannelFilter(feedbackChannelsFromUrl);
+    setFeedbackSearchTags(feedbackSearchFromUrl);
+    setStatsChannelFilter(statsChannelsFromUrl);
+    setStatsAgentFilter(statsAgentsFromUrl);
+    setShowBotUsers(statsIncludeBotsFromUrl);
+  }
+
+  const updateStatsFilterUrl = (overrides: Record<string, string | null> = {}) => {
+    updateUrlFilters({
+      statsChannels: statsChannelFilter.length > 0 ? statsChannelFilter.join(',') : null,
+      statsAgents: statsAgentFilter.length > 0 ? statsAgentFilter.join(',') : null,
+      statsIncludeBots: showBotUsers ? 'true' : null,
+      ...overrides,
+    });
+  };
+  const selectedStatsAgentNames = statsAgentFilter
+    .map((id) => statsAgents.find((agent) => agent.id === id)?.name)
+    .filter((name): name is string => Boolean(name));
   const rangeLabel = datePreset === "1h" ? "1 Hour" : datePreset === "12h" ? "12 Hours" : datePreset === "24h" ? "24 Hours" : datePreset === "7d" ? "7 Days" : datePreset === "90d" ? "90 Days" : datePreset === "custom" ? "Custom Range" : "30 Days";
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
 
@@ -909,10 +959,7 @@ function AdminPage() {
     if (sourceFilter === 'slack' && statsChannelFilter.length > 0) {
       params.set('channel', statsChannelFilter.join(','));
     }
-    const agentIds = statsAgentFilter
-      .map((name) => statsAgents.find((agent) => agent.name === name)?.id)
-      .filter((id): id is string => Boolean(id));
-    if (agentIds.length > 0) params.set('agent', agentIds.join(','));
+    if (statsAgentFilter.length > 0) params.set('agent', statsAgentFilter.join(','));
     if (showBotUsers) params.set('include_bots', 'true');
     return withAdminSimulationParams(`/api/admin/stats?${params.toString()}`, simulationTarget);
   }, [
@@ -923,7 +970,6 @@ function AdminPage() {
     simulationTarget,
     sourceFilter,
     statsAgentFilter,
-    statsAgents,
     statsChannelFilter,
   ]);
 
@@ -1138,11 +1184,14 @@ function AdminPage() {
     await loadStatsSections();
   };
 
-  const loadTeamsData = async () => {
+  const loadTeamsData = async (): Promise<Team[]> => {
     try {
-      setTeams(await fetchTeamsFromDb());
+      const loadedTeams = await fetchTeamsFromDb();
+      setTeams(loadedTeams);
+      return loadedTeams;
     } catch (err) {
       console.error('[Admin] Failed to load teams:', err);
+      return [];
     }
   };
 
@@ -1172,11 +1221,47 @@ function AdminPage() {
     return () => window.clearTimeout(handle);
   }, [loadSkillStats, skillStatsFilterKey, status]);
 
-  const loadFeedbackOnce = async () => {
-    if (!getConfig('feedbackEnabled')) return;
+  const getFeedbackUrl = (
+    rating = feedbackFilter,
+    page = 1,
+    source = sourceFilter,
+    channels = feedbackChannelFilter,
+    searchTags = feedbackSearchTags,
+    users = userFilter,
+    range = dateRange,
+    availableTeams = teams,
+  ): string => {
+    const params = new URLSearchParams({ page: String(page), limit: '50' });
+    if (rating !== 'all') params.set('rating', rating);
+    if (source !== 'all') params.set('source', source);
+    if (source === 'slack' && channels.length > 0) {
+      params.set('channel', channels.join(','));
+    }
+    if (searchTags.length > 0) params.set('search', searchTags.join(','));
+
+    const selectedUsers = new Set<string>();
+    const selectedTeams = new Set<string>();
+    for (const selection of users) {
+      if (selection.startsWith('team:')) {
+        const team = availableTeams.find((candidate) => candidate.name === selection.slice(5));
+        selectedTeams.add(team?.slug?.trim() || team?._id || selection.slice(5));
+      } else {
+        selectedUsers.add(selection);
+      }
+    }
+    if (selectedUsers.size > 0) params.set('user', [...selectedUsers].join(','));
+    if (selectedTeams.size > 0) params.set('team', [...selectedTeams].join(','));
+    if (range.from) params.set('from', range.from);
+    if (range.to) params.set('to', range.to);
+
+    return withAdminSimulationParams(`/api/admin/feedback?${params}`, simulationTarget);
+  };
+
+  const requestFeedback = async (url: string): Promise<void> => {
     const requestScopeKey = simulationScopeKey;
+    setFeedbackLoading(true);
     try {
-      const res = await fetch(withAdminSimulationParams('/api/admin/feedback', simulationTarget));
+      const res = await fetch(url);
       if (res.ok) {
         const data = await res.json().catch(() => ({ success: false }));
         if (data.success && activeDataScopeKeyRef.current === requestScopeKey) {
@@ -1187,7 +1272,25 @@ function AdminPage() {
       }
     } catch (err) {
       console.error('[Admin] Failed to load feedback:', err);
+    } finally {
+      if (activeDataScopeKeyRef.current === requestScopeKey) {
+        setFeedbackLoading(false);
+      }
     }
+  };
+
+  const loadFeedbackOnce = async (availableTeams: Team[]): Promise<void> => {
+    if (!getConfig('feedbackEnabled')) return;
+    await requestFeedback(getFeedbackUrl(
+      feedbackFilter,
+      1,
+      sourceFilter,
+      feedbackChannelFilter,
+      feedbackSearchTags,
+      userFilter,
+      dateRange,
+      availableTeams,
+    ));
   };
 
   const loadTabData = async (tab: string) => {
@@ -1197,9 +1300,9 @@ function AdminPage() {
     // Teams data is shared across the Stats and Feedback filter dropdowns.
     // Use a data-level key (not the tab name) so it isn't confused with the
     // tab-visit guard that loadTabData adds before invoking the loader.
-    const loadTeamsIfNeeded = () => {
-      if (isSimulationActive) return Promise.resolve();
-      if (visitedTabsRef.current.has('_teams-loaded')) return Promise.resolve();
+    const loadTeamsIfNeeded = (): Promise<Team[]> => {
+      if (isSimulationActive) return Promise.resolve([]);
+      if (visitedTabsRef.current.has('_teams-loaded')) return Promise.resolve(teams);
       visitedTabsRef.current.add('_teams-loaded');
       return loadTeamsData();
     };
@@ -1222,7 +1325,10 @@ function AdminPage() {
       // alongside the rest of the stats data. The Skills tab keeps only the
       // Skill Hubs section, which self-loads.
       stats: async () => { await Promise.all([loadStatsIfNeeded(), loadTeamsIfNeeded(), loadSkillStats()]); },
-      feedback: async () => { await Promise.all([loadFeedbackOnce(), loadTeamsIfNeeded()]); },
+      feedback: async () => {
+        const availableTeams = await loadTeamsIfNeeded();
+        await loadFeedbackOnce(availableTeams);
+      },
     };
 
     const loader = loaders[tab];
@@ -1245,64 +1351,57 @@ function AdminPage() {
     searchTags?: string[],
     users?: string[],
     range?: DateRange,
-  ) => {
-    const requestScopeKey = simulationScopeKey;
-    setFeedbackLoading(true);
-    try {
-      const params = new URLSearchParams({ page: String(page), limit: '50' });
-      if (rating && rating !== 'all') params.set('rating', rating);
-      const src = source ?? sourceFilter;
-      if (src !== 'all') params.set('source', src);
-      const chs = channels ?? feedbackChannelFilter;
-      if (src === 'slack' && chs.length > 0) {
-        params.set('channel', chs.join(','));
-      }
-      const tags = searchTags ?? feedbackSearchTags;
-      if (tags.length > 0) params.set('search', tags.join(','));
-      const selections = users ?? userFilter;
-      const selectedUsers = new Set<string>();
-      const selectedTeams = new Set<string>();
-      for (const selection of selections) {
-        if (selection.startsWith('team:')) {
-          const team = teams.find((candidate) => candidate.name === selection.slice(5));
-          selectedTeams.add(team?.slug?.trim() || team?._id || selection.slice(5));
-        } else {
-          selectedUsers.add(selection);
-        }
-      }
-      if (selectedUsers.size > 0) params.set('user', [...selectedUsers].join(','));
-      if (selectedTeams.size > 0) params.set('team', [...selectedTeams].join(','));
-      const dr = range ?? dateRange;
-      if (dr.from) params.set('from', dr.from);
-      if (dr.to) params.set('to', dr.to);
-      const res = await fetch(withAdminSimulationParams(`/api/admin/feedback?${params}`, simulationTarget));
-      if (res.ok) {
-        const data = await res.json();
-        if (data.success && activeDataScopeKeyRef.current === requestScopeKey) {
-          setFeedbackData(data.data);
-          if (data.data.channels) setFeedbackChannels(data.data.channels);
-          if (data.data.users) setFeedbackUsers(data.data.users);
-        }
-      }
-    } catch (err) {
-      console.error('[Admin] Failed to load feedback:', err);
-    } finally {
-      if (activeDataScopeKeyRef.current === requestScopeKey) {
-        setFeedbackLoading(false);
-      }
-    }
+  ): Promise<void> => {
+    await requestFeedback(getFeedbackUrl(
+      rating ?? feedbackFilter,
+      page,
+      source ?? sourceFilter,
+      channels ?? feedbackChannelFilter,
+      searchTags ?? feedbackSearchTags,
+      users ?? userFilter,
+      range ?? dateRange,
+      teams,
+    ));
   };
+
+  const feedbackFilterKey = useMemo(() => JSON.stringify({
+    channels: feedbackChannelFilter,
+    from: dateRange.from,
+    rating: feedbackFilter,
+    search: feedbackSearchTags,
+    source: sourceFilter,
+    to: dateRange.to,
+    users: userFilter,
+  }), [
+    dateRange.from,
+    dateRange.to,
+    feedbackChannelFilter,
+    feedbackFilter,
+    feedbackSearchTags,
+    sourceFilter,
+    userFilter,
+  ]);
+  const feedbackFilterRef = useRef(feedbackFilterKey);
+  const loadFeedbackEvent = useEffectEvent(() => loadFeedback());
+  useEffect(() => {
+    if (feedbackFilterRef.current === feedbackFilterKey) return;
+    feedbackFilterRef.current = feedbackFilterKey;
+    if (!visitedTabsRef.current.has('feedback')) return;
+    if (status !== "authenticated" && getConfig('ssoEnabled')) return;
+    const handle = window.setTimeout(() => {
+      void loadFeedbackEvent();
+    }, 150);
+    return () => window.clearTimeout(handle);
+  }, [feedbackFilterKey, status]);
 
   const handleFeedbackFilterChange = (filter: 'all' | 'positive' | 'negative') => {
     setFeedbackFilter(filter);
-    loadFeedback(filter, 1);
     updateFeedbackUrl({ rating: filter !== 'all' ? filter : null });
   };
 
   const handleFeedbackSourceChange = (source: 'all' | 'web' | 'slack') => {
     setSourceFilter(source);
     setFeedbackChannelFilter([]);
-    loadFeedback(feedbackFilter, 1, source, [], undefined, undefined);
     updateSharedFilterUrl({ source: source !== 'all' ? source : null });
     updateFeedbackUrl({ channels: null });
   };
@@ -1416,14 +1515,11 @@ function AdminPage() {
               userSelectedAdminTabRef.current = true;
               setActiveTab(tab);
               setActiveCategory(categoryForTab(tab));
-              const params = new URLSearchParams(searchParams.toString());
-              params.set('cat', categoryForTab(tab));
-              params.set('tab', tab);
-              if (tab !== 'access-explorer') {
-                params.delete('subtab');
-                params.delete('openfgaTab');
-              }
-              router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+              updateUrlFilters({
+                cat: categoryForTab(tab),
+                tab,
+                ...(tab === 'access-explorer' ? {} : { subtab: null, openfgaTab: null }),
+              });
             }} className="space-y-4">
               {/* Category selector */}
               <div
@@ -1998,7 +2094,6 @@ function AdminPage() {
                           selected={feedbackChannelFilter}
                           onChange={(channels) => {
                             setFeedbackChannelFilter(channels);
-                            loadFeedback(feedbackFilter, 1, sourceFilter, channels);
                             updateFeedbackUrl({ channels: channels.length > 0 ? channels.join(',') : null });
                           }}
                           placeholder="All Channels"
@@ -2013,7 +2108,6 @@ function AdminPage() {
                       tags={feedbackSearchTags}
                       onChange={(tags) => {
                         setFeedbackSearchTags(tags);
-                        loadFeedback(feedbackFilter, 1, undefined, undefined, tags);
                         updateFeedbackUrl({ search: tags.length > 0 ? tags.join(',') : null });
                       }}
                       placeholder="Search reasons..."
@@ -2030,7 +2124,6 @@ function AdminPage() {
                           selected={userFilter}
                           onChange={(selected) => {
                             setUserFilter(selected);
-                            loadFeedback(feedbackFilter, 1, undefined, undefined, undefined, selected);
                             updateSharedFilterUrl({ users: selected.length > 0 ? selected.join(',') : null });
                           }}
                           placeholder="All Users & Teams"
@@ -2047,7 +2140,6 @@ function AdminPage() {
                     onChange={(preset, range) => {
                       setDatePreset(preset);
                       setDateRange(range);
-                      loadFeedback(feedbackFilter, 1, sourceFilter, feedbackChannelFilter.length > 0 ? feedbackChannelFilter : undefined, undefined, undefined, range);
                       updateSharedFilterUrl({
                         dateRange: preset !== '30d' ? preset : null,
                         from: preset === 'custom' ? range.from : null,
@@ -2224,6 +2316,7 @@ function AdminPage() {
                         setSourceFilter(src);
                         setStatsChannelFilter([]);
                         updateSharedFilterUrl({ source: src !== 'all' ? src : null });
+                        updateStatsFilterUrl({ statsChannels: null });
                       }}
                       className="h-8 rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
                     >
@@ -2237,6 +2330,9 @@ function AdminPage() {
                         selected={statsChannelFilter}
                         onChange={(channels) => {
                           setStatsChannelFilter(channels);
+                          updateStatsFilterUrl({
+                            statsChannels: channels.length > 0 ? channels.join(',') : null,
+                          });
                         }}
                         placeholder="All Channels"
                         searchPlaceholder="Search channels..."
@@ -2247,9 +2343,15 @@ function AdminPage() {
                     {statsAgents.length > 0 && (
                       <MultiSelect
                         options={statsAgents.map((a) => a.name)}
-                        selected={statsAgentFilter}
+                        selected={selectedStatsAgentNames}
                         onChange={(agents) => {
-                          setStatsAgentFilter(agents);
+                          const agentIds = agents
+                            .map((name) => statsAgents.find((agent) => agent.name === name)?.id)
+                            .filter((id): id is string => Boolean(id));
+                          setStatsAgentFilter(agentIds);
+                          updateStatsFilterUrl({
+                            statsAgents: agentIds.length > 0 ? agentIds.join(',') : null,
+                          });
                         }}
                         placeholder="All Agents"
                         searchPlaceholder="Search agents..."
@@ -2446,7 +2548,11 @@ function AdminPage() {
                           type="checkbox"
                           className="h-4 w-4 rounded border-input accent-primary"
                           checked={showBotUsers}
-                          onChange={(event) => setShowBotUsers(event.target.checked)}
+                          onChange={(event) => {
+                            const checked = event.target.checked;
+                            setShowBotUsers(checked);
+                            updateStatsFilterUrl({ statsIncludeBots: checked ? 'true' : null });
+                          }}
                         />
                         Show bot users
                       </label>

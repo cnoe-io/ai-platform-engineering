@@ -1,6 +1,8 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
+import { useUrlFilterParams } from "@/hooks/use-url-filter-params";
+import { useSearchParams } from "next/navigation";
 import {
   type UseBatchPrometheusReturn,
   useBatchPrometheus,
@@ -56,6 +58,40 @@ function metricState(batch: UseBatchPrometheusReturn, id: string): MetricQuerySt
   };
 }
 
+const METRICS_RANGE_PRESETS: readonly DateRangePreset[] = [
+  "1h",
+  "12h",
+  "24h",
+  "7d",
+  "30d",
+  "90d",
+  "custom",
+];
+
+function metricsRangeFromParams(searchParams: { get(name: string): string | null }): {
+  customRange?: DateRange;
+  preset: DateRangePreset;
+} {
+  const rawPreset = searchParams.get("metricsRange");
+  const preset = rawPreset && (METRICS_RANGE_PRESETS as readonly string[]).includes(rawPreset)
+    ? rawPreset as DateRangePreset
+    : "24h";
+  if (preset !== "custom") return { preset };
+
+  const from = searchParams.get("metricsFrom");
+  const to = searchParams.get("metricsTo");
+  if (
+    !from ||
+    !to ||
+    !Number.isFinite(Date.parse(from)) ||
+    !Number.isFinite(Date.parse(to)) ||
+    Date.parse(from) > Date.parse(to)
+  ) {
+    return { preset: "24h" };
+  }
+  return { customRange: { from, to }, preset };
+}
+
 const percentFormat = (value: number): string => `${value.toFixed(2)}%`;
 const coresFormat = (value: number): string => `${value.toFixed(value < 0.1 ? 3 : 2)} cores`;
 const reliabilityTone = (value: number): "positive" | "warning" | "negative" => (
@@ -81,9 +117,21 @@ function modelLabel(metric: Record<string, string>): string {
 }
 
 export function MetricsTab() {
-  const [rangePreset, setRangePreset] = useState<DateRangePreset>("24h");
-  const [customRange, setCustomRange] = useState<DateRange | undefined>();
+  const searchParams = useSearchParams();
+  const updateUrlFilters = useUrlFilterParams();
+  const urlRange = metricsRangeFromParams(searchParams);
+  const urlRangeKey = `${urlRange.preset}\u0000${urlRange.customRange?.from ?? ""}\u0000${urlRange.customRange?.to ?? ""}`;
+  const [rangePreset, setRangePreset] = useState<DateRangePreset>(urlRange.preset);
+  const [customRange, setCustomRange] = useState<DateRange | undefined>(urlRange.customRange);
+  const [previousUrlRangeKey, setPreviousUrlRangeKey] = useState(urlRangeKey);
   const [snapshotAt, setSnapshotAt] = useState(() => Math.floor(Date.now() / 1000));
+
+  if (urlRangeKey !== previousUrlRangeKey) {
+    setPreviousUrlRangeKey(urlRangeKey);
+    setRangePreset(urlRange.preset);
+    setCustomRange(urlRange.customRange);
+  }
+
   const range = useMemo(
     () => resolveMetricsRange(rangePreset, customRange, snapshotAt),
     [customRange, rangePreset, snapshotAt],
@@ -173,6 +221,11 @@ export function MetricsTab() {
               setRangePreset(preset);
               setCustomRange(preset === "custom" ? selectedRange : undefined);
               setSnapshotAt(Math.floor(Date.now() / 1000));
+              updateUrlFilters({
+                metricsRange: preset === "24h" ? null : preset,
+                metricsFrom: preset === "custom" ? selectedRange.from : null,
+                metricsTo: preset === "custom" ? selectedRange.to : null,
+              });
             }}
           />
           <Button
