@@ -83,6 +83,11 @@ jest.mock('@/lib/rbac/user-insights-scope', () => ({
   getAgentsByIds: (...args: unknown[]) => mockGetAgentsByIds(...(args as [string[]])),
 }));
 
+const mockLoadTeamMembersForSlugs = jest.fn();
+jest.mock('@/lib/rbac/team-membership-store', () => ({
+  loadTeamMembersForSlugs: (...args: unknown[]) => mockLoadTeamMembersForSlugs(...args),
+}));
+
 const mockCheckPermission = jest.requireMock<{ checkPermission: jest.Mock }>(
   '@/lib/rbac/keycloak-authz'
 ).checkPermission;
@@ -203,6 +208,8 @@ function resetMocks() {
   mockGetAllAgents.mockResolvedValue([]);
   mockGetAgentsByIds.mockReset();
   mockGetAgentsByIds.mockResolvedValue([]);
+  mockLoadTeamMembersForSlugs.mockReset();
+  mockLoadTeamMembersForSlugs.mockResolvedValue(new Map());
   Object.keys(mockCollections).forEach((key) => delete mockCollections[key]);
 }
 
@@ -1302,6 +1309,44 @@ describe('GET /api/admin/stats — Source & User Filters', () => {
     expect(hasUserFilter).toBe(true);
   });
 
+  it('resolves canonical team members and applies them to conversation and message queries', async () => {
+    const { convCol, msgCol } = setupAdminWithCollections();
+    mockLoadTeamMembersForSlugs.mockResolvedValue(new Map([
+      ['platform-team', [
+        { user_email: 'alice@example.com' },
+        { user_email: 'bob@example.com' },
+      ]],
+    ]));
+
+    await GET(makeRequest('/api/admin/stats?section=overview&team=platform-team'));
+
+    expect(mockLoadTeamMembersForSlugs).toHaveBeenCalledWith(['platform-team']);
+    const conversationFilters = convCol.countDocuments.mock.calls.map((call: unknown[]) => (
+      JSON.stringify(call[0] ?? {})
+    ));
+    expect(conversationFilters.some((filter: string) => (
+      filter.includes('alice@example.com') && filter.includes('bob@example.com')
+    ))).toBe(true);
+    const messageFilters = msgCol.countDocuments.mock.calls.map((call: unknown[]) => (
+      JSON.stringify(call[0] ?? {})
+    ));
+    expect(messageFilters.some((filter: string) => (
+      filter.includes('alice@example.com') && filter.includes('bob@example.com')
+    ))).toBe(true);
+  });
+
+  it('fails closed when a selected team has no canonical members', async () => {
+    const { convCol } = setupAdminWithCollections();
+    mockLoadTeamMembersForSlugs.mockResolvedValue(new Map([['empty-team', []]]));
+
+    await GET(makeRequest('/api/admin/stats?section=overview&team=empty-team'));
+
+    const conversationFilters = convCol.countDocuments.mock.calls.map((call: unknown[]) => call[0] ?? {});
+    expect(conversationFilters.some((filter: { owner_id?: { $in?: unknown[] } }) => (
+      Array.isArray(filter.owner_id?.$in) && filter.owner_id.$in.length === 0
+    ))).toBe(true);
+  });
+
   it('applies a Slack channel filter to conversation and message metrics', async () => {
     const { convCol, msgCol } = setupAdminWithCollections();
 
@@ -1355,6 +1400,26 @@ describe('GET /api/admin/stats — Source & User Filters', () => {
 
 describe('GET /api/admin/stats — non-admin scoping', () => {
   beforeEach(resetMocks);
+
+  it('intersects a selected team with the existing non-admin visibility scope', async () => {
+    mockGetServerSession.mockResolvedValue(userSession());
+    mockGetReadableSlackChannelNames.mockResolvedValue(['primary-channel']);
+    mockLoadTeamMembersForSlugs.mockResolvedValue(new Map([
+      ['platform-team', [{ user_email: 'teammate@example.com' }]],
+    ]));
+    const { convCol } = setupNonAdminCollections();
+
+    await GET(makeRequest('/api/admin/stats?section=overview&team=platform-team'));
+
+    const filters = convCol.countDocuments.mock.calls.map((call: unknown[]) => (
+      JSON.stringify(call[0] ?? {})
+    ));
+    expect(filters.some((filter: string) => (
+      filter.includes('teammate@example.com')
+      && filter.includes('user@example.com')
+      && filter.includes('primary-channel')
+    ))).toBe(true);
+  });
 
   it('non-admin with readable channels: convSourceFilter ANDs in the channel scope', async () => {
     mockGetServerSession.mockResolvedValue(userSession());

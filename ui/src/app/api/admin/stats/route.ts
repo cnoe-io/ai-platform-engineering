@@ -10,6 +10,7 @@ import {
 resolveAuthorizedAdminSimulationScope,
 simulationSubjectCanManageAdminSurface,
 } from '@/lib/rbac/admin-simulation-server';
+import { resolveInsightsUserFilter } from '@/lib/rbac/insights-user-filter';
 import { requireAdminSurfaceManage } from '@/lib/rbac/require-openfga';
 import { getAgentsByIds, getAllAgents, getOwnedAgentConversationIds, getOwnedAgents, getReadableSlackChannelNames, type OwnedAgent } from '@/lib/rbac/user-insights-scope';
 import {
@@ -323,7 +324,11 @@ async function getAdminStats(request: NextRequest) {
     // Optional filters
     const sourceFilter = searchParams.get('source'); // 'web' | 'slack' | null (all)
     const userFilter = searchParams.get('user'); // comma-separated emails | null (all)
-    const userEmails = userFilter ? userFilter.split(',').map((u) => u.trim()).filter(Boolean) : [];
+    const teamFilter = searchParams.get('team'); // comma-separated team slugs | null (all)
+    const { active: hasUserFilter, emails: userEmails } = await resolveInsightsUserFilter(
+      userFilter,
+      teamFilter,
+    );
     const channelFilter = searchParams.get('channel'); // comma-separated channel names (slack only)
     const channelNames = channelFilter ? channelFilter.split(',').map((c) => c.trim()).filter(Boolean) : [];
     const agentFilter = searchParams.get('agent'); // comma-separated agent ids (dynamic agents)
@@ -350,7 +355,7 @@ async function getAdminStats(request: NextRequest) {
     // must derive from the scoped conversations, never from the platform-wide
     // users collection (which would leak global active-user counts).
     const hasFilters = !!sourceFilter
-      || userEmails.length > 0
+      || hasUserFilter
       || channelNames.length > 0
       || agentIds.length > 0
       || !!nonAdminScope;
@@ -378,12 +383,10 @@ async function getAdminStats(request: NextRequest) {
         msgOwnerFilter['metadata.channel_name'] = names;
       }
     }
-    if (userEmails.length === 1) {
-      convSourceFilter.owner_id = userEmails[0];
-      msgOwnerFilter.owner_id = userEmails[0];
-    } else if (userEmails.length > 1) {
-      convSourceFilter.owner_id = { $in: userEmails };
-      msgOwnerFilter.owner_id = { $in: userEmails };
+    if (hasUserFilter) {
+      const owners = userEmails.length === 1 ? userEmails[0] : { $in: userEmails };
+      convSourceFilter.owner_id = owners;
+      msgOwnerFilter.owner_id = owners;
     }
 
     // Non-admin scope, reused by every query below so the whole payload stays
@@ -588,16 +591,21 @@ async function getAdminStats(request: NextRequest) {
       if (sourceFilter === 'slack') {
         workflowRunFilter = null; // web-only concept; skip the queries entirely
       } else if (nonAdminScope) {
-        workflowRunFilter = nonAdminScope.sub
+        const includesCaller = !hasUserFilter || userEmails.some(
+          (email) => email.toLowerCase() === nonAdminScope.ownerEmail.toLowerCase(),
+        );
+        workflowRunFilter = includesCaller && nonAdminScope.sub
           ? { 'owner_subject.type': 'user', 'owner_subject.id': nonAdminScope.sub }
           : null;
-      } else if (userEmails.length > 0) {
-        const owners = await users
-          .find(
-            { email: { $in: userEmails } },
-            { projection: { keycloak_sub: 1, 'metadata.keycloak_sub': 1 } },
-          )
-          .toArray();
+      } else if (hasUserFilter) {
+        const owners = userEmails.length > 0
+          ? await users
+              .find(
+                { email: { $in: userEmails } },
+                { projection: { keycloak_sub: 1, 'metadata.keycloak_sub': 1 } },
+              )
+              .toArray()
+          : [];
         const subs = [
           ...new Set(
             owners
@@ -726,8 +734,9 @@ async function getAdminStats(request: NextRequest) {
           fbFilter.channel_name = { $in: channelNames };
         }
       }
-      if (userEmails.length === 1) fbFilter.user_email = userEmails[0];
-      else if (userEmails.length > 1) fbFilter.user_email = { $in: userEmails };
+      if (hasUserFilter) {
+        fbFilter.user_email = userEmails.length === 1 ? userEmails[0] : { $in: userEmails };
+      }
 
       // Non-admin: feedback is keyed by channel_name (slack) / user_email (web),
       // so scope it directly rather than via the conversation-shaped scope filter.
@@ -1368,7 +1377,7 @@ async function getAdminStats(request: NextRequest) {
             channels: configDoc
               ? { total: configDoc.total, qanda_enabled: configDoc.qanda_enabled, alerts_enabled: configDoc.alerts_enabled, ai_enabled: configDoc.ai_enabled }
               : { total: 0, qanda_enabled: 0, alerts_enabled: 0, ai_enabled: 0 },
-            ...(userEmails.length === 0 ? {
+            ...(!hasUserFilter ? {
               configured_channels: configuredChannelsTotal,
               configured_channels_daily: configuredChannelsDaily,
             } : {}),

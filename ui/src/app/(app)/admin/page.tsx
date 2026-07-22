@@ -872,17 +872,21 @@ function AdminPage() {
   const rangeLabel = datePreset === "1h" ? "1 Hour" : datePreset === "12h" ? "12 Hours" : datePreset === "24h" ? "24 Hours" : datePreset === "7d" ? "7 Days" : datePreset === "90d" ? "90 Days" : datePreset === "custom" ? "Custom Range" : "30 Days";
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
 
-  const expandedStatsUsers = useMemo(() => {
-    const emails = new Set<string>();
+  const selectedStatsFilters = useMemo(() => {
+    const userEmails = new Set<string>();
+    const teamSlugs = new Set<string>();
     for (const selection of userFilter) {
       if (selection.startsWith('team:')) {
         const team = teams.find((candidate) => candidate.name === selection.slice(5));
-        for (const member of team?.members ?? []) emails.add(member.user_id);
+        // Team rosters are canonical in team_membership_sources and are no
+        // longer embedded in list responses. Send the stable slug so the API
+        // can resolve members server-side while preserving its RBAC scope.
+        teamSlugs.add(team?.slug?.trim() || team?._id || selection.slice(5));
       } else {
-        emails.add(selection);
+        userEmails.add(selection);
       }
     }
-    return [...emails];
+    return { teamSlugs: [...teamSlugs], userEmails: [...userEmails] };
   }, [teams, userFilter]);
 
   const getStatsSectionUrl = useCallback((section: AdminStatsSection): string => {
@@ -896,7 +900,12 @@ function AdminPage() {
       params.set('range', datePreset);
     }
     if (sourceFilter !== 'all') params.set('source', sourceFilter);
-    if (expandedStatsUsers.length > 0) params.set('user', expandedStatsUsers.join(','));
+    if (selectedStatsFilters.userEmails.length > 0) {
+      params.set('user', selectedStatsFilters.userEmails.join(','));
+    }
+    if (selectedStatsFilters.teamSlugs.length > 0) {
+      params.set('team', selectedStatsFilters.teamSlugs.join(','));
+    }
     if (sourceFilter === 'slack' && statsChannelFilter.length > 0) {
       params.set('channel', statsChannelFilter.join(','));
     }
@@ -909,7 +918,7 @@ function AdminPage() {
   }, [
     dateRange,
     datePreset,
-    expandedStatsUsers,
+    selectedStatsFilters,
     showBotUsers,
     simulationTarget,
     sourceFilter,
@@ -927,9 +936,14 @@ function AdminPage() {
       params.set('range', datePreset);
     }
     if (sourceFilter !== 'all') params.set('source', sourceFilter);
-    if (expandedStatsUsers.length > 0) params.set('user', expandedStatsUsers.join(','));
+    if (selectedStatsFilters.userEmails.length > 0) {
+      params.set('user', selectedStatsFilters.userEmails.join(','));
+    }
+    if (selectedStatsFilters.teamSlugs.length > 0) {
+      params.set('team', selectedStatsFilters.teamSlugs.join(','));
+    }
     return withAdminSimulationParams(`/api/admin/stats/skills?${params.toString()}`, simulationTarget);
-  }, [datePreset, dateRange, expandedStatsUsers, simulationTarget, sourceFilter]);
+  }, [datePreset, dateRange, selectedStatsFilters, simulationTarget, sourceFilter]);
 
   const {
     data: stats,
@@ -1078,12 +1092,13 @@ function AdminPage() {
     range: datePreset,
     source: sourceFilter,
     to: dateRange.to,
-    users: expandedStatsUsers,
+    teams: selectedStatsFilters.teamSlugs,
+    users: selectedStatsFilters.userEmails,
   }), [
     dateRange.from,
     dateRange.to,
     datePreset,
-    expandedStatsUsers,
+    selectedStatsFilters,
     sourceFilter,
     statsAgentFilter,
     statsChannelFilter,
@@ -1093,8 +1108,9 @@ function AdminPage() {
     range: datePreset,
     source: sourceFilter,
     to: dateRange.to,
-    users: expandedStatsUsers,
-  }), [datePreset, dateRange.from, dateRange.to, expandedStatsUsers, sourceFilter]);
+    teams: selectedStatsFilters.teamSlugs,
+    users: selectedStatsFilters.userEmails,
+  }), [datePreset, dateRange.from, dateRange.to, selectedStatsFilters, sourceFilter]);
   const skillStatsFilterRef = useRef(skillStatsFilterKey);
   const statsFilterRef = useRef(statsFilterKey);
   useEffect(() => {
@@ -1243,8 +1259,19 @@ function AdminPage() {
       }
       const tags = searchTags ?? feedbackSearchTags;
       if (tags.length > 0) params.set('search', tags.join(','));
-      const usrs = users ?? userFilter;
-      if (usrs.length > 0) params.set('user', usrs.join(','));
+      const selections = users ?? userFilter;
+      const selectedUsers = new Set<string>();
+      const selectedTeams = new Set<string>();
+      for (const selection of selections) {
+        if (selection.startsWith('team:')) {
+          const team = teams.find((candidate) => candidate.name === selection.slice(5));
+          selectedTeams.add(team?.slug?.trim() || team?._id || selection.slice(5));
+        } else {
+          selectedUsers.add(selection);
+        }
+      }
+      if (selectedUsers.size > 0) params.set('user', [...selectedUsers].join(','));
+      if (selectedTeams.size > 0) params.set('team', [...selectedTeams].join(','));
       const dr = range ?? dateRange;
       if (dr.from) params.set('from', dr.from);
       if (dr.to) params.set('to', dr.to);
@@ -2003,19 +2030,7 @@ function AdminPage() {
                           selected={userFilter}
                           onChange={(selected) => {
                             setUserFilter(selected);
-                            const emails = new Set<string>();
-                            for (const s of selected) {
-                              if (s.startsWith('team:')) {
-                                const team = teams.find((t) => t.name === s.slice(5));
-                                // Defensive read — see `filteredTeams` for the
-                                // canonical-team-membership refactor context.
-                                if (team) (team.members ?? []).forEach((m) => emails.add(m.user_id));
-                              } else {
-                                emails.add(s);
-                              }
-                            }
-                            const emailList = [...emails];
-                            loadFeedback(feedbackFilter, 1, undefined, undefined, undefined, emailList);
+                            loadFeedback(feedbackFilter, 1, undefined, undefined, undefined, selected);
                             updateSharedFilterUrl({ users: selected.length > 0 ? selected.join(',') : null });
                           }}
                           placeholder="All Users & Teams"

@@ -271,19 +271,13 @@ const mockTeamsResponse = {
       {
         _id: 'team-1',
         name: 'Platform Team',
+        slug: 'platform-team',
         description: 'The platform engineering team',
         owner_id: 'admin@example.com',
         created_at: new Date().toISOString(),
-        // Commit 4/8 + 5/8 of the canonical-team-membership refactor:
-        // `member_count` is the new server-aggregated truth from
-        // `team_membership_sources`. We still emit a legacy `members[]`
-        // so older defensive readers (search/filter UX) keep working
-        // through the dual-write window.
+        // Production list responses expose the canonical count and intentionally
+        // omit the retired embedded members[]. Team filters must use the slug.
         member_count: 2,
-        members: [
-          { user_id: 'admin@example.com', role: 'owner', added_at: new Date().toISOString() },
-          { user_id: 'user@example.com', role: 'member', added_at: new Date().toISOString() },
-        ],
       },
     ],
   },
@@ -1791,7 +1785,7 @@ describe('Admin Dashboard Page', () => {
       });
     });
 
-    it('expands a team selection and applies its users to every card request', async () => {
+    it('refreshes every card with the canonical team slug when members are not embedded', async () => {
       const fetchMock = setupFetchMock();
       render(<AdminPage />);
       fireEvent.click(await screen.findByRole('button', { name: 'Insights' }));
@@ -1808,14 +1802,16 @@ describe('Admin Dashboard Page', () => {
           .filter((url) => url.pathname === '/api/admin/stats');
         expect(teamRefreshes).toHaveLength(9);
         expect(teamRefreshes.every((url) => (
-          url.searchParams.get('user') === 'admin@example.com,user@example.com'
+          url.searchParams.get('team') === 'platform-team'
+          && url.searchParams.has('user') === false
         ))).toBe(true);
       });
       await waitFor(() => {
         expect(fetchMock.mock.calls.slice(callsBeforeTeam).some(([url]) => {
           const parsed = new URL(url, 'http://localhost');
           return parsed.pathname === '/api/admin/stats/skills'
-            && parsed.searchParams.get('user') === 'admin@example.com,user@example.com';
+            && parsed.searchParams.get('team') === 'platform-team'
+            && parsed.searchParams.has('user') === false;
         })).toBe(true);
       });
     });

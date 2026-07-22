@@ -7,6 +7,7 @@ successResponse,
 withErrorHandler,
 } from '@/lib/api-middleware';
 import { getCollection,isMongoDBConfigured } from '@/lib/mongodb';
+import { resolveInsightsUserFilter } from '@/lib/rbac/insights-user-filter';
 import type { AgentSkill } from '@/types/agent-skill';
 import type { WorkflowRun } from '@/types/workflow-run';
 import type { Document } from 'mongodb';
@@ -62,24 +63,26 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     const { rangeStart, rangeEnd } = parseRangeBounds(searchParams);
     const dateMatch = { $gte: rangeStart, $lte: rangeEnd };
     const sourceFilter = searchParams.get('source');
-    const userEmails = (searchParams.get('user') ?? '')
-      .split(',')
-      .map((email) => email.trim())
-      .filter(Boolean);
+    const { active: hasUserFilter, emails: userEmails } = await resolveInsightsUserFilter(
+      searchParams.get('user'),
+      searchParams.get('team'),
+    );
 
     // Skill inventory is attributable by creator and creation time. It has no
     // source, Slack-channel, or dynamic-agent axis, so those filters do not
     // apply to the catalog cards.
     const configFilter: Document = { created_at: dateMatch };
-    if (userEmails.length === 1) configFilter.owner_id = userEmails[0];
-    else if (userEmails.length > 1) configFilter.owner_id = { $in: userEmails };
+    if (hasUserFilter) {
+      configFilter.owner_id = userEmails.length === 1 ? userEmails[0] : { $in: userEmails };
+    }
 
     // Legacy skill-run records are web-only and carry owner email + timestamps,
     // but no dynamic-agent/channel attribution. A Slack selection therefore
     // correctly yields zero run metrics while leaving catalog creation metrics.
     const runFilter: Document = { started_at: dateMatch };
-    if (userEmails.length === 1) runFilter.owner_id = userEmails[0];
-    else if (userEmails.length > 1) runFilter.owner_id = { $in: userEmails };
+    if (hasUserFilter) {
+      runFilter.owner_id = userEmails.length === 1 ? userEmails[0] : { $in: userEmails };
+    }
     if (sourceFilter === 'slack') runFilter._id = null;
 
     const allConfigs = await configs.find(configFilter).toArray();
