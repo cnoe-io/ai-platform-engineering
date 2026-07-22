@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card,CardContent,CardDescription,CardHeader,CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { TeamPicker,type TeamPickerOption } from "@/components/ui/team-picker";
+import { TeamPicker, TeamMultiPicker, type TeamPickerOption } from "@/components/ui/team-picker";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Tooltip,
@@ -209,6 +209,10 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
   const [endpointProbe, setEndpointProbe] = React.useState<EndpointProbeResult | null>(null);
   const [endpointProbeLoading, setEndpointProbeLoading] = React.useState(false);
 
+  // Team sharing state (edit mode only)
+  const [sharedTeamSlugs, setSharedTeamSlugs] = React.useState<string[]>([]);
+  const [allTeamOptions, setAllTeamOptions] = React.useState<TeamPickerOption[]>([]);
+
   // Arg input state
   const [newArg, setNewArg] = React.useState("");
 
@@ -293,6 +297,32 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
       cancelled = true;
     };
   }, []);
+
+  // Load current team sharing + full team list (edit mode only)
+  React.useEffect(() => {
+    if (!isEditing || !server?._id) return;
+    let cancelled = false;
+    async function loadSharing() {
+      const [sharingRes, teamsRes] = await Promise.allSettled([
+        fetch(`/api/mcp-servers/${server!._id}/sharing`),
+        fetch("/api/dynamic-agents/teams"),
+      ]);
+      if (cancelled) return;
+      if (sharingRes.status === "fulfilled" && sharingRes.value.ok) {
+        const json = (await sharingRes.value.json()) as { data?: { teamSlugs?: string[] } };
+        setSharedTeamSlugs(json.data?.teamSlugs ?? []);
+      }
+      if (teamsRes.status === "fulfilled" && teamsRes.value.ok) {
+        const json = (await teamsRes.value.json()) as { data?: { teams?: { slug: string; name: string }[] } };
+        const raw = json.data?.teams ?? (Array.isArray(json.data) ? json.data as { slug: string; name: string }[] : []);
+        setAllTeamOptions(
+          raw.map((t) => ({ slug: t.slug, name: t.name ?? t.slug }))
+        );
+      }
+    }
+    void loadSharing();
+    return () => { cancelled = true; };
+  }, [isEditing, server?._id]);
 
   const handleAddArg = () => {
     if (newArg.trim()) {
@@ -491,6 +521,13 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
         if (!data.success) {
           throw new Error(data.error || "Failed to update server");
         }
+
+        // Sync team sharing (best-effort; failures don't block save)
+        await fetch(`/api/mcp-servers/${server._id}/sharing`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ teamSlugs: sharedTeamSlugs }),
+        }).catch(() => {});
       } else {
         const normalizedCredentialSources = credentialSources
           .map((source) => normalizedCredentialSource(source, providerConnectionOptions))
@@ -1096,6 +1133,24 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
               </div>
             )}
           </div>
+
+          {/* Team Access (edit mode only) */}
+          {isEditing && (
+            <div className="space-y-3">
+              <h3 className="text-sm font-medium">Team Access</h3>
+              <p className="text-xs text-muted-foreground">
+                Teams listed here can assign this server&apos;s tools to their agents.
+                With caller-tool enforcement enabled, members must hold this grant to invoke tools at runtime.
+              </p>
+              <TeamMultiPicker
+                options={allTeamOptions}
+                selected={sharedTeamSlugs}
+                onChange={setSharedTeamSlugs}
+                disabled={readOnly}
+                placeholder="Add a team…"
+              />
+            </div>
+          )}
 
           {/* Error */}
           {error && (
