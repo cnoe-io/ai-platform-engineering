@@ -64,10 +64,12 @@ The server will be available at `http://localhost:9446`
 # OIDC configuration for UI token validation
 OIDC_ISSUER=https://your-keycloak.com/realms/production
 OIDC_CLIENT_ID=rag-ui
+OIDC_VERIFY_SSL=true                        # Optional: set to false/no/0 to disable SSL verification
 
 # OIDC configuration for ingestor token validation
 INGESTOR_OIDC_ISSUER=https://your-keycloak.com/realms/production
 INGESTOR_OIDC_CLIENT_ID=rag-ingestor
+INGESTOR_OIDC_VERIFY_SSL=true               # Optional: set to false/no/0 to disable SSL verification
 ```
 
 **JWT Identity plus OpenFGA Authorization:**
