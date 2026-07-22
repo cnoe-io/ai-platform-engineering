@@ -1,6 +1,7 @@
 "use client";
 
 import { Card,CardContent,CardDescription,CardHeader,CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import {
 getLabeledValues,
 getScalarValue,
@@ -8,7 +9,7 @@ type PrometheusMetric,
 usePrometheusQuery
 } from "@/hooks/use-prometheus";
 import { AlertCircle,Loader2 } from "lucide-react";
-import React,{ useCallback, useMemo } from "react";
+import React,{ useCallback, useMemo, useState } from "react";
 import {
 Area,
 AreaChart,
@@ -41,6 +42,14 @@ const CHART_COLORS = [
   "hsl(50, 90%, 55%)",    // yellow
   "hsl(195, 85%, 50%)",   // cyan
 ];
+
+function seriesColor(name: string): string {
+  let hash = 0;
+  for (const character of name) {
+    hash = ((hash << 5) - hash + character.charCodeAt(0)) | 0;
+  }
+  return CHART_COLORS[Math.abs(hash) % CHART_COLORS.length];
+}
 
 // ────────────────────────────────────────────────────────────────
 // Smart value formatters — auto-scale to human-readable units
@@ -268,9 +277,10 @@ export function TimeseriesChart({
     enabled: state === undefined,
   });
   const { data, loading, error, configured } = state ?? internalState;
+  const [legendExpanded, setLegendExpanded] = useState(false);
 
-  const { chartData, series, legendSeries, hiddenCount } = useMemo(() => {
-    if (!data || data.length === 0) return { chartData: [], series: [] as string[], legendSeries: [] as string[], hiddenCount: 0 };
+  const { chartData, series, rankedSeries } = useMemo(() => {
+    if (!data || data.length === 0) return { chartData: [], series: [] as string[], rankedSeries: [] as string[] };
 
     const seriesNames = new Set<string>();
     const timeMap = new Map<number, Record<string, number>>();
@@ -302,7 +312,7 @@ export function TimeseriesChart({
         ...vals,
       }));
 
-    const allSeries = Array.from(seriesNames);
+    const allSeries = Array.from(seriesNames).sort((left, right) => left.localeCompare(right));
 
     // Rank series by max value so we show the most active ones in the legend
     const maxBySeries = allSeries.map((name) => ({
@@ -311,20 +321,14 @@ export function TimeseriesChart({
     }));
     maxBySeries.sort((a, b) => b.max - a.max);
 
-    const TOP_N = 5;
-    const legendSeries = maxBySeries.slice(0, TOP_N).map((s) => s.name);
-    const hiddenCount = Math.max(0, allSeries.length - TOP_N);
+    const rankedSeries = maxBySeries.map((item) => item.name);
 
-    return { chartData: sorted, series: allSeries, legendSeries, hiddenCount };
+    return { chartData: sorted, series: allSeries, rankedSeries };
   }, [data, labelKey, formatTime, labelTransform]);
 
   const ChartComponent = type === "area" ? AreaChart : LineChart;
-
-  // Map each series name to its stable color index (by position in full series array)
-  const seriesColorIndex = useMemo(
-    () => Object.fromEntries(series.map((name, i) => [name, i])),
-    [series],
-  );
+  const hiddenCount = Math.max(0, rankedSeries.length - 5);
+  const legendSeries = legendExpanded ? rankedSeries : rankedSeries.slice(0, 5);
 
   const renderLegend = useCallback(() => (
     <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 px-1 text-xs text-muted-foreground">
@@ -332,16 +336,22 @@ export function TimeseriesChart({
         <span key={name} className="flex items-center gap-1.5 min-w-0">
           <span
             className="inline-block w-2.5 h-2.5 rounded-full shrink-0"
-            style={{ backgroundColor: CHART_COLORS[seriesColorIndex[name] % CHART_COLORS.length] }}
+            style={{ backgroundColor: seriesColor(name) }}
           />
           <span className="truncate max-w-[160px]" title={name}>{name}</span>
         </span>
       ))}
-      {hiddenCount > 0 && (
-        <span className="italic opacity-60">+{hiddenCount} more (hover to explore)</span>
+      {rankedSeries.length > 5 && (
+        <button
+          type="button"
+          className="font-medium text-primary hover:underline"
+          onClick={() => setLegendExpanded((expanded) => !expanded)}
+        >
+          {legendExpanded ? "Show fewer" : `Show ${hiddenCount} more`}
+        </button>
       )}
     </div>
-  ), [legendSeries, hiddenCount, seriesColorIndex]);
+  ), [hiddenCount, legendExpanded, legendSeries, rankedSeries.length]);
 
   const renderTooltip = useCallback(
     ({ active, payload, label }: TooltipContentProps) => {
@@ -419,14 +429,14 @@ export function TimeseriesChart({
                   tickFormatter={formatValue}
                 />
                 <Tooltip content={renderTooltip} />
-                {series.map((name, i) =>
+                {series.map((name) =>
                   type === "area" ? (
                     <Area
                       key={name}
                       type="monotone"
                       dataKey={name}
-                      stroke={CHART_COLORS[i % CHART_COLORS.length]}
-                      fill={CHART_COLORS[i % CHART_COLORS.length]}
+                      stroke={seriesColor(name)}
+                      fill={seriesColor(name)}
                       fillOpacity={0.15}
                       strokeWidth={2}
                     />
@@ -435,7 +445,7 @@ export function TimeseriesChart({
                       key={name}
                       type="monotone"
                       dataKey={name}
-                      stroke={CHART_COLORS[i % CHART_COLORS.length]}
+                      stroke={seriesColor(name)}
                       strokeWidth={2}
                       dot={false}
                     />
@@ -470,6 +480,7 @@ interface BarMetricChartProps {
   color?: string;
   labelTransform?: (metric: Record<string, string>) => string;
   emptyMessage?: string;
+  categoryWidth?: number;
 }
 
 export function BarMetricChart({
@@ -485,6 +496,7 @@ export function BarMetricChart({
   color = CHART_COLORS[0],
   labelTransform,
   emptyMessage,
+  categoryWidth = 120,
 }: BarMetricChartProps) {
   const internalState = usePrometheusQuery({
     query,
@@ -528,7 +540,7 @@ export function BarMetricChart({
                     type="category"
                     dataKey="label"
                     tick={{ fontSize: 11 }}
-                    width={120}
+                    width={categoryWidth}
                   />
                   <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={formatValue} />
                 </>
@@ -683,6 +695,7 @@ export function AgentHealthTable({
   reliabilityState,
   latencyState,
 }: AgentHealthTableProps) {
+  const [page, setPage] = useState(0);
   const rows = useMemo(() => {
     const volumes = metricMap(volumeState.data, "agent_name");
     const reliabilities = metricMap(reliabilityState.data, "agent_name");
@@ -701,6 +714,9 @@ export function AgentHealthTable({
   const loading = volumeState.loading || reliabilityState.loading || latencyState.loading;
   const configured = volumeState.configured && reliabilityState.configured && latencyState.configured;
   const error = volumeState.error || reliabilityState.error || latencyState.error;
+  const pageCount = Math.max(1, Math.ceil(rows.length / 10));
+  const safePage = Math.min(page, pageCount - 1);
+  const visibleRows = rows.slice(safePage * 10, safePage * 10 + 10);
 
   return (
     <Card className="relative" aria-busy={loading}>
@@ -723,7 +739,7 @@ export function AgentHealthTable({
                 </tr>
               </thead>
               <tbody className="divide-y">
-                {rows.map((row) => (
+                {visibleRows.map((row) => (
                   <tr key={row.name}>
                     <td className="max-w-64 truncate px-3 py-2 font-medium" title={row.name}>{row.name}</td>
                     <td className="px-3 py-2 text-right tabular-nums">{smartCountFormat(row.volume)}</td>
@@ -747,6 +763,32 @@ export function AgentHealthTable({
             </table>
           </div>
         )}
+        {rows.length > 10 && (
+          <div className="mt-3 flex items-center justify-between gap-3 text-xs text-muted-foreground">
+            <span>
+              Showing {safePage * 10 + 1}–{Math.min((safePage + 1) * 10, rows.length)} of {rows.length}
+            </span>
+            <div className="flex items-center gap-2">
+              <span>Page {safePage + 1} of {pageCount}</span>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={safePage === 0}
+                onClick={() => setPage((current) => Math.max(0, current - 1))}
+              >
+                Previous
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={safePage >= pageCount - 1}
+                onClick={() => setPage((current) => Math.min(pageCount - 1, current + 1))}
+              >
+                Next
+              </Button>
+            </div>
+          </div>
+        )}
       </CardContent>
       {rows.length > 0 && <RefreshOverlay loading={loading} />}
       {rows.length > 0 && !loading && <RefreshError error={error} />}
@@ -764,6 +806,8 @@ interface TokenUsageChartProps {
   inputState: MetricQueryState;
   outputState: MetricQueryState;
   height?: number;
+  labelTransform?: (modelId: string) => string;
+  emptyMessage?: string;
 }
 
 export function TokenUsageChart({
@@ -772,6 +816,8 @@ export function TokenUsageChart({
   inputState,
   outputState,
   height = 280,
+  labelTransform = (modelId) => modelId,
+  emptyMessage,
 }: TokenUsageChartProps) {
   const chartData = useMemo(() => {
     const inputs = metricMap(inputState.data, "model_id");
@@ -780,12 +826,12 @@ export function TokenUsageChart({
     return [...names]
       .map((label) => ({
         input: inputs.get(label) ?? 0,
-        label,
+        label: labelTransform(label),
         output: outputs.get(label) ?? 0,
         total: (inputs.get(label) ?? 0) + (outputs.get(label) ?? 0),
       }))
       .sort((left, right) => right.total - left.total);
-  }, [inputState.data, outputState.data]);
+  }, [inputState.data, labelTransform, outputState.data]);
   const loading = inputState.loading || outputState.loading;
   const configured = inputState.configured && outputState.configured;
   const error = inputState.error || outputState.error;
@@ -798,13 +844,13 @@ export function TokenUsageChart({
       </CardHeader>
       <CardContent>
         {chartData.length === 0 ? (
-          <EmptyMetricState configured={configured} error={error} loading={loading} />
+          <EmptyMetricState configured={configured} error={error} loading={loading} message={emptyMessage} />
         ) : (
           <>
             <ResponsiveContainer width="100%" height={height}>
               <BarChart data={chartData} layout="vertical">
                 <CartesianGrid strokeDasharray="3 3" className="opacity-20" />
-                <YAxis type="category" dataKey="label" tick={{ fontSize: 11 }} width={120} />
+                <YAxis type="category" dataKey="label" tick={{ fontSize: 11 }} width={220} />
                 <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={smartCountFormat} />
                 <Tooltip
                   contentStyle={{

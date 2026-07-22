@@ -1,11 +1,11 @@
 import type { DateRange, DateRangePreset } from "../shared/DateRangeFilter";
 import type { BatchQuery } from "@/hooks/use-prometheus";
 
-const TURN_RELIABILITY_OBJECTIVE = 0.99;
-const DYNAMIC_AGENTS_JOB = 'job=~".*dynamic.*"';
+const DYNAMIC_AGENTS_JOB = 'job=~".*dynamic-agents.*"';
 
 export interface MetricsRange {
   end?: string;
+  fixed: boolean;
   label: string;
   rateWindowSeconds: number;
   seconds: number;
@@ -31,10 +31,15 @@ const PRESET_LABELS: Record<Exclude<DateRangePreset, "custom">, string> = {
   "90d": "90 days",
 };
 
-export function resolveMetricsRange(preset: DateRangePreset, customRange?: DateRange): MetricsRange {
+export function resolveMetricsRange(
+  preset: DateRangePreset,
+  customRange?: DateRange,
+  nowSeconds = Math.floor(Date.now() / 1000),
+): MetricsRange {
   let seconds: number;
   let start: string | undefined;
   let end: string | undefined;
+  let fixed = false;
   let label: string;
 
   if (preset === "custom" && customRange) {
@@ -43,6 +48,7 @@ export function resolveMetricsRange(preset: DateRangePreset, customRange?: DateR
     if (Number.isFinite(startSeconds) && Number.isFinite(endSeconds) && endSeconds > startSeconds) {
       start = String(startSeconds);
       end = String(endSeconds);
+      fixed = true;
       seconds = endSeconds - startSeconds;
       label = `${new Date(customRange.from).toLocaleDateString()} – ${new Date(customRange.to).toLocaleDateString()}`;
     } else {
@@ -55,9 +61,14 @@ export function resolveMetricsRange(preset: DateRangePreset, customRange?: DateR
     label = PRESET_LABELS[relativePreset];
   }
 
+  if (!fixed) {
+    end = String(nowSeconds);
+    start = String(nowSeconds - seconds);
+  }
+
   const stepSeconds = Math.max(15, Math.ceil(seconds / 240));
   const rateWindowSeconds = Math.min(seconds, Math.max(300, stepSeconds * 4));
-  return { end, label, rateWindowSeconds, seconds, start, stepSeconds };
+  return { end, fixed, label, rateWindowSeconds, seconds, start, stepSeconds };
 }
 
 function instantQuery(id: string, query: string, range: MetricsRange): BatchQuery {
@@ -69,20 +80,25 @@ function instantQuery(id: string, query: string, range: MetricsRange): BatchQuer
 }
 
 function rangeQuery(id: string, query: string, range: MetricsRange): BatchQuery {
+  const requestedEnd = Number(range.end);
+  const alignedEnd = range.fixed
+    ? requestedEnd
+    : Math.floor(requestedEnd / range.stepSeconds) * range.stepSeconds;
+  const start = range.fixed ? Number(range.start) : alignedEnd - range.seconds;
   return {
+    end: String(alignedEnd),
     id,
     query,
+    start: String(start),
     type: "range",
     step: `${range.stepSeconds}s`,
-    ...(range.start && range.end
-      ? { end: range.end, start: range.start }
-      : { rangeSeconds: range.seconds }),
   };
 }
 
 export function buildOverviewQueries(range: MetricsRange): BatchQuery[] {
   const window = `${range.seconds}s`;
   const step = `${range.stepSeconds}s`;
+  const availabilityStep = `${Math.min(300, Math.max(15, range.stepSeconds))}s`;
   const recordedTurns = `sum(increase(da_turns_total[${window}]))`;
   const completedTurns = `sum(increase(da_turns_total{status=~"success|error"}[${window}]))`;
   const successfulTurns = `(sum(increase(da_turns_total{status="success"}[${window}])) or vector(0))`;
@@ -91,7 +107,7 @@ export function buildOverviewQueries(range: MetricsRange): BatchQuery[] {
   return [
     instantQuery(
       "runtime_availability",
-      `avg(avg_over_time(up{${DYNAMIC_AGENTS_JOB}}[${window}])) * 100`,
+      `avg_over_time(((max(up{job=~".*dynamic-agents.*"}) or vector(0)))[${window}:${availabilityStep}]) * 100`,
       range,
     ),
     instantQuery("turn_volume", `sum(increase(da_turns_total[${window}]))`, range),
@@ -104,11 +120,6 @@ export function buildOverviewQueries(range: MetricsRange): BatchQuery[] {
     instantQuery(
       "first_response_p95",
       `histogram_quantile(0.95, sum(increase(da_turn_time_to_first_response_seconds_bucket[${window}])) by (le))`,
-      range,
-    ),
-    instantQuery(
-      "turn_error_budget_burn",
-      `(1 - ${reliabilityRatio}) / ${1 - TURN_RELIABILITY_OBJECTIVE}`,
       range,
     ),
     instantQuery(
@@ -136,11 +147,6 @@ export function buildOverviewQueries(range: MetricsRange): BatchQuery[] {
       `(sum(increase(da_tool_calls_total{status="success"}[${window}])) or vector(0)) / sum(increase(da_tool_calls_total[${window}])) * 100`,
       range,
     ),
-    instantQuery(
-      "peak_cache_utilization",
-      `max_over_time((100 * sum(da_runtime_cache_entries) / sum(da_runtime_cache_capacity))[${window}:${step}])`,
-      range,
-    ),
   ];
 }
 
@@ -152,8 +158,8 @@ export function buildRuntimeQueries(range: MetricsRange): BatchQuery[] {
 
   return [
     rangeQuery(
-      "turn_rate_by_agent",
-      `sum(rate(da_turns_total[${rateWindow}])) by (agent_name)`,
+      "turn_count_by_agent",
+      `round(sum by (agent_name) (increase(da_turns_total[${rateWindow}])))`,
       range,
     ),
     rangeQuery("turn_reliability_trend", `(${successfulRate}) / (${completedRate}) * 100`, range),
@@ -200,13 +206,8 @@ export function buildRuntimeQueries(range: MetricsRange): BatchQuery[] {
     rangeQuery("active_requests", "sum(da_active_requests)", range),
     rangeQuery("active_streams", "sum(da_active_streams)", range),
     rangeQuery(
-      "cache_utilization",
-      "100 * sum(da_runtime_cache_entries) / sum(da_runtime_cache_capacity)",
-      range,
-    ),
-    rangeQuery(
       "process_cpu",
-      `sum(rate(process_cpu_seconds_total{${DYNAMIC_AGENTS_JOB}}[${rateWindow}])) * 100`,
+      `sum(rate(process_cpu_seconds_total{${DYNAMIC_AGENTS_JOB}}[${rateWindow}]))`,
       range,
     ),
     rangeQuery(
@@ -222,13 +223,13 @@ export function buildDependencyQueries(range: MetricsRange): BatchQuery[] {
   const rateWindow = `${range.rateWindowSeconds}s`;
   return [
     rangeQuery(
-      "llm_error_rate_by_agent_model",
-      `(1 - (sum by (agent_name, model_id) (rate(da_llm_calls_total{status="success"}[${rateWindow}])) or (0 * sum by (agent_name, model_id) (rate(da_llm_calls_total[${rateWindow}])))) / sum by (agent_name, model_id) (rate(da_llm_calls_total[${rateWindow}]))) * 100`,
+      "llm_error_rate_by_model",
+      `(1 - (sum by (model_id) (rate(da_llm_calls_total{status="success"}[${rateWindow}])) or (0 * sum by (model_id) (rate(da_llm_calls_total[${rateWindow}])))) / sum by (model_id) (rate(da_llm_calls_total[${rateWindow}]))) * 100`,
       range,
     ),
     rangeQuery(
-      "llm_p95_by_agent_model",
-      `histogram_quantile(0.95, sum(rate(da_llm_call_duration_seconds_bucket{status="success"}[${rateWindow}])) by (le, agent_name, model_id))`,
+      "llm_p95_by_model",
+      `histogram_quantile(0.95, sum(rate(da_llm_call_duration_seconds_bucket{status="success"}[${rateWindow}])) by (le, model_id))`,
       range,
     ),
     instantQuery(

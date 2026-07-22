@@ -13,8 +13,6 @@ import {
   Clock3,
   Coins,
   Cpu,
-  Gauge,
-  HardDrive,
   RefreshCw,
   Server,
   ShieldCheck,
@@ -22,7 +20,7 @@ import {
   Wrench,
   Zap,
 } from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   DateRange,
   DateRangeFilter,
@@ -38,7 +36,6 @@ import {
   smartBytesFormat,
   smartCountFormat,
   smartDurationFormat,
-  smartRateFormat,
   TimeseriesChart,
   TokenUsageChart,
 } from "./PrometheusCharts";
@@ -60,7 +57,7 @@ function metricState(batch: UseBatchPrometheusReturn, id: string): MetricQuerySt
 }
 
 const percentFormat = (value: number): string => `${value.toFixed(2)}%`;
-const multiplierFormat = (value: number): string => `${value.toFixed(2)}×`;
+const coresFormat = (value: number): string => `${value.toFixed(value < 0.1 ? 3 : 2)} cores`;
 const reliabilityTone = (value: number): "positive" | "warning" | "negative" => (
   value >= 99 ? "positive" : value >= 95 ? "warning" : "negative"
 );
@@ -73,38 +70,69 @@ function toolWithAgent(metric: Record<string, string>): string {
   return metric.agent_name ? `${tool} (${metric.agent_name})` : tool;
 }
 
-function modelWithAgent(metric: Record<string, string>): string {
-  const agent = metric.agent_name || "unknown";
-  return metric.model_id ? `${agent} · ${metric.model_id}` : agent;
+function compactModelId(modelId: string): string {
+  return modelId
+    .replace(/^(global|us|eu)\./, "")
+    .replace(/^(anthropic|openai)\./, "");
+}
+
+function modelLabel(metric: Record<string, string>): string {
+  return compactModelId(metric.model_id || "unknown");
 }
 
 export function MetricsTab() {
   const [rangePreset, setRangePreset] = useState<DateRangePreset>("24h");
   const [customRange, setCustomRange] = useState<DateRange | undefined>();
-  const [manualRefreshing, setManualRefreshing] = useState(false);
+  const [snapshotAt, setSnapshotAt] = useState(() => Math.floor(Date.now() / 1000));
   const range = useMemo(
-    () => resolveMetricsRange(rangePreset, customRange),
-    [customRange, rangePreset],
+    () => resolveMetricsRange(rangePreset, customRange, snapshotAt),
+    [customRange, rangePreset, snapshotAt],
   );
   const overviewQueries = useMemo(() => buildOverviewQueries(range), [range]);
   const runtimeQueries = useMemo(() => buildRuntimeQueries(range), [range]);
   const dependencyQueries = useMemo(() => buildDependencyQueries(range), [range]);
 
-  const overview = useBatchPrometheus(overviewQueries, { refreshInterval: 30_000 });
-  const runtime = useBatchPrometheus(runtimeQueries, { refreshInterval: 60_000 });
-  const dependencies = useBatchPrometheus(dependencyQueries, { refreshInterval: 60_000 });
-  const authorization = useAuthorizationMetrics(range, { refreshInterval: 60_000 });
-  const refreshing = manualRefreshing
-    || overview.loading
+  const overview = useBatchPrometheus(overviewQueries);
+  const runtime = useBatchPrometheus(runtimeQueries);
+  const dependencies = useBatchPrometheus(dependencyQueries);
+  const authorization = useAuthorizationMetrics(range, { refreshInterval: 0 });
+  const refreshing = overview.loading
     || runtime.loading
     || dependencies.loading
     || authorization.loading;
-  const lastUpdatedAt = Math.max(
+  const updateTimes = [
     overview.lastUpdatedAt ?? 0,
     runtime.lastUpdatedAt ?? 0,
     dependencies.lastUpdatedAt ?? 0,
     authorization.lastUpdatedAt ?? 0,
-  );
+  ];
+  const lastUpdatedAt = updateTimes.every((timestamp) => timestamp > 0)
+    ? Math.min(...updateTimes)
+    : 0;
+  const overviewRefetch = overview.refetch;
+  const runtimeRefetch = runtime.refetch;
+  const dependenciesRefetch = dependencies.refetch;
+  const authorizationRefetch = authorization.refetch;
+
+  const refetchAll = useCallback(async (): Promise<void> => {
+    await Promise.all([
+      overviewRefetch(),
+      runtimeRefetch(),
+      dependenciesRefetch(),
+      authorizationRefetch(),
+    ]);
+  }, [authorizationRefetch, dependenciesRefetch, overviewRefetch, runtimeRefetch]);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      if (range.fixed) {
+        void refetchAll();
+        return;
+      }
+      setSnapshotAt(Math.floor(Date.now() / 1000));
+    }, 30_000);
+    return () => window.clearInterval(interval);
+  }, [range.fixed, refetchAll]);
 
   const formatTimestamp = useCallback((timestamp: number): string => {
     const date = new Date(timestamp * 1000);
@@ -118,32 +146,24 @@ export function MetricsTab() {
   }, [range.seconds]);
 
   const refreshAll = useCallback(async (): Promise<void> => {
-    setManualRefreshing(true);
-    try {
-      await Promise.all([
-        overview.refetch(),
-        runtime.refetch(),
-        dependencies.refetch(),
-        authorization.refetch(),
-      ]);
-    } finally {
-      setManualRefreshing(false);
+    const nextSnapshot = Math.floor(Date.now() / 1000);
+    if (!range.fixed && nextSnapshot !== snapshotAt) {
+      setSnapshotAt(nextSnapshot);
+      return;
     }
-  }, [authorization, dependencies, overview, runtime]);
+    await refetchAll();
+  }, [range.fixed, refetchAll, snapshotAt]);
 
   return (
     <div className="space-y-8">
       <div className="flex flex-col gap-4 rounded-lg border bg-muted/20 p-4 xl:flex-row xl:items-center xl:justify-between">
         <div>
-          <h2 className="font-semibold">Steady-state Operations Review</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Every period metric uses {range.label}. Relative ranges move on refresh; custom dates stay fixed.
-          </p>
           {lastUpdatedAt > 0 && (
-            <p className="mt-1 text-xs text-muted-foreground">
-              Last completed update {new Date(lastUpdatedAt).toLocaleTimeString()}
+            <p className="text-sm text-muted-foreground">
+              Last synced {new Date(lastUpdatedAt).toLocaleTimeString()}
             </p>
           )}
+          <p className="text-xs text-muted-foreground">All sections refresh together every 30 seconds.</p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <DateRangeFilter
@@ -152,6 +172,7 @@ export function MetricsTab() {
             onChange={(preset, selectedRange) => {
               setRangePreset(preset);
               setCustomRange(preset === "custom" ? selectedRange : undefined);
+              setSnapshotAt(Math.floor(Date.now() / 1000));
             }}
           />
           <Button
@@ -181,7 +202,7 @@ export function MetricsTab() {
             icon={<Server className="h-4 w-4 text-muted-foreground" />}
             format={percentFormat}
             tone={availabilityTone}
-            subtitle="Prometheus scrape availability"
+            subtitle="At least one Dynamic Agents target scrapeable"
           />
           <MetricStatCard
             title="Recorded Turns"
@@ -211,14 +232,6 @@ export function MetricsTab() {
             icon={<Timer className="h-4 w-4 text-muted-foreground" />}
             format={smartDurationFormat}
             subtitle="Time to first user-visible text"
-          />
-          <MetricStatCard
-            title="Error-budget Burn"
-            state={metricState(overview, "turn_error_budget_burn")}
-            icon={<Gauge className="h-4 w-4 text-muted-foreground" />}
-            format={multiplierFormat}
-            tone={(value) => value <= 1 ? "positive" : value <= 2 ? "warning" : "negative"}
-            subtitle="Against a 99% turn reliability objective"
           />
           <MetricStatCard
             title="Peak Concurrency"
@@ -258,14 +271,6 @@ export function MetricsTab() {
             tone={reliabilityTone}
             subtitle="Successful tool calls"
           />
-          <MetricStatCard
-            title="Peak Runtime-cache Use"
-            state={metricState(overview, "peak_cache_utilization")}
-            icon={<HardDrive className="h-4 w-4 text-muted-foreground" />}
-            format={percentFormat}
-            tone={(value) => value < 75 ? "positive" : value < 90 ? "warning" : "negative"}
-            subtitle="Peak occupied runtime capacity"
-          />
         </div>
       </section>
 
@@ -278,11 +283,11 @@ export function MetricsTab() {
         </div>
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
           <TimeseriesChart
-            title="Turn Throughput by Agent"
-            description={`Rolling ${smartDurationFormat(range.rateWindowSeconds)} rate`}
-            state={metricState(runtime, "turn_rate_by_agent")}
+            title="Turns Over Time by Agent"
+            description={`Turns completed in each rolling ${smartDurationFormat(range.rateWindowSeconds)} window`}
+            state={metricState(runtime, "turn_count_by_agent")}
             labelKey="agent_name"
-            formatValue={smartRateFormat}
+            formatValue={smartCountFormat}
             formatTime={formatTimestamp}
           />
           <TimeseriesChart
@@ -331,7 +336,7 @@ export function MetricsTab() {
         <div>
           <h3 className="text-lg font-semibold">Request Path & Saturation</h3>
           <p className="text-sm text-muted-foreground">
-            Server errors, request latency, active work, cache pressure, and process resources.
+            Server errors, request latency, active work, and resources summed across replicas.
           </p>
         </div>
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
@@ -368,24 +373,16 @@ export function MetricsTab() {
             type="line"
           />
           <TimeseriesChart
-            title="Runtime-cache Utilization"
-            description="Cached runtimes as a percentage of configured capacity"
-            state={metricState(runtime, "cache_utilization")}
-            formatValue={percentFormat}
-            formatTime={formatTimestamp}
-            type="line"
-          />
-          <TimeseriesChart
-            title="Process CPU"
-            description="Aggregate Dynamic Agents process CPU utilization"
+            title="Total CPU Across Replicas"
+            description="Sum across Dynamic Agents pods; 1.0 equals one fully used CPU core"
             state={metricState(runtime, "process_cpu")}
-            formatValue={percentFormat}
+            formatValue={coresFormat}
             formatTime={formatTimestamp}
             type="line"
           />
           <TimeseriesChart
-            title="Resident Memory"
-            description="Aggregate resident memory across Dynamic Agents targets"
+            title="Total Memory Across Replicas"
+            description="Sum of resident memory across all Dynamic Agents pods"
             state={metricState(runtime, "process_memory")}
             formatValue={smartBytesFormat}
             formatTime={formatTimestamp}
@@ -404,18 +401,18 @@ export function MetricsTab() {
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
           <TimeseriesChart
             title="LLM Error Rate by Model"
-            description="Failed model calls by model and owning agent"
-            state={metricState(dependencies, "llm_error_rate_by_agent_model")}
-            labelTransform={modelWithAgent}
+            description="Failed model calls grouped only by model"
+            state={metricState(dependencies, "llm_error_rate_by_model")}
+            labelTransform={modelLabel}
             formatValue={percentFormat}
             formatTime={formatTimestamp}
             type="line"
           />
           <TimeseriesChart
             title="Successful LLM p95"
-            description="Model-call latency by agent and model"
-            state={metricState(dependencies, "llm_p95_by_agent_model")}
-            labelTransform={modelWithAgent}
+            description="Model-call latency grouped only by model"
+            state={metricState(dependencies, "llm_p95_by_model")}
+            labelTransform={modelLabel}
             formatValue={smartDurationFormat}
             formatTime={formatTimestamp}
             type="line"
@@ -424,9 +421,10 @@ export function MetricsTab() {
             title="Model Usage"
             description={`LLM call volume by model over ${range.label}`}
             state={metricState(dependencies, "llm_calls_by_model")}
-            labelKey="model_id"
+            labelTransform={modelLabel}
             layout="horizontal"
             formatValue={smartCountFormat}
+            categoryWidth={220}
           />
           <DonutChart
             title="LLM Call Outcomes"
@@ -440,6 +438,8 @@ export function MetricsTab() {
               description={`Provider-reported input and output tokens over ${range.label}`}
               inputState={metricState(dependencies, "llm_input_tokens_by_model")}
               outputState={metricState(dependencies, "llm_output_tokens_by_model")}
+              labelTransform={compactModelId}
+              emptyMessage="No provider-reported token samples yet. Token telemetry starts with calls made after the Dynamic Agents update."
             />
           </div>
         </div>

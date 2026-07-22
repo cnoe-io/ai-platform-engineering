@@ -1,15 +1,16 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 
 import type { PrometheusMetric } from "@/hooks/use-prometheus";
 
-import { TimeseriesChart } from "../PrometheusCharts";
+import { AgentHealthTable, TimeseriesChart } from "../PrometheusCharts";
 
 const mockUsePrometheusQuery = jest.fn();
+const mockGetLabeledValues = jest.fn((): Array<{ label: string; value: number }> => []);
 
 jest.mock("@/hooks/use-prometheus", () => ({
   usePrometheusQuery: (...args: unknown[]) => mockUsePrometheusQuery(...args),
   getScalarValue: jest.fn(),
-  getLabeledValues: jest.fn(() => []),
+  getLabeledValues: (...args: unknown[]) => mockGetLabeledValues(...args),
 }));
 
 // recharts' ResponsiveContainer needs layout APIs jsdom lacks; the global
@@ -35,9 +36,10 @@ function makeSeriesMetric(name: string, values: number[]): PrometheusMetric {
 describe("TimeseriesChart", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockGetLabeledValues.mockReturnValue([]);
   });
 
-  it("caps the legend to the top 5 series by max value and shows a +N more indicator", () => {
+  it("caps the legend to five series and expands the remaining labels on click", () => {
     // 7 series with clearly distinct max values, ranked series-a (100) down to series-g (40)
     const data: PrometheusMetric[] = [
       makeSeriesMetric("series-a", [100]),
@@ -69,8 +71,12 @@ describe("TimeseriesChart", () => {
     expect(screen.queryByText("series-f")).not.toBeInTheDocument();
     expect(screen.queryByText("series-g")).not.toBeInTheDocument();
 
-    // hiddenCount = 7 - 5 = 2
-    expect(screen.getByText("+2 more (hover to explore)")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Show 2 more" }));
+    expect(screen.getByText("series-f")).toBeInTheDocument();
+    expect(screen.getByText("series-g")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Show fewer" }));
+    expect(screen.queryByText("series-f")).not.toBeInTheDocument();
   });
 
   it("shows no +N more indicator when there are 5 or fewer series", () => {
@@ -95,7 +101,7 @@ describe("TimeseriesChart", () => {
     expect(screen.getByText("series-c")).toBeInTheDocument();
     expect(screen.getByText("series-d")).toBeInTheDocument();
 
-    expect(screen.queryByText(/more \(hover to explore\)/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Show \d+ more/ })).not.toBeInTheDocument();
   });
 
   it("keeps existing chart data visible with a loading overlay during refresh", () => {
@@ -139,6 +145,41 @@ describe("TimeseriesChart", () => {
 
     expect(screen.getByText("No observations in this range")).toBeInTheDocument();
     expect(screen.queryByText("primary")).not.toBeInTheDocument();
+  });
+});
+
+describe("AgentHealthTable", () => {
+  it("paginates agent comparisons ten rows at a time", () => {
+    const metrics = Array.from({ length: 12 }, (_, index) => ({
+      metric: { agent_name: `agent-${String(index + 1).padStart(2, "0")}` },
+      value: [1000, String(12 - index)] as [number, string],
+    }));
+    mockGetLabeledValues.mockImplementation((data: unknown, labelKey: unknown) => (
+      (data as PrometheusMetric[] | null ?? []).map((metric) => ({
+        label: metric.metric[String(labelKey)] || "unknown",
+        value: Number(metric.value?.[1] ?? 0),
+      })).sort((left, right) => right.value - left.value)
+    ));
+    const state = { configured: true, data: metrics, error: null, loading: false };
+
+    render(
+      <AgentHealthTable
+        title="Agent comparison"
+        volumeState={state}
+        reliabilityState={state}
+        latencyState={state}
+      />,
+    );
+
+    expect(screen.getByText("agent-01")).toBeInTheDocument();
+    expect(screen.queryByText("agent-11")).not.toBeInTheDocument();
+    expect(screen.getByText("Showing 1–10 of 12")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect(screen.getByText("agent-11")).toBeInTheDocument();
+    expect(screen.getByText("agent-12")).toBeInTheDocument();
+    expect(screen.queryByText("agent-01")).not.toBeInTheDocument();
+    expect(screen.getByText("Showing 11–12 of 12")).toBeInTheDocument();
   });
 });
 
