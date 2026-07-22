@@ -1284,6 +1284,23 @@ describe('Admin Dashboard Page', () => {
       });
     });
 
+    it('canonicalizes Authorization Insights deep links to the merged Metrics tab', async () => {
+      currentSearchParams = new URLSearchParams('cat=platform&tab=cas-insights');
+
+      render(<AdminPage />);
+
+      expect(await screen.findByText('Metrics & Health')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Metrics & Health' })).toHaveAttribute('aria-pressed', 'true');
+      expect(screen.getByRole('tab', { name: /^Metrics$/i })).toHaveAttribute(
+        'aria-selected',
+        'true',
+      );
+      expect(screen.queryByRole('tab', { name: /^Authorization Insights$/i })).not.toBeInTheDocument();
+      expect(replaceMock).toHaveBeenCalledWith('/admin?cat=platform&tab=metrics', {
+        scroll: false,
+      });
+    });
+
     it('opens the requested Access Explorer sub-tab from the query string', async () => {
       currentSearchParams = new URLSearchParams('cat=security&tab=access-explorer');
 

@@ -17,7 +17,6 @@ import { HealthTab } from "@/components/admin/platform/HealthTab";
 import { MetricsTab } from "@/components/admin/platform/MetricsTab";
 import { SkillHubsSection } from "@/components/admin/platform/SkillHubsSection";
 import { SlackStatsSection } from "@/components/admin/platform/SlackStatsSection";
-import { CasInsightsTab } from "@/components/admin/CasInsightsTab";
 import { SlackChannelRebacPanel } from "@/components/admin/rebac/SlackChannelRebacPanel";
 import { WebexSpaceRebacPanel } from "@/components/admin/rebac/WebexSpaceRebacPanel";
 import { AuditLogsTab } from "@/components/admin/security/AuditLogsTab";
@@ -190,9 +189,10 @@ interface SimulationTeamOption {
   description?: string;
 }
 
-const VALID_TABS = ['users', 'teams', 'identity-sync', 'stats', 'skills', 'feedback', 'metrics', 'health', 'cas-insights', 'credentials', 'audit-logs', 'action-audit', 'access-explorer', 'rbac-self-check', 'keycloak', 'migrations', 'ai-review', 'settings', 'agents', 'release-notes', 'slack', 'webex', 'rag-access', 'service-accounts'] as const;
+const VALID_TABS = ['users', 'teams', 'identity-sync', 'stats', 'skills', 'feedback', 'metrics', 'health', 'credentials', 'audit-logs', 'action-audit', 'access-explorer', 'rbac-self-check', 'keycloak', 'migrations', 'ai-review', 'settings', 'agents', 'release-notes', 'slack', 'webex', 'rag-access', 'service-accounts'] as const;
 const VALID_OPENFGA_SUBTABS = ['builder', 'explorer', 'graph', 'tuples', 'access', 'baseline', 'diagnostics'] as const;
 const MOVED_ADMIN_TAB_MAP = {
+  'cas-insights': 'metrics',
   insights: 'stats',
   openfga: 'access-explorer',
 } as const;
@@ -267,7 +267,6 @@ const CATEGORIES: Category[] = [
     tabs: [
       { value: 'metrics', label: 'Metrics', icon: Activity, gateKey: 'metrics' },
       { value: 'health', label: 'Health', icon: Database, gateKey: 'health' },
-      { value: 'cas-insights', label: 'Authorization Insights', icon: Activity, gateKey: 'metrics' },
     ],
   },
   {
@@ -3026,13 +3025,6 @@ function AdminPage() {
               <TabsContent value="health" className="space-y-4">
                 <HealthTab />
               </TabsContent>
-
-              {/* CAS Insights — authorization service health + decision stats */}
-              {tabGateValues.metrics && (
-                <TabsContent value="cas-insights" className="space-y-4">
-                  <CasInsightsTab isAdmin={canMutateAdminData} />
-                </TabsContent>
-              )}
 
               {tabGateValues.audit_logs && (
                 <TabsContent value="audit-logs" className="space-y-4">

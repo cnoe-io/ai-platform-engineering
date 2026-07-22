@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING
 from pymongo import MongoClient
 
 from dynamic_agents.config import get_settings
+from dynamic_agents.metrics import metrics as prom_metrics
 from dynamic_agents.models import (
     ClientContext,
     DynamicAgentConfig,
@@ -86,6 +87,13 @@ class AgentRuntimeCache:
             self._max_size = max_size
         else:
             self._max_size = get_settings().agent_runtime_max_cache_size
+        self._update_metrics()
+
+    def _update_metrics(self) -> None:
+        """Publish bounded cache state after each mutation."""
+        prom_metrics.runtime_cache_entries.set(len(self._cache))
+        prom_metrics.runtime_cache_capacity.set(self._max_size)
+        prom_metrics.runtime_cache_pending_initializations.set(len(self._pending))
 
     def set_mongo_service(self, mongo_service: "MongoDBService") -> None:
         """Set the MongoDB service for subagent resolution.
@@ -168,6 +176,8 @@ class AgentRuntimeCache:
                 )
                 await runtime.cleanup()
                 del self._cache[key]
+                prom_metrics.runtime_cache_evictions_total.labels(reason="config_change").inc()
+                self._update_metrics()
             elif runtime.idle_seconds >= self._ttl:
                 logger.info(
                     "Runtime cache expired due to inactivity (%.0fs idle) for agent %s",
@@ -176,6 +186,8 @@ class AgentRuntimeCache:
                 )
                 await runtime.cleanup()
                 del self._cache[key]
+                prom_metrics.runtime_cache_evictions_total.labels(reason="expired").inc()
+                self._update_metrics()
             else:
                 runtime.touch()
                 logger.debug("Runtime cache hit for agent %s session %s", agent_config.id, session_id)
@@ -189,10 +201,12 @@ class AgentRuntimeCache:
         loop = asyncio.get_event_loop()
         fut: asyncio.Future["AgentRuntime"] = loop.create_future()
         self._pending[key] = fut
+        self._update_metrics()
 
         try:
             runtime = await self._create_runtime(key, agent_config, mcp_servers, session_id, user, client_context)
             self._cache[key] = runtime
+            self._update_metrics()
             fut.set_result(runtime)
             logger.info(
                 "Created new cached runtime for agent %s session %s (cache %d/%d)",
@@ -207,6 +221,7 @@ class AgentRuntimeCache:
             raise
         finally:
             self._pending.pop(key, None)
+            self._update_metrics()
 
     @asynccontextmanager
     async def ephemeral(
@@ -343,9 +358,12 @@ class AgentRuntimeCache:
                 candidate_key = key
 
         if candidate_key is None:
+            prom_metrics.runtime_cache_capacity_rejections_total.inc()
             raise RuntimeCapacityError(self._max_size)
 
         runtime = self._cache.pop(candidate_key)
+        prom_metrics.runtime_cache_evictions_total.labels(reason="capacity").inc()
+        self._update_metrics()
         await runtime.cleanup()
         logger.info(
             "LRU evicted runtime %s (idle %.0fs) to make room (cache %d/%d)",
@@ -366,6 +384,8 @@ class AgentRuntimeCache:
             if runtime:
                 await runtime.cleanup()
         if expired_keys:
+            prom_metrics.runtime_cache_evictions_total.labels(reason="expired").inc(len(expired_keys))
+            self._update_metrics()
             gc.collect()
 
     async def clear(self) -> None:
@@ -373,6 +393,7 @@ class AgentRuntimeCache:
         for runtime in self._cache.values():
             await runtime.cleanup()
         self._cache.clear()
+        self._update_metrics()
         gc.collect()
 
     async def invalidate(self, agent_id: str, session_id: str) -> bool:
@@ -385,6 +406,7 @@ class AgentRuntimeCache:
         runtime = self._cache.pop(key, None)
         if runtime:
             await runtime.cleanup()
+            self._update_metrics()
             logger.info(f"Runtime cache invalidated for agent={agent_id}")
             return True
         return False
