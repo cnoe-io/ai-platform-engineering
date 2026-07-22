@@ -1,3 +1,13 @@
+## 0.5.58 (2026-07-22)
+
+### Fix
+
+- **ci**: build remaining 11 CI image workflows natively per-arch (#2274)
+- **workflow**: do global check correctly
+- **ci**: build rag images natively per-arch instead of QEMU-emulated arm64 (#2272)
+
+## 0.5.57 (2026-07-22)
+
 ## 0.5.56-dev.4 (2026-07-22)
 
 ### Fix
