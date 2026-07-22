@@ -413,6 +413,13 @@ existingSecret: ""
 # Leave `secretName` empty in standalone caipe-ui dev installs (where
 # the BFF talks to an external Keycloak via its own credentials in
 # `existingSecret` or `OIDC_CLIENT_SECRET`).
+#
+# Mirror `keycloak.idp` from the umbrella chart when Keycloak brokers an
+# upstream IdP — enables auto-wiring of OIDC_IDP_HINT in the ConfigMap.
+keycloakIdp:
+  enabled: false
+  alias: "duo-sso"
+
 keycloakAdminClient:
   # Name of the K8s Secret holding the Keycloak Admin REST client_secret.
   # Defaults to "" in the standalone subchart; the umbrella sets this to
