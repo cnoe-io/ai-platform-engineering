@@ -252,12 +252,12 @@ export function ReportProblemDialog({
       if (result) {
         setTicketResult(result);
         setStatus("success");
-        toast({
-          title: "Feedback submitted",
-          description: result.url
-            ? `Tracked as ${result.id} on GitHub.`
-            : `Tracked as ${result.id}.`,
-        });
+        toast(
+          result.url
+            ? `Feedback submitted: tracked as ${result.id} on GitHub.`
+            : `Feedback submitted: tracked as ${result.id}.`,
+          "success"
+        );
       } else {
         setErrorMessage("No ticket ID was returned. The agent may not have created the ticket successfully.");
         setStatus("error");
