@@ -1,3 +1,15 @@
+## 0.5.60 (2026-07-23)
+
+### Fix
+
+- **rbac**: sync OIDC group membership tuples without pre-configured rules (#2282)
+
+## 0.5.59-dev.1 (2026-07-23)
+
+### Feat
+
+- **ui**: remote MCP catalog with OAuth credential connectors (#2263)
+
 ## 0.5.59 (2026-07-23)
 
 ### Fix
