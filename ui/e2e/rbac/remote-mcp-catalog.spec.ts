@@ -52,10 +52,12 @@ test.describe("remote MCP catalog dialog", () => {
     await page.getByRole("button", { name: "Add Server" }).first().click();
     await expect(page.getByText("Add MCP Server")).toBeVisible({ timeout: 10_000 });
 
-    // Verify known providers appear as tiles
-    await expect(page.getByText("Amplitude")).toBeVisible();
-    await expect(page.getByText("Linear")).toBeVisible();
-    await expect(page.getByText("ThousandEyes")).toBeVisible();
+    // Verify known providers appear as tiles. Exact match avoids a strict-mode
+    // clash with tile subtitles/descriptions that substring-match the name
+    // (e.g. "mcp.amplitude.com", or "...teams in Linear").
+    await expect(page.getByText("Amplitude", { exact: true })).toBeVisible();
+    await expect(page.getByText("Linear", { exact: true })).toBeVisible();
+    await expect(page.getByText("ThousandEyes", { exact: true })).toBeVisible();
   });
 
   test("catalog dialog does not offer Zapier", async ({ page }) => {
@@ -91,8 +93,9 @@ test.describe("remote MCP catalog dialog", () => {
     await page.getByRole("button", { name: "Add Server" }).first().click();
     await expect(page.getByText("Add MCP Server")).toBeVisible({ timeout: 10_000 });
 
-    // Click the Linear provider tile
-    await page.getByText("Linear").click();
+    // Click the Linear provider tile (exact match — the tile's own
+    // description text substring-matches "Linear" too).
+    await page.getByText("Linear", { exact: true }).click();
 
     // Catalog dialog closes; form should be pre-filled with Linear endpoint
     await waitForAddMcpServerFormReady(page);
@@ -142,15 +145,17 @@ test.describe("MCP server credential probe (Test Connection)", () => {
     await gotoMcpServersTab(page);
     await openAddMcpServerEditor(page);
 
-    // Fill endpoint so Test Connection button becomes active
+    // Fill endpoint and add a credential row — Test Connection only renders
+    // once credentialSources.length > 0.
     await page.getByLabel(/Endpoint URL/i).fill("https://api.example.test/mcp");
+    await page.getByRole("button", { name: "Add Credential" }).click();
 
     await page.getByRole("button", { name: /Test Connection/i }).click();
 
-    // Wait for the probe to complete and a status indicator to appear
-    await expect(
-      page.getByText(/Connected|Reachable|Failed|Could not connect/i),
-    ).toBeVisible({ timeout: 10_000 });
+    // Wait for the probe to complete and the status indicator to appear.
+    // Exact text — a loose /Connected|.../ regex also matches unrelated page
+    // text like the "Connected app" credential-kind option.
+    await expect(page.getByText("Connected (HTTP 200)")).toBeVisible({ timeout: 10_000 });
 
     expect(credProbeRequests).toHaveLength(1);
     expect(credProbeRequests[0]?.url).toMatch(/api\.example\.test\/mcp/);
@@ -178,10 +183,15 @@ test.describe("MCP server credential probe (Test Connection)", () => {
     await gotoMcpServersTab(page);
     await openAddMcpServerEditor(page);
     await page.getByLabel(/Endpoint URL/i).fill("https://api.example.test/mcp");
+    await page.getByRole("button", { name: "Add Credential" }).click();
     await page.getByRole("button", { name: /Test Connection/i }).click();
 
-    // "Reachable but credentials not resolved" copy appears
-    await expect(page.getByText(/credential/i)).toBeVisible({ timeout: 10_000 });
+    // "Reachable but credentials not resolved" copy appears. Exact text — a
+    // loose /credential/i regex also matches the "Add Credential" button and
+    // "Credentials" section heading.
+    await expect(
+      page.getByText("Reachable (HTTP 200) — credentials not resolved"),
+    ).toBeVisible({ timeout: 10_000 });
   });
 });
 
