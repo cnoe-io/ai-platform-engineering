@@ -122,7 +122,7 @@ export function UserDetailPanel({
     setError(null);
     setActiveTab("overview");
     fetch(withAdminSimulationParams(
-      `/api/admin/users/${encodeURIComponent(email)}`,
+      `/api/admin/users/activity/${encodeURIComponent(email)}`,
       simulationTarget,
     ))
       .then((res) => res.json())

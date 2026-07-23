@@ -10,6 +10,7 @@ import {
 resolveAuthorizedAdminSimulationScope,
 simulationSubjectCanManageAdminSurface,
 } from '@/lib/rbac/admin-simulation-server';
+import { resolveInsightsUserFilter } from '@/lib/rbac/insights-user-filter';
 import { requireAdminSurfaceManage } from '@/lib/rbac/require-openfga';
 import { getAgentsByIds, getAllAgents, getOwnedAgentConversationIds, getOwnedAgents, getReadableSlackChannelNames, type OwnedAgent } from '@/lib/rbac/user-insights-scope';
 import {
@@ -17,10 +18,12 @@ createJsonResponseCacheStore,
 envTtlMs,
 withJsonResponseCache,
 } from '@/lib/server-response-cache';
-import type { Document } from 'mongodb';
+import { ADMIN_STATS_SECTIONS,type AdminStatsOwnerType,type AdminStatsSection } from '@/types/admin-stats';
+import type { Collection,Document } from 'mongodb';
 import { NextRequest,NextResponse } from 'next/server';
 
 const adminStatsCache = createJsonResponseCacheStore();
+let botOwnerIdsCache: { expiresAt: number; promise: Promise<string[]> } | null = null;
 
 interface SlackStats {
   channels: {
@@ -38,20 +41,11 @@ interface SlackStats {
     date: string;
     escalated: number;
     interactions: number;
-    resolved: number;
     unique_users: number;
   }>;
-  resolution: {
-    estimated_hours_saved: number;
-    resolution_rate: number;
-    resolved_threads: number;
-    total_threads: number;
-  };
   top_channels: Array<{
     channel_name: string;
     interactions: number;
-    resolution_rate: number;
-    resolved: number;
   }>;
   total_interactions: number;
   unique_users: number;
@@ -67,8 +61,16 @@ interface ChannelStatsDocument extends Document {
 
 type BucketUnit = 'minute' | 'hour' | 'day';
 
+function parseStatsSection(searchParams: URLSearchParams): AdminStatsSection | 'all' | null {
+  const section = searchParams.get('section');
+  if (!section) return 'all';
+  return (ADMIN_STATS_SECTIONS as readonly string[]).includes(section)
+    ? section as AdminStatsSection
+    : null;
+}
+
 /** Identity classification for a Top Users leaderboard owner (see classifyOwner). */
-type OwnerType = 'service_account' | 'slack_bot' | 'linked' | 'unlinked_slack';
+type OwnerType = AdminStatsOwnerType;
 
 const MINUTE_MS = 60 * 1000;
 const HOUR_MS = 60 * MINUTE_MS;
@@ -120,17 +122,24 @@ function generateBucketKeys(now: Date, count: number, unit: BucketUnit): string[
 }
 
 /**
- * Parse range params into { rangeStart, days, bucketUnit, bucketCount }. Supports preset
- * strings and explicit from/to ISO dates. Short ranges bucket at finer granularity (minute
- * for ≤2h, hour for ≤1d) rather than clamping to day-granularity, so 1h/12h/24h charts show
- * more than one data point.
+ * Parse range params into bounded endpoints plus chart bucket metadata. Supports
+ * preset strings and explicit from/to ISO dates. Short ranges bucket at finer
+ * granularity (minute for ≤2h, hour for ≤1d) rather than clamping to
+ * day-granularity, so 1h/12h/24h charts show more than one data point.
  */
-function parseRange(searchParams: URLSearchParams): { rangeStart: Date; days: number; bucketUnit: BucketUnit; bucketCount: number } {
+function parseRange(searchParams: URLSearchParams): {
+  rangeStart: Date;
+  rangeEnd: Date;
+  days: number;
+  bucketUnit: BucketUnit;
+  bucketCount: number;
+} {
   const now = new Date();
   const fromParam = searchParams.get('from');
   const toParam = searchParams.get('to');
 
   let rangeStart: Date;
+  let rangeEnd = now;
   let ms: number;
 
   if (fromParam) {
@@ -138,6 +147,7 @@ function parseRange(searchParams: URLSearchParams): { rangeStart: Date; days: nu
     const to = toParam ? new Date(toParam) : now;
     ms = to.getTime() - from.getTime();
     rangeStart = from;
+    rangeEnd = to;
   } else {
     const range = searchParams.get('range');
     switch (range) {
@@ -159,7 +169,7 @@ function parseRange(searchParams: URLSearchParams): { rangeStart: Date; days: nu
     bucketUnit === 'minute' ? Math.max(1, Math.round(ms / (MINUTE_BUCKET_STEP_MIN * MINUTE_MS))) :
     bucketUnit === 'hour' ? Math.max(1, Math.round(ms / HOUR_MS)) :
     days;
-  return { rangeStart, days, bucketUnit, bucketCount };
+  return { rangeStart, rangeEnd, days, bucketUnit, bucketCount };
 }
 
 // ── Human vs. bot identity ──────────────────────────────────────────────────
@@ -169,6 +179,33 @@ function parseRange(searchParams: URLSearchParams): { rangeStart: Date; days: nu
 // ("B0…"), the literal "unknown", the Slackbot sentinel, or platform service
 // accounts. We exclude those so the leaderboard is people-only.
 const BOT_OWNER_EXACT = ['unknown', 'USLACKBOT'];
+
+async function getBotOwnerIds(conversations: Collection<Document>): Promise<string[]> {
+  // Every independently loaded people/latency section needs the same global
+  // bot-owner lookup. Coalesce those concurrent requests and keep the result for
+  // the same short window as the stats response cache.
+  if (process.env.NODE_ENV !== 'test' && botOwnerIdsCache && botOwnerIdsCache.expiresAt > Date.now()) {
+    return botOwnerIdsCache.promise;
+  }
+
+  const promise = conversations.distinct('owner_id', {
+    'metadata.owner_is_bot': true,
+  }).then((ids) => ids.filter((id): id is string => typeof id === 'string' && id.length > 0));
+
+  if (process.env.NODE_ENV !== 'test') {
+    const cacheEntry = {
+      expiresAt: Date.now() + envTtlMs('ADMIN_STATS_CACHE_TTL_MS', 15_000),
+      promise,
+    };
+    botOwnerIdsCache = cacheEntry;
+    promise.catch(() => {
+      if (botOwnerIdsCache === cacheEntry) botOwnerIdsCache = null;
+    });
+  }
+
+  return promise;
+}
+
 /** Mongo match fragment (spread into a $match) that keeps only human owners. */
 const HUMAN_OWNER_MATCH: Record<string, unknown> = {
   $and: [
@@ -179,15 +216,6 @@ const HUMAN_OWNER_MATCH: Record<string, unknown> = {
     { _id: { $not: /^service-account-/ } },
   ],
 };
-
-/**
- * A Slack thread is a "user question" (a candidate for self-resolution and
- * hours-saved credit) only when a human initiated it. Automated posts
- * (`bot`, `alert`) and threads with no interaction type are excluded — they
- * are broadcasts, not questions the assistant resolved. This mirrors the
- * distribution seen in the data: mention/qanda/dm are human-initiated.
- */
-const USER_QUESTION_INTERACTION_TYPES = ['mention', 'qanda', 'dm', 'user'];
 
 /** Turn an internal agent id/name into a display label ("agent-gitlab-agent" → "Gitlab Agent"). */
 function humanizeAgentName(raw: string): string {
@@ -213,10 +241,17 @@ function andInto(target: Record<string, unknown>, clause: Record<string, unknown
 }
 
 // GET /api/admin/stats
+//
+// `section=<name>` returns one independently cacheable metric group so clients
+// can paint cards as their queries finish. Omitting `section` preserves the
+// original complete response for existing callers.
 export const GET = withErrorHandler(async (request: NextRequest) => {
   return withJsonResponseCache(request, adminStatsCache, () => getAdminStats(request), {
     ttlMs: envTtlMs('ADMIN_STATS_CACHE_TTL_MS', 15_000),
-    maxEntries: 512,
+    // A filtered dashboard now occupies one small entry per section instead of
+    // one large entry. Keep roughly the same number of complete dashboard views
+    // resident without forcing hot sections to evict each other immediately.
+    maxEntries: 2_048,
   });
 });
 
@@ -234,6 +269,20 @@ async function getAdminStats(request: NextRequest) {
 
   const { session } = await getAuthFromBearerOrSession(request);
   const { searchParams } = request.nextUrl;
+  const requestedSection = parseStatsSection(searchParams);
+  if (!requestedSection) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: `Invalid stats section. Expected one of: ${ADMIN_STATS_SECTIONS.join(', ')}`,
+        code: 'INVALID_STATS_SECTION',
+      },
+      { status: 400 },
+    );
+  }
+  const includesSection = (section: AdminStatsSection): boolean => (
+    requestedSection === 'all' || requestedSection === section
+  );
   const simulationScope = await resolveAuthorizedAdminSimulationScope(searchParams, session);
   const isFullAdmin = simulationScope
     ? await simulationSubjectCanManageAdminSurface(simulationScope, 'stats')
@@ -269,12 +318,17 @@ async function getAdminStats(request: NextRequest) {
     nonAdminScope = { channelNames, ownerEmail: email, ownedAgents, sub };
   }
 
-    const { rangeStart, days, bucketUnit, bucketCount } = parseRange(searchParams);
+    const { rangeStart, rangeEnd, days, bucketUnit, bucketCount } = parseRange(searchParams);
+    const rangeDateMatch = { $gte: rangeStart, $lte: rangeEnd };
 
     // Optional filters
     const sourceFilter = searchParams.get('source'); // 'web' | 'slack' | null (all)
     const userFilter = searchParams.get('user'); // comma-separated emails | null (all)
-    const userEmails = userFilter ? userFilter.split(',').map((u) => u.trim()).filter(Boolean) : [];
+    const teamFilter = searchParams.get('team'); // comma-separated team slugs | null (all)
+    const { active: hasUserFilter, emails: userEmails } = await resolveInsightsUserFilter(
+      userFilter,
+      teamFilter,
+    );
     const channelFilter = searchParams.get('channel'); // comma-separated channel names (slack only)
     const channelNames = channelFilter ? channelFilter.split(',').map((c) => c.trim()).filter(Boolean) : [];
     const agentFilter = searchParams.get('agent'); // comma-separated agent ids (dynamic agents)
@@ -291,13 +345,20 @@ async function getAdminStats(request: NextRequest) {
     let topUserOwnerMatch: Record<string, unknown>[] = [];
 
     // Build reusable filter fragments for conversations and messages.
+    // Message analytics measure platform output, so human and system rows stay
+    // available for chat history/audit without inflating Insights metrics.
     // Support both legacy (source/slack_meta) and new (client_type/metadata) schemas.
     const SLACK_CONV_MATCH = { $or: [{ source: 'slack' }, { client_type: 'slack' }] };
+    const AI_MESSAGE_MATCH: Document = { role: 'assistant' };
 
     // A non-admin view is always "filtered" — DAU/MAU and daily-user activity
     // must derive from the scoped conversations, never from the platform-wide
     // users collection (which would leak global active-user counts).
-    const hasFilters = !!sourceFilter || userEmails.length > 0 || !!nonAdminScope;
+    const hasFilters = !!sourceFilter
+      || hasUserFilter
+      || channelNames.length > 0
+      || agentIds.length > 0
+      || !!nonAdminScope;
     const convSourceFilter: Document = {};
     const msgOwnerFilter: Document = {};
     if (sourceFilter === 'web') {
@@ -316,36 +377,34 @@ async function getAdminStats(request: NextRequest) {
         ]};
         delete convSourceFilter.$or;
         convSourceFilter.$and = [SLACK_CONV_MATCH, channelMatch];
+        // Current Slack messages carry channel_name directly. Applying the
+        // same selection here keeps message totals, latency, leaderboards, and
+        // the hourly heatmap aligned with conversation-based cards.
+        msgOwnerFilter['metadata.channel_name'] = names;
       }
     }
-    if (userEmails.length === 1) {
-      convSourceFilter.owner_id = userEmails[0];
-      msgOwnerFilter.owner_id = userEmails[0];
-    } else if (userEmails.length > 1) {
-      convSourceFilter.owner_id = { $in: userEmails };
-      msgOwnerFilter.owner_id = { $in: userEmails };
+    if (hasUserFilter) {
+      const owners = userEmails.length === 1 ? userEmails[0] : { $in: userEmails };
+      convSourceFilter.owner_id = owners;
+      msgOwnerFilter.owner_id = owners;
     }
 
     // Non-admin scope, reused by every query below so the whole payload stays
     // within the caller's visibility:
     //   - `convSourceFilter` / `msgOwnerFilter` get an $or of the caller's
-    //     readable Slack channels, their own web conversations, AND their owned
-    //     agents (keyed per-collection: conv → thread_owner_agent_id (id),
-    //     msg → agent_name (display name)).
+    //     readable Slack channels, their own conversations, AND their owned
+    //     agents (using each collection's canonical fields).
     //   - `nonAdminChannelNames` bounds Slack-channel-keyed queries (feedback,
-    //     the Slack block, available_channels). Slack docs in the `messages`
-    //     collection carry no channel_name, so Slack message counts can only
-    //     be bounded by owner_id / agent via the shared scope filter.
+    //     the Slack block, available_channels).
     const nonAdminChannelNames = nonAdminScope?.channelNames ?? [];
     const nonAdminOwnedAgents = nonAdminScope?.ownedAgents ?? [];
     if (nonAdminScope) {
       const { channelNames: scopeChannelNames, ownerEmail, ownedAgents } = nonAdminScope;
-      // Base clauses apply to both collections: readable Slack channels (only
-      // ever match conversation-shaped docs) + the caller's own web content.
-      const baseScopeClauses: Record<string, unknown>[] = [];
+      const convScopeClauses: Record<string, unknown>[] = [];
+      const msgScopeClauses: Record<string, unknown>[] = [];
       if (scopeChannelNames.length > 0) {
         const names = scopeChannelNames.length === 1 ? scopeChannelNames[0] : { $in: scopeChannelNames };
-        baseScopeClauses.push({
+        convScopeClauses.push({
           $and: [
             { $or: [{ source: 'slack' }, { client_type: 'slack' }] },
             { $or: [
@@ -354,25 +413,41 @@ async function getAdminStats(request: NextRequest) {
             ]},
           ],
         });
+        msgScopeClauses.push({
+          'metadata.source': 'slack',
+          'metadata.channel_name': names,
+        });
       }
-      if (ownerEmail) baseScopeClauses.push({ owner_id: ownerEmail });
+      if (ownerEmail) {
+        convScopeClauses.push({ owner_id: ownerEmail });
+        msgScopeClauses.push({ owner_id: ownerEmail });
+      }
 
-      // Owned-agent axis is keyed differently per collection: conversations
-      // record the agent id (Slack), messages record the display name (web).
+      // Owned-agent scope supports both Slack's metadata and the participant /
+      // top-level fields used by web and scheduled conversations.
       const ownedAgentIds = ownedAgents.map((a) => a.id);
       const ownedAgentNames = ownedAgents.map((a) => a.name);
-      const convScopeClauses = [...baseScopeClauses];
-      const msgScopeClauses = [...baseScopeClauses];
       if (ownedAgentIds.length > 0) {
-        convScopeClauses.push({ 'metadata.thread_owner_agent_id': { $in: ownedAgentIds } });
-        msgScopeClauses.push({ 'metadata.agent_name': { $in: ownedAgentNames } });
+        convScopeClauses.push({
+          $or: [
+            { 'metadata.thread_owner_agent_id': { $in: ownedAgentIds } },
+            { participants: { $elemMatch: { type: 'agent', id: { $in: ownedAgentIds } } } },
+            { agent_id: { $in: ownedAgentIds } },
+          ],
+        });
+        msgScopeClauses.push({
+          $or: [
+            { 'metadata.agent_name': { $in: ownedAgentNames } },
+            { 'metadata.agent_id': { $in: ownedAgentIds } },
+          ],
+        });
       }
 
       if (convScopeClauses.length === 0 && msgScopeClauses.length === 0) {
         return successResponse({
           range: searchParams.get('range') || '30d',
           days,
-          platform_summary: { satisfaction_rate: 0, estimated_hours_automated: 0 },
+          platform_summary: { satisfaction_rate: 0 },
           overview: {
             total_users: 0,
             total_conversations: 0,
@@ -434,8 +509,22 @@ async function getAdminStats(request: NextRequest) {
       const selNames = selectedAgents.map((a) => a.name);
       // A requested-but-unresolvable agent set must match nothing, not fall
       // through to the unfiltered payload.
-      andInto(convSourceFilter, { 'metadata.thread_owner_agent_id': { $in: selIds } });
-      andInto(msgOwnerFilter, { 'metadata.agent_name': { $in: selNames } });
+      andInto(convSourceFilter, {
+        $or: [
+          // Slack routes are persisted on the conversation metadata.
+          { 'metadata.thread_owner_agent_id': { $in: selIds } },
+          // Web conversations persist the selected agent as a participant.
+          { participants: { $elemMatch: { type: 'agent', id: { $in: selIds } } } },
+          // Scheduled/API-created conversations may also carry a top-level id.
+          { agent_id: { $in: selIds } },
+        ],
+      });
+      andInto(msgOwnerFilter, {
+        $or: [
+          { 'metadata.agent_name': { $in: selNames } },
+          { 'metadata.agent_id': { $in: selIds } },
+        ],
+      });
     }
 
     const users = await getCollection('users');
@@ -456,10 +545,14 @@ async function getAdminStats(request: NextRequest) {
     // Top Users section.
     const sectionConvMatch: Document = { ...convSourceFilter };
     const sectionMsgMatch: Document = { ...msgOwnerFilter };
-    if (!includeBots) {
-      const botOwnerIds = (await conversations.distinct('owner_id', {
-        'metadata.owner_is_bot': true,
-      })).filter((id): id is string => typeof id === 'string' && id.length > 0);
+    const needsHumanOwnerFilter = (
+      includesSection('top_users')
+      || includesSection('top_agents')
+      || includesSection('response_time')
+      || includesSection('hourly_heatmap')
+    );
+    if (!includeBots && needsHumanOwnerFilter) {
+      const botOwnerIds = await getBotOwnerIds(conversations);
       // Post-group $match for the leaderboards, which group on owner_id → _id.
       const humanOwnerMatch = botOwnerIds.length > 0
         ? { $and: [HUMAN_OWNER_MATCH, { _id: { $nin: botOwnerIds } }] }
@@ -492,155 +585,194 @@ async function getAdminStats(request: NextRequest) {
     //   - non-admin      → only the caller's own runs (owner_subject.id = sub).
     //   - admin + user=  → resolve the requested emails to Keycloak subs.
     //   - admin, no user → all runs.
-    let workflowRunFilter: Document | null = {};
-    if (sourceFilter === 'slack') {
-      workflowRunFilter = null; // web-only concept; skip the queries entirely
-    } else if (nonAdminScope) {
-      workflowRunFilter = nonAdminScope.sub
-        ? { 'owner_subject.type': 'user', 'owner_subject.id': nonAdminScope.sub }
-        : null;
-    } else if (userEmails.length > 0) {
-      const owners = await users
-        .find(
-          { email: { $in: userEmails } },
-          { projection: { keycloak_sub: 1, 'metadata.keycloak_sub': 1 } },
-        )
-        .toArray();
-      const subs = [
-        ...new Set(
-          owners
-            .map((u) => u.keycloak_sub || u.metadata?.keycloak_sub)
-            .filter((s): s is string => typeof s === 'string' && s.length > 0),
-        ),
-      ];
-      workflowRunFilter = subs.length > 0
-        ? { 'owner_subject.type': 'user', 'owner_subject.id': { $in: subs } }
-        : null; // requested users have no resolvable sub → match nothing
+    let workflowRunFilter: Document | null = null;
+    if (includesSection('completed_workflows')) {
+      workflowRunFilter = {};
+      if (sourceFilter === 'slack') {
+        workflowRunFilter = null; // web-only concept; skip the queries entirely
+      } else if (nonAdminScope) {
+        const includesCaller = !hasUserFilter || userEmails.some(
+          (email) => email.toLowerCase() === nonAdminScope.ownerEmail.toLowerCase(),
+        );
+        workflowRunFilter = includesCaller && nonAdminScope.sub
+          ? { 'owner_subject.type': 'user', 'owner_subject.id': nonAdminScope.sub }
+          : null;
+      } else if (hasUserFilter) {
+        const owners = userEmails.length > 0
+          ? await users
+              .find(
+                { email: { $in: userEmails } },
+                { projection: { keycloak_sub: 1, 'metadata.keycloak_sub': 1 } },
+              )
+              .toArray()
+          : [];
+        const subs = [
+          ...new Set(
+            owners
+              .map((u) => u.keycloak_sub || u.metadata?.keycloak_sub)
+              .filter((s): s is string => typeof s === 'string' && s.length > 0),
+          ),
+        ];
+        workflowRunFilter = subs.length > 0
+          ? { 'owner_subject.type': 'user', 'owner_subject.id': { $in: subs } }
+          : null; // requested users have no resolvable sub → match nothing
+      }
+      if (workflowRunFilter && agentIds.length > 0) {
+        // A workflow is attributable to every agent used by one of its steps.
+        // Keep an explicitly requested but unresolved set fail-closed via $in: [].
+        andInto(workflowRunFilter, {
+          'steps.agent_id': { $in: selectedAgents.map((agent) => agent.id) },
+        });
+      }
     }
 
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const thisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    // "Today" and active-user cards retain their calendar semantics, but a
+    // shorter selected window must still narrow them. For example, the 1h
+    // preset must not quietly show all activity since midnight.
+    const todayRangeStart = new Date(Math.max(today.getTime(), rangeStart.getTime()));
+    const monthRangeStart = new Date(Math.max(thisMonth.getTime(), rangeStart.getTime()));
 
     // ═══════════════════════════════════════════════════════════════
     // OVERVIEW STATS (parallel queries for speed)
     // ═══════════════════════════════════════════════════════════════
-    const [
-      totalUsers,
-      totalConversations,
-      totalMessages,
-      dau,
-      mau,
-      conversationsToday,
-      messagesToday,
-      sharedConversations,
-    ] = await Promise.all([
-      // Non-admins must not see platform-wide headcount — derive their
-      // total_users from distinct owners of the conversations they can see.
-      nonAdminScope
-        ? conversations.aggregate([
-            { $match: { ...convSourceFilter } },
-            { $group: { _id: '$owner_id' } },
-            { $count: 'total' },
-          ]).toArray().then((r) => r[0]?.total || 0)
-        : users.countDocuments({}),
-      // Scoped to the selected date range (rangeStart), matching daily_activity
-      // and every other range-aware metric below — previously these were
-      // always lifetime totals regardless of the selected range.
-      conversations.countDocuments({ created_at: { $gte: rangeStart }, ...convSourceFilter }),
-      // msgOwnerFilter already carries 'metadata.source' when the caller
-      // explicitly filtered by source=web|slack; unfiltered, this counts
-      // every message regardless of metadata.source (including messages
-      // missing that field or tagged with other values, e.g. 'scheduler'),
-      // matching how totalConversations counts every conversation.
-      messages.countDocuments({ created_at: { $gte: rangeStart }, ...msgOwnerFilter }),
-      // DAU/MAU: derive from conversations when filters are applied, otherwise from users
-      hasFilters
-        ? conversations.aggregate([
-            { $match: { updated_at: { $gte: today }, ...convSourceFilter } },
-            { $group: { _id: '$owner_id' } },
-            { $count: 'total' },
-          ]).toArray().then((r) => r[0]?.total || 0)
-        : users.countDocuments({ last_login: { $gte: today } }),
-      hasFilters
-        ? conversations.aggregate([
-            { $match: { updated_at: { $gte: thisMonth }, ...convSourceFilter } },
-            { $group: { _id: '$owner_id' } },
-            { $count: 'total' },
-          ]).toArray().then((r) => r[0]?.total || 0)
-        : users.countDocuments({ last_login: { $gte: thisMonth } }),
-      conversations.countDocuments({ created_at: { $gte: today }, ...convSourceFilter }),
-      messages.countDocuments({ created_at: { $gte: today }, ...msgOwnerFilter }),
-      // `andInto` rather than spreading a literal `$or` — the non-admin scope
-      // can itself be an `$or`, which a spread would clobber (leaking shared
-      // conversation counts outside the caller's scope).
-      conversations.countDocuments(
-        (() => {
-          const sharedFilter: Record<string, unknown> = { ...convSourceFilter };
-          andInto(sharedFilter, {
-            $or: [
-              { 'sharing.shared_with.0': { $exists: true } },
-              { 'sharing.shared_with_teams.0': { $exists: true } },
-              { 'sharing.share_link_enabled': true },
-            ],
-          });
-          return sharedFilter;
-        })()
-      ),
-    ]);
+    let totalUsers = 0;
+    let totalConversations = 0;
+    let totalMessages = 0;
+    let dau = 0;
+    let mau = 0;
+    let conversationsToday = 0;
+    let messagesToday = 0;
+    let sharedConversations = 0;
+
+    if (includesSection('overview')) {
+      [
+        totalUsers,
+        totalConversations,
+        totalMessages,
+        dau,
+        mau,
+        conversationsToday,
+        messagesToday,
+        sharedConversations,
+      ] = await Promise.all([
+        // Total users is range-aware like the conversation and message totals.
+        // Any dimension filter must derive it from matching conversations;
+        // otherwise agent/source/channel selections would leave this card at
+        // the platform-wide users count. Unfiltered admins retain the existing
+        // last-login activity source.
+        nonAdminScope || hasFilters
+          ? conversations.aggregate([
+              { $match: { updated_at: rangeDateMatch, ...convSourceFilter } },
+              { $group: { _id: '$owner_id' } },
+              { $count: 'total' },
+            ]).toArray().then((r) => r[0]?.total || 0)
+          : users.countDocuments({ last_login: rangeDateMatch }),
+        // Scoped to the selected date range (rangeStart), matching daily_activity
+        // and every other range-aware metric below — previously these were
+        // always lifetime totals regardless of the selected range.
+        conversations.countDocuments({ created_at: rangeDateMatch, ...convSourceFilter }),
+        // Count only assistant rows (messages sent by the AI platform).
+        // msgOwnerFilter also carries metadata.source when explicitly filtered;
+        // without a source filter, assistant rows from every source are counted.
+        messages.countDocuments({ created_at: rangeDateMatch, ...AI_MESSAGE_MATCH, ...msgOwnerFilter }),
+        // DAU/MAU: derive from conversations when filters are applied, otherwise from users
+        hasFilters
+          ? conversations.aggregate([
+              { $match: { updated_at: { $gte: todayRangeStart, $lte: rangeEnd }, ...convSourceFilter } },
+              { $group: { _id: '$owner_id' } },
+              { $count: 'total' },
+            ]).toArray().then((r) => r[0]?.total || 0)
+          : users.countDocuments({ last_login: { $gte: todayRangeStart, $lte: rangeEnd } }),
+        hasFilters
+          ? conversations.aggregate([
+              { $match: { updated_at: { $gte: monthRangeStart, $lte: rangeEnd }, ...convSourceFilter } },
+              { $group: { _id: '$owner_id' } },
+              { $count: 'total' },
+            ]).toArray().then((r) => r[0]?.total || 0)
+          : users.countDocuments({ last_login: { $gte: monthRangeStart, $lte: rangeEnd } }),
+        conversations.countDocuments({ created_at: { $gte: todayRangeStart, $lte: rangeEnd }, ...convSourceFilter }),
+        messages.countDocuments({ created_at: { $gte: todayRangeStart, $lte: rangeEnd }, ...AI_MESSAGE_MATCH, ...msgOwnerFilter }),
+        // `andInto` rather than spreading a literal `$or` — the non-admin scope
+        // can itself be an `$or`, which a spread would clobber (leaking shared
+        // conversation counts outside the caller's scope).
+        conversations.countDocuments(
+          (() => {
+            const sharedFilter: Record<string, unknown> = {
+              created_at: rangeDateMatch,
+              ...convSourceFilter,
+            };
+            andInto(sharedFilter, {
+              $or: [
+                { 'sharing.shared_with.0': { $exists: true } },
+                { 'sharing.shared_with_teams.0': { $exists: true } },
+                { 'sharing.share_link_enabled': true },
+              ],
+            });
+            return sharedFilter;
+          })()
+        ),
+      ]);
+    }
 
     // ═══════════════════════════════════════════════════════════════
     // PARALLEL BATCH — all independent aggregations in one shot
     // ═══════════════════════════════════════════════════════════════
-    const feedbackColl = await getCollection('feedback'); // collection ref is instant; fetch inside the batch below
+    const includeFeedbackSection = includesSection('feedback');
+    const feedbackColl = includeFeedbackSection ? await getCollection('feedback') : null;
+    const fbFilter: Document = { created_at: rangeDateMatch };
 
-    const fbFilter: Document = { created_at: { $gte: rangeStart } };
-    if (sourceFilter === 'web') fbFilter.source = 'web';
-    else if (sourceFilter === 'slack') {
-      fbFilter.source = 'slack';
-      if (channelNames.length === 1) {
-        fbFilter.channel_name = channelNames[0];
-      } else if (channelNames.length > 1) {
-        fbFilter.channel_name = { $in: channelNames };
-      }
-    }
-    if (userEmails.length === 1) fbFilter.user_email = userEmails[0];
-    else if (userEmails.length > 1) fbFilter.user_email = { $in: userEmails };
-
-    // Non-admin: feedback is keyed by channel_name (slack) / user_email (web),
-    // so scope it directly rather than via the conversation-shaped scope filter.
-    // Owned agents add a third clause: feedback rows have no agent field, so we
-    // match by the conversation_ids routed to those agents (both surfaces).
-    if (nonAdminScope) {
-      const fbScope: Record<string, unknown>[] = [];
-      if (nonAdminChannelNames.length > 0) {
-        fbScope.push({
-          source: 'slack',
-          channel_name: nonAdminChannelNames.length === 1
-            ? nonAdminChannelNames[0]
-            : { $in: nonAdminChannelNames },
-        });
-      }
-      if (nonAdminScope.ownerEmail) fbScope.push({ user_email: nonAdminScope.ownerEmail });
-      if (nonAdminOwnedAgents.length > 0) {
-        const { ids: ownedConvIds } = await getOwnedAgentConversationIds(nonAdminOwnedAgents);
-        if (ownedConvIds.length > 0) {
-          fbScope.push({ conversation_id: { $in: ownedConvIds } });
+    if (includeFeedbackSection) {
+      if (sourceFilter === 'web') fbFilter.source = 'web';
+      else if (sourceFilter === 'slack') {
+        fbFilter.source = 'slack';
+        if (channelNames.length === 1) {
+          fbFilter.channel_name = channelNames[0];
+        } else if (channelNames.length > 1) {
+          fbFilter.channel_name = { $in: channelNames };
         }
       }
-      // Fail-closed: if the caller resolves to no feedback-bearing scope (e.g.
-      // owns agents that have produced no conversations, and has no channels or
-      // own email), match nothing rather than leaking unscoped feedback.
-      if (fbScope.length === 0) fbScope.push({ _id: null });
-      andInto(fbFilter, fbScope.length === 1 ? fbScope[0] : { $or: fbScope });
-    }
+      if (hasUserFilter) {
+        fbFilter.user_email = userEmails.length === 1 ? userEmails[0] : { $in: userEmails };
+      }
 
-    // Agent-filter the feedback summary the same way: feedback carries no agent
-    // field, so match the conversation_ids routed to the selected agents. An
-    // empty result must match nothing (the filter was explicitly requested).
-    if (selectedAgents.length > 0) {
-      const { ids: selectedConvIds } = await getOwnedAgentConversationIds(selectedAgents);
-      andInto(fbFilter, { conversation_id: selectedConvIds.length > 0 ? { $in: selectedConvIds } : { $in: [null] } });
+      // Non-admin: feedback is keyed by channel_name (slack) / user_email (web),
+      // so scope it directly rather than via the conversation-shaped scope filter.
+      // Owned agents add a third clause: feedback rows have no agent field, so we
+      // match by the conversation_ids routed to those agents (both surfaces).
+      if (nonAdminScope) {
+        const fbScope: Record<string, unknown>[] = [];
+        if (nonAdminChannelNames.length > 0) {
+          fbScope.push({
+            source: 'slack',
+            channel_name: nonAdminChannelNames.length === 1
+              ? nonAdminChannelNames[0]
+              : { $in: nonAdminChannelNames },
+          });
+        }
+        if (nonAdminScope.ownerEmail) fbScope.push({ user_email: nonAdminScope.ownerEmail });
+        if (nonAdminOwnedAgents.length > 0) {
+          const { ids: ownedConvIds } = await getOwnedAgentConversationIds(nonAdminOwnedAgents);
+          if (ownedConvIds.length > 0) {
+            fbScope.push({ conversation_id: { $in: ownedConvIds } });
+          }
+        }
+        // Fail-closed: if the caller resolves to no feedback-bearing scope (e.g.
+        // owns agents that have produced no conversations, and has no channels or
+        // own email), match nothing rather than leaking unscoped feedback.
+        if (fbScope.length === 0) fbScope.push({ _id: null });
+        andInto(fbFilter, fbScope.length === 1 ? fbScope[0] : { $or: fbScope });
+      }
+
+      // Agent-filter the feedback summary the same way: feedback carries no agent
+      // field, so match the conversation_ids routed to the selected agents. An
+      // empty result must match nothing (the filter was explicitly requested).
+      if (agentIds.length > 0) {
+        const { ids: selectedConvIds } = await getOwnedAgentConversationIds(selectedAgents);
+        andInto(fbFilter, { conversation_id: selectedConvIds.length > 0 ? { $in: selectedConvIds } : { $in: [null] } });
+      }
     }
 
     const [
@@ -660,55 +792,63 @@ async function getAdminStats(request: NextRequest) {
       completedToday,
       hourlyActivity,
       availableChannelsResult,
-      webWorkflowEffort,
     ] = await Promise.all([
       // Daily active users
-      hasFilters
-        ? conversations.aggregate([
-            { $match: { updated_at: { $gte: rangeStart }, ...convSourceFilter } },
-            { $group: { _id: { date: { $dateToString: { format: BUCKET_DATE_FORMAT[bucketUnit], date: '$updated_at' } }, user: '$owner_id' } } },
-            { $group: { _id: '$_id.date', active_users: { $sum: 1 } } },
-          ]).toArray()
-        : users.aggregate([
-            { $match: { last_login: { $gte: rangeStart } } },
-            { $group: { _id: { $dateToString: { format: BUCKET_DATE_FORMAT[bucketUnit], date: '$last_login' } }, active_users: { $sum: 1 } } },
-          ]).toArray(),
+      includesSection('activity')
+        ? hasFilters
+          ? conversations.aggregate([
+              { $match: { updated_at: rangeDateMatch, ...convSourceFilter } },
+              { $group: { _id: { date: { $dateToString: { format: BUCKET_DATE_FORMAT[bucketUnit], date: '$updated_at' } }, user: '$owner_id' } } },
+              { $group: { _id: '$_id.date', active_users: { $sum: 1 } } },
+            ]).toArray()
+          : users.aggregate([
+              { $match: { last_login: rangeDateMatch } },
+              { $group: { _id: { $dateToString: { format: BUCKET_DATE_FORMAT[bucketUnit], date: '$last_login' } }, active_users: { $sum: 1 } } },
+            ]).toArray()
+        : Promise.resolve([]),
 
       // Daily conversations
-      conversations.aggregate([
-        { $match: { created_at: { $gte: rangeStart }, ...convSourceFilter } },
-        { $group: { _id: { $dateToString: { format: BUCKET_DATE_FORMAT[bucketUnit], date: '$created_at' } }, conversations: { $sum: 1 } } },
-      ]).toArray(),
+      includesSection('activity')
+        ? conversations.aggregate([
+            { $match: { created_at: rangeDateMatch, ...convSourceFilter } },
+            { $group: { _id: { $dateToString: { format: BUCKET_DATE_FORMAT[bucketUnit], date: '$created_at' } }, conversations: { $sum: 1 } } },
+          ]).toArray()
+        : Promise.resolve([]),
 
-      // Daily messages — msgOwnerFilter already carries metadata.source
-      // when source=web|slack was explicitly requested; unfiltered, this
-      // counts every message regardless of metadata.source.
-      messages.aggregate([
-        { $match: { created_at: { $gte: rangeStart }, ...msgOwnerFilter } },
-        { $group: { _id: { $dateToString: { format: BUCKET_DATE_FORMAT[bucketUnit], date: '$created_at' } }, messages: { $sum: 1 } } },
-      ]).toArray(),
+      // Daily AI messages. Human prompts remain persisted but are excluded by
+      // the assistant-role invariant in AI_MESSAGE_MATCH.
+      includesSection('activity')
+        ? messages.aggregate([
+            { $match: { created_at: rangeDateMatch, ...AI_MESSAGE_MATCH, ...msgOwnerFilter } },
+            { $group: { _id: { $dateToString: { format: BUCKET_DATE_FORMAT[bucketUnit], date: '$created_at' } }, messages: { $sum: 1 } } },
+          ]).toArray()
+        : Promise.resolve([]),
 
       // Top users by conversations. Bots/service accounts are dropped via
       // HUMAN_OWNER_MATCH unless the caller passed include_bots=true.
-      conversations.aggregate([
-        { $match: { created_at: { $gte: rangeStart }, ...convSourceFilter } },
-        { $group: { _id: '$owner_id', count: { $sum: 1 } } },
-        ...topUserOwnerMatch,
-        { $sort: { count: -1 } },
-        { $limit: 10 },
-      ]).toArray(),
+      includesSection('top_users')
+        ? conversations.aggregate([
+            { $match: { created_at: rangeDateMatch, ...convSourceFilter } },
+            { $group: { _id: '$owner_id', count: { $sum: 1 } } },
+            ...topUserOwnerMatch,
+            { $sort: { count: -1 } },
+            { $limit: 10 },
+          ]).toArray()
+        : Promise.resolve([]),
 
-      // Top users by messages ($lookup for legacy owner_id). Same bot handling.
-      messages.aggregate([
-        { $match: { created_at: { $gte: rangeStart }, ...msgOwnerFilter } },
-        { $lookup: { from: 'conversations', localField: 'conversation_id', foreignField: '_id', as: '_conv' } },
-        { $addFields: { _owner: { $ifNull: ['$owner_id', { $arrayElemAt: ['$_conv.owner_id', 0] }] } } },
-        { $match: { _owner: { $ne: null } } },
-        { $group: { _id: '$_owner', count: { $sum: 1 } } },
-        ...topUserOwnerMatch,
-        { $sort: { count: -1 } },
-        { $limit: 10 },
-      ]).toArray(),
+      // Top users by AI messages ($lookup for legacy owner_id). Same bot handling.
+      includesSection('top_users')
+        ? messages.aggregate([
+            { $match: { created_at: rangeDateMatch, ...AI_MESSAGE_MATCH, ...msgOwnerFilter } },
+            { $lookup: { from: 'conversations', localField: 'conversation_id', foreignField: '_id', as: '_conv' } },
+            { $addFields: { _owner: { $ifNull: ['$owner_id', { $arrayElemAt: ['$_conv.owner_id', 0] }] } } },
+            { $match: { _owner: { $ne: null } } },
+            { $group: { _id: '$_owner', count: { $sum: 1 } } },
+            ...topUserOwnerMatch,
+            { $sort: { count: -1 } },
+            { $limit: 10 },
+          ]).toArray()
+        : Promise.resolve([]),
 
       // Top agents — dynamic-agent usage across BOTH surfaces, since each records
       // the routed agent in a different place:
@@ -720,81 +860,95 @@ async function getAdminStats(request: NextRequest) {
       // humanize both to a common display label, and merge by that label below.
       // Exclude only empty sentinels ('', null, 'unknown'); the "Default" agent
       // (id 'default') is a real configured dynamic_agent, so it counts.
-      Promise.all([
-        conversations.aggregate([
-          { $match: { created_at: { $gte: rangeStart }, 'metadata.thread_owner_agent_id': { $nin: [null, '', 'unknown'] }, ...sectionConvMatch } },
-          { $group: { _id: '$metadata.thread_owner_agent_id', count: { $sum: 1 } } },
-        ]).toArray(),
-        // Count DISTINCT conversations per agent via a two-stage $group
-        // (group by agent+conversation, then tally per agent). This avoids
-        // $project/$size — DocumentDB supports $group/$sum but not all
-        // aggregation expression operators — mirroring the pattern used
-        // elsewhere in this route.
-        //
-        // Slack messages also carry metadata.agent_name now, but Slack agent
-        // usage is counted from conversations.thread_owner_agent_id above — so
-        // the messages side must EXCLUDE Slack to avoid double-counting. When
-        // the caller explicitly filters source=slack there is no web side at
-        // all, so skip this aggregation entirely.
-        sourceFilter === 'slack'
-          ? Promise.resolve([] as { _id: string; count: number }[])
-          : messages.aggregate([
-              { $match: { role: 'assistant', 'metadata.source': { $ne: 'slack' }, 'metadata.agent_name': { $nin: [null, '', 'unknown'] }, created_at: { $gte: rangeStart }, ...sectionMsgMatch } },
-              { $group: { _id: { agent: '$metadata.agent_name', conv: '$conversation_id' } } },
-              { $group: { _id: '$_id.agent', count: { $sum: 1 } } },
+      includesSection('top_agents')
+        ? Promise.all([
+            conversations.aggregate([
+              { $match: { created_at: rangeDateMatch, 'metadata.thread_owner_agent_id': { $nin: [null, '', 'unknown'] }, ...sectionConvMatch } },
+              { $group: { _id: '$metadata.thread_owner_agent_id', count: { $sum: 1 } } },
             ]).toArray(),
-      ]).then(([slackAgents, webAgents]) => {
-        const byLabel = new Map<string, number>();
-        for (const row of [...slackAgents, ...webAgents] as Array<{ _id: string; count: number }>) {
-          const label = humanizeAgentName(String(row._id));
-          byLabel.set(label, (byLabel.get(label) ?? 0) + row.count);
-        }
-        return [...byLabel.entries()]
-          .map(([label, count]) => ({ _id: label, count }))
-          .sort((a, b) => b.count - a.count)
-          .slice(0, 10);
-      }),
+            // Count DISTINCT conversations per agent via a two-stage $group
+            // (group by agent+conversation, then tally per agent). This avoids
+            // $project/$size — DocumentDB supports $group/$sum but not all
+            // aggregation expression operators — mirroring the pattern used
+            // elsewhere in this route.
+            //
+            // Slack messages also carry metadata.agent_name now, but Slack agent
+            // usage is counted from conversations.thread_owner_agent_id above — so
+            // the messages side must EXCLUDE Slack to avoid double-counting. When
+            // the caller explicitly filters source=slack there is no web side at
+            // all, so skip this aggregation entirely.
+            sourceFilter === 'slack'
+              ? Promise.resolve([] as { _id: string; count: number }[])
+              : messages.aggregate([
+                  { $match: { ...AI_MESSAGE_MATCH, 'metadata.source': { $ne: 'slack' }, 'metadata.agent_name': { $nin: [null, '', 'unknown'] }, created_at: rangeDateMatch, ...sectionMsgMatch } },
+                  { $group: { _id: { agent: '$metadata.agent_name', conv: '$conversation_id' } } },
+                  { $group: { _id: '$_id.agent', count: { $sum: 1 } } },
+                ]).toArray(),
+          ]).then(([slackAgents, webAgents]) => {
+            const byLabel = new Map<string, number>();
+            for (const row of [...slackAgents, ...webAgents] as Array<{ _id: string; count: number }>) {
+              const label = humanizeAgentName(String(row._id));
+              byLabel.set(label, (byLabel.get(label) ?? 0) + row.count);
+            }
+            return [...byLabel.entries()]
+              .map(([label, count]) => ({ _id: label, count }))
+              .sort((a, b) => b.count - a.count)
+              .slice(0, 10);
+          })
+        : Promise.resolve([]),
 
       // Feedback: overall counts
-      feedbackColl.aggregate([
-        { $match: fbFilter },
-        { $group: { _id: '$rating', count: { $sum: 1 } } },
-      ]).toArray(),
+      includeFeedbackSection
+        ? feedbackColl!.aggregate([
+            { $match: fbFilter },
+            { $group: { _id: '$rating', count: { $sum: 1 } } },
+          ]).toArray()
+        : Promise.resolve([]),
 
       // Feedback: by source
-      feedbackColl.aggregate([
-        { $match: fbFilter },
-        { $group: { _id: { source: '$source', rating: '$rating' }, count: { $sum: 1 } } },
-      ]).toArray(),
+      includeFeedbackSection
+        ? feedbackColl!.aggregate([
+            { $match: fbFilter },
+            { $group: { _id: { source: '$source', rating: '$rating' }, count: { $sum: 1 } } },
+          ]).toArray()
+        : Promise.resolve([]),
 
       // Feedback: negative categories
-      feedbackColl.aggregate([
-        { $match: { ...fbFilter, rating: 'negative', value: { $nin: ['thumbs_down'] } } },
-        { $group: { _id: '$value', count: { $sum: 1 } } },
-        { $sort: { count: -1 } },
-      ]).toArray(),
+      includeFeedbackSection
+        ? feedbackColl!.aggregate([
+            { $match: { ...fbFilter, rating: 'negative', value: { $nin: ['thumbs_down'] } } },
+            { $group: { _id: '$value', count: { $sum: 1 } } },
+            { $sort: { count: -1 } },
+          ]).toArray()
+        : Promise.resolve([]),
 
       // Feedback: daily trend
-      feedbackColl.aggregate([
-        { $match: fbFilter },
-        { $group: { _id: { date: { $dateToString: { format: BUCKET_DATE_FORMAT[bucketUnit], date: '$created_at' } }, rating: '$rating' }, count: { $sum: 1 } } },
-      ]).toArray(),
+      includeFeedbackSection
+        ? feedbackColl!.aggregate([
+            { $match: fbFilter },
+            { $group: { _id: { date: { $dateToString: { format: BUCKET_DATE_FORMAT[bucketUnit], date: '$created_at' } }, rating: '$rating' }, count: { $sum: 1 } } },
+          ]).toArray()
+        : Promise.resolve([]),
 
       // Response latency (overall)
-      messages.aggregate([
-        { $match: { role: 'assistant', 'metadata.latency_ms': { $exists: true, $gt: 0 }, created_at: { $gte: rangeStart }, ...sectionMsgMatch } },
-        { $group: { _id: null, avg_latency: { $avg: '$metadata.latency_ms' }, min_latency: { $min: '$metadata.latency_ms' }, max_latency: { $max: '$metadata.latency_ms' }, count: { $sum: 1 } } },
-      ]).toArray(),
+      includesSection('response_time')
+        ? messages.aggregate([
+            { $match: { ...AI_MESSAGE_MATCH, 'metadata.latency_ms': { $exists: true, $gt: 0 }, created_at: rangeDateMatch, ...sectionMsgMatch } },
+            { $group: { _id: null, avg_latency: { $avg: '$metadata.latency_ms' }, min_latency: { $min: '$metadata.latency_ms' }, max_latency: { $max: '$metadata.latency_ms' }, count: { $sum: 1 } } },
+          ]).toArray()
+        : Promise.resolve([]),
 
       // Latency trend, bucketed at the range's granularity (minute/hour/day)
       // so the x-axis scales with the selected window: per-minute for ≤2h,
       // per-hour for ≤1d, per-day beyond. Each bucket carries the MEAN latency
       // of its messages; the UI plots one point per bucket and draws the
       // average line client-side. Same filter as the overall latency stat.
-      messages.aggregate([
-        { $match: { role: 'assistant', 'metadata.latency_ms': { $exists: true, $gt: 0 }, created_at: { $gte: rangeStart }, ...sectionMsgMatch } },
-        { $group: { _id: { $dateToString: { format: BUCKET_DATE_FORMAT[bucketUnit], date: '$created_at' } }, avg_latency: { $avg: '$metadata.latency_ms' } } },
-      ]).toArray(),
+      includesSection('response_time')
+        ? messages.aggregate([
+            { $match: { ...AI_MESSAGE_MATCH, 'metadata.latency_ms': { $exists: true, $gt: 0 }, created_at: rangeDateMatch, ...sectionMsgMatch } },
+            { $group: { _id: { $dateToString: { format: BUCKET_DATE_FORMAT[bucketUnit], date: '$created_at' } }, avg_latency: { $avg: '$metadata.latency_ms' } } },
+          ]).toArray()
+        : Promise.resolve([]),
 
       // Completed Workflows metric — real workflow-engine runs (workflow_runs
       // collection), NOT finished chats. A "workflow" is one document in
@@ -804,9 +958,9 @@ async function getAdminStats(request: NextRequest) {
       // runs only — the step count needed for the avg-steps card.
       // `workflowRunFilter` is null when this scope produces no runs (Slack-only
       // view, or a user filter that resolves to no subject), so the metric is 0.
-      workflowRunFilter
+      includesSection('completed_workflows') && workflowRunFilter
         ? workflowRuns.aggregate([
-            { $match: { started_at: { $gte: rangeStart }, ...workflowRunFilter } },
+            { $match: { started_at: rangeDateMatch, ...workflowRunFilter } },
             { $group: {
               _id: null,
               total_runs: { $sum: 1 },
@@ -818,43 +972,30 @@ async function getAdminStats(request: NextRequest) {
         : Promise.resolve([]),
 
       // Completed workflows today — runs that reached `completed` today.
-      workflowRunFilter
-        ? workflowRuns.countDocuments({ status: 'completed', completed_at: { $gte: today }, ...workflowRunFilter })
+      includesSection('completed_workflows') && workflowRunFilter
+        ? workflowRuns.countDocuments({ status: 'completed', completed_at: { $gte: todayRangeStart, $lte: rangeEnd }, ...workflowRunFilter })
         : Promise.resolve(0),
 
-      // Hourly heatmap — msgOwnerFilter already carries metadata.source
-      // when source=web|slack was explicitly requested; unfiltered, this
-      // counts every message regardless of metadata.source.
-      messages.aggregate([
-        { $match: { created_at: { $gte: rangeStart }, ...sectionMsgMatch } },
-        { $addFields: { _ts: { $toDate: '$created_at' } } },
-        { $group: { _id: { $hour: '$_ts' }, count: { $sum: 1 } } },
-      ]).toArray(),
+      // Hourly AI-message heatmap, combined with the section's owner filters.
+      includesSection('hourly_heatmap')
+        ? messages.aggregate([
+            { $match: { created_at: rangeDateMatch, ...AI_MESSAGE_MATCH, ...sectionMsgMatch } },
+            { $addFields: { _ts: { $toDate: '$created_at' } } },
+            { $group: { _id: { $hour: '$_ts' }, count: { $sum: 1 } } },
+          ]).toArray()
+        : Promise.resolve([]),
 
       // Available channel names (both schema variants). Non-admins get exactly
       // their readable channels (resolved after this batch) — a platform-wide
       // distinct would enumerate every channel name, so skip it for them.
-      nonAdminScope
+      !includesSection('filters')
+        ? Promise.resolve([[], []] as [string[], string[]])
+        : nonAdminScope
         ? Promise.resolve([[], []] as [string[], string[]])
         : Promise.all([
             conversations.distinct('slack_meta.channel_name', { source: 'slack', 'slack_meta.channel_name': { $ne: null } }),
             conversations.distinct('metadata.channel_name', { client_type: 'slack', 'metadata.channel_name': { $ne: null } }),
           ]),
-
-      // Web workflow effort for the hours-saved estimate. Each completed web
-      // workflow (assistant `is_final` message, non-Slack) stands in for a task
-      // the user would otherwise have done by hand; the number of tool calls in
-      // its timeline is a cheap proxy for how much work it did. We return the
-      // workflow count and the summed tool-call count so the estimate can scale
-      // effort by complexity rather than treating every message equally.
-      // Single aggregation, no join — cheap.
-      sourceFilter !== 'slack'
-        ? messages.aggregate([
-            { $match: { role: 'assistant', 'metadata.is_final': true, 'metadata.source': { $ne: 'slack' }, created_at: { $gte: rangeStart }, ...msgOwnerFilter } },
-            { $addFields: { _toolCalls: { $size: { $filter: { input: { $ifNull: ['$metadata.timeline_segments', []] }, as: 's', cond: { $eq: ['$$s.type', 'tool_call'] } } } } } },
-            { $group: { _id: null, workflows: { $sum: 1 }, tool_calls: { $sum: '$_toolCalls' } } },
-          ]).toArray().then((r) => r[0] || { workflows: 0, tool_calls: 0 })
-        : Promise.resolve({ workflows: 0, tool_calls: 0 }),
     ]);
 
     // ── Post-process daily activity ─────────────────────────────────
@@ -864,7 +1005,7 @@ async function getAdminStats(request: NextRequest) {
     const userMap = new Map(dailyUserActivity.map((d) => [d._id, d.active_users]));
     const convMap = new Map(dailyConvActivity.map((d) => [d._id, d.conversations]));
 
-    const dailyActivity = generateBucketKeys(now, bucketCount, bucketUnit).map((dateKey) => ({
+    const dailyActivity = generateBucketKeys(rangeEnd, bucketCount, bucketUnit).map((dateKey) => ({
       date: dateKey,
       active_users: userMap.get(dateKey) || 0,
       conversations: convMap.get(dateKey) || 0,
@@ -875,7 +1016,7 @@ async function getAdminStats(request: NextRequest) {
     const topOwnerIds = [...new Set([
       ...rawTopByConvs.map((u) => u._id),
       ...rawTopByMsgs.map((u) => u._id),
-    ])].filter(Boolean);
+    ].filter((id): id is string => typeof id === 'string' && id.trim().length > 0))];
 
     const userDocs = topOwnerIds.length > 0
       ? await users.find(
@@ -936,13 +1077,19 @@ async function getAdminStats(request: NextRequest) {
       return 'unlinked_slack';
     };
 
+    // Legacy activity can have a missing owner_id. Wider windows (notably 90d)
+    // are more likely to include those rows, so discard them before calling
+    // string-only identity helpers such as classifyOwner().
     const enrichTopUsers = (raw: typeof rawTopByConvs) =>
-      raw.map((u) => ({
-        _id: u._id,
-        count: u.count,
-        name: nameByOwner.get(u._id) || u._id,
-        owner_type: classifyOwner(u._id),
-      }));
+      raw.flatMap((u) => {
+        if (typeof u._id !== 'string' || !u._id.trim()) return [];
+        return [{
+          _id: u._id,
+          count: u.count,
+          name: nameByOwner.get(u._id) || u._id,
+          owner_type: classifyOwner(u._id),
+        }];
+      });
 
     const topUsersByConversations = enrichTopUsers(rawTopByConvs);
     const topUsersByMessages = enrichTopUsers(rawTopByMsgs);
@@ -974,7 +1121,7 @@ async function getAdminStats(request: NextRequest) {
       if (!dailyFbMap.has(date)) dailyFbMap.set(date, { positive: 0, negative: 0 });
       dailyFbMap.get(date)![row._id.rating as 'positive' | 'negative'] = row.count;
     }
-    const dailyFeedback = generateBucketKeys(now, bucketCount, bucketUnit).map((dateKey) => {
+    const dailyFeedback = generateBucketKeys(rangeEnd, bucketCount, bucketUnit).map((dateKey) => {
       const entry = dailyFbMap.get(dateKey);
       return {
         date: dateKey,
@@ -1007,7 +1154,7 @@ async function getAdminStats(request: NextRequest) {
     const latencyByBucket = new Map<string, number>(
       latencyDaily.map((s) => [String(s._id), Math.round(s.avg_latency)]),
     );
-    const latencySamples = generateBucketKeys(now, bucketCount, bucketUnit)
+    const latencySamples = generateBucketKeys(rangeEnd, bucketCount, bucketUnit)
       .filter((key) => latencyByBucket.has(key))
       .map((key) => ({ ts: key, latency_ms: latencyByBucket.get(key)! }));
 
@@ -1048,400 +1195,276 @@ async function getAdminStats(request: NextRequest) {
     // SLACK STATS (from conversations with source:"slack" or client_type:"slack")
     // ═══════════════════════════════════════════════════════════════
     let slack: SlackStats | undefined;
-
-    // Slack block channel scope: admins use the `channel` query param; a
-    // non-admin is hard-bounded to their readable channels (their web
-    // conversations don't appear in this Slack-only section). A non-admin with
-    // no readable channels sees no Slack block at all.
-    const slackChannelScope = nonAdminScope ? nonAdminChannelNames : channelNames;
     const skipSlackBlock = !!nonAdminScope && nonAdminChannelNames.length === 0;
 
-    try {
-      const slackFilter: Document = { ...SLACK_CONV_MATCH, created_at: { $gte: rangeStart } };
-      if (slackChannelScope.length > 0) {
-        const names = slackChannelScope.length === 1 ? slackChannelScope[0] : { $in: slackChannelScope };
-        // Override $or with $and to combine slack match + channel match
-        delete slackFilter.$or;
-        slackFilter.$and = [
-          SLACK_CONV_MATCH,
-          { created_at: { $gte: rangeStart } },
-          { $or: [{ 'slack_meta.channel_name': names }, { 'metadata.channel_name': names }] },
-        ];
-        delete slackFilter.created_at;
-      }
-      // Agent filter applies to the Slack block too: Slack conversations carry
-      // the routed agent on metadata.thread_owner_agent_id, so scope by the
-      // selected agent ids to keep this section consistent with the rest of the
-      // page (Overview, Top Users, Top Agents, etc.).
-      if (selectedAgents.length > 0) {
-        andInto(slackFilter, {
-          'metadata.thread_owner_agent_id': { $in: selectedAgents.map((a) => a.id) },
-        });
-      }
-      const slackHasData = skipSlackBlock ? 0 : await conversations.countDocuments(SLACK_CONV_MATCH, { limit: 1 });
+    if (includesSection('slack') && sourceFilter !== 'web' && !skipSlackBlock) {
+      try {
+        // Start with the same conversation filter used by every other card, then
+        // constrain it to Slack. This carries source, channel, user, agent, and
+        // non-admin scope into all Slack interaction cards without maintaining a
+        // second, subtly different filter implementation.
+        const slackFilter: Document = { ...SLACK_CONV_MATCH, created_at: rangeDateMatch };
+        if (Object.keys(convSourceFilter).length > 0) {
+          andInto(slackFilter, convSourceFilter);
+        }
+        if (nonAdminScope) {
+          const readableNames = nonAdminChannelNames.length === 1
+            ? nonAdminChannelNames[0]
+            : { $in: nonAdminChannelNames };
+          andInto(slackFilter, {
+            $or: [
+              { 'slack_meta.channel_name': readableNames },
+              { 'metadata.channel_name': readableNames },
+            ],
+          });
+        }
+        const slackHasData = await conversations.countDocuments(SLACK_CONV_MATCH, { limit: 1 });
 
-      if (slackHasData > 0) {
-        const platformConfig = await getCollection<ChannelStatsDocument>('platform_config');
+        if (slackHasData > 0) {
+          const platformConfig = await getCollection<ChannelStatsDocument>('platform_config');
 
-        // Helper: coalesce old slack_meta and new metadata fields
-        const userId = { $ifNull: ['$metadata.user_id', '$slack_meta.user_id'] };
-        const escalated = { $ifNull: ['$metadata.escalated', '$slack_meta.escalated'] };
-        const channelName = { $ifNull: ['$metadata.channel_name', '$slack_meta.channel_name'] };
-        const channelId = { $ifNull: ['$metadata.channel_id', '$slack_meta.channel_id'] };
-        const interactionType = { $ifNull: ['$metadata.interaction_type', '$slack_meta.interaction_type'] };
-        // A non-originator human replying in the thread means the asker did not
-        // self-serve — a colleague stepped in. The Slack bot sets this flag when
-        // it observes a thread reply from anyone other than the thread's
-        // originator (originator↔bot back-and-forth stays self-resolved).
-        const humanAssisted = { $ifNull: ['$metadata.human_assisted', false] };
-        // A thread is NOT self-resolved when it was escalated to a human or a
-        // non-originator human assisted. (Negative feedback is applied per-thread
-        // in the app-side loop below, where the rating join lives.)
-        const unresolved = { $or: [escalated, humanAssisted] };
+          // Helper: coalesce old slack_meta and new metadata fields.
+          const userId = { $ifNull: ['$metadata.user_id', '$slack_meta.user_id'] };
+          const escalated = { $ifNull: ['$metadata.escalated', '$slack_meta.escalated'] };
+          const channelName = { $ifNull: ['$metadata.channel_name', '$slack_meta.channel_name'] };
+          const channelId = { $ifNull: ['$metadata.channel_id', '$slack_meta.channel_id'] };
 
-        // Self-resolution is only meaningful over threads a human actually
-        // started (mention/qanda/dm/user). Automated posts (bot alerts,
-        // scheduled-pipeline notifications) aren't questions the assistant
-        // "resolved", so counting them made the rate a meaningless ~100%.
-        const isUserQuestion = { $in: [interactionType, USER_QUESTION_INTERACTION_TYPES] };
+          const channelMappingColl = await getCollection<{
+            slack_channel_id?: string;
+            channel_name?: string;
+            created_at?: string | Date;
+            active?: boolean;
+          }>('channel_team_mappings');
+          const requestedReadableChannels = nonAdminScope
+            ? (channelNames.length > 0
+                ? nonAdminChannelNames.filter((name) => channelNames.includes(name))
+                : nonAdminChannelNames)
+            : channelNames;
+          const mappingFilter: Document = { slack_channel_id: { $ne: null } };
+          if (requestedReadableChannels.length > 0) {
+            mappingFilter.channel_name = { $in: requestedReadableChannels };
+          } else if (nonAdminScope) {
+            // Configuration is channel-scoped and cannot be attributed through
+            // the owned-agent/user axes without revealing unreadable channels.
+            mappingFilter._id = null;
+          }
 
-        const channelMappingColl = await getCollection<{
-          slack_channel_id?: string;
-          channel_name?: string;
-          created_at?: string | Date;
-          active?: boolean;
-        }>('channel_team_mappings');
-
-        const [configDoc, slackTotal, slackUniqueUsers, slackDailyAgg, slackTopChannels, channelMappings] =
-          await Promise.all([
-            // Channel config
+          const selectedAgentIds = selectedAgents.map((agent) => agent.id);
+          const [
+            configDoc,
+            slackTotal,
+            slackUniqueUsers,
+            slackDailyAgg,
+            slackTopChannels,
+            channelMappings,
+            selectedAgentRoutes,
+          ] = await Promise.all([
             platformConfig.findOne({ _id: 'channel_stats' }),
-            // Total interactions (threads) in range
             conversations.countDocuments(slackFilter),
-            // Unique Slack users
             conversations.aggregate([
               { $match: slackFilter },
               { $group: { _id: userId } },
               { $count: 'total' },
             ]).toArray(),
-            // Daily breakdown (user-initiated threads only, to match the rate)
             conversations.aggregate([
               { $match: slackFilter },
-              { $addFields: { _isUserQuestion: isUserQuestion, _escalated: escalated, _unresolved: unresolved } },
-              { $match: { _isUserQuestion: true } },
               {
                 $group: {
                   _id: { $dateToString: { format: BUCKET_DATE_FORMAT[bucketUnit], date: '$created_at' } },
                   interactions: { $sum: 1 },
                   unique_users: { $addToSet: userId },
-                  resolved: { $sum: { $cond: [{ $not: ['$_unresolved'] }, 1, 0] } },
-                  escalated: { $sum: { $cond: ['$_escalated', 1, 0] } },
+                  escalated: { $sum: { $cond: [escalated, 1, 0] } },
                 },
               },
               { $sort: { _id: 1 } },
             ]).toArray(),
-            // Top channels — group by channel_id (stable) and carry a candidate
-            // name; the id→name mapping is resolved after the batch so raw ids
-            // like "CFW7VL1GX" don't leak into the UI.
             conversations.aggregate([
               { $match: slackFilter },
-              { $addFields: { _channelId: channelId, _channelName: channelName, _isUserQuestion: isUserQuestion, _unresolved: unresolved } },
+              { $addFields: { _channelId: channelId, _channelName: channelName } },
               { $match: { _channelId: { $ne: null } } },
               {
                 $group: {
                   _id: '$_channelId',
-                  // A channel's own metadata.channel_name is the best in-band
-                  // name; keep the first non-null we see.
                   name: { $first: '$_channelName' },
                   interactions: { $sum: 1 },
-                  resolved: { $sum: { $cond: [{ $and: ['$_isUserQuestion', { $not: ['$_unresolved'] }] }, 1, 0] } },
-                  user_questions: { $sum: { $cond: ['$_isUserQuestion', 1, 0] } },
                 },
               },
               { $sort: { interactions: -1 } },
               { $limit: 10 },
             ]).toArray(),
-            // Channel id → human name (authoritative source; covers ids whose
-            // conversation metadata only carries the raw id). Also carries
-            // created_at + active for the "configured channels" stat/timeline.
-            // Non-admins only ever see their readable channels here.
             channelMappingColl.find(
-              {
-                slack_channel_id: { $ne: null },
-                ...(nonAdminScope && nonAdminChannelNames.length > 0
-                  ? { channel_name: { $in: nonAdminChannelNames } }
-                  : {}),
-              },
+              mappingFilter,
               { projection: { slack_channel_id: 1, channel_name: 1, created_at: 1, active: 1 } },
             ).toArray(),
+            agentIds.length > 0
+              ? getCollection<{ channel_id?: string }>('slack_channel_agent_routes')
+                  .then((routes) => routes.find(
+                    {
+                      agent_id: { $in: selectedAgentIds },
+                      enabled: { $ne: false },
+                      status: 'active',
+                    },
+                    { projection: { channel_id: 1 } },
+                  ).toArray())
+              : Promise.resolve([]),
           ]);
 
-        // Normalize a channel name: strip a leading '#', fall back to null when
-        // the "name" is really just the raw id (e.g. name === channel_id).
-        const normalizeChannelName = (name: unknown, id: string): string | null => {
-          if (typeof name !== 'string' || !name.trim() || name === id) return null;
-          return name.replace(/^#/, '').trim();
-        };
-        const channelNameById = new Map<string, string>();
-        for (const m of channelMappings) {
-          const clean = normalizeChannelName(m.channel_name, m.slack_channel_id);
-          if (m.slack_channel_id && clean) channelNameById.set(m.slack_channel_id, clean);
-        }
-
-        // ── Configured channels: count + cumulative timeline ───────────
-        // How many Slack channels are wired to a team (active mappings), and
-        // how that total grew over the selected range. Distinct by channel id
-        // so a re-mapped channel isn't double-counted. Timeline is cumulative:
-        // each bucket is the running total of channels configured on/before it,
-        // seeded with those configured before the range start.
-        const activeMappings = channelMappings.filter((m) => m.active !== false && m.slack_channel_id);
-        const configuredChannelsTotal = new Set(activeMappings.map((m) => m.slack_channel_id)).size;
-
-        const configuredBeforeRange = new Set<string>();
-        const configuredByBucket = new Map<string, Set<string>>();
-        for (const m of activeMappings) {
-          const created = m.created_at ? new Date(m.created_at) : null;
-          if (!created || Number.isNaN(created.getTime()) || created < rangeStart) {
-            // No timestamp (legacy) or configured before the window → part of
-            // the starting baseline rather than growth inside the range.
-            configuredBeforeRange.add(m.slack_channel_id);
-            continue;
-          }
-          const key = bucketDateKey(floorToBucket(created, bucketUnit), bucketUnit);
-          if (!configuredByBucket.has(key)) configuredByBucket.set(key, new Set());
-          configuredByBucket.get(key)!.add(m.slack_channel_id);
-        }
-        let runningConfigured = configuredBeforeRange.size;
-        const configuredChannelsDaily = generateBucketKeys(now, bucketCount, bucketUnit).map((dateKey) => {
-          runningConfigured += configuredByBucket.get(dateKey)?.size ?? 0;
-          return { date: dateKey, total: runningConfigured };
-        });
-
-        // ── Hours-saved estimation (Slack) ─────────────────────────────
-        // Only user-initiated threads (mention/qanda/dm/user) count — a
-        // bot/alert broadcast didn't save anyone time. Per qualifying thread:
-        //   positive feedback                     → 30 min saved
-        //   negative feedback OR escalated        → 0    (not actually resolved)
-        //   no feedback, not escalated (self-res) → 20 min (conservative)
-        // These are intentionally modest, defensible figures rather than the
-        // old 4h/thread that produced implausible totals.
-        //
-        // DocumentDB does not support $lookup with let/pipeline (correlated
-        // subqueries), so we fetch conversations and feedback separately and
-        // join in application code.
-        const POSITIVE_FEEDBACK_MINUTES = 30;
-        const SELF_RESOLVED_MINUTES = 20;
-
-        const [slackConvs, slackFeedback] = await Promise.all([
-          conversations.find(slackFilter, {
-            projection: {
-              _id: 1,
-              'slack_meta.escalated': 1, 'metadata.escalated': 1,
-              'slack_meta.interaction_type': 1, 'metadata.interaction_type': 1,
-              'metadata.human_assisted': 1,
-            },
-          }).toArray(),
-          feedbackColl.find(
-            {
-              source: 'slack',
-              created_at: { $gte: rangeStart },
-              ...(slackChannelScope.length === 1
-                ? { channel_name: slackChannelScope[0] }
-                : slackChannelScope.length > 1
-                  ? { channel_name: { $in: slackChannelScope } }
-                  : {}),
-            },
-            { projection: { conversation_id: 1, rating: 1, created_at: 1 } },
-          ).toArray(),
-        ]);
-
-        // Build map: conversation_id -> latest feedback rating
-        const fbByConv = new Map<string, string>();
-        for (const fb of slackFeedback) {
-          const cid = fb.conversation_id;
-          if (!cid) continue;
-          if (!fbByConv.has(cid)) fbByConv.set(cid, fb.rating);
-        }
-
-        // Application-side resolution over user-initiated threads: a thread is
-        // "resolved" (self-served) only when it wasn't escalated, wasn't rated
-        // negative, and no non-originator human replied. A non-originator human
-        // (metadata.human_assisted) means a colleague stepped in, so it doesn't
-        // count as self-service; originator↔bot back-and-forth still does.
-        let userQuestionThreads = 0;
-        let resolvedThreadsCount = 0;
-        let escalatedThreadsCount = 0;
-        let estimatedMinutesSaved = 0;
-        for (const conv of slackConvs) {
-          const it = conv.metadata?.interaction_type ?? conv.slack_meta?.interaction_type;
-          if (!USER_QUESTION_INTERACTION_TYPES.includes(it)) continue;
-          userQuestionThreads += 1;
-
-          const rating = fbByConv.get(String(conv._id));
-          const escalated = conv.metadata?.escalated ?? conv.slack_meta?.escalated;
-          const humanAssisted = conv.metadata?.human_assisted === true;
-
-          if (escalated) escalatedThreadsCount += 1;
-
-          if (rating === 'negative' || escalated || humanAssisted) {
-            continue; // not self-resolved, no time saved
-          }
-          resolvedThreadsCount += 1;
-          estimatedMinutesSaved += rating === 'positive' ? POSITIVE_FEEDBACK_MINUTES : SELF_RESOLVED_MINUTES;
-        }
-        const estimatedHoursSaved = Math.round((estimatedMinutesSaved / 60) * 10) / 10;
-
-        const resolution = {
-          total_threads: userQuestionThreads,
-          escalated_threads: escalatedThreadsCount,
-        };
-        const resolvedThreads = resolvedThreadsCount;
-        const resolutionRate = userQuestionThreads > 0
-          ? Math.round((resolvedThreads / userQuestionThreads) * 1000) / 10
-          : 0;
-
-        // Build daily array with gaps filled
-        const slackDailyMap = new Map(
-          slackDailyAgg.map((d) => [d._id, {
-            interactions: d.interactions,
-            unique_users: d.unique_users?.length || 0,
-            resolved: d.resolved,
-            escalated: d.escalated,
-          }])
-        );
-        const slackDaily = generateBucketKeys(now, bucketCount, bucketUnit).map((dateKey) => {
-          const entry = slackDailyMap.get(dateKey);
-          return {
-            date: dateKey,
-            interactions: entry?.interactions || 0,
-            unique_users: entry?.unique_users || 0,
-            resolved: entry?.resolved || 0,
-            escalated: entry?.escalated || 0,
+          // Normalize a channel name: strip a leading '#', fall back to null
+          // when the "name" is really just the raw id.
+          const normalizeChannelName = (name: unknown, id: string): string | null => {
+            if (typeof name !== 'string' || !name.trim() || name === id) return null;
+            return name.replace(/^#/, '').trim();
           };
-        });
+          const channelNameById = new Map<string, string>();
+          for (const mapping of channelMappings) {
+            const clean = normalizeChannelName(mapping.channel_name, mapping.slack_channel_id);
+            if (mapping.slack_channel_id && clean) {
+              channelNameById.set(mapping.slack_channel_id, clean);
+            }
+          }
 
-        slack = {
-          channels: configDoc
-            ? { total: configDoc.total, qanda_enabled: configDoc.qanda_enabled, alerts_enabled: configDoc.alerts_enabled, ai_enabled: configDoc.ai_enabled }
-            : { total: 0, qanda_enabled: 0, alerts_enabled: 0, ai_enabled: 0 },
-          configured_channels: configuredChannelsTotal,
-          configured_channels_daily: configuredChannelsDaily,
-          total_interactions: slackTotal,
-          unique_users: slackUniqueUsers[0]?.total || 0,
-          resolution: {
-            total_threads: resolution.total_threads,
-            resolved_threads: resolvedThreads,
-            resolution_rate: resolutionRate,
-            estimated_hours_saved: estimatedHoursSaved,
-          },
-          daily: slackDaily,
-          // Resolve each channel id to a human name: prefer the authoritative
-          // channel_team_mappings entry, then the conversation's own
-          // metadata.channel_name, and only fall back to the raw id if neither
-          // is available. resolution_rate is over the channel's user questions
-          // (not all interactions), matching the platform-wide rate.
-          top_channels: slackTopChannels.map((c) => {
-            const id: string = c._id;
-            const resolvedName = channelNameById.get(id) || normalizeChannelName(c.name, id) || id;
-            const denom = c.user_questions || 0;
+          // Configured Channels is configuration data, not user activity. It is
+          // omitted for a user filter; channel, agent, and date filters do apply.
+          const selectedAgentChannelIds = new Set(
+            selectedAgentRoutes.flatMap((route) => route.channel_id ? [route.channel_id] : []),
+          );
+          const activeMappings = channelMappings.filter((mapping) => {
+            if (mapping.active === false || !mapping.slack_channel_id) return false;
+            if (agentIds.length > 0 && !selectedAgentChannelIds.has(mapping.slack_channel_id)) return false;
+            const created = mapping.created_at ? new Date(mapping.created_at) : null;
+            return !created || Number.isNaN(created.getTime()) || created <= rangeEnd;
+          });
+          const configuredChannelsTotal = new Set(
+            activeMappings.map((mapping) => mapping.slack_channel_id),
+          ).size;
+
+          const configuredBeforeRange = new Set<string>();
+          const configuredByBucket = new Map<string, Set<string>>();
+          for (const mapping of activeMappings) {
+            const created = mapping.created_at ? new Date(mapping.created_at) : null;
+            if (!created || Number.isNaN(created.getTime()) || created < rangeStart) {
+              configuredBeforeRange.add(mapping.slack_channel_id);
+              continue;
+            }
+            const key = bucketDateKey(floorToBucket(created, bucketUnit), bucketUnit);
+            if (!configuredByBucket.has(key)) configuredByBucket.set(key, new Set());
+            configuredByBucket.get(key)!.add(mapping.slack_channel_id);
+          }
+          let runningConfigured = configuredBeforeRange.size;
+          const configuredChannelsDaily = generateBucketKeys(rangeEnd, bucketCount, bucketUnit).map((dateKey) => {
+            runningConfigured += configuredByBucket.get(dateKey)?.size ?? 0;
+            return { date: dateKey, total: runningConfigured };
+          });
+
+          const slackDailyMap = new Map(
+            slackDailyAgg.map((day) => [day._id, {
+              interactions: day.interactions,
+              unique_users: day.unique_users?.length || 0,
+              escalated: day.escalated,
+            }]),
+          );
+          const slackDaily = generateBucketKeys(rangeEnd, bucketCount, bucketUnit).map((dateKey) => {
+            const entry = slackDailyMap.get(dateKey);
             return {
-              channel_name: resolvedName,
-              interactions: c.interactions,
-              resolved: c.resolved,
-              resolution_rate: denom > 0 ? Math.round((c.resolved / denom) * 1000) / 10 : 0,
+              date: dateKey,
+              interactions: entry?.interactions || 0,
+              unique_users: entry?.unique_users || 0,
+              escalated: entry?.escalated || 0,
             };
-          }),
-        };
+          });
+
+          slack = {
+            channels: configDoc
+              ? { total: configDoc.total, qanda_enabled: configDoc.qanda_enabled, alerts_enabled: configDoc.alerts_enabled, ai_enabled: configDoc.ai_enabled }
+              : { total: 0, qanda_enabled: 0, alerts_enabled: 0, ai_enabled: 0 },
+            ...(!hasUserFilter ? {
+              configured_channels: configuredChannelsTotal,
+              configured_channels_daily: configuredChannelsDaily,
+            } : {}),
+            total_interactions: slackTotal,
+            unique_users: slackUniqueUsers[0]?.total || 0,
+            daily: slackDaily,
+            top_channels: slackTopChannels.map((channel) => {
+              const id: string = channel._id;
+              return {
+                channel_name: channelNameById.get(id) || normalizeChannelName(channel.name, id) || id,
+                interactions: channel.interactions,
+              };
+            }),
+          };
+        }
+      } catch (err) {
+        // Slack data may not exist yet — silently skip
+        console.warn('Slack stats query failed:', err);
       }
-    } catch (err) {
-      // Slack data may not exist yet — silently skip
-      console.warn('Slack stats query failed:', err);
     }
 
     // ═══════════════════════════════════════════════════════════════
     // PLATFORM SUMMARY — respects source/user filters
     // ═══════════════════════════════════════════════════════════════
-    const includeWeb = sourceFilter !== 'slack';
-    const includeSlack = sourceFilter !== 'web';
-
-    // Hours saved — two independent web signals plus Slack:
-    //   1. Agent chats: each tool call an agent ran in a completed chat proxies
-    //      a small manual step it did for the user (~seconds each).
-    //   2. Workflow runs: each completed step in a completed workflow_runs run
-    //      stands in for a manual task the automation performed (~minutes each).
-    // Kept deliberately conservative so the headline number stays defensible.
-    const AGENT_PER_TOOL_CALL_SECONDS = 5;
-    const WORKFLOW_PER_STEP_MINUTES = 5;
-    const webWorkflowStats = webWorkflowEffort as { workflows: number; tool_calls: number };
-    const agentSecondsSaved = includeWeb ? webWorkflowStats.tool_calls * AGENT_PER_TOOL_CALL_SECONDS : 0;
-    const agentHoursSaved = Math.round((agentSecondsSaved / 3600) * 10) / 10;
-    // wfRun.completed_steps = total steps across completed runs (see the
-    // Completed Workflows aggregation above); it already respects the range,
-    // owner, and source scope. Slack-only views set workflowRunFilter=null → 0.
-    const workflowMinutesSaved = includeWeb ? (wfRun.completed_steps || 0) * WORKFLOW_PER_STEP_MINUTES : 0;
-    const workflowHoursSaved = Math.round((workflowMinutesSaved / 60) * 10) / 10;
-    const webHoursSaved = Math.round((agentHoursSaved + workflowHoursSaved) * 10) / 10;
-
-    const slackHoursSaved = includeSlack ? (slack?.resolution?.estimated_hours_saved || 0) : 0;
-
-    const totalHoursAutomated = Math.round((webHoursSaved + slackHoursSaved) * 10) / 10;
-
     const [oldChannels, newChannels] = availableChannelsResult;
-    const availableChannels = nonAdminScope
-      ? [...new Set(nonAdminChannelNames)]
-      : [...new Set([...oldChannels, ...newChannels])];
+    const availableChannels = includesSection('filters')
+      ? nonAdminScope
+        ? [...new Set(nonAdminChannelNames)]
+        : [...new Set([...oldChannels, ...newChannels])]
+      : [];
 
     // Agent filter options: a non-admin sees only the agents they own; a full
     // admin sees every dynamic agent. Shape { id, name } so the UI can label by
     // name while filtering by the stable id.
-    const availableAgents = (nonAdminScope ? nonAdminOwnedAgents : await getAllAgents())
-      .map((a) => ({ id: a.id, name: a.name }))
-      .sort((a, b) => a.name.localeCompare(b.name));
+    const availableAgents = includesSection('filters')
+      ? (nonAdminScope ? nonAdminOwnedAgents : await getAllAgents())
+          .map((a) => ({ id: a.id, name: a.name }))
+          .sort((a, b) => a.name.localeCompare(b.name))
+      : [];
 
     const platformSummary = {
       satisfaction_rate: feedbackSummary.satisfaction_rate || 0,
-      estimated_hours_automated: totalHoursAutomated,
-      web_hours_saved: webHoursSaved,
-      agent_hours_saved: agentHoursSaved,
-      workflow_hours_saved: workflowHoursSaved,
-      slack_hours_saved: slackHoursSaved,
-      // Real completed workflow_runs in scope (drives the tooltip breakdown).
-      web_workflows: includeWeb ? completedCount : 0,
     };
 
     return successResponse({
       range: searchParams.get('range') || '30d',
       days,
-      platform_summary: platformSummary,
-      overview: {
-        total_users: totalUsers,
-        total_conversations: totalConversations,
-        total_messages: totalMessages,
-        shared_conversations: sharedConversations,
-        dau,
-        mau,
-        conversations_today: conversationsToday,
-        messages_today: messagesToday,
-        avg_messages_per_conversation: avgMsgsPerConv,
-      },
-      daily_activity: dailyActivity,
-      top_users: {
-        by_conversations: topUsersByConversations,
-        by_messages: topUsersByMessages,
-      },
-      top_agents: topAgents,
-      feedback_summary: feedbackSummary,
-      response_time: responseTime,
-      hourly_heatmap: hourlyHeatmap,
-      completed_workflows: {
-        total: completedCount,
-        today: completedTodayCount,
-        failed: failedCount,
-        completion_rate: completionRate,
-        avg_steps_per_workflow: avgStepsCompleted,
-      },
+      ...(includesSection('overview') ? {
+        overview: {
+          total_users: totalUsers,
+          total_conversations: totalConversations,
+          total_messages: totalMessages,
+          shared_conversations: sharedConversations,
+          dau,
+          mau,
+          conversations_today: conversationsToday,
+          messages_today: messagesToday,
+          avg_messages_per_conversation: avgMsgsPerConv,
+        },
+      } : {}),
+      ...(includesSection('activity') ? { daily_activity: dailyActivity } : {}),
+      ...(includesSection('top_users') ? {
+        top_users: {
+          by_conversations: topUsersByConversations,
+          by_messages: topUsersByMessages,
+        },
+      } : {}),
+      ...(includesSection('top_agents') ? { top_agents: topAgents } : {}),
+      ...(includeFeedbackSection ? {
+        platform_summary: platformSummary,
+        feedback_summary: feedbackSummary,
+      } : {}),
+      ...(includesSection('response_time') ? { response_time: responseTime } : {}),
+      ...(includesSection('hourly_heatmap') ? { hourly_heatmap: hourlyHeatmap } : {}),
+      ...(includesSection('completed_workflows') ? {
+        completed_workflows: {
+          total: completedCount,
+          today: completedTodayCount,
+          failed: failedCount,
+          completion_rate: completionRate,
+          avg_steps_per_workflow: avgStepsCompleted,
+        },
+      } : {}),
       ...(slack ? { slack } : {}),
-      available_channels: availableChannels.sort(),
-      available_agents: availableAgents,
+      ...(includesSection('filters') ? {
+        available_channels: availableChannels.sort(),
+        available_agents: availableAgents,
+      } : {}),
     });
 }

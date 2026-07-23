@@ -7,6 +7,7 @@ const mockGetAuth = jest.fn();
 const mockRequireManage = jest.fn();
 const mockGetEngineStats = jest.fn();
 const mockAuditQuery = jest.fn();
+let mockAuditBackend = "service";
 
 jest.mock("@/lib/api-middleware", () => {
   class ApiError extends Error {
@@ -36,7 +37,10 @@ jest.mock("@/lib/rbac/require-openfga", () => ({
 }));
 jest.mock("@/lib/authz", () => ({ getEngineStats: (...a: unknown[]) => mockGetEngineStats(...a) }));
 jest.mock("@/lib/audit/reader", () => ({
-  getAuditReader: () => ({ query: (...a: unknown[]) => mockAuditQuery(...a) }),
+  getAuditReader: () => ({
+    backendName: mockAuditBackend,
+    query: (...a: unknown[]) => mockAuditQuery(...a),
+  }),
 }));
 
 import { GET } from "../admin/authz/stats/route";
@@ -49,6 +53,7 @@ const ENGINE = { circuitState: "closed", cacheSize: 3, cacheHits: 7, cacheMisses
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockAuditBackend = "service";
   mockGetAuth.mockResolvedValue({ session: { org: "acme" } });
   mockRequireManage.mockResolvedValue(undefined);
   mockGetEngineStats.mockReturnValue(ENGINE);
@@ -72,6 +77,11 @@ it("aggregates decision stats from audit-service and includes the live engine sn
     allow: 8,
     deny: 2,
     denyRate: 0.2,
+    policyDeny: 2,
+    policyDenyRate: 0.2,
+    unavailable: 0,
+    unavailableRate: 0,
+    truncated: false,
     byReason: [{ reason: "OK", count: 8 }, { reason: "NO_CAPABILITY", count: 2 }],
     topDenied: [{ resource: "agent:pe", count: 2 }],
   });
@@ -85,8 +95,74 @@ it("returns zero decision stats when audit-service has no rows", async () => {
   expect(body).toMatchObject({
     engine: ENGINE,
     persistence: true,
-    decisions: { total: 0, allow: 0, deny: 0, denyRate: 0, byReason: [], topDenied: [] },
+    decisions: {
+      total: 0,
+      allow: 0,
+      deny: 0,
+      denyRate: 0,
+      policyDeny: 0,
+      policyDenyRate: 0,
+      unavailable: 0,
+      unavailableRate: 0,
+      truncated: false,
+      byReason: [],
+      topDenied: [],
+    },
   });
+});
+
+it("accepts the shared custom date range", async () => {
+  const res = await GET(req("?from=1780272000&to=1780444800"));
+
+  expect(res.status).toBe(200);
+  expect(mockAuditQuery).toHaveBeenCalledWith(expect.objectContaining({
+    since: new Date("2026-06-01T00:00:00.000Z"),
+    until: new Date("2026-06-03T00:00:00.000Z"),
+  }));
+});
+
+it("accepts rolling ranges used by the shared preset filter", async () => {
+  jest.useFakeTimers().setSystemTime(new Date("2026-06-03T00:00:00.000Z"));
+  try {
+    const res = await GET(req("?rangeSeconds=43200"));
+
+    expect(res.status).toBe(200);
+    expect(mockAuditQuery).toHaveBeenCalledWith(expect.objectContaining({
+      since: new Date("2026-06-02T12:00:00.000Z"),
+      until: new Date("2026-06-03T00:00:00.000Z"),
+    }));
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+it("separates policy denials from authorization unavailability", async () => {
+  mockAuditQuery.mockResolvedValue([
+    { outcome: "allow", reason_code: "OK" },
+    { outcome: "deny", reason_code: "NO_CAPABILITY", resource_ref: "resource:primary" },
+    { outcome: "deny", reason_code: "AUTHZ_UNAVAILABLE", resource_ref: "resource:secondary" },
+  ]);
+
+  const res = await GET(req("?window=1h"));
+  const body = await res.json();
+
+  expect(body.decisions).toMatchObject({
+    total: 3,
+    policyDeny: 1,
+    policyDenyRate: 1 / 3,
+    unavailable: 1,
+    unavailableRate: 1 / 3,
+  });
+});
+
+it("reports unavailable history when durable audit storage is off", async () => {
+  mockAuditBackend = "off";
+
+  const res = await GET(req("?window=24h"));
+  const body = await res.json();
+
+  expect(body).toMatchObject({ persistence: false, decisions: null });
+  expect(mockAuditQuery).not.toHaveBeenCalled();
 });
 
 it("rejects an invalid window with 400", async () => {

@@ -39,6 +39,10 @@ class AgentMetrics:
             "da_active_requests",
             "Number of in-flight requests",
         )
+        self.active_streams = Gauge(
+            "da_active_streams",
+            "Number of agent turns currently streaming",
+        )
 
         # -----------------------------------------------------------------
         # LLM call metrics (recorded by MetricsAgentMiddleware)
@@ -58,6 +62,16 @@ class AgentMetrics:
             "da_llm_calls_total",
             "Total LLM model calls",
             labelnames=["agent_name", "model_id", "status"],
+        )
+        self.llm_input_tokens_total = Counter(
+            "da_llm_input_tokens_total",
+            "Total input tokens reported by LLM providers",
+            labelnames=["agent_name", "model_id"],
+        )
+        self.llm_output_tokens_total = Counter(
+            "da_llm_output_tokens_total",
+            "Total output tokens reported by LLM providers",
+            labelnames=["agent_name", "model_id"],
         )
 
         # -----------------------------------------------------------------
@@ -113,6 +127,37 @@ class AgentMetrics:
             "da_turns_total",
             "Total turns (stream or resume)",
             labelnames=["agent_name", "model_id", "turn_type", "status"],
+        )
+        self.turn_time_to_first_response_seconds = Histogram(
+            "da_turn_time_to_first_response_seconds",
+            "Time from turn start to the first user-visible text response",
+            labelnames=["agent_name", "model_id", "turn_type"],
+            buckets=(0.1, 0.25, 0.5, 0.75, 1, 1.5, 2, 3, 5, 7.5, 10, 15, 20, 30, 60, 120, float("inf")),
+        )
+
+        # -----------------------------------------------------------------
+        # Runtime cache saturation metrics
+        # -----------------------------------------------------------------
+        self.runtime_cache_entries = Gauge(
+            "da_runtime_cache_entries",
+            "Number of agent runtimes currently held in the shared cache",
+        )
+        self.runtime_cache_capacity = Gauge(
+            "da_runtime_cache_capacity",
+            "Configured maximum number of runtimes in the shared cache",
+        )
+        self.runtime_cache_pending_initializations = Gauge(
+            "da_runtime_cache_pending_initializations",
+            "Number of agent runtime initializations currently in progress",
+        )
+        self.runtime_cache_evictions_total = Counter(
+            "da_runtime_cache_evictions_total",
+            "Total agent runtime cache evictions",
+            labelnames=["reason"],
+        )
+        self.runtime_cache_capacity_rejections_total = Counter(
+            "da_runtime_cache_capacity_rejections_total",
+            "Total requests rejected because every cached runtime was actively streaming",
         )
 
         self._initialized = True
