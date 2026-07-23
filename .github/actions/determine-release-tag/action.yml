@@ -107,8 +107,10 @@ runs:
         #   x.y.z
         #   x.y.z-dev.N / -rc.N / -hotfix.N  (with optional -chart.M suffix)
         #   x.y.z-ui-<sha> / -tome-<sha> / -apps-<sha>  (mirror component releases)
+        #   x.y.z-ui-main-<sha> / -tome-release-<sha> / ...  (mirror releases with a
+        #   main/release branch tag inserted before the sha, see release-caipe-ui.yml)
         if [[ -n "$FINAL_TAG" ]] && ! [[ "$FINAL_TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-dev\.[0-9]+|-rc\.[0-9]+|-hotfix\.[0-9]+)?(-chart\.[0-9]+)?$ ]] \
-                                 && ! [[ "$FINAL_TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+-(ui|tome|apps)-[0-9a-f]+$ ]]; then
+                                 && ! [[ "$FINAL_TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+-(ui|tome|apps)-((main|release)-)?[0-9a-f]+$ ]]; then
           echo "❌ Unexpected tag format: $FINAL_TAG"
           exit 1
         fi
