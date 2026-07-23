@@ -1,7 +1,7 @@
 "use client";
 
+import { CardPagination } from "@/components/admin/shared/CardPagination";
 import { Card,CardContent,CardDescription,CardHeader,CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import {
 getLabeledValues,
 getScalarValue,
@@ -695,7 +695,7 @@ export function AgentHealthTable({
   reliabilityState,
   latencyState,
 }: AgentHealthTableProps) {
-  const [page, setPage] = useState(0);
+  const [page, setPage] = useState(1);
   const rows = useMemo(() => {
     const volumes = metricMap(volumeState.data, "agent_name");
     const reliabilities = metricMap(reliabilityState.data, "agent_name");
@@ -715,8 +715,8 @@ export function AgentHealthTable({
   const configured = volumeState.configured && reliabilityState.configured && latencyState.configured;
   const error = volumeState.error || reliabilityState.error || latencyState.error;
   const pageCount = Math.max(1, Math.ceil(rows.length / 10));
-  const safePage = Math.min(page, pageCount - 1);
-  const visibleRows = rows.slice(safePage * 10, safePage * 10 + 10);
+  const safePage = Math.min(page, pageCount);
+  const visibleRows = rows.slice((safePage - 1) * 10, safePage * 10);
 
   return (
     <Card className="relative" aria-busy={loading}>
@@ -763,32 +763,14 @@ export function AgentHealthTable({
             </table>
           </div>
         )}
-        {rows.length > 10 && (
-          <div className="mt-3 flex items-center justify-between gap-3 text-xs text-muted-foreground">
-            <span>
-              Showing {safePage * 10 + 1}–{Math.min((safePage + 1) * 10, rows.length)} of {rows.length}
-            </span>
-            <div className="flex items-center gap-2">
-              <span>Page {safePage + 1} of {pageCount}</span>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={safePage === 0}
-                onClick={() => setPage((current) => Math.max(0, current - 1))}
-              >
-                Previous
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={safePage >= pageCount - 1}
-                onClick={() => setPage((current) => Math.min(pageCount - 1, current + 1))}
-              >
-                Next
-              </Button>
-            </div>
-          </div>
-        )}
+        <CardPagination
+          label="agent health"
+          page={safePage}
+          pageSize={10}
+          total={rows.length}
+          disabled={loading}
+          onPageChange={setPage}
+        />
       </CardContent>
       {rows.length > 0 && <RefreshOverlay loading={loading} />}
       {rows.length > 0 && !loading && <RefreshError error={error} />}
