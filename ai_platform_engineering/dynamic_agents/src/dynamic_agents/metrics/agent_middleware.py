@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
 
 from langchain.agents.middleware import AgentMiddleware
@@ -23,6 +23,52 @@ from langgraph.types import Command
 from dynamic_agents.metrics.agent_metrics import metrics
 
 logger = logging.getLogger(__name__)
+
+
+def _as_nonnegative_int(value: Any) -> int:
+    """Normalize provider token counts without letting malformed metadata break a call."""
+    if isinstance(value, bool):
+        return 0
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return 0
+    return max(parsed, 0)
+
+
+def _message_token_usage(message: AIMessage) -> tuple[int, int]:
+    """Read normalized LangChain usage metadata, with provider fallbacks."""
+    usage = getattr(message, "usage_metadata", None)
+    if not isinstance(usage, Mapping):
+        response_metadata = getattr(message, "response_metadata", None)
+        if isinstance(response_metadata, Mapping):
+            candidate = response_metadata.get("token_usage") or response_metadata.get("usage")
+            usage = candidate if isinstance(candidate, Mapping) else None
+
+    if not isinstance(usage, Mapping):
+        return 0, 0
+
+    input_tokens = _as_nonnegative_int(
+        usage.get("input_tokens", usage.get("prompt_tokens")),
+    )
+    output_tokens = _as_nonnegative_int(
+        usage.get("output_tokens", usage.get("completion_tokens")),
+    )
+    return input_tokens, output_tokens
+
+
+def _extract_token_usage(result: ModelResponse | AIMessage) -> tuple[int, int]:
+    """Sum token usage across AI messages in a model middleware response."""
+    messages = result.result if isinstance(result, ModelResponse) else [result]
+    input_tokens = 0
+    output_tokens = 0
+    for message in messages:
+        if not isinstance(message, AIMessage):
+            continue
+        message_input, message_output = _message_token_usage(message)
+        input_tokens += message_input
+        output_tokens += message_output
+    return input_tokens, output_tokens
 
 
 class MetricsAgentMiddleware(AgentMiddleware):
@@ -50,6 +96,17 @@ class MetricsAgentMiddleware(AgentMiddleware):
         status = "success"
         try:
             result = await handler(request)
+            input_tokens, output_tokens = _extract_token_usage(result)
+            if input_tokens > 0:
+                metrics.llm_input_tokens_total.labels(
+                    agent_name=self._agent_name,
+                    model_id=self._model_id,
+                ).inc(input_tokens)
+            if output_tokens > 0:
+                metrics.llm_output_tokens_total.labels(
+                    agent_name=self._agent_name,
+                    model_id=self._model_id,
+                ).inc(output_tokens)
             return result
         except Exception:
             status = "error"

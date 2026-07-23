@@ -69,6 +69,14 @@ jest.mock('@/components/admin/shared/SimpleLineChart', () => ({
   SimpleLineChart: () => <div data-testid="line-chart" />,
 }));
 
+jest.mock('@/components/admin/shared/FeedbackTrendChart', () => ({
+  FeedbackTrendChart: ({
+    data,
+  }: {
+    data: Array<{ label: string; positive: number; negative: number }>;
+  }) => <div data-testid="feedback-trend-chart">{JSON.stringify(data)}</div>,
+}));
+
 jest.mock('@/components/admin/platform/MetricsTab', () => ({
   MetricsTab: () => <div data-testid="metrics-tab">MetricsTab</div>,
 }));
@@ -1593,6 +1601,97 @@ describe('Admin Dashboard Page', () => {
     });
   });
 
+  describe('Insights filter deep links', () => {
+    it('applies Statistics URL filters to the first card requests', async () => {
+      currentSearchParams = new URLSearchParams({
+        cat: 'insights',
+        tab: 'stats',
+        source: 'slack',
+        statsChannels: 'primary-channel',
+        statsAgents: 'agent-primary',
+        statsIncludeBots: 'true',
+        users: 'test-user@example.com',
+        dateRange: '7d',
+      });
+      const fetchMock = setupFetchMock();
+
+      render(<AdminPage />);
+      await screen.findByText('42');
+
+      const statsUrls = fetchMock.mock.calls
+        .map(([url]) => new URL(url, 'http://localhost'))
+        .filter((url) => url.pathname === '/api/admin/stats');
+      expect(statsUrls.length).toBeGreaterThan(0);
+      expect(statsUrls.every((url) => (
+        url.searchParams.get('source') === 'slack'
+        && url.searchParams.get('channel') === 'primary-channel'
+        && url.searchParams.get('agent') === 'agent-primary'
+        && url.searchParams.get('include_bots') === 'true'
+        && url.searchParams.get('user') === 'test-user@example.com'
+        && url.searchParams.get('range') === '7d'
+      ))).toBe(true);
+      expect(screen.getByLabelText(/show bot users/i)).toBeChecked();
+      expect(await screen.findByRole('button', { name: /Primary Agent/ })).toBeInTheDocument();
+
+      fireEvent.click(screen.getByLabelText(/show bot users/i));
+      const updatedStatsUrl = new URL(replaceMock.mock.calls.at(-1)?.[0], 'http://localhost');
+      expect(updatedStatsUrl.searchParams.has('statsIncludeBots')).toBe(false);
+      expect(updatedStatsUrl.searchParams.get('statsChannels')).toBe('primary-channel');
+      expect(updatedStatsUrl.searchParams.get('statsAgents')).toBe('agent-primary');
+    });
+
+    it('applies Feedback URL filters to the initial request', async () => {
+      currentSearchParams = new URLSearchParams({
+        cat: 'insights',
+        tab: 'feedback',
+        source: 'slack',
+        channels: 'primary-channel',
+        rating: 'negative',
+        search: 'incorrect',
+        users: 'team:Platform Team,test-user@example.com',
+        dateRange: '7d',
+      });
+      const fetchMock = setupFetchMock({
+        feedback: {
+          ...mockFeedbackResponse,
+          data: {
+            ...mockFeedbackResponse.data,
+            channels: ['primary-channel'],
+            users: ['test-user@example.com'],
+          },
+        },
+      });
+
+      render(<AdminPage />);
+
+      await waitFor(() => {
+        expect(fetchMock.mock.calls.some(([url]) => String(url).startsWith('/api/admin/feedback?'))).toBe(true);
+      });
+      const feedbackUrls = fetchMock.mock.calls
+        .map(([url]) => new URL(url, 'http://localhost'))
+        .filter((url) => url.pathname === '/api/admin/feedback');
+      expect(feedbackUrls).toHaveLength(1);
+      const feedbackUrl = feedbackUrls[0];
+      expect(feedbackUrl.searchParams.get('source')).toBe('slack');
+      expect(feedbackUrl.searchParams.get('channel')).toBe('primary-channel');
+      expect(feedbackUrl.searchParams.get('rating')).toBe('negative');
+      expect(feedbackUrl.searchParams.get('search')).toBe('incorrect');
+      expect(feedbackUrl.searchParams.get('team')).toBe('platform-team');
+      expect(feedbackUrl.searchParams.get('user')).toBe('test-user@example.com');
+      const from = Date.parse(feedbackUrl.searchParams.get('from') ?? '');
+      const to = Date.parse(feedbackUrl.searchParams.get('to') ?? '');
+      expect(to - from).toBeGreaterThanOrEqual(6.9 * 24 * 60 * 60 * 1000);
+      expect(to - from).toBeLessThanOrEqual(7.1 * 24 * 60 * 60 * 1000);
+      expect(screen.getByRole('button', { name: 'negative' })).toHaveClass('bg-primary');
+
+      fireEvent.click(screen.getByRole('button', { name: 'all' }));
+      const updatedFeedbackUrl = new URL(replaceMock.mock.calls.at(-1)?.[0], 'http://localhost');
+      expect(updatedFeedbackUrl.searchParams.has('rating')).toBe(false);
+      expect(updatedFeedbackUrl.searchParams.get('source')).toBe('slack');
+      expect(updatedFeedbackUrl.searchParams.get('channels')).toBe('primary-channel');
+    });
+  });
+
   describe('Stats rendering', () => {
     beforeEach(() => {
       setupFetchMock();
@@ -1623,6 +1722,31 @@ describe('Admin Dashboard Page', () => {
       expect(screen.getByText('Messages')).toBeInTheDocument();
       expect(screen.getByText('Daily Active Users (DAU)')).toBeInTheDocument();
       expect(screen.queryByText('NaN')).not.toBeInTheDocument();
+    });
+
+    it('passes positive and negative daily feedback as separate chart series', async () => {
+      setupFetchMock({
+        stats: {
+          ...mockStatsResponse,
+          data: {
+            ...mockStatsResponse.data,
+            feedback_summary: {
+              positive: 8,
+              negative: 3,
+              total: 11,
+              daily: [{ date: '2026-07-20', positive: 8, negative: 3 }],
+            },
+          },
+        },
+      });
+      render(<AdminPage />);
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Insights' }));
+
+      const chart = await screen.findByTestId('feedback-trend-chart');
+      expect(chart).toHaveTextContent('"positive":8');
+      expect(chart).toHaveTextContent('"negative":3');
+      expect(chart).not.toHaveTextContent('"value":11');
     });
 
     it('updates cards independently and issues one request per section when a filter changes', async () => {
