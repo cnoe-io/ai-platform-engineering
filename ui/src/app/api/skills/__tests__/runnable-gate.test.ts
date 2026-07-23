@@ -81,6 +81,61 @@ describe("filterSkillsByOpenFga", () => {
     expect(filtered).toEqual([]);
   });
 
+  // Regression: catalog API key (X-Caipe-Catalog-Key) previously returned a
+  // session with no `sub`, hitting the null-subject guard and returning [].
+  // The fix gives the key a stable synthetic subject + a dedicated read path.
+  it("catalog API key subject returns default skills in read mode without OpenFGA", async () => {
+    const check = jest.fn(async () => ({ allowed: false }));
+    const skills: CatalogSkill[] = [
+      { ...baseSkill, id: "builtin-1", source: "default" },
+      { ...baseSkill, id: "agent-private", source: "agent_skills" },
+      { ...baseSkill, id: "hub-1", source: "hub" },
+    ];
+
+    const filtered = await filterSkillsByOpenFga(skills, {
+      subject: "catalog-key-user@local",
+      mode: "read",
+      check,
+    });
+
+    expect(filtered.map((s) => s.id)).toEqual(["builtin-1"]);
+    expect(check).not.toHaveBeenCalled();
+  });
+
+  it("catalog API key subject cannot use skills without an OpenFGA can_use tuple", async () => {
+    // The catalog key has no can_use tuple in OpenFGA, so even default
+    // skills are blocked when the caller requests content (use mode).
+    const filtered = await filterSkillsByOpenFga(
+      [{ ...baseSkill, id: "builtin-1", source: "default" }],
+      {
+        subject: "catalog-key-user@local",
+        mode: "use",
+        check: async () => ({ allowed: false }),
+      },
+    );
+
+    expect(filtered).toEqual([]);
+  });
+
+  // Regression: local skills JWT (HS256 from /api/skills/token) previously
+  // returned session: { role: 'user' } with no `sub`, hitting the null guard.
+  // The fix adds sub: localIdentity.email so OpenFGA checks use real identity.
+  it("local skills JWT subject resolves OpenFGA tuples for agent_skills", async () => {
+    const filtered = await filterSkillsByOpenFga(
+      [
+        { ...baseSkill, id: "builtin-1", source: "default" },
+        { ...baseSkill, id: "my-custom-skill", source: "agent_skills" },
+      ],
+      {
+        subject: "user:sraradhy@cisco.com",
+        mode: "read",
+        check: async (tuple) => ({ allowed: tuple.object === "skill:my-custom-skill" }),
+      },
+    );
+
+    expect(filtered.map((s) => s.id)).toEqual(["builtin-1", "my-custom-skill"]);
+  });
+
   it("does not call OpenFGA and returns all skills for admins", async () => {
     const check = jest.fn(async () => ({ allowed: false }));
     const skills: CatalogSkill[] = [
