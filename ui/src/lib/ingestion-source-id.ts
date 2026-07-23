@@ -26,14 +26,27 @@ export function slackChannelSourceId(channelId: string): string {
   return `slack-channel-${channelId}`;
 }
 
+/**
+ * Extract the URL's netloc (host[:port]) exactly as Python's
+ * `urlparse(url).netloc` would — case and port preserved. The WHATWG `URL`
+ * API always lowercases the ASCII hostname, which would silently diverge
+ * from the Python ingestor's id for any mixed-case or non-default-port host.
+ */
+function netloc(url: string): string {
+  return url.replace(/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//, "").split(/[/?#]/)[0];
+}
+
 export function confluenceSpaceSourceId(confluenceUrl: string, spaceKey: string): string {
-  const domain = new URL(confluenceUrl).hostname.replace(/[.-]/g, "_");
+  const domain = netloc(confluenceUrl).replace(/[.-]/g, "_");
   return `src_confluence___${domain}__${spaceKey}`;
 }
 
 export function webUrlSourceId(url: string): string {
   const sourceHash = createHash("md5").update(url).digest("hex").slice(0, 12);
-  const cleanUrl = url.replace(/[^A-Za-z0-9]/g, "_");
+  // Matches Python's `c.isalnum()` (Unicode-aware) rather than an ASCII-only
+  // class, so non-ASCII letters/digits in the URL clean the same way on
+  // both sides.
+  const cleanUrl = url.replace(/[^\p{L}\p{N}]/gu, "_");
   return `src_${cleanUrl}_${sourceHash}`;
 }
 
