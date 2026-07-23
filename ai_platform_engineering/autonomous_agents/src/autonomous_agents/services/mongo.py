@@ -1029,6 +1029,8 @@ class MongoWebexThreadMapAdapter:
 class MongoChatHistoryPublisherAdapter:
     """:class:`ChatHistoryPublisher` facade around :class:`MongoService`."""
 
+    enabled = True
+
     def __init__(self, mongo: MongoService) -> None:
         self._mongo = mongo
 

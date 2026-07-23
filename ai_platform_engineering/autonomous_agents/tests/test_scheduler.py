@@ -78,6 +78,8 @@ class _FlakyStore:
 class _RecordingPublisher:
     """Captures every ``publish_run`` invocation for later assertions."""
 
+    enabled = True
+
     def __init__(self) -> None:
         self.calls: list[dict] = []
 
@@ -107,6 +109,8 @@ class _RecordingPublisher:
 
 class _FlakyPublisher:
     """Raises on every ``publish_run``; counts invocations."""
+
+    enabled = True
 
     def __init__(self) -> None:
         self.calls = 0
@@ -511,13 +515,29 @@ class TestChatHistoryPublisher:
     async def test_default_publisher_is_noop_when_unset(
         self, store: _DictRunStore, cron_task: TaskDefinition,
     ):
-        """Unset publisher falls back to a no-op so scheduler still works."""
+        """Disabled publishing runs normally without advertising a chat link."""
         with patch(
             "autonomous_agents.services.task_runner.invoke_dynamic_agent_streaming",
             new=AsyncMock(return_value=("ok", [])),
         ):
             run = await execute_task(cron_task)
         assert run.status == TaskStatus.SUCCESS
+        assert run.conversation_id is None
+
+    async def test_disabled_publisher_keeps_internal_dynamic_agent_conversation_id(
+        self, store: _DictRunStore, cron_task: TaskDefinition,
+    ):
+        """The runtime context id remains stable even when no UI chat is published."""
+        invoke = AsyncMock(return_value=("ok", []))
+        with patch(
+            "autonomous_agents.services.task_runner.invoke_dynamic_agent_streaming",
+            new=invoke,
+        ):
+            await execute_task(cron_task)
+
+        assert invoke.await_args.kwargs["conversation_id"] == conversation_id_for_task(
+            cron_task.id
+        )
 
 
 class TestFollowUp:

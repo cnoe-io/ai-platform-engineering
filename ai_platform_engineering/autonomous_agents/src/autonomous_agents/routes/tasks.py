@@ -28,6 +28,7 @@ from autonomous_agents.services.task_lifecycle import (
     validate_task_for_runtime,
 )
 from autonomous_agents.services.task_runner import (
+    chat_history_publishing_enabled,
     execute_task,
     get_run_store,
 )
@@ -109,6 +110,18 @@ def _filter_runs_for_caller(
     return [run for run in runs if run.owner_id == caller_email]
 
 
+def _hide_unpublished_chat_links(runs: list[TaskRun]) -> list[TaskRun]:
+    """Remove chat links from API responses when no chat record can exist."""
+    if chat_history_publishing_enabled():
+        return runs
+    return [
+        run.model_copy(update={"conversation_id": None})
+        if run.conversation_id
+        else run
+        for run in runs
+    ]
+
+
 # Maximum runs returned by /tasks/{id}/runs.
 _MAX_TASK_RUNS = 500
 
@@ -148,7 +161,11 @@ def _serialize_task(task: TaskDefinition, next_run_iso: str | None) -> dict:
         "timeout_seconds": task.timeout_seconds,
         "next_run": next_run_iso,
         "last_ack": ack_dump,
-        "chat_conversation_id": conversation_id_for_task(task.id),
+        "chat_conversation_id": (
+            conversation_id_for_task(task.id)
+            if chat_history_publishing_enabled()
+            else None
+        ),
         "owner_id": task.owner_id,
         # Owner's Keycloak subject (UUID). Exposed read-only so the admin
         # oversight UI can join tasks to team members by stable subject rather
@@ -460,11 +477,13 @@ async def get_task_runs(task_id: str, request: Request) -> list[TaskRun]:
         # deleted-task runs stay inspectable without leaking across users.
         if not history:
             raise HTTPException(status_code=404, detail=f"Task '{task_id}' not found")
-        return _filter_runs_for_caller(history, caller_email, is_admin)
+        return _hide_unpublished_chat_links(
+            _filter_runs_for_caller(history, caller_email, is_admin)
+        )
 
     # Task exists and access was asserted above: every run for this task
     # belongs to its owner, so the whole history is the caller's to see.
-    return history
+    return _hide_unpublished_chat_links(history)
 
 
 @router.post("/tasks/{task_id}/run", response_model=dict)
@@ -498,4 +517,6 @@ async def list_all_runs(request: Request) -> list[TaskRun]:
     """
     caller_email, is_admin, _ = _get_caller(request)
     runs = await get_run_store().list_all()
-    return _filter_runs_for_caller(runs, caller_email, is_admin)
+    return _hide_unpublished_chat_links(
+        _filter_runs_for_caller(runs, caller_email, is_admin)
+    )

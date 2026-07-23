@@ -121,6 +121,8 @@ class ChatHistoryPublisher(Protocol):
     CRUD route.
     """
 
+    enabled: bool
+
     async def publish_run(
         self,
         run: TaskRun,
@@ -160,6 +162,8 @@ class NoopChatHistoryPublisher:
     interfaces identical means the callers don't need any "is
     publishing on?" branches.
     """
+
+    enabled = False
 
     async def publish_run(
         self,

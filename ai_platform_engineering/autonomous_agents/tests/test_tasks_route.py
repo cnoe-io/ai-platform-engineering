@@ -36,6 +36,7 @@ from autonomous_agents.routes.tasks import (
     list_all_runs,
 )
 from autonomous_agents.services import task_lifecycle, webhook_runtime
+from autonomous_agents.services.chat_history import conversation_id_for_task
 from autonomous_agents.services.mongo import (
     TaskAlreadyExistsError,
     TaskNotFoundError,
@@ -105,7 +106,10 @@ class _RecordingStore:
 
 
 def _make_run(
-    run_id: str, task_id: str = "t1", owner_id: str | None = None
+    run_id: str,
+    task_id: str = "t1",
+    owner_id: str | None = None,
+    conversation_id: str | None = None,
 ) -> TaskRun:
     return TaskRun(
         run_id=run_id,
@@ -114,6 +118,7 @@ def _make_run(
         status=TaskStatus.SUCCESS,
         started_at=datetime.now(timezone.utc),
         owner_id=owner_id,
+        conversation_id=conversation_id,
     )
 
 
@@ -628,6 +633,39 @@ class TestRunHistory:
         assert len(runs) == 1
         assert store.list_all_calls == [500]
 
+    async def test_run_history_hides_stale_chat_links_when_publishing_is_disabled(
+        self, _swap_run_store
+    ):
+        """Previously stored ids must not keep rendering broken chat links."""
+        stored = _make_run("r1", conversation_id="11111111-1111-1111-1111-111111111111")
+        _swap_run_store(_RecordingStore([stored]))
+        await _seed_tasks([_make_task("t1")])
+
+        with patch.object(
+            tasks_route, "chat_history_publishing_enabled", return_value=False
+        ):
+            runs = await get_task_runs("t1", _fake_request())
+
+        assert runs[0].conversation_id is None
+        assert stored.conversation_id == "11111111-1111-1111-1111-111111111111"
+
+    async def test_run_history_keeps_chat_links_when_publishing_is_enabled(
+        self, _swap_run_store
+    ):
+        """Published conversations retain their links in run-history responses."""
+        conversation_id = "11111111-1111-1111-1111-111111111111"
+        _swap_run_store(
+            _RecordingStore([_make_run("r1", conversation_id=conversation_id)])
+        )
+        await _seed_tasks([_make_task("t1")])
+
+        with patch.object(
+            tasks_route, "chat_history_publishing_enabled", return_value=True
+        ):
+            runs = await get_task_runs("t1", _fake_request())
+
+        assert runs[0].conversation_id == conversation_id
+
 
 class TestRunHistoryOwnership:
     """Codex P1: run-history reads are scoped by task ownership.
@@ -812,6 +850,40 @@ class TestDynamicAgentRouting:
         serialized = _serialize_task(task, next_run_iso=None)
         assert serialized["dynamic_agent_id"] is None
         assert serialized["agent"] == "github"
+
+    def test_serialize_task_hides_chat_link_when_publishing_is_disabled(self):
+        """Tasks must not advertise a conversation that is never created."""
+        task = TaskDefinition(
+            id="no-chat-task",
+            name="No Chat Task",
+            dynamic_agent_id="agent-x",
+            prompt="run the custom thing",
+            trigger=CronTrigger(schedule="0 9 * * *"),
+        )
+
+        with patch.object(
+            tasks_route, "chat_history_publishing_enabled", return_value=False
+        ):
+            serialized = _serialize_task(task, next_run_iso=None)
+
+        assert serialized["chat_conversation_id"] is None
+
+    def test_serialize_task_exposes_chat_link_when_publishing_is_enabled(self):
+        """Tasks expose their deterministic thread only for an active publisher."""
+        task = TaskDefinition(
+            id="chat-task",
+            name="Chat Task",
+            dynamic_agent_id="agent-x",
+            prompt="run the custom thing",
+            trigger=CronTrigger(schedule="0 9 * * *"),
+        )
+
+        with patch.object(
+            tasks_route, "chat_history_publishing_enabled", return_value=True
+        ):
+            serialized = _serialize_task(task, next_run_iso=None)
+
+        assert serialized["chat_conversation_id"] == conversation_id_for_task(task.id)
 
 
 def test_task_route_uses_lifecycle_task_store() -> None:

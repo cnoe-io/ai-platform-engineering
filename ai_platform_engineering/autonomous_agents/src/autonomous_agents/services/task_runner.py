@@ -99,6 +99,11 @@ def set_chat_history_publisher(publisher: ChatHistoryPublisher) -> None:
     _chat_history_publisher = publisher
 
 
+def chat_history_publishing_enabled() -> bool:
+    """Return whether autonomous runs are being published to UI chat history."""
+    return get_chat_history_publisher().enabled
+
+
 def get_webex_thread_map() -> WebexThreadMap | None:
     """Return the active :class:`WebexThreadMap`, or None if unconfigured.
 
@@ -293,12 +298,13 @@ async def execute_task(
     finally block so audit tooling can navigate delivery -> run.
     """
     run_id = run_id or str(uuid.uuid4())
-    # Pre-compute the deterministic per-task conversation id so it lands
-    # in ``autonomous_runs`` from the very first RUNNING write -- the
-    # UI can then deep-link from a run row to ``/chat/<id>`` as soon
-    # as the run appears, even before the terminal state is recorded.
+    # Always use the deterministic per-task id for Dynamic Agents execution,
+    # but expose it on run history only when a UI chat record will be published.
     # Spec #099 FR-006 / AD-002: one chat thread per task, not per run.
     conversation_id = conversation_id_for_task(task.id)
+    published_conversation_id = (
+        conversation_id if chat_history_publishing_enabled() else None
+    )
     # Materialise the prompt the agent will actually see. For follow-up
     # runs we splice the operator reply into a clearly-labelled section
     # so the LLM treats it as new instructions rather than confusing it
@@ -329,7 +335,7 @@ async def execute_task(
         task_id=task.id,
         task_name=task.name,
         status=TaskStatus.RUNNING,
-        conversation_id=conversation_id,
+        conversation_id=published_conversation_id,
         parent_run_id=follow_up.parent_run_id if follow_up else None,
         request_prompt=effective_task.prompt,
         trigger_instance_id=trigger_instance_id,

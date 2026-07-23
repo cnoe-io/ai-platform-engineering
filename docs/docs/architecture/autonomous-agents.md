@@ -62,6 +62,8 @@ autonomous-agents:
       key: OIDC_CLIENT_SECRET
   config:
     MONGODB_DATABASE: caipe
+    # Opt in to publishing autonomous task threads into the normal Chat UI.
+    CHAT_HISTORY_PUBLISH_ENABLED: "true"
     # Optional overrides. When empty, the subchart defaults to the in-release
     # Services for Dynamic Agents and the legacy supervisor endpoint.
     # DYNAMIC_AGENTS_URL: "http://external-dynamic-agents:8001"
@@ -79,6 +81,19 @@ kubectl create secret generic autonomous-agents-secret \
 `MONGODB_URI` is required. `WEBHOOK_SECRET` is required before webhook ingress is
 enabled. Add `WEBEX_BOT_TOKEN`, `WEBEX_WEBHOOK_SECRET`, and
 `WEBEX_BOT_PUBLIC_URL` to the same Secret when using Webex-triggered tasks.
+
+### Enable chat history
+
+`CHAT_HISTORY_PUBLISH_ENABLED` defaults to `"false"`. With the default setting,
+tasks, run status, errors, and response previews remain available in the
+Autonomous tab, but autonomous runs are not written to the normal Chat history
+and no **Thread** or **Open in chat** links are exposed.
+
+Set `autonomous-agents.config.CHAT_HISTORY_PUBLISH_ENABLED: "true"` to publish
+one Chat conversation per autonomous task. Autonomous Agents and the CAIPE UI
+must use the same MongoDB database. After enabling the setting, run an existing
+task again to create or update its conversation; runs completed while publishing
+was disabled are not backfilled automatically.
 
 Autonomous Agents must also authenticate to Dynamic Agents. With bundled
 Keycloak, `dynamicAgentsAuth` uses the `caipe-platform` client and defaults its
@@ -162,6 +177,7 @@ the CAIPE UI proxy, not by the Autonomous Agents service itself.
 | `DYNAMIC_AGENTS_OAUTH2_SCOPE` | `autonomous-agents.dynamicAgentsAuth.scope` | Scopes requested for the service bearer token. |
 | `MONGODB_URI` | `autonomous-agents.existingSecret` or ExternalSecret | Shared MongoDB connection for tasks and run history. |
 | `MONGODB_DATABASE` | `autonomous-agents.config` | MongoDB database name, normally `caipe`. |
+| `CHAT_HISTORY_PUBLISH_ENABLED` | `autonomous-agents.config` | Opts in to publishing autonomous task conversations into the normal Chat history. Defaults to `"false"`. |
 | `WEBHOOK_SECRET` | `autonomous-agents.existingSecret` or ExternalSecret | HMAC fallback secret for incoming webhooks. |
 | `WEBEX_BOT_TOKEN` | `autonomous-agents.existingSecret` or ExternalSecret | Enables Webex inbound events. |
 | `WEBEX_WEBHOOK_SECRET` | `autonomous-agents.existingSecret` or ExternalSecret | Verifies Webex webhook signatures. |
