@@ -603,4 +603,122 @@ describe("admin platform-config route", () => {
       ),
     ).rejects.toThrow(/slack_victorops_escalation_agent_id/);
   });
+
+  // ---------------------------------------------------------------------
+  // remote_mcp_catalog
+  //
+  // Controls which built-in provider tiles the Add Server catalog dialog
+  // shows. Default (no config document, or a document that has never
+  // touched this field) must be "disable all" — operators opt in per
+  // provider rather than every built-in appearing unconfigured. An
+  // explicit `enabled_providers: null` is a distinct, deliberate "Enable
+  // all" admin action and must keep meaning "show every provider".
+  // ---------------------------------------------------------------------
+
+  it("defaults remote_mcp_catalog.enabled_providers to [] (disable all) when no config document exists", async () => {
+    mockGetCollection.mockResolvedValue({
+      findOne: jest.fn().mockResolvedValue(null),
+      updateOne: jest.fn(),
+    });
+    const { GET } = await import("../route");
+
+    const body = await (await GET(request("/api/admin/platform-config"))).json();
+
+    expect(body.data.remote_mcp_catalog).toEqual({ enabled_providers: [], custom_entries: [] });
+  });
+
+  it("defaults remote_mcp_catalog.enabled_providers to [] when the document exists but never set this field", async () => {
+    mockGetCollection.mockResolvedValue({
+      findOne: jest.fn().mockResolvedValue({ _id: "platform_settings", default_agent_id: "agent-default" }),
+      updateOne: jest.fn(),
+    });
+    const { GET } = await import("../route");
+
+    const body = await (await GET(request("/api/admin/platform-config"))).json();
+
+    expect(body.data.remote_mcp_catalog).toEqual({ enabled_providers: [], custom_entries: [] });
+  });
+
+  it("persists an explicit 'Enable all' (enabled_providers: null) and echoes it back on PATCH", async () => {
+    const updateOne = jest.fn().mockResolvedValue({ acknowledged: true });
+    mockGetCollection.mockResolvedValue({
+      findOne: jest.fn().mockResolvedValue({ _id: "platform_settings" }),
+      updateOne,
+    });
+    const { PATCH } = await import("../route");
+
+    const response = await PATCH(
+      request("/api/admin/platform-config", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          remote_mcp_catalog: { enabled_providers: null, custom_entries: [] },
+        }),
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.remote_mcp_catalog).toEqual({ enabled_providers: null, custom_entries: [] });
+    expect(updateOne).toHaveBeenCalledWith(
+      { _id: "platform_settings" },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          remote_mcp_catalog: { enabled_providers: null, custom_entries: [] },
+        }),
+      }),
+      { upsert: true },
+    );
+  });
+
+  it("GET reflects a previously-saved 'Enable all' as null, not the disable-all default", async () => {
+    mockGetCollection.mockResolvedValue({
+      findOne: jest.fn().mockResolvedValue({
+        _id: "platform_settings",
+        remote_mcp_catalog: { enabled_providers: null, custom_entries: [] },
+      }),
+      updateOne: jest.fn(),
+    });
+    const { GET } = await import("../route");
+
+    const body = await (await GET(request("/api/admin/platform-config"))).json();
+
+    expect(body.data.remote_mcp_catalog.enabled_providers).toBeNull();
+  });
+
+  it("persists a specific enabled_providers allowlist on PATCH and echoes it back on GET", async () => {
+    const updateOne = jest.fn().mockResolvedValue({ acknowledged: true });
+    mockGetCollection.mockResolvedValue({
+      findOne: jest.fn().mockResolvedValue({ _id: "platform_settings" }),
+      updateOne,
+    });
+    const { PATCH } = await import("../route");
+
+    const patchResponse = await PATCH(
+      request("/api/admin/platform-config", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          remote_mcp_catalog: { enabled_providers: ["amplitude", "linear"], custom_entries: [] },
+        }),
+      }),
+    );
+
+    expect((await patchResponse.json()).data.remote_mcp_catalog.enabled_providers).toEqual([
+      "amplitude",
+      "linear",
+    ]);
+
+    mockGetCollection.mockResolvedValue({
+      findOne: jest.fn().mockResolvedValue({
+        _id: "platform_settings",
+        remote_mcp_catalog: { enabled_providers: ["amplitude", "linear"], custom_entries: [] },
+      }),
+      updateOne,
+    });
+    const { GET } = await import("../route");
+    const getBody = await (await GET(request("/api/admin/platform-config"))).json();
+
+    expect(getBody.data.remote_mcp_catalog.enabled_providers).toEqual(["amplitude", "linear"]);
+  });
 });

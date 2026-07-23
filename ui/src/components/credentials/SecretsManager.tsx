@@ -62,6 +62,7 @@ export function SecretsManager({
   const [secretValue, setSecretValue] = React.useState("");
   const [secretValueVisible, setSecretValueVisible] = React.useState(false);
   const [createOpen, setCreateOpen] = React.useState(false);
+  const [createOrgLevel, setCreateOrgLevel] = React.useState(false);
   const [sharingSecretId, setSharingSecretId] = React.useState<string | null>(null);
   const [detailsSecretId, setDetailsSecretId] = React.useState<string | null>(null);
   const [rotatingSecretId, setRotatingSecretId] = React.useState<string | null>(null);
@@ -106,24 +107,30 @@ export function SecretsManager({
     setName("");
     setSecretValue("");
     setSecretValueVisible(false);
+    setCreateOrgLevel(false);
     setCreateOpen(false);
   };
 
   const handleCreate = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError(null);
+    const body: Record<string, string> = {
+      name,
+      type: "bearer_token",
+      value: secretValue,
+    };
+    if (createOrgLevel) {
+      body.ownerType = "organization";
+    }
     const response = await fetch("/api/credentials/secrets", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        name,
-        type: "bearer_token",
-        value: secretValue,
-      }),
+      body: JSON.stringify(body),
     });
 
     if (!response.ok) {
-      setError("Could not save secret");
+      const json = await response.json().catch(() => null) as { error?: string } | null;
+      setError(json?.error ?? "Could not save secret");
       return;
     }
 
@@ -315,6 +322,18 @@ export function SecretsManager({
                 </div>
               </div>
             </div>
+            <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={createOrgLevel}
+                onChange={(e) => setCreateOrgLevel(e.target.checked)}
+                className="h-4 w-4 rounded border-input accent-teal-500"
+              />
+              <span>
+                Save as organization secret
+                <span className="ml-1 text-xs text-muted-foreground">(available to all org members, requires admin)</span>
+              </span>
+            </label>
             <Button type="submit">Save Secret</Button>
           </form>
         </div>
@@ -338,7 +357,12 @@ export function SecretsManager({
                       <p className="truncate font-medium">{secret.name}</p>
                       <p className="text-xs text-muted-foreground">
                         {secret.type}
-                        {(secret.sharedWithTeams?.length ?? 0) > 0 && (
+                        {secret.owner?.type === 'organization' && (
+                          <span className="ml-2 rounded-full bg-blue-500/10 px-2 py-0.5 text-blue-300">
+                            Organization
+                          </span>
+                        )}
+                        {secret.owner?.type !== 'organization' && (secret.sharedWithTeams?.length ?? 0) > 0 && (
                           <span className="ml-2 rounded-full bg-teal-500/10 px-2 py-0.5 text-teal-300">
                             Team access enabled
                           </span>
