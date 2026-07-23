@@ -1,3 +1,32 @@
+## 0.5.59 (2026-07-23)
+
+### Fix
+
+- **helm**: default dynamic-agents CAIPE_API_URL from release name (#2255)
+- **ci**: stop hard-failing CI for fork PRs from outside contributors (#2281)
+
+## 0.5.58-dev.3 (2026-07-22)
+
+### Feat
+
+- **ui**: add admin filter deep links (#2279)
+
+### Fix
+
+- **ci**: disambiguate digest artifact patterns to prevent name-prefix collisions (#2277)
+
+## 0.5.58-dev.2 (2026-07-22)
+
+### Feat
+
+- **metrics**: add steady-state operations dashboard (#2278)
+
+## 0.5.58-dev.1 (2026-07-22)
+
+### Fix
+
+- **ui**: compare positive and negative feedback trends (#2276)
+
 ## 0.5.58 (2026-07-22)
 
 ### Fix
@@ -7,13 +36,6 @@
 - **ci**: build rag images natively per-arch instead of QEMU-emulated arm64 (#2272)
 
 ## 0.5.57 (2026-07-22)
-
-### Fix
-
-- **insights**: apply filters consistently across cards (#2270)
-- **insights**: count only assistant messages (#2267)
-- **ui**: load admin insights cards independently (#2260)
-- **insights**: refresh stats and restore user activity (#2259)
 
 ## 0.5.56-dev.4 (2026-07-22)
 
@@ -40,27 +62,6 @@
 - **insights**: refresh stats and restore user activity (#2259)
 
 ## 0.5.56 (2026-07-21)
-
-### Feat
-
-- **ui**: mint signed agent context for MCP tool callers
-- **ui**: scope admin insights by owned agents and add agent filter (#2209)
-- **auth**: OIDC_GROUP_INCLUDELIST and OIDC_GROUP_EXCLUDELIST for AD group sync filtering (#2237)
-- **ci**: link failed CIs and initiated gh user in the release draft to take action
-
-### Fix
-
-- **insights**: remove self-resolution and est. hours saved stats (#2256)
-- **ci**: scope GitHub App token permissions in prebuild artifact comment workflow (#2250)
-- **openfga-bridge**: shorten local context TTL to 8h, fix audit obj, add prebuild image flow
-- **ui**: stop revoking agent-context grants before caller can use them
-- **e2e**: drive the MCP tool picker as a combobox, not a <select>
-- **service-accounts**: let org admins manage service accounts outside their own team
-- **service-accounts**: org admins see all SAs; add search + pagination
-
-### Refactor
-
-- **mcp**: restyle MCP lab tool picker as a searchable combobox
 
 ## 0.5.55-dev.6 (2026-07-21)
 
