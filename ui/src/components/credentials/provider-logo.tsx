@@ -52,6 +52,16 @@ export function ProviderLogo({
           <path d="M2.35 8.98 4.1 3.6c.18-.55.95-.55 1.13 0l2.82 5.38h-5.7ZM21.65 8.98 19.9 3.6c-.18-.55-.95-.55-1.13 0l-2.82 5.38h5.7Z" />
         </svg>
       );
+    case "amplitude":
+      return (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          alt=""
+          aria-hidden="true"
+          className={className ?? "h-7 w-7 object-contain"}
+          src="/provider-logos/amplitude.svg"
+        />
+      );
     default:
       return <span aria-hidden="true" className="text-[10px] tracking-tight">OAuth</span>;
   }
