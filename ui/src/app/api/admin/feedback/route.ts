@@ -25,12 +25,16 @@ interface FeedbackDocument extends Document {
   _id?: ObjectId;
   channel_name?: string;
   comment?: string;
+  context_url?: string;
   conversation_id?: string;
   created_at?: Date;
   message_id?: string;
   rating?: string;
+  report_kind?: string;
   slack_permalink?: string;
   source?: string;
+  ticket_id?: string;
+  ticket_url?: string;
   trace_id?: string;
   user_email?: string;
   user_id?: string;
@@ -98,7 +102,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   }
 
     const rating = searchParams.get('rating'); // 'positive' | 'negative' | null (all)
-    const source = searchParams.get('source'); // 'web' | 'slack' | null (all)
+    const source = searchParams.get('source'); // 'web' | 'slack' | 'report' | null (all)
     const channel = searchParams.get('channel'); // comma-separated channel names | null (all)
     const userFilter = searchParams.get('user'); // comma-separated user emails | null (all)
     const teamFilter = searchParams.get('team'); // comma-separated team slugs | null (all)
@@ -131,6 +135,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
           filter.channel_name = { $in: channels };
         }
       }
+    } else if (source === 'report') {
+      filter.source = 'report';
     }
     if (hasUserFilter) {
       filter.user_email = userEmails.length === 1 ? userEmails[0] : { $in: userEmails };
@@ -258,6 +264,14 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       too_verbose: 'Too verbose',
       retry: 'Retry',
       other: 'Other',
+      problem_report: 'Problem report',
+      Bug: 'Bug',
+      'Confusing UX': 'Confusing UX',
+      'Missing feature': 'Missing feature',
+      Other: 'Other',
+      Trust: 'Trust',
+      'Data quality/wrong info': 'Data quality/wrong info',
+      "Didn't get answer": "Didn't get answer",
     };
 
     const entries = docs.map((doc) => {
@@ -287,6 +301,10 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         submitted_at: doc.created_at,
         trace_id: doc.trace_id || null,
         slack_permalink: doc.slack_permalink || null,
+        ticket_url: doc.ticket_url || null,
+        ticket_id: doc.ticket_id || null,
+        context_url: doc.context_url || null,
+        report_kind: doc.report_kind || null,
       };
     });
 

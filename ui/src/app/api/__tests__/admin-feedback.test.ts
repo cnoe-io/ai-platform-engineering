@@ -510,6 +510,41 @@ describe('GET /api/admin/feedback', () => {
     expect(filter.channel_name).toEqual({ $in: ['general', 'random'] });
   });
 
+  it('filters by source=report', async () => {
+    mockGetServerSession.mockResolvedValue(adminSession());
+    const feedbackCol = setupFeedbackCollection([], 0);
+
+    await GET(makeRequest('/api/admin/feedback?source=report'));
+    const filter = feedbackCol.find.mock.calls[0][0];
+    expect(filter.source).toBe('report');
+  });
+
+  it('returns ticket_url and context_url for report entries', async () => {
+    mockGetServerSession.mockResolvedValue(adminSession());
+
+    const doc = makeFeedbackDoc({
+      source: 'report',
+      rating: 'negative',
+      value: 'Bug',
+      comment: 'Ingest button broken',
+      context_url: 'https://example.test/projects/acme',
+      ticket_url: 'https://github.com/org/repo/issues/99',
+      ticket_id: 'issue-99',
+      report_kind: 'tome-product',
+    });
+    setupFeedbackCollection([doc], 1);
+
+    const res = await GET(makeRequest('/api/admin/feedback'));
+    const body = await res.json();
+    expect(body.data.entries[0]).toMatchObject({
+      source: 'report',
+      ticket_url: 'https://github.com/org/repo/issues/99',
+      context_url: 'https://example.test/projects/acme',
+      report_kind: 'tome-product',
+      reason: 'Bug; Ingest button broken',
+    });
+  });
+
   it('filters by user email', async () => {
     mockGetServerSession.mockResolvedValue(adminSession());
     const feedbackCol = setupFeedbackCollection([], 0);

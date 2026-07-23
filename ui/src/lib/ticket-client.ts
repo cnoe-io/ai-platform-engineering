@@ -129,6 +129,66 @@ export interface CreateTicketOptions {
   onEvent?: (event: TicketStreamEvent, logLine: string) => void;
   onResult?: (result: TicketResult) => void;
   signal?: AbortSignal;
+  /** Defaults to header; use tome-product for TOME UX feedback. */
+  source?: "header" | "chat-feedback" | "tome-product";
+  category?: string;
+  tomeContext?: { projectSlug?: string; pagePath?: string };
+}
+
+/**
+ * Create a GitHub issue via the BFF API (direct REST — no agent required).
+ */
+export async function createTicketViaApi(
+  options: CreateTicketOptions,
+): Promise<TicketResult> {
+  const { request, signal, source = "header", category, tomeContext } = options;
+  const provider = getConfig("ticketProvider");
+  if (provider !== "github") {
+    throw new Error("Direct ticket API is only available for GitHub");
+  }
+
+  const res = await fetch("/api/tickets/report", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      description: request.description,
+      contextUrl: request.contextUrl,
+      feedbackContext: request.feedbackContext,
+      source,
+      category,
+      tomeContext,
+    }),
+    signal,
+  });
+
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const msg =
+      typeof body?.message === "string"
+        ? body.message
+        : typeof body?.error === "string"
+          ? body.error
+          : `Ticket API failed (${res.status})`;
+    throw new Error(msg);
+  }
+
+  const data = body.data as TicketResult;
+  options.onResult?.(data);
+  options.onEvent?.({ type: "done" }, `<- done: ${data.id} ${data.url}`);
+  return data;
+}
+
+/**
+ * Create a ticket using the best available path: GitHub → direct API; Jira → agent.
+ */
+export async function createTicket(
+  options: CreateTicketOptions,
+): Promise<TicketResult | null> {
+  const provider = getConfig("ticketProvider");
+  if (provider === "github" && getConfig("githubTicketEnabled")) {
+    return createTicketViaApi(options);
+  }
+  return createTicketViaAgent(options);
 }
 
 /**

@@ -58,6 +58,7 @@ import { EngagementPanel } from "@/components/tome/EngagementPanel";
 import { PageHistoryView } from "@/components/tome/PageHistoryView";
 import { Breadcrumb, type Crumb } from "@/components/tome/Breadcrumb";
 import { McpConnectDialog } from "@/components/tome/McpConnectDialog";
+import { TomeProductFeedback } from "@/components/tome/TomeProductFeedback";
 import { EdgeGraphDialog } from "@/components/tome/EdgeGraphDialog";
 import { parseFrontmatter, SPEC_BY_PATH } from "@/lib/tome/schema";
 import { normLabel } from "@/lib/projects/labels";
@@ -641,6 +642,9 @@ export function TomeWiki({ slug }: { slug: string }) {
       view.kind === "page" || view.kind === "pageHistory" ? view.path : null,
   };
 
+  const feedbackPagePath =
+    view.kind === "page" || view.kind === "pageHistory" ? view.path : undefined;
+
   return (
     <TooltipProvider>
       <div className="flex h-full min-h-[calc(100vh-4rem)] flex-col">
@@ -661,6 +665,7 @@ export function TomeWiki({ slug }: { slug: string }) {
             ]}
           />
           <div className="ml-auto flex shrink-0 items-center gap-1">
+            <TomeProductFeedback projectSlug={slug} pagePath={feedbackPagePath} />
             <EdgeGraphDialog slug={slug} />
             <McpConnectDialog />
             <Tooltip>

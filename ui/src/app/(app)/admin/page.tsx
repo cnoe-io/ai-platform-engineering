@@ -92,7 +92,7 @@ interface FeedbackEntry {
   message_id: string;
   conversation_id?: string;
   conversation_title?: string;
-  source?: 'web' | 'slack';
+  source?: 'web' | 'slack' | 'report';
   channel_name?: string | null;
   content_snippet?: string;
   role?: string;
@@ -102,6 +102,10 @@ interface FeedbackEntry {
   submitted_at: string;
   trace_id?: string | null;
   slack_permalink?: string | null;
+  ticket_url?: string | null;
+  ticket_id?: string | null;
+  context_url?: string | null;
+  report_kind?: string | null;
 }
 
 interface FeedbackData {
@@ -825,8 +829,10 @@ function AdminPage() {
   const [teamPendingDelete, setTeamPendingDelete] = useState<Team | null>(null);
   // ── Shared filters (source, users, date range) across feedback + stats tabs ──
   const requestedSource = searchParams.get('source');
-  const sourceFromUrl: 'all' | 'web' | 'slack' =
-    requestedSource === 'web' || requestedSource === 'slack' ? requestedSource : 'all';
+  const sourceFromUrl: 'all' | 'web' | 'slack' | 'report' =
+    requestedSource === 'web' || requestedSource === 'slack' || requestedSource === 'report'
+      ? requestedSource
+      : 'all';
   const usersFromUrl = commaSeparatedFilter(searchParams.get('users'));
   const requestedDatePreset = searchParams.get('dateRange');
   const requestedFrom = searchParams.get('from');
@@ -841,7 +847,7 @@ function AdminPage() {
     ? { from: requestedFrom as string, to: requestedTo as string }
     : presetToRange(datePresetFromUrl);
 
-  const [sourceFilter, setSourceFilter] = useState<'all' | 'web' | 'slack'>(
+  const [sourceFilter, setSourceFilter] = useState<'all' | 'web' | 'slack' | 'report'>(
     sourceFromUrl
   );
   const [userFilter, setUserFilter] = useState<string[]>(usersFromUrl);
@@ -1367,7 +1373,7 @@ function AdminPage() {
   const loadFeedback = async (
     rating?: 'positive' | 'negative' | 'all',
     page = 1,
-    source?: 'all' | 'web' | 'slack',
+    source?: 'all' | 'web' | 'slack' | 'report',
     channels?: string[],
     searchTags?: string[],
     users?: string[],
@@ -1420,7 +1426,7 @@ function AdminPage() {
     updateFeedbackUrl({ rating: filter !== 'all' ? filter : null });
   };
 
-  const handleFeedbackSourceChange = (source: 'all' | 'web' | 'slack') => {
+  const handleFeedbackSourceChange = (source: 'all' | 'web' | 'slack' | 'report') => {
     setSourceFilter(source);
     setFeedbackChannelFilter([]);
     updateSharedFilterUrl({ source: source !== 'all' ? source : null });
@@ -2106,12 +2112,13 @@ function AdminPage() {
                     <div className="h-5 w-px bg-border" />
                     <select
                       value={sourceFilter}
-                      onChange={(e) => handleFeedbackSourceChange(e.target.value as 'all' | 'web' | 'slack')}
+                      onChange={(e) => handleFeedbackSourceChange(e.target.value as 'all' | 'web' | 'slack' | 'report')}
                       className="h-8 rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
                     >
                       <option value="all">All Sources</option>
                       <option value="web">Web</option>
                       <option value="slack">Slack</option>
+                      <option value="report">Report</option>
                     </select>
                     {sourceFilter === 'slack' && feedbackChannels.length > 0 && (
                       <>
@@ -2228,9 +2235,15 @@ function AdminPage() {
                           <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs ${
                             entry.source === 'slack'
                               ? 'bg-purple-500/10 text-purple-600 dark:text-purple-400'
-                              : 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
+                              : entry.source === 'report'
+                                ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400'
+                                : 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
                           }`}>
-                            {entry.source === 'slack' ? `Slack${entry.channel_name ? ` · ${entry.channel_name}` : ''}` : 'Web'}
+                            {entry.source === 'slack'
+                              ? `Slack${entry.channel_name ? ` · ${entry.channel_name}` : ''}`
+                              : entry.source === 'report'
+                                ? 'Report'
+                                : 'Web'}
                           </span>
                         </div>
                         <div>
@@ -2263,8 +2276,31 @@ function AdminPage() {
                             ? new Date(entry.submitted_at).toLocaleDateString()
                             : '—'}
                         </div>
-                        <div className="col-span-2">
-                          {entry.slack_permalink ? (
+                        <div className="col-span-2 flex flex-wrap items-center gap-2">
+                          {entry.ticket_url ? (
+                            <a
+                              href={entry.ticket_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                              title="View GitHub issue"
+                            >
+                              <ExternalLink className="h-3 w-3" />
+                              GitHub issue
+                            </a>
+                          ) : null}
+                          {entry.context_url ? (
+                            <a
+                              href={entry.context_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary hover:underline"
+                              title="View report context"
+                            >
+                              <ExternalLink className="h-3 w-3" />
+                              Context
+                            </a>
+                          ) : entry.slack_permalink ? (
                             <a
                               href={entry.slack_permalink}
                               target="_blank"
@@ -2291,7 +2327,7 @@ function AdminPage() {
                                 : 'View chat'}
                             </a>
                           ) : (
-                            <span className="text-xs text-muted-foreground">—</span>
+                            !entry.ticket_url && <span className="text-xs text-muted-foreground">—</span>
                           )}
                         </div>
                       </div>
@@ -2339,7 +2375,7 @@ function AdminPage() {
                     <select
                       value={sourceFilter}
                       onChange={(e) => {
-                        const src = e.target.value as 'all' | 'web' | 'slack';
+                        const src = e.target.value as 'all' | 'web' | 'slack' | 'report';
                         setSourceFilter(src);
                         setStatsChannelFilter([]);
                         updateSharedFilterUrl({ source: src !== 'all' ? src : null });
@@ -2350,6 +2386,7 @@ function AdminPage() {
                       <option value="all">All Sources</option>
                       <option value="web">Web</option>
                       <option value="slack">Slack</option>
+                      <option value="report">Report</option>
                     </select>
                     {sourceFilter === 'slack' && statsChannels.length > 0 && (
                       <MultiSelect

@@ -34,7 +34,7 @@ interface FeedbackButtonProps {
 
 // Feedback reasons matching agent-forge
 const LIKE_REASONS = ["Very Helpful", "Accurate", "Simplified My Task", "Other"];
-const DISLIKE_REASONS = ["Inaccurate", "Poorly Formatted", "Incomplete", "Off-topic", "Other"];
+const DISLIKE_REASONS = ["Trust", "Data quality/wrong info", "Didn't get answer"];
 
 export function FeedbackButton({
   messageId,
@@ -202,13 +202,13 @@ export function FeedbackButton({
         </div>
       </DialogTrigger>
 
-      <DialogContent className="p-5 max-w-xs overflow-hidden">
+      <DialogContent className="p-5 max-w-sm overflow-hidden">
         <DialogTitle className="sr-only">
-          {isLiked ? "Positive Feedback" : "Negative Feedback"}
+          {isLiked ? "Positive Feedback" : "Subjective Feedback"}
         </DialogTitle>
 
         <div className="text-xs text-muted-foreground mb-3">
-          {isLiked ? "What did you like?" : "What went wrong?"}
+          {isLiked ? "What did you like?" : "How would you evaluate this response?"}
         </div>
 
         {/* Reason Chips */}
