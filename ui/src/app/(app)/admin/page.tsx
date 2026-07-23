@@ -31,7 +31,7 @@ import { PlatformSettingsTab } from "@/components/admin/settings/PlatformSetting
 import { ReleaseNotesSettingsTab } from "@/components/admin/settings/ReleaseNotesSettingsTab";
 import { ReviewConfigsTab } from "@/components/admin/settings/ReviewConfigsTab";
 import { DateRangeFilter,presetToRange,type DateRange,type DateRangePreset } from "@/components/admin/shared/DateRangeFilter";
-import { FeedbackTrendChart } from "@/components/admin/shared/FeedbackTrendChart";
+import { FeedbackTrendChart,type FeedbackTrendPoint } from "@/components/admin/shared/FeedbackTrendChart";
 import { SimpleLineChart } from "@/components/admin/shared/SimpleLineChart";
 import { CreateTeamDialog } from "@/components/admin/teams/CreateTeamDialog";
 import { IdentitySyncPanel } from "@/components/admin/teams/IdentitySyncPanel";
@@ -417,6 +417,28 @@ function movedAdminTab(tab: string | null): typeof VALID_TABS[number] | null {
   return (MOVED_ADMIN_TAB_MAP as Record<string, typeof VALID_TABS[number]>)[tab] ?? null;
 }
 
+function localDateFromBucketKey(dateKey: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})(?:T|$)/.exec(dateKey);
+  if (!match) return null;
+  const [, yearValue, monthValue, dayValue] = match;
+  const year = Number(yearValue);
+  const month = Number(monthValue) - 1;
+  const day = Number(dayValue);
+  const date = new Date(year, month, day);
+  return date.getFullYear() === year && date.getMonth() === month && date.getDate() === day
+    ? date
+    : null;
+}
+
+function feedbackDateRangeForBucket(dateKey: string): DateRange | null {
+  const from = localDateFromBucketKey(dateKey);
+  if (!from) return null;
+  from.setHours(0, 0, 0, 0);
+  const to = new Date(from);
+  to.setHours(23, 59, 59, 999);
+  return { from: from.toISOString(), to: to.toISOString() };
+}
+
 // Bucket keys carry a time component ("2026-07-10T14:30") for hour/minute
 // buckets and are date-only ("2026-07-10") for day buckets — use that to
 // decide whether to label chart points by time-of-day or by calendar date.
@@ -424,7 +446,10 @@ function formatBucketLabel(dateStr: string): string {
   if (dateStr.includes('T')) {
     return new Date(dateStr).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
   }
-  return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return localDateFromBucketKey(dateStr)?.toLocaleDateString(
+    'en-US',
+    { month: 'short', day: 'numeric' },
+  ) ?? dateStr;
 }
 
 function OverviewStatsCards({
@@ -676,10 +701,21 @@ function AdminPage() {
     if (activeCategory !== nextCategory) setActiveCategory(nextCategory);
     if (activeTab !== nextTab) setActiveTab(nextTab);
 
-    if (requestedCategory !== nextCategory || requestedTab !== nextTab) {
+    const shouldSetDefaultStatsRange =
+      nextTab === 'stats' && searchParams.get('dateRange') === null;
+    if (
+      requestedCategory !== nextCategory
+      || requestedTab !== nextTab
+      || shouldSetDefaultStatsRange
+    ) {
       const params = new URLSearchParams(searchParams.toString());
       params.set('cat', nextCategory);
       params.set('tab', nextTab);
+      if (shouldSetDefaultStatsRange) {
+        params.set('dateRange', '30d');
+        params.delete('from');
+        params.delete('to');
+      }
       if (nextTab !== 'access-explorer') {
         params.delete('subtab');
         params.delete('openfgaTab');
@@ -698,25 +734,6 @@ function AdminPage() {
     tabGateValues,
     visibleCategories,
   ]);
-
-  const handleCategoryChange = useCallback(
-    (catKey: CategoryKey) => {
-      userSelectedAdminTabRef.current = true;
-      setActiveCategory(catKey);
-      const cat = CATEGORIES.find((c) => c.key === catKey);
-      if (!cat) return;
-      const firstVisible = cat.tabs.find((t) => tabGateValues[t.gateKey]);
-      if (firstVisible) {
-        setActiveTab(firstVisible.value);
-        updateUrlFilters({
-          cat: catKey,
-          tab: firstVisible.value,
-          ...(firstVisible.value === 'access-explorer' ? {} : { subtab: null, openfgaTab: null }),
-        });
-      }
-    },
-    [tabGateValues, updateUrlFilters]
-  );
 
   useEffect(() => {
     setSimulationType(simulationTarget?.type ?? "user");
@@ -830,12 +847,59 @@ function AdminPage() {
   const [datePreset, setDatePreset] = useState<DateRangePreset>(datePresetFromUrl);
   const [dateRange, setDateRange] = useState<DateRange>(dateRangeFromUrl);
 
+  const openFeedbackForTrendPoint = useCallback((point: FeedbackTrendPoint) => {
+    const range = feedbackDateRangeForBucket(point.date);
+    if (!range) return;
+
+    userSelectedAdminTabRef.current = true;
+    setActiveCategory('insights');
+    setActiveTab('feedback');
+    setDatePreset('custom');
+    setDateRange(range);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set('cat', 'insights');
+    params.set('tab', 'feedback');
+    params.set('dateRange', 'custom');
+    params.set('from', range.from);
+    params.set('to', range.to);
+    params.delete('subtab');
+    params.delete('openfgaTab');
+    router.push(`${pathname}?${params.toString()}`, { scroll: false });
+  }, [pathname, router, searchParams]);
+
+  const selectAdminTab = useCallback((tab: string) => {
+    userSelectedAdminTabRef.current = true;
+    setActiveTab(tab);
+    setActiveCategory(categoryForTab(tab));
+
+    const resetStatsRange = tab === 'stats';
+    if (resetStatsRange) {
+      setDatePreset('30d');
+      setDateRange(presetToRange('30d'));
+    }
+    updateUrlFilters({
+      cat: categoryForTab(tab),
+      tab,
+      ...(resetStatsRange ? { dateRange: '30d', from: null, to: null } : {}),
+      ...(tab === 'access-explorer' ? {} : { subtab: null, openfgaTab: null }),
+    });
+  }, [updateUrlFilters]);
+
+  const handleCategoryChange = useCallback(
+    (catKey: CategoryKey) => {
+      const cat = CATEGORIES.find((candidate) => candidate.key === catKey);
+      const firstVisible = cat?.tabs.find((tab) => tabGateValues[tab.gateKey]);
+      if (firstVisible) selectAdminTab(firstVisible.value);
+    },
+    [selectAdminTab, tabGateValues],
+  );
+
   // Helper to sync shared filters to URL
   const updateSharedFilterUrl = (overrides: Record<string, string | null> = {}) => {
     const shared: Record<string, string | null> = {
       source: sourceFilter !== 'all' ? sourceFilter : null,
       users: userFilter.length > 0 ? userFilter.join(',') : null,
-      dateRange: datePreset !== '30d' ? datePreset : null,
+      dateRange: datePreset,
       from: datePreset === 'custom' ? dateRange.from : null,
       to: datePreset === 'custom' ? dateRange.to : null,
       ...overrides,
@@ -1137,10 +1201,10 @@ function AdminPage() {
   const statsFilterKey = useMemo(() => JSON.stringify({
     agents: statsAgentFilter,
     channels: statsChannelFilter,
-    from: dateRange.from,
+    from: datePreset === 'custom' ? dateRange.from : null,
     range: datePreset,
     source: sourceFilter,
-    to: dateRange.to,
+    to: datePreset === 'custom' ? dateRange.to : null,
     teams: selectedStatsFilters.teamSlugs,
     users: selectedStatsFilters.userEmails,
   }), [
@@ -1153,10 +1217,10 @@ function AdminPage() {
     statsChannelFilter,
   ]);
   const skillStatsFilterKey = useMemo(() => JSON.stringify({
-    from: dateRange.from,
+    from: datePreset === 'custom' ? dateRange.from : null,
     range: datePreset,
     source: sourceFilter,
-    to: dateRange.to,
+    to: datePreset === 'custom' ? dateRange.to : null,
     teams: selectedStatsFilters.teamSlugs,
     users: selectedStatsFilters.userEmails,
   }), [datePreset, dateRange.from, dateRange.to, selectedStatsFilters, sourceFilter]);
@@ -1514,16 +1578,11 @@ function AdminPage() {
             </div>
 
             {/* Tabbed Content */}
-            <Tabs value={activeTab} onValueChange={(tab) => {
-              userSelectedAdminTabRef.current = true;
-              setActiveTab(tab);
-              setActiveCategory(categoryForTab(tab));
-              updateUrlFilters({
-                cat: categoryForTab(tab),
-                tab,
-                ...(tab === 'access-explorer' ? {} : { subtab: null, openfgaTab: null }),
-              });
-            }} className="space-y-4">
+            <Tabs
+              className="space-y-4"
+              onValueChange={selectAdminTab}
+              value={activeTab}
+            >
               {/* Category selector */}
               <div
                 aria-label="Admin sections"
@@ -2153,7 +2212,7 @@ function AdminPage() {
                       setDatePreset(preset);
                       setDateRange(range);
                       updateSharedFilterUrl({
-                        dateRange: preset !== '30d' ? preset : null,
+                        dateRange: preset,
                         from: preset === 'custom' ? range.from : null,
                         to: preset === 'custom' ? range.to : null,
                       });
@@ -2393,7 +2452,7 @@ function AdminPage() {
                         setDatePreset(preset);
                         setDateRange(range);
                         updateSharedFilterUrl({
-                          dateRange: preset !== '30d' ? preset : null,
+                          dateRange: preset,
                           from: preset === 'custom' ? range.from : null,
                           to: preset === 'custom' ? range.to : null,
                         });
@@ -2798,11 +2857,15 @@ function AdminPage() {
                           <CardContent>
                             <FeedbackTrendChart
                               data={stats.feedback_summary.daily.map((day) => ({
+                                date: day.date,
                                 label: formatBucketLabel(day.date),
                                 positive: day.positive,
                                 negative: day.negative,
                               }))}
                               height={180}
+                              onPointClick={tabGateValues.feedback
+                                ? openFeedbackForTrendPoint
+                                : undefined}
                             />
                           </CardContent>
                           </Card> : undefined}
