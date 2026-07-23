@@ -13,11 +13,24 @@ from __future__ import annotations
 
 from dynamic_agents.models import InputFile
 from dynamic_agents.services.agent_runtime import (
+    SKIP_FILE_TOO_LARGE,
     SKIP_NOT_ACCEPTED_BY_MODEL,
+    SKIP_TOO_MANY_FILES,
+    SKIP_TURN_TOO_LARGE,
     SKIP_UNSUPPORTED_BY_PROVIDER,
+    SkippedFile,
     _build_user_content,
+    _skipped_file_warning,
+    _skipped_files_notice,
 )
 from dynamic_agents.services.model_capabilities import ModelCapabilities
+
+
+def _b64_of_size(n_bytes: int) -> str:
+    """Base64 string whose decoded size is ~n_bytes (for size-limit tests)."""
+    # base64 encodes 3 raw bytes -> 4 chars; padding is stripped by the
+    # estimator, so a string of ceil(n*4/3) 'A's decodes to ~n bytes.
+    return "A" * ((n_bytes + 2) // 3 * 4)
 
 
 def test_single_base64_image_builds_content_list():
@@ -127,4 +140,93 @@ def test_none_capabilities_is_permissive():
 
     assert isinstance(content, list)
     assert content[1]["type"] == "image"
+    assert skipped == []
+
+
+# --- Warning copy names the model (Kevin nit #1) -----------------------------
+
+
+def test_warning_names_the_model():
+    skip = SkippedFile("chart.png", "image/png", SKIP_NOT_ACCEPTED_BY_MODEL)
+    msg = _skipped_file_warning(skip, model_id="gpt-5.4")
+    assert "gpt-5.4" in msg
+    assert "doesn't accept image input" in msg
+    # No model id -> no empty parens.
+    assert "()" not in _skipped_file_warning(skip)
+
+
+# --- Model-facing notice (Kevin #3 / Erik #2): don't fail silently -----------
+
+
+def test_skipped_files_notice_lists_each_file():
+    skipped = [
+        SkippedFile("apple.png", "image/png", SKIP_NOT_ACCEPTED_BY_MODEL),
+        SkippedFile("big.pdf", "application/pdf", SKIP_FILE_TOO_LARGE),
+    ]
+    notice = _skipped_files_notice(skipped, model_id="gpt-5.4", max_file_bytes=5 * 1024 * 1024)
+    assert notice.startswith("[System note:")
+    assert "2 attached file(s)" in notice
+    assert "apple.png" in notice and "big.pdf" in notice
+    assert "gpt-5.4" in notice
+
+
+def test_skipped_files_notice_empty_when_nothing_skipped():
+    assert _skipped_files_notice([]) == ""
+
+
+# --- Input guardrails (Kevin #2 / #2a): count + size limits ------------------
+
+
+def test_count_limit_drops_overflow_keeps_the_rest():
+    files = [InputFile(mime_type="image/png", data="aW1n", name=f"{i}.png") for i in range(12)]
+    content, skipped = _build_user_content("many", files, max_files=10)
+
+    assert isinstance(content, list)
+    # 1 text block + 10 kept image blocks
+    assert len([b for b in content if b["type"] == "image"]) == 10
+    assert len(skipped) == 2
+    assert {s.reason for s in skipped} == {SKIP_TOO_MANY_FILES}
+    # The overflow is the tail (files 10 and 11).
+    assert [s.name for s in skipped] == ["10.png", "11.png"]
+
+
+def test_per_file_size_limit_drops_oversize_keeps_others():
+    files = [
+        InputFile(mime_type="image/png", data=_b64_of_size(10 * 1024 * 1024), name="huge.png"),
+        InputFile(mime_type="image/png", data="aW1n", name="tiny.png"),
+    ]
+    content, skipped = _build_user_content("x", files, max_file_bytes=5 * 1024 * 1024)
+
+    assert isinstance(content, list)
+    assert [b for b in content if b["type"] == "image"][0]  # tiny survived
+    assert len(skipped) == 1
+    assert skipped[0].name == "huge.png"
+    assert skipped[0].reason == SKIP_FILE_TOO_LARGE
+
+
+def test_turn_size_limit_drops_the_breaching_file():
+    # Two ~3MB files under a 5MB turn cap: the first fits, the second breaches.
+    files = [
+        InputFile(mime_type="image/png", data=_b64_of_size(3 * 1024 * 1024), name="first.png"),
+        InputFile(mime_type="image/png", data=_b64_of_size(3 * 1024 * 1024), name="second.png"),
+    ]
+    content, skipped = _build_user_content("x", files, max_turn_bytes=5 * 1024 * 1024)
+
+    assert isinstance(content, list)
+    assert len([b for b in content if b["type"] == "image"]) == 1
+    assert len(skipped) == 1
+    assert skipped[0].name == "second.png"
+    assert skipped[0].reason == SKIP_TURN_TOO_LARGE
+
+
+def test_zero_limits_disable_guards():
+    # Defaults are 0 (unlimited) -> a large, many-file set is fully kept.
+    files = [
+        InputFile(mime_type="image/png", data=_b64_of_size(50 * 1024 * 1024), name=f"{i}.png")
+        for i in range(25)
+    ]
+    content, skipped = _build_user_content("x", files)  # no limits passed
+
+    assert isinstance(content, list)
+    assert len([b for b in content if b["type"] == "image"]) == 25
     assert skipped == []

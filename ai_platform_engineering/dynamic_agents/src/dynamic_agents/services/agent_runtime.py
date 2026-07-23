@@ -268,15 +268,26 @@ _SUPPORTED_DOC_MIME_TYPES = frozenset(
 # the caller can build the right user-facing degradation message.
 SKIP_UNSUPPORTED_BY_PROVIDER = "unsupported_by_provider"
 SKIP_NOT_ACCEPTED_BY_MODEL = "not_accepted_by_model"
+# Guardrail drops: the file itself is fine, but accepting it would breach an
+# input limit (too many files this turn, or the file/turn is too large).
+SKIP_TOO_MANY_FILES = "too_many_files"
+SKIP_FILE_TOO_LARGE = "file_too_large"
+SKIP_TURN_TOO_LARGE = "turn_too_large"
 
 
 class SkippedFile(NamedTuple):
     """A file that was attached but not sent to the model, and why.
 
-    ``reason`` is one of ``SKIP_UNSUPPORTED_BY_PROVIDER`` (Bedrock/the adapter
-    cannot ingest this MIME type at all) or ``SKIP_NOT_ACCEPTED_BY_MODEL`` (the
-    provider supports it, but this agent's model declared it does not accept
-    that modality — e.g. a text-only model handed an image).
+    ``reason`` is one of:
+
+    - ``SKIP_UNSUPPORTED_BY_PROVIDER`` — Bedrock/the adapter cannot ingest this
+      MIME type at all.
+    - ``SKIP_NOT_ACCEPTED_BY_MODEL`` — the provider supports it, but this agent's
+      model declared it does not accept that modality (e.g. a text-only model
+      handed an image).
+    - ``SKIP_TOO_MANY_FILES`` / ``SKIP_FILE_TOO_LARGE`` / ``SKIP_TURN_TOO_LARGE``
+      — the file is otherwise fine but accepting it would breach an input
+      guardrail (see ``config.Settings.max_input_*``).
     """
 
     name: str | None
@@ -284,25 +295,103 @@ class SkippedFile(NamedTuple):
     reason: str
 
 
-def _skipped_file_warning(skip: SkippedFile) -> str:
-    """User-facing copy explaining why an attached file was not sent to the model."""
-    label = f"'{skip.name}'" if skip.name else f"a {skip.mime_type} file"
+def _mb(num_bytes: int) -> str:
+    """Render a byte count as a compact MB string for user/model copy."""
+    mb = num_bytes / (1024 * 1024)
+    # Drop a trailing .0 so "5MB" reads cleaner than "5.0MB".
+    return f"{mb:.0f}MB" if mb == int(mb) else f"{mb:.1f}MB"
+
+
+def _skip_phrase(
+    skip: SkippedFile,
+    model_id: str | None = None,
+    max_file_bytes: int = 0,
+    max_turn_bytes: int = 0,
+) -> str:
+    """The reason clause shared by the user warning and the model-facing notice.
+
+    Returns just the "why" (no "Attached … wasn't read" framing) so both the
+    user warning and the ``_skipped_files_notice`` can reuse identical wording.
+    """
     if skip.reason == SKIP_NOT_ACCEPTED_BY_MODEL:
         kind = "image" if skip.mime_type in _SUPPORTED_IMAGE_MIME_TYPES else "document"
-        return (
-            f"Attached {label} wasn't read: this agent's model doesn't accept "
-            f"{kind} input — answering from your text only."
-        )
+        model = f" ({model_id})" if model_id else ""
+        return f"this agent's model{model} doesn't accept {kind} input"
+    if skip.reason == SKIP_TOO_MANY_FILES:
+        return "too many files were attached this turn"
+    if skip.reason == SKIP_FILE_TOO_LARGE:
+        limit = f" ({_mb(max_file_bytes)} max)" if max_file_bytes else ""
+        return f"it exceeds the per-file size limit{limit}"
+    if skip.reason == SKIP_TURN_TOO_LARGE:
+        limit = f" ({_mb(max_turn_bytes)} max)" if max_turn_bytes else ""
+        return f"the attachments exceed the per-message size limit{limit}"
+    # SKIP_UNSUPPORTED_BY_PROVIDER (default)
+    return f"its file type ({skip.mime_type}) isn't supported for model input"
+
+
+def _skipped_file_warning(
+    skip: SkippedFile,
+    model_id: str | None = None,
+    max_file_bytes: int = 0,
+    max_turn_bytes: int = 0,
+) -> str:
+    """User-facing copy explaining why an attached file was not sent to the model."""
+    label = f"'{skip.name}'" if skip.name else f"a {skip.mime_type} file"
+    why = _skip_phrase(skip, model_id, max_file_bytes, max_turn_bytes)
+    return f"Attached {label} wasn't read: {why} — answering from your text only."
+
+
+def _skipped_files_notice(
+    skipped: "list[SkippedFile]",
+    model_id: str | None = None,
+    max_file_bytes: int = 0,
+    max_turn_bytes: int = 0,
+) -> str:
+    """A single system-note, injected into the user turn, so the *model* knows a
+    file was dropped.
+
+    The user-facing ``on_warning`` frame is suppressed on some channels (e.g.
+    Slack, to avoid noise), which would otherwise leave the model answering as
+    if no file were attached — a silent failure. This note travels in the turn
+    content itself, so the model can acknowledge it couldn't read the file
+    regardless of channel.
+    """
+    if not skipped:
+        return ""
+    parts = []
+    for skip in skipped:
+        label = f"'{skip.name}'" if skip.name else f"a {skip.mime_type} file"
+        parts.append(f"{label} ({_skip_phrase(skip, model_id, max_file_bytes, max_turn_bytes)})")
+    listing = "; ".join(parts)
     return (
-        f"Attached {label} wasn't read: its file type ({skip.mime_type}) isn't "
-        f"supported for model input — answering from your text only."
+        f"[System note: {len(skipped)} attached file(s) could not be read and were "
+        f"not included: {listing}. Answer from the text. If a file was essential to "
+        f"the request, tell the user you could not read it and why.]"
     )
+
+
+def _estimated_bytes(f: "InputFile") -> int:
+    """Best-effort decoded size of an inline attachment, in bytes.
+
+    Estimated from the base64 length (``≈ len(data) * 3 / 4``) so we never
+    decode a large payload into memory just to measure it. URI-referenced files
+    carry no inline bytes, so they measure 0 and are exempt from size guards
+    (only the count guard applies to them)."""
+    if not f.data:
+        return 0
+    n = len(f.data.rstrip("="))
+    return n * 3 // 4
 
 
 def _build_user_content(
     message: str,
     files: "list[InputFile] | None",
     capabilities: "ModelCapabilities | None" = None,
+    *,
+    model_id: str | None = None,
+    max_files: int = 0,
+    max_file_bytes: int = 0,
+    max_turn_bytes: int = 0,
 ) -> "tuple[str | list[dict[str, Any]], list[SkippedFile]]":
     """Build the user-turn content for the agent's message list.
 
@@ -315,13 +404,18 @@ def _build_user_content(
     "mime_type": ..., "base64"|"url": ...}``), which the langchain_aws Bedrock
     converse adapter converts natively.
 
-    A file is dropped (and recorded in ``skipped``) when either the provider
-    cannot ingest its MIME type at all, or ``capabilities`` declares this
-    agent's model does not accept that modality — so a no-vision model degrades
-    cleanly to text instead of erroring at the provider. ``capabilities=None``
-    means "accept everything the provider supports" (unchanged legacy behavior).
-    If no file survives, the plain string is returned unchanged so the model
-    still answers from the text.
+    A file is dropped (and recorded in ``skipped``) when any of:
+
+    - the provider cannot ingest its MIME type at all;
+    - ``capabilities`` declares this agent's model does not accept that modality
+      (so a no-vision model degrades cleanly to text instead of erroring);
+    - it would breach an input guardrail — ``max_files`` (per turn),
+      ``max_file_bytes`` (per file), or ``max_turn_bytes`` (aggregate of the
+      files kept this turn). Each guard is disabled when its value is ``0``.
+
+    ``capabilities=None`` means "accept everything the provider supports"
+    (unchanged legacy behavior). If no file survives, the plain string is
+    returned unchanged so the model still answers from the text.
     """
     if not files:
         return message, []
@@ -329,7 +423,32 @@ def _build_user_content(
     caps = capabilities or ModelCapabilities()  # permissive default
     blocks: list[dict[str, Any]] = [{"type": "text", "text": message}]
     skipped: list[SkippedFile] = []
+    kept_files = 0
+    turn_bytes = 0
     for f in files:
+        # ── Guardrails (checked before type/modality): the file is fine, but
+        # accepting it would breach an input limit. Drop the overflow so a huge
+        # or unbounded attachment set can't inflate the checkpoint / breach
+        # Mongo's 16MB document cap. A limit of 0 disables that guard.
+        if max_files and kept_files >= max_files:
+            skipped.append(SkippedFile(f.name, f.mime_type, SKIP_TOO_MANY_FILES))
+            continue
+        size = _estimated_bytes(f)
+        if max_file_bytes and size > max_file_bytes:
+            logger.info(
+                f"[stream] Skipping file '{f.name!r}' ({f.mime_type}): ~{size} bytes "
+                f"exceeds per-file limit {max_file_bytes}"
+            )
+            skipped.append(SkippedFile(f.name, f.mime_type, SKIP_FILE_TOO_LARGE))
+            continue
+        if max_turn_bytes and turn_bytes + size > max_turn_bytes:
+            logger.info(
+                f"[stream] Skipping file '{f.name!r}' ({f.mime_type}): would push turn "
+                f"to ~{turn_bytes + size} bytes, over limit {max_turn_bytes}"
+            )
+            skipped.append(SkippedFile(f.name, f.mime_type, SKIP_TURN_TOO_LARGE))
+            continue
+
         if f.mime_type in _SUPPORTED_IMAGE_MIME_TYPES:
             block_type = "image"
         elif f.mime_type in _SUPPORTED_DOC_MIME_TYPES:
@@ -362,6 +481,8 @@ def _build_user_content(
         if block_type == "file" and f.name:
             block["name"] = f.name
         blocks.append(block)
+        kept_files += 1
+        turn_bytes += size
 
     # Only switch to multimodal if at least one file survived filtering.
     content = blocks if len(blocks) > 1 else message
@@ -1499,15 +1620,40 @@ class AgentRuntime:
         # ── Core lifecycle: chunks ──
         # Build the user turn: plain string normally, or a multimodal content
         # list (text + image blocks) when files are attached. Files the model
-        # can't accept (unsupported type, or a modality this model declares it
-        # doesn't take) are dropped and surfaced to the user as warnings so the
-        # degradation is visible instead of silent.
+        # can't accept (unsupported type, a modality this model declares it
+        # doesn't take, or one that breaches an input guardrail) are dropped.
+        # The drop is surfaced twice, on purpose:
+        #   1. to the *user* as an on_warning frame (visible degradation), and
+        #   2. to the *model* as a system-note appended to the turn — because
+        #      some channels (Slack) suppress the user warning to avoid noise,
+        #      which would otherwise leave the model answering blind (silent
+        #      failure). See _skipped_files_notice.
+        model_id = self.config.model.id
+        max_file_bytes = self.settings.max_input_file_bytes
+        max_turn_bytes = self.settings.max_input_turn_bytes
         user_content, skipped_files = _build_user_content(
-            message, files, get_model_capabilities(self.config.model.id)
+            message,
+            files,
+            get_model_capabilities(model_id),
+            model_id=model_id,
+            max_files=self.settings.max_input_files,
+            max_file_bytes=max_file_bytes,
+            max_turn_bytes=max_turn_bytes,
         )
         for skip in skipped_files:
-            for frame in encoder.on_warning(_skipped_file_warning(skip)):
+            for frame in encoder.on_warning(
+                _skipped_file_warning(skip, model_id, max_file_bytes, max_turn_bytes)
+            ):
                 yield frame
+        if skipped_files:
+            # Tell the model (channel-agnostic) so it can degrade gracefully.
+            notice = _skipped_files_notice(
+                skipped_files, model_id, max_file_bytes, max_turn_bytes
+            )
+            if isinstance(user_content, list):
+                user_content[0]["text"] = f"{user_content[0]['text']}\n\n{notice}".strip()
+            else:
+                user_content = f"{user_content}\n\n{notice}".strip()
         state_input: dict[str, Any] = {"messages": [{"role": "user", "content": user_content}]}
         # Inject skills files into state for StateBackend (non-GridFS mode).
         # In GridFS mode, skills are pre-populated in the store at init time.

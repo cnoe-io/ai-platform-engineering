@@ -119,6 +119,17 @@ class Settings(BaseSettings):
     # from Helm values without a code change.
     model_capabilities_json: str = ""
 
+    # Input-attachment guardrails (env: MAX_INPUT_FILES / MAX_INPUT_FILE_BYTES /
+    # MAX_INPUT_TURN_BYTES). Attached files ride inline as base64 in the user
+    # turn, which is checkpointed to MongoDB — an unbounded set of large files
+    # inflates the checkpoint and can breach Mongo's 16MB per-document cap. These
+    # caps drop the overflow gracefully (the drop is surfaced to the user and to
+    # the model) rather than failing the write. A value of 0 disables that guard
+    # (unlimited), so ops can tune per-env from Helm without a code change.
+    max_input_files: int = 10
+    max_input_file_bytes: int = 5 * 1024 * 1024  # 5 MiB per file
+    max_input_turn_bytes: int = 20 * 1024 * 1024  # 20 MiB total per turn
+
 
 @lru_cache
 def get_settings() -> Settings:
