@@ -21,6 +21,8 @@ export interface FeedbackRequest {
   source?: "web" | "slack" | "tome";
   tomeProjectSlug?: string;
   tomeSessionId?: string;
+  tomeUserQuestion?: string;
+  tomeAssistantResponse?: string;
 }
 
 // Feedback response interface

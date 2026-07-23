@@ -29,6 +29,8 @@ interface MessageActionsProps {
   feedbackSource?: "web" | "tome";
   tomeProjectSlug?: string;
   tomeSessionId?: string;
+  tomeUserQuestion?: string;
+  tomeAssistantResponse?: string;
   /** Tooltip + aria label for the copy button. */
   copyLabel?: string;
   onRetry?: () => void;
@@ -48,6 +50,8 @@ export function MessageActions({
   feedbackSource,
   tomeProjectSlug,
   tomeSessionId,
+  tomeUserQuestion,
+  tomeAssistantResponse,
   copyLabel = "Copy message",
   onRetry,
   retryLabel = "Retry",
@@ -116,6 +120,8 @@ export function MessageActions({
             feedbackSource={feedbackSource}
             tomeProjectSlug={tomeProjectSlug}
             tomeSessionId={tomeSessionId}
+            tomeUserQuestion={tomeUserQuestion}
+            tomeAssistantResponse={tomeAssistantResponse}
             feedback={feedback}
             onFeedbackChange={onFeedbackChange}
             disabled={disabled}

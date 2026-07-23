@@ -490,6 +490,7 @@ export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }:
                 conversationId={isTomeSessionId(sessionId) ? sessionId : undefined}
                 tomeProjectSlug={slug}
                 tomeSessionId={isTomeSessionId(sessionId) ? sessionId : undefined}
+                userQuestion={m.role === "assistant" ? retryText : undefined}
                 onOpenPage={onOpenPage}
                 glossaryPreview={glossaryPreview}
                 onFeedbackChange={(feedback) => updateFeedback(m.id, feedback)}
@@ -611,6 +612,7 @@ function MessageRow({
   conversationId,
   tomeProjectSlug,
   tomeSessionId,
+  userQuestion,
   onOpenPage,
   glossaryPreview,
   onFeedbackChange,
@@ -621,6 +623,7 @@ function MessageRow({
   conversationId?: string;
   tomeProjectSlug?: string;
   tomeSessionId?: string;
+  userQuestion?: string | null;
   onOpenPage?: (path: string) => void;
   glossaryPreview?: GlossaryResolver;
   onFeedbackChange?: (feedback: Feedback) => void;
@@ -711,6 +714,8 @@ function MessageRow({
             feedbackSource="tome"
             tomeProjectSlug={tomeProjectSlug}
             tomeSessionId={tomeSessionId}
+            tomeUserQuestion={userQuestion ?? undefined}
+            tomeAssistantResponse={textOfParts(msg.parts)}
             copyLabel="Copy response"
             onRetry={onRetry}
             retryLabel="Regenerate response"

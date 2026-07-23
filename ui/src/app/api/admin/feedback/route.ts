@@ -11,6 +11,7 @@ withErrorHandler,
 } from '@/lib/api-middleware';
 import { getConfig } from '@/lib/config';
 import { getCollection,isMongoDBConfigured } from '@/lib/mongodb';
+import { normLabel } from '@/lib/projects/labels';
 import {
 resolveAuthorizedAdminSimulationScope,
 simulationSubjectCanManageAdminSurface,
@@ -39,10 +40,75 @@ interface FeedbackDocument extends Document {
   ticket_url?: string;
   tome_project_slug?: string;
   tome_session_id?: string;
+  tome_user_question?: string;
+  tome_assistant_response?: string;
   trace_id?: string;
   user_email?: string;
   user_id?: string;
   value?: string;
+}
+
+const VALUE_LABELS: Record<string, string> = {
+  thumbs_up: 'Thumbs up',
+  thumbs_down: 'Thumbs down',
+  wrong_answer: 'Wrong answer',
+  needs_detail: 'Needs detail',
+  too_verbose: 'Too verbose',
+  retry: 'Retry',
+  other: 'Other',
+  problem_report: 'Problem report',
+  Bug: 'Bug',
+  'Confusing UX': 'Confusing UX',
+  'Missing feature': 'Missing feature',
+  Other: 'Other',
+  Trust: 'Trust',
+  'Data quality/wrong info': 'Data quality/wrong info',
+  "Didn't get answer": "Didn't get answer",
+};
+
+// Common English stopwords + product-generic filler words excluded from the
+// feedback word cloud so it highlights sentiment-bearing terms.
+const WORD_CLOUD_STOPWORDS = new Set([
+  'the', 'and', 'for', 'are', 'but', 'not', 'you', 'this', 'that', 'was',
+  'were', 'with', 'have', 'has', 'had', 'from', 'they', 'them', 'their',
+  'what', 'when', 'where', 'which', 'who', 'why', 'how', 'can', 'could',
+  'would', 'should', 'will', 'just', 'about', 'into', 'than', 'then',
+  'its', 'it\'s', 'get', 'got', 'did', 'does', 'doesn\'t', 'don\'t',
+  'didn\'t', 'isn\'t', 'wasn\'t', 'aren\'t', 'i\'m', 'i\'ve', 'i\'d',
+  'answer', 'response', 'feedback', 'chat', 'question', 'thanks', 'thank',
+  'good', 'yes', 'all', 'any', 'more', 'some', 'very', 'much', 'also',
+  'been', 'being', 'because', 'here', 'there', 'these', 'those', 'out',
+  'off', 'over', 'under', 'again', 'once', 'each', 'few', 'other',
+  'such', 'own', 'same', 'too', 'very', 'ok', 'okay',
+]);
+
+/** Tokenize free-text feedback comments into lowercase words for the word cloud. */
+function tokenizeForWordCloud(text: string): string[] {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9'\s]/g, ' ')
+    .split(/\s+/)
+    .map((w) => w.replace(/^'+|'+$/g, ''))
+    .filter((w) => w.length >= 3 && !WORD_CLOUD_STOPWORDS.has(w) && !/^\d+$/.test(w));
+}
+
+interface WordCloudEntry {
+  text: string;
+  count: number;
+}
+
+function buildWordCloud(docs: Array<{ comment?: string }>, maxWords = 40): WordCloudEntry[] {
+  const freq = new Map<string, number>();
+  for (const doc of docs) {
+    if (!doc.comment) continue;
+    for (const word of tokenizeForWordCloud(doc.comment)) {
+      freq.set(word, (freq.get(word) || 0) + 1);
+    }
+  }
+  return [...freq.entries()]
+    .map(([text, count]) => ({ text, count }))
+    .sort((a, b) => b.count - a.count || a.text.localeCompare(b.text))
+    .slice(0, maxWords);
 }
 
 export const GET = withErrorHandler(async (request: NextRequest) => {
@@ -121,6 +187,20 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     const limit = Math.min(100, Math.max(1, parseInt(searchParams.get('limit') || '50', 10)));
     const skip = (page - 1) * limit;
 
+    // Tome attribution filters: project slug, BHAG/initiative name, area (swim
+    // lane) name. All three resolve to a set of `tome_project_slug` values.
+    const projectFilterParam = searchParams.get('project'); // comma-separated project slugs
+    const bhagFilterParam = searchParams.get('bhag'); // comma-separated BHAG/initiative names
+    const areaFilterParam = searchParams.get('area'); // comma-separated swim-lane names
+    const hasTomeAttributionFilter = Boolean(projectFilterParam || bhagFilterParam || areaFilterParam);
+
+    const sortByParam = searchParams.get('sortBy');
+    const sortDirParam = searchParams.get('sortDir') === 'asc' ? 1 : -1;
+    const sortField =
+      sortByParam === 'rating' || sortByParam === 'source' || sortByParam === 'tome_project_slug'
+        ? sortByParam
+        : 'created_at';
+
     const feedbackColl = await getCollection<FeedbackDocument>('feedback');
 
     const filter: Document = {};
@@ -153,7 +233,12 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         // Each term matches comment or value via regex, OR'd together
         filter.$or = terms.flatMap((term) => {
           const regex = { $regex: term, $options: 'i' };
-          return [{ comment: regex }, { value: regex }];
+          return [
+            { comment: regex },
+            { value: regex },
+            { tome_user_question: regex },
+            { tome_assistant_response: regex },
+          ];
         });
       }
     }
@@ -161,6 +246,46 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       filter.created_at = {};
       if (from) filter.created_at.$gte = new Date(from);
       if (to) filter.created_at.$lte = new Date(to);
+    }
+
+    // Resolve Project / BHAG / Area filters down to a set of tome_project_slug
+    // values. BHAG (initiative) and Area (swim lane) are project-level labels,
+    // not stored on the feedback doc, so we look them up on `projects` first.
+    if (hasTomeAttributionFilter) {
+      const projectQuery: Document = {};
+      const projectSlugs = projectFilterParam
+        ? projectFilterParam.split(',').map((s) => s.trim()).filter(Boolean)
+        : null;
+      const bhagNames = bhagFilterParam
+        ? bhagFilterParam.split(',').map((s) => s.trim()).filter(Boolean)
+        : null;
+      const areaNames = areaFilterParam
+        ? areaFilterParam.split(',').map((s) => s.trim()).filter(Boolean)
+        : null;
+      if (projectSlugs) {
+        const escaped = projectSlugs.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+        projectQuery.$or = [
+          { slug: { $in: projectSlugs } },
+          { title: { $in: escaped.map((n) => new RegExp(`^${n}$`, 'i')) } },
+          { name: { $in: escaped.map((n) => new RegExp(`^${n}$`, 'i')) } },
+        ];
+      }
+      if (bhagNames) {
+        projectQuery['labels.initiatives'] = {
+          $in: bhagNames.map((n) => new RegExp(`^${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i')),
+        };
+      }
+      if (areaNames) {
+        projectQuery['labels.swimlanes'] = {
+          $in: areaNames.map((n) => new RegExp(`^${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i')),
+        };
+      }
+      const projectsColl = await getCollection<ProjectDocument>('projects');
+      const matchingSlugs = (
+        await projectsColl.find(projectQuery, { projection: { slug: 1 } }).toArray()
+      ).map((p) => p.slug);
+      // Empty result set must exclude everything, not match everything.
+      filter.tome_project_slug = { $in: matchingSlugs.length > 0 ? matchingSlugs : ['__none__'] };
     }
 
     // Non-admin: scope to their readable Slack channels, their own web feedback,
@@ -187,6 +312,11 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
           channels: [],
           users: [],
           summary: { positive: 0, negative: 0, total: 0, positive_rate: 0 },
+          category_counts: [],
+          word_cloud: { positive: [], negative: [] },
+          tome_projects: [],
+          tome_bhags: [],
+          tome_areas: [],
           pagination: { page, limit, total: 0, total_pages: 0 },
         });
       }
@@ -213,10 +343,17 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     const { rating: _omitRating, ...summaryFilter } = filter;
     void _omitRating;
 
-    const [docs, totalCount, channels, distinctUsers, summaryCounts] = await Promise.all([
+    // Tome attribution filter option lists (Project / BHAG / Area) are computed
+    // from the filtered set MINUS the attribution filters themselves, so
+    // picking a BHAG doesn't hide the Project/Area options a user might also
+    // want to combine with it.
+    const { tome_project_slug: _omitTomeProjectSlug, ...optionsBaseFilter } = filter;
+    void _omitTomeProjectSlug;
+
+    const [docs, totalCount, channels, distinctUsers, summaryCounts, categoryCountsRaw, wordCloudDocs, optionProjectSlugs] = await Promise.all([
       feedbackColl
         .find(filter)
-        .sort({ created_at: -1 })
+        .sort({ [sortField]: sortDirParam })
         .skip(skip)
         .limit(limit)
         .toArray(),
@@ -229,6 +366,20 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
           { $group: { _id: '$rating', count: { $sum: 1 } } },
         ])
         .toArray(),
+      feedbackColl
+        .aggregate([
+          { $match: summaryFilter },
+          { $group: { _id: { value: '$value', rating: '$rating' }, count: { $sum: 1 } } },
+        ])
+        .toArray(),
+      feedbackColl
+        .find(summaryFilter, { projection: { comment: 1, rating: 1, _id: 0 } })
+        .limit(3000)
+        .toArray(),
+      feedbackColl.distinct('tome_project_slug', {
+        ...optionsBaseFilter,
+        tome_project_slug: { $ne: null },
+      }),
     ]);
 
     let positive = 0;
@@ -236,6 +387,81 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     for (const row of summaryCounts as Array<{ _id: string; count: number }>) {
       if (row._id === 'positive') positive = row.count;
       else if (row._id === 'negative') negative = row.count;
+    }
+
+    // Category counts: how many positive/negative ratings each feedback
+    // "value" category (Trust, Wrong answer, Bug, ...) received.
+    const categoryTotals = new Map<string, { positive: number; negative: number }>();
+    for (const row of categoryCountsRaw as Array<{ _id: { value?: string; rating?: string }; count: number }>) {
+      const rawValue = row._id?.value;
+      const label = (rawValue && VALUE_LABELS[rawValue]) || rawValue || 'Uncategorized';
+      const bucket = categoryTotals.get(label) || { positive: 0, negative: 0 };
+      if (row._id?.rating === 'positive') bucket.positive += row.count;
+      else if (row._id?.rating === 'negative') bucket.negative += row.count;
+      categoryTotals.set(label, bucket);
+    }
+    const categoryCounts = [...categoryTotals.entries()]
+      .map(([category, counts]) => ({
+        category,
+        positive: counts.positive,
+        negative: counts.negative,
+        total: counts.positive + counts.negative,
+      }))
+      .sort((a, b) => b.total - a.total);
+
+    const wordCloud = {
+      positive: buildWordCloud((wordCloudDocs as Array<{ comment?: string; rating?: string }>).filter((d) => d.rating === 'positive')),
+      negative: buildWordCloud((wordCloudDocs as Array<{ comment?: string; rating?: string }>).filter((d) => d.rating === 'negative')),
+    };
+
+    // Resolve Project / BHAG / Area filter option lists from the distinct
+    // tome_project_slug values seen in the (attribution-unfiltered) scoped set.
+    // The same lookup doubles as the per-entry attribution enrichment map
+    // below (current page's docs are always a subset of these slugs).
+    let tomeProjectOptions: Array<{ slug: string; title: string }> = [];
+    let tomeBhagOptions: string[] = [];
+    let tomeAreaOptions: string[] = [];
+    const slugToProjectInfo = new Map<
+      string,
+      { title: string; domain?: string; bhags: string[]; areas: string[] }
+    >();
+    const optionSlugs = new Set([
+      ...(optionProjectSlugs as string[]).filter(Boolean),
+      ...docs.flatMap((d) => (d.tome_project_slug ? [d.tome_project_slug] : [])),
+    ]);
+    if (optionSlugs.size > 0) {
+      const projectsColl = await getCollection<ProjectDocument>('projects');
+      const projectDocs = await projectsColl
+        .find(
+          { slug: { $in: [...optionSlugs] } },
+          { projection: { slug: 1, title: 1, name: 1, domain: 1, labels: 1 } },
+        )
+        .toArray();
+      const bhagSeen = new Map<string, string>();
+      const areaSeen = new Map<string, string>();
+      tomeProjectOptions = projectDocs
+        .map((p) => ({ slug: p.slug, title: p.title || p.name || p.slug }))
+        .sort((a, b) => a.title.localeCompare(b.title));
+      for (const p of projectDocs) {
+        const bhags = p.labels?.initiatives ?? [];
+        const areas = p.labels?.swimlanes ?? [];
+        slugToProjectInfo.set(p.slug, {
+          title: p.title || p.name || p.slug,
+          domain: p.labels?.domain || p.domain,
+          bhags,
+          areas,
+        });
+        for (const bhag of bhags) {
+          const key = normLabel(bhag);
+          if (key && !bhagSeen.has(key)) bhagSeen.set(key, bhag);
+        }
+        for (const area of areas) {
+          const key = normLabel(area);
+          if (key && !areaSeen.has(key)) areaSeen.set(key, area);
+        }
+      }
+      tomeBhagOptions = [...bhagSeen.values()].sort((a, b) => a.localeCompare(b));
+      tomeAreaOptions = [...areaSeen.values()].sort((a, b) => a.localeCompare(b));
     }
     const summaryTotal = positive + negative;
     const summary = {
@@ -309,23 +535,30 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       }
     }
 
-    const VALUE_LABELS: Record<string, string> = {
-      thumbs_up: 'Thumbs up',
-      thumbs_down: 'Thumbs down',
-      wrong_answer: 'Wrong answer',
-      needs_detail: 'Needs detail',
-      too_verbose: 'Too verbose',
-      retry: 'Retry',
-      other: 'Other',
-      problem_report: 'Problem report',
-      Bug: 'Bug',
-      'Confusing UX': 'Confusing UX',
-      'Missing feature': 'Missing feature',
-      Other: 'Other',
-      Trust: 'Trust',
-      'Data quality/wrong info': 'Data quality/wrong info',
-      "Didn't get answer": "Didn't get answer",
-    };
+    // Legacy Tome rows resolve to project slugs only at this point (after the
+    // main attribution lookup above) — backfill any not already enriched.
+    const missingSlugs = [...new Set(
+      [...tomeLinkBySessionId.values()]
+        .map((link) => link.projectSlug)
+        .filter((slug) => slug && !slugToProjectInfo.has(slug)),
+    )];
+    if (missingSlugs.length > 0) {
+      const projectsColl = await getCollection<ProjectDocument>('projects');
+      const extraProjectDocs = await projectsColl
+        .find(
+          { slug: { $in: missingSlugs } },
+          { projection: { slug: 1, title: 1, name: 1, domain: 1, labels: 1 } },
+        )
+        .toArray();
+      for (const p of extraProjectDocs) {
+        slugToProjectInfo.set(p.slug, {
+          title: p.title || p.name || p.slug,
+          domain: p.labels?.domain || p.domain,
+          bhags: p.labels?.initiatives ?? [],
+          areas: p.labels?.swimlanes ?? [],
+        });
+      }
+    }
 
     const entries = docs.map((doc) => {
       const valueLabel = VALUE_LABELS[doc.value] || doc.value || null;
@@ -369,6 +602,32 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
           doc.tome_session_id ||
           tomeLinkBySessionId.get(doc.conversation_id || '')?.sessionId ||
           null,
+        tome_user_question: doc.tome_user_question || null,
+        tome_assistant_response: doc.tome_assistant_response || null,
+        tome_project_name: (() => {
+          const slug =
+            doc.tome_project_slug ||
+            tomeLinkBySessionId.get(doc.tome_session_id || doc.conversation_id || '')?.projectSlug;
+          return slug ? slugToProjectInfo.get(slug)?.title || null : null;
+        })(),
+        tome_project_domain: (() => {
+          const slug =
+            doc.tome_project_slug ||
+            tomeLinkBySessionId.get(doc.tome_session_id || doc.conversation_id || '')?.projectSlug;
+          return slug ? slugToProjectInfo.get(slug)?.domain || null : null;
+        })(),
+        tome_bhags: (() => {
+          const slug =
+            doc.tome_project_slug ||
+            tomeLinkBySessionId.get(doc.tome_session_id || doc.conversation_id || '')?.projectSlug;
+          return slug ? slugToProjectInfo.get(slug)?.bhags || [] : [];
+        })(),
+        tome_areas: (() => {
+          const slug =
+            doc.tome_project_slug ||
+            tomeLinkBySessionId.get(doc.tome_session_id || doc.conversation_id || '')?.projectSlug;
+          return slug ? slugToProjectInfo.get(slug)?.areas || [] : [];
+        })(),
       };
     });
 
@@ -377,6 +636,11 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       channels: (channels as string[]).sort(),
       users: (distinctUsers as string[]).sort(),
       summary,
+      category_counts: categoryCounts,
+      word_cloud: wordCloud,
+      tome_projects: tomeProjectOptions,
+      tome_bhags: tomeBhagOptions,
+      tome_areas: tomeAreaOptions,
       pagination: {
         page,
         limit,

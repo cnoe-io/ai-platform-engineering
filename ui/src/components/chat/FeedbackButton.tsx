@@ -30,6 +30,8 @@ interface FeedbackButtonProps {
   feedbackSource?: "web" | "tome";
   tomeProjectSlug?: string;
   tomeSessionId?: string;
+  tomeUserQuestion?: string;
+  tomeAssistantResponse?: string;
   feedback?: Feedback;
   onFeedbackChange?: (feedback: Feedback) => void;
   onFeedbackSubmit?: (feedback: Feedback) => void;
@@ -47,6 +49,8 @@ export function FeedbackButton({
   feedbackSource = "web",
   tomeProjectSlug,
   tomeSessionId,
+  tomeUserQuestion,
+  tomeAssistantResponse,
   feedback,
   onFeedbackChange,
   onFeedbackSubmit,
@@ -128,6 +132,8 @@ export function FeedbackButton({
             source: "tome" as const,
             tomeProjectSlug,
             tomeSessionId,
+            ...(tomeUserQuestion ? { tomeUserQuestion } : {}),
+            ...(tomeAssistantResponse ? { tomeAssistantResponse } : {}),
           }
         : {}),
     });
@@ -164,6 +170,8 @@ export function FeedbackButton({
             source: "tome" as const,
             tomeProjectSlug,
             tomeSessionId,
+            ...(tomeUserQuestion ? { tomeUserQuestion } : {}),
+            ...(tomeAssistantResponse ? { tomeAssistantResponse } : {}),
           }
         : {}),
     });
