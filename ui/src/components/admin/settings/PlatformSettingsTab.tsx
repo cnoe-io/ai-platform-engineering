@@ -39,6 +39,14 @@ export function PlatformSettingsTab({ isAdmin, readOnly = false }: PlatformSetti
   const [saving, setSaving] = useState(false);
   const [saveResult, setSaveResult] = useState<'success' | 'error' | null>(null);
   const [configSource, setConfigSource] = useState<string>('fallback');
+  const [selectedScheduleEditorAgentId, setSelectedScheduleEditorAgentId] =
+    useState<string | null>(null);
+  const [savedScheduleEditorAgentId, setSavedScheduleEditorAgentId] =
+    useState<string | null>(null);
+  const [scheduleEditorSource, setScheduleEditorSource] = useState<string>('fallback');
+  const [savingScheduleEditor, setSavingScheduleEditor] = useState(false);
+  const [scheduleEditorSaveResult, setScheduleEditorSaveResult] =
+    useState<'success' | 'error' | null>(null);
   const [confirmAction, setConfirmAction] = useState<PendingAction | null>(null);
   const [anonymousModalOpen, setAnonymousModalOpen] = useState(false);
 
@@ -67,6 +75,10 @@ export function PlatformSettingsTab({ isAdmin, readOnly = false }: PlatformSetti
         setSelectedAgentId(id);
         setSavedAgentId(id);
         setConfigSource(configRes.data.source || 'fallback');
+        const scheduleEditorId = configRes.data.schedule_editor_agent_id ?? null;
+        setSelectedScheduleEditorAgentId(scheduleEditorId);
+        setSavedScheduleEditorAgentId(scheduleEditorId);
+        setScheduleEditorSource(configRes.data.schedule_editor_agent_source || 'fallback');
       }
       setLoadingConfig(false);
     })();
@@ -115,6 +127,40 @@ export function PlatformSettingsTab({ isAdmin, readOnly = false }: PlatformSetti
     }
   };
 
+  const handleSaveScheduleEditor = async () => {
+    if (
+      !isAdmin ||
+      readOnly ||
+      selectedScheduleEditorAgentId === savedScheduleEditorAgentId
+    ) return;
+    setSavingScheduleEditor(true);
+    setScheduleEditorSaveResult(null);
+    try {
+      const res = await fetch('/api/admin/platform-config', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          schedule_editor_agent_id: selectedScheduleEditorAgentId,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        const effectiveId = data.data?.schedule_editor_agent_id ?? null;
+        setSelectedScheduleEditorAgentId(effectiveId);
+        setSavedScheduleEditorAgentId(effectiveId);
+        setScheduleEditorSource(data.data?.schedule_editor_agent_source || 'fallback');
+        setScheduleEditorSaveResult('success');
+        setTimeout(() => setScheduleEditorSaveResult(null), 3000);
+      } else {
+        setScheduleEditorSaveResult('error');
+      }
+    } catch {
+      setScheduleEditorSaveResult('error');
+    } finally {
+      setSavingScheduleEditor(false);
+    }
+  };
+
   const selectedAgent = agents.find((a) => a._id === selectedAgentId);
   const savedAgentMissing = Boolean(savedAgentId) && !agents.find((a) => a._id === savedAgentId);
   // When the saved/selected agent isn't in the viewer's `available` list,
@@ -132,6 +178,21 @@ export function PlatformSettingsTab({ isAdmin, readOnly = false }: PlatformSetti
       : []),
   ];
   const selectedAgentName = selectedAgent?.name ?? selectedAgentId ?? "this agent";
+  const selectedScheduleEditorAgent = agents.find(
+    (agent) => agent._id === selectedScheduleEditorAgentId,
+  );
+  const missingScheduleEditorOption =
+    selectedScheduleEditorAgentId && !selectedScheduleEditorAgent
+      ? {
+          value: selectedScheduleEditorAgentId,
+          label: `${selectedScheduleEditorAgentId} (not visible to you)`,
+        }
+      : null;
+  const scheduleEditorPickerOptions: AgentPickerOption[] = [
+    { value: "", label: "Use deployment/default chat agent" },
+    ...agents.map((agent) => ({ value: agent._id, label: agent.name })),
+    ...(missingScheduleEditorOption ? [missingScheduleEditorOption] : []),
+  ];
 
   return (
     <div className="space-y-6">
@@ -249,6 +310,74 @@ export function PlatformSettingsTab({ isAdmin, readOnly = false }: PlatformSetti
           )}
         </CardContent>
       </Card>
+
+      {isAdmin && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              Scheduler editor agent
+              <AdminBadge />
+            </CardTitle>
+            <CardDescription>
+              Choose the agent opened by <em>Chat with agent</em> when a schedule
+              has no schedule-specific editor agent.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {loadingConfig || loadingAgents ? (
+              <div className="flex items-center justify-center py-6">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : (
+              <>
+                {scheduleEditorSource === 'env' && (
+                  <p className="text-xs text-muted-foreground">
+                    Currently using the deployment value (<code>SCHEDULE_EDITOR_AGENT_ID</code>).
+                    Saving another agent here overrides it.
+                  </p>
+                )}
+                <div className="space-y-2">
+                  <label htmlFor="schedule-editor-agent" className="text-sm font-medium">
+                    Agent for schedule editing
+                  </label>
+                  <AgentPicker
+                    id="schedule-editor-agent"
+                    ariaLabel="Scheduler editor agent"
+                    options={scheduleEditorPickerOptions}
+                    value={selectedScheduleEditorAgentId ?? ''}
+                    onChange={(value) => setSelectedScheduleEditorAgentId(value || null)}
+                    disabled={readOnly}
+                    hideIdSuffix
+                    placeholder="Select the scheduler editor agent..."
+                    searchPlaceholder="Search agents..."
+                    emptyLabel="No agents match"
+                    triggerClassName="max-w-sm md:ml-4"
+                  />
+                  {selectedScheduleEditorAgent && (
+                    <p className="text-xs text-muted-foreground">
+                      {`Agent Description: ${selectedScheduleEditorAgent.description}`}
+                    </p>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  This setting does not grant users access to the selected agent.
+                </p>
+                <div className="pt-2">
+                  <SaveButton
+                    onSave={handleSaveScheduleEditor}
+                    saving={savingScheduleEditor}
+                    dirty={selectedScheduleEditorAgentId !== savedScheduleEditorAgentId}
+                    disabled={readOnly}
+                    result={scheduleEditorSaveResult}
+                    ariaLabel="Save scheduler editor agent"
+                    testId="schedule-editor-agent-save"
+                  />
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Unlinked Access — platform-admin only */}
       {isAdmin && (

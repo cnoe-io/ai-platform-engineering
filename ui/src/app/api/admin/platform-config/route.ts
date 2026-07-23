@@ -29,6 +29,7 @@ import { NextRequest,NextResponse } from 'next/server';
 const platformConfigCache = createJsonResponseCacheStore();
 
 interface PlatformConfigDoc extends PlatformDefaultAgentDocument {
+  schedule_editor_agent_id?: unknown;
   slack_victorops_escalation_agent_id?: unknown;
   release_notes?: unknown;
   discovery_cache_ttl_minutes?: unknown;
@@ -47,6 +48,27 @@ function normalizeVictoropsAgentId(value: unknown): string | null {
   if (!trimmed) return null;
   if (!PLATFORM_AGENT_ID_PATTERN.test(trimmed)) {
     throw new ApiError('slack_victorops_escalation_agent_id is not a valid OpenFGA object id', 400, 'INVALID_VICTOROPS_AGENT_ID');
+  }
+  return trimmed;
+}
+
+function normalizeScheduleEditorAgentId(value: unknown): string | null {
+  if (value == null) return null;
+  if (typeof value !== 'string') {
+    throw new ApiError(
+      'schedule_editor_agent_id must be a string or null',
+      400,
+      'INVALID_SCHEDULE_EDITOR_AGENT_ID',
+    );
+  }
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (!PLATFORM_AGENT_ID_PATTERN.test(trimmed)) {
+    throw new ApiError(
+      'schedule_editor_agent_id is not a valid OpenFGA object id',
+      400,
+      'INVALID_SCHEDULE_EDITOR_AGENT_ID',
+    );
   }
   return trimmed;
 }
@@ -92,6 +114,10 @@ async function getPlatformConfig(request: NextRequest) {
 
     const defaultAgentId = normalizePlatformDefaultAgentId(doc?.default_agent_id);
     const envFallback = process.env.DEFAULT_AGENT_ID || null;
+    const scheduleEditorAgentId = normalizeScheduleEditorAgentId(
+      doc?.schedule_editor_agent_id,
+    );
+    const scheduleEditorEnvFallback = process.env.SCHEDULE_EDITOR_AGENT_ID?.trim() || null;
     const discoveryTtlMinutes =
       normalizeDiscoveryCacheTtlMinutes(doc?.discovery_cache_ttl_minutes) ??
       normalizeDiscoveryCacheTtlMinutes(process.env.DISCOVERY_CACHE_TTL_MINUTES) ??
@@ -105,6 +131,10 @@ async function getPlatformConfig(request: NextRequest) {
       data: {
         default_agent_id: defaultAgentId ?? envFallback,
         source: defaultAgentId ? 'db' : (envFallback ? 'env' : 'fallback'),
+        schedule_editor_agent_id: scheduleEditorAgentId ?? scheduleEditorEnvFallback,
+        schedule_editor_agent_source: scheduleEditorAgentId
+          ? 'db'
+          : (scheduleEditorEnvFallback ? 'env' : 'fallback'),
         slack_victorops_escalation_agent_id: victoropsAgentId ?? victoropsEnvFallback,
         slack_victorops_escalation_agent_source: victoropsAgentId ? 'db' : (victoropsEnvFallback ? 'env' : 'fallback'),
         release_notes: normalizeReleaseNotesConfig(doc?.release_notes),
@@ -133,6 +163,17 @@ export const PATCH = withErrorHandler(async (request: NextRequest) => {
     const hasDefaultAgentUpdate = Object.prototype.hasOwnProperty.call(body, 'default_agent_id');
     const nextDefaultAgentId = hasDefaultAgentUpdate ? normalizePlatformDefaultAgentId(body.default_agent_id) : null;
     if (hasDefaultAgentUpdate) update.default_agent_id = nextDefaultAgentId;
+
+    // The scheduler editor agent only selects which existing agent opens when
+    // an admin clicks "Chat with agent". It does not grant agent access.
+    const hasScheduleEditorUpdate = Object.prototype.hasOwnProperty.call(
+      body,
+      'schedule_editor_agent_id',
+    );
+    const nextScheduleEditorAgentId = hasScheduleEditorUpdate
+      ? normalizeScheduleEditorAgentId(body.schedule_editor_agent_id)
+      : null;
+    if (hasScheduleEditorUpdate) update.schedule_editor_agent_id = nextScheduleEditorAgentId;
 
     // Slack VictorOps escalation agent (Admin → Integrations → Slack →
     // Advanced). Unlike the platform default this does NOT grant any user
@@ -229,6 +270,17 @@ export const PATCH = withErrorHandler(async (request: NextRequest) => {
       data: {
         ...(Object.prototype.hasOwnProperty.call(update, 'default_agent_id')
           ? { default_agent_id: update.default_agent_id }
+          : {}),
+        ...(Object.prototype.hasOwnProperty.call(update, 'schedule_editor_agent_id')
+          ? {
+              schedule_editor_agent_id:
+                update.schedule_editor_agent_id ??
+                process.env.SCHEDULE_EDITOR_AGENT_ID?.trim() ??
+                null,
+              schedule_editor_agent_source: update.schedule_editor_agent_id
+                ? 'db'
+                : (process.env.SCHEDULE_EDITOR_AGENT_ID?.trim() ? 'env' : 'fallback'),
+            }
           : {}),
         ...(Object.prototype.hasOwnProperty.call(update, 'slack_victorops_escalation_agent_id')
           ? { slack_victorops_escalation_agent_id: update.slack_victorops_escalation_agent_id }

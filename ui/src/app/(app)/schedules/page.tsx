@@ -165,6 +165,13 @@ interface ScheduleDeleteResponse {
   error?: string;
 }
 
+interface PlatformConfigResponse {
+  success?: boolean;
+  data?: {
+    schedule_editor_agent_id?: unknown;
+  };
+}
+
 const SCHEDULES_TABLE_MIN_WIDTH = 1160;
 
 interface TableScrollMetrics {
@@ -457,6 +464,30 @@ function scheduleAttributeEntries(schedule: ScheduleItem): [string, string][] {
     .filter((entry): entry is [string, string] => Boolean(entry[1]));
 }
 
+async function resolveConfiguredScheduleEditorAgentId(): Promise<string | null> {
+  try {
+    const response = await fetch("/api/admin/platform-config", {
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to load platform config: ${response.status}`);
+    }
+    const body = (await response.json()) as PlatformConfigResponse;
+    const configuredId = body.success
+      ? body.data?.schedule_editor_agent_id
+      : null;
+    if (typeof configuredId === "string" && configuredId.trim()) {
+      return configuredId.trim();
+    }
+  } catch (error) {
+    console.warn(
+      "Failed to load the scheduler editor agent; using the deployment fallback.",
+      error,
+    );
+  }
+  return getConfig("scheduleEditorAgentId")?.trim() || null;
+}
+
 export default function SchedulesPage() {
   const router = useRouter();
   const createConversation = useChatStore((state) => state.createConversation);
@@ -719,7 +750,7 @@ export default function SchedulesPage() {
       try {
         const configuredEditorAgentId =
           item.edit_agent_id?.trim() ||
-          getConfig("scheduleEditorAgentId")?.trim();
+          (await resolveConfiguredScheduleEditorAgentId());
         const scheduleEditorAgentId =
           configuredEditorAgentId ||
           (await resolveUsableChatAgentId());
