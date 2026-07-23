@@ -1094,7 +1094,9 @@ dynamic-agents:
     # Connections & Secrets credential exchange client. Disabled by default.
     CAIPE_CREDENTIALS_ENABLED: "false"
     CREDENTIAL_API_URL: ""
-    # CAIPE UI server base URL for built-in workflow tools.
+    # CAIPE UI server base URL for built-in workflow tools. Leave empty to get
+    # the in-cluster default http://<release-name>-caipe-ui:3000; override only
+    # when pointing dynamic-agents at an external CAIPE UI/BFF.
     CAIPE_API_URL: ""
     CREDENTIAL_SERVICE_AUDIENCE: "caipe-credential-service"
     USE_IMPERSONATION_TOKENS: "false"
