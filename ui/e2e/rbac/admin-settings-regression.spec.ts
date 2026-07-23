@@ -110,22 +110,6 @@ test.describe("mocked Admin workspace browser regression",() => {
     await expect(page.getByRole("heading",{ level: 2,name: "Users" })).toBeVisible();
   });
 
-  test("does not interpret retired Admin query navigation",async ({ page }) => {
-    await installMockedRbacApp(page,{
-      gates: { ...DEFAULT_ADMIN_GATES,migrations: true },
-      isAdmin: true,
-      session: adminSession,
-    });
-
-    await page.goto("/admin?cat=security&tab=migrations",{
-      waitUntil: "domcontentloaded",
-    });
-
-    await expect(page).toHaveURL(/\/admin\/people\/users$/);
-    await expect(page.getByRole("heading",{ level: 2,name: "Users" })).toBeVisible();
-    await expect(page.getByRole("heading",{ level: 2,name: "Migrations" })).toHaveCount(0);
-  });
-
   test("uses the grouped Admin destination picker on mobile",async ({ page }) => {
     await page.setViewportSize({ height: 844,width: 390 });
     await installMockedRbacApp(page,{

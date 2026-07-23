@@ -1712,8 +1712,6 @@ describe('Admin Dashboard Page', () => {
 
       const targetUrl = new URL(pushMock.mock.calls.at(-1)?.[0], 'http://localhost');
       expect(targetUrl.pathname).toBe('/admin/insights/feedback');
-      expect(targetUrl.searchParams.has('cat')).toBe(false);
-      expect(targetUrl.searchParams.has('tab')).toBe(false);
       expect(targetUrl.searchParams.get('dateRange')).toBe('custom');
       expect(targetUrl.searchParams.get('from')).toBe(
         new Date(2026, 6, 20, 0, 0, 0, 0).toISOString(),

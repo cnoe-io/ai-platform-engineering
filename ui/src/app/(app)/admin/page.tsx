@@ -529,8 +529,6 @@ function AdminPage() {
     if (adminRoleLoading || adminTabGatesLoading) return;
     if (visibleCategories.length === 0) return;
     const params = new URLSearchParams(searchParams.toString());
-    params.delete('cat');
-    params.delete('tab');
     if (activeDestination.id !== 'access-explorer') {
       params.delete('subtab');
       params.delete('openfgaTab');
@@ -546,10 +544,8 @@ function AdminPage() {
     const canonicalUrl = query
       ? `${activeDestination.href}?${query}`
       : activeDestination.href;
-    const hasObsoleteNavigationParams = searchParams.has('cat') || searchParams.has('tab');
     if (
       pathname !== activeDestination.href
-      || hasObsoleteNavigationParams
       || shouldSetDefaultStatsRange
     ) {
       router.replace(canonicalUrl, { scroll: false });
@@ -681,8 +677,6 @@ function AdminPage() {
     setDatePreset('custom');
     setDateRange(range);
     const params = new URLSearchParams(searchParams.toString());
-    params.delete('cat');
-    params.delete('tab');
     params.delete('subtab');
     params.delete('openfgaTab');
     params.set('dateRange', 'custom');
