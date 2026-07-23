@@ -13,6 +13,7 @@ import {
 import { caipeOrgKey } from "@/lib/rbac/organization";
 import { requireResourcePermission } from "@/lib/rbac/resource-authz";
 import { isMcpCredentialUnavailableError, resolveMcpHeaderCredentials } from "@/lib/mcp-credential-headers";
+import type { McpCredentialResolution } from "@/lib/mcp-credential-headers";
 import type { MCPCredentialSource } from "@/types/dynamic-agent";
 import { NextRequest } from "next/server";
 
@@ -57,14 +58,14 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     _id: "probe",
     name: "probe",
     endpoint: url,
-    transport: "streamable_http" as const,
+    transport: "http" as const,
     credential_sources: credentialSources,
     enabled: true,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };
 
-  let resolution;
+  let resolution: McpCredentialResolution;
   try {
     resolution = await resolveMcpHeaderCredentials({
       request,
