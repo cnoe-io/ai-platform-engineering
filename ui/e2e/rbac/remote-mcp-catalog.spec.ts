@@ -58,6 +58,31 @@ test.describe("remote MCP catalog dialog", () => {
     await expect(page.getByText("ThousandEyes")).toBeVisible();
   });
 
+  test("catalog dialog does not offer Zapier", async ({ page }) => {
+    // Zapier's MCP endpoint (mcp.zapier.com/api/mcp) rejects every
+    // server-to-server request — OAuth Bearer included — with a CSRF
+    // check, so the provider_connection credential flow can never
+    // reach it. The tile must stay out of the catalog.
+    await installMcpBrowserMocks(page);
+    await installCatalogPlatformConfig(page);
+    await gotoMcpServersTab(page);
+
+    await page.getByRole("button", { name: "Add Server" }).first().click();
+    await expect(page.getByText("Add MCP Server")).toBeVisible({ timeout: 10_000 });
+
+    // Sanity check the dialog actually rendered its tiles before asserting
+    // the negative, so a broken dialog can't produce a false pass. Exact
+    // match avoids a strict-mode clash with tile subtitles like
+    // "mcp.amplitude.com", which otherwise substring-match "Amplitude".
+    await expect(page.getByText("Amplitude", { exact: true })).toBeVisible();
+    await expect(page.getByText("Zapier", { exact: true })).toHaveCount(0);
+
+    await page.screenshot({
+      path: "test-results/screenshots/remote-mcp-catalog-no-zapier-dialog.png",
+      fullPage: true,
+    });
+  });
+
   test("clicking a provider pre-fills the MCP server form", async ({ page }) => {
     await installMcpBrowserMocks(page);
     await installCatalogPlatformConfig(page);
@@ -232,5 +257,55 @@ test.describe("admin settings MCP tab", () => {
     // Provider checkboxes should be present
     await expect(page.getByText("Amplitude")).toBeVisible();
     await expect(page.getByText("ThousandEyes")).toBeVisible();
+  });
+
+  test("MCP tab does not list Zapier as a built-in provider", async ({ page }) => {
+    await installMcpBrowserMocks(page, { isAdmin: true });
+
+    await page.route("**/api/rbac/admin-tab-gates", async (route) => {
+      await fulfillJson(route, {
+        gates: {
+          credentials: false,
+          teams: true,
+          users: true,
+          health: true,
+          metrics: true,
+          migrations: false,
+          openfga: true,
+          service_accounts: true,
+          agents: true,
+          mcp: true,
+        },
+      });
+    });
+
+    await page.route("**/api/admin/platform-config", async (route) => {
+      if (route.request().method() === "GET") {
+        await fulfillJson(route, {
+          success: true,
+          data: {
+            release_notes: { enabled: false },
+            remote_mcp_catalog: {
+              enabled_providers: null, // null = all built-in providers enabled
+              custom_entries: [],
+            },
+          },
+        });
+        return;
+      }
+      await route.continue();
+    });
+
+    await page.goto("/admin?tab=mcp", { waitUntil: "domcontentloaded" });
+    await expect(page.getByText(/MCP Catalog/i)).toBeVisible({ timeout: 10_000 });
+
+    // Sanity check the list actually rendered before asserting the negative.
+    await expect(page.getByText("Amplitude", { exact: true })).toBeVisible();
+    await expect(page.getByText("Zapier", { exact: true })).toHaveCount(0);
+
+    await page.screenshot({
+      path: "test-results/screenshots/remote-mcp-catalog-no-zapier-admin-settings.png",
+      fullPage: true,
+    });
   });
 });
