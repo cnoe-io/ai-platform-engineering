@@ -1252,7 +1252,7 @@ it("opens the sub-tab named by the subtab URL param on load", async () => {
 
 it("deep-links and updates the configured channel search", async () => {
   currentSearchParams = new URLSearchParams(
-    "cat=integrations&tab=slack&subtab=channels&slackChannelSearch=incidents",
+    "subtab=channels&slackChannelSearch=incidents",
   );
   const { rerender } = render(<SlackChannelRebacPanel />);
 
@@ -1264,19 +1264,19 @@ it("deep-links and updates the configured channel search", async () => {
 
   fireEvent.change(searchInput, { target: { value: "platform-engineering" } });
   expect(replaceMock).toHaveBeenLastCalledWith(
-    "/admin?cat=integrations&tab=slack&subtab=channels&slackChannelSearch=platform-engineering",
+    "/admin/integrations/slack?subtab=channels&slackChannelSearch=platform-engineering",
     { scroll: false },
   );
 
   currentSearchParams = new URLSearchParams(
-    "cat=integrations&tab=slack&subtab=channels&slackChannelSearch=C123456789",
+    "subtab=channels&slackChannelSearch=C123456789",
   );
   rerender(<SlackChannelRebacPanel />);
   expect(searchInput).toHaveValue("C123456789");
 
   fireEvent.click(screen.getByRole("button", { name: "Clear" }));
   expect(replaceMock).toHaveBeenLastCalledWith(
-    "/admin?cat=integrations&tab=slack&subtab=channels",
+    "/admin/integrations/slack?subtab=channels",
     { scroll: false },
   );
 });
