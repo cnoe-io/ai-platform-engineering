@@ -2,71 +2,93 @@
 sidebar_position: 3
 ---
 
-# Admin Settings
+# Settings and Admin
 
-The Admin Dashboard is the operator surface for managing CAIPE UI behavior,
-access, metrics, and policy controls. Admin settings are available from the
-`Admin` tab in the main navigation and are grouped so operators can find
-routine tasks without scanning a long row of unrelated tabs.
+CAIPE separates configuration from platform operations:
 
-![Admin Dashboard settings layout](./images/admin-settings.svg)
+- **Settings** opens as a dialog over the current page. It contains personal
+  preferences and the small set of platform-wide preferences available to
+  admins.
+- **Admin** is a routed workspace for managing people, resources,
+  integrations, operations, and security policy.
 
-## Admin Dashboard Sections
+Open Settings from **Profile picture → Settings**. The Appearance shortcut in
+the application header opens the same dialog directly at Appearance. Closing
+the dialog returns you to the page where you opened it.
 
-The top-level Admin Dashboard categories are:
+## Settings map
 
-| Category | Tabs | Purpose |
-|----------|------|---------|
-| `System` | `Default Agent`, `AI Review`, `Skills` | Configure core CAIPE behavior and system-level agent features. |
-| `Users & Teams` | `Users`, `Teams` | Review users, assign roles, and manage collaboration groups. |
-| `Insights` | `Feedback`, `Statistics` | Inspect user feedback, satisfaction trends, and product usage. |
-| `Metrics & Health` | `Metrics`, `Health` | Check platform telemetry and service health. |
-| `Security & Policy` | `Audit Logs`, `Policy` | Review administrative activity and policy controls. |
+### Personal
 
-Some tabs only appear when the related feature is enabled or when the current
-user has full admin access. Read-only admin viewers can inspect supported
-dashboard areas but cannot save administrative changes.
+- **Appearance** — theme, typography, and accent gradient.
+- **Chat & agents** — per-surface default agents and conversation behavior.
+- **Notifications** — personal release-note notifications.
+- **Account & access** — your identity, platform role, and teams.
+- **Developer** — debug preferences and session diagnostics.
 
-## Default Agent
+### Platform settings
 
-`System` → `Default Agent` controls which agent opens when a user starts a new
-chat. This setting is useful when an installation wants new conversations to
-start with a specific dynamic agent.
+Admins also see:
 
-Each registered dynamic agent appears in the selector. Choosing one and clicking
-`Save` stores that agent as the runtime default for new chats.
+- **Defaults** — fallback agent for people without a personal choice.
+- **Announcements** — platform-wide release announcements.
 
-## Precedence
+AI Review and access-before-sign-in policy remain in **Admin → Security &
+Policy** because they are governance and access-management workflows.
 
-The runtime admin setting takes precedence over bootstrap configuration:
+## Admin map
 
-1. If an admin saves a default agent in the UI, CAIPE uses that persisted value.
-2. If no UI value has been saved, CAIPE can fall back to the `DEFAULT_AGENT_ID`
-   deployment value.
-3. If neither is configured, new chats use the first available dynamic agent.
+Admin opens at **Teams & Users → Users**. Its category buttons disclose their
+destinations without navigating, allowing an administrator to choose the exact
+page before leaving the current one.
 
-When CAIPE is currently using `DEFAULT_AGENT_ID`, the UI displays a note that
-saving from the Admin Dashboard will override the bootstrap default at runtime.
+- **Resources** — agent configuration, Skill Hubs, service accounts, and
+  credential administration.
+- **Teams & Users** — users, teams, and identity sync.
+- **Integrations** — Slack and Webex administration.
+- **Insights** — statistics and feedback.
+- **Metrics & Health** — operational metrics, health, and authorization
+  insights.
+- **Security & Policy** — access policy, AI Review, authorization tools,
+  audits, identity health, and migrations.
 
-## Missing Agents
+## Saving changes
 
-If a previously saved default dynamic agent is no longer available, the
-Default Agent panel warns administrators and new chats fall back to another
-available dynamic agent. Pick an available agent and save to clear the stale
-runtime setting.
+Single-setting controls save when you interact with them:
 
-## Access Control
+- The control updates immediately.
+- An inline status reports **Saving**, **Saved**, or an actionable error.
+- Failed server-authoritative changes roll back and can be retried.
+- Web, Slack, and Webex default-agent choices save independently.
 
-Only full admins can change the Default Agent setting. Non-admin or read-only
-admin users can view the configured value, but the selector is disabled and
-the `Save` action is hidden.
+Multi-field policy and access forms retain an explicit review/apply action.
 
-Admin access is determined by the UI authentication and role configuration.
-For SSO-enabled deployments, role and view access come from configured identity
-groups. In local or no-SSO development, avoid granting anonymous admin access
-unless the environment explicitly requires it.
+## Platform default agent
 
-## Related Pages
+The platform default applies only when a person has not chosen a personal
+default. Choosing one makes that agent available to every signed-in user, so
+CAIPE explains the consequence and asks for confirmation before persisting it.
 
-- [Custom Agents](./custom-agents.md)
-- [Skills](./skills/README.md)
+Resolution order:
+
+1. A person's default for the current surface.
+2. The persisted platform default.
+3. The `DEFAULT_AGENT_ID` deployment fallback.
+4. No default agent; the user chooses an accessible agent.
+
+If the configured agent is missing or no longer visible, Settings shows a
+warning. Choose another agent or remove the platform default.
+
+## Access control
+
+- Any signed-in user can manage personal preferences and inspect their own
+  account and access information.
+- Only admins can see or change Platform settings.
+- Admin View as remains read-only for operational and policy controls.
+- Sensitive session and token values remain concealed until explicitly opened.
+
+## Related pages
+
+- [UI customization and branding](../ui/customization.md)
+- [Custom agents](./custom-agents.md)
+- [RBAC architecture](../security/rbac/architecture.md)

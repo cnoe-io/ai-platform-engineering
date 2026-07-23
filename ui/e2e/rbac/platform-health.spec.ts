@@ -236,15 +236,15 @@ test.describe("Platform Health widget", () => {
 
     await openHealthPopover(page);
     const healthLink = page.getByRole("link", { name: /open admin health status/i });
-    await expect(healthLink).toHaveAttribute("href", /\/admin\?cat=platform&tab=health$/);
+    await expect(healthLink).toHaveAttribute("href", "/admin/operations/health");
     await expect(page.getByText("Platform", { exact: true })).toBeVisible();
     await expect(page.getByText("Chat Runtime", { exact: true })).toBeVisible();
     await expect(page.getByText("Audit Service")).toBeVisible();
     await expect(page.getByRole("button", { name: /open health dashboard/i })).toHaveCount(0);
 
     await healthLink.click();
-    await expect(page).toHaveURL(/\/admin\?cat=platform&tab=health$/);
-    await expect(page.getByRole("tab", { name: "Health", selected: true })).toBeVisible();
+    await expect(page).toHaveURL(/\/admin\/operations\/health$/);
+    await expect(page.getByRole("link",{ exact: true,name: "Health" })).toHaveAttribute("aria-current","page");
   });
 
   test("audit-service capability degradation is visible but non-blocking", async ({ page }) => {
@@ -265,7 +265,7 @@ test.describe("Platform Health widget", () => {
     await expect(page.getByText("Audit Service")).toBeVisible();
     await expect(page.getByText(/queue worker is not running/)).toBeVisible();
 
-    await page.goto("/admin?cat=platform&tab=health");
+    await page.goto("/admin/operations/health");
     await dismissReleaseUpgradeDialog(page);
     await expect(page.getByText("Platform Capabilities", { exact: true })).toBeVisible();
     await expect(page.getByText("Audit Service")).toBeVisible();
@@ -286,7 +286,7 @@ test.describe("Platform Health widget", () => {
     );
     await setupWithHealth(page, healthResponse(capabilities));
 
-    await page.goto("/admin?cat=platform&tab=health");
+    await page.goto("/admin/operations/health");
     await dismissReleaseUpgradeDialog(page);
 
     await expect(page.getByText("System Status: Degraded")).toBeVisible();
@@ -334,10 +334,10 @@ test.describe("Platform Health widget", () => {
   test("admin Health tab shows capabilities, not integration diagnostics", async ({ page }) => {
     await setupWithHealth(page);
 
-    await page.goto("/admin?cat=platform&tab=health");
+    await page.goto("/admin/operations/health");
     await dismissReleaseUpgradeDialog(page);
 
-    await expect(page.getByRole("tab", { name: "Health", selected: true })).toBeVisible();
+    await expect(page.getByRole("link",{ exact: true,name: "Health" })).toHaveAttribute("aria-current","page");
     await expect(page.getByText("Platform Capabilities", { exact: true })).toBeVisible();
     await expect(page.getByText("Chat Runtime", { exact: true })).toBeVisible();
     await expect(page.getByText("Checks the runtime health endpoint used by the chat experience.")).toBeVisible();

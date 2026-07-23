@@ -14,7 +14,7 @@ jest.mock("@/components/ui/toast", () => ({
 const replaceMock = jest.fn();
 let currentSearchParams = new URLSearchParams();
 jest.mock("next/navigation", () => ({
-  usePathname: () => "/admin",
+  usePathname: () => "/admin/integrations/slack",
   useRouter: () => ({ replace: replaceMock }),
   useSearchParams: () => currentSearchParams,
 }));
@@ -1220,17 +1220,17 @@ it("writes the active sub-tab to the subtab URL param", async () => {
   await screen.findByRole("tab", { name: "Configured channels" });
 
   await switchToTab("Advanced");
-  expect(replaceMock).toHaveBeenLastCalledWith("/admin?subtab=advanced", {
+  expect(replaceMock).toHaveBeenLastCalledWith("/admin/integrations/slack?subtab=advanced", {
     scroll: false,
   });
 
   await switchToTab("Onboard channels");
-  expect(replaceMock).toHaveBeenLastCalledWith("/admin?subtab=onboard", {
+  expect(replaceMock).toHaveBeenLastCalledWith("/admin/integrations/slack?subtab=onboard", {
     scroll: false,
   });
 
   await switchToTab("Configured channels");
-  expect(replaceMock).toHaveBeenLastCalledWith("/admin?subtab=channels", {
+  expect(replaceMock).toHaveBeenLastCalledWith("/admin/integrations/slack?subtab=channels", {
     scroll: false,
   });
 });
@@ -1252,7 +1252,7 @@ it("opens the sub-tab named by the subtab URL param on load", async () => {
 
 it("deep-links and updates the configured channel search", async () => {
   currentSearchParams = new URLSearchParams(
-    "cat=integrations&tab=slack&subtab=channels&slackChannelSearch=incidents",
+    "subtab=channels&slackChannelSearch=incidents",
   );
   const { rerender } = render(<SlackChannelRebacPanel />);
 
@@ -1264,19 +1264,19 @@ it("deep-links and updates the configured channel search", async () => {
 
   fireEvent.change(searchInput, { target: { value: "platform-engineering" } });
   expect(replaceMock).toHaveBeenLastCalledWith(
-    "/admin?cat=integrations&tab=slack&subtab=channels&slackChannelSearch=platform-engineering",
+    "/admin/integrations/slack?subtab=channels&slackChannelSearch=platform-engineering",
     { scroll: false },
   );
 
   currentSearchParams = new URLSearchParams(
-    "cat=integrations&tab=slack&subtab=channels&slackChannelSearch=C123456789",
+    "subtab=channels&slackChannelSearch=C123456789",
   );
   rerender(<SlackChannelRebacPanel />);
   expect(searchInput).toHaveValue("C123456789");
 
   fireEvent.click(screen.getByRole("button", { name: "Clear" }));
   expect(replaceMock).toHaveBeenLastCalledWith(
-    "/admin?cat=integrations&tab=slack&subtab=channels",
+    "/admin/integrations/slack?subtab=channels",
     { scroll: false },
   );
 });

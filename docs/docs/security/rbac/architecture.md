@@ -779,10 +779,10 @@ picker instead of starting a chat (no default-agent OpenFGA tuple is produced).
 The Slack bot honors the same
 `platform_config.default_agent_id` at runtime (via its
 `PlatformSettingsReader`, with `SLACK_INTEGRATION_DEFAULT_AGENT_ID` as the
-env/YAML fallback), so the one Admin → Settings → Default Agent value governs
+env/YAML fallback), so the one Settings → Platform → Defaults value governs
 the Web UI, Slack channel fallback, and Slack DMs. The backfill is still the bulk repair path
 for existing environments, but the Web UI also reconciles this typed-wildcard
-grant when an admin saves a default Dynamic Agent, when an admitted user logs in,
+grant when an admin confirms a default Dynamic Agent, when an admitted user logs in,
 and before the chat-available Dynamic Agent picker filters candidates through
 OpenFGA. The picker now also repairs the same typed-wildcard grant for every
 enabled Dynamic Agent with `visibility: "global"` before filtering. That keeps the
@@ -812,13 +812,13 @@ which is why removing an agent as the platform default correctly restricted it.
 
 #### Default agent is public by design
 
-Selecting an agent in **Admin → Settings → Default Agent** writes the
+Selecting an agent in **Settings → Platform → Defaults** writes the
 `user:* user agent:<id>` tuple shown above. Every signed-in user (Web UI and
 Slack/Webex DMs) is then allowed to `can_use` that agent, regardless of their
 team memberships. To keep that contract visible and reversible:
 
-- The Admin Settings picker shows a persistent banner explaining the
-  consequence and a confirmation modal on save. `PATCH /api/admin/platform-config`
+- The platform Defaults picker shows a persistent banner explaining the
+  consequence and a confirmation modal before it persists. `PATCH /api/admin/platform-config`
   rejects requests with `400 / PUBLIC_ACCESS_NOT_ACKNOWLEDGED` unless
   `acknowledge_public_access: true` is included alongside a non-null
   `default_agent_id`. Clearing the default (`null`) does not require the ack —
@@ -829,8 +829,8 @@ team memberships. To keep that contract visible and reversible:
 - `PUT /api/dynamic-agents` rejects demoting `visibility: global → team` on the
   current platform default with `409 / AGENT_IS_PLATFORM_DEFAULT`, and
   `DELETE /api/dynamic-agents` rejects deleting it with the same code. Both
-  paths surface a plain-English message pointing the admin back to Admin →
-  Settings to change the platform default first. The per-agent edit page mirrors
+  paths surface a plain-English message pointing the admin back to Settings →
+  Platform → Defaults first. The per-agent edit page mirrors
   this by disabling the visibility selector with an inline note when an agent
   is the current platform default.
 - The single source of truth for the invariant is
@@ -1050,7 +1050,7 @@ Legacy Keycloak realm roles may still appear in old local data, but they are not
 | `DISCOVERY_CACHE_TTL_MINUTES`                                 | Bootstrap default for the in-process cache TTL on `/api/admin/slack/available-channels`, `/api/admin/slack/users/lookup`, `/api/admin/slack/emoji`, and `/api/admin/webex/available-spaces`; defaults to `60` and is overridden at runtime by `platform_config.discovery_cache_ttl_minutes`     | Admins set the live value via the **Discovery cache** popover next to the connector discovery button on `Admin → Integrations → Slack` and `Admin → Integrations → Webex` (range `0`–`1440`; `0` disables caching). The env var only sets the bootstrap value when no DB override exists. The same popover exposes a per-provider *Refresh from Slack/Webex now* button that drops the snapshot immediately for ad-hoc bot-membership changes. |
 | `SLACK_AGENT_ROUTES_ENABLED`                                  | Legacy rollout alias; when `true` and `SLACK_AGENT_ROUTES_MODE` is unset, behaves as `SLACK_AGENT_ROUTES_MODE=db_prefer`                                           | Prefer `SLACK_AGENT_ROUTES_MODE` for new deployments so the fallback behavior is explicit.                                                                                                                                                       |
 | `SLACK_AGENT_ROUTES_TTL_SECONDS`                              | Slack bot in-process cache TTL for OpenFGA-backed channel agent routes; defaults to `60`                                                                           | Short TTLs make UI route changes visible faster at the cost of more OpenFGA reads and Mongo metadata joins.                                                                                                                                      |
-| `SLACK_INTEGRATION_DEFAULT_AGENT_ID` / `SLACK_INTEGRATION_DM_AGENT_ID` | Env/YAML fallback for the Slack bot's channel fallback and DM agent. Overridden at runtime by `platform_config.default_agent_id` (Admin → Settings → Default Agent) | These are now bootstrap fallbacks only — the platform default agent set in the UI takes precedence so the same value governs Web UI and Slack. |
+| `SLACK_INTEGRATION_DEFAULT_AGENT_ID` / `SLACK_INTEGRATION_DM_AGENT_ID` | Env/YAML fallback for the Slack bot's channel fallback and DM agent. Overridden at runtime by `platform_config.default_agent_id` (Settings → Platform → Defaults) | These are now bootstrap fallbacks only — the platform default agent set in the UI takes precedence so the same value governs Web UI and Slack. |
 | `SLACK_INTEGRATION_VICTOROPS_AGENT_ID`                        | Env/YAML fallback for the agent the Slack bot queries for VictorOps on-call lookups; overridden at runtime by `platform_config.slack_victorops_escalation_agent_id` | Superadmins set the live value in **Admin → Integrations → Slack → Advanced**. The env var only applies when no DB value is saved. |
 | `SLACK_PLATFORM_SETTINGS_TTL_SECONDS`                         | Slack bot in-process cache TTL for `platform_config` settings (default + VictorOps agents); defaults to `60`                                                       | Short TTLs surface UI setting changes faster at the cost of more Mongo reads. |
 | `CAIPE_PLATFORM_AUDIENCE`                                     | Audience requested by Slack/Webex OBO exchanges for bot → CAIPE UI BFF access checks; defaults to `caipe-platform`                                                | Keep this aligned with the Keycloak client accepted by the Web UI backend. Do not use `agentgateway` for bot pre-dispatch access checks because the next hop is the BFF.                                                                          |

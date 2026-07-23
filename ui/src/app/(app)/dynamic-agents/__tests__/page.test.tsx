@@ -1,5 +1,5 @@
 import React from "react";
-import { fireEvent,render,screen } from "@testing-library/react";
+import { fireEvent,render,screen,within } from "@testing-library/react";
 
 // assisted-by Codex Codex-sonnet-4-6
 
@@ -25,10 +25,6 @@ jest.mock("next/navigation", () => ({
 
 jest.mock("@/components/auth-guard", () => ({
   AuthGuard: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-}));
-
-jest.mock("@/components/ui/scroll-area", () => ({
-  ScrollArea: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
 
 jest.mock("@/components/dynamic-agents/DynamicAgentsTab", () => ({
@@ -77,7 +73,11 @@ jest.mock("@/components/dynamic-agents/MCPServersTab", () => ({
 }));
 
 jest.mock("@/components/dynamic-agents/LLMProvidersTab", () => ({
-  LLMProvidersTab: ({
+  LLMProvidersTab: () => <div data-testid="model-providers-tab">LLMProvidersTab</div>,
+}));
+
+jest.mock("@/components/dynamic-agents/LLMModelsTab", () => ({
+  LLMModelsTab: ({
     selectedModelId,
     onSelectedModelChange,
   }: {
@@ -85,7 +85,7 @@ jest.mock("@/components/dynamic-agents/LLMProvidersTab", () => ({
     onSelectedModelChange?: (id: string | null) => void;
   }) => (
     <div data-testid="llm-models-tab" data-selected-id={selectedModelId ?? ""}>
-      LLMProvidersTab
+      LLMModelsTab
       <button type="button" onClick={() => onSelectedModelChange?.("openai/gpt-4o")}>
         Open model editor
       </button>
@@ -128,10 +128,20 @@ describe("DynamicAgentsPage", () => {
     render(<DynamicAgentsPage />);
 
     expect(screen.getByRole("heading", { name: "Agents" })).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: /^Agents$/i })).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: /^MCP Servers$/i })).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: /^LLM Models$/i })).toBeInTheDocument();
-    expect(screen.queryByRole("tab", { name: /^Conversations$/i })).not.toBeInTheDocument();
+    expect(
+      screen.getByText("Create and configure custom AI agents with MCP tool integrations."),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("agents-header-icon")).toBeInTheDocument();
+
+    const navigation = screen.getByRole("navigation", { name: "Agent sections" });
+    expect(within(navigation).getByRole("button", { name: /Agents/i })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(within(navigation).getByRole("button", { name: /MCP Servers/i })).toBeInTheDocument();
+    expect(within(navigation).getByRole("button", { name: /LLM Models/i })).toBeInTheDocument();
+    expect(within(navigation).queryByRole("button", { name: /Conversations/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("tab")).not.toBeInTheDocument();
     expect(screen.queryByTestId("conversations-tab")).not.toBeInTheDocument();
     expect(screen.queryByText("Access Denied")).not.toBeInTheDocument();
   });
@@ -151,7 +161,44 @@ describe("DynamicAgentsPage", () => {
 
     render(<DynamicAgentsPage />);
 
-    expect(screen.getByRole("tab", { name: /^Conversations$/i })).toBeInTheDocument();
+    expect(
+      within(screen.getByRole("navigation", { name: "Agent sections" })).getByRole(
+        "button",
+        { name: /Conversations/i },
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("discloses separate provider and model destinations without navigating", () => {
+    render(<DynamicAgentsPage />);
+
+    const navigation = screen.getByRole("navigation", { name: "Agent sections" });
+    const modelsDisclosure = within(navigation).getByRole("button", {
+      name: "LLM Models",
+    });
+    expect(modelsDisclosure).toHaveAttribute("aria-expanded", "false");
+    expect(within(navigation).queryByRole("button", { name: /Model Providers/ })).not.toBeInTheDocument();
+
+    fireEvent.click(modelsDisclosure);
+
+    expect(modelsDisclosure).toHaveAttribute("aria-expanded", "true");
+    expect(within(navigation).getByRole("button", { name: /Model Providers/ })).toBeInTheDocument();
+    expect(within(navigation).getAllByRole("button", { name: "LLM Models" })).toHaveLength(2);
+    expect(mockPush).not.toHaveBeenCalled();
+  });
+
+  it("renders Model Providers as its own deep-linked view", () => {
+    mockSearchParams = new URLSearchParams("tab=model-providers");
+
+    render(<DynamicAgentsPage />);
+
+    expect(screen.getByTestId("model-providers-tab")).toBeInTheDocument();
+    expect(screen.queryByTestId("llm-models-tab")).not.toBeInTheDocument();
+    const navigation = screen.getByRole("navigation", { name: "Agent sections" });
+    expect(within(navigation).getByRole("button", { name: /Model Providers/ })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
   });
 
   it("allows OpenFGA-authorized users to deep link to Conversations", () => {
@@ -213,10 +260,8 @@ describe("DynamicAgentsPage", () => {
     mockSearchParams = new URLSearchParams("tab=agents&agent=agent-ops&step=advanced");
     render(<DynamicAgentsPage />);
 
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "MCP Servers" }), {
-      button: 0,
-      ctrlKey: false,
-    });
+    const navigation = screen.getByRole("navigation", { name: "Agent sections" });
+    fireEvent.click(within(navigation).getByRole("button", { name: /MCP Servers/i }));
 
     expect(mockPush).toHaveBeenCalledWith("/dynamic-agents?tab=mcp-servers");
   });

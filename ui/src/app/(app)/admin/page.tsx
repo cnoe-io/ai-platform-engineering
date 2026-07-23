@@ -11,6 +11,15 @@ TopCreatorsCard,
 VisibilityBreakdown,
 } from "@/components/admin/insights/SkillMetricsCards";
 import { AsyncStatsCard } from "@/components/admin/insights/AsyncStatsCard";
+import { ReviewConfigsTab } from "@/components/admin/settings/ReviewConfigsTab";
+import { AdminNavigation } from "@/components/admin/workspace/AdminNavigation";
+import {
+  DEFAULT_ADMIN_DESTINATION_ID,
+  DEFAULT_READONLY_DESTINATION_ID,
+  filterAdminCategories,
+  findAdminDestinationById,
+  findAdminDestinationByPath,
+} from "@/components/admin/workspace/admin-routes";
 import { CrawlConsoleDialog } from "@/components/admin/platform/CrawlConsoleDialog";
 import { CrawlConsoleHeaderPill } from "@/components/admin/platform/CrawlConsoleHeaderPill";
 import { HealthTab } from "@/components/admin/platform/HealthTab";
@@ -27,9 +36,6 @@ import { RbacSelfCheckTab } from "@/components/admin/security/RbacSelfCheckTab";
 import { UnifiedAuditTab } from "@/components/admin/security/UnifiedAuditTab";
 import { ImportAgentsFromConfigCard } from "@/components/admin/settings/ImportAgentsFromConfigCard";
 import { MCPCatalogSettingsCard } from "@/components/admin/settings/MCPCatalogSettingsCard";
-import { PlatformSettingsTab } from "@/components/admin/settings/PlatformSettingsTab";
-import { ReleaseNotesSettingsTab } from "@/components/admin/settings/ReleaseNotesSettingsTab";
-import { ReviewConfigsTab } from "@/components/admin/settings/ReviewConfigsTab";
 import { CardPagination } from "@/components/admin/shared/CardPagination";
 import { DateRangeFilter,presetToRange,type DateRange,type DateRangePreset } from "@/components/admin/shared/DateRangeFilter";
 import { FeedbackTrendChart,type FeedbackTrendPoint } from "@/components/admin/shared/FeedbackTrendChart";
@@ -43,6 +49,9 @@ import { UserDetailPanel } from "@/components/admin/teams/UserDetailPanel";
 import { UserManagementTab } from "@/components/admin/teams/UserManagementTab";
 import { AuthGuard } from "@/components/auth-guard";
 import { AdminCredentialManagementPanel } from "@/components/credentials/AdminCredentialManagementPanel";
+import { WorkspaceHeader } from "@/components/layout/WorkspaceHeader";
+import { WorkspaceShell } from "@/components/layout/WorkspaceShell";
+import { PlatformAccessSettings } from "@/components/settings/sections/PlatformAccessSettings";
 import { Button } from "@/components/ui/button";
 import { CAIPESpinner } from "@/components/ui/caipe-spinner";
 import { Card,CardContent,CardDescription,CardHeader,CardTitle } from "@/components/ui/card";
@@ -55,9 +64,7 @@ DialogHeader,
 DialogTitle,
 } from "@/components/ui/dialog";
 import { MultiSelect,TagInput } from "@/components/ui/multi-select";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { SlidingSelectorIndicator } from "@/components/ui/sliding-selector";
-import { Tabs,TabsContent,TabsList,TabsTrigger } from "@/components/ui/tabs";
+import { Tabs,TabsContent } from "@/components/ui/tabs";
 import { useAdminRole } from "@/hooks/use-admin-role";
 import { useAdminStatsSections } from "@/hooks/use-admin-stats-sections";
 import { useUrlFilterParams } from "@/hooks/use-url-filter-params";
@@ -68,7 +75,7 @@ import { cn } from "@/lib/utils";
 import type { SkillMetricsAdmin } from "@/types/agent-skill";
 import { ADMIN_STATS_SECTIONS,type AdminStats,type AdminStatsOwnerType,type AdminStatsSection } from "@/types/admin-stats";
 import type { Team as TeamType } from "@/types/teams";
-import { Activity,Archive,Bot,CheckCircle2,ChevronLeft,ChevronRight,Clock,Database,ExternalLink,Eye,FileText,Filter,Globe,Hash,KeyRound,Layers,Link2,ListChecks,Loader2,MessageSquare,Plug,RefreshCw,Search,Settings,Shield,ShieldCheck,ThumbsDown,ThumbsUp,Trash2,TrendingUp,Unlink,User,UserPlus,Users,UsersIcon,Wrench,X,Zap,type LucideIcon } from "lucide-react";
+import { Activity,Archive,Bot,CheckCircle2,ChevronLeft,ChevronRight,Clock,Database,ExternalLink,Eye,Filter,Globe,KeyRound,Layers,Link2,Loader2,MessageSquare,RefreshCw,Search,Settings,Shield,ThumbsDown,ThumbsUp,Trash2,Unlink,UserPlus,Users,UsersIcon,Wrench,X,Zap } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { usePathname,useRouter,useSearchParams } from "next/navigation";
 import React,{ useCallback,useEffect,useEffectEvent,useMemo,useRef,useState } from "react";
@@ -192,108 +199,6 @@ interface SimulationTeamOption {
   description?: string;
 }
 
-const VALID_TABS = ['users', 'teams', 'identity-sync', 'stats', 'skills', 'feedback', 'metrics', 'health', 'cas-insights', 'credentials', 'audit-logs', 'action-audit', 'access-explorer', 'rbac-self-check', 'keycloak', 'migrations', 'ai-review', 'settings', 'agents', 'mcp', 'release-notes', 'slack', 'webex', 'rag-access', 'service-accounts'] as const;
-const VALID_OPENFGA_SUBTABS = ['builder', 'explorer', 'graph', 'tuples', 'access', 'baseline', 'diagnostics'] as const;
-const MOVED_ADMIN_TAB_MAP = {
-  insights: 'stats',
-  openfga: 'access-explorer',
-} as const;
-const MOVED_OPENFGA_DEEPLINK_TAB_MAP = {
-  slack: 'slack',
-  webex: 'webex',
-} as const;
-
-type CategoryKey = 'settings' | 'people' | 'integrations' | 'insights' | 'platform' | 'security';
-const DEFAULT_ADMIN_CATEGORY: CategoryKey = 'settings';
-const DEFAULT_ADMIN_TAB = 'settings';
-const DEFAULT_READONLY_TAB = 'users';
-
-interface Category {
-  key: CategoryKey;
-  label: string;
-  icon: LucideIcon;
-  tabs: Array<{
-    value: string;
-    label: string;
-    icon: LucideIcon;
-    gateKey: string;
-  }>;
-}
-
-const CATEGORIES: Category[] = [
-  {
-    key: 'settings',
-    label: 'Settings',
-    icon: Settings,
-    tabs: [
-      { value: 'settings', label: 'General', icon: Settings, gateKey: 'settings' },
-      { value: 'agents', label: 'Agents', icon: Bot, gateKey: 'agents' },
-      { value: 'mcp', label: 'MCP', icon: Plug, gateKey: 'mcp' },
-      { value: 'skills', label: 'Skills', icon: Layers, gateKey: 'skills' },
-      { value: 'service-accounts', label: 'Service Accounts', icon: Bot, gateKey: 'service_accounts' },
-      { value: 'ai-review', label: 'AI Review', icon: ShieldCheck, gateKey: 'ai_review' },
-      { value: 'credentials', label: 'Credentials', icon: Shield, gateKey: 'credentials' },
-    ],
-  },
-  {
-    key: 'people',
-    label: 'Teams & Users',
-    icon: Users,
-    tabs: [
-      { value: 'users', label: 'Users', icon: User, gateKey: 'users' },
-      { value: 'teams', label: 'Teams', icon: UsersIcon, gateKey: 'teams' },
-      { value: 'identity-sync', label: 'Identity Sync', icon: RefreshCw, gateKey: 'identity_sync' },
-    ],
-  },
-  {
-    key: 'integrations',
-    label: 'Integrations',
-    icon: Globe,
-    tabs: [
-      { value: 'slack', label: 'Slack', icon: Hash, gateKey: 'slack' },
-      { value: 'webex', label: 'Webex', icon: MessageSquare, gateKey: 'webex' },
-    ],
-  },
-  {
-    key: 'insights',
-    label: 'Insights',
-    icon: TrendingUp,
-    tabs: [
-      { value: 'stats', label: 'Statistics', icon: TrendingUp, gateKey: 'stats' },
-      { value: 'feedback', label: 'Feedback', icon: ThumbsUp, gateKey: 'feedback' },
-    ],
-  },
-  {
-    key: 'platform',
-    label: 'Metrics & Health',
-    icon: Activity,
-    tabs: [
-      { value: 'metrics', label: 'Metrics', icon: Activity, gateKey: 'metrics' },
-      { value: 'health', label: 'Health', icon: Database, gateKey: 'health' },
-    ],
-  },
-  {
-    key: 'security',
-    label: 'Security & Policy',
-    icon: Shield,
-    tabs: [
-      { value: 'action-audit', label: 'RBAC Audit', icon: Shield, gateKey: 'action_audit' },
-      { value: 'access-explorer', label: 'Access Explorer', icon: Shield, gateKey: 'openfga' },
-      { value: 'rbac-self-check', label: 'Self Check', icon: ListChecks, gateKey: 'openfga' },
-      { value: 'audit-logs', label: 'Chat Audit', icon: FileText, gateKey: 'audit_logs' },
-      { value: 'keycloak', label: 'Keycloak', icon: ShieldCheck, gateKey: 'migrations' },
-      { value: 'migrations', label: 'Migrations', icon: Database, gateKey: 'migrations' },
-    ],
-  },
-];
-
-function categoryForTab(tab: string): CategoryKey {
-  for (const cat of CATEGORIES) {
-    if (cat.tabs.some((t) => t.value === tab)) return cat.key;
-  }
-  return DEFAULT_ADMIN_CATEGORY;
-}
-
 // Admin Teams grid page size. The grid is server-paginated (`?page=`) so the
 // browser only ever holds one page of teams regardless of directory size.
 // 12 fills the 3-column layout in 4 clean rows.
@@ -401,23 +306,6 @@ function OwnerTypeBadge({ ownerType }: { ownerType?: OwnerType }) {
   );
 }
 
-function isValidTab(tab: string | null): tab is typeof VALID_TABS[number] {
-  return Boolean(tab && (VALID_TABS as readonly string[]).includes(tab));
-}
-
-function isValidCategory(category: string | null): category is CategoryKey {
-  return Boolean(category && CATEGORIES.some((c) => c.key === category));
-}
-
-function isValidOpenFgaSubtab(tab: string | null): tab is typeof VALID_OPENFGA_SUBTABS[number] {
-  return Boolean(tab && (VALID_OPENFGA_SUBTABS as readonly string[]).includes(tab));
-}
-
-function movedAdminTab(tab: string | null): typeof VALID_TABS[number] | null {
-  if (!tab) return null;
-  return (MOVED_ADMIN_TAB_MAP as Record<string, typeof VALID_TABS[number]>)[tab] ?? null;
-}
-
 function localDateFromBucketKey(dateKey: string): Date | null {
   const match = /^(\d{4})-(\d{2})-(\d{2})(?:T|$)/.exec(dateKey);
   if (!match) return null;
@@ -512,11 +400,6 @@ function OverviewStatsCards({
   );
 }
 
-function movedOpenFgaDeepLinkTab(tab: string | null): typeof VALID_TABS[number] | null {
-  if (!tab) return null;
-  return (MOVED_OPENFGA_DEEPLINK_TAB_MAP as Record<string, typeof VALID_TABS[number]>)[tab] ?? null;
-}
-
 function simulationTargetFromParams(searchParams: { get(name: string): string | null }): AdminTabGateSimulationTarget | null {
   const type = searchParams.get("simulate_type");
   const id = searchParams.get("simulate_id")?.trim();
@@ -598,34 +481,20 @@ function AdminPage() {
   const [simulationUsers, setSimulationUsers] = useState<SimulationUserOption[]>([]);
   const [simulationTeams, setSimulationTeams] = useState<SimulationTeamOption[]>([]);
   const [simulationSearchLoading, setSimulationSearchLoading] = useState(false);
-  const userSelectedAdminTabRef = useRef(false);
-  const initialTab = searchParams.get('tab');
-  const defaultTab = effectiveOrganizationAdmin ? DEFAULT_ADMIN_TAB : DEFAULT_READONLY_TAB;
-  const [activeTab, setActiveTab] = useState<string>(
-    isValidTab(initialTab) ? initialTab : defaultTab
-  );
-  const initialCat = searchParams.get('cat') as CategoryKey | null;
-  const [activeCategory, setActiveCategory] = useState<CategoryKey>(
-    isValidCategory(initialCat)
-      ? initialCat
-      : categoryForTab(activeTab)
-  );
-  const categorySelectorLayoutId = React.useId();
+  const defaultDestinationId = effectiveOrganizationAdmin
+    ? DEFAULT_ADMIN_DESTINATION_ID
+    : DEFAULT_READONLY_DESTINATION_ID;
 
   const tabGateValues = useMemo<Record<string, boolean>>(
     () => ({
       ...gates,
+      platform_settings: effectiveOrganizationAdmin,
       feedback: Boolean(gates.feedback && feedbackEnabled),
       audit_logs: Boolean(gates.audit_logs && auditLogsEnabled),
       credentials: Boolean(gates.credentials && getConfig('credentialsEnabled')),
-      // General settings are part of the normal read-only user experience.
-      // Keep them visible during View As and let the child panels enforce the
-      // preview's read-only mode through `canMutateAdminData`.
-      settings: true,
       // Agents subtab (Import Agents from Config) is an admin-only action.
       agents: effectiveOrganizationAdmin,
       mcp: effectiveOrganizationAdmin,
-      ai_review: effectiveOrganizationAdmin,
       // Identity Sync tab: superadmin-only (reuses the identity_group_sync
       // OpenFGA surface) AND only when an IdP directory connector is enabled.
       identity_sync: Boolean(gates.identity_group_sync && getConfig('oktaSyncEnabled')),
@@ -634,105 +503,60 @@ function AdminPage() {
   );
 
   const visibleCategories = useMemo(
-    () =>
-      CATEGORIES.filter((cat) =>
-        cat.tabs.some((t) => tabGateValues[t.gateKey])
-      ),
+    () => filterAdminCategories(tabGateValues),
     [tabGateValues]
   );
-
-  const visibleTabsForCategory = useMemo(
-    () =>
-      (CATEGORIES.find((c) => c.key === activeCategory)?.tabs ?? []).filter(
-        (t) => tabGateValues[t.gateKey]
-      ),
-    [activeCategory, tabGateValues]
+  const visibleDestinations = useMemo(
+    () => visibleCategories.flatMap((category) => category.destinations),
+    [visibleCategories],
   );
+  const requestedDestination = findAdminDestinationByPath(pathname);
+  const requestedDestinationIsVisible = Boolean(
+    requestedDestination && visibleDestinations.some(
+      (destination) => destination.id === requestedDestination.id,
+    ),
+  );
+  const fallbackDestination =
+    visibleDestinations.find((destination) => destination.id === defaultDestinationId) ??
+    visibleDestinations[0];
+  const activeDestination =
+    (requestedDestinationIsVisible ? requestedDestination : undefined) ??
+    fallbackDestination ??
+    findAdminDestinationById(defaultDestinationId)!;
+  const activeTab = activeDestination.id;
 
   useEffect(() => {
     if (adminRoleLoading || adminTabGatesLoading) return;
     if (visibleCategories.length === 0) return;
-
-    const requestedTab = searchParams.get('tab');
-    const requestedCategory = searchParams.get('cat');
-    const requestedOpenFgaSubtab = searchParams.get('subtab') ?? searchParams.get('openfgaTab');
-    const shouldOpenOpenFgaDeepLink = isValidOpenFgaSubtab(requestedOpenFgaSubtab);
-    const movedDeepLinkTab = movedOpenFgaDeepLinkTab(requestedOpenFgaSubtab);
-    const movedTab = movedAdminTab(requestedTab);
-    const tabFromUrl = shouldOpenOpenFgaDeepLink
-      ? 'access-explorer'
-      : movedDeepLinkTab ?? movedTab ?? (isValidTab(requestedTab) ? requestedTab : null);
-    const categoryFromUrl = isValidCategory(requestedCategory) ? requestedCategory : null;
-    const defaultCategory = categoryForTab(defaultTab);
-
-    if (
-      !requestedTab &&
-      !requestedCategory &&
-      userSelectedAdminTabRef.current &&
-      (activeTab !== defaultTab || activeCategory !== defaultCategory)
-    ) {
-      return;
+    const params = new URLSearchParams(searchParams.toString());
+    if (activeDestination.id !== 'access-explorer') {
+      params.delete('subtab');
+      params.delete('openfgaTab');
     }
-
-    let nextCategory: CategoryKey | undefined;
-    let nextTab: string | undefined;
-    const tabConfig = tabFromUrl
-      ? CATEGORIES.flatMap((category) => category.tabs).find((tab) => tab.value === tabFromUrl)
-      : undefined;
-
-    if (tabFromUrl && tabConfig && tabGateValues[tabConfig.gateKey]) {
-      nextTab = tabFromUrl;
-      nextCategory = categoryForTab(tabFromUrl);
-    } else {
-      const preferredCategory =
-        categoryFromUrl && visibleCategories.some((category) => category.key === categoryFromUrl)
-          ? categoryFromUrl
-          : defaultCategory;
-      const fallbackCategory = visibleCategories.some((category) => category.key === preferredCategory)
-        ? preferredCategory
-        : visibleCategories[0].key;
-      nextCategory = fallbackCategory;
-      nextTab = CATEGORIES.find((category) => category.key === fallbackCategory)?.tabs.find(
-        (tab) => tabGateValues[tab.gateKey]
-      )?.value;
-    }
-
-    if (!nextCategory || !nextTab) return;
-
-    if (activeCategory !== nextCategory) setActiveCategory(nextCategory);
-    if (activeTab !== nextTab) setActiveTab(nextTab);
-
     const shouldSetDefaultStatsRange =
-      nextTab === 'stats' && searchParams.get('dateRange') === null;
+      activeDestination.id === 'stats' && params.get('dateRange') === null;
+    if (shouldSetDefaultStatsRange) {
+      params.set('dateRange', '30d');
+      params.delete('from');
+      params.delete('to');
+    }
+    const query = params.toString();
+    const canonicalUrl = query
+      ? `${activeDestination.href}?${query}`
+      : activeDestination.href;
     if (
-      requestedCategory !== nextCategory
-      || requestedTab !== nextTab
+      pathname !== activeDestination.href
       || shouldSetDefaultStatsRange
     ) {
-      const params = new URLSearchParams(searchParams.toString());
-      params.set('cat', nextCategory);
-      params.set('tab', nextTab);
-      if (shouldSetDefaultStatsRange) {
-        params.set('dateRange', '30d');
-        params.delete('from');
-        params.delete('to');
-      }
-      if (nextTab !== 'access-explorer') {
-        params.delete('subtab');
-        params.delete('openfgaTab');
-      }
-      router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+      router.replace(canonicalUrl, { scroll: false });
     }
   }, [
-    activeCategory,
-    activeTab,
+    activeDestination,
     adminTabGatesLoading,
     adminRoleLoading,
-    defaultTab,
     pathname,
     router,
     searchParams,
-    tabGateValues,
     visibleCategories,
   ]);
 
@@ -802,7 +626,6 @@ function AdminPage() {
     } else {
       params.delete("simulate_relation");
     }
-    userSelectedAdminTabRef.current = false;
     setSimulationDialogOpen(false);
     router.replace(`${pathname}?${params.toString()}`, { scroll: false });
   }, [pathname, router, searchParams, simulationId, simulationRelation, simulationType]);
@@ -812,7 +635,6 @@ function AdminPage() {
     params.delete("simulate_type");
     params.delete("simulate_id");
     params.delete("simulate_relation");
-    userSelectedAdminTabRef.current = false;
     setSimulationDialogOpen(false);
     router.replace(`${pathname}?${params.toString()}`, { scroll: false });
   }, [pathname, router, searchParams]);
@@ -852,48 +674,16 @@ function AdminPage() {
     const range = feedbackDateRangeForBucket(point.date);
     if (!range) return;
 
-    userSelectedAdminTabRef.current = true;
-    setActiveCategory('insights');
-    setActiveTab('feedback');
     setDatePreset('custom');
     setDateRange(range);
     const params = new URLSearchParams(searchParams.toString());
-    params.set('cat', 'insights');
-    params.set('tab', 'feedback');
+    params.delete('subtab');
+    params.delete('openfgaTab');
     params.set('dateRange', 'custom');
     params.set('from', range.from);
     params.set('to', range.to);
-    params.delete('subtab');
-    params.delete('openfgaTab');
-    router.push(`${pathname}?${params.toString()}`, { scroll: false });
-  }, [pathname, router, searchParams]);
-
-  const selectAdminTab = useCallback((tab: string) => {
-    userSelectedAdminTabRef.current = true;
-    setActiveTab(tab);
-    setActiveCategory(categoryForTab(tab));
-
-    const resetStatsRange = tab === 'stats';
-    if (resetStatsRange) {
-      setDatePreset('30d');
-      setDateRange(presetToRange('30d'));
-    }
-    updateUrlFilters({
-      cat: categoryForTab(tab),
-      tab,
-      ...(resetStatsRange ? { dateRange: '30d', from: null, to: null } : {}),
-      ...(tab === 'access-explorer' ? {} : { subtab: null, openfgaTab: null }),
-    });
-  }, [updateUrlFilters]);
-
-  const handleCategoryChange = useCallback(
-    (catKey: CategoryKey) => {
-      const cat = CATEGORIES.find((candidate) => candidate.key === catKey);
-      const firstVisible = cat?.tabs.find((tab) => tabGateValues[tab.gateKey]);
-      if (firstVisible) selectAdminTab(firstVisible.value);
-    },
-    [selectAdminTab, tabGateValues],
-  );
+    router.push(`/admin/insights/feedback?${params.toString()}`, { scroll: false });
+  }, [router, searchParams]);
 
   // Helper to sync shared filters to URL
   const updateSharedFilterUrl = (overrides: Record<string, string | null> = {}) => {
@@ -928,7 +718,6 @@ function AdminPage() {
   // Sync feedback-only filters to URL
   const updateFeedbackUrl = (overrides: Record<string, string | null>) => {
     const defaults: Record<string, string | null> = {
-      tab: activeTab,
       rating: feedbackFilter !== 'all' ? feedbackFilter : null,
       channels: feedbackChannelFilter.length > 0 ? feedbackChannelFilter.join(',') : null,
       search: feedbackSearchTags.length > 0 ? feedbackSearchTags.join(',') : null,
@@ -1564,6 +1353,14 @@ function AdminPage() {
     setTeamDetailsOpen(true);
   };
 
+  if (adminRoleLoading || adminTabGatesLoading) {
+    return (
+      <div className="flex-1 flex items-center justify-center">
+        <CAIPESpinner size="lg" message="Opening admin workspace..." />
+      </div>
+    );
+  }
+
   if (error) {
     return (
       <div className="flex-1 flex items-center justify-center">
@@ -1581,98 +1378,71 @@ function AdminPage() {
   }
 
   return (
-    <div className="flex-1 overflow-hidden">
+    <div className="flex min-h-0 flex-1 overflow-hidden">
       {/* Global Crawl Console dialog. Rendered at the page root so
           it survives admin tab switches; opens via the header pill
           or auto-opens when SkillHubsSection starts the first
           crawl of the session. */}
       <CrawlConsoleDialog />
-      <ScrollArea className="h-full">
-          <div className="p-6 space-y-4 max-w-7xl mx-auto">
-            {/* Header */}
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-              <div className="flex min-w-0 flex-wrap items-baseline">
-                <h1 className="text-2xl font-semibold tracking-tight">Admin</h1>
-                <span className="ml-1 text-sm text-muted-foreground">
-                  {isAdmin
-                    ? ', Manage access, teams, health, and platform settings'
-                    : ', View access, teams, health, and platform settings'}
-                </span>
-              </div>
-              {isAdmin && (
-                <button
-                  type="button"
-                  onClick={() => setSimulationDialogOpen(true)}
-                  className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-                    isSimulationActive
-                      ? 'border border-amber-500/30 bg-amber-500/15 text-amber-600 dark:text-amber-400'
-                      : 'bg-muted/40 text-muted-foreground hover:bg-muted hover:text-foreground'
-                  }`}
-                >
-                  <Eye className="h-3.5 w-3.5" />
-                  {isSimulationActive ? (
-                    <span className="max-w-64 truncate">Viewing as {simulationDisplayName}</span>
-                  ) : (
-                    'View as'
-                  )}
-                </button>
-              )}
-              {!isAdmin && (
-                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
-                  <Eye className="h-3.5 w-3.5" />
-                  Read-Only
-                </span>
-              )}
-              {/* Always-visible status pill that opens the
-                  Crawl Console dialog. Hidden until at least
-                  one crawl has happened in this session, so
-                  the header doesn't gain a permanent "0 crawls"
-                  chip on freshly-loaded pages. */}
-              <CrawlConsoleHeaderPill />
-            </div>
+      <WorkspaceShell
+        header={(
+          <WorkspaceHeader
+            actions={(
+              <>
+                {isAdmin ? (
+                  <button
+                    type="button"
+                    onClick={() => setSimulationDialogOpen(true)}
+                    className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                      isSimulationActive
+                        ? 'border border-amber-500/30 bg-amber-500/15 text-amber-600 dark:text-amber-400'
+                        : 'bg-muted/40 text-muted-foreground hover:bg-muted hover:text-foreground'
+                    }`}
+                  >
+                    <Eye className="h-3.5 w-3.5" />
+                    {isSimulationActive ? (
+                      <span className="max-w-64 truncate">Viewing as {simulationDisplayName}</span>
+                    ) : (
+                      'View as'
+                    )}
+                  </button>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/15 px-3 py-1 text-xs font-medium text-amber-600 dark:text-amber-400">
+                    <Eye className="h-3.5 w-3.5" />
+                    Read-Only
+                  </span>
+                )}
+                <CrawlConsoleHeaderPill />
+              </>
+            )}
+            description="Manage people, resources, operations, and policy."
+            icon={Shield}
+            iconAnimationClassName="motion-safe:duration-300 motion-safe:group-hover:scale-110"
+            iconTestId="admin-header-icon"
+            title="Admin"
+          />
+        )}
+        maxWidthClassName="max-w-[108rem]"
+        navigation={visibleCategories.length > 0 ? (
+          <AdminNavigation
+            activeDestination={activeDestination}
+            categories={visibleCategories}
+            searchParams={new URLSearchParams(searchParams.toString())}
+          />
+        ) : null}
+      >
+        {visibleCategories.length > 0 ? (
+          <div className="mb-6 border-b border-border pb-5">
+            <h2 className="text-xl font-semibold" id="admin-section-title">
+              {activeDestination.label}
+            </h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {activeDestination.description}
+            </p>
+          </div>
+        ) : null}
 
-            {/* Tabbed Content */}
-            <Tabs
-              className="space-y-4"
-              onValueChange={selectAdminTab}
-              value={activeTab}
-            >
-              {/* Category selector */}
-              <div
-                aria-label="Admin sections"
-                className="flex flex-wrap gap-1.5"
-                role="group"
-              >
-                {visibleCategories.map((cat) => {
-                  const Icon = cat.icon;
-                  const isActive = activeCategory === cat.key;
-                  return (
-                    <button
-                      key={cat.key}
-                      type="button"
-                      aria-pressed={isActive}
-                      onClick={() => handleCategoryChange(cat.key)}
-                      className={`relative isolate inline-flex items-center gap-1.5 overflow-hidden rounded-full px-3 py-1.5 text-xs font-medium transition-[color,transform,background-color] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 active:scale-[0.98] motion-reduce:transform-none ${
-                        isActive
-                          ? 'bg-transparent text-primary-foreground'
-                          : 'bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground'
-                      }`}
-                    >
-                      {isActive && (
-                        <SlidingSelectorIndicator
-                          className="admin-category-active-pill"
-                          layoutId={categorySelectorLayoutId}
-                          variant="liquid"
-                        />
-                      )}
-                      <span className="relative z-10 inline-flex items-center gap-1.5">
-                        <Icon className="h-3.5 w-3.5" />
-                        {cat.label}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
+        <Tabs value={activeTab} className="space-y-4">
 
               <Dialog open={simulationDialogOpen} onOpenChange={setSimulationDialogOpen}>
                 <DialogContent>
@@ -1815,46 +1585,31 @@ function AdminPage() {
                 </DialogContent>
               </Dialog>
 
-              {isSimulationActive && !adminTabGatesLoading && visibleCategories.length === 0 && (
+              {visibleCategories.length === 0 && (
                 <div
                   role="status"
                   className="rounded-lg border border-dashed border-amber-500/40 bg-amber-500/5 px-6 py-10 text-center"
                 >
-                  <p className="font-medium">No Admin access is available to {simulationDisplayName}.</p>
+                  <p className="font-medium">
+                    {isSimulationActive
+                      ? `No Admin access is available to ${simulationDisplayName}.`
+                      : "No Admin access is available for this account."}
+                  </p>
                   <p className="mt-1 text-sm text-muted-foreground">
                     This account has no Admin areas or connected Slack/Webex resources available.
                   </p>
                 </div>
               )}
 
-              {/* Filtered sub-tabs for the active category */}
-              {visibleTabsForCategory.length > 0 && (
-                <TabsList
-                  className="flex w-full justify-start gap-0"
-                  indicatorScope={activeCategory}
-                >
-                  {visibleTabsForCategory.map((t) => {
-                    const Icon = t.icon;
-                    return (
-                      <TabsTrigger key={t.value} value={t.value} className="gap-1.5 shrink-0">
-                        <Icon className="h-4 w-4" />
-                        {t.label}
-                      </TabsTrigger>
-                    );
-                  })}
-                </TabsList>
+              {tabGateValues.platform_settings && (
+                <TabsContent value="access-before-sign-in" className="space-y-4">
+                  <PlatformAccessSettings readOnly={isSimulationActive} />
+                </TabsContent>
               )}
 
-              {tabGateValues.settings && (
-                <TabsContent value="settings" className="space-y-4">
-                  <PlatformSettingsTab
-                    isAdmin={effectiveOrganizationAdmin}
-                    readOnly={isSimulationActive}
-                  />
-                  <ReleaseNotesSettingsTab
-                    isAdmin={effectiveOrganizationAdmin}
-                    readOnly={isSimulationActive}
-                  />
+              {tabGateValues.platform_settings && (
+                <TabsContent value="ai-review" className="space-y-4">
+                  <ReviewConfigsTab readOnly={isSimulationActive} />
                 </TabsContent>
               )}
 
@@ -1882,12 +1637,6 @@ function AdminPage() {
                     readOnly={isSimulationActive}
                     simulationTarget={simulationTarget}
                   />
-                </TabsContent>
-              )}
-
-              {tabGateValues.ai_review && (
-                <TabsContent value="ai-review" className="space-y-4">
-                  <ReviewConfigsTab readOnly={isSimulationActive} />
                 </TabsContent>
               )}
 
@@ -3325,9 +3074,8 @@ function AdminPage() {
                 </TabsContent>
               )}
 
-            </Tabs>
-          </div>
-        </ScrollArea>
+        </Tabs>
+      </WorkspaceShell>
 
       {/* Create Team Dialog */}
       <CreateTeamDialog

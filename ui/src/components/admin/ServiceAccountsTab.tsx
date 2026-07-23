@@ -209,13 +209,10 @@ export function ServiceAccountsTab({
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h2 className="text-lg font-semibold">Service Accounts</h2>
-          <p className="text-sm text-muted-foreground">
-            Machine identities owned by your teams. Each can only use the agents and tools
-            its creator holds. The credential is shown once at creation.
-          </p>
-        </div>
+        <p className="max-w-2xl text-sm text-muted-foreground">
+          Machine identities owned by your teams. Each can only use the agents and tools
+          its creator holds. The credential is shown once at creation.
+        </p>
         <div className="flex gap-2">
           <Button
             type="button"

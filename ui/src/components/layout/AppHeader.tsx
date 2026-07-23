@@ -99,15 +99,19 @@ function GuardedLink({
   href,
   children,
   className,
+  dataNavKey,
   prefetch,
   title,
+  "aria-current": ariaCurrent,
   "aria-label": ariaLabel,
 }: {
   href: string;
   children: React.ReactNode;
   className?: string;
+  dataNavKey?: string;
   prefetch?: boolean;
   title?: string;
+  "aria-current"?: "page";
   "aria-label"?: string;
 }) {
   const { hasUnsavedChanges, requestNavigation } = useUnsavedChangesStore();
@@ -127,8 +131,10 @@ function GuardedLink({
       href={href}
       prefetch={prefetch}
       className={className}
+      data-nav-key={dataNavKey}
       onClick={handleClick}
       title={title}
+      aria-current={ariaCurrent}
       aria-label={ariaLabel}
     >
       {children}
@@ -274,7 +280,7 @@ export function AppHeader() {
     platformProbeStatus === "down" ? "Down" :
     "Checking";
 
-  const getActiveTab = () => {
+  const getActiveTab = (): string | null => {
     if (pathname === "/") return "home";
     if (pathname?.startsWith("/chat")) return "chat";
     if (pathname?.startsWith("/knowledge-bases")) return "knowledge";
@@ -284,7 +290,10 @@ export function AppHeader() {
     if (pathname?.startsWith("/dynamic-agents")) return "dynamic-agents";
     if (pathname?.startsWith("/schedules")) return "schedules";
     if (pathname?.startsWith("/admin")) return "admin";
-    return "home";
+    // Utility and secondary destinations (for example /insights) are not
+    // children of a primary navigation item. Leaving the
+    // strip unselected is more accurate than implying that they belong to Home.
+    return null;
   };
 
   const activeTab = getActiveTab();
@@ -328,7 +337,7 @@ export function AppHeader() {
                 : `Keycloak realm ${keycloakSummary.realm} unreachable`,
           count: 1,
           severity: "red" as const,
-          href: "/admin?cat=security&tab=keycloak",
+          href: "/admin/security/keycloak",
         }
       : null;
   const adminAlerts: AdminAlertSource[] = isAdmin
@@ -340,7 +349,7 @@ export function AppHeader() {
               label: "Migrations required",
               count: migrationStatus.status.blocking_required_count ?? 0,
               severity: "red" as const,
-              href: "/admin?cat=security&tab=migrations",
+              href: "/admin/security/migrations",
             }
           : null,
         keycloakHealth.summary?.invariants && keycloakHealth.summary.invariants.failing > 0
@@ -349,7 +358,7 @@ export function AppHeader() {
               label: `Keycloak invariant${keycloakHealth.summary.invariants.failing === 1 ? "" : "s"} failing`,
               count: keycloakHealth.summary.invariants.failing,
               severity: "amber" as const,
-              href: "/admin?cat=security&tab=keycloak",
+              href: "/admin/security/keycloak",
             }
           : null,
         !migrationStatus.status?.is_blocking && migrationStatus.status?.needs_version_bootstrap
@@ -358,7 +367,7 @@ export function AppHeader() {
               label: "Version metadata needed",
               count: migrationStatus.status.version_bootstrap_required_count ?? 0,
               severity: "amber" as const,
-              href: "/admin?cat=security&tab=migrations",
+              href: "/admin/security/migrations",
             }
           : null,
         !migrationStatus.status?.is_blocking && migrationStatus.status?.override_active
@@ -367,7 +376,7 @@ export function AppHeader() {
               label: "Migration override active",
               count: 1,
               severity: "amber" as const,
-              href: "/admin?cat=security&tab=migrations",
+              href: "/admin/security/migrations",
             }
           : null,
       ].filter(Boolean) as AdminAlertSource[])
@@ -377,8 +386,6 @@ export function AppHeader() {
     href: string;
     label: string;
     Icon: React.ComponentType<{ className?: string }>;
-    activeTextClassName: string;
-    activeIndicatorClassName: string;
     disabled?: boolean;
   };
 
@@ -388,40 +395,30 @@ export function AppHeader() {
       href: "/workflows",
       label: "Workflows",
       Icon: Workflow,
-      activeTextClassName: "text-white",
-      activeIndicatorClassName: "bg-indigo-600 shadow-sm",
     },
     ragEnabled && {
       key: "knowledge",
       href: "/knowledge-bases",
       label: "Knowledge Bases",
       Icon: Database,
-      activeTextClassName: "text-white",
-      activeIndicatorClassName: "bg-emerald-600 shadow-sm",
     },
     storageMode === "mongodb" && {
       key: "dynamic-agents",
       href: "/dynamic-agents",
       label: "Agents",
       Icon: Bot,
-      activeTextClassName: "text-white",
-      activeIndicatorClassName: "bg-violet-600 shadow-sm",
     },
     storageMode === "mongodb" && config.dynamicAgentsEnabled && config.schedulerEnabled && {
       key: "schedules",
       href: "/schedules",
       label: "Schedules",
       Icon: CalendarClock,
-      activeTextClassName: "text-white",
-      activeIndicatorClassName: "bg-orange-600 shadow-sm",
     },
     storageMode === "mongodb" && config.userConnectionsEnabled && {
       key: "credentials",
-      href: "/credentials#connections",
+      href: "/credentials/connections",
       label: "Credentials",
       Icon: KeyRound,
-      activeTextClassName: "text-white",
-      activeIndicatorClassName: "bg-blue-600 shadow-sm",
     },
     (session || isAdmin) && {
       key: "admin",
@@ -429,16 +426,14 @@ export function AppHeader() {
       label: "Admin",
       Icon: Shield,
       disabled: storageMode !== "mongodb",
-      activeTextClassName: "text-white",
-      activeIndicatorClassName: isAdmin ? "bg-red-600 shadow-sm" : "bg-rose-600 shadow-sm",
     },
   ].filter(Boolean) as NavItem[];
 
   // All nav items in order — primary first, then secondary.
   const allNavItems: NavItem[] = [
-    { key: "home", href: "/", label: "Home", Icon: Home, activeTextClassName: "text-white", activeIndicatorClassName: "gradient-primary shadow-sm" },
-    { key: "chat", href: "/chat", label: "Chat", Icon: ({ className }: { className?: string }) => <span className={className}>💬</span>, activeTextClassName: "text-white", activeIndicatorClassName: "bg-sky-600 shadow-sm" },
-    { key: "skills", href: "/skills", label: "Skills", Icon: Zap, activeTextClassName: "text-amber-950", activeIndicatorClassName: "bg-amber-500 shadow-sm" },
+    { key: "home",href: "/",label: "Home",Icon: Home },
+    { key: "chat",href: "/chat",label: "Chat",Icon: ({ className }: { className?: string }) => <span className={className}>💬</span> },
+    { key: "skills",href: "/skills",label: "Skills",Icon: Zap },
     ...secondaryNavItems,
   ];
 
@@ -497,15 +492,37 @@ export function AppHeader() {
   const visibleItems = allNavItems.slice(0, visibleCount);
   const activeOverflowItem = overflowItems.find((item) => activeTab === item.key);
 
-  const renderActiveNavIndicator = (item: NavItem) => (
+  // The active pill is a viewport into one continuous gradient spanning the
+  // whole navigation strip. Measure its position instead of assigning each
+  // destination an unrelated color.
+  React.useLayoutEffect(() => {
+    const strip = navStripRef.current;
+    if (!strip || !activeTab) return;
+
+    const updateGradientWindow = () => {
+      const activeItem = strip.querySelector<HTMLElement>(`[data-nav-key="${activeTab}"]`);
+      if (!activeItem) return;
+      const stripRect = strip.getBoundingClientRect();
+      const itemRect = activeItem.getBoundingClientRect();
+      strip.style.setProperty("--app-header-nav-gradient-width",`${stripRect.width}px`);
+      strip.style.setProperty(
+        "--app-header-nav-gradient-offset",
+        `${stripRect.left - itemRect.left}px`,
+      );
+    };
+
+    updateGradientWindow();
+    const resizeObserver = new ResizeObserver(updateGradientWindow);
+    resizeObserver.observe(strip);
+    return () => resizeObserver.disconnect();
+  }, [activeTab,visibleCount]);
+
+  const renderActiveNavIndicator = () => (
     <motion.span
       aria-hidden="true"
       initial={false}
       layoutId="app-header-active-nav-pill"
-      className={cn(
-        "app-header-active-pill pointer-events-none absolute inset-0 rounded-full",
-        item.activeIndicatorClassName,
-      )}
+      className="app-header-active-pill app-header-nav-gradient-window pointer-events-none absolute inset-0 rounded-full shadow-sm"
       transition={
         shouldReduceMotion
           ? { duration: 0 }
@@ -515,7 +532,7 @@ export function AppHeader() {
   );
 
   const renderSecondaryNavItem = (
-    item: (typeof secondaryNavItems)[number],
+    item: NavItem,
     variant: "inline" | "menu",
   ) => {
     const Icon = item.Icon;
@@ -537,14 +554,14 @@ export function AppHeader() {
         ? disabledClassName
         : activeTab === item.key
           ? variant === "inline"
-            ? item.activeTextClassName
-            : cn(item.activeTextClassName, item.activeIndicatorClassName)
+            ? "text-white"
+            : "gradient-primary text-white shadow-sm"
           : inactiveClassName,
     );
 
     const content = (
       <>
-        {variant === "inline" && !item.disabled && activeTab === item.key && renderActiveNavIndicator(item)}
+        {variant === "inline" && !item.disabled && activeTab === item.key && renderActiveNavIndicator()}
         <span className="relative z-10 flex items-center gap-1.5">
           <Icon className="h-3.5 w-3.5 shrink-0" />
           {item.label}
@@ -561,7 +578,14 @@ export function AppHeader() {
     }
 
     return (
-      <GuardedLink key={item.key} href={item.href} prefetch={true} className={className}>
+      <GuardedLink
+        aria-current={activeTab === item.key ? "page" : undefined}
+        className={className}
+        dataNavKey={variant === "inline" ? item.key : undefined}
+        href={item.href}
+        key={item.key}
+        prefetch={true}
+      >
         {content}
       </GuardedLink>
     );
@@ -609,17 +633,19 @@ export function AppHeader() {
             if (item.key === "chat") {
               return (
                 <GuardedLink
+                  aria-current={activeTab === "chat" ? "page" : undefined}
+                  dataNavKey="chat"
                   key="chat"
                   href={chatHref}
                   prefetch={true}
                   className={cn(
                     "relative isolate flex items-center px-3.5 py-1.5 rounded-full text-[13px] font-medium whitespace-nowrap transition-colors",
                     activeTab === "chat"
-                      ? item.activeTextClassName
+                      ? "text-white"
                       : "text-muted-foreground hover:text-foreground"
                   )}
                 >
-                  {activeTab === "chat" && renderActiveNavIndicator(item)}
+                  {activeTab === "chat" && renderActiveNavIndicator()}
                   <span className="relative z-10">💬 Chat</span>
                   {streamingConversations.size > 0 && (
                     <span className="absolute -top-1 -right-1 z-20 flex h-4 w-4 items-center justify-center">
@@ -655,15 +681,20 @@ export function AppHeader() {
                 <button
                   type="button"
                   data-more-btn="1"
-                  aria-label="More navigation"
+                  data-nav-key={activeOverflowItem?.key}
+                  aria-label={
+                    activeOverflowItem
+                      ? `More navigation; ${activeOverflowItem.label} is current`
+                      : "More navigation"
+                  }
                   className={cn(
                     "relative isolate flex h-8 items-center justify-center gap-1.5 rounded-full px-3 text-[13px] font-medium whitespace-nowrap transition-colors",
                     activeOverflowItem
-                      ? activeOverflowItem.activeTextClassName
+                      ? "text-white"
                       : "text-muted-foreground hover:text-foreground",
                   )}
                 >
-                  {activeOverflowItem && renderActiveNavIndicator(activeOverflowItem)}
+                  {activeOverflowItem && renderActiveNavIndicator()}
                   <span className="relative z-10">More</span>
                   <ChevronDown className="relative z-10 h-3.5 w-3.5 shrink-0" />
                 </button>
@@ -733,7 +764,7 @@ export function AppHeader() {
                     <div className="min-w-0">
                       {isAdmin ? (
                         <GuardedLink
-                          href="/admin?cat=platform&tab=health"
+                          href="/admin/operations/health"
                           className="inline-flex max-w-full items-center gap-1 rounded-sm text-sm font-semibold text-foreground hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                           aria-label="Open Admin health status"
                         >

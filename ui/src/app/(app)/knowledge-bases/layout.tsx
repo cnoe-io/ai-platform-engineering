@@ -1,55 +1,42 @@
 "use client";
 
 import { AuthGuard } from "@/components/auth-guard";
+import { WorkspaceHeader } from "@/components/layout/WorkspaceHeader";
 import { KnowledgeSidebar } from "@/components/rag/KnowledgeSidebar";
 import { Button } from "@/components/ui/button";
 import { CAIPESpinner } from "@/components/ui/caipe-spinner";
 import { useRAGHealth } from "@/hooks/use-rag-health";
 import { config } from "@/lib/config";
-import {
-RefreshCw,
-WifiOff
-} from "lucide-react";
-import React,{ useState } from "react";
+import { BookOpen,RefreshCw,WifiOff } from "lucide-react";
+import React from "react";
+
+function KnowledgeBasesHeader(): React.ReactElement {
+  return (
+    <WorkspaceHeader
+      description="Manage data sources, search content, and explore relationships."
+      icon={BookOpen}
+      iconAnimationClassName="motion-safe:duration-300 motion-safe:group-hover:-rotate-6 motion-safe:group-hover:scale-110"
+      iconTestId="knowledge-bases-header-icon"
+      title="Knowledge Bases"
+    />
+  );
+}
 
 function KnowledgeBasesLayoutContent({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  
   // Use the shared RAG health hook
   const { status: ragHealth, graphRagEnabled, checkNow: checkRagHealth } = useRAGHealth();
 
   // Disconnected state
   if (ragHealth === "disconnected") {
     return (
-      <div className="flex-1 flex flex-col bg-background overflow-hidden">
-        {/* Header with Gradient */}
-        <div className="relative overflow-hidden border-b border-border shrink-0">
-          <div 
-            className="absolute inset-0" 
-            style={{
-              background: `linear-gradient(to bottom right, color-mix(in srgb, var(--gradient-from) 15%, transparent) 0%, color-mix(in srgb, var(--gradient-to) 8%, transparent) 50%, transparent 100%)`
-            }}
-          />
-          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-primary/5 via-transparent to-transparent" />
-
-          <div className="relative px-6 py-3 flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-destructive/20 shadow-sm">
-              <WifiOff className="h-5 w-5 text-destructive" />
-            </div>
-            <div>
-              <h1 className="text-lg font-bold text-foreground">Knowledge Bases</h1>
-              <p className="text-destructive text-xs">
-                RAG Server Unavailable
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground p-4 text-center">
+      <main className="min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto flex min-h-full w-full max-w-[108rem] flex-col px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+          <KnowledgeBasesHeader />
+          <div className="flex flex-1 flex-col items-center justify-center p-4 text-center text-muted-foreground">
           <WifiOff className="h-16 w-16 mb-4 text-destructive" />
           <h2 className="text-2xl font-bold mb-2 text-foreground">RAG Server Unavailable</h2>
           <p className="text-lg mb-4">
@@ -63,8 +50,9 @@ function KnowledgeBasesLayoutContent({
             <RefreshCw className="h-4 w-4" />
             Retry Connection
           </Button>
+          </div>
         </div>
-      </div>
+      </main>
     );
   }
 
@@ -77,21 +65,19 @@ function KnowledgeBasesLayoutContent({
     );
   }
 
-  // Connected - show sidebar + content layout
+  // Connected - use the same page-style workspace shell as Settings and Credentials.
   return (
-    <div className="flex-1 flex min-h-0">
-      {/* Sidebar */}
-      <KnowledgeSidebar
-        collapsed={sidebarCollapsed}
-        onCollapse={setSidebarCollapsed}
-        graphRagEnabled={graphRagEnabled}
-      />
-
-      {/* Main Content - flex-col to allow children to control their own height/scroll */}
-      <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
-        {children}
+    <main className="min-h-0 flex-1 overflow-y-auto lg:overflow-hidden">
+      <div className="mx-auto flex min-h-full w-full max-w-[108rem] flex-col px-4 py-6 sm:px-6 lg:h-full lg:px-8 lg:py-8">
+        <KnowledgeBasesHeader />
+        <div className="space-y-6 lg:flex lg:min-h-0 lg:flex-1 lg:items-stretch lg:gap-10 lg:space-y-0">
+          <KnowledgeSidebar graphRagEnabled={graphRagEnabled} />
+          <div className="flex min-h-[42rem] min-w-0 flex-1 flex-col overflow-hidden lg:min-h-0">
+            {children}
+          </div>
+        </div>
       </div>
-    </div>
+    </main>
   );
 }
 

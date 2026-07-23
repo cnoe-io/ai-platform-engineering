@@ -288,12 +288,12 @@ async function installAccessExplorerMocks(
 }
 
 async function gotoAccessExplorer(page: Page) {
-  await page.goto("/admin?cat=security&tab=access-explorer", {
+  await page.goto("/admin/security/access-explorer", {
     waitUntil: "domcontentloaded",
   });
-  await expect(page.getByRole("tab", { name: "Access Explorer" })).toHaveAttribute(
-    "aria-selected",
-    "true",
+  await expect(page.getByRole("link", { name: "Access Explorer" })).toHaveAttribute(
+    "aria-current",
+    "page",
   );
 }
 
@@ -322,9 +322,9 @@ test.describe("mocked Access Explorer browser regression", () => {
     await installAccessExplorerMocks(page);
     await gotoAccessExplorer(page);
 
-    await expect(page).toHaveURL(/\/admin\?cat=security&tab=access-explorer$/);
-    await expect(page.getByRole("button", { name: "Security & Policy" })).toHaveAttribute("aria-pressed", "true");
-    await expect(page.getByRole("heading", { name: "Access Explorer" })).toHaveCount(0);
+    await expect(page).toHaveURL(/\/admin\/security\/access-explorer$/);
+    await expect(page.getByRole("button", { name: "Security & Policy" })).toHaveAttribute("data-active", "true");
+    await expect(page.getByRole("heading", { level: 2,name: "Access Explorer" })).toBeVisible();
     await expect(page.getByTestId("access-explorer-search-stage")).toBeVisible();
     await expect(page.getByTestId("access-explorer-header")).toHaveCount(0);
     await expect(
@@ -345,21 +345,6 @@ test.describe("mocked Access Explorer browser regression", () => {
     await expect(page.getByTestId("openfga-graph-canvas")).toHaveCount(0);
   });
 
-  test("canonicalizes legacy tab=openfga links to tab=access-explorer", async ({ page }) => {
-    await installAccessExplorerMocks(page);
-
-    await page.goto("/admin?cat=security&tab=openfga", {
-      waitUntil: "domcontentloaded",
-    });
-
-    await expect(page).toHaveURL(/\/admin\?cat=security&tab=access-explorer$/);
-    await expect(page.getByRole("tab", { name: "Access Explorer" })).toHaveAttribute(
-      "aria-selected",
-      "true",
-    );
-    await expect(page.getByTestId("access-explorer-search-stage")).toBeVisible();
-  });
-
   test("shows browseable entities on focus before any search text is entered", async ({ page }) => {
     const harness = await installAccessExplorerMocks(page);
     await gotoAccessExplorer(page);
@@ -367,7 +352,7 @@ test.describe("mocked Access Explorer browser regression", () => {
     const search = page.getByPlaceholder(accessExplorerPlaceholder);
     await search.focus();
 
-    const explorer = page.getByLabel("Access Explorer");
+    const explorer = page.getByTestId("access-explorer-search-stage");
     await expect(explorer.getByText("Users", { exact: true })).toBeVisible();
     await expect(explorer.getByText("Agents", { exact: true })).toBeVisible();
     await expect(explorer.getByText("Skills", { exact: true })).toBeVisible();
@@ -396,7 +381,7 @@ test.describe("mocked Access Explorer browser regression", () => {
       .getByPlaceholder(accessExplorerPlaceholder)
       .fill("sri");
 
-    const explorer = page.getByLabel("Access Explorer");
+    const explorer = page.getByTestId("access-explorer-search-stage");
     await expect(explorer.getByText("Users", { exact: true })).toBeVisible();
     await expect(explorer.getByText("Teams", { exact: true })).toBeVisible();
     await expect(explorer.getByText("Service Accounts", { exact: true })).toBeVisible();

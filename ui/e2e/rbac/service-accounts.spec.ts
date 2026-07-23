@@ -247,7 +247,7 @@ test.describe("mocked service accounts browser regression", () => {
       handlers: [serviceAccountHandler],
     });
 
-    await page.goto("/admin?cat=settings&tab=service-accounts", {
+    await page.goto("/admin/platform/service-accounts", {
       waitUntil: "domcontentloaded",
     });
 
@@ -431,7 +431,7 @@ test.describe("mocked service accounts browser regression", () => {
       handlers: [handler],
     });
 
-    await page.goto("/admin?cat=settings&tab=service-accounts", {
+    await page.goto("/admin/platform/service-accounts", {
       waitUntil: "domcontentloaded",
     });
 
@@ -560,7 +560,7 @@ test.describe("mocked service accounts browser regression", () => {
       handlers: [heldOnlyHandler],
     });
 
-    await page.goto("/admin?cat=settings&tab=service-accounts", {
+    await page.goto("/admin/platform/service-accounts", {
       waitUntil: "domcontentloaded",
     });
 
@@ -706,7 +706,7 @@ test.describe("mocked service accounts browser regression", () => {
     });
     await forceCredentialClientConfig(page);
 
-    await page.goto("/admin?cat=settings&tab=service-accounts", {
+    await page.goto("/admin/platform/service-accounts", {
       waitUntil: "domcontentloaded",
     });
 
@@ -843,7 +843,7 @@ test.describe("mocked service accounts browser regression", () => {
       handlers: [disabledTokensHandler],
     });
 
-    await page.goto("/admin?cat=settings&tab=service-accounts", {
+    await page.goto("/admin/platform/service-accounts", {
       waitUntil: "domcontentloaded",
     });
 
@@ -926,11 +926,11 @@ test.describe("mocked service accounts browser regression", () => {
       handlers: [unlinkedHandler],
     });
 
-    await page.goto("/admin?cat=settings&tab=settings", {
+    await page.goto("/admin/security/access-before-sign-in", {
       waitUntil: "domcontentloaded",
     });
 
-    await page.getByRole("button", { name: "Manage Unlinked Access" }).click();
+    await page.getByRole("button", { name: "Review unlinked access" }).click();
     const dialog = page.getByRole("dialog", { name: "Unlinked Access" });
     await expect(dialog).toBeVisible();
 
@@ -1031,11 +1031,11 @@ test.describe("mocked service accounts browser regression", () => {
       handlers: [unlinkedEmptyToolsHandler],
     });
 
-    await page.goto("/admin?cat=settings&tab=settings", {
+    await page.goto("/admin/security/access-before-sign-in", {
       waitUntil: "domcontentloaded",
     });
 
-    await page.getByRole("button", { name: "Manage Unlinked Access" }).click();
+    await page.getByRole("button", { name: "Review unlinked access" }).click();
     const dialog = page.getByRole("dialog", { name: "Unlinked Access" });
     await expect(dialog).toBeVisible();
 
@@ -1105,7 +1105,7 @@ test.describe("mocked service accounts browser regression", () => {
       handlers: [handler],
     });
 
-    await page.goto("/admin?cat=settings&tab=service-accounts", {
+    await page.goto("/admin/platform/service-accounts", {
       waitUntil: "domcontentloaded",
     });
 
@@ -1176,7 +1176,7 @@ test.describe("mocked service accounts browser regression", () => {
       handlers: [searchHandler],
     });
 
-    await page.goto("/admin?cat=settings&tab=service-accounts", {
+    await page.goto("/admin/platform/service-accounts", {
       waitUntil: "domcontentloaded",
     });
 
@@ -1237,7 +1237,7 @@ test.describe("mocked service accounts browser regression", () => {
       handlers: [paginationHandler],
     });
 
-    await page.goto("/admin?cat=settings&tab=service-accounts", {
+    await page.goto("/admin/platform/service-accounts", {
       waitUntil: "domcontentloaded",
     });
 
