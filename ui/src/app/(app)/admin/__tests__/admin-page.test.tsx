@@ -22,6 +22,7 @@ import { act, render, screen, waitFor, within, fireEvent } from '@testing-librar
 // ============================================================================
 
 let mockIsAdmin = false;
+const pushMock = jest.fn();
 const replaceMock = jest.fn();
 let currentSearchParams = new URLSearchParams();
 let currentPathname = '/admin';
@@ -36,7 +37,7 @@ jest.mock('next-auth/react', () => ({
 
 jest.mock('next/navigation', () => ({
   useSearchParams: () => currentSearchParams,
-  useRouter: () => ({ push: jest.fn(), replace: replaceMock, back: jest.fn(), refresh: jest.fn() }),
+  useRouter: () => ({ push: pushMock, replace: replaceMock, back: jest.fn(), refresh: jest.fn() }),
   usePathname: () => currentPathname,
 }));
 
@@ -73,9 +74,28 @@ jest.mock('@/components/admin/shared/SimpleLineChart', () => ({
 jest.mock('@/components/admin/shared/FeedbackTrendChart', () => ({
   FeedbackTrendChart: ({
     data,
+    onPointClick,
   }: {
-    data: Array<{ label: string; positive: number; negative: number }>;
-  }) => <div data-testid="feedback-trend-chart">{JSON.stringify(data)}</div>,
+    data: Array<{ date: string; label: string; positive: number; negative: number }>;
+    onPointClick?: (point: {
+      date: string;
+      label: string;
+      positive: number;
+      negative: number;
+    }) => void;
+  }) => (
+    <div data-testid="feedback-trend-chart">
+      {JSON.stringify(data)}
+      {data.map((point) => (
+        <button
+          aria-label={`View feedback for ${point.label}`}
+          key={point.date}
+          onClick={() => onPointClick?.(point)}
+          type="button"
+        />
+      ))}
+    </div>
+  ),
 }));
 
 jest.mock('@/components/admin/platform/MetricsTab', () => ({
@@ -1320,6 +1340,21 @@ describe('Admin Dashboard Page', () => {
   });
 
   describe('Insights filter deep links', () => {
+    it('makes the default Statistics range explicit in the canonical URL', async () => {
+      currentPathname = '/admin/insights/statistics';
+      currentSearchParams = new URLSearchParams();
+      setupFetchMock();
+
+      render(<AdminPage />);
+
+      await waitFor(() => {
+        expect(replaceMock).toHaveBeenCalledWith(
+          '/admin/insights/statistics?dateRange=30d',
+          { scroll: false },
+        );
+      });
+    });
+
     it('applies Statistics URL filters to the first card requests', async () => {
       currentPathname = '/admin/insights/statistics';
       currentSearchParams = new URLSearchParams({
@@ -1431,6 +1466,23 @@ describe('Admin Dashboard Page', () => {
       expect(screen.getByText('Messages')).toBeInTheDocument();
       expect(screen.getByText('Daily Active Users (DAU)')).toBeInTheDocument();
       expect(screen.queryByText('NaN')).not.toBeInTheDocument();
+    });
+
+    it('does not refresh the default 30-day stats after entering Statistics', async () => {
+      const fetchMock = setupFetchMock();
+      render(<AdminPage />);
+
+      await screen.findByText('42');
+      await act(async () => {
+        await new Promise((resolve) => window.setTimeout(resolve, 200));
+      });
+
+      const statsUrls = fetchMock.mock.calls
+        .map(([url]) => new URL(url, 'http://localhost'))
+        .filter((url) => url.pathname === '/api/admin/stats');
+      expect(statsUrls).toHaveLength(10);
+      expect(new Set(statsUrls.map((url) => url.searchParams.get('section'))).size).toBe(10);
+      expect(statsUrls.every((url) => url.searchParams.get('range') === '30d')).toBe(true);
     });
 
     it('passes positive and negative daily feedback as separate chart series', async () => {
@@ -1630,6 +1682,68 @@ describe('Admin Dashboard Page', () => {
         resolveTopUsersRequest?.();
       });
       expect(await screen.findByText('Test User 11')).toBeInTheDocument();
+    });
+
+    it('pushes canonical Feedback history with the clicked trend date', async () => {
+      currentSearchParams = new URLSearchParams({
+        source: 'slack',
+        users: 'test-user@example.com',
+        statsAgents: 'agent-primary',
+        dateRange: '30d',
+      });
+      setupFetchMock({
+        stats: {
+          ...mockStatsResponse,
+          data: {
+            ...mockStatsResponse.data,
+            feedback_summary: {
+              positive: 8,
+              negative: 3,
+              total: 11,
+              daily: [{ date: '2026-07-20', positive: 8, negative: 3 }],
+            },
+          },
+        },
+      });
+
+      render(<AdminPage />);
+
+      fireEvent.click(await screen.findByRole('button', { name: 'View feedback for Jul 20' }));
+
+      const targetUrl = new URL(pushMock.mock.calls.at(-1)?.[0], 'http://localhost');
+      expect(targetUrl.pathname).toBe('/admin/insights/feedback');
+      expect(targetUrl.searchParams.has('cat')).toBe(false);
+      expect(targetUrl.searchParams.has('tab')).toBe(false);
+      expect(targetUrl.searchParams.get('dateRange')).toBe('custom');
+      expect(targetUrl.searchParams.get('from')).toBe(
+        new Date(2026, 6, 20, 0, 0, 0, 0).toISOString(),
+      );
+      expect(targetUrl.searchParams.get('to')).toBe(
+        new Date(2026, 6, 20, 23, 59, 59, 999).toISOString(),
+      );
+      expect(targetUrl.searchParams.get('source')).toBe('slack');
+      expect(targetUrl.searchParams.get('users')).toBe('test-user@example.com');
+      expect(targetUrl.searchParams.get('statsAgents')).toBe('agent-primary');
+    });
+
+    it('resets a custom Feedback date in the canonical Statistics link', async () => {
+      currentPathname = '/admin/insights/feedback';
+      currentSearchParams = new URLSearchParams({
+        source: 'slack',
+        dateRange: 'custom',
+        from: new Date(2026, 6, 20, 0, 0, 0, 0).toISOString(),
+        to: new Date(2026, 6, 20, 23, 59, 59, 999).toISOString(),
+      });
+
+      render(<AdminPage />);
+
+      const statisticsLink = await screen.findByRole('link', { name: 'Statistics' });
+      const targetUrl = new URL(statisticsLink.getAttribute('href') ?? '', 'http://localhost');
+      expect(targetUrl.pathname).toBe('/admin/insights/statistics');
+      expect(targetUrl.searchParams.get('dateRange')).toBe('30d');
+      expect(targetUrl.searchParams.has('from')).toBe(false);
+      expect(targetUrl.searchParams.has('to')).toBe(false);
+      expect(targetUrl.searchParams.get('source')).toBe('slack');
     });
 
     it('updates cards independently and issues one request per section when a filter changes', async () => {

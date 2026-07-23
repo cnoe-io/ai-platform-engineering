@@ -38,7 +38,7 @@ import { ImportAgentsFromConfigCard } from "@/components/admin/settings/ImportAg
 import { MCPCatalogSettingsCard } from "@/components/admin/settings/MCPCatalogSettingsCard";
 import { CardPagination } from "@/components/admin/shared/CardPagination";
 import { DateRangeFilter,presetToRange,type DateRange,type DateRangePreset } from "@/components/admin/shared/DateRangeFilter";
-import { FeedbackTrendChart } from "@/components/admin/shared/FeedbackTrendChart";
+import { FeedbackTrendChart,type FeedbackTrendPoint } from "@/components/admin/shared/FeedbackTrendChart";
 import { SimpleLineChart } from "@/components/admin/shared/SimpleLineChart";
 import { CreateTeamDialog } from "@/components/admin/teams/CreateTeamDialog";
 import { IdentitySyncPanel } from "@/components/admin/teams/IdentitySyncPanel";
@@ -306,6 +306,28 @@ function OwnerTypeBadge({ ownerType }: { ownerType?: OwnerType }) {
   );
 }
 
+function localDateFromBucketKey(dateKey: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})(?:T|$)/.exec(dateKey);
+  if (!match) return null;
+  const [, yearValue, monthValue, dayValue] = match;
+  const year = Number(yearValue);
+  const month = Number(monthValue) - 1;
+  const day = Number(dayValue);
+  const date = new Date(year, month, day);
+  return date.getFullYear() === year && date.getMonth() === month && date.getDate() === day
+    ? date
+    : null;
+}
+
+function feedbackDateRangeForBucket(dateKey: string): DateRange | null {
+  const from = localDateFromBucketKey(dateKey);
+  if (!from) return null;
+  from.setHours(0, 0, 0, 0);
+  const to = new Date(from);
+  to.setHours(23, 59, 59, 999);
+  return { from: from.toISOString(), to: to.toISOString() };
+}
+
 // Bucket keys carry a time component ("2026-07-10T14:30") for hour/minute
 // buckets and are date-only ("2026-07-10") for day buckets — use that to
 // decide whether to label chart points by time-of-day or by calendar date.
@@ -313,7 +335,10 @@ function formatBucketLabel(dateStr: string): string {
   if (dateStr.includes('T')) {
     return new Date(dateStr).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
   }
-  return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return localDateFromBucketKey(dateStr)?.toLocaleDateString(
+    'en-US',
+    { month: 'short', day: 'numeric' },
+  ) ?? dateStr;
 }
 
 function OverviewStatsCards({
@@ -510,12 +535,23 @@ function AdminPage() {
       params.delete('subtab');
       params.delete('openfgaTab');
     }
+    const shouldSetDefaultStatsRange =
+      activeDestination.id === 'stats' && params.get('dateRange') === null;
+    if (shouldSetDefaultStatsRange) {
+      params.set('dateRange', '30d');
+      params.delete('from');
+      params.delete('to');
+    }
     const query = params.toString();
     const canonicalUrl = query
       ? `${activeDestination.href}?${query}`
       : activeDestination.href;
     const hasObsoleteNavigationParams = searchParams.has('cat') || searchParams.has('tab');
-    if (pathname !== activeDestination.href || hasObsoleteNavigationParams) {
+    if (
+      pathname !== activeDestination.href
+      || hasObsoleteNavigationParams
+      || shouldSetDefaultStatsRange
+    ) {
       router.replace(canonicalUrl, { scroll: false });
     }
   }, [
@@ -638,12 +674,29 @@ function AdminPage() {
   const [datePreset, setDatePreset] = useState<DateRangePreset>(datePresetFromUrl);
   const [dateRange, setDateRange] = useState<DateRange>(dateRangeFromUrl);
 
+  const openFeedbackForTrendPoint = useCallback((point: FeedbackTrendPoint) => {
+    const range = feedbackDateRangeForBucket(point.date);
+    if (!range) return;
+
+    setDatePreset('custom');
+    setDateRange(range);
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete('cat');
+    params.delete('tab');
+    params.delete('subtab');
+    params.delete('openfgaTab');
+    params.set('dateRange', 'custom');
+    params.set('from', range.from);
+    params.set('to', range.to);
+    router.push(`/admin/insights/feedback?${params.toString()}`, { scroll: false });
+  }, [router, searchParams]);
+
   // Helper to sync shared filters to URL
   const updateSharedFilterUrl = (overrides: Record<string, string | null> = {}) => {
     const shared: Record<string, string | null> = {
       source: sourceFilter !== 'all' ? sourceFilter : null,
       users: userFilter.length > 0 ? userFilter.join(',') : null,
-      dateRange: datePreset !== '30d' ? datePreset : null,
+      dateRange: datePreset,
       from: datePreset === 'custom' ? dateRange.from : null,
       to: datePreset === 'custom' ? dateRange.to : null,
       ...overrides,
@@ -965,10 +1018,10 @@ function AdminPage() {
   const statsFilterKey = useMemo(() => JSON.stringify({
     agents: statsAgentFilter,
     channels: statsChannelFilter,
-    from: dateRange.from,
+    from: datePreset === 'custom' ? dateRange.from : null,
     range: datePreset,
     source: sourceFilter,
-    to: dateRange.to,
+    to: datePreset === 'custom' ? dateRange.to : null,
     teams: selectedStatsFilters.teamSlugs,
     users: selectedStatsFilters.userEmails,
   }), [
@@ -981,10 +1034,10 @@ function AdminPage() {
     statsChannelFilter,
   ]);
   const skillStatsFilterKey = useMemo(() => JSON.stringify({
-    from: dateRange.from,
+    from: datePreset === 'custom' ? dateRange.from : null,
     range: datePreset,
     source: sourceFilter,
-    to: dateRange.to,
+    to: datePreset === 'custom' ? dateRange.to : null,
     teams: selectedStatsFilters.teamSlugs,
     users: selectedStatsFilters.userEmails,
   }), [datePreset, dateRange.from, dateRange.to, selectedStatsFilters, sourceFilter]);
@@ -1968,7 +2021,7 @@ function AdminPage() {
                       setDatePreset(preset);
                       setDateRange(range);
                       updateSharedFilterUrl({
-                        dateRange: preset !== '30d' ? preset : null,
+                        dateRange: preset,
                         from: preset === 'custom' ? range.from : null,
                         to: preset === 'custom' ? range.to : null,
                       });
@@ -2208,7 +2261,7 @@ function AdminPage() {
                         setDatePreset(preset);
                         setDateRange(range);
                         updateSharedFilterUrl({
-                          dateRange: preset !== '30d' ? preset : null,
+                          dateRange: preset,
                           from: preset === 'custom' ? range.from : null,
                           to: preset === 'custom' ? range.to : null,
                         });
@@ -2641,11 +2694,15 @@ function AdminPage() {
                           <CardContent>
                             <FeedbackTrendChart
                               data={stats.feedback_summary.daily.map((day) => ({
+                                date: day.date,
                                 label: formatBucketLabel(day.date),
                                 positive: day.positive,
                                 negative: day.negative,
                               }))}
                               height={180}
+                              onPointClick={tabGateValues.feedback
+                                ? openFeedbackForTrendPoint
+                                : undefined}
                             />
                           </CardContent>
                           </Card> : undefined}
