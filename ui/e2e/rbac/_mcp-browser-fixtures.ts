@@ -238,10 +238,29 @@ export function mcpServersListPayload(
   };
 }
 
+/**
+ * "Add Server" opens the provider-catalog picker first. Click through its
+ * "Blank form" tile to reach the plain create form. No-op when the picker
+ * was already dismissed (e.g. a provider tile was just selected, or this
+ * runs a second time after the form is already showing).
+ */
+async function skipCatalogPickerToBlankForm(page: Page): Promise<void> {
+  const blankFormTile = page.getByRole("button", { name: /blank form/i });
+  const displayNameField = page.getByLabel(/Display Name/i);
+  await Promise.race([
+    blankFormTile.waitFor({ state: "visible", timeout: 15_000 }),
+    displayNameField.waitFor({ state: "visible", timeout: 15_000 }),
+  ]);
+  if (await blankFormTile.isVisible().catch(() => false)) {
+    await blankFormTile.click();
+  }
+}
+
 export async function waitForAddMcpServerFormReady(page: Page): Promise<void> {
   await dismissReleaseUpgradeDialog(page);
   await expect(page.getByText(/add mcp server/i)).toBeVisible({ timeout: 15_000 });
   await dismissReleaseUpgradeDialog(page);
+  await skipCatalogPickerToBlankForm(page);
   await expect(page.getByLabel(/Display Name/i)).toBeVisible({ timeout: 15_000 });
 }
 
@@ -587,6 +606,7 @@ export async function gotoMcpServersTab(page: Page): Promise<void> {
 export async function openAddMcpServerEditor(page: Page): Promise<void> {
   await page.getByRole("button", { name: "Add Server" }).first().click();
   await page.getByText("Add MCP Server").waitFor({ state: "visible" });
+  await skipCatalogPickerToBlankForm(page);
 }
 
 export async function openMcpServerEditor(page: Page, serverName: string): Promise<void> {

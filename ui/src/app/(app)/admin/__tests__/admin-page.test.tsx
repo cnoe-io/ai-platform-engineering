@@ -833,6 +833,7 @@ describe('Admin Dashboard Page', () => {
       expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
         'General',
         'Agents',
+        'MCP',
         'Skills',
         'Service Accounts',
         'AI Review',
@@ -1045,6 +1046,7 @@ describe('Admin Dashboard Page', () => {
       expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
         'General',
         'Agents',
+        'MCP',
         'Skills',
         'Service Accounts',
         'AI Review',

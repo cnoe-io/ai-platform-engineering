@@ -920,6 +920,8 @@ function providerAccentClasses(provider: string): string {
       return "bg-gradient-to-br from-emerald-600 to-lime-500 shadow-emerald-950/20";
     case "gitlab":
       return "bg-gradient-to-br from-orange-500 to-amber-400 shadow-orange-950/20";
+    case "amplitude":
+      return "bg-gradient-to-br from-slate-900 via-orange-950 to-orange-900 shadow-orange-950/30";
     default:
       return "bg-gradient-to-br from-violet-600 to-fuchsia-400 shadow-violet-950/20";
   }
@@ -973,6 +975,19 @@ function ProviderLogo({ provider }: { provider: string }) {
           <path d="M21.65 8.98 12 21.15l3.95-12.17h5.7Z" opacity=".72" />
           <path d="M2.35 8.98 4.1 3.6c.18-.55.95-.55 1.13 0l2.82 5.38h-5.7ZM21.65 8.98 19.9 3.6c-.18-.55-.95-.55-1.13 0l-2.82 5.38h5.7Z" />
         </svg>
+      );
+    case "amplitude":
+      return (
+        // Provider SVGs intentionally bypass the Next.js image pipeline.
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          alt=""
+          aria-hidden="true"
+          className="h-7 w-7 object-contain"
+          height={28}
+          src="/provider-logos/amplitude.svg"
+          width={28}
+        />
       );
     default:
       return <span aria-hidden="true" className="text-[10px] tracking-tight">OAuth</span>;
