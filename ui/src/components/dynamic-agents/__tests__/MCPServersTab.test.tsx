@@ -119,6 +119,17 @@ describe("MCPServersTab AgentGateway repair", () => {
           }),
         } as Response);
       }
+      if (url === "/api/admin/platform-config") {
+        return Promise.resolve({
+          json: async () => ({
+            success: true,
+            data: {
+              release_notes: { enabled: false },
+              remote_mcp_catalog: { enabled_providers: null, custom_entries: [] },
+            },
+          }),
+        } as Response);
+      }
       if (url === "/api/mcp-servers/test-tool" && init?.method === "POST") {
         return Promise.resolve({
           json: async () => ({

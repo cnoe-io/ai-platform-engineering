@@ -277,8 +277,8 @@ function PagerDutyIcon() {
 
 function ProviderLogo({ provider }: { provider: ProviderEntry }) {
   if (provider.logoSrc) {
-    // eslint-disable-next-line @next/next/no-img-element
     const img = (
+      // eslint-disable-next-line @next/next/no-img-element -- provider logos are arbitrary remote URLs, not optimizable via next/image
       <img
         alt=""
         aria-hidden="true"
@@ -376,6 +376,7 @@ export function RemoteMCPCatalogDialog({
 
   useEffect(() => {
     if (!open) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: mark loading before the platform-config fetch kicked off below
     setLoadingConfig(true);
     fetch("/api/admin/platform-config")
       .then((r) => r.json())
