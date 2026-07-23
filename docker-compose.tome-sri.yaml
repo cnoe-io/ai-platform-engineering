@@ -1,0 +1,58 @@
+# assisted-by claude code claude-sonnet-4-6
+# TLS proxy: tome-sri.dev.outshift.io -> caipe-ui:3000 (via nginx)
+# Keycloak is served at tome-sri.dev.outshift.io/realms/... (no idp. subdomain)
+#
+# This box was previously caipe-rbac.outshift.io (same VM, repurposed and
+# renamed for testing prebuild/feat/tome-analytics-and-metrics). See
+# docker-compose.rbac.yaml for the prior generic-RBAC-demo version of this file.
+#
+# tome-agent / mycelium-backend run from docker-compose.tome.yaml's standalone
+# stack, bridged into this stack's default network (see deploy-to-tome-sri.sh)
+# so caipe-ui can reach them by container name instead of host.docker.internal.
+#
+# Usage (prod-parity UI — mirrors caipe-edge-testing / caipe-demo):
+#   COMPOSE_PROFILES="mcp-servers,caipe-ui-prod,rbac,..." \
+#   docker compose -f docker-compose.yaml -f docker-compose.dev.yaml -f docker-compose.tome-sri.yaml up -d
+#
+# caipe-ui-prod publishes the network alias `caipe-ui`, so nginx and sibling
+# services keep using http://caipe-ui:3000 without changes.
+services:
+  caipe-nginx:
+    image: nginx:1.27-alpine
+    container_name: caipe-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/tome-sri-nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - /home/ubuntu/certs:/etc/nginx/certs:ro
+    depends_on:
+      - caipe-ui-prod
+      - keycloak
+
+  caipe-ui-prod:
+    environment:
+      - NEXTAUTH_URL=https://tome-sri.dev.outshift.io
+      - OIDC_ISSUER=https://tome-sri.dev.outshift.io/realms/caipe
+      - INTERNAL_BASE_URL=http://localhost:3000
+      - TOME_ENABLED=${TOME_ENABLED:-true}
+      - TOME_AGENT_URL=http://tome-agent-tome:8766
+      - TOME_AGENT_BACKEND_URL=http://caipe-ui:3000/api/tome
+      - MYCELIUM_URL=http://mycelium-backend-tome:8000
+      - TOME_INTERNAL_ORIGIN=http://caipe-ui:3000
+
+  keycloak:
+    environment:
+      - KC_HOSTNAME=https://tome-sri.dev.outshift.io
+      - KC_PROXY_HEADERS=xforwarded
+      - KC_HOSTNAME_STRICT=false
+      - KC_HOSTNAME_BACKCHANNEL_DYNAMIC=true
+
+  # langfuse-web also maps 3000:3000 — remap to 3001 to avoid collision with
+  # caipe-ui. `ports` is a merge-by-union list in Compose, so a plain override
+  # here would ADD to (not replace) docker-compose.yaml's "3000:3000" and still
+  # collide; `!override` forces full replacement instead.
+  langfuse-web:
+    ports: !override
+      - "127.0.0.1:3001:3000"

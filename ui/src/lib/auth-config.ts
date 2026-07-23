@@ -655,16 +655,16 @@ export const authOptions: NextAuthOptions = {
         // Extract groups for authorization check only (not stored in token)
         const groups = extractGroups(profileData);
         const subject = (profileData.sub as string | undefined) ?? (token.sub as string | undefined);
+        const email = profileData.email as string | undefined;
         cacheOidcClaimGroups(subject, groups);
 
         // Only store the authorization result (NOT the groups array!)
         // Storing 40+ groups causes 8KB session cookies and browser crashes.
-        token.isAuthorized = hasRequiredGroup(groups);
+        token.isAuthorized = hasRequiredGroup(groups) || isBootstrapAdmin(email);
         token.canViewAdmin = canViewAdminDashboard(groups);
         token.canAccessDynamicAgents = canAccessDynamicAgents(groups);
         token.groupsCheckedAt = Math.floor(Date.now() / 1000);
 
-        const email = profileData.email as string | undefined;
         const adminViaBootstrap = isBootstrapAdmin(email);
         const adminViaGroup = isAdminUser(groups);
         token.role = adminViaBootstrap || adminViaGroup ? 'admin' : 'user';
@@ -775,9 +775,13 @@ export const authOptions: NextAuthOptions = {
                 const groups = extractGroups(claims as Record<string, unknown>);
                 cacheOidcClaimGroups(token.sub as string | undefined, groups);
                 console.log(`[Auth] Re-evaluating groups from refreshed id_token (last checked ${Math.round((now - lastGroupCheck) / 3600)}h ago), count: ${groups.length}`);
+                const email =
+                  typeof claims.email === "string"
+                    ? claims.email
+                    : (token.email as string | undefined);
                 return {
                   ...refreshedToken,
-                  isAuthorized: hasRequiredGroup(groups),
+                  isAuthorized: hasRequiredGroup(groups) || isBootstrapAdmin(email),
                   role: refreshedToken.role === 'admin' ? 'admin' : 'user',
                   canViewAdmin: canViewAdminDashboard(groups),
                   groupsCheckedAt: now,

@@ -2288,8 +2288,11 @@ services:
     container_name: agentgateway-config-bridge
     restart: unless-stopped
     read_only: true
-    security_opt:
-      - no-new-privileges:true
+    # security_opt inherited from docker-compose.yaml's base definition — do not
+    # repeat it here. Some Docker Compose versions (e.g. v5.1.3) reject exact
+    # duplicate security_opt entries produced by merging identical values across
+    # -f files with "services.agentgateway-config-bridge.security_opt items at
+    # 0 and 1 are equal".
     profiles:
       - rbac
     environment:
@@ -2350,8 +2353,8 @@ services:
       GITHUB_PERSONAL_ACCESS_TOKEN: ${GITHUB_PERSONAL_ACCESS_TOKEN:-}
       GITLAB_PERSONAL_ACCESS_TOKEN: ${GITLAB_PERSONAL_ACCESS_TOKEN:-${GITLAB_TOKEN:-}}
     read_only: true
-    security_opt:
-      - no-new-privileges:true
+    # security_opt inherited from docker-compose.yaml's base definition — see
+    # the agentgateway-config-bridge comment above for why this isn't repeated.
     profiles:
       - rbac
     depends_on:
