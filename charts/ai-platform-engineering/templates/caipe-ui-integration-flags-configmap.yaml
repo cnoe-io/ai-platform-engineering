@@ -1,6 +1,8 @@
 {{- $tags := .Values.tags | default dict -}}
 {{- $slackEnabled := eq (toString (index $tags "slack-bot" | default false)) "true" -}}
 {{- $webexEnabled := eq (toString (index $tags "webex-bot" | default false)) "true" -}}
+{{- $bridgeValues := index .Values "openfga-authz-bridge" | default dict -}}
+{{- $restrictedMcpServers := index $bridgeValues "restrictedMcpServers" | default list -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -10,3 +12,4 @@ metadata:
 data:
   SLACK_INTEGRATION_ENABLED: {{ ternary "true" "false" $slackEnabled | quote }}
   WEBEX_INTEGRATION_ENABLED: {{ ternary "true" "false" $webexEnabled | quote }}
+  SCHEDULER_ADMIN_ONLY: {{ ternary "true" "false" (has "scheduler" $restrictedMcpServers) | quote }}
