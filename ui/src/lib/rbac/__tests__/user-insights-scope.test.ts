@@ -17,11 +17,20 @@ jest.mock('@/lib/rbac/slack-channel-grant-store', () => ({
   slackChannelSubjectId: (ws: string, ch: string) => `${ws}:${ch}`,
 }));
 
+jest.mock('@/lib/rbac/webex-space-grant-store', () => ({
+  webexSpaceSubjectId: (ws: string, space: string) => `${ws}:${space}`,
+}));
+
 import {
   getAgentsByIds,
   getAllAgents,
+  getInsightsActorTeamSlugs,
   getOwnedAgentConversationIds,
   getOwnedAgents,
+  getReadableConversationIds,
+  getReadableMessagingConversationScope,
+  getReadableSlackChannelNames,
+  getReadableWebexSpaceIds,
 } from '../user-insights-scope';
 
 /** Minimal collection stub keyed by the method a given helper calls. */
@@ -40,6 +49,174 @@ beforeEach(() => {
   mockListOpenFgaObjects.mockReset();
   mockCheckOpenFgaTuple.mockReset();
   mockGetCollection.mockReset();
+});
+
+describe('getInsightsActorTeamSlugs', () => {
+  it('lists computed team membership and returns unique slugs', async () => {
+    mockListOpenFgaObjects.mockResolvedValue({
+      objects: ['team:primary', 'team:secondary', 'team:primary'],
+    });
+
+    expect(await getInsightsActorTeamSlugs('user:sub-1')).toEqual([
+      'primary',
+      'secondary',
+    ]);
+    expect(mockListOpenFgaObjects).toHaveBeenCalledWith({
+      user: 'user:sub-1',
+      relation: 'member',
+      type: 'team',
+    });
+  });
+
+  it('fails closed for an empty actor or PDP error', async () => {
+    expect(await getInsightsActorTeamSlugs('')).toEqual([]);
+    expect(mockListOpenFgaObjects).not.toHaveBeenCalled();
+
+    mockListOpenFgaObjects.mockRejectedValue(new Error('fga down'));
+    expect(await getInsightsActorTeamSlugs('user:sub-1')).toEqual([]);
+  });
+});
+
+describe('getReadableSlackChannelNames', () => {
+  it('returns readable mapped channels while excluding direct messages', async () => {
+    mockGetCollection.mockResolvedValue(
+      collectionStub({
+        find: jest.fn().mockReturnValue({
+          limit: jest.fn().mockReturnValue({
+            toArray: jest.fn().mockResolvedValue([
+              {
+                slack_workspace_id: 'T123',
+                slack_channel_id: 'C123',
+                channel_name: 'shared-channel',
+              },
+              {
+                slack_workspace_id: 'T123',
+                slack_channel_id: 'D123',
+                channel_name: 'direct-message',
+              },
+            ]),
+          }),
+        }),
+      }),
+    );
+    mockCheckOpenFgaTuple.mockResolvedValue({ allowed: true });
+
+    expect(await getReadableSlackChannelNames('user:sub-1')).toEqual([
+      'shared-channel',
+    ]);
+    expect(mockCheckOpenFgaTuple).toHaveBeenCalledTimes(1);
+    expect(mockCheckOpenFgaTuple).toHaveBeenCalledWith({
+      user: 'user:sub-1',
+      relation: 'can_read',
+      object: 'slack_channel:T123:C123',
+    });
+  });
+});
+
+describe('getReadableWebexSpaceIds', () => {
+  it('returns only readable mapped spaces', async () => {
+    mockGetCollection.mockResolvedValue(
+      collectionStub({
+        find: jest.fn().mockReturnValue({
+          limit: jest.fn().mockReturnValue({
+            toArray: jest.fn().mockResolvedValue([
+              {
+                webex_workspace_id: 'WX123',
+                webex_space_id: 'space-readable',
+              },
+              {
+                webex_workspace_id: 'WX123',
+                webex_space_id: 'space-denied',
+              },
+            ]),
+          }),
+        }),
+      }),
+    );
+    mockCheckOpenFgaTuple.mockImplementation(
+      ({ object }: { object: string }) =>
+        Promise.resolve({ allowed: object.endsWith(':space-readable') }),
+    );
+
+    expect(await getReadableWebexSpaceIds('user:sub-1')).toEqual([
+      'space-readable',
+    ]);
+    expect(mockCheckOpenFgaTuple).toHaveBeenCalledWith({
+      user: 'user:sub-1',
+      relation: 'can_read',
+      object: 'webex_space:WX123:space-readable',
+    });
+  });
+});
+
+describe('getReadableMessagingConversationScope', () => {
+  it('combines authorized Slack channel ids with Webex spaces', async () => {
+    const slackMappings = collectionStub({
+      find: jest.fn().mockReturnValue({
+        limit: jest.fn().mockReturnValue({
+          toArray: jest.fn().mockResolvedValue([
+            {
+              slack_workspace_id: 'T123',
+              slack_channel_id: 'C123',
+              channel_name: 'shared-channel',
+            },
+          ]),
+        }),
+      }),
+    });
+    const webexMappings = collectionStub({
+      find: jest.fn().mockReturnValue({
+        limit: jest.fn().mockReturnValue({
+          toArray: jest.fn().mockResolvedValue([
+            {
+              webex_workspace_id: 'WX123',
+              webex_space_id: 'space-readable',
+            },
+          ]),
+        }),
+      }),
+    });
+    mockGetCollection.mockImplementation((name: string) =>
+      Promise.resolve(
+        name === 'channel_team_mappings' ? slackMappings : webexMappings,
+      ),
+    );
+    mockCheckOpenFgaTuple.mockResolvedValue({ allowed: true });
+
+    expect(
+      await getReadableMessagingConversationScope('user:sub-1'),
+    ).toEqual({
+      slackChannelIds: ['C123'],
+      webexSpaceIds: ['space-readable'],
+    });
+  });
+});
+
+describe('getReadableConversationIds', () => {
+  it('lists and normalizes explicit conversation grants', async () => {
+    mockListOpenFgaObjects.mockResolvedValue({
+      objects: [
+        'conversation:conversation-1',
+        'conversation-2',
+        'conversation:conversation-1',
+      ],
+    });
+
+    expect(await getReadableConversationIds('user:sub-1')).toEqual([
+      'conversation-1',
+      'conversation-2',
+    ]);
+    expect(mockListOpenFgaObjects).toHaveBeenCalledWith({
+      user: 'user:sub-1',
+      relation: 'can_read',
+      type: 'conversation',
+    });
+  });
+
+  it('fails closed when conversation grants cannot be listed', async () => {
+    mockListOpenFgaObjects.mockRejectedValue(new Error('fga down'));
+    expect(await getReadableConversationIds('user:sub-1')).toEqual([]);
+  });
 });
 
 describe('getAgentsByIds', () => {

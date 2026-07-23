@@ -96,11 +96,15 @@ def _ping_victorops_oncall(
 
     # Register a fresh conversation (no idempotency_key) so the on-call lookup
     # does not inherit the channel thread history, which can be very large and
-    # cause incorrect results, and so stream_chat has a conversation_id the
-    # server actually knows about.
+    # cause incorrect results. Retain the originating thread only as metadata
+    # so authorized Insights viewers can navigate back to Slack.
     conv_result = sse_client.create_conversation(
       title="VictorOps on-call lookup",
       agent_id=agent_id,
+      metadata={
+        "channel_id": channel_id,
+        "thread_ts": thread_ts,
+      },
     )
     conversation_id = conv_result["conversation_id"]
 

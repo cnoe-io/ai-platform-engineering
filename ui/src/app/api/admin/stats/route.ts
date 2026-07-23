@@ -24,6 +24,10 @@ import { NextRequest,NextResponse } from 'next/server';
 
 const adminStatsCache = createJsonResponseCacheStore();
 let botOwnerIdsCache: { expiresAt: number; promise: Promise<string[]> } | null = null;
+const TOP_USERS_PAGE_SIZE = 10;
+const VALID_TOP_USER_OWNER_STAGE = {
+  $match: { _id: { $nin: [null, ''] } },
+};
 
 interface SlackStats {
   channels: {
@@ -67,6 +71,11 @@ function parseStatsSection(searchParams: URLSearchParams): AdminStatsSection | '
   return (ADMIN_STATS_SECTIONS as readonly string[]).includes(section)
     ? section as AdminStatsSection
     : null;
+}
+
+function parsePositivePage(searchParams: URLSearchParams, key: string): number {
+  const parsed = Number.parseInt(searchParams.get(key) ?? '1', 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
 }
 
 /** Identity classification for a Top Users leaderboard owner (see classifyOwner). */
@@ -337,6 +346,8 @@ async function getAdminStats(request: NextRequest) {
     // posters, MR bots, service accounts). `include_bots=true` shows them —
     // surfaced as a "Show Bot Users" toggle in the UI.
     const includeBots = searchParams.get('include_bots') === 'true';
+    const topConversationsPage = parsePositivePage(searchParams, 'top_conversations_page');
+    const topMessagesPage = parsePositivePage(searchParams, 'top_messages_page');
     // Populated after the collections are available (below): a no-op $match
     // spread when bots are included, else a $match that drops bot/service
     // identities — both those detectable by ID pattern (HUMAN_OWNER_MATCH) and
@@ -460,7 +471,24 @@ async function getAdminStats(request: NextRequest) {
             avg_messages_per_conversation: 0,
           },
           daily_activity: [],
-          top_users: { by_conversations: [], by_messages: [] },
+          top_users: {
+            by_conversations: [],
+            by_messages: [],
+            pagination: {
+              by_conversations: {
+                page: topConversationsPage,
+                limit: TOP_USERS_PAGE_SIZE,
+                total: 0,
+                total_pages: 0,
+              },
+              by_messages: {
+                page: topMessagesPage,
+                limit: TOP_USERS_PAGE_SIZE,
+                total: 0,
+                total_pages: 0,
+              },
+            },
+          },
           top_agents: [],
           feedback_summary: {
             positive: 0,
@@ -781,6 +809,8 @@ async function getAdminStats(request: NextRequest) {
       dailyMsgActivity,
       rawTopByConvs,
       rawTopByMsgs,
+      rawTopByConvsTotal,
+      rawTopByMsgsTotal,
       topAgents,
       fbOverall,
       fbBySource,
@@ -830,9 +860,11 @@ async function getAdminStats(request: NextRequest) {
         ? conversations.aggregate([
             { $match: { created_at: rangeDateMatch, ...convSourceFilter } },
             { $group: { _id: '$owner_id', count: { $sum: 1 } } },
+            VALID_TOP_USER_OWNER_STAGE,
             ...topUserOwnerMatch,
-            { $sort: { count: -1 } },
-            { $limit: 10 },
+            { $sort: { count: -1, _id: 1 } },
+            { $skip: (topConversationsPage - 1) * TOP_USERS_PAGE_SIZE },
+            { $limit: TOP_USERS_PAGE_SIZE },
           ]).toArray()
         : Promise.resolve([]),
 
@@ -844,9 +876,37 @@ async function getAdminStats(request: NextRequest) {
             { $addFields: { _owner: { $ifNull: ['$owner_id', { $arrayElemAt: ['$_conv.owner_id', 0] }] } } },
             { $match: { _owner: { $ne: null } } },
             { $group: { _id: '$_owner', count: { $sum: 1 } } },
+            VALID_TOP_USER_OWNER_STAGE,
             ...topUserOwnerMatch,
-            { $sort: { count: -1 } },
-            { $limit: 10 },
+            { $sort: { count: -1, _id: 1 } },
+            { $skip: (topMessagesPage - 1) * TOP_USERS_PAGE_SIZE },
+            { $limit: TOP_USERS_PAGE_SIZE },
+          ]).toArray()
+        : Promise.resolve([]),
+
+      // Separate count pipelines keep pagination compatible with DocumentDB,
+      // which does not support the $facet approach commonly used to return
+      // rows and totals in one aggregation.
+      includesSection('top_users')
+        ? conversations.aggregate([
+            { $match: { created_at: rangeDateMatch, ...convSourceFilter } },
+            { $group: { _id: '$owner_id' } },
+            VALID_TOP_USER_OWNER_STAGE,
+            ...topUserOwnerMatch,
+            { $count: 'total' },
+          ]).toArray()
+        : Promise.resolve([]),
+
+      includesSection('top_users')
+        ? messages.aggregate([
+            { $match: { created_at: rangeDateMatch, ...AI_MESSAGE_MATCH, ...msgOwnerFilter } },
+            { $lookup: { from: 'conversations', localField: 'conversation_id', foreignField: '_id', as: '_conv' } },
+            { $addFields: { _owner: { $ifNull: ['$owner_id', { $arrayElemAt: ['$_conv.owner_id', 0] }] } } },
+            { $match: { _owner: { $ne: null } } },
+            { $group: { _id: '$_owner' } },
+            VALID_TOP_USER_OWNER_STAGE,
+            ...topUserOwnerMatch,
+            { $count: 'total' },
           ]).toArray()
         : Promise.resolve([]),
 
@@ -1093,6 +1153,8 @@ async function getAdminStats(request: NextRequest) {
 
     const topUsersByConversations = enrichTopUsers(rawTopByConvs);
     const topUsersByMessages = enrichTopUsers(rawTopByMsgs);
+    const topUsersByConversationsTotal = Number(rawTopByConvsTotal[0]?.total ?? 0);
+    const topUsersByMessagesTotal = Number(rawTopByMsgsTotal[0]?.total ?? 0);
 
     // ── Post-process feedback ───────────────────────────────────────
     const fbMap = new Map(fbOverall.map((f) => [f._id, f.count]));
@@ -1443,6 +1505,20 @@ async function getAdminStats(request: NextRequest) {
         top_users: {
           by_conversations: topUsersByConversations,
           by_messages: topUsersByMessages,
+          pagination: {
+            by_conversations: {
+              page: topConversationsPage,
+              limit: TOP_USERS_PAGE_SIZE,
+              total: topUsersByConversationsTotal,
+              total_pages: Math.ceil(topUsersByConversationsTotal / TOP_USERS_PAGE_SIZE),
+            },
+            by_messages: {
+              page: topMessagesPage,
+              limit: TOP_USERS_PAGE_SIZE,
+              total: topUsersByMessagesTotal,
+              total_pages: Math.ceil(topUsersByMessagesTotal / TOP_USERS_PAGE_SIZE),
+            },
+          },
         },
       } : {}),
       ...(includesSection('top_agents') ? { top_agents: topAgents } : {}),

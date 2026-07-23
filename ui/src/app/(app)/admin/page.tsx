@@ -30,6 +30,7 @@ import { MCPCatalogSettingsCard } from "@/components/admin/settings/MCPCatalogSe
 import { PlatformSettingsTab } from "@/components/admin/settings/PlatformSettingsTab";
 import { ReleaseNotesSettingsTab } from "@/components/admin/settings/ReleaseNotesSettingsTab";
 import { ReviewConfigsTab } from "@/components/admin/settings/ReviewConfigsTab";
+import { CardPagination } from "@/components/admin/shared/CardPagination";
 import { DateRangeFilter,presetToRange,type DateRange,type DateRangePreset } from "@/components/admin/shared/DateRangeFilter";
 import { FeedbackTrendChart,type FeedbackTrendPoint } from "@/components/admin/shared/FeedbackTrendChart";
 import { SimpleLineChart } from "@/components/admin/shared/SimpleLineChart";
@@ -946,6 +947,22 @@ function AdminPage() {
   const [statsAgents, setStatsAgents] = useState<Array<{ id: string; name: string }>>([]);
   // Top-users leaderboard: hide bot/service identities by default; toggle to show.
   const [showBotUsers, setShowBotUsers] = useState(statsIncludeBotsFromUrl);
+  const [topConversationsPage, setTopConversationsPage] = useState(1);
+  const [topMessagesPage, setTopMessagesPage] = useState(1);
+  const [loadingTopUsersLeaderboard, setLoadingTopUsersLeaderboard] = useState<
+    'conversations' | 'messages' | null
+  >(null);
+  const topConversationsPageRef = useRef(1);
+  const topMessagesPageRef = useRef(1);
+  const topUsersPageRequestVersionRef = useRef(0);
+  const resetTopUserPages = useCallback(() => {
+    topUsersPageRequestVersionRef.current += 1;
+    topConversationsPageRef.current = 1;
+    topMessagesPageRef.current = 1;
+    setTopConversationsPage(1);
+    setTopMessagesPage(1);
+    setLoadingTopUsersLeaderboard(null);
+  }, []);
   const insightsFilterUrlKey = [
     searchParams.get('source'),
     searchParams.get('users'),
@@ -1028,6 +1045,10 @@ function AdminPage() {
     }
     if (statsAgentFilter.length > 0) params.set('agent', statsAgentFilter.join(','));
     if (showBotUsers) params.set('include_bots', 'true');
+    if (section === 'top_users') {
+      params.set('top_conversations_page', String(topConversationsPageRef.current));
+      params.set('top_messages_page', String(topMessagesPageRef.current));
+    }
     return withAdminSimulationParams(`/api/admin/stats?${params.toString()}`, simulationTarget);
   }, [
     dateRange,
@@ -1104,10 +1125,11 @@ function AdminPage() {
       setSelectedUserId(null);
       setSelectedUserEmail(null);
       setFeedbackLoading(false);
+      resetTopUserPages();
     }
     if (status !== "authenticated" && getConfig('ssoEnabled')) return;
     loadTabDataEvent(activeTab);
-  }, [activeTab, resetStatsSections, simulationScopeKey, status]);
+  }, [activeTab, resetStatsSections, resetTopUserPages, simulationScopeKey, status]);
   const fetchTeamsFromDb = async (): Promise<Team[]> => {
     const response = await fetch(withAdminSimulationParams(`/api/admin/teams?fresh=${Date.now()}`, simulationTarget), {
       cache: 'no-store',
@@ -1232,10 +1254,11 @@ function AdminPage() {
     if (!visitedTabsRef.current.has('_stats-loaded')) return;
     if (status !== "authenticated" && getConfig('ssoEnabled')) return;
     const handle = window.setTimeout(() => {
+      resetTopUserPages();
       void loadStatsSections(FILTER_REFRESH_STATS_SECTIONS);
     }, 150);
     return () => window.clearTimeout(handle);
-  }, [loadStatsSections, statsFilterKey, status]);
+  }, [loadStatsSections, resetTopUserPages, statsFilterKey, status]);
 
   const showBotUsersRef = useRef(showBotUsers);
   useEffect(() => {
@@ -1243,8 +1266,39 @@ function AdminPage() {
     showBotUsersRef.current = showBotUsers;
     if (!visitedTabsRef.current.has('_stats-loaded')) return;
     if (status !== "authenticated" && getConfig('ssoEnabled')) return;
+    resetTopUserPages();
     void loadStatsSections(BOT_FILTER_STATS_SECTIONS);
-  }, [loadStatsSections, showBotUsers, status]);
+  }, [loadStatsSections, resetTopUserPages, showBotUsers, status]);
+
+  const loadTopUsersPage = async (
+    leaderboard: 'conversations' | 'messages',
+    page: number,
+  ): Promise<void> => {
+    const requestVersion = topUsersPageRequestVersionRef.current + 1;
+    topUsersPageRequestVersionRef.current = requestVersion;
+    setLoadingTopUsersLeaderboard(leaderboard);
+    if (leaderboard === 'conversations') {
+      topConversationsPageRef.current = page;
+      setTopConversationsPage(page);
+    } else {
+      topMessagesPageRef.current = page;
+      setTopMessagesPage(page);
+    }
+    try {
+      await loadStatsSections(['top_users']);
+    } finally {
+      if (topUsersPageRequestVersionRef.current === requestVersion) {
+        setLoadingTopUsersLeaderboard(null);
+      }
+    }
+  };
+
+  const topConversationsLoading = loadingTopUsersLeaderboard === null
+    ? statsSectionStatuses.top_users.loading
+    : loadingTopUsersLeaderboard === 'conversations';
+  const topMessagesLoading = loadingTopUsersLeaderboard === null
+    ? statsSectionStatuses.top_users.loading
+    : loadingTopUsersLeaderboard === 'messages';
 
   const loadStats = async () => {
     setError(null);
@@ -2631,7 +2685,7 @@ function AdminPage() {
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                       <AsyncStatsCard
                         error={statsSectionStatuses.top_users.error}
-                        loading={statsSectionStatuses.top_users.loading}
+                        loading={topConversationsLoading}
                         minHeightClassName="min-h-64"
                         testId="stats-card-top-users-conversations"
                       >
@@ -2646,7 +2700,10 @@ function AdminPage() {
                             ) : stats.top_users.by_conversations.map((u, i) => (
                               <div key={u._id} className="flex items-center justify-between">
                                 <div className="flex items-center gap-2 min-w-0">
-                                  <div className="w-6 text-sm text-muted-foreground shrink-0">#{i + 1}</div>
+                                  <div className="w-8 text-sm text-muted-foreground shrink-0">
+                                    #{((stats.top_users.pagination?.by_conversations.page ?? topConversationsPage) - 1)
+                                      * (stats.top_users.pagination?.by_conversations.limit ?? 10) + i + 1}
+                                  </div>
                                   <OwnerTypeBadge ownerType={u.owner_type} />
                                   <div className="text-sm truncate max-w-[200px] text-primary hover:underline cursor-pointer" onClick={() => setSelectedUserEmail(u._id)} title={u._id}>{u.name || u._id}</div>
                                 </div>
@@ -2654,13 +2711,24 @@ function AdminPage() {
                               </div>
                             ))}
                           </div>
+                          {stats.top_users.pagination?.by_conversations && (
+                            <CardPagination
+                              label="top users by conversations"
+                              disabled={topConversationsLoading}
+                              page={stats.top_users.pagination.by_conversations.page}
+                              pageSize={stats.top_users.pagination.by_conversations.limit}
+                              total={stats.top_users.pagination.by_conversations.total}
+                              className="border-t border-border pt-3"
+                              onPageChange={(page) => void loadTopUsersPage('conversations', page)}
+                            />
+                          )}
                         </CardContent>
                         </Card> : undefined}
                       </AsyncStatsCard>
 
                       <AsyncStatsCard
                         error={statsSectionStatuses.top_users.error}
-                        loading={statsSectionStatuses.top_users.loading}
+                        loading={topMessagesLoading}
                         minHeightClassName="min-h-64"
                         testId="stats-card-top-users-messages"
                       >
@@ -2675,7 +2743,10 @@ function AdminPage() {
                             ) : stats.top_users.by_messages.map((u, i) => (
                               <div key={u._id} className="flex items-center justify-between">
                                 <div className="flex items-center gap-2 min-w-0">
-                                  <div className="w-6 text-sm text-muted-foreground shrink-0">#{i + 1}</div>
+                                  <div className="w-8 text-sm text-muted-foreground shrink-0">
+                                    #{((stats.top_users.pagination?.by_messages.page ?? topMessagesPage) - 1)
+                                      * (stats.top_users.pagination?.by_messages.limit ?? 10) + i + 1}
+                                  </div>
                                   <OwnerTypeBadge ownerType={u.owner_type} />
                                   <div className="text-sm truncate max-w-[200px] text-primary hover:underline cursor-pointer" onClick={() => setSelectedUserEmail(u._id)} title={u._id}>{u.name || u._id}</div>
                                 </div>
@@ -2683,6 +2754,17 @@ function AdminPage() {
                               </div>
                             ))}
                           </div>
+                          {stats.top_users.pagination?.by_messages && (
+                            <CardPagination
+                              label="top users by messages"
+                              disabled={topMessagesLoading}
+                              page={stats.top_users.pagination.by_messages.page}
+                              pageSize={stats.top_users.pagination.by_messages.limit}
+                              total={stats.top_users.pagination.by_messages.total}
+                              className="border-t border-border pt-3"
+                              onPageChange={(page) => void loadTopUsersPage('messages', page)}
+                            />
+                          )}
                         </CardContent>
                         </Card> : undefined}
                       </AsyncStatsCard>
