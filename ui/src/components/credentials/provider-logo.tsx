@@ -62,6 +62,36 @@ export function ProviderLogo({
           src="/provider-logos/amplitude.svg"
         />
       );
+    case "figma":
+      return (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          alt=""
+          aria-hidden="true"
+          className={className ?? "h-7 w-7 object-contain"}
+          src="/provider-logos/figma.svg"
+        />
+      );
+    case "linear":
+      return (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          alt=""
+          aria-hidden="true"
+          className={className ?? "h-7 w-7 object-contain"}
+          src="https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/linear.svg"
+        />
+      );
+    case "notion":
+      return (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          alt=""
+          aria-hidden="true"
+          className={className ?? "h-7 w-7 object-contain"}
+          src="https://upload.wikimedia.org/wikipedia/commons/e/e9/Notion-logo.svg"
+        />
+      );
     default:
       return <span aria-hidden="true" className="text-[10px] tracking-tight">OAuth</span>;
   }
