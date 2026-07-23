@@ -1321,9 +1321,8 @@ describe('Admin Dashboard Page', () => {
 
   describe('Insights filter deep links', () => {
     it('applies Statistics URL filters to the first card requests', async () => {
+      currentPathname = '/admin/insights/statistics';
       currentSearchParams = new URLSearchParams({
-        cat: 'insights',
-        tab: 'stats',
         source: 'slack',
         statsChannels: 'primary-channel',
         statsAgents: 'agent-primary',
@@ -1359,9 +1358,8 @@ describe('Admin Dashboard Page', () => {
     });
 
     it('applies Feedback URL filters to the initial request', async () => {
+      currentPathname = '/admin/insights/feedback';
       currentSearchParams = new URLSearchParams({
-        cat: 'insights',
-        tab: 'feedback',
         source: 'slack',
         channels: 'primary-channel',
         rating: 'negative',
@@ -1412,6 +1410,7 @@ describe('Admin Dashboard Page', () => {
 
   describe('Stats rendering', () => {
     beforeEach(() => {
+      currentPathname = '/admin/insights/statistics';
       setupFetchMock();
     });
 
