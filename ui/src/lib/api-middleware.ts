@@ -557,7 +557,10 @@ export async function getAuthFromBearerOrSession(
   if (catalogKey) {
     return {
       user: { email: 'catalog-key-user@local', name: 'Catalog API Key', role: 'user' },
-      session: { role: 'user', canViewAdmin: false, catalogKey },
+      // sub must be present so filterSkillsByOpenFga does not short-circuit to [].
+      // The synthetic subject is used only for OpenFGA read checks on global skills;
+      // it never appears in audit logs for user-owned resources.
+      session: { role: 'user', canViewAdmin: false, catalogKey, sub: 'catalog-key-user@local' },
     };
   }
 
@@ -570,7 +573,8 @@ export async function getAuthFromBearerOrSession(
     if (localIdentity) {
       return {
         user: { email: localIdentity.email, name: localIdentity.name, role: 'user' },
-        session: { role: 'user' },
+        // sub must be present so filterSkillsByOpenFga resolves the caller's identity.
+        session: { role: 'user', sub: localIdentity.email },
       };
     }
 

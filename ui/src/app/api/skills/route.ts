@@ -279,7 +279,13 @@ export async function filterSkillsByOpenFga(
   options: FilterSkillsByOpenFgaOptions,
 ): Promise<CatalogSkill[]> {
   if (options.isAdmin) return skills;
+  // Catalog API key gets a synthetic subject; it can see global-visibility
+  // default skills in read mode without per-resource OpenFGA tuples.
+  const isCatalogKey = options.subject === 'catalog-key-user@local';
   if (!options.subject) return [];
+  if (isCatalogKey && options.mode === 'read') {
+    return skills.filter((s) => s.source === 'default');
+  }
 
   const relation = options.mode === "use" ? "can_use" : "can_read";
   const check = options.check ?? checkOpenFgaTuple;
