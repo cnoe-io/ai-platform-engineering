@@ -326,6 +326,13 @@ async function createIndexes(db: Db) {
     safeCreateIndex(db, 'slack_link_nonces', { nonce: 1 }, { unique: true }),
     safeCreateIndex(db, 'slack_link_nonces', { created_at: 1 }, { expireAfterSeconds: 600 }),
     safeCreateIndex(db, 'slack_user_metrics', { slack_user_id: 1 }, { unique: true }),
+
+    // RAG ingestion source configuration (self-service ingestion, PR1)
+    safeCreateIndex(db, 'rag_ingestion_sources', { source_id: 1 }, { unique: true }),
+    safeCreateIndex(db, 'rag_ingestion_sources', { owner_team_slug: 1, updated_at: -1 }),
+    safeCreateIndex(db, 'rag_ingestion_sources', { shared_with_teams: 1 }),
+    safeCreateIndex(db, 'rag_ingestion_sources', { source_type: 1, status: 1 }),
+    safeCreateIndex(db, 'rag_ingestion_sources', { config_driven: 1 }),
   ]);
 
   console.log('✅ MongoDB indexes ensured');
