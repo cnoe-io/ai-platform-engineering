@@ -85,6 +85,7 @@ export class AGUIStreamAdapter implements StreamAdapter {
       agent_id: params.agentId,
       protocol: "agui",
       ...(params.clientContext && { client_context: params.clientContext }),
+      ...(params.files?.length && { files: params.files }),
     });
 
     await this._stream(url, body, callbacks);

@@ -981,6 +981,12 @@ services:
       - OIDC_DISCOVERY_URL=${OIDC_DISCOVERY_URL:-}
       - OIDC_GROUP_CLAIM=${OIDC_GROUP_CLAIM:-}
       - OIDC_REQUIRED_ADMIN_GROUP=${OIDC_REQUIRED_ADMIN_GROUP:-}
+      # Force-clear OIDC_AUDIENCE so it does NOT leak in from the shared .env via
+      # env_file. A single value here collapses jwks_validate's default accept
+      # list ("caipe-platform,agentgateway") to just that one, which rejects the
+      # Slack-bot OBO token (aud=caipe-platform) as bearer_invalid / 401. An
+      # explicit blank restores the default multi-audience accept list.
+      - OIDC_AUDIENCE=
       # Centralized Authorization Service — DA delegates agent-use decisions to the
       # BFF's /api/authz/v1/decisions (forwards the caller's bearer / OBO). DA fails
       # closed if unset or unreachable. Point at whichever UI service is running.
