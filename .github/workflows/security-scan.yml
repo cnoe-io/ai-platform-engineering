@@ -64,8 +64,12 @@ jobs:
       # the scan itself so contributors get results in the job log.
       - name: 🔍 Determine fork status
         id: fork-check
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          BASE_REPO: ${{ github.repository }}
         run: |
-          if [[ "${{ github.event_name }}" == "pull_request" && "${{ github.event.pull_request.head.repo.full_name }}" != "${{ github.repository }}" ]]; then
+          if [[ "$EVENT_NAME" == "pull_request" && "$HEAD_REPO" != "$BASE_REPO" ]]; then
             echo "is_fork=true" >> "$GITHUB_OUTPUT"
           else
             echo "is_fork=false" >> "$GITHUB_OUTPUT"
