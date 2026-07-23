@@ -33,7 +33,7 @@ describe("UserDetailPanel", () => {
               title: "Example Slack thread",
               source: "slack",
               channel_id: "C123TEST",
-              channel_name: "example-channel",
+              channel_name: "C123TEST",
               slack_permalink:
                 "https://example.slack.com/archives/C123TEST/p1775100000123456",
               webex_permalink: null,
@@ -91,9 +91,11 @@ describe("UserDetailPanel", () => {
       "href",
       "https://example.slack.com/archives/C123TEST/p1775100000123456",
     );
+    expect(screen.getByText("Slack")).toBeInTheDocument();
+    expect(screen.queryByText("C123TEST")).not.toBeInTheDocument();
   });
 
-  it("links authorized web and Webex conversations through their native paths", async () => {
+  it("uses native links when available and a saved-chat fallback for legacy integration rows", async () => {
     (global.fetch as jest.Mock).mockResolvedValueOnce({
       ok: true,
       json: async () => ({
@@ -112,7 +114,7 @@ describe("UserDetailPanel", () => {
           },
           stats: {
             total_conversations: 3,
-            visible_conversations: 2,
+            visible_conversations: 3,
             feedback_given: 0,
             feedback_positive: 0,
             feedback_negative: 0,
@@ -140,6 +142,17 @@ describe("UserDetailPanel", () => {
               created_at: "2026-07-20T00:00:00.000Z",
               updated_at: "2026-07-20T01:00:00.000Z",
             },
+            {
+              id: "conversation-slack-legacy",
+              title: "Internal on-call lookup",
+              source: "slack",
+              channel_id: null,
+              channel_name: null,
+              slack_permalink: null,
+              webex_permalink: null,
+              created_at: "2026-07-20T00:00:00.000Z",
+              updated_at: "2026-07-20T01:00:00.000Z",
+            },
           ],
           recent_feedback: [],
         },
@@ -154,7 +167,7 @@ describe("UserDetailPanel", () => {
     );
 
     await screen.findByText("Test User");
-    fireEvent.click(screen.getByRole("button", { name: "Conversations (2)" }));
+    fireEvent.click(screen.getByRole("button", { name: "Conversations (3)" }));
 
     expect(screen.getByRole("link", { name: "Shared web chat" })).toHaveAttribute(
       "href",
@@ -165,6 +178,12 @@ describe("UserDetailPanel", () => {
     ).toHaveAttribute(
       "href",
       "webexteams://im?space=space-shared",
+    );
+    expect(
+      screen.getByRole("link", { name: "Internal on-call lookup" }),
+    ).toHaveAttribute(
+      "href",
+      "/chat/conversation-slack-legacy?from=admin",
     );
   });
 

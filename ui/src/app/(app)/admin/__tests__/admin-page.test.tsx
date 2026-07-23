@@ -1960,6 +1960,99 @@ describe('Admin Dashboard Page', () => {
       expect(lastTopUsersRequest?.searchParams.get('top_messages_page')).toBe('1');
     });
 
+    it('shows pagination loading only on the requested Top Users card', async () => {
+      const topUsersResponse = (url: string) => {
+        const requestUrl = new URL(url, 'http://localhost');
+        if (requestUrl.searchParams.get('section') !== 'top_users') {
+          return { success: true, data: {} };
+        }
+        const conversationsPage = Number(
+          requestUrl.searchParams.get('top_conversations_page') ?? '1',
+        );
+        return {
+          success: true,
+          data: {
+            top_users: {
+              by_conversations: [{
+                _id: conversationsPage === 2
+                  ? 'test-user-11@example.com'
+                  : 'test-user-01@example.com',
+                name: conversationsPage === 2 ? 'Test User 11' : 'Test User 01',
+                count: 20,
+                owner_type: 'linked',
+              }],
+              by_messages: [{
+                _id: 'test-message-user-01@example.com',
+                name: 'Test Message User 01',
+                count: 40,
+                owner_type: 'linked',
+              }],
+              pagination: {
+                by_conversations: {
+                  page: conversationsPage,
+                  limit: 10,
+                  total: 21,
+                  total_pages: 3,
+                },
+                by_messages: {
+                  page: 1,
+                  limit: 10,
+                  total: 21,
+                  total_pages: 3,
+                },
+              },
+            },
+          },
+        };
+      };
+      const baseFetch = setupFetchMock({ stats: topUsersResponse });
+      let deferNextTopUsersRequest = false;
+      let resolveTopUsersRequest: (() => void) | undefined;
+      const fetchMock = jest.fn((url: string) => {
+        const requestUrl = new URL(url, 'http://localhost');
+        if (
+          deferNextTopUsersRequest
+          && requestUrl.pathname === '/api/admin/stats'
+          && requestUrl.searchParams.get('section') === 'top_users'
+        ) {
+          deferNextTopUsersRequest = false;
+          return new Promise((resolve) => {
+            resolveTopUsersRequest = () => resolve({
+              ok: true,
+              status: 200,
+              json: () => Promise.resolve(topUsersResponse(url)),
+            });
+          });
+        }
+        return baseFetch(url);
+      });
+      global.fetch = fetchMock as unknown as typeof fetch;
+
+      render(<AdminPage />);
+      fireEvent.click(await screen.findByRole('button', { name: 'Insights' }));
+      await screen.findByText('Test User 01');
+
+      deferNextTopUsersRequest = true;
+      fireEvent.click(screen.getByRole('button', {
+        name: 'Next top users by conversations page',
+      }));
+
+      await waitFor(() => {
+        expect(
+          screen.getByTestId('stats-card-top-users-conversations'),
+        ).toHaveAttribute('aria-busy', 'true');
+        expect(
+          screen.getByTestId('stats-card-top-users-messages'),
+        ).toHaveAttribute('aria-busy', 'false');
+      });
+      expect(screen.getByText('Test Message User 01')).toBeInTheDocument();
+
+      await act(async () => {
+        resolveTopUsersRequest?.();
+      });
+      expect(await screen.findByText('Test User 11')).toBeInTheDocument();
+    });
+
     it('updates cards independently and issues one request per section when a filter changes', async () => {
       const baseFetch = setupFetchMock();
       let resolveFeedback: ((response: unknown) => void) | undefined;

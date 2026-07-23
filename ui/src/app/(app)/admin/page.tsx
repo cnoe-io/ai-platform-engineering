@@ -949,13 +949,19 @@ function AdminPage() {
   const [showBotUsers, setShowBotUsers] = useState(statsIncludeBotsFromUrl);
   const [topConversationsPage, setTopConversationsPage] = useState(1);
   const [topMessagesPage, setTopMessagesPage] = useState(1);
+  const [loadingTopUsersLeaderboard, setLoadingTopUsersLeaderboard] = useState<
+    'conversations' | 'messages' | null
+  >(null);
   const topConversationsPageRef = useRef(1);
   const topMessagesPageRef = useRef(1);
+  const topUsersPageRequestVersionRef = useRef(0);
   const resetTopUserPages = useCallback(() => {
+    topUsersPageRequestVersionRef.current += 1;
     topConversationsPageRef.current = 1;
     topMessagesPageRef.current = 1;
     setTopConversationsPage(1);
     setTopMessagesPage(1);
+    setLoadingTopUsersLeaderboard(null);
   }, []);
   const insightsFilterUrlKey = [
     searchParams.get('source'),
@@ -1264,10 +1270,13 @@ function AdminPage() {
     void loadStatsSections(BOT_FILTER_STATS_SECTIONS);
   }, [loadStatsSections, resetTopUserPages, showBotUsers, status]);
 
-  const loadTopUsersPage = (
+  const loadTopUsersPage = async (
     leaderboard: 'conversations' | 'messages',
     page: number,
-  ) => {
+  ): Promise<void> => {
+    const requestVersion = topUsersPageRequestVersionRef.current + 1;
+    topUsersPageRequestVersionRef.current = requestVersion;
+    setLoadingTopUsersLeaderboard(leaderboard);
     if (leaderboard === 'conversations') {
       topConversationsPageRef.current = page;
       setTopConversationsPage(page);
@@ -1275,8 +1284,21 @@ function AdminPage() {
       topMessagesPageRef.current = page;
       setTopMessagesPage(page);
     }
-    void loadStatsSections(['top_users']);
+    try {
+      await loadStatsSections(['top_users']);
+    } finally {
+      if (topUsersPageRequestVersionRef.current === requestVersion) {
+        setLoadingTopUsersLeaderboard(null);
+      }
+    }
   };
+
+  const topConversationsLoading = loadingTopUsersLeaderboard === null
+    ? statsSectionStatuses.top_users.loading
+    : loadingTopUsersLeaderboard === 'conversations';
+  const topMessagesLoading = loadingTopUsersLeaderboard === null
+    ? statsSectionStatuses.top_users.loading
+    : loadingTopUsersLeaderboard === 'messages';
 
   const loadStats = async () => {
     setError(null);
@@ -2663,7 +2685,7 @@ function AdminPage() {
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                       <AsyncStatsCard
                         error={statsSectionStatuses.top_users.error}
-                        loading={statsSectionStatuses.top_users.loading}
+                        loading={topConversationsLoading}
                         minHeightClassName="min-h-64"
                         testId="stats-card-top-users-conversations"
                       >
@@ -2692,12 +2714,12 @@ function AdminPage() {
                           {stats.top_users.pagination?.by_conversations && (
                             <CardPagination
                               label="top users by conversations"
-                              disabled={statsSectionStatuses.top_users.loading}
+                              disabled={topConversationsLoading}
                               page={stats.top_users.pagination.by_conversations.page}
                               pageSize={stats.top_users.pagination.by_conversations.limit}
                               total={stats.top_users.pagination.by_conversations.total}
                               className="border-t border-border pt-3"
-                              onPageChange={(page) => loadTopUsersPage('conversations', page)}
+                              onPageChange={(page) => void loadTopUsersPage('conversations', page)}
                             />
                           )}
                         </CardContent>
@@ -2706,7 +2728,7 @@ function AdminPage() {
 
                       <AsyncStatsCard
                         error={statsSectionStatuses.top_users.error}
-                        loading={statsSectionStatuses.top_users.loading}
+                        loading={topMessagesLoading}
                         minHeightClassName="min-h-64"
                         testId="stats-card-top-users-messages"
                       >
@@ -2735,12 +2757,12 @@ function AdminPage() {
                           {stats.top_users.pagination?.by_messages && (
                             <CardPagination
                               label="top users by messages"
-                              disabled={statsSectionStatuses.top_users.loading}
+                              disabled={topMessagesLoading}
                               page={stats.top_users.pagination.by_messages.page}
                               pageSize={stats.top_users.pagination.by_messages.limit}
                               total={stats.top_users.pagination.by_messages.total}
                               className="border-t border-border pt-3"
-                              onPageChange={(page) => loadTopUsersPage('messages', page)}
+                              onPageChange={(page) => void loadTopUsersPage('messages', page)}
                             />
                           )}
                         </CardContent>

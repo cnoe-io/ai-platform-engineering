@@ -89,15 +89,18 @@ const VALUE_LABELS: Record<string, string> = {
   other: "Other",
 };
 
-/** Return the server-validated Slack deep link for a conversation. */
-function getSlackLink(conv: UserConversation): string | null {
-  return conv.source === "slack" ? conv.slack_permalink : null;
-}
-
-/** Get the appropriate link for a conversation */
-function getConvLink(conv: UserConversation): string | null {
-  if (conv.source === "slack") return getSlackLink(conv);
-  if (conv.source === "webex") return conv.webex_permalink;
+/**
+ * Prefer the integration's server-validated deep link. Legacy integration
+ * records without enough native metadata still open through the saved-chat
+ * route, whose API repeats the conversation RBAC check.
+ */
+function getConvLink(conv: UserConversation): string {
+  if (conv.source === "slack" && conv.slack_permalink) {
+    return conv.slack_permalink;
+  }
+  if (conv.source === "webex" && conv.webex_permalink) {
+    return conv.webex_permalink;
+  }
   return `/chat/${conv.id}?from=admin`;
 }
 
@@ -373,7 +376,7 @@ function ConversationsTab({ conversations }: { conversations: UserConversation[]
           <div className="flex items-center gap-2 min-w-0 flex-1">
             {conv.source === "slack" ? (
               <Badge variant="secondary" className="text-[10px] px-1.5 py-0 shrink-0">
-                {conv.channel_name || "Slack"}
+                Slack
               </Badge>
             ) : conv.source === "webex" ? (
               <Badge variant="secondary" className="text-[10px] px-1.5 py-0 shrink-0">
@@ -460,7 +463,7 @@ function FeedbackTab({
               </span>
               <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
                 {fb.source === "slack"
-                  ? `Slack${fb.channel_name ? ` · ${fb.channel_name}` : ""}`
+                  ? "Slack"
                   : fb.source === "webex"
                     ? "Webex"
                     : "Web"}
