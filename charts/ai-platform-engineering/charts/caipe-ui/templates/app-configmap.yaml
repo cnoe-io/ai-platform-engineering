@@ -2,7 +2,8 @@
 {{- $hasMcpServers := and .Values.appConfig.mcp_servers (gt (len .Values.appConfig.mcp_servers) 0) }}
 {{- $hasAgents := and .Values.appConfig.agents (gt (len .Values.appConfig.agents) 0) }}
 {{- $hasWorkflowConfigs := and .Values.appConfig.workflow_configs (gt (len .Values.appConfig.workflow_configs) 0) }}
-{{- if or $hasModels $hasMcpServers $hasAgents $hasWorkflowConfigs }}
+{{- $hasRagSources := and .Values.appConfig.rag_sources (gt (len .Values.appConfig.rag_sources) 0) }}
+{{- if or $hasModels $hasMcpServers $hasAgents $hasWorkflowConfigs $hasRagSources }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -40,5 +41,12 @@ data:
       {{- toYaml .Values.appConfig.workflow_configs | nindent 6 }}
     {{- else }}
     workflow_configs: []
+    {{- end }}
+
+    {{- if $hasRagSources }}
+    rag_sources:
+      {{- toYaml .Values.appConfig.rag_sources | nindent 6 }}
+    {{- else }}
+    rag_sources: []
     {{- end }}
 {{- end }}

@@ -38,7 +38,7 @@ describe("cleanupStaleConfigDriven — MCP server source guard", () => {
   });
 
   it("excludes AgentGateway-discovered servers from the stale-cleanup query", async () => {
-    await cleanupStaleConfigDriven(new Set(), new Set(), new Set(), new Set());
+    await cleanupStaleConfigDriven(new Set(), new Set(), new Set(), new Set(), new Set());
 
     const servers = collections["mcp_servers"];
     expect(servers).toBeDefined();
@@ -62,7 +62,7 @@ describe("cleanupStaleConfigDriven — MCP server source guard", () => {
       deleteOne: jest.fn(async () => ({ deletedCount: 1 })),
     };
 
-    await cleanupStaleConfigDriven(new Set(), new Set(), new Set(), new Set());
+    await cleanupStaleConfigDriven(new Set(), new Set(), new Set(), new Set(), new Set());
 
     expect(collections["mcp_servers"].deleteOne).toHaveBeenCalledWith({
       _id: "old-seed-server",
@@ -80,6 +80,7 @@ describe("cleanupStaleConfigDriven — MCP server source guard", () => {
     await cleanupStaleConfigDriven(
       new Set(),
       new Set(["kept-server"]),
+      new Set(),
       new Set(),
       new Set(),
     );
