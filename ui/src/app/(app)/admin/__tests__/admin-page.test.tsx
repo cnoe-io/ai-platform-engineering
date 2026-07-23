@@ -72,9 +72,28 @@ jest.mock('@/components/admin/shared/SimpleLineChart', () => ({
 jest.mock('@/components/admin/shared/FeedbackTrendChart', () => ({
   FeedbackTrendChart: ({
     data,
+    onPointClick,
   }: {
-    data: Array<{ label: string; positive: number; negative: number }>;
-  }) => <div data-testid="feedback-trend-chart">{JSON.stringify(data)}</div>,
+    data: Array<{ date: string; label: string; positive: number; negative: number }>;
+    onPointClick?: (point: {
+      date: string;
+      label: string;
+      positive: number;
+      negative: number;
+    }) => void;
+  }) => (
+    <div data-testid="feedback-trend-chart">
+      {JSON.stringify(data)}
+      {data.map((point) => (
+        <button
+          aria-label={`View feedback for ${point.label}`}
+          key={point.date}
+          onClick={() => onPointClick?.(point)}
+          type="button"
+        />
+      ))}
+    </div>
+  ),
 }));
 
 jest.mock('@/components/admin/platform/MetricsTab', () => ({
@@ -1749,6 +1768,50 @@ describe('Admin Dashboard Page', () => {
       expect(chart).toHaveTextContent('"positive":8');
       expect(chart).toHaveTextContent('"negative":3');
       expect(chart).not.toHaveTextContent('"value":11');
+    });
+
+    it('opens Feedback with the clicked trend date while preserving shared filters', async () => {
+      currentSearchParams = new URLSearchParams({
+        cat: 'insights',
+        tab: 'stats',
+        source: 'slack',
+        users: 'test-user@example.com',
+        statsAgents: 'agent-primary',
+        dateRange: '7d',
+      });
+      setupFetchMock({
+        stats: {
+          ...mockStatsResponse,
+          data: {
+            ...mockStatsResponse.data,
+            feedback_summary: {
+              positive: 8,
+              negative: 3,
+              total: 11,
+              daily: [{ date: '2026-07-20', positive: 8, negative: 3 }],
+            },
+          },
+        },
+      });
+
+      render(<AdminPage />);
+
+      fireEvent.click(await screen.findByRole('button', { name: 'View feedback for Jul 20' }));
+
+      const targetUrl = new URL(replaceMock.mock.calls.at(-1)?.[0], 'http://localhost');
+      expect(targetUrl.pathname).toBe('/admin');
+      expect(targetUrl.searchParams.get('cat')).toBe('insights');
+      expect(targetUrl.searchParams.get('tab')).toBe('feedback');
+      expect(targetUrl.searchParams.get('dateRange')).toBe('custom');
+      expect(targetUrl.searchParams.get('from')).toBe(
+        new Date(2026, 6, 20, 0, 0, 0, 0).toISOString(),
+      );
+      expect(targetUrl.searchParams.get('to')).toBe(
+        new Date(2026, 6, 20, 23, 59, 59, 999).toISOString(),
+      );
+      expect(targetUrl.searchParams.get('source')).toBe('slack');
+      expect(targetUrl.searchParams.get('users')).toBe('test-user@example.com');
+      expect(targetUrl.searchParams.get('statsAgents')).toBe('agent-primary');
     });
 
     it('updates cards independently and issues one request per section when a filter changes', async () => {

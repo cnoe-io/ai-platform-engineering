@@ -31,7 +31,7 @@ import { PlatformSettingsTab } from "@/components/admin/settings/PlatformSetting
 import { ReleaseNotesSettingsTab } from "@/components/admin/settings/ReleaseNotesSettingsTab";
 import { ReviewConfigsTab } from "@/components/admin/settings/ReviewConfigsTab";
 import { DateRangeFilter,presetToRange,type DateRange,type DateRangePreset } from "@/components/admin/shared/DateRangeFilter";
-import { FeedbackTrendChart } from "@/components/admin/shared/FeedbackTrendChart";
+import { FeedbackTrendChart,type FeedbackTrendPoint } from "@/components/admin/shared/FeedbackTrendChart";
 import { SimpleLineChart } from "@/components/admin/shared/SimpleLineChart";
 import { CreateTeamDialog } from "@/components/admin/teams/CreateTeamDialog";
 import { IdentitySyncPanel } from "@/components/admin/teams/IdentitySyncPanel";
@@ -417,6 +417,28 @@ function movedAdminTab(tab: string | null): typeof VALID_TABS[number] | null {
   return (MOVED_ADMIN_TAB_MAP as Record<string, typeof VALID_TABS[number]>)[tab] ?? null;
 }
 
+function localDateFromBucketKey(dateKey: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})(?:T|$)/.exec(dateKey);
+  if (!match) return null;
+  const [, yearValue, monthValue, dayValue] = match;
+  const year = Number(yearValue);
+  const month = Number(monthValue) - 1;
+  const day = Number(dayValue);
+  const date = new Date(year, month, day);
+  return date.getFullYear() === year && date.getMonth() === month && date.getDate() === day
+    ? date
+    : null;
+}
+
+function feedbackDateRangeForBucket(dateKey: string): DateRange | null {
+  const from = localDateFromBucketKey(dateKey);
+  if (!from) return null;
+  from.setHours(0, 0, 0, 0);
+  const to = new Date(from);
+  to.setHours(23, 59, 59, 999);
+  return { from: from.toISOString(), to: to.toISOString() };
+}
+
 // Bucket keys carry a time component ("2026-07-10T14:30") for hour/minute
 // buckets and are date-only ("2026-07-10") for day buckets — use that to
 // decide whether to label chart points by time-of-day or by calendar date.
@@ -424,7 +446,10 @@ function formatBucketLabel(dateStr: string): string {
   if (dateStr.includes('T')) {
     return new Date(dateStr).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
   }
-  return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return localDateFromBucketKey(dateStr)?.toLocaleDateString(
+    'en-US',
+    { month: 'short', day: 'numeric' },
+  ) ?? dateStr;
 }
 
 function OverviewStatsCards({
@@ -829,6 +854,26 @@ function AdminPage() {
   const [userFilter, setUserFilter] = useState<string[]>(usersFromUrl);
   const [datePreset, setDatePreset] = useState<DateRangePreset>(datePresetFromUrl);
   const [dateRange, setDateRange] = useState<DateRange>(dateRangeFromUrl);
+
+  const openFeedbackForTrendPoint = useCallback((point: FeedbackTrendPoint) => {
+    const range = feedbackDateRangeForBucket(point.date);
+    if (!range) return;
+
+    userSelectedAdminTabRef.current = true;
+    setActiveCategory('insights');
+    setActiveTab('feedback');
+    setDatePreset('custom');
+    setDateRange(range);
+    updateUrlFilters({
+      cat: 'insights',
+      tab: 'feedback',
+      dateRange: 'custom',
+      from: range.from,
+      to: range.to,
+      subtab: null,
+      openfgaTab: null,
+    });
+  }, [updateUrlFilters]);
 
   // Helper to sync shared filters to URL
   const updateSharedFilterUrl = (overrides: Record<string, string | null> = {}) => {
@@ -2798,11 +2843,15 @@ function AdminPage() {
                           <CardContent>
                             <FeedbackTrendChart
                               data={stats.feedback_summary.daily.map((day) => ({
+                                date: day.date,
                                 label: formatBucketLabel(day.date),
                                 positive: day.positive,
                                 negative: day.negative,
                               }))}
                               height={180}
+                              onPointClick={tabGateValues.feedback
+                                ? openFeedbackForTrendPoint
+                                : undefined}
                             />
                           </CardContent>
                           </Card> : undefined}
