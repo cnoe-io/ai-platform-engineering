@@ -84,12 +84,14 @@ describe("filterSkillsByOpenFga", () => {
   // Regression: catalog API key (X-Caipe-Catalog-Key) previously returned a
   // session with no `sub`, hitting the null-subject guard and returning [].
   // The fix gives the key a stable synthetic subject + a dedicated read path.
-  it("catalog API key subject returns default skills in read mode without OpenFGA", async () => {
+  it("catalog API key subject returns global skills in read mode without OpenFGA", async () => {
     const check = jest.fn(async () => ({ allowed: false }));
     const skills: CatalogSkill[] = [
       { ...baseSkill, id: "builtin-1", source: "default" },
+      { ...baseSkill, id: "hub-skill-1", source: "hub" },
+      { ...baseSkill, id: "agent-global", source: "agent_skills", visibility: "global" } as CatalogSkill,
       { ...baseSkill, id: "agent-private", source: "agent_skills" },
-      { ...baseSkill, id: "hub-1", source: "hub" },
+      { ...baseSkill, id: "agent-team", source: "agent_skills", visibility: "team" } as CatalogSkill,
     ];
 
     const filtered = await filterSkillsByOpenFga(skills, {
@@ -98,7 +100,8 @@ describe("filterSkillsByOpenFga", () => {
       check,
     });
 
-    expect(filtered.map((s) => s.id)).toEqual(["builtin-1"]);
+    // default + hub + global agent_skills; team/personal agent_skills excluded
+    expect(filtered.map((s) => s.id)).toEqual(["builtin-1", "hub-skill-1", "agent-global"]);
     expect(check).not.toHaveBeenCalled();
   });
 
