@@ -71,13 +71,22 @@ function normalizeCustomMCPEntry(entry: unknown, idx: number): CustomMCPCatalogE
   };
 }
 
-function normalizeRemoteMCPCatalog(input: unknown): RemoteMCPCatalogConfig {
+// `defaultEnabledProviders` only applies when the input has no
+// `enabled_providers` key at all (e.g. no config document has ever been
+// saved). An explicit `enabled_providers: null` — the "Enable all" admin
+// action — always means "show every built-in provider", not "unset".
+function normalizeRemoteMCPCatalog(
+  input: unknown,
+  defaultEnabledProviders: string[] | null = null,
+): RemoteMCPCatalogConfig {
   const source = isRecord(input) ? input : {};
-  let enabled_providers: string[] | null = null;
+  let enabled_providers: string[] | null = defaultEnabledProviders;
   if (Array.isArray(source.enabled_providers)) {
     enabled_providers = (source.enabled_providers as unknown[])
       .filter((v): v is string => typeof v === 'string' && Boolean(v.trim()))
       .map((v) => v.trim().toLowerCase());
+  } else if (Object.prototype.hasOwnProperty.call(source, 'enabled_providers')) {
+    enabled_providers = null;
   }
   const custom_entries: CustomMCPCatalogEntry[] = [];
   if (Array.isArray(source.custom_entries)) {
@@ -165,7 +174,9 @@ async function getPlatformConfig(request: NextRequest) {
         release_notes: normalizeReleaseNotesConfig(doc?.release_notes),
         discovery_cache_ttl_minutes: discoveryTtlMinutes,
         top_nav: normalizeTopNavConfig(doc?.top_nav),
-        remote_mcp_catalog: normalizeRemoteMCPCatalog(doc?.remote_mcp_catalog),
+        // Default (no config saved yet) is "disable all" — operators opt in
+        // per provider rather than every built-in showing up unconfigured.
+        remote_mcp_catalog: normalizeRemoteMCPCatalog(doc?.remote_mcp_catalog, []),
       },
     });
   });
