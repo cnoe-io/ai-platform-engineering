@@ -12,6 +12,7 @@ import {
   simulationSubjectCanAuditOrganization,
   simulationSubjectCanManageAdminSurface,
 } from "@/lib/rbac/admin-simulation-server";
+import { getDirectSharingAccessConversationIds } from "@/lib/rbac/conversation-implicit-authz";
 import { hasOrganizationAdmin } from "@/lib/rbac/platform-admin";
 import {
   requireAdminSurfaceManage,
@@ -22,7 +23,8 @@ import {
   getInsightsActorTeamSlugs,
   getOwnedAgentConversationIds,
   getOwnedAgents,
-  getReadableSlackChannelNames,
+  getReadableConversationIds,
+  getReadableMessagingConversationScope,
   type OwnedAgent,
 } from "@/lib/rbac/user-insights-scope";
 import type { User } from "@/types/mongodb";
@@ -38,16 +40,21 @@ interface ActivityConversation extends Document {
   _id?: unknown;
   channel_id?: string;
   channel_name?: string;
+  channel_type?: string;
   client_type?: string;
   created_at?: Date | string;
   idempotency_key?: string;
   metadata?: {
     channel_id?: string;
     channel_name?: string;
+    channel_type?: string;
     owner_display_name?: string;
     slack_link?: string;
     slack_permalink?: string;
     thread_ts?: string;
+    webex_message_id?: string;
+    webex_room_id?: string;
+    webex_space_id?: string;
     workspace_url?: string;
   };
   slack_meta?: {
@@ -62,6 +69,7 @@ interface ActivityConversation extends Document {
 }
 
 interface ActivityFeedback extends Document {
+  channel_id?: string;
   channel_name?: string;
   comment?: string;
   conversation_id?: string;
@@ -78,9 +86,13 @@ function dateString(value: unknown): string {
 }
 
 function conversationSource(conversation: ActivityConversation): string {
-  return conversation.source === "slack" || conversation.client_type === "slack"
-    ? "slack"
-    : "web";
+  if (conversation.source === "slack" || conversation.client_type === "slack") {
+    return "slack";
+  }
+  if (conversation.source === "webex" || conversation.client_type === "webex") {
+    return "webex";
+  }
+  return "web";
 }
 
 function safeHttpsUrl(value: string | undefined): URL | null {
@@ -130,6 +142,16 @@ function slackConversationPermalink(
   return `https://slack.com/app_redirect?${params.toString()}`;
 }
 
+function webexConversationLink(
+  conversation: ActivityConversation,
+): string | null {
+  if (conversationSource(conversation) !== "webex") return null;
+  const spaceId = conversation.metadata?.webex_space_id;
+  if (!spaceId) return null;
+  const params = new URLSearchParams({ space: spaceId });
+  return `webexteams://im?${params.toString()}`;
+}
+
 function identityMatchesTeamMember(
   member: { user_email?: string; user_subject?: string },
   targetEmails: Set<string>,
@@ -144,26 +166,11 @@ function identityMatchesTeamMember(
 }
 
 function scopedConversationClauses(
-  channelNames: string[],
+  readableConversationClauses: Document[],
   ownerEmail: string,
   ownedAgents: OwnedAgent[],
 ): Document[] {
-  const clauses: Document[] = [];
-  if (channelNames.length > 0) {
-    const names = channelNames.length === 1 ? channelNames[0] : { $in: channelNames };
-    clauses.push({
-      $and: [
-        { $or: [{ source: "slack" }, { client_type: "slack" }] },
-        {
-          $or: [
-            { channel_name: names },
-            { "metadata.channel_name": names },
-            { "slack_meta.channel_name": names },
-          ],
-        },
-      ],
-    });
-  }
+  const clauses: Document[] = [...readableConversationClauses];
   if (ownerEmail) clauses.push({ owner_id: ownerEmail });
 
   const agentIds = ownedAgents.map((agent) => agent.id);
@@ -179,17 +186,86 @@ function scopedConversationClauses(
   return clauses;
 }
 
+/**
+ * Conversation titles and deep links are more sensitive than aggregate
+ * Insights counts. External messaging conversations are visible only through
+ * mapped resources the actor can read. Slack DMs have no valid mapped channel
+ * and are also rejected through their explicit `channel_type`.
+ */
+function readableSlackConversationClause(channelIds: string[]): Document | null {
+  if (channelIds.length === 0) return null;
+  const ids = channelIds.length === 1 ? channelIds[0] : { $in: channelIds };
+  return {
+    $and: [
+      { $or: [{ source: "slack" }, { client_type: "slack" }] },
+      { channel_type: { $ne: "dm" } },
+      { "metadata.channel_type": { $ne: "dm" } },
+      {
+        $or: [
+          { channel_id: ids },
+          { "metadata.channel_id": ids },
+          { "slack_meta.channel_id": ids },
+        ],
+      },
+    ],
+  };
+}
+
+function readableWebexConversationClause(spaceIds: string[]): Document | null {
+  if (spaceIds.length === 0) return null;
+  return {
+    $and: [
+      { $or: [{ source: "webex" }, { client_type: "webex" }] },
+      {
+        "metadata.webex_space_id":
+          spaceIds.length === 1 ? spaceIds[0] : { $in: spaceIds },
+      },
+    ],
+  };
+}
+
+function readableWebConversationClause(
+  ownerEmail: string,
+  ownerSubject: string,
+  explicitConversationIds: string[],
+): Document | null {
+  const accessClauses: Document[] = [];
+  const normalizedEmail = ownerEmail.trim().toLowerCase();
+  if (normalizedEmail) {
+    const emails = ownerEmail === normalizedEmail
+      ? normalizedEmail
+      : { $in: [ownerEmail, normalizedEmail] };
+    accessClauses.push(
+      { owner_id: emails },
+      { "sharing.shared_with": emails },
+    );
+  }
+  if (ownerSubject) accessClauses.push({ owner_subject: ownerSubject });
+  if (explicitConversationIds.length > 0) {
+    accessClauses.push({ _id: { $in: explicitConversationIds } });
+  }
+  if (accessClauses.length === 0) return null;
+
+  return {
+    $and: [
+      { client_type: { $nin: ["slack", "webex"] } },
+      { source: { $nin: ["slack", "webex"] } },
+      { $or: accessClauses },
+    ],
+  };
+}
+
 function scopedMessageClauses(
-  channelNames: string[],
+  channelIds: string[],
   ownerEmail: string,
   ownedAgents: OwnedAgent[],
 ): Document[] {
   const clauses: Document[] = [];
-  if (channelNames.length > 0) {
+  if (channelIds.length > 0) {
     clauses.push({
       "metadata.source": "slack",
-      "metadata.channel_name":
-        channelNames.length === 1 ? channelNames[0] : { $in: channelNames },
+      "metadata.channel_id":
+        channelIds.length === 1 ? channelIds[0] : { $in: channelIds },
     });
   }
   if (ownerEmail) clauses.push({ owner_id: ownerEmail });
@@ -241,7 +317,6 @@ export const GET = withErrorHandler(
           hasOrganizationAdmin(session),
         ]);
     const isFullInsightsScope = canManageAllInsights || canAuditOrganization;
-    const canViewConversations = canAuditOrganization;
 
     // Direct calls from a baseline member still need the same read grant that
     // exposes Admin → Insights. A stats manager/org admin already passed the
@@ -261,44 +336,68 @@ export const GET = withErrorHandler(
       ? identity.toLowerCase()
       : identity;
 
-    let scopedChannelNames: string[] = [];
-    let scopedOwnerEmail = "";
-    let scopedOwnedAgents: OwnedAgent[] = [];
-    let scopedOwnedAgentConversationIds: string[] = [];
-    let scopedTeamSlugs: string[] = [];
-    if (!isFullInsightsScope) {
-      const openfgaUser = simulationScope?.openfgaUser ?? (
-        typeof session.sub === "string" && session.sub.trim()
-          ? `user:${session.sub.trim()}`
-          : ""
-      );
-      scopedOwnerEmail = simulationScope?.ownerEmail ?? (
-        typeof session.user?.email === "string"
-          ? session.user.email.trim()
-          : ""
-      );
-      if (!openfgaUser && !scopedOwnerEmail) {
-        throw new ApiError("Unauthorized", 401, "UNAUTHORIZED");
-      }
+    const openfgaUser = simulationScope?.openfgaUser ?? (
+      typeof session.sub === "string" && session.sub.trim()
+        ? `user:${session.sub.trim()}`
+        : ""
+    );
+    const actorOwnerEmail = simulationScope?.ownerEmail ?? (
+      typeof session.user?.email === "string"
+        ? session.user.email.trim()
+        : ""
+    );
+    if (!isFullInsightsScope && !openfgaUser && !actorOwnerEmail) {
+      throw new ApiError("Unauthorized", 401, "UNAUTHORIZED");
+    }
 
-      [scopedChannelNames,scopedOwnedAgents,scopedTeamSlugs] = await Promise.all([
-        openfgaUser
-          ? getReadableSlackChannelNames(openfgaUser)
+    const actorSubject = openfgaUser.startsWith("user:")
+      ? openfgaUser.slice("user:".length)
+      : "";
+    const scopedOwnerEmail = isFullInsightsScope ? "" : actorOwnerEmail;
+    let scopedOwnedAgentConversationIds: string[] = [];
+    const [
+      messagingConversationScope,
+      openFgaReadableConversationIds,
+      directShareConversationIds,
+      scopedOwnedAgents,
+      scopedTeamSlugs,
+    ] = await Promise.all([
+      !canAuditOrganization && openfgaUser
+        ? getReadableMessagingConversationScope(openfgaUser)
+        : Promise.resolve({
+            slackChannelIds: [],
+            webexSpaceIds: [],
+          }),
+      !canAuditOrganization && openfgaUser
+        ? getReadableConversationIds(openfgaUser)
+        : Promise.resolve([]),
+      !canAuditOrganization && actorOwnerEmail
+        ? getDirectSharingAccessConversationIds(
+            actorOwnerEmail,
+            getCollection,
+          )
+        : Promise.resolve([]),
+      !isFullInsightsScope && openfgaUser
+        ? getOwnedAgents(openfgaUser)
+        : Promise.resolve([]),
+      !isFullInsightsScope && simulationScope?.subjectType === "team"
+        ? Promise.resolve([simulationScope.subjectId])
+        : !isFullInsightsScope && openfgaUser
+          ? getInsightsActorTeamSlugs(openfgaUser)
           : Promise.resolve([]),
-        openfgaUser
-          ? getOwnedAgents(openfgaUser)
-          : Promise.resolve([]),
-        simulationScope?.subjectType === "team"
-          ? Promise.resolve([simulationScope.subjectId])
-          : openfgaUser
-            ? getInsightsActorTeamSlugs(openfgaUser)
-            : Promise.resolve([]),
-      ]);
-      if (scopedOwnedAgents.length > 0) {
-        scopedOwnedAgentConversationIds = (
-          await getOwnedAgentConversationIds(scopedOwnedAgents)
-        ).ids;
-      }
+    ]);
+    const readableWebConversationIds = [
+      ...new Set([
+        ...openFgaReadableConversationIds,
+        ...directShareConversationIds,
+      ]),
+    ];
+    const scopedChannelIds = messagingConversationScope.slackChannelIds;
+    const scopedWebexSpaceIds = messagingConversationScope.webexSpaceIds;
+    if (scopedOwnedAgents.length > 0) {
+      scopedOwnedAgentConversationIds = (
+        await getOwnedAgentConversationIds(scopedOwnedAgents)
+      ).ids;
     }
 
     const users = await getCollection<ActivityUser>("users");
@@ -337,12 +436,26 @@ export const GET = withErrorHandler(
         { user_id: { $in: identities } },
       ],
     };
+    const readableConversationClauses: Document[] = [];
+    const readableSlackScope =
+      readableSlackConversationClause(scopedChannelIds);
+    const readableWebexScope =
+      readableWebexConversationClause(scopedWebexSpaceIds);
+    const readableWebScope = readableWebConversationClause(
+      actorOwnerEmail,
+      actorSubject,
+      readableWebConversationIds,
+    );
+    if (readableSlackScope) readableConversationClauses.push(readableSlackScope);
+    if (readableWebexScope) readableConversationClauses.push(readableWebexScope);
+    if (readableWebScope) readableConversationClauses.push(readableWebScope);
+
     const conversationScope = scopedConversationClauses(
-      scopedChannelNames,
+      readableConversationClauses,
       scopedOwnerEmail,
       scopedOwnedAgents,
     );
-    const conversationFilter: Document = isFullInsightsScope
+    const activityConversationFilter: Document = isFullInsightsScope
       ? targetConversationFilter
       : {
           $and: [
@@ -352,15 +465,27 @@ export const GET = withErrorHandler(
               : { _id: null },
           ],
         };
+    const visibleConversationFilter: Document = canAuditOrganization
+      ? targetConversationFilter
+      : {
+          $and: [
+            targetConversationFilter,
+            readableConversationClauses.length > 0
+              ? { $or: readableConversationClauses }
+              : { _id: null },
+          ],
+        };
+    const canViewConversations =
+      canAuditOrganization || readableConversationClauses.length > 0;
 
     const feedbackScope: Document[] = [];
-    if (scopedChannelNames.length > 0) {
+    if (scopedChannelIds.length > 0) {
       feedbackScope.push({
         source: "slack",
-        channel_name:
-          scopedChannelNames.length === 1
-            ? scopedChannelNames[0]
-            : { $in: scopedChannelNames },
+        channel_id:
+          scopedChannelIds.length === 1
+            ? scopedChannelIds[0]
+            : { $in: scopedChannelIds },
       });
     }
     if (scopedOwnerEmail) {
@@ -369,6 +494,11 @@ export const GET = withErrorHandler(
     if (scopedOwnedAgentConversationIds.length > 0) {
       feedbackScope.push({
         conversation_id: { $in: scopedOwnedAgentConversationIds },
+      });
+    }
+    if (readableWebConversationIds.length > 0) {
+      feedbackScope.push({
+        conversation_id: { $in: readableWebConversationIds },
       });
     }
     const feedbackFilter: Document = isFullInsightsScope
@@ -381,7 +511,7 @@ export const GET = withErrorHandler(
         };
 
     const messageScope = scopedMessageClauses(
-      scopedChannelNames,
+      scopedChannelIds,
       scopedOwnerEmail,
       scopedOwnedAgents,
     );
@@ -429,6 +559,7 @@ export const GET = withErrorHandler(
     const [
       recentConversations,
       totalConversations,
+      visibleConversationCount,
       feedbackStats,
       recentFeedback,
       visibleMessages,
@@ -437,7 +568,7 @@ export const GET = withErrorHandler(
       await Promise.all([
         canViewConversations
           ? conversations
-              .find(conversationFilter, {
+              .find(visibleConversationFilter, {
                 projection: {
                   _id: 1,
                   channel_id: 1,
@@ -451,6 +582,9 @@ export const GET = withErrorHandler(
                   "metadata.slack_link": 1,
                   "metadata.slack_permalink": 1,
                   "metadata.thread_ts": 1,
+                  "metadata.webex_message_id": 1,
+                  "metadata.webex_room_id": 1,
+                  "metadata.webex_space_id": 1,
                   "metadata.workspace_url": 1,
                   slack_meta: 1,
                   source: 1,
@@ -462,7 +596,10 @@ export const GET = withErrorHandler(
               .limit(20)
               .toArray()
           : Promise.resolve([]),
-        conversations.countDocuments(conversationFilter),
+        conversations.countDocuments(activityConversationFilter),
+        canViewConversations
+          ? conversations.countDocuments(visibleConversationFilter)
+          : Promise.resolve(0),
         feedback
           .aggregate([
             { $match: feedbackFilter },
@@ -484,6 +621,7 @@ export const GET = withErrorHandler(
           .find(feedbackFilter, {
             projection: {
               _id: 0,
+              channel_id: 1,
               channel_name: 1,
               comment: 1,
               created_at: 1,
@@ -529,6 +667,12 @@ export const GET = withErrorHandler(
     addTargetEmail(user?.email);
     addTargetSubject(user?.keycloak_sub);
     addTargetSubject(user?.metadata?.keycloak_sub);
+    const actorOwnsTarget =
+      (
+        Boolean(actorOwnerEmail.trim()) &&
+        targetEmails.has(actorOwnerEmail.trim().toLowerCase())
+      ) ||
+      (Boolean(actorSubject) && targetSubjects.has(actorSubject));
     const sharesTeam = [...teamMembersBySlug.values()].some((members) =>
       members.some((member) =>
         identityMatchesTeamMember(member, targetEmails, targetSubjects),
@@ -565,6 +709,15 @@ export const GET = withErrorHandler(
       : /^[UW][A-Z0-9]+$/.test(identity)
         ? "slack"
         : "web";
+    const readableChannelIdSet = new Set(scopedChannelIds);
+    const readableWebConversationIdSet =
+      new Set(readableWebConversationIds);
+    const visibleWebConversationIdSet = new Set(
+      recentConversations
+        .filter((conversation) => conversationSource(conversation) === "web")
+        .map((conversation) => String(conversation._id ?? ""))
+        .filter(Boolean),
+    );
 
     return successResponse({
       can_view_conversations: canViewConversations,
@@ -584,6 +737,7 @@ export const GET = withErrorHandler(
       },
       stats: {
         total_conversations: totalConversations,
+        visible_conversations: visibleConversationCount,
         feedback_given: Number(feedbackSummary.total ?? 0),
         feedback_positive: Number(feedbackSummary.positive ?? 0),
         feedback_negative: Number(feedbackSummary.negative ?? 0),
@@ -596,6 +750,7 @@ export const GET = withErrorHandler(
           conversation.channel_id ??
           conversation.metadata?.channel_id ??
           conversation.slack_meta?.channel_id ??
+          conversation.metadata?.webex_space_id ??
           null,
         channel_name:
           conversation.channel_name ??
@@ -609,22 +764,46 @@ export const GET = withErrorHandler(
             conversation.slack_meta?.channel_id ??
             null,
         ),
+        webex_permalink: webexConversationLink(conversation),
         created_at: dateString(conversation.created_at),
         updated_at: dateString(conversation.updated_at),
       })),
-      recent_feedback: recentFeedback.map((entry) => ({
-        source: entry.source || "web",
-        rating: entry.rating || "",
-        value: entry.value || "",
-        comment: entry.comment ?? null,
-        channel_name: entry.channel_name ?? null,
-        conversation_id:
-          canViewConversations ? entry.conversation_id ?? null : null,
-        slack_permalink: canViewConversations
-          ? safeHttpsUrl(entry.slack_permalink)?.toString() ?? null
-          : null,
-        created_at: dateString(entry.created_at),
-      })),
+      recent_feedback: recentFeedback.map((entry) => {
+        const canOpenSlackThread =
+          canAuditOrganization ||
+          (
+            entry.source === "slack" &&
+            typeof entry.channel_id === "string" &&
+            readableChannelIdSet.has(entry.channel_id)
+          );
+        const canOpenWebConversation =
+          canAuditOrganization ||
+          (
+            entry.source !== "slack" &&
+            entry.source !== "webex" &&
+            typeof entry.conversation_id === "string" &&
+            (
+              actorOwnsTarget ||
+              readableWebConversationIdSet.has(entry.conversation_id) ||
+              visibleWebConversationIdSet.has(entry.conversation_id)
+            )
+          );
+        return {
+          source: entry.source || "web",
+          rating: entry.rating || "",
+          value: entry.value || "",
+          comment: entry.comment ?? null,
+          channel_name: entry.channel_name ?? null,
+          // Scoped viewers receive web ids only for their own/shared chats.
+          // Slack links survive only for feedback in readable channels.
+          conversation_id:
+            canOpenWebConversation ? entry.conversation_id ?? null : null,
+          slack_permalink: canOpenSlackThread
+            ? safeHttpsUrl(entry.slack_permalink)?.toString() ?? null
+            : null,
+          created_at: dateString(entry.created_at),
+        };
+      }),
     });
   }
 );

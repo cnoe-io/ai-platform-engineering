@@ -12,7 +12,9 @@ const mockHasOrganizationAdmin = jest.fn();
 const mockResolveSimulationScope = jest.fn();
 const mockSimulationCanManage = jest.fn();
 const mockSimulationCanAudit = jest.fn();
-const mockGetReadableSlackChannelNames = jest.fn();
+const mockGetDirectSharingAccessConversationIds = jest.fn();
+const mockGetReadableMessagingConversationScope = jest.fn();
+const mockGetReadableConversationIds = jest.fn();
 const mockGetOwnedAgents = jest.fn();
 const mockGetOwnedAgentConversationIds = jest.fn();
 const mockGetInsightsActorTeamSlugs = jest.fn();
@@ -45,6 +47,11 @@ jest.mock("@/lib/rbac/admin-simulation-server", () => ({
     mockSimulationCanAudit(...args),
 }));
 
+jest.mock("@/lib/rbac/conversation-implicit-authz", () => ({
+  getDirectSharingAccessConversationIds: (...args: unknown[]) =>
+    mockGetDirectSharingAccessConversationIds(...args),
+}));
+
 jest.mock("@/lib/rbac/platform-admin", () => ({
   hasOrganizationAdmin: (...args: unknown[]) =>
     mockHasOrganizationAdmin(...args),
@@ -58,8 +65,10 @@ jest.mock("@/lib/rbac/require-openfga", () => ({
 }));
 
 jest.mock("@/lib/rbac/user-insights-scope", () => ({
-  getReadableSlackChannelNames: (...args: unknown[]) =>
-    mockGetReadableSlackChannelNames(...args),
+  getReadableMessagingConversationScope: (...args: unknown[]) =>
+    mockGetReadableMessagingConversationScope(...args),
+  getReadableConversationIds: (...args: unknown[]) =>
+    mockGetReadableConversationIds(...args),
   getOwnedAgents: (...args: unknown[]) => mockGetOwnedAgents(...args),
   getOwnedAgentConversationIds: (...args: unknown[]) =>
     mockGetOwnedAgentConversationIds(...args),
@@ -153,7 +162,12 @@ beforeEach(() => {
   mockResolveSimulationScope.mockResolvedValue(null);
   mockSimulationCanManage.mockResolvedValue(true);
   mockSimulationCanAudit.mockResolvedValue(true);
-  mockGetReadableSlackChannelNames.mockResolvedValue([]);
+  mockGetDirectSharingAccessConversationIds.mockResolvedValue([]);
+  mockGetReadableMessagingConversationScope.mockResolvedValue({
+    slackChannelIds: [],
+    webexSpaceIds: [],
+  });
+  mockGetReadableConversationIds.mockResolvedValue([]);
   mockGetOwnedAgents.mockResolvedValue([]);
   mockGetOwnedAgentConversationIds.mockResolvedValue({ ids: [], capped: false });
   mockGetInsightsActorTeamSlugs.mockResolvedValue([]);
@@ -170,6 +184,7 @@ beforeEach(() => {
     metadata: { role: "user" },
   });
   mockFindConversations
+    .mockReset()
     .mockResolvedValueOnce(undefined)
     .mockResolvedValueOnce([
       {
@@ -187,11 +202,13 @@ beforeEach(() => {
         updated_at: new Date("2026-07-20T11:00:00.000Z"),
       },
     ]);
-  mockCountConversations.mockResolvedValue(3);
+  mockCountConversations.mockReset().mockResolvedValue(3);
   mockAggregateFeedback
+    .mockReset()
     .mockResolvedValueOnce(undefined)
     .mockResolvedValueOnce([{ total: 2, positive: 1, negative: 1 }]);
   mockFindFeedback
+    .mockReset()
     .mockResolvedValueOnce(undefined)
     .mockResolvedValueOnce([
       {
@@ -259,6 +276,7 @@ describe("GET /api/admin/users/activity/[identity]", () => {
       },
       stats: {
         total_conversations: 3,
+        visible_conversations: 3,
         feedback_given: 2,
         feedback_positive: 1,
         feedback_negative: 1,
@@ -307,7 +325,7 @@ describe("GET /api/admin/users/activity/[identity]", () => {
     });
   });
 
-  it("lets a scoped teammate view scoped overview/feedback but never conversation rows", async () => {
+  it("shows a scoped teammate only readable Slack-channel conversations", async () => {
     mockGetAuth.mockResolvedValue({
       session: {
         sub: "member-sub",
@@ -316,7 +334,10 @@ describe("GET /api/admin/users/activity/[identity]", () => {
     });
     mockRequireAdminSurfaceManage.mockRejectedValue(new Error("not manager"));
     mockHasOrganizationAdmin.mockResolvedValue(false);
-    mockGetReadableSlackChannelNames.mockResolvedValue(["example-channel"]);
+    mockGetReadableMessagingConversationScope.mockResolvedValue({
+      slackChannelIds: ["C123TEST"],
+      webexSpaceIds: [],
+    });
     mockGetOwnedAgents.mockResolvedValue([
       { id: "agent-owned", name: "Owned Agent" },
     ]);
@@ -324,6 +345,10 @@ describe("GET /api/admin/users/activity/[identity]", () => {
       ids: ["conversation-1"],
       capped: false,
     });
+    mockCountConversations
+      .mockReset()
+      .mockResolvedValueOnce(3)
+      .mockResolvedValueOnce(1);
     mockGetInsightsActorTeamSlugs.mockResolvedValue(["primary"]);
     mockLoadTeamMembersForSlugs.mockResolvedValue(new Map([
       ["primary", [{
@@ -335,6 +360,40 @@ describe("GET /api/admin/users/activity/[identity]", () => {
         provider_ids: [],
       }]],
     ]));
+    mockFindFeedback
+      .mockReset()
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce([
+        {
+          source: "slack",
+          rating: "positive",
+          value: "thumbs_up",
+          channel_id: "C123TEST",
+          channel_name: "example-channel",
+          conversation_id: "conversation-1",
+          slack_permalink:
+            "https://example.slack.com/archives/C123TEST/p1775100000123456",
+          created_at: new Date("2026-07-20T11:05:00.000Z"),
+        },
+        {
+          source: "web",
+          rating: "positive",
+          value: "thumbs_up",
+          conversation_id: "conversation-private",
+          created_at: new Date("2026-07-20T11:06:00.000Z"),
+        },
+        {
+          source: "slack",
+          rating: "positive",
+          value: "thumbs_up",
+          channel_id: "COTHER",
+          channel_name: "example-channel",
+          conversation_id: "conversation-other-channel",
+          slack_permalink:
+            "https://example.slack.com/archives/COTHER/p1775100000123456",
+          created_at: new Date("2026-07-20T11:07:00.000Z"),
+        },
+      ]);
 
     const { GET } = await import("../route");
     const { request: req,context } = request("test-user@example.com");
@@ -349,16 +408,95 @@ describe("GET /api/admin/users/activity/[identity]", () => {
       },
       "stats",
     );
-    expect(body.data.can_view_conversations).toBe(false);
-    expect(body.data.recent_conversations).toEqual([]);
+    expect(body.data.can_view_conversations).toBe(true);
+    expect(body.data.stats.visible_conversations).toBe(1);
+    expect(body.data.recent_conversations).toEqual([
+      expect.objectContaining({
+        id: "conversation-1",
+        source: "slack",
+        channel_name: "example-channel",
+      }),
+    ]);
     expect(body.data.recent_feedback).toEqual([
       expect.objectContaining({
+        conversation_id: null,
+        slack_permalink:
+          "https://example.slack.com/archives/C123TEST/p1775100000123456",
+      }),
+      expect.objectContaining({
+        source: "web",
+        conversation_id: null,
+        slack_permalink: null,
+      }),
+      expect.objectContaining({
+        source: "slack",
         conversation_id: null,
         slack_permalink: null,
       }),
     ]);
-    // The server does not even fetch conversation titles for scoped viewers.
-    expect(mockFindConversations).not.toHaveBeenCalled();
+    expect(mockAggregateFeedback.mock.calls[0]?.[0]).toEqual(
+      expect.arrayContaining([
+        {
+          $match: expect.objectContaining({
+            $and: expect.arrayContaining([
+              expect.objectContaining({
+                $or: expect.arrayContaining([
+                  {
+                    source: "slack",
+                    channel_id: "C123TEST",
+                  },
+                ]),
+              }),
+            ]),
+          }),
+        },
+      ]),
+    );
+    // Slack titles are fetched only through a channel-id clause. The explicit
+    // source and DM exclusions prevent owned agents and same-named channels
+    // from widening the conversation list.
+    expect(mockFindConversations.mock.calls[0]?.[0]).toEqual({
+      $and: [
+        {
+          owner_id: {
+            $in: expect.arrayContaining([
+              "test-user@example.com",
+              "U123TEST",
+            ]),
+          },
+        },
+        {
+          $or: expect.arrayContaining([
+            {
+              $and: [
+                { $or: [{ source: "slack" }, { client_type: "slack" }] },
+                { channel_type: { $ne: "dm" } },
+                { "metadata.channel_type": { $ne: "dm" } },
+                {
+                  $or: [
+                    { channel_id: "C123TEST" },
+                    { "metadata.channel_id": "C123TEST" },
+                    { "slack_meta.channel_id": "C123TEST" },
+                  ],
+                },
+              ],
+            },
+            {
+              $and: [
+                { client_type: { $nin: ["slack", "webex"] } },
+                { source: { $nin: ["slack", "webex"] } },
+                {
+                  $or: expect.arrayContaining([
+                    { owner_id: "member@example.com" },
+                    { "sharing.shared_with": "member@example.com" },
+                  ]),
+                },
+              ],
+            },
+          ]),
+        },
+      ],
+    });
     expect(mockCountConversations).toHaveBeenCalledWith({
       $and: [
         {
@@ -381,6 +519,200 @@ describe("GET /api/admin/users/activity/[identity]", () => {
     });
   });
 
+  it("does not let full Insights management bypass channel-level conversation RBAC", async () => {
+    mockHasOrganizationAdmin.mockResolvedValue(false);
+    mockGetReadableMessagingConversationScope.mockResolvedValue({
+      slackChannelIds: ["C123TEST"],
+      webexSpaceIds: [],
+    });
+    mockCountConversations
+      .mockReset()
+      .mockResolvedValueOnce(8)
+      .mockResolvedValueOnce(1);
+
+    const { GET } = await import("../route");
+    const { request: req,context } = request("test-user@example.com");
+    const response = await GET(req, context);
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.stats).toMatchObject({
+      total_conversations: 8,
+      visible_conversations: 1,
+    });
+    expect(mockFindConversations.mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({
+        $and: expect.arrayContaining([
+          expect.objectContaining({
+            $or: expect.arrayContaining([
+              expect.objectContaining({
+                $and: expect.arrayContaining([
+                  { "metadata.channel_type": { $ne: "dm" } },
+                ]),
+              }),
+            ]),
+          }),
+        ]),
+      }),
+    );
+    // Full Insights aggregate access does not grant access to personal web
+    // conversation ids when organization audit access is absent.
+    expect(body.data.recent_feedback[0]).toMatchObject({
+      source: "web",
+      conversation_id: null,
+      slack_permalink: null,
+    });
+  });
+
+  it("shows conversations from mapped Webex spaces but not unmapped direct spaces", async () => {
+    mockGetAuth.mockResolvedValue({
+      session: {
+        sub: "member-sub",
+        user: { email: "member@example.com" },
+      },
+    });
+    mockRequireAdminSurfaceManage.mockRejectedValue(new Error("not manager"));
+    mockHasOrganizationAdmin.mockResolvedValue(false);
+    mockGetReadableMessagingConversationScope.mockResolvedValue({
+      slackChannelIds: [],
+      webexSpaceIds: ["space-shared"],
+    });
+    mockCountConversations
+      .mockReset()
+      .mockResolvedValueOnce(1)
+      .mockResolvedValueOnce(1);
+    mockFindConversations
+      .mockReset()
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce([
+        {
+          _id: "conversation-webex",
+          title: "Example Webex thread",
+          client_type: "webex",
+          metadata: {
+            webex_space_id: "space-shared",
+            webex_message_id: "message-1",
+          },
+          created_at: new Date("2026-07-20T10:00:00.000Z"),
+          updated_at: new Date("2026-07-20T11:00:00.000Z"),
+        },
+      ]);
+    const { GET } = await import("../route");
+    const { request: req,context } = request("test-user@example.com");
+    const response = await GET(req, context);
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(mockFindConversations.mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({
+        $and: expect.arrayContaining([
+          expect.objectContaining({
+            $or: expect.arrayContaining([
+              {
+                $and: [
+                  { $or: [{ source: "webex" }, { client_type: "webex" }] },
+                  { "metadata.webex_space_id": "space-shared" },
+                ],
+              },
+            ]),
+          }),
+        ]),
+      }),
+    );
+    expect(body.data.recent_conversations).toEqual([
+      expect.objectContaining({
+        id: "conversation-webex",
+        source: "webex",
+        channel_id: "space-shared",
+        webex_permalink: "webexteams://im?space=space-shared",
+      }),
+    ]);
+  });
+
+  it("shows web conversations shared through existing conversation RBAC", async () => {
+    mockGetAuth.mockResolvedValue({
+      session: {
+        sub: "member-sub",
+        user: { email: "member@example.com" },
+      },
+    });
+    mockRequireAdminSurfaceManage.mockRejectedValue(new Error("not manager"));
+    mockHasOrganizationAdmin.mockResolvedValue(false);
+    mockGetDirectSharingAccessConversationIds.mockResolvedValue([
+      "conversation-shared",
+    ]);
+    mockCountConversations
+      .mockReset()
+      .mockResolvedValueOnce(1)
+      .mockResolvedValueOnce(1);
+    mockFindConversations
+      .mockReset()
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce([
+        {
+          _id: "conversation-shared",
+          title: "Shared web conversation",
+          client_type: "webui",
+          created_at: new Date("2026-07-20T10:00:00.000Z"),
+          updated_at: new Date("2026-07-20T11:00:00.000Z"),
+        },
+      ]);
+    mockFindFeedback
+      .mockReset()
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce([
+        {
+          source: "web",
+          rating: "positive",
+          value: "thumbs_up",
+          conversation_id: "conversation-shared",
+          created_at: new Date("2026-07-20T11:05:00.000Z"),
+        },
+      ]);
+
+    const { GET } = await import("../route");
+    const { request: req,context } = request("test-user@example.com");
+    const response = await GET(req, context);
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(mockGetDirectSharingAccessConversationIds).toHaveBeenCalledWith(
+      "member@example.com",
+      expect.any(Function),
+    );
+    expect(mockFindConversations.mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({
+        $and: expect.arrayContaining([
+          expect.objectContaining({
+            $or: expect.arrayContaining([
+              expect.objectContaining({
+                $and: expect.arrayContaining([
+                  expect.objectContaining({
+                    $or: expect.arrayContaining([
+                      { _id: { $in: ["conversation-shared"] } },
+                    ]),
+                  }),
+                ]),
+              }),
+            ]),
+          }),
+        ]),
+      }),
+    );
+    expect(body.data.recent_conversations).toEqual([
+      expect.objectContaining({
+        id: "conversation-shared",
+        source: "web",
+      }),
+    ]);
+    expect(body.data.recent_feedback).toEqual([
+      expect.objectContaining({
+        source: "web",
+        conversation_id: "conversation-shared",
+      }),
+    ]);
+  });
+
   it("does not let a scoped preview subject widen itself to another user's activity", async () => {
     mockResolveSimulationScope.mockResolvedValue({
       openfgaUser: "user:preview-sub",
@@ -399,6 +731,10 @@ describe("GET /api/admin/users/activity/[identity]", () => {
       .mockReset()
       .mockResolvedValueOnce(undefined)
       .mockResolvedValueOnce([]);
+    mockFindConversations
+      .mockReset()
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce([]);
     const { GET } = await import("../route");
     const { request: req,context } = request(
       "test-user@example.com",
@@ -409,6 +745,25 @@ describe("GET /api/admin/users/activity/[identity]", () => {
 
     expect(response.status).toBe(403);
     expect(mockRequireBaselineAdminSurfaceRead).not.toHaveBeenCalled();
-    expect(mockFindConversations).not.toHaveBeenCalled();
+    expect(mockFindConversations.mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({
+        $and: expect.arrayContaining([
+          expect.objectContaining({
+            $or: expect.arrayContaining([
+              expect.objectContaining({
+                $and: expect.arrayContaining([
+                  expect.objectContaining({
+                    $or: expect.arrayContaining([
+                      { owner_id: "preview@example.com" },
+                      { "sharing.shared_with": "preview@example.com" },
+                    ]),
+                  }),
+                ]),
+              }),
+            ]),
+          }),
+        ]),
+      }),
+    );
   });
 });

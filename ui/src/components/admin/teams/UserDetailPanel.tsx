@@ -36,6 +36,7 @@ interface UserProfile {
 
 interface UserStats {
   total_conversations: number;
+  visible_conversations: number;
   feedback_given: number;
   feedback_positive: number;
   feedback_negative: number;
@@ -48,6 +49,7 @@ interface UserConversation {
   channel_id: string | null;
   channel_name: string | null;
   slack_permalink: string | null;
+  webex_permalink: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -95,6 +97,7 @@ function getSlackLink(conv: UserConversation): string | null {
 /** Get the appropriate link for a conversation */
 function getConvLink(conv: UserConversation): string | null {
   if (conv.source === "slack") return getSlackLink(conv);
+  if (conv.source === "webex") return conv.webex_permalink;
   return `/chat/${conv.id}?from=admin`;
 }
 
@@ -193,7 +196,7 @@ export function UserDetailPanel({
                   : "border-transparent text-muted-foreground hover:text-foreground"
               }`}
             >
-              {tab === "overview" ? "Overview" : tab === "conversations" ? `Conversations${data ? ` (${data.stats.total_conversations})` : ""}` : `Feedback${data ? ` (${data.stats.feedback_given})` : ""}`}
+              {tab === "overview" ? "Overview" : tab === "conversations" ? `Conversations${data ? ` (${data.stats.visible_conversations})` : ""}` : `Feedback${data ? ` (${data.stats.feedback_given})` : ""}`}
             </button>
           ))}
         </div>
@@ -260,7 +263,11 @@ function OverviewTab({
             <div className="flex items-center gap-2 text-muted-foreground">
               <Globe className="h-3.5 w-3.5" />
               <Badge variant="outline" className="text-[10px]">
-                {profile.source === "slack" ? "Slack" : "Web"}
+                {profile.source === "slack"
+                  ? "Slack"
+                  : profile.source === "webex"
+                    ? "Webex"
+                    : "Web"}
               </Badge>
               {profile.slack_user_id && (
                 <span className="text-[10px] text-muted-foreground">{profile.slack_user_id}</span>
@@ -314,6 +321,8 @@ function OverviewTab({
                 <div className="flex items-center gap-2 min-w-0">
                   {conv.source === "slack" ? (
                     <Hash className="h-3 w-3 text-purple-500 shrink-0" />
+                  ) : conv.source === "webex" ? (
+                    <Globe className="h-3 w-3 text-cyan-500 shrink-0" />
                   ) : (
                     <MessageSquare className="h-3 w-3 text-blue-500 shrink-0" />
                   )}
@@ -365,6 +374,10 @@ function ConversationsTab({ conversations }: { conversations: UserConversation[]
             {conv.source === "slack" ? (
               <Badge variant="secondary" className="text-[10px] px-1.5 py-0 shrink-0">
                 {conv.channel_name || "Slack"}
+              </Badge>
+            ) : conv.source === "webex" ? (
+              <Badge variant="secondary" className="text-[10px] px-1.5 py-0 shrink-0">
+                Webex
               </Badge>
             ) : (
               <Badge variant="outline" className="text-[10px] px-1.5 py-0 shrink-0">
@@ -446,7 +459,11 @@ function FeedbackTab({
                 {VALUE_LABELS[fb.value] || fb.value}
               </span>
               <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
-                {fb.source === "slack" ? `Slack${fb.channel_name ? ` · ${fb.channel_name}` : ""}` : "Web"}
+                {fb.source === "slack"
+                  ? `Slack${fb.channel_name ? ` · ${fb.channel_name}` : ""}`
+                  : fb.source === "webex"
+                    ? "Webex"
+                    : "Web"}
               </Badge>
             </div>
             <span className="text-muted-foreground">{formatDate(fb.created_at)}</span>

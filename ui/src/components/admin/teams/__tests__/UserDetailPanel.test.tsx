@@ -22,6 +22,7 @@ describe("UserDetailPanel", () => {
           },
           stats: {
             total_conversations: 1,
+            visible_conversations: 1,
             feedback_given: 1,
             feedback_positive: 1,
             feedback_negative: 0,
@@ -35,6 +36,7 @@ describe("UserDetailPanel", () => {
               channel_name: "example-channel",
               slack_permalink:
                 "https://example.slack.com/archives/C123TEST/p1775100000123456",
+              webex_permalink: null,
               created_at: "2026-07-20T00:00:00.000Z",
               updated_at: "2026-07-20T01:00:00.000Z",
             },
@@ -91,6 +93,81 @@ describe("UserDetailPanel", () => {
     );
   });
 
+  it("links authorized web and Webex conversations through their native paths", async () => {
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        success: true,
+        data: {
+          can_view_conversations: true,
+          profile: {
+            email: "test-user@example.com",
+            name: "Test User",
+            avatar_url: null,
+            role: "user",
+            source: "web",
+            slack_user_id: null,
+            created_at: "2026-01-01T00:00:00.000Z",
+            last_login: "2026-07-20T00:00:00.000Z",
+          },
+          stats: {
+            total_conversations: 3,
+            visible_conversations: 2,
+            feedback_given: 0,
+            feedback_positive: 0,
+            feedback_negative: 0,
+          },
+          recent_conversations: [
+            {
+              id: "conversation-web",
+              title: "Shared web chat",
+              source: "web",
+              channel_id: null,
+              channel_name: null,
+              slack_permalink: null,
+              webex_permalink: null,
+              created_at: "2026-07-20T00:00:00.000Z",
+              updated_at: "2026-07-20T01:00:00.000Z",
+            },
+            {
+              id: "conversation-webex",
+              title: "Mapped Webex space",
+              source: "webex",
+              channel_id: "space-shared",
+              channel_name: null,
+              slack_permalink: null,
+              webex_permalink: "webexteams://im?space=space-shared",
+              created_at: "2026-07-20T00:00:00.000Z",
+              updated_at: "2026-07-20T01:00:00.000Z",
+            },
+          ],
+          recent_feedback: [],
+        },
+      }),
+    });
+
+    render(
+      <UserDetailPanel
+        email="test-user@example.com"
+        onClose={jest.fn()}
+      />,
+    );
+
+    await screen.findByText("Test User");
+    fireEvent.click(screen.getByRole("button", { name: "Conversations (2)" }));
+
+    expect(screen.getByRole("link", { name: "Shared web chat" })).toHaveAttribute(
+      "href",
+      "/chat/conversation-web?from=admin",
+    );
+    expect(
+      screen.getByRole("link", { name: "Mapped Webex space" }),
+    ).toHaveAttribute(
+      "href",
+      "webexteams://im?space=space-shared",
+    );
+  });
+
   it("hides conversation tabs, titles, and feedback chat links for a scoped viewer", async () => {
     (global.fetch as jest.Mock).mockResolvedValueOnce({
       ok: true,
@@ -110,6 +187,7 @@ describe("UserDetailPanel", () => {
           },
           stats: {
             total_conversations: 1,
+            visible_conversations: 0,
             feedback_given: 1,
             feedback_positive: 1,
             feedback_negative: 0,
@@ -124,6 +202,7 @@ describe("UserDetailPanel", () => {
               channel_id: null,
               channel_name: null,
               slack_permalink: null,
+              webex_permalink: null,
               created_at: "2026-07-20T00:00:00.000Z",
               updated_at: "2026-07-20T01:00:00.000Z",
             },
