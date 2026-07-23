@@ -44,7 +44,8 @@ from common.models.server import (
   QueryRequest,
   QueryResult,
 )
-from common.models.rag import DataSourceInfo, IngestorInfo, valid_metadata_keys, valid_metadata_keys_with_types, MCPToolConfig, MCPBuiltinToolsConfig
+from common.models.rag import DataSourceInfo, IngestorInfo, StructuredEntity, StructuredEntityId, valid_metadata_keys, valid_metadata_keys_with_types, MCPToolConfig, MCPBuiltinToolsConfig
+from common.models.graph import Relation
 from common.models.rbac import Role, UserContext, UserInfoResponse
 from contextvars import ContextVar
 from server.rbac import (
@@ -824,6 +825,7 @@ async def list_datasources(
 
 @app.get("/v1/datasource/{datasource_id}/documents", response_model=DatasourceDocumentsResponse)
 async def list_datasource_documents(
+  request: Request,
   datasource_id: str,
   offset: int = Query(default=0, ge=0, description="Number of chunks to skip"),
   limit: int = Query(default=100, ge=1, le=1000, description="Number of chunks to fetch"),
@@ -832,6 +834,8 @@ async def list_datasource_documents(
   """List documents and chunks for a datasource with pagination (without content)."""
   if not vector_db:
     raise HTTPException(status_code=500, detail="Server not initialized")
+
+  await check_datasource_access(request, user, datasource_id, "read")
 
   # Validate Milvus constraint: offset + limit must be < 16384
   if offset + limit >= 16384:
@@ -911,6 +915,7 @@ async def list_datasource_documents(
 
 @app.get("/v1/chunk/{chunk_id:path}/content", response_model=ChunkContentResponse)
 async def get_chunk_content(
+  request: Request,
   chunk_id: str,
   user: UserContext = Depends(require_role(Role.READONLY)),
 ):
@@ -923,7 +928,7 @@ async def get_chunk_content(
     results = vector_db.client.query(
       collection_name=default_collection_name_docs,
       filter=f"id == '{chunk_id}'",
-      output_fields=["id", "text"],
+      output_fields=["id", "text", "datasource_id"],
       limit=1,
     )
 
@@ -931,6 +936,8 @@ async def get_chunk_content(
       raise HTTPException(status_code=404, detail="Chunk not found")
 
     chunk = results[0]
+    await check_datasource_access(request, user, chunk.get("datasource_id"), "read")
+
     return ChunkContentResponse(
       id=chunk.get("id", chunk_id),
       text_content=chunk.get("text", ""),
@@ -947,7 +954,7 @@ async def get_chunk_content(
 # Job Endpoints
 # ============================================================================
 @app.get("/v1/job/{job_id}")
-async def get_job(job_id: str, user: UserContext = Depends(require_role(Role.READONLY))):
+async def get_job(request: Request, job_id: str, user: UserContext = Depends(require_role(Role.READONLY))):
   """Get the status of an ingestion job."""
   if not jobmanager:
     raise HTTPException(status_code=500, detail="Server not initialized")
@@ -955,15 +962,20 @@ async def get_job(job_id: str, user: UserContext = Depends(require_role(Role.REA
   if not job_info:
     raise HTTPException(status_code=404, detail="Job not found")
 
+  await check_datasource_access(request, user, job_info.datasource_id, "ingest")
+
   logger.info(f"Returning job {job_info}")
   return job_info
 
 
 @app.get("/v1/jobs/datasource/{datasource_id}")
-async def get_jobs_by_datasource(datasource_id: str, status_filter: Optional[JobStatus] = None, user: UserContext = Depends(require_role(Role.READONLY))):
+async def get_jobs_by_datasource(request: Request, datasource_id: str, status_filter: Optional[JobStatus] = None, user: UserContext = Depends(require_role(Role.READONLY))):
   """Get all jobs for a specific datasource, optionally filtered by status."""
   if not jobmanager:
     raise HTTPException(status_code=500, detail="Server not initialized")
+
+  await check_datasource_access(request, user, datasource_id, "ingest")
+
   jobs = await jobmanager.get_jobs_by_datasource(datasource_id, status_filter=status_filter)
   if jobs is None:
     raise HTTPException(status_code=404, detail="No jobs found for the specified datasource")
@@ -973,11 +985,13 @@ async def get_jobs_by_datasource(datasource_id: str, status_filter: Optional[Job
 
 
 @app.post("/v1/jobs/batch")
-async def get_jobs_batch(request: JobsBatchRequest, user: UserContext = Depends(require_role(Role.READONLY))):
+async def get_jobs_batch(http_request: Request, request: JobsBatchRequest, user: UserContext = Depends(require_role(Role.READONLY))):
   """Get jobs for multiple datasources in a single batch request.
 
   This endpoint is optimized for polling job statuses across multiple datasources,
-  reducing the number of API calls and RBAC authentication overhead.
+  reducing the number of API calls and RBAC authentication overhead. Rather than
+  403-ing on any inaccessible datasource, it silently drops them from the result
+  (matching the filtering pattern used by /v1/datasources and /v1/query).
   """
   if not jobmanager:
     raise HTTPException(status_code=500, detail="Server not initialized")
@@ -994,19 +1008,27 @@ async def get_jobs_batch(request: JobsBatchRequest, user: UserContext = Depends(
     except ValueError as e:
       raise HTTPException(status_code=400, detail=f"Invalid status filter: {e}")
 
+  requested_datasource_ids = request.datasource_ids
+  if RBAC_TEAM_SCOPE_ENABLED and user.is_authenticated:
+    team_id = await derive_team_for_request(http_request, user)
+    tenant_id = http_request.headers.get("X-Tenant-Id") or "default"
+    accessible = await get_accessible_datasource_ids(user, "ingest", tenant_id, team_id=team_id, request=http_request)
+    if "*" not in accessible:
+      requested_datasource_ids = [ds_id for ds_id in requested_datasource_ids if ds_id in accessible]
+
   # Fetch jobs in batch
-  jobs_by_datasource = await jobmanager.get_jobs_batch(datasource_ids=request.datasource_ids, status_filter=status_filter_enums)
+  jobs_by_datasource = await jobmanager.get_jobs_batch(datasource_ids=requested_datasource_ids, status_filter=status_filter_enums)
 
   # Count total jobs
   total_jobs = sum(len(jobs) for jobs in jobs_by_datasource.values())
 
-  logger.debug(f"Returning {total_jobs} jobs for {len(request.datasource_ids)} datasources (batch)")
+  logger.debug(f"Returning {total_jobs} jobs for {len(requested_datasource_ids)} datasources (batch)")
 
-  return {"jobs": jsonable_encoder(jobs_by_datasource), "total_jobs": total_jobs, "datasource_count": len(request.datasource_ids)}
+  return {"jobs": jsonable_encoder(jobs_by_datasource), "total_jobs": total_jobs, "datasource_count": len(requested_datasource_ids)}
 
 
 @app.post("/v1/job", status_code=status.HTTP_201_CREATED)
-async def create_job(datasource_id: str, job_status: Optional[JobStatus] = None, message: Optional[str] = None, total: Optional[int] = None, user: UserContext = Depends(require_role(Role.INGESTONLY))):
+async def create_job(request: Request, datasource_id: str, job_status: Optional[JobStatus] = None, message: Optional[str] = None, total: Optional[int] = None, user: UserContext = Depends(require_role(Role.INGESTONLY))):
   """Create a new job for a datasource."""
   if not jobmanager or not metadata_storage:
     raise HTTPException(status_code=500, detail="Server not initialized")
@@ -1015,6 +1037,8 @@ async def create_job(datasource_id: str, job_status: Optional[JobStatus] = None,
   datasource_info = await metadata_storage.get_datasource_info(datasource_id)
   if not datasource_info:
     raise HTTPException(status_code=404, detail="Datasource not found")
+
+  await check_datasource_access(request, user, datasource_id, "ingest")
 
   # Generate new job ID
   job_id = str(uuid.uuid4())
@@ -1030,7 +1054,7 @@ async def create_job(datasource_id: str, job_status: Optional[JobStatus] = None,
 
 
 @app.patch("/v1/job/{job_id}", status_code=status.HTTP_200_OK)
-async def update_job(job_id: str, job_status: Optional[JobStatus] = None, message: Optional[str] = None, total: Optional[int] = None, user: UserContext = Depends(require_role(Role.INGESTONLY))):
+async def update_job(request: Request, job_id: str, job_status: Optional[JobStatus] = None, message: Optional[str] = None, total: Optional[int] = None, user: UserContext = Depends(require_role(Role.INGESTONLY))):
   """Update an existing job."""
   if not jobmanager:
     raise HTTPException(status_code=500, detail="Server not initialized")
@@ -1039,6 +1063,8 @@ async def update_job(job_id: str, job_status: Optional[JobStatus] = None, messag
   existing_job = await jobmanager.get_job(job_id)
   if not existing_job:
     raise HTTPException(status_code=404, detail="Job not found")
+
+  await check_datasource_access(request, user, existing_job.datasource_id, "ingest")
 
   # Update job
   success = await jobmanager.upsert_job(job_id, status=job_status, message=message, total=total, datasource_id=existing_job.datasource_id)
@@ -1051,7 +1077,7 @@ async def update_job(job_id: str, job_status: Optional[JobStatus] = None, messag
 
 
 @app.post("/v1/job/{job_id}/terminate", status_code=status.HTTP_200_OK)
-async def terminate_job_endpoint(job_id: str, user: UserContext = Depends(require_role(Role.ADMIN))):
+async def terminate_job_endpoint(request: Request, job_id: str, user: UserContext = Depends(require_role(Role.ADMIN))):
   """Terminate an ingestion job."""
   if not jobmanager:
     raise HTTPException(status_code=500, detail="Server not initialized")
@@ -1059,6 +1085,8 @@ async def terminate_job_endpoint(job_id: str, user: UserContext = Depends(requir
   job_info = await jobmanager.get_job(job_id)
   if not job_info:
     raise HTTPException(status_code=404, detail="Job not found")
+
+  await check_datasource_access(request, user, job_info.datasource_id, "ingest")
 
   success = await jobmanager.terminate_job(job_id)
   if not success:
@@ -1069,10 +1097,16 @@ async def terminate_job_endpoint(job_id: str, user: UserContext = Depends(requir
 
 
 @app.post("/v1/job/{job_id}/increment-progress")
-async def increment_job_progress(job_id: str, increment: int = 1, user: UserContext = Depends(require_role(Role.INGESTONLY))):
+async def increment_job_progress(request: Request, job_id: str, increment: int = 1, user: UserContext = Depends(require_role(Role.INGESTONLY))):
   """Increment the progress counter for a job."""
   if not jobmanager:
     raise HTTPException(status_code=500, detail="Server not initialized")
+
+  job_info = await jobmanager.get_job(job_id)
+  if not job_info:
+    raise HTTPException(status_code=404, detail="Job not found")
+
+  await check_datasource_access(request, user, job_info.datasource_id, "ingest")
 
   new_value = await jobmanager.increment_progress(job_id, increment)
   if new_value == -1:
@@ -1083,10 +1117,16 @@ async def increment_job_progress(job_id: str, increment: int = 1, user: UserCont
 
 
 @app.post("/v1/job/{job_id}/increment-failure")
-async def increment_job_failure(job_id: str, increment: int = 1, user: UserContext = Depends(require_role(Role.INGESTONLY))):
+async def increment_job_failure(request: Request, job_id: str, increment: int = 1, user: UserContext = Depends(require_role(Role.INGESTONLY))):
   """Increment the failure counter for a job."""
   if not jobmanager:
     raise HTTPException(status_code=500, detail="Server not initialized")
+
+  job_info = await jobmanager.get_job(job_id)
+  if not job_info:
+    raise HTTPException(status_code=404, detail="Job not found")
+
+  await check_datasource_access(request, user, job_info.datasource_id, "ingest")
 
   new_value = await jobmanager.increment_failure(job_id, increment)
   if new_value == -1:
@@ -1097,10 +1137,16 @@ async def increment_job_failure(job_id: str, increment: int = 1, user: UserConte
 
 
 @app.post("/v1/job/{job_id}/increment-document-count")
-async def increment_job_document_count(job_id: str, increment: int = 1, user: UserContext = Depends(require_role(Role.INGESTONLY))):
+async def increment_job_document_count(request: Request, job_id: str, increment: int = 1, user: UserContext = Depends(require_role(Role.INGESTONLY))):
   """Increment the document count for a job."""
   if not jobmanager:
     raise HTTPException(status_code=500, detail="Server not initialized")
+
+  job_info = await jobmanager.get_job(job_id)
+  if not job_info:
+    raise HTTPException(status_code=404, detail="Job not found")
+
+  await check_datasource_access(request, user, job_info.datasource_id, "ingest")
 
   new_value = await jobmanager.increment_document_count(job_id, increment)
   if new_value == -1:
@@ -1111,13 +1157,19 @@ async def increment_job_document_count(job_id: str, increment: int = 1, user: Us
 
 
 @app.post("/v1/job/{job_id}/add-errors")
-async def add_job_errors(job_id: str, error_messages: List[str], user: UserContext = Depends(require_role(Role.INGESTONLY))):
+async def add_job_errors(request: Request, job_id: str, error_messages: List[str], user: UserContext = Depends(require_role(Role.INGESTONLY))):
   """Add error messages to a job."""
   if not jobmanager:
     raise HTTPException(status_code=500, detail="Server not initialized")
 
   if not error_messages:
     raise HTTPException(status_code=400, detail="Error messages list cannot be empty")
+
+  job_info = await jobmanager.get_job(job_id)
+  if not job_info:
+    raise HTTPException(status_code=404, detail="Job not found")
+
+  await check_datasource_access(request, user, job_info.datasource_id, "ingest")
 
   results = []
   for error_msg in error_messages:
@@ -1868,10 +1920,74 @@ async def ingest_documents(
 # ============================================================================
 
 
+async def _get_accessible_datasource_ids_for_request(request: Request, user: UserContext, scope: str) -> Optional[List[str]]:
+  """Resolve the caller's accessible datasource set once per request.
+
+  Returns ``None`` when the caller has unrestricted access (team-scope
+  disabled, coarse ADMIN, unrestricted service identity, or org-admin) so
+  callers can skip filtering entirely instead of comparing against a
+  sentinel list.
+  """
+  if not RBAC_TEAM_SCOPE_ENABLED or not user.is_authenticated:
+    return None
+  team_id = await derive_team_for_request(request, user)
+  tenant_id = request.headers.get("X-Tenant-Id") or "default"
+  accessible = await get_accessible_datasource_ids(user, scope, tenant_id, team_id=team_id, request=request)
+  if "*" in accessible:
+    return None
+  return accessible
+
+
+def _entity_datasource_id(entity: StructuredEntity) -> Optional[str]:
+  return entity.all_properties.get(DATASOURCE_ID_KEY)
+
+
+def _filter_entities_by_datasource(entities: List[StructuredEntity], accessible: Optional[List[str]]) -> List[StructuredEntity]:
+  """Drop entities whose tagged datasource is outside the accessible set.
+
+  Entities without a tagged datasource (e.g. records created outside the
+  per-document ingestion path) are kept, since there is nothing to scope
+  them by.
+  """
+  if accessible is None:
+    return entities
+  accessible_set = set(accessible)
+  return [e for e in entities if _entity_datasource_id(e) is None or _entity_datasource_id(e) in accessible_set]
+
+
+async def _filter_relations_by_datasource(relations: List[Relation], accessible: Optional[List[str]]) -> List[Relation]:
+  """Drop relations whose endpoints resolve to an inaccessible datasource.
+
+  Relation edges themselves are not tagged with ``_datasource_id`` (only the
+  ontology-building pipeline creates them, and it does not carry that tag —
+  see agent_ontology/relation_manager.py). Resolve each unique endpoint via
+  the existing single-entity lookup and require both sides to be accessible
+  (or untagged) since this is a graph-DB read, not a PDP call. Only pays this
+  cost for callers who are actually team-scope-restricted.
+  """
+  if accessible is None or not relations or not data_graph_db:
+    return relations
+  accessible_set = set(accessible)
+  endpoint_ids = {(e.entity_type, e.primary_key) for r in relations for e in (r.from_entity, r.to_entity)}
+  datasource_by_endpoint: dict[tuple[str, str], Optional[str]] = {}
+  for entity_type, primary_key in endpoint_ids:
+    entity = await data_graph_db.fetch_entity(entity_type, primary_key)
+    datasource_by_endpoint[(entity_type, primary_key)] = _entity_datasource_id(entity) if entity else None
+
+  def _endpoint_accessible(entity_id: StructuredEntityId) -> bool:
+    ds_id = datasource_by_endpoint.get((entity_id.entity_type, entity_id.primary_key))
+    return ds_id is None or ds_id in accessible_set
+
+  return [r for r in relations if _endpoint_accessible(r.from_entity) and _endpoint_accessible(r.to_entity)]
+
+
 @app.get("/v1/graph/explore/entity_type")
 async def list_entity_types(user: UserContext = Depends(require_role(Role.READONLY))):
   """
-  Lists all entity types in the database
+  Lists all entity types in the database.
+
+  Not filtered by datasource: entity type names are schema-level metadata
+  (e.g. "Incident", "Service"), not per-datasource instance data.
   """
   if not ontology_graph_db:
     raise HTTPException(status_code=500, detail="Server not initialized, or graph RAG is disabled")
@@ -1885,6 +2001,7 @@ async def list_entity_types(user: UserContext = Depends(require_role(Role.READON
 # ====
 @app.get("/v1/graph/explore/data/entities/batch")
 async def fetch_data_entities_batch(
+  request: Request,
   offset: int = Query(0, description="Number of entities to skip (for pagination)", ge=0),
   limit: int = Query(100, description="Maximum number of entities to return", ge=1, le=1000),
   entity_type: Optional[str] = Query(None, description="Optional filter by entity type"),
@@ -1904,13 +2021,16 @@ async def fetch_data_entities_batch(
 
   logger.debug(f"Fetching data entities batch: offset={offset}, limit={limit}, entity_type={entity_type}")
 
+  accessible = await _get_accessible_datasource_ids_for_request(request, user, "read")
   entities = await data_graph_db.fetch_entities_batch(offset=offset, limit=limit, entity_type=entity_type)
+  entities = _filter_entities_by_datasource(entities, accessible)
 
   return JSONResponse(status_code=status.HTTP_200_OK, content={"entities": jsonable_encoder(entities), "count": len(entities), "offset": offset, "limit": limit})
 
 
 @app.get("/v1/graph/explore/data/relations/batch")
 async def fetch_data_relations_batch(
+  request: Request,
   offset: int = Query(0, description="Number of relations to skip (for pagination)", ge=0),
   limit: int = Query(100, description="Maximum number of relations to return", ge=1, le=1000),
   relation_name: Optional[str] = Query(None, description="Optional filter by relation name"),
@@ -1930,13 +2050,15 @@ async def fetch_data_relations_batch(
 
   logger.debug(f"Fetching data relations batch: offset={offset}, limit={limit}, relation_name={relation_name}")
 
+  accessible = await _get_accessible_datasource_ids_for_request(request, user, "read")
   relations = await data_graph_db.fetch_relations_batch(offset=offset, limit=limit, relation_name=relation_name)
+  relations = await _filter_relations_by_datasource(relations, accessible)
 
   return JSONResponse(status_code=status.HTTP_200_OK, content={"relations": jsonable_encoder(relations), "count": len(relations), "offset": offset, "limit": limit})
 
 
 @app.post("/v1/graph/explore/data/entity/neighborhood")
-async def explore_data_entity_neighborhood(request: ExploreNeighborhoodRequest, user: UserContext = Depends(require_role(Role.READONLY))):
+async def explore_data_entity_neighborhood(http_request: Request, request: ExploreNeighborhoodRequest, user: UserContext = Depends(require_role(Role.READONLY))):
   """
   Explore an entity and its neighborhood in the data graph up to a specified depth.
   Depth 0 returns just the entity, depth 1 includes direct neighbors, etc.
@@ -1951,11 +2073,21 @@ async def explore_data_entity_neighborhood(request: ExploreNeighborhoodRequest, 
   if result["entity"] is None:
     return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content={"message": "Entity not found"})
 
+  # The starting entity itself is a single-entity fetch: deny outright rather
+  # than silently filtering, matching check_datasource_access's 403 pattern.
+  start_datasource_id = _entity_datasource_id(result["entity"])
+  if start_datasource_id is not None:
+    await check_datasource_access(http_request, user, start_datasource_id, "read")
+
+  accessible = await _get_accessible_datasource_ids_for_request(http_request, user, "read")
+  result["entities"] = _filter_entities_by_datasource(result["entities"], accessible)
+  result["relations"] = await _filter_relations_by_datasource(result["relations"], accessible)
+
   return JSONResponse(status_code=status.HTTP_200_OK, content=jsonable_encoder(result))
 
 
 @app.get("/v1/graph/explore/data/entity/start")
-async def get_random_start_nodes(n: int = Query(10, description="Number of random nodes to fetch", ge=1, le=100), user: UserContext = Depends(require_role(Role.READONLY))):
+async def get_random_start_nodes(request: Request, n: int = Query(10, description="Number of random nodes to fetch", ge=1, le=100), user: UserContext = Depends(require_role(Role.READONLY))):
   """
   Fetch random starting nodes from the data graph.
   Useful for initializing graph visualization or exploration.
@@ -1965,7 +2097,12 @@ async def get_random_start_nodes(n: int = Query(10, description="Number of rando
 
   logger.debug(f"Fetching {n} random nodes from data graph")
 
-  entities = await data_graph_db.fetch_random_entities(count=n)
+  accessible = await _get_accessible_datasource_ids_for_request(request, user, "read")
+  # Over-fetch when scope-restricted so filtering still tends to return close
+  # to the requested count instead of starving small samples.
+  fetch_count = n if accessible is None else min(n * 5, 1000)
+  entities = await data_graph_db.fetch_random_entities(count=fetch_count)
+  entities = _filter_entities_by_datasource(entities, accessible)[:n]
 
   return JSONResponse(status_code=status.HTTP_200_OK, content=jsonable_encoder(entities))
 
@@ -1974,6 +2111,11 @@ async def get_random_start_nodes(n: int = Query(10, description="Number of rando
 async def get_data_graph_stats(user: UserContext = Depends(require_role(Role.READONLY))):
   """
   Get statistics about the data graph (node count, relation count).
+
+  Not filtered by datasource: GraphDB.get_graph_stats() returns a global
+  aggregate with no per-datasource breakdown, and approximating it via a
+  full entity/relation scan on every request would be far more expensive
+  than the aggregate counts are sensitive (counts only, no entity content).
   """
   if not data_graph_db:
     raise HTTPException(status_code=500, detail="Server not initialized, or graph RAG is disabled")
@@ -1988,6 +2130,12 @@ async def get_data_graph_stats(user: UserContext = Depends(require_role(Role.REA
 # ====
 # Ontology Graph Endpoints
 # ====
+# Not filtered by datasource: the ontology graph holds schema/type-level
+# definitions (entity types, relation types, their properties) produced by
+# the ontology-building agent, not per-datasource instance data. There is no
+# `_datasource_id` tag on ontology nodes/relations to filter by (see
+# agent_ontology/relation_manager.py), and nothing here exposes document or
+# entity content — same reasoning as list_entity_types above.
 
 
 @app.get("/v1/graph/explore/ontology/entities/batch")

@@ -11,8 +11,8 @@
  * - Authentication: 401 when unauthenticated
  * - Authorization: 403 when non-admin (OIDC + MongoDB fallback)
  * - MongoDB guard: 503 when MongoDB is not configured
- * - Overview stats: total users, conversations, messages, DAU, MAU, shared,
- *   avg messages per conversation
+ * - Overview stats: total users, conversations, assistant messages, DAU, MAU,
+ *   shared, avg assistant messages per conversation
  * - Daily activity: optimized 30-day aggregation (3 pipelines vs 90 queries)
  * - Top users by conversations: direct owner_id group
  * - Top users by messages: $lookup fallback for legacy messages without owner_id
@@ -81,6 +81,11 @@ jest.mock('@/lib/rbac/user-insights-scope', () => ({
     mockGetOwnedAgentConversationIds(...(args as [Array<{ id: string; name: string }>])),
   getAllAgents: (...args: unknown[]) => mockGetAllAgents(...(args as [])),
   getAgentsByIds: (...args: unknown[]) => mockGetAgentsByIds(...(args as [string[]])),
+}));
+
+const mockLoadTeamMembersForSlugs = jest.fn();
+jest.mock('@/lib/rbac/team-membership-store', () => ({
+  loadTeamMembersForSlugs: (...args: unknown[]) => mockLoadTeamMembersForSlugs(...args),
 }));
 
 const mockCheckPermission = jest.requireMock<{ checkPermission: jest.Mock }>(
@@ -203,6 +208,8 @@ function resetMocks() {
   mockGetAllAgents.mockResolvedValue([]);
   mockGetAgentsByIds.mockReset();
   mockGetAgentsByIds.mockResolvedValue([]);
+  mockLoadTeamMembersForSlugs.mockReset();
+  mockLoadTeamMembersForSlugs.mockResolvedValue(new Map());
   Object.keys(mockCollections).forEach((key) => delete mockCollections[key]);
 }
 
@@ -369,9 +376,8 @@ describe('GET /api/admin/stats — Overview', () => {
     // Promise.all order (no filters):
     // users: totalUsers, dau, mau
     // conversations: totalConversations, conversationsToday, sharedConversations
-    // messages: totalMessages, messagesToday — a single unfiltered count each,
-    // covering every metadata.source (not just 'web'/'slack'), so message
-    // counts stay in sync with conversation counts.
+    // messages: totalMessages, messagesToday — assistant rows across every
+    // metadata.source (not just 'web'/'slack').
     usersCol.countDocuments
       .mockResolvedValueOnce(15)   // totalUsers
       .mockResolvedValueOnce(3)    // dau
@@ -403,6 +409,44 @@ describe('GET /api/admin/stats — Overview', () => {
         messages_today: 20,
         shared_conversations: 2,
       })
+    );
+    expect(usersCol.countDocuments).toHaveBeenNthCalledWith(1, {
+      last_login: { $gte: expect.any(Date), $lte: expect.any(Date) },
+    });
+  });
+
+  it('excludes human messages from overview and activity metrics', async () => {
+    const { msgCol } = setupAdminWithCollections();
+
+    await GET(makeRequest('/api/admin/stats'));
+
+    // Overview total + today must both count only AI-platform output.
+    expect(msgCol.countDocuments).toHaveBeenCalledTimes(2);
+    for (const [filter] of msgCol.countDocuments.mock.calls) {
+      expect(filter).toEqual(expect.objectContaining({ role: 'assistant' }));
+    }
+
+    // The daily activity and top-users aggregations share the same invariant.
+    type PipelineStage = {
+      $group?: Record<string, unknown>;
+      $lookup?: { from?: string };
+      $match?: Record<string, unknown>;
+    };
+    const pipelines = msgCol.aggregate.mock.calls.map(
+      (call: unknown[]) => call[0] as PipelineStage[]
+    );
+    const dailyPipeline = pipelines.find((pipeline) =>
+      pipeline.some((stage) => stage.$group?.messages)
+    );
+    const topUsersPipeline = pipelines.find((pipeline) =>
+      pipeline.some((stage) => stage.$lookup?.from === 'conversations')
+    );
+
+    expect(dailyPipeline?.[0].$match).toEqual(
+      expect.objectContaining({ role: 'assistant' })
+    );
+    expect(topUsersPipeline?.[0].$match).toEqual(
+      expect.objectContaining({ role: 'assistant' })
     );
   });
 
@@ -520,6 +564,27 @@ describe('GET /api/admin/stats — Top Users', () => {
     expect(body.data.top_users).toHaveProperty('by_messages');
     expect(Array.isArray(body.data.top_users.by_conversations)).toBe(true);
     expect(Array.isArray(body.data.top_users.by_messages)).toBe(true);
+  });
+
+  it('ignores legacy ownerless rows in a 90-day leaderboard', async () => {
+    const { convCol } = setupAdminWithCollections();
+    convCol.aggregate.mockImplementation((pipeline: Record<string, unknown>[]) => ({
+      toArray: async () =>
+        pipeline.some((stage) => stage.$group?._id === '$owner_id')
+          ? [
+              { _id: null, count: 4 },
+              { _id: 'test-user@example.com', count: 2 },
+            ]
+          : [],
+    }));
+
+    const response = await GET(makeRequest('/api/admin/stats?range=90d'));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.top_users.by_conversations).toEqual([
+      expect.objectContaining({ _id: 'test-user@example.com', count: 2 }),
+    ]);
   });
 
   it('labels a bot/app owner with its persisted owner_display_name', async () => {
@@ -1070,6 +1135,53 @@ describe('GET /api/admin/stats — Full Response Shape', () => {
 });
 
 // ============================================================================
+// Tests: independently loadable sections
+// ============================================================================
+
+describe('GET /api/admin/stats — Section Responses', () => {
+  beforeEach(resetMocks);
+
+  it('returns only the requested section and skips unrelated database queries', async () => {
+    const { feedbackCol } = setupAdminWithCollections();
+
+    const res = await GET(makeRequest('/api/admin/stats?section=overview'));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.data).toHaveProperty('overview');
+    expect(body.data).not.toHaveProperty('daily_activity');
+    expect(body.data).not.toHaveProperty('feedback_summary');
+    expect(body.data).not.toHaveProperty('top_users');
+    expect(feedbackCol.aggregate).not.toHaveBeenCalled();
+    expect(mockGetAllAgents).not.toHaveBeenCalled();
+  });
+
+  it('isolates feedback queries and payload fields from the other cards', async () => {
+    const { feedbackCol } = setupAdminWithCollections();
+
+    const res = await GET(makeRequest('/api/admin/stats?section=feedback'));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.data).toHaveProperty('feedback_summary');
+    expect(body.data).toHaveProperty('platform_summary');
+    expect(body.data).not.toHaveProperty('overview');
+    expect(body.data).not.toHaveProperty('response_time');
+    expect(feedbackCol.aggregate).toHaveBeenCalledTimes(4);
+  });
+
+  it('rejects unknown section names', async () => {
+    setupAdminWithCollections();
+
+    const res = await GET(makeRequest('/api/admin/stats?section=unknown'));
+    const body = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(body.code).toBe('INVALID_STATS_SECTION');
+  });
+});
+
+// ============================================================================
 // Tests: parseRange — from/to support and sub-day presets
 // ============================================================================
 
@@ -1077,7 +1189,7 @@ describe('GET /api/admin/stats — Custom Date Range (from/to)', () => {
   beforeEach(resetMocks);
 
   it('uses from/to ISO dates to compute the range instead of preset', async () => {
-    setupAdminWithCollections();
+    const { convCol, msgCol } = setupAdminWithCollections();
 
     // 10-day custom range
     const from = '2026-03-01T00:00:00.000Z';
@@ -1089,10 +1201,23 @@ describe('GET /api/admin/stats — Custom Date Range (from/to)', () => {
     // daily_activity length should be 10 days
     expect(body.data.daily_activity).toHaveLength(10);
     expect(body.data.days).toBe(10);
+
+    const expectedEnd = new Date(to);
+    const conversationMatch = convCol.aggregate.mock.calls
+      .flatMap((call: unknown[]) => call[0])
+      .find((stage: Record<string, unknown>) => stage.$match?.created_at);
+    expect(conversationMatch.$match.created_at.$lte).toEqual(expectedEnd);
+    const messageMatch = msgCol.aggregate.mock.calls
+      .flatMap((call: unknown[]) => call[0])
+      .find((stage: Record<string, unknown>) => stage.$match?.created_at);
+    expect(messageMatch.$match.created_at.$lte).toEqual(expectedEnd);
+    expect(new Date(body.data.daily_activity.at(-1).date).getTime())
+      .toBeLessThanOrEqual(expectedEnd.getTime());
   });
 
   it('supports sub-day presets like 1h and 12h (bucketed by 5-minute intervals)', async () => {
-    setupAdminWithCollections();
+    const { usersCol, convCol, msgCol } = setupAdminWithCollections();
+    const requestStartedAt = Date.now();
 
     const req = makeRequest('/api/admin/stats?range=1h');
     const res = await GET(req);
@@ -1101,6 +1226,23 @@ describe('GET /api/admin/stats — Custom Date Range (from/to)', () => {
     // 1h range buckets by 5-minute steps so the chart isn't a single point.
     expect(body.data.daily_activity).toHaveLength(12);
     expect(body.data.days).toBe(1);
+
+    // Calendar cards (DAU/MAU and "Today") must also honor the shorter
+    // selected window instead of silently counting everything since midnight.
+    const earliestAllowed = requestStartedAt - (60 * 60 * 1000) - 1_000;
+    const lowerBounds = [
+      ...usersCol.countDocuments.mock.calls.map((call: unknown[]) => (
+        (call[0] as { last_login?: { $gte?: Date } })?.last_login?.$gte
+      )),
+      ...convCol.countDocuments.mock.calls.map((call: unknown[]) => (
+        (call[0] as { created_at?: { $gte?: Date } })?.created_at?.$gte
+      )),
+      ...msgCol.countDocuments.mock.calls.map((call: unknown[]) => (
+        (call[0] as { created_at?: { $gte?: Date } })?.created_at?.$gte
+      )),
+    ].filter((date): date is Date => date instanceof Date);
+    expect(lowerBounds.length).toBeGreaterThan(0);
+    expect(lowerBounds.every((date) => date.getTime() >= earliestAllowed)).toBe(true);
   });
 });
 
@@ -1166,6 +1308,90 @@ describe('GET /api/admin/stats — Source & User Filters', () => {
     );
     expect(hasUserFilter).toBe(true);
   });
+
+  it('resolves canonical team members and applies them to conversation and message queries', async () => {
+    const { convCol, msgCol } = setupAdminWithCollections();
+    mockLoadTeamMembersForSlugs.mockResolvedValue(new Map([
+      ['platform-team', [
+        { user_email: 'alice@example.com' },
+        { user_email: 'bob@example.com' },
+      ]],
+    ]));
+
+    await GET(makeRequest('/api/admin/stats?section=overview&team=platform-team'));
+
+    expect(mockLoadTeamMembersForSlugs).toHaveBeenCalledWith(['platform-team']);
+    const conversationFilters = convCol.countDocuments.mock.calls.map((call: unknown[]) => (
+      JSON.stringify(call[0] ?? {})
+    ));
+    expect(conversationFilters.some((filter: string) => (
+      filter.includes('alice@example.com') && filter.includes('bob@example.com')
+    ))).toBe(true);
+    const messageFilters = msgCol.countDocuments.mock.calls.map((call: unknown[]) => (
+      JSON.stringify(call[0] ?? {})
+    ));
+    expect(messageFilters.some((filter: string) => (
+      filter.includes('alice@example.com') && filter.includes('bob@example.com')
+    ))).toBe(true);
+  });
+
+  it('fails closed when a selected team has no canonical members', async () => {
+    const { convCol } = setupAdminWithCollections();
+    mockLoadTeamMembersForSlugs.mockResolvedValue(new Map([['empty-team', []]]));
+
+    await GET(makeRequest('/api/admin/stats?section=overview&team=empty-team'));
+
+    const conversationFilters = convCol.countDocuments.mock.calls.map((call: unknown[]) => call[0] ?? {});
+    expect(conversationFilters.some((filter: { owner_id?: { $in?: unknown[] } }) => (
+      Array.isArray(filter.owner_id?.$in) && filter.owner_id.$in.length === 0
+    ))).toBe(true);
+  });
+
+  it('applies a Slack channel filter to conversation and message metrics', async () => {
+    const { convCol, msgCol } = setupAdminWithCollections();
+
+    await GET(makeRequest('/api/admin/stats?section=overview&source=slack&channel=primary-channel'));
+
+    const conversationFilters = convCol.countDocuments.mock.calls.map((call: unknown[]) => (
+      JSON.stringify(call[0] ?? {})
+    ));
+    expect(conversationFilters.some((filter: string) => filter.includes('primary-channel'))).toBe(true);
+
+    const messageFilters = msgCol.countDocuments.mock.calls.map((call: unknown[]) => (
+      JSON.stringify(call[0] ?? {})
+    ));
+    expect(messageFilters.length).toBeGreaterThan(0);
+    expect(messageFilters.every((filter: string) => filter.includes('primary-channel'))).toBe(true);
+  });
+
+  it('omits the Slack-only section when source=web', async () => {
+    const { convCol } = setupAdminWithCollections();
+
+    const res = await GET(makeRequest('/api/admin/stats?section=slack&source=web'));
+    const body = await res.json();
+
+    expect(body.data).not.toHaveProperty('slack');
+    const probeCalls = convCol.countDocuments.mock.calls.filter(
+      (call: unknown[]) => call[1]?.limit === 1,
+    );
+    expect(probeCalls).toHaveLength(0);
+  });
+
+  it('applies a user filter to Slack interaction cards and omits userless configuration data', async () => {
+    const { convCol } = setupAdminWithCollections();
+    convCol.countDocuments.mockResolvedValue(1);
+
+    const res = await GET(makeRequest('/api/admin/stats?section=slack&user=person@example.com'));
+    const body = await res.json();
+
+    const slackPipelines = convCol.aggregate.mock.calls.map((call: unknown[]) => call[0]);
+    expect(slackPipelines.length).toBeGreaterThan(0);
+    expect(slackPipelines.every((pipeline: unknown) => (
+      JSON.stringify(pipeline).includes('person@example.com')
+    ))).toBe(true);
+    expect(body.data.slack).not.toHaveProperty('configured_channels');
+    expect(body.data.slack).not.toHaveProperty('configured_channels_daily');
+  });
 });
 
 // ============================================================================
@@ -1174,6 +1400,26 @@ describe('GET /api/admin/stats — Source & User Filters', () => {
 
 describe('GET /api/admin/stats — non-admin scoping', () => {
   beforeEach(resetMocks);
+
+  it('intersects a selected team with the existing non-admin visibility scope', async () => {
+    mockGetServerSession.mockResolvedValue(userSession());
+    mockGetReadableSlackChannelNames.mockResolvedValue(['primary-channel']);
+    mockLoadTeamMembersForSlugs.mockResolvedValue(new Map([
+      ['platform-team', [{ user_email: 'teammate@example.com' }]],
+    ]));
+    const { convCol } = setupNonAdminCollections();
+
+    await GET(makeRequest('/api/admin/stats?section=overview&team=platform-team'));
+
+    const filters = convCol.countDocuments.mock.calls.map((call: unknown[]) => (
+      JSON.stringify(call[0] ?? {})
+    ));
+    expect(filters.some((filter: string) => (
+      filter.includes('teammate@example.com')
+      && filter.includes('user@example.com')
+      && filter.includes('primary-channel')
+    ))).toBe(true);
+  });
 
   it('non-admin with readable channels: convSourceFilter ANDs in the channel scope', async () => {
     mockGetServerSession.mockResolvedValue(userSession());
@@ -1473,6 +1719,20 @@ describe('GET /api/admin/stats — non-admin scoping', () => {
     // getAgentsByIds is the admin-only resolver; a non-admin never calls it.
     expect(mockGetAgentsByIds).not.toHaveBeenCalled();
   });
+
+  it('non-admin: an unowned agent filter also fails closed for feedback', async () => {
+    mockGetServerSession.mockResolvedValue(userSession());
+    mockGetReadableSlackChannelNames.mockResolvedValue([]);
+    mockGetOwnedAgents.mockResolvedValue([{ id: 'agent-owned', name: 'Owned Agent' }]);
+    const { feedbackCol } = setupNonAdminCollections();
+
+    await GET(makeRequest('/api/admin/stats?section=feedback&agent=agent-unowned'));
+
+    expect(mockGetOwnedAgentConversationIds).toHaveBeenCalledWith([]);
+    const feedbackQueries = JSON.stringify(feedbackCol.aggregate.mock.calls);
+    expect(feedbackQueries).toContain('conversation_id');
+    expect(feedbackQueries).toContain('[null]');
+  });
 });
 
 describe('GET /api/admin/stats — agent filter (admin)', () => {
@@ -1504,6 +1764,38 @@ describe('GET /api/admin/stats — agent filter (admin)', () => {
       JSON.stringify(call[0] ?? {}).includes('X Agent')
     );
     expect(msgHasAgent).toBe(true);
+  });
+
+  it('admin: agent-filtered overview derives users from matching conversations', async () => {
+    mockGetAgentsByIds.mockResolvedValue([{ id: 'agent-primary', name: 'Primary Agent' }]);
+    const { usersCol, convCol, msgCol } = setupAdminWithCollections();
+
+    await GET(makeRequest('/api/admin/stats?section=overview&agent=agent-primary'));
+
+    expect(usersCol.countDocuments).not.toHaveBeenCalled();
+    const conversationQueries = JSON.stringify([
+      ...convCol.countDocuments.mock.calls,
+      ...convCol.aggregate.mock.calls,
+    ]);
+    expect(conversationQueries).toContain('participants');
+    expect(conversationQueries).toContain('agent-primary');
+    const messageQueries = JSON.stringify(msgCol.countDocuments.mock.calls);
+    expect(messageQueries).toContain('Primary Agent');
+  });
+
+  it('admin: agent filter scopes completed workflows by step agent id', async () => {
+    mockGetAgentsByIds.mockResolvedValue([{ id: 'agent-primary', name: 'Primary Agent' }]);
+    setupAdminWithCollections();
+
+    await GET(makeRequest('/api/admin/stats?section=completed_workflows&agent=agent-primary'));
+
+    const workflowCol = mockCollections.workflow_runs as ReturnType<typeof createMockCollection>;
+    const workflowQueries = JSON.stringify([
+      ...workflowCol.aggregate.mock.calls,
+      ...workflowCol.countDocuments.mock.calls,
+    ]);
+    expect(workflowQueries).toContain('steps.agent_id');
+    expect(workflowQueries).toContain('agent-primary');
   });
 
   it('admin: agent filter also scopes the Slack block by thread_owner_agent_id', async () => {
@@ -1590,5 +1882,28 @@ describe('GET /api/admin/stats — Configured Channels', () => {
       expect(daily[i].total).toBeGreaterThanOrEqual(daily[i - 1].total);
     }
   });
-});
 
+  it('filters configured channels by selected agent routes', async () => {
+    mockGetAgentsByIds.mockResolvedValue([{ id: 'agent-primary', name: 'Primary Agent' }]);
+    const { convCol } = setupAdminWithCollections();
+    convCol.countDocuments.mockResolvedValue(1);
+    stubChannelMappings([
+      { slack_channel_id: 'C1', channel_name: 'primary', active: true },
+      { slack_channel_id: 'C2', channel_name: 'secondary', active: true },
+    ]);
+    const routeCol = createMockCollection();
+    routeCol.find = jest.fn().mockReturnValue({
+      toArray: jest.fn().mockResolvedValue([{ channel_id: 'C2' }]),
+    });
+    mockCollections.slack_channel_agent_routes = routeCol;
+
+    const res = await GET(makeRequest('/api/admin/stats?section=slack&agent=agent-primary'));
+    const body = await res.json();
+
+    expect(body.data.slack.configured_channels).toBe(1);
+    expect(routeCol.find).toHaveBeenCalledWith(
+      expect.objectContaining({ agent_id: { $in: ['agent-primary'] } }),
+      expect.any(Object),
+    );
+  });
+});

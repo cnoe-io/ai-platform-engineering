@@ -2,6 +2,7 @@
 
 import { expect, test, type Page } from "@playwright/test";
 
+import { openAddMcpServerEditor } from "./_mcp-browser-fixtures";
 import {
   fulfillJson,
   installMockedRbacApp,
@@ -1165,8 +1166,7 @@ test.describe("mocked MCP OpenFGA tuple browser regression", () => {
     await page.goto("/dynamic-agents?tab=mcp-servers", { waitUntil: "domcontentloaded" });
     await expect(page.getByText("No MCP Servers Yet")).toBeVisible();
 
-    await page.getByRole("button", { name: "Add Server" }).first().click();
-    await expect(page.getByText("Add MCP Server")).toBeVisible();
+    await openAddMcpServerEditor(page);
     await expect(page.getByRole("button", { name: /Streamable HTTP.*recommended/i })).toBeVisible();
     await expect(page.getByRole("button", { name: /SSE/i })).toHaveCount(0);
     await expect(page.getByLabel(/Endpoint URL/i)).toHaveAttribute(
@@ -1224,8 +1224,7 @@ test.describe("mocked MCP OpenFGA tuple browser regression", () => {
       pagerduty: "secret-pagerduty-token",
     });
 
-    await page.getByRole("button", { name: "Add Server" }).first().click();
-    await expect(page.getByText("Add MCP Server")).toBeVisible();
+    await openAddMcpServerEditor(page);
 
     await fillNewMcpServerBasics(page, {
       displayName: "Jira Tools",
@@ -1287,8 +1286,7 @@ test.describe("mocked MCP OpenFGA tuple browser regression", () => {
     await page.goto("/dynamic-agents?tab=mcp-servers", { waitUntil: "domcontentloaded" });
     await expect(page.getByText("No MCP Servers Yet")).toBeVisible();
 
-    await page.getByRole("button", { name: "Add Server" }).first().click();
-    await expect(page.getByText("Add MCP Server")).toBeVisible();
+    await openAddMcpServerEditor(page);
 
     await fillNewMcpServerBasics(page, {
       displayName: "Test Netutils",
@@ -1355,8 +1353,7 @@ test.describe("mocked MCP OpenFGA tuple browser regression", () => {
     await page.goto("/dynamic-agents?tab=mcp-servers", { waitUntil: "domcontentloaded" });
     await expect(page.getByText("No MCP Servers Yet")).toBeVisible();
 
-    await page.getByRole("button", { name: "Add Server" }).first().click();
-    await expect(page.getByText("Add MCP Server")).toBeVisible();
+    await openAddMcpServerEditor(page);
 
     await fillNewMcpServerBasics(page, {
       displayName: "Atlassian Tools",

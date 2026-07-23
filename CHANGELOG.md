@@ -1,3 +1,80 @@
+## 0.5.60 (2026-07-23)
+
+### Fix
+
+- **rbac**: sync OIDC group membership tuples without pre-configured rules (#2282)
+
+## 0.5.59-dev.1 (2026-07-23)
+
+### Feat
+
+- **ui**: remote MCP catalog with OAuth credential connectors (#2263)
+
+## 0.5.59 (2026-07-23)
+
+### Fix
+
+- **helm**: default dynamic-agents CAIPE_API_URL from release name (#2255)
+- **ci**: stop hard-failing CI for fork PRs from outside contributors (#2281)
+
+## 0.5.58-dev.3 (2026-07-22)
+
+### Feat
+
+- **ui**: add admin filter deep links (#2279)
+
+### Fix
+
+- **ci**: disambiguate digest artifact patterns to prevent name-prefix collisions (#2277)
+
+## 0.5.58-dev.2 (2026-07-22)
+
+### Feat
+
+- **metrics**: add steady-state operations dashboard (#2278)
+
+## 0.5.58-dev.1 (2026-07-22)
+
+### Fix
+
+- **ui**: compare positive and negative feedback trends (#2276)
+
+## 0.5.58 (2026-07-22)
+
+### Fix
+
+- **ci**: build remaining 11 CI image workflows natively per-arch (#2274)
+- **workflow**: do global check correctly
+- **ci**: build rag images natively per-arch instead of QEMU-emulated arm64 (#2272)
+
+## 0.5.57 (2026-07-22)
+
+## 0.5.56-dev.4 (2026-07-22)
+
+### Fix
+
+- **insights**: apply filters consistently across cards (#2270)
+
+## 0.5.56-dev.3 (2026-07-22)
+
+### Fix
+
+- **insights**: count only assistant messages (#2267)
+
+## 0.5.56-dev.2 (2026-07-22)
+
+### Fix
+
+- **ui**: load admin insights cards independently (#2260)
+
+## 0.5.56-dev.1 (2026-07-22)
+
+### Fix
+
+- **insights**: refresh stats and restore user activity (#2259)
+
+## 0.5.56 (2026-07-21)
+
 ## 0.5.55-dev.6 (2026-07-21)
 
 ### Fix
