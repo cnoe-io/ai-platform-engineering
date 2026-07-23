@@ -19,10 +19,16 @@ interface AdminNavigationProps {
 function destinationHref(
   destination: AdminDestinationDefinition,
   searchParams: URLSearchParams,
+  activeDestinationId: AdminDestinationDefinition["id"],
 ): string {
   const params = new URLSearchParams(searchParams.toString());
   params.delete("cat");
   params.delete("tab");
+  if (destination.id === "stats" && activeDestinationId !== "stats") {
+    params.set("dateRange", "30d");
+    params.delete("from");
+    params.delete("to");
+  }
   if (destination.id !== "access-explorer") {
     params.delete("subtab");
     params.delete("openfgaTab");
@@ -34,6 +40,7 @@ function destinationHref(
 function destinationGroups(
   category: AdminCategoryDefinition,
   searchParams: URLSearchParams,
+  activeDestinationId: AdminDestinationDefinition["id"],
 ): WorkspaceNavigationGroup[] {
   const groups = new Map<string, AdminDestinationDefinition[]>();
   for (const destination of category.destinations) {
@@ -46,7 +53,7 @@ function destinationGroups(
     label: key === "destinations" ? undefined : key,
     items: destinations.map((destination) => ({
       ...destination,
-      href: destinationHref(destination, searchParams),
+      href: destinationHref(destination, searchParams, activeDestinationId),
     })),
   }));
 }
@@ -61,7 +68,7 @@ export function AdminNavigation({
       id: category.id,
       label: category.label,
       icon: category.icon,
-      groups: destinationGroups(category, searchParams),
+      groups: destinationGroups(category, searchParams, activeDestination.id),
     }),
   );
   const activeCategory = categories.find((category) =>
