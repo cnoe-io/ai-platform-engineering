@@ -109,21 +109,32 @@ jest.spyOn(console, 'warn').mockImplementation(() => {});
 // Helpers
 // ============================================================================
 
-function createMockCollection() {
-  const findReturnValue = {
-    sort: jest.fn().mockReturnValue({
-      skip: jest.fn().mockReturnValue({
-        limit: jest.fn().mockReturnValue({
-          toArray: jest.fn().mockResolvedValue([]),
-        }),
-      }),
-      toArray: jest.fn().mockResolvedValue([]),
-    }),
-    toArray: jest.fn().mockResolvedValue([]),
+/**
+ * Chainable cursor mock matching the real MongoDB driver: `.sort()`,
+ * `.skip()`, and `.limit()` can be called in any order (or omitted), and
+ * each returns the same cursor so `.toArray()` always resolves to `docs`.
+ */
+function makeCursor(docs: unknown[] = []) {
+  const cursor: {
+    sort: jest.Mock;
+    skip: jest.Mock;
+    limit: jest.Mock;
+    toArray: jest.Mock;
+  } = {
+    sort: jest.fn(),
+    skip: jest.fn(),
+    limit: jest.fn(),
+    toArray: jest.fn().mockResolvedValue(docs),
   };
+  cursor.sort.mockReturnValue(cursor);
+  cursor.skip.mockReturnValue(cursor);
+  cursor.limit.mockReturnValue(cursor);
+  return cursor;
+}
 
+function createMockCollection() {
   return {
-    find: jest.fn().mockReturnValue(findReturnValue),
+    find: jest.fn().mockReturnValue(makeCursor([])),
     findOne: jest.fn().mockResolvedValue(null),
     insertOne: jest.fn().mockResolvedValue({ insertedId: new ObjectId() }),
     updateOne: jest.fn().mockResolvedValue({ modifiedCount: 1 }),
@@ -197,15 +208,7 @@ function makeFeedbackDoc(overrides: Partial<unknown> = {}) {
 /** Setup feedback collection with chainable find mock */
 function setupFeedbackCollection(docs: unknown[], totalCount: number) {
   const feedbackCol = createMockCollection();
-  feedbackCol.find.mockReturnValue({
-    sort: jest.fn().mockReturnValue({
-      skip: jest.fn().mockReturnValue({
-        limit: jest.fn().mockReturnValue({
-          toArray: jest.fn().mockResolvedValue(docs),
-        }),
-      }),
-    }),
-  });
+  feedbackCol.find.mockReturnValue(makeCursor(docs));
   feedbackCol.countDocuments.mockResolvedValue(totalCount);
   feedbackCol.distinct = jest.fn().mockResolvedValue([]);
   mockCollections['feedback'] = feedbackCol;
@@ -478,14 +481,9 @@ describe('GET /api/admin/feedback', () => {
     mockGetServerSession.mockResolvedValue(adminSession());
 
     const feedbackCol = setupFeedbackCollection([], 100);
-    const mockSkip = jest.fn().mockReturnValue({
-      limit: jest.fn().mockReturnValue({
-        toArray: jest.fn().mockResolvedValue([]),
-      }),
-    });
-    feedbackCol.find.mockReturnValue({
-      sort: jest.fn().mockReturnValue({ skip: mockSkip }),
-    });
+    const cursor = makeCursor([]);
+    const mockSkip = cursor.skip;
+    feedbackCol.find.mockReturnValue(cursor);
 
     const res = await GET(makeRequest('/api/admin/feedback?page=3&limit=10'));
     expect(mockSkip).toHaveBeenCalledWith(20); // (3-1)*10
@@ -508,6 +506,41 @@ describe('GET /api/admin/feedback', () => {
     const filter = feedbackCol.find.mock.calls[0][0];
     expect(filter.source).toBe('slack');
     expect(filter.channel_name).toEqual({ $in: ['general', 'random'] });
+  });
+
+  it('filters by source=report', async () => {
+    mockGetServerSession.mockResolvedValue(adminSession());
+    const feedbackCol = setupFeedbackCollection([], 0);
+
+    await GET(makeRequest('/api/admin/feedback?source=report'));
+    const filter = feedbackCol.find.mock.calls[0][0];
+    expect(filter.source).toBe('report');
+  });
+
+  it('returns ticket_url and context_url for report entries', async () => {
+    mockGetServerSession.mockResolvedValue(adminSession());
+
+    const doc = makeFeedbackDoc({
+      source: 'report',
+      rating: 'negative',
+      value: 'Bug',
+      comment: 'Ingest button broken',
+      context_url: 'https://example.test/projects/acme',
+      ticket_url: 'https://github.com/org/repo/issues/99',
+      ticket_id: 'issue-99',
+      report_kind: 'tome-product',
+    });
+    setupFeedbackCollection([doc], 1);
+
+    const res = await GET(makeRequest('/api/admin/feedback'));
+    const body = await res.json();
+    expect(body.data.entries[0]).toMatchObject({
+      source: 'report',
+      ticket_url: 'https://github.com/org/repo/issues/99',
+      context_url: 'https://example.test/projects/acme',
+      report_kind: 'tome-product',
+      reason: 'Bug; Ingest button broken',
+    });
   });
 
   it('filters by user email', async () => {
@@ -547,16 +580,18 @@ describe('GET /api/admin/feedback', () => {
     expect(feedbackCol.find.mock.calls[0][0].user_email).toEqual({ $in: [] });
   });
 
-  it('filters by search terms as regex OR on comment and value', async () => {
+  it('filters by search terms as regex OR on comment, value, and Tome Q/A fields', async () => {
     mockGetServerSession.mockResolvedValue(adminSession());
     const feedbackCol = setupFeedbackCollection([], 0);
 
     await GET(makeRequest('/api/admin/feedback?search=wrong,slow'));
     const filter = feedbackCol.find.mock.calls[0][0];
-    // Each term produces 2 OR clauses (comment + value)
-    expect(filter.$or).toHaveLength(4);
+    // Each term produces 4 OR clauses (comment, value, tome Q/A)
+    expect(filter.$or).toHaveLength(8);
     expect(filter.$or[0]).toEqual({ comment: { $regex: 'wrong', $options: 'i' } });
     expect(filter.$or[1]).toEqual({ value: { $regex: 'wrong', $options: 'i' } });
+    expect(filter.$or[2]).toEqual({ tome_user_question: { $regex: 'wrong', $options: 'i' } });
+    expect(filter.$or[3]).toEqual({ tome_assistant_response: { $regex: 'wrong', $options: 'i' } });
   });
 
   it('filters by date range (from/to)', async () => {
@@ -567,6 +602,156 @@ describe('GET /api/admin/feedback', () => {
     const filter = feedbackCol.find.mock.calls[0][0];
     expect(filter.created_at.$gte).toEqual(new Date('2026-03-01T00:00:00Z'));
     expect(filter.created_at.$lte).toEqual(new Date('2026-03-15T00:00:00Z'));
+  });
+
+  // ════════════════════════════════════════════════════════════════════════
+  // Tome attribution filters (Project / BHAG / Area) + sorting + analytics
+  // ════════════════════════════════════════════════════════════════════════
+
+  it('resolves a BHAG filter to matching project slugs and applies tome_project_slug', async () => {
+    mockGetServerSession.mockResolvedValue(adminSession());
+    const feedbackCol = setupFeedbackCollection([], 0);
+    const projectsCol = createMockCollection();
+    projectsCol.find.mockReturnValue(makeCursor([{ slug: 'proj-a' }]));
+    mockCollections['projects'] = projectsCol;
+
+    await GET(makeRequest('/api/admin/feedback?bhag=Platform%20Modernization'));
+
+    const [query] = projectsCol.find.mock.calls[0];
+    expect(query['labels.initiatives'].$in[0]).toBeInstanceOf(RegExp);
+    expect('Platform Modernization').toMatch(query['labels.initiatives'].$in[0]);
+
+    const filter = feedbackCol.find.mock.calls[0][0];
+    expect(filter.tome_project_slug).toEqual({ $in: ['proj-a'] });
+  });
+
+  it('resolves a Project filter by title (case-insensitive) or slug', async () => {
+    mockGetServerSession.mockResolvedValue(adminSession());
+    const feedbackCol = setupFeedbackCollection([], 0);
+    const projectsCol = createMockCollection();
+    projectsCol.find.mockReturnValue(makeCursor([{ slug: 'proj-a' }]));
+    mockCollections['projects'] = projectsCol;
+
+    await GET(makeRequest('/api/admin/feedback?project=Project%20A'));
+
+    const [query] = projectsCol.find.mock.calls[0];
+    expect(query.$or[0]).toEqual({ slug: { $in: ['Project A'] } });
+    expect(query.$or[1].title.$in[0]).toBeInstanceOf(RegExp);
+
+    const filter = feedbackCol.find.mock.calls[0][0];
+    expect(filter.tome_project_slug).toEqual({ $in: ['proj-a'] });
+  });
+
+  it('excludes everything when a BHAG/Area filter matches no projects', async () => {
+    mockGetServerSession.mockResolvedValue(adminSession());
+    const feedbackCol = setupFeedbackCollection([], 0);
+    const projectsCol = createMockCollection();
+    projectsCol.find.mockReturnValue(makeCursor([]));
+    mockCollections['projects'] = projectsCol;
+
+    await GET(makeRequest('/api/admin/feedback?area=Nonexistent'));
+
+    const filter = feedbackCol.find.mock.calls[0][0];
+    expect(filter.tome_project_slug).toEqual({ $in: ['__none__'] });
+  });
+
+  it('applies sortBy/sortDir to the query cursor', async () => {
+    mockGetServerSession.mockResolvedValue(adminSession());
+    const feedbackCol = setupFeedbackCollection([], 0);
+
+    await GET(makeRequest('/api/admin/feedback?sortBy=rating&sortDir=asc'));
+    const cursor = feedbackCol.find.mock.results[0].value;
+    expect(cursor.sort).toHaveBeenCalledWith({ rating: 1 });
+  });
+
+  it('defaults to sorting by created_at descending', async () => {
+    mockGetServerSession.mockResolvedValue(adminSession());
+    const feedbackCol = setupFeedbackCollection([], 0);
+
+    await GET(makeRequest('/api/admin/feedback'));
+    const cursor = feedbackCol.find.mock.results[0].value;
+    expect(cursor.sort).toHaveBeenCalledWith({ created_at: -1 });
+  });
+
+  it('returns category_counts grouped by feedback value and rating', async () => {
+    mockGetServerSession.mockResolvedValue(adminSession());
+    const feedbackCol = setupFeedbackCollection([], 0);
+    feedbackCol.aggregate = jest.fn((pipeline: Array<Record<string, unknown>>) => {
+      const groupStage = pipeline.find((s) => s.$group) as { $group: { _id: unknown } } | undefined;
+      const isRatingOnlyGroup = groupStage?.$group._id === '$rating';
+      if (isRatingOnlyGroup) {
+        return {
+          toArray: jest.fn().mockResolvedValue([
+            { _id: 'positive', count: 2 },
+            { _id: 'negative', count: 1 },
+          ]),
+        };
+      }
+      return {
+        toArray: jest.fn().mockResolvedValue([
+          { _id: { value: 'thumbs_up', rating: 'positive' }, count: 2 },
+          { _id: { value: 'Trust', rating: 'negative' }, count: 1 },
+        ]),
+      };
+    });
+
+    const res = await GET(makeRequest('/api/admin/feedback'));
+    const body = await res.json();
+    expect(body.data.category_counts).toEqual([
+      { category: 'Thumbs up', positive: 2, negative: 0, total: 2 },
+      { category: 'Trust', positive: 0, negative: 1, total: 1 },
+    ]);
+  });
+
+  it('returns a word_cloud built from comment text, split by rating', async () => {
+    mockGetServerSession.mockResolvedValue(adminSession());
+    setupFeedbackCollection(
+      [
+        { comment: 'Amazing helpful answer', rating: 'positive' },
+        { comment: 'Really helpful response', rating: 'positive' },
+        { comment: 'Wrong confusing answer', rating: 'negative' },
+      ],
+      0,
+    );
+
+    const res = await GET(makeRequest('/api/admin/feedback'));
+    const body = await res.json();
+    const positiveWords = body.data.word_cloud.positive.map((w: { text: string }) => w.text);
+    const negativeWords = body.data.word_cloud.negative.map((w: { text: string }) => w.text);
+    expect(positiveWords).toContain('helpful');
+    expect(positiveWords).toContain('amazing');
+    expect(negativeWords).toContain('wrong');
+    expect(negativeWords).toContain('confusing');
+    // Stopwords like "answer"/"response" are excluded from the cloud.
+    expect(positiveWords).not.toContain('answer');
+    expect(negativeWords).not.toContain('answer');
+  });
+
+  it('returns tome_projects/tome_bhags/tome_areas option lists from resolved projects', async () => {
+    mockGetServerSession.mockResolvedValue(adminSession());
+    const feedbackCol = setupFeedbackCollection([], 0);
+    feedbackCol.distinct = jest.fn((field: string) => {
+      if (field === 'tome_project_slug') return Promise.resolve(['proj-a']);
+      return Promise.resolve([]);
+    });
+    const projectsCol = createMockCollection();
+    projectsCol.find.mockReturnValue(
+      makeCursor([
+        {
+          slug: 'proj-a',
+          title: 'Project A',
+          domain: 'Platform',
+          labels: { initiatives: ['Modernization'], swimlanes: ['Core'] },
+        },
+      ]),
+    );
+    mockCollections['projects'] = projectsCol;
+
+    const res = await GET(makeRequest('/api/admin/feedback'));
+    const body = await res.json();
+    expect(body.data.tome_projects).toEqual([{ slug: 'proj-a', title: 'Project A' }]);
+    expect(body.data.tome_bhags).toEqual(['Modernization']);
+    expect(body.data.tome_areas).toEqual(['Core']);
   });
 
   // ════════════════════════════════════════════════════════════════════════

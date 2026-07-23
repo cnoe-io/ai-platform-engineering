@@ -12,7 +12,7 @@ DialogTitle,
 } from "@/components/ui/dialog";
 import { getConfig } from "@/lib/config";
 import {
-createTicketViaAgent,
+createTicket,
 type FeedbackContext,
 type TicketResult,
 } from "@/lib/ticket-client";
@@ -37,6 +37,17 @@ import { useSession } from "next-auth/react";
 import { usePathname } from "next/navigation";
 import React,{ useCallback,useEffect,useId,useRef,useState } from "react";
 import { createPortal } from "react-dom";
+import { useToast } from "@/components/ui/toast";
+import { cn } from "@/lib/utils";
+
+const TOME_PRODUCT_CATEGORIES = [
+  "Bug",
+  "Confusing UX",
+  "Missing feature",
+  "Other",
+] as const;
+
+type ReportVariant = "default" | "tome-product";
 
 type DialogStatus = "idle" | "submitting" | "success" | "error";
 
@@ -45,6 +56,8 @@ interface ReportProblemDialogProps {
   onOpenChange: (open: boolean) => void;
   /** Pre-populated feedback context for the combo flow */
   feedbackContext?: FeedbackContext;
+  variant?: ReportVariant;
+  tomeContext?: { projectSlug?: string; pagePath?: string };
 }
 
 interface ImageCaptureConstructor {
@@ -57,11 +70,15 @@ export function ReportProblemDialog({
   open,
   onOpenChange,
   feedbackContext,
+  variant = "default",
+  tomeContext,
 }: ReportProblemDialogProps) {
   const { data: session } = useSession();
   const pathname = usePathname();
+  const { toast } = useToast();
 
   const [description, setDescription] = useState("");
+  const [category, setCategory] = useState<string>("");
   const [status, setStatus] = useState<DialogStatus>("idle");
   const [ticketResult, setTicketResult] = useState<TicketResult | null>(null);
   const [errorMessage, setErrorMessage] = useState("");
@@ -92,6 +109,7 @@ export function ReportProblemDialog({
 
   const resetState = useCallback(() => {
     setDescription("");
+    setCategory("");
     setStatus("idle");
     setTicketResult(null);
     setErrorMessage("");
@@ -187,6 +205,8 @@ export function ReportProblemDialog({
   }, []);
 
   const handleSubmit = useCallback(async () => {
+    const isTome = variant === "tome-product";
+    if (isTome && !category) return;
     if (!description.trim() && !feedbackContext) return;
 
     const controller = new AbortController();
@@ -204,7 +224,7 @@ export function ReportProblemDialog({
     appendLog(`Context: ${contextUrl}`);
 
     try {
-      const result = await createTicketViaAgent({
+      const result = await createTicket({
         request: {
           description: feedbackContext
             ? `${feedbackContext.reason}: ${feedbackContext.additionalFeedback || description || "(no additional details)"}`
@@ -216,6 +236,9 @@ export function ReportProblemDialog({
         },
         accessToken: session?.accessToken,
         signal: controller.signal,
+        source: isTome ? "tome-product" : feedbackContext ? "chat-feedback" : "header",
+        category: isTome ? category : undefined,
+        tomeContext,
         onEvent: (_event, logLine) => {
           appendLog(logLine);
         },
@@ -229,6 +252,12 @@ export function ReportProblemDialog({
       if (result) {
         setTicketResult(result);
         setStatus("success");
+        toast(
+          result.url
+            ? `Feedback submitted: tracked as ${result.id} on GitHub.`
+            : `Feedback submitted: tracked as ${result.id}.`,
+          "success"
+        );
       } else {
         setErrorMessage("No ticket ID was returned. The agent may not have created the ticket successfully.");
         setStatus("error");
@@ -252,6 +281,10 @@ export function ReportProblemDialog({
     screenshotDataUrl,
     appendLog,
     resetState,
+    variant,
+    category,
+    tomeContext,
+    toast,
   ]);
 
   const handleCancel = useCallback(() => {
@@ -266,6 +299,12 @@ export function ReportProblemDialog({
     navigator.clipboard.writeText(text);
   }, [description, feedbackContext]);
 
+  const isTomeProduct = variant === "tome-product";
+  const canSubmit =
+    isTomeProduct
+      ? Boolean(category && description.trim())
+      : Boolean(description.trim() || feedbackContext);
+
   return (
     <>
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -276,10 +315,14 @@ export function ReportProblemDialog({
               ? "Ticket Created"
               : status === "error"
                 ? "Something Went Wrong"
-                : `Report a Problem${providerLabel ? ` via ${providerLabel}` : ""}`}
+                : isTomeProduct
+                  ? "TOME product feedback"
+                  : `Report a Problem${providerLabel ? ` via ${providerLabel}` : ""}`}
           </DialogTitle>
           <DialogDescription>
-            {status === "idle" &&
+            {status === "idle" && isTomeProduct &&
+              "Report bugs, confusing UX, or missing TOME capabilities. Not for wiki page content accuracy."}
+            {status === "idle" && !isTomeProduct &&
               "Describe the issue briefly. A ticket will be created and assigned to the team."}
             {status === "submitting" && "Creating your ticket..."}
             {status === "success" && "Your ticket has been created successfully."}
@@ -301,13 +344,35 @@ export function ReportProblemDialog({
               </div>
             )}
 
+            {isTomeProduct && (
+              <div className="flex flex-wrap gap-1.5">
+                {TOME_PRODUCT_CATEGORIES.map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => setCategory(c)}
+                    className={cn(
+                      "px-3 py-1 rounded-full text-xs font-medium transition-all",
+                      category === c
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted text-muted-foreground hover:bg-muted/80",
+                    )}
+                  >
+                    {c}
+                  </button>
+                ))}
+              </div>
+            )}
+
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder={
-                feedbackContext
-                  ? "Add more details for the ticket (optional)"
-                  : "What went wrong? Be as specific as you can."
+                isTomeProduct
+                  ? "What's wrong? Be as specific as you can."
+                  : feedbackContext
+                    ? "Add more details for the ticket (optional)"
+                    : "What went wrong? Be as specific as you can."
               }
               className="w-full h-24 px-3 py-2 text-sm bg-muted/50 border border-border rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-primary/50"
               autoFocus
@@ -382,10 +447,10 @@ export function ReportProblemDialog({
 
             <Button
               onClick={handleSubmit}
-              disabled={!description.trim() && !feedbackContext}
+              disabled={!canSubmit}
               className="w-full gap-2"
             >
-              Submit Report
+              {isTomeProduct ? "Submit feedback" : "Submit Report"}
             </Button>
           </div>
         )}

@@ -195,11 +195,10 @@ describe("FeedbackButton", () => {
         feedback={{ type: "dislike", showFeedbackOptions: true }}
       />
     );
-    expect(screen.getByText("Inaccurate")).toBeInTheDocument();
-    expect(screen.getByText("Poorly Formatted")).toBeInTheDocument();
-    expect(screen.getByText("Incomplete")).toBeInTheDocument();
-    expect(screen.getByText("Off-topic")).toBeInTheDocument();
-    expect(screen.getByText("Other")).toBeInTheDocument();
+    expect(screen.getByText("Trust")).toBeInTheDocument();
+    expect(screen.getByText("Data quality/wrong info")).toBeInTheDocument();
+    expect(screen.getByText("Didn't get answer")).toBeInTheDocument();
+    expect(screen.queryByText("Other")).not.toBeInTheDocument();
   });
 
   it("selecting reason calls onFeedbackChange with reason", () => {
@@ -271,7 +270,7 @@ describe("FeedbackButton", () => {
     render(
       <FeedbackButton
         messageId="msg-1"
-        feedback={{ type: "dislike", reason: "Inaccurate", showFeedbackOptions: true }}
+        feedback={{ type: "dislike", reason: "Trust", showFeedbackOptions: true }}
         onFeedbackSubmit={onFeedbackSubmit}
       />
     );
@@ -280,7 +279,7 @@ describe("FeedbackButton", () => {
       expect(onFeedbackSubmit).toHaveBeenCalledWith(
         expect.objectContaining({
           type: "dislike",
-          reason: "Inaccurate",
+          reason: "Trust",
           submitted: true,
         })
       );
@@ -399,7 +398,7 @@ describe("FeedbackButton", () => {
     expect(title).toHaveTextContent("Positive Feedback");
   });
 
-  it("renders 'Negative Feedback' DialogTitle when disliked", () => {
+  it("renders 'Subjective Feedback' DialogTitle when disliked", () => {
     render(
       <FeedbackButton
         messageId="msg-1"
@@ -407,7 +406,7 @@ describe("FeedbackButton", () => {
       />
     );
     const title = screen.getByTestId("dialog-title");
-    expect(title).toHaveTextContent("Negative Feedback");
+    expect(title).toHaveTextContent("Subjective Feedback");
   });
 
   it("includes 'Other' additional feedback in submit", async () => {
@@ -415,21 +414,21 @@ describe("FeedbackButton", () => {
     render(
       <FeedbackButton
         messageId="msg-1"
-        feedback={{ type: "dislike", reason: "Other", showFeedbackOptions: true }}
+        feedback={{ type: "like", reason: "Other", showFeedbackOptions: true }}
         onFeedbackChange={onFeedbackChange}
       />
     );
 
     const textarea = screen.getByPlaceholderText("Provide additional feedback");
-    fireEvent.change(textarea, { target: { value: "Response was incorrect" } });
+    fireEvent.change(textarea, { target: { value: "Response was excellent" } });
     fireEvent.click(screen.getByText("Submit Feedback"));
 
     await waitFor(() => {
       expect(mockSubmitFeedback).toHaveBeenCalledWith(
         expect.objectContaining({
-          feedbackType: "dislike",
+          feedbackType: "like",
           reason: "Other",
-          additionalFeedback: "Response was incorrect",
+          additionalFeedback: "Response was excellent",
         })
       );
     });
@@ -472,7 +471,7 @@ describe("FeedbackButton", () => {
         onFeedbackChange={onFeedbackChange}
       />
     );
-    expect(screen.getByText("Inaccurate")).toBeInTheDocument();
+    expect(screen.getByText("Trust")).toBeInTheDocument();
     expect(screen.queryByText("Very Helpful")).not.toBeInTheDocument();
   });
 
@@ -497,7 +496,7 @@ describe("FeedbackButton", () => {
       render(
         <FeedbackButton
           messageId="msg-1"
-          feedback={{ type: "dislike", reason: "Inaccurate", showFeedbackOptions: true }}
+          feedback={{ type: "dislike", reason: "Trust", showFeedbackOptions: true }}
         />
       );
       expect(screen.getByText(/Submit & Report Jira Issue/)).toBeInTheDocument();
@@ -517,7 +516,7 @@ describe("FeedbackButton", () => {
       render(
         <FeedbackButton
           messageId="msg-1"
-          feedback={{ type: "dislike", reason: "Inaccurate", showFeedbackOptions: true }}
+          feedback={{ type: "dislike", reason: "Trust", showFeedbackOptions: true }}
         />
       );
       expect(screen.getByText("Report a Problem")).toBeInTheDocument();
@@ -538,7 +537,7 @@ describe("FeedbackButton", () => {
       render(
         <FeedbackButton
           messageId="msg-1"
-          feedback={{ type: "dislike", reason: "Inaccurate", showFeedbackOptions: true }}
+          feedback={{ type: "dislike", reason: "Trust", showFeedbackOptions: true }}
           onFeedbackChange={onFeedbackChange}
         />
       );
@@ -549,7 +548,7 @@ describe("FeedbackButton", () => {
         expect(mockSubmitFeedback).toHaveBeenCalledWith(
           expect.objectContaining({
             feedbackType: "dislike",
-            reason: "Inaccurate",
+            reason: "Trust",
           })
         );
       });
@@ -571,7 +570,7 @@ describe("FeedbackButton", () => {
       render(
         <FeedbackButton
           messageId="msg-1"
-          feedback={{ type: "dislike", reason: "Inaccurate", showFeedbackOptions: true }}
+          feedback={{ type: "dislike", reason: "Trust", showFeedbackOptions: true }}
         />
       );
       expect(screen.queryByText(/Submit & Report/)).not.toBeInTheDocument();
@@ -581,7 +580,7 @@ describe("FeedbackButton", () => {
       render(
         <FeedbackButton
           messageId="msg-1"
-          feedback={{ type: "dislike", reason: "Inaccurate", showFeedbackOptions: true }}
+          feedback={{ type: "dislike", reason: "Trust", showFeedbackOptions: true }}
         />
       );
       expect(screen.queryByText("Report a Problem")).not.toBeInTheDocument();

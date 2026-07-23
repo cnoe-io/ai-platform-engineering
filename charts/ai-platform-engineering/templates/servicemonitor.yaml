@@ -26,6 +26,10 @@ spec:
   #   - dynamic-agents (only when dynamic-agents.service.metricsPort is set
   #     to a port different from the main port): servicemonitor-dynamic-agents.yaml
   # audit-service has no /metrics endpoint and is excluded entirely.
+  # caipe-ui is INCLUDED (main http port, default /metrics path) — it now
+  # exposes prom-client HTTP + Tome app metrics (ui/src/lib/metrics.ts). It
+  # was excluded before that endpoint existed; the Grafana dashboard's
+  # caipe-ui panels only started getting real data once this changed.
   selector:
     matchLabels:
       app.kubernetes.io/instance: {{ .Release.Name }}
@@ -37,7 +41,6 @@ spec:
           - rag-server
           - agent-ontology
           - skill-scanner
-          - caipe-ui
       - key: app.kubernetes.io/name
         operator: NotIn
         values:

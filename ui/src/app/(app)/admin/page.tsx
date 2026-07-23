@@ -32,6 +32,7 @@ import { ReleaseNotesSettingsTab } from "@/components/admin/settings/ReleaseNote
 import { ReviewConfigsTab } from "@/components/admin/settings/ReviewConfigsTab";
 import { DateRangeFilter,presetToRange,type DateRange,type DateRangePreset } from "@/components/admin/shared/DateRangeFilter";
 import { FeedbackTrendChart } from "@/components/admin/shared/FeedbackTrendChart";
+import { TomeFeedbackInfoDialog, type TomeFeedbackDetail } from "@/components/admin/insights/TomeFeedbackInfoDialog";
 import { SimpleLineChart } from "@/components/admin/shared/SimpleLineChart";
 import { CreateTeamDialog } from "@/components/admin/teams/CreateTeamDialog";
 import { IdentitySyncPanel } from "@/components/admin/teams/IdentitySyncPanel";
@@ -68,7 +69,7 @@ import { cn } from "@/lib/utils";
 import type { SkillMetricsAdmin } from "@/types/agent-skill";
 import { ADMIN_STATS_SECTIONS,type AdminStats,type AdminStatsOwnerType,type AdminStatsSection } from "@/types/admin-stats";
 import type { Team as TeamType } from "@/types/teams";
-import { Activity,Archive,Bot,CheckCircle2,ChevronLeft,ChevronRight,Clock,Database,ExternalLink,Eye,FileText,Filter,Globe,Hash,KeyRound,LayoutGrid,Layers,Link2,ListChecks,Loader2,MessageSquare,Plug,RefreshCw,Search,Settings,Share2,Shield,ShieldCheck,ThumbsDown,ThumbsUp,Trash2,TrendingUp,Unlink,User,UserPlus,Users,UsersIcon,Wrench,X,Zap,type LucideIcon } from "lucide-react";
+import { Activity,Archive,Bot,CheckCircle2,ChevronLeft,ChevronRight,Clock,Database,ExternalLink,Eye,FileText,Filter,Globe,Hash,Info,KeyRound,LayoutGrid,Layers,Link2,ListChecks,Loader2,MessageSquare,Plug,RefreshCw,Search,Settings,Share2,Shield,ShieldCheck,ThumbsDown,ThumbsUp,Trash2,TrendingUp,Unlink,User,UserPlus,Users,UsersIcon,Wrench,X,Zap,type LucideIcon } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { usePathname,useRouter,useSearchParams } from "next/navigation";
 import React,{ useCallback,useEffect,useEffectEvent,useMemo,useRef,useState } from "react";
@@ -93,7 +94,7 @@ interface FeedbackEntry {
   message_id: string;
   conversation_id?: string;
   conversation_title?: string;
-  source?: 'web' | 'slack';
+  source?: 'web' | 'slack' | 'report' | 'tome';
   channel_name?: string | null;
   content_snippet?: string;
   role?: string;
@@ -103,6 +104,30 @@ interface FeedbackEntry {
   submitted_at: string;
   trace_id?: string | null;
   slack_permalink?: string | null;
+  ticket_url?: string | null;
+  ticket_id?: string | null;
+  context_url?: string | null;
+  report_kind?: string | null;
+  tome_project_slug?: string | null;
+  tome_session_id?: string | null;
+  tome_user_question?: string | null;
+  tome_assistant_response?: string | null;
+  tome_project_name?: string | null;
+  tome_project_domain?: string | null;
+  tome_bhags?: string[];
+  tome_areas?: string[];
+}
+
+interface FeedbackCategoryCount {
+  category: string;
+  positive: number;
+  negative: number;
+  total: number;
+}
+
+interface FeedbackWordCloudEntry {
+  text: string;
+  count: number;
 }
 
 interface FeedbackData {
@@ -114,6 +139,14 @@ interface FeedbackData {
     total: number;
     positive_rate: number;
   };
+  category_counts?: FeedbackCategoryCount[];
+  word_cloud?: {
+    positive: FeedbackWordCloudEntry[];
+    negative: FeedbackWordCloudEntry[];
+  };
+  tome_projects?: Array<{ slug: string; title: string }>;
+  tome_bhags?: string[];
+  tome_areas?: string[];
   pagination: {
     page: number;
     limit: number;
@@ -828,8 +861,10 @@ function AdminPage() {
   const [teamPendingDelete, setTeamPendingDelete] = useState<Team | null>(null);
   // ── Shared filters (source, users, date range) across feedback + stats tabs ──
   const requestedSource = searchParams.get('source');
-  const sourceFromUrl: 'all' | 'web' | 'slack' =
-    requestedSource === 'web' || requestedSource === 'slack' ? requestedSource : 'all';
+  const sourceFromUrl: 'all' | 'web' | 'slack' | 'report' | 'tome' =
+    requestedSource === 'web' || requestedSource === 'slack' || requestedSource === 'report' || requestedSource === 'tome'
+      ? requestedSource
+      : 'all';
   const usersFromUrl = commaSeparatedFilter(searchParams.get('users'));
   const requestedDatePreset = searchParams.get('dateRange');
   const requestedFrom = searchParams.get('from');
@@ -844,7 +879,7 @@ function AdminPage() {
     ? { from: requestedFrom as string, to: requestedTo as string }
     : presetToRange(datePresetFromUrl);
 
-  const [sourceFilter, setSourceFilter] = useState<'all' | 'web' | 'slack'>(
+  const [sourceFilter, setSourceFilter] = useState<'all' | 'web' | 'slack' | 'report' | 'tome'>(
     sourceFromUrl
   );
   const [userFilter, setUserFilter] = useState<string[]>(usersFromUrl);
@@ -872,6 +907,7 @@ function AdminPage() {
   const feedbackSearchFromUrl = commaSeparatedFilter(searchParams.get('search'));
 
   const [feedbackData, setFeedbackData] = useState<FeedbackData | null>(null);
+  const [tomeFeedbackDetail, setTomeFeedbackDetail] = useState<TomeFeedbackDetail | null>(null);
   const [feedbackFilter, setFeedbackFilter] = useState<'all' | 'positive' | 'negative'>(
     feedbackRatingFromUrl
   );
@@ -880,6 +916,19 @@ function AdminPage() {
   const [feedbackSearchTags, setFeedbackSearchTags] = useState<string[]>(feedbackSearchFromUrl);
   const [feedbackUsers, setFeedbackUsers] = useState<string[]>([]);
   const [feedbackLoading, setFeedbackLoading] = useState(false);
+  // Tome attribution filters (Project / BHAG / Area) — populated from the
+  // response's tome_projects/tome_bhags/tome_areas option lists.
+  const feedbackProjectsFromUrl = commaSeparatedFilter(searchParams.get('project'));
+  const feedbackBhagsFromUrl = commaSeparatedFilter(searchParams.get('bhag'));
+  const feedbackAreasFromUrl = commaSeparatedFilter(searchParams.get('area'));
+  const [feedbackProjectFilter, setFeedbackProjectFilter] = useState<string[]>(feedbackProjectsFromUrl);
+  const [feedbackBhagFilter, setFeedbackBhagFilter] = useState<string[]>(feedbackBhagsFromUrl);
+  const [feedbackAreaFilter, setFeedbackAreaFilter] = useState<string[]>(feedbackAreasFromUrl);
+  type FeedbackSortField = 'created_at' | 'rating' | 'source' | 'tome_project_slug';
+  const feedbackSortByFromUrl = (searchParams.get('sortBy') as FeedbackSortField) || 'created_at';
+  const feedbackSortDirFromUrl = searchParams.get('sortDir') === 'asc' ? 'asc' : 'desc';
+  const [feedbackSortBy, setFeedbackSortBy] = useState<FeedbackSortField>(feedbackSortByFromUrl);
+  const [feedbackSortDir, setFeedbackSortDir] = useState<'asc' | 'desc'>(feedbackSortDirFromUrl);
 
   // Sync feedback-only filters to URL
   const updateFeedbackUrl = (overrides: Record<string, string | null>) => {
@@ -888,6 +937,11 @@ function AdminPage() {
       rating: feedbackFilter !== 'all' ? feedbackFilter : null,
       channels: feedbackChannelFilter.length > 0 ? feedbackChannelFilter.join(',') : null,
       search: feedbackSearchTags.length > 0 ? feedbackSearchTags.join(',') : null,
+      project: feedbackProjectFilter.length > 0 ? feedbackProjectFilter.join(',') : null,
+      bhag: feedbackBhagFilter.length > 0 ? feedbackBhagFilter.join(',') : null,
+      area: feedbackAreaFilter.length > 0 ? feedbackAreaFilter.join(',') : null,
+      sortBy: feedbackSortBy !== 'created_at' ? feedbackSortBy : null,
+      sortDir: feedbackSortDir !== 'desc' ? feedbackSortDir : null,
     };
     updateUrlFilters({ ...defaults, ...overrides });
   };
@@ -915,6 +969,11 @@ function AdminPage() {
     searchParams.get('statsChannels'),
     searchParams.get('statsAgents'),
     searchParams.get('statsIncludeBots'),
+    searchParams.get('project'),
+    searchParams.get('bhag'),
+    searchParams.get('area'),
+    searchParams.get('sortBy'),
+    searchParams.get('sortDir'),
   ].map((value) => value ?? '').join('\u0000');
   const [previousInsightsFilterUrlKey, setPreviousInsightsFilterUrlKey] = useState(insightsFilterUrlKey);
 
@@ -930,6 +989,11 @@ function AdminPage() {
     setStatsChannelFilter(statsChannelsFromUrl);
     setStatsAgentFilter(statsAgentsFromUrl);
     setShowBotUsers(statsIncludeBotsFromUrl);
+    setFeedbackProjectFilter(feedbackProjectsFromUrl);
+    setFeedbackBhagFilter(feedbackBhagsFromUrl);
+    setFeedbackAreaFilter(feedbackAreasFromUrl);
+    setFeedbackSortBy(feedbackSortByFromUrl);
+    setFeedbackSortDir(feedbackSortDirFromUrl);
   }
 
   const updateStatsFilterUrl = (overrides: Record<string, string | null> = {}) => {
@@ -1254,6 +1318,11 @@ function AdminPage() {
     users = userFilter,
     range = dateRange,
     availableTeams = teams,
+    tomeProjects = feedbackProjectFilter,
+    tomeBhags = feedbackBhagFilter,
+    tomeAreas = feedbackAreaFilter,
+    sortBy = feedbackSortBy,
+    sortDir = feedbackSortDir,
   ): string => {
     const params = new URLSearchParams({ page: String(page), limit: '50' });
     if (rating !== 'all') params.set('rating', rating);
@@ -1277,6 +1346,11 @@ function AdminPage() {
     if (selectedTeams.size > 0) params.set('team', [...selectedTeams].join(','));
     if (range.from) params.set('from', range.from);
     if (range.to) params.set('to', range.to);
+    if (tomeProjects.length > 0) params.set('project', tomeProjects.join(','));
+    if (tomeBhags.length > 0) params.set('bhag', tomeBhags.join(','));
+    if (tomeAreas.length > 0) params.set('area', tomeAreas.join(','));
+    if (sortBy !== 'created_at') params.set('sortBy', sortBy);
+    if (sortDir !== 'desc') params.set('sortDir', sortDir);
 
     return withAdminSimulationParams(`/api/admin/feedback?${params}`, simulationTarget);
   };
@@ -1370,7 +1444,7 @@ function AdminPage() {
   const loadFeedback = async (
     rating?: 'positive' | 'negative' | 'all',
     page = 1,
-    source?: 'all' | 'web' | 'slack',
+    source?: 'all' | 'web' | 'slack' | 'report' | 'tome',
     channels?: string[],
     searchTags?: string[],
     users?: string[],
@@ -1385,23 +1459,38 @@ function AdminPage() {
       users ?? userFilter,
       range ?? dateRange,
       teams,
+      feedbackProjectFilter,
+      feedbackBhagFilter,
+      feedbackAreaFilter,
+      feedbackSortBy,
+      feedbackSortDir,
     ));
   };
 
   const feedbackFilterKey = useMemo(() => JSON.stringify({
+    area: feedbackAreaFilter,
+    bhag: feedbackBhagFilter,
     channels: feedbackChannelFilter,
     from: dateRange.from,
+    project: feedbackProjectFilter,
     rating: feedbackFilter,
     search: feedbackSearchTags,
+    sortBy: feedbackSortBy,
+    sortDir: feedbackSortDir,
     source: sourceFilter,
     to: dateRange.to,
     users: userFilter,
   }), [
     dateRange.from,
     dateRange.to,
+    feedbackAreaFilter,
+    feedbackBhagFilter,
     feedbackChannelFilter,
     feedbackFilter,
+    feedbackProjectFilter,
     feedbackSearchTags,
+    feedbackSortBy,
+    feedbackSortDir,
     sourceFilter,
     userFilter,
   ]);
@@ -1423,12 +1512,26 @@ function AdminPage() {
     updateFeedbackUrl({ rating: filter !== 'all' ? filter : null });
   };
 
-  const handleFeedbackSourceChange = (source: 'all' | 'web' | 'slack') => {
+  const handleFeedbackSourceChange = (source: 'all' | 'web' | 'slack' | 'report' | 'tome') => {
     setSourceFilter(source);
     setFeedbackChannelFilter([]);
     updateSharedFilterUrl({ source: source !== 'all' ? source : null });
     updateFeedbackUrl({ channels: null });
   };
+
+  const handleFeedbackSortChange = (field: FeedbackSortField) => {
+    const nextDir: 'asc' | 'desc' =
+      feedbackSortBy === field && feedbackSortDir === 'desc' ? 'asc' : 'desc';
+    setFeedbackSortBy(field);
+    setFeedbackSortDir(nextDir);
+    updateFeedbackUrl({
+      sortBy: field !== 'created_at' ? field : null,
+      sortDir: nextDir !== 'desc' ? nextDir : null,
+    });
+  };
+
+  const feedbackSortIndicator = (field: FeedbackSortField): string =>
+    feedbackSortBy === field ? (feedbackSortDir === 'asc' ? ' ▲' : ' ▼') : '';
 
 
   const handleDeleteTeam = async (team: Team) => {
@@ -2118,12 +2221,14 @@ function AdminPage() {
                     <div className="h-5 w-px bg-border" />
                     <select
                       value={sourceFilter}
-                      onChange={(e) => handleFeedbackSourceChange(e.target.value as 'all' | 'web' | 'slack')}
+                      onChange={(e) => handleFeedbackSourceChange(e.target.value as 'all' | 'web' | 'slack' | 'report' | 'tome')}
                       className="h-8 rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
                     >
                       <option value="all">All Sources</option>
                       <option value="web">Web</option>
+                      <option value="tome">Tome</option>
                       <option value="slack">Slack</option>
+                      <option value="report">Report</option>
                     </select>
                     {sourceFilter === 'slack' && feedbackChannels.length > 0 && (
                       <>
@@ -2152,6 +2257,57 @@ function AdminPage() {
                       placeholder="Search reasons..."
                       badgeLabel="filters"
                     />
+                    {feedbackData?.tome_projects && feedbackData.tome_projects.length > 0 && (
+                      <>
+                        <div className="h-5 w-px bg-border" />
+                        <MultiSelect
+                          options={feedbackData.tome_projects.map((p) => p.title)}
+                          selected={feedbackProjectFilter}
+                          onChange={(selected) => {
+                            setFeedbackProjectFilter(selected);
+                            updateFeedbackUrl({ project: selected.length > 0 ? selected.join(',') : null });
+                          }}
+                          placeholder="All Projects"
+                          searchPlaceholder="Search Tome projects..."
+                          emptyLabel="No projects found"
+                          badgeLabel="projects"
+                        />
+                      </>
+                    )}
+                    {feedbackData?.tome_bhags && feedbackData.tome_bhags.length > 0 && (
+                      <>
+                        <div className="h-5 w-px bg-border" />
+                        <MultiSelect
+                          options={feedbackData.tome_bhags}
+                          selected={feedbackBhagFilter}
+                          onChange={(selected) => {
+                            setFeedbackBhagFilter(selected);
+                            updateFeedbackUrl({ bhag: selected.length > 0 ? selected.join(',') : null });
+                          }}
+                          placeholder="All BHAGs"
+                          searchPlaceholder="Search BHAGs..."
+                          emptyLabel="No BHAGs found"
+                          badgeLabel="BHAGs"
+                        />
+                      </>
+                    )}
+                    {feedbackData?.tome_areas && feedbackData.tome_areas.length > 0 && (
+                      <>
+                        <div className="h-5 w-px bg-border" />
+                        <MultiSelect
+                          options={feedbackData.tome_areas}
+                          selected={feedbackAreaFilter}
+                          onChange={(selected) => {
+                            setFeedbackAreaFilter(selected);
+                            updateFeedbackUrl({ area: selected.length > 0 ? selected.join(',') : null });
+                          }}
+                          placeholder="All Areas"
+                          searchPlaceholder="Search areas..."
+                          emptyLabel="No areas found"
+                          badgeLabel="areas"
+                        />
+                      </>
+                    )}
                     {(feedbackUsers.length > 0 || teams.length > 0) && (
                       <>
                         <div className="h-5 w-px bg-border" />
@@ -2218,6 +2374,121 @@ function AdminPage() {
                   </div>
                 )}
 
+                {/* Category counts + word cloud — reflect the current filters */}
+                {feedbackData && (
+                  ((feedbackData.category_counts?.length ?? 0) > 0) ||
+                  ((feedbackData.word_cloud?.positive.length ?? 0) > 0) ||
+                  ((feedbackData.word_cloud?.negative.length ?? 0) > 0)
+                ) && (
+                  <div className="grid grid-cols-2 gap-4">
+                    <Card>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm">Feedback by category</CardTitle>
+                        <CardDescription className="text-xs">
+                          Positive vs negative counts per feedback category
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent className="space-y-2">
+                        {(feedbackData.category_counts ?? []).length === 0 ? (
+                          <p className="text-xs text-muted-foreground">No categorized feedback yet.</p>
+                        ) : (
+                          (feedbackData.category_counts ?? []).slice(0, 10).map((cat) => {
+                            const maxTotal = Math.max(
+                              ...(feedbackData.category_counts ?? []).map((c) => c.total),
+                              1,
+                            );
+                            return (
+                              <div key={cat.category} className="space-y-0.5">
+                                <div className="flex items-center justify-between text-xs">
+                                  <span className="truncate">{cat.category}</span>
+                                  <span className="text-muted-foreground shrink-0 ml-2">
+                                    {cat.positive} pos · {cat.negative} neg
+                                  </span>
+                                </div>
+                                <div className="flex h-1.5 w-full overflow-hidden rounded bg-muted">
+                                  <div
+                                    className="bg-green-500"
+                                    style={{ width: `${(cat.positive / maxTotal) * 100}%` }}
+                                  />
+                                  <div
+                                    className="bg-red-500"
+                                    style={{ width: `${(cat.negative / maxTotal) * 100}%` }}
+                                  />
+                                </div>
+                              </div>
+                            );
+                          })
+                        )}
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm">Feedback word cloud</CardTitle>
+                        <CardDescription className="text-xs">
+                          Frequent words from feedback comments (sized by frequency)
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent className="space-y-3">
+                        {(feedbackData.word_cloud?.positive.length ?? 0) === 0 &&
+                        (feedbackData.word_cloud?.negative.length ?? 0) === 0 ? (
+                          <p className="text-xs text-muted-foreground">
+                            No comment text to build a word cloud yet.
+                          </p>
+                        ) : (
+                          <>
+                            {(feedbackData.word_cloud?.positive.length ?? 0) > 0 && (
+                              <div>
+                                <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">
+                                  Positive
+                                </p>
+                                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                                  {feedbackData.word_cloud!.positive.map((w) => {
+                                    const maxCount = feedbackData.word_cloud!.positive[0]?.count || 1;
+                                    const size = 10 + Math.round((w.count / maxCount) * 10);
+                                    return (
+                                      <span
+                                        key={w.text}
+                                        className="text-green-600 dark:text-green-400"
+                                        style={{ fontSize: `${size}px`, fontWeight: size > 15 ? 600 : 400 }}
+                                        title={`${w.count} mention${w.count === 1 ? '' : 's'}`}
+                                      >
+                                        {w.text}
+                                      </span>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+                            {(feedbackData.word_cloud?.negative.length ?? 0) > 0 && (
+                              <div>
+                                <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">
+                                  Negative
+                                </p>
+                                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                                  {feedbackData.word_cloud!.negative.map((w) => {
+                                    const maxCount = feedbackData.word_cloud!.negative[0]?.count || 1;
+                                    const size = 10 + Math.round((w.count / maxCount) * 10);
+                                    return (
+                                      <span
+                                        key={w.text}
+                                        className="text-red-600 dark:text-red-400"
+                                        style={{ fontSize: `${size}px`, fontWeight: size > 15 ? 600 : 400 }}
+                                        title={`${w.count} mention${w.count === 1 ? '' : 's'}`}
+                                      >
+                                        {w.text}
+                                      </span>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </CardContent>
+                    </Card>
+                  </div>
+                )}
+
                 {/* Feedback entries */}
                 {feedbackLoading ? (
                   <div className="flex justify-center py-8">
@@ -2227,23 +2498,91 @@ function AdminPage() {
                   <div className="space-y-2">
                     <div className="grid grid-cols-7 gap-4 pb-2 border-b text-xs font-medium text-muted-foreground">
                       <div>User</div>
-                      <div>Source</div>
-                      <div>Rating</div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          className="text-left hover:text-foreground"
+                          onClick={() => handleFeedbackSortChange('source')}
+                        >
+                          Source{feedbackSortIndicator('source')}
+                        </button>
+                        {feedbackData?.tome_projects && feedbackData.tome_projects.length > 0 && (
+                          <button
+                            type="button"
+                            className="text-left hover:text-foreground"
+                            title="Sort by Tome project"
+                            onClick={() => handleFeedbackSortChange('tome_project_slug')}
+                          >
+                            · Project{feedbackSortIndicator('tome_project_slug')}
+                          </button>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        className="text-left hover:text-foreground"
+                        onClick={() => handleFeedbackSortChange('rating')}
+                      >
+                        Rating{feedbackSortIndicator('rating')}
+                      </button>
                       <div>Reason</div>
-                      <div>Date</div>
+                      <button
+                        type="button"
+                        className="text-left hover:text-foreground"
+                        onClick={() => handleFeedbackSortChange('created_at')}
+                      >
+                        Date{feedbackSortIndicator('created_at')}
+                      </button>
                       <div className="col-span-2">Link</div>
                     </div>
                     {feedbackData.entries.map((entry, i) => (
                       <div key={`${entry.message_id}-${i}`} className="grid grid-cols-7 gap-4 py-2 text-sm hover:bg-muted/50 rounded px-2 items-center">
-                        <div className="truncate text-xs text-primary hover:underline cursor-pointer" onClick={() => setSelectedUserEmail(entry.submitted_by)}>{entry.submitted_by}</div>
+                        <div className="truncate text-xs text-muted-foreground" title={entry.submitted_by}>{entry.submitted_by}</div>
                         <div>
                           <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs ${
                             entry.source === 'slack'
                               ? 'bg-purple-500/10 text-purple-600 dark:text-purple-400'
-                              : 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
+                              : entry.source === 'report'
+                                ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400'
+                                : entry.source === 'tome' || entry.tome_session_id
+                                  ? 'bg-teal-500/10 text-teal-700 dark:text-teal-400'
+                                  : 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
                           }`}>
-                            {entry.source === 'slack' ? `Slack${entry.channel_name ? ` · ${entry.channel_name}` : ''}` : 'Web'}
+                            {entry.source === 'slack'
+                              ? `Slack${entry.channel_name ? ` · ${entry.channel_name}` : ''}`
+                              : entry.source === 'report'
+                                ? 'Report'
+                                : entry.source === 'tome' || entry.tome_session_id
+                                  ? 'Tome'
+                                  : 'Web'}
                           </span>
+                          {(entry.source === 'tome' || entry.tome_session_id) && entry.tome_project_name && (
+                            <div className="mt-1 flex flex-wrap gap-1">
+                              <span
+                                className="inline-flex items-center px-1.5 py-0 rounded text-[10px] bg-muted text-muted-foreground"
+                                title="Project"
+                              >
+                                {entry.tome_project_name}
+                              </span>
+                              {(entry.tome_bhags || []).map((bhag) => (
+                                <span
+                                  key={bhag}
+                                  className="inline-flex items-center px-1.5 py-0 rounded text-[10px] bg-indigo-500/10 text-indigo-600 dark:text-indigo-400"
+                                  title="BHAG / Initiative"
+                                >
+                                  {bhag}
+                                </span>
+                              ))}
+                              {(entry.tome_areas || []).map((area) => (
+                                <span
+                                  key={area}
+                                  className="inline-flex items-center px-1.5 py-0 rounded text-[10px] bg-cyan-500/10 text-cyan-600 dark:text-cyan-400"
+                                  title="Area / Swim Lane"
+                                >
+                                  {area}
+                                </span>
+                              ))}
+                            </div>
+                          )}
                         </div>
                         <div>
                           <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs ${
@@ -2275,8 +2614,31 @@ function AdminPage() {
                             ? new Date(entry.submitted_at).toLocaleDateString()
                             : '—'}
                         </div>
-                        <div className="col-span-2">
-                          {entry.slack_permalink ? (
+                        <div className="col-span-2 flex flex-wrap items-center gap-2">
+                          {entry.ticket_url ? (
+                            <a
+                              href={entry.ticket_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                              title="View GitHub issue"
+                            >
+                              <ExternalLink className="h-3 w-3" />
+                              GitHub issue
+                            </a>
+                          ) : null}
+                          {entry.context_url ? (
+                            <a
+                              href={entry.context_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary hover:underline"
+                              title="View report context"
+                            >
+                              <ExternalLink className="h-3 w-3" />
+                              Context
+                            </a>
+                          ) : entry.slack_permalink ? (
                             <a
                               href={entry.slack_permalink}
                               target="_blank"
@@ -2287,6 +2649,35 @@ function AdminPage() {
                               <ExternalLink className="h-3 w-3" />
                               Slack thread
                             </a>
+                          ) : entry.source === 'tome' || entry.tome_session_id ? (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                              title="View Tome feedback details"
+                              onClick={() =>
+                                setTomeFeedbackDetail({
+                                  submitted_by: entry.submitted_by,
+                                  submitted_at: entry.submitted_at,
+                                  rating: entry.rating,
+                                  reason: entry.reason,
+                                  trace_id: entry.trace_id,
+                                  message_id: entry.message_id,
+                                  conversation_id: entry.conversation_id,
+                                  tome_project_slug: entry.tome_project_slug,
+                                  tome_session_id: entry.tome_session_id,
+                                  tome_user_question: entry.tome_user_question,
+                                  tome_assistant_response: entry.tome_assistant_response,
+                                  tome_project_name: entry.tome_project_name,
+                                  tome_project_domain: entry.tome_project_domain,
+                                  tome_bhags: entry.tome_bhags,
+                                  tome_areas: entry.tome_areas,
+                                })
+                              }
+                            >
+                              <Info className="h-3.5 w-3.5" />
+                            </Button>
                           ) : entry.conversation_id ? (
                             <a
                               href={`/chat/${entry.conversation_id}?from=feedback${entry.message_id ? `&message=${entry.message_id}` : ''}`}
@@ -2303,7 +2694,7 @@ function AdminPage() {
                                 : 'View chat'}
                             </a>
                           ) : (
-                            <span className="text-xs text-muted-foreground">—</span>
+                            !entry.ticket_url && <span className="text-xs text-muted-foreground">—</span>
                           )}
                         </div>
                       </div>
@@ -2341,6 +2732,10 @@ function AdminPage() {
                     </p>
                   </div>
                 )}
+                <TomeFeedbackInfoDialog
+                  entry={tomeFeedbackDetail}
+                  onClose={() => setTomeFeedbackDetail(null)}
+                />
               </TabsContent>}
 
               {/* Usage Statistics Tab */}
@@ -2351,7 +2746,7 @@ function AdminPage() {
                     <select
                       value={sourceFilter}
                       onChange={(e) => {
-                        const src = e.target.value as 'all' | 'web' | 'slack';
+                        const src = e.target.value as 'all' | 'web' | 'slack' | 'report' | 'tome';
                         setSourceFilter(src);
                         setStatsChannelFilter([]);
                         updateSharedFilterUrl({ source: src !== 'all' ? src : null });
@@ -2361,7 +2756,9 @@ function AdminPage() {
                     >
                       <option value="all">All Sources</option>
                       <option value="web">Web</option>
+                      <option value="tome">Tome</option>
                       <option value="slack">Slack</option>
+                      <option value="report">Report</option>
                     </select>
                     {sourceFilter === 'slack' && statsChannels.length > 0 && (
                       <MultiSelect

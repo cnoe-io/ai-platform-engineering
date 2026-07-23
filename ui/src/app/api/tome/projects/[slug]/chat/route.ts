@@ -13,6 +13,7 @@
 import { NextRequest } from "next/server";
 
 import { ApiError, withErrorHandler } from "@/lib/api-middleware";
+import { getMetrics, trackActiveStream } from "@/lib/metrics";
 import { loadTomeProject } from "@/lib/tome/tome-api";
 import { buildChatRequest } from "@/lib/tome/agent-proxy";
 
@@ -71,8 +72,13 @@ export const POST = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
     );
   }
 
-  // Pipe the agent's SSE stream straight through to the browser.
-  return new Response(upstream.body, {
+  // Pipe the agent's SSE stream straight through to the browser, tracking it
+  // as "active" for the tome_active_chat_sessions gauge for as long as the
+  // stream stays open (closed, erroring, or the browser disconnecting all
+  // decrement it exactly once — see trackActiveStream).
+  const { tomeActiveChatSessions } = getMetrics();
+  const trackedBody = trackActiveStream(upstream.body, tomeActiveChatSessions);
+  return new Response(trackedBody, {
     headers: {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache, no-transform",

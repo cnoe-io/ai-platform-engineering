@@ -49,6 +49,12 @@ const VALID_FEEDBACK_VALUES = [
   "wrong_answer", "needs_detail", "too_verbose", "retry", "other",
 ];
 
+function truncateFeedbackText(text: string, max = 4000): string {
+  const trimmed = text.trim();
+  if (trimmed.length <= max) return trimmed;
+  return `${trimmed.slice(0, max - 1)}…`;
+}
+
 // Request body interface
 interface FeedbackRequest {
   traceId?: string;
@@ -59,8 +65,16 @@ interface FeedbackRequest {
   reason?: string;
   additionalFeedback?: string;
   conversationId?: string;
-  /** Source client: "web" (default) or "slack" */
-  source?: "web" | "slack";
+  /** Source client: "web" (default), "slack", or "tome" */
+  source?: "web" | "slack" | "tome";
+  /** Tome project slug when source is "tome" */
+  tomeProjectSlug?: string;
+  /** Durable tome_chat_sessions id when source is "tome" */
+  tomeSessionId?: string;
+  /** User prompt for the rated Tome turn */
+  tomeUserQuestion?: string;
+  /** Assistant reply for the rated Tome turn */
+  tomeAssistantResponse?: string;
   // Slack-specific context (optional)
   channelId?: string;
   channelName?: string;
@@ -108,7 +122,6 @@ export async function POST(request: NextRequest): Promise<NextResponse<FeedbackR
 
     const source = body.source || "web";
     const rating = body.feedbackType === "like" ? "positive" : "negative";
-    // Granular value: use explicit value if valid, else derive from feedbackType
     const scoreValue =
       body.value && VALID_FEEDBACK_VALUES.includes(body.value)
         ? body.value
@@ -182,7 +195,18 @@ export async function POST(request: NextRequest): Promise<NextResponse<FeedbackR
             user_email: userEmail,
             user_id: body.userId || null,
             message_id: body.messageId || null,
-            conversation_id: body.conversationId || null,
+            conversation_id:
+              body.tomeSessionId ||
+              body.conversationId ||
+              null,
+            tome_project_slug: body.tomeProjectSlug || null,
+            tome_session_id: body.tomeSessionId || null,
+            tome_user_question: body.tomeUserQuestion
+              ? truncateFeedbackText(body.tomeUserQuestion)
+              : null,
+            tome_assistant_response: body.tomeAssistantResponse
+              ? truncateFeedbackText(body.tomeAssistantResponse)
+              : null,
             channel_id: null,
             channel_name: null,
             thread_ts: null,

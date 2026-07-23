@@ -1071,6 +1071,31 @@ services:
       - dynamic-agents
 
   ####################################################################################################
+  #              Observability — Prometheus (local dev, opt-in via `monitoring` profile)             #
+  #  Scrapes caipe-ui-prod, dynamic-agents, and tome-agent's /metrics. Set PROMETHEUS_URL=            #
+  #  http://localhost:9090 in .env so the Admin > Metrics/Health tabs pick it up.                     #
+  ####################################################################################################
+
+  prometheus:
+    image: prom/prometheus:v3.13.1
+    container_name: caipe-prometheus-dev
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    extra_hosts:
+      # Docker Desktop (macOS/Windows) provides host.docker.internal out of
+      # the box; this makes the tome-agent scrape target also resolve on
+      # Linux hosts (see deploy/prometheus/prometheus.yml).
+      - "host.docker.internal:host-gateway"
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=6h
+    restart: unless-stopped
+    profiles:
+      - monitoring
+
+  ####################################################################################################
   #                                      RAG Services                                                #
   ####################################################################################################
 
@@ -2269,8 +2294,11 @@ services:
     container_name: agentgateway-config-bridge
     restart: unless-stopped
     read_only: true
-    security_opt:
-      - no-new-privileges:true
+    # security_opt inherited from docker-compose.yaml's base definition — do not
+    # repeat it here. Some Docker Compose versions (e.g. v5.1.3) reject exact
+    # duplicate security_opt entries produced by merging identical values across
+    # -f files with "services.agentgateway-config-bridge.security_opt items at
+    # 0 and 1 are equal".
     profiles:
       - rbac
     environment:
@@ -2331,8 +2359,8 @@ services:
       GITHUB_PERSONAL_ACCESS_TOKEN: ${GITHUB_PERSONAL_ACCESS_TOKEN:-}
       GITLAB_PERSONAL_ACCESS_TOKEN: ${GITLAB_PERSONAL_ACCESS_TOKEN:-${GITLAB_TOKEN:-}}
     read_only: true
-    security_opt:
-      - no-new-privileges:true
+    # security_opt inherited from docker-compose.yaml's base definition — see
+    # the agentgateway-config-bridge comment above for why this isn't repeated.
     profiles:
       - rbac
     depends_on:

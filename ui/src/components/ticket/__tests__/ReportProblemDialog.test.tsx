@@ -38,7 +38,12 @@ jest.mock("@/lib/config", () => ({
 
 const mockCreateTicketViaAgent = jest.fn();
 
+jest.mock("@/components/ui/toast", () => ({
+  useToast: () => ({ toast: jest.fn() }),
+}));
+
 jest.mock("@/lib/ticket-client", () => ({
+  createTicket: (opts: unknown) => mockCreateTicketViaAgent(opts),
   createTicketViaAgent: (opts: unknown) => mockCreateTicketViaAgent(opts),
 }));
 

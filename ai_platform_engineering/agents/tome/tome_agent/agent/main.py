@@ -9,7 +9,8 @@ Endpoints:
 - `GET /healthz` — process is alive. Always 200 once the app has started.
 - `GET /readyz` — agent is ready to serve. 200 if the ttt config import
   succeeded and the snapshot endpoint is reachable; 503 otherwise.
-- `GET /metrics` — minimal Prometheus-style counters.
+- `GET /metrics` — Prometheus exposition (see `tome_agent.metrics`), served by
+  `PrometheusHTTPMiddleware` rather than a route handler.
 
 Auth boundary: the **backend** authenticates requests to these endpoints
 by virtue of routing — only the backend can reach the agent on the
@@ -30,7 +31,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from fastapi import FastAPI, HTTPException, Response
-from fastapi.responses import PlainTextResponse, StreamingResponse
+from fastapi.responses import StreamingResponse
 
 from tome_agent.agent import http_client, workspace
 from tome_agent.agent.chat import stream_chat
@@ -38,6 +39,7 @@ from tome_agent.agent.compact import stream_compaction
 from tome_agent.agent.ingestor import stream_ingest
 from tome_agent.agent.synthesize import stream_synthesis
 from tome_agent.config import settings
+from tome_agent.metrics import PrometheusHTTPMiddleware, metrics, run_finished, run_started
 from tome_agent.orchestrator.contract import (
     ChatEventPayload,
     ChatRequest,
@@ -60,6 +62,9 @@ class _AgentState:
 
 
 _state = _AgentState(started_at=datetime.now(timezone.utc))
+metrics.uptime_seconds.set_function(
+    lambda: (datetime.now(timezone.utc) - _state.started_at).total_seconds()
+)
 
 
 @asynccontextmanager
@@ -97,6 +102,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="tome-agent", lifespan=lifespan)
+app.add_middleware(PrometheusHTTPMiddleware)
 
 
 # ---------- health / readiness / metrics ----------
@@ -119,19 +125,8 @@ def readyz() -> Response:
     return Response(status_code=503, content="not ready")
 
 
-@app.get("/metrics", response_class=PlainTextResponse)
-def metrics() -> str:
-    """Minimal Prometheus exposition. We only track what the host's
-    autoscaler/observability cares about — in-flight runs and uptime."""
-    uptime_s = (datetime.now(timezone.utc) - _state.started_at).total_seconds()
-    return (
-        "# HELP ttt_agent_in_flight_runs Number of chat/ingest runs in flight.\n"
-        "# TYPE ttt_agent_in_flight_runs gauge\n"
-        f"ttt_agent_in_flight_runs {_state.in_flight_runs}\n"
-        "# HELP ttt_agent_uptime_seconds Process uptime.\n"
-        "# TYPE ttt_agent_uptime_seconds counter\n"
-        f"ttt_agent_uptime_seconds {uptime_s:.3f}\n"
-    )
+# `/metrics` itself is served by PrometheusHTTPMiddleware (registered above),
+# not a route handler — see tome_agent.metrics.PrometheusHTTPMiddleware.
 
 
 # ---------- chat ----------
@@ -160,6 +155,8 @@ async def chat_endpoint(body: ChatRequest):
         http_client.set_active_actor_email(body.actor_email)
         _state.in_flight_runs += 1
         _state.last_activity_at = datetime.now(timezone.utc)
+        run_start = run_started()
+        success = False
         try:
             async for event in stream_chat(
                 user_message=body.message,
@@ -169,9 +166,11 @@ async def chat_endpoint(body: ChatRequest):
                 is_compact=body.is_compact,
             ):
                 yield _sse_format(event)
+            success = True
         finally:
             _state.in_flight_runs = max(0, _state.in_flight_runs - 1)
             _state.last_activity_at = datetime.now(timezone.utc)
+            run_finished("chat", run_start, success)
 
     return StreamingResponse(gen(), media_type="text/event-stream")
 
@@ -194,6 +193,8 @@ async def ingest_endpoint(body: IngestRequest):
         http_client.set_active_credentials(body.credentials)
         _state.in_flight_runs += 1
         _state.last_activity_at = datetime.now(timezone.utc)
+        run_start = run_started()
+        success = False
         try:
             # Hold the per-project lock for the whole run (serializing it
             # against other ingests and the periodic sync), and refresh the
@@ -211,9 +212,11 @@ async def ingest_endpoint(body: IngestRequest):
                     report_id=body.report_id,
                 ):
                     yield _sse_format(event)
+            success = True
         finally:
             _state.in_flight_runs = max(0, _state.in_flight_runs - 1)
             _state.last_activity_at = datetime.now(timezone.utc)
+            run_finished("ingest", run_start, success)
 
     return StreamingResponse(gen(), media_type="text/event-stream")
 
@@ -236,6 +239,8 @@ async def compact_endpoint(body: IngestRequest):
         http_client.set_active_credentials(body.credentials)
         _state.in_flight_runs += 1
         _state.last_activity_at = datetime.now(timezone.utc)
+        run_start = run_started()
+        success = False
         try:
             async with workspace.project_lock(pid):
                 await workspace.refresh_project(pid)
@@ -246,9 +251,11 @@ async def compact_endpoint(body: IngestRequest):
                     report_id=body.report_id,
                 ):
                     yield _sse_format(event)
+            success = True
         finally:
             _state.in_flight_runs = max(0, _state.in_flight_runs - 1)
             _state.last_activity_at = datetime.now(timezone.utc)
+            run_finished("compact", run_start, success)
 
     return StreamingResponse(gen(), media_type="text/event-stream")
 
@@ -271,6 +278,8 @@ async def synthesize_endpoint(body: IngestRequest):
         http_client.set_active_credentials(body.credentials)
         _state.in_flight_runs += 1
         _state.last_activity_at = datetime.now(timezone.utc)
+        run_start = run_started()
+        success = False
         try:
             async with workspace.project_lock(pid):
                 await workspace.refresh_project(pid)
@@ -289,8 +298,10 @@ async def synthesize_endpoint(body: IngestRequest):
                     report_id=body.report_id,
                 ):
                     yield _sse_format(event)
+            success = True
         finally:
             _state.in_flight_runs = max(0, _state.in_flight_runs - 1)
             _state.last_activity_at = datetime.now(timezone.utc)
+            run_finished("synthesize", run_start, success)
 
     return StreamingResponse(gen(), media_type="text/event-stream")

@@ -12,7 +12,6 @@ import {
   isSlackIntegrationEnabled,
   isWebexIntegrationEnabled,
 } from "@/lib/integration-config";
-import { getRequestOrigin } from "@/app/api/skills/_lib/request-origin";
 import {
   createJsonResponseCacheStore,
   envTtlMs,
@@ -100,6 +99,23 @@ function trimTrailingSlash(value: string): string {
 
 function auditServiceUrl(): string {
   return (process.env.AUDIT_SERVICE_URL ?? process.env.AUDIT_LOG_SERVICE_URL ?? "http://audit-service:8010").replace(/\/$/, "");
+}
+
+// Dynamic Agents / RAG server internal URLs. Resolved once here and reused by
+// both the capability summary and the diagnostics probes below — deliberately
+// NOT proxied via selfBase/getRequestOrigin: a health check that calls back out
+// through the deployment's own public hostname round-trips through the
+// container's public IP, which single-host deployments (one EC2 instance
+// fronting itself) typically can't hairpin back in on, causing spurious
+// AbortController timeouts even though the backing service is healthy.
+function resolveDynamicAgentsUrl(): string {
+  return trimTrailingSlash(
+    envValue("DYNAMIC_AGENTS_URL") || envValue("DA_SERVER_BASE_URL") || "http://dynamic-agents:8001",
+  );
+}
+
+function resolveRagServerUrl(): string {
+  return trimTrailingSlash(envValue("RAG_SERVER_URL") || "http://rag-server:9446");
 }
 
 function isHealthyStatusPayload(payload: unknown): boolean {
@@ -564,10 +580,8 @@ async function buildDiagnosticProbes(): Promise<DiagnosticProbeResult[]> {
   const keycloakUrl = trimTrailingSlash(envValue("KEYCLOAK_URL") || "http://keycloak:7080");
   const keycloakRealm = envValue("KEYCLOAK_REALM") || "caipe";
   const openfgaUrl = trimTrailingSlash(envValue("OPENFGA_HTTP") || "http://openfga:8080");
-  const ragServerUrl = trimTrailingSlash(envValue("RAG_SERVER_URL") || "http://rag-server:9446");
-  const dynamicAgentsUrl = trimTrailingSlash(
-    envValue("DYNAMIC_AGENTS_URL") || envValue("DA_SERVER_BASE_URL") || "http://dynamic-agents:8001",
-  );
+  const ragServerUrl = resolveRagServerUrl();
+  const dynamicAgentsUrl = resolveDynamicAgentsUrl();
   const agentgatewayAdminUrl = trimTrailingSlash(
     envValue("AGENTGATEWAY_ADMIN_CONFIG_URL") || "http://agentgateway:15000/config",
   );
@@ -999,7 +1013,8 @@ export async function GET(request: NextRequest): Promise<Response> {
 async function getPlatformHealth(request: NextRequest): Promise<NextResponse> {
   const config = getServerConfig();
   const serverOnly = getServerOnlyConfig();
-  const selfBase = getRequestOrigin(request);
+  const dynamicAgentsUrl = resolveDynamicAgentsUrl();
+  const ragServerUrl = resolveRagServerUrl();
   const includeDiagnostics = new URL(request.url).searchParams.get("diagnostics") === "1";
   const capabilityResults = await Promise.all([
     probeHttpCapability({
@@ -1018,7 +1033,7 @@ async function getPlatformHealth(request: NextRequest): Promise<NextResponse> {
           id: "dynamic-agents",
           label: "Dynamic Agents",
           group: "runtime",
-          target: `${selfBase}/api/dynamic-agents/health`,
+          target: `${dynamicAgentsUrl}/healthz`,
           required: true,
           description: "Checks Dynamic Agents when custom agent runtime is enabled.",
           healthyDetail: "Runtime reachable",
@@ -1040,7 +1055,7 @@ async function getPlatformHealth(request: NextRequest): Promise<NextResponse> {
           id: "knowledge-bases",
           label: "Knowledge Bases",
           group: "knowledge",
-          target: `${selfBase}/api/rag/healthz`,
+          target: `${ragServerUrl}/healthz`,
           required: false,
           description: "Checks the RAG API used by Knowledge Bases.",
           healthyDetail: "RAG API reachable",

@@ -8,6 +8,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions, isBootstrapAdmin } from '@/lib/auth-config';
 import { getConfig } from '@/lib/config';
 import { getCollection } from '@/lib/mongodb';
+import { recordHttpRequest } from '@/lib/metrics';
 import { getRbacCollection } from '@/lib/rbac/mongo-collections';
 import type { Conversation, User } from '@/types/mongodb';
 import type { TeamMembershipSource } from '@/types/identity-group-sync';
@@ -1167,11 +1168,23 @@ export function withErrorHandler<TContext, TResponse extends Response>(
   handler: (request: NextRequest, context: TContext) => Promise<TResponse>
 ): (request: NextRequest, context: TContext) => Promise<Response> {
   return async (request: NextRequest, context: TContext): Promise<Response> => {
+    const start = process.hrtime.bigint();
+    let response: Response;
     try {
-      return await handler(request, context);
+      response = await handler(request, context);
     } catch (error) {
-      return handleApiError(error);
+      response = handleApiError(error);
     }
+    // Fire-and-forget: recordHttpRequest must never throw or block the
+    // response. Every API route goes through this wrapper, so this is the
+    // single choke point for HTTP metrics (no per-route wiring needed).
+    try {
+      const durationSeconds = Number(process.hrtime.bigint() - start) / 1e9;
+      recordHttpRequest(request.method, request.nextUrl.pathname, response.status, durationSeconds);
+    } catch {
+      // metrics must never affect request handling
+    }
+    return response;
   };
 }
 

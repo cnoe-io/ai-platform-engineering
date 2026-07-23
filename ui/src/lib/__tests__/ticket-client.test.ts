@@ -27,6 +27,8 @@ jest.mock("@/lib/config", () => ({
     switch (key) {
       case "ticketProvider":
         return mockProvider;
+      case "githubTicketEnabled":
+        return mockProvider === "github";
       case "jiraTicketProject":
         return mockProject;
       case "jiraTicketLabel":
@@ -392,5 +394,52 @@ describe("createTicketViaAgent", () => {
       url: "https://jira.example.com/browse/OPENSD-200",
       provider: "jira",
     });
+  });
+});
+
+describe("createTicketViaApi", () => {
+  const originalFetch = global.fetch;
+
+  beforeEach(() => {
+    mockProvider = "github";
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        success: true,
+        data: {
+          id: "#169",
+          url: "https://github.com/org/repo/issues/169",
+          provider: "github",
+        },
+      }),
+    }) as unknown as typeof fetch;
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  it("posts to /api/tickets/report for GitHub", async () => {
+    const { createTicketViaApi } = await import("../ticket-client");
+    const onResult = jest.fn();
+
+    const result = await createTicketViaApi({
+      request: {
+        description: "Broken ingest flow",
+        userEmail: "test@example.com",
+        contextUrl: "https://example.test/projects/tome/tome",
+      },
+      source: "tome-product",
+      category: "Bug",
+      tomeContext: { projectSlug: "tome" },
+      onResult,
+    });
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      "/api/tickets/report",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(result.id).toBe("#169");
+    expect(onResult).toHaveBeenCalled();
   });
 });

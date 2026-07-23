@@ -1,14 +1,35 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PageTemplateEditor } from "@/components/tome/PageTemplateEditor";
+import { TomeAnalyticsTab } from "@/components/tome/admin/TomeAnalyticsTab";
+import { useSubtabParam } from "@/hooks/use-subtab-param";
+
+const TOME_ADMIN_TABS = ["page-templates", "analytics"] as const;
+type TomeAdminTab = (typeof TOME_ADMIN_TABS)[number];
 
 export default function TomeAdminPage() {
+  return (
+    // useSubtabParam reads useSearchParams(), which requires a Suspense
+    // boundary so a direct/refreshed load of a `?tab=` deep link doesn't bail
+    // the whole route out of static rendering.
+    <Suspense fallback={null}>
+      <TomeAdminPageContent />
+    </Suspense>
+  );
+}
+
+function TomeAdminPageContent() {
   const router = useRouter();
   const [checking, setChecking] = useState(true);
+  const [activeTab, setActiveTab] = useSubtabParam<TomeAdminTab>(
+    TOME_ADMIN_TABS,
+    "page-templates",
+    "tab",
+  );
 
   useEffect(() => {
     fetch("/api/tome/admin")
@@ -37,9 +58,10 @@ export default function TomeAdminPage() {
         </p>
       </div>
 
-      <Tabs defaultValue="page-templates" className="space-y-6">
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as TomeAdminTab)} className="space-y-6">
         <TabsList>
           <TabsTrigger value="page-templates">Page Templates</TabsTrigger>
+          <TabsTrigger value="analytics">Analytics</TabsTrigger>
         </TabsList>
 
         <TabsContent value="page-templates" className="mt-0 space-y-4">
@@ -48,6 +70,10 @@ export default function TomeAdminPage() {
             agent read this config.
           </p>
           <PageTemplateEditor />
+        </TabsContent>
+
+        <TabsContent value="analytics" className="mt-0 space-y-4">
+          <TomeAnalyticsTab />
         </TabsContent>
       </Tabs>
     </section>

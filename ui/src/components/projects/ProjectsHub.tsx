@@ -26,6 +26,7 @@ import { BackstageSyncDialog } from "@/components/projects/BackstageSyncDialog";
 import { ProjectOnboardingWizard } from "@/components/projects/ProjectOnboardingWizard";
 import { McpConnectDialog } from "@/components/tome/McpConnectDialog";
 import { OnboardingModal } from "@/components/tome/OnboardingModal";
+import { TomeProductFeedback } from "@/components/tome/TomeProductFeedback";
 import { ProviderLogo } from "@/components/credentials/provider-logo";
 import { Button } from "@/components/ui/button";
 import {
@@ -625,6 +626,7 @@ export function ProjectsHub() {
                   Admin
                 </Link>
               )}
+              <TomeProductFeedback variant="link" />
             </div>
           </div>
         </div>
