@@ -1,6 +1,6 @@
 "use client";
 
-// assisted-by Codex Codex-sonnet-4-6
+// assisted-by claude code claude-sonnet-4-6
 
 import { Button } from "@/components/ui/button";
 import { formatTimeUntilExpiry,getTimeUntilExpiry,getWarningTimestamp,isTokenExpired } from "@/lib/auth-utils";
@@ -11,6 +11,10 @@ import { signOut,useSession } from "next-auth/react";
 import { useCallback,useEffect,useRef,useState } from "react";
 
 const LOGIN_REDIRECT_COUNTDOWN_SECONDS = 5;
+// Keepalive fires at 75% of the Keycloak SSO session idle timeout (default 8h → 6h).
+// Each successful token exchange resets the server-side idle timer, preventing
+// users from being silently logged out while the tab is open but idle.
+const SESSION_KEEPALIVE_INTERVAL_MS = 6 * 60 * 60 * 1000;
 // AccessTokenMissing is intentionally absent here — it has its own retry-budget
 // handling above (lines 198-211) and must never fall through to immediate logout.
 const SESSION_CREDENTIAL_ERRORS = new Set([
@@ -57,6 +61,7 @@ export function TokenExpiryGuard() {
   const checkIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const redirectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const keepaliveIntervalRef = useRef<NodeJS.Timeout | null>(null);
   /** Tracks user dismissal — stores the expiresAt timestamp for which the warning was dismissed.
    *  This way, if the token is refreshed (new expiresAt), the warning can show again for the new cycle. */
   const dismissedForExpiryRef = useRef<number | null>(null);
@@ -334,6 +339,33 @@ export function TokenExpiryGuard() {
       }
     };
   }, [status, checkTokenExpiry]);
+
+  // Proactive session keepalive: force-refresh the token on a fixed interval so
+  // the Keycloak SSO session idle timer never reaches its limit while the tab is
+  // open. Without this, a user idle for longer than ssoSessionIdleTimeout (8h)
+  // has their refresh token invalidated server-side, causing the next expiry check
+  // to fail with invalid_token and immediately log them out.
+  useEffect(() => {
+    if (!getConfig('ssoEnabled') || status !== "authenticated" || !session?.hasRefreshToken) {
+      return;
+    }
+
+    keepaliveIntervalRef.current = setInterval(async () => {
+      console.log("[TokenExpiryGuard] Proactive keepalive — refreshing token to reset SSO idle timer");
+      try {
+        await updateSession({ forceRefresh: true });
+      } catch (error) {
+        console.warn("[TokenExpiryGuard] Keepalive refresh failed:", error);
+      }
+    }, SESSION_KEEPALIVE_INTERVAL_MS);
+
+    return () => {
+      if (keepaliveIntervalRef.current) {
+        clearInterval(keepaliveIntervalRef.current);
+        keepaliveIntervalRef.current = null;
+      }
+    };
+  }, [status, session?.hasRefreshToken, updateSession]);
 
   useEffect(() => clearRedirectTimers, [clearRedirectTimers]);
 
