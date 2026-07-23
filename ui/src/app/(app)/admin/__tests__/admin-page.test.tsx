@@ -13,7 +13,7 @@
 // assisted-by Codex Codex-sonnet-4-6
 
 import React from 'react';
-import { render, screen, waitFor, within, fireEvent } from '@testing-library/react';
+import { act, render, screen, waitFor, within, fireEvent } from '@testing-library/react';
 
 // assisted-by Codex Codex-sonnet-4-6
 
@@ -1759,6 +1759,24 @@ describe('Admin Dashboard Page', () => {
       expect(screen.getByText('Messages')).toBeInTheDocument();
       expect(screen.getByText('Daily Active Users (DAU)')).toBeInTheDocument();
       expect(screen.queryByText('NaN')).not.toBeInTheDocument();
+    });
+
+    it('does not refresh the default 30-day stats after entering Statistics', async () => {
+      const fetchMock = setupFetchMock();
+      render(<AdminPage />);
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Insights' }));
+      await screen.findByText('42');
+      await act(async () => {
+        await new Promise((resolve) => window.setTimeout(resolve, 200));
+      });
+
+      const statsUrls = fetchMock.mock.calls
+        .map(([url]) => new URL(url, 'http://localhost'))
+        .filter((url) => url.pathname === '/api/admin/stats');
+      expect(statsUrls).toHaveLength(10);
+      expect(new Set(statsUrls.map((url) => url.searchParams.get('section'))).size).toBe(10);
+      expect(statsUrls.every((url) => url.searchParams.get('range') === '30d')).toBe(true);
     });
 
     it('passes positive and negative daily feedback as separate chart series', async () => {

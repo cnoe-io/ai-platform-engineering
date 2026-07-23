@@ -1201,10 +1201,10 @@ function AdminPage() {
   const statsFilterKey = useMemo(() => JSON.stringify({
     agents: statsAgentFilter,
     channels: statsChannelFilter,
-    from: dateRange.from,
+    from: datePreset === 'custom' ? dateRange.from : null,
     range: datePreset,
     source: sourceFilter,
-    to: dateRange.to,
+    to: datePreset === 'custom' ? dateRange.to : null,
     teams: selectedStatsFilters.teamSlugs,
     users: selectedStatsFilters.userEmails,
   }), [
@@ -1217,10 +1217,10 @@ function AdminPage() {
     statsChannelFilter,
   ]);
   const skillStatsFilterKey = useMemo(() => JSON.stringify({
-    from: dateRange.from,
+    from: datePreset === 'custom' ? dateRange.from : null,
     range: datePreset,
     source: sourceFilter,
-    to: dateRange.to,
+    to: datePreset === 'custom' ? dateRange.to : null,
     teams: selectedStatsFilters.teamSlugs,
     users: selectedStatsFilters.userEmails,
   }), [datePreset, dateRange.from, dateRange.to, selectedStatsFilters, sourceFilter]);
