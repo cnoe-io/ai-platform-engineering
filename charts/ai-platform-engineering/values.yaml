@@ -3,6 +3,7 @@ tags:
   complete: false
   caipe-ui: false
   dynamic-agents: false
+  autonomous-agents: false
   mcp-argocd: false
   mcp-aws: false
   mcp-backstage: false
@@ -784,6 +785,9 @@ caipe-ui:
     # When set, only listed templates are seeded; unlisted ones are removed on deploy.
     # When unset or empty, all built-in templates are seeded automatically.
     # BUILTIN_SKILL_IDS: "qs-deploy-status,qs-pr-review"
+    # Dynamic Agents: set to "true" to enable custom agent creation and management
+    # Requires admin role and MongoDB storage mode
+    DYNAMIC_AGENTS_ENABLED: "false"
     # Dynamic Agents service URL. Leave empty to use the chart default.
     # DYNAMIC_AGENTS_URL: ""
     # Scheduler service used by the Schedules page and scheduled-run BFF path.
@@ -802,6 +806,12 @@ caipe-ui:
     # controls the legacy fixed-provider variables; oauthConnectors below is
     # always bootstrapped when non-empty.
     CREDENTIAL_BOOTSTRAP_OAUTH_CONNECTORS: "false"
+    # Autonomous Agents: set to "true" to enable the admin-gated Autonomous tab
+    # (UI proxies to the service at /api/autonomous). Requires tags.autonomous-agents=true.
+    ENABLE_AUTONOMOUS_AGENTS: "false"
+    # Autonomous Agents service URL (only used when ENABLE_AUTONOMOUS_AGENTS is "true")
+    # AUTONOMOUS_AGENTS_URL: ""
+
     # Standalone skill-scanner microservice (cisco-ai-defense/skill-scanner).
     # Active when global.skillScanner.enabled=true. Leave empty to use the
     # in-cluster default (derived from .Release.Name in the deployment template).
@@ -1126,6 +1136,65 @@ dynamic-agents:
       #   remoteRef:
       #     key: dev/dynamic-agents
       #     property: OPENAI_API_KEY
+
+######### Autonomous Agents configuration #########
+# Autonomous Agents - standalone scheduler that fires tasks (cron / interval /
+# webhook) at the dynamic-agents runtime. Tasks and run history are managed
+# through the UI's admin-gated /api/autonomous proxy; this service is the
+# upstream that proxy targets.
+# Enable with: tags.autonomous-agents=true
+# Requires: MongoDB (uses same MongoDB as CAIPE UI) and dynamic-agents.
+# Also set the UI flags (caipe-ui.config.ENABLE_AUTONOMOUS_AGENTS /
+# AUTONOMOUS_AGENTS_URL) -- see values-autonomous-agents.yaml.example for the
+# full recipe.
+autonomous-agents:
+  nameOverride: "autonomous-agents"
+  image:
+    repository: "ghcr.io/cnoe-io/caipe-autonomous-agents"
+    # tag defaults to .Chart.AppVersion when not specified
+    tag: ""
+    pullPolicy: "IfNotPresent"
+  service:
+    port: 8002
+  # Authenticate scheduled calls to Dynamic Agents with the bundled Keycloak
+  # platform client. Override tokenUrl and the Secret reference when using an
+  # external identity provider or a custom platform-client Secret.
+  dynamicAgentsAuth:
+    enabled: true
+    tokenUrl: ""
+    clientId: "caipe-platform"
+    scope: "openid profile email"
+    clientSecretRef:
+      name: "caipe-platform-secret"
+      key: "OIDC_CLIENT_SECRET"
+  # ConfigMap for non-sensitive configuration.
+  # DYNAMIC_AGENTS_URL defaults to the in-release dynamic-agents Service in the
+  # autonomous-agents subchart helper. Set it here only to override that default.
+  config:
+    # Dynamic-agents runtime endpoint -- every autonomous task runs against a
+    # dynamic agent selected by the task's dynamic_agent_id.
+    DYNAMIC_AGENTS_URL: ""
+    # MongoDB configuration (uses same database as CAIPE UI)
+    MONGODB_DATABASE: "caipe"
+  # Pre-existing secret with MONGODB_URI (required), WEBHOOK_SECRET, and
+  # optional WEBEX_* values -- see the subchart values.yaml for the full list
+  existingSecret: ""
+  # External Secrets configuration for sensitive data (MongoDB URI, webhook secrets)
+  externalSecrets:
+    enabled: false  # Set to true to enable external secrets
+    apiVersion: "v1beta1"
+    secretStoreRef:
+      name: "vault"  # Your secret store name
+      kind: "ClusterSecretStore"
+    data: []
+      # - secretKey: MONGODB_URI
+      #   remoteRef:
+      #     key: dev/autonomous-agents
+      #     property: MONGODB_URI
+      # - secretKey: WEBHOOK_SECRET
+      #   remoteRef:
+      #     key: dev/autonomous-agents
+      #     property: WEBHOOK_SECRET
 
 ######### Scheduler service configuration #########
 # Enable with global.scheduler.enabled=true. Dynamic Agents and Keycloak are
@@ -1453,6 +1522,13 @@ openfga:
     enabled: true
     storeName: caipe-openfga
     seedTuples: []
+    platformClient:
+      enabled: false
+      clientId: caipe-platform
+      clientSecretRef:
+        name: caipe-platform-secret
+        key: OIDC_CLIENT_SECRET
+      orgObject: organization:caipe
   datastore:
     engine: memory
     uriSecretRef:

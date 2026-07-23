@@ -22,6 +22,7 @@ Loader2,
 Lock,
 Plus,
 RefreshCw,
+SquarePen,
 Search,
 ToggleLeft,
 ToggleRight,
@@ -31,6 +32,7 @@ Users,
 import React from "react";
 import { Input } from "@/components/ui/input";
 import { AgentAvatar } from "./AgentAvatar";
+import { AgentAutonomousDrawer } from "./AgentAutonomousDrawer";
 import { DynamicAgentEditor } from "./DynamicAgentEditor";
 import type { AgentSetupStep } from "./deep-linking";
 
@@ -38,6 +40,8 @@ const DEFAULT_ROW_PERMISSIONS = {
   can_manage: false,
   can_write: false,
   can_discover: false,
+  can_schedule: false,
+  can_automate: false,
 } as const;
 
 function agentCanEdit(agent: DynamicAgentConfigWithPermissions | null | undefined): boolean {
@@ -47,6 +51,16 @@ function agentCanEdit(agent: DynamicAgentConfigWithPermissions | null | undefine
 
 function agentCanManage(agent: DynamicAgentConfigWithPermissions | null | undefined): boolean {
   return agent?.permissions?.can_manage === true;
+}
+
+/**
+ * Whether the current user may flip per-agent autonomous enablement.
+ * Platform admins or admins of the agent's owner team only (mirrors the
+ * automation route's server-side gate) — regular members with can_manage
+ * via a team-level "Manage" grant may not.
+ */
+function agentCanAutomate(agent: DynamicAgentConfigWithPermissions | null | undefined): boolean {
+  return agent?.permissions?.can_automate === true;
 }
 
 function errorMessage(error: unknown, fallback: string): string {
@@ -79,6 +93,7 @@ export function DynamicAgentsTab({
   const [pendingDeleteAgentId, setPendingDeleteAgentId] = React.useState<string | null>(null);
   const [deletingAgentId, setDeletingAgentId] = React.useState<string | null>(null);
   const [rowActionErrors, setRowActionErrors] = React.useState<Record<string, string>>({});
+  const [drawerAgent, setDrawerAgent] = React.useState<DynamicAgentConfigWithPermissions | null>(null);
   const [search, setSearch] = React.useState("");
   const [searchInput, setSearchInput] = React.useState("");
   const [page, setPage] = React.useState(1);
@@ -239,6 +254,58 @@ export function DynamicAgentsTab({
       setRowActionErrors((prev) => ({
         ...prev,
         [agent._id]: errorMessage(err, "Failed to update agent"),
+      }));
+    }
+  };
+
+  /**
+   * Enable/disable autonomous scheduling for this agent's owner team
+   * Writes/deletes the team's `automator` grant
+   * via /api/dynamic-agents/agents/[id]/automation. Gated on platform admin
+   * or owner-team admin (can_automate) both here and server-side.
+   */
+  const handleToggleAutonomous = async (
+    agent: DynamicAgentConfigWithPermissions,
+    next: boolean,
+  ) => {
+    if (!agentCanAutomate(agent)) return;
+    clearRowActionError(agent._id);
+    const teamSlug = agent.owner_team_slug;
+    if (!teamSlug) {
+      setRowActionErrors((prev) => ({
+        ...prev,
+        [agent._id]:
+          "This agent has no owner team; pick a team to enable autonomous (coming soon).",
+      }));
+      return;
+    }
+    try {
+      const response = await fetch(`/api/dynamic-agents/agents/${agent._id}/automation`, {
+        method: next ? "PUT" : "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ team_slug: teamSlug }),
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        setRowActionErrors((prev) => ({
+          ...prev,
+          [agent._id]: (data as { error?: string }).error || `HTTP ${response.status}`,
+        }));
+        return;
+      }
+      // Optimistically flip the row's can_schedule so the "Add autonomous task"
+      // affordance appears/disappears without a full refetch.
+      setAgents((prev) =>
+        prev.map((a) =>
+          a._id === agent._id
+            ? { ...a, permissions: { ...a.permissions, can_schedule: next } }
+            : a,
+        ),
+      );
+    } catch (err: unknown) {
+      setRowActionErrors((prev) => ({
+        ...prev,
+        [agent._id]: errorMessage(err, "Failed to update autonomous setting"),
       }));
     }
   };
@@ -463,6 +530,7 @@ export function DynamicAgentsTab({
             {/* Agent rows */}
             {agents.map((agent) => {
               const canManage = agentCanManage(agent);
+              const canAutomate = agentCanAutomate(agent);
               const rowActionError = rowActionErrors[agent._id];
               return (
               <div key={agent._id} className="space-y-2">
@@ -542,6 +610,58 @@ export function DynamicAgentsTab({
                 </div>
 
                 <div className="col-span-2 flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+                  {/* Autonomous cluster: enablement toggle + task editor.
+                      Only team admins (can_automate) may flip the toggle;
+                      other members see it as a read-only status once enabled.
+                      The pill background expands to wrap the edit button
+                      when autonomous is on. */}
+                  {(canAutomate || agent.permissions.can_schedule) && (
+                    <div
+                      className={`flex items-center rounded-full transition-all duration-200 ${
+                        agent.permissions.can_schedule
+                          ? "bg-violet-500/15 dark:bg-violet-500/20"
+                          : "bg-muted/70"
+                      }`}
+                    >
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className={`h-8 w-8 rounded-full ${
+                          agent.permissions.can_schedule ? "text-violet-600 dark:text-violet-300" : ""
+                        }`}
+                        disabled={!canAutomate}
+                        onClick={() => handleToggleAutonomous(agent, !agent.permissions.can_schedule)}
+                        title={
+                          !canAutomate
+                            ? "Only a team admin can enable or disable autonomous for this agent"
+                            : agent.permissions.can_schedule
+                              ? "Disable autonomous for this agent's team"
+                              : "Enable autonomous for this agent's team"
+                        }
+                        aria-label={
+                          !canAutomate
+                            ? "Autonomous status (team admins only)"
+                            : agent.permissions.can_schedule
+                              ? "Disable autonomous"
+                              : "Enable autonomous"
+                        }
+                      >
+                        <Bot className="h-4 w-4" />
+                      </Button>
+                      {agent.permissions.can_schedule && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 rounded-full text-violet-600 dark:text-violet-300"
+                          onClick={() => setDrawerAgent(agent)}
+                          title="Manage autonomous tasks"
+                          aria-label="Manage autonomous tasks"
+                        >
+                          <SquarePen className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </div>
+                  )}
                   <Button
                     variant="ghost"
                     size="icon"
@@ -708,6 +828,15 @@ export function DynamicAgentsTab({
           </div>
         )}
       </CardContent>
+      {drawerAgent && (
+        <AgentAutonomousDrawer
+          agent={drawerAgent}
+          open={!!drawerAgent}
+          onOpenChange={(open) => {
+            if (!open) setDrawerAgent(null);
+          }}
+        />
+      )}
     </Card>
   );
 }

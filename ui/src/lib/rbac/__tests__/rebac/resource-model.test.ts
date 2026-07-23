@@ -78,6 +78,11 @@ describe("universal ReBAC resource model", () => {
     expect(isSupportedResourceAction("secret_ref", "share")).toBe(true);
     expect(isSupportedResourceAction("secret_ref", "audit")).toBe(true);
     expect(isSupportedResourceAction("knowledge_base", "share")).toBe(false);
+    // Autonomous scheduling (spec 2026-07-01): `schedule` is an agent-specific
+    // action, so CAS's parseAction allowlist (built from these definitions) must
+    // recognize it — otherwise DA's can_schedule check 400s at the decisions API.
+    expect(isSupportedResourceAction("agent", "schedule")).toBe(true);
+    expect(isSupportedResourceAction("mcp_server", "schedule")).toBe(false);
   });
 
   it("validates relationships and explains unsupported actions", () => {

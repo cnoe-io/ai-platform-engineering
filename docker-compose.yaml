@@ -267,6 +267,7 @@ services:
       start_period: 40s
     profiles:
       - caipe-mongodb
+      - autonomous-agents
 
   # MongoDB Admin UI (optional)
   caipe-ui-mongo-express:
@@ -371,6 +372,12 @@ services:
       - WEBEX_CLIENT_ID=${WEBEX_CLIENT_ID:-}
       - WEBEX_CLIENT_SECRET=${WEBEX_CLIENT_SECRET:-}
       - WEBEX_REDIRECT_URI=${WEBEX_REDIRECT_URI:-}
+      # Autonomous Agents - URL the UI's /api/autonomous proxy targets.
+      # Add the autonomous-agents profile to start the upstream service.
+      # The Autonomous tab is admin-gated; in production grant the OIDC admin
+      # group, or set ALLOW_DEV_ADMIN_WHEN_SSO_DISABLED=true ONLY for local dev.
+      - ENABLE_AUTONOMOUS_AGENTS=${ENABLE_AUTONOMOUS_AGENTS:-false}
+      - AUTONOMOUS_AGENTS_URL=${AUTONOMOUS_AGENTS_URL:-http://autonomous-agents:8002}
       # Audit log storage is owned by the lightweight Python audit-service.
       - AUDIT_LOG_BACKEND=${AUDIT_LOG_BACKEND:-service}
       - AUDIT_SERVICE_URL=${AUDIT_SERVICE_URL:-http://audit-service:8010}
@@ -547,6 +554,81 @@ services:
     restart: unless-stopped
     profiles:
       - dynamic-agents
+
+  ####################################################################################################
+  #                                    Autonomous Agents Service                                     #
+  ####################################################################################################
+  # Autonomous Agents - Standalone scheduler that fires tasks (cron / interval / webhook)
+  # at the dynamic-agents runtime. Tasks and run history are read/written via the UI's
+  # /api/autonomous proxy (admin-gated); this service is the upstream the proxy targets.
+  #
+  # Configuration:
+  #   - Runs each task against a dynamic agent via DYNAMIC_AGENTS_URL
+  #     (default http://dynamic-agents:8001); every task targets a dynamic_agent_id.
+  #   - Persists run history and task definitions to the same MongoDB the UI uses,
+  #     so the conversation deep-link in the Autonomous tab works end-to-end.
+  #
+  # Ports:
+  #   - 8002: Autonomous Agents API (proxied via UI at /api/autonomous, admin-only)
+  autonomous-agents:
+    image: ghcr.io/cnoe-io/caipe-autonomous-agents:${IMAGE_TAG:-0.2.36}
+    container_name: autonomous-agents
+    # Bind to loopback only -- the FastAPI service has no auth layer of
+    # its own; auth and admin gating live in the UI's /api/autonomous
+    # proxy. Publishing 0.0.0.0:8002 in production would let anyone on
+    # the host network bypass the UI gate by talking to the service
+    # directly. The UI proxy reaches us over the compose network using
+    # the service name regardless, so loopback publishing only affects
+    # off-host access (which we explicitly do not want). See PR #14
+    # review feedback.
+    ports: ["127.0.0.1:8002:8002"]
+    env_file: [.env]
+    environment:
+      # Dynamic-agents runtime endpoint -- every autonomous task runs against a
+      # dynamic agent (its tools / system prompt / middleware) selected by the
+      # task's dynamic_agent_id. Tasks surface a clear ack failure if this URL
+      # is unset. Only effective when the dynamic-agents profile is also active.
+      - DYNAMIC_AGENTS_URL=${DYNAMIC_AGENTS_URL:-http://dynamic-agents:8001}
+      # MongoDB persistence -- shared with the UI so the Autonomous tab's
+      # task list and run history come from the same source of truth.
+      # The caipe-mongodb service is auto-included via the
+      # autonomous-agents profile (added to its profiles list below),
+      # so a "--profile autonomous-agents" up brings Mongo along.
+      - MONGODB_URI=${MONGODB_URI:-mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin}
+      - MONGODB_DATABASE=${MONGODB_DATABASE:-caipe}
+      # IMP-13: publish completed autonomous runs into the UI
+      # conversations collection. OFF by default in production -- it
+      # writes to a shared collection that the UI also writes to and
+      # the implications (storage growth, cross-tenancy leak surface,
+      # multi-tenant isolation) need an operator decision. Dev compose
+      # turns it on so the "Open run" deep link in the Autonomous tab
+      # is exercised end-to-end.
+      - CHAT_HISTORY_PUBLISH_ENABLED=${CHAT_HISTORY_PUBLISH_ENABLED:-false}
+      - CHAT_HISTORY_OWNER_EMAIL=${CHAT_HISTORY_OWNER_EMAIL:-autonomous@system}
+      # Webhook HMAC fallback secret (set to a strong random value in production).
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET:-}
+      # CORS -- empty by default (UI talks via server-side proxy, browsers don't hit us).
+      - CORS_ORIGINS=${AUTONOMOUS_CORS_ORIGINS:-}
+    depends_on:
+      # Mongo IS effectively required (we default MONGODB_URI to it
+      # above) so wait for the healthcheck. ``required: false`` is the
+      # idiomatic way to express "if this service was started by the
+      # active profile selection, wait for it; otherwise don't error".
+      caipe-mongodb:
+        condition: service_healthy
+        required: false
+      dynamic-agents:
+        condition: service_started
+        required: false
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8002/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    profiles:
+      - autonomous-agents
 
   agent_ontology:
     image: ghcr.io/cnoe-io/caipe-rag-agent-ontology:${IMAGE_TAG:-0.5.16}
@@ -1248,8 +1330,22 @@ services:
       # Seed a dev allow tuple with a Keycloak user `sub`. If unset, OpenFGA
       # starts deny-by-default and you can write tuples later.
       OPENFGA_SEED_SUB: ${OPENFGA_SEED_SUB:-}
+      # Grant the platform service account `auditor` on the org. CAS's
+      # subject-binding requires this before it evaluates decisions for a
+      # different subject — the on-behalf-of flow autonomous task runs use.
+      # The service-account `sub` is realm-specific, so the seed resolves it
+      # from a client-credentials token instead of a static value. Defaults
+      # match the local realm seed (see keycloak-init).
+      KEYCLOAK_TOKEN_URL: http://keycloak:7080/realms/caipe/protocol/openid-connect/token
+      KEYCLOAK_PLATFORM_CLIENT_ID: ${KEYCLOAK_ADMIN_CLIENT_ID:-caipe-platform}
+      KEYCLOAK_PLATFORM_CLIENT_SECRET: ${KEYCLOAK_ADMIN_CLIENT_SECRET:-caipe-platform-dev-secret}
+      OPENFGA_ORG_OBJECT: organization:${CAIPE_ORG_KEY:-caipe}
     depends_on:
       openfga:
+        condition: service_healthy
+      # The auditor-grant seed mints a token from the local realm; Keycloak's
+      # healthcheck already gates on the realm JWKS being served.
+      keycloak:
         condition: service_healthy
 
   openfga-authz-bridge:

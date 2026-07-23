@@ -113,6 +113,11 @@ const sidebars: SidebarsConfig = {
                     },
                     {
                       type: 'doc',
+                      id: 'installation/helm-charts/ai-platform-engineering/autonomous-agents-chart',
+                      label: 'autonomous-agents',
+                    },
+                    {
+                      type: 'doc',
                       id: 'installation/helm-charts/ai-platform-engineering/slack-bot-chart',
                       label: 'slack-bot',
                     },
@@ -218,10 +223,8 @@ const sidebars: SidebarsConfig = {
       items: [
         { type: 'doc', id: 'architecture/index', label: 'Solution Architecture' },
         { type: 'doc', id: 'architecture/gateway', label: 'AgentGateway' },
-        {
-          type: 'doc',
-          id: 'architecture/scheduler',
-        },
+        { type: 'doc', id: 'architecture/scheduler', label: 'Scheduler' },
+        { type: 'doc', id: 'architecture/autonomous-agents', label: 'Autonomous Agents' },
         {
           type: 'doc',
           id: 'architecture/enterprise-identity-federation',
@@ -229,7 +232,6 @@ const sidebars: SidebarsConfig = {
         },
         { type: 'doc', id: 'architecture/slack-bot-authorization', label: 'Slack Bot Authorization' },
         { type: 'doc', id: 'architecture/slack-io-guardrails', label: 'Slack I/O Guardrails' },
-        { type: 'doc', id: 'architecture/scheduler', label: 'Scheduler' },
         { type: 'doc', id: 'architecture/streaming_architecture', label: 'Streaming Architecture' },
       ],
     },

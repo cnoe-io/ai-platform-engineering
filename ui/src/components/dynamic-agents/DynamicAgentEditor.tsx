@@ -46,8 +46,8 @@ import { AllowedToolsPicker } from "./AllowedToolsPicker";
 import { BuiltinToolsPicker } from "./BuiltinToolsPicker";
 import { InterruptConfigPicker } from "./InterruptConfigPicker";
 import { MiddlewarePicker } from "./MiddlewarePicker";
-import { SkillsSelector } from "./SkillsSelector";
 import { SubagentPicker } from "./SubagentPicker";
+import { SkillsSelector } from "./SkillsSelector";
 import { WorkflowToolsPicker } from "./WorkflowToolsPicker";
 import type { AgentSetupStep } from "./deep-linking";
 
@@ -111,30 +111,30 @@ interface TeamOption {
 
 // Step definitions for the wizard
 const STEPS = [
-  { 
-    id: "basic" as const, 
-    label: "Basic Info", 
-    hint: "Define your agent's identity and access level" 
+  {
+    id: "basic" as const,
+    label: "Basic Info",
+    hint: "Define your agent's identity and access level"
   },
-  { 
-    id: "instructions" as const, 
-    label: "Instructions", 
-    hint: "Configure how your agent behaves" 
+  {
+    id: "instructions" as const,
+    label: "Instructions",
+    hint: "Configure how your agent behaves"
   },
-  { 
-    id: "tools" as const, 
-    label: "Tools", 
-    hint: "Select which tools your agent can use" 
+  {
+    id: "tools" as const,
+    label: "Tools",
+    hint: "Select which tools your agent can use"
   },
-  { 
-    id: "skills" as const, 
-    label: "Skills", 
-    hint: "Attach skills that guide your agent's behavior (optional)" 
+  {
+    id: "skills" as const,
+    label: "Skills",
+    hint: "Attach skills that guide your agent's behavior (optional)"
   },
-  { 
-    id: "advanced" as const, 
-    label: "Advanced", 
-    hint: "Subagents, approval rules, and middleware" 
+  {
+    id: "advanced" as const,
+    label: "Advanced",
+    hint: "Subagents, approval rules, and middleware"
   },
 ];
 
@@ -143,13 +143,13 @@ type StepId = AgentSetupStep;
 /**
  * Horizontal step indicator component
  */
-function StepIndicator({ 
-  steps, 
-  currentStep, 
-  onStepClick 
-}: { 
-  steps: typeof STEPS; 
-  currentStep: StepId; 
+function StepIndicator({
+  steps,
+  currentStep,
+  onStepClick
+}: {
+  steps: readonly (typeof STEPS[number])[];
+  currentStep: StepId;
   onStepClick: (stepId: StepId) => void;
 }) {
   return (
@@ -164,15 +164,15 @@ function StepIndicator({
             onClick={() => onStepClick(step.id)}
             className={cn(
               "flex flex-col items-center gap-0.5 px-2.5 py-1.5 rounded-md transition-colors min-w-[64px]",
-              currentStep === step.id 
-                ? "bg-primary/10 text-primary" 
+              currentStep === step.id
+                ? "bg-primary/10 text-primary"
                 : "hover:bg-muted text-muted-foreground"
             )}
           >
             <div className={cn(
               "w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium",
-              currentStep === step.id 
-                ? "bg-primary text-primary-foreground" 
+              currentStep === step.id
+                ? "bg-primary text-primary-foreground"
                 : "bg-muted"
             )}>
               {index + 1}
@@ -355,7 +355,7 @@ export function DynamicAgentEditor({
   const isEditing = !!agent;
   const isCloning = !!cloneFrom;
   const { toast } = useToast();
-  
+
   // Source for initial values: editing agent > cloning source > empty defaults
   const source = agent || cloneFrom;
 
@@ -592,12 +592,12 @@ export function DynamicAgentEditor({
         const data = await response.json();
         if (data.success && Array.isArray(data.data)) {
           setAvailableModels(data.data);
-          
+
           if (source?.model?.id) {
             // Editing or cloning existing agent - verify model exists using both model AND provider
             // (same model can exist for different providers, e.g., gpt-4o for openai and azure-openai)
             const existingModel = data.data.find(
-              (m: { model_id: string; provider: string }) => 
+              (m: { model_id: string; provider: string }) =>
                 m.model_id === source.model.id && m.provider === source.model.provider
             );
             if (existingModel) {
@@ -751,12 +751,16 @@ export function DynamicAgentEditor({
     currentValues: currentFormValues,
     snapshotKey,
   });
-  const currentStepIndex = STEPS.findIndex((s) => s.id === activeStep);
-  const currentStepConfig = STEPS.find((s) => s.id === activeStep);
+
+  // Autonomous scheduling is no longer a wizard step. It is
+  // driven from the agent-list row. The wizard shows all remaining steps.
+  const visibleSteps = React.useMemo(() => STEPS, []);
+  const currentStepIndex = visibleSteps.findIndex((s) => s.id === activeStep);
+  const currentStepConfig = visibleSteps.find((s) => s.id === activeStep);
 
   const goToPreviousStep = () => {
     if (currentStepIndex > 0) {
-      selectStep(STEPS[currentStepIndex - 1].id);
+      selectStep(visibleSteps[currentStepIndex - 1].id);
     }
   };
 
@@ -781,8 +785,8 @@ export function DynamicAgentEditor({
       // Review passed — clear any stale blocking banner from a prior attempt.
       setBlockingMessage(null);
     }
-    if (currentStepIndex < STEPS.length - 1) {
-      selectStep(STEPS[currentStepIndex + 1].id);
+    if (currentStepIndex < visibleSteps.length - 1) {
+      selectStep(visibleSteps[currentStepIndex + 1].id);
     }
   };
 
@@ -1084,6 +1088,7 @@ export function DynamicAgentEditor({
         }
       }
 
+
       // Clear unsaved-changes state BEFORE calling onSave(): the parent will
       // unmount this editor in response to onSave, and we want the global flag
       // to be false by the time any header/tab guards re-evaluate. resetSnapshot
@@ -1220,9 +1225,9 @@ export function DynamicAgentEditor({
               <h3 className="text-xl font-bold text-primary">Step {currentStepIndex + 1}: {currentStepConfig?.label}</h3>
               <p className="text-xs text-muted-foreground mt-0.5">{currentStepConfig?.hint}</p>
             </div>
-            <StepIndicator 
-              steps={STEPS} 
-              currentStep={activeStep} 
+            <StepIndicator
+              steps={visibleSteps}
+              currentStep={activeStep}
               onStepClick={selectStep}
             />
           </div>
@@ -1965,7 +1970,7 @@ export function DynamicAgentEditor({
             <div className="space-y-4">
               <div>
                 <p className="text-sm text-muted-foreground">
-                  Skills provide specialized instructions and workflows that guide your agent&apos;s behavior 
+                  Skills provide specialized instructions and workflows that guide your agent&apos;s behavior
                   for specific tasks. The agent reads skill content on demand via progressive disclosure.
                 </p>
               </div>
@@ -2022,9 +2027,9 @@ export function DynamicAgentEditor({
 
           {/* Step Navigation - Right aligned */}
           <div className="flex items-center justify-end gap-2 pt-4 border-t">
-            <Button 
-              type="button" 
-              variant="outline" 
+            <Button
+              type="button"
+              variant="outline"
               onClick={goToPreviousStep}
               disabled={currentStepIndex === 0 || loading}
               size="sm"
@@ -2035,8 +2040,8 @@ export function DynamicAgentEditor({
             <Button
               type="button"
               variant="outline"
-              onClick={() => void goToNextStep()}
-              disabled={currentStepIndex === STEPS.length - 1 || loading}
+              onClick={goToNextStep}
+              disabled={currentStepIndex === visibleSteps.length - 1 || loading}
               size="sm"
             >
               Next

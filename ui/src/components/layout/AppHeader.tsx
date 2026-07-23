@@ -282,6 +282,7 @@ export function AppHeader() {
     if (pathname?.startsWith("/workflows")) return "workflows";
     if (pathname?.startsWith("/skills") || pathname?.startsWith("/use-cases")) return "skills";
     if (pathname?.startsWith("/dynamic-agents")) return "dynamic-agents";
+    if (pathname?.startsWith("/autonomous")) return "autonomous";
     if (pathname?.startsWith("/schedules")) return "schedules";
     if (pathname?.startsWith("/admin")) return "admin";
     return "home";
@@ -406,6 +407,14 @@ export function AppHeader() {
       Icon: Bot,
       activeTextClassName: "text-white",
       activeIndicatorClassName: "bg-violet-600 shadow-sm",
+    },
+    config.autonomousAgentsEnabled && isAdmin && {
+      key: "autonomous",
+      href: "/autonomous",
+      label: "Autonomous",
+      Icon: Sparkles,
+      activeTextClassName: "text-white",
+      activeIndicatorClassName: "bg-fuchsia-600 shadow-sm",
     },
     storageMode === "mongodb" && config.dynamicAgentsEnabled && config.schedulerEnabled && {
       key: "schedules",

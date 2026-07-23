@@ -1202,6 +1202,46 @@ describe('withAuth', () => {
       expect(relations).not.toContain('can_manage');
     });
 
+    // Regression (2026-07-12): the autonomous-agents proxy is per-user by
+    // design (per-task ownership is enforced by the FastAPI backend via the
+    // X-Authenticated-User-* headers; per-agent access by dynamic-agents/CAS).
+    // `/api/autonomous` had no entry in the legacy policy map, so non-GET
+    // calls fell through to admin_ui#manage — locking every regular member
+    // out of creating autonomous tasks ("You do not have permission to
+    // perform this action.") even when their team held both autonomous
+    // grants. The coarse BFF gate must resolve to the member-level
+    // chat#invoke (can_chat), not an admin capability.
+    it.each([
+      ['/api/autonomous/tasks', 'GET', 'can_chat'],
+      ['/api/autonomous/tasks', 'POST', 'can_chat'],
+      ['/api/autonomous/tasks/task-1', 'PUT', 'can_chat'],
+      ['/api/autonomous/tasks/task-1', 'DELETE', 'can_chat'],
+      ['/api/autonomous/tasks/task-1/run', 'POST', 'can_chat'],
+    ])('lets a member reach %s %s via the member-level %s relation', async (
+      path,
+      method,
+      expectedRelation,
+    ) => {
+      viewerSession();
+      mockCheckOpenFgaTuple.mockResolvedValue({ allowed: true });
+      mockCheckOpenFgaTuple.mockClear();
+
+      const handler = jest.fn().mockResolvedValue('ok');
+      const req = new Request(`http://test.com${path}`, { method }) as unknown as NextRequest;
+
+      await expect(withAuth(req, handler)).resolves.toBe('ok');
+
+      const calls = mockCheckOpenFgaTuple.mock.calls as Array<[
+        { user: string; relation: string; object: string },
+      ]>;
+      const relations = calls.map((c) => c[0]?.relation);
+      expect(relations).toContain(expectedRelation);
+      // admin_ui#manage → can_manage, admin_ui#view → can_audit: the old
+      // fallthrough relations that must no longer be consulted.
+      expect(relations).not.toContain('can_manage');
+      expect(relations).not.toContain('can_audit');
+    });
+
     it('denies a member skill create when OpenFGA has no can_use tuple', async () => {
       viewerSession();
       mockCheckOpenFgaTuple.mockResolvedValue({ allowed: false });

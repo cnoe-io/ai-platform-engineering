@@ -26,6 +26,7 @@ const ACTION_TO_BASE_RELATION: Record<UniversalRebacResourceAction, string> = {
   map: "manager",
   ingest: "ingestor",
   "read-metadata": "metadata_reader",
+  schedule: "automator",
 };
 
 const ACTION_TO_CHECK_RELATION: Record<UniversalRebacResourceAction, string> = {
@@ -45,6 +46,7 @@ const ACTION_TO_CHECK_RELATION: Record<UniversalRebacResourceAction, string> = {
   map: "can_map",
   ingest: "can_ingest",
   "read-metadata": "can_read_metadata",
+  schedule: "can_schedule",
 };
 
 export const OPENFGA_ACTION_RELATIONS = Array.from(

@@ -259,7 +259,7 @@ export function clearSessionAuthCacheForTests(): void {
   sessionAuthCache.clear();
 }
 
-function resolveKeycloakSubFromSession(session: { sub?: unknown; accessToken?: unknown }): string | null {
+export function resolveKeycloakSubFromSession(session: { sub?: unknown; accessToken?: unknown }): string | null {
   if (typeof session.sub === 'string' && session.sub.trim()) {
     return session.sub.trim();
   }
@@ -476,6 +476,18 @@ function resolveLegacyWithAuthRbacPolicy(request: NextRequest): RouteRbacPolicy 
   }
   if (pathname.startsWith('/api/catalog-api-keys')) {
     return { resource: 'skill', scope: 'configure' };
+  }
+  // Autonomous-agents proxy is intentionally per-user, NOT admin-gated (see
+  // app/api/autonomous/[...path]/route.ts): any chat-capable user may manage
+  // their OWN tasks — per-task ownership is enforced by the autonomous
+  // service (`_assert_task_access`) and per-agent authorization by
+  // dynamic-agents/CAS (`can_use` / `can_schedule`). Without this mapping the
+  // default below admin-gates every non-GET call, 403ing regular users before
+  // the request ever reaches the backend. The admin-only oversight surface
+  // (`/api/autonomous/oversight`) is unaffected — it does not use withAuth
+  // and enforces `admin_ui#view` itself.
+  if (pathname.startsWith('/api/autonomous')) {
+    return { resource: 'chat', scope: 'invoke' };
   }
 
   if (pathname.startsWith('/api/skills/seed')) {
@@ -1407,7 +1419,7 @@ export async function requireConversationAccess(
   conversationId: string,
   userId: string,
   getCollectionFn: (name: string) => Promise<Collection<ConversationAccessDocument>>,
-  session?: { role?: string; sub?: string }
+  session?: { role?: string; sub?: string; canViewAdmin?: boolean }
 ): Promise<ConversationAccessResult> {
   const conversations = await getCollectionFn('conversations');
   const conversation = await conversations.findOne({ _id: conversationId });
@@ -1479,8 +1491,9 @@ export async function requireConversationAccess(
     };
   }
 
-  // Admins get read-only audit access to any conversation
-  if (session?.role === 'admin') {
+  // Admins and sessions explicitly allowed to view admin data get read-only
+  // audit access to any conversation.
+  if (session?.role === 'admin' || session?.canViewAdmin === true) {
     return { conversation, access_level: 'admin_audit' };
   }
 

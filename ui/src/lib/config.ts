@@ -152,6 +152,8 @@ export interface Config {
   defaultGradientTheme: string;
   /** Dynamic Agents server URL for custom agent chat */
   dynamicAgentsUrl: string;
+  /** Whether autonomous task scheduling and webhook automation is enabled */
+  autonomousAgentsEnabled: boolean;
   /** Optional default agent ID used to edit scheduled jobs */
   scheduleEditorAgentId: string | null;
   /** Whether the scheduled-agent workflow is enabled */
@@ -261,6 +263,7 @@ const DEFAULT_CONFIG: Config = {
   defaultTheme: DEFAULT_THEME,
   defaultGradientTheme: DEFAULT_GRADIENT_THEME,
   dynamicAgentsUrl: 'http://localhost:8100',
+  autonomousAgentsEnabled: false,
   scheduleEditorAgentId: null,
   schedulerEnabled: false,
   agentProtocol: 'agui',
@@ -389,6 +392,9 @@ export function getServerConfig(): Config {
       (process.env.IDENTITY_SYNC_OKTA_OAUTH_CLIENT_ID?.trim() &&
         process.env.IDENTITY_SYNC_OKTA_OAUTH_PRIVATE_KEY?.trim()))
   );
+  const autonomousAgentsFlag =
+    env('ENABLE_AUTONOMOUS_AGENTS') ?? env('AUTONOMOUS_AGENTS_ENABLED');
+  const autonomousAgentsEnabled = autonomousAgentsFlag === 'true';
 
   const dynamicAgentsUrl = env('DYNAMIC_AGENTS_URL')
     || (isProduction ? 'http://dynamic-agents:8100' : 'http://localhost:8100');
@@ -452,6 +458,7 @@ export function getServerConfig(): Config {
     defaultTheme: validated(env('DEFAULT_THEME'), VALID_THEMES, DEFAULT_THEME),
     defaultGradientTheme: validated(env('DEFAULT_GRADIENT_THEME'), VALID_GRADIENT_THEMES, DEFAULT_GRADIENT_THEME),
     dynamicAgentsUrl,
+    autonomousAgentsEnabled,
     scheduleEditorAgentId: env('SCHEDULE_EDITOR_AGENT_ID') || null,
     schedulerEnabled: env('SCHEDULER_ENABLED') === 'true',
     agentProtocol,

@@ -178,6 +178,9 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   const archived = url.searchParams.get('archived') === 'true';
   const pinned = url.searchParams.get('pinned') === 'true';
   const clientTypeParam = url.searchParams.get('client_type') as ClientType | null;
+  const sourceParam = url.searchParams.get('source');
+  const sourceFilter =
+    sourceParam === 'autonomous' || sourceParam === 'web' ? sourceParam : null;
 
   // Validate client_type param if provided
   if (clientTypeParam && !VALID_CLIENT_TYPES.includes(clientTypeParam)) {
@@ -224,6 +227,23 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
 
   if (pinned) {
     query.is_pinned = true;
+  }
+
+  // Source is a content filter, not an authz primitive — push into $and
+  // to narrow results without touching the ownership $or. The previous
+  // `delete query.$or` for source=autonomous was an IDOR.
+  if (sourceFilter === 'autonomous') {
+    query.$and.push({ source: 'autonomous' });
+  } else if (sourceFilter === 'web') {
+    query.$and.push({
+      source: { $in: ['web', null] } as { $in: (string | null)[] },
+    });
+  } else {
+    // Default ("All") view: include autonomous conversations alongside
+    // regular human chats so the sidebar's "All" filter actually shows
+    // both. Slack threads are still excluded because they have their
+    // own dedicated UI and were never wanted in this list.
+    query.$and.push({ source: { $nin: ['slack'] } });
   }
 
   // Get total count
