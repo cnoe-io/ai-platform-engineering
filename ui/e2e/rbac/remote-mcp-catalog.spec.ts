@@ -220,8 +220,10 @@ test.describe("admin MCP catalog", () => {
 
     await page.goto("/admin/platform/mcp-catalog", { waitUntil: "domcontentloaded" });
 
-    // The MCPCatalogSettingsCard title
-    await expect(page.getByText(/MCP Catalog/i)).toBeVisible({ timeout: 10_000 });
+    await expect(
+      page.getByRole("heading", { level: 2, name: "MCP Catalog", exact: true }),
+    ).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText("Built-in providers", { exact: true })).toBeVisible();
   });
 
   test("lists built-in providers with toggle controls", async ({ page }) => {
@@ -262,7 +264,9 @@ test.describe("admin MCP catalog", () => {
     });
 
     await page.goto("/admin/platform/mcp-catalog", { waitUntil: "domcontentloaded" });
-    await expect(page.getByText(/MCP Catalog/i)).toBeVisible({ timeout: 10_000 });
+    await expect(
+      page.getByRole("heading", { level: 2, name: "MCP Catalog", exact: true }),
+    ).toBeVisible({ timeout: 10_000 });
 
     // Provider checkboxes should be present
     await expect(page.getByText("Amplitude")).toBeVisible();
@@ -307,7 +311,9 @@ test.describe("admin MCP catalog", () => {
     });
 
     await page.goto("/admin/platform/mcp-catalog", { waitUntil: "domcontentloaded" });
-    await expect(page.getByText(/MCP Catalog/i)).toBeVisible({ timeout: 10_000 });
+    await expect(
+      page.getByRole("heading", { level: 2, name: "MCP Catalog", exact: true }),
+    ).toBeVisible({ timeout: 10_000 });
 
     // Sanity check the list actually rendered before asserting the negative.
     await expect(page.getByText("Amplitude", { exact: true })).toBeVisible();
