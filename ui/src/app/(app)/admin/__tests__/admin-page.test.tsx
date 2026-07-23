@@ -22,6 +22,7 @@ import { render, screen, waitFor, within, fireEvent } from '@testing-library/rea
 // ============================================================================
 
 let mockIsAdmin = false;
+const pushMock = jest.fn();
 const replaceMock = jest.fn();
 let currentSearchParams = new URLSearchParams();
 jest.mock('@/hooks/use-admin-role', () => ({
@@ -35,7 +36,7 @@ jest.mock('next-auth/react', () => ({
 
 jest.mock('next/navigation', () => ({
   useSearchParams: () => currentSearchParams,
-  useRouter: () => ({ push: jest.fn(), replace: replaceMock, back: jest.fn(), refresh: jest.fn() }),
+  useRouter: () => ({ push: pushMock, replace: replaceMock, back: jest.fn(), refresh: jest.fn() }),
   usePathname: () => '/admin',
 }));
 
@@ -1300,9 +1301,10 @@ describe('Admin Dashboard Page', () => {
         'true'
       );
       expect(screen.queryByRole('tab', { name: /^Insights$/i })).not.toBeInTheDocument();
-      expect(replaceMock).toHaveBeenCalledWith('/admin?cat=insights&tab=stats', {
-        scroll: false,
-      });
+      expect(replaceMock).toHaveBeenCalledWith(
+        '/admin?cat=insights&tab=stats&dateRange=30d',
+        { scroll: false },
+      );
     });
 
     it('opens the requested Access Explorer sub-tab from the query string', async () => {
@@ -1623,6 +1625,20 @@ describe('Admin Dashboard Page', () => {
   });
 
   describe('Insights filter deep links', () => {
+    it('makes the default Statistics range explicit in the URL', async () => {
+      currentSearchParams = new URLSearchParams('cat=insights&tab=stats');
+      setupFetchMock();
+
+      render(<AdminPage />);
+
+      await waitFor(() => {
+        expect(replaceMock).toHaveBeenCalledWith(
+          '/admin?cat=insights&tab=stats&dateRange=30d',
+          { scroll: false },
+        );
+      });
+    });
+
     it('applies Statistics URL filters to the first card requests', async () => {
       currentSearchParams = new URLSearchParams({
         cat: 'insights',
@@ -1770,14 +1786,14 @@ describe('Admin Dashboard Page', () => {
       expect(chart).not.toHaveTextContent('"value":11');
     });
 
-    it('opens Feedback with the clicked trend date while preserving shared filters', async () => {
+    it('pushes Feedback onto browser history with the clicked trend date', async () => {
       currentSearchParams = new URLSearchParams({
         cat: 'insights',
         tab: 'stats',
         source: 'slack',
         users: 'test-user@example.com',
         statsAgents: 'agent-primary',
-        dateRange: '7d',
+        dateRange: '30d',
       });
       setupFetchMock({
         stats: {
@@ -1798,7 +1814,7 @@ describe('Admin Dashboard Page', () => {
 
       fireEvent.click(await screen.findByRole('button', { name: 'View feedback for Jul 20' }));
 
-      const targetUrl = new URL(replaceMock.mock.calls.at(-1)?.[0], 'http://localhost');
+      const targetUrl = new URL(pushMock.mock.calls.at(-1)?.[0], 'http://localhost');
       expect(targetUrl.pathname).toBe('/admin');
       expect(targetUrl.searchParams.get('cat')).toBe('insights');
       expect(targetUrl.searchParams.get('tab')).toBe('feedback');
@@ -1812,6 +1828,37 @@ describe('Admin Dashboard Page', () => {
       expect(targetUrl.searchParams.get('source')).toBe('slack');
       expect(targetUrl.searchParams.get('users')).toBe('test-user@example.com');
       expect(targetUrl.searchParams.get('statsAgents')).toBe('agent-primary');
+      expect(replaceMock).not.toHaveBeenCalledWith(
+        expect.stringContaining('tab=feedback'),
+        { scroll: false },
+      );
+    });
+
+    it('resets a custom Feedback date when manually returning to Statistics', async () => {
+      currentSearchParams = new URLSearchParams({
+        cat: 'insights',
+        tab: 'feedback',
+        source: 'slack',
+        dateRange: 'custom',
+        from: new Date(2026, 6, 20, 0, 0, 0, 0).toISOString(),
+        to: new Date(2026, 6, 20, 23, 59, 59, 999).toISOString(),
+      });
+      setupFetchMock();
+
+      render(<AdminPage />);
+
+      fireEvent.mouseDown(
+        await screen.findByRole('tab', { name: 'Statistics' }),
+        { button: 0, ctrlKey: false },
+      );
+
+      const targetUrl = new URL(replaceMock.mock.calls.at(-1)?.[0], 'http://localhost');
+      expect(targetUrl.searchParams.get('cat')).toBe('insights');
+      expect(targetUrl.searchParams.get('tab')).toBe('stats');
+      expect(targetUrl.searchParams.get('dateRange')).toBe('30d');
+      expect(targetUrl.searchParams.has('from')).toBe(false);
+      expect(targetUrl.searchParams.has('to')).toBe(false);
+      expect(targetUrl.searchParams.get('source')).toBe('slack');
     });
 
     it('updates cards independently and issues one request per section when a filter changes', async () => {

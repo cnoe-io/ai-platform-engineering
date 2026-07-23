@@ -701,10 +701,21 @@ function AdminPage() {
     if (activeCategory !== nextCategory) setActiveCategory(nextCategory);
     if (activeTab !== nextTab) setActiveTab(nextTab);
 
-    if (requestedCategory !== nextCategory || requestedTab !== nextTab) {
+    const shouldSetDefaultStatsRange =
+      nextTab === 'stats' && searchParams.get('dateRange') === null;
+    if (
+      requestedCategory !== nextCategory
+      || requestedTab !== nextTab
+      || shouldSetDefaultStatsRange
+    ) {
       const params = new URLSearchParams(searchParams.toString());
       params.set('cat', nextCategory);
       params.set('tab', nextTab);
+      if (shouldSetDefaultStatsRange) {
+        params.set('dateRange', '30d');
+        params.delete('from');
+        params.delete('to');
+      }
       if (nextTab !== 'access-explorer') {
         params.delete('subtab');
         params.delete('openfgaTab');
@@ -723,25 +734,6 @@ function AdminPage() {
     tabGateValues,
     visibleCategories,
   ]);
-
-  const handleCategoryChange = useCallback(
-    (catKey: CategoryKey) => {
-      userSelectedAdminTabRef.current = true;
-      setActiveCategory(catKey);
-      const cat = CATEGORIES.find((c) => c.key === catKey);
-      if (!cat) return;
-      const firstVisible = cat.tabs.find((t) => tabGateValues[t.gateKey]);
-      if (firstVisible) {
-        setActiveTab(firstVisible.value);
-        updateUrlFilters({
-          cat: catKey,
-          tab: firstVisible.value,
-          ...(firstVisible.value === 'access-explorer' ? {} : { subtab: null, openfgaTab: null }),
-        });
-      }
-    },
-    [tabGateValues, updateUrlFilters]
-  );
 
   useEffect(() => {
     setSimulationType(simulationTarget?.type ?? "user");
@@ -864,23 +856,50 @@ function AdminPage() {
     setActiveTab('feedback');
     setDatePreset('custom');
     setDateRange(range);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set('cat', 'insights');
+    params.set('tab', 'feedback');
+    params.set('dateRange', 'custom');
+    params.set('from', range.from);
+    params.set('to', range.to);
+    params.delete('subtab');
+    params.delete('openfgaTab');
+    router.push(`${pathname}?${params.toString()}`, { scroll: false });
+  }, [pathname, router, searchParams]);
+
+  const selectAdminTab = useCallback((tab: string) => {
+    userSelectedAdminTabRef.current = true;
+    setActiveTab(tab);
+    setActiveCategory(categoryForTab(tab));
+
+    const resetStatsRange = tab === 'stats';
+    if (resetStatsRange) {
+      setDatePreset('30d');
+      setDateRange(presetToRange('30d'));
+    }
     updateUrlFilters({
-      cat: 'insights',
-      tab: 'feedback',
-      dateRange: 'custom',
-      from: range.from,
-      to: range.to,
-      subtab: null,
-      openfgaTab: null,
+      cat: categoryForTab(tab),
+      tab,
+      ...(resetStatsRange ? { dateRange: '30d', from: null, to: null } : {}),
+      ...(tab === 'access-explorer' ? {} : { subtab: null, openfgaTab: null }),
     });
   }, [updateUrlFilters]);
+
+  const handleCategoryChange = useCallback(
+    (catKey: CategoryKey) => {
+      const cat = CATEGORIES.find((candidate) => candidate.key === catKey);
+      const firstVisible = cat?.tabs.find((tab) => tabGateValues[tab.gateKey]);
+      if (firstVisible) selectAdminTab(firstVisible.value);
+    },
+    [selectAdminTab, tabGateValues],
+  );
 
   // Helper to sync shared filters to URL
   const updateSharedFilterUrl = (overrides: Record<string, string | null> = {}) => {
     const shared: Record<string, string | null> = {
       source: sourceFilter !== 'all' ? sourceFilter : null,
       users: userFilter.length > 0 ? userFilter.join(',') : null,
-      dateRange: datePreset !== '30d' ? datePreset : null,
+      dateRange: datePreset,
       from: datePreset === 'custom' ? dateRange.from : null,
       to: datePreset === 'custom' ? dateRange.to : null,
       ...overrides,
@@ -1559,16 +1578,11 @@ function AdminPage() {
             </div>
 
             {/* Tabbed Content */}
-            <Tabs value={activeTab} onValueChange={(tab) => {
-              userSelectedAdminTabRef.current = true;
-              setActiveTab(tab);
-              setActiveCategory(categoryForTab(tab));
-              updateUrlFilters({
-                cat: categoryForTab(tab),
-                tab,
-                ...(tab === 'access-explorer' ? {} : { subtab: null, openfgaTab: null }),
-              });
-            }} className="space-y-4">
+            <Tabs
+              className="space-y-4"
+              onValueChange={selectAdminTab}
+              value={activeTab}
+            >
               {/* Category selector */}
               <div
                 aria-label="Admin sections"
@@ -2198,7 +2212,7 @@ function AdminPage() {
                       setDatePreset(preset);
                       setDateRange(range);
                       updateSharedFilterUrl({
-                        dateRange: preset !== '30d' ? preset : null,
+                        dateRange: preset,
                         from: preset === 'custom' ? range.from : null,
                         to: preset === 'custom' ? range.to : null,
                       });
@@ -2438,7 +2452,7 @@ function AdminPage() {
                         setDatePreset(preset);
                         setDateRange(range);
                         updateSharedFilterUrl({
-                          dateRange: preset !== '30d' ? preset : null,
+                          dateRange: preset,
                           from: preset === 'custom' ? range.from : null,
                           to: preset === 'custom' ? range.to : null,
                         });
