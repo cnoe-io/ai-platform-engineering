@@ -198,22 +198,6 @@ const REMOTE_MCP_PROVIDERS: ProviderEntry[] = [
       },
     ],
   },
-  {
-    key: "zapier",
-    name: "Zapier",
-    description: "Trigger Zaps and run automations across thousands of connected apps",
-    endpoint: "https://mcp.zapier.com/mcp",
-    logoSrc: "https://static.cdnlogo.com/logos/z/75/zapier.svg",
-    accentClass: "hover:border-orange-500/50 hover:bg-orange-500/5",
-    credential_sources: [
-      {
-        kind: "provider_connection",
-        name: "X-CAIPE-Provider-Token",
-        provider: "zapier",
-        target: "header",
-      },
-    ],
-  },
 ];
 
 function AmplitudeIcon() {
@@ -291,14 +275,6 @@ function PagerDutyIcon() {
   );
 }
 
-function ZapierIcon() {
-  return (
-    <svg aria-hidden="true" className="h-8 w-8" viewBox="0 0 28 28" fill="#FF4A00">
-      <path d="M14.47 12A8.56 8.56 0 0 1 12 19.47 8.56 8.56 0 0 1 9.53 12 8.56 8.56 0 0 1 12 4.53 8.56 8.56 0 0 1 14.47 12ZM23.47 10.5h-7.24a8.61 8.61 0 0 0-1.5-3.61l5.11-5.1a.53.53 0 0 0 0-.75l-1.38-1.38a.53.53 0 0 0-.75 0l-5.1 5.11A8.61 8.61 0 0 0 10 3.27V.53A.53.53 0 0 0 9.47 0h-1.94A.53.53 0 0 0 7 .53v7.24a8.61 8.61 0 0 0-3.61 1.5L.29 4.16a.53.53 0 0 0-.75 0L-.84 5.54a.53.53 0 0 0 0 .75l5.11 5.1A8.61 8.61 0 0 0 2.77 15H.53A.53.53 0 0 0 0 15.47v1.94A.53.53 0 0 0 .53 18h7.24a8.61 8.61 0 0 0 1.5 3.61l-5.11 5.1a.53.53 0 0 0 0 .75l1.38 1.38a.53.53 0 0 0 .75 0l5.1-5.11A8.61 8.61 0 0 0 15 25.23v2.24a.53.53 0 0 0 .53.53h1.94a.53.53 0 0 0 .53-.53v-7.24a8.61 8.61 0 0 0 3.61-1.5l5.11 5.11a.53.53 0 0 0 .75 0l1.38-1.38a.53.53 0 0 0 0-.75L23.74 16.4A8.61 8.61 0 0 0 25.23 13H27.47A.53.53 0 0 0 28 12.47v-1.94A.53.53 0 0 0 27.47 10.5Z"/>
-    </svg>
-  );
-}
-
 function ProviderLogo({ provider }: { provider: ProviderEntry }) {
   if (provider.logoSrc) {
     // eslint-disable-next-line @next/next/no-img-element
@@ -330,7 +306,6 @@ function ProviderLogo({ provider }: { provider: ProviderEntry }) {
     case "Linear": return <LinearIcon />;
     case "Notion": return <NotionIcon />;
     case "PagerDuty": return <PagerDutyIcon />;
-    case "Zapier": return <ZapierIcon />;
     default: return <GitHubIcon />;
   }
 }
