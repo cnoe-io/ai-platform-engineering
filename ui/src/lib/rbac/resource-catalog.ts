@@ -51,6 +51,7 @@ const DEFAULT_RESOURCES: readonly RebacCatalogResource[] = [
   resource("tool", "argocd_*", "Argo CD Tools", "rebac_shadowed"),
   resource("knowledge_base", "platform-runbooks", "Platform Runbooks", "rebac_shadowed"),
   resource("data_source", "platform-runbooks", "Platform Runbooks Source", "rebac_enforced"),
+  resource("ingestion_source", "slack-channel-platform", "Platform Slack Channel Source", "rebac_enforced"),
   resource("mcp_tool", "caipe_kb", "CAIPE KB Search Tool", "rebac_enforced"),
   resource("document", "platform-runbook", "Platform Runbook", "role_gated"),
   resource("skill", "incident-triage", "Incident Triage", "role_gated"),
