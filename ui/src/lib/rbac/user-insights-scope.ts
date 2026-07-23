@@ -21,6 +21,34 @@ export interface OwnedAgent {
 }
 
 /**
+ * Return the teams the Insights actor belongs to through OpenFGA's computed
+ * `team#member` relation. Team admins are included because `member` inherits
+ * `admin` in the authorization model. Used only to decide whether a scoped
+ * Insights drawer may show a teammate's profile shell; activity inside the
+ * drawer remains constrained to the actor's resource scope.
+ *
+ * Fail-closed: any PDP error returns [].
+ */
+export async function getInsightsActorTeamSlugs(openfgaUser: string): Promise<string[]> {
+  if (!openfgaUser.trim()) return [];
+  try {
+    const { objects } = await listOpenFgaObjects({
+      user: openfgaUser,
+      relation: 'member',
+      type: 'team',
+    });
+    return [...new Set(
+      objects
+        .map((object) => object.startsWith('team:') ? object.slice('team:'.length) : object)
+        .map((slug) => slug.trim())
+        .filter(Boolean),
+    )];
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Resolve display names for a set of agent ids best-effort from the
  * `dynamic_agents` collection (`_id` → `name`). Web message rows are keyed by
  * display name, so callers need the name to match them. Missing docs fall back

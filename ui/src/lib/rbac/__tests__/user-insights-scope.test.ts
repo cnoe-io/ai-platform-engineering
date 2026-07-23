@@ -20,6 +20,7 @@ jest.mock('@/lib/rbac/slack-channel-grant-store', () => ({
 import {
   getAgentsByIds,
   getAllAgents,
+  getInsightsActorTeamSlugs,
   getOwnedAgentConversationIds,
   getOwnedAgents,
 } from '../user-insights-scope';
@@ -40,6 +41,32 @@ beforeEach(() => {
   mockListOpenFgaObjects.mockReset();
   mockCheckOpenFgaTuple.mockReset();
   mockGetCollection.mockReset();
+});
+
+describe('getInsightsActorTeamSlugs', () => {
+  it('lists computed team membership and returns unique slugs', async () => {
+    mockListOpenFgaObjects.mockResolvedValue({
+      objects: ['team:primary', 'team:secondary', 'team:primary'],
+    });
+
+    expect(await getInsightsActorTeamSlugs('user:sub-1')).toEqual([
+      'primary',
+      'secondary',
+    ]);
+    expect(mockListOpenFgaObjects).toHaveBeenCalledWith({
+      user: 'user:sub-1',
+      relation: 'member',
+      type: 'team',
+    });
+  });
+
+  it('fails closed for an empty actor or PDP error', async () => {
+    expect(await getInsightsActorTeamSlugs('')).toEqual([]);
+    expect(mockListOpenFgaObjects).not.toHaveBeenCalled();
+
+    mockListOpenFgaObjects.mockRejectedValue(new Error('fga down'));
+    expect(await getInsightsActorTeamSlugs('user:sub-1')).toEqual([]);
+  });
 });
 
 describe('getAgentsByIds', () => {
