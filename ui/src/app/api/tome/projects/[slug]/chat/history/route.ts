@@ -12,6 +12,8 @@ import { NextRequest } from "next/server";
 
 import {
   ApiError,
+  getAuthFromBearerOrSession,
+  requireRbacPermission,
   successResponse,
   withErrorHandler,
 } from "@/lib/api-middleware";
@@ -21,6 +23,7 @@ import {
   clearSession,
   ensureSession,
   loadHistory,
+  loadSessionById,
   setSdkSessionId,
 } from "@/lib/tome/chat-history-store";
 import type { ChatPart, ChatRole } from "@/types/tome";
@@ -34,19 +37,45 @@ const userIdOf = (email?: string): string => email ?? "anonymous";
 export const GET = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
   const { slug } = await ctx.params;
   const tctx = await loadTomeProject(request, slug);
-  const { session, messages } = await loadHistory(
-    tctx.projectId,
-    userIdOf(tctx.user.email),
-  );
+  const requestedSessionId = request.nextUrl.searchParams.get("sessionId");
+
+  let session: Awaited<ReturnType<typeof loadHistory>>["session"] = null;
+  let messages: Awaited<ReturnType<typeof loadHistory>>["messages"] = [];
+  let readOnly = false;
+  let sessionOwner: string | null = null;
+
+  if (requestedSessionId) {
+    const loaded = await loadSessionById(requestedSessionId, tctx.projectId);
+    session = loaded.session;
+    messages = loaded.messages;
+    sessionOwner = session?.user_id ?? null;
+
+    if (session && session.user_id !== userIdOf(tctx.user.email)) {
+      const { session: authSession } = await getAuthFromBearerOrSession(request);
+      await requireRbacPermission(authSession, "admin_ui", "view");
+      readOnly = true;
+    }
+  } else {
+    const loaded = await loadHistory(tctx.projectId, userIdOf(tctx.user.email));
+    session = loaded.session;
+    messages = loaded.messages;
+  }
+
   return successResponse({
     session: session
-      ? { id: session._id, sdkSessionId: session.sdk_session_id ?? null }
+      ? {
+          id: session._id,
+          sdkSessionId: session.sdk_session_id ?? null,
+          userId: session.user_id ?? null,
+        }
       : null,
     messages: messages.map((m) => ({
       role: m.role,
       content: m.content,
       parts: m.parts ?? null,
     })),
+    readOnly,
+    sessionOwner,
   });
 });
 

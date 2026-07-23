@@ -18,6 +18,9 @@ export interface FeedbackRequest {
   reason?: string;
   additionalFeedback?: string;
   conversationId?: string;
+  source?: "web" | "slack" | "tome";
+  tomeProjectSlug?: string;
+  tomeSessionId?: string;
 }
 
 // Feedback response interface

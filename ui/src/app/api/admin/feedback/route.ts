@@ -17,7 +17,9 @@ simulationSubjectCanManageAdminSurface,
 } from '@/lib/rbac/admin-simulation-server';
 import { resolveInsightsUserFilter } from '@/lib/rbac/insights-user-filter';
 import { getOwnedAgentConversationIds, getOwnedAgents, getReadableSlackChannelNames } from '@/lib/rbac/user-insights-scope';
+import { getTomeChatSessionsCollection } from '@/lib/tome/mongo-collections';
 import type { Conversation } from '@/types/mongodb';
+import type { ProjectDocument } from '@/types/projects';
 import type { Document,ObjectId } from 'mongodb';
 import { NextRequest,NextResponse } from 'next/server';
 
@@ -35,6 +37,8 @@ interface FeedbackDocument extends Document {
   source?: string;
   ticket_id?: string;
   ticket_url?: string;
+  tome_project_slug?: string;
+  tome_session_id?: string;
   trace_id?: string;
   user_email?: string;
   user_id?: string;
@@ -137,6 +141,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       }
     } else if (source === 'report') {
       filter.source = 'report';
+    } else if (source === 'tome') {
+      filter.source = 'tome';
     }
     if (hasUserFilter) {
       filter.user_email = userEmails.length === 1 ? userEmails[0] : { $in: userEmails };
@@ -256,6 +262,53 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       }
     }
 
+    // Legacy Tome feedback was stored as source=web with the tome session uuid
+    // in conversation_id. Resolve those rows for correct admin deep-links.
+    const legacyTomeSessionIds = [
+      ...new Set(
+        docs.flatMap((doc) => {
+          if (doc.tome_session_id || doc.source === 'slack' || doc.source === 'report') {
+            return [];
+          }
+          if (doc.conversation_id && !convTitleMap.has(doc.conversation_id)) {
+            return [doc.conversation_id];
+          }
+          return [];
+        }),
+      ),
+    ];
+    const tomeLinkBySessionId = new Map<
+      string,
+      { projectSlug: string; sessionId: string }
+    >();
+    if (legacyTomeSessionIds.length > 0) {
+      try {
+        const tomeSessions = await getTomeChatSessionsCollection();
+        const sessions = await tomeSessions
+          .find({ _id: { $in: legacyTomeSessionIds } })
+          .toArray();
+        const projectIds = [...new Set(sessions.map((s) => s.project_id))];
+        const projects = await getCollection<ProjectDocument>('projects');
+        const projectDocs = await projects
+          .find({ _id: { $in: projectIds as unknown as ProjectDocument['_id'][] } })
+          .toArray();
+        const slugByProjectId = new Map(
+          projectDocs.map((p) => [String(p._id), p.slug]),
+        );
+        for (const session of sessions) {
+          const projectSlug = slugByProjectId.get(String(session.project_id));
+          if (projectSlug && session._id) {
+            tomeLinkBySessionId.set(session._id, {
+              projectSlug,
+              sessionId: session._id,
+            });
+          }
+        }
+      } catch {
+        // Tome collections may be absent on Slack-only deployments
+      }
+    }
+
     const VALUE_LABELS: Record<string, string> = {
       thumbs_up: 'Thumbs up',
       thumbs_down: 'Thumbs down',
@@ -293,7 +346,10 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         message_id: doc.message_id || doc._id?.toString(),
         conversation_id: doc.conversation_id || null,
         conversation_title: convTitleMap.get(doc.conversation_id) || undefined,
-        source: doc.source || 'web',
+        source:
+          doc.source === 'tome' || tomeLinkBySessionId.has(doc.conversation_id || '')
+            ? 'tome'
+            : doc.source || 'web',
         channel_name: doc.channel_name || null,
         rating: doc.rating,
         reason,
@@ -305,6 +361,14 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         ticket_id: doc.ticket_id || null,
         context_url: doc.context_url || null,
         report_kind: doc.report_kind || null,
+        tome_project_slug:
+          doc.tome_project_slug ||
+          tomeLinkBySessionId.get(doc.tome_session_id || doc.conversation_id || '')?.projectSlug ||
+          null,
+        tome_session_id:
+          doc.tome_session_id ||
+          tomeLinkBySessionId.get(doc.conversation_id || '')?.sessionId ||
+          null,
       };
     });
 

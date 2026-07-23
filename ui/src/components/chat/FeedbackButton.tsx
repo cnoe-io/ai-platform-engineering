@@ -26,6 +26,10 @@ interface FeedbackButtonProps {
   traceId?: string;
   /** Optional conversation ID for context */
   conversationId?: string;
+  /** When set to "tome", feedback is tagged for Tome chat (not CAIPE /chat). */
+  feedbackSource?: "web" | "tome";
+  tomeProjectSlug?: string;
+  tomeSessionId?: string;
   feedback?: Feedback;
   onFeedbackChange?: (feedback: Feedback) => void;
   onFeedbackSubmit?: (feedback: Feedback) => void;
@@ -40,6 +44,9 @@ export function FeedbackButton({
   messageId,
   traceId,
   conversationId,
+  feedbackSource = "web",
+  tomeProjectSlug,
+  tomeSessionId,
   feedback,
   onFeedbackChange,
   onFeedbackSubmit,
@@ -116,6 +123,13 @@ export function FeedbackButton({
       reason: feedback.reason,
       additionalFeedback: feedback.reason === "Other" ? additionalFeedback : undefined,
       conversationId,
+      ...(feedbackSource === "tome" && tomeProjectSlug && tomeSessionId
+        ? {
+            source: "tome" as const,
+            tomeProjectSlug,
+            tomeSessionId,
+          }
+        : {}),
     });
 
     onFeedbackChange?.(finalFeedback);
@@ -145,6 +159,13 @@ export function FeedbackButton({
       reason: feedback.reason,
       additionalFeedback: feedback.reason === "Other" ? additionalFeedback : undefined,
       conversationId,
+      ...(feedbackSource === "tome" && tomeProjectSlug && tomeSessionId
+        ? {
+            source: "tome" as const,
+            tomeProjectSlug,
+            tomeSessionId,
+          }
+        : {}),
     });
 
     onFeedbackChange?.(finalFeedback);

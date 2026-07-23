@@ -81,6 +81,19 @@ export async function loadHistory(
   return { session, messages: await loadMessages(session._id) };
 }
 
+/** Load a specific session by id (admin / deep-link reads). */
+export async function loadSessionById(
+  sessionId: string,
+  projectId?: string,
+): Promise<{ session: ChatSession | null; messages: ChatMessage[] }> {
+  const sessions = await getTomeChatSessionsCollection();
+  const query: { _id: string; project_id?: string } = { _id: sessionId };
+  if (projectId) query.project_id = projectId;
+  const session = await sessions.findOne(query);
+  if (!session?._id) return { session: null, messages: [] };
+  return { session, messages: await loadMessages(session._id) };
+}
+
 /** Append a message to a session and bump the session's `updated_at`. */
 export async function appendMessage(
   session: ChatSession,

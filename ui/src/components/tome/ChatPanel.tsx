@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { ArrowUp, Bot, Eraser, Loader2, Sparkles, Wrench } from "lucide-react";
 import TextareaAutosize from "react-textarea-autosize";
 
@@ -58,6 +59,13 @@ const newMessageId = (): string =>
     ? crypto.randomUUID()
     : `tmp-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isTomeSessionId(id: string | null | undefined): id is string {
+  return typeof id === "string" && UUID_RE.test(id);
+}
+
 interface Props {
   slug: string;
   /** Called when the agent reports it wrote a page, so the wiki can refresh. */
@@ -69,11 +77,15 @@ interface Props {
 }
 
 export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }: Props) {
+  const searchParams = useSearchParams();
+  const viewSessionId = searchParams.get("session");
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [compacting, setCompacting] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(true);
+  const [readOnlyView, setReadOnlyView] = useState(false);
+  const [sessionOwner, setSessionOwner] = useState<string | null>(null);
   const [contextUsage, setContextUsage] = useState<{ percentage: number } | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<"clear" | "compact" | null>(null);
   // sdk_session_id (agent resume hint) + tome session _id (durable transcript).
@@ -115,13 +127,20 @@ export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }:
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`/api/tome/projects/${slug}/chat/history`);
+        const historyUrl = viewSessionId
+          ? `/api/tome/projects/${slug}/chat/history?sessionId=${encodeURIComponent(viewSessionId)}`
+          : `/api/tome/projects/${slug}/chat/history`;
+        const res = await fetch(historyUrl);
         if (!res.ok) return;
         const data = (await res.json().catch(() => null))?.data;
         if (cancelled || !data) return;
         sessionIdRef.current = data.session?.id ?? null;
         sessionRef.current = data.session?.sdkSessionId ?? null;
         setSessionId(sessionIdRef.current);
+        setReadOnlyView(Boolean(data.readOnly));
+        setSessionOwner(
+          typeof data.sessionOwner === "string" ? data.sessionOwner : data.session?.userId ?? null,
+        );
         const msgs: ChatMsg[] = (data.messages ?? []).map(
           (m: { role: Role; content?: string; parts?: Part[] | null }) => ({
             id: newMessageId(),
@@ -140,7 +159,7 @@ export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }:
     return () => {
       cancelled = true;
     };
-  }, [slug]);
+  }, [slug, viewSessionId]);
 
   // Persist a finished message to the tome-owned store (best-effort — chat
   // still works if this fails). Threads the durable session id through and
@@ -417,7 +436,7 @@ export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }:
           size="sm"
           className="h-7 gap-1.5 px-2 text-xs text-muted-foreground"
           onClick={() => setConfirmDialog("compact")}
-          disabled={streaming || compacting || !messages.length}
+          disabled={readOnlyView || streaming || compacting || !messages.length}
           title="Summarize the conversation so far to free up context"
         >
           {compacting ? (
@@ -432,13 +451,20 @@ export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }:
           size="sm"
           className="h-7 gap-1.5 px-2 text-xs text-muted-foreground"
           onClick={() => setConfirmDialog("clear")}
-          disabled={streaming || compacting || !messages.length}
+          disabled={readOnlyView || streaming || compacting || !messages.length}
           title="Start a fresh chat session"
         >
           <Eraser className="h-3.5 w-3.5" />
           Clear
         </Button>
       </div>
+      {readOnlyView && (
+        <div className="border-b bg-muted/40 px-4 py-2 text-center text-xs text-muted-foreground">
+          Viewing Tome chat history
+          {sessionOwner ? ` for ${sessionOwner}` : ""}
+          {isTomeSessionId(sessionId) ? ` (session ${sessionId})` : ""}
+        </div>
+      )}
       <ScrollArea viewportRef={scrollRef} className="flex-1">
         <div className="mx-auto flex max-w-4xl flex-col gap-5 px-6 py-8">
           {messages.length === 0 && !loadingHistory && <EmptyState slug={slug} />}
@@ -461,12 +487,14 @@ export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }:
               <MessageRow
                 key={m.id}
                 msg={m}
-                conversationId={sessionId ?? `tome-${slug}`}
+                conversationId={isTomeSessionId(sessionId) ? sessionId : undefined}
+                tomeProjectSlug={slug}
+                tomeSessionId={isTomeSessionId(sessionId) ? sessionId : undefined}
                 onOpenPage={onOpenPage}
                 glossaryPreview={glossaryPreview}
                 onFeedbackChange={(feedback) => updateFeedback(m.id, feedback)}
                 onRetry={retryText ? () => handleRegenerate(retryText!) : undefined}
-                retryDisabled={streaming || compacting}
+                retryDisabled={readOnlyView || streaming || compacting}
               />
             );
           })}
@@ -487,15 +515,15 @@ export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }:
             }}
             minRows={1}
             maxRows={10}
-            disabled={compacting}
-            placeholder={compacting ? "Compacting…" : "Ask about this project…"}
+            disabled={readOnlyView || compacting}
+            placeholder={readOnlyView ? "Read-only session view" : compacting ? "Compacting…" : "Ask about this project…"}
             className="flex-1 resize-none border-0 bg-transparent py-1 text-sm leading-relaxed outline-none ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60"
           />
           <Button
             size="icon"
             className="shrink-0 rounded-full"
             onClick={() => void send()}
-            disabled={!input.trim() || streaming || compacting}
+            disabled={readOnlyView || !input.trim() || streaming || compacting}
             title={compacting ? "Compacting…" : "Send"}
           >
             {streaming ? (
@@ -581,6 +609,8 @@ function EmptyState({ slug }: { slug: string }) {
 function MessageRow({
   msg,
   conversationId,
+  tomeProjectSlug,
+  tomeSessionId,
   onOpenPage,
   glossaryPreview,
   onFeedbackChange,
@@ -589,6 +619,8 @@ function MessageRow({
 }: {
   msg: ChatMsg;
   conversationId?: string;
+  tomeProjectSlug?: string;
+  tomeSessionId?: string;
   onOpenPage?: (path: string) => void;
   glossaryPreview?: GlossaryResolver;
   onFeedbackChange?: (feedback: Feedback) => void;
@@ -676,6 +708,9 @@ function MessageRow({
             content={textOfParts(msg.parts)}
             messageId={msg.id}
             conversationId={conversationId}
+            feedbackSource="tome"
+            tomeProjectSlug={tomeProjectSlug}
+            tomeSessionId={tomeSessionId}
             copyLabel="Copy response"
             onRetry={onRetry}
             retryLabel="Regenerate response"

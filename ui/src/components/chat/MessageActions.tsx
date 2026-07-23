@@ -26,6 +26,9 @@ interface MessageActionsProps {
   messageId: string;
   /** Conversation/session id for feedback grouping (Langfuse trace + Mongo doc). */
   conversationId?: string;
+  feedbackSource?: "web" | "tome";
+  tomeProjectSlug?: string;
+  tomeSessionId?: string;
   /** Tooltip + aria label for the copy button. */
   copyLabel?: string;
   onRetry?: () => void;
@@ -42,6 +45,9 @@ export function MessageActions({
   content,
   messageId,
   conversationId,
+  feedbackSource,
+  tomeProjectSlug,
+  tomeSessionId,
   copyLabel = "Copy message",
   onRetry,
   retryLabel = "Retry",
@@ -107,6 +113,9 @@ export function MessageActions({
           <FeedbackButton
             messageId={messageId}
             conversationId={conversationId}
+            feedbackSource={feedbackSource}
+            tomeProjectSlug={tomeProjectSlug}
+            tomeSessionId={tomeSessionId}
             feedback={feedback}
             onFeedbackChange={onFeedbackChange}
             disabled={disabled}
