@@ -55,8 +55,25 @@ jobs:
         with:
           egress-policy: audit
 
+      # Fork-triggered pull_request runs never receive repo secrets (GitHub
+      # security boundary), so CI_SECURITY_APP_ID/PRIVATE_KEY resolve empty
+      # there and create-github-app-token hard-fails. The default GITHUB_TOKEN
+      # is also forced read-only for fork PRs regardless of declared
+      # permissions, so security-events: write is unavailable either way.
+      # Detect that case and skip the app-token + SARIF upload, but still run
+      # the scan itself so contributors get results in the job log.
+      - name: 🔍 Determine fork status
+        id: fork-check
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" && "${{ github.event.pull_request.head.repo.full_name }}" != "${{ github.repository }}" ]]; then
+            echo "is_fork=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_fork=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: 🔑 Generate GitHub App token
         id: app-token
+        if: steps.fork-check.outputs.is_fork != 'true'
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         with:
           app-id: ${{ secrets.CI_SECURITY_APP_ID }}
@@ -80,7 +97,7 @@ jobs:
 
       - name: Upload SARIF to GitHub Code Scanning
         uses: github/codeql-action/upload-sarif@7188fc363630916deb702c7fdcf4e481b751f97a # v4.37.1
-        if: ${{ always() && steps.scan.outputs.sarif != '' }}
+        if: ${{ always() && steps.scan.outputs.sarif != '' && steps.fork-check.outputs.is_fork != 'true' }}
         with:
           sarif_file: ${{ steps.scan.outputs.sarif }}
           # Keep this stable as "grype": GitHub Code Scanning correlates SARIF
@@ -95,6 +112,11 @@ jobs:
           sha: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+
+      - name: ℹ️ Note SARIF upload skipped for fork PR
+        if: ${{ always() && steps.fork-check.outputs.is_fork == 'true' }}
+        run: |
+          echo "::notice::This PR is from a fork, so results can't be uploaded to GitHub Code Scanning (that needs security-events: write, unavailable to fork-triggered pull_request runs). The Grype scan above still ran — see its output for findings. A maintainer can re-run this workflow after merge to get code-scanning annotations."
 
   scan-containers:
     name: Container scan (${{ matrix.image }})
