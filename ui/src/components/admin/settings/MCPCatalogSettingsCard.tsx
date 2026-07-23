@@ -64,6 +64,7 @@ function EntryDialog({
 
   useEffect(() => {
     if (open) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: reset form to `initial` whenever the dialog opens
       setForm({
         name: initial?.name ?? "",
         description: initial?.description ?? "",
