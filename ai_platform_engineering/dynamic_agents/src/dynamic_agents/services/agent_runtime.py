@@ -1502,6 +1502,7 @@ class AgentRuntime:
             trace_id,
             encoder,
             observation,
+            files,
         )
         async for frame in self._observe_turn(implementation, observation):
             yield frame
@@ -1561,6 +1562,7 @@ class AgentRuntime:
         trace_id: str | None,
         encoder: "StreamEncoder | None",
         observation: _TurnObservation,
+        files: list[InputFile] | None = None,
     ) -> AsyncGenerator[str, None]:
         if not self._initialized:
             await self.initialize()
