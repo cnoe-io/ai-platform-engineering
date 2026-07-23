@@ -1291,6 +1291,9 @@ describe('withAuth', () => {
       ['/api/workflow-configs', 'POST', 'can_use', 'dynamic_agent#view'],
       ['/api/workflow-configs', 'PUT', 'can_use', 'dynamic_agent#view'],
       ['/api/workflow-runs', 'GET', 'can_use', 'dynamic_agent#view'],
+      ['/api/schedules', 'GET', 'can_use', 'dynamic_agent#view'],
+      ['/api/schedules/schedule-1', 'PATCH', 'can_use', 'dynamic_agent#invoke'],
+      ['/api/schedules/schedule-1', 'DELETE', 'can_use', 'dynamic_agent#invoke'],
       ['/api/unclassified-feature', 'GET', 'can_audit', 'admin_ui#view'],
       ['/api/unclassified-feature', 'POST', 'can_manage', 'admin_ui#manage'],
     ])('maps fallback route %s %s to explicit %s capability', async (
