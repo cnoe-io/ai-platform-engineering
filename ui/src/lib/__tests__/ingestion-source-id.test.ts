@@ -49,6 +49,18 @@ describe("ingestion source id formulas", () => {
     expect(webUrlSourceId(url)).toBe(webUrlSourceId(url));
   });
 
+  it("web_url matches Python's Unicode-aware isalnum() cleaning for non-ASCII characters", () => {
+    const url = "https://example.test/例え/ページ";
+    const expectedHash = createHash("md5").update(url).digest("hex").slice(0, 12);
+    expect(webUrlSourceId(url)).toBe(`src_https___example_test_例え_ページ_${expectedHash}`);
+  });
+
+  it("confluence_space preserves host case and port, matching Python's urlparse().netloc (not WHATWG URL.hostname)", () => {
+    expect(confluenceSpaceSourceId("https://Confluence.Example.com:8090", "ENG")).toBe(
+      "src_confluence___Confluence_Example_com:8090__ENG",
+    );
+  });
+
   describe("computeIngestionSourceId dispatches on source_type", () => {
     it("slack_channel", () => {
       expect(
