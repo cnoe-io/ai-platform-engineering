@@ -22,8 +22,6 @@ function destinationHref(
   activeDestinationId: AdminDestinationDefinition["id"],
 ): string {
   const params = new URLSearchParams(searchParams.toString());
-  params.delete("cat");
-  params.delete("tab");
   if (destination.id === "stats" && activeDestinationId !== "stats") {
     params.set("dateRange", "30d");
     params.delete("from");

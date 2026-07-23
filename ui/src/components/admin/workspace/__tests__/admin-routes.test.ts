@@ -24,7 +24,6 @@ describe("admin route registry", () => {
     expect(findAdminDestinationByPath("/admin/platform/agents")?.id).toBe("agents");
     expect(findAdminDestinationByPath("/admin/platform/mcp-catalog")?.id).toBe("mcp");
     expect(findAdminDestinationByPath("/admin/security/ai-review/")?.id).toBe("ai-review");
-    expect(findAdminDestinationByPath("/admin?cat=platform&tab=agents")).toBeUndefined();
     expect(findAdminDestinationByPath("/admin/platform/defaults")).toBeUndefined();
   });
 
