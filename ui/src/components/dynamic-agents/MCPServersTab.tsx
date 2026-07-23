@@ -34,7 +34,8 @@ Trash2,
 Zap,
 } from "lucide-react";
 import React from "react";
-import { MCPServerEditor } from "./MCPServerEditor";
+import { MCPServerEditor, type MCPServerInitialValues } from "./MCPServerEditor";
+import { RemoteMCPCatalogDialog, type RemoteMCPTemplate } from "./RemoteMCPCatalogDialog";
 
 // assisted-by Codex Codex-sonnet-4-6
 export const MCP_SERVERS_REFRESH_INTERVAL_MS = 10_000;
@@ -210,6 +211,8 @@ export function MCPServersTab({
   const selectionRequestRef = React.useRef(0);
   const loadedSelectionIdRef = React.useRef<string | null>(null);
   const [isCreating, setIsCreating] = React.useState(false);
+  const [showCatalog, setShowCatalog] = React.useState(false);
+  const [catalogInitialValues, setCatalogInitialValues] = React.useState<MCPServerInitialValues | null>(null);
   const [probeResults, setProbeResults] = React.useState<Record<string, ProbeResult>>({});
   const [agentGatewayMigrationWarnings, setAgentGatewayMigrationWarnings] = React.useState<
     AgentGatewayMigrationWarning[]
@@ -558,9 +561,20 @@ export function MCPServersTab({
     loadedSelectionIdRef.current = null;
     setEditingServer(null);
     setIsCreating(false);
+    setCatalogInitialValues(null);
     setSelectionError(null);
     setSelectionLoading(false);
     onSelectedServerChange?.(null);
+  };
+
+  const handleCatalogSelect = (template: RemoteMCPTemplate) => {
+    setCatalogInitialValues({
+      name: template.name,
+      description: template.description,
+      endpoint: template.endpoint,
+      credential_sources: template.credential_sources,
+    });
+    setIsCreating(true);
   };
 
   const hasMatchingSelectedServer = editingServer?._id === selectedServerId;
@@ -593,6 +607,7 @@ export function MCPServersTab({
       <MCPServerEditor
         key={editingServer?._id ?? "new"}
         server={editingServer}
+        initialValues={catalogInitialValues ?? undefined}
         readOnly={
           isCreating
             ? false
@@ -608,6 +623,13 @@ export function MCPServersTab({
   }
 
   return (
+    <>
+      <RemoteMCPCatalogDialog
+        open={showCatalog}
+        onOpenChange={setShowCatalog}
+        onSelect={handleCatalogSelect}
+        onSelectCustom={() => setIsCreating(true)}
+      />
     <Card>
       <CardHeader>
         <div className="flex items-center justify-between">
@@ -638,7 +660,7 @@ export function MCPServersTab({
               <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
               Refresh
             </Button>
-            <Button size="sm" onClick={() => setIsCreating(true)}>
+            <Button size="sm" onClick={() => setShowCatalog(true)}>
               <Plus className="h-4 w-4 mr-2" />
               Add Server
             </Button>
@@ -714,7 +736,7 @@ export function MCPServersTab({
             <p className="text-muted-foreground mb-4">
               Add your first MCP server to enable tool access for agents.
             </p>
-            <Button onClick={() => setIsCreating(true)}>
+            <Button onClick={() => setShowCatalog(true)}>
               <Plus className="h-4 w-4 mr-2" />
               Add Server
             </Button>
@@ -1018,6 +1040,7 @@ export function MCPServersTab({
         }}
       />
     </Card>
+    </>
   );
 }
 
