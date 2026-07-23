@@ -3018,6 +3018,168 @@
       }
     },
     {
+      "type": "ingestion_source",
+      "relations": {
+        "creator": {
+          "this": {}
+        },
+        "owner": {
+          "this": {}
+        },
+        "reader": {
+          "this": {}
+        },
+        "manager": {
+          "this": {}
+        },
+        "auditor": {
+          "this": {}
+        },
+        "can_discover": {
+          "computedUserset": {
+            "relation": "can_read"
+          }
+        },
+        "can_read": {
+          "union": {
+            "child": [
+              {
+                "computedUserset": {
+                  "relation": "reader"
+                }
+              },
+              {
+                "computedUserset": {
+                  "relation": "can_manage"
+                }
+              },
+              {
+                "computedUserset": {
+                  "relation": "owner"
+                }
+              }
+            ]
+          }
+        },
+        "can_manage": {
+          "union": {
+            "child": [
+              {
+                "computedUserset": {
+                  "relation": "manager"
+                }
+              },
+              {
+                "computedUserset": {
+                  "relation": "owner"
+                }
+              }
+            ]
+          }
+        },
+        "can_delete": {
+          "computedUserset": {
+            "relation": "can_manage"
+          }
+        },
+        "can_audit": {
+          "union": {
+            "child": [
+              {
+                "computedUserset": {
+                  "relation": "auditor"
+                }
+              },
+              {
+                "computedUserset": {
+                  "relation": "can_manage"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "metadata": {
+        "relations": {
+          "creator": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              }
+            ]
+          },
+          "owner": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              }
+            ]
+          },
+          "reader": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "user",
+                "wildcard": {}
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "member"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              },
+              {
+                "type": "external_group",
+                "relation": "member"
+              }
+            ]
+          },
+          "manager": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              },
+              {
+                "type": "organization",
+                "relation": "admin"
+              }
+            ]
+          },
+          "auditor": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "service_account"
+              },
+              {
+                "type": "team",
+                "relation": "admin"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
       "type": "document",
       "relations": {
         "owner": {

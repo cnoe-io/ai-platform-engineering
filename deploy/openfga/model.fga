@@ -328,6 +328,25 @@ type mcp_tool
     define can_manage: manager or owner
     define can_audit: auditor or can_manage
 
+# ingestion_source represents a self-service RAG ingestion source
+# configuration (Slack channel, Confluence space, Jira project, web URL,
+# Webex space). It is independent of the knowledge_base/data_source graph:
+# a source describes *where* content is pulled from, not the resulting
+# indexed data, so it carries its own shareable-resource authorization
+# graph rather than inheriting from a parent_kb.
+type ingestion_source
+  relations
+    define creator: [user]
+    define owner: [user, service_account]
+    define reader: [user, user:*, service_account, team#member, team#admin, external_group#member]
+    define manager: [user, service_account, team#admin, organization#admin]
+    define auditor: [user, service_account, team#admin]
+    define can_discover: can_read
+    define can_read: reader or can_manage or owner
+    define can_manage: manager or owner
+    define can_delete: can_manage
+    define can_audit: auditor or can_manage
+
 type document
   relations
     define owner: [user, service_account]

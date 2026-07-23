@@ -105,6 +105,11 @@ export const UNIVERSAL_REBAC_RESOURCE_TYPES: readonly UniversalRebacResourceType
     description: "RAG custom MCP search tool created via the knowledge-base MCP API.",
   },
   {
+    type: "ingestion_source",
+    actions: ["discover", "read", "manage", "delete", "audit"],
+    description: "Self-service RAG ingestion source configuration (Slack, Confluence, Jira, web, Webex).",
+  },
+  {
     type: "document",
     actions: ["discover", "read", "write", "delete", "share", "audit"],
     description: "Document-level authorization target within a knowledge base.",

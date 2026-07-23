@@ -131,6 +131,11 @@ export const FGA_ENFORCEMENT_MANIFEST: Record<
     surfaces: ["ui/src/app/api/rag/[...path]/route.ts"],
     notes: "mcp_tool#can_call gates custom-tool invocation; layered under org can_search.",
   },
+  ingestion_source: {
+    status: "rebac_enforced",
+    surfaces: ["ui/src/lib/rbac/openfga-owned-resources-reconcile.ts"],
+    notes: "Source CRUD gated by can_read/can_manage/can_delete; ownership reconciled via reconcileIngestionSourceRelationships.",
+  },
   document: {
     status: "role_gated",
     surfaces: ["ai_platform_engineering/knowledge_bases/rag/server/src/server/restapi.py"],
