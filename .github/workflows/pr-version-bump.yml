@@ -35,6 +35,26 @@ jobs:
         with:
           script: |
             const pr = context.payload.pull_request;
+
+            // This job commits the version bump directly onto the PR's own
+            // branch, which needs the CI_BUILD_APP_ID/PRIVATE_KEY secrets to
+            // mint a push-capable token. Fork-triggered pull_request runs
+            // never receive repo secrets (GitHub security boundary) and the
+            // default GITHUB_TOKEN is forced read-only for them too, so
+            // there is no token here that could push to someone else's fork
+            // anyway. Skip cleanly instead of failing every external
+            // contributor's PR — auto-tag.yml re-derives the correct version
+            // from the commit history on push to main, independent of
+            // whatever is checked into the PR branch.
+            const repoFullName = `${context.repo.owner}/${context.repo.repo}`;
+            const isFork = pr.head.repo?.full_name !== repoFullName;
+            if (isFork) {
+              core.setOutput('should_run', 'false');
+              core.setOutput('reason', `fork PR from ${pr.head.repo?.full_name ?? 'unknown'} — version bump is applied after merge, not on contributor branches`);
+              core.notice(`should_run=false: fork PR (${pr.head.repo?.full_name}) — skipping version-bump auto-commit; auto-tag.yml finalizes the version on push to main.`);
+              return;
+            }
+
             const supportedBase = pr.base.ref === 'main' || pr.base.ref.startsWith('release/');
             if (!supportedBase) {
               core.setOutput('should_run', 'false');

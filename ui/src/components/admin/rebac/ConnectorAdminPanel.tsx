@@ -1,6 +1,7 @@
 "use client";
 
 import { ChevronRight,FileUp,HelpCircle,RefreshCw,RotateCw,Settings2 } from "lucide-react";
+import { useSearchParams } from "next/navigation";
 import React,{ useCallback,useEffect,useLayoutEffect,useMemo,useRef,useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -12,6 +13,7 @@ Dialog,DialogContent,DialogDescription,DialogFooter,DialogHeader,DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
+import { useUrlFilterParams } from "@/hooks/use-url-filter-params";
 import { withQueryParam } from "@/lib/rbac/admin-simulation-query";
 import { Tooltip,TooltipContent,TooltipTrigger } from "@/components/ui/tooltip";
 import { useSubtabParam } from "@/hooks/use-subtab-param";
@@ -587,14 +589,18 @@ function ConnectorLoadingState({ label }: { label: string }) {
 
 export function ConnectorAdminPanel({
   adapter,
+  configuredSearchParam,
   disabled = false,
   selfService = false,
 }: {
   adapter: ConnectorAdminAdapter;
+  configuredSearchParam?: string;
   disabled?: boolean;
   selfService?: boolean;
 }) {
   const { toast } = useToast();
+  const searchParams = useSearchParams();
+  const updateUrlFilters = useUrlFilterParams();
   const [items, setItems] = useState<ItemSummary[]>([]);
   const [selectedKey, setSelectedKey] = useState("");
   const [routes, setRoutes] = useState<ItemAgentRoute[]>([]);
@@ -658,7 +664,25 @@ export function ConnectorAdminPanel({
   const showTabBar = !selfService && !singlePanelView;
   const showSinglePanelSwitcher = !selfService && Boolean(singlePanelView);
   const hasAdvancedView = !selfService && (!singlePanelView || singlePanelView === "advanced");
-  const [configuredSearch, setConfiguredSearch] = useState("");
+  const configuredSearchFromUrl = configuredSearchParam
+    ? searchParams.get(configuredSearchParam) ?? ""
+    : "";
+  const [configuredSearch, setConfiguredSearch] = useState(configuredSearchFromUrl);
+  const [previousConfiguredSearchFromUrl, setPreviousConfiguredSearchFromUrl] = useState(
+    configuredSearchFromUrl,
+  );
+  if (configuredSearchFromUrl !== previousConfiguredSearchFromUrl) {
+    setPreviousConfiguredSearchFromUrl(configuredSearchFromUrl);
+    setConfiguredSearch(configuredSearchFromUrl);
+  }
+  const updateConfiguredSearch = useCallback((next: string) => {
+    setConfiguredSearch(next);
+    if (configuredSearchParam) {
+      updateUrlFilters({
+        [configuredSearchParam]: next.trim() ? next : null,
+      });
+    }
+  }, [configuredSearchParam, updateUrlFilters]);
   const [discoverySearch, setDiscoverySearch] = useState("");
   const switchPanelView = (next: PanelView) => {
     if (singlePanelView) setLocalSingleView(next);
@@ -1574,13 +1598,13 @@ export function ConnectorAdminPanel({
               <div className="flex w-full gap-2 sm:max-w-sm">
                 <Input
                   value={configuredSearch}
-                  onChange={(event) => setConfiguredSearch(event.target.value)}
+                  onChange={(event) => updateConfiguredSearch(event.target.value)}
                   placeholder={`Search ${adapter.itemPlural}`}
                   aria-label={`Search configured ${adapter.itemPlural}`}
                   className="h-8"
                 />
                 {configuredSearch && (
-                  <Button type="button" variant="ghost" size="sm" onClick={() => setConfiguredSearch("")}>
+                  <Button type="button" variant="ghost" size="sm" onClick={() => updateConfiguredSearch("")}>
                     Clear
                   </Button>
                 )}

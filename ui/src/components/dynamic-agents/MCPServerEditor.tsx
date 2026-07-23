@@ -31,11 +31,19 @@ TransportType,
 import { ArrowLeft,Info,Loader2,Plus,X } from "lucide-react";
 import React from "react";
 
+export interface MCPServerInitialValues {
+  name?: string;
+  description?: string;
+  endpoint?: string;
+  credential_sources?: MCPCredentialSource[];
+}
+
 interface MCPServerEditorProps {
   server: MCPServerConfig | null; // null = creating new
   readOnly?: boolean;
   onSave: () => void;
   onCancel: () => void;
+  initialValues?: MCPServerInitialValues;
 }
 
 const TRANSPORT_OPTIONS: { value: TransportType; label: string; description: string }[] = [
@@ -176,21 +184,21 @@ function normalizedCredentialSource(
   };
 }
 
-export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServerEditorProps) {
+export function MCPServerEditor({ server, readOnly, onSave, onCancel, initialValues }: MCPServerEditorProps) {
   const isEditing = !!server;
 
   // Form state
   const [id, setId] = React.useState(server?._id || "");
   const [idManuallyEdited, setIdManuallyEdited] = React.useState(Boolean(server?._id));
   const [showGeneratedNameEditor, setShowGeneratedNameEditor] = React.useState(false);
-  const [name, setName] = React.useState(server?.name || "");
-  const [description, setDescription] = React.useState(server?.description || "");
+  const [name, setName] = React.useState(server?.name || initialValues?.name || "");
+  const [description, setDescription] = React.useState(server?.description || initialValues?.description || "");
   const [transport, setTransport] = React.useState<TransportType>(server?.transport || "http");
   const [endpoint, setEndpoint] = React.useState(
-    server?.agentgateway_target_endpoint || server?.endpoint || "",
+    server?.agentgateway_target_endpoint || server?.endpoint || initialValues?.endpoint || "",
   );
   const [pickedAgentGatewayUpstream, setPickedAgentGatewayUpstream] = React.useState(
-    server?.agentgateway_target_endpoint?.trim() || "",
+    server?.agentgateway_target_endpoint?.trim() || initialValues?.endpoint?.trim() || "",
   );
   const [command, setCommand] = React.useState(server?.command || "");
   const [args, setArgs] = React.useState<string[]>(server?.args || []);
@@ -198,7 +206,7 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
     server?.env ? Object.entries(server.env).map(([key, value]) => ({ key, value })) : []
   );
   const [credentialSources, setCredentialSources] = React.useState<MCPCredentialSource[]>(
-    normalizeCredentialSourcesForEditor(server?.credential_sources),
+    normalizeCredentialSourcesForEditor(server?.credential_sources ?? initialValues?.credential_sources),
   );
 
   const [loading, setLoading] = React.useState(false);
@@ -208,6 +216,14 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
   const [oauthConnectorOptions, setOauthConnectorOptions] = React.useState<OAuthConnectorOption[]>([]);
   const [endpointProbe, setEndpointProbe] = React.useState<EndpointProbeResult | null>(null);
   const [endpointProbeLoading, setEndpointProbeLoading] = React.useState(false);
+  const [credentialProbe, setCredentialProbe] = React.useState<{
+    ok: boolean;
+    status?: number;
+    error?: string;
+    credentialOrigins: { name: string; origin: string; provider?: string }[];
+    missingCredentials: string[];
+  } | null>(null);
+  const [credentialProbeLoading, setCredentialProbeLoading] = React.useState(false);
 
   // Arg input state
   const [newArg, setNewArg] = React.useState("");
@@ -445,6 +461,53 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
       setEndpointProbeLoading(false);
     }
   };
+
+  const handleProbeCredentials = async () => {
+    setCredentialProbeLoading(true);
+    setCredentialProbe(null);
+    setError(null);
+    try {
+      const normalizedSources = credentialSources
+        .map((source) => normalizedCredentialSource(source, providerConnectionOptions))
+        .filter((source): source is MCPCredentialSource => source !== null);
+      const response = await fetch("/api/mcp-servers/credential-probe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: endpoint, credential_sources: normalizedSources }),
+      });
+      const payload = (await response.json()) as {
+        success?: boolean;
+        data?: typeof credentialProbe;
+        error?: string;
+      };
+      if (!response.ok || payload.success === false || !payload.data) {
+        throw new Error(payload.error || "Could not test connection");
+      }
+      setCredentialProbe(payload.data);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Could not test connection");
+    } finally {
+      setCredentialProbeLoading(false);
+    }
+  };
+
+  const handleOAuthConnect = (provider: string) => {
+    const url = `/api/credentials/oauth/${encodeURIComponent(provider)}/connect`;
+    const features = "popup=yes,width=640,height=760,resizable=yes,scrollbars=yes";
+    const popup = window.open(url, `caipe-oauth-${provider}`, features);
+    popup?.focus?.();
+  };
+
+  React.useEffect(() => {
+    const handleOAuthMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
+      if (event.data?.type !== "caipe.oauth.connection") return;
+      void handleProbeCredentials();
+    };
+    window.addEventListener("message", handleOAuthMessage);
+    return () => window.removeEventListener("message", handleOAuthMessage);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [endpoint, credentialSources, providerConnectionOptions]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1066,6 +1129,13 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
                               ? "No OAuth providers"
                               : "Select a provider"}
                           </option>
+                          {/* Show a placeholder when the pre-filled provider isn't configured yet */}
+                          {source.provider &&
+                            !oauthConnectorOptions.some((c) => c.provider === source.provider) && (
+                              <option value={source.provider}>
+                                {source.provider} (not yet connected — set up in Credentials)
+                              </option>
+                            )}
                           {oauthConnectorOptions.map((connector) => (
                             <option key={connector.id} value={connector.provider}>
                               {connector.name}
@@ -1096,6 +1166,114 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel }: MCPServe
               </div>
             )}
           </div>
+
+          {/* Test Connection */}
+          {credentialSources.length > 0 && endpoint.trim() && (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleProbeCredentials}
+                  disabled={loading || readOnly || credentialProbeLoading || !endpoint.trim()}
+                >
+                  {credentialProbeLoading ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                      Testing...
+                    </>
+                  ) : (
+                    "Test Connection"
+                  )}
+                </Button>
+                {credentialProbe && (() => {
+                  const hasMissing = credentialProbe.missingCredentials.length > 0;
+                  const fullyOk = credentialProbe.ok && !hasMissing;
+                  const reachableButAuth = credentialProbe.ok && hasMissing;
+                  const colorClass = fullyOk
+                    ? "text-green-600 dark:text-green-400"
+                    : reachableButAuth
+                      ? "text-yellow-600 dark:text-yellow-400"
+                      : "text-destructive";
+                  const label = fullyOk
+                    ? `Connected (HTTP ${credentialProbe.status})`
+                    : reachableButAuth
+                      ? `Reachable (HTTP ${credentialProbe.status}) — credentials not resolved`
+                      : credentialProbe.error
+                        ? credentialProbe.error
+                        : `Failed (HTTP ${credentialProbe.status})`;
+                  return <span className={`text-sm font-medium ${colorClass}`}>{label}</span>;
+                })()}
+              </div>
+              {credentialProbe && credentialProbe.missingCredentials.length > 0 && (() => {
+                const providerSources = credentialSources.filter(
+                  (s) => s.kind === "provider_connection" && s.provider,
+                );
+                const connectableProviders = providerSources.map((s) => ({
+                  provider: s.provider!,
+                  name:
+                    oauthConnectorOptions.find((c) => c.provider === s.provider)?.name ??
+                    s.provider!,
+                  hasConnector: oauthConnectorOptions.some((c) => c.provider === s.provider),
+                }));
+                return (
+                  <div className="space-y-1.5">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-xs text-muted-foreground">
+                        Missing:{" "}
+                        <span className="text-destructive font-mono">
+                          {credentialProbe.missingCredentials.join(", ")}
+                        </span>
+                      </p>
+                      {connectableProviders.map(({ provider, name, hasConnector }) =>
+                        hasConnector ? (
+                          <Button
+                            key={provider}
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleOAuthConnect(provider)}
+                          >
+                            Connect {name}
+                          </Button>
+                        ) : (
+                          <span key={provider} className="text-xs text-muted-foreground">
+                            —{" "}
+                            <a
+                              href="/credentials"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="underline underline-offset-2 hover:text-foreground"
+                            >
+                              set up {name} in Credentials
+                            </a>{" "}
+                            first, then reconnect here.
+                          </span>
+                        ),
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+              {credentialProbe && credentialProbe.credentialOrigins.filter((o) => o.origin !== "none").length > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  Resolved:{" "}
+                  {credentialProbe.credentialOrigins
+                    .filter((o) => o.origin !== "none")
+                    .map((o, i) => (
+                      <span key={i}>
+                        {i > 0 ? ", " : ""}
+                        <span className="font-mono">{o.name}</span>
+                        {" via "}
+                        <span className="font-mono">{o.origin}</span>
+                        {o.provider ? ` (${o.provider})` : ""}
+                      </span>
+                    ))}
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Error */}
           {error && (

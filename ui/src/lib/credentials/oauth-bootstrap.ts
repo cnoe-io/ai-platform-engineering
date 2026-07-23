@@ -7,14 +7,21 @@ type ConfiguredConnector = Record<string, unknown>;
 const CONFIGURED_CONNECTORS_ENV = "CREDENTIAL_BOOTSTRAP_OAUTH_CONNECTORS_JSON";
 
 interface BootstrapProviderEnv {
-  provider: "github" | "atlassian" | "webex" | "pagerduty" | "gitlab";
+  provider: "amplitude" | "atlassian" | "figma" | "github" | "gitlab" | "linear" | "notion" | "pagerduty" | "webex";
   clientIdEnv: string;
-  clientSecretEnv: string;
+  clientSecretEnv?: string;
   redirectUriEnv: string;
   scopesEnv?: string;
 }
 
 const PROVIDER_ENV: BootstrapProviderEnv[] = [
+  {
+    provider: "amplitude",
+    clientIdEnv: "AMPLITUDE_CLIENT_ID",
+    clientSecretEnv: "AMPLITUDE_CLIENT_SECRET",
+    redirectUriEnv: "AMPLITUDE_REDIRECT_URI",
+    scopesEnv: "AMPLITUDE_SCOPES",
+  },
   {
     provider: "github",
     clientIdEnv: "GITHUB_CLIENT_ID",
@@ -46,6 +53,24 @@ const PROVIDER_ENV: BootstrapProviderEnv[] = [
     clientSecretEnv: "GITLAB_CLIENT_SECRET",
     redirectUriEnv: "GITLAB_REDIRECT_URI",
     scopesEnv: "GITLAB_SCOPES",
+  },
+  {
+    provider: "figma",
+    clientIdEnv: "FIGMA_CLIENT_ID",
+    clientSecretEnv: "FIGMA_CLIENT_SECRET",
+    redirectUriEnv: "FIGMA_REDIRECT_URI",
+  },
+  {
+    provider: "linear",
+    clientIdEnv: "LINEAR_CLIENT_ID",
+    clientSecretEnv: "LINEAR_CLIENT_SECRET",
+    redirectUriEnv: "LINEAR_REDIRECT_URI",
+  },
+  {
+    provider: "notion",
+    clientIdEnv: "NOTION_CLIENT_ID",
+    clientSecretEnv: "NOTION_CLIENT_SECRET",
+    redirectUriEnv: "NOTION_REDIRECT_URI",
   },
 ];
 
@@ -236,20 +261,22 @@ export function buildOAuthConnectorBootstrapInputs(env: Env = process.env): Crea
       (candidate) => candidate.provider === providerEnv.provider,
     );
     const clientId = value(env, providerEnv.clientIdEnv);
-    const clientSecret = value(env, providerEnv.clientSecretEnv);
+    const clientSecret = providerEnv.clientSecretEnv ? value(env, providerEnv.clientSecretEnv) : null;
     const redirectUri = value(env, providerEnv.redirectUriEnv);
-    if (!descriptor || !clientId || !clientSecret || !redirectUri) {
+    const isPkce = descriptor?.pkce === true;
+    if (!descriptor || !clientId || (!isPkce && !clientSecret) || !redirectUri) {
       continue;
     }
     legacyInputs.push({
       name: descriptor.name,
       provider: descriptor.provider,
       clientId,
-      clientSecret,
+      ...(clientSecret ? { clientSecret } : {}),
       authorizationUrl: descriptor.authorizationUrl,
       tokenUrl: descriptor.tokenUrl,
       scopes: scopesForProvider(descriptor, providerEnv, env),
       redirectUri: normalizeRedirectUri(providerEnv.provider, redirectUri, env),
+      ...(isPkce ? { pkce: true } : {}),
     });
   }
   const configuredInputs = buildConfiguredOAuthConnectorBootstrapInputs(env);

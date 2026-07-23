@@ -1,4 +1,4 @@
-import { renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import {
   usePrometheusQuery,
   useBatchPrometheus,
@@ -44,6 +44,7 @@ describe('getScalarValue', () => {
       { metric: {}, value: [1700000000, 'not-a-number'] },
     ];
     expect(getScalarValue(metrics)).toBeNull();
+    expect(getScalarValue([{ metric: {}, value: [1700000000, '+Inf'] }])).toBeNull();
   });
 });
 
@@ -100,6 +101,23 @@ describe('getTimeseriesData', () => {
       1700000000,
       1700000030,
       1700000060,
+    ]);
+  });
+
+  it('drops non-finite samples instead of turning them into zeroes', () => {
+    const metrics: PrometheusMetric[] = [
+      {
+        metric: {},
+        values: [
+          [1700000000, 'NaN'],
+          [1700000060, '+Inf'],
+          [1700000120, '3'],
+        ],
+      },
+    ];
+
+    expect(getTimeseriesData(metrics)).toEqual([
+      { timestamp: 1700000120, value: 3, labels: {} },
     ]);
   });
 
@@ -174,6 +192,16 @@ describe('getLabeledValues', () => {
     expect(getLabeledValues(metrics)).toEqual([
       { label: 'unknown', value: 5 },
     ]);
+  });
+
+  it('drops non-finite Prometheus values instead of rendering blank charts', () => {
+    const metrics: PrometheusMetric[] = [
+      { metric: { agent_name: 'valid' }, value: [0, '4'] },
+      { metric: { agent_name: 'empty-histogram' }, value: [0, 'NaN'] },
+      { metric: { agent_name: 'infinite' }, value: [0, '+Inf'] },
+    ];
+
+    expect(getLabeledValues(metrics)).toEqual([{ label: 'valid', value: 4 }]);
   });
 });
 
@@ -382,5 +410,64 @@ describe('useBatchPrometheus', () => {
     });
 
     expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it('refetches when only historical range bounds change', async () => {
+    (global.fetch as jest.Mock).mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({
+        success: true,
+        data: { q1: { status: 'success', data: { resultType: 'matrix', result: [] } } },
+      }),
+    });
+
+    const { rerender } = renderHook(
+      ({ start }) => useBatchPrometheus([
+        { id: 'q1', query: 'up', type: 'range', start, end: '200', step: '10s' },
+      ]),
+      { initialProps: { start: '100' } },
+    );
+
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
+    rerender({ start: '110' });
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(2));
+
+    const secondRequest = (global.fetch as jest.Mock).mock.calls[1][1];
+    expect(JSON.parse(secondRequest.body)).toEqual({
+      queries: [{ id: 'q1', query: 'up', type: 'range', start: '110', end: '200', step: '10s' }],
+    });
+  });
+
+  it('keeps last good data and exposes a per-query refresh error', async () => {
+    const goodResult = {
+      status: 'success' as const,
+      data: {
+        resultType: 'vector' as const,
+        result: [{ metric: {}, value: [10, '7'] as [number, string] }],
+      },
+    };
+    (global.fetch as jest.Mock)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: { q1: goodResult } }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          success: true,
+          data: { q1: { status: 'error', error: 'query timed out' } },
+        }),
+      });
+
+    const { result } = renderHook(() => useBatchPrometheus([{ id: 'q1', query: 'up' }]));
+    await waitFor(() => expect(result.current.results?.q1).toEqual(goodResult));
+
+    await act(async () => {
+      await result.current.refetch();
+    });
+
+    expect(result.current.results?.q1).toEqual(goodResult);
+    expect(result.current.queryErrors.q1).toBe('query timed out');
+    expect(result.current.loading).toBe(false);
   });
 });

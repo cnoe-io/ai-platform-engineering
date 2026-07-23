@@ -1,7 +1,6 @@
 """Shared RBAC models for the RAG system."""
-from datetime import datetime
 from typing import List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 
 class Role:
@@ -43,23 +42,3 @@ class UserInfoResponse(BaseModel):
   role: str
   is_authenticated: bool
   permissions: List[str]  # List of permissions: ["read", "ingest", "delete"]
-
-
-class TeamRagToolConfig(BaseModel):
-    """
-    Team-scoped RAG tool configuration stored in MongoDB.
-
-    Validation rules:
-    - ``datasource_ids`` must be a subset of the owning team's
-      ``allowed_datasource_ids`` (enforced on create/update).
-    - ``team_id`` is immutable after creation.
-    """
-    tool_id: str
-    tenant_id: str
-    team_id: str
-    name: str
-    datasource_ids: List[str] = Field(default_factory=list)
-    created_by: str
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
-    description: Optional[str] = None
-    status: str = "active"
