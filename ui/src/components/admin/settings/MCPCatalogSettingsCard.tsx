@@ -29,7 +29,6 @@ const BUILTIN_PROVIDERS = [
   { key: "notion", name: "Notion" },
   { key: "pagerduty", name: "PagerDuty" },
   { key: "thousandeyes", name: "ThousandEyes" },
-  { key: "zapier", name: "Zapier" },
 ] as const;
 
 interface CustomEntry {
