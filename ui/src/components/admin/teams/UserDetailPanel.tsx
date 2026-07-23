@@ -36,6 +36,7 @@ interface UserProfile {
 
 interface UserStats {
   total_conversations: number;
+  visible_conversations: number;
   feedback_given: number;
   feedback_positive: number;
   feedback_negative: number;
@@ -47,6 +48,8 @@ interface UserConversation {
   source: string;
   channel_id: string | null;
   channel_name: string | null;
+  slack_permalink: string | null;
+  webex_permalink: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -63,6 +66,7 @@ interface UserFeedback {
 }
 
 interface UserDetailData {
+  can_view_conversations: boolean;
   profile: UserProfile;
   stats: UserStats;
   recent_conversations: UserConversation[];
@@ -85,18 +89,18 @@ const VALUE_LABELS: Record<string, string> = {
   other: "Other",
 };
 
-/** Build a Slack deep link from conversation data. Works without knowing the workspace URL. */
-function getSlackLink(conv: UserConversation): string | null {
-  if (conv.source !== "slack" || !conv.channel_id) return null;
-  // _id format is "slack-{thread_ts}", extract thread_ts
-  const threadTs = conv.id.startsWith("slack-") ? conv.id.slice(6) : null;
-  if (!threadTs) return null;
-  return `https://slack.com/app_redirect?channel=${conv.channel_id}&message_ts=${threadTs}`;
-}
-
-/** Get the appropriate link for a conversation */
-function getConvLink(conv: UserConversation): string | null {
-  if (conv.source === "slack") return getSlackLink(conv);
+/**
+ * Prefer the integration's server-validated deep link. Legacy integration
+ * records without enough native metadata still open through the saved-chat
+ * route, whose API repeats the conversation RBAC check.
+ */
+function getConvLink(conv: UserConversation): string {
+  if (conv.source === "slack" && conv.slack_permalink) {
+    return conv.slack_permalink;
+  }
+  if (conv.source === "webex" && conv.webex_permalink) {
+    return conv.webex_permalink;
+  }
   return `/chat/${conv.id}?from=admin`;
 }
 
@@ -148,6 +152,10 @@ export function UserDetailPanel({
 
   if (!email) return null;
 
+  const visibleTabs = data?.can_view_conversations
+    ? (["overview", "conversations", "feedback"] as const)
+    : (["overview", "feedback"] as const);
+
   return (
     <>
       {/* Backdrop */}
@@ -181,7 +189,7 @@ export function UserDetailPanel({
 
         {/* Tabs */}
         <div className="flex border-b border-border shrink-0">
-          {(["overview", "conversations", "feedback"] as const).map((tab) => (
+          {visibleTabs.map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -191,7 +199,7 @@ export function UserDetailPanel({
                   : "border-transparent text-muted-foreground hover:text-foreground"
               }`}
             >
-              {tab === "overview" ? "Overview" : tab === "conversations" ? `Conversations${data ? ` (${data.stats.total_conversations})` : ""}` : `Feedback${data ? ` (${data.stats.feedback_given})` : ""}`}
+              {tab === "overview" ? "Overview" : tab === "conversations" ? `Conversations${data ? ` (${data.stats.visible_conversations})` : ""}` : `Feedback${data ? ` (${data.stats.feedback_given})` : ""}`}
             </button>
           ))}
         </div>
@@ -208,9 +216,21 @@ export function UserDetailPanel({
             </div>
           ) : data ? (
             <>
-              {activeTab === "overview" && <OverviewTab data={data} />}
-              {activeTab === "conversations" && <ConversationsTab conversations={data.recent_conversations} />}
-              {activeTab === "feedback" && <FeedbackTab feedback={data.recent_feedback} />}
+              {activeTab === "overview" && (
+                <OverviewTab
+                  data={data}
+                  canViewConversations={data.can_view_conversations}
+                />
+              )}
+              {activeTab === "conversations" && data.can_view_conversations && (
+                <ConversationsTab conversations={data.recent_conversations} />
+              )}
+              {activeTab === "feedback" && (
+                <FeedbackTab
+                  feedback={data.recent_feedback}
+                  canViewConversations={data.can_view_conversations}
+                />
+              )}
             </>
           ) : null}
         </div>
@@ -219,7 +239,13 @@ export function UserDetailPanel({
   );
 }
 
-function OverviewTab({ data }: { data: UserDetailData }) {
+function OverviewTab({
+  data,
+  canViewConversations,
+}: {
+  data: UserDetailData;
+  canViewConversations: boolean;
+}) {
   const { profile, stats } = data;
   return (
     <div className="space-y-4">
@@ -240,7 +266,11 @@ function OverviewTab({ data }: { data: UserDetailData }) {
             <div className="flex items-center gap-2 text-muted-foreground">
               <Globe className="h-3.5 w-3.5" />
               <Badge variant="outline" className="text-[10px]">
-                {profile.source === "slack" ? "Slack" : "Web"}
+                {profile.source === "slack"
+                  ? "Slack"
+                  : profile.source === "webex"
+                    ? "Webex"
+                    : "Web"}
               </Badge>
               {profile.slack_user_id && (
                 <span className="text-[10px] text-muted-foreground">{profile.slack_user_id}</span>
@@ -285,7 +315,7 @@ function OverviewTab({ data }: { data: UserDetailData }) {
       </div>
 
       {/* Recent activity */}
-      {data.recent_conversations.length > 0 && (
+      {canViewConversations && data.recent_conversations.length > 0 && (
         <div>
           <h3 className="text-xs font-medium mb-2">Recent Conversations</h3>
           <div className="space-y-1">
@@ -294,6 +324,8 @@ function OverviewTab({ data }: { data: UserDetailData }) {
                 <div className="flex items-center gap-2 min-w-0">
                   {conv.source === "slack" ? (
                     <Hash className="h-3 w-3 text-purple-500 shrink-0" />
+                  ) : conv.source === "webex" ? (
+                    <Globe className="h-3 w-3 text-cyan-500 shrink-0" />
                   ) : (
                     <MessageSquare className="h-3 w-3 text-blue-500 shrink-0" />
                   )}
@@ -344,7 +376,11 @@ function ConversationsTab({ conversations }: { conversations: UserConversation[]
           <div className="flex items-center gap-2 min-w-0 flex-1">
             {conv.source === "slack" ? (
               <Badge variant="secondary" className="text-[10px] px-1.5 py-0 shrink-0">
-                {conv.channel_name || "Slack"}
+                Slack
+              </Badge>
+            ) : conv.source === "webex" ? (
+              <Badge variant="secondary" className="text-[10px] px-1.5 py-0 shrink-0">
+                Webex
               </Badge>
             ) : (
               <Badge variant="outline" className="text-[10px] px-1.5 py-0 shrink-0">
@@ -389,7 +425,13 @@ function ConversationsTab({ conversations }: { conversations: UserConversation[]
   );
 }
 
-function FeedbackTab({ feedback }: { feedback: UserFeedback[] }) {
+function FeedbackTab({
+  feedback,
+  canViewConversations,
+}: {
+  feedback: UserFeedback[];
+  canViewConversations: boolean;
+}) {
   if (feedback.length === 0) {
     return (
       <div className="text-center py-8 text-sm text-muted-foreground">
@@ -420,7 +462,11 @@ function FeedbackTab({ feedback }: { feedback: UserFeedback[] }) {
                 {VALUE_LABELS[fb.value] || fb.value}
               </span>
               <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
-                {fb.source === "slack" ? `Slack${fb.channel_name ? ` · ${fb.channel_name}` : ""}` : "Web"}
+                {fb.source === "slack"
+                  ? "Slack"
+                  : fb.source === "webex"
+                    ? "Webex"
+                    : "Web"}
               </Badge>
             </div>
             <span className="text-muted-foreground">{formatDate(fb.created_at)}</span>
@@ -428,7 +474,7 @@ function FeedbackTab({ feedback }: { feedback: UserFeedback[] }) {
           {fb.comment && (
             <p className="text-muted-foreground">{fb.comment}</p>
           )}
-          <div className="flex items-center gap-2">
+          {canViewConversations && <div className="flex items-center gap-2">
             {fb.source === "slack" && fb.slack_permalink && (
               <a
                 href={fb.slack_permalink}
@@ -451,7 +497,7 @@ function FeedbackTab({ feedback }: { feedback: UserFeedback[] }) {
                 View chat
               </a>
             )}
-          </div>
+          </div>}
         </div>
       ))}
     </div>

@@ -1,11 +1,18 @@
 import { getCollection } from '@/lib/mongodb';
 import { checkOpenFgaTuple, listOpenFgaObjects } from '@/lib/rbac/openfga';
 import { slackChannelSubjectId } from '@/lib/rbac/slack-channel-grant-store';
+import { webexSpaceSubjectId } from '@/lib/rbac/webex-space-grant-store';
 
 interface ChannelTeamMappingDoc {
   slack_workspace_id?: string;
   slack_channel_id?: string;
   channel_name?: string;
+  active?: boolean;
+}
+
+interface WebexSpaceTeamMappingDoc {
+  webex_workspace_id?: string;
+  webex_space_id?: string;
   active?: boolean;
 }
 
@@ -18,6 +25,44 @@ interface DynamicAgentDoc {
 export interface OwnedAgent {
   id: string;
   name: string;
+}
+
+export interface ReadableMessagingConversationScope {
+  slackChannelIds: string[];
+  webexSpaceIds: string[];
+}
+
+interface ReadableSlackChannel {
+  id: string;
+  name: string;
+}
+
+/**
+ * Return the teams the Insights actor belongs to through OpenFGA's computed
+ * `team#member` relation. Team admins are included because `member` inherits
+ * `admin` in the authorization model. Used only to decide whether a scoped
+ * Insights drawer may show a teammate's profile shell; activity inside the
+ * drawer remains constrained to the actor's resource scope.
+ *
+ * Fail-closed: any PDP error returns [].
+ */
+export async function getInsightsActorTeamSlugs(openfgaUser: string): Promise<string[]> {
+  if (!openfgaUser.trim()) return [];
+  try {
+    const { objects } = await listOpenFgaObjects({
+      user: openfgaUser,
+      relation: 'member',
+      type: 'team',
+    });
+    return [...new Set(
+      objects
+        .map((object) => object.startsWith('team:') ? object.slice('team:'.length) : object)
+        .map((slug) => slug.trim())
+        .filter(Boolean),
+    )];
+  } catch {
+    return [];
+  }
 }
 
 /**
@@ -43,11 +88,17 @@ export async function getAgentsByIds(ids: string[]): Promise<OwnedAgent[]> {
 }
 
 /**
- * Returns the channel_names of every Slack channel the given OpenFGA user
- * can can_read. Used to scope Insights (Stats + Feedback) for non-admins.
+ * Returns every mapped Slack channel the given OpenFGA user can read.
+ * Direct-message channel ids are excluded even if a malformed mapping exists:
+ * DMs are never team resources and must not become visible in Insights through
+ * channel-scoped authorization.
+ *
  * Fail-closed: any error returns [].
  */
-export async function getReadableSlackChannelNames(openfgaUser: string): Promise<string[]> {
+async function getReadableSlackChannels(
+  openfgaUser: string,
+): Promise<ReadableSlackChannel[]> {
+  if (!openfgaUser.trim()) return [];
   try {
     const mappings = await getCollection<ChannelTeamMappingDoc>('channel_team_mappings');
     const rows = await mappings
@@ -55,14 +106,111 @@ export async function getReadableSlackChannelNames(openfgaUser: string): Promise
       .limit(500)
       .toArray();
 
-    const names: string[] = [];
+    const channels: ReadableSlackChannel[] = [];
     for (const row of rows) {
-      if (!row.slack_channel_id || !row.channel_name) continue;
+      if (!row.slack_channel_id) continue;
+      if (row.slack_channel_id.startsWith('D')) continue;
       const object = `slack_channel:${slackChannelSubjectId(row.slack_workspace_id ?? '', row.slack_channel_id)}`;
       const result = await checkOpenFgaTuple({ user: openfgaUser, relation: 'can_read', object }).catch(() => ({ allowed: false }));
-      if (result.allowed) names.push(row.channel_name);
+      if (result.allowed) {
+        channels.push({
+          id: row.slack_channel_id,
+          name: row.channel_name?.trim() ?? '',
+        });
+      }
     }
-    return names;
+    return channels.filter(
+      (channel, index) =>
+        channels.findIndex((candidate) => candidate.id === channel.id) === index,
+    );
+  } catch {
+    return [];
+  }
+}
+
+/** Channel names are retained for analytics collections keyed by name. */
+export async function getReadableSlackChannelNames(
+  openfgaUser: string,
+): Promise<string[]> {
+  const channels = await getReadableSlackChannels(openfgaUser);
+  return [...new Set(channels.map((channel) => channel.name).filter(Boolean))];
+}
+
+/**
+ * Returns mapped Webex space ids the actor can read. Direct-message spaces do
+ * not have `webex_space_team_mappings` rows, so using that mapping collection
+ * as the candidate set excludes Webex DMs by construction.
+ */
+export async function getReadableWebexSpaceIds(openfgaUser: string): Promise<string[]> {
+  if (!openfgaUser.trim()) return [];
+  try {
+    const mappings = await getCollection<WebexSpaceTeamMappingDoc>(
+      'webex_space_team_mappings',
+    );
+    const rows = await mappings
+      .find({ active: { $ne: false } } as never)
+      .limit(500)
+      .toArray();
+
+    const spaceIds: string[] = [];
+    for (const row of rows) {
+      if (!row.webex_space_id) continue;
+      const object =
+        `webex_space:${webexSpaceSubjectId(row.webex_workspace_id ?? '', row.webex_space_id)}`;
+      const result = await checkOpenFgaTuple({
+        user: openfgaUser,
+        relation: 'can_read',
+        object,
+      }).catch(() => ({ allowed: false }));
+      if (result.allowed) spaceIds.push(row.webex_space_id);
+    }
+    return [...new Set(spaceIds)];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * All external messaging scopes that may expose conversation titles and deep
+ * links in Insights. Keep source-specific mapping details behind this helper
+ * so the drawer consumes one extensible authorization result.
+ */
+export async function getReadableMessagingConversationScope(
+  openfgaUser: string,
+): Promise<ReadableMessagingConversationScope> {
+  const [slackChannels, webexSpaceIds] = await Promise.all([
+    getReadableSlackChannels(openfgaUser),
+    getReadableWebexSpaceIds(openfgaUser),
+  ]);
+  return {
+    slackChannelIds: slackChannels.map((channel) => channel.id),
+    webexSpaceIds,
+  };
+}
+
+/**
+ * Explicitly shared web conversations visible through OpenFGA. Conversation
+ * ownership is also checked against Mongo fields by the drawer because older
+ * owner-created chats do not necessarily have materialized owner tuples.
+ */
+export async function getReadableConversationIds(openfgaUser: string): Promise<string[]> {
+  if (!openfgaUser.trim()) return [];
+  try {
+    const { objects } = await listOpenFgaObjects({
+      user: openfgaUser,
+      relation: 'can_read',
+      type: 'conversation',
+    });
+    return [...new Set(
+      objects
+        .map((object) => (
+          object.startsWith('conversation:')
+            ? object.slice('conversation:'.length)
+            : object
+        ))
+        .map((id) => id.trim())
+        .filter(Boolean),
+    )];
   } catch {
     return [];
   }

@@ -56,6 +56,10 @@ def test_ping_victorops_oncall_registers_conversation_before_streaming():
 
     sse_client.create_conversation.assert_called_once()
     assert sse_client.create_conversation.call_args.kwargs["agent_id"] == "victorops-oncall"
+    assert sse_client.create_conversation.call_args.kwargs["metadata"] == {
+        "channel_id": "C123",
+        "thread_ts": "1.1",
+    }
 
     # stream_chat must use the conversation_id create_conversation returned,
     # not an ad hoc, unregistered id.

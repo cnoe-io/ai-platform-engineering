@@ -566,6 +566,71 @@ describe('GET /api/admin/stats — Top Users', () => {
     expect(Array.isArray(body.data.top_users.by_messages)).toBe(true);
   });
 
+  it('paginates each leaderboard independently in stable groups of 10', async () => {
+    const { convCol, msgCol } = setupAdminWithCollections();
+
+    convCol.aggregate.mockImplementation((pipeline: Record<string, unknown>[]) => ({
+      toArray: async () => {
+        if (!pipeline.some((stage) => stage.$group?._id === '$owner_id')) return [];
+        if (pipeline.some((stage) => stage.$count === 'total')) {
+          return [{ total: 23 }];
+        }
+        return [{ _id: 'conversation-user@example.com', count: 12 }];
+      },
+    }));
+    msgCol.aggregate.mockImplementation((pipeline: Record<string, unknown>[]) => ({
+      toArray: async () => {
+        if (!pipeline.some((stage) => stage.$group?._id === '$_owner')) return [];
+        if (pipeline.some((stage) => stage.$count === 'total')) {
+          return [{ total: 31 }];
+        }
+        return [{ _id: 'message-user@example.com', count: 20 }];
+      },
+    }));
+
+    const response = await GET(makeRequest(
+      '/api/admin/stats?section=top_users&include_bots=true&top_conversations_page=2&top_messages_page=3',
+    ));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.top_users.pagination).toEqual({
+      by_conversations: {
+        page: 2,
+        limit: 10,
+        total: 23,
+        total_pages: 3,
+      },
+      by_messages: {
+        page: 3,
+        limit: 10,
+        total: 31,
+        total_pages: 4,
+      },
+    });
+
+    const conversationPagePipeline = convCol.aggregate.mock.calls
+      .map((call: unknown[]) => call[0] as Record<string, unknown>[])
+      .find((pipeline) => pipeline.some((stage) => stage.$limit === 10));
+    expect(conversationPagePipeline).toEqual(expect.arrayContaining([
+      { $sort: { count: -1, _id: 1 } },
+      { $skip: 10 },
+      { $limit: 10 },
+    ]));
+
+    const messagePagePipeline = msgCol.aggregate.mock.calls
+      .map((call: unknown[]) => call[0] as Record<string, unknown>[])
+      .find((pipeline) =>
+        pipeline.some((stage) => stage.$group?._id === '$_owner') &&
+        pipeline.some((stage) => stage.$limit === 10)
+      );
+    expect(messagePagePipeline).toEqual(expect.arrayContaining([
+      { $sort: { count: -1, _id: 1 } },
+      { $skip: 20 },
+      { $limit: 10 },
+    ]));
+  });
+
   it('ignores legacy ownerless rows in a 90-day leaderboard', async () => {
     const { convCol } = setupAdminWithCollections();
     convCol.aggregate.mockImplementation((pipeline: Record<string, unknown>[]) => ({

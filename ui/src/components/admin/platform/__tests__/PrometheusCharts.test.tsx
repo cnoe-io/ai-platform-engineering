@@ -149,10 +149,10 @@ describe("TimeseriesChart", () => {
 });
 
 describe("AgentHealthTable", () => {
-  it("paginates agent comparisons ten rows at a time", () => {
-    const metrics = Array.from({ length: 12 }, (_, index) => ({
+  it("paginates agent comparisons ten rows at a time and accepts a page number", () => {
+    const metrics = Array.from({ length: 25 }, (_, index) => ({
       metric: { agent_name: `agent-${String(index + 1).padStart(2, "0")}` },
-      value: [1000, String(12 - index)] as [number, string],
+      value: [1000, String(25 - index)] as [number, string],
     }));
     mockGetLabeledValues.mockImplementation((data: unknown, labelKey: unknown) => (
       (data as PrometheusMetric[] | null ?? []).map((metric) => ({
@@ -173,13 +173,23 @@ describe("AgentHealthTable", () => {
 
     expect(screen.getByText("agent-01")).toBeInTheDocument();
     expect(screen.queryByText("agent-11")).not.toBeInTheDocument();
-    expect(screen.getByText("Showing 1–10 of 12")).toBeInTheDocument();
+    expect(screen.getByText("Showing 1–10 of 25")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next agent health page" }));
     expect(screen.getByText("agent-11")).toBeInTheDocument();
-    expect(screen.getByText("agent-12")).toBeInTheDocument();
+    expect(screen.getByText("agent-20")).toBeInTheDocument();
     expect(screen.queryByText("agent-01")).not.toBeInTheDocument();
-    expect(screen.getByText("Showing 11–12 of 12")).toBeInTheDocument();
+    expect(screen.getByText("Showing 11–20 of 25")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole("spinbutton", { name: "Go to agent health page" }), {
+      target: { value: "3" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Go" }));
+
+    expect(screen.getByText("agent-21")).toBeInTheDocument();
+    expect(screen.getByText("agent-25")).toBeInTheDocument();
+    expect(screen.queryByText("agent-11")).not.toBeInTheDocument();
+    expect(screen.getByText("Showing 21–25 of 25")).toBeInTheDocument();
   });
 });
 

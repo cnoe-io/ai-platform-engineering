@@ -30,8 +30,9 @@ import { MCPCatalogSettingsCard } from "@/components/admin/settings/MCPCatalogSe
 import { PlatformSettingsTab } from "@/components/admin/settings/PlatformSettingsTab";
 import { ReleaseNotesSettingsTab } from "@/components/admin/settings/ReleaseNotesSettingsTab";
 import { ReviewConfigsTab } from "@/components/admin/settings/ReviewConfigsTab";
+import { CardPagination } from "@/components/admin/shared/CardPagination";
 import { DateRangeFilter,presetToRange,type DateRange,type DateRangePreset } from "@/components/admin/shared/DateRangeFilter";
-import { FeedbackTrendChart } from "@/components/admin/shared/FeedbackTrendChart";
+import { FeedbackTrendChart,type FeedbackTrendPoint } from "@/components/admin/shared/FeedbackTrendChart";
 import { SimpleLineChart } from "@/components/admin/shared/SimpleLineChart";
 import { CreateTeamDialog } from "@/components/admin/teams/CreateTeamDialog";
 import { IdentitySyncPanel } from "@/components/admin/teams/IdentitySyncPanel";
@@ -417,6 +418,28 @@ function movedAdminTab(tab: string | null): typeof VALID_TABS[number] | null {
   return (MOVED_ADMIN_TAB_MAP as Record<string, typeof VALID_TABS[number]>)[tab] ?? null;
 }
 
+function localDateFromBucketKey(dateKey: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})(?:T|$)/.exec(dateKey);
+  if (!match) return null;
+  const [, yearValue, monthValue, dayValue] = match;
+  const year = Number(yearValue);
+  const month = Number(monthValue) - 1;
+  const day = Number(dayValue);
+  const date = new Date(year, month, day);
+  return date.getFullYear() === year && date.getMonth() === month && date.getDate() === day
+    ? date
+    : null;
+}
+
+function feedbackDateRangeForBucket(dateKey: string): DateRange | null {
+  const from = localDateFromBucketKey(dateKey);
+  if (!from) return null;
+  from.setHours(0, 0, 0, 0);
+  const to = new Date(from);
+  to.setHours(23, 59, 59, 999);
+  return { from: from.toISOString(), to: to.toISOString() };
+}
+
 // Bucket keys carry a time component ("2026-07-10T14:30") for hour/minute
 // buckets and are date-only ("2026-07-10") for day buckets — use that to
 // decide whether to label chart points by time-of-day or by calendar date.
@@ -424,7 +447,10 @@ function formatBucketLabel(dateStr: string): string {
   if (dateStr.includes('T')) {
     return new Date(dateStr).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
   }
-  return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return localDateFromBucketKey(dateStr)?.toLocaleDateString(
+    'en-US',
+    { month: 'short', day: 'numeric' },
+  ) ?? dateStr;
 }
 
 function OverviewStatsCards({
@@ -676,10 +702,21 @@ function AdminPage() {
     if (activeCategory !== nextCategory) setActiveCategory(nextCategory);
     if (activeTab !== nextTab) setActiveTab(nextTab);
 
-    if (requestedCategory !== nextCategory || requestedTab !== nextTab) {
+    const shouldSetDefaultStatsRange =
+      nextTab === 'stats' && searchParams.get('dateRange') === null;
+    if (
+      requestedCategory !== nextCategory
+      || requestedTab !== nextTab
+      || shouldSetDefaultStatsRange
+    ) {
       const params = new URLSearchParams(searchParams.toString());
       params.set('cat', nextCategory);
       params.set('tab', nextTab);
+      if (shouldSetDefaultStatsRange) {
+        params.set('dateRange', '30d');
+        params.delete('from');
+        params.delete('to');
+      }
       if (nextTab !== 'access-explorer') {
         params.delete('subtab');
         params.delete('openfgaTab');
@@ -698,25 +735,6 @@ function AdminPage() {
     tabGateValues,
     visibleCategories,
   ]);
-
-  const handleCategoryChange = useCallback(
-    (catKey: CategoryKey) => {
-      userSelectedAdminTabRef.current = true;
-      setActiveCategory(catKey);
-      const cat = CATEGORIES.find((c) => c.key === catKey);
-      if (!cat) return;
-      const firstVisible = cat.tabs.find((t) => tabGateValues[t.gateKey]);
-      if (firstVisible) {
-        setActiveTab(firstVisible.value);
-        updateUrlFilters({
-          cat: catKey,
-          tab: firstVisible.value,
-          ...(firstVisible.value === 'access-explorer' ? {} : { subtab: null, openfgaTab: null }),
-        });
-      }
-    },
-    [tabGateValues, updateUrlFilters]
-  );
 
   useEffect(() => {
     setSimulationType(simulationTarget?.type ?? "user");
@@ -830,12 +848,59 @@ function AdminPage() {
   const [datePreset, setDatePreset] = useState<DateRangePreset>(datePresetFromUrl);
   const [dateRange, setDateRange] = useState<DateRange>(dateRangeFromUrl);
 
+  const openFeedbackForTrendPoint = useCallback((point: FeedbackTrendPoint) => {
+    const range = feedbackDateRangeForBucket(point.date);
+    if (!range) return;
+
+    userSelectedAdminTabRef.current = true;
+    setActiveCategory('insights');
+    setActiveTab('feedback');
+    setDatePreset('custom');
+    setDateRange(range);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set('cat', 'insights');
+    params.set('tab', 'feedback');
+    params.set('dateRange', 'custom');
+    params.set('from', range.from);
+    params.set('to', range.to);
+    params.delete('subtab');
+    params.delete('openfgaTab');
+    router.push(`${pathname}?${params.toString()}`, { scroll: false });
+  }, [pathname, router, searchParams]);
+
+  const selectAdminTab = useCallback((tab: string) => {
+    userSelectedAdminTabRef.current = true;
+    setActiveTab(tab);
+    setActiveCategory(categoryForTab(tab));
+
+    const resetStatsRange = tab === 'stats';
+    if (resetStatsRange) {
+      setDatePreset('30d');
+      setDateRange(presetToRange('30d'));
+    }
+    updateUrlFilters({
+      cat: categoryForTab(tab),
+      tab,
+      ...(resetStatsRange ? { dateRange: '30d', from: null, to: null } : {}),
+      ...(tab === 'access-explorer' ? {} : { subtab: null, openfgaTab: null }),
+    });
+  }, [updateUrlFilters]);
+
+  const handleCategoryChange = useCallback(
+    (catKey: CategoryKey) => {
+      const cat = CATEGORIES.find((candidate) => candidate.key === catKey);
+      const firstVisible = cat?.tabs.find((tab) => tabGateValues[tab.gateKey]);
+      if (firstVisible) selectAdminTab(firstVisible.value);
+    },
+    [selectAdminTab, tabGateValues],
+  );
+
   // Helper to sync shared filters to URL
   const updateSharedFilterUrl = (overrides: Record<string, string | null> = {}) => {
     const shared: Record<string, string | null> = {
       source: sourceFilter !== 'all' ? sourceFilter : null,
       users: userFilter.length > 0 ? userFilter.join(',') : null,
-      dateRange: datePreset !== '30d' ? datePreset : null,
+      dateRange: datePreset,
       from: datePreset === 'custom' ? dateRange.from : null,
       to: datePreset === 'custom' ? dateRange.to : null,
       ...overrides,
@@ -882,6 +947,22 @@ function AdminPage() {
   const [statsAgents, setStatsAgents] = useState<Array<{ id: string; name: string }>>([]);
   // Top-users leaderboard: hide bot/service identities by default; toggle to show.
   const [showBotUsers, setShowBotUsers] = useState(statsIncludeBotsFromUrl);
+  const [topConversationsPage, setTopConversationsPage] = useState(1);
+  const [topMessagesPage, setTopMessagesPage] = useState(1);
+  const [loadingTopUsersLeaderboard, setLoadingTopUsersLeaderboard] = useState<
+    'conversations' | 'messages' | null
+  >(null);
+  const topConversationsPageRef = useRef(1);
+  const topMessagesPageRef = useRef(1);
+  const topUsersPageRequestVersionRef = useRef(0);
+  const resetTopUserPages = useCallback(() => {
+    topUsersPageRequestVersionRef.current += 1;
+    topConversationsPageRef.current = 1;
+    topMessagesPageRef.current = 1;
+    setTopConversationsPage(1);
+    setTopMessagesPage(1);
+    setLoadingTopUsersLeaderboard(null);
+  }, []);
   const insightsFilterUrlKey = [
     searchParams.get('source'),
     searchParams.get('users'),
@@ -964,6 +1045,10 @@ function AdminPage() {
     }
     if (statsAgentFilter.length > 0) params.set('agent', statsAgentFilter.join(','));
     if (showBotUsers) params.set('include_bots', 'true');
+    if (section === 'top_users') {
+      params.set('top_conversations_page', String(topConversationsPageRef.current));
+      params.set('top_messages_page', String(topMessagesPageRef.current));
+    }
     return withAdminSimulationParams(`/api/admin/stats?${params.toString()}`, simulationTarget);
   }, [
     dateRange,
@@ -1040,10 +1125,11 @@ function AdminPage() {
       setSelectedUserId(null);
       setSelectedUserEmail(null);
       setFeedbackLoading(false);
+      resetTopUserPages();
     }
     if (status !== "authenticated" && getConfig('ssoEnabled')) return;
     loadTabDataEvent(activeTab);
-  }, [activeTab, resetStatsSections, simulationScopeKey, status]);
+  }, [activeTab, resetStatsSections, resetTopUserPages, simulationScopeKey, status]);
   const fetchTeamsFromDb = async (): Promise<Team[]> => {
     const response = await fetch(withAdminSimulationParams(`/api/admin/teams?fresh=${Date.now()}`, simulationTarget), {
       cache: 'no-store',
@@ -1137,10 +1223,10 @@ function AdminPage() {
   const statsFilterKey = useMemo(() => JSON.stringify({
     agents: statsAgentFilter,
     channels: statsChannelFilter,
-    from: dateRange.from,
+    from: datePreset === 'custom' ? dateRange.from : null,
     range: datePreset,
     source: sourceFilter,
-    to: dateRange.to,
+    to: datePreset === 'custom' ? dateRange.to : null,
     teams: selectedStatsFilters.teamSlugs,
     users: selectedStatsFilters.userEmails,
   }), [
@@ -1153,10 +1239,10 @@ function AdminPage() {
     statsChannelFilter,
   ]);
   const skillStatsFilterKey = useMemo(() => JSON.stringify({
-    from: dateRange.from,
+    from: datePreset === 'custom' ? dateRange.from : null,
     range: datePreset,
     source: sourceFilter,
-    to: dateRange.to,
+    to: datePreset === 'custom' ? dateRange.to : null,
     teams: selectedStatsFilters.teamSlugs,
     users: selectedStatsFilters.userEmails,
   }), [datePreset, dateRange.from, dateRange.to, selectedStatsFilters, sourceFilter]);
@@ -1168,10 +1254,11 @@ function AdminPage() {
     if (!visitedTabsRef.current.has('_stats-loaded')) return;
     if (status !== "authenticated" && getConfig('ssoEnabled')) return;
     const handle = window.setTimeout(() => {
+      resetTopUserPages();
       void loadStatsSections(FILTER_REFRESH_STATS_SECTIONS);
     }, 150);
     return () => window.clearTimeout(handle);
-  }, [loadStatsSections, statsFilterKey, status]);
+  }, [loadStatsSections, resetTopUserPages, statsFilterKey, status]);
 
   const showBotUsersRef = useRef(showBotUsers);
   useEffect(() => {
@@ -1179,8 +1266,39 @@ function AdminPage() {
     showBotUsersRef.current = showBotUsers;
     if (!visitedTabsRef.current.has('_stats-loaded')) return;
     if (status !== "authenticated" && getConfig('ssoEnabled')) return;
+    resetTopUserPages();
     void loadStatsSections(BOT_FILTER_STATS_SECTIONS);
-  }, [loadStatsSections, showBotUsers, status]);
+  }, [loadStatsSections, resetTopUserPages, showBotUsers, status]);
+
+  const loadTopUsersPage = async (
+    leaderboard: 'conversations' | 'messages',
+    page: number,
+  ): Promise<void> => {
+    const requestVersion = topUsersPageRequestVersionRef.current + 1;
+    topUsersPageRequestVersionRef.current = requestVersion;
+    setLoadingTopUsersLeaderboard(leaderboard);
+    if (leaderboard === 'conversations') {
+      topConversationsPageRef.current = page;
+      setTopConversationsPage(page);
+    } else {
+      topMessagesPageRef.current = page;
+      setTopMessagesPage(page);
+    }
+    try {
+      await loadStatsSections(['top_users']);
+    } finally {
+      if (topUsersPageRequestVersionRef.current === requestVersion) {
+        setLoadingTopUsersLeaderboard(null);
+      }
+    }
+  };
+
+  const topConversationsLoading = loadingTopUsersLeaderboard === null
+    ? statsSectionStatuses.top_users.loading
+    : loadingTopUsersLeaderboard === 'conversations';
+  const topMessagesLoading = loadingTopUsersLeaderboard === null
+    ? statsSectionStatuses.top_users.loading
+    : loadingTopUsersLeaderboard === 'messages';
 
   const loadStats = async () => {
     setError(null);
@@ -1514,16 +1632,11 @@ function AdminPage() {
             </div>
 
             {/* Tabbed Content */}
-            <Tabs value={activeTab} onValueChange={(tab) => {
-              userSelectedAdminTabRef.current = true;
-              setActiveTab(tab);
-              setActiveCategory(categoryForTab(tab));
-              updateUrlFilters({
-                cat: categoryForTab(tab),
-                tab,
-                ...(tab === 'access-explorer' ? {} : { subtab: null, openfgaTab: null }),
-              });
-            }} className="space-y-4">
+            <Tabs
+              className="space-y-4"
+              onValueChange={selectAdminTab}
+              value={activeTab}
+            >
               {/* Category selector */}
               <div
                 aria-label="Admin sections"
@@ -2153,7 +2266,7 @@ function AdminPage() {
                       setDatePreset(preset);
                       setDateRange(range);
                       updateSharedFilterUrl({
-                        dateRange: preset !== '30d' ? preset : null,
+                        dateRange: preset,
                         from: preset === 'custom' ? range.from : null,
                         to: preset === 'custom' ? range.to : null,
                       });
@@ -2393,7 +2506,7 @@ function AdminPage() {
                         setDatePreset(preset);
                         setDateRange(range);
                         updateSharedFilterUrl({
-                          dateRange: preset !== '30d' ? preset : null,
+                          dateRange: preset,
                           from: preset === 'custom' ? range.from : null,
                           to: preset === 'custom' ? range.to : null,
                         });
@@ -2572,7 +2685,7 @@ function AdminPage() {
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                       <AsyncStatsCard
                         error={statsSectionStatuses.top_users.error}
-                        loading={statsSectionStatuses.top_users.loading}
+                        loading={topConversationsLoading}
                         minHeightClassName="min-h-64"
                         testId="stats-card-top-users-conversations"
                       >
@@ -2587,7 +2700,10 @@ function AdminPage() {
                             ) : stats.top_users.by_conversations.map((u, i) => (
                               <div key={u._id} className="flex items-center justify-between">
                                 <div className="flex items-center gap-2 min-w-0">
-                                  <div className="w-6 text-sm text-muted-foreground shrink-0">#{i + 1}</div>
+                                  <div className="w-8 text-sm text-muted-foreground shrink-0">
+                                    #{((stats.top_users.pagination?.by_conversations.page ?? topConversationsPage) - 1)
+                                      * (stats.top_users.pagination?.by_conversations.limit ?? 10) + i + 1}
+                                  </div>
                                   <OwnerTypeBadge ownerType={u.owner_type} />
                                   <div className="text-sm truncate max-w-[200px] text-primary hover:underline cursor-pointer" onClick={() => setSelectedUserEmail(u._id)} title={u._id}>{u.name || u._id}</div>
                                 </div>
@@ -2595,13 +2711,24 @@ function AdminPage() {
                               </div>
                             ))}
                           </div>
+                          {stats.top_users.pagination?.by_conversations && (
+                            <CardPagination
+                              label="top users by conversations"
+                              disabled={topConversationsLoading}
+                              page={stats.top_users.pagination.by_conversations.page}
+                              pageSize={stats.top_users.pagination.by_conversations.limit}
+                              total={stats.top_users.pagination.by_conversations.total}
+                              className="border-t border-border pt-3"
+                              onPageChange={(page) => void loadTopUsersPage('conversations', page)}
+                            />
+                          )}
                         </CardContent>
                         </Card> : undefined}
                       </AsyncStatsCard>
 
                       <AsyncStatsCard
                         error={statsSectionStatuses.top_users.error}
-                        loading={statsSectionStatuses.top_users.loading}
+                        loading={topMessagesLoading}
                         minHeightClassName="min-h-64"
                         testId="stats-card-top-users-messages"
                       >
@@ -2616,7 +2743,10 @@ function AdminPage() {
                             ) : stats.top_users.by_messages.map((u, i) => (
                               <div key={u._id} className="flex items-center justify-between">
                                 <div className="flex items-center gap-2 min-w-0">
-                                  <div className="w-6 text-sm text-muted-foreground shrink-0">#{i + 1}</div>
+                                  <div className="w-8 text-sm text-muted-foreground shrink-0">
+                                    #{((stats.top_users.pagination?.by_messages.page ?? topMessagesPage) - 1)
+                                      * (stats.top_users.pagination?.by_messages.limit ?? 10) + i + 1}
+                                  </div>
                                   <OwnerTypeBadge ownerType={u.owner_type} />
                                   <div className="text-sm truncate max-w-[200px] text-primary hover:underline cursor-pointer" onClick={() => setSelectedUserEmail(u._id)} title={u._id}>{u.name || u._id}</div>
                                 </div>
@@ -2624,6 +2754,17 @@ function AdminPage() {
                               </div>
                             ))}
                           </div>
+                          {stats.top_users.pagination?.by_messages && (
+                            <CardPagination
+                              label="top users by messages"
+                              disabled={topMessagesLoading}
+                              page={stats.top_users.pagination.by_messages.page}
+                              pageSize={stats.top_users.pagination.by_messages.limit}
+                              total={stats.top_users.pagination.by_messages.total}
+                              className="border-t border-border pt-3"
+                              onPageChange={(page) => void loadTopUsersPage('messages', page)}
+                            />
+                          )}
                         </CardContent>
                         </Card> : undefined}
                       </AsyncStatsCard>
@@ -2798,11 +2939,15 @@ function AdminPage() {
                           <CardContent>
                             <FeedbackTrendChart
                               data={stats.feedback_summary.daily.map((day) => ({
+                                date: day.date,
                                 label: formatBucketLabel(day.date),
                                 positive: day.positive,
                                 negative: day.negative,
                               }))}
                               height={180}
+                              onPointClick={tabGateValues.feedback
+                                ? openFeedbackForTrendPoint
+                                : undefined}
                             />
                           </CardContent>
                           </Card> : undefined}
