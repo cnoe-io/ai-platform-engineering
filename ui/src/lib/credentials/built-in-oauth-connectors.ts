@@ -3,6 +3,8 @@ export interface BuiltInOAuthConnectorDescriptor {
   name: string;
   authorizationUrl: string;
   tokenUrl: string;
+  // RFC 7009 revocation endpoint — omit if the provider uses ${tokenUrl}/revoke.
+  revocationUrl?: string;
   scopes: string[];
   pkce?: boolean;
 }
@@ -50,6 +52,8 @@ export const BUILT_IN_OAUTH_CONNECTORS: BuiltInOAuthConnectorDescriptor[] = [
     name: "Webex",
     authorizationUrl: "https://webexapis.com/v1/authorize",
     tokenUrl: "https://webexapis.com/v1/access_token",
+    // Webex uses idbroker for revocation (webexapis.com/v1/access_token/revoke does not exist)
+    revocationUrl: "https://idbroker.webex.com/idb/oauth2/v1/revoke",
     scopes: [
       "spark:kms",
       "spark:people_read",

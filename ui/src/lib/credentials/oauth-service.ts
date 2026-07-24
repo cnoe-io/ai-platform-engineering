@@ -28,6 +28,8 @@ export interface OAuthConnectorDocument {
   clientSecretRef: string;
   authorizationUrl: string;
   tokenUrl: string;
+  // RFC 7009 revocation endpoint. Absent means ${tokenUrl}/revoke is tried instead.
+  revocationUrl?: string;
   scopes: string[];
   redirectUri: string;
   enabled: boolean;
@@ -101,6 +103,7 @@ export interface CreateConnectorInput {
   clientSecret?: string;
   authorizationUrl: string;
   tokenUrl: string;
+  revocationUrl?: string;
   scopes: string[];
   redirectUri: string;
   pkce?: boolean;
@@ -299,6 +302,7 @@ export class OAuthConnectorService {
       clientSecretRef,
       authorizationUrl: validateExternalHttpsUrl(input.authorizationUrl, "authorizationUrl"),
       tokenUrl: validateExternalHttpsUrl(input.tokenUrl, "tokenUrl"),
+      ...(input.revocationUrl ? { revocationUrl: validateExternalHttpsUrl(input.revocationUrl, "revocationUrl") } : {}),
       scopes: input.scopes.map((scope) => scope.trim()).filter(Boolean),
       redirectUri: validateRedirectUri(input.redirectUri),
       enabled: true,
@@ -328,6 +332,7 @@ export class OAuthConnectorService {
       clientId: nonEmpty(input.clientId, "clientId"),
       authorizationUrl: validateExternalHttpsUrl(input.authorizationUrl, "authorizationUrl"),
       tokenUrl: validateExternalHttpsUrl(input.tokenUrl, "tokenUrl"),
+      ...(input.revocationUrl ? { revocationUrl: validateExternalHttpsUrl(input.revocationUrl, "revocationUrl") } : {}),
       scopes: input.scopes.map((scope) => scope.trim()).filter(Boolean),
       redirectUri: validateRedirectUri(input.redirectUri),
       enabled: true,
@@ -494,6 +499,36 @@ export class ProviderConnectionService {
     );
   }
 
+  // Best-effort: revoke token at the provider (e.g. Webex CTS) before disabling
+  // locally, so the integration's token slot is freed. Silently swallows all
+  // errors so failures at the provider never block the local disable.
+  private async revokeTokenAtProvider(connection: ProviderConnectionDocument): Promise<void> {
+    if (connection.connectorId.startsWith("static:")) return;
+    try {
+      const connector = await this.connectorsCollection.findOne({ id: connection.connectorId });
+      if (!connector) return;
+      const accessToken = await this.payloadStore.getSecret(connection.accessTokenRef).catch(() => undefined);
+      if (!accessToken) return;
+      const body = new URLSearchParams({
+        token: accessToken,
+        token_type_hint: "access_token",
+        client_id: connector.clientId,
+      });
+      if (!connector.pkce) {
+        const clientSecret = await this.payloadStore.getSecret(connector.clientSecretRef).catch(() => undefined);
+        if (clientSecret) body.set("client_secret", clientSecret);
+      }
+      const revocationUrl = connector.revocationUrl ?? `${connector.tokenUrl}/revoke`;
+      await fetch(revocationUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: body.toString(),
+      });
+    } catch {
+      // Revocation is best-effort; local disable proceeds regardless.
+    }
+  }
+
   private async disableSupersededConnections(
     owner: CredentialOwnerRef,
     provider: string,
@@ -506,7 +541,10 @@ export class ProviderConnectionService {
         doc.id !== keepId &&
         (doc.status === "connected" || doc.status === "needs_reauth"),
     );
-    await Promise.all(superseded.map((doc) => this.disableConnection(doc.id)));
+    await Promise.all(superseded.map(async (doc) => {
+      await this.revokeTokenAtProvider(doc);
+      await this.disableConnection(doc.id);
+    }));
     return superseded.map((doc) => doc.id);
   }
 
@@ -534,6 +572,7 @@ export class ProviderConnectionService {
         return rightTime - leftTime;
       });
       for (const stale of active.slice(1)) {
+        await this.revokeTokenAtProvider(stale);
         await this.disableConnection(stale.id);
         pruned += 1;
       }
@@ -560,6 +599,7 @@ export class ProviderConnectionService {
     if (connection.status === "disabled") {
       return toProviderConnectionMetadata(connection);
     }
+    await this.revokeTokenAtProvider(connection);
     await this.disableConnection(connection.id);
     return toProviderConnectionMetadata({
       ...connection,

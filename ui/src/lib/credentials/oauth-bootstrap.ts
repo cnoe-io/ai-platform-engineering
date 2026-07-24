@@ -274,6 +274,7 @@ export function buildOAuthConnectorBootstrapInputs(env: Env = process.env): Crea
       ...(clientSecret ? { clientSecret } : {}),
       authorizationUrl: descriptor.authorizationUrl,
       tokenUrl: descriptor.tokenUrl,
+      ...(descriptor.revocationUrl ? { revocationUrl: descriptor.revocationUrl } : {}),
       scopes: scopesForProvider(descriptor, providerEnv, env),
       redirectUri: normalizeRedirectUri(providerEnv.provider, redirectUri, env),
       ...(isPkce ? { pkce: true } : {}),

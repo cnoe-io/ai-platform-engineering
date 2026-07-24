@@ -228,5 +228,22 @@ describe("/api/credentials/oauth/[provider_key]", () => {
     expect(text).not.toContain("Return to Credentials");
     expect(text).toContain("Webex returned invalid_scope. You can close this window.");
     expect(text).not.toContain("try again");
+    expect(text).not.toContain("idbroker.webex.com");
+  });
+
+  it("renders a tokenlimit_reached page with a self-serve remediation link", async () => {
+    const { GET } = await import("../callback/route");
+    const response = await GET(
+      new Request("http://localhost/api/credentials/oauth/webex/callback?error=tokenlimit_reached&error_description=Could+not+create+token+in+CTS") as never,
+      { params: Promise.resolve({ provider_key: "webex" }) },
+    );
+
+    expect(response.status).toBe(400);
+    const text = await response.text();
+    expect(text).toContain("Webex connection failed");
+    expect(text).toContain("Too many active Webex sessions");
+    expect(text).toContain("idbroker.webex.com/idb/profile");
+    expect(text).toContain("Manage Webex sessions");
+    expect(text).toContain("try again");
   });
 });

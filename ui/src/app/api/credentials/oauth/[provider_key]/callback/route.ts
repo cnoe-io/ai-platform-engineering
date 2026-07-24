@@ -97,6 +97,8 @@ function completionPage(input: {
   status: "success" | "error";
   title: string;
   message: string;
+  actionUrl?: string;
+  actionLabel?: string;
 }): Response {
   const provider = providerBranding(input.providerKey);
   const flowTitle =
@@ -109,6 +111,9 @@ function completionPage(input: {
     provider: input.providerKey,
     status: input.status,
   };
+  const actionButtonMarkup = input.actionUrl
+    ? `<a class="action-btn" href="${escapeHtml(input.actionUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(input.actionLabel ?? "Take action")}</a>`
+    : "";
   const html = `<!doctype html>
 <html lang="en">
   <head>
@@ -123,8 +128,9 @@ function completionPage(input: {
       .brand-logo { width: 3.25rem; height: 3.25rem; object-fit: contain; display: inline-grid; place-items: center; margin-bottom: 1.25rem; border-radius: 0.95rem; background: rgba(2,6,23,0.72); padding: 0.45rem; box-shadow: inset 0 0 0 1px rgba(94,234,212,0.14); }
       h1 { margin: 0; font-size: clamp(1.9rem, 6vw, 2.65rem); line-height: 1; letter-spacing: -0.055em; }
       p { margin: 1rem auto 0; max-width: 22rem; color: #cbd5e1; line-height: 1.55; }
-      .actions { display: flex; justify-content: center; margin-top: 1.5rem; }
-      button { border: 0; border-radius: 0.75rem; background: #14b8a6; color: #042f2e; cursor: pointer; font-weight: 800; padding: 0.8rem 1.25rem; text-decoration: none; min-width: 10rem; }
+      .actions { display: flex; flex-wrap: wrap; gap: 0.75rem; justify-content: center; margin-top: 1.5rem; }
+      button, .action-btn { border: 0; border-radius: 0.75rem; background: #14b8a6; color: #042f2e; cursor: pointer; font-weight: 800; padding: 0.8rem 1.25rem; text-decoration: none; min-width: 10rem; display: inline-block; }
+      .action-btn { background: rgba(20,184,166,0.15); color: #5eead4; border: 1px solid rgba(94,234,212,0.25); }
     </style>
   </head>
   <body>
@@ -133,6 +139,7 @@ function completionPage(input: {
       <h1>${escapeHtml(flowTitle)}</h1>
       <p>${escapeHtml(input.message)}</p>
       <div class="actions">
+        ${actionButtonMarkup}
         <button id="close-window" type="button">Close window</button>
       </div>
     </main>
@@ -172,6 +179,18 @@ export const GET = withErrorHandler(async (request: NextRequest, context?: { par
   const providerError = url.searchParams.get("error");
   if (providerError) {
     const provider = providerBranding(callbackProviderKey);
+    if (providerError === "tokenlimit_reached") {
+      return completionPage({
+        providerKey: callbackProviderKey,
+        status: "error",
+        title: "Connection failed",
+        message:
+          `Too many active ${provider.name} sessions. ` +
+          `Visit idbroker.webex.com/idb/profile to end old sessions, then try again.`,
+        actionUrl: "https://idbroker.webex.com/idb/profile#/",
+        actionLabel: "Manage Webex sessions",
+      });
+    }
     return completionPage({
       providerKey: callbackProviderKey,
       status: "error",
