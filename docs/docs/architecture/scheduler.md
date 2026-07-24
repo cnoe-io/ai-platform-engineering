@@ -287,6 +287,51 @@ openfga-authz-bridge:
     - scheduler # <- This enables the admin-only check for /mcp/scheduler requests.
 ```
 
+The Schedules tab visibility is directly controlled by
+`SCHEDULER_ADMIN_ONLY`. The UI loads it as `config.schedulerAdminOnly` and
+renders the tab with this condition:
+
+```text
+!config.schedulerAdminOnly || isAdmin
+```
+
+Therefore:
+
+- `SCHEDULER_ADMIN_ONLY: "true"` hides the tab from organization members and
+  shows it to organization admins.
+- `SCHEDULER_ADMIN_ONLY: "false"` shows the tab to both members and admins.
+
+The umbrella chart keeps this UI flag aligned with the AgentGateway policy. Its
+`caipe-ui-integration-flags` ConfigMap renders:
+
+```yaml
+SCHEDULER_ADMIN_ONLY: "true"
+```
+
+when `scheduler` is present in
+`openfga-authz-bridge.restrictedMcpServers`; otherwise it renders the flag as
+`"false"`. The CAIPE UI reads the flag at process startup. The Schedules tab
+also requires both Dynamic Agents and the scheduler to be enabled.
+
+When the flag is `"true"`, the UI determines organization-admin access from
+OpenFGA `can_manage organization:<org>`, not from a legacy MongoDB role or the
+deprecated OIDC bootstrap-admin configuration.
+
+| `SCHEDULER_ADMIN_ONLY` | Organization member | Organization admin |
+|---|---:|---:|
+| `"true"` | Tab hidden | Tab visible |
+| `"false"` | Tab visible | Tab visible |
+
+Deploying only a new CAIPE UI image is not sufficient for this behavior. The
+deployed umbrella chart must include the
+`caipe-ui-integration-flags-configmap.yaml` template that derives
+`SCHEDULER_ADMIN_ONLY`, and the CAIPE UI pods must be rolled out so the new
+ConfigMap value enters their environment.
+
+Tab visibility is a user-experience control, not the authorization boundary.
+The OpenFGA bridge check below remains responsible for denying direct
+scheduler MCP requests from callers without access.
+
 For every request under `/mcp/scheduler`, the bridge checks:
 
 ```text
