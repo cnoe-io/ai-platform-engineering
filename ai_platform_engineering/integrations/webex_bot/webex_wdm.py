@@ -316,7 +316,6 @@ class WebexWdmRuntime:
                 type(exc).__name__,
                 retry_delay,
             )
-            # assisted-by claude code claude-sonnet-4-6
             # A clean ConnectionClosedError means the server closed the socket — the
             # cached webSocketUrl may have expired.  Force a fresh device registration
             # so the next connect gets a valid URL instead of looping on a stale one.
