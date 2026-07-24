@@ -98,7 +98,7 @@ test.describe("projects membership regression (mocked)", () => {
     await page.goto("/projects", { waitUntil: "domcontentloaded" });
 
     await expect(page.getByText("Your projects")).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByText("Mycelium")).toBeVisible();
+    await expect(page.locator("h3").filter({ hasText: "Mycelium" })).toBeVisible();
     await expect(page.locator("h3").filter({ hasText: "CAIPE" })).toBeVisible();
     await expect(page.getByText("No projects yet")).not.toBeVisible();
   });
@@ -126,7 +126,7 @@ test.describe("projects membership regression (mocked)", () => {
     await page.goto("/projects", { waitUntil: "domcontentloaded" });
 
     await expect(page.getByText("Your projects")).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByText("Mycelium")).toBeVisible();
+    await expect(page.locator("h3").filter({ hasText: "Mycelium" })).toBeVisible();
     await expect(page.locator("h3").filter({ hasText: "CAIPE" })).toBeVisible();
   });
 });
