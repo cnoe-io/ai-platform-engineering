@@ -131,12 +131,35 @@ function normalizeTargetId(value: unknown): string | null {
   return /^[A-Za-z0-9._-]+$/.test(trimmed) ? trimmed : null;
 }
 
-function displayNameForId(id: string): string {
+// Naive title-casing mangles acronyms and mixed-case product names embedded
+// in a hyphenated target id (e.g. "mcp-example-ai-gateway" -> "Mcp Example
+// Ai Gateway"). This is a best-effort lookup, not exhaustive -- ids without a
+// listed word still fall back to simple capitalization.
+export const DISPLAY_NAME_WORD_OVERRIDES: Record<string, string> = {
+  ai: "AI",
+  api: "API",
+  aws: "AWS",
+  cli: "CLI",
+  eks: "EKS",
+  gitops: "GitOps",
+  github: "GitHub",
+  gitlab: "GitLab",
+  id: "ID",
+  mcp: "MCP",
+  oidc: "OIDC",
+  pam: "PAM",
+  s3: "S3",
+  sso: "SSO",
+  url: "URL",
+  vpc: "VPC",
+};
+
+export function displayNameForId(id: string): string {
   if (id.toLowerCase() === "rag") return "RAG";
   return id
     .split(/[-_]+/)
     .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .map((part) => DISPLAY_NAME_WORD_OVERRIDES[part.toLowerCase()] ?? (part.charAt(0).toUpperCase() + part.slice(1)))
     .join(" ");
 }
 

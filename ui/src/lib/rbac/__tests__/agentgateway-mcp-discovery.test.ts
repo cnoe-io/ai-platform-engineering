@@ -6,6 +6,7 @@ import {
   agentGatewayMcpEndpointUrl,
   builtinCredentialSourcesFor,
   buildAgentGatewayMcpDiscovery,
+  displayNameForId,
   extractAgentGatewayMcpTargets,
   toAgentGatewayMcpServerDocument,
 } from "../agentgateway-mcp-discovery";
@@ -337,5 +338,25 @@ describe("AgentGateway MCP discovery", () => {
     const doc = toAgentGatewayMcpServerDocument(target, "2026-05-17T00:00:00.000Z");
     expect(doc.credential_sources).toBeUndefined();
     expect(builtinCredentialSourcesFor("argocd")).toBeUndefined();
+  });
+});
+
+describe("displayNameForId", () => {
+  it("special-cases rag", () => {
+    expect(displayNameForId("rag")).toBe("RAG");
+  });
+
+  it("capitalizes known acronyms and product names instead of naive title-casing", () => {
+    expect(displayNameForId("mcp-example-ai-gateway")).toBe("MCP Example AI Gateway");
+    expect(displayNameForId("mcp-example-github")).toBe("MCP Example GitHub");
+    expect(displayNameForId("mcp-example-aws")).toBe("MCP Example AWS");
+    expect(displayNameForId("mcp-example-misc-tools")).toBe("MCP Example Misc Tools");
+  });
+
+  it("falls back to simple capitalization for words with no override", () => {
+    expect(displayNameForId("knowledge-base")).toBe("Knowledge Base");
+    expect(displayNameForId("confluence-user-impersonation")).toBe(
+      "Confluence User Impersonation",
+    );
   });
 });
