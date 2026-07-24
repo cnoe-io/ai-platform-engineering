@@ -86,3 +86,14 @@ The temporary `team_member:<slug>` realm role should disappear after all older t
 6. OpenFGA allows only if a matching tuple path exists.
 
 In short: **JWT proves identity; OpenFGA proves access.**
+
+## Non-Keycloak Auth Paths
+
+Some callers authenticate without a Keycloak session. These paths still need a stable subject so that OpenFGA checks can run:
+
+| Auth path | Header / token | Subject assigned | OpenFGA behaviour |
+|---|---|---|---|
+| Catalog API key | `X-Caipe-Catalog-Key` | `catalog-key-user@local` | Read mode: returns `default` + `hub` + global `agent_skills` directly (no per-skill tuples exist for machine callers). Use mode: falls through to per-skill `can_use` checks. |
+| Local skills JWT | `Authorization: Bearer <HS256>` signed by `/api/skills/token` | `email` claim from the token | Full OpenFGA evaluation — `default` skills pass through; `agent_skills` require a `can_read` or `can_use` tuple per skill. |
+
+Both paths populate `session.sub` in `api-middleware.ts`. Without `sub`, `filterSkillsByOpenFga` short-circuits to an empty result because there is no stable identity to check against OpenFGA.
