@@ -53,14 +53,30 @@ test.describe("Skills catalog API — auth subject regression", () => {
     expect(sources.has("default")).toBe(true);
   });
 
-  test("catalog API key with no matching key returns 401", async ({ request }) => {
+  test("catalog API key does not expose private agent_skills (no visibility field)", async ({
+    request,
+  }) => {
+    // The catalog key bypass only returns default + hub + *global* agent_skills.
+    // Private / team-scoped agent_skills must not appear in a machine-caller
+    // response even if the key is accepted.
     const env = rbacEnvOrSkip();
 
-    const resp = await request.get(`${env.baseUrl}/api/skills`, {
-      headers: { "X-Caipe-Catalog-Key": "invalid-key" },
+    const apiKey = process.env.CAIPE_CATALOG_API_KEY;
+    test.skip(!apiKey, "CAIPE_CATALOG_API_KEY not set — skipping catalog key regression.");
+
+    const resp = await request.get(`${env.baseUrl}/api/skills?source=agent_skills`, {
+      headers: { "X-Caipe-Catalog-Key": apiKey! },
     });
 
-    expect(resp.status()).toBe(401);
+    expect(resp.ok()).toBe(true);
+    const body = (await resp.json()) as {
+      skills: Array<{ source: string; visibility?: string }>;
+    };
+
+    // Every agent_skill returned must be explicitly visibility:global.
+    for (const skill of body.skills) {
+      expect(skill.visibility ?? "global").toBe("global");
+    }
   });
 
   // ---------------------------------------------------------------------------
