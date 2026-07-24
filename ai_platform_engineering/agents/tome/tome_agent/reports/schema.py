@@ -246,6 +246,16 @@ _template_overrides: contextvars.ContextVar[dict[str, tuple[PageSpec, ...]] | No
     contextvars.ContextVar("tome_template_overrides", default=None)
 )
 
+# Raw fetched page dicts (path/kind/title/order/enabled/body), kept alongside
+# the parsed PageSpec overrides above. PageSpec has no `body` field — it's
+# built for structural things (sort order, kind-based preserve/rewrite rules)
+# that never needed seed content — so the full per-page body/guidance text
+# would otherwise be discarded the moment `set_template_overrides()` parses
+# it. `full_template_snapshot()` is the one place that surfaces it.
+_raw_template_overrides: contextvars.ContextVar[dict[str, list[dict[str, Any]]] | None] = (
+    contextvars.ContextVar("tome_raw_template_overrides", default=None)
+)
+
 
 def _spec_from_dict(raw: dict[str, Any]) -> PageSpec | None:
     """Parse one page dict from the config API into a PageSpec, or None if it
@@ -268,6 +278,7 @@ def _spec_from_dict(raw: dict[str, Any]) -> PageSpec | None:
 def set_template_overrides(by_scope: dict[str, list[dict[str, Any]]] | None) -> None:
     """Install per-run template config fetched from the backend. Silently keeps
     the hardcoded fallback for any scope that is absent or fails to parse."""
+    _raw_template_overrides.set(by_scope or None)
     if not by_scope:
         _template_overrides.set(None)
         return
@@ -307,6 +318,44 @@ def webex_template() -> tuple[PageSpec, ...]:
 
 def confluence_template() -> tuple[PageSpec, ...]:
     return _override(SCOPE_CONFLUENCE) or CONFLUENCE_TEMPLATE
+
+
+def _fallback_template_snapshot() -> dict[str, list[dict[str, Any]]]:
+    """Build the full-content snapshot shape from the hardcoded constants, for
+    when no run has fetched the live config (or the fetch failed). Dynamic
+    pages get `body: ""` here — there's no Python-side equivalent of the
+    TS DEFAULT_GUIDANCE map, matching today's degraded-mode behavior."""
+    by_scope: dict[str, tuple[PageSpec, ...]] = {
+        SCOPE_TOP_LEVEL: DEFAULT_PAGES,
+        SCOPE_GITHUB: REPO_TEMPLATE,
+        SCOPE_CONFLUENCE: CONFLUENCE_TEMPLATE,
+        SCOPE_WEBEX: WEBEX_TEMPLATE,
+    }
+    return {
+        scope: [
+            {
+                "path": spec.path,
+                "kind": spec.kind,
+                "title": spec.title,
+                "order": spec.order,
+                "enabled": spec.enabled,
+                "body": STABLE_SEED_BODIES.get(spec.path, ""),
+            }
+            for spec in specs
+        ]
+        for scope, specs in by_scope.items()
+    }
+
+
+def full_template_snapshot() -> dict[str, list[dict[str, Any]]]:
+    """The full page-template config — every page's path/kind/title/order/
+    enabled AND seed body/guidance content, by scope. Unlike `default_pages()`/
+    `repo_template()`/etc. (which return `PageSpec`, with no `body` field),
+    this is the one accessor that preserves what a run actually fetched from
+    the backend. Falls back to the hardcoded constants when no run has
+    fetched live config yet."""
+    raw = _raw_template_overrides.get()
+    return raw if raw is not None else _fallback_template_snapshot()
 
 
 def expand_template(prefix: str, template: tuple[PageSpec, ...]) -> tuple[PageSpec, ...]:

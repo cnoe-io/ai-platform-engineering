@@ -16,6 +16,13 @@ Tools:
   internal API the persistent workspace sync already uses — see
   `http_client.fetch_all_projects` / `fetch_all_pages_sync`), and don't widen
   what the agent can Read/Write on disk.
+- `get_page_templates`: the full admin-editable page-template config —
+  every page's path/kind/title AND its seed body / sourcing guidance, by
+  scope (top-level, github, confluence, webex). Ingest already gets this
+  forced into its system prompt every run; chat never fetches templates at
+  all today, so this gives chat (and ingest, if it wants a second look) an
+  on-demand way to answer "what does the current template look like" instead
+  of only ever seeing a hardcoded page list. Read-only, no args.
 
 Deletion is a TOMBSTONE, not an `rm`: the backend appends a deleted revision
 (reversible, history preserved) — no filesystem delete that could desync the
@@ -116,6 +123,27 @@ def build_tome_mcp(*, project_id: str, project_dir: Path, author: str):
         return _ok({"deleted": raw, "reason": reason})
 
     @tool(
+        "get_page_templates",
+        "The full admin-editable page-template config, by scope (`top-level`, "
+        "`github`, `confluence`, `webex`). Each page includes its path, kind, "
+        "title, order, enabled flag, AND its seed body — the actual `## section` "
+        "scaffold for stable pages, or the sourcing guidance for dynamic pages "
+        "(an admin edits this in the template editor; it's what a fresh page is "
+        "founded with). Use this to check what the CURRENT template looks like "
+        "before answering questions about page structure or sourcing guidance — "
+        "the page list you were told about elsewhere may be stale if an admin "
+        "edited the template since.",
+        {},
+    )
+    async def get_page_templates(_args: dict) -> dict[str, Any]:
+        try:
+            snapshot = report_schema.full_template_snapshot()
+        except Exception as e:
+            log.warning("get_page_templates failed", exc_info=True)
+            return _err(f"could not load page templates: {type(e).__name__}: {e}")
+        return _ok(snapshot)
+
+    @tool(
         "list_projects",
         "List every Project the backend knows about, as `[{project_slug, "
         "title}]`. Use this BEFORE citing another project in an edge's "
@@ -202,5 +230,11 @@ def build_tome_mcp(*, project_id: str, project_dir: Path, author: str):
     return create_sdk_mcp_server(
         name="tome",
         version="0.1.0",
-        tools=[delete_page, list_projects, list_project_pages, read_project_page],
+        tools=[
+            get_page_templates,
+            delete_page,
+            list_projects,
+            list_project_pages,
+            read_project_page,
+        ],
     )

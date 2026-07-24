@@ -22,7 +22,6 @@ from uuid import UUID
 from tome_agent import prompts
 from tome_agent.agent import http_client
 from tome_agent.agent.connectors import REGISTRY
-from tome_agent.agent.connectors.base import format_pages
 from tome_agent.agent.connectors.github import GitHubExtra
 from tome_agent.agent.loop import (
     build_agent_options,
@@ -96,6 +95,25 @@ def _template_change_note(
     return "\n".join(lines) + "\n\n"
 
 
+def _format_full_template(pages: list[dict[str, Any]]) -> str:
+    """Render one scope's full template — path/kind/title AND seed body/
+    guidance — as prompt text. Unlike `format_pages()` (path/kind/title only),
+    this is what the agent actually needs to reproduce an admin's seed content
+    verbatim on greenfield, or recognize it (e.g. the SOURCE HINT sourcing
+    guidance) on incremental runs without having to open every page first."""
+    blocks = []
+    for spec in pages:
+        if spec.get("enabled") is False:
+            continue
+        body = (spec.get("body") or "").strip()
+        header = f"- `{spec.get('path')}` ({spec.get('kind')}) — {spec.get('title')}"
+        if body:
+            blocks.append(f"{header}\n  Seed body:\n  ```\n  {body}\n  ```")
+        else:
+            blocks.append(header)
+    return "\n".join(blocks)
+
+
 def _build_system_prompt(
     snapshot: ProjectSnapshot,
     is_greenfield: bool,
@@ -104,7 +122,12 @@ def _build_system_prompt(
     template_note: str = "",
 ) -> str:
     """Compose the ingest agent's system prompt by iterating REGISTRY."""
-    top_level = format_pages(report_schema.default_pages())
+    # Forced, unconditional: the full template (path/kind/title + seed body/
+    # guidance), not just the bare page list `format_pages()` gives — ingest
+    # already calls `set_template_overrides()` before this (stream_ingest),
+    # so `full_template_snapshot()` reflects whatever that call fetched.
+    full_templates = report_schema.full_template_snapshot()
+    top_level = _format_full_template(full_templates.get(report_schema.SCOPE_TOP_LEVEL, []))
 
     connector_extras = connector_extras or {}
     connector_blocks: list[str] = []

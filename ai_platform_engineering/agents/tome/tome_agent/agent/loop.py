@@ -357,20 +357,24 @@ def build_agent_options(
     pdir.mkdir(parents=True, exist_ok=True)
 
     mcp_servers: dict = {}
-    # Viewer containers have no write tools — Edit and Write are excluded
-    # from the allowed list so the SDK never offers them to Claude.
+    # The tome MCP server is built for both roles — get_page_templates is
+    # read-only and safe for a viewer session too. Viewer containers still
+    # have no write tools — Edit and Write are excluded from the allowed
+    # list so the SDK never offers them to Claude; the same restriction
+    # keeps delete_page and the cross-project lookups editor-only below.
+    mcp_servers["tome"] = build_tome_mcp(
+        project_id=project_id, project_dir=pdir, author=persist_author
+    )
     if agent_role == "viewer":
-        allowed = ["Read", "Glob", "Grep", *WEB_TOOLS]
+        allowed = ["Read", "Glob", "Grep", *WEB_TOOLS, "mcp__tome__get_page_templates"]
     else:
         allowed = [*WIKI_TOOLS, *WEB_TOOLS]
         # Editors get the Bash-free tombstone tool for curating collections
         # (e.g. pruning glossary entries). It structurally refuses stable /
         # hidden / founding-template pages, so no unsafe delete path exists.
-        mcp_servers["tome"] = build_tome_mcp(
-            project_id=project_id, project_dir=pdir, author=persist_author
-        )
         allowed.extend(
             [
+                "mcp__tome__get_page_templates",
                 "mcp__tome__delete_page",
                 # Cross-project lookups for authoring edges — read-only.
                 "mcp__tome__list_projects",
