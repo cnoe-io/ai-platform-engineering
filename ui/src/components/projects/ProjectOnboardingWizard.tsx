@@ -774,6 +774,11 @@ export function ProjectOnboardingWizard({
                         placeholder="What is this project building?"
                         className="w-full rounded-xl border border-border/60 bg-muted/30 px-4 py-3 text-sm outline-none ring-primary/30 focus:border-primary focus:ring-2"
                       />
+                      <span className="block text-xs text-muted-foreground">
+                        Shows on this project&apos;s card in the projects list, and seeds the
+                        opening line of charter.md. It isn&apos;t kept in sync afterward: edit
+                        charter.md directly for anything after creation.
+                      </span>
                     </label>
                     {entityType === "area" ? (
                       <label className="block space-y-1.5">

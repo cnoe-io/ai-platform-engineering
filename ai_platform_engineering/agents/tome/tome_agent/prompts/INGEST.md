@@ -114,13 +114,12 @@ system prompt below — it's admin-configurable, so treat that enumeration as
 authoritative and follow each page's guidance comment. The shape is:
 
 **Stable pages** — human-owned beliefs & commitments; preserve, don't rewrite:
-`charter.md`, `objectives.md`, `roadmap.md`, `commitments.md`, `agreements.md`.
+`charter.md`, `roadmap.md`, `team-assignments.md`.
 
 **Dynamic top-level pages** — where cross-source synthesis lives (the most
-valuable pages): `overview.md`, `status.md`, `activity.md`, `architecture.md`,
-`discovery.md`, `design.md`, `market.md`, `campaigns.md`, `actions.md`. Plus
-`standup.md` (report-card surface), `glossary/` (vocabulary, one file per term),
-and `memory.md` (hidden working memory).
+valuable pages): `activity.md`, `architecture.md`. Plus `standup.md`
+(report-card surface), `glossary/` (vocabulary, one file per term), and
+`memory.md` (hidden working memory).
 
 **Per-source subtrees** are *thin* — orientation, not transcripts. Synthesis
 belongs up top; per-source pages cover what's specific to that one source.

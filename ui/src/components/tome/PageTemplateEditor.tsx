@@ -11,9 +11,18 @@ import {
   RotateCcw,
   Save,
   Trash2,
+  Undo2,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/components/ui/toast";
@@ -69,6 +78,8 @@ export function PageTemplateEditor() {
   const [activeScope, setActiveScope] = useState<Scope>("top-level");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [restoring, setRestoring] = useState(false);
+  const [restoreDialogOpen, setRestoreDialogOpen] = useState(false);
   const [errors, setErrors] = useState<ValidationError[]>([]);
   // Which rows have their seed-body editor expanded, and the live Crepe
   // handles to read markdown back from. Reset when the scope tab changes.
@@ -229,6 +240,32 @@ export function PageTemplateEditor() {
       toast(err instanceof Error ? err.message : String(err), "error");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const restoreDefaults = async () => {
+    if (!doc) return;
+    setRestoreDialogOpen(false);
+    setRestoring(true);
+    try {
+      const res = await fetch(`/api/tome/page-templates/${activeScope}/reset`, {
+        method: "POST",
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error ?? "Failed to restore defaults");
+      bodyRefs.current.clear();
+      setOpenBodies(new Set());
+      setDocs((prev) => ({ ...prev, [activeScope]: body.template }));
+      setDrafts((prev) => ({
+        ...prev,
+        [activeScope]: body.template.pages.map((p: StoredPageSpec) => ({ ...p })),
+      }));
+      setErrors([]);
+      toast(`Restored ${activeScope} template to defaults (v${body.template.version}).`, "success");
+    } catch (err) {
+      toast(err instanceof Error ? err.message : String(err), "error");
+    } finally {
+      setRestoring(false);
     }
   };
 
@@ -424,6 +461,16 @@ export function PageTemplateEditor() {
           Add page
         </Button>
         <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setRestoreDialogOpen(true)}
+            disabled={!doc || saving || restoring}
+            className="text-red-500 hover:bg-red-500/10 hover:text-red-500"
+          >
+            <Undo2 className="mr-1.5 h-4 w-4" />
+            {restoring ? "Restoring…" : "Restore defaults"}
+          </Button>
           <Button variant="ghost" size="sm" onClick={reset} disabled={!dirty || saving}>
             <RotateCcw className="mr-1.5 h-4 w-4" />
             Reset
@@ -434,6 +481,31 @@ export function PageTemplateEditor() {
           </Button>
         </div>
       </div>
+
+      <Dialog open={restoreDialogOpen} onOpenChange={setRestoreDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Restore defaults?</DialogTitle>
+            <DialogDescription>
+              Restore the &quot;{activeScope}&quot; template to shipped defaults? This overwrites
+              the current template{doc ? ` (v${doc.version})` : ""} and cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" size="sm" onClick={() => setRestoreDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => void restoreDefaults()}
+              disabled={restoring}
+            >
+              {restoring ? "Restoring…" : "Restore defaults"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

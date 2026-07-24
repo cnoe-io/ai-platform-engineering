@@ -348,6 +348,7 @@ export function WikiPageView({
           readonly={!isEditing}
           onNavigate={onNavigate}
           glossaryPreview={glossaryPreview}
+          hideHtmlComments
         />
       </ScrollArea>
     </div>

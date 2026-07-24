@@ -37,29 +37,20 @@ function spec(
  * Order is sidebar order at the same depth; nesting is path-derived
  * (`a/b.md` is a child of `a.md`).
  *
- * `charter.md` / `objectives.md` / `roadmap.md` seed as `kind=stable`: the
- * agent drafts them once at founding (from the charter field + sources), then
- * the autonomous ingest loop only preserves them. Dynamic pages are grounded
- * by them.
+ * `charter.md` / `roadmap.md` / `team-assignments.md` seed as `kind=stable`:
+ * the agent drafts them once at founding (from the charter field + sources),
+ * then the autonomous ingest loop only preserves them. Dynamic pages are
+ * grounded by them.
  */
 export const DEFAULT_PAGES: readonly PageSpec[] = [
   spec("standup.md", "report", "The Standup", -10),
-  // 5 stable — human-curated beliefs & commitments.
+  // 3 stable — human-curated beliefs & commitments.
   spec("charter.md", "stable", "Charter", -5),
-  spec("objectives.md", "stable", "Objectives", -4),
-  spec("roadmap.md", "stable", "Roadmap", -3),
-  spec("commitments.md", "stable", "Commitments", -2),
-  spec("agreements.md", "stable", "Agreements", -1),
-  // 9 dynamic flat pages (glossary is a directory, agent-maintained per term).
-  spec("overview.md", "dynamic", "Overview", 0),
-  spec("status.md", "dynamic", "Status", 10),
-  spec("activity.md", "dynamic", "Activity", 20),
-  spec("architecture.md", "dynamic", "Architecture", 30),
-  spec("discovery.md", "dynamic", "Discovery", 40),
-  spec("design.md", "dynamic", "Design", 50),
-  spec("market.md", "dynamic", "Market", 60),
-  spec("campaigns.md", "dynamic", "Campaigns", 70),
-  spec("actions.md", "dynamic", "Actions", 80),
+  spec("roadmap.md", "stable", "Roadmap", -4),
+  spec("team-assignments.md", "stable", "Team Assignment", -3),
+  // 2 dynamic flat pages (glossary is a directory, agent-maintained per term).
+  spec("activity.md", "dynamic", "Activity", 0),
+  spec("architecture.md", "dynamic", "Architecture", 10),
   spec("memory.md", "hidden", "Memory", 100),
 ];
 
@@ -67,86 +58,136 @@ export const DEFAULT_PAGES: readonly PageSpec[] = [
 // from the charter field + sources where it can, and leaves genuinely
 // human-only sections as the prompt text. The `##` section headers are the
 // contract the structured surfaces and the ingest prompt both rely on.
-const CHARTER_BODY = `## What we're building
-_One or two sentences: what this is, and who it's for._
+// This charter applies at BHAG, Area, or T3 level — write each section at the
+// scope of THIS entity (broad and durable for a BHAG, concrete and specific
+// for a T3). The parent Area/BHAG is stored as system metadata and is NOT
+// restated in the body.
+const CHARTER_BODY = `## Problem Statement
+_The core customer problem, in 2-4 sentences: what pain exists, for whom, and why it is unsolved or poorly solved today. Include a short profile of who has this problem._
+<!-- Confluence project/venture space -> overview, brief, or kickoff page. Fallback: GitHub repo README (top section) or Webex space pinned messages / early discussion. If not found, output "TBD -- problem statement not located in sources." -->
 
-## Why it matters
-_Why this is worth doing. Why now._
+## Why Now
+_Why this is worth doing at this moment: the timing driver (industry shift, technology maturity, competitive window, or pull from a BU/customer). One short paragraph._
+<!-- Confluence brief/kickoff or a strategy/thesis page; Webex space discussion of rationale. If not found, output "TBD -- timing rationale not captured." -->
 
-## What success looks like
-_The concrete outcome that means we won._
+## Alignment
+_How this work advances its parent, and which delivery window it serves._
 
-## Out of scope
-_What we are deliberately NOT building. Prevents drift and wrong assumptions._
+- _Alignment rationale: how this contributes to the Area and BHAG it belongs to (draw the parent names from system metadata; explain the fit, do not just restate the linkage)._
+- _Window: is this Market Making (Why/What, ~9+ months out) or Market Serving (How/When, ~6 months out), or a mix? State which, and briefly why._
+<!-- Parent Area/BHAG names come from system metadata. Alignment reasoning and MM/MS designation: Confluence strategy page or venture proposal; Webex leadership/CL discussion. If not found, output "TBD -- alignment rationale not captured" and "Window: TBD (MM / MS / mixed)." -->
 
--
+## Scope, Assumptions & Boundaries
+_What this effort covers, what it assumes to be true, and where its edges are._
 
-## Confidence on key bets
-_The beliefs this effort rests on, and how sure we are of each. Tiers: hypothesis · testing · validated · committed._
+- _In scope: the problems, deliverables, or capabilities this effort owns._
+- _Out of scope: what is deliberately NOT being built or addressed. Be explicit -- this prevents drift and wrong assumptions._
+- _Assumptions & boundaries: what is currently believed about the problem, the environment, and this entity's autonomy -- the conditions under which the charter holds._
+<!-- Confluence charter/proposal page; T3 proposal fields (problem, assumptions + boundaries). GitHub milestones/issues can indicate in-scope work. If not found, output "TBD" under each of the three bullets. -->
 
-| Bet | Confidence | Evidence |
-| --- | --- | --- |
-|  |  |  |
-`;
+## Ideal Customer Profile (ICP)
+_Who this is for and what is understood about their world._
 
-const OBJECTIVES_BODY = `## North-star metric
-_The single number that best captures progress: what it is, and why it's the one that matters._
+- _Target personas: roles and their demographic / technographic profile (e.g., "service-provider network engineer", "healthcare IT lead")._
+- _Current market understanding: the state of the space and where it is heading._
+- _Use cases: the concrete situations in which the ICP would adopt or benefit._
+- _Customer research insights: what has been learned directly from design partners or prospects._
+<!-- Confluence research/ICP pages, design-partner notes; Webex design-partner channels for research insights. At BHAG level this is broad; at T3 level it is specific. If not found, output "TBD" per bullet. -->
 
-## Objectives
-_What we're driving toward, and how we'll measure it._
+## Goals
+_What success looks like, as concrete outcomes rather than activities. What state of the world means this effort has won._
+<!-- Confluence charter/OKR page; venture proposal "outcome / exit condition". If not found, output "TBD -- success outcomes not defined." -->
 
-| Objective | Metric | Target | Timeframe |
+## KPIs
+_The measurable indicators for the goals above. For each: metric, target value, and time frame. Include a baseline (before value) where known._
+
+| Metric | Baseline | Target | Time frame |
 | --- | --- | --- | --- |
 |  |  |  |  |
-
-## How this ladders to org OKRs
-_Which org-level OKR(s) these advance, and how._
+<!-- Confluence metrics/OKR page or venture proposal ("quantitative metrics and KPIs, before and after"). Live values may come from dashboards linked in Confluence/GitHub. If none found, keep the header row and one empty row, and output "TBD -- KPIs not defined." -->
 `;
 
-const ROADMAP_BODY = `## Now
-_What we're actively building this horizon._
+// This roadmap applies at BHAG, Area, or T3 level — write each section at the
+// scope of THIS entity: a BHAG/Area roadmap leans on the Milestones +
+// goal-level success signals; a T3 roadmap leans on the Delivery Plan table
+// with concrete dates and release types. The parent Area/BHAG is stored as
+// system metadata and is NOT restated in the body. Time axis convention: the
+// fiscal year runs Aug 1 - Jul 31. Quarters map as: Q1 = Aug-Oct, Q2 = Nov-Jan,
+// Q3 = Feb-Apr, Q4 = May-Jul. FY numbering follows the ending calendar year
+// (e.g., FY26 = Aug'25-Jul'26, so Q4 FY26 = May-Jul'26 and Q1 FY27 =
+// Aug-Oct'26). Decompose to months where useful (e.g., "Jul'26"). Roadmap and
+// execution-plan content may live in GitHub (e.g., ROADMAP.md / PLAN.md,
+// wiki, docs/, project boards, milestones, issues) as well as in Confluence
+// and Webex -- treat GitHub as a first-class roadmap source, not only a
+// source of code artifacts.
+const ROADMAP_BODY = `## Intent
+_Two to three sentences: what this roadmap covers, the period it spans, and the single headline goal for that period._
+<!-- Confluence roadmap/wiki page header; GitHub roadmap or execution-plan docs (e.g., ROADMAP.md, PLAN.md, docs/ or wiki, project board description); Webex planning discussion. If not found, output "TBD -- roadmap intent not captured." -->
 
-## Next
-_Near-term bets, roughly in priority order. Themes, not dates._
+## Milestones
+_The dated outcomes that define progress, ordered by target date. Each milestone is an outcome or goal (not a task), tied to a time window, with the signal that proves it was met. Include the delivery window (Market Making or Market Serving) and current status._
 
-## Later
-_Directions we believe in but aren't committing to yet._
+| Milestone | Target (Qtr / Month) | Outcome & Success Signal | MM/MS | Owner | Status |
+| --- | --- | --- | --- | --- | --- |
+|  |  |  |  |  |  |
+<!-- Confluence roadmap page and quarterly-goals ("Broad Roadmap Intent") pages; GitHub milestones for dates and completion state; Webex planning threads. MM/MS designation should match the charter's Alignment section. Status: derive "Done"/"In progress" from GitHub milestone completion where linked. Status is one of: Not started / In progress / At risk / Blocked / Done. If none found, keep the header row and one empty row, and output "TBD -- milestones not defined." -->
 
-## Explicitly deprioritized
-_What we chose not to do, and what would make us revisit._
+## Delivery Plan
+_The concrete deliverables that ladder up to the milestones above, grouped by workstream/component. For each: what it is, which milestone it supports, its target date, its release type, owner, and status. This is the detailed layer -- expect it to be rich at T3 level and lighter at BHAG/Area level._
 
-| What | Why deprioritized | Revisit when |
+| Deliverable | Workstream | Target Date | Release Type | Supports Milestone | Owner | Status |
+| --- | --- | --- | --- | --- | --- | --- |
+|  |  |  |  |  |  |  |
+<!-- GitHub (release tags, milestones, issues, project boards) for deliverables, dates, and status; Confluence deliverables/wiki pages. Release Type is one of: OSS (open source) / CSS (closed source) / Prototype / Paper / Demo / Spec. Status is one of: Not started / In progress / At risk / Blocked / Done -- put an ETA in the status cell for in-progress items. If none found, keep the header row and one empty row, and output "TBD -- deliverables not defined." -->
+
+## Progress Summary
+_A short narrative of current health: what has shipped since the last update, what is on track, what has slipped or is at risk (and why), and any change in dates. Two to five sentences._
+<!-- Compare current status against the previous roadmap version; GitHub closed vs. open milestones/issues since last update; Webex status updates. If no prior state exists, summarize current status from the tables above. If nothing found, output "TBD -- no progress data available." -->
+
+## Dependencies & Open Questions
+_Cross-team or external dependencies that gate this roadmap, and the unresolved questions that could change it. State each dependency as "X depends on Y" and each question with why it matters and who owns the answer._
+<!-- Confluence roadmap notes; Webex planning discussions; GitHub issues labeled dependency/blocked. If not found, output "None identified." -->
+`;
+
+// This page applies at BHAG, Area, or T3 level — write each section at the
+// scope of THIS entity: at T3 level the roster is the 1-5 accountable members
+// plus lead and advisors; at Area level the "team" is the Context Leader pod
+// (Product, Engineering, Ops, Marketing, Biz Dev, Design, with the P-E pair
+// holding decision responsibility); at BHAG level it is the four-function pod
+// (Product, Engineering, Ops, Marketing, no explicit pod lead). The parent
+// Area/BHAG (and any category grouping) is stored as system metadata and is
+// NOT restated in the body. Assignment to a venture is not a reporting line
+// -- people keep their functional homes for people leadership, coaching, and
+// development; this page captures venture roles, not org structure.
+const TEAM_ASSIGNMENTS_BODY = `## Roster
+_The accountable members of this team. For each: name, primary function, whether they lead or are a member, and what they specifically own within the team. Keep to the people accountable for delivery; advisors go in their own section below._
+
+| Name | Function | Assignment | Responsibilities |
+| --- | --- | --- | --- |
+|  |  |  |  |
+<!-- Member list, Roles and responsibilities: Confluence team/assignment pages; GitHub (CODEOWNERS, repo collaborators, commit history) for engineering ownership; Webex space membership. Function is one of: Product / Engineering / Ops / Marketing / Biz Dev / Design -- a team may be single-function or cross-functional. Assignment is one of: Lead / Member. If not found, keep the header row and one empty row, and output "TBD -- roster not defined." -->
+
+## Leadership & Decision Responsibility
+_Who leads this team and who carries decision responsibility. At Area level, name the P-E pair that holds decision responsibility within the pod. At BHAG level, note that there is no explicit pod lead and name the four functional owners. State each clearly as "Name -- role -- decides on X."_
+<!-- Confluence CL/assignment pages; Webex leadership discussions. At Area/BHAG this is the Context Leader pod; the P-E pair has decision rights at the Area layer. If not found, output "TBD -- leadership not assigned." -->
+
+## Advisors
+_People who advise this team but are not accountable members and are not counted in the team's core size. For each: name and the area they advise on._
+<!-- Confluence assignment pages (often written as "+ Name as advisor"); Webex. If none, output "None." -->
+
+## External / Partner Engagement Owners
+_The named owner for each external partner or design-partner engagement this team runs. One owner per partner; this is who fronts the relationship, not the partner's own staff._
+
+| Partner / External Entity | Owner | Nature of Engagement |
 | --- | --- | --- |
 |  |  |  |
-`;
-
-const COMMITMENTS_BODY = `## What we've promised
-_What was promised, to whom, by when, and who owns it. The commitments this effort is accountable to._
-
-| Commitment | To whom | By when | Owner | Status |
-| --- | --- | --- | --- | --- |
-|  |  |  |  |  |
-`;
-
-const AGREEMENTS_BODY = `## How we work
-_Decision rights, cadences, and the definition of done. The operating agreements the team holds each other to._
-
-## Decision rights
-_Who decides what, and who is consulted or informed._
-
-## Cadences
-_Standing rhythms: standups, reviews, planning, retros._
-
-## Definition of done
-_What "done" means here, so nothing ships half-finished._
+<!-- Confluence partner/engagement pages; Webex partner channels; Biz Dev records. Applies mainly to partner-facing teams -- many teams will have none. If none, keep the header row and one empty row, and output "None -- no external engagements." -->
 `;
 
 export const STABLE_SEED_BODIES: Record<string, string> = {
   "charter.md": CHARTER_BODY,
-  "objectives.md": OBJECTIVES_BODY,
   "roadmap.md": ROADMAP_BODY,
-  "commitments.md": COMMITMENTS_BODY,
-  "agreements.md": AGREEMENTS_BODY,
+  "team-assignments.md": TEAM_ASSIGNMENTS_BODY,
 };
 
 // Per-source page templates. Materialized into actual page paths by the ingest

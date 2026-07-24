@@ -49,6 +49,14 @@ type Props = {
    * just without a hovercard.
    */
   glossaryPreview?: GlossaryResolver;
+  /**
+   * Hide rendered HTML-comment nodes (e.g. agent-only sourcing guidance
+   * seeded into a page body). Milkdown renders `<!-- ... -->` as visible
+   * text by default — this is off for the admin template editor's seed-body
+   * fields (the admin needs to see/edit the raw guidance) and on for the
+   * live wiki view (end users should never see it).
+   */
+  hideHtmlComments?: boolean;
 };
 
 /**
@@ -60,7 +68,14 @@ type Props = {
  * should remount (via `key` prop) if they want a hard reset.
  */
 export const CrepeEditor = forwardRef<CrepeEditorHandle, Props>(function CrepeEditor(
-  { initialMarkdown, readonly = false, liveUpdate = false, onNavigate, glossaryPreview },
+  {
+    initialMarkdown,
+    readonly = false,
+    liveUpdate = false,
+    onNavigate,
+    glossaryPreview,
+    hideHtmlComments = false,
+  },
   ref,
 ) {
   const hostRef = useRef<HTMLDivElement | null>(null);
@@ -315,7 +330,12 @@ export const CrepeEditor = forwardRef<CrepeEditorHandle, Props>(function CrepeEd
     [initialMarkdown],
   );
 
-  return <div ref={hostRef} className="milkdown-host" />;
+  return (
+    <div
+      ref={hostRef}
+      className={hideHtmlComments ? "milkdown-host milkdown-hide-comments" : "milkdown-host"}
+    />
+  );
 });
 
 /**

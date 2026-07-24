@@ -22,7 +22,6 @@ import {
   REPO_TEMPLATE,
   CONFLUENCE_TEMPLATE,
   WEBEX_TEMPLATE,
-  REQUIRED_PATHS,
   STABLE_SEED_BODIES,
   MEMORY_SEED,
   pageWithFrontmatter,
@@ -84,34 +83,12 @@ const DEFAULT_GUIDANCE: Record<TemplateScope, Record<string, string>> = {
       "## Headline (the single most important thing this period, across the effort)\n" +
       "## Asks / Blockers (bullets — anything blocked / needing help; cite)\n" +
       "## Up next (bullets — upcoming milestones / deadlines)",
-    "overview.md":
-      "Current-state cross-cut of the whole effort, grounded by the stable pages " +
-      "(charter/objectives/roadmap/commitments/agreements). Purpose, where it stands, " +
-      "who's leading. Prose, not per-source detail.",
-    "status.md":
-      "Health signals: RAG vs the commitments, active blockers, what's on/off track. " +
-      "A few short paragraphs a teammate would say. Cite claims.",
     "activity.md":
       "The significant recent work across ALL attached sources, interpreted and " +
       "organized by theme/goal — not a feed. Cite the few items that matter.",
     "architecture.md":
       "The technical landscape across the effort: major components, key patterns, " +
       "recent ADR signals and risk flags. Cite sources.",
-    "discovery.md":
-      "Product learnings: conviction shifts, validated/invalidated hypotheses, open " +
-      "questions. What we now believe that we didn't, and why.",
-    "design.md":
-      "Design state: prototype status, usability findings, open design questions. " +
-      "Cite artifacts where they live.",
-    "market.md":
-      "Market signals: segment signals, biz-dev pipeline, partner status. Only if " +
-      "there's real signal; otherwise a sentence saying so.",
-    "campaigns.md":
-      "Marketing activity: content status, launch plans, campaigns in flight. Only " +
-      "if there's real signal; otherwise a sentence saying so.",
-    "actions.md":
-      "Open action items surfaced across sources (meetings, threads): what, owner, " +
-      "and age. Not a meeting log — the live list of what's outstanding.",
   },
   github: {
     "overview.md": "Repo summary, ownership, health. What this repo is and its role in the effort.",
@@ -260,7 +237,6 @@ export function validateTemplatePages(
   }
 
   const seen = new Set<string>();
-  const enabledPaths = new Set<string>();
   for (const [i, p] of pages.entries()) {
     if (!p.path || !p.path.trim()) {
       errors.push({ field: `pages[${i}].path`, message: "Path is required." });
@@ -268,7 +244,6 @@ export function validateTemplatePages(
       errors.push({ field: `pages[${i}].path`, message: `Duplicate path "${p.path}".` });
     } else {
       seen.add(p.path);
-      if (p.enabled !== false) enabledPaths.add(p.path);
     }
     if (!p.title || !p.title.trim()) {
       errors.push({ field: `pages[${i}].title`, message: "Title is required." });
@@ -278,19 +253,6 @@ export function validateTemplatePages(
     }
     if (typeof p.order !== "number" || Number.isNaN(p.order)) {
       errors.push({ field: `pages[${i}].order`, message: "Order must be a number." });
-    }
-  }
-
-  // Top-level required-path invariant: the stable pages that dynamic pages and
-  // the ingest prompt depend on must not be removed or disabled.
-  if (scope === "top-level") {
-    for (const required of REQUIRED_PATHS) {
-      if (!enabledPaths.has(required)) {
-        errors.push({
-          field: "pages",
-          message: `Required page "${required}" cannot be removed or disabled.`,
-        });
-      }
     }
   }
 
@@ -341,4 +303,13 @@ export async function updatePageTemplate(
 
   await col.replaceOne({ _id: scope }, doc, { upsert: true });
   return doc;
+}
+
+/** Overwrite a scope's template with the shipped defaults. */
+export async function resetPageTemplate(
+  scope: TemplateScope,
+  updatedBy: string | null,
+): Promise<PageTemplateDoc> {
+  const defaults = FALLBACK_TEMPLATES[scope].map((s) => toStored(s, scope));
+  return updatePageTemplate(scope, defaults, updatedBy);
 }

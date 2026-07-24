@@ -69,9 +69,9 @@ def build_system_prompt(
     citation_guidance_blocks: list[str] = []
     deep_research_blocks: list[str] = []
     tree_lines: list[str] = [
-        "- Top-level pages: `charter.md`, `objectives.md`, `roadmap.md` (stable, "
+        "- Top-level pages: `charter.md`, `roadmap.md`, `team-assignments.md` (stable, "
         "human-owned — edit only when the user asks; never rewrite unprompted), "
-        "`overview.md`, `architecture.md`, `marketing.md`, `conversations.md` "
+        "`activity.md`, `architecture.md` "
         "(dynamic, cross-cutting), `standup.md` (report card), `memory.md` (hidden agent notes).",
     ]
     for connector in REGISTRY:
