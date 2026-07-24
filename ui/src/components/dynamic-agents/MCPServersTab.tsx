@@ -58,7 +58,7 @@ interface ProbeResult {
   error?: string;
 }
 
-type ToolHealthStatus = "healthy" | "degraded" | "checking" | "unknown" | "disabled";
+type ToolHealthStatus = "healthy" | "degraded" | "checking" | "unknown" | "disabled" | "pending";
 
 interface AgentGatewayMigrationWarning {
   id: string;
@@ -149,6 +149,15 @@ function toolHealthStatus(
       title: `${probe.tools.length} tool${probe.tools.length === 1 ? "" : "s"} available`,
     };
   }
+  if (server.source === "agentgateway" && server.agentgateway_discovered !== true) {
+    return {
+      status: "pending",
+      label: "Waiting for sync",
+      title:
+        "AgentGateway has not confirmed this route yet. It self-heals within a few " +
+        "minutes, or click Repair AgentGateway to sync now.",
+    };
+  }
   if (!serverCanProbe(server)) {
     return {
       status: "unknown",
@@ -176,6 +185,8 @@ function toolHealthClass(status: ToolHealthStatus): string {
       return "text-green-600 dark:text-green-400";
     case "degraded":
       return "text-amber-600 dark:text-amber-400";
+    case "pending":
+      return "text-cyan-600 dark:text-cyan-400";
     case "checking":
     case "unknown":
     case "disabled":
@@ -191,6 +202,8 @@ function toolHealthDotClass(status: ToolHealthStatus): string {
       return "bg-amber-500";
     case "checking":
       return "bg-blue-500";
+    case "pending":
+      return "bg-cyan-500";
     case "unknown":
     case "disabled":
       return "bg-muted-foreground/60";
