@@ -253,6 +253,52 @@ Helm replaces lists rather than merging list entries. If `mcp_servers` or
 `agents` already exists in another values file, add the scheduler entries to
 that existing list instead of defining a second list in a later values file.
 
+## Configure the scheduler editor agent
+
+The Schedules page includes a **Chat with agent** action for modifying an
+existing schedule through an agent. An organization admin can change the
+platform-wide editor agent in **Admin → General → Scheduler editor agent**:
+
+1. Select an agent from **Agent for schedule editing**.
+2. Save the setting.
+
+The UI sends `schedule_editor_agent_id` to
+`PATCH /api/admin/platform-config`. The BFF requires platform-admin and
+`system_config:platform_settings` management access, then stores the value in
+MongoDB:
+
+```text
+collection: platform_config
+document:   _id = platform_settings
+field:      schedule_editor_agent_id
+```
+
+The editor-agent precedence for **Chat with agent** is:
+
+1. The schedule's own `edit_agent_id`, when present.
+2. MongoDB `platform_config.schedule_editor_agent_id`.
+3. The deployment value `SCHEDULE_EDITOR_AGENT_ID`.
+4. Normal chat-agent selection: the user's accessible personal default, the
+   accessible platform default, then the first available agent.
+
+A schedule-specific `edit_agent_id` therefore overrides both the admin setting
+and the deployment value. The MongoDB admin setting overrides the deployment
+value. Clearing the admin setting restores `SCHEDULE_EDITOR_AGENT_ID`; if that
+is also unset, normal chat-agent selection applies.
+
+The Admin UI displays when the effective value comes from
+`SCHEDULE_EDITOR_AGENT_ID` and explains that saving a different agent creates a
+MongoDB override. The platform-config cache is cleared after a successful
+update, so the next **Chat with agent** action uses the new value without a pod
+restart.
+
+This setting selects an existing agent but does not grant access to it. Users
+must already be able to use the selected agent. This differs from the
+**Platform default agent** setting: both settings use the same
+`platform_config` document and override their deployment fallbacks, but setting
+the platform default also reconciles the corresponding global OpenFGA agent
+grant.
+
 ## Restrict scheduler tools to organization admins
 
 Enable OpenFGA, the AgentGateway authorization bridge, JWT validation, and the
