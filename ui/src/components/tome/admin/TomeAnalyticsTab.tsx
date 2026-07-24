@@ -370,14 +370,23 @@ export function TomeAnalyticsTab() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h3 className="flex items-center gap-2 text-lg font-semibold">
-          <Gauge className="h-5 w-5" />
-          TOME KPIs
-        </h3>
-        <p className="text-sm text-muted-foreground">
-          Adoption, freshness, performance, and uptime targets from the TOME KPI deck.
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h3 className="flex items-center gap-2 text-lg font-semibold">
+            <Gauge className="h-5 w-5" />
+            TOME KPIs
+          </h3>
+          <p className="text-sm text-muted-foreground">
+            Adoption, freshness, performance, and uptime targets from the TOME KPI deck.
+          </p>
+        </div>
+        <Link
+          href="/admin?cat=insights&tab=feedback&dateRange=30d"
+          className="shrink-0 inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted/60 transition-colors"
+        >
+          <ThumbsUp className="h-3.5 w-3.5" />
+          View feedback
+        </Link>
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">

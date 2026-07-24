@@ -15,6 +15,7 @@ import {
   createJiraTicket,
   type JiraTicketInput,
 } from "@/lib/jira-ticket";
+import { recordProblemReportFeedback } from "@/lib/feedback-report-store";
 import type { FeedbackContext } from "@/lib/ticket-client";
 
 interface ReportBody {
@@ -93,6 +94,17 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     };
 
     const result = await createJiraTicket(baseUrl, email, token, projectKey, input);
+
+    await recordProblemReportFeedback({
+      description: input.description,
+      userEmail: user.email,
+      contextUrl,
+      source: "header",
+      area,
+      issueType: body.issueType,
+      feedbackContext: body.feedbackContext,
+      ticket: result,
+    });
 
     return NextResponse.json({ success: true, data: result });
   });

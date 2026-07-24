@@ -398,41 +398,51 @@ export function ReportProblemDialog({
             {!isTomeProduct && !feedbackContext && (
               <div className="space-y-2">
                 {/* Issue Type chips */}
-                <div className="flex flex-wrap gap-1.5">
-                  {ISSUE_TYPES.map((t) => (
-                    <button
-                      key={t}
-                      type="button"
-                      onClick={() => setIssueType(t)}
-                      className={cn(
-                        "px-3 py-1 rounded-full text-xs font-medium transition-all",
-                        issueType === t
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-muted text-muted-foreground hover:bg-muted/80",
-                      )}
-                    >
-                      {t}
-                    </button>
-                  ))}
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground">
+                    Type <span className="text-destructive">*</span>
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {ISSUE_TYPES.map((t) => (
+                      <button
+                        key={t}
+                        type="button"
+                        onClick={() => setIssueType(t)}
+                        className={cn(
+                          "px-3 py-1 rounded-full text-xs font-medium transition-all",
+                          issueType === t
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-muted text-muted-foreground hover:bg-muted/80",
+                        )}
+                      >
+                        {t}
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
                 {/* Area chips */}
-                <div className="flex flex-wrap gap-1.5">
-                  {PROBLEM_AREAS.map((a) => (
-                    <button
-                      key={a}
-                      type="button"
-                      onClick={() => setArea(a)}
-                      className={cn(
-                        "px-3 py-1 rounded-full text-xs font-medium transition-all",
-                        area === a
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-muted text-muted-foreground hover:bg-muted/80",
-                      )}
-                    >
-                      {a}
-                    </button>
-                  ))}
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground">
+                    Area <span className="text-destructive">*</span>
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {PROBLEM_AREAS.map((a) => (
+                      <button
+                        key={a}
+                        type="button"
+                        onClick={() => setArea(a)}
+                        className={cn(
+                          "px-3 py-1 rounded-full text-xs font-medium transition-all",
+                          area === a
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-muted text-muted-foreground hover:bg-muted/80",
+                        )}
+                      >
+                        {a}
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
                 {/* Destination hint */}
