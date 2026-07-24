@@ -279,7 +279,22 @@ export async function filterSkillsByOpenFga(
   options: FilterSkillsByOpenFgaOptions,
 ): Promise<CatalogSkill[]> {
   if (options.isAdmin) return skills;
+  // Catalog API key gets a synthetic subject; it can see all global-visibility
+  // skills in read mode without per-resource OpenFGA tuples. This covers:
+  //   - default (filesystem) skills — always global
+  //   - hub skills — always stamped visibility:"global" by the crawler
+  //   - agent_skills explicitly marked visibility:"global" by their owner
+  // The key cannot use/execute skills (use mode falls through to OpenFGA).
+  // The route handler prepends "user:" to session.sub before passing it here,
+  // so the catalog key subject arrives as "user:catalog-key-user@local".
+  const isCatalogKey = options.subject === 'user:catalog-key-user@local';
   if (!options.subject) return [];
+  if (isCatalogKey && options.mode === 'read') {
+    return skills.filter(
+      (s) => s.source === 'default' || s.source === 'hub' ||
+        (s.source === 'agent_skills' && (s as CatalogSkill & { visibility?: string }).visibility === 'global'),
+    );
+  }
 
   const relation = options.mode === "use" ? "can_use" : "can_read";
   const check = options.check ?? checkOpenFgaTuple;
