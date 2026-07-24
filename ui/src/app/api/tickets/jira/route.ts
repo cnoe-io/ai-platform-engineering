@@ -23,6 +23,7 @@ interface ReportBody {
   area?: string;
   issueType?: "Bug" | "Enhancement";
   feedbackContext?: FeedbackContext;
+  screenshotDataUrl?: string;
 }
 
 function env(name: string): string | undefined {
@@ -88,6 +89,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       issueType: body.issueType,
       label: cfg.jiraTicketLabel || "caipe-reported",
       feedbackContext: body.feedbackContext,
+      screenshotDataUrl: typeof body.screenshotDataUrl === "string" ? body.screenshotDataUrl : undefined,
     };
 
     const result = await createJiraTicket(baseUrl, email, token, projectKey, input);

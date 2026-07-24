@@ -13,6 +13,7 @@ export interface JiraTicketInput {
   issueType?: "Bug" | "Enhancement";
   label?: string;
   feedbackContext?: FeedbackContext;
+  screenshotDataUrl?: string;
 }
 
 export interface JiraTicketResult {
@@ -52,6 +53,9 @@ function buildDescriptionText(input: JiraTicketInput): string {
     `Reporter: ${input.userEmail}`,
     `Context URL: ${input.contextUrl}`,
   ];
+  if (input.contextUrl?.includes("/chat/")) {
+    lines.push(`Chat Link: ${input.contextUrl}`);
+  }
   if (input.feedbackContext) {
     lines.push(
       `Feedback Type: ${input.feedbackContext.feedbackType}`,
@@ -61,14 +65,21 @@ function buildDescriptionText(input: JiraTicketInput): string {
       lines.push(`Additional Feedback: ${input.feedbackContext.additionalFeedback}`);
     }
   }
+  if (input.screenshotDataUrl) {
+    const sizeKb = Math.round(input.screenshotDataUrl.length / 1024);
+    lines.push(``, `Screenshot: captured by reporter (${sizeKb}KB — not embeddable in Jira via API; available in the original report)`);
+  }
   lines.push("", "Submitted via CAIPE Report a Problem");
   return lines.join("\n");
 }
 
-/** Map our issueType to a Jira issuetype name. "Task" works in all Jira project templates. */
+/**
+ * Map our issueType to a Jira issuetype name.
+ * OPENSD is an ITSM/service-desk project — no "Bug" or "Story" types.
+ * Falls back to "Task" which exists in all Jira project templates.
+ */
 function toJiraIssueType(issueType?: "Bug" | "Enhancement"): string {
-  if (issueType === "Bug") return "Bug";
-  if (issueType === "Enhancement") return "Task";
+  if (issueType === "Bug") return "[System] Problem";
   return "Task";
 }
 

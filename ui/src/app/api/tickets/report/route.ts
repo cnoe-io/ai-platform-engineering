@@ -38,6 +38,7 @@ interface ReportBody {
   };
   area?: string;
   issueType?: "Bug" | "Enhancement";
+  screenshotDataUrl?: string;
 }
 
 function env(name: string): string | undefined {
@@ -99,6 +100,10 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
         ? `${feedbackContext.reason}${feedbackContext.additionalFeedback ? `: ${feedbackContext.additionalFeedback}` : ""}`
         : "");
 
+    const screenshotDataUrl = typeof body.screenshotDataUrl === "string" && body.screenshotDataUrl
+      ? body.screenshotDataUrl
+      : undefined;
+
     const input: GitHubTicketInput = {
       description: effectiveDescription,
       userEmail: user.email,
@@ -110,6 +115,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       tomeContext: body.tomeContext,
       area: body.area,
       issueType: body.issueType,
+      screenshotDataUrl,
     };
 
     const result = await createGitHubTicket(cfg.githubTicketRepo, token, input);

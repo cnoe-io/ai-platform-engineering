@@ -34,6 +34,8 @@ export interface GitHubTicketInput {
   area?: string;
   /** Issue type selected in the Report a Problem dialog. */
   issueType?: "Bug" | "Enhancement";
+  /** Base64 data URL of a screenshot, if the user captured one. */
+  screenshotDataUrl?: string;
 }
 
 export interface GitHubTicketResult {
@@ -115,11 +117,30 @@ export function buildGitHubIssueBody(input: GitHubTicketInput): string {
     `- Context URL: ${input.contextUrl}`,
   );
 
+  // Include the chat link if the context URL points to a chat conversation
+  if (input.contextUrl?.includes("/chat/")) {
+    lines.push(`- Chat link: [Open conversation](${input.contextUrl})`);
+  }
+
   if (input.tomeContext?.projectSlug) {
     lines.push(`- TOME project: \`${input.tomeContext.projectSlug}\``);
   }
   if (input.tomeContext?.pagePath) {
     lines.push(`- Wiki page: \`${input.tomeContext.pagePath}\``);
+  }
+
+  if (input.screenshotDataUrl) {
+    const sizeKb = Math.round(input.screenshotDataUrl.length / 1024);
+    lines.push(
+      "",
+      "## Screenshot",
+      "",
+      `<details><summary>View screenshot (${sizeKb}KB)</summary>`,
+      "",
+      `![Screenshot](${input.screenshotDataUrl})`,
+      "",
+      "</details>",
+    );
   }
 
   lines.push(
