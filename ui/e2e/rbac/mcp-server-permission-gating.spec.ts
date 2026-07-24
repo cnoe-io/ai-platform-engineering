@@ -119,7 +119,14 @@ async function installMcpPermissionMocks(
         if (path === "/api/mcp-servers/agentgateway/sync" && method === "POST") {
           await fulfillJson(route, {
             success: true,
-            data: { added: [], migrated: [], refreshed: [], summary: { added: 0, migrated: 0 } },
+            data: {
+              added: [],
+              refreshed: [],
+              skipped: [],
+              summary: { added: 0, existing: 0, refreshed: 0, conflicts: 0, skipped: 0 },
+              conflicts: [],
+              migration_warnings: [],
+            },
           });
           return true;
         }

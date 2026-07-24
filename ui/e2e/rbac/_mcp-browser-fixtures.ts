@@ -286,6 +286,7 @@ export type InstalledMcpBrowserMocks = {
   updateRequests: Array<{ serverId: string; body: Record<string, unknown> }>;
   endpointProbeRequests: string[];
   discoverRequests: number;
+  syncRequests: number;
   setTestToolResponder: (responder: (body: TestToolRequestBody) => TestToolResponseBody) => void;
   setProbeTools: (tools: McpToolFixture[]) => void;
   setProbeError: (message: string | null) => void;
@@ -308,6 +309,14 @@ export type InstallMcpBrowserMocksOptions = {
     status?: string;
   }>;
   oauthConnectors?: Array<{ id: string; name: string; provider: string }>;
+  /**
+   * Override the /api/mcp-servers/agentgateway/sync response. Defaults to an
+   * empty no-op result (nothing added/refreshed/conflicting). Lets tests
+   * exercise a specific classification outcome (e.g. a conflict) without
+   * re-deriving buildAgentGatewayMcpDiscovery's classification logic in the
+   * mock -- the test asserts the UI renders whatever the backend returns.
+   */
+  syncResponse?: Record<string, unknown>;
 };
 
 function defaultTestToolResponse(body: TestToolRequestBody): TestToolResponseBody {
@@ -394,6 +403,7 @@ export async function installMcpBrowserMocks(
   const updateRequests: Array<{ serverId: string; body: Record<string, unknown> }> = [];
   const endpointProbeRequests: string[] = [];
   let discoverRequests = 0;
+  let syncRequests = 0;
 
   let servers = [...(options.servers ?? [DEFAULT_JIRA_MCP_SERVER])];
   const agentGatewayTargets = options.agentGatewayTargets ?? DEFAULT_AGENTGATEWAY_TARGETS;
@@ -556,9 +566,17 @@ export async function installMcpBrowserMocks(
         }
 
         if (path === "/api/mcp-servers/agentgateway/sync" && method === "POST") {
+          syncRequests += 1;
           await fulfillJson(route, {
             success: true,
-            data: { added: [], migrated: [], refreshed: [], summary: { added: 0, migrated: 0 } },
+            data: options.syncResponse ?? {
+              added: [],
+              refreshed: [],
+              skipped: [],
+              summary: { added: 0, existing: 0, refreshed: 0, conflicts: 0, skipped: 0 },
+              conflicts: [],
+              migration_warnings: [],
+            },
           });
           return true;
         }
@@ -586,6 +604,9 @@ export async function installMcpBrowserMocks(
     },
     get discoverRequests() {
       return discoverRequests;
+    },
+    get syncRequests() {
+      return syncRequests;
     },
     setTestToolResponder(responder) {
       testToolResponder = responder;

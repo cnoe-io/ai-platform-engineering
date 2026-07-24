@@ -14,7 +14,6 @@
  */
 
 import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
-import { BUILTIN_MCP_CREDENTIAL_SOURCES } from "@/lib/rbac/agentgateway-mcp-discovery";
 import { writeOpenFgaTuples, isOpenFgaReconciliationEnabled } from "@/lib/rbac/openfga";
 import { reconcileAgentRelationships } from "@/lib/rbac/openfga-agent-tools";
 import {
@@ -994,60 +993,13 @@ export async function bootstrapDefaultIdentityGroupSyncRuleIfEmpty(): Promise<bo
 }
 
 /**
- * Backfill `credential_sources` on built-in MCP servers that are missing them.
- *
- * AgentGateway discovery (the UI's MCP-server provisioning path) historically
- * wrote `mcp_servers` documents without `credential_sources`, so transform-based
- * routes received an empty Bearer and the upstream 401'd (most visibly
- * `knowledge-base`/RAG). Fresh discoveries now attach the built-ins, but
- * documents already persisted in an existing deployment need a one-time fix.
- *
- * This runs automatically on every server startup, so an operator's only
- * "migration" step is rolling out the new image (e.g. `helm upgrade`). It is
- * idempotent and non-destructive:
- *   - Only matches docs where `credential_sources` is absent. An explicit empty
- *     array means the operator cleared credentials and must not be backfilled.
- *   - Keyed by the same {@link BUILTIN_MCP_CREDENTIAL_SOURCES} map used by fresh
- *     discovery, so the backfill and insert paths cannot drift.
- *
- * @returns the number of documents actually updated (for logging).
- */
-export async function backfillBuiltinMcpCredentialSources(): Promise<number> {
-  if (!isMongoDBConfigured) return 0;
-  const collection = await getCollection<MCPServerConfig>("mcp_servers");
-  let updated = 0;
-  for (const [id, sources] of Object.entries(BUILTIN_MCP_CREDENTIAL_SOURCES)) {
-    const result = await collection.updateOne(
-      {
-        _id: id,
-        credential_sources: { $exists: false },
-      },
-      {
-        $set: {
-          credential_sources: sources,
-          updated_at: new Date().toISOString(),
-        },
-      },
-    );
-    if (result.modifiedCount > 0) {
-      updated += result.modifiedCount;
-      console.log(
-        `[seed-config] Backfilled credential_sources for MCP server: ${id}`,
-      );
-    }
-  }
-  return updated;
-}
-
-/**
  * First-run / post-wipe safety net for AgentGateway-discovered MCP servers.
  *
  * Discovered servers (`source: "agentgateway"`) are runtime-provisioned from
- * AgentGateway's live route table — the YAML seed never declares them, and
- * `backfillBuiltinMcpCredentialSources` only UPDATES existing docs. So once the
- * `mcp_servers` collection loses its discovered rows (e.g. wiped by an older
- * build that lacked the cleanup guard), nothing repopulates them unless this
- * repair pass runs, leaving built-in MCP routes absent from the UI.
+ * AgentGateway's live route table — the YAML seed never declares them. So once
+ * the `mcp_servers` collection loses its discovered rows (e.g. wiped by an
+ * older build that lacked the cleanup guard), nothing repopulates them unless
+ * this repair pass runs, leaving built-in MCP routes absent from the UI.
  *
  * This runs ONE discovery pass at startup, but only when there are zero
  * discovered servers, so it self-heals an empty/wiped collection without
@@ -1055,7 +1007,7 @@ export async function backfillBuiltinMcpCredentialSources(): Promise<number> {
  * set short-circuits, and a failed/unreachable AgentGateway is logged and
  * swallowed (an empty collection is no worse than before).
  *
- * Returns the number of servers added/migrated by the heal (0 when skipped).
+ * Returns the number of servers added by the heal (0 when skipped).
  */
 export async function selfHealDiscoveredMcpServersIfEmpty(): Promise<number> {
   if (!isMongoDBConfigured) return 0;
@@ -1071,7 +1023,7 @@ export async function selfHealDiscoveredMcpServersIfEmpty(): Promise<number> {
       "@/app/api/mcp-servers/agentgateway/_lib"
     );
     const result = await syncSelectedAgentGatewayMcpServers();
-    const healed = result.summary.added + result.summary.migrated;
+    const healed = result.summary.added;
     if (healed > 0) {
       console.log(
         `[seed-config] Self-healed ${healed} AgentGateway MCP server(s) ` +
@@ -1248,16 +1200,9 @@ export async function applySeedConfig(): Promise<void> {
         currentWorkflowIds,
       );
 
-      // Backfill credential_sources on previously-discovered built-in MCP
-      // servers (idempotent self-migration for existing deployments).
-      const credBackfillCount = await backfillBuiltinMcpCredentialSources();
-
       console.log(
         `[seed-config] Applied: ${modelCount} models, ` +
-          `${serverCount} MCP servers, ${agentCount} agents, ${workflowCount} workflow configs` +
-          (credBackfillCount > 0
-            ? `, ${credBackfillCount} MCP credential_sources backfilled`
-            : ""),
+          `${serverCount} MCP servers, ${agentCount} agents, ${workflowCount} workflow configs`,
       );
 
       // Immediately re-associate AgentGateway routes after seed so the UI
@@ -1271,15 +1216,11 @@ export async function applySeedConfig(): Promise<void> {
           "@/app/api/mcp-servers/agentgateway/_lib"
         );
         const syncResult = await syncSelectedAgentGatewayMcpServers();
-        const synced =
-          syncResult.summary.added +
-          syncResult.summary.migrated +
-          syncResult.summary.refreshed;
+        const synced = syncResult.summary.added + syncResult.summary.refreshed;
         if (synced > 0) {
           console.log(
             `[seed-config] AgentGateway sync on startup: ` +
               `added ${syncResult.summary.added}, ` +
-              `migrated ${syncResult.summary.migrated}, ` +
               `refreshed ${syncResult.summary.refreshed}`,
           );
         }

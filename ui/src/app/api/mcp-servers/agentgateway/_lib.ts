@@ -39,7 +39,6 @@ export async function syncSelectedAgentGatewayMcpServers(ids?: string[]) {
   );
   const collection = await getCollection<MCPServerConfig>(COLLECTION_NAME);
   const added: string[] = [];
-  const migrated: string[] = [];
   const refreshed: string[] = [];
   const skipped: Array<{ id: string; reason: string }> = [];
   const conflicts = discovery.targets.filter((target) => target.status === "conflict");
@@ -49,8 +48,8 @@ export async function syncSelectedAgentGatewayMcpServers(ids?: string[]) {
     target_endpoint: target.target_endpoint,
     existing_endpoint: target.existing_endpoint,
     message:
-      `Legacy MCP server conflicts with AgentGateway target "${target.id}". ` +
-      "Remove or rename the legacy MCP server to let AgentGateway manage it.",
+      `MCP server "${target.id}" conflicts with a live AgentGateway target. ` +
+      "Remove or rename it to let AgentGateway manage it.",
   }));
 
   for (const target of discovery.targets) {
@@ -84,23 +83,13 @@ export async function syncSelectedAgentGatewayMcpServers(ids?: string[]) {
       skipped.push({ id: target.id, reason: target.status });
       continue;
     }
+    // Only "new" remains: a live AgentGateway route with no Mongo doc at all.
     await reconcileConfigDrivenMcpServerRelationships({
       serverId: target.id,
       organizationId: caipeOrgKey(),
     });
-    const doc = toAgentGatewayMcpServerDocument(target);
-    if (target.status === "legacy") {
-      const existing = await collection.findOne({ _id: target.id } as never);
-      const existingCredentialSources = existing?.credential_sources;
-      if (Array.isArray(existingCredentialSources) && existingCredentialSources.length > 0) {
-        doc.credential_sources = existingCredentialSources;
-      }
-      await collection.updateOne({ _id: target.id } as never, { $set: doc } as never);
-      migrated.push(target.id);
-    } else {
-      await collection.insertOne(doc);
-      added.push(target.id);
-    }
+    await collection.insertOne(toAgentGatewayMcpServerDocument(target));
+    added.push(target.id);
   }
 
   for (const id of selectedIds) {
@@ -111,13 +100,11 @@ export async function syncSelectedAgentGatewayMcpServers(ids?: string[]) {
 
   return {
     added,
-    migrated,
     refreshed,
     skipped,
     summary: {
       added: added.length,
       existing: discovery.targets.filter((target) => target.status === "existing").length,
-      migrated: migrated.length,
       refreshed: refreshed.length,
       conflicts: conflicts.length,
       skipped: skipped.length,

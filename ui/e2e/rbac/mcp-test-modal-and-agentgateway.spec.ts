@@ -242,6 +242,137 @@ test.describe("RBAC e2e — MCP AgentGateway picker and test modal", () => {
       await expect(page.getByText(/jira-mcp 1\.0\.0-playwright/i)).toBeVisible();
     });
 
+    test("shows caller_token forwarding the user's own JWT for knowledge-base", async ({ page }) => {
+      const knowledgeBaseServer = {
+        _id: "knowledge-base",
+        name: "Knowledge Base",
+        transport: "http",
+        endpoint: "http://agentgateway:4000/mcp/knowledge-base",
+        enabled: true,
+        config_driven: true,
+        source: "agentgateway",
+        agentgateway_target_endpoint: "http://rag-server:9446/mcp",
+        credential_sources: [
+          {
+            kind: "caller_token",
+            name: "X-CAIPE-Provider-Token",
+            target: "header",
+            fallback_client_credentials: true,
+          },
+        ],
+      };
+      const mocks = await installMcpBrowserMocks(page, {
+        servers: [knowledgeBaseServer],
+        probeTools: [
+          {
+            name: "search",
+            namespaced_name: "knowledge-base-search",
+            description: "Search the knowledge base.",
+            inputSchema: {
+              type: "object",
+              properties: { query: { type: "string", description: "Search query." } },
+              required: ["query"],
+            },
+          },
+        ],
+        testToolResponder: () => ({
+          success: true,
+          application_success: true,
+          status: 200,
+          result: { content: [{ type: "text", text: "1 result found" }] },
+          // The caller has a live CAIPE session, so AgentGateway forwards
+          // their own Keycloak JWT (session.accessToken) rather than
+          // minting a client-credentials fallback token.
+          credential_resolution: [
+            {
+              name: "X-CAIPE-Provider-Token",
+              kind: "caller_token",
+              origin: "user_jwt",
+            },
+          ],
+        }),
+      });
+
+      await gotoMcpServersTab(page);
+      await openMcpTestModal(page, "Knowledge Base");
+      await waitForMcpTestToolsLoaded(page);
+      await selectMcpTestTool(page, "search");
+      await page.getByLabel(/query/i).fill("deployment runbook");
+      await page.getByRole("button", { name: "Run tool" }).click();
+
+      await expect.poll(() => mocks.testToolRequests.length).toBe(1);
+      expect(mocks.testToolRequests[0]).toMatchObject({ serverId: "knowledge-base", toolName: "search" });
+
+      await expect(page.getByText("Tool call succeeded")).toBeVisible();
+      await expect(page.getByText("Credential resolution")).toBeVisible();
+      // No "(provider)" suffix -- caller_token has no provider, unlike
+      // provider_connection entries (e.g. "provider_connection (atlassian)").
+      await expect(page.getByText(/X-CAIPE-Provider-Token: user_jwt$/i)).toBeVisible();
+    });
+
+    test("falls back to a minted client-credentials token for knowledge-base when there is no user JWT", async ({
+      page,
+    }) => {
+      const knowledgeBaseServer = {
+        _id: "knowledge-base",
+        name: "Knowledge Base",
+        transport: "http",
+        endpoint: "http://agentgateway:4000/mcp/knowledge-base",
+        enabled: true,
+        config_driven: true,
+        source: "agentgateway",
+        agentgateway_target_endpoint: "http://rag-server:9446/mcp",
+        credential_sources: [
+          {
+            kind: "caller_token",
+            name: "X-CAIPE-Provider-Token",
+            target: "header",
+            fallback_client_credentials: true,
+          },
+        ],
+      };
+      await installMcpBrowserMocks(page, {
+        servers: [knowledgeBaseServer],
+        probeTools: [
+          {
+            name: "search",
+            namespaced_name: "knowledge-base-search",
+            description: "Search the knowledge base.",
+            inputSchema: {
+              type: "object",
+              properties: { query: { type: "string", description: "Search query." } },
+              required: ["query"],
+            },
+          },
+        ],
+        // Simulates a headless/service caller (e.g. a scheduled agent run)
+        // with no live user session behind the request.
+        testToolResponder: () => ({
+          success: true,
+          application_success: true,
+          status: 200,
+          result: { content: [{ type: "text", text: "1 result found" }] },
+          credential_resolution: [
+            {
+              name: "X-CAIPE-Provider-Token",
+              kind: "caller_token",
+              origin: "client_credentials",
+            },
+          ],
+        }),
+      });
+
+      await gotoMcpServersTab(page);
+      await openMcpTestModal(page, "Knowledge Base");
+      await waitForMcpTestToolsLoaded(page);
+      await selectMcpTestTool(page, "search");
+      await page.getByLabel(/query/i).fill("deployment runbook");
+      await page.getByRole("button", { name: "Run tool" }).click();
+
+      await expect(page.getByText("Tool call succeeded")).toBeVisible();
+      await expect(page.getByText(/X-CAIPE-Provider-Token: client_credentials$/i)).toBeVisible();
+    });
+
     test("renders schema-driven fields for search and posts JQL to test-tool", async ({ page }) => {
       const mocks = await installMcpBrowserMocks(page);
 

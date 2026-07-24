@@ -69,7 +69,24 @@ models:
 # Supported transports: "http" (streamable HTTP), "sse", "stdio"
 # In docker-compose dev, set the corresponding env var (e.g.
 # ARGOCD_MCP_URL) if you have those services running locally.
-mcp_servers: []
+mcp_servers:
+  # AgentGateway's static config always exposes a live `knowledge-base`
+  # route backed by the `rag` docker-compose profile's RAG service, so this
+  # entry is active (not commented like the examples below) -- otherwise a
+  # default install with RAG enabled has no gitops-declared credential for
+  # it, and the auto-discovered doc gets an empty Bearer / 401 from the
+  # upstream, which enforces its own Keycloak/OIDC auth.
+  - id: "knowledge-base"
+    name: "Knowledge Base"
+    description: "RAG knowledge base tools"
+    transport: "http"
+    endpoint: "${RAG_SERVER_MCP_URL:-http://localhost:9446/mcp}"
+    enabled: true
+    credential_sources:
+      - kind: "caller_token"
+        name: "X-CAIPE-Provider-Token"
+        target: "header"
+        fallback_client_credentials: true
   # - id: "github"
   #   name: "GitHub"
   #   description: "GitHub repositories and pull requests"
@@ -81,12 +98,6 @@ mcp_servers: []
   #   description: "ArgoCD application and deployment management"
   #   transport: "http"
   #   endpoint: "${ARGOCD_MCP_URL:-http://localhost:18002/mcp}"
-  #   enabled: true
-  # - id: "knowledge-base"
-  #   name: "Knowledge Base"
-  #   description: "RAG knowledge base tools"
-  #   transport: "http"
-  #   endpoint: "${RAG_SERVER_MCP_URL:-http://localhost:9446/mcp}"
   #   enabled: true
 
 # ── Agents ────────────────────────────────────────────────────────

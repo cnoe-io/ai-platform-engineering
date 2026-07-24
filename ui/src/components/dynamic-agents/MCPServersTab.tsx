@@ -98,7 +98,10 @@ function errorMessage(error: unknown, fallback: string): string {
 }
 
 function isLockedConfigDrivenServer(server: MCPServerConfigWithPermissions | null | undefined): boolean {
-  return server?.config_driven === true && server.source !== "agentgateway";
+  // gitops seed re-upserts config_driven: true docs on every restart
+  // regardless of `source` -- an edit made here would look saved but get
+  // silently discarded on the next restart, so lock on config_driven alone.
+  return server?.config_driven === true;
 }
 
 function serverCanManage(server: MCPServerConfigWithPermissions | null | undefined): boolean {
@@ -498,11 +501,10 @@ export function MCPServersTab({
         throw new Error(data.error || "Failed to sync AgentGateway MCP servers");
       }
       const addedCount = data.data.added?.length || 0;
-      const migratedCount = data.data.migrated?.length || 0;
       const refreshedCount = data.data.refreshed?.length || 0;
       setAgentGatewayMessage(
-        `Added ${addedCount}, migrated ${migratedCount}, and refreshed ${refreshedCount} MCP server${
-          addedCount + migratedCount + refreshedCount === 1 ? "" : "s"
+        `Added ${addedCount} and refreshed ${refreshedCount} MCP server${
+          addedCount + refreshedCount === 1 ? "" : "s"
         } from AgentGateway.`,
       );
       setAgentGatewayMigrationWarnings(data.data.migration_warnings || []);

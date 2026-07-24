@@ -1,102 +1,6 @@
-import { isAgentGatewayBaseEndpoint } from "@/lib/rbac/mcp-endpoint-normalizer";
-import type { MCPCredentialSource,MCPServerConfig } from "@/types/dynamic-agent";
+import type { MCPServerConfig } from "@/types/dynamic-agent";
 
-/**
- * Built-in MCP credential sources, keyed by discovered target id. AgentGateway
- * discovery only knows a target's id + endpoint; it cannot infer how the
- * upstream authenticates. Without these, transform-based routes
- * (`"Bearer " + default(x-caipe-provider-token, "")`) receive an empty Bearer
- * and the upstream 401s — most visibly `knowledge-base` (RAG), whose `/mcp`
- * enforces its own Keycloak/OIDC auth.
- *
- * This MUST stay in sync with the `credential_sources` declared in
- * `ai_platform_engineering/dynamic_agents/src/dynamic_agents/services/config.yaml`
- * (the authoritative declaration the Dynamic Agents runtime resolves) and with
- * the route transforms in `deploy/agentgateway/config.yaml` /
- * `deploy/agentgateway/config_bridge.py`.
- */
-export const BUILTIN_MCP_CREDENTIAL_SOURCES: Record<string, MCPCredentialSource[]> = {
-  github: [
-    {
-      kind: "provider_connection",
-      name: "X-CAIPE-Provider-Token",
-      provider: "github",
-      target: "header",
-      fallback_env: "GITHUB_PERSONAL_ACCESS_TOKEN",
-    },
-  ],
-  gitlab: [
-    {
-      kind: "provider_connection",
-      name: "X-CAIPE-Provider-Token",
-      provider: "gitlab",
-      target: "header",
-      fallback_env: "GITLAB_PERSONAL_ACCESS_TOKEN",
-    },
-  ],
-  jira: [
-    {
-      kind: "provider_connection",
-      name: "X-CAIPE-Provider-Token",
-      provider: "atlassian",
-      target: "header",
-    },
-  ],
-  confluence: [
-    {
-      kind: "provider_connection",
-      name: "X-CAIPE-Provider-Token",
-      provider: "atlassian",
-      target: "header",
-    },
-  ],
-  pagerduty: [
-    {
-      kind: "provider_connection",
-      name: "X-CAIPE-Provider-Token",
-      provider: "pagerduty",
-      target: "header",
-    },
-  ],
-  // assisted-by claude code claude-sonnet-4-6
-  // webex (messaging) must use X-CAIPE-Provider-Token, not Authorization.
-  // Agentgateway jwtAuth validates Authorization as Keycloak JWT; the bridge
-  // then rewrites it to the resolved provider token for the upstream MCP pod.
-  webex: [
-    {
-      kind: "provider_connection",
-      name: "X-CAIPE-Provider-Token",
-      provider: "webex",
-      target: "header",
-      fallback_env: "WEBEX_TOKEN",
-    },
-  ],
-  webex_meetings: [
-    {
-      kind: "provider_connection",
-      name: "X-CAIPE-Provider-Token",
-      provider: "webex",
-      target: "header",
-    },
-  ],
-  "knowledge-base": [
-    {
-      kind: "caller_token",
-      name: "X-CAIPE-Provider-Token",
-      target: "header",
-      fallback_client_credentials: true,
-    },
-  ],
-};
-
-/** Built-in credential sources for a discovered target id, if any. */
-export function builtinCredentialSourcesFor(
-  id: string,
-): MCPCredentialSource[] | undefined {
-  return BUILTIN_MCP_CREDENTIAL_SOURCES[id];
-}
-
-export type AgentGatewayMcpTargetStatus = "new" | "existing" | "legacy" | "conflict";
+export type AgentGatewayMcpTargetStatus = "new" | "existing" | "conflict";
 
 export interface AgentGatewayMcpTarget {
   id: string;
@@ -210,29 +114,28 @@ export function buildAgentGatewayMcpDiscovery(
   existingServers: MCPServerConfig[],
 ): AgentGatewayMcpDiscovery {
   const existingById = new Map(existingServers.map((server) => [server._id, server]));
-  // Base data-plane URL (e.g. http://agentgateway:4000/mcp) used to recognise
-  // "bare gateway" rows — endpoints that point at AgentGateway but lack the
-  // per-target /mcp/<id> suffix. Those are stale rows the runtime already
-  // self-heals at read time; we treat them as auto-migratable here so one
-  // "Sync" rewrites them in place instead of flagging an unresolvable conflict.
-  const gatewayBaseUrl = agentGatewayMcpEndpointUrl();
   const targets = extractAgentGatewayMcpTargets(config).map((target) => {
     const existing = existingById.get(target.id);
     const endpoint = agentGatewayMcpEndpointUrl(target.route_path);
     const isHttp = existing?.transport === "http";
-    // A bare gateway endpoint (…/mcp or the gateway origin) is migratable —
-    // distinct from a genuine conflict, which points at a *different* upstream
-    // host and must stay flagged for manual resolution.
-    const isMigratableLegacy =
-      isHttp &&
-      (existing!.endpoint === target.target_endpoint ||
-        isAgentGatewayBaseEndpoint(existing!.endpoint ?? "", gatewayBaseUrl));
+    // gitops-seeded rows (config_driven: true) are owned by the YAML seed,
+    // which re-upserts name/endpoint/config_driven on every restart -- always
+    // treat them as "existing" (bookkeeping-only $set, see the sync handler)
+    // regardless of what endpoint style they declare, so seed stays the sole
+    // owner of name/config_driven/endpoint/credential_sources. UI-created rows
+    // are always saved with the AgentGateway-proxied endpoint (see
+    // normalizeNetworkServerForAgentGateway in the mcp-servers API route), so
+    // they naturally match `endpoint` here too. Anything else -- a stale
+    // direct-endpoint row from before that normalization existed, or a
+    // genuine different-upstream conflict -- surfaces as "conflict" and
+    // requires explicit admin action (rename/remove) rather than a silent
+    // full-document overwrite.
     const status: AgentGatewayMcpTargetStatus = !existing
       ? "new"
-      : isHttp && existing.endpoint === endpoint
+      : existing.config_driven === true
         ? "existing"
-        : isMigratableLegacy
-          ? "legacy"
+        : isHttp && existing.endpoint === endpoint
+          ? "existing"
           : "conflict";
 
     return {
@@ -290,7 +193,6 @@ export function toAgentGatewayMcpServerDocument(
   source: "agentgateway";
   agentgateway_discovered: true;
 } {
-  const credentialSources = builtinCredentialSourcesFor(target.id);
   return {
     _id: target.id,
     name: target.name,
@@ -299,11 +201,6 @@ export function toAgentGatewayMcpServerDocument(
     endpoint: target.endpoint,
     enabled: true,
     config_driven: false,
-    // Attach the built-in credential sources for transform-based routes so the
-    // Dynamic Agents probe/runtime forward a usable upstream token (e.g. the
-    // caller JWT for knowledge-base/RAG). Without this the gateway emits an
-    // empty Bearer and the upstream 401s.
-    ...(credentialSources ? { credential_sources: credentialSources } : {}),
     created_at: now,
     updated_at: now,
     source: "agentgateway",
