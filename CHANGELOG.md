@@ -1,3 +1,34 @@
+## 0.5.60-dev.5 (2026-07-24)
+
+### Fix
+
+- **ui**: add proactive session keepalive to prevent SSO idle timeout (#2288)
+
+## 0.5.60-dev.4 (2026-07-23)
+
+### Fix
+
+- **webex**: add per-user OAuth token support via X-CAIPE-Provider-Token
+- **confluence**: add OAuth Bearer auth for Atlassian 3LO tokens
+
+## 0.5.60-dev.3 (2026-07-23)
+
+### Fix
+
+- **insights**: scope user drawer and paginate top users (#2285)
+
+## 0.5.60-dev.2 (2026-07-23)
+
+### Feat
+
+- **ui**: link feedback trends to daily feedback (#2283)
+
+## 0.5.60-dev.1 (2026-07-23)
+
+### Fix
+
+- **rag**: RAG RBAC coverage audit and dead-code cleanup (#2269)
+
 ## 0.5.60 (2026-07-23)
 
 ### Fix
