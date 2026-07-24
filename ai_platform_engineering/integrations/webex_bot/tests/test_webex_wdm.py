@@ -476,3 +476,68 @@ def test_handle_connection_failure_stops_refreshing_after_limit(
 
     assert session.deleted == []
     assert runtime._handshake_refresh_attempts == MAX_WDM_HANDSHAKE_REFRESH_ATTEMPTS
+
+
+def test_handle_connection_failure_refreshes_device_on_connection_closed_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from websockets.exceptions import ConnectionClosedError
+
+    async def _instant_sleep(_seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr(asyncio, "sleep", _instant_sleep)
+
+    runtime = _runtime()
+    runtime._device_url = "https://wdm/devices/stale"
+    session = _FakeSession(
+        devices=[
+            {
+                "name": "CAIPE-Webex-Bot",
+                "url": "https://wdm/devices/stale",
+                "webSocketUrl": "wss://mercury/stale",
+            }
+        ],
+        new_device={"url": "https://wdm/devices/fresh", "webSocketUrl": "wss://mercury/fresh"},
+    )
+
+    async def _run() -> int:
+        return await runtime._handle_connection_failure(session, ConnectionClosedError(None, None), 1)
+
+    retry_delay = asyncio.run(_run())
+
+    assert session.deleted == ["https://wdm/devices/stale"]
+    assert runtime._handshake_refresh_attempts == 1
+    assert retry_delay == 2
+
+
+def test_handle_connection_failure_stops_refreshing_connection_closed_error_after_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from websockets.exceptions import ConnectionClosedError
+
+    async def _instant_sleep(_seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr(asyncio, "sleep", _instant_sleep)
+
+    runtime = _runtime()
+    runtime._handshake_refresh_attempts = MAX_WDM_HANDSHAKE_REFRESH_ATTEMPTS
+    runtime._device_url = "https://wdm/devices/stale"
+    session = _FakeSession(
+        devices=[
+            {
+                "name": "CAIPE-Webex-Bot",
+                "url": "https://wdm/devices/stale",
+                "webSocketUrl": "wss://mercury/stale",
+            }
+        ]
+    )
+
+    async def _run() -> None:
+        await runtime._handle_connection_failure(session, ConnectionClosedError(None, None), 4)
+
+    asyncio.run(_run())
+
+    assert session.deleted == []
+    assert runtime._handshake_refresh_attempts == MAX_WDM_HANDSHAKE_REFRESH_ATTEMPTS
