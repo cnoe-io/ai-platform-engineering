@@ -148,14 +148,20 @@ export interface BatchQuery {
   type?: "instant" | "range";
   start?: string;
   end?: string;
+  /** Evaluation timestamp for historical instant queries. */
+  time?: string;
   step?: string;
+  /** Rolling range resolved by the server at request time. */
+  rangeSeconds?: number;
 }
 
 export interface UseBatchPrometheusReturn {
   results: Record<string, PrometheusResult> | null;
   loading: boolean;
   error: string | null;
-  refetch: () => void;
+  queryErrors: Record<string, string>;
+  lastUpdatedAt: number | null;
+  refetch: () => Promise<void>;
   configured: boolean;
 }
 
@@ -166,55 +172,109 @@ export function useBatchPrometheus(
   const { refreshInterval = 0, enabled = true } = options || {};
 
   const [results, setResults] = useState<Record<string, PrometheusResult> | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(enabled && queries.length > 0);
   const [error, setError] = useState<string | null>(null);
+  const [queryErrors, setQueryErrors] = useState<Record<string, string>>({});
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
   const [configured, setConfigured] = useState(true);
   const mountedRef = useRef(true);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const requestVersionRef = useRef(0);
+  const queriesRef = useRef(queries);
+  queriesRef.current = queries;
 
-  const queriesKey = JSON.stringify(queries.map((q) => q.id + q.query));
+  const queriesKey = JSON.stringify(queries.map((query) => ({
+    end: query.end,
+    id: query.id,
+    query: query.query,
+    rangeSeconds: query.rangeSeconds,
+    start: query.start,
+    step: query.step,
+    time: query.time,
+    type: query.type,
+  })));
 
   const fetchBatch = useCallback(async () => {
-    if (!enabled || queries.length === 0) return;
+    const currentQueries = queriesRef.current;
+    if (!enabled || currentQueries.length === 0 || queriesKey === "[]") {
+      setLoading(false);
+      return;
+    }
 
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    const requestVersion = requestVersionRef.current + 1;
+    requestVersionRef.current = requestVersion;
     setLoading(true);
     setError(null);
+    setQueryErrors({});
 
     try {
       const res = await fetch("/api/admin/metrics", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ queries }),
+        body: JSON.stringify({ queries: currentQueries }),
+        signal: controller.signal,
       });
 
-      const json = await res.json();
-      if (!mountedRef.current) return;
+      const json = await res.json().catch(() => null);
+      if (
+        !mountedRef.current
+        || controller.signal.aborted
+        || requestVersionRef.current !== requestVersion
+      ) return;
 
-      if (!json.success) {
-        if (json.code === "PROMETHEUS_NOT_CONFIGURED") {
+      if (!res.ok || !json?.success) {
+        if (json?.code === "PROMETHEUS_NOT_CONFIGURED") {
           setConfigured(false);
           setError("Prometheus not configured");
         } else {
-          setError(json.error || "Batch query failed");
+          setError(json?.error || `Batch query failed (${res.status})`);
         }
         return;
       }
 
-      setResults(json.data);
+      setConfigured(true);
+      const incoming = (json.data ?? {}) as Record<string, PrometheusResult>;
+      const successful: Record<string, PrometheusResult> = {};
+      const nextQueryErrors: Record<string, string> = {};
+      for (const query of currentQueries) {
+        const result = incoming[query.id];
+        if (result?.status === "success") {
+          successful[query.id] = result;
+        } else {
+          nextQueryErrors[query.id] = result?.error || "Prometheus query failed";
+        }
+      }
+      setResults((current) => ({ ...(current ?? {}), ...successful }));
+      setQueryErrors(nextQueryErrors);
+      setLastUpdatedAt(Date.now());
     } catch (err) {
-      if (mountedRef.current) {
+      if (
+        mountedRef.current
+        && !controller.signal.aborted
+        && requestVersionRef.current === requestVersion
+      ) {
         setError(getErrorMessage(err, "") || "Network error");
       }
     } finally {
-      if (mountedRef.current) {
+      if (
+        mountedRef.current
+        && !controller.signal.aborted
+        && requestVersionRef.current === requestVersion
+      ) {
         setLoading(false);
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [queriesKey, enabled]);
 
   useEffect(() => {
     mountedRef.current = true;
-    return () => { mountedRef.current = false; };
+    return () => {
+      mountedRef.current = false;
+      abortControllerRef.current?.abort();
+    };
   }, []);
 
   useEffect(() => {
@@ -227,7 +287,15 @@ export function useBatchPrometheus(
     return () => clearInterval(id);
   }, [fetchBatch, refreshInterval, enabled]);
 
-  return { results, loading, error, refetch: fetchBatch, configured };
+  return {
+    results,
+    loading,
+    error,
+    queryErrors,
+    lastUpdatedAt,
+    refetch: fetchBatch,
+    configured,
+  };
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -239,7 +307,7 @@ export function getScalarValue(metrics: PrometheusMetric[] | null): number | nul
   const raw = metrics[0].value?.[1];
   if (raw === undefined) return null;
   const n = parseFloat(raw);
-  return isNaN(n) ? null : n;
+  return Number.isFinite(n) ? n : null;
 }
 
 export function getTimeseriesData(
@@ -252,14 +320,20 @@ export function getTimeseriesData(
   for (const m of metrics) {
     if (m.values) {
       for (const [ts, val] of m.values) {
-        points.push({ timestamp: ts, value: parseFloat(val) || 0, labels: m.metric });
+        const value = Number.parseFloat(val);
+        if (Number.isFinite(value)) {
+          points.push({ timestamp: ts, value, labels: m.metric });
+        }
       }
     } else if (m.value) {
-      points.push({
-        timestamp: m.value[0],
-        value: parseFloat(m.value[1]) || 0,
-        labels: m.metric,
-      });
+      const value = Number.parseFloat(m.value[1]);
+      if (Number.isFinite(value)) {
+        points.push({
+          timestamp: m.value[0],
+          value,
+          labels: m.metric,
+        });
+      }
     }
   }
 
@@ -274,7 +348,8 @@ export function getLabeledValues(
   return metrics
     .map((m) => ({
       label: m.metric[labelKey] || "unknown",
-      value: parseFloat(m.value?.[1] || "0"),
+      value: Number.parseFloat(m.value?.[1] || "NaN"),
     }))
+    .filter((item) => Number.isFinite(item.value))
     .sort((a, b) => b.value - a.value);
 }

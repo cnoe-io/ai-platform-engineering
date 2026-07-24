@@ -22,6 +22,7 @@ const PROM_QUERY_TIMEOUT_MS = 15_000;
  *   start  – RFC3339 or unix timestamp (range queries)
  *   end    – RFC3339 or unix timestamp (range queries)
  *   step   – duration string e.g. "60s" (range queries)
+ *   time   – RFC3339 or unix timestamp (historical instant queries)
  *
  * POST /api/admin/metrics/batch (future)
  */
@@ -51,6 +52,7 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
   const queryType = searchParams.get('type') || 'instant';
   const start = searchParams.get('start');
   const end = searchParams.get('end');
+  const time = searchParams.get('time');
   const step = searchParams.get('step') || '60s';
 
   let promUrl: string;
@@ -63,6 +65,7 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
     promUrl = `${prometheusUrl}/api/v1/query_range?${params}`;
   } else {
     const params = new URLSearchParams({ query });
+    if (time) params.set('time', time);
     promUrl = `${prometheusUrl}/api/v1/query?${params}`;
   }
 
@@ -124,7 +127,9 @@ export const POST = withErrorHandler(async (request: NextRequest): Promise<NextR
     type?: 'instant' | 'range';
     start?: string;
     end?: string;
+    time?: string;
     step?: string;
+    rangeSeconds?: number;
   }> = body.queries;
 
   if (!Array.isArray(queries) || queries.length === 0) {
@@ -142,15 +147,25 @@ export const POST = withErrorHandler(async (request: NextRequest): Promise<NextR
       try {
         let promUrl: string;
         if (q.type === 'range') {
+          const defaultEnd = Math.floor(Date.now() / 1000);
+          const resolvedEnd = q.end || `${defaultEnd}`;
+          const numericEnd = Number(resolvedEnd);
+          const relativeRange = typeof q.rangeSeconds === 'number'
+            && Number.isFinite(q.rangeSeconds)
+            && q.rangeSeconds > 0
+            ? Math.floor(q.rangeSeconds)
+            : 3600;
+          const resolvedStart = q.start || `${(Number.isFinite(numericEnd) ? numericEnd : defaultEnd) - relativeRange}`;
           const params = new URLSearchParams({
             query: q.query,
-            start: q.start || `${Math.floor(Date.now() / 1000) - 3600}`,
-            end: q.end || `${Math.floor(Date.now() / 1000)}`,
+            start: resolvedStart,
+            end: resolvedEnd,
             step: q.step || '60s',
           });
           promUrl = `${prometheusUrl}/api/v1/query_range?${params}`;
         } else {
           const params = new URLSearchParams({ query: q.query });
+          if (q.time) params.set('time', q.time);
           promUrl = `${prometheusUrl}/api/v1/query?${params}`;
         }
 
@@ -171,7 +186,12 @@ export const POST = withErrorHandler(async (request: NextRequest): Promise<NextR
           clearTimeout(timeout);
         }
       } catch (err) {
-        results[q.id] = { status: 'error', error: getErrorMessage(err, "") };
+        results[q.id] = {
+          status: 'error',
+          error: err instanceof Error && err.name === 'AbortError'
+            ? 'Prometheus query timed out'
+            : getErrorMessage(err, ""),
+        };
       }
     }),
   );

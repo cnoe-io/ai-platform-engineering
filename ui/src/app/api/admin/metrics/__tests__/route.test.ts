@@ -69,6 +69,10 @@ beforeEach(() => {
   global.fetch = mockFetch;
 });
 
+afterEach(() => {
+  jest.restoreAllMocks();
+});
+
 describe("admin metrics route RBAC", () => {
   it("allows Metrics administrators to proxy an instant PromQL query", async () => {
     const { GET } = await import("../route");
@@ -124,6 +128,62 @@ describe("admin metrics route RBAC", () => {
       status: "success",
       data: { resultType: "vector", result: [] },
     });
+  });
+
+  it("passes an evaluation time for historical instant queries", async () => {
+    const { GET } = await import("../route");
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        status: "success",
+        data: { resultType: "vector", result: [] },
+      }),
+    });
+
+    const response = await GET(
+      request("/api/admin/metrics?query=up&type=instant&time=1700000000", {
+        method: "GET",
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockFetch).toHaveBeenCalledWith(
+      "http://prometheus:9090/api/v1/query?query=up&time=1700000000",
+      expect.objectContaining({ headers: { Accept: "application/json" } }),
+    );
+  });
+
+  it("resolves rolling batch ranges at request time", async () => {
+    const { POST } = await import("../route");
+    jest.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        status: "success",
+        data: { resultType: "matrix", result: [] },
+      }),
+    });
+
+    const response = await POST(
+      request("/api/admin/metrics", {
+        method: "POST",
+        body: JSON.stringify({
+          queries: [{
+            id: "rolling",
+            query: "up",
+            type: "range",
+            rangeSeconds: 7200,
+            step: "60s",
+          }],
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockFetch).toHaveBeenCalledWith(
+      "http://prometheus:9090/api/v1/query_range?query=up&start=1699992800&end=1700000000&step=60s",
+      expect.objectContaining({ headers: { Accept: "application/json" } }),
+    );
   });
 
   it("rejects a baseline reader without Metrics administration access", async () => {

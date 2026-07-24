@@ -1,3 +1,85 @@
+## 0.5.60-dev.5 (2026-07-24)
+
+### Fix
+
+- **ui**: add proactive session keepalive to prevent SSO idle timeout (#2288)
+
+## 0.5.60-dev.4 (2026-07-23)
+
+### Fix
+
+- **webex**: add per-user OAuth token support via X-CAIPE-Provider-Token
+- **confluence**: add OAuth Bearer auth for Atlassian 3LO tokens
+
+## 0.5.60-dev.3 (2026-07-23)
+
+### Fix
+
+- **insights**: scope user drawer and paginate top users (#2285)
+
+## 0.5.60-dev.2 (2026-07-23)
+
+### Feat
+
+- **ui**: link feedback trends to daily feedback (#2283)
+
+## 0.5.60-dev.1 (2026-07-23)
+
+### Fix
+
+- **rag**: RAG RBAC coverage audit and dead-code cleanup (#2269)
+
+## 0.5.60 (2026-07-23)
+
+### Fix
+
+- **rbac**: sync OIDC group membership tuples without pre-configured rules (#2282)
+
+## 0.5.59-dev.1 (2026-07-23)
+
+### Feat
+
+- **ui**: remote MCP catalog with OAuth credential connectors (#2263)
+
+## 0.5.59 (2026-07-23)
+
+### Fix
+
+- **helm**: default dynamic-agents CAIPE_API_URL from release name (#2255)
+- **ci**: stop hard-failing CI for fork PRs from outside contributors (#2281)
+
+## 0.5.58-dev.3 (2026-07-22)
+
+### Feat
+
+- **ui**: add admin filter deep links (#2279)
+
+### Fix
+
+- **ci**: disambiguate digest artifact patterns to prevent name-prefix collisions (#2277)
+
+## 0.5.58-dev.2 (2026-07-22)
+
+### Feat
+
+- **metrics**: add steady-state operations dashboard (#2278)
+
+## 0.5.58-dev.1 (2026-07-22)
+
+### Fix
+
+- **ui**: compare positive and negative feedback trends (#2276)
+
+## 0.5.58 (2026-07-22)
+
+### Fix
+
+- **ci**: build remaining 11 CI image workflows natively per-arch (#2274)
+- **workflow**: do global check correctly
+- **ci**: build rag images natively per-arch instead of QEMU-emulated arm64 (#2272)
+
+## 0.5.57 (2026-07-22)
+
 ## 0.5.56-dev.4 (2026-07-22)
 
 ### Fix

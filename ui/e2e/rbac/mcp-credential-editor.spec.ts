@@ -7,6 +7,7 @@ import {
   gotoMcpServersTab,
   installMcpBrowserMocks,
   MCP_BROWSER_MEMBER_SESSION,
+  openAddMcpServerEditor,
   openMcpServerEditor,
 } from "./_mcp-browser-fixtures";
 import { mockedRbacEnabled } from "./_mocked-rbac";
@@ -185,7 +186,7 @@ test.describe("RBAC e2e — MCP credential editor", () => {
     });
 
     await gotoMcpServersTab(page);
-    await page.getByRole("button", { name: "Add Server" }).first().click();
+    await openAddMcpServerEditor(page);
     await page.getByRole("button", { name: "Add Credential" }).click();
 
     await expect(page.getByLabel(/^Secret$/)).toContainText("Shared GitHub PAT");
@@ -261,7 +262,7 @@ test.describe("RBAC e2e — MCP credential editor", () => {
     });
 
     await gotoMcpServersTab(page);
-    await page.getByRole("button", { name: "Add Server" }).first().click();
+    await openAddMcpServerEditor(page);
     await page.getByLabel(/Display Name/i).fill("Dual Credential MCP");
     await page.getByLabel(/Endpoint URL/i).fill("http://agentgateway:4000/mcp/dual");
 

@@ -425,10 +425,10 @@ type audit_log
 
 type secret_ref
   relations
-    define metadata_reader: [user, service_account, team#member, team#admin]
-    define user: [user, service_account, team#member, team#admin]
-    define manager: [user, service_account, team#admin]
-    define auditor: [user, service_account, team#admin]
+    define metadata_reader: [user, service_account, team#member, team#admin, organization#member, organization#admin]
+    define user: [user, service_account, team#member, team#admin, organization#member, organization#admin]
+    define manager: [user, service_account, team#admin, organization#admin]
+    define auditor: [user, service_account, team#admin, organization#admin]
     define can_discover: can_read_metadata
     define can_read_metadata: metadata_reader or can_manage
     define can_use: user or can_manage
