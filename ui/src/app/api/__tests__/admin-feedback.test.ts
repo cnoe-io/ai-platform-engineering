@@ -528,7 +528,7 @@ describe('GET /api/admin/feedback', () => {
       context_url: 'https://example.test/projects/acme',
       ticket_url: 'https://github.com/org/repo/issues/99',
       ticket_id: 'issue-99',
-      report_kind: 'tome-product',
+      report_kind: 'external-tool',
     });
     setupFeedbackCollection([doc], 1);
 
@@ -538,7 +538,7 @@ describe('GET /api/admin/feedback', () => {
       source: 'report',
       ticket_url: 'https://github.com/org/repo/issues/99',
       context_url: 'https://example.test/projects/acme',
-      report_kind: 'tome-product',
+      report_kind: 'external-tool',
       reason: 'Bug; Ingest button broken',
     });
   });
@@ -580,13 +580,13 @@ describe('GET /api/admin/feedback', () => {
     expect(feedbackCol.find.mock.calls[0][0].user_email).toEqual({ $in: [] });
   });
 
-  it('filters by search terms as regex OR on comment, value, and Tome Q/A fields', async () => {
+  it('filters by search terms as regex OR on comment, value, and Q/A fields', async () => {
     mockGetServerSession.mockResolvedValue(adminSession());
     const feedbackCol = setupFeedbackCollection([], 0);
 
     await GET(makeRequest('/api/admin/feedback?search=wrong,slow'));
     const filter = feedbackCol.find.mock.calls[0][0];
-    // Each term produces 4 OR clauses (comment, value, tome Q/A)
+    // Each term produces 4 OR clauses (comment, value, Q/A fields)
     expect(filter.$or).toHaveLength(8);
     expect(filter.$or[0]).toEqual({ comment: { $regex: 'wrong', $options: 'i' } });
     expect(filter.$or[1]).toEqual({ value: { $regex: 'wrong', $options: 'i' } });
@@ -605,17 +605,17 @@ describe('GET /api/admin/feedback', () => {
   });
 
   // ════════════════════════════════════════════════════════════════════════
-  // Tome attribution filters (Project / BHAG / Area) + sorting + analytics
+  // Project attribution filters (Project / Category / Area) + sorting + analytics
   // ════════════════════════════════════════════════════════════════════════
 
-  it('resolves a BHAG filter to matching project slugs and applies tome_project_slug', async () => {
+  it('resolves a category filter to matching project slugs and applies tome_project_slug', async () => {
     mockGetServerSession.mockResolvedValue(adminSession());
     const feedbackCol = setupFeedbackCollection([], 0);
     const projectsCol = createMockCollection();
     projectsCol.find.mockReturnValue(makeCursor([{ slug: 'proj-a' }]));
     mockCollections['projects'] = projectsCol;
 
-    await GET(makeRequest('/api/admin/feedback?bhag=Platform%20Modernization'));
+    await GET(makeRequest('/api/admin/feedback?category=Platform%20Modernization'));
 
     const [query] = projectsCol.find.mock.calls[0];
     expect(query['labels.initiatives'].$in[0]).toBeInstanceOf(RegExp);
@@ -642,7 +642,7 @@ describe('GET /api/admin/feedback', () => {
     expect(filter.tome_project_slug).toEqual({ $in: ['proj-a'] });
   });
 
-  it('excludes everything when a BHAG/Area filter matches no projects', async () => {
+  it('excludes everything when a category/area filter matches no projects', async () => {
     mockGetServerSession.mockResolvedValue(adminSession());
     const feedbackCol = setupFeedbackCollection([], 0);
     const projectsCol = createMockCollection();
@@ -727,7 +727,7 @@ describe('GET /api/admin/feedback', () => {
     expect(negativeWords).not.toContain('answer');
   });
 
-  it('returns tome_projects/tome_bhags/tome_areas option lists from resolved projects', async () => {
+  it('returns projects/categories/areas option lists from resolved projects', async () => {
     mockGetServerSession.mockResolvedValue(adminSession());
     const feedbackCol = setupFeedbackCollection([], 0);
     feedbackCol.distinct = jest.fn((field: string) => {
@@ -749,9 +749,9 @@ describe('GET /api/admin/feedback', () => {
 
     const res = await GET(makeRequest('/api/admin/feedback'));
     const body = await res.json();
-    expect(body.data.tome_projects).toEqual([{ slug: 'proj-a', title: 'Project A' }]);
-    expect(body.data.tome_bhags).toEqual(['Modernization']);
-    expect(body.data.tome_areas).toEqual(['Core']);
+    expect(body.data.projects).toEqual([{ slug: 'proj-a', title: 'Project A' }]);
+    expect(body.data.categories).toEqual(['Modernization']);
+    expect(body.data.areas).toEqual(['Core']);
   });
 
   // ════════════════════════════════════════════════════════════════════════

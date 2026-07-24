@@ -187,19 +187,20 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     const limit = Math.min(100, Math.max(1, parseInt(searchParams.get('limit') || '50', 10)));
     const skip = (page - 1) * limit;
 
-    // Tome attribution filters: project slug, BHAG/initiative name, area (swim
-    // lane) name. All three resolve to a set of `tome_project_slug` values.
+    // Project attribution filters: project slug, category/initiative name, area name.
+    // All three resolve to a set of `tome_project_slug` values in the DB.
     const projectFilterParam = searchParams.get('project'); // comma-separated project slugs
-    const bhagFilterParam = searchParams.get('bhag'); // comma-separated BHAG/initiative names
-    const areaFilterParam = searchParams.get('area'); // comma-separated swim-lane names
-    const hasTomeAttributionFilter = Boolean(projectFilterParam || bhagFilterParam || areaFilterParam);
+    const categoryFilterParam = searchParams.get('category'); // comma-separated category/initiative names
+    const areaFilterParam = searchParams.get('area'); // comma-separated area names
+    const hasProjectAttributionFilter = Boolean(projectFilterParam || categoryFilterParam || areaFilterParam);
 
     const sortByParam = searchParams.get('sortBy');
     const sortDirParam = searchParams.get('sortDir') === 'asc' ? 1 : -1;
-    const sortField =
-      sortByParam === 'rating' || sortByParam === 'source' || sortByParam === 'tome_project_slug'
-        ? sortByParam
-        : 'created_at';
+    const sortField: string =
+      sortByParam === 'rating' ? 'rating'
+      : sortByParam === 'source' ? 'source'
+      : sortByParam === 'project_slug' ? 'tome_project_slug'
+      : 'created_at';
 
     const feedbackColl = await getCollection<FeedbackDocument>('feedback');
 
@@ -221,7 +222,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       }
     } else if (source === 'report') {
       filter.source = 'report';
-    } else if (source === 'tome') {
+    } else if (source === 'project') {
       filter.source = 'tome';
     }
     if (hasUserFilter) {
@@ -248,16 +249,16 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       if (to) filter.created_at.$lte = new Date(to);
     }
 
-    // Resolve Project / BHAG / Area filters down to a set of tome_project_slug
-    // values. BHAG (initiative) and Area (swim lane) are project-level labels,
+    // Resolve Project / Category / Area filters down to a set of tome_project_slug
+    // values in the DB. Category (initiative) and Area are project-level labels,
     // not stored on the feedback doc, so we look them up on `projects` first.
-    if (hasTomeAttributionFilter) {
+    if (hasProjectAttributionFilter) {
       const projectQuery: Document = {};
       const projectSlugs = projectFilterParam
         ? projectFilterParam.split(',').map((s) => s.trim()).filter(Boolean)
         : null;
-      const bhagNames = bhagFilterParam
-        ? bhagFilterParam.split(',').map((s) => s.trim()).filter(Boolean)
+      const categoryNames = categoryFilterParam
+        ? categoryFilterParam.split(',').map((s) => s.trim()).filter(Boolean)
         : null;
       const areaNames = areaFilterParam
         ? areaFilterParam.split(',').map((s) => s.trim()).filter(Boolean)
@@ -270,9 +271,9 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
           { name: { $in: escaped.map((n) => new RegExp(`^${n}$`, 'i')) } },
         ];
       }
-      if (bhagNames) {
+      if (categoryNames) {
         projectQuery['labels.initiatives'] = {
-          $in: bhagNames.map((n) => new RegExp(`^${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i')),
+          $in: categoryNames.map((n) => new RegExp(`^${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i')),
         };
       }
       if (areaNames) {
@@ -314,9 +315,9 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
           summary: { positive: 0, negative: 0, total: 0, positive_rate: 0 },
           category_counts: [],
           word_cloud: { positive: [], negative: [] },
-          tome_projects: [],
-          tome_bhags: [],
-          tome_areas: [],
+          projects: [],
+          categories: [],
+          areas: [],
           pagination: { page, limit, total: 0, total_pages: 0 },
         });
       }
@@ -343,9 +344,9 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     const { rating: _omitRating, ...summaryFilter } = filter;
     void _omitRating;
 
-    // Tome attribution filter option lists (Project / BHAG / Area) are computed
+    // Project attribution filter option lists (Project / Category / Area) are computed
     // from the filtered set MINUS the attribution filters themselves, so
-    // picking a BHAG doesn't hide the Project/Area options a user might also
+    // picking a category doesn't hide the Project/Area options a user might also
     // want to combine with it.
     const { tome_project_slug: _omitTomeProjectSlug, ...optionsBaseFilter } = filter;
     void _omitTomeProjectSlug;
@@ -414,16 +415,16 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       negative: buildWordCloud((wordCloudDocs as Array<{ comment?: string; rating?: string }>).filter((d) => d.rating === 'negative')),
     };
 
-    // Resolve Project / BHAG / Area filter option lists from the distinct
+    // Resolve Project / Category / Area filter option lists from the distinct
     // tome_project_slug values seen in the (attribution-unfiltered) scoped set.
     // The same lookup doubles as the per-entry attribution enrichment map
     // below (current page's docs are always a subset of these slugs).
-    let tomeProjectOptions: Array<{ slug: string; title: string }> = [];
-    let tomeBhagOptions: string[] = [];
-    let tomeAreaOptions: string[] = [];
+    let projectOptions: Array<{ slug: string; title: string }> = [];
+    let categoryOptions: string[] = [];
+    let areaOptions: string[] = [];
     const slugToProjectInfo = new Map<
       string,
-      { title: string; domain?: string; bhags: string[]; areas: string[] }
+      { title: string; domain?: string; categories: string[]; areas: string[] }
     >();
     const optionSlugs = new Set([
       ...(optionProjectSlugs as string[]).filter(Boolean),
@@ -437,31 +438,31 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
           { projection: { slug: 1, title: 1, name: 1, domain: 1, labels: 1 } },
         )
         .toArray();
-      const bhagSeen = new Map<string, string>();
+      const categorySeen = new Map<string, string>();
       const areaSeen = new Map<string, string>();
-      tomeProjectOptions = projectDocs
+      projectOptions = projectDocs
         .map((p) => ({ slug: p.slug, title: p.title || p.name || p.slug }))
         .sort((a, b) => a.title.localeCompare(b.title));
       for (const p of projectDocs) {
-        const bhags = p.labels?.initiatives ?? [];
+        const categories = p.labels?.initiatives ?? [];
         const areas = p.labels?.areas ?? [];
         slugToProjectInfo.set(p.slug, {
           title: p.title || p.name || p.slug,
           domain: p.labels?.domain || p.domain,
-          bhags,
+          categories,
           areas,
         });
-        for (const bhag of bhags) {
-          const key = normLabel(bhag);
-          if (key && !bhagSeen.has(key)) bhagSeen.set(key, bhag);
+        for (const cat of categories) {
+          const key = normLabel(cat);
+          if (key && !categorySeen.has(key)) categorySeen.set(key, cat);
         }
         for (const area of areas) {
           const key = normLabel(area);
           if (key && !areaSeen.has(key)) areaSeen.set(key, area);
         }
       }
-      tomeBhagOptions = [...bhagSeen.values()].sort((a, b) => a.localeCompare(b));
-      tomeAreaOptions = [...areaSeen.values()].sort((a, b) => a.localeCompare(b));
+      categoryOptions = [...categorySeen.values()].sort((a, b) => a.localeCompare(b));
+      areaOptions = [...areaSeen.values()].sort((a, b) => a.localeCompare(b));
     }
     const summaryTotal = positive + negative;
     const summary = {
@@ -554,7 +555,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         slugToProjectInfo.set(p.slug, {
           title: p.title || p.name || p.slug,
           domain: p.labels?.domain || p.domain,
-          bhags: p.labels?.initiatives ?? [],
+          categories: p.labels?.initiatives ?? [],
           areas: p.labels?.areas ?? [],
         });
       }
@@ -581,7 +582,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         conversation_title: convTitleMap.get(doc.conversation_id) || undefined,
         source:
           doc.source === 'tome' || tomeLinkBySessionId.has(doc.conversation_id || '')
-            ? 'tome'
+            ? 'project'
             : doc.source || 'web',
         channel_name: doc.channel_name || null,
         rating: doc.rating,
@@ -594,35 +595,35 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         ticket_id: doc.ticket_id || null,
         context_url: doc.context_url || null,
         report_kind: doc.report_kind || null,
-        tome_project_slug:
+        project_slug:
           doc.tome_project_slug ||
           tomeLinkBySessionId.get(doc.tome_session_id || doc.conversation_id || '')?.projectSlug ||
           null,
-        tome_session_id:
+        session_id:
           doc.tome_session_id ||
           tomeLinkBySessionId.get(doc.conversation_id || '')?.sessionId ||
           null,
-        tome_user_question: doc.tome_user_question || null,
-        tome_assistant_response: doc.tome_assistant_response || null,
-        tome_project_name: (() => {
+        user_question: doc.tome_user_question || null,
+        assistant_response: doc.tome_assistant_response || null,
+        project_name: (() => {
           const slug =
             doc.tome_project_slug ||
             tomeLinkBySessionId.get(doc.tome_session_id || doc.conversation_id || '')?.projectSlug;
           return slug ? slugToProjectInfo.get(slug)?.title || null : null;
         })(),
-        tome_project_domain: (() => {
+        project_domain: (() => {
           const slug =
             doc.tome_project_slug ||
             tomeLinkBySessionId.get(doc.tome_session_id || doc.conversation_id || '')?.projectSlug;
           return slug ? slugToProjectInfo.get(slug)?.domain || null : null;
         })(),
-        tome_bhags: (() => {
+        categories: (() => {
           const slug =
             doc.tome_project_slug ||
             tomeLinkBySessionId.get(doc.tome_session_id || doc.conversation_id || '')?.projectSlug;
-          return slug ? slugToProjectInfo.get(slug)?.bhags || [] : [];
+          return slug ? slugToProjectInfo.get(slug)?.categories || [] : [];
         })(),
-        tome_areas: (() => {
+        areas: (() => {
           const slug =
             doc.tome_project_slug ||
             tomeLinkBySessionId.get(doc.tome_session_id || doc.conversation_id || '')?.projectSlug;
@@ -638,9 +639,9 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       summary,
       category_counts: categoryCounts,
       word_cloud: wordCloud,
-      tome_projects: tomeProjectOptions,
-      tome_bhags: tomeBhagOptions,
-      tome_areas: tomeAreaOptions,
+      projects: projectOptions,
+      categories: categoryOptions,
+      areas: areaOptions,
       pagination: {
         page,
         limit,
