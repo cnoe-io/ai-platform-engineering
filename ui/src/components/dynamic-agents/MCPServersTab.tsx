@@ -58,7 +58,7 @@ interface ProbeResult {
   error?: string;
 }
 
-type ToolHealthStatus = "healthy" | "degraded" | "checking" | "unknown" | "disabled";
+type ToolHealthStatus = "healthy" | "degraded" | "checking" | "unknown" | "disabled" | "pending";
 
 interface AgentGatewayMigrationWarning {
   id: string;
@@ -98,7 +98,10 @@ function errorMessage(error: unknown, fallback: string): string {
 }
 
 function isLockedConfigDrivenServer(server: MCPServerConfigWithPermissions | null | undefined): boolean {
-  return server?.config_driven === true && server.source !== "agentgateway";
+  // gitops seed re-upserts config_driven: true docs on every restart
+  // regardless of `source` -- an edit made here would look saved but get
+  // silently discarded on the next restart, so lock on config_driven alone.
+  return server?.config_driven === true;
 }
 
 function serverCanManage(server: MCPServerConfigWithPermissions | null | undefined): boolean {
@@ -149,6 +152,21 @@ function toolHealthStatus(
       title: `${probe.tools.length} tool${probe.tools.length === 1 ? "" : "s"} available`,
     };
   }
+  // Any gitops-configured server declaring agentgateway_target_endpoint is
+  // meant to route through AgentGateway, whether or not it also sets
+  // source: "agentgateway" (that field is only set on auto-discovered rows;
+  // hand-authored gitops entries like a shared-access "*-admin" server often
+  // omit it). Gate on the target endpoint instead so every AgentGateway-routed
+  // server gets the same "pending" treatment until confirmed live.
+  if (server.agentgateway_target_endpoint && server.agentgateway_discovered !== true) {
+    return {
+      status: "pending",
+      label: "Waiting for sync",
+      title:
+        "AgentGateway has not confirmed this route yet. It self-heals within a few " +
+        "minutes, or click Repair AgentGateway to sync now.",
+    };
+  }
   if (!serverCanProbe(server)) {
     return {
       status: "unknown",
@@ -176,6 +194,8 @@ function toolHealthClass(status: ToolHealthStatus): string {
       return "text-green-600 dark:text-green-400";
     case "degraded":
       return "text-amber-600 dark:text-amber-400";
+    case "pending":
+      return "text-cyan-600 dark:text-cyan-400";
     case "checking":
     case "unknown":
     case "disabled":
@@ -191,6 +211,8 @@ function toolHealthDotClass(status: ToolHealthStatus): string {
       return "bg-amber-500";
     case "checking":
       return "bg-blue-500";
+    case "pending":
+      return "bg-cyan-500";
     case "unknown":
     case "disabled":
       return "bg-muted-foreground/60";
@@ -479,11 +501,10 @@ export function MCPServersTab({
         throw new Error(data.error || "Failed to sync AgentGateway MCP servers");
       }
       const addedCount = data.data.added?.length || 0;
-      const migratedCount = data.data.migrated?.length || 0;
       const refreshedCount = data.data.refreshed?.length || 0;
       setAgentGatewayMessage(
-        `Added ${addedCount}, migrated ${migratedCount}, and refreshed ${refreshedCount} MCP server${
-          addedCount + migratedCount + refreshedCount === 1 ? "" : "s"
+        `Added ${addedCount} and refreshed ${refreshedCount} MCP server${
+          addedCount + refreshedCount === 1 ? "" : "s"
         } from AgentGateway.`,
       );
       setAgentGatewayMigrationWarnings(data.data.migration_warnings || []);
@@ -762,7 +783,7 @@ export function MCPServersTab({
                   <div
                     className={`grid grid-cols-12 gap-4 py-3 px-2 rounded-lg hover:bg-muted/50 items-center ${
                       serverCanManage(server) ? "cursor-pointer" : "cursor-default"
-                    }`}
+                    } ${toolHealth.status === "pending" ? "opacity-60" : ""}`}
                     onClick={() => openServer(server)}
                   >
                     <div className="col-span-3">

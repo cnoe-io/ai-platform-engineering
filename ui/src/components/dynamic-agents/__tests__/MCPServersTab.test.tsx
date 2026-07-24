@@ -162,10 +162,9 @@ describe("MCPServersTab AgentGateway repair", () => {
       );
     });
 
-    // Message format changed to break down counts:
-    //   "Added 1, migrated 0, and refreshed 0 MCP server from AgentGateway."
+    // Message format: "Added 1 and refreshed 0 MCP server from AgentGateway."
     expect(
-      await screen.findByText(/Added 1, migrated 0, and refreshed 0 MCP server/i),
+      await screen.findByText(/Added 1 and refreshed 0 MCP server/i),
     ).toBeInTheDocument();
     expect(
       screen.getByText(/1 legacy MCP server conflicts with AgentGateway targets/i),

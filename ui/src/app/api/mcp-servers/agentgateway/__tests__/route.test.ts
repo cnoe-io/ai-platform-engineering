@@ -82,7 +82,7 @@ beforeEach(() => {
 });
 
 describe("AgentGateway MCP server discovery API", () => {
-  it("discovers AgentGateway MCP targets and marks direct registrations as legacy migrations", async () => {
+  it("discovers AgentGateway MCP targets and flags direct registrations as conflicts", async () => {
     mockGetCollection.mockResolvedValue({
       find: jest.fn().mockReturnValue({
         toArray: jest.fn().mockResolvedValue([
@@ -112,22 +112,15 @@ describe("AgentGateway MCP server discovery API", () => {
         id: "jira",
         endpoint: "http://agentgateway:4000/mcp",
         target_endpoint: "http://mcp-jira:8000/mcp",
-        status: "legacy",
+        status: "conflict",
         existing_endpoint: "http://mcp-jira:8000/mcp",
       }),
     ]);
   });
 
-  it("auto-imports new AgentGateway MCP targets and migrates legacy direct registrations", async () => {
+  it("auto-imports new AgentGateway MCP targets and skips conflicting direct registrations untouched", async () => {
     const insertOne = jest.fn();
     const updateOne = jest.fn();
-    const findOne = jest.fn().mockResolvedValue({
-      _id: "jira",
-      name: "Jira",
-      transport: "http",
-      endpoint: "http://mcp-jira:8000/mcp",
-      enabled: true,
-    });
     mockGetCollection.mockResolvedValue({
       find: jest.fn().mockReturnValue({
         toArray: jest.fn().mockResolvedValue([
@@ -142,7 +135,6 @@ describe("AgentGateway MCP server discovery API", () => {
       }),
       insertOne,
       updateOne,
-      findOne,
     });
     const { POST } = await import("../sync/route");
 
@@ -172,47 +164,33 @@ describe("AgentGateway MCP server discovery API", () => {
         agentgateway_target_endpoint: "http://rag-server:9446/mcp",
       }),
     );
-    expect(updateOne).toHaveBeenCalledWith(
-      { _id: "jira" },
-      {
-        $set: expect.objectContaining({
-          _id: "jira",
-          endpoint: "http://agentgateway:4000/mcp",
-          source: "agentgateway",
-          agentgateway_discovered: true,
-          agentgateway_target_endpoint: "http://mcp-jira:8000/mcp",
-        }),
-      },
-    );
+    // A conflicting direct registration is never written to -- no full
+    // overwrite, no partial update. It's only reported via conflicts/
+    // migration_warnings for an admin to resolve explicitly.
+    expect(updateOne).not.toHaveBeenCalled();
     expect(mockReconcileConfigDrivenMcpServerRelationships).toHaveBeenCalledWith({
       serverId: "rag",
       organizationId: "caipe",
     });
-    expect(mockReconcileConfigDrivenMcpServerRelationships).toHaveBeenCalledWith({
+    expect(mockReconcileConfigDrivenMcpServerRelationships).not.toHaveBeenCalledWith({
       serverId: "jira",
       organizationId: "caipe",
     });
-    const reconcileOrder = mockReconcileConfigDrivenMcpServerRelationships.mock.invocationCallOrder[0];
-    const insertOrder = insertOne.mock.invocationCallOrder[0];
-    const updateOrder = updateOne.mock.invocationCallOrder[0];
-    expect(reconcileOrder).toBeLessThan(insertOrder);
-    expect(reconcileOrder).toBeLessThan(updateOrder);
     expect(body.data).toMatchObject({
       added: ["rag"],
-      migrated: ["jira"],
+      skipped: [{ id: "jira", reason: "conflict" }],
       summary: {
         added: 1,
         existing: 0,
-        migrated: 1,
-        conflicts: 0,
-        skipped: 0,
+        conflicts: 1,
+        skipped: 1,
       },
-      conflicts: [],
-      migration_warnings: [],
+      conflicts: [expect.objectContaining({ id: "jira", status: "conflict" })],
+      migration_warnings: [expect.objectContaining({ id: "jira" })],
     });
   });
 
-  it("preserves existing credential sources when migrating a legacy direct registration", async () => {
+  it("never touches credential_sources on a conflicting direct registration", async () => {
     const insertOne = jest.fn();
     const updateOne = jest.fn();
     const existingCredentialSources = [
@@ -238,10 +216,6 @@ describe("AgentGateway MCP server discovery API", () => {
       }),
       insertOne,
       updateOne,
-      findOne: jest.fn().mockResolvedValue({
-        _id: "jira",
-        credential_sources: existingCredentialSources,
-      }),
     });
     const { POST } = await import("../sync/route");
 
@@ -252,19 +226,12 @@ describe("AgentGateway MCP server discovery API", () => {
         body: JSON.stringify({ ids: ["jira"] }),
       }),
     );
+    const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(updateOne).toHaveBeenCalledWith(
-      { _id: "jira" },
-      {
-        $set: expect.objectContaining({
-          source: "agentgateway",
-          agentgateway_target_endpoint: "http://mcp-jira:8000/mcp",
-          credential_sources: existingCredentialSources,
-        }),
-      },
-    );
+    expect(updateOne).not.toHaveBeenCalled();
     expect(insertOne).not.toHaveBeenCalled();
+    expect(body.data.skipped).toEqual([{ id: "jira", reason: "conflict" }]);
   });
 
   it("repairs OpenFGA grants for existing AgentGateway-managed MCP servers during sync", async () => {
@@ -309,7 +276,33 @@ describe("AgentGateway MCP server discovery API", () => {
 
     expect(response.status).toBe(200);
     expect(insertOne).not.toHaveBeenCalled();
-    expect(updateOne).not.toHaveBeenCalled();
+    // "existing" still persists agentgateway_discovered (and the endpoint
+    // fields) on every sync, not just on first discovery — seed's
+    // full-document replaceOne wipes agentgateway_discovered back to
+    // undefined on every restart, so a confirmed-live route must be
+    // re-persisted here or dynamic-agents tool wiring treats it as pending.
+    expect(updateOne).toHaveBeenCalledWith(
+      { _id: "rag" },
+      {
+        $set: {
+          agentgateway_discovered: true,
+          agentgateway_endpoint: "http://agentgateway:4000/mcp",
+          agentgateway_target_endpoint: expect.any(String),
+          updated_at: expect.any(String),
+        },
+      },
+    );
+    expect(updateOne).toHaveBeenCalledWith(
+      { _id: "jira" },
+      {
+        $set: {
+          agentgateway_discovered: true,
+          agentgateway_endpoint: "http://agentgateway:4000/mcp",
+          agentgateway_target_endpoint: expect.any(String),
+          updated_at: expect.any(String),
+        },
+      },
+    );
     expect(mockReconcileConfigDrivenMcpServerRelationships).toHaveBeenCalledWith({
       serverId: "rag",
       organizationId: "caipe",
@@ -320,12 +313,10 @@ describe("AgentGateway MCP server discovery API", () => {
     });
     expect(body.data).toMatchObject({
       added: [],
-      migrated: [],
       refreshed: ["rag", "jira"],
       summary: {
         added: 0,
         existing: 2,
-        migrated: 0,
         refreshed: 2,
         conflicts: 0,
         skipped: 0,

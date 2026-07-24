@@ -4,8 +4,8 @@ import yaml from "js-yaml";
 import {
   agentGatewayAdminConfigUrl,
   agentGatewayMcpEndpointUrl,
-  builtinCredentialSourcesFor,
   buildAgentGatewayMcpDiscovery,
+  displayNameForId,
   extractAgentGatewayMcpTargets,
   toAgentGatewayMcpServerDocument,
 } from "../agentgateway-mcp-discovery";
@@ -167,7 +167,10 @@ describe("AgentGateway MCP discovery", () => {
     ]);
   });
 
-  it("classifies a same-upstream direct registration as a legacy migration", () => {
+  it("classifies a same-upstream direct registration as a conflict, not an auto-migration", () => {
+    // A direct (non-gitops) registration whose endpoint doesn't match the
+    // AgentGateway-proxied URL is no longer silently rewritten -- it surfaces
+    // as a conflict requiring explicit admin action (rename/remove).
     process.env.AGENT_GATEWAY_URL = "http://agentgateway:4000";
     const discovery = buildAgentGatewayMcpDiscovery(agentGatewayConfig, [
       existingServer("jira", "http://mcp-jira:8000/mcp"),
@@ -179,17 +182,19 @@ describe("AgentGateway MCP discovery", () => {
           id: "jira",
           endpoint: "http://agentgateway:4000/mcp/jira",
           target_endpoint: "http://mcp-jira:8000/mcp",
-          status: "legacy",
+          status: "conflict",
           existing_endpoint: "http://mcp-jira:8000/mcp",
         }),
       ]),
     );
   });
 
-  it("classifies a bare-gateway endpoint as an auto-migratable legacy row", () => {
+  it("classifies a bare-gateway endpoint as a conflict, not an auto-migration", () => {
     // Stale rows written before per-target routing stored the catch-all
-    // `http://agentgateway:4000/mcp`. The runtime self-heals these, and Sync
-    // should migrate them in place rather than flagging an unresolvable conflict.
+    // `http://agentgateway:4000/mcp`. The runtime already self-heals these at
+    // read time (see mcp_client.py's _heal_endpoint), so leaving the stored
+    // value as a flagged conflict -- rather than silently rewriting it -- is
+    // safe and requires no urgent action.
     process.env.AGENT_GATEWAY_URL = "http://agentgateway:4000";
     const discovery = buildAgentGatewayMcpDiscovery(agentGatewayConfig, [
       existingServer("jira", "http://agentgateway:4000/mcp"),
@@ -202,13 +207,13 @@ describe("AgentGateway MCP discovery", () => {
         expect.objectContaining({
           id: "jira",
           endpoint: "http://agentgateway:4000/mcp/jira",
-          status: "legacy",
+          status: "conflict",
           existing_endpoint: "http://agentgateway:4000/mcp",
         }),
         expect.objectContaining({
           id: "rag",
           endpoint: "http://agentgateway:4000/mcp/rag",
-          status: "legacy",
+          status: "conflict",
           existing_endpoint: "http://agentgateway:4000",
         }),
       ]),
@@ -269,73 +274,45 @@ describe("AgentGateway MCP discovery", () => {
     );
   });
 
-  it("attaches built-in caller_token credential source for the knowledge-base target", () => {
-    const target: AgentGatewayMcpDiscoveryTarget = {
-      id: "knowledge-base",
-      name: "Knowledge Base",
-      transport: "http",
-      endpoint: "http://agentgateway:4000/mcp/knowledge-base",
-      enabled: true,
-      status: "new",
-      target_endpoint: "http://rag-server:9446/mcp",
-    };
-    const doc = toAgentGatewayMcpServerDocument(target, "2026-05-17T00:00:00.000Z");
-    expect(doc.credential_sources).toEqual([
-      {
-        kind: "caller_token",
-        name: "X-CAIPE-Provider-Token",
-        target: "header",
-        fallback_client_credentials: true,
-      },
-    ]);
+  it("never attaches a credential_sources default -- discovery is config-driven only", () => {
+    // No code-level defaults: a freshly discovered doc never carries
+    // credential_sources. Any server needing one (e.g. knowledge-base/RAG)
+    // must declare it explicitly in gitops, so config_driven seed is the only
+    // source of truth and there's nothing for discovery to silently guess or
+    // collide with (e.g. attaching a per-user Atlassian credential to the
+    // confluence/jira bare-id service-account convention).
+    for (const id of ["knowledge-base", "github", "jira", "confluence", "webex_meetings", "argocd"]) {
+      const target: AgentGatewayMcpDiscoveryTarget = {
+        id,
+        name: id,
+        transport: "http",
+        endpoint: `http://agentgateway:4000/mcp/${id}`,
+        enabled: true,
+        status: "new",
+        target_endpoint: `http://mcp-${id}:8000/mcp`,
+      };
+      const doc = toAgentGatewayMcpServerDocument(target, "2026-05-17T00:00:00.000Z");
+      expect(doc.credential_sources).toBeUndefined();
+    }
+  });
+});
+
+describe("displayNameForId", () => {
+  it("special-cases rag", () => {
+    expect(displayNameForId("rag")).toBe("RAG");
   });
 
-  it("attaches built-in provider_connection credential source for github with PAT fallback", () => {
-    expect(builtinCredentialSourcesFor("github")).toEqual([
-      {
-        kind: "provider_connection",
-        name: "X-CAIPE-Provider-Token",
-        provider: "github",
-        target: "header",
-        fallback_env: "GITHUB_PERSONAL_ACCESS_TOKEN",
-      },
-    ]);
+  it("capitalizes known acronyms and product names instead of naive title-casing", () => {
+    expect(displayNameForId("mcp-example-ai-gateway")).toBe("MCP Example AI Gateway");
+    expect(displayNameForId("mcp-example-github")).toBe("MCP Example GitHub");
+    expect(displayNameForId("mcp-example-aws")).toBe("MCP Example AWS");
+    expect(displayNameForId("mcp-example-misc-tools")).toBe("MCP Example Misc Tools");
   });
 
-  it("attaches built-in provider_connection credential source for confluence", () => {
-    expect(builtinCredentialSourcesFor("confluence")).toEqual([
-      {
-        kind: "provider_connection",
-        name: "X-CAIPE-Provider-Token",
-        provider: "atlassian",
-        target: "header",
-      },
-    ]);
-  });
-
-  it("attaches the caller's Webex connection to webex_meetings", () => {
-    expect(builtinCredentialSourcesFor("webex_meetings")).toEqual([
-      {
-        kind: "provider_connection",
-        name: "X-CAIPE-Provider-Token",
-        provider: "webex",
-        target: "header",
-      },
-    ]);
-  });
-
-  it("omits credential_sources for targets with no built-in mapping", () => {
-    const target: AgentGatewayMcpDiscoveryTarget = {
-      id: "argocd",
-      name: "Argocd",
-      transport: "http",
-      endpoint: "http://agentgateway:4000/mcp/argocd",
-      enabled: true,
-      status: "new",
-      target_endpoint: "http://mcp-argocd:8000/mcp",
-    };
-    const doc = toAgentGatewayMcpServerDocument(target, "2026-05-17T00:00:00.000Z");
-    expect(doc.credential_sources).toBeUndefined();
-    expect(builtinCredentialSourcesFor("argocd")).toBeUndefined();
+  it("falls back to simple capitalization for words with no override", () => {
+    expect(displayNameForId("knowledge-base")).toBe("Knowledge Base");
+    expect(displayNameForId("confluence-user-impersonation")).toBe(
+      "Confluence User Impersonation",
+    );
   });
 });

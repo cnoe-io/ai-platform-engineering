@@ -39,16 +39,14 @@ jest.mock("@/app/api/mcp-servers/agentgateway/_lib", () => ({
 import { selfHealDiscoveredMcpServersIfEmpty } from "../seed-config";
 import { getCollection } from "@/lib/mongodb";
 
-function syncResult(added: number, migrated = 0) {
+function syncResult(added: number) {
   return {
     added: [],
-    migrated: [],
     refreshed: [],
     skipped: [],
     summary: {
       added,
       existing: 0,
-      migrated,
       refreshed: 0,
       conflicts: 0,
       skipped: 0,
@@ -90,11 +88,11 @@ describe("selfHealDiscoveredMcpServersIfEmpty", () => {
     expect(healed).toBe(14);
   });
 
-  it("counts both added and migrated servers as healed", async () => {
+  it("counts added servers as healed", async () => {
     mockCollection.countDocuments.mockResolvedValue(0);
-    mockSync.mockResolvedValue(syncResult(10, 4));
+    mockSync.mockResolvedValue(syncResult(10));
 
-    await expect(selfHealDiscoveredMcpServersIfEmpty()).resolves.toBe(14);
+    await expect(selfHealDiscoveredMcpServersIfEmpty()).resolves.toBe(10);
   });
 
   it("swallows a failing/unreachable AgentGateway and never throws", async () => {
