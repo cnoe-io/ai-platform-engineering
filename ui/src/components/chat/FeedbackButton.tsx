@@ -192,135 +192,137 @@ export function FeedbackButton({
   const showOtherInput = feedback?.reason === "Other";
 
   return (
-    <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-      <DialogTrigger asChild>
-        <div className="flex items-center gap-1">
-          {/* Thumbs Up Button */}
-          <Button
-            variant="ghost"
-            size="icon"
-            className={cn(
-              "h-7 w-7 hover:bg-muted",
-              isLiked
-                ? "text-green-500 hover:text-green-600"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-            disabled={disabled}
-            onClick={(e) => handleThumbClick("like", e)}
-            title="Helpful"
-          >
-            <ThumbsUp className={cn("h-3.5 w-3.5", isLiked && "fill-current")} />
-          </Button>
-
-          {/* Thumbs Down Button */}
-          <Button
-            variant="ghost"
-            size="icon"
-            className={cn(
-              "h-7 w-7 hover:bg-muted",
-              isDisliked
-                ? "text-red-500 hover:text-red-600"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-            disabled={disabled}
-            onClick={(e) => handleThumbClick("dislike", e)}
-            title="Not helpful"
-          >
-            <ThumbsDown className={cn("h-3.5 w-3.5", isDisliked && "fill-current")} />
-          </Button>
-        </div>
-      </DialogTrigger>
-
-      <DialogContent className="p-5 max-w-sm overflow-hidden">
-        <DialogTitle className="sr-only">
-          {isLiked ? "Positive Feedback" : "Subjective Feedback"}
-        </DialogTitle>
-
-        <div className="text-xs text-muted-foreground mb-3">
-          {isLiked ? "What did you like?" : "How would you evaluate this response?"}
-        </div>
-
-        {/* Reason Chips */}
-        <div className="flex flex-wrap gap-1.5 mb-3">
-          {reasons.map((reason) => (
-            <button
-              key={reason}
-              onClick={() => handleReasonClick(reason)}
+    <div className="flex items-center gap-1">
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogTrigger asChild>
+          <div className="flex items-center gap-1">
+            {/* Thumbs Up Button */}
+            <Button
+              variant="ghost"
+              size="icon"
               className={cn(
-                "px-3 py-1 rounded-full text-xs font-medium transition-all",
-                feedback?.reason === reason
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-muted text-muted-foreground hover:bg-muted/80"
+                "h-7 w-7 hover:bg-muted",
+                isLiked
+                  ? "text-green-500 hover:text-green-600"
+                  : "text-muted-foreground hover:text-foreground"
               )}
+              disabled={disabled}
+              onClick={(e) => handleThumbClick("like", e)}
+              title="Helpful"
             >
-              {reason}
-            </button>
-          ))}
-        </div>
+              <ThumbsUp className={cn("h-3.5 w-3.5", isLiked && "fill-current")} />
+            </Button>
 
-        {/* Additional Feedback Text Area (for "Other") */}
-        <AnimatePresence>
-          {showOtherInput && (
-            <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: "auto" }}
-              exit={{ opacity: 0, height: 0 }}
-              className="mb-3"
+            {/* Thumbs Down Button */}
+            <Button
+              variant="ghost"
+              size="icon"
+              className={cn(
+                "h-7 w-7 hover:bg-muted",
+                isDisliked
+                  ? "text-red-500 hover:text-red-600"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+              disabled={disabled}
+              onClick={(e) => handleThumbClick("dislike", e)}
+              title="Not helpful"
             >
-              <textarea
-                value={additionalFeedback}
-                onChange={(e) => setAdditionalFeedback(e.target.value)}
-                placeholder="Provide additional feedback"
-                className="w-full h-20 px-3 py-2 text-sm bg-muted/50 border border-border rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-primary/50"
-              />
-            </motion.div>
-          )}
-        </AnimatePresence>
+              <ThumbsDown className={cn("h-3.5 w-3.5", isDisliked && "fill-current")} />
+            </Button>
+          </div>
+        </DialogTrigger>
 
-        <p className="text-[10px] text-muted-foreground/60 mb-2 text-center break-words">
-          Feedback is shared with your platform engineering team to help improve the experience.
-        </p>
+        <DialogContent className="p-5 max-w-sm overflow-hidden">
+          <DialogTitle className="sr-only">
+            {isLiked ? "Positive Feedback" : "Subjective Feedback"}
+          </DialogTitle>
 
-        {/* Submit Buttons */}
-        <div className="space-y-2">
-          <Button
-            size="sm"
-            onClick={handleSubmitFeedback}
-            disabled={!feedback?.reason || isSubmitting || isSubmittingCombo}
-            className="w-full gap-2"
-          >
-            {isSubmitting && <Loader2 className="h-3 w-3 animate-spin" />}
-            Submit Feedback
-          </Button>
+          <div className="text-xs text-muted-foreground mb-3">
+            {isLiked ? "What did you like?" : "How would you evaluate this response?"}
+          </div>
 
-          {ticketEnabled && isDisliked && (
+          {/* Reason Chips */}
+          <div className="flex flex-wrap gap-1.5 mb-3">
+            {reasons.map((reason) => (
+              <button
+                key={reason}
+                onClick={() => handleReasonClick(reason)}
+                className={cn(
+                  "px-3 py-1 rounded-full text-xs font-medium transition-all",
+                  feedback?.reason === reason
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted text-muted-foreground hover:bg-muted/80"
+                )}
+              >
+                {reason}
+              </button>
+            ))}
+          </div>
+
+          {/* Additional Feedback Text Area (for "Other") */}
+          <AnimatePresence>
+            {showOtherInput && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={{ opacity: 0, height: 0 }}
+                className="mb-3"
+              >
+                <textarea
+                  value={additionalFeedback}
+                  onChange={(e) => setAdditionalFeedback(e.target.value)}
+                  placeholder="Provide additional feedback"
+                  className="w-full h-20 px-3 py-2 text-sm bg-muted/50 border border-border rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-primary/50"
+                />
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          <p className="text-[10px] text-muted-foreground/60 mb-2 text-center break-words">
+            Feedback is shared with your platform engineering team to help improve the experience.
+          </p>
+
+          {/* Submit Buttons */}
+          <div className="space-y-2">
             <Button
               size="sm"
-              variant="outline"
-              onClick={handleSubmitAndReport}
+              onClick={handleSubmitFeedback}
               disabled={!feedback?.reason || isSubmitting || isSubmittingCombo}
               className="w-full gap-2"
             >
-              {isSubmittingCombo && <Loader2 className="h-3 w-3 animate-spin" />}
-              Submit &amp; Report {ticketProvider === "jira" ? "Jira" : "GitHub"} Issue
+              {isSubmitting && <Loader2 className="h-3 w-3 animate-spin" />}
+              Submit Feedback
             </Button>
-          )}
-        </div>
 
-        {reportProblemEnabled && isDisliked && (
-          <button
-            type="button"
-            onClick={() => {
-              setDialogOpen(false);
-              setReportDialogOpen(true);
-            }}
-            className="w-full mt-1 flex items-center justify-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <AlertTriangle className="h-3 w-3" />
-            Report a Problem
-          </button>
-        )}
-      </DialogContent>
+            {reportProblemEnabled && ticketEnabled && isDisliked && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleSubmitAndReport}
+                disabled={!feedback?.reason || isSubmitting || isSubmittingCombo}
+                className="w-full gap-2"
+              >
+                {isSubmittingCombo && <Loader2 className="h-3 w-3 animate-spin" />}
+                Submit &amp; Report {ticketProvider === "jira" ? "Jira" : "GitHub"} Issue
+              </Button>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Report a Problem shortcut button */}
+      {reportProblemEnabled && (
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7 hover:bg-muted text-muted-foreground hover:text-foreground"
+          disabled={disabled}
+          onClick={(e) => { e.stopPropagation(); setReportDialogOpen(true); }}
+          title="Report a Problem"
+        >
+          <AlertTriangle className="h-3.5 w-3.5" />
+        </Button>
+      )}
 
       {reportProblemEnabled && (
         <ReportProblemDialog
@@ -337,6 +339,6 @@ export function FeedbackButton({
           }
         />
       )}
-    </Dialog>
+    </div>
   );
 }

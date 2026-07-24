@@ -187,6 +187,7 @@ pyrightconfig.json
 # Others
 a2a-python
 .superpowers/
+deploy-to-tome-sri.sh
 
 # Local configuration files
 .DS_Store

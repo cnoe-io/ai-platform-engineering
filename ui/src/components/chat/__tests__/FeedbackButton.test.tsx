@@ -512,24 +512,26 @@ describe("FeedbackButton", () => {
       expect(screen.queryByText(/Submit & Report/)).not.toBeInTheDocument();
     });
 
-    it("shows 'Report a Problem' link on dislike", () => {
+    it("shows report-a-problem shortcut button on dislike", () => {
       render(
         <FeedbackButton
           messageId="msg-1"
           feedback={{ type: "dislike", reason: "Trust", showFeedbackOptions: true }}
         />
       );
-      expect(screen.getByText("Report a Problem")).toBeInTheDocument();
+      // Triangle shortcut button (outside the dialog, always visible when enabled)
+      expect(screen.getByTestId("icon-alert-triangle")).toBeInTheDocument();
     });
 
-    it("does NOT show 'Report a Problem' link on positive feedback", () => {
+    it("shows report-a-problem shortcut button on positive feedback too", () => {
       render(
         <FeedbackButton
           messageId="msg-1"
           feedback={{ type: "like", reason: "Very Helpful", showFeedbackOptions: true }}
         />
       );
-      expect(screen.queryByText("Report a Problem")).not.toBeInTheDocument();
+      // Triangle shortcut is always visible when reportProblemEnabled=true
+      expect(screen.getByTestId("icon-alert-triangle")).toBeInTheDocument();
     });
 
     it("combo button submits feedback then opens report dialog", async () => {
@@ -576,14 +578,14 @@ describe("FeedbackButton", () => {
       expect(screen.queryByText(/Submit & Report/)).not.toBeInTheDocument();
     });
 
-    it("does not show 'Report a Problem' link", () => {
+    it("does not show report-a-problem shortcut button", () => {
       render(
         <FeedbackButton
           messageId="msg-1"
           feedback={{ type: "dislike", reason: "Trust", showFeedbackOptions: true }}
         />
       );
-      expect(screen.queryByText("Report a Problem")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("icon-alert-triangle")).not.toBeInTheDocument();
     });
   });
 });
