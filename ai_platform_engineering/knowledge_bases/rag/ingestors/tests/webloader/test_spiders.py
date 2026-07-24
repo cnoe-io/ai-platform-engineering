@@ -594,6 +594,81 @@ class TestParseSitemapIndex:
     assert spider.total_pages_to_crawl == 4
 
 
+class TestParseSitemapFlatUrlset:
+  """Tests for parse_sitemap against a real, non-indexed sitemap.
+
+  cnoe-io.github.io/ai-platform-engineering/sitemap.xml (this repo's own docs
+  site) is a flat Docusaurus-generated <urlset> with 4200+ entries and the
+  extra xmlns/changefreq/priority attributes real sitemaps carry - the
+  opposite shape from the outshift.cisco.com index above. This guards against
+  the sitemapindex check in parse_sitemap ever misfiring on an ordinary,
+  larger, real-world urlset.
+  """
+
+  # A representative excerpt of the real sitemap, namespaces and per-url tags intact.
+  REAL_FLAT_URLSET = """<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:news="http://www.google.com/schemas/sitemap-news/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1" xmlns:video="http://www.google.com/schemas/sitemap-video/1.1"><url><loc>https://cnoe-io.github.io/ai-platform-engineering/blog</loc><changefreq>weekly</changefreq><priority>0.5</priority></url><url><loc>https://cnoe-io.github.io/ai-platform-engineering/blog/ai-agent-vs-mcp-server</loc><changefreq>weekly</changefreq><priority>0.5</priority></url><url><loc>https://cnoe-io.github.io/ai-platform-engineering/docs/workshop/rag</loc><changefreq>weekly</changefreq><priority>0.5</priority></url><url><loc>https://cnoe-io.github.io/ai-platform-engineering/docs/workshop/tracing</loc><changefreq>weekly</changefreq><priority>0.5</priority></url><url><loc>https://cnoe-io.github.io/ai-platform-engineering/</loc><changefreq>weekly</changefreq><priority>0.5</priority></url></urlset>"""
+
+  def _make_worker_spider(self, max_pages: int = 100):
+    """Create a WorkerSpider instance for testing."""
+    from ingestors.webloader.loader.scrapy_worker import WorkerSpider
+    from ingestors.webloader.loader.worker_types import CrawlRequest
+    from multiprocessing import Queue
+
+    request = CrawlRequest(
+      job_id="test-job",
+      url="https://cnoe-io.github.io/ai-platform-engineering/",
+      datasource_id="test-ds",
+      crawl_mode="sitemap",
+      max_pages=max_pages,
+    )
+    result_queue = Queue()
+
+    return WorkerSpider(request=request, result_queue=result_queue)
+
+  def _make_sitemap_response(self, url: str, text: str):
+    """Create a mock Response for parse_sitemap, with no redirect (response.url == response.request.url)."""
+    mock_response = Mock()
+    mock_response.url = url
+    mock_response.status = 200
+    mock_response.text = text
+    mock_response.meta = {}
+    mock_response.request = Mock()
+    mock_response.request.url = url
+    return mock_response
+
+  def test_real_flat_urlset_is_not_treated_as_an_index(self):
+    """A namespaced Docusaurus <urlset> must dispatch straight to parse_page, not recurse."""
+    from unittest.mock import patch
+
+    spider = self._make_worker_spider()
+    response = self._make_sitemap_response(
+      "https://cnoe-io.github.io/ai-platform-engineering/sitemap.xml", self.REAL_FLAT_URLSET
+    )
+
+    with patch("ingestors.webloader.loader.scrapy_worker.is_publicly_routable_url", return_value=(True, "")):
+      requests = list(spider.parse_sitemap(response))
+
+    assert len(requests) == 5
+    assert all(r.callback == spider.parse_page for r in requests)
+    assert spider.urls_found_in_sitemap == 5
+    assert spider.total_pages_to_crawl == 5
+
+  def test_real_flat_urlset_respects_max_pages_truncation(self):
+    """With 4200+ real URLs in the live sitemap, max_pages must still cap what gets queued."""
+    from unittest.mock import patch
+
+    spider = self._make_worker_spider(max_pages=3)
+    response = self._make_sitemap_response(
+      "https://cnoe-io.github.io/ai-platform-engineering/sitemap.xml", self.REAL_FLAT_URLSET
+    )
+
+    with patch("ingestors.webloader.loader.scrapy_worker.is_publicly_routable_url", return_value=(True, "")):
+      requests = list(spider.parse_sitemap(response))
+
+    assert len(requests) == 3
+    assert spider.total_pages_to_crawl == 3
+
+
 # ============================================================================
 # WorkerSpider Streaming and Cancellation Tests
 # ============================================================================
