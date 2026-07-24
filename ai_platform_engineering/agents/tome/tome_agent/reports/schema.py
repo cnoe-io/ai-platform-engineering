@@ -849,11 +849,16 @@ def build_tree(pages: dict[str, str]) -> list[PageNode]:
             page_anchor = f"{dir_path}.md"
             if page_anchor in nodes or dir_path in folders:
                 continue
+            # Structured-entry directories (glossary, edges) sort above
+            # per-source connector folders (repos/webex/confluence/etc.) --
+            # vocabulary and relationships are cross-cutting reference
+            # material, not one more source among sources.
+            folder_order = 900 if dir_path in (GLOSSARY_DIR, EDGES_DIR) else 999
             folders[dir_path] = PageNode(
                 path=dir_path,
                 title=_path_to_title(dir_path),
                 kind="folder",
-                order=999,
+                order=folder_order,
             )
 
     roots: list[PageNode] = []
@@ -868,8 +873,12 @@ def build_tree(pages: dict[str, str]) -> list[PageNode]:
         else:
             roots.append(node)
 
+    # Folders (synthesized connector-group headers, e.g. `repos/`, `glossary/`)
+    # always sort after real pages regardless of `order` -- they have no
+    # meaningful order of their own (every folder ties at 999) and would
+    # otherwise interleave with untemplated pages via alphabetical tie-break.
     def _sort(node_list: list[PageNode]) -> None:
-        node_list.sort(key=lambda n: (n.order, n.path))
+        node_list.sort(key=lambda n: (1 if n.kind == "folder" else 0, n.order, n.path))
         for n in node_list:
             _sort(n.children)
     _sort(roots)

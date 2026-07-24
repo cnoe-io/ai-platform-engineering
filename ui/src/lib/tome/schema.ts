@@ -625,11 +625,16 @@ export function buildTree(pages: Record<string, string>): PageNode[] {
       const dirPath = parts.slice(0, i).join("/");
       const pageAnchor = `${dirPath}.md`;
       if (nodes.has(pageAnchor) || folders.has(dirPath)) continue;
+      // Structured-entry directories (glossary, edges) sort above per-source
+      // connector folders (repos/webex/confluence/etc.) — vocabulary and
+      // relationships are cross-cutting reference material, not one more
+      // source among sources.
+      const folderOrder = dirPath === GLOSSARY_DIR || dirPath === EDGES_DIR ? 900 : 999;
       folders.set(dirPath, {
         path: dirPath,
         title: pathToTitle(dirPath),
         kind: "folder",
-        order: 999,
+        order: folderOrder,
         children: [],
       });
     }
@@ -652,10 +657,17 @@ export function buildTree(pages: Record<string, string>): PageNode[] {
     else roots.push(node);
   }
 
+  // Folders (synthesized connector-group headers, e.g. `repos/`, `glossary/`)
+  // always sort after real pages regardless of `order` — they have no
+  // meaningful order of their own (every folder ties at 999) and would
+  // otherwise interleave with untemplated pages via alphabetical tie-break.
   const sortRec = (list: PageNode[]): void => {
-    list.sort((a, b) =>
-      a.order !== b.order ? a.order - b.order : a.path < b.path ? -1 : 1,
-    );
+    list.sort((a, b) => {
+      const fa = a.kind === "folder" ? 1 : 0;
+      const fb = b.kind === "folder" ? 1 : 0;
+      if (fa !== fb) return fa - fb;
+      return a.order !== b.order ? a.order - b.order : a.path < b.path ? -1 : 1;
+    });
     for (const n of list) sortRec(n.children);
   };
   sortRec(roots);
