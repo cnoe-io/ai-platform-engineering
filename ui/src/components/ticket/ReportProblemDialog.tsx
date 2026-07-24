@@ -373,7 +373,7 @@ export function ReportProblemDialog({
             {status === "idle" && isTomeProduct &&
               "Report bugs, confusing UX, or missing TOME capabilities. Not for wiki page content accuracy."}
             {status === "idle" && !isTomeProduct &&
-              "Select the area and type, then describe the issue. A ticket will be created automatically."}
+              "Report bugs or request enhancements. Select the type and area, then describe the issue."}
             {status === "submitting" && "Creating your ticket..."}
             {status === "success" && "Your ticket has been created successfully."}
             {status === "error" && "We couldn't create the ticket. You can retry or copy your description."}
@@ -397,48 +397,42 @@ export function ReportProblemDialog({
             {/* Issue type + area selectors — shown for default variant when no feedbackContext */}
             {!isTomeProduct && !feedbackContext && (
               <div className="space-y-2">
-                {/* Issue Type */}
-                <div>
-                  <p className="text-xs font-medium text-muted-foreground mb-1.5">Type</p>
-                  <div className="flex gap-1.5">
-                    {ISSUE_TYPES.map((t) => (
-                      <button
-                        key={t}
-                        type="button"
-                        onClick={() => setIssueType(t)}
-                        className={cn(
-                          "px-3 py-1 rounded-full text-xs font-medium transition-all",
-                          issueType === t
-                            ? "bg-primary text-primary-foreground"
-                            : "bg-muted text-muted-foreground hover:bg-muted/80",
-                        )}
-                      >
-                        {t}
-                      </button>
-                    ))}
-                  </div>
+                {/* Issue Type chips */}
+                <div className="flex flex-wrap gap-1.5">
+                  {ISSUE_TYPES.map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => setIssueType(t)}
+                      className={cn(
+                        "px-3 py-1 rounded-full text-xs font-medium transition-all",
+                        issueType === t
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-muted text-muted-foreground hover:bg-muted/80",
+                      )}
+                    >
+                      {t}
+                    </button>
+                  ))}
                 </div>
 
-                {/* Area */}
-                <div>
-                  <p className="text-xs font-medium text-muted-foreground mb-1.5">Area</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {PROBLEM_AREAS.map((a) => (
-                      <button
-                        key={a}
-                        type="button"
-                        onClick={() => setArea(a)}
-                        className={cn(
-                          "px-3 py-1 rounded-full text-xs font-medium transition-all",
-                          area === a
-                            ? "bg-primary text-primary-foreground"
-                            : "bg-muted text-muted-foreground hover:bg-muted/80",
-                        )}
-                      >
-                        {a}
-                      </button>
-                    ))}
-                  </div>
+                {/* Area chips */}
+                <div className="flex flex-wrap gap-1.5">
+                  {PROBLEM_AREAS.map((a) => (
+                    <button
+                      key={a}
+                      type="button"
+                      onClick={() => setArea(a)}
+                      className={cn(
+                        "px-3 py-1 rounded-full text-xs font-medium transition-all",
+                        area === a
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-muted text-muted-foreground hover:bg-muted/80",
+                      )}
+                    >
+                      {a}
+                    </button>
+                  ))}
                 </div>
 
                 {/* Destination hint */}
