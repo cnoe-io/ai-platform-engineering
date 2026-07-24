@@ -1,7 +1,5 @@
 "use client";
 
-// assisted-by claude code claude-sonnet-4-6
-
 import { Button } from "@/components/ui/button";
 import { formatTimeUntilExpiry,getTimeUntilExpiry,getWarningTimestamp,isTokenExpired } from "@/lib/auth-utils";
 import { getConfig } from "@/lib/config";
