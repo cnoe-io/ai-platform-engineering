@@ -12,7 +12,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Copy, Check } from "lucide-react";
 import { useState } from "react";
 
-export interface TomeFeedbackDetail {
+export interface FeedbackDetail {
   submitted_by: string;
   submitted_at?: string;
   rating: "positive" | "negative";
@@ -20,18 +20,18 @@ export interface TomeFeedbackDetail {
   trace_id?: string | null;
   message_id?: string;
   conversation_id?: string | null;
-  tome_project_slug?: string | null;
-  tome_session_id?: string | null;
-  tome_user_question?: string | null;
-  tome_assistant_response?: string | null;
-  tome_project_name?: string | null;
-  tome_project_domain?: string | null;
-  tome_bhags?: string[];
-  tome_areas?: string[];
+  project_slug?: string | null;
+  session_id?: string | null;
+  user_question?: string | null;
+  assistant_response?: string | null;
+  project_name?: string | null;
+  project_domain?: string | null;
+  categories?: string[];
+  areas?: string[];
 }
 
-interface TomeFeedbackInfoDialogProps {
-  entry: TomeFeedbackDetail | null;
+interface FeedbackInfoDialogProps {
+  entry: FeedbackDetail | null;
   onClose: () => void;
 }
 
@@ -84,49 +84,49 @@ function DetailRow({
   );
 }
 
-export function TomeFeedbackInfoDialog({
+export function FeedbackInfoDialog({
   entry,
   onClose,
-}: TomeFeedbackInfoDialogProps) {
-  const langfuseTraceId =
-    entry?.tome_session_id || entry?.conversation_id || entry?.trace_id || null;
+}: FeedbackInfoDialogProps) {
+  const traceId =
+    entry?.session_id || entry?.conversation_id || entry?.trace_id || null;
 
   return (
     <Dialog open={entry != null} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Tome feedback details</DialogTitle>
+          <DialogTitle>Feedback details</DialogTitle>
           <DialogDescription>
-            Session UUID matches the Langfuse trace for this Tome chat turn.
+            Session ID matches the observability trace ID for this conversation.
           </DialogDescription>
         </DialogHeader>
         {entry ? (
           <ScrollArea className="max-h-[min(70vh,32rem)] pr-3">
             <div className="space-y-4 pb-1">
               <DetailRow
-                label="Langfuse trace / session UUID"
-                value={langfuseTraceId}
+                label="Trace / session ID"
+                value={traceId}
                 mono
-                copyValue={langfuseTraceId ?? undefined}
+                copyValue={traceId ?? undefined}
               />
               <DetailRow
                 label="Project"
                 value={
-                  entry.tome_project_name
-                    ? `${entry.tome_project_name}${entry.tome_project_slug ? ` (/projects/${entry.tome_project_slug}/tome)` : ""}`
-                    : entry.tome_project_slug
-                      ? `/projects/${entry.tome_project_slug}/tome`
+                  entry.project_name
+                    ? `${entry.project_name}${entry.project_slug ? ` (/projects/${entry.project_slug})` : ""}`
+                    : entry.project_slug
+                      ? `/projects/${entry.project_slug}`
                       : null
                 }
               />
-              <DetailRow label="Domain" value={entry.tome_project_domain} />
+              <DetailRow label="Domain" value={entry.project_domain} />
               <DetailRow
-                label="BHAG / Initiative"
-                value={entry.tome_bhags && entry.tome_bhags.length > 0 ? entry.tome_bhags.join(", ") : null}
+                label="Category / Initiative"
+                value={entry.categories && entry.categories.length > 0 ? entry.categories.join(", ") : null}
               />
               <DetailRow
-                label="Area / Swim lane"
-                value={entry.tome_areas && entry.tome_areas.length > 0 ? entry.tome_areas.join(", ") : null}
+                label="Area"
+                value={entry.areas && entry.areas.length > 0 ? entry.areas.join(", ") : null}
               />
               <DetailRow label="Submitted by" value={entry.submitted_by} />
               <DetailRow
@@ -143,11 +143,11 @@ export function TomeFeedbackInfoDialog({
               />
               <DetailRow label="Feedback reason" value={entry.reason} />
               <DetailRow label="Message ID (client)" value={entry.message_id} mono />
-              {entry.trace_id && entry.trace_id !== langfuseTraceId ? (
+              {entry.trace_id && entry.trace_id !== traceId ? (
                 <DetailRow label="Trace ID" value={entry.trace_id} mono />
               ) : null}
-              <DetailRow label="User question" value={entry.tome_user_question} />
-              <DetailRow label="Assistant response" value={entry.tome_assistant_response} />
+              <DetailRow label="User question" value={entry.user_question} />
+              <DetailRow label="Assistant response" value={entry.assistant_response} />
             </div>
           </ScrollArea>
         ) : null}
