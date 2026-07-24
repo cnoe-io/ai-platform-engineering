@@ -41,6 +41,10 @@ services:
       - TOME_AGENT_BACKEND_URL=http://caipe-ui:3000/api/tome
       - MYCELIUM_URL=http://mycelium-backend-tome:8000
       - TOME_INTERNAL_ORIGIN=http://caipe-ui:3000
+      - REPORT_PROBLEM_ROUTING=${REPORT_PROBLEM_ROUTING:-github}
+      - GITHUB_TICKET_ENABLED=true
+      - GITHUB_TICKET_REPO=${GITHUB_TICKET_REPO:-cisco-eti/ai-platform-engineering-mirror}
+      - REPORT_PROBLEM_GITHUB_TOKEN=${REPORT_PROBLEM_GITHUB_TOKEN}
 
   keycloak:
     environment:

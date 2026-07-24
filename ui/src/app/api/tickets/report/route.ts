@@ -53,7 +53,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       );
     }
 
-    const token = env("GITHUB_TICKET_TOKEN") || env("GITHUB_TOKEN");
+    const token = env("REPORT_PROBLEM_GITHUB_TOKEN") || env("GITHUB_TICKET_TOKEN") || env("GITHUB_TOKEN");
     if (!token?.trim()) {
       throw new ApiError(
         "GitHub ticket token is not configured",

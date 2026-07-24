@@ -172,6 +172,7 @@ export function AppHeader() {
     inputRequiredConversations,
     conversations,
     activeConversationId,
+    createConversation,
   } = useChatStore();
   const chatHref = React.useMemo(
     () => resolveChatNavigationPath({ conversations, activeConversationId }),
@@ -216,6 +217,14 @@ export function AppHeader() {
   // explicit close-after-push is deterministic.
   const [alertsPopoverOpen, setAlertsPopoverOpen] = React.useState(false);
   const router = useRouter();
+  const handleReportProblemClick = React.useCallback(async () => {
+    if (config.reportProblemRouting === 'dynamic-agent' && config.reportProblemDynamicAgentId) {
+      const newId = await createConversation(config.reportProblemDynamicAgentId);
+      router.push(`/chat/${newId}`);
+    } else {
+      setReportDialogOpen(true);
+    }
+  }, [createConversation, router]);
 
   // Debug logging for admin tab
   React.useEffect(() => {
@@ -1191,15 +1200,17 @@ export function AppHeader() {
                   "h-8 text-xs text-muted-foreground hover:text-foreground",
                   headerNavCollapsed ? "w-8" : "gap-1.5",
                 )}
-                onClick={() => setReportDialogOpen(true)}
+                onClick={handleReportProblemClick}
               >
                 <AlertTriangle className="h-3.5 w-3.5" />
                 {!headerNavCollapsed && "Report a Problem"}
               </Button>
-              <ReportProblemDialog
-                open={reportDialogOpen}
-                onOpenChange={setReportDialogOpen}
-              />
+              {!config.reportProblemDynamicAgentId && (
+                <ReportProblemDialog
+                  open={reportDialogOpen}
+                  onOpenChange={setReportDialogOpen}
+                />
+              )}
             </>
           )}
           <SettingsPanel compact={headerNavCollapsed} />

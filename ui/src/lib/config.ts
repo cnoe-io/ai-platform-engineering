@@ -213,6 +213,19 @@ export interface Config {
    * When ticketEnabled is false, the dialog still opens but cannot create tickets.
    */
   reportProblemEnabled: boolean;
+  /**
+   * Optional dynamic agent ID to handle "Report a Problem" in the global header.
+   * Used when reportProblemRouting is 'dynamic-agent'. Set REPORT_PROBLEM_AGENT_ID=<agent-id>.
+   */
+  reportProblemDynamicAgentId: string | null;
+  /**
+   * Controls where the global "Report a Problem" header button routes:
+   * - 'dynamic-agent': opens a new chat with the agent in REPORT_PROBLEM_DYNAMIC_AGENT_ID
+   * - 'github': opens the ticket dialog with GitHub as the provider
+   * - 'jira': opens the ticket dialog with Jira as the provider
+   * Unset (default): opens the ReportProblemDialog with whatever ticket provider is configured.
+   */
+  reportProblemRouting: 'dynamic-agent' | 'github' | 'jira' | null;
   /** Derived: true if either Jira or GitHub ticket creation is enabled */
   ticketEnabled: boolean;
   /** Derived: which provider to use ('jira' takes precedence when both enabled) */
@@ -303,6 +316,8 @@ const DEFAULT_CONFIG: Config = {
   schedulerEnabled: false,
   agentProtocol: 'agui',
   reportProblemEnabled: true,
+  reportProblemDynamicAgentId: null,
+  reportProblemRouting: null,
   jiraTicketEnabled: false,
   jiraTicketProject: null,
   jiraTicketLabel: 'caipe-reported',
@@ -450,6 +465,13 @@ export function getServerConfig(): Config {
   const agentProtocol: 'custom' | 'agui' = agentProtocolEnv === 'custom' ? 'custom' : 'agui';
 
   const reportProblemEnabled = env('REPORT_PROBLEM_ENABLED') !== 'false';
+  // REPORT_PROBLEM_AGENT_ID is the canonical name; REPORT_PROBLEM_DYNAMIC_AGENT_ID kept for backward compat
+  const reportProblemDynamicAgentId = env('REPORT_PROBLEM_AGENT_ID') || env('REPORT_PROBLEM_DYNAMIC_AGENT_ID') || null;
+  const reportProblemRoutingRaw = env('REPORT_PROBLEM_ROUTING');
+  const reportProblemRouting: 'dynamic-agent' | 'github' | 'jira' | null =
+    reportProblemRoutingRaw === 'dynamic-agent' || reportProblemRoutingRaw === 'github' || reportProblemRoutingRaw === 'jira'
+      ? reportProblemRoutingRaw
+      : null;
   const jiraTicketEnabled = env('JIRA_TICKET_ENABLED') === 'true';
   const jiraTicketProject = env('JIRA_TICKET_PROJECT') || null;
   const jiraTicketLabel = env('JIRA_TICKET_LABEL') || 'caipe-reported';
@@ -515,6 +537,8 @@ export function getServerConfig(): Config {
     schedulerEnabled: env('SCHEDULER_ENABLED') === 'true',
     agentProtocol,
     reportProblemEnabled,
+    reportProblemDynamicAgentId,
+    reportProblemRouting,
     jiraTicketEnabled,
     jiraTicketProject,
     jiraTicketLabel,
