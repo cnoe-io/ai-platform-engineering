@@ -299,7 +299,26 @@ class WorkerSpider(Spider):
 
     # Extract URLs from sitemap
     urls = re.findall(r"<loc>(.*?)</loc>", response.text)
-    self.urls_found_in_sitemap = len(urls)
+
+    # A sitemap *index* (root element <sitemapindex>) lists other sitemaps,
+    # not pages — its <loc> entries point to child sitemap files. Dispatching
+    # those straight to parse_page fetches XML and "successfully" gets a
+    # response, but content extraction finds nothing, silently reporting
+    # N URLs found / 0 scraped. Recurse into each child sitemap instead.
+    if "<sitemapindex" in response.text[:2000]:
+      self._log(logging.INFO, f"Sitemap index at {response.url} references {len(urls)} child sitemap(s); fetching each")
+      for sitemap_url in urls[: self.max_pages]:
+        request = self._safe_request(
+          sitemap_url,
+          callback=self.parse_sitemap,
+          errback=self.handle_sitemap_error,
+          meta=response.meta,
+        )
+        if request:
+          yield request
+      return
+
+    self.urls_found_in_sitemap += len(urls)
 
     self._log(logging.INFO, f"Found {len(urls)} URLs in sitemap")
 
@@ -310,8 +329,10 @@ class WorkerSpider(Spider):
         urls_to_crawl.append(url)
         self.pending_urls.add(url)
 
-    # Set total for progress tracking
-    self.total_pages_to_crawl = len(urls_to_crawl)
+    # Set total for progress tracking. Accumulate rather than overwrite:
+    # a sitemap index fans out to multiple child sitemaps, each reaching
+    # this point once, and the reported total should cover all of them.
+    self.total_pages_to_crawl = (self.total_pages_to_crawl or 0) + len(urls_to_crawl)
 
     self._log(logging.INFO, f"Queued {len(urls_to_crawl)} URLs for crawling. Filtered: {self.urls_filtered_external} external, {self.urls_filtered_pattern} by pattern, {self.urls_filtered_max_pages} over max pages limit")
 
