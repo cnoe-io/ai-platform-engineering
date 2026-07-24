@@ -285,7 +285,9 @@ export async function filterSkillsByOpenFga(
   //   - hub skills — always stamped visibility:"global" by the crawler
   //   - agent_skills explicitly marked visibility:"global" by their owner
   // The key cannot use/execute skills (use mode falls through to OpenFGA).
-  const isCatalogKey = options.subject === 'catalog-key-user@local';
+  // The route handler prepends "user:" to session.sub before passing it here,
+  // so the catalog key subject arrives as "user:catalog-key-user@local".
+  const isCatalogKey = options.subject === 'user:catalog-key-user@local';
   if (!options.subject) return [];
   if (isCatalogKey && options.mode === 'read') {
     return skills.filter(

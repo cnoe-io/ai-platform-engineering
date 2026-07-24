@@ -94,8 +94,10 @@ describe("filterSkillsByOpenFga", () => {
       { ...baseSkill, id: "agent-team", source: "agent_skills", visibility: "team" } as CatalogSkill,
     ];
 
+    // The route handler prepends "user:" to session.sub before calling here,
+    // so the subject arriving at filterSkillsByOpenFga is "user:<sub>".
     const filtered = await filterSkillsByOpenFga(skills, {
-      subject: "catalog-key-user@local",
+      subject: "user:catalog-key-user@local",
       mode: "read",
       check,
     });
@@ -111,7 +113,7 @@ describe("filterSkillsByOpenFga", () => {
     const filtered = await filterSkillsByOpenFga(
       [{ ...baseSkill, id: "builtin-1", source: "default" }],
       {
-        subject: "catalog-key-user@local",
+        subject: "user:catalog-key-user@local",
         mode: "use",
         check: async () => ({ allowed: false }),
       },
