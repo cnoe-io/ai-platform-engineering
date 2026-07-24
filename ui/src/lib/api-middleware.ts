@@ -474,6 +474,11 @@ function resolveLegacyWithAuthRbacPolicy(request: NextRequest): RouteRbacPolicy 
       ? { resource: 'dynamic_agent', scope: 'view' }
       : { resource: 'dynamic_agent', scope: 'invoke' };
   }
+  if (pathname.startsWith('/api/schedules')) {
+    return method === 'GET'
+      ? { resource: 'dynamic_agent', scope: 'view' }
+      : { resource: 'dynamic_agent', scope: 'invoke' };
+  }
   if (pathname.startsWith('/api/catalog-api-keys')) {
     return { resource: 'skill', scope: 'configure' };
   }
