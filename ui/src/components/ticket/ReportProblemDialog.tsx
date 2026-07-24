@@ -120,12 +120,16 @@ export function ReportProblemDialog({
   const jiraTicketProject = getConfig("jiraTicketProject");
   const jiraBaseUrl = getConfig("jiraBaseUrl");
 
-  // Effective provider depends on selected area: TOME → GitHub, others → Jira
-  const effectiveProvider: "github" | "jira" | null = area
-    ? area === "TOME"
+  // TOME product feedback always goes to GitHub, regardless of global ticketProvider.
+  // Otherwise: effective provider depends on selected area (TOME → GitHub, others → Jira).
+  const effectiveProvider: "github" | "jira" | null =
+    variant === "tome-product"
       ? "github"
-      : "jira"
-    : getConfig("ticketProvider");
+      : area
+        ? area === "TOME"
+          ? "github"
+          : "jira"
+        : getConfig("ticketProvider");
 
   const providerLabel = effectiveProvider === "jira" ? "Jira" : effectiveProvider === "github" ? "GitHub" : "";
 
@@ -281,7 +285,9 @@ export function ReportProblemDialog({
         source: isTome ? "tome-product" : feedbackContext ? "chat-feedback" : "header",
         category: isTome ? category : undefined,
         tomeContext,
-        area: !isTome && area ? area : undefined,
+        // TOME product feedback always routes to GitHub — force area so
+        // createTicket() doesn't fall through to the legacy agent path.
+        area: isTome ? "TOME" : area || undefined,
         issueType: !isTome && issueType ? issueType : undefined,
         onEvent: (_event, logLine) => {
           appendLog(logLine);
