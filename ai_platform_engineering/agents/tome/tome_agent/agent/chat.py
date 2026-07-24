@@ -130,19 +130,24 @@ Project anchor (top-level overview — read repo-specific overviews under `repos
 
 {_strip("overview.md")}"""
 
-    # BHAG: this project's "sources" are the wikis of its tagged child projects,
-    # materialized read-only on disk. List them so chat can read across them.
+    # BHAG/Area: this project's "sources" are the wikis of its tagged child
+    # projects, materialized read-only on disk. List them so chat can read
+    # across them.
     children = snapshot.child_projects or []
     if children:
+        entity_desc = (
+            "an Area (a mid-tier grouping spanning the projects tagged to it)"
+            if snapshot.project_type == "area"
+            else "a BHAG (a strategic goal spanning the projects tagged to it)"
+        )
         child_lines = "\n".join(
             f"    - `{project_root(c.project_id)}/` ({c.name})" for c in children
         )
         project_block += (
-            "\n\nCHILD PROJECT WIKIS — this is a BHAG (a strategic goal spanning the "
-            "projects tagged to it). These are READ-ONLY reference material — read them "
-            "with Read/Glob/Grep to answer cross-project questions, but NEVER write to "
-            f"them. Your own write root is `{write_root}`, stated above; that is the "
-            "only place you write:\n"
+            f"\n\nCHILD PROJECT WIKIS — this is {entity_desc}. These are READ-ONLY "
+            "reference material — read them with Read/Glob/Grep to answer "
+            "cross-project questions, but NEVER write to them. Your own write root "
+            f"is `{write_root}`, stated above; that is the only place you write:\n"
             f"{child_lines}"
         )
 

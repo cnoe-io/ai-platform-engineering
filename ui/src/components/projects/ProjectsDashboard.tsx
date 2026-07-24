@@ -28,7 +28,7 @@ const STATUS_DOT: Record<string, string> = {
   archived: "bg-muted-foreground/30",
 };
 
-type Dimension = "domain" | "initiative" | "swimlane";
+type Dimension = "domain" | "initiative" | "area";
 
 interface Bucket {
   value: string;
@@ -49,13 +49,13 @@ const DIMENSION_META: Record<
     dot: "bg-amber-500",
     gradient: "from-amber-500 to-orange-600",
   },
-  swimlane: { title: "By Area", Icon: Waves, dot: "bg-emerald-500", gradient: "from-emerald-500 to-teal-600" },
+  area: { title: "By Area", Icon: Waves, dot: "bg-emerald-500", gradient: "from-emerald-500 to-teal-600" },
 };
 
 const PICKERS: Record<Dimension, (p: ProjectDocument) => string[]> = {
   domain: (p) => [p.labels?.domain ?? p.domain ?? ""],
   initiative: (p) => p.labels?.initiatives ?? [],
-  swimlane: (p) => p.labels?.swimlanes ?? [],
+  area: (p) => p.labels?.areas ?? [],
 };
 
 function matchesFilter(values: string[], filterValue: string | null): boolean {
@@ -88,7 +88,7 @@ export function ProjectsDashboard() {
   const [filters, setFilters] = useState<Record<Dimension, string | null>>({
     domain: null,
     initiative: null,
-    swimlane: null,
+    area: null,
   });
 
   const load = useCallback(async () => {
@@ -126,7 +126,7 @@ export function ProjectsDashboard() {
     () => ({
       domain: bucketsIgnoring("domain"),
       initiative: bucketsIgnoring("initiative"),
-      swimlane: bucketsIgnoring("swimlane"),
+      area: bucketsIgnoring("area"),
     }),
     [bucketsIgnoring],
   );
@@ -148,7 +148,7 @@ export function ProjectsDashboard() {
       [dim]: f[dim] && normLabel(f[dim]!) === normLabel(value) ? null : value,
     }));
   };
-  const clearFilters = () => setFilters({ domain: null, initiative: null, swimlane: null });
+  const clearFilters = () => setFilters({ domain: null, initiative: null, area: null });
 
   return (
     <div className="mx-auto max-w-6xl space-y-6 p-6">
@@ -193,9 +193,9 @@ export function ProjectsDashboard() {
           label={dims.initiative.length === 1 ? "initiative" : "initiatives"}
         />
         <StatTag
-          dot={DIMENSION_META.swimlane.dot}
-          value={dims.swimlane.length}
-          label={dims.swimlane.length === 1 ? "area" : "areas"}
+          dot={DIMENSION_META.area.dot}
+          value={dims.area.length}
+          label={dims.area.length === 1 ? "area" : "areas"}
         />
       </div>
 
@@ -243,7 +243,7 @@ export function ProjectsDashboard() {
         <div className="space-y-8">
           <DimensionSection dim="domain" buckets={dims.domain} active={filters.domain} onToggle={toggleFilter} />
           <DimensionSection dim="initiative" buckets={dims.initiative} active={filters.initiative} onToggle={toggleFilter} />
-          <DimensionSection dim="swimlane" buckets={dims.swimlane} active={filters.swimlane} onToggle={toggleFilter} />
+          <DimensionSection dim="area" buckets={dims.area} active={filters.area} onToggle={toggleFilter} />
           <p className="rounded-xl border border-border/50 bg-card/30 px-4 py-3 text-xs text-muted-foreground">
             💰 Budget health: {unbudgeted} unbudgeted (budget provider not yet connected).
           </p>

@@ -46,14 +46,14 @@ describe("labels", () => {
   });
 
   it("sanitizeLabels applies domain fallback + cleans", () => {
-    expect(sanitizeLabels({ initiatives: ["X", "x"], swimlanes: [" Now "] }, "Platform")).toEqual(
-      { domain: "Platform", initiatives: ["X"], swimlanes: ["Now"] },
+    expect(sanitizeLabels({ initiatives: ["X", "x"], areas: [" Now "] }, "Platform")).toEqual(
+      { domain: "Platform", initiatives: ["X"], areas: ["Now"] },
     );
   });
 
   it("computeFacets groups by normalized key with counts", () => {
     const facets = computeFacets([
-      proj({ labels: { domain: "Platform", initiatives: ["Agentic"], swimlanes: ["Now"] } }),
+      proj({ labels: { domain: "Platform", initiatives: ["Agentic"], areas: ["Now"] } }),
       proj({ labels: { domain: "platform", initiatives: ["agentic", "GenAI"] } }),
       proj({ domain: "Data" }), // falls back to top-level domain
     ]);
@@ -63,11 +63,11 @@ describe("labels", () => {
       { value: "Data", count: 1 },
     ]);
     expect(facets.initiatives.find((f) => f.value === "Agentic")?.count).toBe(2);
-    expect(facets.swimlanes).toEqual([{ value: "Now", count: 1 }]);
+    expect(facets.areas).toEqual([{ value: "Now", count: 1 }]);
   });
 
   describe("projectMatchesLabels (AND across dims, OR within)", () => {
-    const p = proj({ labels: { domain: "Platform", initiatives: ["Agentic"], swimlanes: ["Now", "Q3"] } });
+    const p = proj({ labels: { domain: "Platform", initiatives: ["Agentic"], areas: ["Now", "Q3"] } });
     it("matches with no filter", () => {
       expect(projectMatchesLabels(p, {})).toBe(true);
     });
@@ -75,7 +75,7 @@ describe("labels", () => {
       expect(projectMatchesLabels(p, { domains: ["platform"] })).toBe(true);
     });
     it("OR within a dimension", () => {
-      expect(projectMatchesLabels(p, { swimlanes: ["q3", "later"] })).toBe(true);
+      expect(projectMatchesLabels(p, { areas: ["q3", "later"] })).toBe(true);
     });
     it("AND across dimensions fails if one misses", () => {
       expect(projectMatchesLabels(p, { domains: ["Platform"], initiatives: ["Other"] })).toBe(false);

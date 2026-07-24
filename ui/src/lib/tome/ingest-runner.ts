@@ -52,8 +52,8 @@ async function loadProjectById(
   return { ...p, _id: String(p._id) } as ProjectDocument & { _id: string };
 }
 
-import { resolveBhagChildren } from "./bhag";
-export { resolveBhagChildren };
+import { resolveBhagChildren, resolveAreaChildren } from "./bhag";
+export { resolveBhagChildren, resolveAreaChildren };
 
 const inflight = new Set<Promise<void>>();
 
@@ -97,6 +97,7 @@ async function createRunRecord(
     dispatch: IngestDispatch;
     cascadeId?: string;
     cascadeRole?: "child" | "parent";
+    blockedByCascadeIds?: string[];
   },
 ): Promise<{ runId: string; reportId: string; isGreenfield: boolean }> {
   const projectId = project._id;
@@ -136,6 +137,7 @@ async function createRunRecord(
     dispatch: opts.dispatch,
     cascade_id: opts.cascadeId,
     cascade_role: opts.cascadeRole,
+    blocked_by_cascade_ids: opts.blockedByCascadeIds,
     queued_at: opts.status === "queued" ? now : undefined,
   };
   await runs.insertOne(run);
@@ -206,20 +208,25 @@ async function prepareRun(
   const connectorData: Record<string, unknown> =
     meetings.length > 0 ? { webex: { meetings } } : {};
 
-  // A BHAG carries its child projects so the agent can read their wikis: synthesis
-  // builds from them, compaction uses them as ground truth when tightening pages
-  // and checking references.
+  // BHAGs and Areas carry their child projects so the agent can read their wikis:
+  // synthesis builds from them, compaction uses them as ground truth.
   const endpoint = dispatch.endpoint || "/ingest";
   const isBhag = project.type === "bhag";
-  const childProjects = isBhag ? await resolveBhagChildren(project.name) : [];
-  if (isBhag) {
+  const isArea = project.type === "area";
+  const childProjects = isBhag
+    ? await resolveBhagChildren(project.name)
+    : isArea
+      ? await resolveAreaChildren(project.name)
+      : [];
+  if (isBhag || isArea) {
+    const kind = isBhag ? "BHAG" : "Area";
     const verb = endpoint === "/synthesize" ? "synthesis" : "compaction";
     await appendLog(
       runId,
       infoLine(
         childProjects.length
-          ? `BHAG ${verb} with ${childProjects.length} child project(s): ${childProjects.map((c) => c.slug).join(", ")}`
-          : `BHAG ${verb}: no projects are tagged to this goal yet`,
+          ? `${kind} ${verb} with ${childProjects.length} child project(s): ${childProjects.map((c) => c.slug).join(", ")}`
+          : `${kind} ${verb}: no projects are tagged to this ${isBhag ? "goal" : "area"} yet`,
       ),
     );
   }
@@ -306,6 +313,7 @@ export async function enqueueRun(
     dispatch: IngestDispatch;
     cascadeId?: string;
     cascadeRole?: "child" | "parent";
+    blockedByCascadeIds?: string[];
   },
 ): Promise<string> {
   const { runId } = await createRunRecord(project, { status: "queued", ...opts });
@@ -313,9 +321,14 @@ export async function enqueueRun(
 }
 
 /**
- * Enqueue a BHAG cascade: a queued re-ingest for each tagged child project, then
- * a queued synthesize for the BHAG itself. The worker drains them at a bounded
- * concurrency and only starts the synthesize once every child is terminal.
+ * Enqueue a BHAG cascade: a queued re-ingest for each skip-level child
+ * project, a nested sub-cascade for each child Area (its own leaf projects
+ * ingest, then the Area itself synthesizes), and finally the BHAG's own
+ * synthesize — which waits for BOTH its direct (skip-level) children AND
+ * every Area's entire sub-cascade to fully drain, not just the Area's own
+ * run. Without recursing into Areas, a project that only tags an Area (never
+ * the BHAG directly) would never get ingested before the BHAG "synthesizes"
+ * an empty rollup.
  */
 export async function enqueueBhagCascade(
   ctx: TomeProjectContext,
@@ -324,16 +337,42 @@ export async function enqueueBhagCascade(
   const sub = sessionSub(ctx.session);
   const cascadeId = randomUUID();
   const children = await resolveBhagChildren(ctx.project.name);
+  const areaSubCascadeIds: string[] = [];
 
   for (const child of children) {
     const childProject = await loadProjectById(child.project_id);
     if (!childProject) continue;
-    await enqueueRun(childProject, {
-      sub,
-      dispatch: { endpoint: "/ingest", seed: null },
-      cascadeId,
-      cascadeRole: "child",
-    });
+
+    if (child.type === "area") {
+      // Recurse: this Area's own leaf projects ingest under a fresh
+      // sub-cascade, then the Area synthesizes once they're all terminal.
+      const areaCascadeId = randomUUID();
+      areaSubCascadeIds.push(areaCascadeId);
+      const areaChildren = await resolveAreaChildren(childProject.name);
+      for (const leaf of areaChildren) {
+        const leafProject = await loadProjectById(leaf.project_id);
+        if (!leafProject) continue;
+        await enqueueRun(leafProject, {
+          sub,
+          dispatch: { endpoint: "/ingest", seed: null },
+          cascadeId: areaCascadeId,
+          cascadeRole: "child",
+        });
+      }
+      await enqueueRun(childProject, {
+        sub,
+        dispatch: { endpoint: "/synthesize", seed: null },
+        cascadeId: areaCascadeId,
+        cascadeRole: "parent",
+      });
+    } else {
+      await enqueueRun(childProject, {
+        sub,
+        dispatch: { endpoint: "/ingest", seed: null },
+        cascadeId,
+        cascadeRole: "child",
+      });
+    }
   }
 
   const parentRunId = await enqueueRun(ctx.project, {
@@ -345,6 +384,7 @@ export async function enqueueBhagCascade(
     },
     cascadeId,
     cascadeRole: "parent",
+    blockedByCascadeIds: areaSubCascadeIds.length ? areaSubCascadeIds : undefined,
   });
 
   return { cascadeId, parentRunId, childCount: children.length };

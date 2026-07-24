@@ -10,7 +10,7 @@ import type { ProjectDocument } from "@/types/projects";
 
 export const GET = withErrorHandler(async (request: NextRequest) => {
   if (!isMongoDBConfigured) {
-    return successResponse({ facets: { domains: [], initiatives: [], swimlanes: [], tags: [] } });
+    return successResponse({ facets: { domains: [], initiatives: [], areas: [], tags: [] } });
   }
 
   const { user, session } = await getAuthFromBearerOrSession(request);
@@ -18,15 +18,15 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     (await canManageProjectsOrganization(session)) || isBootstrapAdmin(user.email);
 
   const col = await getCollection<ProjectDocument>("projects");
-  // Exclude BHAGs — they share the collection (type:"bhag") but are not real
+  // Exclude BHAGs and Areas — they share the collection but are not real
   // projects and would inflate the facet counts.
-  const notBhag = { $or: [{ type: "project" }, { type: { $exists: false } }] };
+  const notSynthesized = { $or: [{ type: "project" }, { type: { $exists: false } }] };
   const filter: Record<string, unknown> = isOrgAdmin
-    ? notBhag
+    ? notSynthesized
     : {
         $and: [
           { $or: [{ owner_id: user.email }, { member_ids: user.email }] },
-          notBhag,
+          notSynthesized,
         ],
       };
 

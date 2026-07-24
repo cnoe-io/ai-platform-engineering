@@ -41,9 +41,9 @@ def _build_synthesis_system_prompt(
     is_greenfield: bool,
     seed_stable_pages: bool,
 ) -> str:
-    """System prompt for a BHAG synthesis. The loop widens the read fence to the
-    child dirs; the agent reads those (read-only) and synthesizes, grounded
-    strictly in what the child wikis say."""
+    """System prompt for a BHAG or Area synthesis. The loop widens the read
+    fence to the child dirs; the agent reads those (read-only) and synthesizes,
+    grounded strictly in what the child wikis say."""
     from tome_agent.agent.connectors.base import format_pages
 
     top_level = format_pages(report_schema.default_pages())
@@ -112,11 +112,25 @@ def _build_synthesis_system_prompt(
             "child wikis, with each page's declared kind in the YAML frontmatter."
         )
 
-    project_block = f"""THIS IS A BHAG (Big Hairy Audacious Goal): "{snapshot.name}" — a strategic \
-goal that spans multiple projects. It has NO repos, Confluence, or Webex sources \
-of its own. Its wiki is a SYNTHESIS synthesized from the projects tagged to it.
+    is_area = snapshot.project_type == "area"
+    if is_area:
+        entity_header = (
+            f'THIS IS AN AREA: "{snapshot.name}" — a mid-tier grouping that spans '
+            "multiple projects. It has NO repos, Confluence, or Webex sources of its "
+            "own. Its wiki is a SYNTHESIS synthesized from the projects tagged to it."
+        )
+    else:
+        entity_header = (
+            f'THIS IS A BHAG (Big Hairy Audacious Goal): "{snapshot.name}" — a strategic '
+            "goal that spans multiple projects. It has NO repos, Confluence, or Webex "
+            "sources of its own. Its wiki is a SYNTHESIS synthesized from the projects "
+            "tagged to it."
+        )
 
-BHAG CHARTER (seed context, may be empty):
+    charter_label = "AREA CONTEXT" if is_area else "BHAG CHARTER"
+    project_block = f"""{entity_header}
+
+{charter_label} (seed context, may be empty):
 {snapshot.charter or "(empty)"}
 
 {children_block}
@@ -167,11 +181,12 @@ async def stream_synthesis(
         extra_read_dirs=child_read_dirs,
     )
 
+    entity_kind = "Area" if snapshot.project_type == "area" else "BHAG"
     prompt_parts = [
-        f"Run a {'GREENFIELD' if is_greenfield else 'INCREMENTAL'} BHAG synthesis for "
+        f"Run a {'GREENFIELD' if is_greenfield else 'INCREMENTAL'} {entity_kind} synthesis for "
         f"\"{snapshot.name}\". Begin by reading your own existing wiki pages, then "
         f"read the wikis of the child projects at the paths listed in the system "
-        f"prompt, and synthesize this BHAG's pages. Ground everything in the child "
+        f"prompt, and synthesize this {entity_kind}'s pages. Ground everything in the child "
         f"wikis — do not invent."
     ]
     if seed and seed.strip():
@@ -182,8 +197,9 @@ async def stream_synthesis(
     prompt = "".join(prompt_parts)
 
     child_count = len(snapshot.child_projects or [])
+    synthesis_kind = "Area" if snapshot.project_type == "area" else "BHAG"
     yield emit_log(
-        f"▶ BHAG synthesis started "
+        f"▶ {synthesis_kind} synthesis started "
         f"(mode={'greenfield' if is_greenfield else 'incremental'}, "
         f"projects={child_count}, model={_synthesis_model()})"
     )

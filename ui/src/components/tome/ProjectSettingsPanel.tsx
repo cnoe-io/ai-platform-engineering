@@ -5,10 +5,12 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
+  ArrowUpRight,
   Check,
   ChevronDown,
   ChevronRight,
   ExternalLink,
+  Layers,
   Loader2,
   TriangleAlert,
 } from "lucide-react";
@@ -17,12 +19,13 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { TeamPicker, type TeamPickerOption } from "@/components/ui/team-picker";
 import { UserEmailPicker } from "@/components/ui/user-email-picker";
-import { LabelComboBox } from "@/components/projects/LabelComboBox";
 import { SourcesEditor } from "@/components/projects/source-pickers/SourcesEditor";
 import { useProjectSourceKinds } from "@/components/projects/source-pickers/useProjectSourceKinds";
-import { BhagProjectsPanel } from "@/components/tome/BhagProjectsPanel";
+import { ChildProjectsPanel } from "@/components/tome/BhagProjectsPanel";
 import { TomeLoading } from "@/components/tome/TomeLoading";
-import type { ProjectDocument, ProjectSources } from "@/types/projects";
+import { normLabel } from "@/lib/projects/labels";
+import type { ProjectDocument, ProjectSources, ProjectType } from "@/types/projects";
+import { isSynthesizedType } from "@/types/projects";
 
 const BLAST_RADIUS_OPTIONS = [
   { value: "small", label: "Small and reversible (2-way)", hint: "The team runs on its own" },
@@ -69,8 +72,10 @@ export function ProjectSettingsPanel({
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  // BHAG vs regular project: a BHAG shows its child projects in place of Sources.
-  const [isBhag, setIsBhag] = useState(false);
+  // Synthesized (BHAG/Area) vs regular project: a synthesized type shows its
+  // child projects in place of Sources.
+  const [isSynthesized, setIsSynthesized] = useState(false);
+  const [projectKind, setProjectKind] = useState<ProjectType>("project");
   const [projectName, setProjectName] = useState("");
   const [sources, setSources] = useState<ProjectSources>({
     repos: [],
@@ -100,12 +105,16 @@ export function ProjectSettingsPanel({
   const [teamsLoading, setTeamsLoading] = useState(true);
   const [teamSlug, setTeamSlug] = useState("");
   const [initialTeamSlug, setInitialTeamSlug] = useState("");
-  const [initiativesRaw, setInitiativesRaw] = useState("");
-  const [swimlanesRaw, setSwimlanesRaw] = useState("");
-  const [labelFacets, setLabelFacets] = useState<{ initiatives: string[]; swimlanes: string[] }>({
-    initiatives: [],
-    swimlanes: [],
-  });
+
+  // Hierarchy tagging (BHAG → Area → Project). Replaces free-text
+  // initiatives/areas tag inputs — a BHAG has no parent, an Area's parent is
+  // always a BHAG, and a Project cascades BHAG → Area.
+  const [bhagOptions, setBhagOptions] = useState<{ name: string; slug: string }[]>([]);
+  const [areaOptions, setAreaOptions] = useState<{ name: string; slug: string }[]>([]);
+  const [selectedBhagName, setSelectedBhagName] = useState<string | null>(null);
+  const [selectedAreaName, setSelectedAreaName] = useState<string>("");
+  // Read-only: entities tagged to *this* BHAG/Area (down-links).
+  const [areasUnderBhag, setAreasUnderBhag] = useState<{ slug: string; name: string }[]>([]);
 
   // Load the project.
   useEffect(() => {
@@ -121,7 +130,8 @@ export function ProjectSettingsPanel({
         if (cancelled) return;
         setTitle(project.title);
         setDescription(project.description ?? "");
-        setIsBhag(project.type === "bhag");
+        setIsSynthesized(isSynthesizedType(project.type));
+        setProjectKind(project.type ?? "project");
         setProjectName(project.name ?? project.title ?? "");
         setSources({
           repos: project.sources?.repos ?? [],
@@ -130,8 +140,26 @@ export function ProjectSettingsPanel({
         });
         setTeamSlug(project.team_slug ?? "");
         setInitialTeamSlug(project.team_slug ?? "");
-        setInitiativesRaw((project.labels?.initiatives ?? []).join(", "));
-        setSwimlanesRaw((project.labels?.swimlanes ?? []).join(", "));
+
+        const kind = project.type ?? "project";
+        const initiatives = project.labels?.initiatives ?? [];
+        const areas = project.labels?.areas ?? [];
+        if (kind === "area") {
+          setSelectedBhagName(initiatives[0] ?? null);
+          setSelectedAreaName("");
+        } else if (kind === "bhag") {
+          setSelectedBhagName(null);
+          setSelectedAreaName("");
+        } else if (areas[0]) {
+          // Project tagged to an Area: the BHAG dropdown should reflect that
+          // Area's own parent BHAG too — resolved in the effect below once we
+          // know the Area's name.
+          setSelectedAreaName(areas[0]);
+        } else {
+          setSelectedBhagName(initiatives[0] ?? null);
+          setSelectedAreaName("");
+        }
+
         setFeedEnabled(project.sources_feed_enabled !== false);
         setStewardEmail(project.data_steward ?? "");
         setBlastRadius((project.decision_blast_radius as "small" | "large" | "") ?? "");
@@ -145,26 +173,84 @@ export function ProjectSettingsPanel({
     };
   }, [slug]);
 
-  // Load label facets (datalist suggestions) + assignable teams.
+  // A project already tagged to an Area: resolve that Area's own parent BHAG
+  // (via its `labels.initiatives`) so the Parent BHAG dropdown pre-selects
+  // correctly instead of showing "None" until the user touches it.
   useEffect(() => {
+    if (projectKind !== "project" || !selectedAreaName) return;
     let cancelled = false;
-
-    fetch("/api/projects/facets")
+    fetch("/api/projects?type=area")
       .then((res) => (res.ok ? res.json() : null))
       .then((body) => {
         if (cancelled) return;
-        const f = body?.data?.facets ?? body?.data ?? body;
-        const vals = (arr: unknown): string[] =>
-          Array.isArray(arr)
-            ? arr
-                .map((x) => (typeof x === "string" ? x : (x?.value ?? x?.label)))
-                .filter((v): v is string => typeof v === "string" && v.length > 0)
-            : [];
-        if (f) {
-          setLabelFacets({ initiatives: vals(f.initiatives), swimlanes: vals(f.swimlanes) });
-        }
+        const list = (body?.data?.projects ?? []) as ProjectDocument[];
+        const match = list.find((a) => normLabel(a.name ?? "") === normLabel(selectedAreaName));
+        setSelectedBhagName(match?.labels?.initiatives?.[0] ?? null);
       })
       .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+    // Only re-resolve when the Area tag itself changes post-load, not on
+    // every keystroke elsewhere in the form.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectKind, slug]);
+
+  // Existing BHAGs, for the Parent BHAG picker (Area/Project). Areas tagged
+  // to the currently-selected BHAG, for the Project's cascading Area picker.
+  useEffect(() => {
+    fetch("/api/projects?type=bhag")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body) => {
+        const list = (body?.data?.projects ?? []) as { name: string; slug: string }[];
+        setBhagOptions(list.map((b) => ({ name: b.name, slug: b.slug })));
+      })
+      .catch(() => setBhagOptions([]));
+  }, []);
+
+  useEffect(() => {
+    if (!selectedBhagName || projectKind !== "project") {
+      setAreaOptions([]);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/projects?type=area&initiative=${encodeURIComponent(selectedBhagName)}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body) => {
+        if (cancelled) return;
+        const list = (body?.data?.projects ?? []) as { name: string; slug: string }[];
+        setAreaOptions(list.map((a) => ({ name: a.name, slug: a.slug })));
+      })
+      .catch(() => !cancelled && setAreaOptions([]));
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedBhagName, projectKind]);
+
+  // Read-only: Areas tagged to this BHAG (down-link list), shown above the
+  // existing `ChildProjectsPanel` (skip-level projects).
+  useEffect(() => {
+    if (projectKind !== "bhag" || !projectName) {
+      setAreasUnderBhag([]);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/projects?type=area&initiative=${encodeURIComponent(projectName)}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body) => {
+        if (cancelled) return;
+        const list = (body?.data?.projects ?? []) as { name: string; slug: string }[];
+        setAreasUnderBhag(list.map((a) => ({ slug: a.slug, name: a.name })));
+      })
+      .catch(() => !cancelled && setAreasUnderBhag([]));
+    return () => {
+      cancelled = true;
+    };
+  }, [projectKind, projectName]);
+
+  // Load assignable teams.
+  useEffect(() => {
+    let cancelled = false;
 
     fetch("/api/dynamic-agents/teams")
       .then((res) => res.json())
@@ -190,7 +276,7 @@ export function ProjectSettingsPanel({
   // Feed status (steward's GitHub-connected badge). Refetched after save so the
   // badge reflects a newly-assigned steward.
   const loadFeedStatus = useCallback(async () => {
-    if (isBhag) return;
+    if (isSynthesized) return;
     try {
       const res = await fetch(`/api/tome/projects/${encodeURIComponent(slug)}/feed-status`);
       if (!res.ok) return;
@@ -199,7 +285,7 @@ export function ProjectSettingsPanel({
     } catch {
       /* status is best-effort */
     }
-  }, [slug, isBhag]);
+  }, [slug, isSynthesized]);
 
   useEffect(() => {
     void loadFeedStatus();
@@ -215,14 +301,10 @@ export function ProjectSettingsPanel({
     setSaving(true);
     setSavedAt(false);
     setError(null);
-    const toList = (raw: string) =>
-      raw.split(/[\n,]/).map((s) => s.trim()).filter(Boolean);
     try {
       const payload: Record<string, unknown> = {
         title,
         description,
-        initiatives: toList(initiativesRaw),
-        swimlanes: toList(swimlanesRaw),
         sources: {
           ...sources,
           repos: (sources.repos ?? []).map((r) => r.trim()).filter(Boolean),
@@ -234,6 +316,24 @@ export function ProjectSettingsPanel({
         decision_blast_radius: blastRadius || null,
         optionality: optionality.length ? optionality : [],
       };
+
+      // Hierarchy tagging, per type. A BHAG has no parent — send nothing.
+      if (projectKind === "area") {
+        payload.initiatives = selectedBhagName ? [selectedBhagName] : [];
+        payload.areas = [];
+      } else if (projectKind === "project") {
+        if (selectedBhagName && selectedAreaName) {
+          payload.areas = [selectedAreaName];
+          payload.initiatives = [];
+        } else if (selectedBhagName && !selectedAreaName) {
+          payload.initiatives = [selectedBhagName];
+          payload.areas = [];
+        } else {
+          payload.initiatives = [];
+          payload.areas = [];
+        }
+      }
+
       // Only send team_id when the team actually changed — avoids the
       // reassignment permission/sync path on an ordinary save.
       if (teamChanged && selectedTeamId) payload.team_id = selectedTeamId;
@@ -250,8 +350,14 @@ export function ProjectSettingsPanel({
       setDescription(project.description ?? "");
       setTeamSlug(project.team_slug ?? "");
       setInitialTeamSlug(project.team_slug ?? "");
-      setInitiativesRaw((project.labels?.initiatives ?? []).join(", "));
-      setSwimlanesRaw((project.labels?.swimlanes ?? []).join(", "));
+      const initiatives = project.labels?.initiatives ?? [];
+      const areas = project.labels?.areas ?? [];
+      if (projectKind === "area") {
+        setSelectedBhagName(initiatives[0] ?? null);
+      } else if (projectKind === "project") {
+        setSelectedAreaName(areas[0] ?? "");
+        if (!areas[0]) setSelectedBhagName(initiatives[0] ?? null);
+      }
       setStewardEmail(project.data_steward ?? "");
       setFeedEnabled(project.sources_feed_enabled !== false);
       setBlastRadius((project.decision_blast_radius as "small" | "large" | "") ?? "");
@@ -268,8 +374,9 @@ export function ProjectSettingsPanel({
     slug,
     title,
     description,
-    initiativesRaw,
-    swimlanesRaw,
+    projectKind,
+    selectedBhagName,
+    selectedAreaName,
     sources,
     stewardEmail,
     feedEnabled,
@@ -347,7 +454,7 @@ export function ProjectSettingsPanel({
                 </p>
               )}
             </Field>
-            {!isBhag && (
+            {!isSynthesized && (
               <Field
                 label="Data steward"
                 hint="The person (by email) whose GitHub connection powers this project's source activity feed. Defaults to the owner. This role will do more later. Only the owner or an admin can change it."
@@ -387,26 +494,66 @@ export function ProjectSettingsPanel({
                 )}
               </Field>
             )}
-            <Field label="BHAG / Initiatives" hint="Pick existing or type a new one (comma-separated).">
-              <LabelComboBox
-                ariaLabel="BHAG / Initiatives"
-                value={initiativesRaw}
-                onChange={setInitiativesRaw}
-                options={labelFacets.initiatives.map((v) => ({ value: v, label: v }))}
-                placeholder="Agentic-2026, Platform Modernization"
-                multi
-              />
-            </Field>
-            <Field label="Areas" hint="Pick existing or type a new one (comma-separated).">
-              <LabelComboBox
-                ariaLabel="Areas"
-                value={swimlanesRaw}
-                onChange={setSwimlanesRaw}
-                options={labelFacets.swimlanes.map((v) => ({ value: v, label: v }))}
-                placeholder="Now, Next, Later"
-                multi
-              />
-            </Field>
+            {/* Hierarchy: a BHAG has no parent (nothing shown). An Area's only
+                parent is a BHAG. A Project cascades BHAG → Area. */}
+            {projectKind === "area" && (
+              <Field label="Parent BHAG">
+                <select
+                  value={selectedBhagName ?? ""}
+                  onChange={(e) => setSelectedBhagName(e.target.value || null)}
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+                >
+                  <option value="" disabled>
+                    Select the BHAG this area belongs to…
+                  </option>
+                  {bhagOptions.map((b) => (
+                    <option key={b.slug} value={b.name}>
+                      {b.name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            )}
+            {projectKind === "project" && (
+              <>
+                <Field label="Parent BHAG" hint="Optional. Ladders this project up to a strategic goal.">
+                  <select
+                    value={selectedBhagName ?? ""}
+                    onChange={(e) => {
+                      setSelectedBhagName(e.target.value || null);
+                      setSelectedAreaName("");
+                    }}
+                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+                  >
+                    <option value="">None</option>
+                    {bhagOptions.map((b) => (
+                      <option key={b.slug} value={b.name}>
+                        {b.name}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                {selectedBhagName && (
+                  <Field
+                    label="Parent Area"
+                    hint={`Optional. Groups this project under a mid-tier area of ${selectedBhagName}.`}
+                  >
+                    <select
+                      value={selectedAreaName}
+                      onChange={(e) => setSelectedAreaName(e.target.value)}
+                      className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+                    >
+                      <option value="">No area — tag this BHAG directly</option>
+                      {areaOptions.map((a) => (
+                        <option key={a.slug} value={a.name}>
+                          {a.name}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                )}
+              </>
+            )}
           </Section>
 
           {/* SLT governance fields */}
@@ -470,13 +617,52 @@ export function ProjectSettingsPanel({
             </Field>
           </Section>
 
-          {/* A BHAG has no connectors — its "sources" are the projects tagged to
-              it, which the agent reads to synthesize the BHAG wiki. Regular
-              projects show the Sources editor (reserves space so it never pops
-              in on load). */}
-          {isBhag ? (
+          {/* A BHAG/Area has no connectors — its "sources" are the projects
+              tagged to it, which the agent reads to synthesize its wiki.
+              Regular projects show the Sources editor (reserves space so it
+              never pops in on load). */}
+          {isSynthesized ? (
             <Section title="Projects">
-              <BhagProjectsPanel bhagName={projectName} editable />
+              {projectKind === "bhag" && (
+                <div className="space-y-3">
+                  <p className="text-xs text-muted-foreground">
+                    Areas tagged to this BHAG. Read-only here — an Area picks its parent BHAG
+                    from its own Settings, not the other way around.
+                  </p>
+                  {areasUnderBhag.length === 0 ? (
+                    <div className="rounded-lg border border-dashed border-border p-6 text-center">
+                      <Layers className="mx-auto h-8 w-8 text-muted-foreground/40" />
+                      <p className="mt-2 text-sm font-medium">No areas tagged yet</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Create an Area and set{" "}
+                        <span className="font-medium text-foreground">{projectName}</span> as its
+                        parent BHAG, or promote an existing area tag from the Projects hub.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {areasUnderBhag.map((a) => (
+                        <Link
+                          key={a.slug}
+                          href={`/projects/${a.slug}/tome`}
+                          className="group flex items-center gap-2 rounded-lg border border-sky-500/30 bg-sky-500/5 p-3 transition hover:border-sky-500/60"
+                        >
+                          <Layers className="h-4 w-4 shrink-0 text-sky-600 dark:text-sky-400" />
+                          <span className="font-medium leading-snug text-sky-700 group-hover:underline dark:text-sky-400">
+                            {a.name}
+                          </span>
+                          <ArrowUpRight className="ml-auto h-3.5 w-3.5 shrink-0 text-sky-600/60 dark:text-sky-400/60" />
+                        </Link>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              <ChildProjectsPanel
+                bhagName={projectName}
+                entityKind={projectKind === "area" ? "area" : "bhag"}
+                editable
+              />
             </Section>
           ) : (
             <Section
@@ -507,8 +693,8 @@ export function ProjectSettingsPanel({
           )}
 
           {/* Source activity feed: a consumer of the data steward's connection
-              (steward is assigned in Organization). Non-BHAG only. */}
-          {!isBhag && (
+              (steward is assigned in Organization). Not for synthesized types. */}
+          {!isSynthesized && (
             <Section title="Source activity feed">
               <p className="text-xs text-muted-foreground">
                 Surfaces this project&apos;s live GitHub activity (PRs, issues, releases)

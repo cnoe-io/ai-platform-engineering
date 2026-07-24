@@ -65,9 +65,21 @@ export type ProjectSource = "manual" | "backstage";
  * pages are leadership-authored and whose dynamic pages are agent-synthesized
  * from the projects tagged to it (via `labels.initiatives`). A BHAG has
  * no connectors of its own — its sources are its child projects' wikis.
+ * An `area` is a mid-tier grouping between a BHAG and its projects; it tags
+ * a BHAG via `labels.initiatives` and is synthesized from its child projects
+ * (which tag it via `labels.areas`). Like a BHAG, an area has no sources.
  * Legacy documents without a `type` are treated as `project`.
  */
-export type ProjectType = "project" | "bhag";
+export type ProjectType = "project" | "bhag" | "area";
+
+/** Project types with no sources of their own: synthesized (agent rolls up
+ * from child projects' wikis) instead of ingested from connectors. */
+export const SYNTHESIZED_PROJECT_TYPES = ["bhag", "area"] as const;
+
+/** True if `type` is a synthesized (no-sources, rollup) project kind. */
+export function isSynthesizedType(type: ProjectType | undefined): boolean {
+  return type === "bhag" || type === "area";
+}
 
 /**
  * Label dimensions for discovery + the executive dashboard. Free-form,
@@ -77,7 +89,7 @@ export type ProjectType = "project" | "bhag";
 export interface ProjectLabels {
   domain?: string;
   initiatives?: string[]; // BHAG / Initiative
-  swimlanes?: string[]; // Swim Lane
+  areas?: string[]; // Area
 }
 
 /**
@@ -169,14 +181,14 @@ export interface ProjectDocument {
 
 export interface CreateProjectRequest {
   name: string;
-  /** Defaults to "project". Pass "bhag" to create a strategic-goal entity. */
+  /** Defaults to "project". Pass "bhag" for a strategic-goal entity or "area" for a mid-tier grouping. */
   type?: ProjectType;
   description?: string;
   team_id: string;
   member_ids?: string[];
   domain?: string;
   initiatives?: string[];
-  swimlanes?: string[];
+  areas?: string[];
   tags?: string[];
   manager?: string;
   // Data sources the user shares at onboarding (forwarded to connected external apps).

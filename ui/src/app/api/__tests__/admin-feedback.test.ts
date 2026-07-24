@@ -741,7 +741,7 @@ describe('GET /api/admin/feedback', () => {
           slug: 'proj-a',
           title: 'Project A',
           domain: 'Platform',
-          labels: { initiatives: ['Modernization'], swimlanes: ['Core'] },
+          labels: { initiatives: ['Modernization'], areas: ['Core'] },
         },
       ]),
     );

@@ -15,6 +15,7 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/components/ui/toast";
 import { CrepeEditor, type CrepeEditorHandle } from "@/components/tome/CrepeEditor";
 import { PAGE_KINDS, type PageKind } from "@/types/tome";
@@ -279,7 +280,7 @@ export function PageTemplateEditor() {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border bg-muted/30 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              <th className="px-3 py-2.5 w-10" title="Templating on/off">On</th>
+              <th className="px-3 py-2.5 w-16" title="Templating enabled/disabled">Enabled</th>
               <th className="px-3 py-2.5">Path</th>
               <th className="px-3 py-2.5">Title</th>
               <th className="px-3 py-2.5">Kind</th>
@@ -292,13 +293,12 @@ export function PageTemplateEditor() {
               <Fragment key={i}>
               <tr className={`align-top ${p.enabled === false ? "opacity-50" : ""}`}>
                 <td className="px-3 py-2">
-                  <input
-                    type="checkbox"
+                  <Switch
                     checked={p.enabled !== false}
                     onChange={(e) => updateRow(i, { enabled: e.target.checked })}
-                    className="mt-2 h-4 w-4 accent-primary"
+                    className="mt-1.5"
                     aria-label="Templating enabled"
-                    title={p.enabled === false ? "Templating off" : "Templating on"}
+                    title={p.enabled === false ? "Templating disabled" : "Templating enabled"}
                   />
                 </td>
                 <td className="px-3 py-2">
@@ -418,7 +418,7 @@ export function PageTemplateEditor() {
         </table>
       </div>
 
-      <div className="flex items-center justify-between">
+      <div className="sticky bottom-0 z-10 flex items-center justify-between border-t border-border bg-background/95 px-1 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80">
         <Button variant="ghost" size="sm" onClick={addRow}>
           <Plus className="mr-1.5 h-4 w-4" />
           Add page

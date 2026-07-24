@@ -7,6 +7,8 @@ import {
   ArrowRight,
   Check,
   FileText,
+  FolderKanban,
+  Layers,
   MessageSquare,
   MessagesSquare,
   Network,
@@ -135,14 +137,14 @@ function buildSteps(projectName?: string): Step[] {
   return [
     { node: <WelcomeStep name={name} /> },
     { node: <PagesStep /> },
-    { node: <GlossaryStep /> },
     { node: <IngestStep /> },
     { node: <BhagStep /> },
+    { node: <GlossaryStep /> },
     { node: <EdgesStep /> },
     { node: <AgentStep /> },
+    { node: <McpStep /> },
     { node: <FeedStep /> },
     { node: <GistsStep /> },
-    { node: <McpStep /> },
   ];
 }
 
@@ -295,18 +297,46 @@ function BhagStep() {
       <StepHeader
         icon={<Target className="h-5 w-5" />}
         eyebrow="BHAG"
-        title="Roll many projects up into one goal"
+        title="Three tiers, one synthesized roll-up"
       >
-        A BHAG (Big Hairy Audacious Goal) is a strategic goal with no sources of
-        its own. Tag projects to it and the agent{" "}
-        <span className="font-medium text-foreground">synthesizes</span> its wiki
-        from theirs, a living roll-up of where the whole effort stands.
+        <div className="space-y-2.5">
+          <div className="flex items-start gap-2">
+            <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border border-primary/40 bg-primary/10 text-primary">
+              <Target className="h-3 w-3" />
+            </span>
+            <p>
+              <span className="font-medium text-foreground">BHAG</span> (Big
+              Hairy Audacious Goal): a large, organization-wide strategic effort.
+            </p>
+          </div>
+          <div className="flex items-start gap-2">
+            <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border border-sky-500/40 bg-sky-500/10 text-sky-600 dark:text-sky-400">
+              <Layers className="h-3 w-3" />
+            </span>
+            <p>
+              <span className="font-medium text-foreground">Area</span>: a
+              mid-tier grouping of related projects under a BHAG.
+            </p>
+          </div>
+          <div className="flex items-start gap-2">
+            <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border border-border bg-muted text-muted-foreground">
+              <FolderKanban className="h-3 w-3" />
+            </span>
+            <p>
+              <span className="font-medium text-foreground">Project</span>:
+              where the work happens. It has its own sources (repos,
+              Confluence, Webex) and its wiki is built by ingesting them.
+            </p>
+          </div>
+          <p>
+            BHAGs and Areas have no sources of their own. The agent{" "}
+            <span className="font-medium text-foreground">synthesizes</span>{" "}
+            their wiki from the projects (and Areas) tagged beneath them. A
+            project can also skip an Area and tag a BHAG directly.
+          </p>
+        </div>
       </StepHeader>
       <BhagLadder />
-      <p className="text-sm leading-relaxed text-muted-foreground">
-        Group the projects hub by BHAG to see each goal and the work laddering up
-        to it.
-      </p>
     </div>
   );
 }
@@ -314,23 +344,27 @@ function BhagStep() {
 function BhagLadder() {
   return (
     <div className="rounded-lg border bg-muted/30 px-4 py-4">
-      <div className="flex flex-wrap items-center justify-center gap-2">
-        {["Atlas", "Beacon", "Carbon"].map((p) => (
-          <span
-            key={p}
-            className="rounded-md border bg-background px-2.5 py-1 text-xs font-medium"
-          >
-            {p}
-          </span>
-        ))}
-      </div>
-      <div className="my-2 flex items-center justify-center gap-1.5 text-[11px] text-muted-foreground">
-        <span className="h-px w-8 bg-border" />
-        synthesized
-        <span className="h-px w-8 bg-border" />
-      </div>
-      <div className="flex justify-center">
-        <span className="gradient-primary-br inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold text-white">
+      <div className="grid grid-cols-[5rem_1fr] items-center gap-x-3 gap-y-2">
+        <span className="text-xs font-medium text-muted-foreground">Projects</span>
+        <div className="flex flex-wrap items-center gap-2">
+          {["Atlas", "Beacon"].map((p, i) => (
+            <span key={p} className="flex items-center gap-2">
+              {i > 0 && <span className="text-muted-foreground/50">|</span>}
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted px-2.5 py-1 text-xs font-medium text-foreground">
+                <FolderKanban className="h-3.5 w-3.5 text-muted-foreground" />
+                {p}
+              </span>
+            </span>
+          ))}
+        </div>
+
+        <span className="text-xs font-medium text-muted-foreground">Areas</span>
+        <span className="inline-flex w-fit items-center gap-1.5 rounded-full border border-sky-500/40 bg-sky-500/10 px-2.5 py-1 text-xs font-semibold text-sky-600 dark:text-sky-400">
+          <Layers className="h-3.5 w-3.5" /> Horizon
+        </span>
+
+        <span className="text-xs font-medium text-muted-foreground">BHAGs</span>
+        <span className="inline-flex w-fit items-center gap-1.5 rounded-full border border-primary/40 bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary">
           <Target className="h-3.5 w-3.5" /> Project Horizon
         </span>
       </div>
@@ -379,7 +413,7 @@ function AgentStep() {
       <StepHeader
         icon={<MessageSquare className="h-5 w-5" />}
         eyebrow="Agent"
-        title="Chat with the editing agent"
+        title="Chat with TOME agent directly in the UI"
       >
         Ask questions about the project, or have it draft, refine, and
         reorganize the wiki pages it reads and writes.
@@ -391,6 +425,7 @@ function AgentStep() {
             "What changed this week?",
             "Draft an architecture overview",
             "Summarize the open decisions",
+            "Update the wiki to reference our new project direction",
           ].map((q) => (
             <li key={q} className="flex gap-2 text-sm text-muted-foreground">
               <span className="select-none text-primary/70">›</span>
@@ -409,7 +444,7 @@ function FeedStep() {
       <StepHeader
         icon={<MessagesSquare className="h-5 w-5" />}
         eyebrow="Activity"
-        title="Bring your agents into the mix"
+        title="Collaborate in real-time across agents"
       >
         Activity is the project&apos;s activity feed: GitHub and ingest events plus live
         discussion, powered by Mycelium. People post here, and so do agents:{" "}

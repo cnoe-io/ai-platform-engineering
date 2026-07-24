@@ -13,6 +13,7 @@ import {
   FolderKanban,
   HelpCircle,
   History,
+  Layers,
   Plus,
   RefreshCw,
   Rocket,
@@ -41,7 +42,7 @@ import { cn } from "@/lib/utils";
 import type { ProjectDocument } from "@/types/projects";
 import type { ActiveIngestRun } from "@/types/tome";
 
-type GroupBy = "none" | "initiative" | "swimlane";
+type GroupBy = "none" | "initiative" | "area";
 
 // Shared with TomeWiki so the first-run walkthrough shows once per browser
 // across the hub and any project's wiki.
@@ -187,7 +188,7 @@ function groupProjects(
     const values =
       groupBy === "initiative"
         ? (p.labels?.initiatives ?? [])
-        : (p.labels?.swimlanes ?? []);
+        : (p.labels?.areas ?? []);
 
     if (values.length === 0) {
       ungrouped.push(p);
@@ -208,6 +209,36 @@ function groupProjects(
   }
 
   return groups;
+}
+
+/** Split a BHAG group's projects into Area sub-groups (by their `labels.areas`
+ * tags) and the skip-level projects that tag the BHAG directly with no area.
+ * Derived from the tags actually present on these projects — not from a
+ * promoted Area entity, since most areas start as bare tags before anyone
+ * promotes one into a first-class wiki. */
+function splitByArea(
+  items: EnrichedProject[],
+): { areaItems: { label: string; items: EnrichedProject[] }[]; skipLevel: EnrichedProject[] } {
+  const map = new Map<string, EnrichedProject[]>();
+  const skipLevel: EnrichedProject[] = [];
+
+  for (const p of items) {
+    const areaLabels = p.labels?.areas ?? [];
+    if (areaLabels.length === 0) {
+      skipLevel.push(p);
+    } else {
+      for (const a of areaLabels) {
+        if (!map.has(a)) map.set(a, []);
+        map.get(a)!.push(p);
+      }
+    }
+  }
+
+  const areaItems = [...map.entries()]
+    .sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]))
+    .map(([label, areaProjects]) => ({ label, items: areaProjects }));
+
+  return { areaItems, skipLevel };
 }
 
 function stewardInitials(email: string): string {
@@ -346,26 +377,126 @@ function ProjectCard({ project }: { project: EnrichedProject }) {
   );
 }
 
+/** One Area nested under a BHAG group: the Area entity (if promoted yet) plus
+ * the projects tagged to it (via labels.areas). Rendered as its own
+ * collapsible sub-accordion so the BHAG → Area → Project chain is visible. */
+function AreaSubGroup({
+  label,
+  items,
+  area,
+  onCreateArea,
+  creating,
+}: {
+  label: string;
+  items: EnrichedProject[];
+  area?: EnrichedProject | null;
+  onCreateArea?: (label: string, items: EnrichedProject[]) => void;
+  creating?: boolean;
+}) {
+  const [collapsed, setCollapsed] = useState(false);
+
+  return (
+    <div className="ml-4 space-y-2 border-l-2 border-sky-500/20 pl-4 sm:ml-6 sm:pl-6">
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setCollapsed((c) => !c)}
+          className="flex flex-grow items-center gap-2 text-left"
+        >
+          {collapsed ? (
+            <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          ) : (
+            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          )}
+          <Layers className="h-3.5 w-3.5 shrink-0 text-sky-500" />
+          <span className="text-sm font-semibold text-sky-500">{label}</span>
+          <span className="text-xs text-muted-foreground/50">{items.length}</span>
+          <span className="ml-1 h-px flex-grow bg-border/30" />
+        </button>
+
+        {area ? (
+          <Link
+            href={`/projects/${area.slug}`}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-sky-500/40 bg-sky-500/10 px-2.5 py-1 text-xs font-medium text-sky-600 transition hover:border-sky-500 hover:bg-sky-500/20 dark:text-sky-400"
+          >
+            <BookOpen className="h-3 w-3" />
+            Open wiki
+            <ArrowRight className="h-3 w-3" />
+          </Link>
+        ) : (
+          <button
+            type="button"
+            onClick={() => onCreateArea?.(label, items)}
+            disabled={creating}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-dashed border-sky-500/40 px-2.5 py-1 text-xs font-medium text-sky-500/80 transition hover:border-sky-500 hover:bg-sky-500/10 disabled:opacity-50"
+          >
+            <Plus className="h-3 w-3" />
+            {creating ? "Creating…" : "Create area wiki"}
+          </button>
+        )}
+      </div>
+
+      {!collapsed && items.length > 0 && (
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {items.map((p) => (
+            <ProjectCard key={String(p._id)} project={p} />
+          ))}
+        </div>
+      )}
+      {!collapsed && items.length === 0 && (
+        <p className="py-1 text-xs text-muted-foreground/70">No projects tagged to this area yet.</p>
+      )}
+    </div>
+  );
+}
+
 function ProjectGroup({
   label,
   items,
   groupBy,
   bhag,
+  area,
+  parentBhagName,
+  childAreas,
   onCreateBhag,
+  onCreateArea,
   creating,
+  creatingArea,
 }: {
   label: string;
   items: EnrichedProject[];
   groupBy: GroupBy;
-  /** The BHAG entity matching this group's label, when one exists. */
+  /** The BHAG entity matching this group's label, when groupBy="initiative". */
   bhag?: EnrichedProject | null;
+  /** The Area entity matching this group's label, when groupBy="area". */
+  area?: EnrichedProject | null;
+  /** The BHAG this area belongs to (from area's labels.initiatives), for the breadcrumb. */
+  parentBhagName?: string | null;
+  /** Areas tagged to this BHAG (via labels.initiatives), each with its own
+   * tagged projects — rendered as nested sub-accordions. groupBy="initiative" only. */
+  childAreas?: { label: string; area: EnrichedProject | null; items: EnrichedProject[] }[];
   /** Promote this initiative label into a first-class BHAG wiki. */
   onCreateBhag?: (label: string, items: EnrichedProject[]) => void;
+  /** Promote this area label into a first-class Area wiki. Called with the
+   * parent BHAG's name when creating from a BHAG group's nested Area
+   * sub-accordion (see `handleAreaCreate` below); omitted from the flat
+   * "Group by Area" view, which has no BHAG context. */
+  onCreateArea?: (label: string, items: EnrichedProject[], parentBhagName?: string) => void;
   creating?: boolean;
+  /** Which area label (normalized) is currently being created, for the nested buttons. */
+  creatingArea?: string | null;
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const isUngrouped = label === "Ungrouped";
   const isBhagGroup = groupBy === "initiative" && !isUngrouped;
+  const isAreaGroup = groupBy === "area" && !isUngrouped;
+  // Nested Area sub-accordions live only under a BHAG group, so this group's
+  // own `label` is their parent BHAG's name.
+  const handleAreaCreate = useCallback(
+    (areaLabel: string, items: EnrichedProject[]) =>
+      onCreateArea?.(areaLabel, items, isBhagGroup ? label : undefined),
+    [onCreateArea, isBhagGroup, label],
+  );
   const labelClass = isUngrouped
     ? "text-sm font-medium text-muted-foreground"
     : groupBy === "initiative"
@@ -386,7 +517,15 @@ function ProjectGroup({
             <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
           )}
           {isBhagGroup && <Target className="h-4 w-4 shrink-0 text-primary" />}
+          {isAreaGroup && <Layers className="h-4 w-4 shrink-0 text-sky-500" />}
           <span className={labelClass}>{label}</span>
+          {/* Breadcrumb: show which BHAG this area belongs to */}
+          {isAreaGroup && parentBhagName && (
+            <span className="inline-flex items-center gap-1 rounded-full border border-primary/20 bg-primary/5 px-2 py-0.5 text-xs text-primary/70">
+              <Target className="h-2.5 w-2.5" />
+              {parentBhagName}
+            </span>
+          )}
           <span className="text-xs text-muted-foreground/50">{items.length}</span>
           <span className="ml-1 h-px flex-grow bg-border/40" />
         </button>
@@ -414,13 +553,61 @@ function ProjectGroup({
               {creating ? "Creating…" : "Create BHAG wiki"}
             </button>
           ))}
+
+        {/* Area front door: open the area wiki, or promote this area label into one. */}
+        {isAreaGroup &&
+          (area ? (
+            <Link
+              href={`/projects/${area.slug}`}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-1.5 text-xs font-medium text-sky-600 transition hover:border-sky-500 hover:bg-sky-500/20 dark:text-sky-400"
+            >
+              <BookOpen className="h-3.5 w-3.5" />
+              Open {area.name} wiki
+              <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+          ) : (
+            <button
+              type="button"
+              onClick={() => onCreateArea?.(label, items)}
+              disabled={creating}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-dashed border-sky-500/40 px-3 py-1.5 text-xs font-medium text-sky-500/80 transition hover:border-sky-500 hover:bg-sky-500/10 disabled:opacity-50"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              {creating ? "Creating…" : "Create area wiki"}
+            </button>
+          ))}
       </div>
 
       {!collapsed && (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {items.map((p) => (
-            <ProjectCard key={String(p._id)} project={p} />
-          ))}
+        <div className="space-y-4">
+          {isBhagGroup && childAreas && childAreas.length > 0 && (
+            <div className="space-y-3">
+              {childAreas.map((ca) => (
+                <AreaSubGroup
+                  key={ca.label}
+                  label={ca.label}
+                  items={ca.items}
+                  area={ca.area}
+                  onCreateArea={handleAreaCreate}
+                  creating={creatingArea === normLabel(ca.label)}
+                />
+              ))}
+            </div>
+          )}
+
+          {isBhagGroup && childAreas && childAreas.length > 0 && items.length > 0 && (
+            <p className="pl-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+              Tagged directly (no area)
+            </p>
+          )}
+
+          {items.length > 0 && (
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {items.map((p) => (
+                <ProjectCard key={String(p._id)} project={p} />
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -433,7 +620,9 @@ export function ProjectsHub() {
   const { toast } = useToast();
   const [projects, setProjects] = useState<EnrichedProject[]>([]);
   const [bhags, setBhags] = useState<EnrichedProject[]>([]);
+  const [areas, setAreas] = useState<EnrichedProject[]>([]);
   const [creatingBhag, setCreatingBhag] = useState<string | null>(null);
+  const [creatingArea, setCreatingArea] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hero, setHero] = useState<OnboardingHeroConfig>({
@@ -462,7 +651,7 @@ export function ProjectsHub() {
   }, []);
 
   // Default to grouping by BHAG so strategic goals are the primary lens; the
-  // user can still drop to a flat list or swimlanes.
+  // user can still drop to a flat list or areas.
   const groupBy = (searchParams.get("groupBy") ?? "initiative") as GroupBy;
 
   const setGroupBy = (value: GroupBy) => {
@@ -482,9 +671,10 @@ export function ProjectsHub() {
       // Real projects (BHAGs are filtered out server-side) and BHAG entities are
       // fetched separately; BHAGs enrich the Group-by-BHAG headers rather than
       // appearing as project cards.
-      const [projRes, bhagRes] = await Promise.all([
+      const [projRes, bhagRes, areaRes] = await Promise.all([
         fetch("/api/projects"),
         fetch("/api/projects?type=bhag"),
+        fetch("/api/projects?type=area"),
       ]);
       const projBody = await projRes.json();
       if (!projRes.ok) throw new Error(projBody.error ?? "Failed to load projects");
@@ -492,6 +682,10 @@ export function ProjectsHub() {
       if (bhagRes.ok) {
         const bhagBody = await bhagRes.json();
         setBhags((bhagBody.data?.projects ?? []) as EnrichedProject[]);
+      }
+      if (areaRes.ok) {
+        const areaBody = await areaRes.json();
+        setAreas((areaBody.data?.projects ?? []) as EnrichedProject[]);
       }
     } catch (err) {
       if (!silent) setError(err instanceof Error ? err.message : String(err));
@@ -504,6 +698,32 @@ export function ProjectsHub() {
   // the entity matching its initiative label.
   const bhagByLabel = new Map<string, EnrichedProject>();
   for (const b of bhags) bhagByLabel.set(normLabel(b.name), b);
+
+  // Index Area entities by normalized name for the Group-by-Area view.
+  const areaByLabel = new Map<string, EnrichedProject>();
+  for (const a of areas) areaByLabel.set(normLabel(a.name), a);
+
+  // Areas tagged to a BHAG (via labels.initiatives), keyed by the BHAG's
+  // normalized label, so a Group-by-BHAG section can nest its Areas.
+  const areasByBhagLabel = new Map<string, EnrichedProject[]>();
+  for (const a of areas) {
+    for (const bhagLabel of a.labels?.initiatives ?? []) {
+      const key = normLabel(bhagLabel);
+      if (!areasByBhagLabel.has(key)) areasByBhagLabel.set(key, []);
+      areasByBhagLabel.get(key)!.push(a);
+    }
+  }
+
+  // Projects tagged to an Area (via labels.areas), keyed by the Area's
+  // normalized label, so each Area sub-accordion can list its own projects.
+  const projectsByAreaLabel = new Map<string, EnrichedProject[]>();
+  for (const p of projects) {
+    for (const areaLabel of p.labels?.areas ?? []) {
+      const key = normLabel(areaLabel);
+      if (!projectsByAreaLabel.has(key)) projectsByAreaLabel.set(key, []);
+      projectsByAreaLabel.get(key)!.push(p);
+    }
+  }
 
   // Promote an initiative label into a first-class BHAG wiki. The BHAG inherits
   // the team of the projects already tagged with it, then we route to its wiki.
@@ -530,6 +750,44 @@ export function ProjectsHub() {
         toast(`Could not create BHAG: ${err instanceof Error ? err.message : String(err)}`, "error");
       } finally {
         setCreatingBhag(null);
+      }
+    },
+    [router, toast],
+  );
+
+  // `parentBhagName` is set for calls originating from a BHAG group's nested
+  // Area sub-accordion (the calling context knows which BHAG it's under) so
+  // the new Area is linked into the hierarchy immediately, rather than
+  // becoming an orphaned bare label like the flat "Group by Area" view (which
+  // has no BHAG context and leaves `initiatives` unset).
+  const handleCreateArea = useCallback(
+    async (label: string, items: EnrichedProject[], parentBhagName?: string) => {
+      const teamId = items[0]?.team_slug || items[0]?.team_id;
+      if (!teamId) {
+        setError("Cannot create an Area: no team found for this group.");
+        return;
+      }
+      setCreatingArea(normLabel(label));
+      setError(null);
+      try {
+        const res = await fetch("/api/projects", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: label,
+            type: "area",
+            team_id: teamId,
+            ...(parentBhagName ? { initiatives: [parentBhagName] } : {}),
+          }),
+        });
+        const body = await res.json();
+        if (!res.ok) throw new Error(body.error ?? "Failed to create Area");
+        const slug = body.data?.project?.slug;
+        if (slug) router.push(`/projects/${slug}`);
+      } catch (err) {
+        toast(`Could not create Area: ${err instanceof Error ? err.message : String(err)}`, "error");
+      } finally {
+        setCreatingArea(null);
       }
     },
     [router, toast],
@@ -579,7 +837,26 @@ export function ProjectsHub() {
       });
   }, []);
 
+  // A promoted BHAG/Area entity with zero tagged children never appears as a
+  // group on its own (groupProjects only derives groups from tags actually
+  // present on `projects`) — invisible right after creation until someone
+  // tags a project to it. Inject an empty group for any entity not already
+  // covered, so a freshly created BHAG/Area is findable immediately.
+  const entitiesForGroupBy = groupBy === "initiative" ? bhags : groupBy === "area" ? areas : [];
   const groups = groupProjects(projects, groupBy);
+  if (groupBy === "initiative" || groupBy === "area") {
+    const covered = new Set(groups.map((g) => normLabel(g.label)));
+    for (const entity of entitiesForGroupBy) {
+      const key = normLabel(entity.name);
+      if (covered.has(key)) continue;
+      covered.add(key);
+      groups.splice(groups.length > 0 && groups[groups.length - 1].key === "__ungrouped__" ? groups.length - 1 : groups.length, 0, {
+        key: entity.slug,
+        label: entity.name,
+        items: [],
+      });
+    }
+  }
   const activeIngests = projects.flatMap((p) => p.active_ingests ?? []);
 
   return (
@@ -666,7 +943,7 @@ export function ProjectsHub() {
               className="rounded-lg border border-border bg-background px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
             >
               <option value="initiative">Group by BHAG</option>
-              <option value="swimlane">Group by Area</option>
+              <option value="area">Group by Area</option>
               <option value="none">No grouping</option>
             </select>
           </div>
@@ -699,17 +976,74 @@ export function ProjectsHub() {
             </div>
           ) : (
             <div className="space-y-8">
-              {groups.map((g) => (
-                <ProjectGroup
-                  key={g.key}
-                  label={g.label}
-                  items={g.items}
-                  groupBy={groupBy}
-                  bhag={groupBy === "initiative" ? bhagByLabel.get(normLabel(g.label)) : null}
-                  onCreateBhag={handleCreateBhag}
-                  creating={creatingBhag === normLabel(g.label)}
-                />
-              ))}
+              {groups.map((g) => {
+                const areaEntity = groupBy === "area" ? areaByLabel.get(normLabel(g.label)) : null;
+                const parentBhagName = areaEntity?.labels?.initiatives?.[0] ?? null;
+
+                // Areas nested under a BHAG group come from two sources, merged:
+                // (1) promoted Area entities whose own labels.initiatives point
+                // here — the forward-looking, entity-first path, discoverable
+                // even if none of their child projects also tag this BHAG
+                // directly; (2) area tags found on this BHAG's own skip-level
+                // items — legacy/unpromoted areas (e.g. a free-text tag like
+                // "CFN" typed before anyone ran "Create area wiki") that would
+                // otherwise be invisible until promoted.
+                let childAreas:
+                  | { label: string; area: EnrichedProject | null; items: EnrichedProject[] }[]
+                  | undefined;
+                let displayItems = g.items;
+                if (groupBy === "initiative") {
+                  const { areaItems: taggedAreaItems, skipLevel } = splitByArea(g.items);
+                  const merged = new Map<
+                    string,
+                    { label: string; area: EnrichedProject | null; items: EnrichedProject[] }
+                  >();
+                  for (const ai of taggedAreaItems) {
+                    merged.set(normLabel(ai.label), {
+                      label: ai.label,
+                      area: areaByLabel.get(normLabel(ai.label)) ?? null,
+                      items: ai.items,
+                    });
+                  }
+                  for (const a of areasByBhagLabel.get(normLabel(g.label)) ?? []) {
+                    const key = normLabel(a.name);
+                    const entityItems = projectsByAreaLabel.get(key) ?? [];
+                    const existing = merged.get(key);
+                    if (existing) {
+                      const byId = new Map(existing.items.map((p) => [String(p._id), p]));
+                      for (const p of entityItems) byId.set(String(p._id), p);
+                      merged.set(key, { label: a.name, area: a, items: [...byId.values()] });
+                    } else {
+                      merged.set(key, { label: a.name, area: a, items: entityItems });
+                    }
+                  }
+                  childAreas = [...merged.values()].sort(
+                    (a, b) => b.items.length - a.items.length || a.label.localeCompare(b.label),
+                  );
+                  displayItems = skipLevel;
+                }
+
+                return (
+                  <ProjectGroup
+                    key={g.key}
+                    label={g.label}
+                    items={displayItems}
+                    groupBy={groupBy}
+                    bhag={groupBy === "initiative" ? bhagByLabel.get(normLabel(g.label)) : null}
+                    area={areaEntity}
+                    parentBhagName={parentBhagName}
+                    childAreas={childAreas}
+                    onCreateBhag={handleCreateBhag}
+                    onCreateArea={handleCreateArea}
+                    creating={
+                      groupBy === "initiative"
+                        ? creatingBhag === normLabel(g.label)
+                        : creatingArea === normLabel(g.label)
+                    }
+                    creatingArea={creatingArea}
+                  />
+                );
+              })}
             </div>
           )}
         </TooltipProvider>

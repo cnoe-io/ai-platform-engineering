@@ -276,7 +276,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         };
       }
       if (areaNames) {
-        projectQuery['labels.swimlanes'] = {
+        projectQuery['labels.areas'] = {
           $in: areaNames.map((n) => new RegExp(`^${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i')),
         };
       }
@@ -444,7 +444,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         .sort((a, b) => a.title.localeCompare(b.title));
       for (const p of projectDocs) {
         const bhags = p.labels?.initiatives ?? [];
-        const areas = p.labels?.swimlanes ?? [];
+        const areas = p.labels?.areas ?? [];
         slugToProjectInfo.set(p.slug, {
           title: p.title || p.name || p.slug,
           domain: p.labels?.domain || p.domain,
@@ -555,7 +555,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
           title: p.title || p.name || p.slug,
           domain: p.labels?.domain || p.domain,
           bhags: p.labels?.initiatives ?? [],
-          areas: p.labels?.swimlanes ?? [],
+          areas: p.labels?.areas ?? [],
         });
       }
     }

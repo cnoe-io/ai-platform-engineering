@@ -10,11 +10,13 @@ import {
   CheckCircle2,
   ChevronDown,
   FolderKanban,
+  Layers,
   ListChecks,
   Loader2,
   Rocket,
   Search,
   Shield,
+  Target,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -27,7 +29,6 @@ import {
 } from "react";
 
 import { TeamPicker, type TeamPickerOption } from "@/components/ui/team-picker";
-import { LabelComboBox } from "@/components/projects/LabelComboBox";
 import { UserEmailPicker } from "@/components/ui/user-email-picker";
 import { ProviderLogo } from "@/components/credentials/provider-logo";
 import { SourcePicker } from "@/components/projects/source-pickers";
@@ -76,6 +77,8 @@ function isSourceStep(s: OnboardingStepConfig): boolean {
   return s.provider === "source";
 }
 
+type EntityType = "project" | "area" | "bhag";
+
 interface WizardStepMeta {
   id: string;
   title: string;
@@ -83,16 +86,53 @@ interface WizardStepMeta {
   icon: LucideIcon;
   gradient: string;
   checklist?: string[];
-  /** create = general info; slt = SLT governance fields; access = team/steward; integrations = apps/sources; review = confirm + commit. */
-  kind: "create" | "slt" | "access" | "integrations" | "review";
+  /** type = pick project/area/bhag; create = general info; slt = SLT governance
+   * fields; access = team/steward; integrations = apps/sources; review =
+   * confirm + commit. */
+  kind: "type" | "create" | "slt" | "access" | "integrations" | "review";
   source?: SourceKind;
 }
 
 const DEFAULT_GRADIENT = "from-primary to-primary/70";
 
+const ENTITY_TYPE_OPTIONS: {
+  value: EntityType;
+  label: string;
+  description: string;
+  icon: LucideIcon;
+}[] = [
+  {
+    value: "project",
+    label: "Project",
+    description: "A project with its own sources",
+    icon: FolderKanban,
+  },
+  {
+    value: "area",
+    label: "Area",
+    description: "A mid-tier grouping under a BHAG",
+    icon: Layers,
+  },
+  {
+    value: "bhag",
+    label: "BHAG",
+    description: "A strategic goal that spans multiple projects",
+    icon: Target,
+  },
+];
+
 function buildWizardSteps(
   configSteps: OnboardingStepConfig[],
+  entityType: EntityType,
 ): WizardStepMeta[] {
+  const type: WizardStepMeta = {
+    id: "type",
+    title: "Type",
+    subtitle: "What are you creating?",
+    icon: Boxes,
+    gradient: DEFAULT_GRADIENT,
+    kind: "type",
+  };
   const create: WizardStepMeta = {
     id: "create",
     title: "General",
@@ -112,12 +152,15 @@ function buildWizardSteps(
   const access: WizardStepMeta = {
     id: "access",
     title: "Access Control",
-    subtitle: "Assign a team and data steward",
+    subtitle: entityType === "project" ? "Assign a team and data steward" : "Assign a team",
     icon: Shield,
     gradient: DEFAULT_GRADIENT,
     kind: "access",
   };
-  const integrations: WizardStepMeta | null = configSteps.length
+  // BHAG/Area are synthesis-only wikis, not deployable projects — skip the
+  // Integrations step entirely (neither sources nor app tiles apply).
+  const relevantConfigSteps = entityType === "project" ? configSteps : [];
+  const integrations: WizardStepMeta | null = relevantConfigSteps.length
     ? {
         id: "integrations",
         title: "Integrations",
@@ -130,14 +173,15 @@ function buildWizardSteps(
   const review: WizardStepMeta = {
     id: "review",
     title: "Review & Create",
-    subtitle: "Confirm and create the project",
+    subtitle: "Confirm and create",
     icon: ListChecks,
     gradient: DEFAULT_GRADIENT,
     kind: "review",
   };
-  return [create, slt, access, integrations, review].filter(
-    (s): s is WizardStepMeta => Boolean(s),
-  );
+  const steps: (WizardStepMeta | null)[] = [type, create];
+  if (entityType === "project") steps.push(slt);
+  steps.push(access, integrations, review);
+  return steps.filter((s): s is WizardStepMeta => Boolean(s));
 }
 
 export function ProjectOnboardingWizard({
@@ -155,11 +199,18 @@ export function ProjectOnboardingWizard({
   // `default_enabled`. Drives the Integrations step + which apps provision.
   const [enabled, setEnabled] = useState<Record<string, boolean>>({});
   const [phaseIndex, setPhaseIndex] = useState(0);
+  const [entityType, setEntityType] = useState<EntityType>("project");
+  // Hierarchy tagging (replaces free-text initiatives/areas): the parent BHAG
+  // this project/area is being tagged to, and — for a project with a BHAG
+  // selected — either a parent Area under it, or "" for "no area" (skip-level,
+  // tag the BHAG directly).
+  const [bhagOptions, setBhagOptions] = useState<{ name: string; slug: string }[]>([]);
+  const [areaOptions, setAreaOptions] = useState<{ name: string; slug: string }[]>([]);
+  const [selectedBhagName, setSelectedBhagName] = useState<string | null>(null);
+  const [selectedAreaName, setSelectedAreaName] = useState<string>("");
   const [projectName, setProjectName] = useState("");
   const [description, setDescription] = useState("");
   const [teamId, setTeamId] = useState("");
-  const [initiativesRaw, setInitiativesRaw] = useState("");
-  const [swimlanesRaw, setSwimlanesRaw] = useState("");
   // User-shared data sources (collected by the configured `source` steps;
   // forwarded to connected external apps on onboarding).
   const [githubReposRaw, setGithubReposRaw] = useState("");
@@ -185,11 +236,6 @@ export function ProjectOnboardingWizard({
   const [bsResults, setBsResults] = useState<BackstageResult[]>([]);
   const [bsLoading, setBsLoading] = useState(false);
   const bsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Existing label values (for dropdown suggestions on BHAG / Area).
-  const [labelFacets, setLabelFacets] = useState<{ initiatives: string[]; swimlanes: string[] }>({
-    initiatives: [],
-    swimlanes: [],
-  });
   const [teams, setTeams] = useState<TeamPickerOption[]>([]);
   const [teamsLoading, setTeamsLoading] = useState(true);
   const [provisioning, setProvisioning] = useState(false);
@@ -203,12 +249,15 @@ export function ProjectOnboardingWizard({
   }, [teams]);
 
   const wizardSteps = useMemo(
-    () => buildWizardSteps(configSteps),
-    [configSteps],
+    () => buildWizardSteps(configSteps, entityType),
+    [configSteps, entityType],
   );
   const phase = wizardSteps[phaseIndex] ?? wizardSteps[0];
-  // Flow: create=0, [integrations], review. Review is terminal — Create commits,
-  // provisions enabled apps in the background, and navigates to the project.
+  // Flow: type=0, create, [slt], access, [integrations], review. Review is
+  // terminal — Create commits, provisions enabled apps in the background, and
+  // navigates to the project.
+  const isTypePhase = phase.kind === "type";
+  const isCreatePhase = phase.kind === "create";
   const isSltPhase = phase.kind === "slt";
   const isAccessPhase = phase.kind === "access";
   const isIntegrationsPhase = phase.kind === "integrations";
@@ -237,7 +286,10 @@ export function ProjectOnboardingWizard({
   const applyBackstageResult = useCallback((r: BackstageResult) => {
     setProjectName(r.title);
     setDescription(r.description);
-    setInitiativesRaw(r.tags.join(", "));
+    // Note: Backstage tags aren't mapped into the BHAG/Area hierarchy (they're
+    // free-form catalog tags, not necessarily existing BHAG/Area names) — the
+    // user picks the parent explicitly below. TODO: best-effort match a tag
+    // against an existing BHAG name and pre-select it.
     setGithubReposRaw(r.repos.join(", "));
     setBsOpen(false);
   }, []);
@@ -269,25 +321,14 @@ export function ProjectOnboardingWizard({
         setEnabled({});
       });
 
-    // Existing label values → datalist suggestions for BHAG / Area.
-    fetch("/api/projects/facets")
+    // Existing BHAGs, for the Parent BHAG picker (Area/Project flows).
+    fetch("/api/projects?type=bhag")
       .then((res) => (res.ok ? res.json() : null))
       .then((body) => {
-        const f = body?.data?.facets ?? body?.data ?? body;
-        const vals = (arr: unknown): string[] =>
-          Array.isArray(arr)
-            ? arr
-                .map((x) => (typeof x === "string" ? x : (x?.value ?? x?.label)))
-                .filter((v): v is string => typeof v === "string" && v.length > 0)
-            : [];
-        if (f) {
-          setLabelFacets({
-            initiatives: vals(f.initiatives),
-            swimlanes: vals(f.swimlanes),
-          });
-        }
+        const list = (body?.data?.projects ?? []) as { name: string; slug: string }[];
+        setBhagOptions(list.map((b) => ({ name: b.name, slug: b.slug })));
       })
-      .catch(() => undefined);
+      .catch(() => setBhagOptions([]));
 
     fetch("/api/dynamic-agents/teams")
       .then((res) => res.json())
@@ -318,13 +359,35 @@ export function ProjectOnboardingWizard({
       .finally(() => setTeamsLoading(false));
   }, [open]);
 
+  // Areas tagged to the selected parent BHAG (project's cascading picker, or
+  // just to keep the selection meaningful) — cleared when no BHAG is selected.
+  useEffect(() => {
+    if (!selectedBhagName) {
+      setAreaOptions([]);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/projects?type=area&initiative=${encodeURIComponent(selectedBhagName)}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body) => {
+        if (cancelled) return;
+        const list = (body?.data?.projects ?? []) as { name: string; slug: string }[];
+        setAreaOptions(list.map((a) => ({ name: a.name, slug: a.slug })));
+      })
+      .catch(() => !cancelled && setAreaOptions([]));
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedBhagName]);
+
   const reset = useCallback(() => {
     setPhaseIndex(0);
+    setEntityType("project");
+    setSelectedBhagName(null);
+    setSelectedAreaName("");
     setProjectName("");
     setDescription("");
     setTeamId("");
-    setInitiativesRaw("");
-    setSwimlanesRaw("");
     setGithubReposRaw("");
     setStewardEmail("");
     setBlastRadius("");
@@ -343,39 +406,65 @@ export function ProjectOnboardingWizard({
   async function createProject() {
     setError(null);
     setProvisioning(true);
-    // Only collect source data for sources the user actually enabled.
-    const enabledSourceKinds = new Set(
-      configSteps
-        .filter((s) => isSourceStep(s) && enabled[s.id])
-        .map((s) => s.source),
-    );
-    const github_repos = enabledSourceKinds.has("github")
-      ? githubReposRaw.split(/[\n,]/).map((s) => s.trim()).filter(Boolean)
-      : [];
-    const confluence_url = enabledSourceKinds.has("confluence")
-      ? confluenceUrl.trim() || undefined
-      : undefined;
-    const webex_rooms = enabledSourceKinds.has("webex")
-      ? webexRooms.map(toWebexRoomSource)
-      : [];
+
+    let payload: Record<string, unknown>;
+    if (entityType === "bhag") {
+      payload = {
+        type: "bhag",
+        name: projectName.trim(),
+        description: description.trim() || undefined,
+        team_id: teamId,
+      };
+    } else if (entityType === "area") {
+      payload = {
+        type: "area",
+        name: projectName.trim(),
+        description: description.trim() || undefined,
+        team_id: teamId,
+        initiatives: selectedBhagName ? [selectedBhagName] : [],
+      };
+    } else {
+      // Only collect source data for sources the user actually enabled.
+      const enabledSourceKinds = new Set(
+        configSteps
+          .filter((s) => isSourceStep(s) && enabled[s.id])
+          .map((s) => s.source),
+      );
+      const github_repos = enabledSourceKinds.has("github")
+        ? githubReposRaw.split(/[\n,]/).map((s) => s.trim()).filter(Boolean)
+        : [];
+      const confluence_url = enabledSourceKinds.has("confluence")
+        ? confluenceUrl.trim() || undefined
+        : undefined;
+      const webex_rooms = enabledSourceKinds.has("webex")
+        ? webexRooms.map(toWebexRoomSource)
+        : [];
+      payload = {
+        name: projectName.trim(),
+        description: description.trim() || undefined,
+        team_id: teamId,
+        github_repos,
+        confluence_url,
+        webex_rooms,
+        // Blank → the API assigns the creator explicitly (no runtime fallback).
+        data_steward: stewardEmail.trim() || undefined,
+        decision_blast_radius: blastRadius || undefined,
+        optionality: optionality.length ? optionality : undefined,
+      };
+      // Cascading BHAG → Area tagging. Area implies the chain (don't also send
+      // initiatives); no BHAG at all leaves the project untagged.
+      if (selectedBhagName && selectedAreaName) {
+        payload.areas = [selectedAreaName];
+      } else if (selectedBhagName && !selectedAreaName) {
+        payload.initiatives = [selectedBhagName];
+      }
+    }
+
     try {
       const res = await fetch("/api/projects", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: projectName.trim(),
-          description: description.trim() || undefined,
-          team_id: teamId,
-          initiatives: initiativesRaw.split(",").map((s) => s.trim()).filter(Boolean),
-          swimlanes: swimlanesRaw.split(",").map((s) => s.trim()).filter(Boolean),
-          github_repos,
-          confluence_url,
-          webex_rooms,
-          // Blank → the API assigns the creator explicitly (no runtime fallback).
-          data_steward: stewardEmail.trim() || undefined,
-          decision_blast_radius: blastRadius || undefined,
-          optionality: optionality.length ? optionality : undefined,
-        }),
+        body: JSON.stringify(payload),
       });
       const body = await res.json();
       if (!res.ok || !body.data?.project) {
@@ -417,7 +506,13 @@ export function ProjectOnboardingWizard({
   }
 
   async function handlePrimaryAction() {
-    if (phase.kind === "create" || phase.kind === "slt" || phase.kind === "access" || phase.kind === "integrations") {
+    if (
+      phase.kind === "type" ||
+      phase.kind === "create" ||
+      phase.kind === "slt" ||
+      phase.kind === "access" ||
+      phase.kind === "integrations"
+    ) {
       advanceFromCurrentStep();
       return;
     }
@@ -426,22 +521,29 @@ export function ProjectOnboardingWizard({
     }
   }
 
-  const isPreCreate = phase.kind === "create" || phase.kind === "slt" || phase.kind === "access" || phase.kind === "integrations";
+  const isPreCreate =
+    isTypePhase || isCreatePhase || isSltPhase || isAccessPhase || isIntegrationsPhase;
 
   const primaryLabel = isPreCreate
     ? "Continue"
     : isReviewPhase
       ? provisioning
         ? "Creating…"
-        : "Create project"
+        : entityType === "bhag"
+          ? "Create BHAG"
+          : entityType === "area"
+            ? "Create area"
+            : "Create project"
       : "";
 
   const showPrimary = isPreCreate || isReviewPhase;
 
   const primaryDisabled =
     provisioning ||
-    (phase.kind === "create" && !projectName.trim()) ||
-    ((phase.kind === "access" || isReviewPhase) && (!projectName.trim() || !teamId));
+    (isCreatePhase && !projectName.trim()) ||
+    (isCreatePhase && entityType === "area" && !selectedBhagName) ||
+    ((isAccessPhase || isReviewPhase) && (!projectName.trim() || !teamId)) ||
+    (isReviewPhase && entityType === "area" && !selectedBhagName);
 
   const stepSummary =
     configSteps.length > 0
@@ -544,9 +646,42 @@ export function ProjectOnboardingWizard({
               exit={{ opacity: 0, x: -20 }}
               transition={{ duration: 0.25 }}
             >
+              {isTypePhase ? (
+                <div className="grid gap-3 sm:grid-cols-3">
+                  {ENTITY_TYPE_OPTIONS.map((opt) => {
+                    const Icon = opt.icon;
+                    const selected = entityType === opt.value;
+                    return (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => setEntityType(opt.value)}
+                        className={cn(
+                          "flex flex-col items-start gap-2 rounded-xl border p-4 text-left transition",
+                          selected
+                            ? "border-primary bg-primary/10 ring-1 ring-primary"
+                            : "border-border/60 bg-muted/30 hover:border-primary/40 hover:bg-accent/30",
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            "flex h-9 w-9 items-center justify-center rounded-lg border",
+                            selected ? "border-primary bg-primary/20" : "border-border",
+                          )}
+                        >
+                          <Icon className="h-4 w-4" />
+                        </span>
+                        <span className="text-sm font-semibold">{opt.label}</span>
+                        <span className="text-xs text-muted-foreground">{opt.description}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : null}
+
               {phase.id === "create" ? (
                 <div className="space-y-6">
-                  {bsConfigured ? (
+                  {entityType === "project" && bsConfigured ? (
                     <div>
                       <button
                         type="button"
@@ -640,34 +775,74 @@ export function ProjectOnboardingWizard({
                         className="w-full rounded-xl border border-border/60 bg-muted/30 px-4 py-3 text-sm outline-none ring-primary/30 focus:border-primary focus:ring-2"
                       />
                     </label>
-                    <div className="grid gap-4 sm:gap-6 md:grid-cols-2">
+                    {entityType === "area" ? (
                       <label className="block space-y-1.5">
-                        <span className="text-sm font-medium">BHAG / Initiatives</span>
-                        <LabelComboBox
-                          ariaLabel="BHAG / Initiatives"
-                          value={initiativesRaw}
-                          onChange={setInitiativesRaw}
-                          options={labelFacets.initiatives.map((v) => ({ value: v, label: v }))}
-                          placeholder="Agentic-2026, Platform Modernization"
-                          multi
-                          inputClassName="w-full rounded-xl border border-border/60 bg-muted/30 px-4 py-2.5 text-sm outline-none ring-primary/30 focus:border-primary focus:ring-2"
-                        />
-                        <span className="text-xs text-muted-foreground">Pick existing or type a new one (comma-separated).</span>
+                        <span className="text-sm font-medium">
+                          Parent BHAG <span className="text-red-500">*</span>
+                        </span>
+                        <select
+                          value={selectedBhagName ?? ""}
+                          onChange={(e) => setSelectedBhagName(e.target.value || null)}
+                          className="w-full rounded-xl border border-border/60 bg-muted/30 px-4 py-2.5 text-sm outline-none ring-primary/30 focus:border-primary focus:ring-2"
+                        >
+                          <option value="" disabled>
+                            Select the BHAG this area belongs to…
+                          </option>
+                          {bhagOptions.map((b) => (
+                            <option key={b.slug} value={b.name}>
+                              {b.name}
+                            </option>
+                          ))}
+                        </select>
+                        <span className="text-xs text-muted-foreground">
+                          An area always belongs to a BHAG.
+                        </span>
                       </label>
-                      <label className="block space-y-1.5">
-                        <span className="text-sm font-medium">Areas</span>
-                        <LabelComboBox
-                          ariaLabel="Areas"
-                          value={swimlanesRaw}
-                          onChange={setSwimlanesRaw}
-                          options={labelFacets.swimlanes.map((v) => ({ value: v, label: v }))}
-                          placeholder="Now, Next, Later"
-                          multi
-                          inputClassName="w-full rounded-xl border border-border/60 bg-muted/30 px-4 py-2.5 text-sm outline-none ring-primary/30 focus:border-primary focus:ring-2"
-                        />
-                        <span className="text-xs text-muted-foreground">Pick existing or type a new one (comma-separated).</span>
-                      </label>
-                    </div>
+                    ) : entityType === "project" ? (
+                      <div className="grid gap-4 sm:gap-6 md:grid-cols-2">
+                        <label className="block space-y-1.5">
+                          <span className="text-sm font-medium">Parent BHAG</span>
+                          <select
+                            value={selectedBhagName ?? ""}
+                            onChange={(e) => {
+                              setSelectedBhagName(e.target.value || null);
+                              setSelectedAreaName("");
+                            }}
+                            className="w-full rounded-xl border border-border/60 bg-muted/30 px-4 py-2.5 text-sm outline-none ring-primary/30 focus:border-primary focus:ring-2"
+                          >
+                            <option value="">None</option>
+                            {bhagOptions.map((b) => (
+                              <option key={b.slug} value={b.name}>
+                                {b.name}
+                              </option>
+                            ))}
+                          </select>
+                          <span className="text-xs text-muted-foreground">
+                            Optional. Ladders this project up to a strategic goal.
+                          </span>
+                        </label>
+                        {selectedBhagName ? (
+                          <label className="block space-y-1.5">
+                            <span className="text-sm font-medium">Parent Area</span>
+                            <select
+                              value={selectedAreaName}
+                              onChange={(e) => setSelectedAreaName(e.target.value)}
+                              className="w-full rounded-xl border border-border/60 bg-muted/30 px-4 py-2.5 text-sm outline-none ring-primary/30 focus:border-primary focus:ring-2"
+                            >
+                              <option value="">No area — tag this BHAG directly</option>
+                              {areaOptions.map((a) => (
+                                <option key={a.slug} value={a.name}>
+                                  {a.name}
+                                </option>
+                              ))}
+                            </select>
+                            <span className="text-xs text-muted-foreground">
+                              Optional. Groups this project under a mid-tier area of {selectedBhagName}.
+                            </span>
+                          </label>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </div>
 
                 </div>
@@ -775,24 +950,26 @@ export function ProjectOnboardingWizard({
                     </div>
                   </div>
 
-                  <div className="space-y-4 border-t border-border/60 pt-6">
-                    <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                      Data Steward
-                    </h3>
-                    <div className="space-y-1.5">
-                      <UserEmailPicker
-                        value={stewardEmail}
-                        onChange={setStewardEmail}
-                        placeholder="Optional: leave blank to skip"
-                        currentUserEmail={currentUserEmail}
-                      />
-                      <span className="block text-xs text-muted-foreground">
-                        The person (by email) whose GitHub connection powers this
-                        project&apos;s source activity feed. Defaults to you. This role will
-                        do more later. Changeable in settings.
-                      </span>
+                  {entityType === "project" ? (
+                    <div className="space-y-4 border-t border-border/60 pt-6">
+                      <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Data Steward
+                      </h3>
+                      <div className="space-y-1.5">
+                        <UserEmailPicker
+                          value={stewardEmail}
+                          onChange={setStewardEmail}
+                          placeholder="Optional: leave blank to skip"
+                          currentUserEmail={currentUserEmail}
+                        />
+                        <span className="block text-xs text-muted-foreground">
+                          The person (by email) whose GitHub connection powers this
+                          project&apos;s source activity feed. Defaults to you. This role will
+                          do more later. Changeable in settings.
+                        </span>
+                      </div>
                     </div>
-                  </div>
+                  ) : null}
                 </div>
               ) : null}
 
@@ -897,14 +1074,19 @@ export function ProjectOnboardingWizard({
                       .split(/[\n,]/)
                       .map((s) => s.trim())
                       .filter(Boolean);
-                    const initiatives = initiativesRaw
-                      .split(",")
-                      .map((s) => s.trim())
-                      .filter(Boolean);
-                    const swimlanes = swimlanesRaw
-                      .split(",")
-                      .map((s) => s.trim())
-                      .filter(Boolean);
+                    // Plain-language summary of the resolved hierarchy choice.
+                    const hierarchySummary =
+                      entityType === "bhag"
+                        ? null
+                        : entityType === "area"
+                          ? selectedBhagName
+                            ? `Under BHAG: ${selectedBhagName}`
+                            : null
+                          : selectedBhagName && selectedAreaName
+                            ? `Tagged to Area: ${selectedAreaName} (under BHAG: ${selectedBhagName})`
+                            : selectedBhagName
+                              ? `Tagged directly to BHAG: ${selectedBhagName} (no area)`
+                              : "Not tagged to any BHAG/Area";
                     const team = teams.find(
                       (t) =>
                         t.id === teamId || t._id === teamId || t.slug === teamId,
@@ -957,11 +1139,17 @@ export function ProjectOnboardingWizard({
                       <div className="space-y-4">
                         <p className="text-sm text-muted-foreground">
                           Nothing has been created yet. Clicking{" "}
-                          <span className="font-medium">Create project</span>{" "}
-                          creates it and takes you to the project.
+                          <span className="font-medium">
+                            {entityType === "bhag"
+                              ? "Create BHAG"
+                              : entityType === "area"
+                                ? "Create area"
+                                : "Create project"}
+                          </span>{" "}
+                          creates it and takes you there.
                         </p>
                         <div className="divide-y divide-border/50 rounded-xl border border-border/60 bg-muted/10">
-                          <Row label="Project">
+                          <Row label={entityType === "bhag" ? "BHAG" : entityType === "area" ? "Area" : "Project"}>
                             <span className="font-medium">
                               {projectName.trim() || muted}
                             </span>
@@ -970,12 +1158,13 @@ export function ProjectOnboardingWizard({
                           {description.trim() ? (
                             <Row label="Description">{description.trim()}</Row>
                           ) : null}
-                          <Row label="Integrations">
-                            {enabledIntegrations.length
-                              ? enabledIntegrations.join(", ")
-                              : muted}
-                          </Row>
-                          {showGithub ? (
+                          {hierarchySummary ? (
+                            <Row label="Hierarchy">{hierarchySummary}</Row>
+                          ) : null}
+                          {entityType === "project" && enabledIntegrations.length > 0 ? (
+                            <Row label="Integrations">{enabledIntegrations.join(", ")}</Row>
+                          ) : null}
+                          {entityType === "project" && showGithub ? (
                             <Row label={<SourceLabel provider="github" name="GitHub" />}>
                               {repos.length ? (
                                 <span className="space-y-1.5">
@@ -1034,14 +1223,6 @@ export function ProjectOnboardingWizard({
                                 muted
                               )}
                             </Row>
-                          ) : null}
-                          {initiatives.length ? (
-                            <Row label="BHAG / Initiatives">
-                              {initiatives.join(", ")}
-                            </Row>
-                          ) : null}
-                          {swimlanes.length ? (
-                            <Row label="Areas">{swimlanes.join(", ")}</Row>
                           ) : null}
                           {blastRadius ? (
                             <Row label="Blast Radius">

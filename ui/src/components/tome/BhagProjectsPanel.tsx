@@ -11,7 +11,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { BookOpen, FolderKanban, Loader2, X } from "lucide-react";
+import { BookOpen, FolderKanban, Layers, Loader2, X } from "lucide-react";
 
 import {
   preflightRollup,
@@ -41,13 +41,26 @@ async function mapLimit<T>(
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
 }
 
-export function BhagProjectsPanel({
+/**
+ * The projects tagged to a synthesized (BHAG or Area) entity — via
+ * `labels.initiatives` for a BHAG, `labels.areas` for an Area. Rendered
+ * inside the entity's Settings (in place of the Sources editor) and on its
+ * Synthesize page. Neither kind has connectors of its own — its "sources"
+ * are the wikis of the projects beneath it, which the agent reads to
+ * synthesize the strategic view.
+ */
+export function ChildProjectsPanel({
   bhagName,
+  entityKind = "bhag",
   preflight = false,
   editable = false,
   onCount,
 }: {
+  /** The parent entity's name (the label value children are tagged with). */
   bhagName: string;
+  /** Which kind of synthesized entity this is — drives the label dimension
+   * (`labels.initiatives` vs `labels.areas`) and copy. */
+  entityKind?: "bhag" | "area";
   /** Check + show each project's resource access (Synthesize page). */
   preflight?: boolean;
   /** Allow adding/removing tagged projects (Settings). */
@@ -55,7 +68,14 @@ export function BhagProjectsPanel({
   /** Reports the tagged-project count to the caller (for the section title). */
   onCount?: (n: number) => void;
 }) {
+  const labelDim = entityKind === "area" ? "areas" : "initiatives";
+  const queryParam = entityKind === "area" ? "area" : "initiative";
+  const entityLabel = entityKind === "area" ? "area" : "BHAG";
   const [projects, setProjects] = useState<ChildProject[]>([]);
+  // project _id -> the Area name it was pulled in through, for a BHAG's
+  // synthesis-preview view — surfaced on the card so it's clear this project
+  // isn't tagged to the BHAG directly.
+  const [viaArea, setViaArea] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   // project_id -> access state (absent = still checking).
@@ -64,26 +84,70 @@ export function BhagProjectsPanel({
   const [candidates, setCandidates] = useState<ChildProject[]>([]);
   const [mutating, setMutating] = useState(false);
 
-  // Children are tagged with the BHAG's name as an initiative label; the list
-  // API filters by initiative (OR within the dimension) and excludes BHAGs.
+  // Children are tagged with the parent's name as an initiative/area label;
+  // the list API filters by that dimension (OR within it) and excludes BHAGs.
+  //
+  // For a non-editable BHAG view (the synthesis preview), a direct-tag query
+  // alone undercounts: BHAG synthesis actually reads through its Areas too
+  // (mirrors `resolveBhagChildren` server-side), so a project that only tags
+  // an Area — never the BHAG directly — belongs in this list as well. The
+  // editable Settings view for a BHAG stays direct-tag-only on purpose: it's
+  // for adding/removing a project's *direct* (skip-level) tag, not editing
+  // through an Area.
   const loadTagged = useCallback(async () => {
     setError(null);
     try {
-      const res = await fetch(`/api/projects?initiative=${encodeURIComponent(bhagName)}`);
+      if (entityKind === "bhag" && !editable) {
+        const [areaRes, directRes] = await Promise.all([
+          fetch(`/api/projects?type=area&initiative=${encodeURIComponent(bhagName)}`),
+          fetch(`/api/projects?initiative=${encodeURIComponent(bhagName)}`),
+        ]);
+        if (!areaRes.ok && !directRes.ok) throw new Error("Failed to load projects");
+        const areasList = areaRes.ok
+          ? (((await areaRes.json()).data?.projects ?? []) as { name: string }[])
+          : [];
+        const directList = directRes.ok
+          ? (((await directRes.json()).data?.projects ?? []) as ChildProject[])
+          : [];
+        const areaProjectLists = await Promise.all(
+          areasList.map(async (a) => {
+            const r = await fetch(`/api/projects?area=${encodeURIComponent(a.name)}`);
+            if (!r.ok) return { areaName: a.name, list: [] as ChildProject[] };
+            const body = await r.json();
+            return { areaName: a.name, list: (body.data?.projects ?? []) as ChildProject[] };
+          }),
+        );
+        const byId = new Map<string, ChildProject>();
+        for (const p of directList) byId.set(String(p._id), p);
+        const via: Record<string, string> = {};
+        for (const { areaName, list } of areaProjectLists) {
+          for (const p of list) {
+            byId.set(String(p._id), p);
+            via[String(p._id)] = areaName;
+          }
+        }
+        const combined = [...byId.values()];
+        setProjects(combined);
+        setViaArea(via);
+        onCount?.(combined.length);
+        return;
+      }
+      const res = await fetch(`/api/projects?${queryParam}=${encodeURIComponent(bhagName)}`);
       const b = await res.json();
       if (!res.ok) throw new Error(b?.error ?? "Failed to load projects");
       const list = (b.data?.projects ?? []) as ChildProject[];
       setProjects(list);
+      setViaArea({});
       onCount?.(list.length);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
-  }, [bhagName, onCount]);
+  }, [bhagName, queryParam, onCount, entityKind, editable]);
 
-  // Non-BHAG projects not yet tagged to this BHAG (the add menu). `/api/projects`
-  // excludes BHAGs by default.
+  // Projects not yet tagged to this entity (the add menu). `/api/projects`
+  // excludes BHAGs/Areas by default.
   const loadCandidates = useCallback(async () => {
     if (!editable) return;
     try {
@@ -93,12 +157,12 @@ export function BhagProjectsPanel({
       const all = (b.data?.projects ?? []) as ChildProject[];
       const want = normLabel(bhagName);
       setCandidates(
-        all.filter((p) => !(p.labels?.initiatives ?? []).some((i) => normLabel(i) === want)),
+        all.filter((p) => !(p.labels?.[labelDim] ?? []).some((i) => normLabel(i) === want)),
       );
     } catch {
       /* best-effort — the add menu just stays empty */
     }
-  }, [editable, bhagName]);
+  }, [editable, bhagName, labelDim]);
 
   useEffect(() => {
     setLoading(true);
@@ -109,11 +173,15 @@ export function BhagProjectsPanel({
     void loadCandidates();
   }, [loadCandidates]);
 
-  const patchInitiatives = async (slug: string, initiatives: string[]) => {
+  const patchInitiatives = async (
+    slug: string,
+    dim: "initiatives" | "areas",
+    values: string[],
+  ) => {
     const res = await fetch(`/api/projects/${slug}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ initiatives }),
+      body: JSON.stringify({ [dim]: values }),
     });
     if (!res.ok) {
       const b = await res.json().catch(() => ({}));
@@ -125,8 +193,8 @@ export function BhagProjectsPanel({
     setMutating(true);
     setError(null);
     try {
-      const current = target.labels?.initiatives ?? [];
-      await patchInitiatives(target.slug, [...current, bhagName]);
+      const current = target.labels?.[labelDim] ?? [];
+      await patchInitiatives(target.slug, labelDim, [...current, bhagName]);
       await Promise.all([loadTagged(), loadCandidates()]);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -138,7 +206,7 @@ export function BhagProjectsPanel({
   const removeProject = async (child: ChildProject) => {
     if (
       typeof window !== "undefined" &&
-      !window.confirm(`Remove "${child.title}" from the ${bhagName} BHAG?`)
+      !window.confirm(`Remove "${child.title}" from the ${bhagName} ${entityLabel}?`)
     ) {
       return;
     }
@@ -146,8 +214,8 @@ export function BhagProjectsPanel({
     setError(null);
     try {
       const want = normLabel(bhagName);
-      const next = (child.labels?.initiatives ?? []).filter((i) => normLabel(i) !== want);
-      await patchInitiatives(child.slug, next);
+      const next = (child.labels?.[labelDim] ?? []).filter((i) => normLabel(i) !== want);
+      await patchInitiatives(child.slug, labelDim, next);
       await Promise.all([loadTagged(), loadCandidates()]);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -184,8 +252,9 @@ export function BhagProjectsPanel({
   return (
     <div className="space-y-3">
       <p className="text-xs text-muted-foreground">
-        Projects tagged to this BHAG. The agent reads their wikis to synthesize this BHAG&apos;s
-        wiki. Add one here, or tag a project from its own Settings under BHAG / Initiatives.
+        Projects tagged to this {entityLabel}. The agent reads their wikis to synthesize this{" "}
+        {entityLabel}&apos;s wiki. Add one here, or tag a project from its own Settings under{" "}
+        {entityKind === "area" ? "Areas" : "BHAG / Initiatives"}.
       </p>
 
       {editable && (
@@ -200,7 +269,7 @@ export function BhagProjectsPanel({
             className="h-8 flex-1 rounded-md border border-input bg-background px-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
           >
             <option value="" disabled>
-              {candidates.length === 0 ? "No more projects to add" : "Add a project to this BHAG…"}
+              {candidates.length === 0 ? "No more projects to add" : `Add a project to this ${entityLabel}…`}
             </option>
             {candidates.map((c) => (
               <option key={c.slug} value={c.slug}>
@@ -231,8 +300,9 @@ export function BhagProjectsPanel({
             <FolderKanban className="mx-auto h-8 w-8 text-muted-foreground/40" />
             <p className="mt-2 text-sm font-medium">No projects tagged yet</p>
             <p className="mt-1 text-xs text-muted-foreground">
-              Add <span className="font-medium text-foreground">{bhagName}</span> under BHAG /
-              Initiatives on a project to ladder it up to this goal.
+              Add <span className="font-medium text-foreground">{bhagName}</span> under{" "}
+              {entityKind === "area" ? "Areas" : "BHAG / Initiatives"} on a project to ladder it
+              up to this {entityLabel}.
             </p>
           </div>
         ) : (
@@ -254,7 +324,7 @@ export function BhagProjectsPanel({
                       type="button"
                       onClick={() => void removeProject(p)}
                       disabled={mutating}
-                      title={`Remove from ${bhagName}`}
+                      title={`Remove from ${bhagName} ${entityLabel}`}
                       aria-label={`Remove ${p.title}`}
                       className="-mr-1 -mt-1 shrink-0 rounded p-1 text-muted-foreground/50 hover:bg-muted hover:text-destructive disabled:opacity-50"
                     >
@@ -267,6 +337,12 @@ export function BhagProjectsPanel({
                   <BookOpen className="h-3.5 w-3.5" />
                   {p.page_count ?? 0} {(p.page_count ?? 0) === 1 ? "page" : "pages"}
                 </span>
+                {viaArea[String(p._id)] && (
+                  <span className="mt-1 inline-flex items-center gap-1 text-[11px] text-sky-600 dark:text-sky-400">
+                    <Layers className="h-3 w-3" />
+                    via Area: {viaArea[String(p._id)]}
+                  </span>
+                )}
                 {preflight && <AccessLine state={access[String(p._id)]} />}
               </div>
             ))}

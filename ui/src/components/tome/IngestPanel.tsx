@@ -20,7 +20,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { BhagProjectsPanel } from "@/components/tome/BhagProjectsPanel";
+import { ChildProjectsPanel } from "@/components/tome/BhagProjectsPanel";
 import { ProviderLogo } from "@/components/credentials/provider-logo";
 import { preflightState, type PreflightSourceResult } from "@/lib/tome/preflight";
 import { cn } from "@/lib/utils";
@@ -221,14 +221,19 @@ export function IngestPanel({
   canEdit,
   onOpenRun,
   onRunStarted,
-  isBhag = false,
+  isSynthesized = false,
+  entityKind = "bhag",
 }: {
   slug: string;
   canEdit: boolean;
   onOpenRun: (runId: string) => void;
   onRunStarted: (runId: string) => void;
-  /** BHAG synthesis mode: no sources, synthesizes from tagged child projects. */
-  isBhag?: boolean;
+  /** Synthesis mode (BHAG or Area): no sources, synthesizes from tagged
+   * child projects. */
+  isSynthesized?: boolean;
+  /** Which synthesized kind this is, for copy — only meaningful when
+   * `isSynthesized`. */
+  entityKind?: "bhag" | "area";
 }) {
   // Run state
   const [runs, setRuns] = useState<RunSummary[] | null>(null);
@@ -249,10 +254,10 @@ export function IngestPanel({
   // unless the user explicitly authorizes a best-effort agent draft.
   const [seedPages, setSeedPages] = useState(false);
 
-  // BHAG only — opt-in. Re-ingest every child project first, then synthesize
+  // Synthesized types only — opt-in. Re-ingest every child project first, then synthesize
   // (a cascade run through the queue). Off by default since it's slow/expensive.
   const [refreshChildren, setRefreshChildren] = useState(false);
-  // Tagged-project count, reported by BhagProjectsPanel for the section title.
+  // Tagged-project count, reported by ChildProjectsPanel for the section title.
   const [bhagCount, setBhagCount] = useState<number | null>(null);
 
   // Meeting picker
@@ -379,8 +384,8 @@ export function IngestPanel({
     const selectedList = (meetings ?? []).filter((m) => selectedMeetings.has(m.id));
     // BHAGs synthesize from tagged children via /synthesize (no sources/meetings);
     // regular projects pull their sources via /reingest.
-    const endpoint = isBhag ? "synthesize" : "reingest";
-    const payload = isBhag
+    const endpoint = isSynthesized ? "synthesize" : "reingest";
+    const payload = isSynthesized
       ? {
           seed: seed.trim() || undefined,
           seedStablePages: isGreenfield ? seedPages : undefined,
@@ -411,7 +416,7 @@ export function IngestPanel({
     } finally {
       setStarting(false);
     }
-  }, [slug, seed, meetings, selectedMeetings, loadRuns, onRunStarted, isGreenfield, seedPages, refreshChildren, isBhag]);
+  }, [slug, seed, meetings, selectedMeetings, loadRuns, onRunStarted, isGreenfield, seedPages, refreshChildren, isSynthesized]);
 
   // Compaction — an in-place editing pass (tighten prose, fix stale tome:// links).
   // Its own run through the shared lifecycle; shows in the same log + history.
@@ -454,17 +459,19 @@ export function IngestPanel({
           {/* Header */}
           <div>
             <h2 className="text-lg font-semibold">
-              {isBhag ? "Synthesize BHAG" : "Run ingest"}
+              {isSynthesized
+                ? `Synthesize ${entityKind === "area" ? "Area" : "BHAG"}`
+                : "Run ingest"}
             </h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              {isBhag
-                ? "Synthesize this BHAG's wiki from the projects tagged to it. The agent reads their wikis. A BHAG has no sources of its own."
+              {isSynthesized
+                ? `Synthesize this ${entityKind === "area" ? "area's" : "BHAG's"} wiki from the projects tagged to it. The agent reads their wikis. ${entityKind === "area" ? "An area" : "A BHAG"} has no sources of its own.`
                 : "Re-run the agent over this project's sources to refresh the dynamic wiki."}
             </p>
           </div>
 
-          {/* BHAG: the projects rolled up, in place of source preflight. */}
-          {isBhag ? (
+          {/* Synthesized: the projects rolled up, in place of source preflight. */}
+          {isSynthesized ? (
             <div className="rounded-lg border">
               <div className="flex items-center justify-between border-b px-4 py-2.5">
                 <span className="text-sm font-medium">
@@ -479,7 +486,12 @@ export function IngestPanel({
               </div>
               <div className="px-4 py-3">
                 {projectName ? (
-                  <BhagProjectsPanel bhagName={projectName} preflight onCount={setBhagCount} />
+                  <ChildProjectsPanel
+                    bhagName={projectName}
+                    entityKind={entityKind}
+                    preflight
+                    onCount={setBhagCount}
+                  />
                 ) : (
                   <p className="flex items-center gap-2 text-sm text-muted-foreground">
                     <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading projects…
@@ -602,8 +614,8 @@ export function IngestPanel({
           <div className="space-y-3">
             <p className="text-sm font-medium">Add context for this run</p>
 
-            {/* Webex meeting picker — projects only (a BHAG has no Webex). */}
-            {!isBhag && (
+            {/* Webex meeting picker — projects only (synthesized types have no Webex). */}
+            {!isSynthesized && (
             <div className="rounded-lg border">
               <button
                 type="button"
@@ -770,11 +782,11 @@ export function IngestPanel({
                 disabled={!canEdit || starting || compacting || inProgress}
                 title={
                   !canEdit
-                    ? `You need edit access to ${isBhag ? "synthesize" : "run an ingest"}`
+                    ? `You need edit access to ${isSynthesized ? "synthesize" : "run an ingest"}`
                     : inProgress
-                      ? `A ${isBhag ? "synthesis" : "ingest"} is already running`
-                      : isBhag
-                        ? "Synthesize BHAG"
+                      ? `A ${isSynthesized ? "synthesis" : "ingest"} is already running`
+                      : isSynthesized
+                        ? `Synthesize ${entityKind === "area" ? "Area" : "BHAG"}`
                         : "Run ingest"
                 }
               >
@@ -783,7 +795,7 @@ export function IngestPanel({
                 ) : (
                   <Play className="h-4 w-4" />
                 )}
-                {starting ? "Starting…" : isBhag ? "Synthesize" : "Run ingest"}
+                {starting ? "Starting…" : isSynthesized ? "Synthesize" : "Run ingest"}
               </Button>
               <Button
                 variant="outline"

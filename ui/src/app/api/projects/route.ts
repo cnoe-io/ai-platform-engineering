@@ -76,6 +76,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   const typeParam = searchParams.get("type");
   if (typeParam === "bhag") {
     filter.type = "bhag";
+  } else if (typeParam === "area") {
+    filter.type = "area";
   } else if (typeParam !== "all") {
     filter.$or = [{ type: "project" }, { type: { $exists: false } }];
   }
@@ -86,12 +88,12 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   const labelFilter = {
     domains: searchParams.getAll("domain"),
     initiatives: searchParams.getAll("initiative"),
-    swimlanes: searchParams.getAll("swimlane"),
+    areas: searchParams.getAll("area"),
   };
   const hasLabelFilter =
     labelFilter.domains.length > 0 ||
     labelFilter.initiatives.length > 0 ||
-    labelFilter.swimlanes.length > 0;
+    labelFilter.areas.length > 0;
   const q = searchParams.get("q")?.trim().toLowerCase();
 
   let results = all as ProjectDocument[];
@@ -106,7 +108,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         p.description,
         p.labels?.domain ?? p.domain,
         ...(p.labels?.initiatives ?? []),
-        ...(p.labels?.swimlanes ?? []),
+        ...(p.labels?.areas ?? []),
       ]
         .filter(Boolean)
         .join(" ")
@@ -211,25 +213,32 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   }
 
   const projects = await getCollection<ProjectDocument>("projects");
-  const projectType: ProjectType = body.type === "bhag" ? "bhag" : "project";
+  const projectType: ProjectType =
+    body.type === "bhag" ? "bhag" : body.type === "area" ? "area" : "project";
   const existing = await projects.findOne({ slug, team_id: team._id });
   if (existing) {
-    const existingKind = existing.type === "bhag" ? "BHAG" : "project";
-    const newKind = projectType === "bhag" ? "BHAG" : "project";
+    const kindLabel = (t: string | undefined) =>
+      t === "bhag" ? "BHAG" : t === "area" ? "Area" : "project";
+    const existingKind = kindLabel(existing.type);
+    const newKind = kindLabel(projectType);
     const msg =
       existingKind === newKind
         ? `${newKind} "${slug}" already exists for this team`
-        : `A ${existingKind} named "${slug}" already exists for this team — BHAGs and projects share the same namespace`;
+        : `A ${existingKind} named "${slug}" already exists for this team — BHAGs, Areas, and projects share the same namespace`;
     throw new ApiError(msg, 409, "PROJECT_EXISTS");
   }
 
-  // A BHAG is synthesis-only: it has no connectors of its own (its sources are
-  // the wikis of the projects tagged to it), so we ignore any source inputs.
-  const isBhag = projectType === "bhag";
+  // BHAGs and Areas are synthesis-only: they have no connectors of their own
+  // (their sources are the wikis of their child projects), so we ignore source inputs.
+  const isAreaOrBhag = projectType === "bhag" || projectType === "area";
 
   const description =
     body.description?.trim() ||
-    (isBhag ? `${body.name.trim()} — strategic goal` : `${body.name.trim()} — project`);
+    (projectType === "bhag"
+      ? `${body.name.trim()} — strategic goal`
+      : projectType === "area"
+        ? `${body.name.trim()} — area`
+        : `${body.name.trim()} — project`);
   const domain = body.domain?.trim() || "default";
   const tags = body.tags?.length ? body.tags : ["caipe"];
   const memberIds = body.member_ids?.map((m) => m.trim()).filter(Boolean) ?? [];
@@ -247,7 +256,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
         name: (r.name ?? "").trim() || r.room_id.trim(),
         slug: (r.slug ?? "").trim(),
       }));
-  const sources = isBhag
+  const sources = isAreaOrBhag
     ? { repos: [], confluence_url: undefined, component_urls: [], webex_rooms: [] }
     : {
         repos: cleanUrls(body.github_repos),
@@ -283,15 +292,15 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     owner_id: user.email ?? "unknown",
     member_ids: memberIds,
     // Feed data steward: set explicitly at creation so it's never a magic
-    // "blank means owner". BHAGs have no sources, so no steward.
-    ...(isBhag
+    // "blank means owner". BHAGs and Areas have no sources, so no steward.
+    ...(isAreaOrBhag
       ? {}
       : { data_steward: body.data_steward?.trim().toLowerCase() || undefined }),
     ...(body.decision_blast_radius ? { decision_blast_radius: body.decision_blast_radius } : {}),
     ...(body.optionality?.length ? { optionality: body.optionality } : {}),
     domain,
     labels: sanitizeLabels(
-      { domain, initiatives: body.initiatives, swimlanes: body.swimlanes },
+      { domain, initiatives: body.initiatives, areas: body.areas },
       domain,
     ),
     tags,

@@ -11,7 +11,9 @@ import {
   Eye,
   EyeOff,
   FileText,
+  FolderKanban,
   HelpCircle,
+  Layers,
   Link2,
   MessageSquare,
   MessagesSquare,
@@ -64,6 +66,7 @@ import { parseFrontmatter, SPEC_BY_PATH } from "@/lib/tome/schema";
 import { normLabel } from "@/lib/projects/labels";
 import { cn } from "@/lib/utils";
 import type { PageTreeNode } from "@/types/tome";
+import { isSynthesizedType, type ProjectType } from "@/types/projects";
 
 interface PagesResponse {
   slug: string;
@@ -210,16 +213,31 @@ export function TomeWiki({ slug }: { slug: string }) {
     dataSteward: string | null;
   }>({ description: null, status: null, teamName: null, tags: [], dataSteward: null });
   const [projectMetaLoading, setProjectMetaLoading] = useState(true);
-  // BHAG awareness: this project's kind, the initiatives it's tagged with, and
-  // the BHAG entities those initiatives resolve to (for the up-link chip).
-  const [projectType, setProjectType] = useState<"project" | "bhag">("project");
+  // BHAG/Area awareness: this project's kind, the initiatives it's tagged
+  // with, and the BHAG entities those initiatives resolve to (for the up-link
+  // chip).
+  const [projectType, setProjectType] = useState<ProjectType>("project");
   const [initiatives, setInitiatives] = useState<string[]>([]);
+  const [areaTags, setAreaTags] = useState<string[]>([]);
   const [parentBhags, setParentBhags] = useState<{ slug: string; name: string }[]>([]);
+  const [parentAreas, setParentAreas] = useState<
+    { slug: string; name: string; parentBhagName?: string }[]
+  >([]);
+  // Every BHAG entity (fetched once, unconditionally, for both this project's
+  // direct BHAG tags AND resolving an Area's transitive parent BHAG below).
+  const [allBhags, setAllBhags] = useState<{ slug: string; name: string }[]>([]);
   const isBhag = projectType === "bhag";
-  // For a BHAG: its own name (the initiative label children are tagged with) and
+  const isArea = projectType === "area";
+  const isSynthesized = isSynthesizedType(projectType);
+  // For a BHAG/Area: its own name (the label children are tagged with) and
   // the child projects that resolve from it — surfaced as down-links in the nav.
   const [projectName, setProjectName] = useState("");
   const [childProjects, setChildProjects] = useState<{ slug: string; title: string }[]>([]);
+  // A BHAG's down-links, split like ProjectsHub: Areas tagged to it (their own
+  // nested project counts) and skip-level projects tagged directly (no area).
+  const [childAreas, setChildAreas] = useState<
+    { slug: string; title: string; projectCount: number }[]
+  >([]);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   // "New page" popover + hidden file picker for the Wiki rail action cluster.
   const [newPageOpen, setNewPageOpen] = useState(false);
@@ -288,8 +306,9 @@ export function TomeWiki({ slug }: { slug: string }) {
         if (!p) return;
         if (typeof p.title === "string" && p.title) setProjectTitle(p.title);
         setProjectName(p.name ?? p.title ?? "");
-        setProjectType(p.type === "bhag" ? "bhag" : "project");
+        setProjectType((p.type as ProjectType) ?? "project");
         setInitiatives(Array.isArray(p.labels?.initiatives) ? p.labels.initiatives : []);
+        setAreaTags(Array.isArray(p.labels?.areas) ? p.labels.areas : []);
         setProjectMeta({
           description: typeof p.description === "string" ? p.description : null,
           status: typeof p.status === "string" ? p.status : null,
@@ -307,12 +326,12 @@ export function TomeWiki({ slug }: { slug: string }) {
     };
   }, [slug]);
 
-  // Resolve this project's initiative tags to BHAG entities so a regular
-  // project can surface a clickable up-link to its strategic goal(s). Skipped
-  // for BHAGs themselves and for untagged projects.
+  // Fetch every BHAG entity once (unconditionally, unless this page IS a
+  // BHAG) — used both to resolve this project's direct BHAG tags below and,
+  // further down, to resolve an Area's transitive parent BHAG.
   useEffect(() => {
-    if (isBhag || initiatives.length === 0) {
-      setParentBhags([]);
+    if (isBhag) {
+      setAllBhags([]);
       return;
     }
     let cancelled = false;
@@ -320,26 +339,99 @@ export function TomeWiki({ slug }: { slug: string }) {
       .then((res) => (res.ok ? res.json() : null))
       .then((body) => {
         if (cancelled) return;
-        const all = (body?.data?.projects ?? []) as { slug: string; name: string }[];
-        const want = new Set(initiatives.map((i) => normLabel(i)));
-        setParentBhags(all.filter((b) => want.has(normLabel(b.name))));
+        setAllBhags((body?.data?.projects ?? []) as { slug: string; name: string }[]);
       })
       .catch(() => undefined);
     return () => {
       cancelled = true;
     };
-  }, [slug, isBhag, initiatives]);
+  }, [slug, isBhag]);
 
-  // For a BHAG, resolve the projects tagged to it (those whose initiatives
-  // include this BHAG's name) so the nav can list them as down-links. Mirrors
-  // the /api/projects?initiative= query BhagProjectsPanel uses.
+  const bhagByLabelAll = useMemo(
+    () => new Map(allBhags.map((b) => [normLabel(b.name), b])),
+    [allBhags],
+  );
+
+  // Resolve this project's initiative tags to BHAG entities so a regular
+  // project — or an Area, which tags its own parent BHAG the same way —
+  // can surface a clickable up-link to its strategic goal(s). Only a true
+  // BHAG has no parent to resolve; an Area's `initiatives` tag IS its
+  // parent BHAG and must still resolve here.
   useEffect(() => {
-    if (!isBhag || !projectName) {
+    if (isBhag || initiatives.length === 0) {
+      setParentBhags([]);
+      return;
+    }
+    const want = new Set(initiatives.map((i) => normLabel(i)));
+    setParentBhags(allBhags.filter((b) => want.has(normLabel(b.name))));
+  }, [isBhag, initiatives, allBhags]);
+
+  // Resolve this project's area tags to Area entities, mirroring the BHAG
+  // up-link above (sky-blue chip instead of the primary-colored BHAG one). A
+  // BHAG itself skips this (no parent), but an Area still tags a parent BHAG
+  // via the up-link above, not this one. Carries the Area's own parent-BHAG
+  // name (its `labels.initiatives[0]`) so a project that ONLY tags an Area —
+  // never the BHAG directly — can still show a transitive BHAG chip below.
+  useEffect(() => {
+    if (isBhag || areaTags.length === 0) {
+      setParentAreas([]);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/projects?type=area`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body) => {
+        if (cancelled) return;
+        const all = (body?.data?.projects ?? []) as {
+          slug: string;
+          name: string;
+          labels?: { initiatives?: string[] };
+        }[];
+        const want = new Set(areaTags.map((a) => normLabel(a)));
+        setParentAreas(
+          all
+            .filter((a) => want.has(normLabel(a.name)))
+            .map((a) => ({ slug: a.slug, name: a.name, parentBhagName: a.labels?.initiatives?.[0] })),
+        );
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [slug, isBhag, areaTags]);
+
+  // BHAGs inherited transitively via an Area tag — only for BHAGs this
+  // project doesn't ALSO tag directly (avoids a duplicate chip for legacy
+  // data that tags both). Rendered as a distinct "via Area" chip below.
+  const transitiveBhags = useMemo(() => {
+    const directNorm = new Set(initiatives.map((i) => normLabel(i)));
+    const seen = new Set<string>();
+    const out: { slug: string; name: string; viaAreaName: string }[] = [];
+    for (const a of parentAreas) {
+      if (!a.parentBhagName) continue;
+      const key = normLabel(a.parentBhagName);
+      if (directNorm.has(key) || seen.has(key)) continue;
+      const b = bhagByLabelAll.get(key);
+      if (b) {
+        out.push({ ...b, viaAreaName: a.name });
+        seen.add(key);
+      }
+    }
+    return out;
+  }, [parentAreas, initiatives, bhagByLabelAll]);
+
+  // For a BHAG/Area, resolve the projects tagged to it so the nav can list
+  // them as down-links. A BHAG's children tag it via `labels.initiatives`
+  // (`?initiative=`); an Area's children tag it via `labels.areas`
+  // (`?area=`) — mirrors the child-resolution split in `lib/tome/bhag.ts`.
+  useEffect(() => {
+    if (!isSynthesized || !projectName) {
       setChildProjects([]);
       return;
     }
     let cancelled = false;
-    fetch(`/api/projects?initiative=${encodeURIComponent(projectName)}`)
+    const param = isArea ? "area" : "initiative";
+    fetch(`/api/projects?${param}=${encodeURIComponent(projectName)}`)
       .then((res) => (res.ok ? res.json() : null))
       .then((body) => {
         if (cancelled) return;
@@ -347,6 +439,41 @@ export function TomeWiki({ slug }: { slug: string }) {
         setChildProjects(
           kids.map((k) => ({ slug: k.slug, title: k.title || k.name || k.slug })),
         );
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [isSynthesized, isArea, projectName]);
+
+  // For a BHAG specifically, also resolve the Areas tagged to it (via
+  // `labels.initiatives`), each with its own tagged-project count, so the
+  // down-links split into Areas + "tagged directly" skip-level projects —
+  // mirroring ProjectsHub's nested BHAG → Area → Project view.
+  useEffect(() => {
+    if (!isBhag || !projectName) {
+      setChildAreas([]);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/projects?type=area&initiative=${encodeURIComponent(projectName)}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then(async (body) => {
+        if (cancelled) return;
+        const areaList = (body?.data?.projects ?? []) as { slug: string; name: string; title?: string }[];
+        const withCounts = await Promise.all(
+          areaList.map(async (a) => {
+            try {
+              const r = await fetch(`/api/projects?area=${encodeURIComponent(a.name)}`);
+              const b = r.ok ? await r.json() : null;
+              const count = Array.isArray(b?.data?.projects) ? b.data.projects.length : 0;
+              return { slug: a.slug, title: a.title || a.name, projectCount: count };
+            } catch {
+              return { slug: a.slug, title: a.title || a.name, projectCount: 0 };
+            }
+          }),
+        );
+        if (!cancelled) setChildAreas(withCounts);
       })
       .catch(() => undefined);
     return () => {
@@ -629,6 +756,52 @@ export function TomeWiki({ slug }: { slug: string }) {
     () => new Map(parentBhags.map((b) => [normLabel(b.name), b])),
     [parentBhags],
   );
+  // Area tag (normalized) → its Area wiki entity, when one exists.
+  const areaByLabel = useMemo(
+    () => new Map(parentAreas.map((a) => [normLabel(a.name), a])),
+    [parentAreas],
+  );
+
+  // BHAG → Area → Project up-links, shown as breadcrumb segments instead of
+  // badge chips now that the hierarchy is explicit. Only the first tag at
+  // each level is shown — a breadcrumb is inherently a single path, unlike
+  // the badge cluster which could list every tag.
+  const hierarchyCrumbs = useMemo<Crumb[]>(() => {
+    const out: Crumb[] = [];
+    if (isArea) {
+      const b = initiatives.length > 0 ? bhagByInitiative.get(normLabel(initiatives[0])) : undefined;
+      if (b) {
+        out.push({
+          label: b.name,
+          href: `/projects/${b.slug}/tome`,
+          icon: <Target className="h-3.5 w-3.5 shrink-0 text-primary" />,
+          colorClass: "text-primary",
+        });
+      }
+    } else if (!isBhag) {
+      const directBhag =
+        initiatives.length > 0 ? bhagByInitiative.get(normLabel(initiatives[0])) : undefined;
+      const bhagCrumb = directBhag ?? transitiveBhags[0];
+      if (bhagCrumb) {
+        out.push({
+          label: bhagCrumb.name,
+          href: `/projects/${bhagCrumb.slug}/tome`,
+          icon: <Target className="h-3.5 w-3.5 shrink-0 text-primary" />,
+          colorClass: "text-primary",
+        });
+      }
+      const areaEntity = areaTags.length > 0 ? areaByLabel.get(normLabel(areaTags[0])) : undefined;
+      if (areaEntity) {
+        out.push({
+          label: areaEntity.name,
+          href: `/projects/${areaEntity.slug}/tome`,
+          icon: <Layers className="h-3.5 w-3.5 shrink-0 text-sky-500" />,
+          colorClass: "text-sky-600 dark:text-sky-400",
+        });
+      }
+    }
+    return out;
+  }, [isArea, isBhag, initiatives, bhagByInitiative, transitiveBhags, areaTags, areaByLabel]);
 
   const navActive = {
     agent: view.kind === "agent",
@@ -660,7 +833,17 @@ export function TomeWiki({ slug }: { slug: string }) {
           <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
           <Breadcrumb
             items={[
-              { label: projectTitle ?? slug, onClick: () => navigate({ kind: "agent" }) },
+              ...hierarchyCrumbs,
+              {
+                label: projectTitle ?? slug,
+                onClick: () => navigate({ kind: "agent" }),
+                icon: isBhag ? (
+                  <Target className="h-3.5 w-3.5 shrink-0 text-primary" />
+                ) : isArea ? (
+                  <Layers className="h-3.5 w-3.5 shrink-0 text-sky-500" />
+                ) : undefined,
+                colorClass: isBhag ? "text-primary" : isArea ? "text-sky-600 dark:text-sky-400" : undefined,
+              },
               ...crumbs,
             ]}
           />
@@ -707,51 +890,22 @@ export function TomeWiki({ slug }: { slug: string }) {
                 </p>
               )}
               <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                {isBhag && (
-                  <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-primary/40 bg-primary/10 px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wider text-primary">
-                    <Target className="h-3 w-3" />
-                    BHAG
-                  </span>
-                )}
-                {/* Up-links: a project can be tagged to many BHAGs (initiatives are
-                    multi-value tags). Render a chip per tag; the ones promoted to a
-                    BHAG wiki link to it, the rest show membership without a link. */}
-                {!isBhag &&
-                  initiatives.map((init) => {
-                    const b = bhagByInitiative.get(normLabel(init));
-                    return b ? (
-                      <Tooltip key={init}>
-                        <TooltipTrigger asChild>
-                          <Link
-                            href={`/projects/${b.slug}/tome`}
-                            className="inline-flex shrink-0 items-center gap-1 rounded-full border border-primary/40 bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary transition hover:border-primary hover:bg-primary/20"
-                          >
-                            <Target className="h-3 w-3" />
-                            {b.name}
-                            <ArrowUpRight className="h-3 w-3" />
-                          </Link>
-                        </TooltipTrigger>
-                        <TooltipContent side="bottom">Open the BHAG wiki: {b.name}</TooltipContent>
-                      </Tooltip>
-                    ) : (
-                      <Tooltip key={init}>
-                        <TooltipTrigger asChild>
-                          <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-primary/25 px-2.5 py-0.5 text-xs font-medium text-primary/70">
-                            <Target className="h-3 w-3" />
-                            {init}
-                          </span>
-                        </TooltipTrigger>
-                        <TooltipContent side="bottom" className="w-56 whitespace-normal">
-                          Tagged to the BHAG &ldquo;{init}&rdquo;. No wiki yet. Create one from the Projects hub.
-                        </TooltipContent>
-                      </Tooltip>
-                    );
-                  })}
+                {/* No type badge here: the breadcrumb's own page segment now
+                    carries the same icon+color (Target+primary for BHAG,
+                    Layers+sky for Area) — see `hierarchyCrumbs` and the
+                    project-title crumb above — so it isn't duplicated here.
+                    BHAG/Area membership (what this page belongs to) is also
+                    a breadcrumb segment now instead of a chip cluster. */}
                 {projectMeta.teamName && (
-                  <Badge variant="outline" className="gap-1">
-                    <Users className="h-3 w-3" />
-                    {projectMeta.teamName}
-                  </Badge>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Badge variant="outline" className="gap-1">
+                        <Users className="h-3 w-3" />
+                        Team: {projectMeta.teamName}
+                      </Badge>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">Owning team</TooltipContent>
+                  </Tooltip>
                 )}
                 {projectMeta.dataSteward ? (
                   <Tooltip>
@@ -808,13 +962,13 @@ export function TomeWiki({ slug }: { slug: string }) {
                   />
                   <NavItem
                     icon={<RefreshCw className={cn("h-4 w-4", locked && "animate-spin")} />}
-                    label={isBhag ? "Synthesize" : "Ingest"}
+                    label={isSynthesized ? "Synthesize" : "Ingest"}
                     active={navActive.ingest}
                     onClick={() => navigate({ kind: "ingest" })}
-                    tipTitle={isBhag ? "Synthesize" : "Ingest"}
+                    tipTitle={isSynthesized ? "Synthesize" : "Ingest"}
                     tipDescription={
-                      isBhag
-                        ? "Synthesize this BHAG: the agent reads the wikis of the projects tagged to it and writes the strategic view. A BHAG has no sources of its own."
+                      isSynthesized
+                        ? `Synthesize this ${isArea ? "area" : "BHAG"}: the agent reads the wikis of the projects tagged to it and writes the strategic view. ${isArea ? "An area" : "A BHAG"} has no sources of its own.`
                         : "Start an ingest run that (re)builds the wiki from the project's attached sources: GitHub repos, Confluence spaces, and Webex rooms."
                     }
                   />
@@ -997,7 +1151,7 @@ export function TomeWiki({ slug }: { slug: string }) {
                   <div className="px-2 py-2 text-xs text-muted-foreground">
                     <p className="mb-2">No wiki pages yet.</p>
                     <Button size="sm" onClick={() => navigate({ kind: "ingest" })}>
-                      Run an ingest
+                      {isSynthesized ? "Synthesize" : "Run an ingest"}
                     </Button>
                   </div>
                 ) : (
@@ -1012,17 +1166,65 @@ export function TomeWiki({ slug }: { slug: string }) {
                   )
                 )}
 
-                {/* BHAG down-links: the projects tagged to this BHAG. Links out
-                    to each project's own wiki — the roll-up reads these same
-                    children; this makes the hierarchy navigable (#92). */}
-                {isBhag && (
+                {/* Synthesized-type down-links: the projects tagged to this
+                    BHAG/Area. Links out to each project's own wiki — the
+                    roll-up reads these same children; this makes the
+                    hierarchy navigable (#92). */}
+                {isSynthesized && (
                   <div className="mt-4">
                     <div className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                      Projects
+                      {isBhag ? "Areas & Projects" : "Projects"}
                     </div>
-                    {childProjects.length === 0 ? (
+                    {isBhag ? (
+                      childAreas.length === 0 && childProjects.length === 0 ? (
+                        <p className="px-2 py-1 text-xs text-muted-foreground/70">
+                          No areas or projects tagged to this BHAG yet.
+                        </p>
+                      ) : (
+                        <div className="flex flex-col gap-2">
+                          {childAreas.length > 0 && (
+                            <div className="flex flex-col gap-0.5 pl-3">
+                              {childAreas.map((area) => (
+                                <Link
+                                  key={area.slug}
+                                  href={`/projects/${area.slug}/tome`}
+                                  className="group flex items-center gap-2 rounded-md px-2 py-1 text-sm text-sky-600 transition hover:bg-accent dark:text-sky-400"
+                                >
+                                  <Layers className="h-4 w-4 shrink-0" />
+                                  <span className="truncate">{area.title}</span>
+                                  <span className="ml-auto shrink-0 text-[10px] text-muted-foreground/60">
+                                    {area.projectCount}
+                                  </span>
+                                  <ArrowUpRight className="h-3 w-3 shrink-0 opacity-0 transition group-hover:opacity-60" />
+                                </Link>
+                              ))}
+                            </div>
+                          )}
+                          {childAreas.length > 0 && childProjects.length > 0 && (
+                            <p className="px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+                              Tagged directly (no area)
+                            </p>
+                          )}
+                          {childProjects.length > 0 && (
+                            <div className="flex flex-col gap-0.5">
+                              {childProjects.map((child) => (
+                                <Link
+                                  key={child.slug}
+                                  href={`/projects/${child.slug}/tome`}
+                                  className="group flex items-center gap-2 rounded-md px-2 py-1 text-sm text-foreground/80 transition hover:bg-accent hover:text-foreground"
+                                >
+                                  <FolderKanban className="h-4 w-4 shrink-0 text-muted-foreground" />
+                                  <span className="truncate">{child.title}</span>
+                                  <ArrowUpRight className="ml-auto h-3 w-3 shrink-0 opacity-0 transition group-hover:opacity-60" />
+                                </Link>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    ) : childProjects.length === 0 ? (
                       <p className="px-2 py-1 text-xs text-muted-foreground/70">
-                        No projects tagged to this BHAG yet.
+                        No projects tagged to this area yet.
                       </p>
                     ) : (
                       <div className="flex flex-col gap-0.5">
@@ -1032,7 +1234,7 @@ export function TomeWiki({ slug }: { slug: string }) {
                             href={`/projects/${child.slug}/tome`}
                             className="group flex items-center gap-2 rounded-md px-2 py-1 text-sm text-foreground/80 transition hover:bg-accent hover:text-foreground"
                           >
-                            <Target className="h-4 w-4 shrink-0 text-primary" />
+                            <FolderKanban className="h-4 w-4 shrink-0 text-muted-foreground" />
                             <span className="truncate">{child.title}</span>
                             <ArrowUpRight className="ml-auto h-3 w-3 shrink-0 opacity-0 transition group-hover:opacity-60" />
                           </Link>
@@ -1113,6 +1315,7 @@ export function TomeWiki({ slug }: { slug: string }) {
                   onNavigate={(path) => navigate({ kind: "page", path })}
                   glossaryPreview={glossaryPreview}
                   onStartIngest={() => navigate({ kind: "ingest" })}
+                  isSynthesized={isSynthesized}
                 />
               </div>
             ) : view.kind === "feed" ? (
@@ -1145,7 +1348,8 @@ export function TomeWiki({ slug }: { slug: string }) {
                 <IngestPanel
                   slug={slug}
                   canEdit
-                  isBhag={isBhag}
+                  isSynthesized={isSynthesized}
+                  entityKind={isArea ? "area" : "bhag"}
                   onOpenRun={(runId) => navigate({ kind: "ingestRun", runId })}
                   onRunStarted={(runId) => navigate({ kind: "ingestRun", runId })}
                 />

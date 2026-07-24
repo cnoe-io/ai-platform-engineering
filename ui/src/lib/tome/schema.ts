@@ -234,7 +234,7 @@ export const FM_ALIASES = "aliases";
 export const FM_TERM_KIND = "term_kind";
 export const FM_STATUS = "status";
 
-export const GLOSSARY_SCOPES = ["org", "project", "bhag", "swimlane"] as const;
+export const GLOSSARY_SCOPES = ["org", "project", "bhag", "area"] as const;
 export const GLOSSARY_TERM_KINDS = ["acronym", "term"] as const;
 export const GLOSSARY_STATUSES = ["current", "deprecated"] as const;
 

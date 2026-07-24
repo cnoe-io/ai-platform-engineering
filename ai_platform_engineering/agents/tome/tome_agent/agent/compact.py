@@ -49,14 +49,15 @@ def _build_compaction_system_prompt(snapshot: ProjectSnapshot) -> str:
 
     children = snapshot.child_projects or []
     if children:
+        entity_kind = "Area" if snapshot.project_type == "area" else "BHAG"
         child_lines = "\n".join(
             f"- {c.name or c.slug or c.project_id} (`{c.slug or c.project_id}`): "
             f"`{project_root(c.project_id)}/`"
             for c in children
         )
         project_block += (
-            "\n\nThis is a BHAG: its wiki is synthesized from the projects tagged to "
-            "it. You MAY Read (never write) their on-disk wikis as ground truth when "
+            f"\n\nThis is a {entity_kind}: its wiki is synthesized from the projects "
+            "tagged to it. You MAY Read (never write) their on-disk wikis as ground truth when "
             "tightening this wiki's pages and checking references — their pages are "
             "markdown files DIRECTLY in these directories (no `wiki/` subfolder). "
             f"Writing is NEVER allowed here — only `{write_root}` is writable:\n\n"

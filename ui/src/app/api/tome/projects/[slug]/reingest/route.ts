@@ -7,6 +7,7 @@ import { ApiError, successResponse, withErrorHandler } from "@/lib/api-middlewar
 import { loadTomeProject, requireTomeEditor } from "@/lib/tome/tome-api";
 import { auditTome, tomeActorFromAuth } from "@/lib/tome/audit";
 import { startIngestRun, IngestInProgressError } from "@/lib/tome/ingest-runner";
+import { isSynthesizedType } from "@/types/projects";
 
 export const dynamic = "force-dynamic";
 
@@ -17,11 +18,12 @@ export const POST = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
   const tctx = await loadTomeProject(request, slug);
   requireTomeEditor(tctx);
 
-  // A BHAG has no sources to ingest — its wiki is a synthesis of the projects
-  // tagged to it. Route those runs through the dedicated /synthesize endpoint.
-  if (tctx.project.type === "bhag") {
+  // A BHAG/Area has no sources to ingest — its wiki is a synthesis of the
+  // projects tagged to it. Route those runs through the dedicated
+  // /synthesize endpoint.
+  if (isSynthesizedType(tctx.project.type)) {
     throw new ApiError(
-      "BHAGs don't ingest sources. Use BHAG synthesis instead.",
+      "This project type doesn't ingest sources. Use synthesis instead.",
       400,
       "USE_SYNTHESIS",
     );

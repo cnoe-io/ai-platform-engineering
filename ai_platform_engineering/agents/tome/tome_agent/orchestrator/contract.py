@@ -71,15 +71,27 @@ class ProjectSnapshot(BaseModel):
     charter: str = ""
     phase: str | None = None
     cadence: str | None = None
-    project_type: Literal["project", "bhag"] = "project"
+    project_type: Literal["project", "bhag", "area"] = "project"
     """Project kind. A `bhag` is a strategic goal whose wiki is synthesized by
-    rolling up its `child_projects` (it has no sources of its own)."""
+    rolling up its `child_projects` (it has no sources of its own). An `area`
+    is a mid-tier grouping between a BHAG and projects — also synthesized from
+    its `child_projects` (projects tagged to it via `labels.areas`)."""
     repos: list[RepoSnapshot] = Field(default_factory=list)
     webex_rooms: list[WebexRoomSnapshot] = Field(default_factory=list)
     confluence_spaces: list[ConfluenceSpaceSnapshot] = Field(default_factory=list)
     child_projects: list[ChildProjectSnapshot] = Field(default_factory=list)
     """BHAG only: the projects tagged to this goal. The agent reads each one's
     on-disk wiki to build the synthesis."""
+
+
+SYNTHESIZED_PROJECT_TYPES = ("bhag", "area")
+"""Project types with no sources of their own: synthesized (agent rolls up
+from child projects' wikis) instead of ingested from connectors."""
+
+
+def is_synthesized_type(project_type: str) -> bool:
+    """True if `project_type` is a synthesized (no-sources, rollup) kind."""
+    return project_type in SYNTHESIZED_PROJECT_TYPES
 
 
 # ---------- agent inbound: /chat ----------

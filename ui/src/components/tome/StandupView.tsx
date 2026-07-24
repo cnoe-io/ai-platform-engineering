@@ -15,6 +15,9 @@ interface Props {
   onNavigate?: (path: string) => void;
   glossaryPreview?: GlossaryResolver;
   onStartIngest?: () => void;
+  /** True for a BHAG/Area: it has no sources of its own, so the empty state
+   * should say "synthesize" instead of "ingest". */
+  isSynthesized?: boolean;
 }
 
 interface StandupSections {
@@ -62,21 +65,28 @@ function parseStandup(markdown: string): StandupSections {
  * Excluded from the ordinary wiki tree (schema.ts `SURFACE_PATHS`); this is
  * its dedicated entry point (nav rail, see TomeWiki).
  */
-export function StandupView({ markdown, onNavigate, glossaryPreview, onStartIngest }: Props) {
+export function StandupView({
+  markdown,
+  onNavigate,
+  glossaryPreview,
+  onStartIngest,
+  isSynthesized,
+}: Props) {
   if (!markdown) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 p-12 text-center">
         <Sparkles className="h-10 w-10 text-muted-foreground/40" />
         <p className="font-medium">No standup yet</p>
         <p className="max-w-sm text-sm text-muted-foreground">
-          The standup is a report card the agent writes on every ingest: the
-          headline, what&apos;s blocked, and what&apos;s next. Run an ingest to
-          generate one.
+          The standup is a report card the agent writes on every{" "}
+          {isSynthesized ? "synthesis" : "ingest"}: the headline, what&apos;s
+          blocked, and what&apos;s next.{" "}
+          {isSynthesized ? "Synthesize this wiki" : "Run an ingest"} to generate one.
         </p>
         {onStartIngest && (
           <Button size="sm" onClick={onStartIngest} className="gap-1.5">
             <RefreshCw className="h-3.5 w-3.5" />
-            Start an ingest
+            {isSynthesized ? "Start a synthesis" : "Start an ingest"}
           </Button>
         )}
       </div>

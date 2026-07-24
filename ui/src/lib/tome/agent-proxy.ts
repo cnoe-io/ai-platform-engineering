@@ -11,11 +11,12 @@
 import { collectForwardedCredentials } from "@/lib/projects/onboarding-providers";
 import { webexRoomSlug } from "@/lib/projects/webex-room";
 
-import { resolveBhagChildren } from "./bhag";
+import { resolveAreaChildren, resolveBhagChildren } from "./bhag";
 import { getPageStore } from "./page-store";
 import { stablePathsIn } from "./schema";
 import type { TomeProjectContext } from "./tome-api";
 import type { ProjectDocument } from "@/types/projects";
+import { isSynthesizedType } from "@/types/projects";
 
 /**
  * Wire shape for forwarded user credentials. The agent reads these off the
@@ -103,7 +104,7 @@ interface ProjectSnapshot {
   charter: string;
   phase: string | null;
   cadence: string | null;
-  project_type: "project" | "bhag";
+  project_type: "project" | "bhag" | "area";
   repos: RepoSnapshot[];
   webex_rooms: WebexRoomSnapshot[];
   confluence_spaces: ConfluenceSpaceSnapshot[];
@@ -247,7 +248,7 @@ function projectConfluenceSpaces(
 export function buildSnapshotFromProject(
   project: ProjectDocument & { _id: string },
 ): ProjectSnapshot {
-  const isBhag = project.type === "bhag";
+  const isSynthesized = isSynthesizedType(project.type);
   return {
     project_id: project._id,
     slug: project.slug,
@@ -255,11 +256,12 @@ export function buildSnapshotFromProject(
     charter: project.description ?? "",
     phase: null,
     cadence: null,
-    project_type: isBhag ? "bhag" : "project",
-    // A BHAG has no connectors — sources are empty regardless of any stale data.
-    repos: isBhag ? [] : (project.sources?.repos ?? []).map(toRepoSnapshot),
-    webex_rooms: isBhag ? [] : projectWebexRooms(project),
-    confluence_spaces: isBhag ? [] : projectConfluenceSpaces(project),
+    project_type: project.type ?? "project",
+    // Synthesized types (BHAG/Area) have no connectors — sources are empty
+    // regardless of any stale data.
+    repos: isSynthesized ? [] : (project.sources?.repos ?? []).map(toRepoSnapshot),
+    webex_rooms: isSynthesized ? [] : projectWebexRooms(project),
+    confluence_spaces: isSynthesized ? [] : projectConfluenceSpaces(project),
     child_projects: [],
   };
 }
@@ -290,11 +292,15 @@ export async function buildChatRequest(
     resolveForwardedCredentials(ctx),
   ]);
   const snapshot = buildSnapshot(ctx);
-  // A BHAG has no sources of its own — its "context" is the wikis of its tagged
-  // child projects. Carry them so chat can read across them (the agent widens
-  // its read fence to the children's on-disk wikis).
-  if (ctx.project.type === "bhag") {
-    snapshot.child_projects = await resolveBhagChildren(ctx.project.name);
+  // Synthesized types (BHAG/Area) have no sources of their own — their
+  // "context" is the wikis of their tagged child projects. Carry them so chat
+  // can read across them (the agent widens its read fence to the children's
+  // on-disk wikis).
+  if (isSynthesizedType(ctx.project.type)) {
+    snapshot.child_projects =
+      ctx.project.type === "area"
+        ? await resolveAreaChildren(ctx.project.name)
+        : await resolveBhagChildren(ctx.project.name);
   }
   return {
     message: opts.message,

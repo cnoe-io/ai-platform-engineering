@@ -135,9 +135,16 @@ export interface IngestRun {
   error?: string;
   started_at: Date;
   finished_at?: Date;
-  /** Groups the runs of one BHAG cascade (N child re-ingests + the parent synthesize). */
+  /** Groups the runs of one cascade level (N child re-ingests + the parent
+   * synthesize at that level). A three-tier BHAG cascade nests one of these
+   * per Area, plus one for the BHAG's own skip-level children. */
   cascade_id?: string;
   cascade_role?: "child" | "parent";
+  /** Additional cascade_ids (whole sub-cascades, not just direct children)
+   * this run must wait on before starting — e.g. a BHAG's synthesize run
+   * blocks on each of its Areas' own (leaf-ingest + synthesize) sub-cascades,
+   * in addition to its own direct cascade_id/cascade_role wait. */
+  blocked_by_cascade_ids?: string[];
   /** OIDC sub of the triggering user; the worker re-resolves their forwarded
    *  OAuth credentials at dispatch time (the request session is long gone). */
   triggered_by_sub?: string;

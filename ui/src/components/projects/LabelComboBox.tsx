@@ -79,11 +79,20 @@ export function LabelComboBox({
     )
     .slice(0, 50);
 
-  // Reset highlight when the list changes.
-  useEffect(() => {
+  // Reset highlight when the list changes. Adjusted directly during render
+  // (React's recommended pattern for "state derived from a changing prop":
+  // https://react.dev/learn/you-might-not-need-an-effect) rather than in an
+  // effect, which would fire an extra render after paint. Uses plain state
+  // (not a ref) to track the previous key — refs can't be written during
+  // render. `itemRefs` doesn't need clearing here: each visible item's
+  // callback ref reattaches on every render, so stale entries beyond the
+  // new (shorter) list are simply never read again.
+  const resetKey = `${open}:${filtered.length}`;
+  const [lastResetKey, setLastResetKey] = useState(resetKey);
+  if (lastResetKey !== resetKey) {
+    setLastResetKey(resetKey);
     setActiveIndex(-1);
-    itemRefs.current = [];
-  }, [open, filtered.length]);
+  }
 
   const selectItem = (o: { value: string; label: string }) => {
     onChange(applyComboSelection(value, o.value, multi));

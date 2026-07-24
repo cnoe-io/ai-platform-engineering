@@ -49,6 +49,19 @@ export async function tickIngestQueue(): Promise<void> {
       if (pendingChildren > 0) continue;
     }
 
+    // A run can also block on whole sub-cascades beyond its own direct
+    // children — e.g. a BHAG's synthesize waits for each Area's entire
+    // (leaf-ingest + synthesize) sub-cascade, not just the Area's own run.
+    // "Pending" here means ANY non-terminal run under that cascade_id,
+    // regardless of role, so it covers the sub-cascade's own parent too.
+    if (run.blocked_by_cascade_ids?.length) {
+      const pendingSubCascades = await runs.countDocuments({
+        cascade_id: { $in: run.blocked_by_cascade_ids },
+        status: { $in: ["queued", "running"] },
+      });
+      if (pendingSubCascades > 0) continue;
+    }
+
     // Atomic claim: only the writer that flips queued -> running proceeds.
     const claim = await runs.updateOne(
       { _id: run._id, status: "queued" },

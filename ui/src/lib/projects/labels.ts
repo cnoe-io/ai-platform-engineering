@@ -43,7 +43,7 @@ export function sanitizeLabels(
       : domainFallback?.trim() || undefined;
   const labels: ProjectLabels = {
     initiatives: cleanLabelList(obj.initiatives),
-    swimlanes: cleanLabelList(obj.swimlanes),
+    areas: cleanLabelList(obj.areas),
   };
   if (domainRaw) labels.domain = domainRaw;
   return labels;
@@ -57,20 +57,20 @@ export interface FacetValue {
 export interface ProjectFacets {
   domains: FacetValue[];
   initiatives: FacetValue[];
-  swimlanes: FacetValue[];
+  areas: FacetValue[];
   total: number;
 }
 
 /** Build faceted counts across a set of projects, grouped by normalized key. */
 export function computeFacets(projects: ProjectDocument[]): ProjectFacets {
-  const dims: Record<"domains" | "initiatives" | "swimlanes", Map<string, FacetValue>> = {
+  const dims: Record<"domains" | "initiatives" | "areas", Map<string, FacetValue>> = {
     domains: new Map(),
     initiatives: new Map(),
-    swimlanes: new Map(),
+    areas: new Map(),
   };
 
   const bump = (
-    dim: "domains" | "initiatives" | "swimlanes",
+    dim: "domains" | "initiatives" | "areas",
     raw: string | undefined,
   ) => {
     if (!raw || !raw.trim()) return;
@@ -84,7 +84,7 @@ export function computeFacets(projects: ProjectDocument[]): ProjectFacets {
     const labels = p.labels ?? {};
     bump("domains", labels.domain ?? p.domain);
     for (const i of labels.initiatives ?? []) bump("initiatives", i);
-    for (const s of labels.swimlanes ?? []) bump("swimlanes", s);
+    for (const s of labels.areas ?? []) bump("areas", s);
   }
 
   const sortDesc = (m: Map<string, FacetValue>) =>
@@ -93,7 +93,7 @@ export function computeFacets(projects: ProjectDocument[]): ProjectFacets {
   return {
     domains: sortDesc(dims.domains),
     initiatives: sortDesc(dims.initiatives),
-    swimlanes: sortDesc(dims.swimlanes),
+    areas: sortDesc(dims.areas),
     total: projects.length,
   };
 }
@@ -101,7 +101,7 @@ export function computeFacets(projects: ProjectDocument[]): ProjectFacets {
 /** Does a project match a label filter? (AND across dimensions, OR within.) */
 export function projectMatchesLabels(
   project: ProjectDocument,
-  filter: { domains?: string[]; initiatives?: string[]; swimlanes?: string[] },
+  filter: { domains?: string[]; initiatives?: string[]; areas?: string[] },
 ): boolean {
   const labels = project.labels ?? {};
   const projDomain = labels.domain ?? project.domain;
@@ -113,6 +113,6 @@ export function projectMatchesLabels(
   return (
     has(filter.domains, [projDomain]) &&
     has(filter.initiatives, labels.initiatives ?? []) &&
-    has(filter.swimlanes, labels.swimlanes ?? [])
+    has(filter.areas, labels.areas ?? [])
   );
 }

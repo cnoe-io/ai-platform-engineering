@@ -287,15 +287,30 @@ const TOOLS: ToolDef[] = [
         return toolText(`"${b.slug ?? args.bhag_slug}" is not a BHAG (type=${b.type ?? "project"}).`, true);
       }
       const name = b.name ?? b.title ?? "";
-      const childData = ensureOk(
-        await fwd("GET", `/api/projects?initiative=${encodeURIComponent(name)}`),
-        "list child projects",
-      );
-      const children = (childData?.projects ?? []).map((c: any) => ({
+      const encodedName = encodeURIComponent(name);
+      const [areaData, skipData] = await Promise.all([
+        ensureOk(
+          await fwd("GET", `/api/projects?type=area&initiative=${encodedName}`),
+          "list area children",
+        ),
+        ensureOk(
+          await fwd("GET", `/api/projects?initiative=${encodedName}`),
+          "list skip-level projects",
+        ),
+      ]);
+      const areas = (areaData?.projects ?? []).map((c: any) => ({
         slug: c.slug,
         name: c.name ?? c.title,
         status: c.status,
+        kind: "area" as const,
       }));
+      const skipProjects = (skipData?.projects ?? []).map((c: any) => ({
+        slug: c.slug,
+        name: c.name ?? c.title,
+        status: c.status,
+        kind: "project" as const,
+      }));
+      const children = [...areas, ...skipProjects];
       return toolText(
         JSON.stringify(
           { slug: b.slug, name, status: b.status, child_projects: children },
@@ -318,11 +333,19 @@ const TOOLS: ToolDef[] = [
         return toolText(`"${b.slug ?? args.bhag_slug}" is not a BHAG (type=${b.type ?? "project"}).`, true);
       }
       const name = b.name ?? b.title ?? "";
-      const childData = ensureOk(
-        await fwd("GET", `/api/projects?initiative=${encodeURIComponent(name)}`),
-        "list child projects",
-      );
-      const children = (childData?.projects ?? []) as any[];
+      const encodedName = encodeURIComponent(name);
+      const [areaData, skipData] = await Promise.all([
+        ensureOk(
+          await fwd("GET", `/api/projects?type=area&initiative=${encodedName}`),
+          "list area children",
+        ),
+        ensureOk(
+          await fwd("GET", `/api/projects?initiative=${encodedName}`),
+          "list skip-level projects",
+        ),
+      ]);
+      const areas = (areaData?.projects ?? []) as any[];
+      const skipProjects = (skipData?.projects ?? []) as any[];
 
       const fetchPages = async (s: string) => {
         try {
@@ -338,17 +361,142 @@ const TOOLS: ToolDef[] = [
 
       const bhagPages = await fetchPages(b.slug);
       const childContext = [];
-      for (const c of children) {
+      for (const area of areas) {
+        // Fetch Area's own pages and its child projects
+        const areaChildData = ensureOk(
+          await fwd("GET", `/api/projects?area=${encodeURIComponent(area.name ?? area.title ?? "")}`),
+          "list area projects",
+        );
+        const areaProjects = (areaChildData?.projects ?? []) as any[];
+        const areaProjectContext = [];
+        for (const ap of areaProjects) {
+          areaProjectContext.push({
+            slug: ap.slug,
+            name: ap.name ?? ap.title,
+            status: ap.status,
+            kind: "project",
+            pages: await fetchPages(ap.slug),
+          });
+        }
+        childContext.push({
+          slug: area.slug,
+          name: area.name ?? area.title,
+          status: area.status,
+          kind: "area",
+          pages: await fetchPages(area.slug),
+          child_projects: areaProjectContext,
+        });
+      }
+      for (const c of skipProjects) {
         childContext.push({
           slug: c.slug,
           name: c.name ?? c.title,
           status: c.status,
+          kind: "project",
           pages: await fetchPages(c.slug),
         });
       }
       return toolText(
         JSON.stringify(
           { bhag: { slug: b.slug, name, pages: bhagPages }, children: childContext },
+          null,
+          2,
+        ),
+      );
+    },
+  },
+  {
+    name: "tome_list_areas",
+    description:
+      "List Areas the user can access. An Area is a mid-tier grouping that sits between a BHAG and its projects, with its own synthesized wiki. Returns slug, name, and status for each.",
+    inputSchema: schema({}),
+    handler: async (_req, fwd) => {
+      const data = ensureOk(await fwd("GET", "/api/projects?type=area"), "list areas");
+      const areas = (data?.projects ?? []).map((a: any) => ({
+        slug: a.slug,
+        name: a.name ?? a.title,
+        status: a.status,
+        initiatives: a.labels?.initiatives ?? [],
+      }));
+      return toolText(JSON.stringify(areas, null, 2));
+    },
+  },
+  {
+    name: "tome_get_area",
+    description:
+      "Get an Area's detail plus the projects tagged to it (via `labels.areas`). Returns name, status, the Area's own wiki page tree, and `child_projects`. `area_slug` is required.",
+    inputSchema: schema({ area_slug: STR }, ["area_slug"]),
+    handler: async (_req, fwd, args) => {
+      const slug = encodeURIComponent(String(args.area_slug));
+      const data = ensureOk(await fwd("GET", `/api/projects/${slug}`), "get area");
+      const a = data?.project ?? {};
+      if (a.type !== "area") {
+        return toolText(`"${a.slug ?? args.area_slug}" is not an Area (type=${a.type ?? "project"}).`, true);
+      }
+      const name = a.name ?? a.title ?? "";
+      const childData = ensureOk(
+        await fwd("GET", `/api/projects?area=${encodeURIComponent(name)}`),
+        "list area child projects",
+      );
+      const children = (childData?.projects ?? []).map((c: any) => ({
+        slug: c.slug,
+        name: c.name ?? c.title,
+        status: c.status,
+      }));
+      return toolText(
+        JSON.stringify(
+          { slug: a.slug, name, status: a.status, initiatives: a.labels?.initiatives ?? [], child_projects: children },
+          null,
+          2,
+        ),
+      );
+    },
+  },
+  {
+    name: "tome_get_area_synthesis_context",
+    description:
+      "Gather everything needed to synthesize an Area: the Area's own wiki pages plus the wiki pages of every project tagged to it (via `labels.areas`). Use this to author/refresh the Area's dynamic pages (a cross-project synthesis). `area_slug` is required. Note: this is the human/MCP-client path; the in-product agent can synthesize in-app via the Area's Synthesize action.",
+    inputSchema: schema({ area_slug: STR }, ["area_slug"]),
+    handler: async (_req, fwd, args) => {
+      const slug = encodeURIComponent(String(args.area_slug));
+      const data = ensureOk(await fwd("GET", `/api/projects/${slug}`), "get area");
+      const a = data?.project ?? {};
+      if (a.type !== "area") {
+        return toolText(`"${a.slug ?? args.area_slug}" is not an Area (type=${a.type ?? "project"}).`, true);
+      }
+      const name = a.name ?? a.title ?? "";
+      const childData = ensureOk(
+        await fwd("GET", `/api/projects?area=${encodeURIComponent(name)}`),
+        "list area child projects",
+      );
+      const children = (childData?.projects ?? []) as any[];
+
+      const fetchPages = async (s: string) => {
+        try {
+          const pd = ensureOk(
+            await fwd("GET", `/api/tome/projects/${encodeURIComponent(s)}/pages`),
+            "get pages",
+          );
+          return pd?.pages ?? {};
+        } catch {
+          return {};
+        }
+      };
+
+      const areaPages = await fetchPages(a.slug);
+      const childContext = [];
+      for (const c of children) {
+        childContext.push({
+          slug: c.slug,
+          name: c.name ?? c.title,
+          status: c.status,
+          kind: "project",
+          pages: await fetchPages(c.slug),
+        });
+      }
+      return toolText(
+        JSON.stringify(
+          { area: { slug: a.slug, name, pages: areaPages }, children: childContext },
           null,
           2,
         ),
@@ -544,12 +692,12 @@ const TOOLS: ToolDef[] = [
   {
     name: "tome_create_project",
     description:
-      "Create a new Tome project or BHAG. `name` and `team_id` (team slug) are required. Optional: `type` (\"project\" default, or \"bhag\" for a strategic-goal entity — a BHAG ignores sources), `description`, `github_repos` (URLs or owner/name), `confluence_url`, `webex_rooms` (array of { room_id, name? }).",
+      "Create a new Tome project, BHAG, or Area. `name` and `team_id` (team slug) are required. Optional: `type` (\"project\" default, \"bhag\" for a strategic-goal entity, or \"area\" for a mid-tier grouping — both BHAG and Area ignore sources and are synthesized from tagged children), `description`, `github_repos` (URLs or owner/name), `confluence_url`, `webex_rooms` (array of { room_id, name? }).",
     inputSchema: schema(
       {
         name: STR,
         team_id: STR,
-        type: { type: "string", enum: ["project", "bhag"] },
+        type: { type: "string", enum: ["project", "bhag", "area"] },
         description: STR,
         github_repos: { type: "array", items: STR },
         confluence_url: STR,
@@ -562,14 +710,14 @@ const TOOLS: ToolDef[] = [
     ),
     handler: async (_req, fwd, args) => {
       const body: Record<string, unknown> = { name: String(args.name), team_id: String(args.team_id) };
-      if (args.type === "bhag") body.type = "bhag";
+      if (args.type) body.type = String(args.type);
       if (args.description) body.description = String(args.description);
       if (Array.isArray(args.github_repos)) body.github_repos = args.github_repos;
       if (args.confluence_url) body.confluence_url = String(args.confluence_url);
       if (Array.isArray(args.webex_rooms)) body.webex_rooms = args.webex_rooms;
       const data = ensureOk(await fwd("POST", "/api/projects", body), "create project");
       const p = data?.project ?? {};
-      const kind = p.type === "bhag" ? "BHAG" : "project";
+      const kind = p.type === "bhag" ? "BHAG" : p.type === "area" ? "Area" : "project";
       return toolText(`Created ${kind} "${p.name}" (slug=${p.slug}, status=${p.status}).`);
     },
   },

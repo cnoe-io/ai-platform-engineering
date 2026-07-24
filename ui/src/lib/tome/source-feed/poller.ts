@@ -157,7 +157,8 @@ export async function tickSourceFeed(now: Date): Promise<void> {
     const docs = await col
       .find({
         "sources.repos.0": { $exists: true },
-        type: { $ne: "bhag" },
+        // Synthesized types (BHAG/Area) have no sources of their own.
+        type: { $nin: ["bhag", "area"] },
         sources_feed_enabled: { $ne: false }, // honor per-project opt-out
       })
       .toArray();

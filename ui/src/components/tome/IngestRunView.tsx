@@ -40,6 +40,11 @@ interface CascadeChild {
   slug: string;
   status: RunStatus;
   error: string | null;
+  /** "synthesize" for a nested Area's own roll-up, "ingest" for a plain project. */
+  endpoint?: "ingest" | "synthesize";
+  /** Set when this entry was pulled in from a nested Area sub-cascade —
+   * names the Area, so the UI can show "— via <Area>". */
+  via_area?: string | null;
 }
 
 type ChildRef = { id: string; name: string; slug: string };
@@ -330,7 +335,7 @@ function CascadePanel({
     <div className="rounded-lg border bg-card p-3">
       <div className="mb-2 flex items-center justify-between">
         <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Project ingests
+          Ingests &amp; synthesis
         </span>
         {counts && (
           <span className="text-[11px] tabular-nums text-muted-foreground">
@@ -347,12 +352,16 @@ function CascadePanel({
               onClick={() => onSelect({ id: c.id, name: c.name, slug: c.slug })}
               className={cn(
                 "flex w-full items-center gap-2 rounded px-2 py-1 text-left text-sm transition-colors hover:bg-muted",
+                c.via_area && "ml-3",
                 selectedId === c.id && "bg-muted",
               )}
             >
               <span className={`inline-block h-2 w-2 shrink-0 rounded-full ${dotClass(c.status)}`} />
               <span className="truncate" title={c.error || c.name}>
-                {c.name}
+                {c.endpoint === "synthesize" ? `Synthesize: ${c.name}` : c.name}
+                {c.via_area && (
+                  <span className="text-muted-foreground"> — via {c.via_area}</span>
+                )}
               </span>
               <span className="ml-auto shrink-0 text-[10px] uppercase tracking-wider text-muted-foreground">
                 {c.status}

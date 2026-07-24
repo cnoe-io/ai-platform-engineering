@@ -80,7 +80,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       throw new ApiError("contextUrl is required", 400, "missing_context_url");
     }
 
-    let category: TomeFeedbackCategory | string | undefined = body.category;
+    const category: TomeFeedbackCategory | string | undefined = body.category;
     if (source === "tome-product") {
       if (!category || !TOME_CATEGORIES.has(category as TomeFeedbackCategory)) {
         throw new ApiError("Valid category is required for TOME feedback", 400, "missing_category");

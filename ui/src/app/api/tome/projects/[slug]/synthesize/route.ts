@@ -24,12 +24,12 @@ export const POST = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
   const tctx = await loadTomeProject(request, slug);
   requireTomeEditor(tctx);
 
-  // Synthesis is BHAG-only; regular projects ingest their sources via /reingest.
-  if (tctx.project.type !== "bhag") {
+  // Synthesis is for BHAGs and Areas; regular projects ingest their sources via /reingest.
+  if (tctx.project.type !== "bhag" && tctx.project.type !== "area") {
     throw new ApiError(
-      "Synthesis is only for BHAGs. Use a normal ingest for projects.",
+      "Synthesis is only for BHAGs and Areas. Use a normal ingest for projects.",
       400,
-      "NOT_A_BHAG",
+      "NOT_A_SYNTHESIZED_PROJECT",
     );
   }
 

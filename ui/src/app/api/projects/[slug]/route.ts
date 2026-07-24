@@ -203,7 +203,7 @@ export const PATCH = withErrorHandler(
       title?: string;
       description?: string;
       initiatives?: string[];
-      swimlanes?: string[];
+      areas?: string[];
       team_id?: string;
       sources?: {
         repos?: string[];
@@ -242,8 +242,8 @@ export const PATCH = withErrorHandler(
     if (Array.isArray(body.initiatives)) {
       $set["labels.initiatives"] = cleanLabelList(body.initiatives);
     }
-    if (Array.isArray(body.swimlanes)) {
-      $set["labels.swimlanes"] = cleanLabelList(body.swimlanes);
+    if (Array.isArray(body.areas)) {
+      $set["labels.areas"] = cleanLabelList(body.areas);
     }
     // Team reassignment — only when it actually changes, and only if the actor
     // is allowed to move the project into the target team. Updates the team
@@ -321,7 +321,7 @@ export const PATCH = withErrorHandler(
       "title",
       "description",
       "labels.initiatives",
-      "labels.swimlanes",
+      "labels.areas",
       "team_id",
     ].some((k) => k in $set);
     if (metaChanged) {
