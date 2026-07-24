@@ -190,6 +190,8 @@ export interface Config {
   schedulerEnabled: boolean;
   /** Whether Jira ticket creation from feedback/report is enabled */
   jiraTicketEnabled: boolean;
+  /** Jira instance base URL (e.g., "https://org.atlassian.net") */
+  jiraBaseUrl: string | null;
   /** Jira project key for ticket creation (e.g., "OPENSD") */
   jiraTicketProject: string | null;
   /** Custom label applied to Jira tickets for filtering (e.g., "caipe-reported") */
@@ -319,6 +321,7 @@ const DEFAULT_CONFIG: Config = {
   reportProblemDynamicAgentId: null,
   reportProblemRouting: null,
   jiraTicketEnabled: false,
+  jiraBaseUrl: null,
   jiraTicketProject: null,
   jiraTicketLabel: 'caipe-reported',
   githubTicketEnabled: false,
@@ -472,7 +475,12 @@ export function getServerConfig(): Config {
     reportProblemRoutingRaw === 'dynamic-agent' || reportProblemRoutingRaw === 'github' || reportProblemRoutingRaw === 'jira'
       ? reportProblemRoutingRaw
       : null;
-  const jiraTicketEnabled = env('JIRA_TICKET_ENABLED') === 'true';
+  const jiraBaseUrl = env('JIRA_BASE_URL') || null;
+  const jiraEmail = env('JIRA_EMAIL') || null;
+  const jiraToken = env('REPORT_PROBLEM_JIRA_TOKEN') || env('JIRA_TICKET_TOKEN') || null;
+  // Auto-enable when all three credentials are present, or when explicitly set
+  const jiraTicketEnabled = env('JIRA_TICKET_ENABLED') === 'true'
+    || !!(jiraBaseUrl && jiraEmail && jiraToken);
   const jiraTicketProject = env('JIRA_TICKET_PROJECT') || null;
   const jiraTicketLabel = env('JIRA_TICKET_LABEL') || 'caipe-reported';
   const githubTicketEnabled = env('GITHUB_TICKET_ENABLED') === 'true';
@@ -540,6 +548,7 @@ export function getServerConfig(): Config {
     reportProblemDynamicAgentId,
     reportProblemRouting,
     jiraTicketEnabled,
+    jiraBaseUrl,
     jiraTicketProject,
     jiraTicketLabel,
     githubTicketEnabled,

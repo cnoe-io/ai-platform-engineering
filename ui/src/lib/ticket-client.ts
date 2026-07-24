@@ -133,6 +133,10 @@ export interface CreateTicketOptions {
   source?: "header" | "chat-feedback" | "tome-product";
   category?: string;
   tomeContext?: { projectSlug?: string; pagePath?: string };
+  /** Area selected by the user (e.g. "TOME", "Chat", "Skills"). Drives provider routing. */
+  area?: string;
+  /** Issue type selected by the user. */
+  issueType?: "Bug" | "Enhancement";
 }
 
 /**
@@ -141,11 +145,7 @@ export interface CreateTicketOptions {
 export async function createTicketViaApi(
   options: CreateTicketOptions,
 ): Promise<TicketResult> {
-  const { request, signal, source = "header", category, tomeContext } = options;
-  const provider = getConfig("ticketProvider");
-  if (provider !== "github") {
-    throw new Error("Direct ticket API is only available for GitHub");
-  }
+  const { request, signal, source = "header", category, tomeContext, area, issueType } = options;
 
   const res = await fetch("/api/tickets/report", {
     method: "POST",
@@ -157,6 +157,8 @@ export async function createTicketViaApi(
       source,
       category,
       tomeContext,
+      area,
+      issueType,
     }),
     signal,
   });
@@ -179,11 +181,61 @@ export async function createTicketViaApi(
 }
 
 /**
- * Create a ticket using the best available path: GitHub → direct API; Jira → agent.
+ * Create a Jira issue via the BFF API (direct REST).
+ */
+export async function createJiraTicketViaApi(
+  options: CreateTicketOptions,
+): Promise<TicketResult> {
+  const { request, signal, area, issueType } = options;
+
+  const res = await fetch("/api/tickets/jira", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      description: request.description,
+      contextUrl: request.contextUrl,
+      feedbackContext: request.feedbackContext,
+      area,
+      issueType,
+    }),
+    signal,
+  });
+
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const msg =
+      typeof body?.message === "string"
+        ? body.message
+        : typeof body?.error === "string"
+          ? body.error
+          : `Jira ticket API failed (${res.status})`;
+    throw new Error(msg);
+  }
+
+  const data = body.data as TicketResult;
+  options.onResult?.(data);
+  options.onEvent?.({ type: "done" }, `<- done: ${data.id} ${data.url}`);
+  return data;
+}
+
+/**
+ * Create a ticket using the best available path.
+ * When `area` is set: TOME → GitHub direct API; all other areas → Jira direct API.
+ * Without `area`: legacy routing via global ticketProvider config.
  */
 export async function createTicket(
   options: CreateTicketOptions,
 ): Promise<TicketResult | null> {
+  const { area } = options;
+
+  if (area) {
+    if (area === "TOME") {
+      return createTicketViaApi(options);
+    }
+    return createJiraTicketViaApi(options);
+  }
+
+  // Legacy path (no area selected — e.g. from FeedbackButton)
   const provider = getConfig("ticketProvider");
   if (provider === "github" && getConfig("githubTicketEnabled")) {
     return createTicketViaApi(options);

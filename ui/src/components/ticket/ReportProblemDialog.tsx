@@ -25,6 +25,7 @@ ChevronDown,
 ChevronUp,
 Copy,
 ExternalLink,
+GitBranch,
 Loader2,
 Monitor,
 RefreshCw,
@@ -47,6 +48,23 @@ const TOME_PRODUCT_CATEGORIES = [
   "Other",
 ] as const;
 
+const ISSUE_TYPES = ["Bug", "Enhancement"] as const;
+type IssueType = (typeof ISSUE_TYPES)[number];
+
+const PROBLEM_AREAS = [
+  "TOME",
+  "Chat",
+  "Skills",
+  "Workflows",
+  "Knowledge Bases",
+  "Agents",
+  "MCP Servers",
+  "LLM Models",
+  "Credentials",
+  "Admin Settings",
+] as const;
+type ProblemArea = (typeof PROBLEM_AREAS)[number];
+
 type ReportVariant = "default" | "tome-product";
 
 type DialogStatus = "idle" | "submitting" | "success" | "error";
@@ -58,6 +76,8 @@ interface ReportProblemDialogProps {
   feedbackContext?: FeedbackContext;
   variant?: ReportVariant;
   tomeContext?: { projectSlug?: string; pagePath?: string };
+  /** Pre-select an area based on calling context (e.g. "TOME" when opened from wiki) */
+  preselectedArea?: ProblemArea;
 }
 
 interface ImageCaptureConstructor {
@@ -72,6 +92,7 @@ export function ReportProblemDialog({
   feedbackContext,
   variant = "default",
   tomeContext,
+  preselectedArea,
 }: ReportProblemDialogProps) {
   const { data: session } = useSession();
   const pathname = usePathname();
@@ -79,6 +100,8 @@ export function ReportProblemDialog({
 
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState<string>("");
+  const [issueType, setIssueType] = useState<IssueType | "">("");
+  const [area, setArea] = useState<ProblemArea | "">(preselectedArea ?? "");
   const [status, setStatus] = useState<DialogStatus>("idle");
   const [ticketResult, setTicketResult] = useState<TicketResult | null>(null);
   const [errorMessage, setErrorMessage] = useState("");
@@ -93,8 +116,18 @@ export function ReportProblemDialog({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const fileInputId = useId();
 
-  const provider = getConfig("ticketProvider");
-  const providerLabel = provider === "jira" ? "Jira" : provider === "github" ? "GitHub" : "";
+  const githubTicketRepo = getConfig("githubTicketRepo");
+  const jiraTicketProject = getConfig("jiraTicketProject");
+  const jiraBaseUrl = getConfig("jiraBaseUrl");
+
+  // Effective provider depends on selected area: TOME → GitHub, others → Jira
+  const effectiveProvider: "github" | "jira" | null = area
+    ? area === "TOME"
+      ? "github"
+      : "jira"
+    : getConfig("ticketProvider");
+
+  const providerLabel = effectiveProvider === "jira" ? "Jira" : effectiveProvider === "github" ? "GitHub" : "";
 
   const contextUrl =
     typeof window !== "undefined"
@@ -107,9 +140,16 @@ export function ReportProblemDialog({
     }
   }, [debugLog, showDebug]);
 
+  // Sync preselectedArea into state when prop changes (e.g. dialog reopened from different context)
+  useEffect(() => {
+    if (preselectedArea) setArea(preselectedArea);
+  }, [preselectedArea]);
+
   const resetState = useCallback(() => {
     setDescription("");
     setCategory("");
+    setIssueType("");
+    setArea(preselectedArea ?? "");
     setStatus("idle");
     setTicketResult(null);
     setErrorMessage("");
@@ -119,7 +159,7 @@ export function ReportProblemDialog({
     setIsCapturing(false);
     setLightboxOpen(false);
     abortControllerRef.current = null;
-  }, []);
+  }, [preselectedArea]);
 
   // Capture the tab using getDisplayMedia (browser screen share picker),
   // then grab one video frame into a canvas and convert to a data URL.
@@ -207,6 +247,8 @@ export function ReportProblemDialog({
   const handleSubmit = useCallback(async () => {
     const isTome = variant === "tome-product";
     if (isTome && !category) return;
+    const needsAreaType = !isTome && !feedbackContext;
+    if (needsAreaType && (!issueType || !area)) return;
     if (!description.trim() && !feedbackContext) return;
 
     const controller = new AbortController();
@@ -239,6 +281,8 @@ export function ReportProblemDialog({
         source: isTome ? "tome-product" : feedbackContext ? "chat-feedback" : "header",
         category: isTome ? category : undefined,
         tomeContext,
+        area: !isTome && area ? area : undefined,
+        issueType: !isTome && issueType ? issueType : undefined,
         onEvent: (_event, logLine) => {
           appendLog(logLine);
         },
@@ -252,9 +296,10 @@ export function ReportProblemDialog({
       if (result) {
         setTicketResult(result);
         setStatus("success");
+        const providerName = result.provider === "jira" ? "Jira" : "GitHub";
         toast(
           result.url
-            ? `Feedback submitted: tracked as ${result.id} on GitHub.`
+            ? `Feedback submitted: tracked as ${result.id} on ${providerName}.`
             : `Feedback submitted: tracked as ${result.id}.`,
           "success"
         );
@@ -284,6 +329,8 @@ export function ReportProblemDialog({
     variant,
     category,
     tomeContext,
+    area,
+    issueType,
     toast,
   ]);
 
@@ -300,10 +347,13 @@ export function ReportProblemDialog({
   }, [description, feedbackContext]);
 
   const isTomeProduct = variant === "tome-product";
+  const needsAreaType = !isTomeProduct && !feedbackContext;
   const canSubmit =
     isTomeProduct
       ? Boolean(category && description.trim())
-      : Boolean(description.trim() || feedbackContext);
+      : needsAreaType
+        ? Boolean(issueType && area && (description.trim() || feedbackContext))
+        : Boolean(description.trim() || feedbackContext);
 
   return (
     <>
@@ -317,13 +367,13 @@ export function ReportProblemDialog({
                 ? "Something Went Wrong"
                 : isTomeProduct
                   ? "TOME product feedback"
-                  : `Report a Problem${providerLabel ? ` via ${providerLabel}` : ""}`}
+                  : "Report a Problem"}
           </DialogTitle>
           <DialogDescription>
             {status === "idle" && isTomeProduct &&
               "Report bugs, confusing UX, or missing TOME capabilities. Not for wiki page content accuracy."}
             {status === "idle" && !isTomeProduct &&
-              "Describe the issue briefly. A ticket will be created and assigned to the team."}
+              "Select the area and type, then describe the issue. A ticket will be created automatically."}
             {status === "submitting" && "Creating your ticket..."}
             {status === "success" && "Your ticket has been created successfully."}
             {status === "error" && "We couldn't create the ticket. You can retry or copy your description."}
@@ -340,6 +390,80 @@ export function ReportProblemDialog({
                 {feedbackContext.reason}
                 {feedbackContext.additionalFeedback && (
                   <> &mdash; {feedbackContext.additionalFeedback}</>
+                )}
+              </div>
+            )}
+
+            {/* Issue type + area selectors — shown for default variant when no feedbackContext */}
+            {!isTomeProduct && !feedbackContext && (
+              <div className="space-y-2">
+                {/* Issue Type */}
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground mb-1.5">Type</p>
+                  <div className="flex gap-1.5">
+                    {ISSUE_TYPES.map((t) => (
+                      <button
+                        key={t}
+                        type="button"
+                        onClick={() => setIssueType(t)}
+                        className={cn(
+                          "px-3 py-1 rounded-full text-xs font-medium transition-all",
+                          issueType === t
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-muted text-muted-foreground hover:bg-muted/80",
+                        )}
+                      >
+                        {t}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Area */}
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground mb-1.5">Area</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {PROBLEM_AREAS.map((a) => (
+                      <button
+                        key={a}
+                        type="button"
+                        onClick={() => setArea(a)}
+                        className={cn(
+                          "px-3 py-1 rounded-full text-xs font-medium transition-all",
+                          area === a
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-muted text-muted-foreground hover:bg-muted/80",
+                        )}
+                      >
+                        {a}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Destination hint */}
+                {area && (
+                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    {area === "TOME" ? (
+                      <>
+                        <GitBranch className="h-3.5 w-3.5 shrink-0" />
+                        <span>
+                          {githubTicketRepo
+                            ? `→ GitHub issue in ${githubTicketRepo}`
+                            : "→ GitHub issue"}
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-sm bg-[#0052CC] text-[8px] font-bold text-white shrink-0">J</span>
+                        <span>
+                          {jiraTicketProject
+                            ? `→ Jira ticket in ${jiraTicketProject}${jiraBaseUrl ? ` (${jiraBaseUrl.replace(/^https?:\/\//, "")})` : ""}`
+                            : "→ Jira ticket"}
+                        </span>
+                      </>
+                    )}
+                  </div>
                 )}
               </div>
             )}
@@ -450,7 +574,13 @@ export function ReportProblemDialog({
               disabled={!canSubmit}
               className="w-full gap-2"
             >
-              {isTomeProduct ? "Submit feedback" : "Submit Report"}
+              {isTomeProduct
+                ? "Submit feedback"
+                : area === "TOME"
+                  ? <><GitBranch className="h-4 w-4" /> Submit GitHub Issue</>
+                  : area
+                    ? <><span className="inline-flex h-4 w-4 items-center justify-center rounded-sm bg-[#0052CC] text-[9px] font-bold text-white">J</span> Submit Jira Ticket</>
+                    : "Submit Report"}
             </Button>
           </div>
         )}
@@ -557,7 +687,7 @@ export function ReportProblemDialog({
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1 text-xs text-primary hover:underline mt-1"
                 >
-                  Open in {providerLabel}
+                  Open in {ticketResult.provider === "jira" ? "Jira" : "GitHub"}
                   <ExternalLink className="h-3 w-3" />
                 </a>
               )}

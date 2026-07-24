@@ -30,6 +30,10 @@ export interface GitHubTicketInput {
     projectSlug?: string;
     pagePath?: string;
   };
+  /** Area selected in the Report a Problem dialog (e.g. "TOME", "Chat"). */
+  area?: string;
+  /** Issue type selected in the Report a Problem dialog. */
+  issueType?: "Bug" | "Enhancement";
 }
 
 export interface GitHubTicketResult {
@@ -58,14 +62,14 @@ export function titleFor(input: GitHubTicketInput): string {
   const prefix =
     input.source === "tome-product" ? "[TOME Feedback]" : "[CAIPE Report]";
   const category = input.category ?? input.feedbackContext?.reason;
+  const areaTag = input.area && !category ? `[${input.area}]` : null;
+  const typeTag = input.issueType ? `[${input.issueType}]` : null;
   const summary = truncate(
     input.description.replace(/\s+/g, " "),
     72,
   );
-  if (category) {
-    return truncate(`${prefix} ${category}: ${summary}`, 240);
-  }
-  return truncate(`${prefix} ${summary}`, 240);
+  const tags = [areaTag, typeTag, category].filter(Boolean).join(" ");
+  return truncate(tags ? `${prefix} ${tags}: ${summary}` : `${prefix} ${summary}`, 240);
 }
 
 export function buildGitHubIssueBody(input: GitHubTicketInput): string {
@@ -81,7 +85,13 @@ export function buildGitHubIssueBody(input: GitHubTicketInput): string {
 
   lines.push("## Summary", "", input.description.trim(), "");
 
-  if (input.category) {
+  if (input.area) {
+    lines.push("## Area", "", input.area, "");
+  }
+  if (input.issueType) {
+    lines.push("## Issue Type", "", input.issueType, "");
+  }
+  if (input.category && input.category !== input.area) {
     lines.push("## Category", "", String(input.category), "");
   }
 
@@ -136,6 +146,12 @@ export async function createGitHubTicket(
   const labels = [input.label];
   if (input.source === "tome-product") {
     labels.push("tome-feedback");
+  }
+  if (input.issueType) {
+    labels.push(input.issueType.toLowerCase()); // "bug" or "enhancement"
+  }
+  if (input.area) {
+    labels.push(`area:${input.area.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-:]/g, "")}`);
   }
   if (input.category && input.category !== "Other") {
     labels.push(

@@ -36,6 +36,8 @@ interface ReportBody {
     projectSlug?: string;
     pagePath?: string;
   };
+  area?: string;
+  issueType?: "Bug" | "Enhancement";
 }
 
 function env(name: string): string | undefined {
@@ -106,6 +108,8 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       feedbackContext,
       category,
       tomeContext: body.tomeContext,
+      area: body.area,
+      issueType: body.issueType,
     };
 
     const result = await createGitHubTicket(cfg.githubTicketRepo, token, input);
