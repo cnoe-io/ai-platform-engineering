@@ -241,7 +241,7 @@ export function ProjectOnboardingWizard({
   const [provisioning, setProvisioning] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Deployment-configured catchall team (e.g. DEFAULT_TEAM_SLUG=backstage-access),
+  // Deployment-configured catchall team (e.g. DEFAULT_TEAM_SLUG=outshift-everyone),
   // used both to pre-select on load and to explain the pre-selection in copy.
   const defaultTeam = useMemo(() => {
     const slug = getConfig("defaultTeamSlug");
