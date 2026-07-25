@@ -195,6 +195,37 @@ export async function createGitHubTicket(
 }
 
 /**
+ * Dedicated branch screenshots are committed to. Deliberately NOT the repo's
+ * default branch — that's commonly protected (required PR review), which
+ * would make every direct-commit upload fail with a 403/422.
+ */
+const SCREENSHOTS_BRANCH = "screenshots";
+
+async function ensureScreenshotsBranch(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+): Promise<void> {
+  try {
+    await octokit.repos.getBranch({ owner, repo, branch: SCREENSHOTS_BRANCH });
+  } catch (err) {
+    if ((err as { status?: number })?.status !== 404) throw err;
+    const { data: repoInfo } = await octokit.repos.get({ owner, repo });
+    const { data: defaultRef } = await octokit.git.getRef({
+      owner,
+      repo,
+      ref: `heads/${repoInfo.default_branch}`,
+    });
+    await octokit.git.createRef({
+      owner,
+      repo,
+      ref: `refs/heads/${SCREENSHOTS_BRANCH}`,
+      sha: defaultRef.object.sha,
+    });
+  }
+}
+
+/**
  * Commit a captured screenshot to a dedicated screenshots repo and return
  * its raw.githubusercontent.com URL for embedding in an issue body.
  *
@@ -217,18 +248,18 @@ export async function uploadScreenshotToGitHub(
   const { owner, repo } = parseGitHubRepo(screenshotsRepo);
   const octokit = new Octokit({ auth: token });
 
-  const { data: repoInfo } = await octokit.repos.get({ owner, repo });
-  const branch = repoInfo.default_branch;
+  await ensureScreenshotsBranch(octokit, owner, repo);
+
   const path = `screenshots/${new Date().toISOString().slice(0, 10)}/${randomUUID()}.${ext}`;
 
   await octokit.repos.createOrUpdateFileContents({
     owner,
     repo,
     path,
-    branch,
+    branch: SCREENSHOTS_BRANCH,
     message: "Add report screenshot",
     content: base64Data,
   });
 
-  return `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${path}`;
+  return `https://raw.githubusercontent.com/${owner}/${repo}/${SCREENSHOTS_BRANCH}/${path}`;
 }

@@ -1,11 +1,19 @@
 const mockReposGet = jest.fn();
+const mockGetBranch = jest.fn();
 const mockCreateOrUpdateFileContents = jest.fn();
+const mockGetRef = jest.fn();
+const mockCreateRef = jest.fn();
 
 jest.mock("@octokit/rest", () => ({
   Octokit: jest.fn().mockImplementation(() => ({
     repos: {
       get: (...args: unknown[]) => mockReposGet(...args),
+      getBranch: (...args: unknown[]) => mockGetBranch(...args),
       createOrUpdateFileContents: (...args: unknown[]) => mockCreateOrUpdateFileContents(...args),
+    },
+    git: {
+      getRef: (...args: unknown[]) => mockGetRef(...args),
+      createRef: (...args: unknown[]) => mockCreateRef(...args),
     },
   })),
 }));
@@ -95,11 +103,14 @@ describe("github-ticket", () => {
 
     beforeEach(() => {
       mockReposGet.mockReset();
+      mockGetBranch.mockReset();
       mockCreateOrUpdateFileContents.mockReset();
+      mockGetRef.mockReset();
+      mockCreateRef.mockReset();
     });
 
-    it("commits the decoded screenshot and returns its raw URL", async () => {
-      mockReposGet.mockResolvedValue({ data: { default_branch: "main" } });
+    it("commits to the dedicated 'screenshots' branch (not the default branch) and returns its raw URL", async () => {
+      mockGetBranch.mockResolvedValue({ data: { name: "screenshots" } });
       mockCreateOrUpdateFileContents.mockResolvedValue({});
 
       const url = await uploadScreenshotToGitHub("org/screenshots", "token", pngDataUrl);
@@ -108,11 +119,35 @@ describe("github-ticket", () => {
         expect.objectContaining({
           owner: "org",
           repo: "screenshots",
-          branch: "main",
+          branch: "screenshots",
           content: Buffer.from("fake-png-bytes").toString("base64"),
         }),
       );
-      expect(url).toMatch(/^https:\/\/raw\.githubusercontent\.com\/org\/screenshots\/main\/screenshots\//);
+      expect(url).toMatch(/^https:\/\/raw\.githubusercontent\.com\/org\/screenshots\/screenshots\//);
+    });
+
+    it("bootstraps the 'screenshots' branch from the default branch when it doesn't exist yet", async () => {
+      mockGetBranch.mockRejectedValue({ status: 404 });
+      mockReposGet.mockResolvedValue({ data: { default_branch: "main" } });
+      mockGetRef.mockResolvedValue({ data: { object: { sha: "abc123" } } });
+      mockCreateRef.mockResolvedValue({});
+      mockCreateOrUpdateFileContents.mockResolvedValue({});
+
+      await uploadScreenshotToGitHub("org/screenshots", "token", pngDataUrl);
+
+      expect(mockGetRef).toHaveBeenCalledWith(expect.objectContaining({ ref: "heads/main" }));
+      expect(mockCreateRef).toHaveBeenCalledWith(
+        expect.objectContaining({ ref: "refs/heads/screenshots", sha: "abc123" }),
+      );
+    });
+
+    it("propagates a non-404 error from checking the branch", async () => {
+      mockGetBranch.mockRejectedValue({ status: 500 });
+
+      await expect(
+        uploadScreenshotToGitHub("org/screenshots", "token", pngDataUrl),
+      ).rejects.toEqual({ status: 500 });
+      expect(mockCreateRef).not.toHaveBeenCalled();
     });
 
     it("throws on a non-data URL", async () => {
