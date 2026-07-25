@@ -188,6 +188,8 @@ export interface Config {
   scheduleEditorAgentId: string | null;
   /** Whether the scheduled-agent workflow is enabled */
   schedulerEnabled: boolean;
+  /** Whether the Schedules navigation tab is limited to administrators */
+  schedulerAdminOnly: boolean;
   /** Whether Jira ticket creation from feedback/report is enabled */
   jiraTicketEnabled: boolean;
   /** Jira instance base URL (e.g., "https://org.atlassian.net") */
@@ -326,6 +328,7 @@ const DEFAULT_CONFIG: Config = {
   tomeEnabled: false,
   scheduleEditorAgentId: null,
   schedulerEnabled: false,
+  schedulerAdminOnly: false,
   agentProtocol: 'agui',
   reportProblemEnabled: true,
   reportProblemDynamicAgentId: null,
@@ -555,6 +558,7 @@ export function getServerConfig(): Config {
     tomeEnabled,
     scheduleEditorAgentId: env('SCHEDULE_EDITOR_AGENT_ID') || null,
     schedulerEnabled: env('SCHEDULER_ENABLED') === 'true',
+    schedulerAdminOnly: env('SCHEDULER_ADMIN_ONLY') === 'true',
     agentProtocol,
     reportProblemEnabled,
     reportProblemDynamicAgentId,

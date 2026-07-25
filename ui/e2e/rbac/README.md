@@ -39,6 +39,7 @@ CAIPE + Keycloak stack:
 | `mcp-server-create-live.spec.ts` | Live-stack regression for MCP server create → OpenFGA tuple reconcile → BFF list visibility. |
 | `openfga-live.spec.ts` | Live-stack OpenFGA/CAS regression for decisions, grants, revokes, delegation, explain, raw tuple admin APIs, and guardrails. |
 | `resource-lifecycle-live.spec.ts` | Live-stack resource lifecycle matrix for agents, skills, workflows, workflow runs, teams, KB/data-source sharing, credentials, MCP custom headers, and AgentGateway tool-call tuples. |
+| `skills-catalog-auth.spec.ts` | Live-stack regression for the skills catalog API: catalog API key (`X-Caipe-Catalog-Key`) returns hub + default skills (not 0), local skills JWT (`/api/skills/token`) returns non-zero skills, unauthenticated returns 401. Requires `CAIPE_CATALOG_API_KEY`. |
 
 ## Commands
 
@@ -91,6 +92,12 @@ hit `test.skip()` immediately, so:
        RBAC_NOACCESS_USER_EMAIL=e2e-rbac-noaccess-user@caipe.local \
        RBAC_NOACCESS_USER_PASSWORD=changeme \
        npx playwright test --config=playwright.rbac.config.ts
+
+To also run the skills catalog auth regression add:
+
+       CAIPE_CATALOG_API_KEY=<key>   # the same key caipe-skills.py reads from ~/.config/caipe/config.json
+       NEXTAUTH_SECRET=<secret>      # required to mint the session cookie for the skills JWT test
+       RBAC_USER_SUB=<keycloak-sub>  # user's Keycloak sub (from Keycloak Admin → Users → Attributes)
 
 ## Workflow agent-access regression
 
