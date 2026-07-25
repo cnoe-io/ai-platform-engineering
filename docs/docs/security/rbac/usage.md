@@ -1159,6 +1159,15 @@ NextAuth holds the refresh token and silently refreshes before expiry. If the re
 
 Yes for application/UI roles. In Keycloak Admin: Realm Roles → Create. Add it to `default-roles-caipe` if it should be universal. Add an IdP mapper if it should come from an upstream group. For AgentGateway authorization, model the access as OpenFGA relationships instead of editing CEL rules.
 
+**Q: How does the Skills Catalog API authenticate non-browser callers?**
+
+Two paths bypass Keycloak:
+
+- **Catalog API key** (`X-Caipe-Catalog-Key` header, used by `caipe-skills.py` and the skills gateway): the BFF assigns the synthetic subject `catalog-key-user@local`. In read mode `filterSkillsByOpenFga` returns `default` (filesystem) + `hub` + globally-visible `agent_skills` without querying OpenFGA — no per-skill tuples exist for machine callers. In use mode it falls through to normal per-skill `can_use` checks.
+- **Local skills JWT** (`Authorization: Bearer <HS256>` from `/api/skills/token`): the BFF derives `session.sub` from the token's `email` claim and runs full OpenFGA evaluation — `default` skills pass through; `agent_skills` require a `can_read` tuple.
+
+Both paths require a populated `session.sub`; without it `filterSkillsByOpenFga` short-circuits to an empty result.
+
 **Q: Where do I look to change something?**
 
 See [the file map](./file-map.md). Every auth-relevant file is listed with what changing it actually does.

@@ -487,6 +487,11 @@ function resolveLegacyWithAuthRbacPolicy(request: NextRequest): RouteRbacPolicy 
       ? { resource: 'dynamic_agent', scope: 'view' }
       : { resource: 'dynamic_agent', scope: 'invoke' };
   }
+  if (pathname.startsWith('/api/schedules')) {
+    return method === 'GET'
+      ? { resource: 'dynamic_agent', scope: 'view' }
+      : { resource: 'dynamic_agent', scope: 'invoke' };
+  }
   if (pathname.startsWith('/api/catalog-api-keys')) {
     return { resource: 'skill', scope: 'configure' };
   }
@@ -570,7 +575,10 @@ export async function getAuthFromBearerOrSession(
   if (catalogKey) {
     return {
       user: { email: 'catalog-key-user@local', name: 'Catalog API Key', role: 'user' },
-      session: { role: 'user', canViewAdmin: false, catalogKey },
+      // sub must be present so filterSkillsByOpenFga does not short-circuit to [].
+      // The synthetic subject is used only for OpenFGA read checks on global skills;
+      // it never appears in audit logs for user-owned resources.
+      session: { role: 'user', canViewAdmin: false, catalogKey, sub: 'catalog-key-user@local' },
     };
   }
 
@@ -597,7 +605,10 @@ export async function getAuthFromBearerOrSession(
       const sub = await resolveKeycloakSubByEmail(localIdentity.email);
       return {
         user: { email: localIdentity.email, name: localIdentity.name, role: 'user' },
-        session: { role: 'user', ...(sub ? { sub } : {}) },
+        // sub must be present so filterSkillsByOpenFga resolves the caller's identity;
+        // prefer the real Keycloak sub when resolved, else fall back to email so this
+        // never regresses to the "missing sub drops all skills" bug.
+        session: { role: 'user', sub: sub ?? localIdentity.email },
       };
     }
 

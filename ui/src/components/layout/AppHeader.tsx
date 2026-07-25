@@ -572,14 +572,17 @@ export function AppHeader() {
       activeIndicatorClassName: "bg-cyan-600 shadow-sm",
     },
     ...pinnedAppNavItems,
-    mongoNavEnabled && config.dynamicAgentsEnabled && config.schedulerEnabled && {
-      key: "schedules",
-      href: "/schedules",
-      label: "Schedules",
-      Icon: CalendarClock,
-      activeTextClassName: "text-white",
-      activeIndicatorClassName: "bg-orange-600 shadow-sm",
-    },
+    mongoNavEnabled &&
+      config.dynamicAgentsEnabled &&
+      config.schedulerEnabled &&
+      (!config.schedulerAdminOnly || isAdmin) && {
+        key: "schedules",
+        href: "/schedules",
+        label: "Schedules",
+        Icon: CalendarClock,
+        activeTextClassName: "text-white",
+        activeIndicatorClassName: "bg-orange-600 shadow-sm",
+      },
     mongoNavEnabled && config.userConnectionsEnabled && {
       key: "credentials",
       href: "/credentials#connections",

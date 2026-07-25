@@ -1043,7 +1043,13 @@ describe('getAuthenticatedUser', () => {
     expect(session.sub).toBe('oidc-sub-123');
   });
 
-  it('omits session.sub when no keycloak_sub mapping exists for the skills-API-key email', async () => {
+  it('falls back to the email as session.sub when no keycloak_sub mapping exists for the skills-API-key email', async () => {
+    // sub must never be omitted here: filterSkillsByOpenFga short-circuits to
+    // [] when subject is null, which previously dropped all skills for any
+    // caller without a resolved Keycloak sub (see the "missing sub drops all
+    // skills" fix). Falling back to email keeps that guarantee while still
+    // preferring the real Keycloak sub when one is resolved (see the
+    // preceding test).
     mockValidateLocalSkillsJWT.mockResolvedValue({
       email: 'unmapped@test.com',
       name: 'Unmapped User',
@@ -1058,7 +1064,7 @@ describe('getAuthenticatedUser', () => {
 
     const { session } = await getAuthFromBearerOrSession(makeRequest());
 
-    expect(session.sub).toBeUndefined();
+    expect(session.sub).toBe('unmapped@test.com');
   });
 
   it('rejects a skills-API-key token whose jti was revoked', async () => {
@@ -1386,6 +1392,9 @@ describe('withAuth', () => {
       ['/api/workflow-configs', 'POST', 'can_use', 'dynamic_agent#view'],
       ['/api/workflow-configs', 'PUT', 'can_use', 'dynamic_agent#view'],
       ['/api/workflow-runs', 'GET', 'can_use', 'dynamic_agent#view'],
+      ['/api/schedules', 'GET', 'can_use', 'dynamic_agent#view'],
+      ['/api/schedules/schedule-1', 'PATCH', 'can_use', 'dynamic_agent#invoke'],
+      ['/api/schedules/schedule-1', 'DELETE', 'can_use', 'dynamic_agent#invoke'],
       ['/api/unclassified-feature', 'GET', 'can_audit', 'admin_ui#view'],
       ['/api/unclassified-feature', 'POST', 'can_manage', 'admin_ui#manage'],
     ])('maps fallback route %s %s to explicit %s capability', async (
