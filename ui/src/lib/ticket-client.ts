@@ -131,7 +131,6 @@ export interface CreateTicketOptions {
   signal?: AbortSignal;
   /** Defaults to header; use tome-product for TOME UX feedback. */
   source?: "header" | "chat-feedback" | "tome-product";
-  category?: string;
   tomeContext?: { projectSlug?: string; pagePath?: string };
   /** Area selected by the user (e.g. "TOME", "Chat", "Skills"). Drives provider routing. */
   area?: string;
@@ -145,7 +144,7 @@ export interface CreateTicketOptions {
 export async function createTicketViaApi(
   options: CreateTicketOptions,
 ): Promise<TicketResult> {
-  const { request, signal, source = "header", category, tomeContext, area, issueType } = options;
+  const { request, signal, source = "header", tomeContext, area, issueType } = options;
 
   const res = await fetch("/api/tickets/report", {
     method: "POST",
@@ -156,7 +155,6 @@ export async function createTicketViaApi(
       feedbackContext: request.feedbackContext,
       screenshotDataUrl: request.screenshotDataUrl,
       source,
-      category,
       tomeContext,
       area,
       issueType,

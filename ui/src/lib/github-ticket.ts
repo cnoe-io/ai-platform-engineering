@@ -1,5 +1,5 @@
 /**
- * Server-only GitHub issue creation for Report-a-Problem / TOME product feedback.
+ * Server-only GitHub issue creation for the Provide Feedback dialog / TOME product feedback.
  * Uses a service token (GITHUB_TICKET_TOKEN or GITHUB_TOKEN) — never the user's OAuth token.
  */
 
@@ -12,12 +12,6 @@ export type TicketReportSource =
   | "chat-feedback"
   | "tome-product";
 
-export type TomeFeedbackCategory =
-  | "Bug"
-  | "Confusing UX"
-  | "Missing feature"
-  | "Other";
-
 export interface GitHubTicketInput {
   description: string;
   userEmail: string;
@@ -25,14 +19,13 @@ export interface GitHubTicketInput {
   source: TicketReportSource;
   label: string;
   feedbackContext?: FeedbackContext;
-  category?: TomeFeedbackCategory | string;
   tomeContext?: {
     projectSlug?: string;
     pagePath?: string;
   };
-  /** Area selected in the Report a Problem dialog (e.g. "TOME", "Chat"). */
+  /** Area selected in the Provide Feedback dialog (e.g. "TOME", "Chat"). */
   area?: string;
-  /** Issue type selected in the Report a Problem dialog. */
+  /** Issue type selected in the Provide Feedback dialog. */
   issueType?: "Bug" | "Enhancement";
   /** Base64 data URL of a screenshot, if the user captured one. */
   screenshotDataUrl?: string;
@@ -63,14 +56,18 @@ function truncate(text: string, max: number): string {
 export function titleFor(input: GitHubTicketInput): string {
   const prefix =
     input.source === "tome-product" ? "[TOME Feedback]" : "[CAIPE Report]";
-  const category = input.category ?? input.feedbackContext?.reason;
-  const areaTag = input.area && !category ? `[${input.area}]` : null;
+  // Suppress the area tag when it's redundant with the TOME Feedback prefix.
+  const areaTag =
+    input.area && !(input.source === "tome-product" && input.area === "TOME")
+      ? `[${input.area}]`
+      : null;
   const typeTag = input.issueType ? `[${input.issueType}]` : null;
+  const reasonTag = input.feedbackContext?.reason;
   const summary = truncate(
     input.description.replace(/\s+/g, " "),
     72,
   );
-  const tags = [areaTag, typeTag, category].filter(Boolean).join(" ");
+  const tags = [areaTag, typeTag, reasonTag].filter(Boolean).join(" ");
   return truncate(tags ? `${prefix} ${tags}: ${summary}` : `${prefix} ${summary}`, 240);
 }
 
@@ -92,9 +89,6 @@ export function buildGitHubIssueBody(input: GitHubTicketInput): string {
   }
   if (input.issueType) {
     lines.push("## Issue Type", "", input.issueType, "");
-  }
-  if (input.category && input.category !== input.area) {
-    lines.push("## Category", "", String(input.category), "");
   }
 
   if (input.feedbackContext) {
@@ -144,7 +138,7 @@ export function buildGitHubIssueBody(input: GitHubTicketInput): string {
   lines.push(
     "",
     "---",
-    "_Submitted via CAIPE Report a Problem_",
+    "_Submitted via CAIPE Provide Feedback_",
   );
 
   return lines.join("\n");
@@ -171,14 +165,6 @@ export async function createGitHubTicket(
   }
   if (input.area) {
     labels.push(`area:${input.area.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-:]/g, "")}`);
-  }
-  if (input.category && input.category !== "Other") {
-    labels.push(
-      input.category
-        .toLowerCase()
-        .replace(/\s+/g, "-")
-        .replace(/[^a-z0-9-]/g, ""),
-    );
   }
 
   const res = await octokit.issues.create({

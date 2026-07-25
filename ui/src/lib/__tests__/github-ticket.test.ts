@@ -16,7 +16,8 @@ describe("github-ticket", () => {
     contextUrl: "https://example.test/projects/acme/tome",
     source: "tome-product",
     label: "caipe-reported",
-    category: "Bug",
+    area: "TOME",
+    issueType: "Bug",
     tomeContext: { projectSlug: "acme", pagePath: "wiki/README.md" },
   };
 
@@ -31,22 +32,27 @@ describe("github-ticket", () => {
     const body = buildGitHubIssueBody(baseInput);
     expect(body).toContain("TOME product feedback");
     expect(body).toContain("wiki page content accuracy");
-    expect(body).toContain("## Category");
+    expect(body).toContain("## Issue Type");
     expect(body).toContain("Bug");
     expect(body).toContain("test@example.com");
     expect(body).toContain("acme");
     expect(body).toContain("wiki/README.md");
   });
 
-  it("titleFor prefixes TOME feedback with category", () => {
-    expect(titleFor(baseInput)).toMatch(/^\[TOME Feedback\] Bug:/);
+  it("titleFor prefixes TOME feedback with issue type, suppressing the redundant TOME area tag", () => {
+    expect(titleFor(baseInput)).toMatch(/^\[TOME Feedback\] \[Bug\]:/);
+  });
+
+  it("titleFor includes the area tag for non-TOME areas", () => {
+    expect(titleFor({ ...baseInput, source: "header", area: "Chat" })).toMatch(
+      /^\[CAIPE Report\] \[Chat\] \[Bug\]:/
+    );
   });
 
   it("includes chat feedback block when provided", () => {
     const body = buildGitHubIssueBody({
       ...baseInput,
       source: "chat-feedback",
-      category: undefined,
       feedbackContext: {
         feedbackType: "dislike",
         reason: "Trust",

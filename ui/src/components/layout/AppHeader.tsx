@@ -1194,8 +1194,8 @@ export function AppHeader() {
               <Button
                 variant="ghost"
                 size={headerNavCollapsed ? "icon" : "sm"}
-                aria-label="Report a Problem"
-                title="Report a Problem"
+                aria-label="Provide Feedback"
+                title="Provide Feedback"
                 className={cn(
                   "h-8 text-xs text-muted-foreground hover:text-foreground",
                   headerNavCollapsed ? "w-8" : "gap-1.5",
@@ -1203,7 +1203,7 @@ export function AppHeader() {
                 onClick={handleReportProblemClick}
               >
                 <AlertTriangle className="h-3.5 w-3.5" />
-                {!headerNavCollapsed && "Report a Problem"}
+                {!headerNavCollapsed && "Provide Feedback"}
               </Button>
               {!config.reportProblemDynamicAgentId && (
                 <ReportProblemDialog

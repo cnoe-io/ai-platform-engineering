@@ -430,7 +430,8 @@ describe("createTicketViaApi", () => {
         contextUrl: "https://example.test/projects/tome/tome",
       },
       source: "tome-product",
-      category: "Bug",
+      area: "TOME",
+      issueType: "Bug",
       tomeContext: { projectSlug: "tome" },
       onResult,
     });

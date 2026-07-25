@@ -15,7 +15,6 @@ export interface RecordProblemReportInput {
   userEmail: string;
   contextUrl: string;
   source: TicketReportSource;
-  category?: string;
   area?: string;
   issueType?: "Bug" | "Enhancement";
   feedbackContext?: FeedbackContext;
@@ -25,7 +24,6 @@ export interface RecordProblemReportInput {
 
 function valueForReport(input: RecordProblemReportInput): string {
   if (input.area) return input.area;
-  if (input.category) return input.category;
   if (input.feedbackContext?.reason) return input.feedbackContext.reason;
   return "problem_report";
 }

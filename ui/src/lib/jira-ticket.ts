@@ -69,7 +69,7 @@ function buildDescriptionText(input: JiraTicketInput): string {
     const sizeKb = Math.round(input.screenshotDataUrl.length / 1024);
     lines.push(``, `Screenshot: captured by reporter (${sizeKb}KB — not embeddable in Jira via API; available in the original report)`);
   }
-  lines.push("", "Submitted via CAIPE Report a Problem");
+  lines.push("", "Submitted via CAIPE Provide Feedback");
   return lines.join("\n");
 }
 
