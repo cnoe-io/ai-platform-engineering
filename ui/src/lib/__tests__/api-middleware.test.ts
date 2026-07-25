@@ -1043,7 +1043,13 @@ describe('getAuthenticatedUser', () => {
     expect(session.sub).toBe('oidc-sub-123');
   });
 
-  it('omits session.sub when no keycloak_sub mapping exists for the skills-API-key email', async () => {
+  it('falls back to the email as session.sub when no keycloak_sub mapping exists for the skills-API-key email', async () => {
+    // sub must never be omitted here: filterSkillsByOpenFga short-circuits to
+    // [] when subject is null, which previously dropped all skills for any
+    // caller without a resolved Keycloak sub (see the "missing sub drops all
+    // skills" fix). Falling back to email keeps that guarantee while still
+    // preferring the real Keycloak sub when one is resolved (see the
+    // preceding test).
     mockValidateLocalSkillsJWT.mockResolvedValue({
       email: 'unmapped@test.com',
       name: 'Unmapped User',
@@ -1058,7 +1064,7 @@ describe('getAuthenticatedUser', () => {
 
     const { session } = await getAuthFromBearerOrSession(makeRequest());
 
-    expect(session.sub).toBeUndefined();
+    expect(session.sub).toBe('unmapped@test.com');
   });
 
   it('rejects a skills-API-key token whose jti was revoked', async () => {
