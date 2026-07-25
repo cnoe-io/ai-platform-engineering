@@ -1,6 +1,6 @@
 {
   "name": "caipe-linux-x64",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "caipe platform binary for Linux x64",
   "os": ["linux"],
   "cpu": ["x64"],
