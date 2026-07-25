@@ -108,6 +108,7 @@ export function ReportProblemDialog({
   const githubTicketRepo = getConfig("githubTicketRepo");
   const jiraTicketProject = getConfig("jiraTicketProject");
   const jiraBaseUrl = getConfig("jiraBaseUrl");
+  const githubScreenshotsRepo = getConfig("githubScreenshotsRepo");
 
   // Effective provider depends on selected area: TOME → GitHub, others → Jira.
   // Falls back to the global ticketProvider config for the chat-feedback combo
@@ -119,6 +120,11 @@ export function ReportProblemDialog({
     : getConfig("ticketProvider");
 
   const providerLabel = effectiveProvider === "jira" ? "Jira" : effectiveProvider === "github" ? "GitHub" : "";
+
+  // GitHub only actually attaches a screenshot when a screenshots repo is
+  // configured (see uploadScreenshotToGitHub) — otherwise hide the capture
+  // UI rather than silently dropping it. Jira always supports real attachments.
+  const canAttachScreenshot = effectiveProvider !== "github" || Boolean(githubScreenshotsRepo);
 
   const contextUrl =
     typeof window !== "undefined"
@@ -136,13 +142,13 @@ export function ReportProblemDialog({
     if (preselectedArea) setArea(preselectedArea);
   }, [preselectedArea]);
 
-  // GitHub never actually attaches the screenshot — drop it if the user
-  // switches to a GitHub-routed area after already capturing one.
+  // Drop a captured screenshot if the user switches to a GitHub-routed area
+  // that has no screenshots repo configured (it would never actually attach).
   useEffect(() => {
-    if (effectiveProvider === "github" && screenshotDataUrl) {
+    if (!canAttachScreenshot && screenshotDataUrl) {
       setScreenshotDataUrl(null);
     }
-  }, [effectiveProvider, screenshotDataUrl]);
+  }, [canAttachScreenshot, screenshotDataUrl]);
 
   const resetState = useCallback(() => {
     setDescription("");
@@ -469,9 +475,9 @@ export function ReportProblemDialog({
               autoFocus
             />
 
-            {/* Screenshot attachment — GitHub has no attachment API and never
-                actually embeds it, so don't offer it once GitHub is the target. */}
-            {effectiveProvider !== "github" && (
+            {/* Screenshot attachment — hidden for GitHub unless a screenshots
+                repo is configured, since it otherwise never actually embeds. */}
+            {canAttachScreenshot && (
               screenshotDataUrl ? (
                 <div className="relative rounded-lg overflow-hidden border border-border group cursor-zoom-in"
                   onClick={() => setLightboxOpen(true)}

@@ -20,6 +20,7 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 // Mocks — must be before imports
 // ============================================================================
 
+let mockGithubScreenshotsRepo: string | null = null;
 jest.mock("@/lib/config", () => ({
   getConfig: (key: string) => {
     switch (key) {
@@ -31,6 +32,8 @@ jest.mock("@/lib/config", () => ({
         return "https://org.atlassian.net";
       case "githubTicketRepo":
         return "org/repo";
+      case "githubScreenshotsRepo":
+        return mockGithubScreenshotsRepo;
       default:
         return null;
     }
@@ -158,6 +161,7 @@ import { ReportProblemDialog } from "../ReportProblemDialog";
 describe("ReportProblemDialog", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockGithubScreenshotsRepo = null;
   });
 
   it("renders dialog with 'Provide Feedback' title", () => {
@@ -323,5 +327,25 @@ describe("ReportProblemDialog", () => {
       />
     );
     expect(screen.getByText(/GitHub issue in org\/repo/)).toBeInTheDocument();
+  });
+
+  it("hides screenshot capture for TOME (GitHub) when no screenshots repo is configured", () => {
+    mockGithubScreenshotsRepo = null;
+    render(<ReportProblemDialog open={true} onOpenChange={jest.fn()} preselectedArea="TOME" />);
+    expect(screen.queryByText("Auto-capture screen")).not.toBeInTheDocument();
+    expect(screen.queryByText("Upload image")).not.toBeInTheDocument();
+  });
+
+  it("shows screenshot capture for TOME (GitHub) when a screenshots repo is configured", () => {
+    mockGithubScreenshotsRepo = "org/screenshots";
+    render(<ReportProblemDialog open={true} onOpenChange={jest.fn()} preselectedArea="TOME" />);
+    expect(screen.getByText("Auto-capture screen")).toBeInTheDocument();
+    expect(screen.getByText("Upload image")).toBeInTheDocument();
+  });
+
+  it("always shows screenshot capture for non-TOME (Jira) areas", () => {
+    render(<ReportProblemDialog open={true} onOpenChange={jest.fn()} />);
+    fireEvent.click(screen.getByText("Chat"));
+    expect(screen.getByText("Auto-capture screen")).toBeInTheDocument();
   });
 });

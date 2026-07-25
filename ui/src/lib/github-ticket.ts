@@ -3,6 +3,8 @@
  * Uses a service token (GITHUB_TICKET_TOKEN or GITHUB_TOKEN) — never the user's OAuth token.
  */
 
+import { randomUUID } from "crypto";
+
 import { Octokit } from "@octokit/rest";
 
 import type { FeedbackContext } from "@/lib/ticket-client";
@@ -29,6 +31,12 @@ export interface GitHubTicketInput {
   issueType?: "Bug" | "Enhancement";
   /** Base64 data URL of a screenshot, if the user captured one. */
   screenshotDataUrl?: string;
+  /**
+   * Raw-content URL of the screenshot after it's been uploaded to the
+   * screenshots repo (see uploadScreenshotToGitHub). When set, this is
+   * embedded as a real inline image instead of the "not embedded" note.
+   */
+  screenshotUrl?: string;
 }
 
 export interface GitHubTicketResult {
@@ -123,15 +131,17 @@ export function buildGitHubIssueBody(input: GitHubTicketInput): string {
     lines.push(`- Wiki page: \`${input.tomeContext.pagePath}\``);
   }
 
-  if (input.screenshotDataUrl) {
+  if (input.screenshotUrl) {
+    lines.push("", "## Screenshot", "", `![Screenshot](${input.screenshotUrl})`);
+  } else if (input.screenshotDataUrl) {
     const sizeKb = Math.round(input.screenshotDataUrl.length / 1024);
     lines.push(
       "",
       "## Screenshot",
       "",
-      `A screenshot (${sizeKb}KB) was captured by the reporter. GitHub's issue API doesn't ` +
-        "render inline data URIs and enforces a 65,536-character body limit, so it isn't " +
-        "embedded here — ask the reporter to attach it manually if needed.",
+      `A screenshot (${sizeKb}KB) was captured by the reporter but could not be uploaded, ` +
+        "and GitHub's issue API doesn't render inline data URIs, so it isn't embedded here " +
+        "— ask the reporter to attach it manually if needed.",
     );
   }
 
@@ -182,4 +192,43 @@ export async function createGitHubTicket(
     url: res.data.html_url,
     provider: "github",
   };
+}
+
+/**
+ * Commit a captured screenshot to a dedicated screenshots repo and return
+ * its raw.githubusercontent.com URL for embedding in an issue body.
+ *
+ * GitHub's issue API has no attachment upload endpoint, so this is the only
+ * way to get a screenshot to actually render inline: host it somewhere with
+ * a stable URL, here via a real commit to GITHUB_SCREENSHOTS_REPO.
+ */
+export async function uploadScreenshotToGitHub(
+  screenshotsRepo: string,
+  token: string,
+  screenshotDataUrl: string,
+): Promise<string> {
+  const match = screenshotDataUrl.match(/^data:([\w/+-]+);base64,(.+)$/);
+  if (!match) {
+    throw new Error("screenshotDataUrl is not a valid base64 data URL");
+  }
+  const [, mimeType, base64Data] = match;
+  const ext = mimeType.split("/")[1] || "png";
+
+  const { owner, repo } = parseGitHubRepo(screenshotsRepo);
+  const octokit = new Octokit({ auth: token });
+
+  const { data: repoInfo } = await octokit.repos.get({ owner, repo });
+  const branch = repoInfo.default_branch;
+  const path = `screenshots/${new Date().toISOString().slice(0, 10)}/${randomUUID()}.${ext}`;
+
+  await octokit.repos.createOrUpdateFileContents({
+    owner,
+    repo,
+    path,
+    branch,
+    message: "Add report screenshot",
+    content: base64Data,
+  });
+
+  return `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${path}`;
 }

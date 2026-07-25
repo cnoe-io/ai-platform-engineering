@@ -203,6 +203,16 @@ export interface Config {
   /** Custom label applied to GitHub issues for filtering (e.g., "caipe-reported") */
   githubTicketLabel: string;
   /**
+   * Dedicated repo screenshots are committed to and embedded from (e.g.,
+   * "org/report-screenshots"). GitHub's issue API has no attachment upload
+   * endpoint, so screenshots can only be embedded by hosting them somewhere
+   * with a stable URL — this repo is that host. Off by default (OSS): when
+   * unset, the screenshot capture/upload UI is hidden for GitHub-routed
+   * reports rather than showing something that silently never attaches.
+   * Set GITHUB_SCREENSHOTS_REPO to enable.
+   */
+  githubScreenshotsRepo: string | null;
+  /**
    * Streaming protocol used by agent servers: "custom" (default) or "agui".
    * Controls the ?protocol= query param sent to the backend streaming endpoints.
    * Set AGENT_PROTOCOL=agui to switch to AG-UI wire format.
@@ -327,6 +337,7 @@ const DEFAULT_CONFIG: Config = {
   githubTicketEnabled: false,
   githubTicketRepo: null,
   githubTicketLabel: 'caipe-reported',
+  githubScreenshotsRepo: null,
   ticketEnabled: false,
   ticketProvider: null,
   userInfoToolEnabled: false,
@@ -486,6 +497,7 @@ export function getServerConfig(): Config {
   const githubTicketEnabled = env('GITHUB_TICKET_ENABLED') === 'true';
   const githubTicketRepo = env('GITHUB_TICKET_REPO') || null;
   const githubTicketLabel = env('GITHUB_TICKET_LABEL') || 'caipe-reported';
+  const githubScreenshotsRepo = env('GITHUB_SCREENSHOTS_REPO') || null;
   const ticketEnabled = jiraTicketEnabled || githubTicketEnabled;
   const ticketProvider: 'jira' | 'github' | null = jiraTicketEnabled ? 'jira' : githubTicketEnabled ? 'github' : null;
 
@@ -554,6 +566,7 @@ export function getServerConfig(): Config {
     githubTicketEnabled,
     githubTicketRepo,
     githubTicketLabel,
+    githubScreenshotsRepo,
     ticketEnabled,
     ticketProvider,
     userInfoToolEnabled,

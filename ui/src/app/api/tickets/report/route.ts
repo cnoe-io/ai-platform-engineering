@@ -13,6 +13,7 @@ import { withAuth, withErrorHandler, ApiError } from "@/lib/api-middleware";
 import { getServerConfig } from "@/lib/config";
 import {
   createGitHubTicket,
+  uploadScreenshotToGitHub,
   type GitHubTicketInput,
   type TicketReportSource,
 } from "@/lib/github-ticket";
@@ -86,6 +87,15 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       ? body.screenshotDataUrl
       : undefined;
 
+    let screenshotUrl: string | undefined;
+    if (screenshotDataUrl && cfg.githubScreenshotsRepo) {
+      try {
+        screenshotUrl = await uploadScreenshotToGitHub(cfg.githubScreenshotsRepo, token, screenshotDataUrl);
+      } catch (err) {
+        console.warn("[api/tickets/report] Failed to upload screenshot:", err);
+      }
+    }
+
     const input: GitHubTicketInput = {
       description: effectiveDescription,
       userEmail: user.email,
@@ -97,6 +107,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       area: body.area,
       issueType: body.issueType,
       screenshotDataUrl,
+      screenshotUrl,
     };
 
     const result = await createGitHubTicket(cfg.githubTicketRepo, token, input);
