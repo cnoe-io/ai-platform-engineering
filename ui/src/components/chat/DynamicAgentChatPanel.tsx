@@ -2260,6 +2260,7 @@ const ChatMessage = React.memo(function ChatMessage({
         "flex gap-3 group px-3",
         isUser ? "flex-row-reverse" : "flex-row"
       )}
+      data-message-role={message.role}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >

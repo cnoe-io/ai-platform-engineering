@@ -351,6 +351,11 @@ jobs:
           WORKFLOWS_ENABLED: 'true'
           MONGODB_URI: 'mongodb://mock:27017'
           MONGODB_DATABASE: 'mock'
+          # Lets specs that mint a session cookie directly (installTestSession
+          # in e2e/rbac/_helpers.ts) exercise real authenticated pages instead
+          # of self-skipping. Test-only value — signs/verifies mock session
+          # JWTs within this job alone, never touches a real identity system.
+          NEXTAUTH_SECRET: ${{ secrets.NEXTAUTH_SECRET }}
         run: |
           # Run the production server, not `next dev`: React StrictMode
           # double-invokes effects only in dev, which breaks exact
@@ -381,6 +386,7 @@ jobs:
           RUN_RBAC_REGRESSION: '1'
           CAIPE_UI_BASE_URL: http://localhost:3000
           WORKFLOWS_ENABLED: 'true'
+          NEXTAUTH_SECRET: ${{ secrets.NEXTAUTH_SECRET }}
         run: |
           # Run every mocked-RBAC spec under e2e/rbac/, excluding the
           # *-live.spec.ts files (those need live Keycloak/OpenFGA infra and

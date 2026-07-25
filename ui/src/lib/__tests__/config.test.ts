@@ -305,7 +305,8 @@ describe('getServerConfig', () => {
       clearEnv(
         'REPORT_PROBLEM_ENABLED',
         'JIRA_TICKET_ENABLED', 'JIRA_TICKET_PROJECT', 'JIRA_TICKET_LABEL',
-        'GITHUB_TICKET_ENABLED', 'GITHUB_TICKET_REPO', 'GITHUB_TICKET_LABEL',
+        'JIRA_BASE_URL', 'JIRA_EMAIL', 'REPORT_PROBLEM_JIRA_TOKEN', 'JIRA_TICKET_TOKEN',
+        'GITHUB_TICKET_ENABLED', 'GITHUB_TICKET_REPO', 'GITHUB_TICKET_LABEL', 'GITHUB_SCREENSHOTS_REPO',
       );
     });
 
@@ -350,6 +351,40 @@ describe('getServerConfig', () => {
       process.env.GITHUB_TICKET_LABEL = 'prod-issues';
       const cfg = getServerConfig();
       expect(cfg.githubTicketLabel).toBe('prod-issues');
+    });
+
+    it('should read GITHUB_SCREENSHOTS_REPO when set', () => {
+      process.env.GITHUB_SCREENSHOTS_REPO = 'org/report-screenshots';
+      const cfg = getServerConfig();
+      expect(cfg.githubScreenshotsRepo).toBe('org/report-screenshots');
+    });
+
+    it('should default githubScreenshotsRepo to null when unset', () => {
+      delete process.env.GITHUB_SCREENSHOTS_REPO;
+      const cfg = getServerConfig();
+      expect(cfg.githubScreenshotsRepo).toBeNull();
+    });
+
+    it('should read JIRA_BASE_URL when set', () => {
+      process.env.JIRA_BASE_URL = 'https://org.atlassian.net';
+      const cfg = getServerConfig();
+      expect(cfg.jiraBaseUrl).toBe('https://org.atlassian.net');
+    });
+
+    it('should default jiraBaseUrl to null when unset', () => {
+      delete process.env.JIRA_BASE_URL;
+      const cfg = getServerConfig();
+      expect(cfg.jiraBaseUrl).toBeNull();
+    });
+
+    it('should auto-enable Jira when JIRA_BASE_URL + JIRA_EMAIL + a token are all set, without JIRA_TICKET_ENABLED', () => {
+      delete process.env.JIRA_TICKET_ENABLED;
+      process.env.JIRA_BASE_URL = 'https://org.atlassian.net';
+      process.env.JIRA_EMAIL = 'bot@example.com';
+      process.env.REPORT_PROBLEM_JIRA_TOKEN = 'token';
+      process.env.JIRA_TICKET_PROJECT = 'OPENSD';
+      const cfg = getServerConfig();
+      expect(cfg.jiraTicketEnabled).toBe(true);
     });
 
     it('should disable report problem when REPORT_PROBLEM_ENABLED=false', () => {
