@@ -254,6 +254,29 @@ jobs:
         working-directory: cli
         run: bun x npm version ${{ steps.version.outputs.VERSION }} --no-git-tag-version
 
+      - name: Sync optionalDependencies on meta package
+        working-directory: cli
+        run: |
+          VERSION=${{ steps.version.outputs.VERSION }}
+          node <<'NODE'
+          const fs = require("fs");
+          const path = "package.json";
+          const pkg = JSON.parse(fs.readFileSync(path, "utf8"));
+          pkg.optionalDependencies = pkg.optionalDependencies || {};
+          for (const name of [
+            "caipe-darwin-arm64",
+            "caipe-darwin-x64",
+            "caipe-linux-arm64",
+            "caipe-linux-x64",
+          ]) {
+            pkg.optionalDependencies[name] = process.env.VERSION;
+          }
+          pkg.optionalDependencies.keytar = pkg.optionalDependencies.keytar || "7.9.0";
+          fs.writeFileSync(path, `${JSON.stringify(pkg, null, 2)}\n`);
+          NODE
+        env:
+          VERSION: ${{ steps.version.outputs.VERSION }}
+
       - name: Publish platform packages
         working-directory: cli/npm
         env:

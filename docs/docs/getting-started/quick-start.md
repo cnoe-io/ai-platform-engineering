@@ -22,6 +22,53 @@ The script asks for your LLM provider, API key, and optional components (RAG, tr
 
 ---
 
+## Terminal CLI (optional)
+
+Use the **CAIPE CLI** to chat with your deployment from the terminal (OAuth, dynamic agents, skills). Source lives in the monorepo [`cli/`](https://github.com/cnoe-io/ai-platform-engineering/tree/main/cli) directory.
+
+### Install
+
+**Binary (recommended)** — from [GitHub Releases](https://github.com/cnoe-io/ai-platform-engineering/releases) (`caipe/v*.*.*`):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/cnoe-io/ai-platform-engineering/main/cli/install.sh | sh
+```
+
+**npm** (when published):
+
+```bash
+npm install -g caipe@1.0.0
+```
+
+**Build from source:**
+
+```bash
+git clone https://github.com/cnoe-io/ai-platform-engineering.git
+cd ai-platform-engineering/cli && bun install && npm run compile
+./dist/caipe --version
+```
+
+### Connect to your server
+
+```bash
+caipe config set server.url https://your-caipe-server.example.com
+caipe auth login
+caipe agents list
+caipe chat --agent '<agent-id>'
+```
+
+**Grid preview** (API and IdP on different hosts):
+
+```bash
+caipe config set server.url https://grid.preview.outshift.io
+caipe config set auth.url https://idp.grid.preview.outshift.io/realms/caipe
+caipe auth login
+```
+
+Full command reference, headless mode, and troubleshooting: [**CAIPE CLI**](../integrations/cli.md).
+
+---
+
 ## Other setup options
 
 | Guide | Best for |

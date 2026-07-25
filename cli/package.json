@@ -54,10 +54,10 @@
     "vitest": "2.1.9"
   },
   "optionalDependencies": {
-    "caipe-darwin-arm64": "0.1.0",
-    "caipe-darwin-x64": "0.1.0",
-    "caipe-linux-arm64": "0.1.0",
-    "caipe-linux-x64": "0.1.0",
+    "caipe-darwin-arm64": "1.0.0",
+    "caipe-darwin-x64": "1.0.0",
+    "caipe-linux-arm64": "1.0.0",
+    "caipe-linux-x64": "1.0.0",
     "keytar": "7.9.0"
   },
   "engines": {
@@ -72,7 +72,7 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/cnoe-io/agent-chat-cli"
+    "url": "https://github.com/cnoe-io/ai-platform-engineering"
   },
   "trustedDependencies": [
     "@biomejs/biome"

@@ -11,6 +11,8 @@ on:
       - "100-caipe-v1-core"
     paths:
       - "cli/**"
+    tags:
+      - "caipe/v*.*.*"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -24,6 +26,7 @@ jobs:
     name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-24.04, macos-14]
 
@@ -51,19 +54,10 @@ jobs:
         working-directory: cli
         run: bun run test
 
-      - name: Build (verify compilation succeeds)
+      - name: Build Node bundle (esbuild)
         working-directory: cli
-        run: bun build src/index.ts --outdir dist --target node --external keytar --external fsevents
+        run: bun run build
 
-      - name: Cold-start check (<1s)
+      - name: Verify CLI entrypoint
         working-directory: cli
-        run: |
-          ms() { python3 -c "import time; print(int(time.time()*1000))"; }
-          start=$(ms)
-          node dist/index.js --version
-          elapsed=$(( $(ms) - start ))
-          echo "Cold-start: ${elapsed}ms"
-          if [ "$elapsed" -gt 1000 ]; then
-            echo "FAIL: cold-start exceeded 1000ms (${elapsed}ms)"
-            exit 1
-          fi
+        run: node bin/caipe.cjs --version

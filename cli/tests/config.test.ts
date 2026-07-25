@@ -64,9 +64,10 @@ describe("globalConfigDir", () => {
 // ── readSettings / writeSettings ─────────────────────────────────────────────
 
 describe("settings read/write", () => {
-  it("returns empty object when file does not exist", () => {
+  it("returns defaults when file does not exist", () => {
     const s = readSettings();
-    expect(s).toEqual({});
+    expect(s.server?.url).toBe("http://localhost:3000");
+    expect(s.auth?.url).toBe("http://localhost:7080/realms/caipe");
   });
 
   it("round-trips settings", () => {
@@ -86,15 +87,15 @@ describe("settings read/write", () => {
     mkdirSync(require("node:path").dirname(settingsJsonPath()), { recursive: true });
     writeFileSync(settingsJsonPath(), "not json");
     const s = readSettings();
-    expect(s).toEqual({});
+    expect(s.server?.url).toBe("http://localhost:3000");
   });
 });
 
 // ── getAuthUrl priority ───────────────────────────────────────────────────────
 
 describe("getAuthUrl", () => {
-  it("throws ServerNotConfigured when nothing is set", () => {
-    expect(() => getAuthUrl()).toThrow(ServerNotConfigured);
+  it("uses localhost defaults when settings file is missing", () => {
+    expect(getAuthUrl()).toBe("http://localhost:7080/realms/caipe");
   });
 
   it("returns flag value (highest priority)", () => {
@@ -137,9 +138,9 @@ describe("getAuthUrl", () => {
 
 // ── getServerUrl deprecated alias ─────────────────────────────────────────────
 
-describe("getServerUrl (deprecated alias for getAuthUrl)", () => {
-  it("throws ServerNotConfigured when nothing is set", () => {
-    expect(() => getServerUrl()).toThrow(ServerNotConfigured);
+describe("getServerUrl", () => {
+  it("uses localhost defaults when settings file is missing", () => {
+    expect(getServerUrl()).toBe("http://localhost:3000");
   });
 
   it("returns flag value", () => {
@@ -147,16 +148,22 @@ describe("getServerUrl (deprecated alias for getAuthUrl)", () => {
     expect(url).toBe("https://flag.example.com");
   });
 
-  it("reads CAIPE_AUTH_URL env var (not CAIPE_SERVER_URL)", () => {
-    process.env.CAIPE_AUTH_URL = "https://auth-env.example.com";
+  it("reads CAIPE_SERVER_URL env var", () => {
+    process.env.CAIPE_SERVER_URL = "https://server-env.example.com";
     const url = getServerUrl();
-    expect(url).toBe("https://auth-env.example.com");
+    expect(url).toBe("https://server-env.example.com");
   });
 
-  it("falls back to settings.server.url for backward compat", () => {
+  it("falls back to settings.server.url", () => {
     writeSettings({ server: { url: "https://settings.example.com" } });
     const url = getServerUrl();
     expect(url).toBe("https://settings.example.com");
+  });
+
+  it("falls back to settings.auth.url when server.url missing", () => {
+    writeSettings({ auth: { url: "https://auth-only.example.com" } });
+    const url = getServerUrl();
+    expect(url).toBe("https://auth-only.example.com");
   });
 
   it("ServerNotConfigured has correct name", () => {
@@ -174,7 +181,7 @@ describe("authEndpoints", () => {
     const ep = authEndpoints("https://caipe.example.com");
     expect(ep.deviceCode).toBe("https://caipe.example.com/oauth/device/code");
     expect(ep.token).toBe("https://caipe.example.com/oauth/token");
-    expect(ep.agents).toBe("https://caipe.example.com/api/v1/agents");
+    expect(ep.agents).toBe("https://caipe.example.com/api/user/accessible-agents");
     expect(ep.agentCard).toBe("https://caipe.example.com/.well-known/agent.json");
     expect(ep.streamStart).toBe("https://caipe.example.com/api/v1/chat/stream/start");
   });
