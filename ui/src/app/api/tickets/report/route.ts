@@ -1,9 +1,10 @@
 /**
  * POST /api/tickets/report
  *
- * Creates a templated GitHub issue for Report-a-Problem and TOME product feedback.
- * Requires GITHUB_TICKET_ENABLED=true, GITHUB_TICKET_REPO, and a server token
- * (GITHUB_TICKET_TOKEN or GITHUB_TOKEN with issues:write on the target repo).
+ * Creates a templated GitHub issue for the Provide Feedback dialog and TOME
+ * product feedback. Requires GITHUB_TICKET_ENABLED=true, GITHUB_TICKET_REPO,
+ * and a server token (GITHUB_TICKET_TOKEN or GITHUB_TOKEN with issues:write
+ * on the target repo).
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -12,30 +13,25 @@ import { withAuth, withErrorHandler, ApiError } from "@/lib/api-middleware";
 import { getServerConfig } from "@/lib/config";
 import {
   createGitHubTicket,
+  uploadScreenshotToGitHub,
   type GitHubTicketInput,
   type TicketReportSource,
-  type TomeFeedbackCategory,
 } from "@/lib/github-ticket";
 import { recordProblemReportFeedback } from "@/lib/feedback-report-store";
 import type { FeedbackContext } from "@/lib/ticket-client";
-
-const TOME_CATEGORIES = new Set<TomeFeedbackCategory>([
-  "Bug",
-  "Confusing UX",
-  "Missing feature",
-  "Other",
-]);
 
 interface ReportBody {
   description?: string;
   contextUrl?: string;
   source?: TicketReportSource;
-  category?: string;
   feedbackContext?: FeedbackContext;
   tomeContext?: {
     projectSlug?: string;
     pagePath?: string;
   };
+  area?: string;
+  issueType?: "Bug" | "Enhancement";
+  screenshotDataUrl?: string;
 }
 
 function env(name: string): string | undefined {
@@ -80,22 +76,25 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       throw new ApiError("contextUrl is required", 400, "missing_context_url");
     }
 
-    const category: TomeFeedbackCategory | string | undefined = body.category;
-    if (source === "tome-product") {
-      if (!category || !TOME_CATEGORIES.has(category as TomeFeedbackCategory)) {
-        throw new ApiError("Valid category is required for TOME feedback", 400, "missing_category");
-      }
-      if (!description) {
-        throw new ApiError("description is required for TOME feedback", 400, "missing_description");
-      }
-    }
-
     const feedbackContext = body.feedbackContext;
     const effectiveDescription =
       description ||
       (feedbackContext
         ? `${feedbackContext.reason}${feedbackContext.additionalFeedback ? `: ${feedbackContext.additionalFeedback}` : ""}`
         : "");
+
+    const screenshotDataUrl = typeof body.screenshotDataUrl === "string" && body.screenshotDataUrl
+      ? body.screenshotDataUrl
+      : undefined;
+
+    let screenshotUrl: string | undefined;
+    if (screenshotDataUrl && cfg.githubScreenshotsRepo) {
+      try {
+        screenshotUrl = await uploadScreenshotToGitHub(cfg.githubScreenshotsRepo, token, screenshotDataUrl);
+      } catch (err) {
+        console.warn("[api/tickets/report] Failed to upload screenshot:", err);
+      }
+    }
 
     const input: GitHubTicketInput = {
       description: effectiveDescription,
@@ -104,8 +103,11 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       source,
       label: cfg.githubTicketLabel,
       feedbackContext,
-      category,
       tomeContext: body.tomeContext,
+      area: body.area,
+      issueType: body.issueType,
+      screenshotDataUrl,
+      screenshotUrl,
     };
 
     const result = await createGitHubTicket(cfg.githubTicketRepo, token, input);
@@ -115,7 +117,8 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       userEmail: user.email,
       contextUrl,
       source,
-      category,
+      area: body.area,
+      issueType: body.issueType,
       feedbackContext,
       tomeContext: body.tomeContext,
       ticket: result,

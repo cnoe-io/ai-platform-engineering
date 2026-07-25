@@ -25,6 +25,7 @@ ChevronDown,
 ChevronUp,
 Copy,
 ExternalLink,
+GitBranch,
 Loader2,
 Monitor,
 RefreshCw,
@@ -40,14 +41,22 @@ import { createPortal } from "react-dom";
 import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 
-const TOME_PRODUCT_CATEGORIES = [
-  "Bug",
-  "Confusing UX",
-  "Missing feature",
-  "Other",
-] as const;
+const ISSUE_TYPES = ["Bug", "Enhancement"] as const;
+type IssueType = (typeof ISSUE_TYPES)[number];
 
-type ReportVariant = "default" | "tome-product";
+const PROBLEM_AREAS = [
+  "TOME",
+  "Chat",
+  "Skills",
+  "Workflows",
+  "Knowledge Bases",
+  "Agents",
+  "MCP Servers",
+  "LLM Models",
+  "Credentials",
+  "Admin Settings",
+] as const;
+type ProblemArea = (typeof PROBLEM_AREAS)[number];
 
 type DialogStatus = "idle" | "submitting" | "success" | "error";
 
@@ -56,8 +65,10 @@ interface ReportProblemDialogProps {
   onOpenChange: (open: boolean) => void;
   /** Pre-populated feedback context for the combo flow */
   feedbackContext?: FeedbackContext;
-  variant?: ReportVariant;
+  /** Set when opened from within TOME (e.g. wiki header) — tags the ticket as TOME product feedback. */
   tomeContext?: { projectSlug?: string; pagePath?: string };
+  /** Pre-select an area based on calling context (e.g. "TOME" when opened from wiki) */
+  preselectedArea?: ProblemArea;
 }
 
 interface ImageCaptureConstructor {
@@ -70,15 +81,16 @@ export function ReportProblemDialog({
   open,
   onOpenChange,
   feedbackContext,
-  variant = "default",
   tomeContext,
+  preselectedArea,
 }: ReportProblemDialogProps) {
   const { data: session } = useSession();
   const pathname = usePathname();
   const { toast } = useToast();
 
   const [description, setDescription] = useState("");
-  const [category, setCategory] = useState<string>("");
+  const [issueType, setIssueType] = useState<IssueType | "">("");
+  const [area, setArea] = useState<ProblemArea | "">(preselectedArea ?? "");
   const [status, setStatus] = useState<DialogStatus>("idle");
   const [ticketResult, setTicketResult] = useState<TicketResult | null>(null);
   const [errorMessage, setErrorMessage] = useState("");
@@ -93,8 +105,26 @@ export function ReportProblemDialog({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const fileInputId = useId();
 
-  const provider = getConfig("ticketProvider");
-  const providerLabel = provider === "jira" ? "Jira" : provider === "github" ? "GitHub" : "";
+  const githubTicketRepo = getConfig("githubTicketRepo");
+  const jiraTicketProject = getConfig("jiraTicketProject");
+  const jiraBaseUrl = getConfig("jiraBaseUrl");
+  const githubScreenshotsRepo = getConfig("githubScreenshotsRepo");
+
+  // Effective provider depends on selected area: TOME → GitHub, others → Jira.
+  // Falls back to the global ticketProvider config for the chat-feedback combo
+  // flow, which has no area selector.
+  const effectiveProvider: "github" | "jira" | null = area
+    ? area === "TOME"
+      ? "github"
+      : "jira"
+    : getConfig("ticketProvider");
+
+  const providerLabel = effectiveProvider === "jira" ? "Jira" : effectiveProvider === "github" ? "GitHub" : "";
+
+  // GitHub only actually attaches a screenshot when a screenshots repo is
+  // configured (see uploadScreenshotToGitHub) — otherwise hide the capture
+  // UI rather than silently dropping it. Jira always supports real attachments.
+  const canAttachScreenshot = effectiveProvider !== "github" || Boolean(githubScreenshotsRepo);
 
   const contextUrl =
     typeof window !== "undefined"
@@ -107,9 +137,23 @@ export function ReportProblemDialog({
     }
   }, [debugLog, showDebug]);
 
+  // Sync preselectedArea into state when prop changes (e.g. dialog reopened from different context)
+  useEffect(() => {
+    if (preselectedArea) setArea(preselectedArea);
+  }, [preselectedArea]);
+
+  // Drop a captured screenshot if the user switches to a GitHub-routed area
+  // that has no screenshots repo configured (it would never actually attach).
+  useEffect(() => {
+    if (!canAttachScreenshot && screenshotDataUrl) {
+      setScreenshotDataUrl(null);
+    }
+  }, [canAttachScreenshot, screenshotDataUrl]);
+
   const resetState = useCallback(() => {
     setDescription("");
-    setCategory("");
+    setIssueType("");
+    setArea(preselectedArea ?? "");
     setStatus("idle");
     setTicketResult(null);
     setErrorMessage("");
@@ -119,7 +163,7 @@ export function ReportProblemDialog({
     setIsCapturing(false);
     setLightboxOpen(false);
     abortControllerRef.current = null;
-  }, []);
+  }, [preselectedArea]);
 
   // Capture the tab using getDisplayMedia (browser screen share picker),
   // then grab one video frame into a canvas and convert to a data URL.
@@ -205,8 +249,8 @@ export function ReportProblemDialog({
   }, []);
 
   const handleSubmit = useCallback(async () => {
-    const isTome = variant === "tome-product";
-    if (isTome && !category) return;
+    const needsAreaType = !feedbackContext;
+    if (needsAreaType && (!issueType || !area)) return;
     if (!description.trim() && !feedbackContext) return;
 
     const controller = new AbortController();
@@ -236,9 +280,10 @@ export function ReportProblemDialog({
         },
         accessToken: session?.accessToken,
         signal: controller.signal,
-        source: isTome ? "tome-product" : feedbackContext ? "chat-feedback" : "header",
-        category: isTome ? category : undefined,
+        source: feedbackContext ? "chat-feedback" : tomeContext ? "tome-product" : "header",
         tomeContext,
+        area: area || undefined,
+        issueType: issueType || undefined,
         onEvent: (_event, logLine) => {
           appendLog(logLine);
         },
@@ -252,9 +297,10 @@ export function ReportProblemDialog({
       if (result) {
         setTicketResult(result);
         setStatus("success");
+        const providerName = result.provider === "jira" ? "Jira" : "GitHub";
         toast(
           result.url
-            ? `Feedback submitted: tracked as ${result.id} on GitHub.`
+            ? `Feedback submitted: tracked as ${result.id} on ${providerName}.`
             : `Feedback submitted: tracked as ${result.id}.`,
           "success"
         );
@@ -281,9 +327,9 @@ export function ReportProblemDialog({
     screenshotDataUrl,
     appendLog,
     resetState,
-    variant,
-    category,
     tomeContext,
+    area,
+    issueType,
     toast,
   ]);
 
@@ -299,11 +345,10 @@ export function ReportProblemDialog({
     navigator.clipboard.writeText(text);
   }, [description, feedbackContext]);
 
-  const isTomeProduct = variant === "tome-product";
-  const canSubmit =
-    isTomeProduct
-      ? Boolean(category && description.trim())
-      : Boolean(description.trim() || feedbackContext);
+  const needsAreaType = !feedbackContext;
+  const canSubmit = needsAreaType
+    ? Boolean(issueType && area && (description.trim() || feedbackContext))
+    : Boolean(description.trim() || feedbackContext);
 
   return (
     <>
@@ -315,15 +360,11 @@ export function ReportProblemDialog({
               ? "Ticket Created"
               : status === "error"
                 ? "Something Went Wrong"
-                : isTomeProduct
-                  ? "TOME product feedback"
-                  : `Report a Problem${providerLabel ? ` via ${providerLabel}` : ""}`}
+                : "Provide Feedback"}
           </DialogTitle>
           <DialogDescription>
-            {status === "idle" && isTomeProduct &&
-              "Report bugs, confusing UX, or missing TOME capabilities. Not for wiki page content accuracy."}
-            {status === "idle" && !isTomeProduct &&
-              "Describe the issue briefly. A ticket will be created and assigned to the team."}
+            {status === "idle" &&
+              "Report bugs or request enhancements. Select the type and area, then describe the issue."}
             {status === "submitting" && "Creating your ticket..."}
             {status === "success" && "Your ticket has been created successfully."}
             {status === "error" && "We couldn't create the ticket. You can retry or copy your description."}
@@ -344,23 +385,81 @@ export function ReportProblemDialog({
               </div>
             )}
 
-            {isTomeProduct && (
-              <div className="flex flex-wrap gap-1.5">
-                {TOME_PRODUCT_CATEGORIES.map((c) => (
-                  <button
-                    key={c}
-                    type="button"
-                    onClick={() => setCategory(c)}
-                    className={cn(
-                      "px-3 py-1 rounded-full text-xs font-medium transition-all",
-                      category === c
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-muted text-muted-foreground hover:bg-muted/80",
+            {/* Issue type + area selectors — hidden for the chat-feedback combo flow */}
+            {!feedbackContext && (
+              <div className="space-y-2">
+                {/* Issue Type chips */}
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground">
+                    Type <span className="text-destructive">*</span>
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {ISSUE_TYPES.map((t) => (
+                      <button
+                        key={t}
+                        type="button"
+                        onClick={() => setIssueType(t)}
+                        className={cn(
+                          "px-3 py-1 rounded-full text-xs font-medium transition-all",
+                          issueType === t
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-muted text-muted-foreground hover:bg-muted/80",
+                        )}
+                      >
+                        {t}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Area chips */}
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground">
+                    Area <span className="text-destructive">*</span>
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {PROBLEM_AREAS.map((a) => (
+                      <button
+                        key={a}
+                        type="button"
+                        onClick={() => setArea(a)}
+                        className={cn(
+                          "px-3 py-1 rounded-full text-xs font-medium transition-all",
+                          area === a
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-muted text-muted-foreground hover:bg-muted/80",
+                        )}
+                      >
+                        {a}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Destination hint */}
+                {area && (
+                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    {area === "TOME" ? (
+                      <>
+                        <GitBranch className="h-3.5 w-3.5 shrink-0" />
+                        <span>
+                          {githubTicketRepo
+                            ? `→ GitHub issue in ${githubTicketRepo}`
+                            : "→ GitHub issue"}
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-sm bg-[#0052CC] text-[8px] font-bold text-white shrink-0">J</span>
+                        <span>
+                          {jiraTicketProject
+                            ? `→ Jira ticket in ${jiraTicketProject}${jiraBaseUrl ? ` (${jiraBaseUrl.replace(/^https?:\/\//, "")})` : ""}`
+                            : "→ Jira ticket"}
+                        </span>
+                      </>
                     )}
-                  >
-                    {c}
-                  </button>
-                ))}
+                  </div>
+                )}
               </div>
             )}
 
@@ -368,77 +467,78 @@ export function ReportProblemDialog({
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder={
-                isTomeProduct
-                  ? "What's wrong? Be as specific as you can."
-                  : feedbackContext
-                    ? "Add more details for the ticket (optional)"
-                    : "What went wrong? Be as specific as you can."
+                feedbackContext
+                  ? "Add more details for the ticket (optional)"
+                  : "What went wrong? Be as specific as you can."
               }
               className="w-full h-24 px-3 py-2 text-sm bg-muted/50 border border-border rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-primary/50"
               autoFocus
             />
 
-            {/* Screenshot attachment */}
-            {screenshotDataUrl ? (
-              <div className="relative rounded-lg overflow-hidden border border-border group cursor-zoom-in"
-                onClick={() => setLightboxOpen(true)}
-              >
-                <Image
-                  src={screenshotDataUrl}
-                  alt="Screenshot preview"
-                  width={1280}
-                  height={720}
-                  unoptimized
-                  className="w-full h-32 object-cover object-top"
-                />
-                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
-                  <span className="opacity-0 group-hover:opacity-100 transition-opacity text-white text-xs font-medium bg-black/60 px-2 py-1 rounded">
-                    Click to view
-                  </span>
+            {/* Screenshot attachment — hidden for GitHub unless a screenshots
+                repo is configured, since it otherwise never actually embeds. */}
+            {canAttachScreenshot && (
+              screenshotDataUrl ? (
+                <div className="relative rounded-lg overflow-hidden border border-border group cursor-zoom-in"
+                  onClick={() => setLightboxOpen(true)}
+                >
+                  <Image
+                    src={screenshotDataUrl}
+                    alt="Screenshot preview"
+                    width={1280}
+                    height={720}
+                    unoptimized
+                    className="w-full h-32 object-cover object-top"
+                  />
+                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
+                    <span className="opacity-0 group-hover:opacity-100 transition-opacity text-white text-xs font-medium bg-black/60 px-2 py-1 rounded">
+                      Click to view
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); setScreenshotDataUrl(null); }}
+                    className="absolute top-1.5 right-1.5 h-6 w-6 rounded-full bg-black/60 hover:bg-black/80 flex items-center justify-center transition-colors"
+                    aria-label="Remove screenshot"
+                  >
+                    <X className="h-3.5 w-3.5 text-white" />
+                  </button>
+                  <div className="absolute bottom-1.5 left-1.5 px-1.5 py-0.5 rounded bg-black/60 text-[10px] text-white font-medium">
+                    Screenshot attached
+                  </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={(e) => { e.stopPropagation(); setScreenshotDataUrl(null); }}
-                  className="absolute top-1.5 right-1.5 h-6 w-6 rounded-full bg-black/60 hover:bg-black/80 flex items-center justify-center transition-colors"
-                  aria-label="Remove screenshot"
-                >
-                  <X className="h-3.5 w-3.5 text-white" />
-                </button>
-                <div className="absolute bottom-1.5 left-1.5 px-1.5 py-0.5 rounded bg-black/60 text-[10px] text-white font-medium">
-                  Screenshot attached
+              ) : (
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={handleCaptureScreenshot}
+                    disabled={isCapturing}
+                    className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-dashed border-border text-xs text-muted-foreground hover:border-primary/50 hover:text-foreground hover:bg-muted/30 transition-all disabled:opacity-50"
+                  >
+                    {isCapturing ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Monitor className="h-3.5 w-3.5" />
+                    )}
+                    {isCapturing ? "Starting capture..." : "Auto-capture screen"}
+                  </button>
+                  <label
+                    htmlFor={fileInputId}
+                    className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-dashed border-border text-xs text-muted-foreground hover:border-primary/50 hover:text-foreground hover:bg-muted/30 transition-all cursor-pointer"
+                  >
+                    <Upload className="h-3.5 w-3.5" />
+                    Upload image
+                  </label>
+                  <input
+                    id={fileInputId}
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="sr-only"
+                    onChange={handleFileUpload}
+                  />
                 </div>
-              </div>
-            ) : (
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={handleCaptureScreenshot}
-                  disabled={isCapturing}
-                  className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-dashed border-border text-xs text-muted-foreground hover:border-primary/50 hover:text-foreground hover:bg-muted/30 transition-all disabled:opacity-50"
-                >
-                  {isCapturing ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <Monitor className="h-3.5 w-3.5" />
-                  )}
-                  {isCapturing ? "Starting capture..." : "Auto-capture screen"}
-                </button>
-                <label
-                  htmlFor={fileInputId}
-                  className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-dashed border-border text-xs text-muted-foreground hover:border-primary/50 hover:text-foreground hover:bg-muted/30 transition-all cursor-pointer"
-                >
-                  <Upload className="h-3.5 w-3.5" />
-                  Upload image
-                </label>
-                <input
-                  id={fileInputId}
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  className="sr-only"
-                  onChange={handleFileUpload}
-                />
-              </div>
+              )
             )}
 
             <p className="text-[10px] text-muted-foreground/60 text-center break-words">
@@ -450,7 +550,11 @@ export function ReportProblemDialog({
               disabled={!canSubmit}
               className="w-full gap-2"
             >
-              {isTomeProduct ? "Submit feedback" : "Submit Report"}
+              {area === "TOME"
+                ? <><GitBranch className="h-4 w-4" /> Submit GitHub Issue</>
+                : area
+                  ? <><span className="inline-flex h-4 w-4 items-center justify-center rounded-sm bg-[#0052CC] text-[9px] font-bold text-white">J</span> Submit Jira Ticket</>
+                  : "Submit Report"}
             </Button>
           </div>
         )}
@@ -557,7 +661,7 @@ export function ReportProblemDialog({
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1 text-xs text-primary hover:underline mt-1"
                 >
-                  Open in {providerLabel}
+                  Open in {ticketResult.provider === "jira" ? "Jira" : "GitHub"}
                   <ExternalLink className="h-3 w-3" />
                 </a>
               )}

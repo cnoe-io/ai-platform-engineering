@@ -190,6 +190,8 @@ export interface Config {
   schedulerEnabled: boolean;
   /** Whether Jira ticket creation from feedback/report is enabled */
   jiraTicketEnabled: boolean;
+  /** Jira instance base URL (e.g., "https://org.atlassian.net") */
+  jiraBaseUrl: string | null;
   /** Jira project key for ticket creation (e.g., "OPENSD") */
   jiraTicketProject: string | null;
   /** Custom label applied to Jira tickets for filtering (e.g., "caipe-reported") */
@@ -200,6 +202,16 @@ export interface Config {
   githubTicketRepo: string | null;
   /** Custom label applied to GitHub issues for filtering (e.g., "caipe-reported") */
   githubTicketLabel: string;
+  /**
+   * Dedicated repo screenshots are committed to and embedded from (e.g.,
+   * "org/report-screenshots"). GitHub's issue API has no attachment upload
+   * endpoint, so screenshots can only be embedded by hosting them somewhere
+   * with a stable URL — this repo is that host. Off by default (OSS): when
+   * unset, the screenshot capture/upload UI is hidden for GitHub-routed
+   * reports rather than showing something that silently never attaches.
+   * Set GITHUB_SCREENSHOTS_REPO to enable.
+   */
+  githubScreenshotsRepo: string | null;
   /**
    * Streaming protocol used by agent servers: "custom" (default) or "agui".
    * Controls the ?protocol= query param sent to the backend streaming endpoints.
@@ -319,11 +331,13 @@ const DEFAULT_CONFIG: Config = {
   reportProblemDynamicAgentId: null,
   reportProblemRouting: null,
   jiraTicketEnabled: false,
+  jiraBaseUrl: null,
   jiraTicketProject: null,
   jiraTicketLabel: 'caipe-reported',
   githubTicketEnabled: false,
   githubTicketRepo: null,
   githubTicketLabel: 'caipe-reported',
+  githubScreenshotsRepo: null,
   ticketEnabled: false,
   ticketProvider: null,
   userInfoToolEnabled: false,
@@ -472,12 +486,18 @@ export function getServerConfig(): Config {
     reportProblemRoutingRaw === 'dynamic-agent' || reportProblemRoutingRaw === 'github' || reportProblemRoutingRaw === 'jira'
       ? reportProblemRoutingRaw
       : null;
-  const jiraTicketEnabled = env('JIRA_TICKET_ENABLED') === 'true';
+  const jiraBaseUrl = env('JIRA_BASE_URL') || null;
+  const jiraEmail = env('JIRA_EMAIL') || null;
+  const jiraToken = env('REPORT_PROBLEM_JIRA_TOKEN') || env('JIRA_TICKET_TOKEN') || null;
+  // Auto-enable when all three credentials are present, or when explicitly set
+  const jiraTicketEnabled = env('JIRA_TICKET_ENABLED') === 'true'
+    || !!(jiraBaseUrl && jiraEmail && jiraToken);
   const jiraTicketProject = env('JIRA_TICKET_PROJECT') || null;
   const jiraTicketLabel = env('JIRA_TICKET_LABEL') || 'caipe-reported';
   const githubTicketEnabled = env('GITHUB_TICKET_ENABLED') === 'true';
   const githubTicketRepo = env('GITHUB_TICKET_REPO') || null;
   const githubTicketLabel = env('GITHUB_TICKET_LABEL') || 'caipe-reported';
+  const githubScreenshotsRepo = env('GITHUB_SCREENSHOTS_REPO') || null;
   const ticketEnabled = jiraTicketEnabled || githubTicketEnabled;
   const ticketProvider: 'jira' | 'github' | null = jiraTicketEnabled ? 'jira' : githubTicketEnabled ? 'github' : null;
 
@@ -540,11 +560,13 @@ export function getServerConfig(): Config {
     reportProblemDynamicAgentId,
     reportProblemRouting,
     jiraTicketEnabled,
+    jiraBaseUrl,
     jiraTicketProject,
     jiraTicketLabel,
     githubTicketEnabled,
     githubTicketRepo,
     githubTicketLabel,
+    githubScreenshotsRepo,
     ticketEnabled,
     ticketProvider,
     userInfoToolEnabled,

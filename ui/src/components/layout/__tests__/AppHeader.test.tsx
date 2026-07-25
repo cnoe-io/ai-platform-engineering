@@ -463,9 +463,9 @@ describe('AppHeader — nav tabs', () => {
       expect(screen.getByText('Skills')).toBeInTheDocument()
       expect(screen.getByTestId('link-/dynamic-agents')).toBeInTheDocument()
       expect(screen.getByTestId('link-/admin')).toBeInTheDocument()
-      // Right cluster: status badge collapses to icon-only, Report a Problem is icon-only button
+      // Right cluster: status badge collapses to icon-only, Provide Feedback is icon-only button
       expect(screen.getByRole('button', { name: /system status: healthy/i })).toHaveClass('w-8')
-      expect(screen.getByRole('button', { name: /report a problem/i })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /provide feedback/i })).toBeInTheDocument()
       expect(screen.getByTestId('settings-panel')).toBeInTheDocument()
       expect(screen.getByTestId('user-menu')).toBeInTheDocument()
     })
@@ -1399,10 +1399,10 @@ describe('AppHeader — Chat tab notification dots', () => {
 })
 
 // ============================================================================
-// Report a Problem button
+// Provide Feedback button
 // ============================================================================
 
-describe('AppHeader — Report a Problem button', () => {
+describe('AppHeader — Provide Feedback button', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     mockStorageMode = 'mongodb'
@@ -1419,22 +1419,22 @@ describe('AppHeader — Report a Problem button', () => {
     mockSession.data = { user: { name: 'Test User', email: 'test@test.com' } } as unknown
   })
 
-  it('does NOT show "Report a Problem" button when reportProblemEnabled is false', () => {
+  it('does NOT show "Provide Feedback" button when reportProblemEnabled is false', () => {
     mockReportProblemEnabled = false
     render(<AppHeader />)
-    expect(screen.queryByText('Report a Problem')).not.toBeInTheDocument()
+    expect(screen.queryByText('Provide Feedback')).not.toBeInTheDocument()
   })
 
-  it('shows "Report a Problem" button when reportProblemEnabled is true', () => {
+  it('shows "Provide Feedback" button when reportProblemEnabled is true', () => {
     mockReportProblemEnabled = true
     render(<AppHeader />)
-    expect(screen.getByText('Report a Problem')).toBeInTheDocument()
+    expect(screen.getByText('Provide Feedback')).toBeInTheDocument()
   })
 
-  it('opens ReportProblemDialog when "Report a Problem" is clicked', () => {
+  it('opens ReportProblemDialog when "Provide Feedback" is clicked', () => {
     mockReportProblemEnabled = true
     render(<AppHeader />)
-    const btn = screen.getByText('Report a Problem')
+    const btn = screen.getByText('Provide Feedback')
     fireEvent.click(btn)
     expect(screen.getByTestId('report-problem-dialog')).toBeInTheDocument()
   })

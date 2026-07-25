@@ -46,7 +46,7 @@ export function TomeProductFeedback({
         }
       >
         <MessageSquareWarning className="h-3.5 w-3.5" />
-        Report a problem
+        Provide feedback
       </button>
     ) : (
       <Tooltip>
@@ -58,13 +58,13 @@ export function TomeProductFeedback({
               className ?? "h-8 w-8 text-muted-foreground"
             }
             onClick={() => setOpen(true)}
-            aria-label="Report a TOME product problem"
+            aria-label="Provide TOME product feedback"
           >
             <MessageSquareWarning className="h-4 w-4" />
           </Button>
         </TooltipTrigger>
         <TooltipContent side="bottom">
-          Report a TOME product problem
+          Provide TOME product feedback
         </TooltipContent>
       </Tooltip>
     );
@@ -75,7 +75,7 @@ export function TomeProductFeedback({
       <ReportProblemDialog
         open={open}
         onOpenChange={setOpen}
-        variant="tome-product"
+        preselectedArea="TOME"
         tomeContext={{ projectSlug, pagePath }}
       />
     </>

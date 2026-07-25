@@ -430,7 +430,8 @@ describe("createTicketViaApi", () => {
         contextUrl: "https://example.test/projects/tome/tome",
       },
       source: "tome-product",
-      category: "Bug",
+      area: "TOME",
+      issueType: "Bug",
       tomeContext: { projectSlug: "tome" },
       onResult,
     });
@@ -441,5 +442,153 @@ describe("createTicketViaApi", () => {
     );
     expect(result.id).toBe("#169");
     expect(onResult).toHaveBeenCalled();
+  });
+});
+
+describe("createJiraTicketViaApi", () => {
+  const originalFetch = global.fetch;
+
+  beforeEach(() => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        success: true,
+        data: {
+          id: "OPENSD-99",
+          url: "https://org.atlassian.net/browse/OPENSD-99",
+          provider: "jira",
+        },
+      }),
+    }) as unknown as typeof fetch;
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  it("posts to /api/tickets/jira with area and issueType", async () => {
+    const { createJiraTicketViaApi } = await import("../ticket-client");
+    const onResult = jest.fn();
+
+    const result = await createJiraTicketViaApi({
+      request: {
+        description: "Please add dark mode",
+        userEmail: "test@example.com",
+        contextUrl: "https://example.test/chat/abc",
+      },
+      area: "Chat",
+      issueType: "Enhancement",
+      onResult,
+    });
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      "/api/tickets/jira",
+      expect.objectContaining({
+        method: "POST",
+        body: expect.stringContaining("\"area\":\"Chat\""),
+      }),
+    );
+    expect(result.id).toBe("OPENSD-99");
+    expect(result.provider).toBe("jira");
+    expect(onResult).toHaveBeenCalled();
+  });
+
+  it("throws with the API error message on a non-ok response", async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 503,
+      json: async () => ({ error: "Jira ticket creation is not configured" }),
+    }) as unknown as typeof fetch;
+    const { createJiraTicketViaApi } = await import("../ticket-client");
+
+    await expect(
+      createJiraTicketViaApi({
+        request: {
+          description: "x",
+          userEmail: "test@example.com",
+          contextUrl: "https://example.test",
+        },
+        area: "Chat",
+      }),
+    ).rejects.toThrow("Jira ticket creation is not configured");
+  });
+});
+
+describe("createTicket dispatcher (area-based routing)", () => {
+  const originalFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  it("routes area=TOME to the direct GitHub API path", async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        success: true,
+        data: { id: "#1", url: "https://github.com/org/repo/issues/1", provider: "github" },
+      }),
+    }) as unknown as typeof fetch;
+    const { createTicket } = await import("../ticket-client");
+
+    const result = await createTicket({
+      request: {
+        description: "Something broke",
+        userEmail: "test@example.com",
+        contextUrl: "https://example.test",
+      },
+      area: "TOME",
+      issueType: "Bug",
+    });
+
+    expect(global.fetch).toHaveBeenCalledWith("/api/tickets/report", expect.anything());
+    expect(result?.provider).toBe("github");
+  });
+
+  it("routes a non-TOME area to the direct Jira API path", async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        success: true,
+        data: { id: "OPENSD-2", url: "https://org.atlassian.net/browse/OPENSD-2", provider: "jira" },
+      }),
+    }) as unknown as typeof fetch;
+    const { createTicket } = await import("../ticket-client");
+
+    const result = await createTicket({
+      request: {
+        description: "Please add dark mode",
+        userEmail: "test@example.com",
+        contextUrl: "https://example.test",
+      },
+      area: "Skills",
+      issueType: "Enhancement",
+    });
+
+    expect(global.fetch).toHaveBeenCalledWith("/api/tickets/jira", expect.anything());
+    expect(result?.provider).toBe("jira");
+  });
+
+  it("falls back to the direct GitHub API path (no area) when ticketProvider=github and githubTicketEnabled", async () => {
+    mockProvider = "github";
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        success: true,
+        data: { id: "#2", url: "https://github.com/org/repo/issues/2", provider: "github" },
+      }),
+    }) as unknown as typeof fetch;
+    const { createTicket } = await import("../ticket-client");
+
+    const result = await createTicket({
+      request: {
+        description: "Chat feedback follow-up",
+        userEmail: "test@example.com",
+        contextUrl: "https://example.test/chat/abc",
+      },
+    });
+
+    expect(global.fetch).toHaveBeenCalledWith("/api/tickets/report", expect.anything());
+    expect(result?.provider).toBe("github");
   });
 });

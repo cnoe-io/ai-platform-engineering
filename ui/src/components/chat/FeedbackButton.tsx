@@ -310,7 +310,7 @@ export function FeedbackButton({
         </DialogContent>
       </Dialog>
 
-      {/* Report a Problem shortcut button */}
+      {/* Provide Feedback shortcut button */}
       {reportProblemEnabled && (
         <Button
           variant="ghost"
@@ -318,7 +318,7 @@ export function FeedbackButton({
           className="h-7 w-7 hover:bg-muted text-muted-foreground hover:text-foreground"
           disabled={disabled}
           onClick={(e) => { e.stopPropagation(); setReportDialogOpen(true); }}
-          title="Report a Problem"
+          title="Provide Feedback"
         >
           <AlertTriangle className="h-3.5 w-3.5" />
         </Button>
