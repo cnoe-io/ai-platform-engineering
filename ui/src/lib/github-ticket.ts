@@ -135,11 +135,9 @@ export function buildGitHubIssueBody(input: GitHubTicketInput): string {
       "",
       "## Screenshot",
       "",
-      `<details><summary>View screenshot (${sizeKb}KB)</summary>`,
-      "",
-      `![Screenshot](${input.screenshotDataUrl})`,
-      "",
-      "</details>",
+      `A screenshot (${sizeKb}KB) was captured by the reporter. GitHub's issue API doesn't ` +
+        "render inline data URIs and enforces a 65,536-character body limit, so it isn't " +
+        "embedded here — ask the reporter to attach it manually if needed.",
     );
   }
 
