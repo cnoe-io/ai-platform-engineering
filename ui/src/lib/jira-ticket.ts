@@ -65,10 +65,6 @@ function buildDescriptionText(input: JiraTicketInput): string {
       lines.push(`Additional Feedback: ${input.feedbackContext.additionalFeedback}`);
     }
   }
-  if (input.screenshotDataUrl) {
-    const sizeKb = Math.round(input.screenshotDataUrl.length / 1024);
-    lines.push(``, `Screenshot: captured by reporter (${sizeKb}KB — not embeddable in Jira via API; available in the original report)`);
-  }
   lines.push("", "Submitted via CAIPE Provide Feedback");
   return lines.join("\n");
 }
@@ -134,4 +130,44 @@ export async function createJiraTicket(
     url: `${baseUrl.replace(/\/$/, "")}/browse/${data.key}`,
     provider: "jira",
   };
+}
+
+/**
+ * Upload a captured screenshot as a real Jira attachment on an existing issue.
+ * Unlike GitHub, Jira's REST API supports genuine binary attachments.
+ */
+export async function attachScreenshotToJiraIssue(
+  baseUrl: string,
+  email: string,
+  token: string,
+  issueKey: string,
+  screenshotDataUrl: string,
+): Promise<void> {
+  const match = screenshotDataUrl.match(/^data:([\w/+-]+);base64,(.+)$/);
+  if (!match) {
+    throw new Error("screenshotDataUrl is not a valid base64 data URL");
+  }
+  const [, mimeType, base64Data] = match;
+  const bytes = Buffer.from(base64Data, "base64");
+  const ext = mimeType.split("/")[1] || "png";
+
+  const credentials = Buffer.from(`${email}:${token}`).toString("base64");
+  const formData = new FormData();
+  formData.append("file", new Blob([bytes], { type: mimeType }), `screenshot.${ext}`);
+
+  const apiUrl = `${baseUrl.replace(/\/$/, "")}/rest/api/3/issue/${issueKey}/attachments`;
+  const res = await fetch(apiUrl, {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${credentials}`,
+      "X-Atlassian-Token": "no-check",
+      Accept: "application/json",
+    },
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const errBody = await res.text().catch(() => "");
+    throw new Error(`Jira attachment upload failed (${res.status}): ${errBody}`);
+  }
 }

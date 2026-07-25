@@ -136,6 +136,14 @@ export function ReportProblemDialog({
     if (preselectedArea) setArea(preselectedArea);
   }, [preselectedArea]);
 
+  // GitHub never actually attaches the screenshot — drop it if the user
+  // switches to a GitHub-routed area after already capturing one.
+  useEffect(() => {
+    if (effectiveProvider === "github" && screenshotDataUrl) {
+      setScreenshotDataUrl(null);
+    }
+  }, [effectiveProvider, screenshotDataUrl]);
+
   const resetState = useCallback(() => {
     setDescription("");
     setIssueType("");
@@ -461,67 +469,70 @@ export function ReportProblemDialog({
               autoFocus
             />
 
-            {/* Screenshot attachment */}
-            {screenshotDataUrl ? (
-              <div className="relative rounded-lg overflow-hidden border border-border group cursor-zoom-in"
-                onClick={() => setLightboxOpen(true)}
-              >
-                <Image
-                  src={screenshotDataUrl}
-                  alt="Screenshot preview"
-                  width={1280}
-                  height={720}
-                  unoptimized
-                  className="w-full h-32 object-cover object-top"
-                />
-                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
-                  <span className="opacity-0 group-hover:opacity-100 transition-opacity text-white text-xs font-medium bg-black/60 px-2 py-1 rounded">
-                    Click to view
-                  </span>
+            {/* Screenshot attachment — GitHub has no attachment API and never
+                actually embeds it, so don't offer it once GitHub is the target. */}
+            {effectiveProvider !== "github" && (
+              screenshotDataUrl ? (
+                <div className="relative rounded-lg overflow-hidden border border-border group cursor-zoom-in"
+                  onClick={() => setLightboxOpen(true)}
+                >
+                  <Image
+                    src={screenshotDataUrl}
+                    alt="Screenshot preview"
+                    width={1280}
+                    height={720}
+                    unoptimized
+                    className="w-full h-32 object-cover object-top"
+                  />
+                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
+                    <span className="opacity-0 group-hover:opacity-100 transition-opacity text-white text-xs font-medium bg-black/60 px-2 py-1 rounded">
+                      Click to view
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); setScreenshotDataUrl(null); }}
+                    className="absolute top-1.5 right-1.5 h-6 w-6 rounded-full bg-black/60 hover:bg-black/80 flex items-center justify-center transition-colors"
+                    aria-label="Remove screenshot"
+                  >
+                    <X className="h-3.5 w-3.5 text-white" />
+                  </button>
+                  <div className="absolute bottom-1.5 left-1.5 px-1.5 py-0.5 rounded bg-black/60 text-[10px] text-white font-medium">
+                    Screenshot attached
+                  </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={(e) => { e.stopPropagation(); setScreenshotDataUrl(null); }}
-                  className="absolute top-1.5 right-1.5 h-6 w-6 rounded-full bg-black/60 hover:bg-black/80 flex items-center justify-center transition-colors"
-                  aria-label="Remove screenshot"
-                >
-                  <X className="h-3.5 w-3.5 text-white" />
-                </button>
-                <div className="absolute bottom-1.5 left-1.5 px-1.5 py-0.5 rounded bg-black/60 text-[10px] text-white font-medium">
-                  Screenshot attached
+              ) : (
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={handleCaptureScreenshot}
+                    disabled={isCapturing}
+                    className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-dashed border-border text-xs text-muted-foreground hover:border-primary/50 hover:text-foreground hover:bg-muted/30 transition-all disabled:opacity-50"
+                  >
+                    {isCapturing ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Monitor className="h-3.5 w-3.5" />
+                    )}
+                    {isCapturing ? "Starting capture..." : "Auto-capture screen"}
+                  </button>
+                  <label
+                    htmlFor={fileInputId}
+                    className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-dashed border-border text-xs text-muted-foreground hover:border-primary/50 hover:text-foreground hover:bg-muted/30 transition-all cursor-pointer"
+                  >
+                    <Upload className="h-3.5 w-3.5" />
+                    Upload image
+                  </label>
+                  <input
+                    id={fileInputId}
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="sr-only"
+                    onChange={handleFileUpload}
+                  />
                 </div>
-              </div>
-            ) : (
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={handleCaptureScreenshot}
-                  disabled={isCapturing}
-                  className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-dashed border-border text-xs text-muted-foreground hover:border-primary/50 hover:text-foreground hover:bg-muted/30 transition-all disabled:opacity-50"
-                >
-                  {isCapturing ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <Monitor className="h-3.5 w-3.5" />
-                  )}
-                  {isCapturing ? "Starting capture..." : "Auto-capture screen"}
-                </button>
-                <label
-                  htmlFor={fileInputId}
-                  className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-dashed border-border text-xs text-muted-foreground hover:border-primary/50 hover:text-foreground hover:bg-muted/30 transition-all cursor-pointer"
-                >
-                  <Upload className="h-3.5 w-3.5" />
-                  Upload image
-                </label>
-                <input
-                  id={fileInputId}
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  className="sr-only"
-                  onChange={handleFileUpload}
-                />
-              </div>
+              )
             )}
 
             <p className="text-[10px] text-muted-foreground/60 text-center break-words">

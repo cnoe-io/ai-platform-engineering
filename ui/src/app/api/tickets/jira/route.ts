@@ -12,6 +12,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { withAuth, withErrorHandler, ApiError } from "@/lib/api-middleware";
 import { getServerConfig } from "@/lib/config";
 import {
+  attachScreenshotToJiraIssue,
   createJiraTicket,
   type JiraTicketInput,
 } from "@/lib/jira-ticket";
@@ -94,6 +95,14 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     };
 
     const result = await createJiraTicket(baseUrl, email, token, projectKey, input);
+
+    if (input.screenshotDataUrl) {
+      try {
+        await attachScreenshotToJiraIssue(baseUrl, email, token, result.id, input.screenshotDataUrl);
+      } catch (err) {
+        console.warn("[api/tickets/jira] Failed to attach screenshot:", err);
+      }
+    }
 
     await recordProblemReportFeedback({
       description: input.description,
