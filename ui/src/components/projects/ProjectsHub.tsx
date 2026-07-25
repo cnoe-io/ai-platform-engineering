@@ -15,7 +15,6 @@ import {
   History,
   Layers,
   Plus,
-  RefreshCw,
   Rocket,
   Settings,
   Sparkles,
@@ -23,7 +22,6 @@ import {
   UserX,
 } from "lucide-react";
 
-import { BackstageSyncDialog } from "@/components/projects/BackstageSyncDialog";
 import { ProjectOnboardingWizard } from "@/components/projects/ProjectOnboardingWizard";
 import { McpConnectDialog } from "@/components/tome/McpConnectDialog";
 import { OnboardingModal } from "@/components/tome/OnboardingModal";
@@ -627,12 +625,8 @@ export function ProjectsHub() {
   const [error, setError] = useState<string | null>(null);
   const [hero, setHero] = useState<OnboardingHeroConfig>({
     title: "Projects for your teams",
-    description:
-      "Create projects aligned with your Backstage catalog. Onboarding steps are configured externally.",
+    description: "Onboarding steps are configured externally.",
   });
-  const [syncOpen, setSyncOpen] = useState(false);
-  const [canOpenSync, setCanOpenSync] = useState(false);
-  const [, setSyncBlockedReason] = useState<string | null>(null);
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [isTomeAdmin, setIsTomeAdmin] = useState(false);
 
@@ -817,24 +811,6 @@ export function ProjectsHub() {
       .then((res) => res.json())
       .then((body) => setIsTomeAdmin(Boolean(body.isTomeAdmin)))
       .catch(() => undefined);
-
-    fetch("/api/projects/backstage/status")
-      .then(async (res) => {
-        const body = await res.json().catch(() => ({}));
-        const data = body.data ?? {};
-        setCanOpenSync(Boolean(data.configured) && Boolean(data.can_manage));
-        if (!data.configured) {
-          setSyncBlockedReason("Backstage is not configured on the server.");
-        } else if (!data.can_manage) {
-          setSyncBlockedReason("Org admin access required to import from Backstage.");
-        } else {
-          setSyncBlockedReason(null);
-        }
-      })
-      .catch(() => {
-        setCanOpenSync(false);
-        setSyncBlockedReason("Could not load Backstage sync status.");
-      });
   }, []);
 
   // A promoted BHAG/Area entity with zero tagged children never appears as a
@@ -882,17 +858,6 @@ export function ProjectsHub() {
                 <Sparkles className="h-3.5 w-3.5" />
                 Dashboard
               </Link>
-              {canOpenSync ? (
-                <button
-                  type="button"
-                  onClick={() => setSyncOpen(true)}
-                  title="Import kind: System entities from the Backstage developer portal, assign a team, and resolve conflicts before apply."
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition hover:bg-accent hover:text-foreground"
-                >
-                  <RefreshCw className="h-3.5 w-3.5" />
-                  Backstage
-                </button>
-              ) : null}
               {isTomeAdmin && (
                 <Link
                   href="/projects/admin"
@@ -961,8 +926,7 @@ export function ProjectsHub() {
             <Rocket className="mx-auto h-12 w-12 text-muted-foreground/50" />
             <p className="mt-4 font-medium">No projects yet</p>
             <p className="mt-1 text-sm text-muted-foreground">
-              Create a project with the onboarding wizard or import Systems from the Backstage
-              catalog section above.
+              Create a project with the onboarding wizard above.
             </p>
           </div>
         )}
@@ -1048,12 +1012,6 @@ export function ProjectsHub() {
           )}
         </TooltipProvider>
       </section>
-
-      <BackstageSyncDialog
-        open={syncOpen}
-        onClose={() => setSyncOpen(false)}
-        onComplete={() => void load()}
-      />
 
       <OnboardingModal open={onboardingOpen} onOpenChange={handleOnboardingChange} />
     </div>

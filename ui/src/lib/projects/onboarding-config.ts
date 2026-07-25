@@ -91,8 +91,7 @@ export interface ProjectOnboardingConfig {
 const DEFAULT_CONFIG: ProjectOnboardingConfig = {
   hero: {
     title: "Projects for your teams",
-    description:
-      "Create projects aligned with your Backstage catalog. Onboarding steps are configured externally.",
+    description: "Onboarding steps are configured externally.",
   },
   steps: [],
 };
