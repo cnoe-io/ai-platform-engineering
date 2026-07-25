@@ -1,8 +1,7 @@
 import { handleApiError,requireRbacPermission } from "@/lib/api-middleware";
-import { authOptions } from "@/lib/auth-config";
+import { resolveRagProxySession } from "@/lib/rag-proxy-session";
 import { requireResourcePermission,type ResourcePermissionAction } from "@/lib/rbac/resource-authz";
 import type { RbacScope } from "@/lib/rbac/types";
-import { getServerSession } from "next-auth";
 import { NextRequest,NextResponse } from "next/server";
 
 /**
@@ -71,10 +70,7 @@ async function proxyToRag(
   pathSegments: string[],
   method: string,
 ): Promise<NextResponse> {
-  const session = await getServerSession(authOptions);
-  if (!session?.user?.email) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const session = await resolveRagProxySession(request);
 
   let body: unknown = undefined;
   if (method === "POST" || method === "PUT" || method === "PATCH") {

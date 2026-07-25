@@ -24,7 +24,7 @@ When using the UI BFF, omit the leading slash from the RAG path after `/api/rag/
 
 ## Authentication and RBAC
 
-RAG supports OIDC bearer tokens and ingestor credentials. The UI BFF forwards the current NextAuth `accessToken` to the RAG server as a bearer token.
+RAG supports OIDC bearer tokens and ingestor credentials. The UI BFF accepts either a browser NextAuth session or `Authorization: Bearer <OIDC access token>` (for CLI and automation), validates the JWT, enforces RBAC, then forwards the same bearer token to the RAG server.
 
 Role levels are hierarchical:
 

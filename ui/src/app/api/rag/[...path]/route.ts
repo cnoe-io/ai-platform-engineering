@@ -3,8 +3,8 @@ ApiError,
 handleApiError,
 requireRbacPermission,
 } from '@/lib/api-middleware';
-import { authOptions } from '@/lib/auth-config';
-import { getDevAnonymousSession,isDevAnonymousAuthEnabled } from '@/lib/auth/dev-auth-provider';
+import { getDevAnonymousAuthEnabled } from '@/lib/auth/dev-auth-provider';
+import { resolveRagProxySession } from '@/lib/rag-proxy-session';
 import { checkOpenFgaTuple } from '@/lib/rbac/openfga';
 import {
 deleteAllMcpToolRelationshipTuples,
@@ -21,7 +21,6 @@ type ResourcePermissionAction,
 } from '@/lib/rbac/resource-authz';
 import { resolveShareableOwnershipWrite } from '@/lib/rbac/shareable-resource';
 import type { RbacScope } from '@/lib/rbac/types';
-import { getServerSession } from 'next-auth';
 import { NextRequest,NextResponse } from 'next/server';
 
 /**
@@ -32,7 +31,8 @@ import { NextRequest,NextResponse } from 'next/server';
  * checks. Static IdP/AD groups are not consumed by RAG authorization.
  *
  * Authentication:
- * - Authorization: Bearer {access_token} (OIDC JWT access token)
+ * - Authorization: Bearer {access_token} (OIDC JWT — CLI / automation)
+ * - NextAuth session cookie (browser UI)
  *
  * The RAG server uses the access_token to authenticate the caller and
  * derive OpenFGA subjects for resource checks.
@@ -469,12 +469,7 @@ async function getAuthorizedRagContext(
   request: NextRequest,
   body?: unknown,
 ): Promise<AuthorizedRagContext> {
-  const session = await getServerSession(authOptions) ?? (
-    isDevAnonymousAuthEnabled() ? getDevAnonymousSession() : null
-  );
-  if (!session?.user?.email) {
-    throw new ApiError('Unauthorized', 401);
-  }
+  const session = await resolveRagProxySession(request);
   if (!session.accessToken && !isDevAnonymousAuthEnabled()) {
     throw new ApiError('A Keycloak access token is required for RAG access.', 401, 'NOT_SIGNED_IN');
   }
