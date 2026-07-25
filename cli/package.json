@@ -4,16 +4,25 @@
   "description": "AI-assisted coding, workflows, and platform engineering from the terminal",
   "type": "module",
   "bin": {
-    "caipe": "./dist/shim.cjs"
+    "caipe": "./bin/caipe.cjs"
   },
+  "files": [
+    "bin",
+    "dist",
+    "src",
+    "npm",
+    "entitlements.plist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "esbuild src/index.ts --bundle --platform=node --target=node20 --format=cjs --outfile=dist/bundle.cjs --external:keytar --external:fsevents",
-    "compile:darwin-arm64": "bun build src/index.ts --compile --target=bun-darwin-arm64 --outfile=dist/caipe-darwin-arm64 && codesign --remove-signature dist/caipe-darwin-arm64 && codesign --sign - --force --entitlements entitlements.plist dist/caipe-darwin-arm64",
-    "compile:darwin-x64": "bun build src/index.ts --compile --target=bun-darwin-x64 --outfile=dist/caipe-darwin-x64 && codesign --remove-signature dist/caipe-darwin-x64 && codesign --sign - --force --entitlements entitlements.plist dist/caipe-darwin-x64",
-    "compile:linux-arm64": "bun build src/index.ts --compile --target=bun-linux-arm64 --outfile=dist/caipe-linux-arm64",
-    "compile:linux-x64": "bun build src/index.ts --compile --target=bun-linux-x64 --outfile=dist/caipe-linux-x64",
+    "compile:darwin-arm64": "bun build src/index.ts --compile --target=bun-darwin-arm64 --outfile=dist/caipe-darwin-arm64 --external keytar && codesign --remove-signature dist/caipe-darwin-arm64 && codesign --sign - --force --entitlements entitlements.plist dist/caipe-darwin-arm64",
+    "compile:darwin-x64": "bun build src/index.ts --compile --target=bun-darwin-x64 --outfile=dist/caipe-darwin-x64 --external keytar && codesign --remove-signature dist/caipe-darwin-x64 && codesign --sign - --force --entitlements entitlements.plist dist/caipe-darwin-x64",
+    "compile:linux-arm64": "bun build src/index.ts --compile --target=bun-linux-arm64 --outfile=dist/caipe-linux-arm64 --external keytar",
+    "compile:linux-x64": "bun build src/index.ts --compile --target=bun-linux-x64 --outfile=dist/caipe-linux-x64 --external keytar",
     "compile:all": "npm run compile:darwin-arm64 && npm run compile:darwin-x64 && npm run compile:linux-arm64 && npm run compile:linux-x64",
-    "compile": "bun build src/index.ts --compile --target=bun-darwin-arm64 --outfile=dist/caipe && codesign --remove-signature dist/caipe && codesign --sign - --force --entitlements entitlements.plist dist/caipe",
+    "compile": "bun build src/index.ts --compile --target=bun-darwin-arm64 --outfile=dist/caipe --external keytar && codesign --remove-signature dist/caipe && codesign --sign - --force --entitlements entitlements.plist dist/caipe",
     "dev": "tsx src/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -31,7 +40,8 @@
     "marked-terminal": "7.3.0",
     "react": "18.3.1",
     "react-devtools-core": "file:./src/stubs/react-devtools-core",
-    "semver": "7.7.4"
+    "semver": "7.7.4",
+    "tsx": "4.21.0"
   },
   "devDependencies": {
     "@biomejs/biome": "1.9.4",
@@ -40,11 +50,14 @@
     "@types/react": "18.3.28",
     "@types/semver": "7.7.1",
     "esbuild": "0.24.2",
-    "tsx": "4.21.0",
     "typescript": "5.9.3",
     "vitest": "2.1.9"
   },
   "optionalDependencies": {
+    "caipe-darwin-arm64": "0.1.0",
+    "caipe-darwin-x64": "0.1.0",
+    "caipe-linux-arm64": "0.1.0",
+    "caipe-linux-x64": "0.1.0",
     "keytar": "7.9.0"
   },
   "engines": {
@@ -59,7 +72,7 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/cnoe-io/ai-platform-engineering"
+    "url": "https://github.com/cnoe-io/agent-chat-cli"
   },
   "trustedDependencies": [
     "@biomejs/biome"

@@ -6,7 +6,7 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { agentsCachePath, authEndpoints, globalConfigDir } from "../platform/config.js";
+import { agentsCachePath, authEndpoints, getDefaultAgentPreference, globalConfigDir } from "../platform/config.js";
 import type { Agent } from "./types.js";
 
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
@@ -88,6 +88,55 @@ export function getAgent(agents: Agent[], name: string): Agent | null {
     agents.find((a) => a.displayName.toLowerCase() === lower) ??
     null
   );
+}
+
+/** Sentinel CLI flag value — not a server agent id. */
+export function isAutoAgentName(name: string | undefined): boolean {
+  if (!name || name.trim() === "") return true;
+  return name.trim().toLowerCase() === "default";
+}
+
+/**
+ * Resolve which dynamic agent to use for chat.
+ *
+ * - Explicit id/name → must exist in accessible-agents
+ * - `default` / omitted → first available agent (then any agent)
+ */
+export async function resolveSessionAgent(
+  serverUrl: string,
+  getToken: () => Promise<string>,
+  requestedName?: string,
+): Promise<Agent> {
+  const agents = await fetchAgents(serverUrl, getToken);
+  if (agents.length === 0) {
+    throw new Error(
+      "No agents returned for your account. Ask an admin to grant agent#use on a dynamic agent, then run `caipe agents list`.",
+    );
+  }
+
+  if (!isAutoAgentName(requestedName)) {
+    const found = getAgent(agents, requestedName!.trim());
+    if (found) return found;
+    const ids = agents.map((a) => a.name).join(", ");
+    throw new Error(
+      `Agent "${requestedName}" not found. Run \`caipe agents list\`. Accessible ids: ${ids}`,
+    );
+  }
+
+  const preferred = getDefaultAgentPreference();
+  if (preferred) {
+    const configured = getAgent(agents, preferred);
+    if (configured) return configured;
+    process.stderr.write(
+      `[WARN] chat.default-agent "${preferred}" is not accessible; picking first available agent.\n`,
+    );
+  }
+
+  const pick = agents.find((a) => a.available) ?? agents[0];
+  process.stderr.write(
+    `[INFO] Using agent "${pick.name}" (${pick.displayName}). Pass --agent <id> to choose another.\n`,
+  );
+  return pick;
 }
 
 /**

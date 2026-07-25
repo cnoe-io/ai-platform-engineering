@@ -5,7 +5,7 @@
 import { render } from "ink";
 import React from "react";
 import { getValidToken } from "../auth/tokens.js";
-import { getAuthUrl } from "../platform/config.js";
+import { getServerUrl } from "../platform/config.js";
 import { AgentList } from "./List.js";
 import { fetchAgents, getAgent } from "./registry.js";
 
@@ -18,8 +18,8 @@ export async function runAgentsList(
   opts: { json?: boolean },
   globalOpts: GlobalOpts,
 ): Promise<void> {
-  const authUrl = getAuthUrl(globalOpts.url);
-  const agents = await fetchAgents(authUrl, () => getValidToken(authUrl));
+  const serverUrl = getServerUrl(globalOpts.url);
+  const agents = await fetchAgents(serverUrl, () => getValidToken(serverUrl));
 
   const useJson = opts.json ?? globalOpts.json;
 
@@ -54,8 +54,8 @@ export async function runAgentsList(
 }
 
 export async function runAgentsInfo(name: string, globalOpts: GlobalOpts): Promise<void> {
-  const authUrl = getAuthUrl(globalOpts.url);
-  const agents = await fetchAgents(authUrl, () => getValidToken(authUrl));
+  const serverUrl = getServerUrl(globalOpts.url);
+  const agents = await fetchAgents(serverUrl, () => getValidToken(serverUrl));
   const agent = getAgent(agents, name);
 
   if (!agent) {

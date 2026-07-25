@@ -7,8 +7,6 @@
  * Receives AG-UI SSE events and maps them to common StreamEvents consumed
  * by the REPL and headless runner.
  */
-// assisted-by claude code claude-sonnet-4-6
-
 import type { Agent } from "../agents/types.js";
 
 // ---------------------------------------------------------------------------
@@ -90,6 +88,25 @@ export interface StreamAdapter {
   connect(payload: SendPayload): AsyncIterable<StreamEvent>;
 }
 
+function conversationCreateError(status: number, bodyText: string, agentId: string): Error {
+  try {
+    const body = JSON.parse(bodyText) as { code?: string; error?: string; reason?: string };
+    if (status === 403 && body.code === "agent#use") {
+      return new Error(
+        `Permission denied for agent "${agentId}" (OpenFGA agent#use). ` +
+          "Run `caipe agents list` and use `caipe chat --agent <id>` for an agent you can access, " +
+          "or ask an admin to grant use on this agent.",
+      );
+    }
+    if (body.error) {
+      return new Error(`Failed to create conversation (${status}): ${body.error}`);
+    }
+  } catch {
+    /* fall through */
+  }
+  return new Error(`Failed to create conversation (${status}): ${bodyText}`);
+}
+
 // ---------------------------------------------------------------------------
 // AG-UI adapter — direct fetch to /api/v1/chat/stream/start
 // ---------------------------------------------------------------------------
@@ -130,21 +147,46 @@ export class AguiAdapter implements StreamAdapter {
     const url = `${base}/api/chat/conversations`;
 
     try {
-      const res = await fetch(url, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
+      // Prefer `cli` when the BFF supports it. Fall back to `slack` on older deploys.
+      const clientTypes = ["cli", "slack"] as const;
+      let res: Response | undefined;
+      let lastError = "";
+
+      for (const clientType of clientTypes) {
+        const body: Record<string, unknown> = {
           title: "CLI session",
-          client_type: "cli",
+          client_type: clientType,
           agent_id: agentId,
-        }),
-      });
-      if (!res.ok) {
+        };
+        if (clientType === "cli") {
+          body.metadata = { source: "caipe-cli" };
+        } else if (clientType === "slack") {
+          body.metadata = { source: "caipe-cli", bridged_as: "slack" };
+        }
+
+        res = await fetch(url, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(body),
+        });
+        if (res.ok) break;
+
         const text = await res.text().catch(() => "");
-        throw new Error(`Failed to create conversation (${res.status}): ${text}`);
+        lastError = text;
+        const unsupportedCli =
+          clientType === "cli" &&
+          res.status === 400 &&
+          text.includes("Invalid client_type") &&
+          text.includes("cli");
+        if (unsupportedCli) continue;
+        throw conversationCreateError(res.status, text, agentId);
+      }
+
+      if (!res?.ok) {
+        throw conversationCreateError(res?.status ?? 0, lastError, agentId);
       }
       const json = (await res.json()) as { data?: { conversation?: { _id?: string } } };
       const serverId = json?.data?.conversation?._id;
@@ -160,7 +202,7 @@ export class AguiAdapter implements StreamAdapter {
 
   async *connect(payload: SendPayload): AsyncIterable<StreamEvent> {
     const token = await this.getAccessToken();
-    const agentId = this.agent.name === "default" ? payload.agentName : this.agent.name;
+    const agentId = this.agent.name;
 
     let conversationId: string;
     try {

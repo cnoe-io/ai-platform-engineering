@@ -8,6 +8,7 @@ import { ServerNotConfigured, getAuthUrl, readSettings } from "../platform/confi
 import { runSetupWizard } from "../platform/setup.js";
 import { clearTokens, loadTokens } from "./keychain.js";
 import { loginBrowser, loginDevice, loginManual } from "./oauth.js";
+import { displayIdentity, enrichTokenSet, isAuthenticatedSession } from "./session.js";
 import { isExpired } from "./tokens.js";
 
 // The CAIPE server's OAuth client_id is well-known (public PKCE client).
@@ -44,10 +45,11 @@ export async function runLogin(
     }
   }
 
-  // Idempotency: already authenticated?
-  const existing = await loadTokens();
-  if (existing && !isExpired(existing) && !opts.force) {
-    const who = existing.displayName || existing.identity || "(unknown)";
+  // Idempotency: already authenticated with a complete session?
+  const existingRaw = await loadTokens();
+  const existing = existingRaw ? enrichTokenSet(existingRaw) : null;
+  if (existing && isAuthenticatedSession(existing, isExpired) && !opts.force) {
+    const who = displayIdentity(existing);
     if (globalOpts.json) {
       process.stdout.write(
         `${JSON.stringify({
@@ -75,8 +77,9 @@ export async function runLogin(
     await loginBrowser(authUrl, clientId);
   }
 
-  const tokens = await loadTokens();
-  const who = tokens?.displayName || tokens?.identity || "(authenticated)";
+  const tokensRaw = await loadTokens();
+  const tokens = tokensRaw ? enrichTokenSet(tokensRaw) : null;
+  const who = tokens ? displayIdentity(tokens) : "(authenticated)";
   if (globalOpts.json) {
     process.stdout.write(
       `${JSON.stringify({
@@ -117,9 +120,9 @@ export async function runLogout(): Promise<void> {
 
 export async function runStatus(opts: { json?: boolean }, globalOpts: GlobalOpts): Promise<void> {
   const useJson = opts.json ?? globalOpts.json;
-  const tokens = await loadTokens();
+  const tokensRaw = await loadTokens();
 
-  if (!tokens) {
+  if (!tokensRaw) {
     if (useJson) {
       process.stdout.write(`${JSON.stringify({ authenticated: false })}\n`);
     } else {
@@ -128,22 +131,29 @@ export async function runStatus(opts: { json?: boolean }, globalOpts: GlobalOpts
     return;
   }
 
+  const tokens = enrichTokenSet(tokensRaw);
   const expired = isExpired(tokens);
+  const incomplete = !isAuthenticatedSession(tokens, isExpired);
   const expiresAt = tokens.accessTokenExpiry ?? null;
-  const who = tokens.displayName || tokens.identity || "(unknown)";
+  const who = displayIdentity(tokens);
 
   if (useJson) {
     process.stdout.write(
       `${JSON.stringify({
-        authenticated: !expired,
+        authenticated: !expired && !incomplete,
         identity: tokens.identity,
         displayName: tokens.displayName,
         expiresAt,
+        incompleteSession: incomplete && !expired,
       })}\n`,
     );
   } else {
     if (expired) {
       process.stdout.write(`Session expired (${who}). Run \`caipe auth login\` to refresh.\n`);
+    } else if (incomplete) {
+      process.stdout.write(
+        "Stored credentials are incomplete (unknown user). Run `caipe auth login` to sign in again.\n",
+      );
     } else {
       process.stdout.write(`Authenticated as ${who}`);
       if (expiresAt) {

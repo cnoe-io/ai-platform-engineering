@@ -28,10 +28,14 @@ import {
 import { StreamingSpinner } from "../platform/display.js";
 import { renderMarkdown } from "../platform/markdown.js";
 import { fetchSupervisorSkills } from "../skills/catalog.js";
+import { expandPromptAttachments } from "./attachments.js";
+import { compactHistoryViaAgent } from "./compact.js";
 import type { ChatSession } from "./history.js";
+import { listSessions } from "./history.js";
 import { parseInput, pipeThrough, runShellCommand } from "./pipes.js";
 import { createAdapter } from "./stream.js";
 import type { StreamAdapter } from "./stream.js";
+import { formatToolNotice, getToolApprovalMode } from "./toolPolicy.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -40,6 +44,7 @@ import type { StreamAdapter } from "./stream.js";
 interface ReplProps {
   session: ChatSession;
   adapter: StreamAdapter;
+  initialAgent: Agent;
   systemContext: string;
   serverUrl?: string;
   onExit: (session: ChatSession) => void;
@@ -75,6 +80,8 @@ interface SlashCommand {
 const SLASH_COMMANDS: SlashCommand[] = [
   { name: "/clear", description: "Clear conversation context" },
   { name: "/compact", description: "Summarize and compress history" },
+  { name: "/delegate", description: "Send one message via another agent" },
+  { name: "/sessions", description: "List saved chat sessions" },
   { name: "/login", description: "Re-authenticate (opens browser)" },
   { name: "/settings", description: "View or edit CLI configuration" },
   { name: "/exit", description: "End session and save history" },
@@ -455,6 +462,7 @@ function matchGreeting(input: string): string | null {
 export function Repl({
   session,
   adapter,
+  initialAgent,
   systemContext,
   serverUrl,
   onExit,
@@ -476,7 +484,7 @@ export function Repl({
 
   // ── Active adapter + agent — swappable via /agents ──
   const adapterRef = useRef<StreamAdapter>(adapter);
-  const [currentAgent, setCurrentAgent] = useState<Agent>(DEFAULT_AGENT);
+  const [currentAgent, setCurrentAgent] = useState<Agent>(initialAgent);
 
   // ── Input history: previous user inputs for Up/Down navigation ──
   const [inputHistory, setInputHistory] = useState<string[]>([]);
@@ -534,10 +542,38 @@ export function Repl({
 
   const pushToolItem = useCallback(
     (name: string) => {
-      pushStatic({ kind: "tool", name });
+      const notice = formatToolNotice(name, getToolApprovalMode());
+      pushStatic({ kind: "tool", name: renderMarkdown(notice) });
     },
     [pushStatic],
   );
+
+  // Hydrate REPL from a resumed session file
+  useEffect(() => {
+    if (session.messages.length === 0) return;
+    historyRef.current = session.messages.map((m) => ({
+      role: m.role,
+      content: m.content,
+    }));
+    tokenCountRef.current = session.messages.reduce(
+      (sum, m) => sum + Math.ceil(m.content.length / 4),
+      0,
+    );
+    setTotalTokenDisplay(tokenCountRef.current);
+    staticKeyRef.current = 0;
+    const items: StaticItem[] = [];
+    for (const msg of historyRef.current) {
+      const _key = nextKey();
+      if (msg.role === "user") {
+        items.push({ _key, kind: "user", text: msg.content });
+      } else {
+        items.push({ _key, kind: "assistant", text: renderMarkdown(msg.content) });
+      }
+    }
+    setStaticItems(items);
+    setGeneration((g) => g + 1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per session id
+  }, [session.sessionId]);
 
   // ── Flush buffered streaming tokens directly to Static ──
   const flushTokens = useCallback(() => {
@@ -694,13 +730,149 @@ export function Repl({
           setTimeout(() => setStatusText(null), 2000);
           break;
 
-        case "/compact":
+        case "/compact": {
           setStatusText("Compacting history…");
-          historyRef.current = historyRef.current.slice(-6);
-          tokenCountRef.current = Math.floor(tokenCountRef.current * 0.3);
-          setTotalTokenDisplay(tokenCountRef.current);
-          setTimeout(() => setStatusText(null), 1500);
+          try {
+            const summarize = async (prompt: string): Promise<string> => {
+              let out = "";
+              for await (const ev of adapterRef.current.connect({
+                prompt,
+                systemContext,
+                sessionId: session.sessionId,
+                agentName: currentAgent.name,
+                history: [],
+              })) {
+                if (ev.type === "token") out += ev.text;
+                if (ev.type === "done" && ev.response) out = ev.response;
+                if (ev.type === "error") throw new Error(ev.message);
+              }
+              return out.trim() || "(empty summary)";
+            };
+            historyRef.current = await compactHistoryViaAgent(historyRef.current, summarize);
+            tokenCountRef.current = historyRef.current.reduce(
+              (sum, m) => sum + Math.ceil(m.content.length / 4),
+              0,
+            );
+            setTotalTokenDisplay(tokenCountRef.current);
+            rebuildWithMarkdown();
+            pushAssistant("History compacted.");
+          } catch (err) {
+            pushAssistant(`[ERROR] ${err instanceof Error ? err.message : String(err)}`);
+          } finally {
+            setStatusText(null);
+          }
           break;
+        }
+
+        case "/sessions": {
+          const sessions = listSessions();
+          if (sessions.length === 0) {
+            pushAssistant("No saved sessions yet. Use /exit to persist.");
+          } else {
+            const lines = sessions
+              .slice(0, 15)
+              .map(
+                (s) =>
+                  `- \`${s.sessionId.slice(0, 8)}…\` **${s.agentName}** — ${s.messageCount} msgs (${s.startedAt})`,
+              );
+            pushAssistant(
+              `**Saved sessions** (resume with \`caipe chat --resume <id>\`)\n\n${lines.join("\n")}`,
+            );
+          }
+          break;
+        }
+
+        case "/delegate": {
+          const parts = cmd.trim().split(/\s+/);
+          const agentArg = parts[1];
+          const message = parts.slice(2).join(" ").trim();
+          if (!agentArg || !message) {
+            pushAssistant("Usage: `/delegate <agent-id> <message>`");
+            break;
+          }
+          setStatusText(`Delegating to ${agentArg}…`);
+          try {
+            let sv: string;
+            try {
+              sv = getServerUrl();
+            } catch {
+              sv = serverUrl ?? "";
+            }
+            const authUrl2 = (() => {
+              try {
+                return getAuthUrl();
+              } catch {
+                return sv;
+              }
+            })();
+            const agents = await fetchAgents(sv, () => getValidToken(authUrl2));
+            const target = agents.find((a) => a.name === agentArg);
+            if (!target) {
+              pushAssistant(`Agent **${agentArg}** not found.`);
+              break;
+            }
+            const prevAdapter = adapterRef.current;
+            const prevAgent = currentAgent;
+            const ep = authEndpoints(sv);
+            adapterRef.current = createAdapter(target, ep.streamStart, () =>
+              getValidToken(authUrl2),
+            );
+            setCurrentAgent(target);
+            pushUser(`/delegate ${agentArg} ${message}`);
+            accumulatedRef.current = "";
+            setStreaming(true);
+            pushStatic({ kind: "chunk", text: "" });
+            for await (const ev of adapterRef.current.connect({
+              prompt: message,
+              systemContext,
+              sessionId: session.sessionId,
+              agentName: target.name,
+              history: historyRef.current,
+            })) {
+              if (ev.type === "token") {
+                pendingTokensRef.current += ev.text;
+                if (!flushTimerRef.current) {
+                  flushTimerRef.current = setTimeout(() => {
+                    flushTimerRef.current = null;
+                    flushTokens();
+                  }, 150);
+                }
+              } else if (ev.type === "tool") {
+                if (flushTimerRef.current) {
+                  clearTimeout(flushTimerRef.current);
+                  flushTimerRef.current = null;
+                }
+                flushTokens();
+                pushToolItem(ev.name);
+              } else if (ev.type === "error") {
+                pushAssistant(`[ERROR] ${ev.message}`);
+                break;
+              } else if (ev.type === "done") {
+                break;
+              }
+            }
+            if (flushTimerRef.current) {
+              clearTimeout(flushTimerRef.current);
+              flushTimerRef.current = null;
+            }
+            flushTokens();
+            flushLineBuffer();
+            const finalContent = accumulatedRef.current;
+            if (finalContent) {
+              historyRef.current.push({ role: "assistant", content: finalContent });
+            }
+            rebuildWithMarkdown();
+            adapterRef.current = prevAdapter;
+            setCurrentAgent(prevAgent);
+          } catch (err) {
+            pushAssistant(`[ERROR] ${err instanceof Error ? err.message : String(err)}`);
+          } finally {
+            pendingTokensRef.current = "";
+            setStreaming(false);
+            setStatusText(null);
+          }
+          break;
+        }
 
         case "/help":
           pushAssistant(SLASH_COMMANDS.map((c) => `**${c.name}** — ${c.description}`).join("\n"));
@@ -878,7 +1050,7 @@ export function Repl({
           pushAssistant(`Unknown command: ${cmd}. Type / to see available commands.`);
       }
     },
-    [handleExit, pushAssistant, streaming, serverUrl, currentAgent],
+    [handleExit, pushAssistant, streaming, serverUrl, currentAgent, systemContext, session, rebuildWithMarkdown, pushUser, pushStatic, flushTokens, flushLineBuffer, pushToolItem],
   );
 
   // ── Submit: greeting / shell escape / pipe / agent prompt ──
@@ -920,7 +1092,9 @@ export function Repl({
       }
 
       // ── Agent prompt (with optional pipe) ──
-      const prompt = parsed.prompt;
+      const cwd = session.workingDir || process.cwd();
+      const expanded = expandPromptAttachments(cwd, parsed.prompt);
+      const prompt = expanded;
       pushUser(text);
       tokenCountRef.current += Math.ceil(prompt.length / 4);
       setTotalTokenDisplay(tokenCountRef.current);
@@ -1078,9 +1252,11 @@ export function Repl({
               );
             case "assistant":
               return (
-                <Box key={item._key} paddingX={1} marginBottom={1}>
+                <Box key={item._key} paddingX={1} marginBottom={1} flexDirection="row">
                   <Text color="blue">{"⏺ "}</Text>
-                  <Text>{item.text}</Text>
+                  <Box flexGrow={1}>
+                    <Text wrap="wrap">{item.text}</Text>
+                  </Box>
                 </Box>
               );
             case "chunk":
@@ -1094,8 +1270,7 @@ export function Repl({
             case "tool":
               return (
                 <Box key={item._key} paddingX={1} marginLeft={2}>
-                  <Text dimColor>
-                    {"✓ "}
+                  <Text dimColor wrap="wrap">
                     {item.name}
                   </Text>
                 </Box>

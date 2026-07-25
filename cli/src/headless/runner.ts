@@ -4,11 +4,8 @@
  * Resolves credentials → reads prompt → streams response → exits.
  * Supports single-shot and --interactive-stdin multi-turn modes.
  */
-// assisted-by claude code claude-sonnet-4-6
-
 import { readFileSync } from "node:fs";
-import { fetchAgents, getAgent } from "../agents/registry.js";
-import { DEFAULT_AGENT } from "../agents/types.js";
+import { resolveSessionAgent } from "../agents/registry.js";
 import { buildSystemContext } from "../chat/context.js";
 import { createSession } from "../chat/history.js";
 import { createAdapter } from "../chat/stream.js";
@@ -58,16 +55,12 @@ export async function runHeadless(opts: HeadlessOpts): Promise<void> {
 
   const getToken = async () => credentials.accessToken;
 
-  // Resolve agent from registry when a name is specified
-  let resolvedAgent = DEFAULT_AGENT;
-  if (opts.agentName && opts.agentName !== "default") {
-    try {
-      const agents = await fetchAgents(serverUrl, getToken);
-      const found = getAgent(agents, opts.agentName);
-      if (found) resolvedAgent = found;
-    } catch {
-      // registry unavailable — continue with default
-    }
+  let resolvedAgent;
+  try {
+    resolvedAgent = await resolveSessionAgent(serverUrl, getToken, opts.agentName);
+  } catch (err) {
+    emitError(err instanceof Error ? err.message : String(err));
+    process.exit(3);
   }
 
   const ep = authEndpoints(serverUrl);

@@ -10,8 +10,6 @@
  *
  * Total context is capped at 100k tokens (~400k chars).
  */
-// assisted-by claude code claude-sonnet-4-6
-
 import { buildMemoryContext, loadMemoryFiles } from "../memory/loader.js";
 import { findRepoRoot, recentLog, sampleFileTree } from "../platform/git.js";
 

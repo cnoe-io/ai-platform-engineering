@@ -8,32 +8,44 @@
 
 import chalk from "chalk";
 import { marked } from "marked";
+import { getPlainMarkdown } from "./config.js";
 // @ts-ignore: marked-terminal has no typings
 import TerminalRenderer from "marked-terminal";
 
 const NO_COLOR = Boolean(process.env.NO_COLOR);
 
+function terminalWidth(): number {
+  const cols = process.stdout.columns ?? 80;
+  // Ink/yoga layout breaks on full-width tables and HR lines; cap for readability.
+  return Math.max(60, Math.min(cols, 100));
+}
+
 let _initialized = false;
+let _cachedWidth = 0;
 
 function ensureInit(): void {
-  if (_initialized) return;
+  const width = terminalWidth();
+  if (_initialized && _cachedWidth === width) return;
+  _cachedWidth = width;
 
   const rendererOpts: Record<string, unknown> = NO_COLOR
-    ? { enabled: false, width: process.stdout.columns ?? 80 }
+    ? { enabled: false, width }
     : {
         firstHeading: chalk.bold.cyan,
         heading: chalk.bold.white,
         strong: chalk.bold,
         em: chalk.italic,
-        codespan: chalk.bgGray.white,
+        // No background on inline code — bgGray renders as tall blocks in Ink.
+        codespan: chalk.cyan,
         code: chalk.gray,
         blockquote: chalk.dim.italic,
         link: chalk.cyan.underline,
         href: chalk.cyan.underline,
+        hr: () => chalk.dim(`\n${"─".repeat(Math.min(48, width - 4))}\n`),
         showSectionPrefix: false,
         reflowText: true,
         tab: 2,
-        width: process.stdout.columns ?? 80,
+        width,
         tableOptions: {
           chars: {
             top: "─",
@@ -70,6 +82,7 @@ function ensureInit(): void {
  * Returns plain text (no escape codes) when NO_COLOR is set.
  */
 export function renderMarkdown(text: string): string {
+  if (getPlainMarkdown()) return text;
   ensureInit();
   try {
     const result = marked(text);

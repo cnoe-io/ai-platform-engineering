@@ -20,7 +20,10 @@ type SupportedKey =
   | "server.url"
   | "auth.apiKey"
   | "auth.credential-storage"
-  | "auth.idp-hint";
+  | "auth.idp-hint"
+  | "chat.plain-markdown"
+  | "chat.default-agent"
+  | "chat.tool-approval";
 
 const SUPPORTED_KEYS: SupportedKey[] = [
   "auth.url",
@@ -28,9 +31,13 @@ const SUPPORTED_KEYS: SupportedKey[] = [
   "auth.apiKey",
   "auth.credential-storage",
   "auth.idp-hint",
+  "chat.plain-markdown",
+  "chat.default-agent",
+  "chat.tool-approval",
 ];
 
 const CREDENTIAL_STORAGE_VALUES = ["encrypted-file", "keychain"] as const;
+const TOOL_APPROVAL_VALUES = ["auto", "prompt", "deny"] as const;
 
 function assertSupportedKey(key: string): asserts key is SupportedKey {
   if (!SUPPORTED_KEYS.includes(key as SupportedKey)) {
@@ -62,10 +69,13 @@ export async function runConfigSet(key: string, value: string): Promise<void> {
     const v = normalizeConfigUrl(value, "server.url");
     const settings = readSettings();
     settings.server = { ...settings.server, url: v };
+    // Single-URL Grid/caipe-ui setups: OAuth and BFF share the same host.
+    settings.auth = { ...settings.auth, url: v };
     writeSettings(settings);
     // Invalidate cached discovery doc — new server may have different endpoints
     clearAgentConfigCache();
     process.stdout.write(`Set server.url = ${v}\n`);
+    process.stdout.write(`Set auth.url = ${v}\n`);
     return;
   }
 
@@ -97,6 +107,42 @@ export async function runConfigSet(key: string, value: string): Promise<void> {
     settings.auth = { ...settings.auth, idpHint: value.trim() };
     writeSettings(settings);
     process.stdout.write(`Set auth.idp-hint = ${value.trim()}\n`);
+    return;
+  }
+
+  if (key === "chat.plain-markdown") {
+    const v = value.trim().toLowerCase();
+    if (!["true", "false", "1", "0"].includes(v)) {
+      process.stderr.write("[ERROR] chat.plain-markdown must be true or false.\n");
+      process.exit(3);
+    }
+    const settings = readSettings();
+    settings.chat = { ...settings.chat, plainMarkdown: v === "true" || v === "1" };
+    writeSettings(settings);
+    process.stdout.write(`Set chat.plain-markdown = ${settings.chat.plainMarkdown}\n`);
+    return;
+  }
+
+  if (key === "chat.default-agent") {
+    const settings = readSettings();
+    settings.chat = { ...settings.chat, defaultAgent: value.trim() };
+    writeSettings(settings);
+    process.stdout.write(`Set chat.default-agent = ${value.trim()}\n`);
+    return;
+  }
+
+  if (key === "chat.tool-approval") {
+    const v = value.trim() as (typeof TOOL_APPROVAL_VALUES)[number];
+    if (!TOOL_APPROVAL_VALUES.includes(v)) {
+      process.stderr.write(
+        `[ERROR] chat.tool-approval must be one of: ${TOOL_APPROVAL_VALUES.join(", ")}\n`,
+      );
+      process.exit(3);
+    }
+    const settings = readSettings();
+    settings.chat = { ...settings.chat, toolApproval: v };
+    writeSettings(settings);
+    process.stdout.write(`Set chat.tool-approval = ${v}\n`);
     return;
   }
 }
@@ -141,6 +187,35 @@ export async function runConfigGet(key: string, opts: { json?: boolean }): Promi
     } else {
       value = settings.auth?.idpHint;
     }
+  } else if (key === "chat.plain-markdown") {
+    if (process.env.CAIPE_PLAIN_MARKDOWN === "1") {
+      value = "true";
+      source = "CAIPE_PLAIN_MARKDOWN env var";
+    } else {
+      value =
+        settings.chat?.plainMarkdown === true
+          ? "true"
+          : settings.chat?.plainMarkdown === false
+            ? "false"
+            : undefined;
+    }
+  } else if (key === "chat.default-agent") {
+    const envVal = process.env.CAIPE_DEFAULT_AGENT;
+    if (envVal) {
+      value = envVal;
+      source = "CAIPE_DEFAULT_AGENT env var";
+    } else {
+      value = settings.chat?.defaultAgent;
+    }
+  } else if (key === "chat.tool-approval") {
+    const envVal = process.env.CAIPE_TOOL_APPROVAL;
+    if (envVal) {
+      value = envVal;
+      source = "CAIPE_TOOL_APPROVAL env var";
+    } else {
+      value = settings.chat?.toolApproval ?? "prompt";
+      source = settings.chat?.toolApproval ? "settings.json" : "default";
+    }
   }
 
   if (opts.json) {
@@ -184,6 +259,12 @@ export async function runConfigUnset(key: string): Promise<void> {
     settings.auth.credentialStorage = undefined;
   } else if (key === "auth.idp-hint" && settings.auth) {
     settings.auth.idpHint = undefined;
+  } else if (key === "chat.plain-markdown" && settings.chat) {
+    settings.chat.plainMarkdown = undefined;
+  } else if (key === "chat.default-agent" && settings.chat) {
+    settings.chat.defaultAgent = undefined;
+  } else if (key === "chat.tool-approval" && settings.chat) {
+    settings.chat.toolApproval = undefined;
   }
 
   writeSettings(settings);

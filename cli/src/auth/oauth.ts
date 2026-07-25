@@ -15,6 +15,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { type IncomingMessage, type ServerResponse, createServer } from "node:http";
 import { promisify } from "node:util";
 import { getIdpHint } from "../platform/config.js";
+import { claimsFromOAuthTokenResponse } from "./session.js";
 import { discoverAgentConfig, resolveOAuthEndpoints } from "../platform/discovery.js";
 import { type TokenSet, storeTokens } from "./keychain.js";
 
@@ -459,25 +460,15 @@ function parseTokenResponse(body: Record<string, unknown>): TokenSet {
   const refreshToken = body.refresh_token != null ? String(body.refresh_token) : undefined;
   const expiresIn = typeof body.expires_in === "number" ? body.expires_in : 3600;
   const accessTokenExpiry = new Date(Date.now() + expiresIn * 1000).toISOString();
+  const claims = claimsFromOAuthTokenResponse(body);
 
-  // Optional OIDC claims
-  const idToken = body.id_token;
-  let identity: string | undefined;
-  let displayName: string | undefined;
-  if (typeof idToken === "string") {
-    try {
-      // Decode JWT payload (base64url, no verification — server already validated)
-      const payload = JSON.parse(
-        Buffer.from(idToken.split(".")[1] ?? "", "base64url").toString(),
-      ) as Record<string, unknown>;
-      identity = String(payload.sub ?? payload.email ?? "");
-      displayName = String(payload.name ?? payload.preferred_username ?? "");
-    } catch {
-      // ignore
-    }
-  }
-
-  return { accessToken, refreshToken, accessTokenExpiry, identity, displayName };
+  return {
+    accessToken,
+    refreshToken,
+    accessTokenExpiry,
+    identity: claims.identity,
+    displayName: claims.displayName,
+  };
 }
 
 async function readLine(): Promise<string> {

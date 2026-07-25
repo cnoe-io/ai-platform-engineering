@@ -30,7 +30,7 @@ Analysis of terminal CLI design patterns in the Node.js/TypeScript/Bun ecosystem
 **Decision**: Use **Ink v5** (React for CLIs) as the TUI framework. React components render to terminal via Ink's yoga-flex layout engine.
 
 **Rationale**:
-- Confirmed production-grade at massive scale (Claude Code's ~512k line codebase runs on Ink)
+- Confirmed production-grade at massive scale (Ink powers several large terminal agent products)
 - Supports streaming, stateful UI, keyboard navigation, lists, dialogs, spinners natively
 - Skills Hub browse/preview/install maps directly to React component state machines
 - All team members with UI experience can contribute (same React mental model as the `ui/` package)
@@ -77,7 +77,7 @@ Analysis of terminal CLI design patterns in the Node.js/TypeScript/Bun ecosystem
 - Browsable offline using last-cached manifest
 - Skills contributed via PR to `outshift/skills` — same workflow the team already uses
 - GitHub releases provide per-version permalinks and checksums for provenance verification
-- Consistent with how Claude Code's plugin marketplace degrades gracefully when unreachable
+- Consistent with how optional catalog integrations degrade gracefully when unreachable
 
 **Manifest format** (`catalog.json`):
 ```json
@@ -133,7 +133,7 @@ Analysis of terminal CLI design patterns in the Node.js/TypeScript/Bun ecosystem
 
 All directories are scanned for `*.md` files with valid YAML frontmatter containing at minimum `name` and `description`.
 
-**Rationale**: Mirrors how Claude Code scans for skills/commands from project and global config directories, enabling per-project and shared global skills.
+**Rationale**: Aligns with common `.claude/` and `skills/` discovery layouts used by multiple coding agents, enabling per-project and shared global skills.
 
 ---
 
@@ -144,7 +144,7 @@ All directories are scanned for `*.md` files with valid YAML frontmatter contain
 - Project: `.claude/CLAUDE.md` — project-specific context (gitignored by default)
 - Managed: `.claude/memory/` — agent-written memories from `/remember` skill
 
-Memory files are opened in `$EDITOR`/`$VISUAL` via `caipe memory` command, identical to Claude Code's pattern.
+Memory files are opened in `$EDITOR`/`$VISUAL` via `caipe memory`, matching the usual project-memory file workflow.
 
 **Rationale**: Files are human-readable, diffable, and versionable. No database needed for v1.
 
@@ -381,8 +381,8 @@ CLI                          CAIPE server
 | Language | TypeScript 5.x | Team familiarity, Anthropic SDK available |
 | Runtime/Bundler | Bun 1.x | Single binary compile, fast startup, no Node prereq |
 | Distribution | npm + platform binaries via optionalDependencies | `npx caipe` works out of the box |
-| Terminal UI | React 19 + Ink 5 | Production-proven at Claude Code scale |
-| CLI parsing | Commander.js | Mature, used by Claude Code |
+| Terminal UI | React 19 + Ink 5 | Mature React-in-terminal stack for streaming chat |
+| CLI parsing | Commander.js | Widely used Node CLI framework |
 | Auth | OAuth 2.0 PKCE + keytar | Secure, browser-based, OS keychain storage |
 | Catalog | GitHub Releases JSON manifest | No infra, offline-capable, PR-contributed |
 | Markdown render | `marked-terminal` | Terminal ANSI output from GitHub-flavored MD |

@@ -9,6 +9,7 @@
  */
 
 import { authEndpoints } from "../platform/config.js";
+import { claimsFromOAuthTokenResponse, enrichTokenSet } from "./session.js";
 import { type TokenSet, loadTokens, storeTokens } from "./keychain.js";
 
 /** Thrown when no valid token can be produced and interactive re-auth is needed. */
@@ -31,8 +32,9 @@ const REFRESH_MARGIN_MS = 60_000;
  *   3. No tokens / refresh failed → throw AuthRequired
  */
 export async function getValidToken(authUrl: string): Promise<string> {
-  const tokens = await loadTokens();
-  if (!tokens) throw new AuthRequired();
+  const raw = await loadTokens();
+  if (!raw) throw new AuthRequired();
+  const tokens = enrichTokenSet(raw);
 
   if (!isExpired(tokens)) {
     return tokens.accessToken;
@@ -73,22 +75,26 @@ export async function refreshAccessToken(refreshToken: string, authUrl: string):
   const newRefreshToken = body.refresh_token != null ? String(body.refresh_token) : refreshToken;
   const expiresIn = typeof body.expires_in === "number" ? body.expires_in : 3600;
   const accessTokenExpiry = new Date(Date.now() + expiresIn * 1000).toISOString();
+  const claims = claimsFromOAuthTokenResponse(body);
 
-  return {
+  return enrichTokenSet({
     accessToken,
     refreshToken: newRefreshToken,
     accessTokenExpiry,
-  };
+    identity: claims.identity,
+    displayName: claims.displayName,
+  });
 }
 
 /**
  * Returns true when `tokens` has no valid, unexpired access token.
  */
 export function isExpired(tokens: TokenSet): boolean {
-  if (!tokens.accessToken) return true;
-  if (!tokens.accessTokenExpiry) return false; // no expiry info — assume valid
+  const t = enrichTokenSet(tokens);
+  if (!t.accessToken) return true;
+  if (!t.accessTokenExpiry) return false; // opaque token — assume valid until API rejects
 
-  const expiry = Date.parse(tokens.accessTokenExpiry);
+  const expiry = Date.parse(t.accessTokenExpiry);
   if (Number.isNaN(expiry)) return false;
 
   return Date.now() >= expiry - REFRESH_MARGIN_MS;

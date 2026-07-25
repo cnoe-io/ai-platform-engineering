@@ -38,7 +38,7 @@ Developer terminal (CAIPE CLI)          CAIPE server (remote, user-configured)
 
 **Dual-protocol design**: A2A is the v1 default — it is widely supported across today's CAIPE agents and gives direct access to the A2A task lifecycle (submit → stream → complete). AG-UI is available via `--protocol agui` for agents that have migrated to the newer interface. Both protocols deliver token-by-token streaming to the terminal; the session UX is identical regardless of protocol chosen. The active protocol is shown in the session status header.
 
-**Relationship to Claude Code**: CAIPE CLI intentionally mirrors Claude Code's terminal UX patterns — React + Ink TUI, CLAUDE.md memory hierarchy, skills installed to `.claude/`, session history, git context at session start. The key difference is the backend: Claude Code calls the Anthropic API directly with one model; CAIPE routes through the CAIPE server's supervisor which dynamically delegates to specialised domain agents. In its full agentic form (v3), the execution model is identical to Claude Code — the CLI is the tool executor, the server supervisor is the decision-maker.
+**Terminal UX conventions**: CAIPE CLI follows familiar terminal agent patterns — React + Ink TUI, project memory via `CLAUDE.md` under `.claude/`, skills in `.claude/` or `skills/`, session history, and git context at session start. The key difference is the backend: a local-only CLI typically calls one vendor API directly; CAIPE routes through the CAIPE server supervisor, which delegates to specialised domain agents. In the full agentic form (v3), the CLI is the **local tool executor** and the grid supervisor is the **decision-maker**.
 
 ---
 
@@ -261,7 +261,7 @@ In v1, selecting an agent pins the entire session. In v2, the CLI delegates rout
 
 ### v3 — Full Agentic Coding Assistant (Tool Execution)
 
-In v3, CAIPE CLI becomes a general-purpose agentic coding assistant backed by the grid supervisor. The execution model mirrors Claude Code — the CLI is the **local tool executor**, the grid supervisor is the **decision-maker**.
+In v3, CAIPE CLI becomes a general-purpose agentic coding assistant backed by the grid supervisor. The CLI is the **local tool executor**; the grid supervisor is the **decision-maker**.
 
 **New capability**: The CLI handles `TOOL_CALL_START/END` AG-UI events and executes tools locally:
 
@@ -277,10 +277,10 @@ In v3, CAIPE CLI becomes a general-purpose agentic coding assistant backed by th
 
 **What this unlocks**: The grid supervisor can autonomously read repo files, propose edits, run tests, and iterate — entirely from the terminal — without any local model. Platform-engineering workflows like "fix this failing ArgoCD sync", "update this Helm chart", or "triage this CVE and open a PR" become single-prompt operations.
 
-### Comparison to Claude Code at v3
+### Comparison: local API client vs CAIPE CLI (v3)
 
-| | Claude Code | CAIPE CLI (v3) |
-|--|-------------|----------------|
+| | Typical local API client CLI | CAIPE CLI (v3) |
+|--|-----------------------------|----------------|
 | LLM decision-maker | Anthropic Claude (API) | Grid supervisor |
 | Tool executor | CLI (local) | CLI (local) — identical |
 | Agent specialisation | One model | Domain sub-agents |

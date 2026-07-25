@@ -18,7 +18,11 @@ program
   .name("caipe")
   .description("Custom Agents, workflows and more... caipe.io")
   .version(pkg.version, "-v, --version", "Print version and exit")
-  .option("--agent <name>", "CAIPE server agent to use for this session", "default")
+  .option(
+    "--agent <name>",
+    "Dynamic agent id from `caipe agents list` (default: first agent you can use)",
+    "default",
+  )
   .option("--url <url>", "Override server.url from settings.json for this invocation only")
   .option("--no-color", "Disable ANSI color output")
   .option("--json", "Machine-readable JSON output (non-interactive commands only)");
@@ -206,6 +210,100 @@ program
   .action(async (opts: Record<string, unknown>) => {
     const { runCommit } = await import("./commit/commands.js");
     await runCommit(opts);
+  });
+
+// ---------------------------------------------------------------------------
+// caipe init
+// ---------------------------------------------------------------------------
+program
+  .command("init")
+  .description("Create project or global CLAUDE.md memory template")
+  .option("--global", "Initialize ~/.config/caipe/CLAUDE.md")
+  .action(async (opts: Record<string, unknown>) => {
+    const { runInit } = await import("./init/commands.js");
+    await runInit(opts as { global?: boolean });
+  });
+
+// ---------------------------------------------------------------------------
+// caipe doctor
+// ---------------------------------------------------------------------------
+program
+  .command("doctor")
+  .description("Check auth, BFF health, and agent access")
+  .option("--json", "Output JSON")
+  .action(async (opts: Record<string, unknown>) => {
+    const { runDoctor } = await import("./doctor/commands.js");
+    await runDoctor(opts, program.opts());
+  });
+
+// ---------------------------------------------------------------------------
+// caipe sessions
+// ---------------------------------------------------------------------------
+const sessionsCmd = program.command("sessions").description("List or resume saved chat sessions");
+
+sessionsCmd
+  .command("list")
+  .description("List saved session files")
+  .option("--json", "Output JSON")
+  .action(async (opts: Record<string, unknown>) => {
+    const { runSessionsList } = await import("./sessions/commands.js");
+    await runSessionsList(opts as { json?: boolean });
+  });
+
+sessionsCmd
+  .command("resume <sessionId>")
+  .description("Resume an interactive chat by session id")
+  .action(async (sessionId: string) => {
+    const { runSessionsResume } = await import("./sessions/commands.js");
+    await runSessionsResume(sessionId, program.opts());
+  });
+
+// ---------------------------------------------------------------------------
+// caipe mcp
+// ---------------------------------------------------------------------------
+const mcpCmd = program
+  .command("mcp")
+  .description("OAuth MCP connector helpers (via CAIPE credentials API)");
+
+mcpCmd
+  .command("list")
+  .description("List OAuth connectors you can connect")
+  .option("--json", "Output JSON")
+  .action(async (opts: Record<string, unknown>) => {
+    const { runMcpList } = await import("./mcp/commands.js");
+    await runMcpList(opts as { json?: boolean }, program.opts());
+  });
+
+mcpCmd
+  .command("connect <provider>")
+  .description("Open browser to connect an OAuth provider (e.g. github)")
+  .action(async (provider: string) => {
+    const { runMcpConnect } = await import("./mcp/commands.js");
+    await runMcpConnect(provider, program.opts());
+  });
+
+// ---------------------------------------------------------------------------
+// caipe diff
+// ---------------------------------------------------------------------------
+program
+  .command("diff")
+  .description("Show git diff summary for the current repository")
+  .option("--no-stat", "Show full patch instead of --stat")
+  .action(async (opts: Record<string, unknown>) => {
+    const { runDiff } = await import("./diff/commands.js");
+    await runDiff({ stat: opts.stat !== false });
+  });
+
+// ---------------------------------------------------------------------------
+// caipe local
+// ---------------------------------------------------------------------------
+program
+  .command("local")
+  .description("Chat with a local Anthropic/LiteLLM model and read/write/bash tools")
+  .option("--prompt <text>", "Single-turn prompt (non-interactive)")
+  .action(async (opts: Record<string, unknown>) => {
+    const { runLocal } = await import("./local/commands.js");
+    await runLocal(opts as { prompt?: string });
   });
 
 // ---------------------------------------------------------------------------

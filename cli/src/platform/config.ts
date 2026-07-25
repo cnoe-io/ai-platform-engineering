@@ -40,6 +40,25 @@ export interface Settings {
     /** true once the user has completed or explicitly skipped the setup wizard */
     completed?: boolean;
   };
+  chat?: {
+    /** Skip marked-terminal rendering in the REPL */
+    plainMarkdown?: boolean;
+    /** Preferred dynamic agent id when --agent default / omitted */
+    defaultAgent?: string;
+    toolApproval?: "auto" | "prompt" | "deny";
+  };
+}
+
+export function getPlainMarkdown(): boolean {
+  if (process.env.CAIPE_PLAIN_MARKDOWN === "1") return true;
+  return readSettings().chat?.plainMarkdown === true;
+}
+
+export function getDefaultAgentPreference(): string | undefined {
+  const env = process.env.CAIPE_DEFAULT_AGENT?.trim();
+  if (env) return env;
+  const fromSettings = readSettings().chat?.defaultAgent?.trim();
+  return fromSettings || undefined;
 }
 
 export class ServerNotConfigured extends Error {
@@ -155,6 +174,7 @@ export function readSettings(): Settings {
       server: { ...DEFAULT_SETTINGS.server, ...saved.server },
       auth: { ...DEFAULT_SETTINGS.auth, ...saved.auth },
       setup: saved.setup,
+      chat: { ...saved.chat },
     };
   } catch {
     return { ...DEFAULT_SETTINGS };

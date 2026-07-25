@@ -4,13 +4,10 @@
  * Handles both interactive (Ink REPL) and headless (no TTY) modes.
  * All streaming uses AG-UI via /api/v1/chat/stream/start on the caipe-ui BFF.
  */
-// assisted-by claude code claude-sonnet-4-6
-
 import { render } from "ink";
 import React from "react";
 
-import { fetchAgents, getAgent } from "../agents/registry.js";
-import { DEFAULT_AGENT } from "../agents/types.js";
+import { resolveSessionAgent } from "../agents/registry.js";
 import { getValidToken } from "../auth/tokens.js";
 import {
   ServerNotConfigured,
@@ -115,41 +112,43 @@ export async function runChat(opts: ChatOpts, globalOpts: GlobalOpts): Promise<v
 
   const getToken = () => getValidToken(authUrl);
 
-  // Resolve agent — prefer explicit flag, fall back to default
-  const agentNameOpt = opts.agent ?? globalOpts.agent;
-  let resolvedAgent = DEFAULT_AGENT;
-  if (agentNameOpt) {
-    try {
-      const agents = await fetchAgents(serverUrl, getToken);
-      const found = getAgent(agents, agentNameOpt);
-      if (found) {
-        resolvedAgent = found;
-      } else {
-        process.stderr.write(
-          `[WARNING] Agent "${agentNameOpt}" not found in registry — using default.\n`,
-        );
-      }
-    } catch {
-      // registry unavailable — continue with default
+  const cwd = process.cwd();
+
+  // Create or resume session (before agent resolve so resume can pin agentName)
+  let session: ChatSession;
+  if (opts.resume) {
+    const { loadSession } = await import("./history.js");
+    const existing = loadSession(opts.resume);
+    if (!existing) {
+      process.stderr.write(`[ERROR] Session not found: ${opts.resume}\n`);
+      process.exit(3);
     }
+    session = existing;
+  } else {
+    session = createSession({ agentName: "default", workingDir: cwd });
   }
-  const agentName = resolvedAgent.name;
+
+  const agentRequest =
+    opts.agent ??
+    globalOpts.agent ??
+    (opts.resume && session.agentName ? session.agentName : undefined);
+
+  let resolvedAgent;
+  try {
+    resolvedAgent = await resolveSessionAgent(serverUrl, getToken, agentRequest);
+  } catch (err) {
+    process.stderr.write(`[ERROR] ${err instanceof Error ? err.message : String(err)}\n`);
+    process.exit(3);
+  }
+  session.agentName = resolvedAgent.name;
 
   // Gather context (inject agents + skills for richer system prompt)
-  const cwd = process.cwd();
   const systemContext = await buildSystemContext(cwd, opts.noContext ?? false, {
     serverUrl,
     getToken,
   });
 
-  // Create or resume session
-  let session: ChatSession;
-  if (opts.resume) {
-    const { loadSession, createSession: makeSession } = await import("./history.js");
-    const existing = loadSession(opts.resume);
-    session = existing ?? makeSession({ agentName, workingDir: cwd });
-  } else {
-    session = createSession({ agentName, workingDir: cwd });
+  if (!opts.resume) {
     session.memoryContext = systemContext;
   }
 
@@ -162,6 +161,7 @@ export async function runChat(opts: ChatOpts, globalOpts: GlobalOpts): Promise<v
       React.createElement(Repl, {
         session,
         adapter,
+        initialAgent: resolvedAgent,
         systemContext,
         serverUrl: serverUrl,
         onExit: (finalSession: ChatSession) => {

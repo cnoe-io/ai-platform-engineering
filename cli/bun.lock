@@ -15,6 +15,7 @@
         "react": "18.3.1",
         "react-devtools-core": "file:./src/stubs/react-devtools-core",
         "semver": "7.7.4",
+        "tsx": "4.21.0",
       },
       "devDependencies": {
         "@biomejs/biome": "1.9.4",
@@ -23,11 +24,14 @@
         "@types/react": "18.3.28",
         "@types/semver": "7.7.1",
         "esbuild": "0.24.2",
-        "tsx": "4.21.0",
         "typescript": "5.9.3",
         "vitest": "2.1.9",
       },
       "optionalDependencies": {
+        "caipe-darwin-arm64": "0.1.0",
+        "caipe-darwin-x64": "0.1.0",
+        "caipe-linux-arm64": "0.1.0",
+        "caipe-linux-x64": "0.1.0",
         "keytar": "7.9.0",
       },
     },
