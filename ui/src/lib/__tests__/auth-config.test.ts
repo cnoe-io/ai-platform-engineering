@@ -5,11 +5,28 @@
 
 // Mock the token store so tests don't require a MongoDB/ESM environment.
 // Provides a simple in-memory Map that behaves identically to the real L1 path.
-const _mockTokenStore = new Map<string, import('../auth-token-store').StoredTokens>()
+const _mockTokenStore = new Map<string, import('../auth-token-store').StoredTokenState>()
 jest.mock('../auth-token-store', () => ({
-  getStoredTokens: jest.fn(async (sub: string | undefined) => _mockTokenStore.get(sub ?? '') ?? undefined),
-  storeTokens: jest.fn(async (sub: string | undefined, tokens: import('../auth-token-store').StoredTokens) => {
-    if (sub) _mockTokenStore.set(sub, tokens)
+  getStoredTokens: jest.fn(async (
+    sub: string | undefined,
+    options: import('../auth-token-store').GetStoredTokensOptions = {},
+  ) => {
+    const state = _mockTokenStore.get(sub ?? '')
+    return state && state.version >= (options.minimumVersion ?? 0) ? state : undefined
+  }),
+  storeTokens: jest.fn(async (
+    sub: string | undefined,
+    tokens: import('../auth-token-store').StoredTokens,
+    expectedVersion?: number,
+  ) => {
+    if (!sub) return undefined
+    const current = _mockTokenStore.get(sub)
+    if (current && expectedVersion !== undefined && current.version !== expectedVersion) {
+      return current
+    }
+    const state = { ...tokens, version: (current?.version ?? expectedVersion ?? 0) + 1 }
+    _mockTokenStore.set(sub, state)
+    return state
   }),
   resetTokenStore: jest.fn(() => { _mockTokenStore.clear() }),
 }))
@@ -1368,8 +1385,50 @@ describe('auth-config', () => {
       // Should NOT be logged out — access token is still valid
       expect(result.error).toBeUndefined()
       expect(result.accessToken).toBe('still-valid-at')
-      // Should suppress further refresh attempts until token expires
-      expect(result.refreshSuppressedUntil).toBe(now + 200)
+      // Retry shortly instead of suppressing until the token expires.
+      expect(result.refreshSuppressedUntil).toBe(now + 15)
+    })
+
+    it('adopts a newer token written by another replica after invalid_grant', async () => {
+      const now = Math.floor(Date.now() / 1000)
+      _mockTokenStore.set('shared-user', {
+        accessToken: 'peer-access-token',
+        refreshToken: 'peer-refresh-token',
+        expiresAt: now + 3600,
+        version: 2,
+      })
+      fetchSpy = jest.spyOn(global, 'fetch').mockImplementation(async (url) => {
+        if (url.toString().includes('.well-known')) {
+          return {
+            ok: true,
+            json: async () => ({ token_endpoint: 'https://sso.example.com/token' }),
+          } as Response
+        }
+        return {
+          ok: false,
+          headers: { get: () => 'application/json' },
+          json: async () => ({ error: 'invalid_grant', error_description: 'Token already used' }),
+        } as unknown
+      })
+
+      const result = await (authOptions.callbacks!.jwt! as (...args: unknown[]) => Promise<unknown>)({
+        token: {
+          sub: 'shared-user',
+          accessToken: 'stale-access-token',
+          refreshToken: 'consumed-refresh-token',
+          expiresAt: now + 200,
+          tokenStoreVersion: 1,
+        },
+      })
+
+      expect(result).toEqual(expect.objectContaining({
+        accessToken: 'peer-access-token',
+        refreshToken: 'peer-refresh-token',
+        expiresAt: now + 3600,
+        tokenStoreVersion: 2,
+        error: undefined,
+      }))
+      expect(result.refreshSuppressedUntil).toBeUndefined()
     })
 
     it('Safety net 3: suppressed refresh prevents further refresh attempts', async () => {
