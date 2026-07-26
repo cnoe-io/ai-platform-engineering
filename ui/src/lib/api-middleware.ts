@@ -174,6 +174,7 @@ type SessionAuthCacheEntry = SessionAuthPayload & {
 
 const DEFAULT_SESSION_AUTH_CACHE_TTL_MS = 10_000;
 const MAX_SESSION_AUTH_CACHE_ENTRIES = 500;
+const SESSION_TOKEN_EXPIRY_SKEW_MS = 5_000;
 const sessionAuthCache = new Map<string, SessionAuthCacheEntry>();
 
 function getSessionAuthCacheTtlMs(): number {
@@ -210,6 +211,20 @@ function cloneSessionAuthPayload(value: SessionAuthPayload): SessionAuthPayload 
   };
 }
 
+function sessionAccessTokenDeadlineMs(session: SessionAuthSession): number | null {
+  if (typeof session.accessToken !== 'string' || !session.accessToken.trim()) {
+    return null;
+  }
+  try {
+    const payload = decodeJwtPayloadForAuth(session.accessToken);
+    return typeof payload.exp === 'number'
+      ? payload.exp * 1000 - SESSION_TOKEN_EXPIRY_SKEW_MS
+      : null;
+  } catch {
+    return Date.now();
+  }
+}
+
 // assisted-by Codex Codex-sonnet-4-6
 function readCachedSessionAuth(request: NextRequest): SessionAuthPayload | null {
   const key = getSessionAuthCacheKey(request);
@@ -222,7 +237,9 @@ function readCachedSessionAuth(request: NextRequest): SessionAuthPayload | null 
     return null;
   }
 
-  if (entry.expiresAt <= Date.now()) {
+  const now = Date.now();
+  const tokenDeadline = sessionAccessTokenDeadlineMs(entry.session);
+  if (entry.expiresAt <= now || (tokenDeadline !== null && tokenDeadline <= now)) {
     sessionAuthCache.delete(key);
     return null;
   }
@@ -251,9 +268,17 @@ function writeCachedSessionAuth(request: NextRequest, value: SessionAuthPayload)
     sessionAuthCache.delete(oldestKey);
   }
 
+  const tokenDeadline = sessionAccessTokenDeadlineMs(value.session);
+  const expiresAt = tokenDeadline === null
+    ? Date.now() + ttlMs
+    : Math.min(Date.now() + ttlMs, tokenDeadline);
+  if (expiresAt <= Date.now()) {
+    return;
+  }
+
   sessionAuthCache.set(key, {
     ...cloneSessionAuthPayload(value),
-    expiresAt: Date.now() + ttlMs,
+    expiresAt,
   });
 }
 

@@ -931,6 +931,35 @@ describe('getAuthenticatedUser', () => {
     expect(updateOne).toHaveBeenCalledTimes(1);
   });
 
+  it('never serves a cached session beyond the access-token expiry deadline', async () => {
+    process.env.CAIPE_SESSION_AUTH_CACHE_TTL_MS = '10000';
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    const payload = Buffer.from(JSON.stringify({ exp: 1007 })).toString('base64url');
+    const accessToken = `header.${payload}.signature`;
+    const updateOne = jest.fn().mockResolvedValue({ matchedCount: 1 });
+    mockGetServerSession.mockResolvedValue({
+      user: { email: 'expiring@test.com', name: 'Expiring User' },
+      role: 'user',
+      sub: 'expiring-sub',
+      accessToken,
+    });
+    mockGetCollection.mockResolvedValue({ updateOne });
+
+    const makeRequest = () =>
+      new Request('http://test.com/api/admin/slack/channels', {
+        headers: { cookie: 'next-auth.session-token=expiring-session' },
+      }) as unknown as NextRequest;
+
+    await getAuthenticatedUser(makeRequest());
+    nowSpy.mockReturnValue(1_001_000);
+    await getAuthenticatedUser(makeRequest());
+    nowSpy.mockReturnValue(1_003_000);
+    await getAuthenticatedUser(makeRequest());
+
+    expect(mockGetServerSession).toHaveBeenCalledTimes(2);
+    nowSpy.mockRestore();
+  });
+
   it('does not cache session auth when no cookie header is present', async () => {
     mockGetServerSession.mockResolvedValue({
       user: { email: 'nocookie@test.com', name: 'No Cookie' },

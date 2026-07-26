@@ -336,7 +336,84 @@ const _inflightRefreshes = new Map<string, Promise<ExchangeResult>>();
 //     tokens AES-256-GCM encrypted at rest (key derived from NEXTAUTH_SECRET).
 //
 // See: https://github.com/cnoe-io/ai-platform-engineering/issues/1986
-import { getStoredTokens, storeTokens, resetTokenStore } from './auth-token-store';
+import {
+  getStoredTokens,
+  storeTokens,
+  resetTokenStore,
+  type StoredTokenState,
+} from './auth-token-store';
+
+const PEER_REFRESH_RETRY_DELAYS_MS = [0, 25, 50, 100];
+
+async function readPeerRefreshedTokens(token: {
+  sub?: unknown;
+  tokenStoreVersion?: unknown;
+}): Promise<StoredTokenState | undefined> {
+  const sub = typeof token.sub === "string" ? token.sub : undefined;
+  const version = typeof token.tokenStoreVersion === "number"
+    ? token.tokenStoreVersion
+    : undefined;
+  if (!sub || version === undefined) return undefined;
+
+  for (const delayMs of PEER_REFRESH_RETRY_DELAYS_MS) {
+    if (delayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+    const state = await getStoredTokens(sub, {
+      bypassL1: true,
+      minimumVersion: version + 1,
+    });
+    if (state) return state;
+  }
+  return undefined;
+}
+
+function exchangeResultFromStoredTokens(
+  state: StoredTokenState,
+): Exclude<ExchangeResult, null> | null {
+  if (!state.accessToken) return null;
+  const now = Math.floor(Date.now() / 1000);
+  return {
+    access_token: state.accessToken,
+    id_token: state.idToken,
+    refresh_token: state.refreshToken,
+    expires_in: state.expiresAt ? Math.max(1, state.expiresAt - now) : undefined,
+  };
+}
+
+async function applyExchangeResult(
+  token: {
+    accessToken?: string;
+    refreshToken?: string;
+    expiresAt?: number;
+    [key: string]: unknown;
+  },
+  result: Exclude<ExchangeResult, null>,
+) {
+  const expiresAt = Math.floor(Date.now() / 1000) + (result.expires_in || 3600);
+  const candidate = {
+    accessToken: result.access_token,
+    idToken: result.id_token,
+    expiresAt,
+    refreshToken: result.refresh_token ?? token.refreshToken,
+  };
+  const sub = typeof token.sub === "string" ? token.sub : undefined;
+  const expectedVersion = typeof token.tokenStoreVersion === "number"
+    ? token.tokenStoreVersion
+    : undefined;
+  const authoritative = await storeTokens(sub, candidate, expectedVersion);
+
+  return {
+    ...token,
+    accessToken: authoritative?.accessToken ?? candidate.accessToken,
+    idToken: authoritative?.idToken ?? candidate.idToken,
+    expiresAt: authoritative?.expiresAt ?? candidate.expiresAt,
+    refreshToken: authoritative?.refreshToken ?? candidate.refreshToken,
+    tokenStoreVersion: authoritative?.version ?? expectedVersion,
+    error: undefined,
+    refreshSuppressedUntil: undefined,
+  };
+}
 
 // Claim groups are only needed for in-process authorization checks and are
 // re-populated on login and every token refresh. They stay in L1 only.
@@ -378,6 +455,8 @@ async function refreshAccessToken(token: {
   accessToken?: string;
   refreshToken?: string;
   expiresAt?: number;
+  sub?: string;
+  tokenStoreVersion?: number;
   [key: string]: unknown;
 }) {
   try {
@@ -416,14 +495,7 @@ async function refreshAccessToken(token: {
         // Another caller already handled the race; current access token is still valid
         return { ...token, error: undefined };
       }
-      return {
-        ...token,
-        accessToken: result.access_token,
-        idToken: result.id_token,
-        expiresAt: Math.floor(Date.now() / 1000) + (result.expires_in || 3600),
-        refreshToken: result.refresh_token ?? currentRefreshToken,
-        error: undefined,
-      };
+      return applyExchangeResult(token, result);
     }
 
     // Inner function that performs the actual HTTP exchange.
@@ -483,6 +555,14 @@ async function refreshAccessToken(token: {
         if (data.error === "invalid_grant") {
           const now = Math.floor(Date.now() / 1000);
           const expiresAt = token.expiresAt as number | undefined;
+          const peerTokens = await readPeerRefreshedTokens(token);
+          const peerResult = peerTokens
+            ? exchangeResultFromStoredTokens(peerTokens)
+            : null;
+          if (peerResult) {
+            console.log("[Auth] Adopted token refresh completed by another replica");
+            return peerResult;
+          }
           if (expiresAt && expiresAt > now) {
             console.warn(
               "[Auth] invalid_grant with valid access token — concurrent refresh race detected, keeping current token"
@@ -514,14 +594,7 @@ async function refreshAccessToken(token: {
       return { ...token, error: undefined };
     }
 
-    return {
-      ...token,
-      accessToken: result.access_token,
-      idToken: result.id_token,
-      expiresAt: Math.floor(Date.now() / 1000) + (result.expires_in || 3600),
-      refreshToken: result.refresh_token ?? currentRefreshToken, // Use new refresh token if provided
-      error: undefined, // Clear any previous errors
-    };
+    return applyExchangeResult(token, result);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     if (errorMessage === "RefreshTokenExpired") {
@@ -756,7 +829,10 @@ export const authOptions: NextAuthOptions = {
             // an infinite refresh loop.
             if (!refreshedToken.error && refreshedToken.accessToken === token.accessToken) {
               console.log(`[Auth] Refresh suppressed — access token still valid for ${timeUntilExpiry}s, will not retry`);
-              return { ...refreshedToken, refreshSuppressedUntil: expiresAt };
+              return {
+                ...refreshedToken,
+                refreshSuppressedUntil: Math.min(expiresAt, now + 15),
+              };
             }
 
             // Re-evaluate group authorization every 4 hours using claims from
@@ -876,11 +952,19 @@ export const authOptions: NextAuthOptions = {
   jwt: {
     async encode({ token, secret, maxAge }) {
       if (token?.sub) {
-        await storeTokens(token.sub, {
+        const authoritative = await storeTokens(token.sub, {
           accessToken: token.accessToken as string | undefined,
           refreshToken: token.refreshToken as string | undefined,
           idToken: token.idToken as string | undefined,
-        });
+          expiresAt: token.expiresAt as number | undefined,
+        }, token.tokenStoreVersion as number | undefined);
+        if (authoritative) {
+          token.accessToken = authoritative.accessToken;
+          token.refreshToken = authoritative.refreshToken;
+          token.idToken = authoritative.idToken;
+          token.expiresAt = authoritative.expiresAt ?? token.expiresAt;
+          token.tokenStoreVersion = authoritative.version;
+        }
       }
       const slimToken = { ...(token ?? {}) } as Record<string, unknown>;
       delete slimToken.accessToken;
@@ -894,11 +978,17 @@ export const authOptions: NextAuthOptions = {
       const { decode } = await import("next-auth/jwt");
       const decoded = await decode({ token, secret });
       if (decoded?.sub) {
-        const stored = await getStoredTokens(decoded.sub);
+        const stored = await getStoredTokens(decoded.sub, {
+          minimumVersion: typeof decoded.tokenStoreVersion === "number"
+            ? decoded.tokenStoreVersion
+            : 0,
+        });
         if (stored) {
           if (stored.accessToken) decoded.accessToken = stored.accessToken;
           if (stored.refreshToken) decoded.refreshToken = stored.refreshToken;
           if (stored.idToken) decoded.idToken = stored.idToken;
+          if (stored.expiresAt) decoded.expiresAt = stored.expiresAt;
+          decoded.tokenStoreVersion = stored.version;
         }
       }
       return decoded;
@@ -967,6 +1057,7 @@ declare module "next-auth/jwt" {
     canAccessDynamicAgents?: boolean; // Legacy context flag; OpenFGA authorizes agents
     groupsCheckedAt?: number; // Unix timestamp of last group re-evaluation
     refreshSuppressedUntil?: number; // Unix timestamp — skip refresh attempts until this time (set after graceful invalid_grant)
+    tokenStoreVersion?: number; // Monotonic MongoDB token record version for cross-replica cache coherence
     org?: string;           // Tenant identifier from org claim (FR-020)
   }
 }
