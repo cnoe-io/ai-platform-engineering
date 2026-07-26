@@ -19,6 +19,7 @@
 import { getServerOnlyConfig } from "@/lib/config";
 import { getCollection } from "@/lib/mongodb";
 import { getTomeChatMessagesCollection } from "@/lib/tome/mongo-collections";
+import type { Document } from "mongodb";
 import type { ProjectDocument } from "@/types/projects";
 import type { ActiveIngestRun } from "@/types/tome";
 
@@ -118,6 +119,57 @@ export interface OrgConsumptionResult {
 }
 
 /**
+ * Select the latest revision for every page before removing tombstones.
+ *
+ * Filtering deleted revisions first would resurrect the previous live revision
+ * and over-count every deleted page.
+ */
+export function buildCurrentPageSizePipeline(projectIds: string[]): Document[] {
+  return [
+    { $match: { project_id: { $in: projectIds } } },
+    { $sort: { project_id: 1, path: 1, created_at: -1 } },
+    {
+      $group: {
+        _id: { project_id: "$project_id", path: "$path" },
+        deleted: { $first: "$deleted" },
+        bytes: { $first: { $strLenBytes: { $ifNull: ["$markdown", ""] } } },
+      },
+    },
+    { $match: { deleted: { $ne: true } } },
+    {
+      $group: {
+        _id: "$_id.project_id",
+        pageCount: { $sum: 1 },
+        wikiSizeBytes: { $sum: "$bytes" },
+      },
+    },
+  ];
+}
+
+/** Headline totals must describe exactly the current projects shown in the table. */
+export function summarizeOrgConsumptionRows(
+  rows: OrgConsumptionRow[],
+): OrgConsumptionResult["totals"] {
+  return rows.reduce<OrgConsumptionResult["totals"]>(
+    (totals, row) => {
+      totals.projectCount += 1;
+      if (row.activeIngest) totals.activeIngestCount += 1;
+      totals.totalPages += row.pageCount;
+      totals.totalWikiSizeBytes += row.wikiSizeBytes;
+      totals.totalTokens += row.tokenUsage.input + row.tokenUsage.output;
+      return totals;
+    },
+    {
+      projectCount: 0,
+      activeIngestCount: 0,
+      totalPages: 0,
+      totalWikiSizeBytes: 0,
+      totalTokens: 0,
+    },
+  );
+}
+
+/**
  * Cross-project consumption rollup. Pass `projectIds` to scope to a known
  * set (e.g. one project for `getProjectConsumption`); omit it to cover every
  * project that has ANY Tome activity (pages or ingest runs) — the org-wide
@@ -157,25 +209,10 @@ export async function getOrgTomeConsumption(
   const idFilter = { project_id: { $in: scopedIds } };
 
   const [sizeRows, lastIngestRows, activeRuns] = await Promise.all([
-    // Latest non-deleted revision per (project, path); sum its byte length.
+    // Latest revision per (project, path), excluding paths whose latest
+    // revision is a tombstone; sum the remaining current content.
     pageRevisions
-      .aggregate([
-        { $match: { ...idFilter, deleted: { $ne: true } } },
-        { $sort: { project_id: 1, path: 1, created_at: -1 } },
-        {
-          $group: {
-            _id: { project_id: "$project_id", path: "$path" },
-            bytes: { $first: { $strLenBytes: { $ifNull: ["$markdown", ""] } } },
-          },
-        },
-        {
-          $group: {
-            _id: "$_id.project_id",
-            pageCount: { $sum: 1 },
-            wikiSizeBytes: { $sum: "$bytes" },
-          },
-        },
-      ])
+      .aggregate(buildCurrentPageSizePipeline(scopedIds))
       .toArray(),
     ingestRuns
       .aggregate([
@@ -244,17 +281,12 @@ export async function getOrgTomeConsumption(
 
   const byProjectId = new Map<string, ProjectConsumption>();
   const rows: OrgConsumptionRow[] = [];
-  let activeIngestCount = 0;
-  let totalPages = 0;
-  let totalWikiSizeBytes = 0;
-  let totalTokens = 0;
 
   for (const pid of scopedIds) {
     const size = sizeMap.get(pid) ?? { pageCount: 0, wikiSizeBytes: 0 };
     const ingest = ingestMap.get(pid);
     const active = activeMap.get(pid) ?? null;
     const meta = projectMeta.get(pid);
-    const tokens = (ingest?.inputTokens ?? 0) + (ingest?.outputTokens ?? 0);
 
     const consumption: ProjectConsumption = {
       pageCount: size.pageCount,
@@ -271,10 +303,6 @@ export async function getOrgTomeConsumption(
     if (meta) {
       rows.push({ ...consumption, projectId: pid, slug: meta.slug, title: meta.title, teamName: meta.teamName });
     }
-    if (active) activeIngestCount += 1;
-    totalPages += size.pageCount;
-    totalWikiSizeBytes += size.wikiSizeBytes;
-    totalTokens += tokens;
   }
 
   rows.sort((a, b) => a.title.localeCompare(b.title));
@@ -282,13 +310,7 @@ export async function getOrgTomeConsumption(
   return {
     rows,
     byProjectId,
-    totals: {
-      projectCount: rows.length,
-      activeIngestCount,
-      totalPages,
-      totalWikiSizeBytes,
-      totalTokens,
-    },
+    totals: summarizeOrgConsumptionRows(rows),
   };
 }
 
@@ -418,9 +440,17 @@ export interface TomePerformance {
   p95Seconds: number | null;
   /** Whether PROMETHEUS_URL is configured on this UI instance. */
   configured: boolean;
+  status: PrometheusMeasurementStatus;
   /** KPI target from the deck. */
   targetSeconds: number;
 }
+
+export type PrometheusMeasurementStatus =
+  | "measured"
+  | "collecting"
+  | "not_configured"
+  | "no_data"
+  | "query_failed";
 
 const PROMETHEUS_QUERY_TIMEOUT_MS = 5_000;
 
@@ -435,7 +465,7 @@ export async function getTomeQueryLatencyP95(): Promise<TomePerformance> {
   const targetSeconds = 10;
   const { prometheusUrl } = getServerOnlyConfig();
   if (!prometheusUrl) {
-    return { p95Seconds: null, configured: false, targetSeconds };
+    return { p95Seconds: null, configured: false, status: "not_configured", targetSeconds };
   }
 
   const query =
@@ -447,13 +477,18 @@ export async function getTomeQueryLatencyP95(): Promise<TomePerformance> {
       signal: controller.signal,
       headers: { Accept: "application/json" },
     });
-    if (!res.ok) return { p95Seconds: null, configured: true, targetSeconds };
+    if (!res.ok) {
+      return { p95Seconds: null, configured: true, status: "query_failed", targetSeconds };
+    }
     const body = await res.json();
     const raw = body?.data?.result?.[0]?.value?.[1];
     const n = typeof raw === "string" ? parseFloat(raw) : null;
-    return { p95Seconds: n !== null && !Number.isNaN(n) ? n : null, configured: true, targetSeconds };
+    if (n === null || Number.isNaN(n)) {
+      return { p95Seconds: null, configured: true, status: "no_data", targetSeconds };
+    }
+    return { p95Seconds: n, configured: true, status: "measured", targetSeconds };
   } catch {
-    return { p95Seconds: null, configured: true, targetSeconds };
+    return { p95Seconds: null, configured: true, status: "query_failed", targetSeconds };
   } finally {
     clearTimeout(timeout);
   }
@@ -461,7 +496,15 @@ export async function getTomeQueryLatencyP95(): Promise<TomePerformance> {
 
 /** Runs a single Prometheus instant query, returning its scalar value or null
  *  (not configured, HTTP error, timeout, or non-numeric result). */
-async function promInstantQuery(prometheusUrl: string, query: string): Promise<number | null> {
+interface PromInstantQueryResult {
+  value: number | null;
+  failed: boolean;
+}
+
+async function promInstantQuery(
+  prometheusUrl: string,
+  query: string,
+): Promise<PromInstantQueryResult> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), PROMETHEUS_QUERY_TIMEOUT_MS);
   try {
@@ -469,13 +512,16 @@ async function promInstantQuery(prometheusUrl: string, query: string): Promise<n
       signal: controller.signal,
       headers: { Accept: "application/json" },
     });
-    if (!res.ok) return null;
+    if (!res.ok) return { value: null, failed: true };
     const body = await res.json();
     const raw = body?.data?.result?.[0]?.value?.[1];
     const n = typeof raw === "string" ? parseFloat(raw) : null;
-    return n !== null && !Number.isNaN(n) ? n : null;
+    return {
+      value: n !== null && !Number.isNaN(n) ? n : null,
+      failed: false,
+    };
   } catch {
-    return null;
+    return { value: null, failed: true };
   } finally {
     clearTimeout(timeout);
   }
@@ -487,7 +533,10 @@ export interface TomeUptime {
   /** Current tome-agent process uptime in seconds — resets to ~0 on every
    *  restart/deploy, so a low value here doesn't necessarily mean an outage. */
   processUptimeSeconds: number | null;
+  /** Percentage of the requested availability window covered by scrape data. */
+  coveragePct: number | null;
   configured: boolean;
+  status: PrometheusMeasurementStatus;
   windowHours: number;
   /** KPI target — conventional "three nines" availability. */
   targetPct: number;
@@ -497,23 +546,55 @@ export interface TomeUptime {
  * "Uptime" KPI: how reliably tome-agent has been reachable, derived from
  * Prometheus's built-in `up{job="tome-agent"}` (1 when a scrape succeeds, 0
  * when it doesn't — see deploy/prometheus/prometheus.yml / the tome-agent
- * ServiceMonitor). `avg_over_time(...) * 100` over the window gives a scrape
- * success percentage; process uptime is a secondary signal (a still-100%
- * scrape-success rate with near-zero process uptime means it's been
- * restarting a lot, not that it's actually been down).
+ * ServiceMonitor). `max(up)` treats the service as available while any
+ * replica is reachable; the subquery then computes that service-level
+ * availability over the window. Process uptime is a secondary signal (a
+ * still-100% availability rate with near-zero process uptime means a replica
+ * restarted, not that the service was unavailable).
  */
 export async function getTomeUptime(windowHours = 24): Promise<TomeUptime> {
   const targetPct = 99.9;
   const { prometheusUrl } = getServerOnlyConfig();
   if (!prometheusUrl) {
-    return { uptimePct: null, processUptimeSeconds: null, configured: false, windowHours, targetPct };
+    return {
+      uptimePct: null,
+      processUptimeSeconds: null,
+      coveragePct: null,
+      configured: false,
+      status: "not_configured",
+      windowHours,
+      targetPct,
+    };
   }
 
-  const [uptimePct, processUptimeSeconds] = await Promise.all([
-    promInstantQuery(prometheusUrl, `avg_over_time(up{job="tome-agent"}[${windowHours}h]) * 100`),
-    promInstantQuery(prometheusUrl, "tome_agent_uptime_seconds"),
+  const [uptimeResult, processUptimeResult, coverageResult] = await Promise.all([
+    promInstantQuery(
+      prometheusUrl,
+      `avg_over_time(max(up{job="tome-agent"})[${windowHours}h:30s]) * 100`,
+    ),
+    promInstantQuery(prometheusUrl, "min(tome_agent_uptime_seconds)"),
+    promInstantQuery(
+      prometheusUrl,
+      `count_over_time(max(up{job="tome-agent"})[${windowHours}h:30s]) / (${windowHours} * 60 * 2) * 100`,
+    ),
   ]);
-  return { uptimePct, processUptimeSeconds, configured: true, windowHours, targetPct };
+  const status: PrometheusMeasurementStatus =
+    uptimeResult.failed || coverageResult.failed
+      ? "query_failed"
+      : uptimeResult.value === null
+        ? "no_data"
+      : coverageResult.value === null || coverageResult.value < 99
+        ? "collecting"
+        : "measured";
+  return {
+    uptimePct: status === "measured" ? uptimeResult.value : null,
+    processUptimeSeconds: processUptimeResult.value,
+    coveragePct: coverageResult.value,
+    configured: true,
+    status,
+    windowHours,
+    targetPct,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -747,10 +828,9 @@ export interface TomeUptimeTrend {
 }
 
 /**
- * Scrape-success-rate trend backing the Uptime KPI card. Each point is
- * `avg_over_time(up{job="tome-agent"}[step]) * 100` — a non-overlapping
- * bucket average, not an instantaneous 0/100 reading — so the chart shows a
- * meaningful percentage per bucket instead of a binary step function.
+ * Service-availability trend backing the Uptime KPI card. Each point averages
+ * whether any Tome replica was reachable during the bucket, rather than
+ * averaging replicas and treating one failed replica as a total outage.
  */
 export async function getTomeUptimeTrend(days = 7): Promise<TomeUptimeTrend> {
   const { prometheusUrl } = getServerOnlyConfig();
@@ -761,7 +841,7 @@ export async function getTomeUptimeTrend(days = 7): Promise<TomeUptimeTrend> {
   const end = Math.floor(Date.now() / 1000);
   const start = end - days * 24 * 60 * 60;
   const step = days <= 2 ? "1h" : days <= 14 ? "6h" : "1d";
-  const query = `avg_over_time(up{job="tome-agent"}[${step}]) * 100`;
+  const query = `avg_over_time(max(up{job="tome-agent"})[${step}:30s]) * 100`;
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), PROMETHEUS_QUERY_TIMEOUT_MS);

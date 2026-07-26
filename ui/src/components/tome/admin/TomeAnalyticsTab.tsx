@@ -76,13 +76,16 @@ interface Freshness {
 interface Performance {
   p95Seconds: number | null;
   configured: boolean;
+  status?: "measured" | "not_configured" | "no_data" | "query_failed";
   targetSeconds: number;
 }
 
 interface Uptime {
   uptimePct: number | null;
   processUptimeSeconds: number | null;
+  coveragePct?: number | null;
   configured: boolean;
+  status?: "measured" | "collecting" | "not_configured" | "no_data" | "query_failed";
   windowHours: number;
   targetPct: number;
 }
@@ -352,7 +355,7 @@ export function TomeAnalyticsTab() {
       : null;
   // No hard pass/fail bar — the deck marks the exact rubric "(ask team)", so
   // this is directional only: "unknown" once there's no feedback yet.
-  const freshnessState: KpiPassState = freshnessPct === null ? "unknown" : freshnessPct >= 80 ? "pass" : "fail";
+  const freshnessState: KpiPassState = "unknown";
 
   const performanceState: KpiPassState =
     !performance?.configured || performance?.p95Seconds === null
@@ -362,7 +365,7 @@ export function TomeAnalyticsTab() {
         : "fail";
 
   const uptimeState: KpiPassState =
-    !uptime?.configured || uptime?.uptimePct === null
+    !uptime?.configured || uptime?.status === "collecting" || uptime?.uptimePct === null
       ? "unknown"
       : uptime.uptimePct >= uptime.targetPct
         ? "pass"
@@ -400,19 +403,27 @@ export function TomeAnalyticsTab() {
           tooltip="DAU = distinct users with a chat message in the trailing 24h. MAU = trailing 30 days. Both are rolling windows ending now, not calendar-day buckets."
         />
         <KpiCard
-          title="Freshness"
+          title="Feedback satisfaction"
           icon={<ThumbsUp className="h-4 w-4" />}
           value={freshnessPct !== null ? `${freshnessPct.toFixed(0)}%` : "no data"}
           detail={freshness ? `${freshness.positive} 👍 / ${freshness.negative} 👎 (${freshness.windowDays}d)` : undefined}
-          target="12-Midnight Test — rubric pending team review"
+          target="Directional proxy — no pass/fail target"
           state={freshnessState}
-          tooltip="Proxy metric: thumbs-up rate on TOME chat responses. The deck's 👍/👎/🚩 rubric for the 12-Midnight Test isn't finalized yet — treat this as directional until confirmed with the team."
+          tooltip="Thumbs-up rate on TOME chat responses. This is user satisfaction, not content freshness. The 12-Midnight freshness rubric is not implemented yet."
         />
         <KpiCard
           title="Performance"
           icon={<Activity className="h-4 w-4" />}
           value={performance?.p95Seconds !== null && performance?.p95Seconds !== undefined ? `${performance.p95Seconds.toFixed(1)}s` : "not measured"}
-          detail={performance ? "p95 chat query latency" : undefined}
+          detail={
+            performance?.status === "no_data"
+              ? "Prometheus connected; no TOME latency samples"
+              : performance?.status === "query_failed"
+                ? "Prometheus query failed"
+                : performance
+                  ? "p95 chat query latency"
+                  : undefined
+          }
           target={`Target: p95 <${performance?.targetSeconds ?? 10}s`}
           state={performanceState}
           tooltip={
@@ -426,15 +437,21 @@ export function TomeAnalyticsTab() {
           icon={<HeartPulse className="h-4 w-4" />}
           value={uptime?.uptimePct !== null && uptime?.uptimePct !== undefined ? `${uptime.uptimePct.toFixed(1)}%` : "not measured"}
           detail={
-            uptime?.configured
+            uptime?.status === "no_data"
+              ? "Prometheus connected; TOME target not scraped"
+              : uptime?.status === "collecting"
+                ? `Collecting ${uptime.windowHours}h baseline (${Math.min(uptime.coveragePct ?? 0, 100).toFixed(0)}% covered)`
+              : uptime?.status === "query_failed"
+                ? "Prometheus query failed"
+                : uptime?.configured
               ? `Process up ${formatDuration(uptime.processUptimeSeconds)} (${uptime.windowHours}h window)`
-              : undefined
+                : undefined
           }
           target={`Target: >${uptime?.targetPct ?? 99.9}% availability`}
           state={uptimeState}
           tooltip={
             uptime?.configured
-              ? "% of Prometheus scrapes where tome-agent responded (avg_over_time(up{job=\"tome-agent\"})) over the trailing window. \"Process up\" is time since the last restart — a low value there without a drop in the uptime % usually means a deploy, not an outage."
+              ? "Service availability from Prometheus: the percentage of the trailing window where at least one tome-agent replica was reachable. \"Process up\" is the youngest replica uptime, so a low value without an availability drop usually means a deploy, not an outage."
               : "Prometheus is not configured for this UI service (set PROMETHEUS_URL) — uptime can't be measured yet."
           }
         />
@@ -477,9 +494,9 @@ export function TomeAnalyticsTab() {
         </TrendCard>
 
         <TrendCard
-          title="Chat feedback"
+          title="Chat feedback satisfaction"
           icon={<ThumbsUp className="h-4 w-4 text-muted-foreground" />}
-          description="👍/👎 on TOME chat responses, per day."
+          description="👍/👎 satisfaction feedback on TOME chat responses, per day."
           empty={!trends || trends.freshness.every((p) => p.positive + p.negative === 0) ? "No feedback recorded in this window yet." : undefined}
         >
           {trends && (
@@ -580,7 +597,7 @@ export function TomeAnalyticsTab() {
         <TrendCard
           title="Uptime"
           icon={<HeartPulse className="h-4 w-4 text-muted-foreground" />}
-          description="tome-agent scrape-success rate, from Prometheus."
+          description="TOME service availability, from Prometheus."
           empty={
             !trends
               ? undefined
@@ -644,7 +661,7 @@ export function TomeAnalyticsTab() {
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
         <StatCard title="Projects" value={String(totals?.projectCount ?? 0)} icon={<FileText className="h-4 w-4" />} />
         <StatCard
-          title="Actively ingesting"
+          title="Ingesting now"
           value={String(totals?.activeIngestCount ?? 0)}
           icon={<Loader2 className="h-4 w-4" />}
         />
@@ -666,7 +683,7 @@ export function TomeAnalyticsTab() {
                 <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3">Pages</th>
                 <th className="px-4 py-3">Size</th>
-                <th className="px-4 py-3">Tokens ingested</th>
+                <th className="px-4 py-3">Cumulative ingest tokens</th>
                 <th className="px-4 py-3">Last ingested</th>
               </tr>
             </thead>
