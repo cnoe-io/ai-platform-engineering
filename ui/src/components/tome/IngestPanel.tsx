@@ -39,6 +39,7 @@ interface RunSummary {
   review_deadline?: string | null;
   review_outcome?: "approved" | "rejected" | "auto_promoted" | null;
   reviewed_by?: string | null;
+  report_id?: string | null;
 }
 
 interface WebexMeeting {
@@ -205,11 +206,13 @@ function RunsDialog({
   onOpenChange,
   runs,
   onOpenRun,
+  onViewChanges,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   runs: RunSummary[];
   onOpenRun: (id: string) => void;
+  onViewChanges: (id: string) => void;
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -223,11 +226,11 @@ function RunsDialog({
           ) : (
             <ul className="divide-y rounded-lg border">
               {runs.map((r) => (
-                <li key={r.id}>
+                <li key={r.id} className="flex items-center gap-1">
                   <button
                     type="button"
                     onClick={() => { onOpenRun(r.id); onOpenChange(false); }}
-                    className="flex w-full items-center gap-4 px-4 py-3 text-left text-sm transition-colors hover:bg-muted"
+                    className="flex flex-1 items-center gap-4 px-4 py-3 text-left text-sm transition-colors hover:bg-muted"
                   >
                     <StatusPill status={r.status} />
                     <span className="w-40 shrink-0 truncate text-muted-foreground">
@@ -258,6 +261,15 @@ function RunsDialog({
                       </span>
                     )}
                   </button>
+                  {(r.status === "succeeded" || r.status === "awaiting_review") && r.report_id && (
+                    <button
+                      type="button"
+                      onClick={() => { onViewChanges(r.id); onOpenChange(false); }}
+                      className="shrink-0 rounded px-2 py-1 text-xs text-primary hover:underline"
+                    >
+                      View changes
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>
@@ -989,6 +1001,7 @@ export function IngestPanel({
         onOpenChange={setRunsOpen}
         runs={runs ?? []}
         onOpenRun={onOpenRun}
+        onViewChanges={onReviewDraft}
       />
     </>
   );

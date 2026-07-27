@@ -554,7 +554,7 @@ const TOOLS: ToolDef[] = [
   {
     name: "tome_get_pages",
     description:
-      "Read a project's Tome wiki: the page tree plus the markdown of every page. This is the project's synthesized context. `project_slug` is required.",
+      "Read a project's Tome wiki: the page tree plus the markdown of every page. This is the project's synthesized context. `project_slug` is required. For a large wiki this can be a lot of text — prefer `tome_list_pages` (tree only) + `tome_get_page` (one page's markdown) when you only need specific pages.",
     inputSchema: schema({ project_slug: STR }, ["project_slug"]),
     handler: async (_req, fwd, args) => {
       const slug = String(args.project_slug);
@@ -563,6 +563,36 @@ const TOOLS: ToolDef[] = [
         "get pages",
       );
       return toolText(JSON.stringify({ tree: data?.tree, pages: data?.pages }, null, 2));
+    },
+  },
+  {
+    name: "tome_list_pages",
+    description:
+      "List a project's Tome wiki page tree (path, title, kind, order) WITHOUT page bodies — cheap way to see what pages exist before fetching specific ones with `tome_get_page`. `project_slug` is required.",
+    inputSchema: schema({ project_slug: STR }, ["project_slug"]),
+    handler: async (_req, fwd, args) => {
+      const slug = String(args.project_slug);
+      const data = ensureOk(
+        await fwd("GET", `/api/tome/projects/${encodeURIComponent(slug)}/pages`),
+        "list pages",
+      );
+      return toolText(JSON.stringify(data?.tree ?? [], null, 2));
+    },
+  },
+  {
+    name: "tome_get_page",
+    description:
+      "Read one wiki page's markdown, title, and kind. `project_slug` and `page_path` (e.g. `charter.md` or `repos/mycelium/overview.md`, from `tome_list_pages`) are required.",
+    inputSchema: schema({ project_slug: STR, page_path: STR }, ["project_slug", "page_path"]),
+    handler: async (_req, fwd, args) => {
+      const slug = encodeURIComponent(String(args.project_slug));
+      const pagePath = String(args.page_path).replace(/^\/+/, "");
+      const encodedPath = pagePath.split("/").map(encodeURIComponent).join("/");
+      const data = ensureOk(
+        await fwd("GET", `/api/tome/projects/${slug}/pages/${encodedPath}`),
+        "get page",
+      );
+      return toolText(JSON.stringify(data, null, 2));
     },
   },
   {
@@ -584,6 +614,43 @@ const TOOLS: ToolDef[] = [
         "edit page",
       );
       return toolText(`Updated ${pagePath}.`);
+    },
+  },
+  {
+    name: "tome_get_page_history",
+    description:
+      "List a wiki page's revision history (newest first) — author, message, timestamp, whether it came from an ingest run (`report_id`), and whether it reverted a prior revision. Use the returned revision `id` with `tome_revert_page` to roll back. `project_slug` and `page_path` are required.",
+    inputSchema: schema({ project_slug: STR, page_path: STR }, ["project_slug", "page_path"]),
+    handler: async (_req, fwd, args) => {
+      const slug = encodeURIComponent(String(args.project_slug));
+      const pagePath = String(args.page_path).replace(/^\/+/, "");
+      const encodedPath = pagePath.split("/").map(encodeURIComponent).join("/");
+      const data = ensureOk(
+        await fwd("GET", `/api/tome/projects/${slug}/history/${encodedPath}`),
+        "get page history",
+      );
+      return toolText(JSON.stringify(data?.revisions ?? [], null, 2));
+    },
+  },
+  {
+    name: "tome_revert_page",
+    description:
+      "Revert a wiki page to a prior revision's content — an append-only write (the current content stays in history, it isn't deleted). Get `revision_id` from `tome_get_page_history`. `project_slug`, `page_path`, and `revision_id` are required. Fails if an ingest is in progress or a draft is awaiting review on this project.",
+    inputSchema: schema(
+      { project_slug: STR, page_path: STR, revision_id: STR },
+      ["project_slug", "page_path", "revision_id"],
+    ),
+    handler: async (_req, fwd, args) => {
+      const slug = encodeURIComponent(String(args.project_slug));
+      const pagePath = String(args.page_path).replace(/^\/+/, "");
+      const encodedPath = pagePath.split("/").map(encodeURIComponent).join("/");
+      ensureOk(
+        await fwd("POST", `/api/tome/projects/${slug}/revert/${encodedPath}`, {
+          revisionId: String(args.revision_id),
+        }),
+        "revert page",
+      );
+      return toolText(`Reverted ${pagePath} to revision ${args.revision_id}.`);
     },
   },
   {

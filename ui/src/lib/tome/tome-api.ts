@@ -115,3 +115,31 @@ export function requireTomeEditor(ctx: TomeProjectContext): void {
     );
   }
 }
+
+/**
+ * Reject a human write while the project is locked, with a message that
+ * distinguishes "agent is actively ingesting" from "a draft is awaiting
+ * review" — the latter still can't be hand-edited (it would race approve
+ * or leave the diff meaningless), but for a different reason.
+ */
+export async function guardNotLocked(projectId: string, locked: boolean): Promise<void> {
+  if (!locked) return;
+  const { getTomeIngestRunsCollection } = await import("./mongo-collections");
+  const runs = await getTomeIngestRunsCollection();
+  const active = await runs.findOne({
+    project_id: projectId,
+    status: { $in: ["running", "awaiting_review"] },
+  });
+  if (active?.status === "awaiting_review") {
+    throw new ApiError(
+      "A draft ingest is awaiting review — approve or reject it before editing pages.",
+      409,
+      "PROJECT_AWAITING_REVIEW",
+    );
+  }
+  throw new ApiError(
+    "An ingest is in progress — the wiki is read-only until it finishes.",
+    409,
+    "PROJECT_LOCKED",
+  );
+}

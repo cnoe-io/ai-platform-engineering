@@ -87,6 +87,8 @@ export interface PageRevision {
    * revisions written before this field existed.
    */
   status?: "live" | "draft" | "rejected";
+  /** Set when this write restored a prior revision's body — the _id of that revision. */
+  reverted_from?: string;
   created_at: Date;
 }
 

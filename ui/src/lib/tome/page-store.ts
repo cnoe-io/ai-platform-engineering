@@ -84,6 +84,21 @@ export interface PageStore {
   /** Paths with a pending (unreviewed) draft revision for a report. */
   listDraftPaths(projectId: string, reportId: string): Promise<string[]>;
 
+  /** Paths touched by any run's report — draft, rejected, or already-live. */
+  listTouchedPaths(projectId: string, reportId: string): Promise<string[]>;
+
+  /**
+   * Restore a prior revision's body as a new write (append-only — the
+   * reverted-from revision stays in history). Throws if the revision isn't
+   * found.
+   */
+  revertPage(
+    projectId: string,
+    path: string,
+    revisionId: string,
+    opts: { author?: string; message?: string },
+  ): Promise<void>;
+
   /**
    * Presigned read URL for large bodies (s3 backend). Returns null for
    * backends that inline bodies (mongo) — caller falls back to readPage.
@@ -173,6 +188,14 @@ function withEdgesIndex(store: PageStore): PageStore {
     },
     rejectDraftReport: (projectId, reportId) => store.rejectDraftReport(projectId, reportId),
     listDraftPaths: (projectId, reportId) => store.listDraftPaths(projectId, reportId),
+    listTouchedPaths: (projectId, reportId) => store.listTouchedPaths(projectId, reportId),
+    revertPage: async (projectId, path, revisionId, opts) => {
+      await store.revertPage(projectId, path, revisionId, opts);
+      if (path.startsWith("edges/")) {
+        const live = await store.listPages(projectId);
+        if (path in live) await reindexTouched(projectId, { [path]: live[path] });
+      }
+    },
     ...(store.presignRead
       ? { presignRead: (projectId: string, path: string) => store.presignRead!(projectId, path) }
       : {}),

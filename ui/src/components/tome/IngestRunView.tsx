@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useTheme } from "next-themes";
+import ReactDiffViewer, { DiffMethod } from "react-diff-viewer-continued";
 import { ChevronLeft, Square } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
@@ -24,6 +26,7 @@ interface RunDetail {
   finished_at: string | null;
   error: string | null;
   log: string;
+  report_id?: string | null;
   cascade_id?: string | null;
   cascade_role?: "child" | "parent" | null;
   context_usage?: {
@@ -155,6 +158,7 @@ function RunLogPane({
 }) {
   const [run, setRun] = useState<RunDetail | null>(null);
   const [stopping, setStopping] = useState(false);
+  const [tab, setTab] = useState<"log" | "diff">("log");
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const firedFinished = useRef(false);
   // Keep the latest callbacks without resubscribing the poll effect.
@@ -252,6 +256,30 @@ function RunLogPane({
           )}
         </div>
         <div className="flex items-center gap-2">
+          {run?.report_id && (
+            <div className="flex items-center rounded bg-neutral-800 p-0.5 text-[10px] uppercase tracking-wider">
+              <button
+                type="button"
+                onClick={() => setTab("log")}
+                className={cn(
+                  "rounded px-2 py-0.5",
+                  tab === "log" ? "bg-neutral-700 text-neutral-100" : "text-neutral-500 hover:text-neutral-300",
+                )}
+              >
+                Log
+              </button>
+              <button
+                type="button"
+                onClick={() => setTab("diff")}
+                className={cn(
+                  "rounded px-2 py-0.5",
+                  tab === "diff" ? "bg-neutral-700 text-neutral-100" : "text-neutral-500 hover:text-neutral-300",
+                )}
+              >
+                Diff
+              </button>
+            </div>
+          )}
           {allowStop && stoppable && (
             <button
               type="button"
@@ -263,28 +291,117 @@ function RunLogPane({
               {stopping ? "Stopping…" : "Stop"}
             </button>
           )}
-          <span className="text-[10px] uppercase tracking-wider text-neutral-500">
-            {active ? "live" : "log"}
-          </span>
+          {active && (
+            <span className="text-[10px] uppercase tracking-wider text-neutral-500">live</span>
+          )}
         </div>
       </div>
-      <ScrollArea viewportRef={scrollRef} className="flex-1">
-        <div
-          className="px-3 py-2 font-mono text-[12px] leading-relaxed"
-          style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}
-        >
-          {lines.length === 0 ? (
-            <div className="text-neutral-600">[--:--:--] · agent starting up…</div>
-          ) : (
-            lines.map((raw, i) => <FormattedLine key={i} raw={raw} />)
-          )}
-          {run?.error && (
-            <div className="mt-2 whitespace-pre-wrap break-words text-red-300">
-              [error] {run.error}
-            </div>
-          )}
-        </div>
-      </ScrollArea>
+      {tab === "diff" && run?.report_id ? (
+        <RunDiffPane slug={slug} runId={runId} />
+      ) : (
+        <ScrollArea viewportRef={scrollRef} className="flex-1">
+          <div
+            className="px-3 py-2 font-mono text-[12px] leading-relaxed"
+            style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}
+          >
+            {lines.length === 0 ? (
+              <div className="text-neutral-600">[--:--:--] · agent starting up…</div>
+            ) : (
+              lines.map((raw, i) => <FormattedLine key={i} raw={raw} />)
+            )}
+            {run?.error && (
+              <div className="mt-2 whitespace-pre-wrap break-words text-red-300">
+                [error] {run.error}
+              </div>
+            )}
+          </div>
+        </ScrollArea>
+      )}
+    </div>
+  );
+}
+
+interface DiffPage {
+  path: string;
+  oldBody: string;
+  newBody: string;
+  isNewPage: boolean;
+}
+
+/** Per-page diff of what this run changed — the "Diff" tab's content. */
+function RunDiffPane({ slug, runId }: { slug: string; runId: string }) {
+  const [pages, setPages] = useState<DiffPage[] | null>(null);
+  const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const { resolvedTheme } = useTheme();
+  const dark = resolvedTheme === "dark";
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/tome/projects/${slug}/ingests/${runId}/review`)
+      .then((r) => r.json())
+      .then((j) => {
+        if (cancelled) return;
+        const loaded = (j?.data?.pages ?? []) as DiffPage[];
+        setPages(loaded);
+        setSelectedPath(loaded[0]?.path ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setPages([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [slug, runId]);
+
+  const selected = pages?.find((p) => p.path === selectedPath) ?? null;
+
+  return (
+    <div className="flex flex-1 overflow-hidden bg-neutral-950">
+      <aside className="w-56 shrink-0 overflow-y-auto border-r border-neutral-800">
+        {pages === null ? (
+          <p className="p-3 text-xs text-neutral-500">Loading…</p>
+        ) : pages.length === 0 ? (
+          <p className="p-3 text-xs text-neutral-500">No pages changed.</p>
+        ) : (
+          <ul>
+            {pages.map((p) => (
+              <li key={p.path}>
+                <button
+                  type="button"
+                  onClick={() => setSelectedPath(p.path)}
+                  className={cn(
+                    "block w-full truncate border-b border-neutral-800 px-3 py-2 text-left text-xs text-neutral-300 hover:bg-neutral-900",
+                    selectedPath === p.path && "bg-neutral-900",
+                  )}
+                  title={p.path}
+                >
+                  {p.path}
+                  {p.isNewPage && (
+                    <span className="ml-1.5 rounded bg-emerald-900/40 px-1 py-0.5 text-[9px] font-medium uppercase tracking-wide text-emerald-300">
+                      new
+                    </span>
+                  )}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </aside>
+      <section className="min-w-0 flex-1 overflow-auto">
+        {!selected ? (
+          <p className="p-4 text-xs text-neutral-500">Pick a page on the left.</p>
+        ) : (
+          <ReactDiffViewer
+            oldValue={selected.oldBody}
+            newValue={selected.newBody}
+            splitView
+            compareMethod={DiffMethod.WORDS}
+            useDarkTheme={dark}
+            leftTitle={selected.isNewPage ? "(new page)" : "before this run"}
+            rightTitle="after this run"
+          />
+        )}
+      </section>
     </div>
   );
 }

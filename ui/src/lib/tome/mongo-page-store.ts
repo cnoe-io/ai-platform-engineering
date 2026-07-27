@@ -158,6 +158,37 @@ export class MongoPageStore implements PageStore {
       .toArray();
     return [...new Set(rows.map((r) => r.path))];
   }
+
+  async listTouchedPaths(projectId: string, reportId: string): Promise<string[]> {
+    const col = await getTomePageRevisionsCollection();
+    const rows = await col
+      .find({ project_id: projectId, report_id: reportId }, { projection: { path: 1 } })
+      .toArray();
+    return [...new Set(rows.map((r) => r.path))];
+  }
+
+  async revertPage(
+    projectId: string,
+    path: string,
+    revisionId: string,
+    opts: { author?: string; message?: string } = {},
+  ): Promise<void> {
+    const target = await this.readRevision(projectId, revisionId);
+    if (!target || target.path !== safePagePath(path)) {
+      throw new PageNotFoundError(path);
+    }
+    const col = await getTomePageRevisionsCollection();
+    await col.insertOne({
+      project_id: projectId,
+      path: target.path,
+      markdown: target.deleted ? "" : target.markdown ?? "",
+      deleted: target.deleted,
+      author: opts.author ?? DEFAULT_AUTHOR,
+      message: opts.message || `reverted to a previous revision`,
+      reverted_from: revisionId,
+      created_at: new Date(),
+    });
+  }
 }
 
 /** Thrown by readPage when a path is missing or tombstoned. */

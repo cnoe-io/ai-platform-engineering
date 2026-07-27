@@ -267,6 +267,23 @@ export function TomeWiki({ slug }: { slug: string }) {
     void load();
   }, [load]);
 
+  // Pick up out-of-band page changes (MCP edits, another tab/user, a
+  // revert) without a manual refresh: refetch on tab focus, plus a slow
+  // background poll while the tab is visible. Safe to call while a page is
+  // mid-edit — WikiPageView only applies a fresh `markdown` prop when the
+  // user isn't actively editing (see its `editorEpoch` effect).
+  useEffect(() => {
+    const onFocus = () => void load();
+    window.addEventListener("focus", onFocus);
+    const t = setInterval(() => {
+      if (document.visibilityState === "visible") void load();
+    }, 15000);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      clearInterval(t);
+    };
+  }, [load]);
+
   // Locked = an ingest is in flight. Derived from the same ingest-run signal
   // the ingest panel polls (no extra project fetch). Drives the editor's
   // read-only banner. On the running→idle transition, reload pages so the
@@ -1406,7 +1423,12 @@ export function TomeWiki({ slug }: { slug: string }) {
               </div>
             ) : view.kind === "pageHistory" ? (
               <div className="min-w-0 flex-1">
-                <PageHistoryView slug={slug} path={view.path} />
+                <PageHistoryView
+                  slug={slug}
+                  path={view.path}
+                  onReverted={load}
+                  onOpenRun={(runId) => navigate({ kind: "ingestRun", runId })}
+                />
               </div>
             ) : (
               // page

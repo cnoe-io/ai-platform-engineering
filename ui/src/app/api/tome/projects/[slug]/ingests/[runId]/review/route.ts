@@ -1,6 +1,7 @@
-// The reviewer's diff bundle for a draft run: for each changed path, the prior
-// live body (what's on the wiki now) and the drafted body (what the run wrote),
-// so a human can decide approve/reject without reading the agent's raw log.
+// The diff bundle for one run: for each changed path, the body before the run
+// touched it and the body the run wrote, so a reviewer (or anyone browsing
+// history later) can see what a run changed without reading its raw log.
+// Works for any run — a draft awaiting review, or one long since terminal.
 
 import { NextRequest } from "next/server";
 
@@ -23,24 +24,23 @@ export const GET = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
   if (!run.report_id) return successResponse({ pages: [] });
 
   const store = await getPageStore();
-  const paths = await store.listDraftPaths(projectId, run.report_id);
+  const paths = await store.listTouchedPaths(projectId, run.report_id);
 
   const pages = await Promise.all(
     paths.map(async (path) => {
       const history = await store.pageHistory(projectId, path);
-      // Newest first. The draft body: the newest revision for this report.
-      const draftRev = history.find((r) => r.report_id === run.report_id && r.status === "draft");
-      // The prior live body: the newest revision older than the draft that
-      // isn't itself a draft/rejected (i.e. what's actually on the wiki now).
-      const draftIdx = draftRev ? history.indexOf(draftRev) : -1;
-      const priorLiveRev = history
-        .slice(draftIdx + 1)
-        .find((r) => r.status !== "draft" && r.status !== "rejected");
+      // Newest first. The run's own write: the newest revision for this report.
+      const runRev = history.find((r) => r.report_id === run.report_id);
+      // What was on the wiki right before the run touched this path: the
+      // newest revision older than the run's write (any status — reading
+      // history, not gating a live read).
+      const runIdx = runRev ? history.indexOf(runRev) : -1;
+      const priorRev = history.slice(runIdx + 1)[0];
       return {
         path,
-        oldBody: priorLiveRev && !priorLiveRev.deleted ? priorLiveRev.markdown ?? "" : "",
-        newBody: draftRev ? draftRev.markdown ?? "" : "",
-        isNewPage: !priorLiveRev,
+        oldBody: priorRev && !priorRev.deleted ? priorRev.markdown ?? "" : "",
+        newBody: runRev && !runRev.deleted ? runRev.markdown ?? "" : "",
+        isNewPage: !priorRev,
       };
     }),
   );

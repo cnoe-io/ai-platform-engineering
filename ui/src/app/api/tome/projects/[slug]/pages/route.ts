@@ -18,6 +18,8 @@ import { getPageStore } from "@/lib/tome/page-store";
 import { buildTree } from "@/lib/tome/schema";
 import { seedGreenfieldIfEmpty } from "@/lib/tome/seed";
 
+export const dynamic = "force-dynamic";
+
 type Ctx = { params: Promise<{ slug: string }> };
 
 export const GET = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {

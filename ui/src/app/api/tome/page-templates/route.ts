@@ -13,6 +13,8 @@ import { authOptions } from "@/lib/auth-config";
 import { getAllPageTemplates } from "@/lib/tome/page-templates-store";
 import { isTomeServerEnabled } from "@/lib/tome/guard";
 
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   if (!isTomeServerEnabled()) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });

@@ -10,10 +10,10 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 
 /**
- * Draft review: a per-page diff of a run's drafted changes against the live
- * wiki, with Approve/Reject for the whole run. The reviewer's actual
- * decision surface — the ingest log tells you what the agent did, this tells
- * you what it's asking you to accept.
+ * Per-page diff of what one ingest run changed. For a run awaiting review,
+ * this is the reviewer's decision surface (Approve/Reject vs. what's live).
+ * For a terminal run, it's read-only — the same diff, browsed after the
+ * fact, since the log tells you what the agent DID but not what it wrote.
  */
 
 interface DraftPage {
@@ -30,17 +30,29 @@ export function DraftReviewView({
 }: {
   slug: string;
   runId: string;
-  onResolved: () => void;
+  onResolved?: () => void;
 }) {
   const [pages, setPages] = useState<DraftPage[] | null>(null);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [resolving, setResolving] = useState<"approve" | "reject" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Approve/Reject only make sense while the run is actually awaiting review —
+  // fetched here so callers can just point this at any run id (a pending
+  // draft or one long since terminal) without knowing its status upfront.
+  const [reviewable, setReviewable] = useState(false);
   const { resolvedTheme } = useTheme();
   const dark = resolvedTheme === "dark";
 
   useEffect(() => {
     let cancelled = false;
+    fetch(`/api/tome/projects/${slug}/ingests/${runId}`)
+      .then((r) => r.json())
+      .then((j) => {
+        if (!cancelled) setReviewable(j?.data?.status === "awaiting_review");
+      })
+      .catch(() => {
+        if (!cancelled) setReviewable(false);
+      });
     fetch(`/api/tome/projects/${slug}/ingests/${runId}/review`)
       .then((r) => r.json())
       .then((j) => {
@@ -68,7 +80,7 @@ export function DraftReviewView({
         const j = await res.json().catch(() => ({}));
         throw new Error(j?.error || `${action} failed (${res.status})`);
       }
-      onResolved();
+      onResolved?.();
     } catch (e) {
       setError(String((e as Error)?.message ?? e));
     } finally {
@@ -82,40 +94,42 @@ export function DraftReviewView({
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-between gap-3 border-b px-5 py-3">
         <div>
-          <p className="text-sm font-medium">Draft review</p>
+          <p className="text-sm font-medium">{reviewable ? "Draft review" : "Changed pages"}</p>
           <p className="text-xs text-muted-foreground">
             {pages === null
               ? "Loading changed pages…"
               : `${pages.length} page${pages.length === 1 ? "" : "s"} changed`}
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button
-            size="sm"
-            onClick={() => void resolve("approve")}
-            disabled={resolving !== null}
-          >
-            {resolving === "approve" ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <CheckCircle2 className="h-4 w-4" />
-            )}
-            Approve
-          </Button>
-          <Button
-            size="sm"
-            variant="destructive"
-            onClick={() => void resolve("reject")}
-            disabled={resolving !== null}
-          >
-            {resolving === "reject" ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <XCircle className="h-4 w-4" />
-            )}
-            Reject
-          </Button>
-        </div>
+        {reviewable && (
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              onClick={() => void resolve("approve")}
+              disabled={resolving !== null}
+            >
+              {resolving === "approve" ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <CheckCircle2 className="h-4 w-4" />
+              )}
+              Approve
+            </Button>
+            <Button
+              size="sm"
+              variant="destructive"
+              onClick={() => void resolve("reject")}
+              disabled={resolving !== null}
+            >
+              {resolving === "reject" ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <XCircle className="h-4 w-4" />
+              )}
+              Reject
+            </Button>
+          </div>
+        )}
       </div>
       {error && (
         <p className="border-b bg-destructive/10 px-5 py-2 text-sm text-destructive">{error}</p>

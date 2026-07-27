@@ -33,6 +33,7 @@ export const GET = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
     review_deadline: r.review_deadline ?? null,
     review_outcome: r.review_outcome ?? null,
     reviewed_by: r.reviewed_by ?? null,
+    report_id: r.report_id ?? null,
   }));
 
   return successResponse({ runs: summaries });

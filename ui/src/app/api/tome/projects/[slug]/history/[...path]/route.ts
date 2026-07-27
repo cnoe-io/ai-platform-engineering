@@ -27,6 +27,7 @@ export const GET = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
     created_at: r.created_at,
     report_id: r.report_id ?? null,
     deleted: Boolean(r.deleted),
+    reverted_from: r.reverted_from ?? null,
   }));
 
   return successResponse({ path: pagePath, revisions: summaries });

@@ -123,6 +123,28 @@ export function WikiPageView({
     setRenaming(false);
   }, [path]);
 
+  // Track content changes that landed while this page was open (an out-of-band
+  // edit picked up by the polling in TomeWiki) — surfaced as a badge on the
+  // History button. Reset on page switch or once the user opens History
+  // (they've now seen it). `openedMarkdownRef` anchors "since open" to the
+  // first markdown seen for this path, not every render.
+  const openedMarkdownRef = useRef(markdown);
+  const [changesSinceOpen, setChangesSinceOpen] = useState(0);
+  useEffect(() => {
+    // Path change: re-anchor to whatever markdown this render has. Reacting
+    // to `markdown` here too would re-arm on every content change instead
+    // of only on a page switch, so it's deliberately left out of deps.
+    openedMarkdownRef.current = markdown;
+    setChangesSinceOpen(0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [path]);
+  useEffect(() => {
+    if (markdown !== openedMarkdownRef.current) {
+      openedMarkdownRef.current = markdown;
+      setChangesSinceOpen((n) => n + 1);
+    }
+  }, [markdown]);
+
   const startRename = useCallback(() => {
     setPathDraft(path);
     setRenaming(true);
@@ -258,11 +280,20 @@ export function WikiPageView({
             <Button
               size="sm"
               variant="ghost"
-              onClick={onOpenHistory}
+              onClick={() => {
+                setChangesSinceOpen(0);
+                onOpenHistory();
+              }}
               title="Revision history & diffs"
+              className="relative"
             >
               <History className="h-4 w-4" />
               History
+              {changesSinceOpen > 0 && (
+                <span className="ml-1 rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-medium leading-none text-white">
+                  {changesSinceOpen} change{changesSinceOpen === 1 ? "" : "s"} since open
+                </span>
+              )}
             </Button>
           )}
           {!locked && <KindToggle currentKind={kind} onChange={handleChangeKind} />}
