@@ -149,7 +149,9 @@
         "http://localhost:8085",
         "http://localhost:8085/*",
         "http://127.0.0.1:8085",
-        "http://127.0.0.1:8085/*"
+        "http://127.0.0.1:8085/*",
+        "cursor://anysphere.cursor-mcp/oauth/callback",
+        "cursor://anysphere.cursor-mcp/*"
       ],
       "webOrigins": [
         "http://localhost:8085",

@@ -1,65 +1,48 @@
 /**
  * @jest-environment jsdom
  *
- * McpConnectDialog — progressive disclosure + key lifecycle (#171):
- *  1. Client config tabs are hidden until a key is generated.
- *  2. Generating a key reveals the config tabs and the one-time token.
- *  3. An existing active key is surfaced before generating a new one.
+ * McpConnectDialog — OAuth client setup:
+ *  1. Client configuration is available without generating an API key.
+ *  2. OAuth setup is provided for each supported MCP client.
  */
 
 import React from "react";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 
 import { McpConnectDialog } from "../McpConnectDialog";
-
-beforeEach(() => {
-  global.fetch = jest.fn();
-});
 
 afterEach(() => {
   jest.restoreAllMocks();
 });
 
-function mockFetchImpl(opts: { hasActiveKey?: boolean; expiresAt?: string } = {}) {
-  (global.fetch as jest.Mock).mockImplementation((url: string, init?: RequestInit) => {
-    if (!init || init.method === undefined) {
-      // GET /api/skills/token status check
-      return Promise.resolve({
-        ok: true,
-        json: async () => ({
-          has_active_key: !!opts.hasActiveKey,
-          expires_at: opts.expiresAt,
-        }),
-      });
-    }
-    // POST /api/skills/token generate
-    return Promise.resolve({
-      ok: true,
-      json: async () => ({ token: "generated-token-value", token_type: "Bearer", expires_in: 7776000 }),
-    });
-  });
-}
-
 describe("McpConnectDialog", () => {
-  it("hides client config tabs until a key is generated", async () => {
-    mockFetchImpl();
+  it("shows OAuth client configuration without generating an API key", () => {
     render(<McpConnectDialog initialOpen />);
 
-    expect(screen.queryByText("Client configuration")).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: /generate key/i }));
-
-    await waitFor(() => expect(screen.getByText("Client configuration")).toBeInTheDocument());
-    expect(screen.getByText("generated-token-value")).toBeInTheDocument();
+    expect(screen.getByText("Client configuration")).toBeInTheDocument();
+    expect(screen.getByText(/all three sign in via oauth/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /generate|regenerate/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/claude mcp add --scope user/)).toBeInTheDocument();
   });
 
-  it("surfaces an existing active key before generating a new one", async () => {
-    mockFetchImpl({ hasActiveKey: true, expiresAt: "2026-12-01T00:00:00.000Z" });
+  it("provides OAuth setup for Claude Desktop and Cursor", () => {
     render(<McpConnectDialog initialOpen />);
 
-    await waitFor(() =>
-      expect(screen.getByText(/you already have an active key/i)).toBeInTheDocument(),
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Claude Desktop" }), {
+      button: 0,
+      ctrlKey: false,
+    });
+    expect(screen.getByText(/claude_desktop_config\.json/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /download mcp bundle/i })).toHaveAttribute(
+      "href",
+      "/api/tome/mcp/bundle",
     );
-    expect(screen.getByRole("button", { name: /regenerate/i })).toBeInTheDocument();
+
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Cursor" }), {
+      button: 0,
+      ctrlKey: false,
+    });
+    expect(screen.getByText(/^\.cursor\/mcp\.json$/)).toBeInTheDocument();
+    expect(screen.getByText(/"CLIENT_ID": "caipe-cli"/)).toBeInTheDocument();
   });
 });

@@ -1,15 +1,16 @@
-// Tome MCP server — exposes Tome projects to MCP clients (Claude Code, Cursor,
+// Tome MCP server - exposes Tome projects to MCP clients (Claude Code, Cursor,
 // etc.) over the Streamable-HTTP transport (JSON-RPC 2.0 on a single POST).
 //
 //   POST /api/tome/mcp   { jsonrpc, id, method, params }
 //
-// Auth: standard caipe-ui auth (`getAuthFromBearerOrSession`) — a session
-// cookie OR an `Authorization: Bearer <token>` header. Programmatic MCP clients
-// use a *local skills API token* minted at POST /api/skills/token (surfaced in
-// the Tome header's "Connect" dialog). Every tool re-enters the existing
-// authenticated `/api/...` routes with the caller's credentials forwarded, so
-// per-user RBAC is identical to the web UI — this route adds no new data path,
-// only an MCP shell over the routes that already exist.
+// Auth: standard caipe-ui auth (`getAuthFromBearerOrSession`) - a session
+// cookie, an OAuth/PKCE-issued Keycloak access token (the path the Tome
+// header's "Connect" dialog now sets up for all three clients), or a static
+// *local skills API token* minted at POST /api/skills/token for other bearer-
+// token integrations. Every tool re-enters the existing authenticated
+// `/api/...` routes with the caller's credentials forwarded, so per-user RBAC
+// is identical to the web UI - this route adds no new data path, only an MCP
+// shell over the routes that already exist.
 //
 // Hand-rolled rather than pulling in @modelcontextprotocol/sdk: the wire
 // protocol is plain JSON-RPC and we only implement initialize / tools/list /
@@ -95,7 +96,7 @@ function makeForward(request: NextRequest): Forward {
     try {
       json = text ? JSON.parse(text) : null;
     } catch {
-      /* non-JSON (e.g. an HTML error page) — leave json null, expose text */
+      /* non-JSON (e.g. an HTML error page) - leave json null, expose text */
     }
     return { status: res.status, json, text };
   };
@@ -982,13 +983,35 @@ export async function POST(request: NextRequest) {
     return new NextResponse("Not found", { status: 404 });
   }
 
-  // Authenticate the transport. Bearer (skills API token) or session cookie.
+  // Authenticate the transport. Bearer (skills API token, or a Keycloak access
+  // token from the OAuth/PKCE flow) or session cookie.
   try {
     await getAuthFromBearerOrSession(request);
   } catch {
+    // Point clients at our RFC 9728 metadata so they can discover the
+    // authorization server and run the OAuth flow (Claude Code et al.). Behind
+    // a proxy, request.url is the internal bind address, so prefer the public
+    // base (NEXTAUTH_URL), then forwarded headers, then the request origin.
+    const env = process.env.TOME_PUBLIC_ORIGIN || process.env.NEXTAUTH_URL;
+    let origin: string;
+    try {
+      origin = env ? new URL(env).origin : new URL(request.url).origin;
+    } catch {
+      origin = new URL(request.url).origin;
+    }
+    const xfHost = request.headers.get("x-forwarded-host");
+    if (!env && xfHost) {
+      origin = `${request.headers.get("x-forwarded-proto") || "https"}://${xfHost}`;
+    }
+    const resourceMetadata = `${origin}/.well-known/oauth-protected-resource`;
     return NextResponse.json(
-      rpcError(null, -32001, "Unauthorized — provide a valid bearer token."),
-      { status: 401, headers: { "WWW-Authenticate": 'Bearer realm="tome-mcp"' } },
+      rpcError(null, -32001, "Unauthorized: authenticate, or provide a valid bearer token."),
+      {
+        status: 401,
+        headers: {
+          "WWW-Authenticate": `Bearer realm="tome-mcp", resource_metadata="${resourceMetadata}"`,
+        },
+      },
     );
   }
 

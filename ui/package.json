@@ -71,6 +71,7 @@
     "lucide-react": "1.7.0",
     "marked": "18.0.2",
     "marked-shiki": "1.2.1",
+    "mcp-remote": "0.1.38",
     "mongodb": "7.1.1",
     "morphdom": "2.7.8",
     "next": "16.2.6",

@@ -148,8 +148,21 @@ export async function validateBearerJWT(
   const issuer = process.env.OIDC_ISSUER;
 
   if (!issuer) {
-    throw new Error('OIDC_ISSUER is not configured — Bearer JWT validation is unavailable');
+    throw new Error('OIDC_ISSUER is not configured; Bearer JWT validation is unavailable');
   }
+
+  // Accept tokens from additional issuers when explicitly configured. Needed
+  // when the same realm is reachable under more than one issuer URL, e.g. the
+  // MCP OAuth/PKCE flow runs against the public Keycloak hostname while the UI
+  // validates against the in-cluster one. `jose` treats an issuer array as
+  // "the token's `iss` MUST match one of these". Defaults to the single
+  // OIDC_ISSUER, so behavior is unchanged unless OIDC_ACCEPTED_ISSUERS is set.
+  const acceptedIssuers: string[] = [issuer];
+  for (const i of (process.env.OIDC_ACCEPTED_ISSUERS || '').split(',').map((s) => s.trim()).filter(Boolean)) {
+    if (!acceptedIssuers.includes(i)) acceptedIssuers.push(i);
+  }
+  const issuerOption: string | string[] =
+    acceptedIssuers.length === 1 ? acceptedIssuers[0] : acceptedIssuers;
 
   const jwks = await getJWKS();
   // Build the accepted audience list. `jose.jwtVerify` treats an array as
@@ -184,10 +197,10 @@ export async function validateBearerJWT(
 
   try {
     const { payload } = await jwtVerify(token, jwks, {
-      issuer,
+      issuer: issuerOption,
       audience,
     });
-    jwtDebugLog(`[jwt] Validated via primary JWKS (iss=${issuer})`);
+    jwtDebugLog(`[jwt] Validated via primary JWKS (iss=${acceptedIssuers.join(',')})`);
     return extractIdentity(payload);
   } catch (primaryError) {
     // Only fall back to additional JWKS on key-not-found errors.

@@ -1,5 +1,7 @@
 import type { NextConfig } from "next";
 
+import { MCP_REMOTE_DEPENDENCIES } from "./src/lib/tome/mcpb/mcp-remote-dependencies";
+
 const nextConfig: NextConfig = {
   output: "standalone",
 
@@ -12,6 +14,18 @@ const nextConfig: NextConfig = {
 
   // No NEXT_PUBLIC_* env vars needed — config is served via GET /api/config
   // and consumed client-side through the ConfigProvider + useConfig() hook.
+
+  // The Tome MCP bundle route reads mcp-remote (and its full dependency
+  // closure — express, open, etc.) off disk to zip into a downloadable
+  // .mcpb, rather than importing them as JS modules, so Next's static-import
+  // tracer never detects the dependency on its own. Force the whole closure
+  // into that route's standalone trace explicitly; see
+  // src/lib/tome/mcpb/mcp-remote-dependencies.ts for why this is a computed
+  // list rather than just "mcp-remote/**/*" (its deps are hoisted, not
+  // nested under node_modules/mcp-remote).
+  outputFileTracingIncludes: {
+    "/api/tome/mcp/bundle": MCP_REMOTE_DEPENDENCIES.map((pkg) => `./node_modules/${pkg}/**/*`),
+  },
 
   typescript: {
     // Local Docker rebuilds can opt out of Next's duplicate typecheck for speed.
