@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Plug, Sparkles } from "lucide-react";
+import { Plug } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { CopyButton } from "@/components/ui/copy-button";
@@ -106,23 +106,11 @@ export function McpConnectDialog({ initialOpen = false }: { initialOpen?: boolea
           </DialogTitle>
           <DialogDescription>
             Use these TOME projects from an MCP client (Claude Code, Claude Desktop, Cursor). All
-            three sign in via OAuth — no API key needed.
+            three sign in via OAuth in your browser.
           </DialogDescription>
         </DialogHeader>
 
         <div className="min-w-0 space-y-5">
-          {/* Teaser: a one-command Claude Code plugin is in the works. */}
-          <div className="flex items-start gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm">
-            <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-            <div>
-              <span className="font-medium text-foreground">Claude plugin coming soon.</span>
-              <span className="text-muted-foreground">
-                {" "}One-command setup with a <code>/tome</code> command and a
-                project-aware skill. For now, use the manual config below.
-              </span>
-            </div>
-          </div>
-
           {/* Client config */}
           <div className="min-w-0 space-y-1.5">
             <label className="text-sm font-medium">Client configuration</label>
@@ -134,38 +122,39 @@ export function McpConnectDialog({ initialOpen = false }: { initialOpen?: boolea
               </TabsList>
               <TabsContent value="claude-code" className="min-w-0 space-y-1.5">
                 <p className="text-xs text-muted-foreground">
-                  Signs in via native OAuth — no API key needed. Run this once, then{" "}
-                  <code>/mcp</code> shows <code>tome</code>.
+                  Run this once, then run <code>/mcp</code> to confirm <code>tome</code> is
+                  connected.
                 </p>
                 <ConfigBlock text={claudeCodeCommand(endpoint)} />
               </TabsContent>
               <TabsContent value="claude" className="min-w-0 space-y-1.5">
                 <p className="text-xs text-muted-foreground">
-                  Many organizations block installing Desktop Extensions (.mcpb bundles) via
-                  policy. Add this to <code>claude_desktop_config.json</code> (Settings →
-                  Developer → Edit Config) — no API key needed, you&apos;ll sign in via your
-                  browser the first time a Tome tool is used.
+                  Download and double-click to install, then sign in via your browser when a
+                  Tome tool is first used.
                 </p>
-                <ConfigBlock
-                  text={claudeDesktopManualConfig(endpoint, endpoint.startsWith("http://"))}
-                />
+                <Button asChild size="sm" className="gap-1.5">
+                  <a href="/api/tome/mcp/bundle" download>
+                    <Plug className="h-3.5 w-3.5" />
+                    Download MCP Bundle
+                  </a>
+                </Button>
                 <div className="mt-2 space-y-1.5">
                   <p className="text-xs text-muted-foreground">
-                    If Desktop Extensions are allowed in your environment, this is simpler:
-                    download and double-click to install.
+                    Some organizations block installing Desktop Extensions (.mcpb bundles) via
+                    policy. If yours does, add this to <code>claude_desktop_config.json</code>{" "}
+                    instead (Settings → Developer → Edit Config), then restart Claude Desktop for
+                    it to take effect.
                   </p>
-                  <Button asChild size="sm" className="gap-1.5">
-                    <a href="/api/tome/mcp/bundle" download>
-                      <Plug className="h-3.5 w-3.5" />
-                      Download MCP Bundle
-                    </a>
-                  </Button>
+                  <ConfigBlock
+                    text={claudeDesktopManualConfig(endpoint, endpoint.startsWith("http://"))}
+                  />
                 </div>
               </TabsContent>
               <TabsContent value="cursor" className="min-w-0 space-y-1.5">
                 <p className="text-xs text-muted-foreground">
-                  Signs in via OAuth — no API key needed. Add to <code>.cursor/mcp.json</code>{" "}
-                  (project) or <code>~/.cursor/mcp.json</code> (global).
+                  Add to <code>.cursor/mcp.json</code> (project) or{" "}
+                  <code>~/.cursor/mcp.json</code> (global), then sign in via your browser when a
+                  Tome tool is first used.
                 </p>
                 <ConfigBlock text={cursorConfig(endpoint)} />
               </TabsContent>
