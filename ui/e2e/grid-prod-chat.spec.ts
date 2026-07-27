@@ -1,17 +1,20 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { allGridProdScenarios, type GridProdScenario } from "./fixtures/grid-prod-scenarios";
 
 const defaultGridChatUrl = "https://grid.outshift.io/chat";
 const gridChatUrl = process.env.GRID_CHAT_URL || defaultGridChatUrl;
 const gridStorageState = process.env.GRID_STORAGE_STATE;
-const gridAuthTimeoutMs = Number(process.env.GRID_AUTH_TIMEOUT_MS || 30_000);
+const gridSaveStorageState = process.env.GRID_SAVE_STORAGE_STATE;
+const gridInteractiveSso = process.env.GRID_INTERACTIVE_SSO === "true";
+const defaultGridAuthTimeoutMs = gridInteractiveSso ? 600_000 : 30_000;
+const gridAuthTimeoutMs = Number(process.env.GRID_AUTH_TIMEOUT_MS || defaultGridAuthTimeoutMs);
 const shouldRunGridProd = process.env.RUN_GRID_PROD === "true";
 const scenarios = loadGridScenarios();
 
 test.describe("GRID prod chat scenarios", () => {
   test.skip(!shouldRunGridProd, "Set RUN_GRID_PROD=true to run against the live GRID chat app.");
-  test.use(gridStorageState ? { storageState: gridStorageState } : {});
+  test.use(gridStorageState && existsSync(gridStorageState) ? { storageState: gridStorageState } : {});
   test.describe.configure({ mode: "serial" });
 
   test("opens the configured GRID chat", async ({ page }) => {
@@ -58,16 +61,28 @@ async function openGridChat(page: Page): Promise<Locator> {
 
   const input = await waitForChatInput(page);
   await expect(input).toBeVisible({ timeout: 5_000 });
+  await saveGridStorageState(page);
   return input;
 }
 
 async function waitForChatInput(page: Page): Promise<Locator> {
   const deadline = Date.now() + gridAuthTimeoutMs;
   let authSignal = "chat input was not visible";
+  let clickedInteractiveSso = false;
 
   while (Date.now() < deadline) {
     const input = await chatInput(page);
     if (await isVisible(input)) return input;
+
+    if (gridInteractiveSso && !clickedInteractiveSso) {
+      const clicked = await clickSsoButton(page);
+      if (clicked) {
+        clickedInteractiveSso = true;
+        authSignal = "clicked the SSO sign-in control and is waiting for interactive login to finish";
+        await page.waitForTimeout(2_000);
+        continue;
+      }
+    }
 
     authSignal = await currentAuthSignal(page);
     await page.waitForTimeout(1_000);
@@ -90,27 +105,53 @@ async function isVisible(locator: Locator): Promise<boolean> {
   return locator.isVisible().catch(() => false);
 }
 
+async function clickSsoButton(page: Page): Promise<boolean> {
+  const signInButton = await signInControl(page);
+  if (!(await isVisible(signInButton))) return false;
+
+  const beforeUrl = page.url();
+  await Promise.all([
+    page.waitForURL((url) => url.toString() !== beforeUrl, { timeout: 15_000 }).catch(() => undefined),
+    signInButton.click({ timeout: 10_000 }),
+  ]);
+  return true;
+}
+
 async function currentAuthSignal(page: Page): Promise<string> {
   if (await isVisible(page.getByText(/Checking authentication/i).first())) {
     return "'Checking authentication...' is still visible";
   }
 
-  if (await isVisible(page.getByRole("button", { name: /sign in|log in|login/i }).first())) {
+  if (await isVisible(await signInControl(page))) {
     return "a sign-in control is visible";
   }
 
-  if (/\/login|authorize|oauth|sso|okta/i.test(page.url())) {
+  if (/\/login|authorize|oauth|sso|okta|duosecurity|idp\.grid\.outshift\.io/i.test(page.url())) {
     return `browser is on an auth URL: ${page.url()}`;
   }
 
   return "chat input was not visible";
 }
 
+async function signInControl(page: Page): Promise<Locator> {
+  const name = /sign in with sso|sign in|log in|login/i;
+  const button = page.getByRole("button", { name }).first();
+  if (await button.count()) return button;
+
+  return page.getByRole("link", { name }).first();
+}
+
+async function saveGridStorageState(page: Page) {
+  if (!gridSaveStorageState) return;
+
+  await page.context().storageState({ path: gridSaveStorageState });
+}
+
 function liveAuthError(url: string, authSignal: string): string {
   return [
     `GRID live chat is not authenticated: ${authSignal} at ${url}.`,
     "Playwright runs in an isolated browser context, so your regular Chrome SSO cookies are not shared.",
-    "Create a storage state file with SSO cookies, then rerun with GRID_STORAGE_STATE=./e2e/.auth/grid-prod.json.",
+    "Create a storage state file with SSO cookies, or rerun with GRID_INTERACTIVE_SSO=true in Playwright UI mode.",
   ].join(" ");
 }
 
