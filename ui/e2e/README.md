@@ -43,6 +43,7 @@ open Cisco/Duo SSO for you:
 ```bash
 RUN_GRID_PROD=true \
 GRID_INTERACTIVE_SSO=true \
+GRID_SSO_EMAIL="you@cisco.com" \
 GRID_SAVE_STORAGE_STATE="./e2e/.auth/grid-prod.json" \
 GRID_CHAT_URL="https://grid.outshift.io/chat" \
 GRID_SCENARIOS_PATH="./e2e/fixtures/grid-prod-scenarios.example.json" \
@@ -51,7 +52,9 @@ npm run test:e2e:ui
 
 When the GRID login page appears, the spec clicks **Sign in with SSO**. Complete
 Cisco/Duo login in the Playwright browser window and wait for GRID chat to load.
-The test saves the resulting session to `GRID_SAVE_STORAGE_STATE`.
+If `GRID_SSO_EMAIL` is set, the spec fills the Duo email step and clicks
+**Next** before handing control back for password and MFA. The test saves the
+resulting session to `GRID_SAVE_STORAGE_STATE`.
 
 You can also create a local storage-state file ahead of time:
 

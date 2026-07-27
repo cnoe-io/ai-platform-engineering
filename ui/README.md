@@ -102,7 +102,7 @@ click **Sign in with SSO** so you can enter Cisco/Duo credentials in the test
 browser:
 
 ```bash
-RUN_GRID_PROD=true GRID_INTERACTIVE_SSO=true GRID_SAVE_STORAGE_STATE="./e2e/.auth/grid-prod.json" npm run test:e2e:ui
+RUN_GRID_PROD=true GRID_INTERACTIVE_SSO=true GRID_SSO_EMAIL="you@cisco.com" GRID_SAVE_STORAGE_STATE="./e2e/.auth/grid-prod.json" npm run test:e2e:ui
 ```
 
 The legacy use-case gallery/builder checks are tracked as pending because latest main exposes Workflows instead of the older `/use-cases` route.
