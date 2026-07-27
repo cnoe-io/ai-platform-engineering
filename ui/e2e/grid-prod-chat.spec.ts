@@ -7,6 +7,7 @@ const gridChatUrl = process.env.GRID_CHAT_URL || defaultGridChatUrl;
 const gridStorageState = process.env.GRID_STORAGE_STATE;
 const gridSaveStorageState = process.env.GRID_SAVE_STORAGE_STATE;
 const gridInteractiveSso = process.env.GRID_INTERACTIVE_SSO === "true";
+const gridSsoEmail = process.env.GRID_SSO_EMAIL;
 const defaultGridAuthTimeoutMs = gridInteractiveSso ? 600_000 : 30_000;
 const gridAuthTimeoutMs = Number(process.env.GRID_AUTH_TIMEOUT_MS || defaultGridAuthTimeoutMs);
 const shouldRunGridProd = process.env.RUN_GRID_PROD === "true";
@@ -69,6 +70,7 @@ async function waitForChatInput(page: Page): Promise<Locator> {
   const deadline = Date.now() + gridAuthTimeoutMs;
   let authSignal = "chat input was not visible";
   let clickedInteractiveSso = false;
+  let filledInteractiveEmail = false;
 
   while (Date.now() < deadline) {
     const input = await chatInput(page);
@@ -79,6 +81,16 @@ async function waitForChatInput(page: Page): Promise<Locator> {
       if (clicked) {
         clickedInteractiveSso = true;
         authSignal = "clicked the SSO sign-in control and is waiting for interactive login to finish";
+        await page.waitForTimeout(2_000);
+        continue;
+      }
+    }
+
+    if (gridInteractiveSso && gridSsoEmail && !filledInteractiveEmail) {
+      const filled = await fillSsoEmail(page, gridSsoEmail);
+      if (filled) {
+        filledInteractiveEmail = true;
+        authSignal = "filled the SSO email and is waiting for password/MFA to finish";
         await page.waitForTimeout(2_000);
         continue;
       }
@@ -117,6 +129,30 @@ async function clickSsoButton(page: Page): Promise<boolean> {
   return true;
 }
 
+async function fillSsoEmail(page: Page, email: string): Promise<boolean> {
+  if (!/duosecurity|email_first|idp\.grid\.outshift\.io|authorize/i.test(page.url())) return false;
+
+  const emailInput = await ssoEmailInput(page);
+  if (!(await isVisible(emailInput))) return false;
+
+  const currentValue = await emailInput.inputValue().catch(() => "");
+  if (currentValue.trim().toLowerCase() !== email.trim().toLowerCase()) {
+    await emailInput.fill(email);
+  }
+
+  const nextButton = page.getByRole("button", { name: /^next$/i }).first();
+  if (await isVisible(nextButton)) {
+    await expect(nextButton).toBeEnabled({ timeout: 10_000 });
+    const beforeUrl = page.url();
+    await Promise.all([
+      page.waitForURL((url) => url.toString() !== beforeUrl, { timeout: 15_000 }).catch(() => undefined),
+      nextButton.click({ timeout: 10_000 }),
+    ]);
+  }
+
+  return true;
+}
+
 async function currentAuthSignal(page: Page): Promise<string> {
   if (await isVisible(page.getByText(/Checking authentication/i).first())) {
     return "'Checking authentication...' is still visible";
@@ -139,6 +175,19 @@ async function signInControl(page: Page): Promise<Locator> {
   if (await button.count()) return button;
 
   return page.getByRole("link", { name }).first();
+}
+
+async function ssoEmailInput(page: Page): Promise<Locator> {
+  const byLabel = page.getByLabel(/email address|email|username/i).first();
+  if (await byLabel.count()) return byLabel;
+
+  const byPlaceholder = page.getByPlaceholder(/email address|email|username/i).first();
+  if (await byPlaceholder.count()) return byPlaceholder;
+
+  const typedInput = page.locator("input[type='email'], input[name*='email' i], input[id*='email' i], input[autocomplete='username']").first();
+  if (await typedInput.count()) return typedInput;
+
+  return page.locator("input").first();
 }
 
 async function saveGridStorageState(page: Page) {
