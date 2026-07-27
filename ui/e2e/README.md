@@ -37,7 +37,23 @@ npm run test:e2e:grid
 Use `GRID_SCENARIOS_PATH` for scenarios exported from the Confluence deployment testing page, or set `GRID_SCENARIOS_JSON` to an inline JSON array with the same shape.
 
 Live GRID tests need an authenticated GRID session. Playwright does not reuse
-your normal Chrome SSO cookies, so create a local storage-state file once:
+your normal Chrome SSO cookies. In Playwright UI mode, you can let the spec
+open Cisco/Duo SSO for you:
+
+```bash
+RUN_GRID_PROD=true \
+GRID_INTERACTIVE_SSO=true \
+GRID_SAVE_STORAGE_STATE="./e2e/.auth/grid-prod.json" \
+GRID_CHAT_URL="https://grid.outshift.io/chat" \
+GRID_SCENARIOS_PATH="./e2e/fixtures/grid-prod-scenarios.example.json" \
+npm run test:e2e:ui
+```
+
+When the GRID login page appears, the spec clicks **Sign in with SSO**. Complete
+Cisco/Duo login in the Playwright browser window and wait for GRID chat to load.
+The test saves the resulting session to `GRID_SAVE_STORAGE_STATE`.
+
+You can also create a local storage-state file ahead of time:
 
 ```bash
 mkdir -p e2e/.auth
@@ -56,4 +72,4 @@ GRID_SCENARIOS_PATH="./e2e/fixtures/grid-prod-scenarios.example.json" \
 npm run test:e2e:grid
 ```
 
-Use the same `GRID_STORAGE_STATE` variable with `npm run test:e2e:ui` for Playwright UI mode. The `e2e/.auth/` directory is ignored and must not be committed.
+Use the same `GRID_STORAGE_STATE` variable with `npm run test:e2e:ui` for Playwright UI mode. Omit `GRID_STORAGE_STATE` when you want to force a fresh interactive SSO login. The `e2e/.auth/` directory is ignored and must not be committed.
