@@ -21,6 +21,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { ChildProjectsPanel } from "@/components/tome/BhagProjectsPanel";
+import { PanelShell } from "@/components/tome/PanelHeader";
 import { ProviderLogo } from "@/components/credentials/provider-logo";
 import { preflightState, type PreflightSourceResult } from "@/lib/tome/preflight";
 import { cn } from "@/lib/utils";
@@ -453,22 +454,16 @@ export function IngestPanel({
 
   return (
     <>
-      <ScrollArea className="h-full">
-        <div className="mx-auto max-w-2xl space-y-5 px-6 py-8">
-
-          {/* Header */}
-          <div>
-            <h2 className="text-lg font-semibold">
-              {isSynthesized
-                ? `Synthesize ${entityKind === "area" ? "Area" : "BHAG"}`
-                : "Run ingest"}
-            </h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {isSynthesized
-                ? `Synthesize this ${entityKind === "area" ? "area's" : "BHAG's"} wiki from the projects tagged to it. The agent reads their wikis. ${entityKind === "area" ? "An area" : "A BHAG"} has no sources of its own.`
-                : "Re-run the agent over this project's sources to refresh the dynamic wiki."}
-            </p>
-          </div>
+      <PanelShell
+        title={
+          isSynthesized ? `Synthesize ${entityKind === "area" ? "Area" : "BHAG"}` : "Run ingest"
+        }
+        description={
+          isSynthesized
+            ? `Synthesize this ${entityKind === "area" ? "area's" : "BHAG's"} wiki from the projects tagged to it. The agent reads their wikis. ${entityKind === "area" ? "An area" : "A BHAG"} has no sources of its own.`
+            : "Re-run the agent over this project's sources to refresh the dynamic wiki."
+        }
+      >
 
           {/* Synthesized: the projects rolled up, in place of source preflight. */}
           {isSynthesized ? (
@@ -866,8 +861,7 @@ export function IngestPanel({
             </div>
             {error && <p className="mt-2 text-sm text-destructive">{error}</p>}
           </div>
-        </div>
-      </ScrollArea>
+      </PanelShell>
 
       <RunsDialog
         open={runsOpen}

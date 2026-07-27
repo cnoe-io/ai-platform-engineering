@@ -17,6 +17,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { PanelHeader } from "@/components/tome/PanelHeader";
 import { TomeLoading } from "@/components/tome/TomeLoading";
 import { cn } from "@/lib/utils";
 
@@ -100,6 +101,14 @@ export function GistsPanel({
 
   return (
     <div className="flex h-full flex-col">
+      <div className="mx-auto w-full max-w-4xl px-6 pt-6">
+        <PanelHeader
+          title="Gists"
+          description="Quick, non-committal context saved outside the wiki."
+          action={<NewGistDialog slug={slug} onCreated={(gist) => onOpenGist(gist.id)} />}
+        />
+      </div>
+
       {error && (
         <p className="border-b bg-destructive/10 px-4 py-2 text-sm text-destructive">{error}</p>
       )}
@@ -117,10 +126,9 @@ export function GistsPanel({
               Save a working prompt, a deploy note, or an agent memory here, it stays out of the
               wiki until someone chooses to pull it in.
             </p>
-            <NewGistDialog slug={slug} onCreated={(gist) => onOpenGist(gist.id)} />
           </div>
         ) : (
-          <div className="mx-auto max-w-4xl p-4">
+          <div className="mx-auto max-w-4xl px-6 py-4">
             <div className="mb-3 flex items-center justify-between gap-3">
               {allTags.length > 0 ? (
                 <div className="flex flex-wrap items-center gap-1.5">
@@ -155,7 +163,6 @@ export function GistsPanel({
               ) : (
                 <div />
               )}
-              <NewGistDialog slug={slug} onCreated={(gist) => onOpenGist(gist.id)} />
             </div>
             <ul className="flex flex-col gap-2">
               {visible.map((gist) => (

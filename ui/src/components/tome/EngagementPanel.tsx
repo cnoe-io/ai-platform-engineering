@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Activity, FileText, HardDrive, MessageCircle, RefreshCw, Users } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { PanelShell } from "@/components/tome/PanelHeader";
 import { TomeLoading } from "@/components/tome/TomeLoading";
 import { formatBytes, formatTimeAgo, formatTokens } from "@/lib/tome/format";
 import { cn } from "@/lib/utils";
@@ -91,23 +92,16 @@ export function EngagementPanel({ slug }: { slug: string }) {
   const activeIngest = consumption?.activeIngest;
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6 p-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="flex items-center gap-2 text-lg font-semibold">
-            <Activity className="h-5 w-5" />
-            Insights
-          </h2>
-          <p className="text-sm text-muted-foreground">
-            How this project&apos;s wiki and chat are being used.
-          </p>
-        </div>
+    <PanelShell
+      title="Insights"
+      description="How this project's wiki and chat are being used."
+      action={
         <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading}>
           <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
           Refresh
         </Button>
-      </div>
-
+      }
+    >
       {error && (
         <p className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
           {error}
@@ -176,6 +170,6 @@ export function EngagementPanel({ slug }: { slug: string }) {
           />
         </div>
       </section>
-    </div>
+    </PanelShell>
   );
 }

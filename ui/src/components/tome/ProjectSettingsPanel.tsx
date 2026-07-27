@@ -22,6 +22,7 @@ import { UserEmailPicker } from "@/components/ui/user-email-picker";
 import { SourcesEditor } from "@/components/projects/source-pickers/SourcesEditor";
 import { useProjectSourceKinds } from "@/components/projects/source-pickers/useProjectSourceKinds";
 import { ChildProjectsPanel } from "@/components/tome/BhagProjectsPanel";
+import { PanelHeader } from "@/components/tome/PanelHeader";
 import { TomeLoading } from "@/components/tome/TomeLoading";
 import { normLabel } from "@/lib/projects/labels";
 import type { ProjectDocument, ProjectSources, ProjectType } from "@/types/projects";
@@ -409,13 +410,11 @@ export function ProjectSettingsPanel({
   return (
     <div className="flex h-full flex-col">
       <ScrollArea className="flex-1">
-        <div className="mx-auto max-w-3xl space-y-5 p-6">
-          <div>
-            <h1 className="text-lg font-semibold">Project settings</h1>
-            <p className="text-sm text-muted-foreground">
-              Reconfigure this project. Changes apply to future ingests.
-            </p>
-          </div>
+        <div className="mx-auto max-w-4xl space-y-6 p-6">
+          <PanelHeader
+            title="Project settings"
+            description="Reconfigure this project. Changes apply to future ingests."
+          />
 
           {/* General */}
           <Section title="General">
