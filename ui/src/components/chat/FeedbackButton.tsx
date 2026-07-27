@@ -53,7 +53,6 @@ export function FeedbackButton({
 
   const reportProblemEnabled = getConfig("reportProblemEnabled");
   const ticketEnabled = getConfig("ticketEnabled");
-  const ticketProvider = getConfig("ticketProvider");
 
   const handleThumbClick = (type: FeedbackType, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -273,7 +272,7 @@ export function FeedbackButton({
               className="w-full gap-2"
             >
               {isSubmittingCombo && <Loader2 className="h-3 w-3 animate-spin" />}
-              Submit &amp; Report {ticketProvider === "jira" ? "Jira" : "GitHub"} Issue
+              Submit &amp; Create Issue
             </Button>
           )}
         </div>

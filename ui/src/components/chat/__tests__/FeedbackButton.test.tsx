@@ -50,7 +50,6 @@ jest.mock("lucide-react", () => ({
 
 let mockReportProblemEnabled = false;
 let mockTicketEnabled = false;
-let mockTicketProvider: string | null = null;
 
 jest.mock("@/lib/config", () => ({
   getConfig: (key: string) => {
@@ -59,8 +58,6 @@ jest.mock("@/lib/config", () => ({
         return mockReportProblemEnabled;
       case "ticketEnabled":
         return mockTicketEnabled;
-      case "ticketProvider":
-        return mockTicketProvider;
       default:
         return null;
     }
@@ -484,23 +481,21 @@ describe("FeedbackButton", () => {
     beforeEach(() => {
       mockReportProblemEnabled = true;
       mockTicketEnabled = true;
-      mockTicketProvider = "jira";
     });
 
     afterEach(() => {
       mockReportProblemEnabled = false;
       mockTicketEnabled = false;
-      mockTicketProvider = null;
     });
 
-    it("shows 'Submit & Report Jira Issue' button on dislike", () => {
+    it("shows 'Submit & Create Issue' button on dislike", () => {
       render(
         <FeedbackButton
           messageId="msg-1"
           feedback={{ type: "dislike", reason: "Inaccurate", showFeedbackOptions: true }}
         />
       );
-      expect(screen.getByText(/Submit & Report Jira Issue/)).toBeInTheDocument();
+      expect(screen.getByText("Submit & Create Issue")).toBeInTheDocument();
     });
 
     it("does NOT show combo button on positive feedback", () => {
@@ -510,7 +505,7 @@ describe("FeedbackButton", () => {
           feedback={{ type: "like", reason: "Very Helpful", showFeedbackOptions: true }}
         />
       );
-      expect(screen.queryByText(/Submit & Report/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Submit & Create/)).not.toBeInTheDocument();
     });
 
     it("shows 'Report a Problem' link on dislike", () => {
@@ -543,7 +538,7 @@ describe("FeedbackButton", () => {
         />
       );
 
-      fireEvent.click(screen.getByText(/Submit & Report Jira Issue/));
+      fireEvent.click(screen.getByText("Submit & Create Issue"));
 
       await waitFor(() => {
         expect(mockSubmitFeedback).toHaveBeenCalledWith(
@@ -564,7 +559,6 @@ describe("FeedbackButton", () => {
     beforeEach(() => {
       mockReportProblemEnabled = false;
       mockTicketEnabled = false;
-      mockTicketProvider = null;
     });
 
     it("does not show combo button", () => {
@@ -574,7 +568,7 @@ describe("FeedbackButton", () => {
           feedback={{ type: "dislike", reason: "Inaccurate", showFeedbackOptions: true }}
         />
       );
-      expect(screen.queryByText(/Submit & Report/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Submit & Create/)).not.toBeInTheDocument();
     });
 
     it("does not show 'Report a Problem' link", () => {
