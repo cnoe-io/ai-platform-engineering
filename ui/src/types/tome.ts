@@ -80,6 +80,13 @@ export interface PageRevision {
   deleted?: boolean;
   /** The ingest run/report that produced this write, when agent-authored. */
   report_id?: string;
+  /**
+   * "draft" revisions are written by an ingest run awaiting human review —
+   * excluded from normal reads/history until promoted to "live" (or
+   * tombstoned on reject). Absent/undefined is treated as "live" for
+   * revisions written before this field existed.
+   */
+  status?: "live" | "draft" | "rejected";
   created_at: Date;
 }
 
@@ -112,7 +119,12 @@ export interface Report {
   created_at: Date;
 }
 
-export type IngestRunStatus = "queued" | "running" | "succeeded" | "failed";
+export type IngestRunStatus =
+  | "queued"
+  | "running"
+  | "awaiting_review"
+  | "succeeded"
+  | "failed";
 
 /** What the queue worker needs to actually start a queued run later. */
 export interface IngestDispatch {
@@ -121,6 +133,11 @@ export interface IngestDispatch {
   seed?: string | null;
   seedStablePages?: boolean;
   webexMeetings?: { id: string; title: string; start: string }[];
+  /**
+   * Bypass draft review: promote this run's pages straight to "live" on
+   * completion, same as before the draft-review feature existed.
+   */
+  skipReview?: boolean;
 }
 
 /** Lifecycle + streamed log for one ingest run. */
@@ -152,6 +169,20 @@ export interface IngestRun {
   dispatch?: IngestDispatch;
   /** When the run was enqueued (queued runs); start time is `started_at`. */
   queued_at?: Date;
+  /** Whether this run's pages went straight to "live" without draft review. */
+  skip_review?: boolean;
+  /**
+   * Deadline for auto-promotion while `status === "awaiting_review"`. Set
+   * when the run enters review; a reaper (`promoteOverdueRuns`) promotes any
+   * run still awaiting review past this time.
+   */
+  review_deadline?: Date;
+  /** How the run left `awaiting_review`, for the Feed/audit trail. */
+  review_outcome?: "approved" | "rejected" | "auto_promoted";
+  /** Who resolved the review — email of the approving/rejecting user. Absent
+   * when `review_outcome === "auto_promoted"` (no reviewer showed up). */
+  reviewed_by?: string;
+  reviewed_at?: Date;
   /** Latest cumulative token usage, updated live during the run for the header. */
   usage?: { output: number; input: number };
   /**

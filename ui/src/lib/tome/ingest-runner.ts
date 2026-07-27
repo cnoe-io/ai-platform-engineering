@@ -74,12 +74,16 @@ async function setProjectLocked(projectId: string, locked: boolean): Promise<voi
   }
 }
 
-/** True if an ingest is currently running for this project. */
+/**
+ * True if an ingest is currently running OR a prior run's draft is still
+ * awaiting review for this project — either way, a new run can't start
+ * (the wiki is locked and there's no defined merge of two pending drafts).
+ */
 export async function isIngestRunning(projectId: string): Promise<boolean> {
   const runs = await getTomeIngestRunsCollection();
   const active = await runs.findOne({
     project_id: projectId,
-    status: { $in: ["queued", "running"] },
+    status: { $in: ["queued", "running", "awaiting_review"] },
   });
   return Boolean(active);
 }
@@ -270,6 +274,8 @@ export async function startIngestRun(
     webexMeetings?: { id: string; title: string; start: string }[];
     seedStablePages?: boolean;
     agentEndpoint?: string;
+    /** Bypass draft review: pages this run writes go straight to "live". */
+    skipReview?: boolean;
   },
 ): Promise<{ runId: string }> {
   const projectId = ctx.projectId;
@@ -285,6 +291,7 @@ export async function startIngestRun(
       seed: opts.seed ?? null,
       seedStablePages: opts.seedStablePages,
       webexMeetings: opts.webexMeetings,
+      skipReview: opts.skipReview,
     },
   });
 
@@ -443,7 +450,11 @@ async function appendLog(runId: string, line: string): Promise<void> {
  * state shows up alongside GitHub/Confluence/Webex activity. */
 async function auditRunLifecycle(
   runId: string,
-  action: "tome.ingest.started" | "tome.ingest.finished" | "tome.ingest.failed",
+  action:
+    | "tome.ingest.started"
+    | "tome.ingest.finished"
+    | "tome.ingest.failed"
+    | "tome.ingest.awaiting_review",
   extra?: Record<string, unknown>,
 ): Promise<void> {
   try {
@@ -474,15 +485,26 @@ async function auditRunLifecycle(
       const status =
         action === "tome.ingest.started"
           ? "running"
-          : action === "tome.ingest.finished"
-            ? "succeeded"
-            : "failed";
+          : action === "tome.ingest.awaiting_review"
+            ? "awaiting_review"
+            : action === "tome.ingest.finished"
+              ? "succeeded"
+              : "failed";
+      const reviewOutcome = extra?.review_outcome as string | undefined;
       const content =
         status === "running"
           ? `${label} started`
-          : status === "succeeded"
-            ? `${label} completed`
-            : `${label} failed: ${String(extra?.error ?? "unknown error")}`;
+          : status === "awaiting_review"
+            ? `${label} completed — awaiting review`
+            : status === "succeeded"
+              ? reviewOutcome === "approved"
+                ? `${label} draft approved`
+                : reviewOutcome === "auto_promoted"
+                  ? `${label} draft auto-promoted (no reviewer in time)`
+                  : `${label} completed`
+              : reviewOutcome === "rejected"
+                ? `${label} draft rejected`
+                : `${label} failed: ${String(extra?.error ?? "unknown error")}`;
       await postEvent(project.slug, {
         sender_handle: "tome",
         content,
@@ -569,16 +591,30 @@ async function driveIngest(
       }
     }
 
-    // Finalize: summary from overview.md's first content line.
+    // Finalize: summary from overview.md's first content line. Read with
+    // includeDrafts so a draft-review run's own overview.md still produces a
+    // summary before anything is promoted.
     const store = await getPageStore();
-    const pages = await store.listPages(projectId);
+    const run = await runs.findOne({ _id: runId });
+    const skipReview = run?.dispatch?.skipReview === true;
+    const pages = await store.listPages(projectId, { includeDrafts: true });
     const summary = summaryFromOverview(pages);
     await reports.updateOne({ _id: reportId }, { $set: { summary } });
-    await runs.updateOne(
-      { _id: runId },
-      { $set: { status: "succeeded", finished_at: new Date() } },
-    );
-    await auditRunLifecycle(runId, "tome.ingest.finished");
+
+    if (skipReview) {
+      await runs.updateOne(
+        { _id: runId },
+        { $set: { status: "succeeded", finished_at: new Date() } },
+      );
+      await auditRunLifecycle(runId, "tome.ingest.finished");
+    } else {
+      const reviewDeadline = new Date(Date.now() + reviewTimeoutMs());
+      await runs.updateOne(
+        { _id: runId },
+        { $set: { status: "awaiting_review", review_deadline: reviewDeadline } },
+      );
+      await auditRunLifecycle(runId, "tome.ingest.awaiting_review");
+    }
   } catch (e) {
     await appendLog(runId, `[--:--:--] ✗ ${String((e as Error)?.message ?? e)}`);
     await runs.updateOne(
@@ -595,10 +631,120 @@ async function driveIngest(
       error: String((e as Error)?.message ?? e),
     });
   } finally {
-    // Always unlock — success, failure, or agent crash — so a stuck flag never
-    // leaves the wiki read-only.
-    await setProjectLocked(projectId, false);
+    // Unlock on success/failure/crash — but keep the wiki read-only while a
+    // draft run awaits review; approve/reject/auto-promote clears it.
+    const finalRun = await runs.findOne({ _id: runId });
+    if (finalRun?.status !== "awaiting_review") {
+      await setProjectLocked(projectId, false);
+    }
   }
+}
+
+/** Milliseconds a draft run waits for review before auto-promoting. Default 24h. */
+function reviewTimeoutMs(): number {
+  const raw = process.env.TOME_DRAFT_REVIEW_TIMEOUT_MS;
+  const parsed = raw ? Number(raw) : NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 24 * 60 * 60 * 1000;
+}
+
+/**
+ * Approve a draft run: promote its pages to "live", flip the run to
+ * "succeeded", unlock the project, audit + Feed the outcome. Throws if the
+ * run isn't awaiting review.
+ */
+export async function approveDraftRun(runId: string, reviewedBy: string): Promise<void> {
+  const runs = await getTomeIngestRunsCollection();
+  const run = await runs.findOne({ _id: runId });
+  if (!run) throw new Error(`run ${runId} not found`);
+  if (run.status !== "awaiting_review") {
+    throw new Error(`run ${runId} is not awaiting review (status: ${run.status})`);
+  }
+  const store = await getPageStore();
+  if (run.report_id) await store.promoteDraftReport(run.project_id, run.report_id);
+  await runs.updateOne(
+    { _id: runId },
+    {
+      $set: {
+        status: "succeeded",
+        review_outcome: "approved",
+        reviewed_by: reviewedBy,
+        reviewed_at: new Date(),
+        finished_at: new Date(),
+      },
+    },
+  );
+  await setProjectLocked(run.project_id, false);
+  await auditRunLifecycle(runId, "tome.ingest.finished", { review_outcome: "approved" });
+}
+
+/**
+ * Reject a draft run: tombstone its draft pages (prior live content, if any,
+ * stays current), flip the run to "failed", unlock, audit + Feed. Throws if
+ * the run isn't awaiting review.
+ */
+export async function rejectDraftRun(runId: string, reviewedBy: string): Promise<void> {
+  const runs = await getTomeIngestRunsCollection();
+  const run = await runs.findOne({ _id: runId });
+  if (!run) throw new Error(`run ${runId} not found`);
+  if (run.status !== "awaiting_review") {
+    throw new Error(`run ${runId} is not awaiting review (status: ${run.status})`);
+  }
+  const store = await getPageStore();
+  if (run.report_id) await store.rejectDraftReport(run.project_id, run.report_id);
+  await runs.updateOne(
+    { _id: runId },
+    {
+      $set: {
+        status: "failed",
+        error: "draft rejected by reviewer",
+        review_outcome: "rejected",
+        reviewed_by: reviewedBy,
+        reviewed_at: new Date(),
+        finished_at: new Date(),
+      },
+    },
+  );
+  await setProjectLocked(run.project_id, false);
+  await auditRunLifecycle(runId, "tome.ingest.failed", {
+    error: "draft rejected by reviewer",
+    review_outcome: "rejected",
+  });
+}
+
+/**
+ * Auto-promote any run still `awaiting_review` past its `review_deadline` —
+ * same effect as `approveDraftRun`, but reviewer-less (a reviewer never
+ * showed up). Run alongside `reapStaleRuns` on the same periodic sweep.
+ * Returns the number promoted.
+ */
+export async function promoteOverdueRuns(): Promise<number> {
+  const runs = await getTomeIngestRunsCollection();
+  const overdue = await runs
+    .find({ status: "awaiting_review", review_deadline: { $lt: new Date() } })
+    .toArray();
+  for (const run of overdue) {
+    try {
+      const store = await getPageStore();
+      if (run.report_id) await store.promoteDraftReport(run.project_id, run.report_id);
+      await runs.updateOne(
+        { _id: run._id },
+        {
+          $set: {
+            status: "succeeded",
+            review_outcome: "auto_promoted",
+            finished_at: new Date(),
+          },
+        },
+      );
+      await setProjectLocked(run.project_id, false);
+      await auditRunLifecycle(run._id!, "tome.ingest.finished", {
+        review_outcome: "auto_promoted",
+      });
+    } catch (e) {
+      console.warn(`promoteOverdueRuns: failed to promote run ${run._id}`, e);
+    }
+  }
+  return overdue.length;
 }
 
 /** Parse an SSE byte stream into typed ingest events (`event:`/`data:` frames). */

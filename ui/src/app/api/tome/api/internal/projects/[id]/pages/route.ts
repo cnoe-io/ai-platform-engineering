@@ -7,6 +7,7 @@ import { NextRequest } from "next/server";
 import { ApiError, withErrorHandler } from "@/lib/api-middleware";
 import { requireAgentToken, resolveProject } from "@/lib/tome/internal-api";
 import { getPageStore } from "@/lib/tome/page-store";
+import { getTomeIngestRunsCollection } from "@/lib/tome/mongo-collections";
 
 export const dynamic = "force-dynamic";
 
@@ -40,14 +41,33 @@ export const POST = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
     throw new ApiError("`path` and `body` are required", 400, "BAD_REQUEST");
   }
 
+  const status = await draftStatusForReport(body.report_id ?? undefined);
+
   const store = await getPageStore();
   await store.writePage(project._id, body.path, body.body, {
     message: body.message || `agent wrote ${body.path}`,
     author: body.author || "tome-agent",
     reportId: body.report_id ?? undefined,
+    ...(status === "draft" ? { status: "draft" as const } : {}),
   });
   return Response.json({ ok: true });
 });
+
+/**
+ * Draft-review is opt-out per run (`dispatch.skipReview`). Look up the run
+ * that owns this report to decide whether the agent's write should land as a
+ * "draft" (held for human review) or straight to "live". Missing/ambiguous
+ * lookups default to "live" — never silently hide a write nobody asked to gate.
+ */
+async function draftStatusForReport(
+  reportId: string | undefined,
+): Promise<"live" | "draft"> {
+  if (!reportId) return "live";
+  const runs = await getTomeIngestRunsCollection();
+  const run = await runs.findOne({ report_id: reportId });
+  if (!run) return "live";
+  return run.dispatch?.skipReview ? "live" : "draft";
+}
 
 // Tombstone a page (soft delete — appends a deleted revision). The agent's
 // delete_page tool enforces the protected-class guard (stable/hidden/template)

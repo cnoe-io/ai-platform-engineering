@@ -41,6 +41,7 @@ export const POST = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
     seed?: string;
     webexMeetings?: { id: string; title: string; start: string }[];
     seedStablePages?: boolean;
+    skipReview?: boolean;
   };
 
   try {
@@ -48,6 +49,7 @@ export const POST = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
       seed: body.seed ?? null,
       webexMeetings: body.webexMeetings,
       seedStablePages: body.seedStablePages,
+      skipReview: body.skipReview,
     });
     auditTome({
       action: "tome.ingest.trigger",

@@ -20,7 +20,35 @@ import { getPageStore } from "@/lib/tome/page-store";
 import { PageNotFoundError } from "@/lib/tome/mongo-page-store";
 import { parseFrontmatter } from "@/lib/tome/schema";
 import { SPEC_BY_PATH } from "@/lib/tome/schema";
+import { getTomeIngestRunsCollection } from "@/lib/tome/mongo-collections";
 import type { PageKind, PageResponse } from "@/types/tome";
+
+/**
+ * Reject a human write while the project is locked, with a message that
+ * distinguishes "agent is actively ingesting" from "a draft is awaiting
+ * review" — the latter still can't be hand-edited (it would race approve
+ * or leave the diff meaningless), but for a different reason.
+ */
+async function guardNotLocked(projectId: string, locked: boolean): Promise<void> {
+  if (!locked) return;
+  const runs = await getTomeIngestRunsCollection();
+  const active = await runs.findOne({
+    project_id: projectId,
+    status: { $in: ["running", "awaiting_review"] },
+  });
+  if (active?.status === "awaiting_review") {
+    throw new ApiError(
+      "A draft ingest is awaiting review — approve or reject it before editing pages.",
+      409,
+      "PROJECT_AWAITING_REVIEW",
+    );
+  }
+  throw new ApiError(
+    "An ingest is in progress — the wiki is read-only until it finishes.",
+    409,
+    "PROJECT_LOCKED",
+  );
+}
 
 type Ctx = { params: Promise<{ slug: string; path: string[] }> };
 
@@ -58,13 +86,7 @@ export const PUT = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
   const { slug, path } = await ctx.params;
   const tctx = await loadTomeProject(request, slug);
   requireTomeEditor(tctx);
-  if (tctx.project.locked) {
-    throw new ApiError(
-      "An ingest is in progress — the wiki is read-only until it finishes.",
-      409,
-      "PROJECT_LOCKED",
-    );
-  }
+  await guardNotLocked(tctx.projectId, tctx.project.locked ?? false);
   const pagePath = pagePathFrom(path);
 
   const body = (await request.json().catch(() => ({}))) as {
@@ -95,13 +117,7 @@ export const DELETE = withErrorHandler(async (request: NextRequest, ctx: Ctx) =>
   const { slug, path } = await ctx.params;
   const tctx = await loadTomeProject(request, slug);
   requireTomeEditor(tctx);
-  if (tctx.project.locked) {
-    throw new ApiError(
-      "An ingest is in progress — the wiki is read-only until it finishes.",
-      409,
-      "PROJECT_LOCKED",
-    );
-  }
+  await guardNotLocked(tctx.projectId, tctx.project.locked ?? false);
   const pagePath = pagePathFrom(path);
 
   const store = await getPageStore();

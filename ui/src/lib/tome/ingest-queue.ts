@@ -5,7 +5,7 @@
 // (a status:queued -> running updateOne only one writer can win).
 
 import { getTomeIngestRunsCollection } from "./mongo-collections";
-import { dispatchQueuedRun, reapStaleRuns } from "./ingest-runner";
+import { dispatchQueuedRun, reapStaleRuns, promoteOverdueRuns } from "./ingest-runner";
 
 // Max runs executing at once across all projects. Keeps N children from
 // saturating the single agent container (LLM + provider rate limits).
@@ -16,8 +16,9 @@ const TICK_MS = Math.max(1000, Number(process.env.TOME_INGEST_QUEUE_TICK_MS) || 
 const STALE_MS = Math.max(60_000, Number(process.env.TOME_INGEST_STALE_MS) || 30 * 60 * 1000);
 
 /**
- * One worker pass: reap stale runs, then start as many startable queued runs as
- * the concurrency budget allows. A run is startable when its project has no run
+ * One worker pass: reap stale runs, auto-promote any draft run past its
+ * review deadline, then start as many startable queued runs as the
+ * concurrency budget allows. A run is startable when its project has no run
  * already running (per-project = 1) and, for a cascade parent, all its children
  * are terminal.
  */
@@ -25,6 +26,7 @@ export async function tickIngestQueue(): Promise<void> {
   const runs = await getTomeIngestRunsCollection();
 
   await reapStaleRuns(STALE_MS);
+  await promoteOverdueRuns();
 
   const runningRuns = await runs.find({ status: "running" }).project({ project_id: 1 }).toArray();
   let budget = CONCURRENCY - runningRuns.length;

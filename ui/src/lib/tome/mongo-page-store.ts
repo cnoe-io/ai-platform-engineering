@@ -2,12 +2,12 @@
  * PageStore backend: page bodies inlined in Mongo.
  *
  * Append-only `tome_page_revisions`: each write inserts a row; the current
- * body for a path is the latest non-tombstone revision by (created_at, _id).
- * The agent's `/project` working copy is rehydrated from this store over the
- * tome API rather than mirrored on disk.
+ * live body for a path is the latest non-tombstone, non-draft revision by
+ * (created_at, _id). The agent's `/project` working copy is rehydrated from
+ * this store over the tome API rather than mirrored on disk.
  */
 
-import { ObjectId } from "mongodb";
+import { ObjectId, type Filter } from "mongodb";
 
 import { getTomePageRevisionsCollection } from "./mongo-collections";
 import { safePagePath, type PageStore, type WritePageOpts } from "./page-store";
@@ -41,29 +41,42 @@ export class MongoPageStore implements PageStore {
       message: opts.message,
       created_at: now,
       ...(opts.reportId ? { report_id: opts.reportId } : {}),
+      ...(opts.status === "draft" ? { status: "draft" as const } : {}),
     }));
     const col = await getTomePageRevisionsCollection();
     await col.insertMany(rows);
   }
 
-  async readPage(projectId: string, path: string): Promise<string> {
+  async readPage(
+    projectId: string,
+    path: string,
+    opts: { includeDrafts?: boolean } = {},
+  ): Promise<string> {
     const safe = safePagePath(path);
     const col = await getTomePageRevisionsCollection();
-    const rev = await col.findOne(
-      { project_id: projectId, path: safe },
-      { sort: { created_at: -1, _id: -1 } },
-    );
+    const excluded = opts.includeDrafts ? ["rejected" as const] : ["draft" as const, "rejected" as const];
+    const filter: Filter<PageRevision> = {
+      project_id: projectId,
+      path: safe,
+      status: { $nin: excluded },
+    };
+    const rev = await col.findOne(filter, { sort: { created_at: -1, _id: -1 } });
     if (!rev || rev.deleted) {
       throw new PageNotFoundError(path);
     }
     return rev.markdown ?? "";
   }
 
-  async listPages(projectId: string): Promise<Record<string, string>> {
+  async listPages(
+    projectId: string,
+    opts: { includeDrafts?: boolean } = {},
+  ): Promise<Record<string, string>> {
     const col = await getTomePageRevisionsCollection();
+    const excluded = opts.includeDrafts ? ["rejected" as const] : ["draft" as const, "rejected" as const];
+    const filter: Filter<PageRevision> = { project_id: projectId, status: { $nin: excluded } };
     // Newest-first; first row seen per path wins (tombstone or body).
     const rows = await col
-      .find({ project_id: projectId })
+      .find(filter)
       .sort({ path: 1, created_at: -1, _id: -1 })
       .toArray();
     const out: Record<string, string> = {};
@@ -113,6 +126,37 @@ export class MongoPageStore implements PageStore {
       ? (new ObjectId(revisionId) as unknown as string)
       : revisionId;
     return col.findOne({ _id: idFilter, project_id: projectId });
+  }
+
+  async promoteDraftReport(projectId: string, reportId: string): Promise<void> {
+    const col = await getTomePageRevisionsCollection();
+    await col.updateMany(
+      { project_id: projectId, report_id: reportId, status: "draft" },
+      { $unset: { status: "" } },
+    );
+  }
+
+  async rejectDraftReport(projectId: string, reportId: string): Promise<void> {
+    const col = await getTomePageRevisionsCollection();
+    // Draft rows are already excluded from live reads. Re-stamp them
+    // "rejected" (rather than deleting) so they stop showing as pending
+    // review while staying in history; the prior live revision (if any)
+    // is unaffected and remains current.
+    await col.updateMany(
+      { project_id: projectId, report_id: reportId, status: "draft" },
+      { $set: { status: "rejected" } },
+    );
+  }
+
+  async listDraftPaths(projectId: string, reportId: string): Promise<string[]> {
+    const col = await getTomePageRevisionsCollection();
+    const rows = await col
+      .find(
+        { project_id: projectId, report_id: reportId, status: "draft" },
+        { projection: { path: 1 } },
+      )
+      .toArray();
+    return [...new Set(rows.map((r) => r.path))];
   }
 }
 

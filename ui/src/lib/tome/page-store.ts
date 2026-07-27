@@ -19,6 +19,8 @@ export interface WritePageOpts {
   message: string;
   author?: string;
   reportId?: string;
+  /** "draft" holds this write pending review; omitted/undefined = "live". */
+  status?: "live" | "draft";
 }
 
 /** Backend-agnostic contract for reading/writing wiki page bodies. */
@@ -38,11 +40,18 @@ export interface PageStore {
     opts: WritePageOpts,
   ): Promise<void>;
 
-  /** Latest body for a path. Throws if missing or tombstoned. */
-  readPage(projectId: string, path: string): Promise<string>;
+  /** Latest live body for a path. Throws if missing, tombstoned, or only a draft exists. */
+  readPage(
+    projectId: string,
+    path: string,
+    opts?: { includeDrafts?: boolean },
+  ): Promise<string>;
 
-  /** Current state: `{path: markdown}`, tombstones excluded. */
-  listPages(projectId: string): Promise<Record<string, string>>;
+  /** Current live state: `{path: markdown}`, tombstones and drafts excluded. */
+  listPages(
+    projectId: string,
+    opts?: { includeDrafts?: boolean },
+  ): Promise<Record<string, string>>;
 
   /** Tombstone a page (append a deleted revision). Idempotent. */
   deletePage(
@@ -59,6 +68,21 @@ export interface PageStore {
     projectId: string,
     revisionId: string,
   ): Promise<PageRevision | null>;
+
+  /**
+   * Flip every draft revision for a report to "live" (approve). In-place
+   * status update — cheap, preserves the append-only history as-is.
+   */
+  promoteDraftReport(projectId: string, reportId: string): Promise<void>;
+
+  /**
+   * Tombstone every draft revision for a report (reject) — the prior live
+   * revision (if any) remains current.
+   */
+  rejectDraftReport(projectId: string, reportId: string): Promise<void>;
+
+  /** Paths with a pending (unreviewed) draft revision for a report. */
+  listDraftPaths(projectId: string, reportId: string): Promise<string[]>;
 
   /**
    * Presigned read URL for large bodies (s3 backend). Returns null for
@@ -132,10 +156,23 @@ function withEdgesIndex(store: PageStore): PageStore {
       const slug = await projectSlugFor(projectId);
       if (slug) await syncEdgeIndex(projectId, slug, path, null);
     },
-    readPage: (projectId, path) => store.readPage(projectId, path),
-    listPages: (projectId) => store.listPages(projectId),
+    readPage: (projectId, path, opts) => store.readPage(projectId, path, opts),
+    listPages: (projectId, opts) => store.listPages(projectId, opts),
     pageHistory: (projectId, path) => store.pageHistory(projectId, path),
     readRevision: (projectId, revisionId) => store.readRevision(projectId, revisionId),
+    promoteDraftReport: async (projectId, reportId) => {
+      const paths = await store.listDraftPaths(projectId, reportId);
+      await store.promoteDraftReport(projectId, reportId);
+      // Draft writes were excluded from edge reindexing while pending;
+      // reindex now that they're live. Re-read each path's live body.
+      if (paths.length === 0) return;
+      const live = await store.listPages(projectId);
+      const touched: Record<string, string> = {};
+      for (const p of paths) if (p.startsWith("edges/") && p in live) touched[p] = live[p];
+      await reindexTouched(projectId, touched);
+    },
+    rejectDraftReport: (projectId, reportId) => store.rejectDraftReport(projectId, reportId),
+    listDraftPaths: (projectId, reportId) => store.listDraftPaths(projectId, reportId),
     ...(store.presignRead
       ? { presignRead: (projectId: string, path: string) => store.presignRead!(projectId, path) }
       : {}),

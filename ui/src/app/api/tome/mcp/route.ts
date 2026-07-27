@@ -660,7 +660,7 @@ const TOOLS: ToolDef[] = [
   {
     name: "tome_reingest",
     description:
-      "Kick off a (re)ingest run for a project, rebuilding its wiki from the attached sources. `project_slug` is required; `seed` is an optional steering hint; `webex_meetings` is an optional array of `{id, title, start}` objects (from `tome_list_webex_meetings`) whose transcripts and AI summaries should be included in this run. Returns the new run id.",
+      "Kick off a (re)ingest run for a project, rebuilding its wiki from the attached sources. `project_slug` is required; `seed` is an optional steering hint; `webex_meetings` is an optional array of `{id, title, start}` objects (from `tome_list_webex_meetings`) whose transcripts and AI summaries should be included in this run. By default the run's page changes land in a draft state pending human review (see `tome_get_ingest_log` for status `awaiting_review`, and `tome_approve_ingest_draft`/`tome_reject_ingest_draft` to resolve it) — pass `skip_review: true` to publish straight to live, bypassing review entirely. Returns the new run id.",
     inputSchema: schema(
       {
         project_slug: STR,
@@ -674,6 +674,7 @@ const TOOLS: ToolDef[] = [
             additionalProperties: false,
           },
         },
+        skip_review: { type: "boolean" },
       },
       ["project_slug"],
     ),
@@ -684,9 +685,37 @@ const TOOLS: ToolDef[] = [
       if (Array.isArray(args.webex_meetings) && args.webex_meetings.length > 0) {
         body.webexMeetings = args.webex_meetings;
       }
+      if (args.skip_review === true) body.skipReview = true;
       const r = await fwd("POST", `/api/tome/projects/${slug}/reingest`, body);
       const data = ensureOk(r, "reingest");
-      return toolText(`Ingest started. runId=${data?.runId}`);
+      const note = args.skip_review === true ? "" : " (draft — awaiting review)";
+      return toolText(`Ingest started. runId=${data?.runId}${note}`);
+    },
+  },
+  {
+    name: "tome_approve_ingest_draft",
+    description:
+      "Approve a draft ingest run's page changes, promoting them from draft to live. `project_slug` and `run_id` are required; the run must be in `awaiting_review` status (see `tome_get_ingest_log`).",
+    inputSchema: schema({ project_slug: STR, run_id: STR }, ["project_slug", "run_id"]),
+    handler: async (_req, fwd, args) => {
+      const slug = encodeURIComponent(String(args.project_slug));
+      const runId = encodeURIComponent(String(args.run_id));
+      const r = await fwd("POST", `/api/tome/projects/${slug}/ingests/${runId}/approve`);
+      ensureOk(r, "approve ingest draft");
+      return toolText(`Draft approved. runId=${args.run_id}`);
+    },
+  },
+  {
+    name: "tome_reject_ingest_draft",
+    description:
+      "Reject a draft ingest run's page changes — the drafted pages are discarded and any prior live content stays current. `project_slug` and `run_id` are required; the run must be in `awaiting_review` status (see `tome_get_ingest_log`).",
+    inputSchema: schema({ project_slug: STR, run_id: STR }, ["project_slug", "run_id"]),
+    handler: async (_req, fwd, args) => {
+      const slug = encodeURIComponent(String(args.project_slug));
+      const runId = encodeURIComponent(String(args.run_id));
+      const r = await fwd("POST", `/api/tome/projects/${slug}/ingests/${runId}/reject`);
+      ensureOk(r, "reject ingest draft");
+      return toolText(`Draft rejected. runId=${args.run_id}`);
     },
   },
   {

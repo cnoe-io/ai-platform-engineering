@@ -56,6 +56,7 @@ import { parseTomeHref } from "@/lib/tome/tome-links";
 import { StandupView } from "@/components/tome/StandupView";
 import { IngestPanel } from "@/components/tome/IngestPanel";
 import { IngestRunView } from "@/components/tome/IngestRunView";
+import { DraftReviewView } from "@/components/tome/DraftReviewView";
 import { EngagementPanel } from "@/components/tome/EngagementPanel";
 import { PageHistoryView } from "@/components/tome/PageHistoryView";
 import { Breadcrumb, type Crumb } from "@/components/tome/Breadcrumb";
@@ -99,7 +100,8 @@ type MainView =
   | { kind: "page"; path: string }
   | { kind: "pageHistory"; path: string }
   | { kind: "ingest" }
-  | { kind: "ingestRun"; runId: string };
+  | { kind: "ingestRun"; runId: string }
+  | { kind: "draftReview"; runId: string };
 
 /**
  * Map the active view to its URL segments under `/projects/<slug>/tome`. The
@@ -129,6 +131,8 @@ function viewToPath(slug: string, view: MainView): string {
       return `${base}/ingest`;
     case "ingestRun":
       return `${base}/ingest/${encodeURIComponent(view.runId)}`;
+    case "draftReview":
+      return `${base}/ingest/${encodeURIComponent(view.runId)}/review`;
     case "page":
       return `${base}/wiki/${view.path}`;
     case "pageHistory":
@@ -154,7 +158,9 @@ function pathToView(segments: string[]): MainView {
       return { kind: "insights" };
     case "ingest":
       return rest[0]
-        ? { kind: "ingestRun", runId: rest[0] }
+        ? rest[1] === "review"
+          ? { kind: "draftReview", runId: rest[0] }
+          : { kind: "ingestRun", runId: rest[0] }
         : { kind: "ingest" };
     case "wiki":
       return rest.length
@@ -266,6 +272,7 @@ export function TomeWiki({ slug }: { slug: string }) {
   // read-only banner. On the running→idle transition, reload pages so the
   // agent's fresh rewrite shows without a manual refresh.
   const [locked, setLocked] = useState(false);
+  const [awaitingReview, setAwaitingReview] = useState(false);
   const prevLockedRef = useRef(false);
   useEffect(() => {
     let cancelled = false;
@@ -275,13 +282,14 @@ export function TomeWiki({ slug }: { slug: string }) {
         if (!res.ok) return;
         const json = await res.json();
         const runs = (json?.data?.runs ?? []) as Array<{ status?: string }>;
-        const active = runs.some(
-          (r) => r.status === "running" || r.status === "queued",
-        );
+        const reviewing = runs.some((r) => r.status === "awaiting_review");
+        const active =
+          reviewing || runs.some((r) => r.status === "running" || r.status === "queued");
         if (cancelled) return;
         if (prevLockedRef.current && !active) void load();
         prevLockedRef.current = active;
         setLocked(active);
+        setAwaitingReview(reviewing);
       } catch {
         /* best-effort — leave the last known state */
       }
@@ -742,6 +750,18 @@ export function TomeWiki({ slug }: { slug: string }) {
           },
           { label: "Run" },
         ];
+      case "draftReview":
+        return [
+          {
+            label: "Ingest",
+            onClick: () => navigate({ kind: "ingest" }),
+          },
+          {
+            label: "Run",
+            onClick: () => navigate({ kind: "ingestRun", runId: view.runId }),
+          },
+          { label: "Review" },
+        ];
       default: {
         // Exhaustiveness check: a MainView variant with no case here is a
         // compile error, not a silent `undefined` return.
@@ -810,7 +830,8 @@ export function TomeWiki({ slug }: { slug: string }) {
     gists: view.kind === "gists" || view.kind === "gist",
     settings: view.kind === "settings",
     insights: view.kind === "insights",
-    ingest: view.kind === "ingest" || view.kind === "ingestRun",
+    ingest:
+      view.kind === "ingest" || view.kind === "ingestRun" || view.kind === "draftReview",
     page:
       view.kind === "page" || view.kind === "pageHistory" ? view.path : null,
   };
@@ -961,7 +982,11 @@ export function TomeWiki({ slug }: { slug: string }) {
                     tipDescription="Chat with the project's agent: ask it questions about the project, or have it draft, refine, and reorganize the wiki pages it reads and writes."
                   />
                   <NavItem
-                    icon={<RefreshCw className={cn("h-4 w-4", locked && "animate-spin")} />}
+                    icon={
+                      <RefreshCw
+                        className={cn("h-4 w-4", locked && !awaitingReview && "animate-spin")}
+                      />
+                    }
                     label={isSynthesized ? "Synthesize" : "Ingest"}
                     active={navActive.ingest}
                     onClick={() => navigate({ kind: "ingest" })}
@@ -971,6 +996,7 @@ export function TomeWiki({ slug }: { slug: string }) {
                         ? `Synthesize this ${isArea ? "area" : "BHAG"}: the agent reads the wikis of the projects tagged to it and writes the strategic view. ${isArea ? "An area" : "A BHAG"} has no sources of its own.`
                         : "Start an ingest run that (re)builds the wiki from the project's attached sources: GitHub repos, Confluence spaces, and Webex rooms."
                     }
+                    tag={awaitingReview ? "needs review" : undefined}
                   />
                   <NavItem
                     icon={<MessagesSquare className="h-4 w-4" />}
@@ -1298,6 +1324,7 @@ export function TomeWiki({ slug }: { slug: string }) {
                         onReload={load}
                         onClose={() => setArtifactPath(null)}
                         locked={locked}
+                        awaitingReview={awaitingReview}
                         onNavigate={openArtifact}
                         glossaryPreview={glossaryPreview}
                         onRename={renamePage}
@@ -1351,12 +1378,31 @@ export function TomeWiki({ slug }: { slug: string }) {
                   isSynthesized={isSynthesized}
                   entityKind={isArea ? "area" : "bhag"}
                   onOpenRun={(runId) => navigate({ kind: "ingestRun", runId })}
+                  onReviewDraft={(runId) => navigate({ kind: "draftReview", runId })}
                   onRunStarted={(runId) => navigate({ kind: "ingestRun", runId })}
                 />
               </div>
             ) : view.kind === "ingestRun" ? (
               <div className="min-w-0 flex-1">
-                <IngestRunView key={view.runId} slug={slug} runId={view.runId} onPagesChanged={load} />
+                <IngestRunView
+                  key={view.runId}
+                  slug={slug}
+                  runId={view.runId}
+                  onPagesChanged={load}
+                  onReviewDraft={(runId) => navigate({ kind: "draftReview", runId })}
+                />
+              </div>
+            ) : view.kind === "draftReview" ? (
+              <div className="min-w-0 flex-1">
+                <DraftReviewView
+                  key={view.runId}
+                  slug={slug}
+                  runId={view.runId}
+                  onResolved={() => {
+                    void load();
+                    navigate({ kind: "ingestRun", runId: view.runId });
+                  }}
+                />
               </div>
             ) : view.kind === "pageHistory" ? (
               <div className="min-w-0 flex-1">
@@ -1378,6 +1424,7 @@ export function TomeWiki({ slug }: { slug: string }) {
                       navigate({ kind: "pageHistory", path: view.path })
                     }
                     locked={locked}
+                    awaitingReview={awaitingReview}
                     onNavigate={(path) => navigate({ kind: "page", path })}
                     glossaryPreview={glossaryPreview}
                     onRename={renamePage}
@@ -1407,6 +1454,7 @@ function NavItem({
   onClick,
   tipTitle,
   tipDescription,
+  tag,
 }: {
   icon: React.ReactNode;
   label: string;
@@ -1414,6 +1462,8 @@ function NavItem({
   onClick: () => void;
   tipTitle?: string;
   tipDescription?: React.ReactNode;
+  /** Small trailing badge, e.g. "needs review". */
+  tag?: string;
 }) {
   const button = (
     <button
@@ -1425,7 +1475,12 @@ function NavItem({
       )}
     >
       {icon}
-      {label}
+      <span className="flex-1 truncate">{label}</span>
+      {tag && (
+        <span className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
+          {tag}
+        </span>
+      )}
     </button>
   );
 

@@ -30,12 +30,15 @@ import { cn } from "@/lib/utils";
 
 interface RunSummary {
   id: string;
-  status: "queued" | "running" | "succeeded" | "failed";
+  status: "queued" | "running" | "awaiting_review" | "succeeded" | "failed";
   greenfield: boolean;
   started_at: string;
   finished_at: string | null;
   log_lines: number;
   error: string | null;
+  review_deadline?: string | null;
+  review_outcome?: "approved" | "rejected" | "auto_promoted" | null;
+  reviewed_by?: string | null;
 }
 
 interface WebexMeeting {
@@ -84,6 +87,17 @@ function timeAgo(dateStr: string): string {
   const h = Math.floor(m / 60);
   if (h < 24) return `${h}h ago`;
   return `${Math.floor(h / 24)}d ago`;
+}
+
+function timeUntil(dateStr: string): string {
+  const diff = new Date(dateStr).getTime() - Date.now();
+  if (diff <= 0) return "any moment";
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return "in under a minute";
+  if (m < 60) return `in ${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `in ${h}h`;
+  return `in ${Math.floor(h / 24)}d`;
 }
 
 function sourcesFromProject(s: Partial<ProjectSources>): SourceRow[] {
@@ -163,6 +177,29 @@ function MeetingBadge({
   );
 }
 
+function initialsOf(email: string): string {
+  const local = email.split("@")[0] || email;
+  const parts = local.split(/[.\-_]/).filter(Boolean);
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+  return local.slice(0, 2).toUpperCase() || "?";
+}
+
+/** Small avatar bubble for the reviewer who approved/rejected a run. */
+function ReviewerAvatar({ email }: { email: string }) {
+  return (
+    <TooltipProvider delayDuration={200}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="gradient-primary-br flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[9px] font-medium text-white">
+            {initialsOf(email)}
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="top">{email}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
 function RunsDialog({
   open,
   onOpenChange,
@@ -176,11 +213,11 @@ function RunsDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl">
+      <DialogContent className="max-w-3xl">
         <DialogHeader>
           <DialogTitle>Ingest history</DialogTitle>
         </DialogHeader>
-        <ScrollArea className="max-h-[60vh]">
+        <ScrollArea className="max-h-[65vh]">
           {runs.length === 0 ? (
             <p className="py-4 text-center text-sm text-muted-foreground">No ingests yet.</p>
           ) : (
@@ -190,20 +227,36 @@ function RunsDialog({
                   <button
                     type="button"
                     onClick={() => { onOpenRun(r.id); onOpenChange(false); }}
-                    className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm transition-colors hover:bg-muted"
+                    className="flex w-full items-center gap-4 px-4 py-3 text-left text-sm transition-colors hover:bg-muted"
                   >
                     <StatusPill status={r.status} />
+                    <span className="w-40 shrink-0 truncate text-muted-foreground">
+                      {new Date(r.started_at).toLocaleString()}
+                    </span>
+                    <span className="w-24 shrink-0 text-xs text-muted-foreground">
+                      {durationLabel(r)} · {r.log_lines}L
+                    </span>
                     {r.greenfield && (
-                      <span className="rounded bg-sky-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-sky-800 dark:bg-sky-900/40 dark:text-sky-300">
+                      <span className="shrink-0 rounded bg-sky-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-sky-800 dark:bg-sky-900/40 dark:text-sky-300">
                         greenfield
                       </span>
                     )}
-                    <span className="text-muted-foreground">
-                      {new Date(r.started_at).toLocaleString()}
-                    </span>
-                    <span className="ml-auto text-xs text-muted-foreground">
-                      {durationLabel(r)} · {r.log_lines} lines
-                    </span>
+                    <span className="min-w-0 flex-1" />
+                    {r.review_outcome && (
+                      <span className="flex items-center gap-1.5 shrink-0">
+                        {r.reviewed_by && <ReviewerAvatar email={r.reviewed_by} />}
+                        <span
+                          className={cn(
+                            "rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide",
+                            r.review_outcome === "rejected"
+                              ? "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300"
+                              : "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300",
+                          )}
+                        >
+                          {r.review_outcome === "auto_promoted" ? "auto-promoted" : r.review_outcome}
+                        </span>
+                      </span>
+                    )}
                   </button>
                 </li>
               ))}
@@ -221,6 +274,7 @@ export function IngestPanel({
   slug,
   canEdit,
   onOpenRun,
+  onReviewDraft,
   onRunStarted,
   isSynthesized = false,
   entityKind = "bhag",
@@ -228,6 +282,8 @@ export function IngestPanel({
   slug: string;
   canEdit: boolean;
   onOpenRun: (runId: string) => void;
+  /** Open the draft-review diff view for a run awaiting review. */
+  onReviewDraft: (runId: string) => void;
   onRunStarted: (runId: string) => void;
   /** Synthesis mode (BHAG or Area): no sources, synthesizes from tagged
    * child projects. */
@@ -356,6 +412,25 @@ export function IngestPanel({
     (r) => r.status === "running" || r.status === "queued",
   );
   const inProgress = Boolean(activeRun);
+  const reviewRun = (runs ?? []).find((r) => r.status === "awaiting_review");
+  const [draftPaths, setDraftPaths] = useState<string[] | null>(null);
+
+  useEffect(() => {
+    if (!reviewRun) {
+      setDraftPaths(null);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/tome/projects/${slug}/ingests/${reviewRun.id}/draft-pages`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((json) => {
+        if (!cancelled) setDraftPaths(json?.data?.paths ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setDraftPaths([]);
+      });
+    return () => { cancelled = true; };
+  }, [slug, reviewRun]);
 
   const stopRun = useCallback(async () => {
     if (!activeRun) return;
@@ -769,20 +844,63 @@ export function IngestPanel({
             )}
           </div>
 
+          {/* Draft awaiting review */}
+          {reviewRun && (
+            <div className="rounded-lg border border-amber-800/30 bg-amber-950/20 px-4 py-3">
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-amber-300">
+                    Draft awaiting review
+                  </p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    This run&apos;s page changes are held as a draft until approved.
+                    {reviewRun.review_deadline && (
+                      <> Auto-promotes {timeUntil(reviewRun.review_deadline)} if unreviewed.</>
+                    )}{" "}
+                    <button
+                      type="button"
+                      onClick={() => onOpenRun(reviewRun.id)}
+                      className="text-primary hover:underline"
+                    >
+                      Open log
+                    </button>
+                  </p>
+                  {draftPaths && draftPaths.length > 0 && (
+                    <ul className="mt-1.5 flex flex-wrap gap-1">
+                      {draftPaths.map((p) => (
+                        <li
+                          key={p}
+                          className="rounded bg-amber-900/30 px-1.5 py-0.5 text-[11px] text-amber-200"
+                        >
+                          {p}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+                <Button size="sm" onClick={() => onReviewDraft(reviewRun.id)}>
+                  Review diff
+                </Button>
+              </div>
+            </div>
+          )}
+
           {/* Run bar */}
           <div className="rounded-lg border px-4 py-3">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
               <Button
                 onClick={() => void start()}
-                disabled={!canEdit || starting || compacting || inProgress}
+                disabled={!canEdit || starting || compacting || inProgress || Boolean(reviewRun)}
                 title={
                   !canEdit
                     ? `You need edit access to ${isSynthesized ? "synthesize" : "run an ingest"}`
-                    : inProgress
-                      ? `A ${isSynthesized ? "synthesis" : "ingest"} is already running`
-                      : isSynthesized
-                        ? `Synthesize ${entityKind === "area" ? "Area" : "BHAG"}`
-                        : "Run ingest"
+                    : reviewRun
+                      ? "Resolve the pending draft review before starting a new run"
+                      : inProgress
+                        ? `A ${isSynthesized ? "synthesis" : "ingest"} is already running`
+                        : isSynthesized
+                          ? `Synthesize ${entityKind === "area" ? "Area" : "BHAG"}`
+                          : "Run ingest"
                 }
               >
                 {starting ? (
@@ -795,15 +913,17 @@ export function IngestPanel({
               <Button
                 variant="outline"
                 onClick={() => void compact()}
-                disabled={!canEdit || starting || compacting || inProgress || isGreenfield}
+                disabled={!canEdit || starting || compacting || inProgress || isGreenfield || Boolean(reviewRun)}
                 title={
                   !canEdit
                     ? "You need edit access to compact"
-                    : isGreenfield
-                      ? "Run an ingest first — there's nothing to compact yet"
-                      : inProgress
-                        ? "A run is already in progress"
-                        : "Tighten the wiki's prose and fix stale links"
+                    : reviewRun
+                      ? "Resolve the pending draft review before starting a new run"
+                      : isGreenfield
+                        ? "Run an ingest first — there's nothing to compact yet"
+                        : inProgress
+                          ? "A run is already in progress"
+                          : "Tighten the wiki's prose and fix stale links"
                 }
               >
                 {compacting ? (
@@ -836,6 +956,7 @@ export function IngestPanel({
                   <>
                     <span>Last run:</span>
                     <StatusPill status={lastRun.status} />
+                    {lastRun.reviewed_by && <ReviewerAvatar email={lastRun.reviewed_by} />}
                     <span>{timeAgo(lastRun.started_at)}</span>
                     <span>·</span>
                     <button

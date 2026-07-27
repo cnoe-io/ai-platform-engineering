@@ -15,7 +15,7 @@ import { useAutoScroll } from "@/hooks/use-auto-scroll";
  * run (a separate self-polling pane), with a back link to the synthesis.
  */
 
-type RunStatus = "queued" | "running" | "succeeded" | "failed";
+type RunStatus = "queued" | "running" | "awaiting_review" | "succeeded" | "failed";
 
 interface RunDetail {
   id: string;
@@ -53,10 +53,13 @@ export function IngestRunView({
   slug,
   runId,
   onPagesChanged,
+  onReviewDraft,
 }: {
   slug: string;
   runId: string;
   onPagesChanged?: () => void;
+  /** Jump to the draft-review diff view for this run. */
+  onReviewDraft?: (runId: string) => void;
 }) {
   // The parent run's detail (cascade metadata + status), surfaced from the
   // parent pane. Retained while viewing a child so the cascade panel persists.
@@ -77,6 +80,21 @@ export function IngestRunView({
           selectedId={selectedChild?.id ?? null}
           onSelect={setSelectedChild}
         />
+      )}
+
+      {!selectedChild && parent?.status === "awaiting_review" && (
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-amber-800/30 bg-amber-950/20 px-4 py-2.5">
+          <p className="text-sm text-amber-300">
+            This run&apos;s page changes are held as a draft, pending review.
+          </p>
+          <button
+            type="button"
+            onClick={() => onReviewDraft?.(runId)}
+            className="shrink-0 rounded bg-amber-600/80 px-2.5 py-1 text-xs font-medium text-white hover:bg-amber-600"
+          >
+            Review diff
+          </button>
+        </div>
       )}
 
       {/* One log pane, keyed so switching parent<->child remounts it (fresh
@@ -168,7 +186,10 @@ function RunLogPane({
         if (cancelled) return;
         setRun(detail);
         onStatusRef.current?.(detail);
-        const active = detail.status === "running" || detail.status === "queued";
+        const active =
+          detail.status === "running" ||
+          detail.status === "queued" ||
+          detail.status === "awaiting_review";
         if (active) {
           timer = setTimeout(poll, 900);
         } else if (!firedFinished.current) {
@@ -192,7 +213,8 @@ function RunLogPane({
   );
 
   const status = run?.status ?? "queued";
-  const active = status === "running" || status === "queued";
+  const active = status === "running" || status === "queued" || status === "awaiting_review";
+  const stoppable = status === "running" || status === "queued";
   const ctxPct = run?.context_usage?.percentage;
   const ctxTitle =
     run?.context_usage &&
@@ -230,7 +252,7 @@ function RunLogPane({
           )}
         </div>
         <div className="flex items-center gap-2">
-          {allowStop && active && (
+          {allowStop && stoppable && (
             <button
               type="button"
               onClick={() => void stop()}
@@ -270,6 +292,7 @@ function RunLogPane({
 function dotClass(status: RunStatus): string {
   if (status === "running") return "bg-emerald-400 animate-pulse";
   if (status === "queued") return "bg-neutral-500";
+  if (status === "awaiting_review") return "bg-amber-400 animate-pulse";
   return status === "succeeded" ? "bg-emerald-500" : "bg-red-500";
 }
 

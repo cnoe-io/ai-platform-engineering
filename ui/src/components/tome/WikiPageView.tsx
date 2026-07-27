@@ -51,6 +51,9 @@ interface Props {
   onOpenHistory?: () => void;
   /** When true, an ingest is rewriting the wiki — render read-only. */
   locked?: boolean;
+  /** When true, `locked` is because a draft is awaiting review (not an active
+   * ingest) — same read-only effect, different banner copy. */
+  awaitingReview?: boolean;
   /** Navigate to another wiki page (internal `tome://` link click). */
   onNavigate?: (path: string) => void;
   /** Resolve a glossary term slug to its definition for the hover card. */
@@ -76,6 +79,7 @@ export function WikiPageView({
   onClose,
   onOpenHistory,
   locked = false,
+  awaitingReview = false,
   onNavigate,
   glossaryPreview,
   onRename,
@@ -282,7 +286,13 @@ export function WikiPageView({
               variant="outline"
               onClick={() => setIsEditing(true)}
               disabled={locked}
-              title={locked ? "Ingest in progress: the wiki is read-only" : undefined}
+              title={
+                locked
+                  ? awaitingReview
+                    ? "A draft is awaiting review: approve or reject it before editing"
+                    : "Ingest in progress: the wiki is read-only"
+                  : undefined
+              }
             >
               Edit
             </Button>
@@ -293,7 +303,9 @@ export function WikiPageView({
       {locked && (
         <p className="flex items-center gap-2 border-b bg-amber-500/10 px-5 py-2 text-sm text-amber-600 dark:text-amber-400">
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          Ingest in progress: the wiki is read-only until it finishes.
+          {awaitingReview
+            ? "A draft is awaiting review: the wiki is read-only until it's approved or rejected."
+            : "Ingest in progress: the wiki is read-only until it finishes."}
         </p>
       )}
 
