@@ -18,7 +18,10 @@ import {
   resolveMcpHeaderCredentials,
   isMcpCredentialUnavailableError,
 } from "@/lib/mcp-credential-headers";
-import { writeOpenFgaTuples, type OpenFgaTupleKey } from "@/lib/rbac/openfga";
+import {
+  grantDiagnosticAgentAccess,
+  revokeDiagnosticAgentAccess,
+} from "@/lib/mcp-http-server-client";
 import { requireResourcePermission } from "@/lib/rbac/resource-authz";
 import type { MCPServerConfig } from "@/types/dynamic-agent";
 import { NextRequest } from "next/server";
@@ -102,39 +105,6 @@ function isAgentGatewayEndpoint(server: MCPServerConfig): boolean {
     return endpointUrl.origin === baseUrl.origin && endpointUrl.pathname.startsWith("/mcp");
   } catch {
     return false;
-  }
-}
-
-function diagnosticOpenFgaTuples(
-  serverId: string,
-  agentId: string,
-  session: Awaited<ReturnType<typeof getAuthFromBearerOrSession>>["session"],
-): OpenFgaTupleKey[] {
-  const subject = typeof session?.sub === "string" ? session.sub.trim() : "";
-  if (!subject) return [];
-  return [
-    { user: `user:${subject}`, relation: "user", object: `agent:${agentId}` },
-    { user: `agent:${agentId}`, relation: "caller", object: `tool:${serverId}/*` },
-  ];
-}
-
-async function grantDiagnosticAgentAccess(
-  serverId: string,
-  agentId: string,
-  session: Awaited<ReturnType<typeof getAuthFromBearerOrSession>>["session"],
-): Promise<OpenFgaTupleKey[]> {
-  const writes = diagnosticOpenFgaTuples(serverId, agentId, session);
-  if (!writes.length) return [];
-  await writeOpenFgaTuples({ writes, deletes: [] });
-  return writes;
-}
-
-async function revokeDiagnosticAgentAccess(tuples: OpenFgaTupleKey[]): Promise<void> {
-  if (!tuples.length) return;
-  try {
-    await writeOpenFgaTuples({ writes: [], deletes: tuples });
-  } catch (error) {
-    console.warn("[mcp-servers/test-tool] failed to remove diagnostic AgentGateway tuples", error);
   }
 }
 
@@ -240,38 +210,44 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
 
   const viaAgentGateway = isAgentGatewayEndpoint(server);
   const diagnosticAgent = diagnosticAgentId(serverId, session);
+
+  let credentialResolution;
+  try {
+    credentialResolution = await resolveMcpHeaderCredentials({
+      request,
+      session,
+      server,
+      viaAgentGateway,
+      retrievalCaller: "mcp-test-tool",
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message === "MCP_AUTH_REQUIRED") {
+      throw new ApiError(
+        "A signed-in user token is required to test AgentGateway-routed MCP tools",
+        401,
+        "MCP_TEST_AUTH_REQUIRED",
+      );
+    }
+    if (isMcpCredentialUnavailableError(error)) {
+      throw new ApiError(
+        error instanceof Error ? error.message : "MCP provider credential is unavailable",
+        401,
+        "MCP_CREDENTIAL_UNAVAILABLE",
+      );
+    }
+    throw error;
+  }
+
   const diagnosticTuples = viaAgentGateway
-    ? await grantDiagnosticAgentAccess(serverId, diagnosticAgent, session)
+    ? await grantDiagnosticAgentAccess(
+        serverId,
+        diagnosticAgent,
+        session,
+        credentialResolution.authorizationSubject,
+      )
     : [];
 
   try {
-    let credentialResolution;
-    try {
-      credentialResolution = await resolveMcpHeaderCredentials({
-        request,
-        session,
-        server,
-        viaAgentGateway,
-        retrievalCaller: "mcp-test-tool",
-      });
-    } catch (error) {
-      if (error instanceof Error && error.message === "MCP_AUTH_REQUIRED") {
-        throw new ApiError(
-          "A signed-in user token is required to test AgentGateway-routed MCP tools",
-          401,
-          "MCP_TEST_AUTH_REQUIRED",
-        );
-      }
-      if (isMcpCredentialUnavailableError(error)) {
-        throw new ApiError(
-          error instanceof Error ? error.message : "MCP provider credential is unavailable",
-          401,
-          "MCP_CREDENTIAL_UNAVAILABLE",
-        );
-      }
-      throw error;
-    }
-
     const headers = {
       ...credentialResolution.headers,
       ...buildAgentContextHeaders(diagnosticAgent),
@@ -311,6 +287,6 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       ...(errorMessage ? { error: errorMessage } : {}),
     });
   } finally {
-    await revokeDiagnosticAgentAccess(diagnosticTuples);
+    await revokeDiagnosticAgentAccess(diagnosticTuples, "mcp-servers/test-tool");
   }
 });
