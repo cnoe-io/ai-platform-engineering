@@ -31,6 +31,7 @@ test.describe("RBAC e2e — credential team sharing", () => {
   test("uses inline common team picker and shows the selected shared team", async ({ page }) => {
     const env = rbacEnvOrSkip();
     const pendingShares: PendingShare[] = [];
+    let callerTeamsRequests = 0;
 
     await page.route("**/api/admin/platform-config", async (route) => {
       await fulfillJson(route, {
@@ -39,16 +40,17 @@ test.describe("RBAC e2e — credential team sharing", () => {
       });
     });
 
-    await page.route("**/api/admin/teams", async (route) => {
+    // Credential sharing must use caller-visible teams. The admin-only endpoint
+    // leaves non-admin secret owners with an empty picker.
+    await page.route("**/api/dynamic-agents/teams", async (route) => {
+      callerTeamsRequests += 1;
       await fulfillJson(route, {
         success: true,
-        data: {
-          teams: [
-            { _id: "team-1", slug: "platform-team", name: "Platform Team" },
-            { _id: "team-2", slug: "observability-team", name: "Observability Team" },
-            { _id: "team-3", slug: "security-team", name: "Security Team" },
-          ],
-        },
+        data: [
+          { _id: "team-1", slug: "platform-team", name: "Platform Team" },
+          { _id: "team-2", slug: "observability-team", name: "Observability Team" },
+          { _id: "team-3", slug: "security-team", name: "Security Team" },
+        ],
       });
     });
 
@@ -84,6 +86,7 @@ test.describe("RBAC e2e — credential team sharing", () => {
 
     const panel = page.getByRole("region", { name: /github token team access/i });
     await expect(panel).toBeVisible();
+    await expect.poll(() => callerTeamsRequests).toBe(1);
     await expect(page.getByRole("dialog", { name: /share github token/i })).toHaveCount(0);
     await expect(panel.getByText(/Choose a team that can use this saved secret/)).toBeVisible();
     await expect(panel.getByLabel("Team access")).toContainText("Platform Team");
