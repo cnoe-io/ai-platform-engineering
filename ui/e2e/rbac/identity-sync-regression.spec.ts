@@ -157,7 +157,11 @@ test.describe("mocked identity sync browser regression", () => {
     });
 
     await expect(page.getByRole("button", { name: "Teams & Users" })).toHaveAttribute("data-active", "true");
-    await expect(page.getByRole("link", { name: "Identity Sync" })).toHaveAttribute(
+    await expect(
+      page
+        .getByRole("navigation",{ name: "Admin sections" })
+        .getByRole("link", { name: "Identity Sync" }),
+    ).toHaveAttribute(
       "aria-current",
       "page",
     );

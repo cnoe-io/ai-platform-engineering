@@ -9,11 +9,11 @@ import { LLMModelsTab } from "@/components/dynamic-agents/LLMModelsTab";
 import { LLMProvidersTab } from "@/components/dynamic-agents/LLMProvidersTab";
 import { MCPServersTab } from "@/components/dynamic-agents/MCPServersTab";
 import { isAgentSetupStep,type AgentSetupStep } from "@/components/dynamic-agents/deep-linking";
-import { WorkspaceHeader } from "@/components/layout/WorkspaceHeader";
 import {
   WorkspaceSectionNavigation,
   type WorkspaceNavigationGroup,
 } from "@/components/layout/WorkspaceNavigation";
+import { WorkspacePageHeader } from "@/components/layout/WorkspacePageHeader";
 import { WorkspaceShell } from "@/components/layout/WorkspaceShell";
 import { UnsavedChangesDialog } from "@/components/shared/UnsavedChangesDialog";
 import { useAdminTabGates } from "@/hooks/useAdminTabGates";
@@ -60,11 +60,15 @@ function DynamicAgentsPageContent() {
     RESOURCE_QUERY_KEYS.forEach((key) => params.delete(key));
   }
 
-  function performTabSwitch(tab: string) {
+  function hrefForTab(tab: string): string {
     const params = new URLSearchParams(searchParams.toString());
     params.set("tab", tab);
     clearResourceSelection(params);
-    router.push(hrefFor(params));
+    return hrefFor(params);
+  }
+
+  function performTabSwitch(tab: string) {
+    router.push(hrefForTab(tab));
   }
 
   function selectResource(tab: "agents" | "mcp-servers" | "llm-models", key: "agent" | "server" | "model", id: string | null) {
@@ -127,7 +131,7 @@ function DynamicAgentsPageContent() {
       },
       {
         id: "model-settings",
-        label: "LLM Models",
+        label: "Models",
         icon: Cpu,
         description: "Configure providers and models",
         children: [
@@ -156,20 +160,63 @@ function DynamicAgentsPageContent() {
       }] : []),
     ],
   }];
+  const activeNavigationItem = navigationGroups
+    .flatMap((group) => group.items)
+    .flatMap((item) => item.children ?? [item])
+    .find((item) => item.id === activeTab)!;
+  const activeDescription = {
+    agents: "Build agents and choose the instructions, tools, and model they use.",
+    conversations: "Review agent conversations and manage their checkpoint history.",
+    "llm-models": "Register the provider and model identifiers available to agents.",
+    "mcp-servers": "Configure MCP connections and authorize each tool call through AgentGateway.",
+    "model-providers": "Save the provider credentials agents need to use each model.",
+  }[activeTab] ?? activeNavigationItem.description ?? "";
+  const agentHomeHref = hrefForTab("agents");
+  const modelsHref = hrefForTab("model-providers");
+  const currentHref = hrefFor(new URLSearchParams(searchParams.toString()));
+  const switchFromBreadcrumb = (
+    tab: string,
+  ): React.MouseEventHandler<HTMLAnchorElement> => (event) => {
+    if (
+      event.button !== 0
+      || event.metaKey
+      || event.ctrlKey
+      || event.shiftKey
+      || event.altKey
+    ) return;
+    event.preventDefault();
+    setActiveTab(tab);
+  };
 
   return (
     <>
       <WorkspaceShell
         header={(
-          <WorkspaceHeader
-            description="Create and configure custom AI agents with MCP tool integrations."
-            icon={Bot}
-            iconAnimationClassName="motion-safe:duration-300 motion-safe:group-hover:-translate-y-0.5 motion-safe:group-hover:rotate-3 motion-safe:group-hover:scale-110"
-            iconTestId="agents-header-icon"
-            title="Agents"
+          <WorkspacePageHeader
+            breadcrumbs={[
+              { label: "Home",href: "/" },
+              ...(activeTab === "agents"
+                ? [{ label: "Agents",href: currentHref }]
+                : [{
+                    label: "Agents",
+                    href: agentHomeHref,
+                    onClick: switchFromBreadcrumb("agents"),
+                  }]),
+              ...(activeTab === "model-providers" || activeTab === "llm-models"
+                ? [{
+                    label: "Models",
+                    href: modelsHref,
+                    onClick: switchFromBreadcrumb("model-providers"),
+                  }]
+                : []),
+              ...(activeTab === "agents"
+                ? []
+                : [{ label: activeNavigationItem.label,href: currentHref }]),
+            ]}
+            description={activeDescription}
+            title={activeNavigationItem.label}
           />
         )}
-        maxWidthClassName="max-w-[108rem]"
         navigation={(
           <WorkspaceSectionNavigation
             activeItemId={activeTab}

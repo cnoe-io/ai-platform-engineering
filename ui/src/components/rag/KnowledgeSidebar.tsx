@@ -14,7 +14,7 @@ interface KnowledgeSidebarProps {
   graphRagEnabled: boolean;
 }
 
-const NAV_ITEMS: Array<{
+export const KNOWLEDGE_NAV_ITEMS: Array<{
   id: string;
   gateKey: KbTabKey;
   label: string;
@@ -58,7 +58,7 @@ const NAV_ITEMS: Array<{
   },
 ];
 
-function activeTabForPath(pathname: string | null): string {
+export function knowledgeTabForPath(pathname: string | null): string {
   if (pathname?.includes("/mcp-tools")) return "mcp-tools";
   if (pathname?.includes("/ingest")) return "ingest";
   if (pathname?.includes("/graph")) return "graph";
@@ -84,7 +84,7 @@ export function KnowledgeSidebar({
 }: KnowledgeSidebarProps): React.ReactElement {
   const pathname = usePathname();
   const { gates,loading: gatesLoading,orgAdminBypass } = useKbTabGates();
-  const activeTab = activeTabForPath(pathname);
+  const activeTab = knowledgeTabForPath(pathname);
 
   const hasExplicitCapability = gates.can_ingest === true || gates.can_search === true;
   const showNoKbBanner =
@@ -95,7 +95,7 @@ export function KnowledgeSidebar({
 
   const groups: WorkspaceNavigationGroup[] = [{
     id: "knowledge-base-sections",
-    items: NAV_ITEMS.map((item) => {
+    items: KNOWLEDGE_NAV_ITEMS.map((item) => {
       const graphDisabled = item.requiresGraphRag && !graphRagEnabled;
       const rbacAllowed = !gatesLoading && gates[item.gateKey] === true;
       const disabled = Boolean(graphDisabled || !rbacAllowed);

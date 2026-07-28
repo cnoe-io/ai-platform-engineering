@@ -25,9 +25,11 @@ async function assertCredentialsPageAvailable(
   await page.goto(target, { waitUntil: "domcontentloaded" });
   await dismissReleaseUpgradeDialog(page);
   try {
-    await expect(page.getByRole("heading", { name: "Credentials" })).toBeVisible({
-      timeout: 10_000,
-    });
+    await expect(
+      page
+        .getByRole("navigation",{ name: "Breadcrumb" })
+        .getByRole("link",{ name: "Credentials",exact: true }),
+    ).toBeVisible({ timeout: 10_000 });
   } catch {
     test.skip(
       true,
@@ -59,11 +61,22 @@ test.describe("credentials workspace navigation", () => {
 
     await expect(page.getByRole("heading", { name: "Connected Apps" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Saved Secrets" })).toHaveCount(0);
-    await expect(page.getByRole("link", { name: /Connected apps/ })).toHaveAttribute(
+    const navigation = page.getByRole("navigation",{ name: "Credentials sections" });
+    await expect(navigation.getByRole("link", { name: "Connected Apps" })).toHaveAttribute(
       "aria-current",
       "page",
     );
     await expect(page.getByRole("tab")).toHaveCount(0);
+    const breadcrumb = page.getByRole("navigation",{ name: "Breadcrumb" });
+    await expect(breadcrumb.getByRole("link",{ name: "Home" })).toHaveAttribute("href","/");
+    await expect(breadcrumb.getByRole("link",{ name: "Credentials" })).toHaveAttribute(
+      "href",
+      "/credentials/connections",
+    );
+    await expect(breadcrumb.getByRole("link",{ name: "Connected Apps" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
     await expect(page).toHaveURL(/\/credentials\/connections$/);
   });
 
@@ -73,7 +86,10 @@ test.describe("credentials workspace navigation", () => {
     await expect(page.getByText("No apps connected yet.")).toBeVisible();
     await expect(page.getByText("No secrets yet.")).toHaveCount(0);
 
-    await page.getByRole("link", { name: /Saved secrets/ }).click();
+    await page
+      .getByRole("navigation",{ name: "Credentials sections" })
+      .getByRole("link", { name: "Saved Secrets" })
+      .click();
 
     await expect(page).toHaveURL(/\/credentials\/secrets$/);
     await expect(page.getByText("No secrets yet.")).toBeVisible();

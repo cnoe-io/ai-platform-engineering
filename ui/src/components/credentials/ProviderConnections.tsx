@@ -368,12 +368,6 @@ export function ProviderConnections() {
 
   return (
     <section className="space-y-4">
-      <div className="border-b border-border pb-5">
-        <h2 className="text-xl font-semibold">Connected Apps</h2>
-        <p className="text-sm text-muted-foreground">
-          Connect apps like Atlassian so agents can use approved account access.
-        </p>
-      </div>
       <p className="text-xs text-muted-foreground/70">
         Adding additional apps requires admin permissions.
       </p>

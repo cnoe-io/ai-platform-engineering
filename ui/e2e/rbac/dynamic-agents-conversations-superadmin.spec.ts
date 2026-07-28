@@ -10,8 +10,8 @@ import {
 } from "./_mocked-rbac";
 
 const adminSession = {
-  email: "sraradhy@cisco.com",
-  name: "Sri Aradhyula",
+  email: "user@example.com",
+  name: "Example User",
   role: "admin" as const,
   canViewAdmin: true,
 };
@@ -191,7 +191,9 @@ test.describe("mocked RBAC Dynamic Agents workspace", () => {
       "aria-current",
       "page",
     );
-    await expect(page.getByText("View and manage Dynamic Agent conversations.")).toBeVisible();
+    await expect(
+      page.getByText("Review agent conversations and manage their checkpoint history."),
+    ).toBeVisible();
     await expect(page.getByText("You do not have permission to access this resource.")).toHaveCount(0);
     await expect(page.getByText("3 conversations found")).toBeVisible();
 
@@ -251,7 +253,7 @@ test.describe("mocked RBAC Dynamic Agents workspace", () => {
 
     const navigation = page.getByRole("navigation",{ name: "Agent sections" });
     const modelsDisclosure = navigation.locator("button[aria-controls]",{
-      hasText: /^LLM Models$/,
+      hasText: /^Models$/,
     });
     await expect(modelsDisclosure).toHaveAttribute("aria-expanded","false");
     await modelsDisclosure.click();
@@ -260,6 +262,19 @@ test.describe("mocked RBAC Dynamic Agents workspace", () => {
     await navigation.getByRole("button",{ name: "Model Providers" }).click();
     await expect(page).toHaveURL(/tab=model-providers/);
     await expect(page.getByText("Model Providers",{ exact: true }).last()).toBeVisible();
+    const breadcrumb = page.getByRole("navigation",{ name: "Breadcrumb" });
+    await expect(breadcrumb.getByRole("link",{ name: "Agents" })).toHaveAttribute(
+      "href",
+      "/dynamic-agents?tab=agents",
+    );
+    await expect(breadcrumb.getByRole("link",{ name: "Models" })).toHaveAttribute(
+      "href",
+      "/dynamic-agents?tab=model-providers",
+    );
+    await expect(breadcrumb.getByRole("link",{ name: "Model Providers" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
 
     const childrenId = await modelsDisclosure.getAttribute("aria-controls");
     const modelChildren = page.locator(`#${childrenId}`);
@@ -381,6 +396,8 @@ test.describe("mocked RBAC Dynamic Agents workspace", () => {
       "aria-current",
       "page",
     );
-    await expect(page.getByText("View and manage Dynamic Agent conversations.")).toHaveCount(0);
+    await expect(
+      page.getByText("Review agent conversations and manage their checkpoint history."),
+    ).toHaveCount(0);
   });
 });

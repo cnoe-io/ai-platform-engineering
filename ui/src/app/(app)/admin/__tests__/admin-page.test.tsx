@@ -472,7 +472,7 @@ describe('Admin Dashboard Page', () => {
       setupFetchMock();
       render(<AdminPage />);
 
-      expect(await screen.findByRole('heading', { name: 'Admin' })).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { level: 1, name: 'Users' })).toBeInTheDocument();
       expect(screen.queryByTestId('spinner')).not.toBeInTheDocument();
     });
 
@@ -490,7 +490,7 @@ describe('Admin Dashboard Page', () => {
       render(<AdminPage />);
 
       await waitFor(() => {
-        expect(screen.getByRole('heading', { name: 'Admin' })).toBeInTheDocument();
+        expect(screen.getByRole('heading', { level: 1, name: 'Agent configuration' })).toBeInTheDocument();
       });
       expect(screen.getByTestId('import-agents-card')).toHaveAttribute('data-read-only', 'false');
 
@@ -513,7 +513,7 @@ describe('Admin Dashboard Page', () => {
       render(<AdminPage />);
 
       expect((await screen.findAllByText(/network error/i)).length).toBeGreaterThan(1);
-      expect(screen.getByRole('heading', { name: 'Admin' })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { level: 1, name: 'Statistics' })).toBeInTheDocument();
       expect(screen.queryByText('Retry')).not.toBeInTheDocument();
     });
 
@@ -557,7 +557,7 @@ describe('Admin Dashboard Page', () => {
 
       await waitFor(() => {
         expect(
-          screen.getByText('Manage people, resources, operations, and policy.')
+          screen.getByText('Review people, roles, memberships, and resource access.')
         ).toBeInTheDocument();
       });
     });
@@ -627,11 +627,12 @@ describe('Admin Dashboard Page', () => {
         );
       });
 
-      expect(screen.getByRole('link', { name: /^Slack$/i })).toHaveAttribute(
+      const navigation = screen.getByRole('navigation', { name: 'Admin sections' });
+      expect(within(navigation).getByRole('link', { name: /^Slack$/i })).toHaveAttribute(
         'aria-current',
         'page',
       );
-      expect(screen.getByRole('link', { name: /^Webex$/i })).toBeInTheDocument();
+      expect(within(navigation).getByRole('link', { name: /^Webex$/i })).toBeInTheDocument();
       await waitFor(() => {
         expect(screen.getByTestId('slack-integration-panel')).toHaveAttribute('data-self-service', 'true');
       });
@@ -734,7 +735,7 @@ describe('Admin Dashboard Page', () => {
 
       expect(await screen.findByRole('button', { name: /viewing as regular user/i })).toBeInTheDocument();
       expect(screen.queryByText(/previewing regular user's effective access/i)).not.toBeInTheDocument();
-      expect(screen.getByText('Manage people, resources, operations, and policy.')).toBeInTheDocument();
+      expect(screen.getByText('Review people, roles, memberships, and resource access.')).toBeInTheDocument();
       expect(screen.queryByText('Access Preview · Read-Only')).not.toBeInTheDocument();
       expect(screen.queryByText(/no user session is impersonated/i)).not.toBeInTheDocument();
       const navigation = await screen.findByRole('navigation', { name: 'Admin sections' });
@@ -902,7 +903,7 @@ describe('Admin Dashboard Page', () => {
       render(<AdminPage />);
 
       await waitFor(() => {
-        expect(screen.getByRole('heading', { name: 'Admin' })).toBeInTheDocument();
+        expect(screen.getByRole('heading', { level: 1, name: 'Users' })).toBeInTheDocument();
       });
 
       expect(screen.queryByText('Read-Only')).not.toBeInTheDocument();
@@ -913,7 +914,7 @@ describe('Admin Dashboard Page', () => {
 
       await waitFor(() => {
         expect(
-          screen.getByText('Manage people, resources, operations, and policy.')
+          screen.getByText('Review people, roles, memberships, and resource access.')
         ).toBeInTheDocument();
       });
     });
@@ -1064,8 +1065,25 @@ describe('Admin Dashboard Page', () => {
     it("defaults bare Admin to the canonical Users route", async () => {
       render(<AdminPage />);
 
-      expect(await screen.findByRole("heading", { level: 2, name: "Users" })).toBeInTheDocument();
-      expect(screen.getByRole("link", { name: "Users" })).toHaveAttribute("aria-current", "page");
+      expect(await screen.findByRole("heading", { level: 1, name: "Users" })).toBeInTheDocument();
+      const breadcrumb = screen.getByRole("navigation", { name: "Breadcrumb" });
+      expect(within(breadcrumb).getByRole("link", { name: "Home" })).toHaveAttribute("href", "/");
+      expect(within(breadcrumb).getByRole("link", { name: "Admin" })).toHaveAttribute(
+        "href",
+        "/admin/people/users",
+      );
+      expect(within(breadcrumb).getByRole("link", { name: "Teams & Users" })).toHaveAttribute(
+        "href",
+        "/admin/people/users",
+      );
+      expect(within(breadcrumb).getByRole("link", { name: "Users" })).toHaveAttribute(
+        "aria-current",
+        "page",
+      );
+      expect(
+        within(screen.getByRole("navigation", { name: "Admin sections" }))
+          .getByRole("link", { name: "Users" }),
+      ).toHaveAttribute("aria-current", "page");
       expect(screen.getByText("admin@example.com")).toBeInTheDocument();
       expect(replaceMock).toHaveBeenCalledWith("/admin/people/users", { scroll: false });
       expect(screen.queryByText("Settings")).not.toBeInTheDocument();
@@ -1082,8 +1100,11 @@ describe('Admin Dashboard Page', () => {
       currentPathname = path;
       render(<AdminPage />);
 
-      expect(await screen.findByRole("heading", { level: 2, name: label })).toBeInTheDocument();
-      expect(screen.getByRole("link", { name: label })).toHaveAttribute("aria-current", "page");
+      expect(await screen.findByRole("heading", { level: 1, name: label })).toBeInTheDocument();
+      expect(
+        within(screen.getByRole("navigation", { name: "Admin sections" }))
+          .getByRole("link", { name: label }),
+      ).toHaveAttribute("aria-current", "page");
       expect(replaceMock).not.toHaveBeenCalled();
     });
 
@@ -1457,7 +1478,10 @@ describe('Admin Dashboard Page', () => {
         expect(screen.getByText('42')).toBeInTheDocument();
       });
 
-      expect(screen.getByRole('link', { name: /^Statistics$/i })).toHaveAttribute(
+      expect(
+        within(screen.getByRole('navigation', { name: 'Admin sections' }))
+          .getByRole('link', { name: /^Statistics$/i }),
+      ).toHaveAttribute(
         'aria-current',
         'page',
       );
@@ -1735,7 +1759,8 @@ describe('Admin Dashboard Page', () => {
 
       render(<AdminPage />);
 
-      const statisticsLink = await screen.findByRole('link', { name: 'Statistics' });
+      const navigation = await screen.findByRole('navigation', { name: 'Admin sections' });
+      const statisticsLink = within(navigation).getByRole('link', { name: 'Statistics' });
       const targetUrl = new URL(statisticsLink.getAttribute('href') ?? '', 'http://localhost');
       expect(targetUrl.pathname).toBe('/admin/insights/statistics');
       expect(targetUrl.searchParams.get('dateRange')).toBe('30d');

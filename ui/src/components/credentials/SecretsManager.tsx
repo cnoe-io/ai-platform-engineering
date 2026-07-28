@@ -221,13 +221,7 @@ export function SecretsManager() {
 
   return (
     <section className="space-y-6">
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0 flex-1 border-b border-border pb-5">
-          <h2 className="text-xl font-semibold">Saved Secrets</h2>
-          <p className="text-sm text-muted-foreground">
-            Store secrets that agents and services can use without showing the value again.
-          </p>
-        </div>
+      <div className="flex justify-end">
         <Button type="button" onClick={() => setCreateOpen(true)}>
           Add Secret
         </Button>

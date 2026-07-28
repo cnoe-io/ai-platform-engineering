@@ -12,11 +12,15 @@ VisibilityBreakdown,
 } from "@/components/admin/insights/SkillMetricsCards";
 import { AsyncStatsCard } from "@/components/admin/insights/AsyncStatsCard";
 import { ReviewConfigsTab } from "@/components/admin/settings/ReviewConfigsTab";
-import { AdminNavigation } from "@/components/admin/workspace/AdminNavigation";
+import {
+  AdminNavigation,
+  adminDestinationHref,
+} from "@/components/admin/workspace/AdminNavigation";
 import {
   DEFAULT_ADMIN_DESTINATION_ID,
   DEFAULT_READONLY_DESTINATION_ID,
   filterAdminCategories,
+  findAdminCategoryForDestination,
   findAdminDestinationById,
   findAdminDestinationByPath,
 } from "@/components/admin/workspace/admin-routes";
@@ -49,7 +53,7 @@ import { UserDetailPanel } from "@/components/admin/teams/UserDetailPanel";
 import { UserManagementTab } from "@/components/admin/teams/UserManagementTab";
 import { AuthGuard } from "@/components/auth-guard";
 import { AdminCredentialManagementPanel } from "@/components/credentials/AdminCredentialManagementPanel";
-import { WorkspaceHeader } from "@/components/layout/WorkspaceHeader";
+import { WorkspacePageHeader } from "@/components/layout/WorkspacePageHeader";
 import { WorkspaceShell } from "@/components/layout/WorkspaceShell";
 import { PlatformAccessSettings } from "@/components/settings/sections/PlatformAccessSettings";
 import { Button } from "@/components/ui/button";
@@ -75,7 +79,7 @@ import { cn } from "@/lib/utils";
 import type { SkillMetricsAdmin } from "@/types/agent-skill";
 import { ADMIN_STATS_SECTIONS,type AdminStats,type AdminStatsOwnerType,type AdminStatsSection } from "@/types/admin-stats";
 import type { Team as TeamType } from "@/types/teams";
-import { Activity,Archive,Bot,CheckCircle2,ChevronLeft,ChevronRight,Clock,Database,ExternalLink,Eye,Filter,Globe,KeyRound,Layers,Link2,Loader2,MessageSquare,RefreshCw,Search,Settings,Shield,ThumbsDown,ThumbsUp,Trash2,Unlink,UserPlus,Users,UsersIcon,Wrench,X,Zap } from "lucide-react";
+import { Activity,Archive,Bot,CheckCircle2,ChevronLeft,ChevronRight,Clock,Database,ExternalLink,Eye,Filter,Globe,KeyRound,Layers,Link2,Loader2,MessageSquare,RefreshCw,Search,Settings,ThumbsDown,ThumbsUp,Trash2,Unlink,UserPlus,Users,UsersIcon,Wrench,X,Zap } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { usePathname,useRouter,useSearchParams } from "next/navigation";
 import React,{ useCallback,useEffect,useEffectEvent,useMemo,useRef,useState } from "react";
@@ -523,7 +527,23 @@ function AdminPage() {
     (requestedDestinationIsVisible ? requestedDestination : undefined) ??
     fallbackDestination ??
     findAdminDestinationById(defaultDestinationId)!;
+  const activeCategory =
+    visibleCategories.find((category) =>
+      category.destinations.some((destination) => destination.id === activeDestination.id),
+    ) ?? findAdminCategoryForDestination(activeDestination.id);
   const activeTab = activeDestination.id;
+  const breadcrumbSearchParams = new URLSearchParams(searchParams.toString());
+  const breadcrumbHref = (destination: typeof activeDestination) =>
+    adminDestinationHref(destination,breadcrumbSearchParams,activeDestination.id);
+  const categoryBreadcrumbDestination =
+    activeCategory.destinations[0] ?? activeDestination;
+  const adminBreadcrumbDestination =
+    visibleDestinations[0] ?? categoryBreadcrumbDestination;
+  const subgroupBreadcrumbDestination = activeDestination.subgroup
+    ? activeCategory.destinations.find(
+        (destination) => destination.subgroup === activeDestination.subgroup,
+      )
+    : undefined;
 
   useEffect(() => {
     if (adminRoleLoading || adminTabGatesLoading) return;
@@ -1386,7 +1406,7 @@ function AdminPage() {
       <CrawlConsoleDialog />
       <WorkspaceShell
         header={(
-          <WorkspaceHeader
+          <WorkspacePageHeader
             actions={(
               <>
                 {isAdmin ? (
@@ -1415,14 +1435,33 @@ function AdminPage() {
                 <CrawlConsoleHeaderPill />
               </>
             )}
-            description="Manage people, resources, operations, and policy."
-            icon={Shield}
-            iconAnimationClassName="motion-safe:duration-300 motion-safe:group-hover:scale-110"
-            iconTestId="admin-header-icon"
-            title="Admin"
+            breadcrumbs={[
+              { label: "Home",href: "/" },
+              {
+                label: "Admin",
+                href: breadcrumbHref(adminBreadcrumbDestination),
+              },
+              {
+                label: activeCategory.label,
+                href: breadcrumbHref(categoryBreadcrumbDestination),
+              },
+              ...(activeDestination.subgroup &&
+              activeDestination.subgroup !== activeCategory.label
+                ? [{
+                    label: activeDestination.subgroup,
+                    href: breadcrumbHref(subgroupBreadcrumbDestination ?? activeDestination),
+                  }]
+                : []),
+              {
+                label: activeDestination.label,
+                href: breadcrumbHref(activeDestination),
+              },
+            ]}
+            description={activeDestination.description}
+            title={activeDestination.label}
+            titleId="admin-section-title"
           />
         )}
-        maxWidthClassName="max-w-[108rem]"
         navigation={visibleCategories.length > 0 ? (
           <AdminNavigation
             activeDestination={activeDestination}
@@ -1431,17 +1470,6 @@ function AdminPage() {
           />
         ) : null}
       >
-        {visibleCategories.length > 0 ? (
-          <div className="mb-6 border-b border-border pb-5">
-            <h2 className="text-xl font-semibold" id="admin-section-title">
-              {activeDestination.label}
-            </h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {activeDestination.description}
-            </p>
-          </div>
-        ) : null}
-
         <Tabs value={activeTab} className="space-y-4">
 
               <Dialog open={simulationDialogOpen} onOpenChange={setSimulationDialogOpen}>

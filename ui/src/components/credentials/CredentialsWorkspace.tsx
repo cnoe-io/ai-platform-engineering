@@ -4,7 +4,8 @@ import {
   WorkspaceSectionNavigation,
   type WorkspaceNavigationGroup,
 } from "@/components/layout/WorkspaceNavigation";
-import { WorkspaceHeader } from "@/components/layout/WorkspaceHeader";
+import { WorkspacePageHeader } from "@/components/layout/WorkspacePageHeader";
+import { WorkspaceShell } from "@/components/layout/WorkspaceShell";
 import { Cable,KeyRound } from "lucide-react";
 import { useRouter } from "next/navigation";
 import React from "react";
@@ -19,14 +20,14 @@ const CREDENTIALS_GROUPS: WorkspaceNavigationGroup[] = [{
   items: [
     {
       id: "connections",
-      label: "Connected apps",
+      label: "Connected Apps",
       href: "/credentials/connections",
       icon: Cable,
       description: "Manage OAuth connections",
     },
     {
       id: "secrets",
-      label: "Saved secrets",
+      label: "Saved Secrets",
       href: "/credentials/secrets",
       icon: KeyRound,
       description: "Store protected credentials",
@@ -69,28 +70,34 @@ export function CredentialsWorkspace({
     };
   }, [showConnections]);
 
-  return (
-    <section>
-      <WorkspaceHeader
-        description="Manage connected apps and saved secrets."
-        icon={KeyRound}
-        iconAnimationClassName="motion-safe:duration-300 motion-safe:group-hover:-rotate-12 motion-safe:group-hover:scale-110"
-        iconTestId="credentials-header-icon"
-        title="Credentials"
-      />
+  const activeItem = CREDENTIALS_GROUPS[0].items.find((item) => item.id === activeSection)!;
+  const description = activeSection === "connections"
+    ? "Connect approved apps so agents can use your account access."
+    : "Store protected credentials for agents and services without exposing their values.";
 
-      <div className="space-y-6 lg:flex lg:items-start lg:gap-10 lg:space-y-0">
+  return (
+    <WorkspaceShell
+      header={(
+        <WorkspacePageHeader
+          breadcrumbs={[
+            { label: "Home",href: "/" },
+            { label: "Credentials",href: "/credentials/connections" },
+            { label: activeItem.label,href: activeItem.href },
+          ]}
+          description={description}
+          title={activeItem.label}
+        />
+      )}
+      navigation={(
         <WorkspaceSectionNavigation
           activeItemId={activeSection}
           groups={CREDENTIALS_GROUPS}
           navigationLabel="Credentials sections"
           pickerLabel="Credentials section"
         />
-
-        <div className="min-w-0 flex-1">
-          {activeSection === "connections" ? <ProviderConnections /> : <SecretsManager />}
-        </div>
-      </div>
-    </section>
+      )}
+    >
+      {activeSection === "connections" ? <ProviderConnections /> : <SecretsManager />}
+    </WorkspaceShell>
   );
 }

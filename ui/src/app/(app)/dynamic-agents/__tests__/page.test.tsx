@@ -127,11 +127,16 @@ describe("DynamicAgentsPage", () => {
   it("renders the OpenFGA-filtered Agents surface for non-admin users", () => {
     render(<DynamicAgentsPage />);
 
-    expect(screen.getByRole("heading", { name: "Agents" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1,name: "Agents" })).toBeInTheDocument();
     expect(
-      screen.getByText("Create and configure custom AI agents with MCP tool integrations."),
+      screen.getByText("Build agents and choose the instructions, tools, and model they use."),
     ).toBeInTheDocument();
-    expect(screen.getByTestId("agents-header-icon")).toBeInTheDocument();
+    const breadcrumb = screen.getByRole("navigation",{ name: "Breadcrumb" });
+    expect(within(breadcrumb).getByRole("link",{ name: "Home" })).toHaveAttribute("href","/");
+    expect(within(breadcrumb).getByRole("link",{ name: "Agents" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
 
     const navigation = screen.getByRole("navigation", { name: "Agent sections" });
     expect(within(navigation).getByRole("button", { name: /Agents/i })).toHaveAttribute(
@@ -139,7 +144,7 @@ describe("DynamicAgentsPage", () => {
       "page",
     );
     expect(within(navigation).getByRole("button", { name: /MCP Servers/i })).toBeInTheDocument();
-    expect(within(navigation).getByRole("button", { name: /LLM Models/i })).toBeInTheDocument();
+    expect(within(navigation).getByRole("button", { name: "Models" })).toBeInTheDocument();
     expect(within(navigation).queryByRole("button", { name: /Conversations/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("tab")).not.toBeInTheDocument();
     expect(screen.queryByTestId("conversations-tab")).not.toBeInTheDocument();
@@ -174,7 +179,7 @@ describe("DynamicAgentsPage", () => {
 
     const navigation = screen.getByRole("navigation", { name: "Agent sections" });
     const modelsDisclosure = within(navigation).getByRole("button", {
-      name: "LLM Models",
+      name: "Models",
     });
     expect(modelsDisclosure).toHaveAttribute("aria-expanded", "false");
     expect(within(navigation).queryByRole("button", { name: /Model Providers/ })).not.toBeInTheDocument();
@@ -183,7 +188,7 @@ describe("DynamicAgentsPage", () => {
 
     expect(modelsDisclosure).toHaveAttribute("aria-expanded", "true");
     expect(within(navigation).getByRole("button", { name: /Model Providers/ })).toBeInTheDocument();
-    expect(within(navigation).getAllByRole("button", { name: "LLM Models" })).toHaveLength(2);
+    expect(within(navigation).getByRole("button", { name: "LLM Models" })).toBeInTheDocument();
     expect(mockPush).not.toHaveBeenCalled();
   });
 
@@ -196,6 +201,19 @@ describe("DynamicAgentsPage", () => {
     expect(screen.queryByTestId("llm-models-tab")).not.toBeInTheDocument();
     const navigation = screen.getByRole("navigation", { name: "Agent sections" });
     expect(within(navigation).getByRole("button", { name: /Model Providers/ })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    const breadcrumb = screen.getByRole("navigation",{ name: "Breadcrumb" });
+    expect(within(breadcrumb).getByRole("link",{ name: "Agents" })).toHaveAttribute(
+      "href",
+      "/dynamic-agents?tab=agents",
+    );
+    expect(within(breadcrumb).getByRole("link",{ name: "Models" })).toHaveAttribute(
+      "href",
+      "/dynamic-agents?tab=model-providers",
+    );
+    expect(within(breadcrumb).getByRole("link",{ name: "Model Providers" })).toHaveAttribute(
       "aria-current",
       "page",
     );

@@ -2,7 +2,7 @@
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card,CardContent,CardDescription,CardHeader,CardTitle } from "@/components/ui/card";
+import { Card,CardContent,CardHeader } from "@/components/ui/card";
 import {
 Dialog,
 DialogContent,
@@ -632,14 +632,7 @@ export function MCPServersTab({
       />
     <Card className="rounded-none border-0 bg-transparent shadow-none">
       <CardHeader className="px-0 pb-5 pt-0">
-        <div className="flex items-center justify-between">
-          <div>
-            <CardTitle className="text-xl">MCP Servers</CardTitle>
-            <CardDescription>
-              Configure MCP server connections. Streamable HTTP servers are routed through AgentGateway so each tool call can be authorized before it reaches the server.
-            </CardDescription>
-          </div>
-          <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
             {listCapabilities.repair_agentgateway && (
               <Button
                 variant="outline"
@@ -664,7 +657,6 @@ export function MCPServersTab({
               <Plus className="h-4 w-4 mr-2" />
               Add Server
             </Button>
-          </div>
         </div>
       </CardHeader>
       <CardContent className="px-0 pt-6">
