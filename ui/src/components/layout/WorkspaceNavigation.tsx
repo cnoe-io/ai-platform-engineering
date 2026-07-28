@@ -660,7 +660,6 @@ export function WorkspaceHierarchicalNavigationList({
             <button
               aria-controls={destinationsId}
               aria-expanded={expanded}
-              aria-label={collapsed ? category.label : undefined}
               className={cn(
                 "group flex min-h-11 w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left outline-none transition-colors",
                 "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
