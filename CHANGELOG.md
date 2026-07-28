@@ -1,3 +1,48 @@
+## 0.5.62 (2026-07-26)
+
+### Fix
+
+- **webex-wdm**: also refresh WDM device on ConnectionClosedOK
+- **webex-wdm**: refresh WDM device on ConnectionClosedError to avoid stale webSocketUrl loop
+- **skills**: isCatalogKey must match user:-prefixed subject
+- **skills**: catalog key returns hub and global agent_skills, not only default
+- **skills**: catalog key and local skills JWT missing sub drops all skills
+- **rag**: recurse into sitemap index children instead of scraping them as pages (#2293)
+- **CI**: ui
+
+## 0.5.61 (2026-07-24)
+
+## 0.5.60-dev.5 (2026-07-24)
+
+### Fix
+
+- **ui**: add proactive session keepalive to prevent SSO idle timeout (#2288)
+
+## 0.5.60-dev.4 (2026-07-23)
+
+### Fix
+
+- **webex**: add per-user OAuth token support via X-CAIPE-Provider-Token
+- **confluence**: add OAuth Bearer auth for Atlassian 3LO tokens
+
+## 0.5.60-dev.3 (2026-07-23)
+
+### Fix
+
+- **insights**: scope user drawer and paginate top users (#2285)
+
+## 0.5.60-dev.2 (2026-07-23)
+
+### Feat
+
+- **ui**: link feedback trends to daily feedback (#2283)
+
+## 0.5.60-dev.1 (2026-07-23)
+
+### Fix
+
+- **rag**: RAG RBAC coverage audit and dead-code cleanup (#2269)
+
 ## 0.5.60 (2026-07-23)
 
 ### Fix
@@ -41,9 +86,17 @@
 
 ## 0.5.58 (2026-07-22)
 
+### Feat
+
+- **docs**: include info on UI admin access to update scheduler ediotr agent
+- **helm**: change restrictedMcpServers default to none and update docs on how to restrict scheduler to admin only
+- **scheduler**: allow admin to modify default schedule editor agent in the ui
+
 ### Fix
 
 - **ci**: build remaining 11 CI image workflows natively per-arch (#2274)
+- fix scheduler ui tab acceess
+- **scheduler**: if admin only access do not make scheduler tab visible for normal users
 - **workflow**: do global check correctly
 - **ci**: build rag images natively per-arch instead of QEMU-emulated arm64 (#2272)
 
