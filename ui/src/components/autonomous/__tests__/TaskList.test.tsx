@@ -53,6 +53,7 @@ jest.mock('lucide-react', () => {
     MessageSquare: stub('chat'),
     Check: stub('copied'),
     Copy: stub('copy'),
+    CircleDashed: stub('no-ack'),
   };
 });
 
@@ -110,11 +111,28 @@ describe('TaskList — pre-flight ack badge (spec #099 FR-003)', () => {
     expect(badge).toHaveAttribute('title', expect.stringContaining("not enabled"));
   });
 
-  it('renders an "Ack pending" badge with spinner when last_ack is null/undefined', () => {
+  it('renders a resting "No ack yet" badge when last_ack is null/undefined', () => {
+    // A task that has never been pre-flighted is at rest, not in flight. It
+    // used to share the spinning "Ack pending" badge with a genuinely pending
+    // ack, so a never-run task appeared to spin forever.
     render(
       <TaskList tasks={[makeTask({ last_ack: null })]} {...noopHandlers} />,
     );
-    expect(screen.getByTestId('autonomous-ack-absent')).toHaveTextContent('Ack pending');
+    const badge = screen.getByTestId('autonomous-ack-absent');
+    expect(badge).toHaveTextContent('No ack yet');
+    expect(badge.querySelector('[data-testid="icon-loader"]')).toBeNull();
+  });
+
+  it('still spins for an ack that is genuinely in flight', () => {
+    render(
+      <TaskList
+        tasks={[makeTask({ last_ack: { ack_status: 'pending' } })]}
+        {...noopHandlers}
+      />,
+    );
+    const badge = screen.getByTestId('autonomous-ack-pending');
+    expect(badge).toHaveTextContent('Ack pending');
+    expect(badge.querySelector('[data-testid="icon-loader"]')).not.toBeNull();
   });
 
   it('renders an "Ack warn" badge for warn status', () => {

@@ -1,6 +1,3 @@
-// Copyright CNOE Contributors (https://cnoe.io)
-// SPDX-License-Identifier: Apache-2.0
-
 "use client";
 
 import React, { useState } from "react";
@@ -10,8 +7,8 @@ import { ChevronDown, ChevronRight, Pencil, Play, Trash2, MessageSquare } from "
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { RunHistory } from "@/components/autonomous/RunHistory";
-import { WebhookHookPath } from "@/components/autonomous/WebhookHookPath";
+import { RunHistory } from "./RunHistory";
+import { WebhookHookPath } from "./WebhookHookPath";
 import {
   ackBadgeFor,
   ackTooltip,
@@ -36,10 +33,9 @@ interface AgentTaskAccordionProps {
 }
 
 /**
- * Drawer-only, list-first accordion (redesign spec 2026-07-02). Compact
+ * Drawer-only, list-first accordion. Compact
  * one-line rows expand inline to reveal detail + actions + run history.
- * Multiple rows can be open at once. Reuses RunHistory and the shared
- * taskPresentation helpers; no authz or API changes.
+ * Multiple rows can be open at once.
  */
 export function AgentTaskAccordion({
   tasks,

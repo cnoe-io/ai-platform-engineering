@@ -89,15 +89,11 @@ export function fromFormState(form: TaskFormState): FormConversionResult {
   const agent = form.agent.trim();
   const prompt = form.prompt.trim();
 
-  if (!id) return { error: "ID is required." };
   if (!name) return { error: "Name is required." };
   if (!prompt) return { error: "Prompt is required." };
-  // Spec #099 FR-001: agent is a HINT, not a hard requirement. Lock the
-  // id down to the same character set the FastAPI side accepts in path
-  // parameters so spaces and other foot-guns are caught client-side.
-  if (!/^[a-zA-Z0-9_-]+$/.test(id)) {
-    return { error: "ID may only contain letters, digits, '-' and '_'." };
-  }
+  // `id` is deliberately NOT validated. It is server-generated (spec
+  // 2026-07-29) -- empty on create, and on edit it round-trips the value the
+  // server assigned. Nothing the user types reaches it.
 
   let trigger: AutonomousTask["trigger"];
   if (form.triggerType === "cron") {

@@ -43,6 +43,16 @@ const STATUS_TONE: Record<TaskRun["status"], string> = {
   skipped: "bg-muted text-muted-foreground",
 };
 
+/**
+ * Identity of the rendered run list. Compared on every poll so an unchanged
+ * response keeps the previous array reference and skips a re-render.
+ */
+function runsSignature(runs: TaskRun[]): string {
+  return runs
+    .map((r) => `${r.run_id}:${r.status}:${r.started_at}:${r.finished_at ?? ""}`)
+    .join("|");
+}
+
 function formatTimestamp(value: string | null | undefined): string {
   if (!value) return "—";
   try {
@@ -74,13 +84,18 @@ export function RunHistory({ taskId, refreshKey = 0 }: RunHistoryProps) {
   // newer one — important once the auto-poll kicks in.
   const inflightRef = useRef(0);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (options: { silent?: boolean } = {}) => {
     const requestId = ++inflightRef.current;
-    setLoading(true);
+    // Background polls must not touch `loading`: doing so spun the refresh
+    // icon and disabled the button every 5s, which read as the panel
+    // twitching while a task row was open.
+    if (!options.silent) setLoading(true);
     try {
       const data = await autonomousApi.listRuns(taskId);
       if (requestId !== inflightRef.current) return;
-      setRuns(data);
+      // Replace the array only when something actually changed, so an
+      // unchanged poll does not re-render (and visibly jitter) open rows.
+      setRuns((prev) => (runsSignature(prev) === runsSignature(data) ? prev : data));
       setError(null);
     } catch (err) {
       if (requestId !== inflightRef.current) return;
@@ -92,7 +107,7 @@ export function RunHistory({ taskId, refreshKey = 0 }: RunHistoryProps) {
       setError(message);
       setRuns([]);
     } finally {
-      if (requestId === inflightRef.current) setLoading(false);
+      if (requestId === inflightRef.current && !options.silent) setLoading(false);
     }
   }, [taskId]);
 
@@ -106,7 +121,7 @@ export function RunHistory({ taskId, refreshKey = 0 }: RunHistoryProps) {
   // primary index, so the load is negligible.
   useEffect(() => {
     const interval = setInterval(() => {
-      load();
+      void load({ silent: true });
     }, 5000);
     return () => clearInterval(interval);
   }, [load]);
@@ -128,7 +143,7 @@ export function RunHistory({ taskId, refreshKey = 0 }: RunHistoryProps) {
           type="button"
           variant="ghost"
           size="sm"
-          onClick={load}
+          onClick={() => void load()}
           disabled={loading}
           aria-label="Refresh run history"
         >

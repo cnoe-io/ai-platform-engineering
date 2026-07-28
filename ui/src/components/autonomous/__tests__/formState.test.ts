@@ -79,16 +79,22 @@ describe("formState.fromFormState", () => {
     prompt: "do thing",
   };
 
-  it("requires id, name, prompt", () => {
-    expect(fromFormState({ ...base, id: "" })).toEqual({ error: expect.stringMatching(/ID/) });
+  it("requires name and prompt", () => {
     expect(fromFormState({ ...base, name: "" })).toEqual({ error: expect.stringMatching(/Name/) });
     expect(fromFormState({ ...base, prompt: "" })).toEqual({ error: expect.stringMatching(/Prompt/) });
   });
 
-  it("rejects ids with invalid characters", () => {
-    expect(fromFormState({ ...base, id: "has space" })).toEqual({
-      error: expect.stringMatching(/ID may only contain/),
-    });
+  it("passes an empty id straight through on create", () => {
+    // The server generates the id and ignores whatever we send; an empty
+    // string keeps the wire shape stable without loosening the TS type.
+    const result = fromFormState({ ...base, id: "" });
+    expect("error" in result).toBe(false);
+    expect((result as { task: { id: string } }).task.id).toBe("");
+  });
+
+  it("preserves an existing id on edit", () => {
+    const result = fromFormState({ ...base, id: "daily-report-a3f9" });
+    expect((result as { task: { id: string } }).task.id).toBe("daily-report-a3f9");
   });
 
   it("parses a valid cron task", () => {

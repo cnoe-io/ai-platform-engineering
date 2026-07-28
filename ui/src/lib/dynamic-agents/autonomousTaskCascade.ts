@@ -23,7 +23,7 @@
  */
 
 import { getConfig } from "@/lib/config";
-import { isTaskOwnedByAgent } from "@/components/dynamic-agents/taskOwnership";
+import { isTaskOwnedByAgent } from "@/components/autonomous/taskOwnership";
 import type { AutonomousTask } from "@/components/autonomous/types";
 
 function autonomousAgentsBaseUrl(): string {

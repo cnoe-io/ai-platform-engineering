@@ -64,6 +64,17 @@ jest.mock('@/hooks/use-admin-role', () => ({
   }),
 }))
 
+// Autonomous nav capability. The entry is gated on Layer 1 team eligibility
+// now, not on admin role, so tests drive it independently of mockIsAdmin.
+let mockCanUseAutonomous = false
+let mockAutonomousAgentsEnabled = true
+jest.mock('@/hooks/use-autonomous-capability', () => ({
+  useAutonomousCapability: () => ({
+    canUseAutonomous: mockCanUseAutonomous,
+    loading: false,
+  }),
+}))
+
 // Mock chat store
 let mockStreamingConversations = new Map<string, unknown>()
 let mockUnviewedConversations = new Set<string>()
@@ -212,6 +223,7 @@ jest.mock('@/lib/config', () => ({
     get storageMode() { return mockStorageMode },
     get ragEnabled() { return mockRagEnabled },
     get reportProblemEnabled() { return mockReportProblemEnabled },
+    get autonomousAgentsEnabled() { return mockAutonomousAgentsEnabled },
   },
   getConfig: jest.fn((key: string) => {
     const configs: Record<string, unknown> = {
@@ -366,6 +378,8 @@ describe('AppHeader — nav tabs', () => {
     mockPathname = '/chat'
     mockIsAdmin = false
     mockCanAccessDynamicAgents = false
+    mockCanUseAutonomous = false
+    mockAutonomousAgentsEnabled = true
     mockRagEnabled = false
     mockReportProblemEnabled = false
     mockRuntimeStatus = 'connected'
@@ -381,6 +395,21 @@ describe('AppHeader — nav tabs', () => {
     mockReleasePrompt.releaseVersion = null
     mockReleasePrompt.release = null
     mockReleasePrompt.releaseMarkdown = null
+  })
+
+  describe('Autonomous tab', () => {
+    it('is hidden when the user has no autonomous capability', () => {
+      mockCanUseAutonomous = false
+      render(<AppHeader />)
+      expect(screen.queryByTestId('link-/autonomous')).not.toBeInTheDocument()
+    })
+
+    it('is shown for a non-admin in an autonomous-eligible team', () => {
+      mockCanUseAutonomous = true
+      mockIsAdmin = false
+      render(<AppHeader />)
+      expect(screen.getByTestId('link-/autonomous')).toBeInTheDocument()
+    })
   })
 
   describe('Insights tab removed from nav', () => {

@@ -1,6 +1,3 @@
-// Copyright CNOE Contributors (https://cnoe.io)
-// SPDX-License-Identifier: Apache-2.0
-
 /**
  * "Does this autonomous task belong to this custom agent?" predicate.
  *

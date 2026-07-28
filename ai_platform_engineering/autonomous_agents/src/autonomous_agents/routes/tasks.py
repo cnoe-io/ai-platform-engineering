@@ -11,12 +11,19 @@ import logging
 
 from fastapi import APIRouter, HTTPException, Request, status
 
-from autonomous_agents.models import Acknowledgement, TaskDefinition, TaskRun, WebhookTrigger
+from autonomous_agents.models import (
+    Acknowledgement,
+    TaskCreate,
+    TaskDefinition,
+    TaskRun,
+    WebhookTrigger,
+)
 from autonomous_agents.services.chat_history import conversation_id_for_task
 from autonomous_agents.services.mongo import (
     TaskAlreadyExistsError,
     TaskNotFoundError,
 )
+from autonomous_agents.services.task_id import generate_task_id
 from autonomous_agents.services.task_lifecycle import (
     ack_relevant_changed,
     detach_task_from_runtime,
@@ -200,27 +207,22 @@ async def get_task(task_id: str, request: Request) -> dict:
     _assert_task_access(task, caller_email, is_admin)
     return _serialize_task(task, next_run_iso_for(task_id))
 
+_ID_GENERATION_ATTEMPTS = 5
 
 @router.post("/tasks", response_model=dict, status_code=status.HTTP_201_CREATED)
-async def create_task(task: TaskDefinition, request: Request) -> dict:
+async def create_task(payload: TaskCreate, request: Request) -> dict:
     """Create a new task definition.
 
-    On success the task is immediately wired into the scheduler /
-    webhook runtime. A 409 is returned for duplicate ids rather than
-    silently overwriting -- update goes through PUT.
+    The id is generated server-side from the task name; any ``id`` in the
+    request body is ignored. On success the task is immediately wired into
+    the scheduler / webhook runtime.
 
-    Runtime-sync errors (e.g. malformed cron expression that gets
-    past pydantic but blows up inside ``APSCronTrigger.from_crontab``)
-    trigger a *compensating delete* on the store so the persisted
-    state stays consistent with the live scheduler. Without this the
-    task would sit in MongoDB unschedulable while every retry POST
-    bounced with 409 (PR #5 review, Codex P2).
+    Runtime-sync errors trigger a *compensating delete* on the store so the persisted
+    state stays consistent with the live scheduler. The rollback still matters
+    now that ids are generated: it keeps the store free of unschedulable
+    rows.
     """
-    # Every autonomous task runs against a dynamic agent (the dynamic-agents
-    # runtime is the only execution backend; the legacy supervisor /
-    # sub-agent routing was removed upstream). Reject creation without a
-    # dynamic_agent_id so a task can never be persisted with no way to run.
-    if not task.dynamic_agent_id:
+    if not payload.dynamic_agent_id:
         raise HTTPException(
             status_code=400,
             detail=(
@@ -229,9 +231,11 @@ async def create_task(task: TaskDefinition, request: Request) -> dict:
             ),
         )
 
-    # last_ack is server-managed (spec #099 FR-002). Scrub any value the
-    # caller supplied so a malicious or buggy client cannot pre-populate
-    # a green "Ack OK" badge for a task the runtime has not seen.
+    # The server owns the id. Whatever the client sent is discarded
+    
+    task = payload.model_copy(update={"id": generate_task_id(payload.name)})
+
+    # last_ack is server-managed
     if task.last_ack is not None:
         task = task.model_copy(update={"last_ack": None})
 
@@ -245,8 +249,8 @@ async def create_task(task: TaskDefinition, request: Request) -> dict:
     # carried. Admins may legitimately create a task on behalf of another
     # user, so their explicit owner_id is honored; an admin who omits it
     # defaults to their own email. The field stays None only for legacy
-    # direct calls with no gateway header (e.g. seeding scripts). (Codex P2,
-    # PR #1588.)
+    # direct calls with no gateway header (e.g. seeding scripts).
+
     # owner_sub is server-bound only, never client-trusted: a spoofed value
     # would let a task authorize as an arbitrary subject at run time (the
     # dynamic-agents runtime decides agent-use on owner_sub). Scrub whatever
@@ -269,10 +273,25 @@ async def create_task(task: TaskDefinition, request: Request) -> dict:
             task = task.model_copy(update={"owner_id": caller_email, "owner_sub": caller_sub})
 
     store = get_task_store()
-    try:
-        created = await store.create(task)
-    except TaskAlreadyExistsError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    created = None
+    for _ in range(_ID_GENERATION_ATTEMPTS):
+        try:
+            created = await store.create(task)
+            break
+        except TaskAlreadyExistsError:
+            # A suffix collision, not a user error. Re-roll and retry.
+            # A duplicate must never reach the caller as a 409, which is the
+            # exact confusion this design removes.
+            task = task.model_copy(update={"id": generate_task_id(payload.name)})
+    if created is None:
+        logger.error(
+            "Exhausted %d id-generation attempts for task name %r",
+            _ID_GENERATION_ATTEMPTS, payload.name,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Could not allocate a unique task id; please retry.",
+        )
 
     try:
         await sync_task_to_runtime(created)
@@ -512,8 +531,7 @@ async def list_all_runs(request: Request) -> list[TaskRun]:
 
     Admins see every task's runs; a non-admin user sees only runs they own.
     Previously this returned the full cross-task history to any authenticated
-    caller, exposing other users' prompts/responses/errors (Codex P1,
-    PR #1588).
+    caller, exposing other users' prompts/responses/errors.
     """
     caller_email, is_admin, _ = _get_caller(request)
     runs = await get_run_store().list_all()

@@ -11,6 +11,7 @@ failures point at the router rather than at Mongo semantics.
 from __future__ import annotations
 
 import asyncio
+import re
 from datetime import datetime, timezone
 from typing import cast
 from unittest.mock import AsyncMock, patch
@@ -188,6 +189,19 @@ def _webhook_task(task_id: str = "hook1", *, secret: str | None = None) -> dict:
     return payload
 
 
+def _create_task(
+    client: TestClient, payload: dict, headers: dict | None = None
+) -> str:
+    """POST a task and return the id the SERVER assigned.
+
+    Tests must never assume the posted id survives: ids are server-generated
+    (spec 2026-07-29) and the ``id`` key in the payload helpers is ignored.
+    """
+    response = client.post("/api/v1/tasks", json=payload, headers=headers or {})
+    assert response.status_code == 201, response.text
+    return response.json()["id"]
+
+
 def _ok_ack() -> Acknowledgement:
     return Acknowledgement(
         ack_status="ok",
@@ -285,7 +299,7 @@ class TestCreate:
 
         assert response.status_code == 201
         body = response.json()
-        assert body["id"] == "cron-1"
+        assert body["id"]  # server-generated; shape is asserted in TestTaskIdGeneration
         assert body["name"] == "Task cron-1"
         assert body["trigger"]["type"] == "cron"
         assert body["enabled"] is True
@@ -294,35 +308,64 @@ class TestCreate:
 
     def test_registers_with_scheduler(self, client: TestClient):
         """A freshly-created cron task lands as an APScheduler job."""
-        client.post("/api/v1/tasks", json=_cron_task("cron-1"))
+        tid = _create_task(client, _cron_task("cron-1"))
 
         job_ids = [j.id for j in get_scheduler().get_jobs()]
-        assert job_ids == ["cron-1"]
+        assert job_ids == [tid]
 
     def test_with_webhook_trigger_registers_in_webhook_table(self, client: TestClient):
         """Webhook tasks land in the webhook registry, not in APScheduler."""
-        client.post("/api/v1/tasks", json=_webhook_task("hook1"))
+        tid = _create_task(client, _webhook_task("hook1"))
 
-        assert "hook1" in webhook_runtime._webhook_tasks
+        assert tid in webhook_runtime._webhook_tasks
         assert get_scheduler().get_jobs() == []
 
     def test_with_disabled_flag_skips_scheduler(self, client: TestClient):
         """Disabled tasks persist but are not scheduled."""
-        response = client.post(
-            "/api/v1/tasks", json=_cron_task("dis-1", enabled=False)
-        )
-        assert response.status_code == 201
+        tid = _create_task(client, _cron_task("dis-1", enabled=False))
         assert get_scheduler().get_jobs() == []
         listed = client.get("/api/v1/tasks").json()
-        assert [t["id"] for t in listed] == ["dis-1"]
+        assert [t["id"] for t in listed] == [tid]
 
-    def test_returns_409_for_duplicate_id(self, client: TestClient):
-        """Duplicate id returns 409 and leaves the store unchanged."""
-        client.post("/api/v1/tasks", json=_cron_task("t1"))
-        response = client.post("/api/v1/tasks", json=_cron_task("t1"))
-        assert response.status_code == 409
+    def test_ignores_a_client_supplied_id(self, client: TestClient):
+        """The server owns the id; a body id is discarded."""
+        # _cron_task("please-use-me") posts id="please-use-me" and
+        # name="Task please-use-me", so the generated id derives from the NAME.
+        tid = _create_task(client, _cron_task("please-use-me"))
+        assert tid != "please-use-me"
+        assert tid.startswith("task-please-use-me-")
+        assert client.get("/api/v1/tasks/please-use-me").status_code == 404
+
+    def test_generated_id_derives_from_the_name(self, client: TestClient):
+        payload = {**_cron_task("ignored"), "name": "Daily Incident Summary"}
+        tid = _create_task(client, payload)
+        assert re.match(r"^daily-incident-summary-[0-9a-f]{4}$", tid)
+
+    def test_two_users_can_create_the_same_name(self, client: TestClient):
+        """The regression this change exists for: no 409, two distinct ids."""
+        payload = {**_cron_task("x"), "name": "Daily report"}
+        first = _create_task(client, payload)
+        second = _create_task(client, payload)
+        assert first != second
         listed = client.get("/api/v1/tasks").json()
-        assert len(listed) == 1
+        assert len(listed) == 2
+
+    def test_non_ascii_name_falls_back_to_the_task_prefix(self, client: TestClient):
+        payload = {**_cron_task("x"), "name": "日次レポート"}
+        tid = _create_task(client, payload)
+        assert re.match(r"^task-[0-9a-f]{4}$", tid)
+
+    def test_retries_on_id_collision(self, client: TestClient, monkeypatch):
+        """A collision retries with a fresh id -- it must never surface as 409."""
+        import autonomous_agents.routes.tasks as tasks_route
+
+        first = _create_task(client, {**_cron_task("x"), "name": "Report"})
+        # Force the next generation to collide once, then succeed.
+        ids = iter([first, "report-beef"])
+        monkeypatch.setattr(tasks_route, "generate_task_id", lambda name: next(ids))
+
+        second = _create_task(client, {**_cron_task("x"), "name": "Report"})
+        assert second == "report-beef"
 
     def test_returns_422_for_unknown_trigger_type(self, client: TestClient):
         """Discriminated-union validation rejects unknown trigger types at the edge."""
@@ -374,59 +417,59 @@ class TestUpdate:
 
     def test_replaces_definition_and_re_syncs_scheduler(self, client: TestClient):
         """PUT swaps both the persisted definition and the live trigger spec."""
-        client.post("/api/v1/tasks", json=_cron_task("t1"))
+        tid = _create_task(client, _cron_task("t1"))
 
         updated_payload = _cron_task("t1")
         updated_payload["name"] = "Task renamed"
         updated_payload["trigger"]["schedule"] = "0 18 * * *"
-        response = client.put("/api/v1/tasks/t1", json=updated_payload)
+        response = client.put(f"/api/v1/tasks/{tid}", json=updated_payload)
 
         assert response.status_code == 200
         assert response.json()["name"] == "Task renamed"
-        job = get_scheduler().get_job("t1")
+        job = get_scheduler().get_job(tid)
         assert job is not None
         assert "hour='18'" in str(job.trigger)
 
     def test_rejects_malformed_cron_update_without_persisting(self, client: TestClient):
         """PUT validates runtime trigger fields before replacing the stored row."""
-        client.post("/api/v1/tasks", json=_cron_task("t1"))
+        tid = _create_task(client, _cron_task("t1"))
 
         bad_payload = _cron_task("t1")
         bad_payload["name"] = "Bad cron"
         bad_payload["trigger"]["schedule"] = "not a cron expression"
-        response = client.put("/api/v1/tasks/t1", json=bad_payload)
+        response = client.put(f"/api/v1/tasks/{tid}", json=bad_payload)
 
         assert response.status_code == 400
-        persisted = client.get("/api/v1/tasks/t1").json()
+        persisted = client.get(f"/api/v1/tasks/{tid}").json()
         assert persisted["name"] == "Task t1"
         assert persisted["trigger"]["schedule"] == "0 9 * * *"
-        job = get_scheduler().get_job("t1")
+        job = get_scheduler().get_job(tid)
         assert job is not None
         assert "hour='9'" in str(job.trigger)
 
     def test_swap_from_cron_to_webhook_detaches_old_runtime(self, client: TestClient):
         """Cron => webhook swap removes the prior APScheduler job."""
-        client.post("/api/v1/tasks", json=_cron_task("t1"))
-        assert [j.id for j in get_scheduler().get_jobs()] == ["t1"]
+        tid = _create_task(client, _cron_task("t1"))
+        assert [j.id for j in get_scheduler().get_jobs()] == [tid]
 
         swap = _webhook_task("t1")
-        response = client.put("/api/v1/tasks/t1", json=swap)
+        response = client.put(f"/api/v1/tasks/{tid}", json=swap)
         assert response.status_code == 200
 
         assert get_scheduler().get_jobs() == []
-        assert "t1" in webhook_runtime._webhook_tasks
+        assert tid in webhook_runtime._webhook_tasks
 
     def test_swap_from_webhook_to_cron_detaches_webhook(self, client: TestClient):
         """Webhook => cron swap removes the prior webhook registration."""
-        client.post("/api/v1/tasks", json=_webhook_task("t1"))
-        assert "t1" in webhook_runtime._webhook_tasks
+        tid = _create_task(client, _webhook_task("t1"))
+        assert tid in webhook_runtime._webhook_tasks
 
         swap = _cron_task("t1")
-        response = client.put("/api/v1/tasks/t1", json=swap)
+        response = client.put(f"/api/v1/tasks/{tid}", json=swap)
         assert response.status_code == 200
 
-        assert "t1" not in webhook_runtime._webhook_tasks
-        assert [j.id for j in get_scheduler().get_jobs()] == ["t1"]
+        assert tid not in webhook_runtime._webhook_tasks
+        assert [j.id for j in get_scheduler().get_jobs()] == [tid]
 
     def test_404_for_unknown_id(self, client: TestClient):
         """PUT on unknown id returns 404."""
@@ -435,40 +478,40 @@ class TestUpdate:
 
     def test_coerces_id_to_path(self, client: TestClient):
         """Path id wins over body id."""
-        client.post("/api/v1/tasks", json=_cron_task("t1"))
+        tid = _create_task(client, _cron_task("t1"))
 
         body = _cron_task("t1")
         body["id"] = "different"
-        response = client.put("/api/v1/tasks/t1", json=body)
+        response = client.put(f"/api/v1/tasks/{tid}", json=body)
         assert response.status_code == 200
-        assert response.json()["id"] == "t1"
+        assert response.json()["id"] == tid
 
         listed = client.get("/api/v1/tasks").json()
-        assert [t["id"] for t in listed] == ["t1"]
+        assert [t["id"] for t in listed] == [tid]
 
     def test_disable_removes_scheduler_job(self, client: TestClient):
         """Toggling enabled=true => false pulls the APScheduler entry."""
-        client.post("/api/v1/tasks", json=_cron_task("t1"))
-        assert [j.id for j in get_scheduler().get_jobs()] == ["t1"]
+        tid = _create_task(client, _cron_task("t1"))
+        assert [j.id for j in get_scheduler().get_jobs()] == [tid]
 
         disabled = _cron_task("t1", enabled=False)
-        response = client.put("/api/v1/tasks/t1", json=disabled)
+        response = client.put(f"/api/v1/tasks/{tid}", json=disabled)
         assert response.status_code == 200
 
-        assert get_scheduler().get_job("t1") is None
+        assert get_scheduler().get_job(tid) is None
         listed = client.get("/api/v1/tasks").json()
-        assert [t["id"] for t in listed] == ["t1"]
+        assert [t["id"] for t in listed] == [tid]
         assert listed[0]["enabled"] is False
 
     def test_re_enable_re_attaches_scheduler_job(self, client: TestClient):
         """Toggling enabled=false => true re-creates the APScheduler job."""
-        client.post("/api/v1/tasks", json=_cron_task("t1"))
-        client.put("/api/v1/tasks/t1", json=_cron_task("t1", enabled=False))
-        assert get_scheduler().get_job("t1") is None
+        tid = _create_task(client, _cron_task("t1"))
+        client.put(f"/api/v1/tasks/{tid}", json=_cron_task("t1", enabled=False))
+        assert get_scheduler().get_job(tid) is None
 
-        response = client.put("/api/v1/tasks/t1", json=_cron_task("t1", enabled=True))
+        response = client.put(f"/api/v1/tasks/{tid}", json=_cron_task("t1", enabled=True))
         assert response.status_code == 200
-        assert [j.id for j in get_scheduler().get_jobs()] == ["t1"]
+        assert [j.id for j in get_scheduler().get_jobs()] == [tid]
 
 
 class TestWebhookSecretRedaction:
@@ -486,20 +529,20 @@ class TestWebhookSecretRedaction:
 
     def test_list_and_get_never_echo_secret(self, client: TestClient):
         """List and get both redact the secret on every webhook task."""
-        client.post("/api/v1/tasks", json=_webhook_task("hook1", secret="s"))
+        tid = _create_task(client, _webhook_task("hook1", secret="s"))
 
         listed = client.get("/api/v1/tasks").json()
         assert "secret" not in listed[0]["trigger"]
         assert listed[0]["trigger"]["has_secret"] is True
 
-        fetched = client.get("/api/v1/tasks/hook1").json()
+        fetched = client.get(f"/api/v1/tasks/{tid}").json()
         assert "secret" not in fetched["trigger"]
         assert fetched["trigger"]["has_secret"] is True
 
     def test_without_secret_reports_has_secret_false(self, client: TestClient):
         """Webhook task with no secret reports ``has_secret=False``."""
-        client.post("/api/v1/tasks", json=_webhook_task("hook1"))
-        fetched = client.get("/api/v1/tasks/hook1").json()
+        tid = _create_task(client, _webhook_task("hook1"))
+        fetched = client.get(f"/api/v1/tasks/{tid}").json()
         assert fetched["trigger"]["has_secret"] is False
 
 
@@ -508,10 +551,10 @@ class TestWebhookSecretPreservationOnPut:
 
     def test_preserves_existing_secret_when_omitted(self, client: TestClient):
         """PUT with secret omitted preserves the stored secret."""
-        client.post("/api/v1/tasks", json=_webhook_task("hook1", secret="original-secret"))
+        tid = _create_task(client, _webhook_task("hook1", secret="original-secret"))
 
         update = _webhook_task("hook1")
-        response = client.put("/api/v1/tasks/hook1", json=update)
+        response = client.put(f"/api/v1/tasks/{tid}", json=update)
         assert response.status_code == 200
         assert response.json()["trigger"]["has_secret"] is True
 
@@ -520,23 +563,23 @@ class TestWebhookSecretPreservationOnPut:
         stored = task_lifecycle._task_store
         assert stored is not None
 
-        task = asyncio.run(stored.get("hook1"))
+        task = asyncio.run(stored.get(tid))
         assert task is not None
         assert task.trigger.secret == "original-secret"
 
     def test_can_explicitly_replace_secret(self, client: TestClient):
         """PUT with a new secret value rotates the stored secret."""
-        client.post("/api/v1/tasks", json=_webhook_task("hook1", secret="old"))
+        tid = _create_task(client, _webhook_task("hook1", secret="old"))
 
         update = _webhook_task("hook1", secret="new-secret")
-        response = client.put("/api/v1/tasks/hook1", json=update)
+        response = client.put(f"/api/v1/tasks/{tid}", json=update)
         assert response.status_code == 200
 
         # Same module-ownership rationale as the sibling test above.
         stored = task_lifecycle._task_store
         assert stored is not None
 
-        task = asyncio.run(stored.get("hook1"))
+        task = asyncio.run(stored.get(tid))
         assert task is not None
         assert task.trigger.secret == "new-secret"
 
@@ -546,9 +589,9 @@ class TestDelete:
 
     def test_removes_from_store_and_scheduler(self, client: TestClient):
         """DELETE removes both store and APScheduler entries."""
-        client.post("/api/v1/tasks", json=_cron_task("t1"))
+        tid = _create_task(client, _cron_task("t1"))
 
-        response = client.delete("/api/v1/tasks/t1")
+        response = client.delete(f"/api/v1/tasks/{tid}")
         assert response.status_code == 204
 
         assert client.get("/api/v1/tasks").json() == []
@@ -556,12 +599,12 @@ class TestDelete:
 
     def test_removes_webhook_registration(self, client: TestClient):
         """DELETE removes the webhook registry entry."""
-        client.post("/api/v1/tasks", json=_webhook_task("hook1"))
-        assert "hook1" in webhook_runtime._webhook_tasks
+        tid = _create_task(client, _webhook_task("hook1"))
+        assert tid in webhook_runtime._webhook_tasks
 
-        response = client.delete("/api/v1/tasks/hook1")
+        response = client.delete(f"/api/v1/tasks/{tid}")
         assert response.status_code == 204
-        assert "hook1" not in webhook_runtime._webhook_tasks
+        assert tid not in webhook_runtime._webhook_tasks
 
     def test_404_for_unknown_id(self, client: TestClient):
         """DELETE on unknown id returns 404."""
@@ -570,22 +613,21 @@ class TestDelete:
 
     def test_round_trip_create_get_update_delete(self, client: TestClient):
         """Sanity smoke covering the full UI flow in one shot."""
-        create = client.post("/api/v1/tasks", json=_interval_task("t1", seconds=15))
-        assert create.status_code == 201
+        tid = _create_task(client, _interval_task("t1", seconds=15))
 
-        got = client.get("/api/v1/tasks/t1")
+        got = client.get(f"/api/v1/tasks/{tid}")
         assert got.status_code == 200
         assert got.json()["trigger"]["seconds"] == 15
 
         updated_payload = _interval_task("t1", seconds=60)
-        updated = client.put("/api/v1/tasks/t1", json=updated_payload)
+        updated = client.put(f"/api/v1/tasks/{tid}", json=updated_payload)
         assert updated.status_code == 200
         assert updated.json()["trigger"]["seconds"] == 60
 
-        deleted = client.delete("/api/v1/tasks/t1")
+        deleted = client.delete(f"/api/v1/tasks/{tid}")
         assert deleted.status_code == 204
 
-        assert client.get("/api/v1/tasks/t1").status_code == 404
+        assert client.get(f"/api/v1/tasks/{tid}").status_code == 404
 
 
 class TestRunHistory:
@@ -979,10 +1021,11 @@ class TestTaskOwnership:
         assert resp.status_code == 201
         # owner_sub is exposed read-only on the wire (admin oversight join key).
         assert resp.json()["owner_sub"] == "alice-uuid"
+        tid = resp.json()["id"]
 
         stored = task_lifecycle._task_store
         assert stored is not None
-        task = asyncio.run(stored.get("t1"))
+        task = asyncio.run(stored.get(tid))
         assert task is not None
         assert task.owner_sub == "alice-uuid"
 
@@ -995,10 +1038,11 @@ class TestTaskOwnership:
         headers = {**_user_headers("attacker@example.com"), "X-Authenticated-User-Sub": "attacker-uuid"}
         resp = client.post("/api/v1/tasks", json=body, headers=headers)
         assert resp.status_code == 201
+        tid = resp.json()["id"]
 
         stored = task_lifecycle._task_store
         assert stored is not None
-        task = asyncio.run(stored.get("t1"))
+        task = asyncio.run(stored.get(tid))
         assert task is not None
         assert task.owner_sub == "attacker-uuid"
 
@@ -1010,10 +1054,11 @@ class TestTaskOwnership:
         body["owner_sub"] = "spoofed-uuid"
         resp = client.post("/api/v1/tasks", json=body, headers=_user_headers("bob@example.com"))
         assert resp.status_code == 201
+        tid = resp.json()["id"]
 
         stored = task_lifecycle._task_store
         assert stored is not None
-        task = asyncio.run(stored.get("t1"))
+        task = asyncio.run(stored.get(tid))
         assert task is not None
         assert task.owner_sub is None
 
@@ -1022,14 +1067,14 @@ class TestTaskOwnership:
         stored value forward rather than wipe it (which would drop the task into
         the per-owner-unauthorizable path)."""
         headers = {**_user_headers("alice@example.com"), "X-Authenticated-User-Sub": "alice-uuid"}
-        client.post("/api/v1/tasks", json=_cron_task("t1"), headers=headers)
+        tid = _create_task(client, _cron_task("t1"), headers=headers)
 
-        resp = client.put("/api/v1/tasks/t1", json=_cron_task("t1"), headers=_user_headers("alice@example.com"))
+        resp = client.put(f"/api/v1/tasks/{tid}", json=_cron_task("t1"), headers=_user_headers("alice@example.com"))
         assert resp.status_code == 200
 
         stored = task_lifecycle._task_store
         assert stored is not None
-        task = asyncio.run(stored.get("t1"))
+        task = asyncio.run(stored.get(tid))
         assert task is not None
         assert task.owner_sub == "alice-uuid"
 
@@ -1043,62 +1088,61 @@ class TestTaskOwnership:
         resp = client.post("/api/v1/tasks", json=body, headers=headers)
         assert resp.status_code == 201
         assert resp.json()["owner_id"] == "carol@example.com"
+        tid = resp.json()["id"]
 
         stored = task_lifecycle._task_store
         assert stored is not None
-        task = asyncio.run(stored.get("t1"))
+        task = asyncio.run(stored.get(tid))
         assert task is not None
         assert task.owner_sub is None
 
     def test_admin_sees_all_tasks(self, client: TestClient):
         """Admin users see tasks owned by any user."""
-        client.post("/api/v1/tasks", json=_cron_task("t1"), headers=_user_headers("alice@example.com"))
-        client.post("/api/v1/tasks", json=_cron_task("t2"), headers=_user_headers("bob@example.com"))
+        alice = _create_task(client, _cron_task("t1"), headers=_user_headers("alice@example.com"))
+        bob = _create_task(client, _cron_task("t2"), headers=_user_headers("bob@example.com"))
         resp = client.get("/api/v1/tasks", headers=_admin_headers())
         assert resp.status_code == 200
         ids = [t["id"] for t in resp.json()]
-        assert "t1" in ids
-        assert "t2" in ids
+        assert alice in ids
+        assert bob in ids
 
     def test_non_admin_sees_only_own_tasks(self, client: TestClient):
         """Non-admin users only see their own tasks."""
-        client.post("/api/v1/tasks", json=_cron_task("t1"), headers=_user_headers("alice@example.com"))
-        client.post("/api/v1/tasks", json=_cron_task("t2"), headers=_user_headers("bob@example.com"))
+        alice = _create_task(client, _cron_task("t1"), headers=_user_headers("alice@example.com"))
+        bob = _create_task(client, _cron_task("t2"), headers=_user_headers("bob@example.com"))
         resp = client.get("/api/v1/tasks", headers=_user_headers("alice@example.com"))
         assert resp.status_code == 200
         ids = [t["id"] for t in resp.json()]
-        assert "t1" in ids
-        assert "t2" not in ids
+        assert alice in ids
+        assert bob not in ids
 
     def test_non_admin_cannot_get_another_users_task(self, client: TestClient):
         """GET /tasks/{id} returns 403 when task belongs to a different user."""
-        client.post("/api/v1/tasks", json=_cron_task("t1"), headers=_user_headers("alice@example.com"))
-        resp = client.get("/api/v1/tasks/t1", headers=_user_headers("bob@example.com"))
+        tid = _create_task(client, _cron_task("t1"), headers=_user_headers("alice@example.com"))
+        resp = client.get(f"/api/v1/tasks/{tid}", headers=_user_headers("bob@example.com"))
         assert resp.status_code == 403
 
     def test_non_admin_cannot_delete_another_users_task(self, client: TestClient):
         """DELETE /tasks/{id} returns 403 when task belongs to a different user."""
-        client.post("/api/v1/tasks", json=_cron_task("t1"), headers=_user_headers("alice@example.com"))
-        resp = client.delete("/api/v1/tasks/t1", headers=_user_headers("bob@example.com"))
+        tid = _create_task(client, _cron_task("t1"), headers=_user_headers("alice@example.com"))
+        resp = client.delete(f"/api/v1/tasks/{tid}", headers=_user_headers("bob@example.com"))
         assert resp.status_code == 403
 
     def test_owner_can_delete_own_task(self, client: TestClient):
         """The task owner can delete their own task."""
-        client.post("/api/v1/tasks", json=_cron_task("t1"), headers=_user_headers("alice@example.com"))
-        resp = client.delete("/api/v1/tasks/t1", headers=_user_headers("alice@example.com"))
+        tid = _create_task(client, _cron_task("t1"), headers=_user_headers("alice@example.com"))
+        resp = client.delete(f"/api/v1/tasks/{tid}", headers=_user_headers("alice@example.com"))
         assert resp.status_code == 204
 
     def test_non_admin_cannot_update_another_users_task(self, client: TestClient):
         """PUT /tasks/{id} returns 403 when task belongs to a different user."""
-        client.post(
-            "/api/v1/tasks",
-            json=_cron_task("t1"),
-            headers=_user_headers("alice@example.com"),
+        tid = _create_task(
+            client, _cron_task("t1"), headers=_user_headers("alice@example.com")
         )
         updated_payload = _cron_task("t1")
         updated_payload["name"] = "renamed by bob"
         resp = client.put(
-            "/api/v1/tasks/t1",
+            f"/api/v1/tasks/{tid}",
             json=updated_payload,
             headers=_user_headers("bob@example.com"),
         )
@@ -1106,28 +1150,24 @@ class TestTaskOwnership:
 
     def test_non_admin_cannot_trigger_another_users_task(self, client: TestClient):
         """POST /tasks/{id}/run returns 403 when task belongs to a different user."""
-        client.post(
-            "/api/v1/tasks",
-            json=_cron_task("t1"),
-            headers=_user_headers("alice@example.com"),
+        tid = _create_task(
+            client, _cron_task("t1"), headers=_user_headers("alice@example.com")
         )
         resp = client.post(
-            "/api/v1/tasks/t1/run",
+            f"/api/v1/tasks/{tid}/run",
             headers=_user_headers("bob@example.com"),
         )
         assert resp.status_code == 403
 
     def test_admin_can_update_another_users_task(self, client: TestClient):
         """An admin can PUT another user's task."""
-        client.post(
-            "/api/v1/tasks",
-            json=_cron_task("t1"),
-            headers=_user_headers("bob@example.com"),
+        tid = _create_task(
+            client, _cron_task("t1"), headers=_user_headers("bob@example.com")
         )
         updated_payload = _cron_task("t1")
         updated_payload["name"] = "renamed by admin"
         resp = client.put(
-            "/api/v1/tasks/t1",
+            f"/api/v1/tasks/{tid}",
             json=updated_payload,
             headers=_admin_headers(),
         )
@@ -1135,16 +1175,14 @@ class TestTaskOwnership:
         # Ownership is preserved across an admin-initiated update.
         listed = client.get("/api/v1/tasks", headers=_admin_headers()).json()
         owners = {t["id"]: t["owner_id"] for t in listed}
-        assert owners["t1"] == "bob@example.com"
+        assert owners[tid] == "bob@example.com"
 
     def test_admin_can_delete_another_users_task(self, client: TestClient):
         """An admin can DELETE another user's task."""
-        client.post(
-            "/api/v1/tasks",
-            json=_cron_task("t1"),
-            headers=_user_headers("bob@example.com"),
+        tid = _create_task(
+            client, _cron_task("t1"), headers=_user_headers("bob@example.com")
         )
-        resp = client.delete("/api/v1/tasks/t1", headers=_admin_headers())
+        resp = client.delete(f"/api/v1/tasks/{tid}", headers=_admin_headers())
         assert resp.status_code == 204
 
 
@@ -1155,17 +1193,15 @@ class TestAdminAuditLogging:
         self, client: TestClient, caplog: pytest.LogCaptureFixture
     ):
         """Admin PUT on another user's task emits a log line with both emails + action."""
-        client.post(
-            "/api/v1/tasks",
-            json=_cron_task("t1"),
-            headers=_user_headers("bob@example.com"),
+        tid = _create_task(
+            client, _cron_task("t1"), headers=_user_headers("bob@example.com")
         )
         updated_payload = _cron_task("t1")
         updated_payload["name"] = "renamed by admin"
         caplog.clear()
         with caplog.at_level("INFO", logger="autonomous_agents"):
             resp = client.put(
-                "/api/v1/tasks/t1",
+                f"/api/v1/tasks/{tid}",
                 json=updated_payload,
                 headers={
                     "X-Authenticated-User-Email": "admin@example.com",
@@ -1182,22 +1218,20 @@ class TestAdminAuditLogging:
         msg = admin_log_lines[0]
         assert "admin@example.com" in msg
         assert "bob@example.com" in msg
-        assert "t1" in msg
+        assert tid in msg
         assert "update" in msg
 
     def test_admin_delete_emits_audit_log(
         self, client: TestClient, caplog: pytest.LogCaptureFixture
     ):
         """Admin DELETE on another user's task emits a log line with both emails + action."""
-        client.post(
-            "/api/v1/tasks",
-            json=_cron_task("t1"),
-            headers=_user_headers("bob@example.com"),
+        tid = _create_task(
+            client, _cron_task("t1"), headers=_user_headers("bob@example.com")
         )
         caplog.clear()
         with caplog.at_level("INFO", logger="autonomous_agents"):
             resp = client.delete(
-                "/api/v1/tasks/t1",
+                f"/api/v1/tasks/{tid}",
                 headers={
                     "X-Authenticated-User-Email": "admin@example.com",
                     "X-Authenticated-User-Is-Admin": "true",
@@ -1219,15 +1253,13 @@ class TestAdminAuditLogging:
         self, client: TestClient, caplog: pytest.LogCaptureFixture
     ):
         """Admin manual trigger on another user's task emits a log line."""
-        client.post(
-            "/api/v1/tasks",
-            json=_cron_task("t1"),
-            headers=_user_headers("bob@example.com"),
+        tid = _create_task(
+            client, _cron_task("t1"), headers=_user_headers("bob@example.com")
         )
         caplog.clear()
         with caplog.at_level("INFO", logger="autonomous_agents"):
             resp = client.post(
-                "/api/v1/tasks/t1/run",
+                f"/api/v1/tasks/{tid}/run",
                 headers={
                     "X-Authenticated-User-Email": "admin@example.com",
                     "X-Authenticated-User-Is-Admin": "true",
@@ -1249,15 +1281,13 @@ class TestAdminAuditLogging:
         self, client: TestClient, caplog: pytest.LogCaptureFixture
     ):
         """Owner acting on their own task must not emit the cross-user admin audit log line."""
-        client.post(
-            "/api/v1/tasks",
-            json=_cron_task("t1"),
-            headers=_user_headers("bob@example.com"),
+        tid = _create_task(
+            client, _cron_task("t1"), headers=_user_headers("bob@example.com")
         )
         caplog.clear()
         with caplog.at_level("INFO", logger="autonomous_agents"):
             resp = client.delete(
-                "/api/v1/tasks/t1",
+                f"/api/v1/tasks/{tid}",
                 headers=_user_headers("bob@example.com"),
             )
             assert resp.status_code == 204

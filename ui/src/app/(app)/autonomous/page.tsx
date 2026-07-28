@@ -1,91 +1,108 @@
-// Copyright CNOE Contributors (https://cnoe.io)
-// SPDX-License-Identifier: Apache-2.0
-
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 
 import { AuthGuard } from "@/components/auth-guard";
-import { useAdminRole } from "@/hooks/use-admin-role";
+import { AgentAutomationPanel } from "@/components/autonomous/AgentAutomationPanel";
+import { MyTasksPanel, type MyTasksAgent } from "@/components/autonomous/MyTasksPanel";
+import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { getConfig } from "@/lib/config";
-import { OversightGrid } from "@/components/autonomous/oversight/OversightGrid";
-import { TeamTaskPanel } from "@/components/autonomous/oversight/TeamTaskPanel";
-import type { OversightResult } from "@/lib/autonomous/oversight-grouping";
 
 export default function AutonomousPage() {
   return (
     <AuthGuard>
-      <AutonomousOversight />
+      <AutonomousWorkspace />
     </AuthGuard>
   );
 }
 
-function AutonomousOversight() {
-  const router = useRouter();
-  const { isAdmin, loading: roleLoading } = useAdminRole();
+/**
+ * User-facing autonomous workspace.
+ */
+function AutonomousWorkspace() {
+  const { data: session } = useSession();
   const autonomousAgentsEnabled = getConfig("autonomousAgentsEnabled");
 
-  const [data, setData] = useState<OversightResult | null>(null);
+  const [agents, setAgents] = useState<MyTasksAgent[]>([]);
+  // Layer 2 surface. Sourced from the same list request rather than the header's
+  // summary hook, so the page issues one round-trip instead of two.
+  const [canManageAutomation, setCanManageAutomation] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [openTeam, setOpenTeam] = useState<string | null | undefined>(undefined); // undefined = grid
 
-  // Redirect non-admins once the role resolves.
-  useEffect(() => {
-    if (!roleLoading && !isAdmin) router.replace("/dynamic-agents");
-  }, [roleLoading, isAdmin, router]);
-
-  const fetchData = useCallback(async () => {
-    setLoading(true);
+  const fetchAgents = useCallback(async (options: { silent?: boolean } = {}) => {
+    // A silent refresh keeps `loading` untouched. Flipping it would swap the
+    // whole <Tabs> block for the loading placeholder, remounting it and
+    // snapping the user back to "My Tasks" mid-toggle.
+    if (!options.silent) setLoading(true);
     try {
-      const res = await fetch("/api/autonomous/oversight");
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const body = (await res.json()) as { data: OversightResult };
-      setData(body.data);
+      const response = await fetch("/api/autonomous/agents");
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const body = (await response.json()) as {
+        data?: { schedulable?: MyTasksAgent[]; can_manage_automation?: boolean };
+      };
+      setAgents(body.data?.schedulable ?? []);
+      setCanManageAutomation(Boolean(body.data?.can_manage_automation));
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load oversight data.");
+      setError(err instanceof Error ? err.message : "Failed to load agents.");
+      setAgents([]);
+      setCanManageAutomation(false);
     } finally {
-      setLoading(false);
+      if (!options.silent) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    if (isAdmin && autonomousAgentsEnabled) fetchData();
-  }, [isAdmin, autonomousAgentsEnabled, fetchData]);
+    if (autonomousAgentsEnabled) void fetchAgents();
+  }, [autonomousAgentsEnabled, fetchAgents]);
 
-  if (roleLoading || !isAdmin) return null;
   if (!autonomousAgentsEnabled) {
     return <div className="p-6 text-sm text-muted-foreground">Autonomous agents are disabled.</div>;
   }
 
-  const selectedGroup =
-    openTeam === undefined || !data
-      ? null
-      : openTeam === null
-        ? { name: "No team", ...data.no_team }
-        : data.teams.find((t) => t.slug === openTeam) ?? null;
-
   return (
     <div className="space-y-4 p-6">
-      <h1 className="text-lg font-semibold">Autonomous oversight</h1>
+      <div>
+        <h1 className="text-lg font-semibold">Autonomous</h1>
+        <p className="text-sm text-muted-foreground">
+          Tasks you own, grouped by the agents you can automate.
+        </p>
+      </div>
+
       {error ? (
         <div className="flex items-center gap-2 text-sm text-destructive">
           <span>{error}</span>
-          <button type="button" className="underline" onClick={fetchData}>Retry</button>
+          <Button type="button" variant="ghost" size="sm" onClick={() => void fetchAgents()}>
+            Retry
+          </Button>
         </div>
-      ) : loading || !data ? (
+      ) : loading ? (
         <div className="text-sm text-muted-foreground">Loading…</div>
-      ) : selectedGroup ? (
-        <TeamTaskPanel
-          title={selectedGroup.name}
-          members={selectedGroup.members}
-          onBack={() => setOpenTeam(undefined)}
-          onChanged={fetchData}
-        />
       ) : (
-        <OversightGrid data={data} onOpenTeam={(slug) => setOpenTeam(slug)} />
+        <Tabs defaultValue="tasks" className="space-y-4">
+          <TabsList>
+            <TabsTrigger value="tasks">My Tasks</TabsTrigger>
+            {canManageAutomation && (
+              <TabsTrigger value="automation">Configure (Admin Only)</TabsTrigger>
+            )}
+          </TabsList>
+
+          <TabsContent value="tasks">
+            <MyTasksPanel agents={agents} currentUserEmail={session?.user?.email ?? null} />
+          </TabsContent>
+
+          {canManageAutomation && (
+            <TabsContent value="automation">
+              {/* Toggling enablement changes which agents are schedulable, so
+                  refresh the My Tasks sections in place rather than making the
+                  user leave the page and come back. */}
+              <AgentAutomationPanel onChanged={() => void fetchAgents({ silent: true })} />
+            </TabsContent>
+          )}
+        </Tabs>
       )}
     </div>
   );

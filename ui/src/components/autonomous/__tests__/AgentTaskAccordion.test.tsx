@@ -11,7 +11,7 @@ jest.mock("@/components/autonomous/RunHistory", () => ({
   ),
 }));
 
-import { AgentTaskAccordion } from "@/components/dynamic-agents/AgentTaskAccordion";
+import { AgentTaskAccordion } from "@/components/autonomous/AgentTaskAccordion";
 import type { AutonomousTask } from "@/components/autonomous/types";
 
 function makeTask(over: Partial<AutonomousTask> & { id: string; name: string }): AutonomousTask {

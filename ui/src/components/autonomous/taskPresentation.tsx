@@ -1,8 +1,5 @@
-// Copyright CNOE Contributors (https://cnoe.io)
-// SPDX-License-Identifier: Apache-2.0
-
 import React from "react";
-import { Clock, Repeat, Webhook, CheckCircle2, AlertTriangle, XCircle, Loader2 } from "lucide-react";
+import { Clock, Repeat, Webhook, CheckCircle2, AlertTriangle, XCircle, Loader2, CircleDashed } from "lucide-react";
 
 import type { Acknowledgement, AcknowledgementStatus, Trigger } from "./types";
 
@@ -65,11 +62,15 @@ export function ackBadgeFor(ack?: Acknowledgement | null): {
   icon: React.ReactNode;
   status: AcknowledgementStatus | "absent";
 } {
+  // No ack at all -- the task has never been pre-flighted. This is a RESTING
+  // state, not an in-flight one: nothing will resolve it until the task runs.
+  // It previously shared the spinning "Ack pending" badge with the genuinely
+  // pending case, so a never-run task appeared to hang forever.
   if (!ack) {
     return {
-      label: "Ack pending",
+      label: "No ack yet",
       className: "border-muted-foreground/30 text-muted-foreground",
-      icon: <Loader2 className="h-3 w-3 animate-spin" />,
+      icon: <CircleDashed className="h-3 w-3" />,
       status: "absent",
     };
   }

@@ -303,6 +303,20 @@ class FollowUpContext(BaseModel):
     )
 
 
+
+class TaskCreate(TaskDefinition):
+    """Request body for ``POST /tasks``.
+
+    ``id`` is server-generated it is optional here purely
+    so FastAPI does not 422 a body that omits it, and any value supplied is
+    discarded by the route. ``TaskDefinition.id`` deliberately stays REQUIRED
+    so every reader keeps its non-empty guarantee -- subclassing scopes the
+    looseness to the one place that needs it.
+    """
+
+    id: str = Field(default="", description="Ignored -- the server generates the id.")
+
+
 class TaskRun(BaseModel):
     """Record of a single execution of a task definition."""
     run_id: str

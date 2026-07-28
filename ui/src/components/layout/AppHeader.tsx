@@ -13,6 +13,7 @@ PopoverTrigger,
 } from "@/components/ui/popover";
 import { UserMenu } from "@/components/user-menu";
 import { useAdminRole } from "@/hooks/use-admin-role";
+import { useAutonomousCapability } from "@/hooks/use-autonomous-capability";
 import { useAgentRuntimeHealth } from "@/hooks/use-agent-runtime-health";
 import { useKeycloakHealthSummary } from "@/hooks/use-keycloak-health-summary";
 import { useMigrationStatus } from "@/hooks/use-migration-status";
@@ -143,6 +144,7 @@ export function AppHeader() {
   const shouldReduceMotion = useReducedMotion();
   const { data: session } = useSession();
   const { isAdmin } = useAdminRole();
+  const { canUseAutonomous } = useAutonomousCapability();
   const { streamingConversations, unviewedConversations, inputRequiredConversations, conversations, activeConversationId } = useChatStore();
   const chatHref = React.useMemo(
     () => resolveChatNavigationPath({ conversations, activeConversationId }),
@@ -408,7 +410,7 @@ export function AppHeader() {
       activeTextClassName: "text-white",
       activeIndicatorClassName: "bg-violet-600 shadow-sm",
     },
-    config.autonomousAgentsEnabled && isAdmin && {
+    config.autonomousAgentsEnabled && canUseAutonomous && {
       key: "autonomous",
       href: "/autonomous",
       label: "Autonomous",

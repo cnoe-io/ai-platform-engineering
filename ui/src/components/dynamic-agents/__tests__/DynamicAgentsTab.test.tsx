@@ -332,4 +332,39 @@ describe("DynamicAgentsTab search + pagination", () => {
       "agent-1",
     );
   });
+  it("no longer renders the autonomous enablement or task controls", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        success: true,
+        data: {
+          items: [
+            makeAgent({
+              _id: "deploy-agent",
+              name: "Deploy Agent",
+              owner_team_slug: "primary",
+              permissions: {
+                can_manage: true,
+                can_write: true,
+                can_discover: true,
+                can_schedule: true,
+                can_automate: true,
+              },
+            }),
+          ],
+          total: 1,
+        },
+      }),
+    );
+
+    render(<DynamicAgentsTab />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(screen.getByText("Deploy Agent")).toBeInTheDocument());
+    expect(screen.queryByLabelText(/enable autonomous/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/disable autonomous/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/autonomous status/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/manage autonomous tasks/i)).not.toBeInTheDocument();
+  });
 });
