@@ -262,7 +262,7 @@ function HeroSection() {
                   <span className={styles.codePrompt}>$</span>{' '}
                   {'helm upgrade --install ai-platform-engineering \\'}{'\n'}
                   {'    oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \\'}{'\n'}
-                  {'    --version 0.5.61 -f your-values.yaml'}
+                  {'    --version 0.5.63 -f your-values.yaml'}
                 </code>
               </pre>
             </div>
@@ -417,7 +417,7 @@ function QuickStartSection() {
               <span className={styles.codePrompt}>$</span>{' '}
               {'helm upgrade --install ai-platform-engineering \\'}{'\n'}
               {'    oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \\'}{'\n'}
-              {'    --version 0.5.61 -f your-values.yaml'}
+              {'    --version 0.5.63 -f your-values.yaml'}
             </code>
           </pre>
         </div>
