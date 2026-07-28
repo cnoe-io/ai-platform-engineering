@@ -10,17 +10,15 @@ import { SecretSharingPanel } from "../SecretSharingPanel";
 describe("SecretSharingPanel", () => {
   beforeEach(() => {
     global.fetch = jest.fn(async (url) => {
-      if (String(url) === "/api/admin/teams") {
+      if (String(url) === "/api/dynamic-agents/teams") {
         return {
           ok: true,
           json: async () => ({
             success: true,
-            data: {
-              teams: [
-                { _id: "team-1", slug: "platform-team", name: "Platform Team" },
-                { _id: "team-2", slug: "security-team", name: "Security Team" },
-              ],
-            },
+            data: [
+              { _id: "team-1", slug: "platform-team", name: "Platform Team" },
+              { _id: "team-2", slug: "security-team", name: "Security Team" },
+            ],
           }),
         } as Response;
       }
@@ -39,6 +37,7 @@ describe("SecretSharingPanel", () => {
     );
 
     await pickTeam(/team access/i, "platform-team");
+    expect(global.fetch).toHaveBeenCalledWith("/api/dynamic-agents/teams");
     await user.click(screen.getByRole("button", { name: /grant access/i }));
 
     expect(global.fetch).toHaveBeenCalledWith(
@@ -113,12 +112,12 @@ describe("SecretSharingPanel", () => {
     const user = userEvent.setup();
     const onSharingChange = jest.fn();
     (global.fetch as jest.Mock).mockImplementation(async (url) => {
-      if (String(url) === "/api/admin/teams") {
+      if (String(url) === "/api/dynamic-agents/teams") {
         return {
           ok: true,
           json: async () => ({
             success: true,
-            data: { teams: [{ _id: "team-1", slug: "platform-team", name: "Platform Team" }] },
+            data: [{ _id: "team-1", slug: "platform-team", name: "Platform Team" }],
           }),
         } as Response;
       }

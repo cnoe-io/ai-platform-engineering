@@ -9,17 +9,15 @@ describe("SecretsManager", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     global.fetch = jest.fn(async (url, init) => {
-      if (String(url) === "/api/admin/teams") {
+      if (String(url) === "/api/dynamic-agents/teams") {
         return {
           ok: true,
           json: async () => ({
             success: true,
-            data: {
-              teams: [
-                { _id: "team-1", slug: "platform-team", name: "Platform Team" },
-                { _id: "team-2", slug: "security-team", name: "Security Team" },
-              ],
-            },
+            data: [
+              { _id: "team-1", slug: "platform-team", name: "Platform Team" },
+              { _id: "team-2", slug: "security-team", name: "Security Team" },
+            ],
           }),
         } as Response;
       }

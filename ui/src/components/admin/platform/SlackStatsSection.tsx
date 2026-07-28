@@ -1,6 +1,7 @@
 "use client";
 
 import { SimpleLineChart } from "@/components/admin/shared/SimpleLineChart";
+import { AsyncStatsCard } from "@/components/admin/insights/AsyncStatsCard";
 import {
 Card,
 CardContent,
@@ -8,40 +9,19 @@ CardDescription,
 CardHeader,
 CardTitle,
 } from "@/components/ui/card";
+import type { AdminSlackStats } from "@/types/admin-stats";
 import { Hash } from "lucide-react";
 
-interface SlackStats {
-  channels: {
-    total: number;
-    qanda_enabled: number;
-    alerts_enabled: number;
-    ai_enabled: number;
-  };
-  total_interactions: number;
-  unique_users: number;
-  configured_channels?: number;
-  configured_channels_daily?: Array<{
-    date: string;
-    total: number;
-  }>;
-  daily: Array<{
-    date: string;
-    interactions: number;
-    unique_users: number;
-    escalated: number;
-  }>;
-  top_channels: Array<{
-    channel_name: string;
-    interactions: number;
-  }>;
-}
-
 interface SlackStatsSectionProps {
-  slack: SlackStats;
+  error?: string | null;
+  loading?: boolean;
   rangeLabel: string;
+  slack?: AdminSlackStats;
 }
 
-export function SlackStatsSection({ slack, rangeLabel }: SlackStatsSectionProps) {
+export function SlackStatsSection({ error, loading = false, slack, rangeLabel }: SlackStatsSectionProps) {
+  if (!slack && !loading && !error) return null;
+
   return (
     <div className="space-y-4">
       {/* Section Header */}
@@ -52,8 +32,14 @@ export function SlackStatsSection({ slack, rangeLabel }: SlackStatsSectionProps)
       <div className="h-px bg-border" />
 
       {/* Configured Channels */}
-      {slack.configured_channels !== undefined && (
-        <Card>
+      {(slack?.configured_channels !== undefined || loading) && (
+        <AsyncStatsCard
+          error={error}
+          loading={loading}
+          minHeightClassName="min-h-72"
+          testId="stats-card-slack-configured-channels"
+        >
+          {slack?.configured_channels !== undefined ? <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Hash className="h-5 w-5" />
@@ -80,12 +66,19 @@ export function SlackStatsSection({ slack, rangeLabel }: SlackStatsSectionProps)
               </div>
             )}
           </CardContent>
-        </Card>
+          </Card> : undefined}
+        </AsyncStatsCard>
       )}
 
       {/* Daily Activity Chart */}
-      {slack.daily.length > 0 && (
-        <Card>
+      {((slack?.daily.length ?? 0) > 0 || loading) && (
+        <AsyncStatsCard
+          error={error}
+          loading={loading}
+          minHeightClassName="min-h-80"
+          testId="stats-card-slack-daily-activity"
+        >
+          {slack && slack.daily.length > 0 ? <Card>
           <CardHeader>
             <CardTitle>Daily Slack Activity ({rangeLabel})</CardTitle>
             <CardDescription>Thread interactions per day</CardDescription>
@@ -120,11 +113,18 @@ export function SlackStatsSection({ slack, rangeLabel }: SlackStatsSectionProps)
               </div>
             </div>
           </CardContent>
-        </Card>
+          </Card> : undefined}
+        </AsyncStatsCard>
       )}
 
       {/* Top Channels */}
-      <Card>
+      <AsyncStatsCard
+        error={error}
+        loading={loading}
+        minHeightClassName="min-h-56"
+        testId="stats-card-slack-top-channels"
+      >
+        {slack ? <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Hash className="h-5 w-5" />
@@ -161,7 +161,8 @@ export function SlackStatsSection({ slack, rangeLabel }: SlackStatsSectionProps)
             })}
           </div>
         </CardContent>
-      </Card>
+        </Card> : undefined}
+      </AsyncStatsCard>
     </div>
   );
 }

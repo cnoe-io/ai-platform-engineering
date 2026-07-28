@@ -10,13 +10,13 @@ RunStatsTable,
 TopCreatorsCard,
 VisibilityBreakdown,
 } from "@/components/admin/insights/SkillMetricsCards";
+import { AsyncStatsCard } from "@/components/admin/insights/AsyncStatsCard";
 import { CrawlConsoleDialog } from "@/components/admin/platform/CrawlConsoleDialog";
 import { CrawlConsoleHeaderPill } from "@/components/admin/platform/CrawlConsoleHeaderPill";
 import { HealthTab } from "@/components/admin/platform/HealthTab";
 import { MetricsTab } from "@/components/admin/platform/MetricsTab";
 import { SkillHubsSection } from "@/components/admin/platform/SkillHubsSection";
 import { SlackStatsSection } from "@/components/admin/platform/SlackStatsSection";
-import { CasInsightsTab } from "@/components/admin/CasInsightsTab";
 import { SlackChannelRebacPanel } from "@/components/admin/rebac/SlackChannelRebacPanel";
 import { WebexSpaceRebacPanel } from "@/components/admin/rebac/WebexSpaceRebacPanel";
 import { AuditLogsTab } from "@/components/admin/security/AuditLogsTab";
@@ -26,10 +26,13 @@ import { AccessExplorerTab } from "@/components/admin/security/AccessExplorerTab
 import { RbacSelfCheckTab } from "@/components/admin/security/RbacSelfCheckTab";
 import { UnifiedAuditTab } from "@/components/admin/security/UnifiedAuditTab";
 import { ImportAgentsFromConfigCard } from "@/components/admin/settings/ImportAgentsFromConfigCard";
+import { MCPCatalogSettingsCard } from "@/components/admin/settings/MCPCatalogSettingsCard";
 import { PlatformSettingsTab } from "@/components/admin/settings/PlatformSettingsTab";
 import { ReleaseNotesSettingsTab } from "@/components/admin/settings/ReleaseNotesSettingsTab";
 import { ReviewConfigsTab } from "@/components/admin/settings/ReviewConfigsTab";
+import { CardPagination } from "@/components/admin/shared/CardPagination";
 import { DateRangeFilter,presetToRange,type DateRange,type DateRangePreset } from "@/components/admin/shared/DateRangeFilter";
+import { FeedbackTrendChart,type FeedbackTrendPoint } from "@/components/admin/shared/FeedbackTrendChart";
 import { SimpleLineChart } from "@/components/admin/shared/SimpleLineChart";
 import { CreateTeamDialog } from "@/components/admin/teams/CreateTeamDialog";
 import { IdentitySyncPanel } from "@/components/admin/teams/IdentitySyncPanel";
@@ -56,13 +59,16 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { SlidingSelectorIndicator } from "@/components/ui/sliding-selector";
 import { Tabs,TabsContent,TabsList,TabsTrigger } from "@/components/ui/tabs";
 import { useAdminRole } from "@/hooks/use-admin-role";
+import { useAdminStatsSections } from "@/hooks/use-admin-stats-sections";
+import { useUrlFilterParams } from "@/hooks/use-url-filter-params";
 import { useAdminTabGates,type AdminTabGateSimulationTarget } from "@/hooks/useAdminTabGates";
 import { getConfig } from "@/lib/config";
 import { withAdminSimulationParams } from "@/lib/rbac/admin-simulation-query";
 import { cn } from "@/lib/utils";
 import type { SkillMetricsAdmin } from "@/types/agent-skill";
+import { ADMIN_STATS_SECTIONS,type AdminStats,type AdminStatsOwnerType,type AdminStatsSection } from "@/types/admin-stats";
 import type { Team as TeamType } from "@/types/teams";
-import { Activity,Archive,Bot,CheckCircle2,ChevronLeft,ChevronRight,Clock,Database,ExternalLink,Eye,FileText,Filter,Globe,Hash,KeyRound,Layers,Link2,ListChecks,Loader2,MessageSquare,RefreshCw,Search,Settings,Shield,ShieldCheck,ThumbsDown,ThumbsUp,Trash2,TrendingUp,Unlink,User,UserPlus,Users,UsersIcon,Wrench,X,Zap,type LucideIcon } from "lucide-react";
+import { Activity,Archive,Bot,CheckCircle2,ChevronLeft,ChevronRight,Clock,Database,ExternalLink,Eye,FileText,Filter,Globe,Hash,KeyRound,Layers,Link2,ListChecks,Loader2,MessageSquare,Plug,RefreshCw,Search,Settings,Shield,ShieldCheck,ThumbsDown,ThumbsUp,Trash2,TrendingUp,Unlink,User,UserPlus,Users,UsersIcon,Wrench,X,Zap,type LucideIcon } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { usePathname,useRouter,useSearchParams } from "next/navigation";
 import React,{ useCallback,useEffect,useEffectEvent,useMemo,useRef,useState } from "react";
@@ -71,68 +77,17 @@ import { SlackIcon } from "@/components/ui/icons";
 
 // Owner classification for the Top Users leaderboards (server-computed in
 // /api/admin/stats). Drives the identity badge next to each name.
-type OwnerType = 'service_account' | 'slack_bot' | 'linked' | 'unlinked_slack';
+type OwnerType = AdminStatsOwnerType;
 
-interface AdminStats {
-  platform_summary?: {
-    satisfaction_rate: number;
-  };
-  overview: {
-    total_users: number;
-    total_conversations: number;
-    total_messages: number;
-    shared_conversations: number;
-    dau: number;
-    mau: number;
-    conversations_today: number;
-    messages_today: number;
-    avg_messages_per_conversation: number;
-  };
-  daily_activity: Array<{
-    date: string;
-    active_users: number;
-    conversations: number;
-    messages: number;
-  }>;
-  top_users: {
-    by_conversations: Array<{ _id: string; count: number; name?: string; owner_type?: OwnerType }>;
-    by_messages: Array<{ _id: string; count: number; name?: string; owner_type?: OwnerType }>;
-  };
-  top_agents: Array<{ _id: string; count: number }>;
-  feedback_summary: {
-    positive: number;
-    negative: number;
-    total: number;
-    satisfaction_rate?: number;
-    by_source?: Record<string, { positive: number; negative: number }>;
-    categories?: Array<{ category: string; count: number }>;
-    daily?: Array<{ date: string; positive: number; negative: number }>;
-  };
-  response_time: {
-    avg_ms: number;
-    min_ms: number;
-    max_ms: number;
-    sample_count: number;
-    samples?: Array<{ ts: string; latency_ms: number }>;
-  };
-  hourly_heatmap: Array<{ hour: number; count: number }>;
-  completed_workflows: {
-    total: number;
-    today: number;
-    failed: number;
-    completion_rate: number;
-    avg_steps_per_workflow: number;
-  };
-  slack?: {
-    channels: { total: number; qanda_enabled: number; alerts_enabled: number; ai_enabled: number };
-    total_interactions: number;
-    unique_users: number;
-    daily: Array<{ date: string; interactions: number; unique_users: number; escalated: number }>;
-    top_channels: Array<{ channel_name: string; interactions: number }>;
-  };
-  available_channels?: string[];
-  available_agents?: Array<{ id: string; name: string }>;
-}
+const FILTER_REFRESH_STATS_SECTIONS: readonly AdminStatsSection[] = ADMIN_STATS_SECTIONS.filter(
+  (section) => section !== 'filters',
+);
+const BOT_FILTER_STATS_SECTIONS: readonly AdminStatsSection[] = [
+  'top_users',
+  'top_agents',
+  'response_time',
+  'hourly_heatmap',
+];
 
 interface FeedbackEntry {
   message_id: string;
@@ -237,7 +192,7 @@ interface SimulationTeamOption {
   description?: string;
 }
 
-const VALID_TABS = ['users', 'teams', 'identity-sync', 'stats', 'skills', 'feedback', 'metrics', 'health', 'cas-insights', 'credentials', 'audit-logs', 'action-audit', 'access-explorer', 'rbac-self-check', 'keycloak', 'migrations', 'ai-review', 'settings', 'agents', 'release-notes', 'slack', 'webex', 'rag-access', 'service-accounts'] as const;
+const VALID_TABS = ['users', 'teams', 'identity-sync', 'stats', 'skills', 'feedback', 'metrics', 'health', 'cas-insights', 'credentials', 'audit-logs', 'action-audit', 'access-explorer', 'rbac-self-check', 'keycloak', 'migrations', 'ai-review', 'settings', 'agents', 'mcp', 'release-notes', 'slack', 'webex', 'rag-access', 'service-accounts'] as const;
 const VALID_OPENFGA_SUBTABS = ['builder', 'explorer', 'graph', 'tuples', 'access', 'baseline', 'diagnostics'] as const;
 const MOVED_ADMIN_TAB_MAP = {
   insights: 'stats',
@@ -273,6 +228,7 @@ const CATEGORIES: Category[] = [
     tabs: [
       { value: 'settings', label: 'General', icon: Settings, gateKey: 'settings' },
       { value: 'agents', label: 'Agents', icon: Bot, gateKey: 'agents' },
+      { value: 'mcp', label: 'MCP', icon: Plug, gateKey: 'mcp' },
       { value: 'skills', label: 'Skills', icon: Layers, gateKey: 'skills' },
       { value: 'service-accounts', label: 'Service Accounts', icon: Bot, gateKey: 'service_accounts' },
       { value: 'ai-review', label: 'AI Review', icon: ShieldCheck, gateKey: 'ai_review' },
@@ -314,7 +270,6 @@ const CATEGORIES: Category[] = [
     tabs: [
       { value: 'metrics', label: 'Metrics', icon: Activity, gateKey: 'metrics' },
       { value: 'health', label: 'Health', icon: Database, gateKey: 'health' },
-      { value: 'cas-insights', label: 'Authorization Insights', icon: Activity, gateKey: 'metrics' },
     ],
   },
   {
@@ -463,6 +418,28 @@ function movedAdminTab(tab: string | null): typeof VALID_TABS[number] | null {
   return (MOVED_ADMIN_TAB_MAP as Record<string, typeof VALID_TABS[number]>)[tab] ?? null;
 }
 
+function localDateFromBucketKey(dateKey: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})(?:T|$)/.exec(dateKey);
+  if (!match) return null;
+  const [, yearValue, monthValue, dayValue] = match;
+  const year = Number(yearValue);
+  const month = Number(monthValue) - 1;
+  const day = Number(dayValue);
+  const date = new Date(year, month, day);
+  return date.getFullYear() === year && date.getMonth() === month && date.getDate() === day
+    ? date
+    : null;
+}
+
+function feedbackDateRangeForBucket(dateKey: string): DateRange | null {
+  const from = localDateFromBucketKey(dateKey);
+  if (!from) return null;
+  from.setHours(0, 0, 0, 0);
+  const to = new Date(from);
+  to.setHours(23, 59, 59, 999);
+  return { from: from.toISOString(), to: to.toISOString() };
+}
+
 // Bucket keys carry a time component ("2026-07-10T14:30") for hour/minute
 // buckets and are date-only ("2026-07-10") for day buckets — use that to
 // decide whether to label chart points by time-of-day or by calendar date.
@@ -470,56 +447,67 @@ function formatBucketLabel(dateStr: string): string {
   if (dateStr.includes('T')) {
     return new Date(dateStr).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
   }
-  return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return localDateFromBucketKey(dateStr)?.toLocaleDateString(
+    'en-US',
+    { month: 'short', day: 'numeric' },
+  ) ?? dateStr;
 }
 
 function OverviewStatsCards({
+  error,
+  loading,
   overview,
 }: {
-  overview: AdminStats['overview'] | null;
+  error?: string | null;
+  loading: boolean;
+  overview?: AdminStats['overview'];
 }) {
-  if (!overview) return null;
-
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-sm font-medium">Total Users</CardTitle>
-          <Users className="h-4 w-4 text-muted-foreground" />
-        </CardHeader>
-        <CardContent>
-          <div className="text-2xl font-bold">{overview.total_users}</div>
-          <p className="text-xs text-muted-foreground mt-1">
-            DAU: {overview.dau} | MAU: {overview.mau}
-          </p>
-        </CardContent>
-      </Card>
+      <AsyncStatsCard error={error} loading={loading} testId="stats-card-overview-users">
+        {overview ? <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Total Users</CardTitle>
+            <Users className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{overview.total_users}</div>
+            <p className="text-xs text-muted-foreground mt-1">
+              DAU: {overview.dau} | MAU: {overview.mau}
+            </p>
+          </CardContent>
+        </Card> : undefined}
+      </AsyncStatsCard>
 
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-sm font-medium">Conversations</CardTitle>
-          <MessageSquare className="h-4 w-4 text-muted-foreground" />
-        </CardHeader>
-        <CardContent>
-          <div className="text-2xl font-bold">{overview.total_conversations}</div>
-          <p className="text-xs text-muted-foreground mt-1">
-            Today: +{overview.conversations_today}
-          </p>
-        </CardContent>
-      </Card>
+      <AsyncStatsCard error={error} loading={loading} testId="stats-card-overview-conversations">
+        {overview ? <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Conversations</CardTitle>
+            <MessageSquare className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{overview.total_conversations}</div>
+            <p className="text-xs text-muted-foreground mt-1">
+              Today: +{overview.conversations_today}
+            </p>
+          </CardContent>
+        </Card> : undefined}
+      </AsyncStatsCard>
 
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-sm font-medium">Messages</CardTitle>
-          <Activity className="h-4 w-4 text-muted-foreground" />
-        </CardHeader>
-        <CardContent>
-          <div className="text-2xl font-bold">{overview.total_messages}</div>
-          <p className="text-xs text-muted-foreground mt-1">
-            Today: +{overview.messages_today}
-          </p>
-        </CardContent>
-      </Card>
+      <AsyncStatsCard error={error} loading={loading} testId="stats-card-overview-messages">
+        {overview ? <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Messages</CardTitle>
+            <Activity className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{overview.total_messages}</div>
+            <p className="text-xs text-muted-foreground mt-1">
+              Today: +{overview.messages_today}
+            </p>
+          </CardContent>
+        </Card> : undefined}
+      </AsyncStatsCard>
     </div>
   );
 }
@@ -541,11 +529,27 @@ function simulationTargetFromParams(searchParams: { get(name: string): string | 
   };
 }
 
+function commaSeparatedFilter(value: string | null): string[] {
+  if (!value) return [];
+  return [...new Set(value.split(',').map((item) => item.trim()).filter(Boolean))];
+}
+
+function isValidDateRange(from: string | null, to: string | null): from is string {
+  return Boolean(
+    from &&
+    to &&
+    Number.isFinite(Date.parse(from)) &&
+    Number.isFinite(Date.parse(to)) &&
+    Date.parse(from) <= Date.parse(to)
+  );
+}
+
 function AdminPage() {
   const { status } = useSession();
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
+  const updateUrlFilters = useUrlFilterParams();
   const { isAdmin, loading: adminRoleLoading } = useAdminRole();
   const simulationTarget = useMemo(() => simulationTargetFromParams(searchParams), [searchParams]);
   const simulationScopeKey = simulationTarget
@@ -564,8 +568,6 @@ function AdminPage() {
     "selected account";
   const auditLogsEnabled = getConfig('auditLogsEnabled');
   const feedbackEnabled = getConfig('feedbackEnabled');
-  const [stats, setStats] = useState<AdminStats | null>(null);
-  const [globalOverview, setGlobalOverview] = useState<AdminStats['overview'] | null>(null);
   const [skillStats, setSkillStats] = useState<SkillMetricsAdmin | null>(null);
   // `teams` is the FULL team list, used only by the shared Stats/Feedback
   // team-filter dropdowns and the access-simulation team picker (which need
@@ -584,7 +586,6 @@ function AdminPage() {
   // Archived teams are hidden by default; this toggles the `include_archived`
   // query param so admins can reveal retired / orphaned-from-Okta teams.
   const [showArchivedTeams, setShowArchivedTeams] = useState(false);
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedUserEmail, setSelectedUserEmail] = useState<string | null>(null);
   const [simulationType, setSimulationType] = useState<"user" | "team">(simulationTarget?.type ?? "user");
@@ -623,6 +624,7 @@ function AdminPage() {
       settings: true,
       // Agents subtab (Import Agents from Config) is an admin-only action.
       agents: effectiveOrganizationAdmin,
+      mcp: effectiveOrganizationAdmin,
       ai_review: effectiveOrganizationAdmin,
       // Identity Sync tab: superadmin-only (reuses the identity_group_sync
       // OpenFGA surface) AND only when an IdP directory connector is enabled.
@@ -700,10 +702,21 @@ function AdminPage() {
     if (activeCategory !== nextCategory) setActiveCategory(nextCategory);
     if (activeTab !== nextTab) setActiveTab(nextTab);
 
-    if (requestedCategory !== nextCategory || requestedTab !== nextTab) {
+    const shouldSetDefaultStatsRange =
+      nextTab === 'stats' && searchParams.get('dateRange') === null;
+    if (
+      requestedCategory !== nextCategory
+      || requestedTab !== nextTab
+      || shouldSetDefaultStatsRange
+    ) {
       const params = new URLSearchParams(searchParams.toString());
       params.set('cat', nextCategory);
       params.set('tab', nextTab);
+      if (shouldSetDefaultStatsRange) {
+        params.set('dateRange', '30d');
+        params.delete('from');
+        params.delete('to');
+      }
       if (nextTab !== 'access-explorer') {
         params.delete('subtab');
         params.delete('openfgaTab');
@@ -722,28 +735,6 @@ function AdminPage() {
     tabGateValues,
     visibleCategories,
   ]);
-
-  const handleCategoryChange = useCallback(
-    (catKey: CategoryKey) => {
-      userSelectedAdminTabRef.current = true;
-      setActiveCategory(catKey);
-      const cat = CATEGORIES.find((c) => c.key === catKey);
-      if (!cat) return;
-      const firstVisible = cat.tabs.find((t) => tabGateValues[t.gateKey]);
-      if (firstVisible) {
-        setActiveTab(firstVisible.value);
-        const params = new URLSearchParams(searchParams.toString());
-        params.set('cat', catKey);
-        params.set('tab', firstVisible.value);
-        if (firstVisible.value !== 'access-explorer') {
-          params.delete('subtab');
-          params.delete('openfgaTab');
-        }
-        router.replace(`${pathname}?${params.toString()}`, { scroll: false });
-      }
-    },
-    [pathname, router, searchParams, tabGateValues]
-  );
 
   useEffect(() => {
     setSimulationType(simulationTarget?.type ?? "user");
@@ -833,88 +824,280 @@ function AdminPage() {
   const [deletingTeam, setDeletingTeam] = useState<string | null>(null);
   const [teamPendingDelete, setTeamPendingDelete] = useState<Team | null>(null);
   // ── Shared filters (source, users, date range) across feedback + stats tabs ──
-  const initSource = searchParams.get('source') as 'all' | 'web' | 'slack' | null;
-  const initUsers = searchParams.get('users');
-  const initDatePreset = searchParams.get('dateRange') as DateRangePreset | null;
-  const initFrom = searchParams.get('from');
-  const initTo = searchParams.get('to');
+  const requestedSource = searchParams.get('source');
+  const sourceFromUrl: 'all' | 'web' | 'slack' =
+    requestedSource === 'web' || requestedSource === 'slack' ? requestedSource : 'all';
+  const usersFromUrl = commaSeparatedFilter(searchParams.get('users'));
+  const requestedDatePreset = searchParams.get('dateRange');
+  const requestedFrom = searchParams.get('from');
+  const requestedTo = searchParams.get('to');
+  const validDatePreset = requestedDatePreset &&
+    ['1h', '12h', '24h', '7d', '30d', '90d', 'custom'].includes(requestedDatePreset);
+  const datePresetFromUrl: DateRangePreset = validDatePreset &&
+    (requestedDatePreset !== 'custom' || isValidDateRange(requestedFrom, requestedTo))
+    ? requestedDatePreset as DateRangePreset
+    : '30d';
+  const dateRangeFromUrl: DateRange = datePresetFromUrl === 'custom'
+    ? { from: requestedFrom as string, to: requestedTo as string }
+    : presetToRange(datePresetFromUrl);
 
   const [sourceFilter, setSourceFilter] = useState<'all' | 'web' | 'slack'>(
-    initSource && ['all', 'web', 'slack'].includes(initSource) ? initSource : 'all'
+    sourceFromUrl
   );
-  const [userFilter, setUserFilter] = useState<string[]>(
-    initUsers ? initUsers.split(',').filter(Boolean) : []
-  );
-  const [datePreset, setDatePreset] = useState<DateRangePreset>(
-    initDatePreset && ['1h', '12h', '24h', '7d', '30d', '90d', 'custom'].includes(initDatePreset) ? initDatePreset : '30d'
-  );
-  const [dateRange, setDateRange] = useState<DateRange>(
-    initFrom ? { from: initFrom, to: initTo || new Date().toISOString() } : presetToRange(initDatePreset || '30d')
+  const [userFilter, setUserFilter] = useState<string[]>(usersFromUrl);
+  const [datePreset, setDatePreset] = useState<DateRangePreset>(datePresetFromUrl);
+  const [dateRange, setDateRange] = useState<DateRange>(dateRangeFromUrl);
+
+  const openFeedbackForTrendPoint = useCallback((point: FeedbackTrendPoint) => {
+    const range = feedbackDateRangeForBucket(point.date);
+    if (!range) return;
+
+    userSelectedAdminTabRef.current = true;
+    setActiveCategory('insights');
+    setActiveTab('feedback');
+    setDatePreset('custom');
+    setDateRange(range);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set('cat', 'insights');
+    params.set('tab', 'feedback');
+    params.set('dateRange', 'custom');
+    params.set('from', range.from);
+    params.set('to', range.to);
+    params.delete('subtab');
+    params.delete('openfgaTab');
+    router.push(`${pathname}?${params.toString()}`, { scroll: false });
+  }, [pathname, router, searchParams]);
+
+  const selectAdminTab = useCallback((tab: string) => {
+    userSelectedAdminTabRef.current = true;
+    setActiveTab(tab);
+    setActiveCategory(categoryForTab(tab));
+
+    const resetStatsRange = tab === 'stats';
+    if (resetStatsRange) {
+      setDatePreset('30d');
+      setDateRange(presetToRange('30d'));
+    }
+    updateUrlFilters({
+      cat: categoryForTab(tab),
+      tab,
+      ...(resetStatsRange ? { dateRange: '30d', from: null, to: null } : {}),
+      ...(tab === 'access-explorer' ? {} : { subtab: null, openfgaTab: null }),
+    });
+  }, [updateUrlFilters]);
+
+  const handleCategoryChange = useCallback(
+    (catKey: CategoryKey) => {
+      const cat = CATEGORIES.find((candidate) => candidate.key === catKey);
+      const firstVisible = cat?.tabs.find((tab) => tabGateValues[tab.gateKey]);
+      if (firstVisible) selectAdminTab(firstVisible.value);
+    },
+    [selectAdminTab, tabGateValues],
   );
 
   // Helper to sync shared filters to URL
   const updateSharedFilterUrl = (overrides: Record<string, string | null> = {}) => {
-    const params = new URLSearchParams(searchParams.toString());
     const shared: Record<string, string | null> = {
       source: sourceFilter !== 'all' ? sourceFilter : null,
       users: userFilter.length > 0 ? userFilter.join(',') : null,
-      dateRange: datePreset !== '30d' ? datePreset : null,
+      dateRange: datePreset,
       from: datePreset === 'custom' ? dateRange.from : null,
       to: datePreset === 'custom' ? dateRange.to : null,
       ...overrides,
     };
-    for (const [key, val] of Object.entries(shared)) {
-      if (val) { params.set(key, val); } else { params.delete(key); }
-    }
-    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+    updateUrlFilters(shared);
   };
 
   // ── Feedback-only filters ──
-  const initRating = searchParams.get('rating') as 'all' | 'positive' | 'negative' | null;
-  const initChannels = searchParams.get('channels');
-  const initSearch = searchParams.get('search');
+  const requestedRating = searchParams.get('rating');
+  const feedbackRatingFromUrl: 'all' | 'positive' | 'negative' =
+    requestedRating === 'positive' || requestedRating === 'negative' ? requestedRating : 'all';
+  const feedbackChannelsFromUrl = commaSeparatedFilter(searchParams.get('channels'));
+  const feedbackSearchFromUrl = commaSeparatedFilter(searchParams.get('search'));
 
   const [feedbackData, setFeedbackData] = useState<FeedbackData | null>(null);
   const [feedbackFilter, setFeedbackFilter] = useState<'all' | 'positive' | 'negative'>(
-    initRating && ['all', 'positive', 'negative'].includes(initRating) ? initRating : 'all'
+    feedbackRatingFromUrl
   );
-  const [feedbackChannelFilter, setFeedbackChannelFilter] = useState<string[]>(
-    initChannels ? initChannels.split(',').filter(Boolean) : []
-  );
+  const [feedbackChannelFilter, setFeedbackChannelFilter] = useState<string[]>(feedbackChannelsFromUrl);
   const [feedbackChannels, setFeedbackChannels] = useState<string[]>([]);
-  const [feedbackSearchTags, setFeedbackSearchTags] = useState<string[]>(
-    initSearch ? initSearch.split(',').filter(Boolean) : []
-  );
+  const [feedbackSearchTags, setFeedbackSearchTags] = useState<string[]>(feedbackSearchFromUrl);
   const [feedbackUsers, setFeedbackUsers] = useState<string[]>([]);
   const [feedbackLoading, setFeedbackLoading] = useState(false);
 
   // Sync feedback-only filters to URL
   const updateFeedbackUrl = (overrides: Record<string, string | null>) => {
-    const params = new URLSearchParams(searchParams.toString());
     const defaults: Record<string, string | null> = {
       tab: activeTab,
       rating: feedbackFilter !== 'all' ? feedbackFilter : null,
       channels: feedbackChannelFilter.length > 0 ? feedbackChannelFilter.join(',') : null,
       search: feedbackSearchTags.length > 0 ? feedbackSearchTags.join(',') : null,
     };
-    const merged = { ...defaults, ...overrides };
-    for (const [key, val] of Object.entries(merged)) {
-      if (val) { params.set(key, val); } else { params.delete(key); }
-    }
-    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+    updateUrlFilters({ ...defaults, ...overrides });
   };
-  const [statsRefreshing, setStatsRefreshing] = useState(false);
-  const [statsChannelFilter, setStatsChannelFilter] = useState<string[]>([]);
+  const statsChannelsFromUrl = commaSeparatedFilter(searchParams.get('statsChannels'));
+  const statsAgentsFromUrl = commaSeparatedFilter(searchParams.get('statsAgents'));
+  const statsIncludeBotsFromUrl = searchParams.get('statsIncludeBots') === 'true';
+  const [statsChannelFilter, setStatsChannelFilter] = useState<string[]>(statsChannelsFromUrl);
   const [statsChannels, setStatsChannels] = useState<string[]>([]);
-  // Agent filter: selected agent NAMES (dropdown labels), mapped to ids for the
-  // query param via statsAgents. Options are scoped by the API to what the
-  // caller can see (owned agents for non-admins, all agents for admins).
-  const [statsAgentFilter, setStatsAgentFilter] = useState<string[]>([]);
+  // Store stable agent IDs in URL/state and map them to labels only for the
+  // dropdown. This lets the first deep-linked request apply the filter before
+  // the scoped agent option list has loaded.
+  const [statsAgentFilter, setStatsAgentFilter] = useState<string[]>(statsAgentsFromUrl);
   const [statsAgents, setStatsAgents] = useState<Array<{ id: string; name: string }>>([]);
   // Top-users leaderboard: hide bot/service identities by default; toggle to show.
-  const [showBotUsers, setShowBotUsers] = useState(false);
+  const [showBotUsers, setShowBotUsers] = useState(statsIncludeBotsFromUrl);
+  const [topConversationsPage, setTopConversationsPage] = useState(1);
+  const [topMessagesPage, setTopMessagesPage] = useState(1);
+  const [loadingTopUsersLeaderboard, setLoadingTopUsersLeaderboard] = useState<
+    'conversations' | 'messages' | null
+  >(null);
+  const topConversationsPageRef = useRef(1);
+  const topMessagesPageRef = useRef(1);
+  const topUsersPageRequestVersionRef = useRef(0);
+  const resetTopUserPages = useCallback(() => {
+    topUsersPageRequestVersionRef.current += 1;
+    topConversationsPageRef.current = 1;
+    topMessagesPageRef.current = 1;
+    setTopConversationsPage(1);
+    setTopMessagesPage(1);
+    setLoadingTopUsersLeaderboard(null);
+  }, []);
+  const insightsFilterUrlKey = [
+    searchParams.get('source'),
+    searchParams.get('users'),
+    searchParams.get('dateRange'),
+    searchParams.get('from'),
+    searchParams.get('to'),
+    searchParams.get('rating'),
+    searchParams.get('channels'),
+    searchParams.get('search'),
+    searchParams.get('statsChannels'),
+    searchParams.get('statsAgents'),
+    searchParams.get('statsIncludeBots'),
+  ].map((value) => value ?? '').join('\u0000');
+  const [previousInsightsFilterUrlKey, setPreviousInsightsFilterUrlKey] = useState(insightsFilterUrlKey);
+
+  if (insightsFilterUrlKey !== previousInsightsFilterUrlKey) {
+    setPreviousInsightsFilterUrlKey(insightsFilterUrlKey);
+    setSourceFilter(sourceFromUrl);
+    setUserFilter(usersFromUrl);
+    setDatePreset(datePresetFromUrl);
+    setDateRange(dateRangeFromUrl);
+    setFeedbackFilter(feedbackRatingFromUrl);
+    setFeedbackChannelFilter(feedbackChannelsFromUrl);
+    setFeedbackSearchTags(feedbackSearchFromUrl);
+    setStatsChannelFilter(statsChannelsFromUrl);
+    setStatsAgentFilter(statsAgentsFromUrl);
+    setShowBotUsers(statsIncludeBotsFromUrl);
+  }
+
+  const updateStatsFilterUrl = (overrides: Record<string, string | null> = {}) => {
+    updateUrlFilters({
+      statsChannels: statsChannelFilter.length > 0 ? statsChannelFilter.join(',') : null,
+      statsAgents: statsAgentFilter.length > 0 ? statsAgentFilter.join(',') : null,
+      statsIncludeBots: showBotUsers ? 'true' : null,
+      ...overrides,
+    });
+  };
+  const selectedStatsAgentNames = statsAgentFilter
+    .map((id) => statsAgents.find((agent) => agent.id === id)?.name)
+    .filter((name): name is string => Boolean(name));
   const rangeLabel = datePreset === "1h" ? "1 Hour" : datePreset === "12h" ? "12 Hours" : datePreset === "24h" ? "24 Hours" : datePreset === "7d" ? "7 Days" : datePreset === "90d" ? "90 Days" : datePreset === "custom" ? "Custom Range" : "30 Days";
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+
+  const selectedStatsFilters = useMemo(() => {
+    const userEmails = new Set<string>();
+    const teamSlugs = new Set<string>();
+    for (const selection of userFilter) {
+      if (selection.startsWith('team:')) {
+        const team = teams.find((candidate) => candidate.name === selection.slice(5));
+        // Team rosters are canonical in team_membership_sources and are no
+        // longer embedded in list responses. Send the stable slug so the API
+        // can resolve members server-side while preserving its RBAC scope.
+        teamSlugs.add(team?.slug?.trim() || team?._id || selection.slice(5));
+      } else {
+        userEmails.add(selection);
+      }
+    }
+    return { teamSlugs: [...teamSlugs], userEmails: [...userEmails] };
+  }, [teams, userFilter]);
+
+  const getStatsSectionUrl = useCallback((section: AdminStatsSection): string => {
+    const params = new URLSearchParams({ section });
+    if (datePreset === 'custom') {
+      params.set('from', dateRange.from);
+      params.set('to', dateRange.to);
+    } else {
+      // Relative presets stay relative when the dashboard is manually refreshed;
+      // custom ranges remain fixed to their explicit endpoints.
+      params.set('range', datePreset);
+    }
+    if (sourceFilter !== 'all') params.set('source', sourceFilter);
+    if (selectedStatsFilters.userEmails.length > 0) {
+      params.set('user', selectedStatsFilters.userEmails.join(','));
+    }
+    if (selectedStatsFilters.teamSlugs.length > 0) {
+      params.set('team', selectedStatsFilters.teamSlugs.join(','));
+    }
+    if (sourceFilter === 'slack' && statsChannelFilter.length > 0) {
+      params.set('channel', statsChannelFilter.join(','));
+    }
+    if (statsAgentFilter.length > 0) params.set('agent', statsAgentFilter.join(','));
+    if (showBotUsers) params.set('include_bots', 'true');
+    if (section === 'top_users') {
+      params.set('top_conversations_page', String(topConversationsPageRef.current));
+      params.set('top_messages_page', String(topMessagesPageRef.current));
+    }
+    return withAdminSimulationParams(`/api/admin/stats?${params.toString()}`, simulationTarget);
+  }, [
+    dateRange,
+    datePreset,
+    selectedStatsFilters,
+    showBotUsers,
+    simulationTarget,
+    sourceFilter,
+    statsAgentFilter,
+    statsChannelFilter,
+  ]);
+
+  const getSkillStatsUrl = useCallback((): string => {
+    const params = new URLSearchParams();
+    if (datePreset === 'custom') {
+      params.set('from', dateRange.from);
+      params.set('to', dateRange.to);
+    } else {
+      params.set('range', datePreset);
+    }
+    if (sourceFilter !== 'all') params.set('source', sourceFilter);
+    if (selectedStatsFilters.userEmails.length > 0) {
+      params.set('user', selectedStatsFilters.userEmails.join(','));
+    }
+    if (selectedStatsFilters.teamSlugs.length > 0) {
+      params.set('team', selectedStatsFilters.teamSlugs.join(','));
+    }
+    return withAdminSimulationParams(`/api/admin/stats/skills?${params.toString()}`, simulationTarget);
+  }, [datePreset, dateRange, selectedStatsFilters, simulationTarget, sourceFilter]);
+
+  const {
+    data: stats,
+    loadSections: loadStatsSections,
+    refreshing: statsRefreshing,
+    reset: resetStatsSections,
+    statuses: statsSectionStatuses,
+  } = useAdminStatsSections({
+    getSectionUrl: getStatsSectionUrl,
+    onFatalError: setError,
+    scopeKey: simulationScopeKey,
+  });
+
+  useEffect(() => {
+    if (stats.available_channels) setStatsChannels(stats.available_channels);
+  }, [stats.available_channels]);
+
+  useEffect(() => {
+    if (stats.available_agents) setStatsAgents(stats.available_agents);
+  }, [stats.available_agents]);
 
   const visitedTabsRef = useRef<Set<string>>(new Set());
   const previousSimulationScopeKeyRef = useRef(simulationScopeKey);
@@ -928,10 +1111,10 @@ function AdminPage() {
     if (previousSimulationScopeKeyRef.current !== simulationScopeKey) {
       previousSimulationScopeKeyRef.current = simulationScopeKey;
       visitedTabsRef.current.clear();
-      setStats(null);
-      setGlobalOverview(null);
+      resetStatsSections();
       setFeedbackData(null);
       setStatsChannels([]);
+      setStatsAgents([]);
       setFeedbackChannels([]);
       setFeedbackUsers([]);
       setTeams([]);
@@ -941,13 +1124,12 @@ function AdminPage() {
       setGridLoaded(false);
       setSelectedUserId(null);
       setSelectedUserEmail(null);
-      setStatsRefreshing(false);
       setFeedbackLoading(false);
-      setLoading(false);
+      resetTopUserPages();
     }
     if (status !== "authenticated" && getConfig('ssoEnabled')) return;
     loadTabDataEvent(activeTab);
-  }, [activeTab, simulationScopeKey, status]);
+  }, [activeTab, resetStatsSections, resetTopUserPages, simulationScopeKey, status]);
   const fetchTeamsFromDb = async (): Promise<Team[]> => {
     const response = await fetch(withAdminSimulationParams(`/api/admin/teams?fresh=${Date.now()}`, simulationTarget), {
       cache: 'no-store',
@@ -1035,175 +1217,172 @@ function AdminPage() {
     }
   };
 
-  // Expand team: prefixed selections to member emails
-  // See `filteredTeams` above for the canonical-team-membership refactor note —
-  // same defensive guard applies here.
-  const expandStatsUsers = (selected: string[]): string[] => {
-    const emails = new Set<string>();
-    for (const s of selected) {
-      if (s.startsWith('team:')) {
-        const team = teams.find((t) => t.name === s.slice(5));
-        if (team) (team.members ?? []).forEach((m) => emails.add(m.user_id));
-      } else {
-        emails.add(s);
+  // Use a value-based signature so loading the team/filter option lists does not
+  // accidentally issue a second stats request. Only data that changes the query
+  // participates in the signature.
+  const statsFilterKey = useMemo(() => JSON.stringify({
+    agents: statsAgentFilter,
+    channels: statsChannelFilter,
+    from: datePreset === 'custom' ? dateRange.from : null,
+    range: datePreset,
+    source: sourceFilter,
+    to: datePreset === 'custom' ? dateRange.to : null,
+    teams: selectedStatsFilters.teamSlugs,
+    users: selectedStatsFilters.userEmails,
+  }), [
+    dateRange.from,
+    dateRange.to,
+    datePreset,
+    selectedStatsFilters,
+    sourceFilter,
+    statsAgentFilter,
+    statsChannelFilter,
+  ]);
+  const skillStatsFilterKey = useMemo(() => JSON.stringify({
+    from: datePreset === 'custom' ? dateRange.from : null,
+    range: datePreset,
+    source: sourceFilter,
+    to: datePreset === 'custom' ? dateRange.to : null,
+    teams: selectedStatsFilters.teamSlugs,
+    users: selectedStatsFilters.userEmails,
+  }), [datePreset, dateRange.from, dateRange.to, selectedStatsFilters, sourceFilter]);
+  const skillStatsFilterRef = useRef(skillStatsFilterKey);
+  const statsFilterRef = useRef(statsFilterKey);
+  useEffect(() => {
+    if (statsFilterRef.current === statsFilterKey) return;
+    statsFilterRef.current = statsFilterKey;
+    if (!visitedTabsRef.current.has('_stats-loaded')) return;
+    if (status !== "authenticated" && getConfig('ssoEnabled')) return;
+    const handle = window.setTimeout(() => {
+      resetTopUserPages();
+      void loadStatsSections(FILTER_REFRESH_STATS_SECTIONS);
+    }, 150);
+    return () => window.clearTimeout(handle);
+  }, [loadStatsSections, resetTopUserPages, statsFilterKey, status]);
+
+  const showBotUsersRef = useRef(showBotUsers);
+  useEffect(() => {
+    if (showBotUsersRef.current === showBotUsers) return;
+    showBotUsersRef.current = showBotUsers;
+    if (!visitedTabsRef.current.has('_stats-loaded')) return;
+    if (status !== "authenticated" && getConfig('ssoEnabled')) return;
+    resetTopUserPages();
+    void loadStatsSections(BOT_FILTER_STATS_SECTIONS);
+  }, [loadStatsSections, resetTopUserPages, showBotUsers, status]);
+
+  const loadTopUsersPage = async (
+    leaderboard: 'conversations' | 'messages',
+    page: number,
+  ): Promise<void> => {
+    const requestVersion = topUsersPageRequestVersionRef.current + 1;
+    topUsersPageRequestVersionRef.current = requestVersion;
+    setLoadingTopUsersLeaderboard(leaderboard);
+    if (leaderboard === 'conversations') {
+      topConversationsPageRef.current = page;
+      setTopConversationsPage(page);
+    } else {
+      topMessagesPageRef.current = page;
+      setTopMessagesPage(page);
+    }
+    try {
+      await loadStatsSections(['top_users']);
+    } finally {
+      if (topUsersPageRequestVersionRef.current === requestVersion) {
+        setLoadingTopUsersLeaderboard(null);
       }
     }
-    return [...emails];
   };
 
-  // Re-fetch stats when filters change (lightweight — only refetch stats endpoint)
-  const statsFilterRef = React.useRef({ range: dateRange, source: sourceFilter, users: userFilter, channels: statsChannelFilter, agents: statsAgentFilter, showBots: showBotUsers, teams });
-  // Map selected agent display names → their ids for the `agent` query param.
-  const agentIdsForNames = React.useCallback(
-    (names: string[]) => names
-      .map((n) => statsAgents.find((a) => a.name === n)?.id)
-      .filter((id): id is string => !!id),
-    [statsAgents],
-  );
-  const fetchStatsWithFilters = async (range?: DateRange, source?: 'all' | 'web' | 'slack', userEmails?: string[], channels?: string[], agents?: string[]) => {
-    if (status !== "authenticated" && getConfig('ssoEnabled')) return;
-    const requestScopeKey = simulationScopeKey;
-    setStatsRefreshing(true);
-    try {
-      const r = range ?? dateRange;
-      const s = source ?? sourceFilter;
-      const u = userEmails ?? expandStatsUsers(userFilter);
-      const ch = channels ?? statsChannelFilter;
-      const ag = agents ?? statsAgentFilter;
-      const params = new URLSearchParams({ from: r.from, to: r.to });
-      if (s !== 'all') params.set('source', s);
-      if (u.length > 0) params.set('user', u.join(','));
-      if (s === 'slack' && ch.length > 0) params.set('channel', ch.join(','));
-      const agentIds = agentIdsForNames(ag);
-      if (agentIds.length > 0) params.set('agent', agentIds.join(','));
-      if (showBotUsers) params.set('include_bots', 'true');
-      const hasNonRangeFilters = s !== 'all'
-        || u.length > 0
-        || agentIds.length > 0;
-      const overviewParams = new URLSearchParams({ from: r.from, to: r.to });
-      const [res, overviewRes] = await Promise.all([
-        fetch(withAdminSimulationParams(`/api/admin/stats?${params}`, simulationTarget)),
-        hasNonRangeFilters
-          ? fetch(withAdminSimulationParams(`/api/admin/stats?${overviewParams}`, simulationTarget))
-          : null,
-      ]);
-      if (res.ok) {
-        const [json, overviewJson] = await Promise.all([
-          res.json(),
-          overviewRes?.ok ? overviewRes.json() : Promise.resolve(null),
-        ]);
-        if (json.success && activeDataScopeKeyRef.current === requestScopeKey) {
-          setStats(json.data);
-          setGlobalOverview(
-            overviewJson?.success ? overviewJson.data.overview : json.data.overview,
-          );
-          if (json.data.available_channels) setStatsChannels(json.data.available_channels);
-          if (json.data.available_agents) setStatsAgents(json.data.available_agents);
-        }
-      }
-    } catch {
-      // keep existing stats on failure
-    } finally {
-      if (activeDataScopeKeyRef.current === requestScopeKey) {
-        setStatsRefreshing(false);
-      }
-    }
-  };
-  const fetchStatsWithFiltersEvent = useEffectEvent(fetchStatsWithFilters);
-  useEffect(() => {
-    const current = { range: dateRange, source: sourceFilter, users: userFilter, channels: statsChannelFilter, agents: statsAgentFilter, showBots: showBotUsers, teams };
-    if (statsFilterRef.current.range === current.range
-      && statsFilterRef.current.source === current.source
-      && statsFilterRef.current.users === current.users
-      && statsFilterRef.current.channels === current.channels
-      && statsFilterRef.current.agents === current.agents
-      && statsFilterRef.current.showBots === current.showBots
-      && statsFilterRef.current.teams === current.teams) return; // skip initial
-    statsFilterRef.current = current;
-    fetchStatsWithFiltersEvent();
-  }, [dateRange, sourceFilter, userFilter, statsChannelFilter, statsAgentFilter, showBotUsers, status, teams]);
+  const topConversationsLoading = loadingTopUsersLeaderboard === null
+    ? statsSectionStatuses.top_users.loading
+    : loadingTopUsersLeaderboard === 'conversations';
+  const topMessagesLoading = loadingTopUsersLeaderboard === null
+    ? statsSectionStatuses.top_users.loading
+    : loadingTopUsersLeaderboard === 'messages';
 
   const loadStats = async () => {
-    const requestScopeKey = simulationScopeKey;
-    setLoading(true);
     setError(null);
-    try {
-      const hasStatsFilters = sourceFilter !== 'all' || userFilter.length > 0;
-      const p = new URLSearchParams({ from: dateRange.from, to: dateRange.to });
-      const globalP = new URLSearchParams({ from: dateRange.from, to: dateRange.to });
-      if (sourceFilter !== 'all') p.set('source', sourceFilter);
-      if (userFilter.length > 0) p.set('user', userFilter.join(','));
-      if (showBotUsers) p.set('include_bots', 'true');
-      const [statsRes, globalStatsRes] = await Promise.all([
-        fetch(withAdminSimulationParams(`/api/admin/stats?${p}`, simulationTarget)),
-        hasStatsFilters
-          ? fetch(withAdminSimulationParams(`/api/admin/stats?${globalP}`, simulationTarget))
-          : null,
-      ]);
-
-      if (activeDataScopeKeyRef.current !== requestScopeKey) return;
-
-      if (statsRes.status === 401) {
-        setError('Not authenticated. Please sign in via SSO first.');
-        return;
-      }
-
-      const statsForbidden = statsRes.status === 403;
-      if (statsForbidden && !tabGateValues.settings) {
-        setError('Access denied. Try signing out and back in to refresh your session.');
-        return;
-      }
-
-      const [statsResponse, globalStatsResponse] = await Promise.all([
-        statsForbidden ? Promise.resolve({ success: false }) : statsRes.json(),
-        globalStatsRes ? globalStatsRes.json().catch(() => null) : null,
-      ]);
-
-      if (statsResponse.success) {
-        setStats(statsResponse.data);
-        if (statsResponse.data.available_channels) setStatsChannels(statsResponse.data.available_channels);
-        if (statsResponse.data.available_agents) setStatsAgents(statsResponse.data.available_agents);
-        const overviewData = globalStatsResponse?.success ? globalStatsResponse.data.overview : statsResponse.data.overview;
-        setGlobalOverview(overviewData);
-      } else if (!statsForbidden) {
-        throw new Error(statsResponse.error || 'Failed to load stats');
-      }
-    } catch (err) {
-      if (activeDataScopeKeyRef.current !== requestScopeKey) return;
-      console.error('[Admin] Failed to load stats:', err);
-      setError(getErrorMessage(err, "") || 'Failed to load stats');
-    } finally {
-      if (activeDataScopeKeyRef.current === requestScopeKey) {
-        setLoading(false);
-      }
-    }
+    await loadStatsSections();
   };
 
-  const loadTeamsData = async () => {
+  const loadTeamsData = async (): Promise<Team[]> => {
     try {
-      setTeams(await fetchTeamsFromDb());
+      const loadedTeams = await fetchTeamsFromDb();
+      setTeams(loadedTeams);
+      return loadedTeams;
     } catch (err) {
       console.error('[Admin] Failed to load teams:', err);
+      return [];
     }
   };
 
-  const loadSkillStats = async () => {
+  const loadSkillStats = useCallback(async (): Promise<void> => {
+    const requestScopeKey = simulationScopeKey;
     try {
-      const res = await fetch('/api/admin/stats/skills');
+      const res = await fetch(getSkillStatsUrl());
       if (res.ok) {
         const data = await res.json().catch(() => ({ success: false }));
-        if (data.success) setSkillStats(data.data);
+        if (data.success && activeDataScopeKeyRef.current === requestScopeKey) {
+          setSkillStats(data.data);
+        }
       }
     } catch (err) {
       console.error('[Admin] Failed to load skill stats:', err);
     }
+  }, [getSkillStatsUrl, simulationScopeKey]);
+
+  useEffect(() => {
+    if (skillStatsFilterRef.current === skillStatsFilterKey) return;
+    skillStatsFilterRef.current = skillStatsFilterKey;
+    if (!visitedTabsRef.current.has('_stats-loaded')) return;
+    if (status !== "authenticated" && getConfig('ssoEnabled')) return;
+    const handle = window.setTimeout(() => {
+      void loadSkillStats();
+    }, 150);
+    return () => window.clearTimeout(handle);
+  }, [loadSkillStats, skillStatsFilterKey, status]);
+
+  const getFeedbackUrl = (
+    rating = feedbackFilter,
+    page = 1,
+    source = sourceFilter,
+    channels = feedbackChannelFilter,
+    searchTags = feedbackSearchTags,
+    users = userFilter,
+    range = dateRange,
+    availableTeams = teams,
+  ): string => {
+    const params = new URLSearchParams({ page: String(page), limit: '50' });
+    if (rating !== 'all') params.set('rating', rating);
+    if (source !== 'all') params.set('source', source);
+    if (source === 'slack' && channels.length > 0) {
+      params.set('channel', channels.join(','));
+    }
+    if (searchTags.length > 0) params.set('search', searchTags.join(','));
+
+    const selectedUsers = new Set<string>();
+    const selectedTeams = new Set<string>();
+    for (const selection of users) {
+      if (selection.startsWith('team:')) {
+        const team = availableTeams.find((candidate) => candidate.name === selection.slice(5));
+        selectedTeams.add(team?.slug?.trim() || team?._id || selection.slice(5));
+      } else {
+        selectedUsers.add(selection);
+      }
+    }
+    if (selectedUsers.size > 0) params.set('user', [...selectedUsers].join(','));
+    if (selectedTeams.size > 0) params.set('team', [...selectedTeams].join(','));
+    if (range.from) params.set('from', range.from);
+    if (range.to) params.set('to', range.to);
+
+    return withAdminSimulationParams(`/api/admin/feedback?${params}`, simulationTarget);
   };
 
-  const loadFeedbackOnce = async () => {
-    if (!getConfig('feedbackEnabled')) return;
+  const requestFeedback = async (url: string): Promise<void> => {
     const requestScopeKey = simulationScopeKey;
+    setFeedbackLoading(true);
     try {
-      const res = await fetch(withAdminSimulationParams('/api/admin/feedback', simulationTarget));
+      const res = await fetch(url);
       if (res.ok) {
         const data = await res.json().catch(() => ({ success: false }));
         if (data.success && activeDataScopeKeyRef.current === requestScopeKey) {
@@ -1214,7 +1393,25 @@ function AdminPage() {
       }
     } catch (err) {
       console.error('[Admin] Failed to load feedback:', err);
+    } finally {
+      if (activeDataScopeKeyRef.current === requestScopeKey) {
+        setFeedbackLoading(false);
+      }
     }
+  };
+
+  const loadFeedbackOnce = async (availableTeams: Team[]): Promise<void> => {
+    if (!getConfig('feedbackEnabled')) return;
+    await requestFeedback(getFeedbackUrl(
+      feedbackFilter,
+      1,
+      sourceFilter,
+      feedbackChannelFilter,
+      feedbackSearchTags,
+      userFilter,
+      dateRange,
+      availableTeams,
+    ));
   };
 
   const loadTabData = async (tab: string) => {
@@ -1224,9 +1421,9 @@ function AdminPage() {
     // Teams data is shared across the Stats and Feedback filter dropdowns.
     // Use a data-level key (not the tab name) so it isn't confused with the
     // tab-visit guard that loadTabData adds before invoking the loader.
-    const loadTeamsIfNeeded = () => {
-      if (isSimulationActive) return Promise.resolve();
-      if (visitedTabsRef.current.has('_teams-loaded')) return Promise.resolve();
+    const loadTeamsIfNeeded = (): Promise<Team[]> => {
+      if (isSimulationActive) return Promise.resolve([]);
+      if (visitedTabsRef.current.has('_teams-loaded')) return Promise.resolve(teams);
       visitedTabsRef.current.add('_teams-loaded');
       return loadTeamsData();
     };
@@ -1249,7 +1446,10 @@ function AdminPage() {
       // alongside the rest of the stats data. The Skills tab keeps only the
       // Skill Hubs section, which self-loads.
       stats: async () => { await Promise.all([loadStatsIfNeeded(), loadTeamsIfNeeded(), loadSkillStats()]); },
-      feedback: async () => { await Promise.all([loadFeedbackOnce(), loadTeamsIfNeeded()]); },
+      feedback: async () => {
+        const availableTeams = await loadTeamsIfNeeded();
+        await loadFeedbackOnce(availableTeams);
+      },
     };
 
     const loader = loaders[tab];
@@ -1272,53 +1472,57 @@ function AdminPage() {
     searchTags?: string[],
     users?: string[],
     range?: DateRange,
-  ) => {
-    const requestScopeKey = simulationScopeKey;
-    setFeedbackLoading(true);
-    try {
-      const params = new URLSearchParams({ page: String(page), limit: '50' });
-      if (rating && rating !== 'all') params.set('rating', rating);
-      const src = source ?? sourceFilter;
-      if (src !== 'all') params.set('source', src);
-      const chs = channels ?? feedbackChannelFilter;
-      if (src === 'slack' && chs.length > 0) {
-        params.set('channel', chs.join(','));
-      }
-      const tags = searchTags ?? feedbackSearchTags;
-      if (tags.length > 0) params.set('search', tags.join(','));
-      const usrs = users ?? userFilter;
-      if (usrs.length > 0) params.set('user', usrs.join(','));
-      const dr = range ?? dateRange;
-      if (dr.from) params.set('from', dr.from);
-      if (dr.to) params.set('to', dr.to);
-      const res = await fetch(withAdminSimulationParams(`/api/admin/feedback?${params}`, simulationTarget));
-      if (res.ok) {
-        const data = await res.json();
-        if (data.success && activeDataScopeKeyRef.current === requestScopeKey) {
-          setFeedbackData(data.data);
-          if (data.data.channels) setFeedbackChannels(data.data.channels);
-          if (data.data.users) setFeedbackUsers(data.data.users);
-        }
-      }
-    } catch (err) {
-      console.error('[Admin] Failed to load feedback:', err);
-    } finally {
-      if (activeDataScopeKeyRef.current === requestScopeKey) {
-        setFeedbackLoading(false);
-      }
-    }
+  ): Promise<void> => {
+    await requestFeedback(getFeedbackUrl(
+      rating ?? feedbackFilter,
+      page,
+      source ?? sourceFilter,
+      channels ?? feedbackChannelFilter,
+      searchTags ?? feedbackSearchTags,
+      users ?? userFilter,
+      range ?? dateRange,
+      teams,
+    ));
   };
+
+  const feedbackFilterKey = useMemo(() => JSON.stringify({
+    channels: feedbackChannelFilter,
+    from: dateRange.from,
+    rating: feedbackFilter,
+    search: feedbackSearchTags,
+    source: sourceFilter,
+    to: dateRange.to,
+    users: userFilter,
+  }), [
+    dateRange.from,
+    dateRange.to,
+    feedbackChannelFilter,
+    feedbackFilter,
+    feedbackSearchTags,
+    sourceFilter,
+    userFilter,
+  ]);
+  const feedbackFilterRef = useRef(feedbackFilterKey);
+  const loadFeedbackEvent = useEffectEvent(() => loadFeedback());
+  useEffect(() => {
+    if (feedbackFilterRef.current === feedbackFilterKey) return;
+    feedbackFilterRef.current = feedbackFilterKey;
+    if (!visitedTabsRef.current.has('feedback')) return;
+    if (status !== "authenticated" && getConfig('ssoEnabled')) return;
+    const handle = window.setTimeout(() => {
+      void loadFeedbackEvent();
+    }, 150);
+    return () => window.clearTimeout(handle);
+  }, [feedbackFilterKey, status]);
 
   const handleFeedbackFilterChange = (filter: 'all' | 'positive' | 'negative') => {
     setFeedbackFilter(filter);
-    loadFeedback(filter, 1);
     updateFeedbackUrl({ rating: filter !== 'all' ? filter : null });
   };
 
   const handleFeedbackSourceChange = (source: 'all' | 'web' | 'slack') => {
     setSourceFilter(source);
     setFeedbackChannelFilter([]);
-    loadFeedback(feedbackFilter, 1, source, [], undefined, undefined);
     updateSharedFilterUrl({ source: source !== 'all' ? source : null });
     updateFeedbackUrl({ channels: null });
   };
@@ -1359,14 +1563,6 @@ function AdminPage() {
     setTeamDialogMode(mode);
     setTeamDetailsOpen(true);
   };
-
-  if (loading) {
-    return (
-      <div className="flex-1 flex items-center justify-center">
-        <CAIPESpinner size="lg" message="Loading admin data..." />
-      </div>
-    );
-  }
 
   if (error) {
     return (
@@ -1436,19 +1632,11 @@ function AdminPage() {
             </div>
 
             {/* Tabbed Content */}
-            <Tabs value={activeTab} onValueChange={(tab) => {
-              userSelectedAdminTabRef.current = true;
-              setActiveTab(tab);
-              setActiveCategory(categoryForTab(tab));
-              const params = new URLSearchParams(searchParams.toString());
-              params.set('cat', categoryForTab(tab));
-              params.set('tab', tab);
-              if (tab !== 'access-explorer') {
-                params.delete('subtab');
-                params.delete('openfgaTab');
-              }
-              router.replace(`${pathname}?${params.toString()}`, { scroll: false });
-            }} className="space-y-4">
+            <Tabs
+              className="space-y-4"
+              onValueChange={selectAdminTab}
+              value={activeTab}
+            >
               {/* Category selector */}
               <div
                 aria-label="Admin sections"
@@ -1673,6 +1861,15 @@ function AdminPage() {
               {tabGateValues.agents && (
                 <TabsContent value="agents" className="space-y-4">
                   <ImportAgentsFromConfigCard
+                    isAdmin={effectiveOrganizationAdmin}
+                    readOnly={isSimulationActive}
+                  />
+                </TabsContent>
+              )}
+
+              {tabGateValues.mcp && (
+                <TabsContent value="mcp" className="space-y-4">
+                  <MCPCatalogSettingsCard
                     isAdmin={effectiveOrganizationAdmin}
                     readOnly={isSimulationActive}
                   />
@@ -2022,7 +2219,6 @@ function AdminPage() {
                           selected={feedbackChannelFilter}
                           onChange={(channels) => {
                             setFeedbackChannelFilter(channels);
-                            loadFeedback(feedbackFilter, 1, sourceFilter, channels);
                             updateFeedbackUrl({ channels: channels.length > 0 ? channels.join(',') : null });
                           }}
                           placeholder="All Channels"
@@ -2037,7 +2233,6 @@ function AdminPage() {
                       tags={feedbackSearchTags}
                       onChange={(tags) => {
                         setFeedbackSearchTags(tags);
-                        loadFeedback(feedbackFilter, 1, undefined, undefined, tags);
                         updateFeedbackUrl({ search: tags.length > 0 ? tags.join(',') : null });
                       }}
                       placeholder="Search reasons..."
@@ -2054,19 +2249,6 @@ function AdminPage() {
                           selected={userFilter}
                           onChange={(selected) => {
                             setUserFilter(selected);
-                            const emails = new Set<string>();
-                            for (const s of selected) {
-                              if (s.startsWith('team:')) {
-                                const team = teams.find((t) => t.name === s.slice(5));
-                                // Defensive read — see `filteredTeams` for the
-                                // canonical-team-membership refactor context.
-                                if (team) (team.members ?? []).forEach((m) => emails.add(m.user_id));
-                              } else {
-                                emails.add(s);
-                              }
-                            }
-                            const emailList = [...emails];
-                            loadFeedback(feedbackFilter, 1, undefined, undefined, undefined, emailList);
                             updateSharedFilterUrl({ users: selected.length > 0 ? selected.join(',') : null });
                           }}
                           placeholder="All Users & Teams"
@@ -2083,9 +2265,8 @@ function AdminPage() {
                     onChange={(preset, range) => {
                       setDatePreset(preset);
                       setDateRange(range);
-                      loadFeedback(feedbackFilter, 1, sourceFilter, feedbackChannelFilter.length > 0 ? feedbackChannelFilter : undefined, undefined, undefined, range);
                       updateSharedFilterUrl({
-                        dateRange: preset !== '30d' ? preset : null,
+                        dateRange: preset,
                         from: preset === 'custom' ? range.from : null,
                         to: preset === 'custom' ? range.to : null,
                       });
@@ -2259,8 +2440,8 @@ function AdminPage() {
                         const src = e.target.value as 'all' | 'web' | 'slack';
                         setSourceFilter(src);
                         setStatsChannelFilter([]);
-                        fetchStatsWithFilters(undefined, src, undefined, []);
                         updateSharedFilterUrl({ source: src !== 'all' ? src : null });
+                        updateStatsFilterUrl({ statsChannels: null });
                       }}
                       className="h-8 rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
                     >
@@ -2274,7 +2455,9 @@ function AdminPage() {
                         selected={statsChannelFilter}
                         onChange={(channels) => {
                           setStatsChannelFilter(channels);
-                          fetchStatsWithFilters(undefined, undefined, undefined, channels);
+                          updateStatsFilterUrl({
+                            statsChannels: channels.length > 0 ? channels.join(',') : null,
+                          });
                         }}
                         placeholder="All Channels"
                         searchPlaceholder="Search channels..."
@@ -2285,10 +2468,15 @@ function AdminPage() {
                     {statsAgents.length > 0 && (
                       <MultiSelect
                         options={statsAgents.map((a) => a.name)}
-                        selected={statsAgentFilter}
+                        selected={selectedStatsAgentNames}
                         onChange={(agents) => {
-                          setStatsAgentFilter(agents);
-                          fetchStatsWithFilters(undefined, undefined, undefined, undefined, agents);
+                          const agentIds = agents
+                            .map((name) => statsAgents.find((agent) => agent.name === name)?.id)
+                            .filter((id): id is string => Boolean(id));
+                          setStatsAgentFilter(agentIds);
+                          updateStatsFilterUrl({
+                            statsAgents: agentIds.length > 0 ? agentIds.join(',') : null,
+                          });
                         }}
                         placeholder="All Agents"
                         searchPlaceholder="Search agents..."
@@ -2303,21 +2491,7 @@ function AdminPage() {
                       ]}
                       selected={userFilter}
                       onChange={(selected) => {
-                        const emails = new Set<string>();
-                        for (const s of selected) {
-                          if (s.startsWith('team:')) {
-                            const teamName = s.slice(5);
-                            const team = teams.find((t) => t.name === teamName);
-                            // Defensive read — see `filteredTeams` for the
-                            // canonical-team-membership refactor context.
-                            if (team) (team.members ?? []).forEach((m) => emails.add(m.user_id));
-                          } else {
-                            emails.add(s);
-                          }
-                        }
-                        const emailList = [...emails];
                         setUserFilter(selected);
-                        fetchStatsWithFilters(undefined, undefined, emailList);
                         updateSharedFilterUrl({ users: selected.length > 0 ? selected.join(',') : null });
                       }}
                       placeholder="All Users & Teams"
@@ -2331,9 +2505,8 @@ function AdminPage() {
                       onChange={(preset, range) => {
                         setDatePreset(preset);
                         setDateRange(range);
-                        fetchStatsWithFilters(range);
                         updateSharedFilterUrl({
-                          dateRange: preset !== '30d' ? preset : null,
+                          dateRange: preset,
                           from: preset === 'custom' ? range.from : null,
                           to: preset === 'custom' ? range.to : null,
                         });
@@ -2345,27 +2518,29 @@ function AdminPage() {
                     size="sm"
                     className="gap-1.5"
                     disabled={statsRefreshing}
-                    onClick={() => fetchStatsWithFilters()}
+                    onClick={() => void Promise.all([loadStatsSections(), loadSkillStats()])}
                   >
                     <RefreshCw className={cn("h-3.5 w-3.5", statsRefreshing && "animate-spin")} />
                     Refresh
                   </Button>
                 </div>
 
-                {stats && (
-                  <div className="relative space-y-4">
-                    {statsRefreshing && (
-                      <div className="absolute inset-0 bg-background/60 z-10 flex items-center justify-center rounded">
-                        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                      </div>
-                    )}
+                  <div className="space-y-4">
                     <OverviewStatsCards
-                      overview={globalOverview ?? stats.overview}
+                      error={statsSectionStatuses.overview.error}
+                      loading={statsSectionStatuses.overview.loading}
+                      overview={stats.overview}
                     />
 
                     {/* DAU and MAU Trend Charts */}
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                      <Card>
+                      <AsyncStatsCard
+                        error={statsSectionStatuses.activity.error ?? statsSectionStatuses.overview.error}
+                        loading={statsSectionStatuses.activity.loading || statsSectionStatuses.overview.loading}
+                        minHeightClassName="min-h-96"
+                        testId="stats-card-daily-active-users"
+                      >
+                        {stats.daily_activity && stats.overview ? <Card>
                         <CardHeader>
                           <CardTitle>Daily Active Users (DAU)</CardTitle>
                           <CardDescription>Active users per day ({rangeLabel})</CardDescription>
@@ -2390,15 +2565,22 @@ function AdminPage() {
                             </div>
                             <div>
                               <p className="text-2xl font-bold text-green-500">
-                                {Math.round((stats.daily_activity.reduce((sum, d) => sum + d.active_users, 0) / stats.daily_activity.length))}
+                                {Math.round(stats.daily_activity.reduce((sum, d) => sum + d.active_users, 0) / Math.max(stats.daily_activity.length, 1))}
                               </p>
                               <p className="text-xs text-muted-foreground">Avg/Day</p>
                             </div>
                           </div>
                         </CardContent>
-                      </Card>
+                        </Card> : undefined}
+                      </AsyncStatsCard>
 
-                      <Card>
+                      <AsyncStatsCard
+                        error={statsSectionStatuses.activity.error ?? statsSectionStatuses.overview.error}
+                        loading={statsSectionStatuses.activity.loading || statsSectionStatuses.overview.loading}
+                        minHeightClassName="min-h-96"
+                        testId="stats-card-conversation-activity"
+                      >
+                        {stats.daily_activity && stats.overview ? <Card>
                         <CardHeader>
                           <CardTitle>Conversation Activity</CardTitle>
                           <CardDescription>New conversations created daily</CardDescription>
@@ -2423,17 +2605,24 @@ function AdminPage() {
                             </div>
                             <div>
                               <p className="text-2xl font-bold text-purple-500">
-                                {Math.round((stats.daily_activity.reduce((sum, d) => sum + d.conversations, 0) / stats.daily_activity.length))}
+                                {Math.round(stats.daily_activity.reduce((sum, d) => sum + d.conversations, 0) / Math.max(stats.daily_activity.length, 1))}
                               </p>
                               <p className="text-xs text-muted-foreground">Avg/Day</p>
                             </div>
                           </div>
                         </CardContent>
-                      </Card>
+                        </Card> : undefined}
+                      </AsyncStatsCard>
                     </div>
 
                     {/* Messages Activity Chart */}
-                    <Card>
+                    <AsyncStatsCard
+                      error={statsSectionStatuses.activity.error ?? statsSectionStatuses.overview.error}
+                      loading={statsSectionStatuses.activity.loading || statsSectionStatuses.overview.loading}
+                      minHeightClassName="min-h-80"
+                      testId="stats-card-message-activity"
+                    >
+                      {stats.daily_activity && stats.overview ? <Card>
                       <CardHeader>
                         <CardTitle>Message Activity ({rangeLabel})</CardTitle>
                         <CardDescription>Messages sent per day</CardDescription>
@@ -2458,19 +2647,20 @@ function AdminPage() {
                           </div>
                           <div>
                             <p className="text-2xl font-bold text-orange-500">
-                              {Math.round((stats.daily_activity.reduce((sum, d) => sum + d.messages, 0) / stats.daily_activity.length))}
+                              {Math.round(stats.daily_activity.reduce((sum, d) => sum + d.messages, 0) / Math.max(stats.daily_activity.length, 1))}
                             </p>
                             <p className="text-xs text-muted-foreground">Avg/Day</p>
                           </div>
                           <div>
                             <p className="text-2xl font-bold text-blue-500">
-                              {(stats.overview.total_messages / stats.overview.total_conversations).toFixed(1)}
+                              {stats.overview.avg_messages_per_conversation.toFixed(1)}
                             </p>
                             <p className="text-xs text-muted-foreground">Msgs/Chat</p>
                           </div>
                         </div>
                       </CardContent>
-                    </Card>
+                      </Card> : undefined}
+                    </AsyncStatsCard>
 
                     {/* Top Users */}
                     <div className="flex items-center justify-between">
@@ -2483,13 +2673,23 @@ function AdminPage() {
                           type="checkbox"
                           className="h-4 w-4 rounded border-input accent-primary"
                           checked={showBotUsers}
-                          onChange={(event) => setShowBotUsers(event.target.checked)}
+                          onChange={(event) => {
+                            const checked = event.target.checked;
+                            setShowBotUsers(checked);
+                            updateStatsFilterUrl({ statsIncludeBots: checked ? 'true' : null });
+                          }}
                         />
                         Show bot users
                       </label>
                     </div>
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                      <Card>
+                      <AsyncStatsCard
+                        error={statsSectionStatuses.top_users.error}
+                        loading={topConversationsLoading}
+                        minHeightClassName="min-h-64"
+                        testId="stats-card-top-users-conversations"
+                      >
+                        {stats.top_users ? <Card>
                         <CardHeader>
                           <CardTitle>Top Users by Conversations</CardTitle>
                         </CardHeader>
@@ -2500,7 +2700,10 @@ function AdminPage() {
                             ) : stats.top_users.by_conversations.map((u, i) => (
                               <div key={u._id} className="flex items-center justify-between">
                                 <div className="flex items-center gap-2 min-w-0">
-                                  <div className="w-6 text-sm text-muted-foreground shrink-0">#{i + 1}</div>
+                                  <div className="w-8 text-sm text-muted-foreground shrink-0">
+                                    #{((stats.top_users.pagination?.by_conversations.page ?? topConversationsPage) - 1)
+                                      * (stats.top_users.pagination?.by_conversations.limit ?? 10) + i + 1}
+                                  </div>
                                   <OwnerTypeBadge ownerType={u.owner_type} />
                                   <div className="text-sm truncate max-w-[200px] text-primary hover:underline cursor-pointer" onClick={() => setSelectedUserEmail(u._id)} title={u._id}>{u.name || u._id}</div>
                                 </div>
@@ -2508,10 +2711,28 @@ function AdminPage() {
                               </div>
                             ))}
                           </div>
+                          {stats.top_users.pagination?.by_conversations && (
+                            <CardPagination
+                              label="top users by conversations"
+                              disabled={topConversationsLoading}
+                              page={stats.top_users.pagination.by_conversations.page}
+                              pageSize={stats.top_users.pagination.by_conversations.limit}
+                              total={stats.top_users.pagination.by_conversations.total}
+                              className="border-t border-border pt-3"
+                              onPageChange={(page) => void loadTopUsersPage('conversations', page)}
+                            />
+                          )}
                         </CardContent>
-                      </Card>
+                        </Card> : undefined}
+                      </AsyncStatsCard>
 
-                      <Card>
+                      <AsyncStatsCard
+                        error={statsSectionStatuses.top_users.error}
+                        loading={topMessagesLoading}
+                        minHeightClassName="min-h-64"
+                        testId="stats-card-top-users-messages"
+                      >
+                        {stats.top_users ? <Card>
                         <CardHeader>
                           <CardTitle>Top Users by Messages</CardTitle>
                         </CardHeader>
@@ -2522,7 +2743,10 @@ function AdminPage() {
                             ) : stats.top_users.by_messages.map((u, i) => (
                               <div key={u._id} className="flex items-center justify-between">
                                 <div className="flex items-center gap-2 min-w-0">
-                                  <div className="w-6 text-sm text-muted-foreground shrink-0">#{i + 1}</div>
+                                  <div className="w-8 text-sm text-muted-foreground shrink-0">
+                                    #{((stats.top_users.pagination?.by_messages.page ?? topMessagesPage) - 1)
+                                      * (stats.top_users.pagination?.by_messages.limit ?? 10) + i + 1}
+                                  </div>
                                   <OwnerTypeBadge ownerType={u.owner_type} />
                                   <div className="text-sm truncate max-w-[200px] text-primary hover:underline cursor-pointer" onClick={() => setSelectedUserEmail(u._id)} title={u._id}>{u.name || u._id}</div>
                                 </div>
@@ -2530,13 +2754,31 @@ function AdminPage() {
                               </div>
                             ))}
                           </div>
+                          {stats.top_users.pagination?.by_messages && (
+                            <CardPagination
+                              label="top users by messages"
+                              disabled={topMessagesLoading}
+                              page={stats.top_users.pagination.by_messages.page}
+                              pageSize={stats.top_users.pagination.by_messages.limit}
+                              total={stats.top_users.pagination.by_messages.total}
+                              className="border-t border-border pt-3"
+                              onPageChange={(page) => void loadTopUsersPage('messages', page)}
+                            />
+                          )}
                         </CardContent>
-                      </Card>
+                        </Card> : undefined}
+                      </AsyncStatsCard>
                     </div>
 
                     {/* Top Agents and Feedback */}
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                      <Card>
+                      <AsyncStatsCard
+                        error={statsSectionStatuses.top_agents.error}
+                        loading={statsSectionStatuses.top_agents.loading}
+                        minHeightClassName="min-h-72"
+                        testId="stats-card-top-agents"
+                      >
+                        {stats.top_agents ? <Card>
                         <CardHeader>
                           <CardTitle className="flex items-center gap-2">
                             <Bot className="h-5 w-5" />
@@ -2571,9 +2813,16 @@ function AdminPage() {
                             })}
                           </div>
                         </CardContent>
-                      </Card>
+                        </Card> : undefined}
+                      </AsyncStatsCard>
 
-                      <Card>
+                      <AsyncStatsCard
+                        error={statsSectionStatuses.feedback.error}
+                        loading={statsSectionStatuses.feedback.loading}
+                        minHeightClassName="min-h-72"
+                        testId="stats-card-feedback-summary"
+                      >
+                        {stats.feedback_summary ? <Card>
                         <CardHeader>
                           <CardTitle className="flex items-center gap-2">
                             <ThumbsUp className="h-5 w-5" />
@@ -2664,7 +2913,8 @@ function AdminPage() {
                           )}
 
                         </CardContent>
-                      </Card>
+                        </Card> : undefined}
+                      </AsyncStatsCard>
                     </div>
 
                     {/* Feedback Trend + Response Time — 50/50 split. Response Time
@@ -2672,29 +2922,47 @@ function AdminPage() {
                         it. It sits here rather than in the Web section so it
                         renders for Slack-only stacks too. */}
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                      {stats.feedback_summary?.daily && stats.feedback_summary.daily.length > 0 && (
-                        <Card>
+                      {(statsSectionStatuses.feedback.loading
+                        || statsSectionStatuses.feedback.error
+                        || (stats.feedback_summary?.daily?.length ?? 0) > 0) && (
+                        <AsyncStatsCard
+                          error={statsSectionStatuses.feedback.error}
+                          loading={statsSectionStatuses.feedback.loading}
+                          minHeightClassName="min-h-72"
+                          testId="stats-card-feedback-trend"
+                        >
+                          {stats.feedback_summary?.daily && stats.feedback_summary.daily.length > 0 ? <Card>
                           <CardHeader>
                             <CardTitle>Feedback Trend ({rangeLabel})</CardTitle>
                             <CardDescription>Daily positive vs negative feedback</CardDescription>
                           </CardHeader>
                           <CardContent>
-                            <SimpleLineChart
+                            <FeedbackTrendChart
                               data={stats.feedback_summary.daily.map((day) => ({
+                                date: day.date,
                                 label: formatBucketLabel(day.date),
-                                value: day.positive + day.negative,
+                                positive: day.positive,
+                                negative: day.negative,
                               }))}
                               height={180}
-                              color="rgb(34, 197, 94)"
+                              onPointClick={tabGateValues.feedback
+                                ? openFeedbackForTrendPoint
+                                : undefined}
                             />
                           </CardContent>
-                        </Card>
+                          </Card> : undefined}
+                        </AsyncStatsCard>
                       )}
 
                       {/* Always shown so filtering to an agent with no latency
                           samples renders an empty chart, not a missing card. */}
-                      {stats.response_time && (
-                        <Card>
+                      <AsyncStatsCard
+                        error={statsSectionStatuses.response_time.error}
+                        loading={statsSectionStatuses.response_time.loading}
+                        minHeightClassName="min-h-72"
+                        testId="stats-card-response-time"
+                      >
+                        {stats.response_time ? <Card>
                           <CardHeader>
                             <CardTitle className="flex items-center gap-2">
                               <Zap className="h-5 w-5" />
@@ -2727,13 +2995,18 @@ function AdminPage() {
                               );
                             })()}
                           </CardContent>
-                        </Card>
-                      )}
+                        </Card> : undefined}
+                      </AsyncStatsCard>
                     </div>
 
                     {/* Hourly Activity Heatmap */}
-                    {stats.hourly_heatmap && (
-                      <Card>
+                    <AsyncStatsCard
+                      error={statsSectionStatuses.hourly_heatmap.error}
+                      loading={statsSectionStatuses.hourly_heatmap.loading}
+                      minHeightClassName="min-h-72"
+                      testId="stats-card-hourly-activity"
+                    >
+                      {stats.hourly_heatmap ? <Card>
                         <CardHeader>
                           <CardTitle className="flex items-center gap-2">
                             <Clock className="h-5 w-5" />
@@ -2805,11 +3078,13 @@ function AdminPage() {
                             <span>11pm</span>
                           </div>
                         </CardContent>
-                      </Card>
-                    )}
+                      </Card> : undefined}
+                    </AsyncStatsCard>
 
                     {/* ─── Web Section ─── */}
-                    {stats.completed_workflows && (
+                    {(stats.completed_workflows
+                      || statsSectionStatuses.completed_workflows.loading
+                      || statsSectionStatuses.completed_workflows.error) && (
                       <>
                         <div className="flex items-center gap-2 pt-2">
                           <Globe className="h-5 w-5 text-muted-foreground" />
@@ -2819,8 +3094,13 @@ function AdminPage() {
 
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                           {/* Completed Workflows */}
-                          {stats.completed_workflows && (
-                            <Card>
+                          <AsyncStatsCard
+                            error={statsSectionStatuses.completed_workflows.error}
+                            loading={statsSectionStatuses.completed_workflows.loading}
+                            minHeightClassName="min-h-64"
+                            testId="stats-card-completed-workflows"
+                          >
+                            {stats.completed_workflows ? <Card>
                               <CardHeader>
                                 <CardTitle className="flex items-center gap-2">
                                   <CheckCircle2 className="h-5 w-5" />
@@ -2858,18 +3138,20 @@ function AdminPage() {
                                   </div>
                                 )}
                               </CardContent>
-                            </Card>
-                          )}
+                            </Card> : undefined}
+                          </AsyncStatsCard>
                         </div>
                       </>
                     )}
 
                     {/* ─── Slack Section ─── */}
-                    {stats.slack && (
-                      <SlackStatsSection slack={stats.slack} rangeLabel={rangeLabel} />
-                    )}
+                    <SlackStatsSection
+                      error={statsSectionStatuses.slack.error}
+                      loading={statsSectionStatuses.slack.loading}
+                      rangeLabel={rangeLabel}
+                      slack={stats.slack}
+                    />
                   </div>
-                )}
 
                 {/* ─── Skills Section ─── */}
                 {skillStats && (
@@ -2877,7 +3159,7 @@ function AdminPage() {
                     <div>
                       <h3 className="text-lg font-semibold">Skills</h3>
                       <p className="text-sm text-muted-foreground">
-                        Skill creation and usage across the platform
+                        Date and user filters apply to creation and runs; source applies to runs. Legacy skill runs have no agent or channel attribution.
                       </p>
                     </div>
 
@@ -2885,19 +3167,19 @@ function AdminPage() {
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                       <Card>
                         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                          <CardTitle className="text-sm font-medium">Total Skills</CardTitle>
+                          <CardTitle className="text-sm font-medium">Skills Created</CardTitle>
                           <Layers className="h-4 w-4 text-muted-foreground" />
                         </CardHeader>
                         <CardContent>
                           <div className="text-2xl font-bold">{skillStats.total_skills}</div>
                           <p className="text-xs text-muted-foreground mt-1">
-                            {skillStats.system_skills} system, {skillStats.user_skills} user-created
+                            {rangeLabel} · {skillStats.system_skills} system, {skillStats.user_skills} user-created
                           </p>
                         </CardContent>
                       </Card>
                       <Card>
                         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                          <CardTitle className="text-sm font-medium">User Skills</CardTitle>
+                          <CardTitle className="text-sm font-medium">User Skills Created</CardTitle>
                           <Users className="h-4 w-4 text-muted-foreground" />
                         </CardHeader>
                         <CardContent>
@@ -2963,7 +3245,7 @@ function AdminPage() {
                     {skillStats.daily_created.length > 0 && (
                       <Card>
                         <CardHeader>
-                          <CardTitle>Skills Created (Last 30 Days)</CardTitle>
+                          <CardTitle>Skills Created ({rangeLabel})</CardTitle>
                           <CardDescription>New user-created skills per day</CardDescription>
                         </CardHeader>
                         <CardContent>
@@ -3006,13 +3288,6 @@ function AdminPage() {
               <TabsContent value="health" className="space-y-4">
                 <HealthTab />
               </TabsContent>
-
-              {/* CAS Insights — authorization service health + decision stats */}
-              {tabGateValues.metrics && (
-                <TabsContent value="cas-insights" className="space-y-4">
-                  <CasInsightsTab isAdmin={canMutateAdminData} />
-                </TabsContent>
-              )}
 
               {tabGateValues.audit_logs && (
                 <TabsContent value="audit-logs" className="space-y-4">

@@ -1,3 +1,4 @@
+# assisted-by claude code claude-sonnet-4-6
 name: "[CI] CAIPE RAG Build and Push"
 description: "Build and push CAIPE RAG Docker image"
 
@@ -54,6 +55,7 @@ jobs:
       tag_version: ${{ steps.version.outputs.tag_version }}
       image_prefix: ${{ steps.set-matrix.outputs.image_prefix }}
       build_matrix: ${{ steps.set-matrix.outputs.build_matrix }}
+      build_groups: ${{ steps.set-matrix.outputs.build_groups }}
       retag_matrix: ${{ steps.set-matrix.outputs.retag_matrix }}
     steps:
       - name: 🔑 Generate GitHub App token
@@ -125,8 +127,24 @@ jobs:
               'server': ['default', 'huggingface'],
               'ingestors': ['default', 'slim'],
             };
+            // Native GitHub-hosted runners per target platform. Building arm64
+            // natively (instead of emulating it under QEMU on an amd64 runner)
+            // avoids the slowdowns/OOMs that QEMU causes for Chromium-heavy
+            // images (e.g. ingestors/default) once the Wolfi chromium package
+            // grows past what emulation can push through in a runner's
+            // memory/time budget.
+            const platforms = [
+              { platform: 'linux/amd64', runner: 'ubuntu-latest', arch: 'amd64' },
+              { platform: 'linux/arm64', runner: 'ubuntu-24.04-arm', arch: 'arm64' },
+            ];
             const expand = (comps) =>
               comps.flatMap(c => (variantMap[c] || ['default']).map(v => ({ component: c, variant: v })));
+            // Same as expand(), but split further per platform — one native
+            // runner build per (component, variant, platform). The resulting
+            // per-arch images are pushed by digest only; merge-manifests later
+            // combines them into the final tagged multi-arch manifest list.
+            const expandPlatforms = (comps) =>
+              expand(comps).flatMap(cv => platforms.map(p => ({ ...cv, ...p })));
 
             const tag = process.env.TAG_VERSION || '';
             const event = process.env.EVENT_NAME || '';
@@ -174,14 +192,22 @@ jobs:
               }
             }
 
-            core.setOutput('build_matrix', JSON.stringify({ include: expand(buildComponents) }));
+            core.setOutput('build_matrix', JSON.stringify({ include: expandPlatforms(buildComponents) }));
+            core.setOutput('build_groups', JSON.stringify({ include: expand(buildComponents) }));
             core.setOutput('retag_matrix', JSON.stringify({ include: expand(retagComponents) }));
             core.setOutput('should_build', String(buildComponents.length > 0));
             core.setOutput('should_retag', String(retagComponents.length > 0));
             core.setOutput('image_prefix', imagePrefix);
 
+  # Build each component/variant natively per-platform (no QEMU emulation) and
+  # push by digest only. merge-manifests (below) then stitches the per-arch
+  # digests into the final tagged multi-arch manifest list. Splitting per
+  # platform lets arm64 run on a native ubuntu-24.04-arm runner instead of
+  # amd64-under-QEMU, which was slow enough to time out or OOM/hang the runner
+  # for Chromium-heavy images (ingestors/default) once Wolfi's chromium
+  # package grew (see incident: runs 29759351020, 29844566189).
   build-and-push:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     needs: [determine-changes, load-config]
     if: needs.determine-changes.outputs.should_build == 'true'
     permissions:
@@ -268,8 +294,6 @@ jobs:
             type=ref,event=tag,prefix=
             type=sha,format=short,prefix=
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4
       - name: Clean up before build
         run: |
           echo "Cleaning up Docker system before build..."
@@ -277,22 +301,112 @@ jobs:
           echo "Current disk usage:"
           df -h
 
-      - name: Build and Push Docker image
+      # Native single-platform build (matrix.platform), no QEMU involved.
+      # Pushed by digest only — merge-manifests combines the per-arch
+      # digests into the final tagged multi-arch manifest list.
+      - name: Build and push by digest
+        id: build
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
         with:
           context: ai_platform_engineering/knowledge_bases/rag
           file: ${{ env.DOCKERFILE }}
-          push: ${{ github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/') }}
-          tags: ${{ steps.meta.outputs.tags }}
+          platforms: ${{ matrix.platform }}
           labels: ${{ steps.meta.outputs.labels }}
-          platforms: linux/amd64,linux/arm64
-          cache-from: type=gha
-          cache-to: ${{ matrix.component != 'server' && 'type=gha,mode=min' || '' }}
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=${{ github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/') }}
+          cache-from: type=gha,scope=${{ matrix.component }}-${{ matrix.variant }}-${{ matrix.arch }}
+          cache-to: ${{ matrix.component != 'server' && format('type=gha,mode=min,scope={0}-{1}-{2}', matrix.component, matrix.variant, matrix.arch) || '' }}
           build-args: |
             VARIANT=${{ matrix.variant }}
             BUILDKIT_INLINE_CACHE=1
           provenance: false
           sbom: false
+
+      - name: Export digest
+        if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: digests-${{ matrix.component }}-${{ matrix.variant }}--${{ matrix.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # Combine the per-arch digests pushed by build-and-push into a single
+  # tagged multi-arch manifest list, one job per (component, variant) —
+  # unlike build-and-push, this is not split per-platform since it only
+  # manipulates registry metadata (no image content is built here).
+  merge-manifests:
+    name: Merge manifest
+    runs-on: ubuntu-latest
+    needs: [determine-changes, build-and-push]
+    if: |
+      needs.determine-changes.outputs.should_build == 'true' &&
+      (github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/'))
+    permissions:
+      contents: read
+      packages: write
+
+    strategy:
+      matrix: ${{ fromJson(needs.determine-changes.outputs.build_groups) }}
+      fail-fast: false
+
+    env:
+      REGISTRY: ghcr.io
+      IMAGE_NAME: ${{ github.repository_owner }}/${{ needs.determine-changes.outputs.image_prefix }}caipe-rag-${{ matrix.component }}
+
+    steps:
+      - name: 🔒 harden runner
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920  # v2.20.0
+        with:
+          egress-policy: audit
+
+      - name: Download digests
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: digests-${{ matrix.component }}-${{ matrix.variant }}--*
+          path: /tmp/digests
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          # For non-default variants, append variant name as suffix to all tags
+          flavor: |
+            suffix=${{ matrix.variant != 'default' && format('-{0}', matrix.variant) || '' }}
+          tags: |
+            type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' || (startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-rc.') && !contains(github.ref_name, '-hotfix.') && !contains(github.ref_name, '-chart.')) }}
+            type=raw,value=${{ needs.determine-changes.outputs.tag_version }},enable=${{ needs.determine-changes.outputs.tag_version != '' }}
+            type=ref,event=tag,prefix=
+            type=sha,format=short,prefix=
+
+      - name: Create manifest list and push
+        working-directory: /tmp/digests
+        run: |
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf '${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@sha256:%s ' *)
+
+      - name: Inspect image
+        run: |
+          docker buildx imagetools inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}
 
   # Retag unchanged rag components from previous version when tag_version is provided
   # If source image doesn't exist (still building), falls back to full build
@@ -463,6 +577,12 @@ jobs:
           echo "Current disk usage:"
           df -h
 
+      # Known gap: this fallback still cross-builds arm64 under QEMU rather
+      # than using a native runner (unlike build-and-push above). It only
+      # runs when the source image for retagging is missing — rare in
+      # practice — so it hasn't been split per-platform. If this path starts
+      # timing out/OOMing the same way build-and-push did, apply the same
+      # native-runner + digest-merge treatment here.
       - name: 🔨 Build and Push (fallback)
         if: steps.retag-or-build.outputs.needs_build == 'true'
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
@@ -486,7 +606,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write  # Required for repository_dispatch via gh api
-    needs: [determine-changes, build-and-push, retag-unchanged]
+    needs: [determine-changes, build-and-push, merge-manifests, retag-unchanged]
     if: |
       always() &&
       needs.determine-changes.outputs.tag_version != '' &&
@@ -510,13 +630,15 @@ jobs:
         run: |
           # Determine overall conclusion
           BUILD_RESULT="${{ needs.build-and-push.result }}"
+          MERGE_RESULT="${{ needs.merge-manifests.result }}"
           RETAG_RESULT="${{ needs.retag-unchanged.result }}"
 
           # Consider skipped as success (job conditions not met)
           if [[ "$BUILD_RESULT" == "skipped" ]]; then BUILD_RESULT="success"; fi
+          if [[ "$MERGE_RESULT" == "skipped" ]]; then MERGE_RESULT="success"; fi
           if [[ "$RETAG_RESULT" == "skipped" ]]; then RETAG_RESULT="success"; fi
 
-          if [[ "$BUILD_RESULT" == "success" && "$RETAG_RESULT" == "success" ]]; then
+          if [[ "$BUILD_RESULT" == "success" && "$MERGE_RESULT" == "success" && "$RETAG_RESULT" == "success" ]]; then
             CONCLUSION="success"
           else
             CONCLUSION="failure"

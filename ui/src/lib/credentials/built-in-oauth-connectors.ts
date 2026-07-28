@@ -1,12 +1,21 @@
 export interface BuiltInOAuthConnectorDescriptor {
-  provider: "github" | "atlassian" | "webex" | "pagerduty" | "gitlab";
+  provider: "amplitude" | "atlassian" | "figma" | "github" | "gitlab" | "linear" | "notion" | "pagerduty" | "webex";
   name: string;
   authorizationUrl: string;
   tokenUrl: string;
   scopes: string[];
+  pkce?: boolean;
 }
 
 export const BUILT_IN_OAUTH_CONNECTORS: BuiltInOAuthConnectorDescriptor[] = [
+  {
+    provider: "amplitude",
+    name: "Amplitude",
+    authorizationUrl: "https://app.amplitude.com/oauth2/authorize",
+    tokenUrl: "https://app.amplitude.com/oauth2/token",
+    scopes: ["read:user", "read:chart", "read:dashboard"],
+    pkce: true,
+  },
   {
     provider: "github",
     name: "GitHub",
@@ -72,5 +81,26 @@ export const BUILT_IN_OAUTH_CONNECTORS: BuiltInOAuthConnectorDescriptor[] = [
     authorizationUrl: "https://gitlab.com/oauth/authorize",
     tokenUrl: "https://gitlab.com/oauth/token",
     scopes: ["api", "read_user"],
+  },
+  {
+    provider: "figma",
+    name: "Figma",
+    authorizationUrl: "https://www.figma.com/oauth",
+    tokenUrl: "https://www.figma.com/api/oauth/token",
+    scopes: ["file_content"],
+  },
+  {
+    provider: "linear",
+    name: "Linear",
+    authorizationUrl: "https://linear.app/oauth/authorize",
+    tokenUrl: "https://api.linear.app/oauth/token",
+    scopes: ["read"],
+  },
+  {
+    provider: "notion",
+    name: "Notion",
+    authorizationUrl: "https://api.notion.com/v1/oauth/authorize",
+    tokenUrl: "https://api.notion.com/v1/oauth/token",
+    scopes: [],
   },
 ];

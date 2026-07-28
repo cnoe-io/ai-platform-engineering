@@ -22,6 +22,7 @@ import {
   buildConfigDrivenLlmModelRelationshipTupleDiff,
   buildConfigDrivenMcpServerRelationshipTupleDiff,
   buildDataSourceRelationshipTupleDiff,
+  buildIngestionSourceRelationshipTupleDiff,
   buildKnowledgeBaseRelationshipTupleDiff,
   buildLlmModelRelationshipTupleDiff,
   buildMcpServerRelationshipTupleDiff,
@@ -30,6 +31,7 @@ import {
   type ConfigDrivenLlmModelRelationshipInput,
   type ConfigDrivenMcpServerRelationshipInput,
   type DataSourceRelationshipInput,
+  type IngestionSourceRelationshipInput,
   type KnowledgeBaseRelationshipInput,
   type LlmModelRelationshipInput,
   type McpServerRelationshipInput,
@@ -233,6 +235,12 @@ export async function reconcileMcpToolRelationships(
   input: McpToolRelationshipInput,
 ): Promise<OpenFgaReconcileResult> {
   return reconcileOwnedResource(buildMcpToolRelationshipTupleDiff(input));
+}
+
+export async function reconcileIngestionSourceRelationships(
+  input: IngestionSourceRelationshipInput,
+): Promise<OpenFgaReconcileResult> {
+  return reconcileOwnedResource(buildIngestionSourceRelationshipTupleDiff(input));
 }
 
 /**

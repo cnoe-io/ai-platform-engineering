@@ -316,6 +316,19 @@ class WebexWdmRuntime:
                 type(exc).__name__,
                 retry_delay,
             )
+            # The server closed the socket post-handshake (ConnectionClosedOK for a
+            # graceful 1000/1001 close, ConnectionClosedError for anything else) — the
+            # cached webSocketUrl may have expired either way.  Force a fresh device
+            # registration so the next connect gets a valid URL instead of looping on
+            # a stale one.
+            from websockets.exceptions import ConnectionClosed  # noqa: PLC0415
+
+            if (
+                isinstance(exc, ConnectionClosed)
+                and self._handshake_refresh_attempts < MAX_WDM_HANDSHAKE_REFRESH_ATTEMPTS
+            ):
+                self._handshake_refresh_attempts += 1
+                await self._refresh_wdm_device(session)
 
         await asyncio.sleep(retry_delay)
         return min(retry_delay * 2, 60)

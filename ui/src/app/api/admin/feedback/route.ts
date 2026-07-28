@@ -15,6 +15,7 @@ import {
 resolveAuthorizedAdminSimulationScope,
 simulationSubjectCanManageAdminSurface,
 } from '@/lib/rbac/admin-simulation-server';
+import { resolveInsightsUserFilter } from '@/lib/rbac/insights-user-filter';
 import { getOwnedAgentConversationIds, getOwnedAgents, getReadableSlackChannelNames } from '@/lib/rbac/user-insights-scope';
 import type { Conversation } from '@/types/mongodb';
 import type { Document,ObjectId } from 'mongodb';
@@ -100,6 +101,11 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     const source = searchParams.get('source'); // 'web' | 'slack' | null (all)
     const channel = searchParams.get('channel'); // comma-separated channel names | null (all)
     const userFilter = searchParams.get('user'); // comma-separated user emails | null (all)
+    const teamFilter = searchParams.get('team'); // comma-separated team slugs | null (all)
+    const { active: hasUserFilter, emails: userEmails } = await resolveInsightsUserFilter(
+      userFilter,
+      teamFilter,
+    );
     const search = searchParams.get('search'); // comma-separated search terms OR'd as regex on comment/value
     const from = searchParams.get('from'); // ISO date string for start of range
     const to = searchParams.get('to'); // ISO date string for end of range
@@ -126,13 +132,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         }
       }
     }
-    if (userFilter) {
-      const users = userFilter.split(',').map((u) => u.trim()).filter(Boolean);
-      if (users.length === 1) {
-        filter.user_email = users[0];
-      } else if (users.length > 1) {
-        filter.user_email = { $in: users };
-      }
+    if (hasUserFilter) {
+      filter.user_email = userEmails.length === 1 ? userEmails[0] : { $in: userEmails };
     }
     if (search) {
       const terms = search.split(',').map((t) => t.trim()).filter(Boolean);

@@ -63,7 +63,7 @@ describe("cleanupStaleConfigDriven — config_import_adopted guard", () => {
   });
 
   it("excludes adopted agents from the stale-cleanup query", async () => {
-    await cleanupStaleConfigDriven(new Set(), new Set(), new Set(), new Set());
+    await cleanupStaleConfigDriven(new Set(), new Set(), new Set(), new Set(), new Set());
 
     expect(mockCollection.find).toHaveBeenCalledWith({
       config_driven: true,
@@ -76,7 +76,7 @@ describe("cleanupStaleConfigDriven — config_import_adopted guard", () => {
       toArray: jest.fn(async () => [{ _id: "stale-agent" }]),
     });
 
-    await cleanupStaleConfigDriven(new Set(), new Set(), new Set(), new Set());
+    await cleanupStaleConfigDriven(new Set(), new Set(), new Set(), new Set(), new Set());
 
     expect(mockCollection.deleteOne).toHaveBeenCalledWith({ _id: "stale-agent" });
   });
