@@ -158,6 +158,8 @@ export interface Config {
   scheduleEditorAgentId: string | null;
   /** Whether the scheduled-agent workflow is enabled */
   schedulerEnabled: boolean;
+  /** Whether the Schedules navigation tab is limited to administrators */
+  schedulerAdminOnly: boolean;
   /** Whether Jira ticket creation from feedback/report is enabled */
   jiraTicketEnabled: boolean;
   /** Jira project key for ticket creation (e.g., "OPENSD") */
@@ -266,6 +268,7 @@ const DEFAULT_CONFIG: Config = {
   autonomousAgentsEnabled: false,
   scheduleEditorAgentId: null,
   schedulerEnabled: false,
+  schedulerAdminOnly: false,
   agentProtocol: 'agui',
   reportProblemEnabled: true,
   jiraTicketEnabled: false,
@@ -461,6 +464,7 @@ export function getServerConfig(): Config {
     autonomousAgentsEnabled,
     scheduleEditorAgentId: env('SCHEDULE_EDITOR_AGENT_ID') || null,
     schedulerEnabled: env('SCHEDULER_ENABLED') === 'true',
+    schedulerAdminOnly: env('SCHEDULER_ADMIN_ONLY') === 'true',
     agentProtocol,
     reportProblemEnabled,
     jiraTicketEnabled,

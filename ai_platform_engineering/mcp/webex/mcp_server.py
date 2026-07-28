@@ -1,6 +1,8 @@
 # Copyright 2025 CNOE
 # SPDX-License-Identifier: Apache-2.0
 
+# assisted-by claude code claude-sonnet-4-6
+
 import functools
 import logging
 from enum import Enum
@@ -13,6 +15,18 @@ from pydantic import BaseModel, Field, model_validator
 from mcp_agent_auth.token import get_request_token
 
 WEBEX_API_BASE = "https://webexapis.com/v1"
+
+
+def get_provider_header_token() -> Optional[str]:
+    """Read a per-user Webex OAuth token forwarded by agentgateway on X-CAIPE-Provider-Token."""
+    try:
+        from fastmcp.server.dependencies import get_http_request
+
+        req = get_http_request()
+        token = req.headers.get("x-caipe-provider-token", "").strip()
+        return token or None
+    except RuntimeError:
+        return None
 
 
 class PostMessage(BaseModel):
@@ -165,8 +179,8 @@ def register_tools(server, auth_token: Optional[str] = None) -> None:
     http_client = httpx.AsyncClient(base_url=WEBEX_API_BASE)
 
     def _get_token() -> str:
-        """Resolve bearer token: per-request header takes priority over startup env token."""
-        return get_request_token("WEBEX_TOKEN") or auth_token or ""
+        """Resolve bearer token: provider header (per-user OAuth) → MCP auth token → startup env token."""
+        return get_provider_header_token() or get_request_token("WEBEX_TOKEN") or auth_token or ""
 
     def handle_mcp_errors(func):
         @functools.wraps(func)

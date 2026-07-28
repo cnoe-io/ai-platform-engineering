@@ -161,6 +161,7 @@ describe('getServerConfig', () => {
         'oidcRequiredGroup',
         'oktaSyncEnabled',
         'scheduleEditorAgentId',
+        'schedulerAdminOnly',
         'schedulerEnabled',
       ];
       expect(Object.keys(cfg).sort()).toEqual(expectedKeys.sort());
@@ -901,6 +902,7 @@ describe('getClientConfigScript (XSS safety)', () => {
       'oidcRequiredGroup',
       'oktaSyncEnabled',
       'scheduleEditorAgentId',
+      'schedulerAdminOnly',
       'schedulerEnabled',
     ];
     expect(Object.keys(parsed).sort()).toEqual(expectedKeys.sort());

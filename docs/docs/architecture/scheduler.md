@@ -253,6 +253,52 @@ Helm replaces lists rather than merging list entries. If `mcp_servers` or
 `agents` already exists in another values file, add the scheduler entries to
 that existing list instead of defining a second list in a later values file.
 
+## Configure the scheduler editor agent
+
+The Schedules page includes a **Chat with agent** action for modifying an
+existing schedule through an agent. An organization admin can change the
+platform-wide editor agent in **Admin → General → Scheduler editor agent**:
+
+1. Select an agent from **Agent for schedule editing**.
+2. Save the setting.
+
+The UI sends `schedule_editor_agent_id` to
+`PATCH /api/admin/platform-config`. The BFF requires platform-admin and
+`system_config:platform_settings` management access, then stores the value in
+MongoDB:
+
+```text
+collection: platform_config
+document:   _id = platform_settings
+field:      schedule_editor_agent_id
+```
+
+The editor-agent precedence for **Chat with agent** is:
+
+1. The schedule's own `edit_agent_id`, when present.
+2. MongoDB `platform_config.schedule_editor_agent_id`.
+3. The deployment value `SCHEDULE_EDITOR_AGENT_ID`.
+4. Normal chat-agent selection: the user's accessible personal default, the
+   accessible platform default, then the first available agent.
+
+A schedule-specific `edit_agent_id` therefore overrides both the admin setting
+and the deployment value. The MongoDB admin setting overrides the deployment
+value. Clearing the admin setting restores `SCHEDULE_EDITOR_AGENT_ID`; if that
+is also unset, normal chat-agent selection applies.
+
+The Admin UI displays when the effective value comes from
+`SCHEDULE_EDITOR_AGENT_ID` and explains that saving a different agent creates a
+MongoDB override. The platform-config cache is cleared after a successful
+update, so the next **Chat with agent** action uses the new value without a pod
+restart.
+
+This setting selects an existing agent but does not grant access to it. Users
+must already be able to use the selected agent. This differs from the
+**Platform default agent** setting: both settings use the same
+`platform_config` document and override their deployment fallbacks, but setting
+the platform default also reconciles the corresponding global OpenFGA agent
+grant.
+
 ## Restrict scheduler tools to organization admins
 
 Enable OpenFGA, the AgentGateway authorization bridge, JWT validation, and the
@@ -286,6 +332,51 @@ openfga-authz-bridge:
   restrictedMcpServers:
     - scheduler # <- This enables the admin-only check for /mcp/scheduler requests.
 ```
+
+The Schedules tab visibility is directly controlled by
+`SCHEDULER_ADMIN_ONLY`. The UI loads it as `config.schedulerAdminOnly` and
+renders the tab with this condition:
+
+```text
+!config.schedulerAdminOnly || isAdmin
+```
+
+Therefore:
+
+- `SCHEDULER_ADMIN_ONLY: "true"` hides the tab from organization members and
+  shows it to organization admins.
+- `SCHEDULER_ADMIN_ONLY: "false"` shows the tab to both members and admins.
+
+The umbrella chart keeps this UI flag aligned with the AgentGateway policy. Its
+`caipe-ui-integration-flags` ConfigMap renders:
+
+```yaml
+SCHEDULER_ADMIN_ONLY: "true"
+```
+
+when `scheduler` is present in
+`openfga-authz-bridge.restrictedMcpServers`; otherwise it renders the flag as
+`"false"`. The CAIPE UI reads the flag at process startup. The Schedules tab
+also requires both Dynamic Agents and the scheduler to be enabled.
+
+When the flag is `"true"`, the UI determines organization-admin access from
+OpenFGA `can_manage organization:<org>`, not from a legacy MongoDB role or the
+deprecated OIDC bootstrap-admin configuration.
+
+| `SCHEDULER_ADMIN_ONLY` | Organization member | Organization admin |
+|---|---:|---:|
+| `"true"` | Tab hidden | Tab visible |
+| `"false"` | Tab visible | Tab visible |
+
+Deploying only a new CAIPE UI image is not sufficient for this behavior. The
+deployed umbrella chart must include the
+`caipe-ui-integration-flags-configmap.yaml` template that derives
+`SCHEDULER_ADMIN_ONLY`, and the CAIPE UI pods must be rolled out so the new
+ConfigMap value enters their environment.
+
+Tab visibility is a user-experience control, not the authorization boundary.
+The OpenFGA bridge check below remains responsible for denying direct
+scheduler MCP requests from callers without access.
 
 For every request under `/mcp/scheduler`, the bridge checks:
 

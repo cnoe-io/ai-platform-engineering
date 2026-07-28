@@ -14,6 +14,7 @@ const POSITIVE_COLOR = "rgb(34, 197, 94)";
 const NEGATIVE_COLOR = "rgb(239, 68, 68)";
 
 export interface FeedbackTrendPoint {
+  date: string;
   label: string;
   positive: number;
   negative: number;
@@ -22,10 +23,12 @@ export interface FeedbackTrendPoint {
 interface FeedbackTrendChartProps {
   data: FeedbackTrendPoint[];
   height?: number;
+  onPointClick?: (point: FeedbackTrendPoint) => void;
 }
 
 interface FeedbackTrendTooltipProps {
   active?: boolean;
+  interactive?: boolean;
   label?: string;
   point?: FeedbackTrendPoint;
 }
@@ -69,6 +72,7 @@ function netColorClass(net: number): string {
 
 export function FeedbackTrendTooltip({
   active,
+  interactive,
   label,
   point,
 }: FeedbackTrendTooltipProps) {
@@ -128,11 +132,20 @@ export function FeedbackTrendTooltip({
           </span>
         </div>
       </div>
+      {interactive && (
+        <p className="mt-2 border-t border-border pt-2 text-muted-foreground">
+          Click to view feedback for this date
+        </p>
+      )}
     </div>
   );
 }
 
-export function FeedbackTrendChart({ data, height = 180 }: FeedbackTrendChartProps) {
+export function FeedbackTrendChart({
+  data,
+  height = 180,
+  onPointClick,
+}: FeedbackTrendChartProps) {
   if (data.length === 0) {
     return (
       <div className="flex h-48 items-center justify-center text-muted-foreground">
@@ -192,12 +205,21 @@ export function FeedbackTrendChart({ data, height = 180 }: FeedbackTrendChartPro
         </span>
       </div>
 
-      <div style={{ height }}>
+      <div
+        className={onPointClick ? "cursor-pointer" : undefined}
+        style={{ height }}
+        title={onPointClick ? "Click a point to view feedback for that date" : undefined}
+      >
         <ResponsiveContainer height="100%" minWidth={0} width="100%">
           <LineChart
             accessibilityLayer
             data={data}
             margin={{ top: 8, right: 12, bottom: 0, left: -8 }}
+            onClick={onPointClick ? ({ activeTooltipIndex }) => {
+              if (activeTooltipIndex === undefined) return;
+              const point = data[Number(activeTooltipIndex)];
+              if (point) onPointClick(point);
+            } : undefined}
           >
             <CartesianGrid
               stroke="hsl(var(--border))"
@@ -224,6 +246,7 @@ export function FeedbackTrendChart({ data, height = 180 }: FeedbackTrendChartPro
               content={({ active, label, payload }) => (
                 <FeedbackTrendTooltip
                   active={active}
+                  interactive={Boolean(onPointClick)}
                   label={typeof label === "string" ? label : undefined}
                   point={payload?.[0]?.payload as FeedbackTrendPoint | undefined}
                 />

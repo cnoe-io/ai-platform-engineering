@@ -13,7 +13,7 @@
 // assisted-by Codex Codex-sonnet-4-6
 
 import React from 'react';
-import { render, screen, waitFor, within, fireEvent } from '@testing-library/react';
+import { act, render, screen, waitFor, within, fireEvent } from '@testing-library/react';
 
 // assisted-by Codex Codex-sonnet-4-6
 
@@ -22,6 +22,7 @@ import { render, screen, waitFor, within, fireEvent } from '@testing-library/rea
 // ============================================================================
 
 let mockIsAdmin = false;
+const pushMock = jest.fn();
 const replaceMock = jest.fn();
 let currentSearchParams = new URLSearchParams();
 jest.mock('@/hooks/use-admin-role', () => ({
@@ -35,7 +36,7 @@ jest.mock('next-auth/react', () => ({
 
 jest.mock('next/navigation', () => ({
   useSearchParams: () => currentSearchParams,
-  useRouter: () => ({ push: jest.fn(), replace: replaceMock, back: jest.fn(), refresh: jest.fn() }),
+  useRouter: () => ({ push: pushMock, replace: replaceMock, back: jest.fn(), refresh: jest.fn() }),
   usePathname: () => '/admin',
 }));
 
@@ -72,9 +73,28 @@ jest.mock('@/components/admin/shared/SimpleLineChart', () => ({
 jest.mock('@/components/admin/shared/FeedbackTrendChart', () => ({
   FeedbackTrendChart: ({
     data,
+    onPointClick,
   }: {
-    data: Array<{ label: string; positive: number; negative: number }>;
-  }) => <div data-testid="feedback-trend-chart">{JSON.stringify(data)}</div>,
+    data: Array<{ date: string; label: string; positive: number; negative: number }>;
+    onPointClick?: (point: {
+      date: string;
+      label: string;
+      positive: number;
+      negative: number;
+    }) => void;
+  }) => (
+    <div data-testid="feedback-trend-chart">
+      {JSON.stringify(data)}
+      {data.map((point) => (
+        <button
+          aria-label={`View feedback for ${point.label}`}
+          key={point.date}
+          onClick={() => onPointClick?.(point)}
+          type="button"
+        />
+      ))}
+    </div>
+  ),
 }));
 
 jest.mock('@/components/admin/platform/MetricsTab', () => ({
@@ -1281,9 +1301,10 @@ describe('Admin Dashboard Page', () => {
         'true'
       );
       expect(screen.queryByRole('tab', { name: /^Insights$/i })).not.toBeInTheDocument();
-      expect(replaceMock).toHaveBeenCalledWith('/admin?cat=insights&tab=stats', {
-        scroll: false,
-      });
+      expect(replaceMock).toHaveBeenCalledWith(
+        '/admin?cat=insights&tab=stats&dateRange=30d',
+        { scroll: false },
+      );
     });
 
     it('opens the requested Access Explorer sub-tab from the query string', async () => {
@@ -1604,6 +1625,20 @@ describe('Admin Dashboard Page', () => {
   });
 
   describe('Insights filter deep links', () => {
+    it('makes the default Statistics range explicit in the URL', async () => {
+      currentSearchParams = new URLSearchParams('cat=insights&tab=stats');
+      setupFetchMock();
+
+      render(<AdminPage />);
+
+      await waitFor(() => {
+        expect(replaceMock).toHaveBeenCalledWith(
+          '/admin?cat=insights&tab=stats&dateRange=30d',
+          { scroll: false },
+        );
+      });
+    });
+
     it('applies Statistics URL filters to the first card requests', async () => {
       currentSearchParams = new URLSearchParams({
         cat: 'insights',
@@ -1726,6 +1761,24 @@ describe('Admin Dashboard Page', () => {
       expect(screen.queryByText('NaN')).not.toBeInTheDocument();
     });
 
+    it('does not refresh the default 30-day stats after entering Statistics', async () => {
+      const fetchMock = setupFetchMock();
+      render(<AdminPage />);
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Insights' }));
+      await screen.findByText('42');
+      await act(async () => {
+        await new Promise((resolve) => window.setTimeout(resolve, 200));
+      });
+
+      const statsUrls = fetchMock.mock.calls
+        .map(([url]) => new URL(url, 'http://localhost'))
+        .filter((url) => url.pathname === '/api/admin/stats');
+      expect(statsUrls).toHaveLength(10);
+      expect(new Set(statsUrls.map((url) => url.searchParams.get('section'))).size).toBe(10);
+      expect(statsUrls.every((url) => url.searchParams.get('range') === '30d')).toBe(true);
+    });
+
     it('passes positive and negative daily feedback as separate chart series', async () => {
       setupFetchMock({
         stats: {
@@ -1749,6 +1802,255 @@ describe('Admin Dashboard Page', () => {
       expect(chart).toHaveTextContent('"positive":8');
       expect(chart).toHaveTextContent('"negative":3');
       expect(chart).not.toHaveTextContent('"value":11');
+    });
+
+    it('pushes Feedback onto browser history with the clicked trend date', async () => {
+      currentSearchParams = new URLSearchParams({
+        cat: 'insights',
+        tab: 'stats',
+        source: 'slack',
+        users: 'test-user@example.com',
+        statsAgents: 'agent-primary',
+        dateRange: '30d',
+      });
+      setupFetchMock({
+        stats: {
+          ...mockStatsResponse,
+          data: {
+            ...mockStatsResponse.data,
+            feedback_summary: {
+              positive: 8,
+              negative: 3,
+              total: 11,
+              daily: [{ date: '2026-07-20', positive: 8, negative: 3 }],
+            },
+          },
+        },
+      });
+
+      render(<AdminPage />);
+
+      fireEvent.click(await screen.findByRole('button', { name: 'View feedback for Jul 20' }));
+
+      const targetUrl = new URL(pushMock.mock.calls.at(-1)?.[0], 'http://localhost');
+      expect(targetUrl.pathname).toBe('/admin');
+      expect(targetUrl.searchParams.get('cat')).toBe('insights');
+      expect(targetUrl.searchParams.get('tab')).toBe('feedback');
+      expect(targetUrl.searchParams.get('dateRange')).toBe('custom');
+      expect(targetUrl.searchParams.get('from')).toBe(
+        new Date(2026, 6, 20, 0, 0, 0, 0).toISOString(),
+      );
+      expect(targetUrl.searchParams.get('to')).toBe(
+        new Date(2026, 6, 20, 23, 59, 59, 999).toISOString(),
+      );
+      expect(targetUrl.searchParams.get('source')).toBe('slack');
+      expect(targetUrl.searchParams.get('users')).toBe('test-user@example.com');
+      expect(targetUrl.searchParams.get('statsAgents')).toBe('agent-primary');
+      expect(replaceMock).not.toHaveBeenCalledWith(
+        expect.stringContaining('tab=feedback'),
+        { scroll: false },
+      );
+    });
+
+    it('resets a custom Feedback date when manually returning to Statistics', async () => {
+      currentSearchParams = new URLSearchParams({
+        cat: 'insights',
+        tab: 'feedback',
+        source: 'slack',
+        dateRange: 'custom',
+        from: new Date(2026, 6, 20, 0, 0, 0, 0).toISOString(),
+        to: new Date(2026, 6, 20, 23, 59, 59, 999).toISOString(),
+      });
+      setupFetchMock();
+
+      render(<AdminPage />);
+
+      fireEvent.mouseDown(
+        await screen.findByRole('tab', { name: 'Statistics' }),
+        { button: 0, ctrlKey: false },
+      );
+
+      const targetUrl = new URL(replaceMock.mock.calls.at(-1)?.[0], 'http://localhost');
+      expect(targetUrl.searchParams.get('cat')).toBe('insights');
+      expect(targetUrl.searchParams.get('tab')).toBe('stats');
+      expect(targetUrl.searchParams.get('dateRange')).toBe('30d');
+      expect(targetUrl.searchParams.has('from')).toBe(false);
+      expect(targetUrl.searchParams.has('to')).toBe(false);
+      expect(targetUrl.searchParams.get('source')).toBe('slack');
+    });
+
+    it('loads a requested Top Users page without changing the other leaderboard page', async () => {
+      const fetchMock = setupFetchMock({
+        stats: (url: string) => {
+          const requestUrl = new URL(url, 'http://localhost');
+          if (requestUrl.searchParams.get('section') !== 'top_users') {
+            // Section requests return only their own payload in production.
+            // Keeping unrelated responses empty prevents a later request from
+            // replacing the Top Users page under test with fixture defaults.
+            return { success: true, data: {} };
+          }
+          const conversationsPage = Number(
+            requestUrl.searchParams.get('top_conversations_page') ?? '1',
+          );
+          const messagesPage = Number(
+            requestUrl.searchParams.get('top_messages_page') ?? '1',
+          );
+          return {
+            success: true,
+            data: {
+              top_users: {
+                by_conversations: [{
+                  _id: conversationsPage === 2
+                    ? 'test-user-11@example.com'
+                    : 'test-user-01@example.com',
+                  name: conversationsPage === 2 ? 'Test User 11' : 'Test User 01',
+                  count: 20,
+                  owner_type: 'linked',
+                }],
+                by_messages: [{
+                  _id: messagesPage === 2
+                    ? 'test-message-user-11@example.com'
+                    : 'test-message-user-01@example.com',
+                  name: messagesPage === 2 ? 'Test Message User 11' : 'Test Message User 01',
+                  count: 40,
+                  owner_type: 'linked',
+                }],
+                pagination: {
+                  by_conversations: {
+                    page: conversationsPage,
+                    limit: 10,
+                    total: 21,
+                    total_pages: 3,
+                  },
+                  by_messages: {
+                    page: messagesPage,
+                    limit: 10,
+                    total: 21,
+                    total_pages: 3,
+                  },
+                },
+              },
+            },
+          };
+        },
+      });
+      render(<AdminPage />);
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Insights' }));
+      await screen.findByText('Test User 01');
+
+      const pageInput = screen.getByRole('spinbutton', {
+        name: 'Go to top users by conversations page',
+      });
+      fireEvent.change(pageInput, { target: { value: '2' } });
+      fireEvent.submit(pageInput.closest('form') as HTMLFormElement);
+
+      expect(await screen.findByText('Test User 11')).toBeInTheDocument();
+      expect(screen.getByText('#11')).toBeInTheDocument();
+      expect(screen.getByText('Test Message User 01')).toBeInTheDocument();
+
+      const lastTopUsersRequest = fetchMock.mock.calls
+        .map(([url]) => new URL(url, 'http://localhost'))
+        .filter((url) => (
+          url.pathname === '/api/admin/stats'
+          && url.searchParams.get('section') === 'top_users'
+        ))
+        .at(-1);
+      expect(lastTopUsersRequest?.searchParams.get('top_conversations_page')).toBe('2');
+      expect(lastTopUsersRequest?.searchParams.get('top_messages_page')).toBe('1');
+    });
+
+    it('shows pagination loading only on the requested Top Users card', async () => {
+      const topUsersResponse = (url: string) => {
+        const requestUrl = new URL(url, 'http://localhost');
+        if (requestUrl.searchParams.get('section') !== 'top_users') {
+          return { success: true, data: {} };
+        }
+        const conversationsPage = Number(
+          requestUrl.searchParams.get('top_conversations_page') ?? '1',
+        );
+        return {
+          success: true,
+          data: {
+            top_users: {
+              by_conversations: [{
+                _id: conversationsPage === 2
+                  ? 'test-user-11@example.com'
+                  : 'test-user-01@example.com',
+                name: conversationsPage === 2 ? 'Test User 11' : 'Test User 01',
+                count: 20,
+                owner_type: 'linked',
+              }],
+              by_messages: [{
+                _id: 'test-message-user-01@example.com',
+                name: 'Test Message User 01',
+                count: 40,
+                owner_type: 'linked',
+              }],
+              pagination: {
+                by_conversations: {
+                  page: conversationsPage,
+                  limit: 10,
+                  total: 21,
+                  total_pages: 3,
+                },
+                by_messages: {
+                  page: 1,
+                  limit: 10,
+                  total: 21,
+                  total_pages: 3,
+                },
+              },
+            },
+          },
+        };
+      };
+      const baseFetch = setupFetchMock({ stats: topUsersResponse });
+      let deferNextTopUsersRequest = false;
+      let resolveTopUsersRequest: (() => void) | undefined;
+      const fetchMock = jest.fn((url: string) => {
+        const requestUrl = new URL(url, 'http://localhost');
+        if (
+          deferNextTopUsersRequest
+          && requestUrl.pathname === '/api/admin/stats'
+          && requestUrl.searchParams.get('section') === 'top_users'
+        ) {
+          deferNextTopUsersRequest = false;
+          return new Promise((resolve) => {
+            resolveTopUsersRequest = () => resolve({
+              ok: true,
+              status: 200,
+              json: () => Promise.resolve(topUsersResponse(url)),
+            });
+          });
+        }
+        return baseFetch(url);
+      });
+      global.fetch = fetchMock as unknown as typeof fetch;
+
+      render(<AdminPage />);
+      fireEvent.click(await screen.findByRole('button', { name: 'Insights' }));
+      await screen.findByText('Test User 01');
+
+      deferNextTopUsersRequest = true;
+      fireEvent.click(screen.getByRole('button', {
+        name: 'Next top users by conversations page',
+      }));
+
+      await waitFor(() => {
+        expect(
+          screen.getByTestId('stats-card-top-users-conversations'),
+        ).toHaveAttribute('aria-busy', 'true');
+        expect(
+          screen.getByTestId('stats-card-top-users-messages'),
+        ).toHaveAttribute('aria-busy', 'false');
+      });
+      expect(screen.getByText('Test Message User 01')).toBeInTheDocument();
+
+      await act(async () => {
+        resolveTopUsersRequest?.();
+      });
+      expect(await screen.findByText('Test User 11')).toBeInTheDocument();
     });
 
     it('updates cards independently and issues one request per section when a filter changes', async () => {

@@ -418,7 +418,10 @@ export function AppHeader() {
       activeTextClassName: "text-white",
       activeIndicatorClassName: "bg-fuchsia-600 shadow-sm",
     },
-    storageMode === "mongodb" && config.dynamicAgentsEnabled && config.schedulerEnabled && {
+    storageMode === "mongodb" &&
+      config.dynamicAgentsEnabled &&
+      config.schedulerEnabled &&
+      (!config.schedulerAdminOnly || isAdmin) && {
       key: "schedules",
       href: "/schedules",
       label: "Schedules",

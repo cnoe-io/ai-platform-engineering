@@ -15,6 +15,13 @@ export type AdminStatsSection = typeof ADMIN_STATS_SECTIONS[number];
 
 export type AdminStatsOwnerType = 'service_account' | 'slack_bot' | 'linked' | 'unlinked_slack';
 
+export interface AdminStatsPagination {
+  page: number;
+  limit: number;
+  total: number;
+  total_pages: number;
+}
+
 export interface AdminSlackStats {
   channels: {
     total: number;
@@ -75,6 +82,10 @@ export interface AdminStats {
       name?: string;
       owner_type?: AdminStatsOwnerType;
     }>;
+    pagination?: {
+      by_conversations: AdminStatsPagination;
+      by_messages: AdminStatsPagination;
+    };
   };
   top_agents: Array<{ _id: string; count: number }>;
   feedback_summary: {
