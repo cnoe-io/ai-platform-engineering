@@ -315,6 +315,381 @@ export async function getOrgTomeConsumption(
 }
 
 // ---------------------------------------------------------------------------
+// Leadership scorecard — aggregate-only completion of issue #180. These
+// helpers deliberately receive plain project/activity values so the counting
+// rules can be tested without MongoDB and the API never returns user data.
+// ---------------------------------------------------------------------------
+
+export type TomeFreshnessBucket = "fresh" | "aging" | "stale" | "never";
+
+export interface TomeLeadershipProject {
+  projectId: string;
+  type?: ProjectDocument["type"];
+  slug: string;
+  name?: string;
+  dataSteward?: string;
+  sources?: ProjectDocument["sources"];
+  initiatives?: string[];
+  areas?: string[];
+  createdAt?: Date | null;
+  lastSourceEventAt?: Date | null;
+  lastIngestedAt?: Date | null;
+  lastChatAt?: Date | null;
+}
+
+export interface TomeLeadershipKpis {
+  windowDays: number;
+  coverage: { eligibleProjects: number; stewardedProjects: number; sourcedProjects: number };
+  activity: { activeProjects: number; dormantProjects: number };
+  engagement: { sessions: number; messages: number; repeatUsers: number };
+  sourceHealth: Record<TomeFreshnessBucket, number>;
+  bhag: { count: number; childProjects: number; fresh: number; aging: number; stale: number; never: number };
+  hierarchy: {
+    bhags: number;
+    areas: number;
+    projects: number;
+    bhagAreaRelations: number;
+    bhagProjectRelations: number;
+    areaProjectRelations: number;
+  };
+  onboarding: { totalProjects: number; addedInWindow: number };
+  wikiMaturity: { realWikis: number; greenfieldOnly: number; emptyShells: number };
+  ingestReliability: { succeeded: number; failed: number; successRate: number | null };
+  cost: { totalUsd: number; perActiveProjectUsd: number | null; measuredRuns: number; terminalRuns: number };
+  projectEngagement: Array<{ projectId: string; slug: string; name: string; sessions: number; messages: number; repeatUsers: number }>;
+  bhagBreakdown: Array<{ projectId: string; slug: string; name: string; directProjects: number; areas: number; areaProjects: number }>;
+}
+
+export interface TomeLeadershipDetails {
+  maturityByProjectId?: Map<string, "real" | "greenfield" | "empty">;
+  engagementByProjectId?: Map<string, { sessions: number; messages: number; repeatUsers: number }>;
+  ingestReliability?: { succeeded: number; failed: number };
+  cost?: { totalUsd: number; measuredRuns: number; terminalRuns: number };
+}
+
+const EMPTY_SOURCE_HEALTH: Record<TomeFreshnessBucket, number> = {
+  fresh: 0,
+  aging: 0,
+  stale: 0,
+  never: 0,
+};
+
+/** A direct-source project is covered when any supported connector is configured. */
+export function hasConfiguredTomeSource(sources: ProjectDocument["sources"] | undefined): boolean {
+  if (!sources) return false;
+  return Boolean(
+    sources.repos?.length ||
+      sources.confluence_url?.trim() ||
+      sources.confluence_spaces?.length ||
+      sources.webex_rooms?.length ||
+      sources.component_urls?.length,
+  );
+}
+
+/** Fresh <= 7 days, aging <= 30 days, stale > 30 days, never when no signal exists. */
+export function getTomeFreshnessBucket(
+  timestamp: Date | null | undefined,
+  now = new Date(),
+): TomeFreshnessBucket {
+  if (!timestamp) return "never";
+  const ageMs = Math.max(0, now.getTime() - timestamp.getTime());
+  if (ageMs <= 7 * DAY_MS) return "fresh";
+  if (ageMs <= 30 * DAY_MS) return "aging";
+  return "stale";
+}
+
+function latestTimestamp(...timestamps: Array<Date | null | undefined>): Date | null {
+  const valid = timestamps.filter((value): value is Date => value instanceof Date && !Number.isNaN(value.getTime()));
+  return valid.length ? new Date(Math.max(...valid.map((value) => value.getTime()))) : null;
+}
+
+/** Existing hierarchy labels may contain either a stable slug or display name. */
+function hierarchyLabelKey(value: string): string {
+  return value.trim().toLocaleLowerCase();
+}
+
+function hierarchyKeys(project: TomeLeadershipProject): Set<string> {
+  return new Set([project.slug, project.name].filter((value): value is string => Boolean(value?.trim())).map(hierarchyLabelKey));
+}
+
+function matchingHierarchyRelations(labels: string[] | undefined, parents: TomeLeadershipProject[]): number {
+  if (!labels?.length || !parents.length) return 0;
+  const parentKeys = new Set(parents.flatMap((parent) => [...hierarchyKeys(parent)]));
+  return new Set(labels.map(hierarchyLabelKey).filter((label) => parentKeys.has(label))).size;
+}
+
+/** Build the complete scorecard from already-aggregated data. */
+export function summarizeTomeLeadershipKpis(
+  projects: TomeLeadershipProject[],
+  engagement: { sessions: number; messages: number; repeatUsers: number },
+  bhagSynthesisByProjectId: Map<string, Date>,
+  now = new Date(),
+  windowDays = 30,
+  details: TomeLeadershipDetails = {},
+): TomeLeadershipKpis {
+  const cutoff = new Date(now.getTime() - windowDays * DAY_MS);
+  const directProjects = projects.filter((project) => project.type !== "bhag" && project.type !== "area");
+  const coverage = {
+    eligibleProjects: directProjects.length,
+    stewardedProjects: directProjects.filter((project) => Boolean(project.dataSteward?.trim())).length,
+    sourcedProjects: directProjects.filter((project) => hasConfiguredTomeSource(project.sources)).length,
+  };
+  const sourceHealth = { ...EMPTY_SOURCE_HEALTH };
+  let activeProjects = 0;
+  for (const project of directProjects) {
+    const sourceSignal = latestTimestamp(project.lastSourceEventAt, project.lastIngestedAt);
+    sourceHealth[getTomeFreshnessBucket(sourceSignal, now)] += 1;
+    const activitySignal = latestTimestamp(project.lastChatAt, project.lastIngestedAt);
+    if (activitySignal && activitySignal >= cutoff) activeProjects += 1;
+  }
+
+  const bhags = projects.filter((project) => project.type === "bhag");
+  const areas = projects.filter((project) => project.type === "area");
+  const bhag = { count: bhags.length, childProjects: 0, fresh: 0, aging: 0, stale: 0, never: 0 };
+  for (const goal of bhags) {
+    bhag.childProjects += directProjects.filter((project) => matchingHierarchyRelations(project.initiatives, [goal]) > 0).length;
+    bhag[getTomeFreshnessBucket(bhagSynthesisByProjectId.get(goal.projectId), now)] += 1;
+  }
+  const maturity = { realWikis: 0, greenfieldOnly: 0, emptyShells: 0 };
+  for (const project of directProjects) {
+    const state = details.maturityByProjectId?.get(project.projectId) ?? "empty";
+    if (state === "real") maturity.realWikis += 1;
+    else if (state === "greenfield") maturity.greenfieldOnly += 1;
+    else maturity.emptyShells += 1;
+  }
+  const reliability = details.ingestReliability ?? { succeeded: 0, failed: 0 };
+  const terminalRuns = details.cost?.terminalRuns ?? 0;
+  const measuredRuns = details.cost?.measuredRuns ?? 0;
+  const totalUsd = details.cost?.totalUsd ?? 0;
+
+  return {
+    windowDays,
+    coverage,
+    activity: { activeProjects, dormantProjects: directProjects.length - activeProjects },
+    engagement,
+    sourceHealth,
+    bhag,
+    hierarchy: {
+      bhags: bhags.length,
+      areas: areas.length,
+      projects: directProjects.length,
+      bhagAreaRelations: areas.reduce((count, area) => count + matchingHierarchyRelations(area.initiatives, bhags), 0),
+      bhagProjectRelations: directProjects.reduce(
+        (count, project) => count + matchingHierarchyRelations(project.initiatives, bhags),
+        0,
+      ),
+      areaProjectRelations: directProjects.reduce(
+        (count, project) => count + matchingHierarchyRelations(project.areas, areas),
+        0,
+      ),
+    },
+    onboarding: {
+      totalProjects: directProjects.length,
+      addedInWindow: directProjects.filter((project) => project.createdAt && project.createdAt >= cutoff).length,
+    },
+    wikiMaturity: maturity,
+    ingestReliability: {
+      ...reliability,
+      successRate: reliability.succeeded + reliability.failed > 0
+        ? reliability.succeeded / (reliability.succeeded + reliability.failed)
+        : null,
+    },
+    cost: {
+      totalUsd,
+      perActiveProjectUsd: activeProjects > 0 && measuredRuns > 0 ? totalUsd / activeProjects : null,
+      measuredRuns,
+      terminalRuns,
+    },
+    projectEngagement: directProjects
+      .map((project) => ({
+        projectId: project.projectId,
+        slug: project.slug,
+        name: project.name ?? project.slug,
+        sessions: details.engagementByProjectId?.get(project.projectId)?.sessions ?? 0,
+        messages: details.engagementByProjectId?.get(project.projectId)?.messages ?? 0,
+        repeatUsers: details.engagementByProjectId?.get(project.projectId)?.repeatUsers ?? 0,
+      }))
+      .sort((left, right) => right.messages - left.messages || right.sessions - left.sessions || left.name.localeCompare(right.name)),
+    bhagBreakdown: bhags.map((goal) => {
+      const matchingAreas = areas.filter((area) => matchingHierarchyRelations(area.initiatives, [goal]) > 0);
+      const directChildren = directProjects.filter((project) => matchingHierarchyRelations(project.initiatives, [goal]) > 0);
+      const areaChildren = directProjects.filter((project) => matchingHierarchyRelations(project.areas, matchingAreas) > 0);
+      return {
+        projectId: goal.projectId,
+        slug: goal.slug,
+        name: goal.name ?? goal.slug,
+        directProjects: directChildren.length,
+        areas: matchingAreas.length,
+        areaProjects: areaChildren.length,
+      };
+    }),
+  };
+}
+
+/** Fetch aggregate-only coverage, engagement, health, and BHAG scorecard data. */
+export async function getTomeLeadershipKpis(windowDays = 30): Promise<TomeLeadershipKpis> {
+  const empty = (): TomeLeadershipKpis =>
+    summarizeTomeLeadershipKpis([], { sessions: 0, messages: 0, repeatUsers: 0 }, new Map(), new Date(), windowDays);
+  try {
+    const [projects, sessions, messages, ingestRuns] = await Promise.all([
+      getCollection<ProjectDocument>("projects"),
+      getCollection("tome_chat_sessions"),
+      getTomeChatMessagesCollection(),
+      getCollection("tome_ingest_runs"),
+    ]);
+    const cutoff = new Date(Date.now() - windowDays * DAY_MS);
+    const [projectRows, chatRows, ingestRows, synthesisRows, sessionCount, messageCount, repeatRows, projectSessionRows, projectMessageRows, runRows, reliabilityRows] = await Promise.all([
+      projects
+        .find({ status: "active" })
+        .project({ type: 1, slug: 1, name: 1, data_steward: 1, sources: 1, labels: 1, last_source_event_at: 1, created_at: 1 })
+        .toArray(),
+      sessions
+        .aggregate<{ _id: string; lastChatAt: Date }>([
+          { $match: { updated_at: { $gte: cutoff } } },
+          { $group: { _id: "$project_id", lastChatAt: { $max: "$updated_at" } } },
+        ])
+        .toArray(),
+      ingestRuns
+        .aggregate<{ _id: string; lastIngestedAt: Date }>([
+          { $match: { status: "succeeded" } },
+          { $group: { _id: "$project_id", lastIngestedAt: { $max: "$finished_at" } } },
+        ])
+        .toArray(),
+      ingestRuns
+        .aggregate<{ _id: string; lastSynthesizedAt: Date }>([
+          { $match: { status: "succeeded", "dispatch.endpoint": "/synthesize" } },
+          { $group: { _id: "$project_id", lastSynthesizedAt: { $max: "$finished_at" } } },
+        ])
+        .toArray(),
+      sessions.countDocuments({ created_at: { $gte: cutoff } }),
+      messages.countDocuments({ created_at: { $gte: cutoff } }),
+      sessions
+        .aggregate<{ repeatUsers: number }>([
+          { $match: { created_at: { $gte: cutoff } } },
+          { $group: { _id: "$user_id", sessions: { $sum: 1 } } },
+          { $match: { sessions: { $gte: 2 } } },
+          { $count: "repeatUsers" },
+        ])
+        .toArray(),
+      sessions
+        .aggregate<{ _id: string; sessions: number; repeatUsers: number }>([
+          { $match: { created_at: { $gte: cutoff } } },
+          { $group: { _id: { projectId: "$project_id", userId: "$user_id" }, sessions: { $sum: 1 } } },
+          {
+            $group: {
+              _id: "$_id.projectId",
+              sessions: { $sum: "$sessions" },
+              repeatUsers: { $sum: { $cond: [{ $gte: ["$sessions", 2] }, 1, 0] } },
+            },
+          },
+        ])
+        .toArray(),
+      messages
+        .aggregate<{ _id: string; messages: number }>([
+          { $match: { created_at: { $gte: cutoff } } },
+          { $group: { _id: "$project_id", messages: { $sum: 1 } } },
+        ])
+        .toArray(),
+      ingestRuns
+        .aggregate<{
+          _id: string;
+          successfulRuns: number;
+          successfulNonGreenfieldRuns: number;
+          totalCostUsd: number;
+          measuredRuns: number;
+          terminalRuns: number;
+        }>([
+          { $match: { "dispatch.endpoint": { $ne: "/synthesize" }, status: { $in: ["succeeded", "failed"] } } },
+          {
+            $group: {
+              _id: "$project_id",
+              successfulRuns: { $sum: { $cond: [{ $eq: ["$status", "succeeded"] }, 1, 0] } },
+              successfulNonGreenfieldRuns: {
+                $sum: { $cond: [{ $and: [{ $eq: ["$status", "succeeded"] }, { $eq: ["$greenfield", false] }] }, 1, 0] },
+              },
+              totalCostUsd: { $sum: { $ifNull: ["$cost_usd", 0] } },
+              measuredRuns: { $sum: { $cond: [{ $ne: [{ $type: "$cost_usd" }, "missing"] }, 1, 0] } },
+              terminalRuns: { $sum: 1 },
+            },
+          },
+        ])
+        .toArray(),
+      ingestRuns
+        .aggregate<{ _id: { projectId: string; status: "succeeded" | "failed" }; count: number }>([
+          {
+            $match: {
+              "dispatch.endpoint": { $ne: "/synthesize" },
+              status: { $in: ["succeeded", "failed"] },
+              finished_at: { $gte: cutoff },
+            },
+          },
+          { $group: { _id: { projectId: "$project_id", status: "$status" }, count: { $sum: 1 } } },
+        ])
+        .toArray(),
+    ]);
+    const chatsByProject = new Map(chatRows.map((row) => [String(row._id), row.lastChatAt]));
+    const ingestsByProject = new Map(ingestRows.map((row) => [String(row._id), row.lastIngestedAt]));
+    const synthesesByProject = new Map(synthesisRows.map((row) => [String(row._id), row.lastSynthesizedAt]));
+    const scorecardProjects: TomeLeadershipProject[] = projectRows.map((project) => ({
+      projectId: String(project._id),
+      type: project.type,
+      slug: project.slug,
+      name: project.name,
+      dataSteward: project.data_steward,
+      sources: project.sources,
+      initiatives: project.labels?.initiatives,
+      areas: project.labels?.areas,
+      createdAt: project.created_at,
+      lastSourceEventAt: project.last_source_event_at,
+      lastIngestedAt: ingestsByProject.get(String(project._id)) ?? null,
+      lastChatAt: chatsByProject.get(String(project._id)) ?? null,
+    }));
+    const directProjectIds = new Set(
+      scorecardProjects.filter((project) => project.type !== "bhag" && project.type !== "area").map((project) => project.projectId),
+    );
+    const projectEngagement = new Map<string, { sessions: number; messages: number; repeatUsers: number }>();
+    for (const row of projectSessionRows) {
+      projectEngagement.set(String(row._id), { sessions: row.sessions, messages: 0, repeatUsers: row.repeatUsers });
+    }
+    for (const row of projectMessageRows) {
+      const projectId = String(row._id);
+      const current = projectEngagement.get(projectId) ?? { sessions: 0, messages: 0, repeatUsers: 0 };
+      current.messages = row.messages;
+      projectEngagement.set(projectId, current);
+    }
+    const maturity = new Map<string, "real" | "greenfield" | "empty">();
+    let totalCostUsd = 0;
+    let measuredRuns = 0;
+    let terminalRuns = 0;
+    for (const row of runRows) {
+      maturity.set(String(row._id), row.successfulNonGreenfieldRuns > 0 ? "real" : row.successfulRuns > 0 ? "greenfield" : "empty");
+      if (!directProjectIds.has(String(row._id))) continue;
+      totalCostUsd += row.totalCostUsd;
+      measuredRuns += row.measuredRuns;
+      terminalRuns += row.terminalRuns;
+    }
+    const reliability = {
+      succeeded: reliabilityRows
+        .filter((row) => directProjectIds.has(String(row._id.projectId)) && row._id.status === "succeeded")
+        .reduce((total, row) => total + row.count, 0),
+      failed: reliabilityRows
+        .filter((row) => directProjectIds.has(String(row._id.projectId)) && row._id.status === "failed")
+        .reduce((total, row) => total + row.count, 0),
+    };
+    return summarizeTomeLeadershipKpis(
+      scorecardProjects,
+      { sessions: sessionCount, messages: messageCount, repeatUsers: repeatRows[0]?.repeatUsers ?? 0 },
+      synthesesByProject,
+      new Date(),
+      windowDays,
+      { maturityByProjectId: maturity, engagementByProjectId: projectEngagement, ingestReliability: reliability, cost: { totalUsd: totalCostUsd, measuredRuns, terminalRuns } },
+    );
+  } catch {
+    return empty();
+  }
+}
+
+// ---------------------------------------------------------------------------
 // TOME KPIs — org-wide Adoption / Freshness / Performance (per the "TOME
 // KPIs" slide). Deliberately separate from getOrgTomeConsumption: these are
 // scalar rollups (no per-user rosters), so they don't reopen the "who's
@@ -657,6 +1032,26 @@ export async function getTomeAdoptionTrend(days = 30): Promise<DailyPoint[]> {
       .toArray();
 
     const byDay = new Map(rows.map((r) => [r._id, r.activeUsers]));
+    return buckets.map((date) => ({ date, value: byDay.get(date) ?? 0 }));
+  } catch {
+    return buckets.map((date) => ({ date, value: 0 }));
+  }
+}
+
+/** Daily active direct-project onboarding. `value` is projects created on the
+ * day, while the dashboard headline supplies the cumulative active total. */
+export async function getTomeProjectOnboardingTrend(days = 30): Promise<DailyPoint[]> {
+  const buckets = buildDailyBuckets(days);
+  try {
+    const projects = await getCollection<ProjectDocument>("projects");
+    const cutoff = new Date(Date.now() - days * DAY_MS);
+    const rows = await projects
+      .aggregate<{ _id: string; projects: number }>([
+        { $match: { status: "active", created_at: { $gte: cutoff }, type: { $nin: ["bhag", "area"] } } },
+        { $group: { _id: { $dateToString: { format: "%Y-%m-%d", date: "$created_at" } }, projects: { $sum: 1 } } },
+      ])
+      .toArray();
+    const byDay = new Map(rows.map((row) => [row._id, row.projects]));
     return buckets.map((date) => ({ date, value: byDay.get(date) ?? 0 }));
   } catch {
     return buckets.map((date) => ({ date, value: 0 }));

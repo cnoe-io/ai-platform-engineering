@@ -552,6 +552,25 @@ async function setRunContextUsage(
   await runs.updateOne({ _id: runId }, { $set: { context_usage } });
 }
 
+/** Persist the agent's terminal accounting rather than leaving it only in an
+ * unstructured log line. Missing cost is intentionally left absent: old runs
+ * and some model providers cannot supply a reliable value. */
+async function setRunCompletionAccounting(
+  runId: string,
+  data: Record<string, unknown>,
+): Promise<void> {
+  const update: Record<string, number> = {};
+  if (typeof data.cost_usd === "number" && Number.isFinite(data.cost_usd) && data.cost_usd >= 0) {
+    update.cost_usd = data.cost_usd;
+  }
+  if (typeof data.turns === "number" && Number.isFinite(data.turns) && data.turns >= 0) {
+    update.turns = data.turns;
+  }
+  if (Object.keys(update).length === 0) return;
+  const runs = await getTomeIngestRunsCollection();
+  await runs.updateOne({ _id: runId }, { $set: update });
+}
+
 async function driveIngest(
   projectId: string,
   runId: string,
@@ -586,6 +605,9 @@ async function driveIngest(
         await setRunUsage(runId, ev.data);
       } else if (ev.type === "context_usage") {
         await setRunContextUsage(runId, ev.data);
+      } else if (ev.type === "done") {
+        await setRunCompletionAccounting(runId, ev.data);
+        await appendLog(runId, formatIngestEvent(ev));
       } else {
         await appendLog(runId, formatIngestEvent(ev));
       }

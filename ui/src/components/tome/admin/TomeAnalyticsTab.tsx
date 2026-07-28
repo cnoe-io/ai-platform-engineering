@@ -10,6 +10,7 @@ import {
   FileText,
   Gauge,
   HeartPulse,
+  Layers,
   Loader2,
   RefreshCw,
   ThumbsUp,
@@ -90,6 +91,29 @@ interface Uptime {
   targetPct: number;
 }
 
+interface LeadershipKpis {
+  windowDays: number;
+  coverage: { eligibleProjects: number; stewardedProjects: number; sourcedProjects: number };
+  activity: { activeProjects: number; dormantProjects: number };
+  engagement: { sessions: number; messages: number; repeatUsers: number };
+  sourceHealth: { fresh: number; aging: number; stale: number; never: number };
+  bhag: { count: number; childProjects: number; fresh: number; aging: number; stale: number; never: number };
+  hierarchy: {
+    bhags: number;
+    areas: number;
+    projects: number;
+    bhagAreaRelations: number;
+    bhagProjectRelations: number;
+    areaProjectRelations: number;
+  };
+  onboarding: { totalProjects: number; addedInWindow: number };
+  wikiMaturity: { realWikis: number; greenfieldOnly: number; emptyShells: number };
+  ingestReliability: { succeeded: number; failed: number; successRate: number | null };
+  cost: { totalUsd: number; perActiveProjectUsd: number | null; measuredRuns: number; terminalRuns: number };
+  projectEngagement: Array<{ projectId: string; slug: string; name: string; sessions: number; messages: number; repeatUsers: number }>;
+  bhagBreakdown: Array<{ projectId: string; slug: string; name: string; directProjects: number; areas: number; areaProjects: number }>;
+}
+
 interface ConsumptionRow {
   projectId: string;
   slug: string;
@@ -145,6 +169,11 @@ interface Trends {
   ingestActivity: IngestActivityDailyPoint[];
   performance: { points: PerformanceDailyPoint[]; configured: boolean };
   uptime: { points: UptimeDailyPoint[]; configured: boolean };
+  onboarding: DailyPoint[];
+}
+
+function formatUsd(value: number | null | undefined): string {
+  return value === null || value === undefined ? "not measured" : `$${value.toFixed(4)}`;
 }
 
 /** "2026-07-15" -> "Jul 15". Also accepts full ISO timestamps (performance trend). */
@@ -317,6 +346,7 @@ export function TomeAnalyticsTab() {
   const [freshness, setFreshness] = useState<Freshness | null>(null);
   const [performance, setPerformance] = useState<Performance | null>(null);
   const [uptime, setUptime] = useState<Uptime | null>(null);
+  const [leadership, setLeadership] = useState<LeadershipKpis | null>(null);
   const [trends, setTrends] = useState<Trends | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -334,6 +364,7 @@ export function TomeAnalyticsTab() {
       setFreshness(body?.data?.freshness ?? null);
       setPerformance(body?.data?.performance ?? null);
       setUptime(body?.data?.uptime ?? null);
+      setLeadership(body?.data?.leadership ?? null);
       setTrends(body?.data?.trends ?? null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -380,7 +411,7 @@ export function TomeAnalyticsTab() {
             TOME KPIs
           </h3>
           <p className="text-sm text-muted-foreground">
-            Adoption, freshness, performance, and uptime targets from the TOME KPI deck.
+            Real aggregates for adoption, coverage, engagement, source health, performance, and uptime.
           </p>
         </div>
         <Link
@@ -459,6 +490,164 @@ export function TomeAnalyticsTab() {
 
       <div>
         <h3 className="flex items-center gap-2 text-lg font-semibold">
+          <Database className="h-5 w-5" />
+          Platform coverage and health
+        </h3>
+        <p className="text-sm text-muted-foreground">
+          Aggregate-only metrics across active direct-source projects; BHAGs are tracked separately as synthesized rollups.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <KpiCard
+          title="Project coverage"
+          icon={<FileText className="h-4 w-4" />}
+          value={leadership ? `${leadership.coverage.stewardedProjects}/${leadership.coverage.eligibleProjects}` : "no data"}
+          detail={leadership ? `${leadership.coverage.sourcedProjects}/${leadership.coverage.eligibleProjects} with connected sources` : undefined}
+          target="Data steward coverage / source coverage"
+          state="unknown"
+          tooltip="Active direct-source projects only. Synthesized BHAGs and Areas have no direct connectors and are excluded."
+        />
+        <KpiCard
+          title="Active projects"
+          icon={<Activity className="h-4 w-4" />}
+          value={leadership ? String(leadership.activity.activeProjects) : "no data"}
+          detail={leadership ? `${leadership.activity.dormantProjects} dormant (${leadership.windowDays}d)` : undefined}
+          target="Chat session or successful ingest in trailing 30 days"
+          state="unknown"
+          tooltip="Project activity is a real session or successful ingest signal, not an inferred usage score."
+        />
+        <KpiCard
+          title="Engagement depth"
+          icon={<Users className="h-4 w-4" />}
+          value={leadership ? String(leadership.engagement.sessions) : "no data"}
+          detail={leadership ? `${leadership.engagement.messages} messages · ${leadership.engagement.repeatUsers} repeat users` : undefined}
+          target="Aggregate chat sessions in trailing 30 days"
+          state="unknown"
+          tooltip="Only aggregate session, message, and repeat-user counts are shown; no user identities are returned."
+        />
+        <KpiCard
+          title="Source health"
+          icon={<RefreshCw className="h-4 w-4" />}
+          value={leadership ? `${leadership.sourceHealth.fresh} fresh` : "no data"}
+          detail={leadership ? `${leadership.sourceHealth.aging} aging · ${leadership.sourceHealth.stale} stale · ${leadership.sourceHealth.never} never` : undefined}
+          target="Fresh ≤7d · aging ≤30d · stale >30d"
+          state={leadership?.sourceHealth.stale ? "fail" : leadership ? "pass" : "unknown"}
+          tooltip="Uses the most recent source-activity event or successful ingest for each active direct-source project."
+        />
+        <KpiCard
+          title="Projects onboarded"
+          icon={<TrendingUp className="h-4 w-4" />}
+          value={leadership ? String(leadership.onboarding.totalProjects) : "no data"}
+          detail={leadership ? `${leadership.onboarding.addedInWindow} added in ${leadership.windowDays}d` : undefined}
+          target="Active direct projects"
+          state="unknown"
+          tooltip="A project is counted when it is active, not a BHAG or Area, and has a creation timestamp in the configured project record."
+        />
+        <KpiCard
+          title="Wiki maturity"
+          icon={<FileText className="h-4 w-4" />}
+          value={leadership ? `${leadership.wikiMaturity.realWikis} real` : "no data"}
+          detail={leadership ? `${leadership.wikiMaturity.greenfieldOnly} greenfield-only · ${leadership.wikiMaturity.emptyShells} empty shell` : undefined}
+          target="Successful non-greenfield source ingest"
+          state={leadership?.wikiMaturity.emptyShells ? "unknown" : leadership ? "pass" : "unknown"}
+          tooltip="Real means the project completed at least one successful non-greenfield source ingest. Greenfield-only projects have only their initial ingest; empty shells have no successful source ingest."
+        />
+        <KpiCard
+          title="Ingest success rate"
+          icon={<CheckCircle2 className="h-4 w-4" />}
+          value={leadership?.ingestReliability.successRate !== null && leadership?.ingestReliability.successRate !== undefined ? `${(leadership.ingestReliability.successRate * 100).toFixed(0)}%` : "no data"}
+          detail={leadership ? `${leadership.ingestReliability.succeeded} succeeded · ${leadership.ingestReliability.failed} failed (${leadership.windowDays}d)` : undefined}
+          target="Terminal source ingests; synthesis excluded"
+          state={leadership?.ingestReliability.successRate === null || leadership?.ingestReliability.successRate === undefined ? "unknown" : leadership.ingestReliability.successRate >= 0.95 ? "pass" : "fail"}
+          tooltip="Uses only terminal source-ingest runs in the trailing window. Queued, running, awaiting-review, and /synthesize runs are excluded."
+        />
+        <KpiCard
+          title="Cost per active project"
+          icon={<Gauge className="h-4 w-4" />}
+          value={formatUsd(leadership?.cost.perActiveProjectUsd)}
+          detail={leadership ? `${formatUsd(leadership.cost.totalUsd)} across ${leadership.cost.measuredRuns}/${leadership.cost.terminalRuns} cost-measured terminal runs` : undefined}
+          target="Agent-reported USD / active projects"
+          state={leadership?.cost.measuredRuns ? "unknown" : "unknown"}
+          tooltip="Only runs with an agent-reported final USD cost are included. Historical or provider runs without a cost remain unmeasured and are never treated as $0."
+        />
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <KpiCard
+          title="Tome hierarchy"
+          icon={<Layers className="h-4 w-4" />}
+          value={leadership ? `${leadership.hierarchy.bhags} / ${leadership.hierarchy.areas} / ${leadership.hierarchy.projects}` : "no data"}
+          detail={
+            leadership
+              ? `${leadership.hierarchy.bhagAreaRelations} BHAG→Area · ${leadership.hierarchy.bhagProjectRelations} BHAG→Project · ${leadership.hierarchy.areaProjectRelations} Area→Project`
+              : undefined
+          }
+          target="BHAGs / Areas / direct projects and their label relationships"
+          state="unknown"
+          tooltip="Counts active entities and their hierarchy labels. Both stable slugs and legacy display-name labels are recognized."
+        />
+        <KpiCard
+          title="BHAG rollups"
+          icon={<TrendingUp className="h-4 w-4" />}
+          value={leadership ? String(leadership.bhag.count) : "no data"}
+          detail={leadership ? `${leadership.bhag.childProjects} child projects` : undefined}
+          target="Strategic goals with labelled child projects"
+          state="unknown"
+          tooltip="A child project is counted when its initiative label matches the BHAG slug."
+        />
+        <KpiCard
+          title="BHAG synthesis freshness"
+          icon={<RefreshCw className="h-4 w-4" />}
+          value={leadership ? `${leadership.bhag.fresh} fresh` : "no data"}
+          detail={leadership ? `${leadership.bhag.aging} aging · ${leadership.bhag.stale} stale · ${leadership.bhag.never} never` : undefined}
+          target="Latest successful BHAG synthesis"
+          state={leadership?.bhag.stale || leadership?.bhag.never ? "fail" : leadership ? "pass" : "unknown"}
+          tooltip="A BHAG's health is based on successful /synthesize runs only; a goal without one is shown as never synthesized."
+        />
+      </div>
+
+      {leadership && (
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <div className="rounded-lg border border-border bg-card p-4">
+            <h3 className="flex items-center gap-2 text-sm font-semibold">
+              <Users className="h-4 w-4" />
+              Per-project engagement
+            </h3>
+            <p className="mt-1 text-xs text-muted-foreground">Sessions, messages, and repeat users in the trailing {leadership.windowDays} days.</p>
+            <div className="mt-3 space-y-2">
+              {leadership.projectEngagement.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No active direct projects.</p>
+              ) : leadership.projectEngagement.map((project) => (
+                <div key={project.projectId} className="flex items-center justify-between gap-3 rounded-md bg-muted/40 px-3 py-2 text-sm">
+                  <span className="min-w-0 truncate font-medium">{project.name}</span>
+                  <span className="shrink-0 text-xs text-muted-foreground">{project.sessions} sessions · {project.messages} messages · {project.repeatUsers} repeat</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="rounded-lg border border-border bg-card p-4">
+            <h3 className="flex items-center gap-2 text-sm font-semibold">
+              <Layers className="h-4 w-4" />
+              BHAG child-project breakdown
+            </h3>
+            <p className="mt-1 text-xs text-muted-foreground">Direct children and projects reached through child Areas.</p>
+            <div className="mt-3 space-y-2">
+              {leadership.bhagBreakdown.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No active BHAGs.</p>
+              ) : leadership.bhagBreakdown.map((bhag) => (
+                <div key={bhag.projectId} className="flex items-center justify-between gap-3 rounded-md bg-muted/40 px-3 py-2 text-sm">
+                  <span className="min-w-0 truncate font-medium">{bhag.name}</span>
+                  <span className="shrink-0 text-xs text-muted-foreground">{bhag.directProjects} direct · {bhag.areas} Areas · {bhag.areaProjects} via Areas</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div>
+        <h3 className="flex items-center gap-2 text-lg font-semibold">
           <TrendingUp className="h-5 w-5" />
           Trends
         </h3>
@@ -484,6 +673,33 @@ export function TomeAnalyticsTab() {
                       active={active}
                       label={label ? formatDayLabel(label) : undefined}
                       rows={[{ name: "Active users", value: String(payload?.[0]?.value ?? 0), color: TREND_COLORS.adoption }]}
+                    />
+                  )}
+                />
+                <Area type="monotone" dataKey="value" stroke={TREND_COLORS.adoption} fill={TREND_COLORS.adoption} fillOpacity={0.15} strokeWidth={2} />
+              </AreaChart>
+            </ResponsiveContainer>
+          )}
+        </TrendCard>
+
+        <TrendCard
+          title="Project growth"
+          icon={<TrendingUp className="h-4 w-4 text-muted-foreground" />}
+          description="Active direct projects created per day."
+          empty={!trends || trends.onboarding.every((p) => p.value === 0) ? "No projects onboarded in this window yet." : undefined}
+        >
+          {trends && (
+            <ResponsiveContainer width="100%" height={180}>
+              <AreaChart data={trends.onboarding} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" className="opacity-20" />
+                <XAxis dataKey="date" tickFormatter={formatDayLabel} tick={{ fontSize: 11 }} interval="preserveStartEnd" />
+                <YAxis tick={{ fontSize: 11 }} allowDecimals={false} width={28} />
+                <RechartsTooltip
+                  content={({ active, label, payload }) => (
+                    <ChartTooltip
+                      active={active}
+                      label={label ? formatDayLabel(label) : undefined}
+                      rows={[{ name: "Projects onboarded", value: String(payload?.[0]?.value ?? 0), color: TREND_COLORS.adoption }]}
                     />
                   )}
                 />

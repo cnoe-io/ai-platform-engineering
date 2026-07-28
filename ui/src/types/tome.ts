@@ -187,6 +187,11 @@ export interface IngestRun {
   reviewed_at?: Date;
   /** Latest cumulative token usage, updated live during the run for the header. */
   usage?: { output: number; input: number };
+  /** Agent-reported final cost in USD. Absent for legacy runs and providers
+   * that do not report a cost; absence is deliberately not treated as $0. */
+  cost_usd?: number;
+  /** Agent-reported number of turns completed by the run. */
+  turns?: number;
   /**
    * Latest exact context-window occupancy, from the Claude Agent SDK's own
    * live accounting (the same figure the CLI's `/context` shows) — accounts

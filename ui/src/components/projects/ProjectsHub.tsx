@@ -17,7 +17,6 @@ import {
   Plus,
   Rocket,
   Settings,
-  Sparkles,
   Target,
   UserX,
 } from "lucide-react";
@@ -850,14 +849,6 @@ export function ProjectsHub() {
           <div className="flex flex-col items-stretch gap-3 md:items-end">
             <ProjectOnboardingWizard onComplete={() => void load()} />
             <div className="flex flex-wrap gap-2 md:justify-end">
-              <Link
-                href="/projects/dashboard"
-                title="Executive Dashboard"
-                className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition hover:bg-accent hover:text-foreground"
-              >
-                <Sparkles className="h-3.5 w-3.5" />
-                Dashboard
-              </Link>
               {isTomeAdmin && (
                 <Link
                   href="/projects/admin"

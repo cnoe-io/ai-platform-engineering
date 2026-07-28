@@ -2,8 +2,8 @@
 // are actively ingesting, wiki size, ingest cadence/token usage. Gated the
 // same way as /api/tome/admin (can_manage on admin_surface:tome).
 //
-// Deliberately does NOT include chat engagement / per-user data — that stays
-// scoped to each project's own /api/tome/projects/[slug]/engagement.
+// Per-project engagement is aggregate-only (sessions/messages/repeat-user
+// counts). User identities remain scoped to no admin response.
 
 import { getServerSession } from "next-auth";
 import { NextResponse } from "next/server";
@@ -17,6 +17,8 @@ import {
   getTomeFreshness,
   getTomeFreshnessTrend,
   getTomeIngestActivityTrend,
+  getTomeLeadershipKpis,
+  getTomeProjectOnboardingTrend,
   getTomeQueryLatencyP95,
   getTomeQueryLatencyTrend,
   getTomeUptime,
@@ -56,6 +58,8 @@ export async function GET() {
     ingestActivityTrend,
     performanceTrend,
     uptimeTrend,
+    leadership,
+    onboardingTrend,
   ] = await Promise.all([
     getOrgTomeConsumption(),
     getTomeAdoption(),
@@ -67,6 +71,8 @@ export async function GET() {
     getTomeIngestActivityTrend(),
     getTomeQueryLatencyTrend(),
     getTomeUptimeTrend(),
+    getTomeLeadershipKpis(),
+    getTomeProjectOnboardingTrend(),
   ]);
   return NextResponse.json({
     data: {
@@ -76,12 +82,14 @@ export async function GET() {
       freshness,
       performance,
       uptime,
+      leadership,
       trends: {
         adoption: adoptionTrend,
         freshness: freshnessTrend,
         ingestActivity: ingestActivityTrend,
         performance: performanceTrend,
         uptime: uptimeTrend,
+        onboarding: onboardingTrend,
       },
     },
   });
