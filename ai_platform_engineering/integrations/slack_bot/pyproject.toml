@@ -8,7 +8,7 @@ authors = [
 ]
 requires-python = ">=3.13,<4.0"
 dependencies = [
-  "setuptools==82.0.1",
+  "setuptools==83.0.0",
   "slack-bolt==1.27.0",
   "slack-sdk==3.41.0",
   "httpx==0.28.1",
