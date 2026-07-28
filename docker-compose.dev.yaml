@@ -960,6 +960,10 @@ services:
       - ${HOME}/.aws:/home/app/.aws:ro
       # Spec 102 — PDP-unavailable fallback (no-op in dev).
       - ${RBAC_FALLBACK_FILE:-/dev/null}:/etc/keycloak/realm-config-extras.json:ro
+      # Local attachment store (ATTACHMENT_BACKEND=local default). Attachment
+      # bytes are content-addressed here; only a reference is persisted to the
+      # Mongo checkpoint. Mirrors audit_service_data:/var/lib/caipe-audit-service.
+      - dynamic_agents_attachments:/var/lib/caipe-attachments
     env_file: [.env]
     environment:
       # Dev-only: DEV_HOT_RELOAD toggles the existing DEBUG-driven uvicorn reload
@@ -2441,6 +2445,9 @@ volumes:
   agentgateway_config:
     driver: local
   audit_service_data:
+    driver: local
+  # Local attachment blob store for dynamic-agents (ATTACHMENT_BACKEND=local).
+  dynamic_agents_attachments:
     driver: local
   # Durable Keycloak state (users, role assignments, per-team client scopes,
   # `team_member:<slug>` realm roles, identity links, token-exchange grants).

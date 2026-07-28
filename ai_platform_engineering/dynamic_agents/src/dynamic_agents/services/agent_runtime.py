@@ -9,8 +9,10 @@ This module contains the core ``AgentRuntime`` class.  Sibling modules:
 """
 
 import asyncio
+import base64
 import json
 import logging
+import os
 import re
 import time
 from collections.abc import AsyncGenerator
@@ -46,6 +48,10 @@ from dynamic_agents.models import (
     SubAgentRef,
     UserContext,
 )
+from dynamic_agents.services.attachment_store import (
+    AttachmentStore,
+    build_attachment_store,
+)
 from dynamic_agents.services.builtin_tools import (
     WorkflowApiClient,
     create_curl_tool,
@@ -61,10 +67,6 @@ from dynamic_agents.services.builtin_tools import (
 from dynamic_agents.services.credential_exchange import CredentialExchangeClient
 from dynamic_agents.services.gridfs_store import MongoDBGridFSStore
 from dynamic_agents.services.llm_clients import get_llm
-from dynamic_agents.services.model_capabilities import (
-    ModelCapabilities,
-    get_model_capabilities,
-)
 from dynamic_agents.services.mcp_client import (
     McpCredentialUnavailableError,
     build_mcp_connections,
@@ -75,6 +77,10 @@ from dynamic_agents.services.mcp_client import (
     wrap_tools_with_error_handling,
 )
 from dynamic_agents.services.middleware import ToolResultInvariantMiddleware, build_middleware
+from dynamic_agents.services.model_capabilities import (
+    ModelCapabilities,
+    get_model_capabilities,
+)
 from dynamic_agents.services.skills import build_skills_files, detect_missing_skills, load_skills
 
 if TYPE_CHECKING:
@@ -392,6 +398,7 @@ def _build_user_content(
     max_files: int = 0,
     max_file_bytes: int = 0,
     max_turn_bytes: int = 0,
+    store: "AttachmentStore | None" = None,
 ) -> "tuple[str | list[dict[str, Any]], list[SkippedFile]]":
     """Build the user-turn content for the agent's message list.
 
@@ -416,6 +423,13 @@ def _build_user_content(
     ``capabilities=None`` means "accept everything the provider supports"
     (unchanged legacy behavior). If no file survives, the plain string is
     returned unchanged so the model still answers from the text.
+
+    When ``store`` is provided, a surviving file's bytes are uploaded to the
+    blob store and its block carries a ``source: {"store_key": ...}`` reference
+    instead of inline base64 — so the persisted checkpoint stays small and the
+    rehydration middleware re-inflates the bytes into the model request at
+    inference time. When ``store`` is None (legacy path / no store configured),
+    blocks keep inline base64 exactly as before.
     """
     if not files:
         return message, []
@@ -473,7 +487,24 @@ def _build_user_content(
             continue
 
         block: dict[str, Any] = {"type": block_type, "mime_type": f.mime_type}
-        if f.data:
+        if store is not None and f.data:
+            # Reference form: upload bytes once (content-addressed) and persist
+            # only the key. The rehydration middleware turns this back into an
+            # inline base64 block before the model call — bytes never enter the
+            # checkpoint. On any store failure, fall back to inline base64 so a
+            # storage hiccup degrades to today's behavior instead of dropping
+            # the file.
+            try:
+                raw = base64.b64decode(f.data)
+                key = store.put(raw, content_type=f.mime_type)
+                block["source"] = {"store_key": key}
+            except Exception as exc:  # noqa: BLE001 — never fail the turn on storage
+                logger.warning(
+                    f"[stream] Attachment store put failed for '{f.name!r}' "
+                    f"({f.mime_type}); falling back to inline base64: {exc}"
+                )
+                block["base64"] = f.data
+        elif f.data:
             block["base64"] = f.data
         else:
             block["url"] = f.uri
@@ -491,6 +522,13 @@ def _build_user_content(
 
 class AgentRuntime:
     """Runtime for a single dynamic agent instance."""
+
+    # Class-level defaults so the lazy attachment-store accessor is safe even
+    # when an instance is constructed without __init__ (e.g. object.__new__ in
+    # unit tests that exercise _resolve_subagents in isolation). __init__ sets
+    # the per-instance values; these are the fall-through.
+    _attachment_store: "AttachmentStore | None" = None
+    _attachment_store_built: bool = False
 
     def __init__(
         self,
@@ -536,6 +574,13 @@ class AgentRuntime:
             )
         self._session_id = session_id
         self._graph = None
+        # Attachment blob store, built lazily on first use (see
+        # ``attachment_store``). Shared between the write path (upload bytes,
+        # persist a reference) and the rehydration middleware (fetch bytes back
+        # into the model request). None if construction fails, in which case the
+        # write path falls back to inline base64 (today's behavior).
+        self._attachment_store: AttachmentStore | None = None
+        self._attachment_store_built = False
 
         if ephemeral:
             # In-memory only — no MongoDB writes, GC'd with the runtime
@@ -622,6 +667,48 @@ class AgentRuntime:
         )
         # Cancellation flag for graceful stream termination
         self._cancelled: bool = False
+
+    @staticmethod
+    def _prompt_cache_enabled() -> bool:
+        """Whether Bedrock prompt caching is on for this deployment.
+
+        Reads the same env flag ``cnoe_agent_utils.LLMFactory`` uses to select
+        ``ChatBedrockConverse``, so the rehydration middleware's cachePoint
+        insertion stays in lockstep with the LLM's Converse mode — we never emit
+        a cachePoint the underlying client won't honor.
+        """
+        return os.getenv("AWS_BEDROCK_ENABLE_PROMPT_CACHE", "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+
+    def _get_attachment_store(self) -> AttachmentStore | None:
+        """Return the shared attachment store, building it once on first use.
+
+        Returns None (and logs) if construction fails — the write path then
+        falls back to inline base64, so a misconfigured store degrades to
+        today's behavior instead of dropping attachments.
+        """
+        if not self._attachment_store_built:
+            self._attachment_store_built = True
+            try:
+                self._attachment_store = build_attachment_store(self.settings)
+                logger.info(
+                    "Agent '%s': attachment store backend=%s",
+                    self.config.name,
+                    self._attachment_store.backend_name,
+                )
+            except Exception as exc:  # noqa: BLE001 — never fail a turn on store init
+                logger.warning(
+                    "Agent '%s': attachment store unavailable (%s); "
+                    "attachments will ride inline as base64",
+                    self.config.name,
+                    exc,
+                )
+                self._attachment_store = None
+        return self._attachment_store
 
     def _resolve_backend_type(self) -> str:
         """Resolve effective backend type from agent config or server default."""
@@ -976,6 +1063,8 @@ class AgentRuntime:
             self._session_id,
             agent_name=self.config.name,
             model_id=self.config.model.id,
+            attachment_store=self._get_attachment_store(),
+            enable_prompt_cache=self._prompt_cache_enabled(),
         )
         # Prepend skills middleware so it runs before other middleware
         if skills_middleware:
@@ -1279,6 +1368,8 @@ class AgentRuntime:
                     self._session_id,
                     agent_name=subagent_config.name,
                     model_id=subagent_config.model.id,
+                    attachment_store=self._get_attachment_store(),
+                    enable_prompt_cache=self._prompt_cache_enabled(),
                 ),
             }
 
@@ -1641,6 +1732,7 @@ class AgentRuntime:
             max_files=self.settings.max_input_files,
             max_file_bytes=max_file_bytes,
             max_turn_bytes=max_turn_bytes,
+            store=self._get_attachment_store(),
         )
         for skip in skipped_files:
             for frame in encoder.on_warning(

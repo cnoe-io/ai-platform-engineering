@@ -130,6 +130,21 @@ class Settings(BaseSettings):
     max_input_file_bytes: int = 5 * 1024 * 1024  # 5 MiB per file
     max_input_turn_bytes: int = 20 * 1024 * 1024  # 20 MiB total per turn
 
+    # Attachment blob store (env: ATTACHMENT_BACKEND / ATTACHMENT_LOCAL_PATH /
+    # ATTACHMENT_S3_BUCKET / ATTACHMENT_S3_PREFIX / ATTACHMENT_S3_REGION /
+    # ATTACHMENT_S3_ENDPOINT_URL). Attachment bytes are stored once, content-
+    # addressed, in this backend; only a reference is persisted in the MongoDB
+    # checkpoint, and the rehydration middleware fetches the bytes back into the
+    # model request at inference time. "local" (default) writes to disk — works
+    # out of the box for docker-compose dev; "s3" uses the shared bucket via
+    # ambient (IRSA) credentials. Mirrors the audit-service storage config shape.
+    attachment_backend: str = "local"
+    attachment_local_path: str = "/var/lib/caipe-attachments"
+    attachment_s3_bucket: str = ""
+    attachment_s3_prefix: str = "attachments"
+    attachment_s3_region: str = "us-west-2"
+    attachment_s3_endpoint_url: str | None = None
+
 
 @lru_cache
 def get_settings() -> Settings:

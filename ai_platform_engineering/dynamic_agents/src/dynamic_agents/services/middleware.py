@@ -15,7 +15,9 @@ construction and are handled with explicit builder functions.
 
 from __future__ import annotations
 
+import base64
 import logging
+from collections import OrderedDict
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -140,6 +142,141 @@ class ToolResultInvariantMiddleware(AgentMiddleware):
         """Ensure Bedrock receives one result for every prior tool call."""
         patched_messages = self._patch_messages(list(request.messages))
         return await handler(request.override(messages=patched_messages))
+
+
+class AttachmentRehydrationMiddleware(AgentMiddleware):
+    """Re-inflate attachment references into inline bytes before the model call.
+
+    The write path (``agent_runtime._build_user_content``) uploads attachment
+    bytes to the blob store and persists only a reference block
+    (``{"type": ..., "mime_type": ..., "source": {"store_key": "..."}}``) in the
+    checkpoint — bytes never enter conversation state. This middleware runs on
+    every model call (initial turn *and* every replay), fetches the bytes back
+    from the store, and rewrites each reference block into the inline base64
+    block shape the langchain_aws Bedrock adapter expects. It mutates only the
+    *outgoing request* via ``request.override(messages=...)`` — persisted state
+    is never touched (mirrors ``ToolResultInvariantMiddleware``).
+
+    A small in-process LRU keyed by the content-addressed store key avoids
+    refetching the same blob across replays within a process.
+
+    When Bedrock prompt caching is enabled, a ``cachePoint`` marker is appended
+    after the last-but-one message so the large, stable historical prefix
+    (system + tools + completed turns and their now-inline file bytes) is cached
+    and only the newest turn is billed uncached. Bedrock allows up to 4 cache
+    points; we insert one, at the newest stable boundary.
+    """
+
+    def __init__(
+        self,
+        store: Any,
+        *,
+        enable_cache_point: bool = False,
+        cache_max_entries: int = 32,
+    ) -> None:
+        super().__init__()
+        self._store = store
+        self._enable_cache_point = enable_cache_point
+        self._cache_max_entries = cache_max_entries
+        self._lru: "OrderedDict[str, bytes]" = OrderedDict()
+
+    def _fetch(self, key: str) -> bytes:
+        cached = self._lru.get(key)
+        if cached is not None:
+            self._lru.move_to_end(key)
+            return cached
+        data = self._store.get(key)
+        self._lru[key] = data
+        self._lru.move_to_end(key)
+        while len(self._lru) > self._cache_max_entries:
+            self._lru.popitem(last=False)
+        return data
+
+    def _rehydrate_block(self, block: Mapping[str, Any]) -> dict[str, Any]:
+        """Turn a reference block back into an inline base64 block.
+
+        Non-reference blocks (plain text, already-inline files) pass through
+        unchanged. A fetch failure leaves the reference block as-is and logs —
+        the model then sees a block it can't render rather than the whole turn
+        failing.
+        """
+        source = block.get("source")
+        if not (isinstance(source, Mapping) and source.get("store_key")):
+            return dict(block)
+        key = source["store_key"]
+        rebuilt = {k: v for k, v in block.items() if k != "source"}
+        try:
+            raw = self._fetch(key)
+            rebuilt["base64"] = base64.b64encode(raw).decode("ascii")
+        except Exception as exc:  # noqa: BLE001 — a bad blob shouldn't sink the turn
+            logger.warning(
+                "[attachment] Rehydration failed for store_key=%s: %s", key, exc
+            )
+            return dict(block)
+        return rebuilt
+
+    def _rehydrate_messages(self, messages: list[BaseMessage]) -> tuple[list[BaseMessage], bool]:
+        """Return messages with reference blocks re-inflated; flag if any changed."""
+        changed = False
+        out: list[BaseMessage] = []
+        for message in messages:
+            content = getattr(message, "content", None)
+            if not isinstance(content, list):
+                out.append(message)
+                continue
+            new_content: list[Any] = []
+            msg_changed = False
+            for block in content:
+                if isinstance(block, Mapping) and isinstance(block.get("source"), Mapping) \
+                        and block["source"].get("store_key"):
+                    new_content.append(self._rehydrate_block(block))
+                    msg_changed = True
+                else:
+                    new_content.append(block)
+            if msg_changed:
+                changed = True
+                out.append(message.model_copy(update={"content": new_content}))
+            else:
+                out.append(message)
+        return out, changed
+
+    def _append_cache_point(self, messages: list[BaseMessage]) -> list[BaseMessage]:
+        """Mark the stable prefix for Bedrock prompt caching.
+
+        Appends a ``cachePoint`` content block to the last message of the stable
+        historical prefix (all but the newest message), so everything up to and
+        including that boundary is cached. No-op when there are fewer than two
+        messages (nothing stable to cache).
+        """
+        if len(messages) < 2:
+            return messages
+        boundary = len(messages) - 1  # cache everything before the newest turn
+        target = messages[boundary - 1]
+        content = getattr(target, "content", None)
+        blocks: list[Any] = list(content) if isinstance(content, list) else (
+            [{"type": "text", "text": content}] if isinstance(content, str) and content else []
+        )
+        if not blocks:
+            return messages
+        if any(isinstance(b, Mapping) and "cachePoint" in b for b in blocks):
+            return messages  # already marked
+        blocks.append({"cachePoint": {"type": "default"}})
+        patched = list(messages)
+        patched[boundary - 1] = target.model_copy(update={"content": blocks})
+        return patched
+
+    async def awrap_model_call(
+        self,
+        request: ModelRequest,
+        handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
+    ) -> ModelResponse:
+        messages, changed = self._rehydrate_messages(list(request.messages))
+        if self._enable_cache_point:
+            messages = self._append_cache_point(messages)
+            changed = True
+        if not changed:
+            return await handler(request)
+        return await handler(request.override(messages=messages))
 
 
 class InterruptAwareToolRetryMiddleware(ToolRetryMiddleware):
@@ -433,6 +570,8 @@ def build_middleware(
     session_id: str | None = None,
     agent_name: str = "unknown",
     model_id: str = "unknown",
+    attachment_store: Any | None = None,
+    enable_prompt_cache: bool = False,
 ) -> list[AgentMiddleware]:
     """Build the middleware stack from an agent's features config.
 
@@ -501,6 +640,19 @@ def build_middleware(
 
         result.append(instance)
         logger.debug("Middleware '%s' added with params: %s", entry.type, params)
+
+    # Rehydrate attachment references into inline bytes (and mark the cache
+    # prefix) just before the model call. Placed before ToolResultInvariant so
+    # the final pre-model messages carry both the repaired tool history and the
+    # re-inflated file bytes. Only added when a store is configured — otherwise
+    # attachments ride inline and there is nothing to rehydrate.
+    if attachment_store is not None:
+        result.append(
+            AttachmentRehydrationMiddleware(
+                attachment_store,
+                enable_cache_point=enable_prompt_cache,
+            )
+        )
 
     # Repair tool-call history after configurable middleware edits and before the model.
     result.append(ToolResultInvariantMiddleware())

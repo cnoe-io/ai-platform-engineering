@@ -23,6 +23,10 @@ dependencies = [
     # does not need to install the entire shared package).
     # assisted-by Codex Codex-sonnet-4-6
     "pyjwt[crypto]==2.13.0",
+    # S3 attachment store (services/attachment_store.py). Present transitively
+    # today (via cnoe-agent-utils / langchain-aws) but declared explicitly so the
+    # S3 backend has a pinned, first-class dependency. Matches the audit-service pin.
+    "boto3==1.42.7",
 ]
 
 [project.optional-dependencies]
