@@ -5,6 +5,11 @@ import JSZip from "jszip";
 
 import { buildTomeMcpbBundle } from "../build-bundle";
 
+// These tests intentionally traverse and compress the installed mcp-remote
+// dependency closure. That work can exceed Jest's 5-second default when the
+// full test suite is running concurrently on CI.
+jest.setTimeout(30_000);
+
 describe("buildTomeMcpbBundle", () => {
   it("produces a zip with a valid manifest.json and a self-contained mcp-remote", async () => {
     const buffer = await buildTomeMcpbBundle({ origin: "http://localhost:3000", allowHttp: true });
@@ -54,5 +59,5 @@ describe("buildTomeMcpbBundle", () => {
     const first = await buildTomeMcpbBundle({ origin: "http://localhost:4000", allowHttp: true });
     const second = await buildTomeMcpbBundle({ origin: "http://localhost:4000", allowHttp: true });
     expect(second).toBe(first);
-  }, 20_000);
+  });
 });
