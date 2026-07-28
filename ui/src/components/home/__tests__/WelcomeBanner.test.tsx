@@ -13,7 +13,7 @@
  */
 
 import React from 'react'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 
 // ============================================================================
 // Mocks
@@ -64,6 +64,25 @@ describe('WelcomeBanner', () => {
     expect(screen.getByTestId('welcome-banner')).toBeInTheDocument()
   })
 
+  it('tracks pointer movement anywhere in the viewport without snapping on blur', () => {
+    render(<WelcomeBanner userName="Test" />)
+    const banner = screen.getByTestId('welcome-banner')
+    const originalWidth = window.innerWidth
+    const originalHeight = window.innerHeight
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 200 })
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 100 })
+
+    fireEvent(window,new MouseEvent('pointermove', { clientX: 150, clientY: 25 }))
+    expect(banner.style.getPropertyValue('--welcome-pointer-x')).toBe('75.0%')
+    expect(banner.style.getPropertyValue('--welcome-pointer-y')).toBe('25.0%')
+
+    fireEvent.blur(window)
+    expect(banner.style.getPropertyValue('--welcome-pointer-x')).toBe('75.0%')
+    expect(banner.style.getPropertyValue('--welcome-pointer-y')).toBe('25.0%')
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth })
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: originalHeight })
+  })
+
   it('renders the sparkles icon', () => {
     render(<WelcomeBanner />)
     expect(screen.getByTestId('icon-sparkles')).toBeInTheDocument()
@@ -71,7 +90,9 @@ describe('WelcomeBanner', () => {
 
   it('renders the tagline', () => {
     render(<WelcomeBanner />)
-    expect(screen.getByText('Your AI-powered platform engineering assistant')).toBeInTheDocument()
+    expect(
+      screen.getByText('What do you want to get done today?'),
+    ).toBeInTheDocument()
   })
 
   it('renders preferences shortcut when callback provided', () => {

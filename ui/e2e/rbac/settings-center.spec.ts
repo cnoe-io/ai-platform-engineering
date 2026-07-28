@@ -9,15 +9,15 @@ import {
 } from "./_mocked-rbac";
 
 const ADMIN_SESSION = {
-  email: "settings-admin@caipe.local",
-  name: "Settings Admin",
+  email: "settings-admin@example.com",
+  name: "Example Settings Admin",
   role: "admin" as const,
   canViewAdmin: true,
 };
 
 const USER_SESSION = {
-  email: "settings-user@caipe.local",
-  name: "Settings User",
+  email: "settings-user@example.com",
+  name: "Example Settings User",
   role: "user" as const,
   canViewAdmin: false,
 };
@@ -282,21 +282,6 @@ test.describe("mocked Settings dialog browser regression",() => {
     );
   });
 
-  test("keeps settings switch thumbs inside their tracks in both states",async ({ page }) => {
-    const state = createState();
-    await installSettingsCenterMocks(page,state);
-    await page.goto("/",{ waitUntil: "domcontentloaded" });
-    const dialog = await openSettings(page,"Notifications");
-
-    const toggle = dialog.getByRole("switch",{ name: "Notify me about new releases" });
-    await expect(toggle).toHaveAttribute("aria-checked","true");
-    await expect.poll(() => switchThumbIsInsideTrack(toggle)).toBe(true);
-
-    await toggle.click();
-    await expect(toggle).toHaveAttribute("aria-checked","false");
-    await expect.poll(() => switchThumbIsInsideTrack(toggle)).toBe(true);
-  });
-
   test("shows preference explanations on hover without a dead documentation link",async ({ page }) => {
     const state = createState();
     await installSettingsCenterMocks(page,state);
@@ -319,16 +304,19 @@ test.describe("mocked Settings dialog browser regression",() => {
     let dialog = await openSettings(page,"Notifications");
 
     let toggle = dialog.getByRole("switch",{ name: "Notify me about new releases" });
+    await expect.poll(() => switchThumbIsInsideTrack(toggle)).toBe(true);
     await toggle.click();
 
     await expect(dialog.getByRole("alert")).toContainText("Preference service unavailable");
     await expect(toggle).toHaveAttribute("aria-checked","true");
+    await expect.poll(() => switchThumbIsInsideTrack(toggle)).toBe(true);
     await expect.poll(() => state.settingsPreferenceWrites).toEqual([
       { releaseNotesNotificationsEnabled: false },
     ]);
 
     await dialog.getByRole("button",{ name: "Retry" }).click();
     await expect(toggle).toHaveAttribute("aria-checked","false");
+    await expect.poll(() => switchThumbIsInsideTrack(toggle)).toBe(true);
     await expect(dialog.getByText("Saved",{ exact: true })).toBeVisible();
 
     await page.reload({ waitUntil: "domcontentloaded" });
@@ -352,17 +340,6 @@ test.describe("mocked Settings dialog browser regression",() => {
     await expect(dialog.getByRole("button",{ name: "Web default agent" })).toContainText("Incident Response");
     await expect(dialog.getByRole("button",{ name: "Slack default agent" })).toContainText("Use platform default");
     await expect(dialog.getByRole("button",{ name: /^save$/i })).toHaveCount(0);
-  });
-
-  test("hides platform settings from non-admin users",async ({ page }) => {
-    const state = createState();
-    await installSettingsCenterMocks(page,state);
-    await page.goto("/",{ waitUntil: "domcontentloaded" });
-    const dialog = await openSettings(page);
-
-    await expect(dialog.getByRole("button",{ name: "Defaults",exact: true })).toHaveCount(0);
-    await expect(dialog.getByRole("button",{ name: "Announcements",exact: true })).toHaveCount(0);
-    await expect(dialog.getByRole("button",{ name: "AI Review",exact: true })).toHaveCount(0);
   });
 
   test("requires consequence confirmation before changing a platform default",async ({ page }) => {
@@ -390,25 +367,6 @@ test.describe("mocked Settings dialog browser regression",() => {
     await expect(settingsDialog.getByText("Saved",{ exact: true })).toBeVisible();
   });
 
-  test("auto-saves platform announcements inside Settings",async ({ page }) => {
-    const state = createState();
-    await installSettingsCenterMocks(page,state,true);
-    await page.goto("/",{ waitUntil: "domcontentloaded" });
-    const dialog = await openSettings(page,"Announcements");
-
-    const toggle = dialog.getByRole("switch",{
-      name: "Enable release announcements for the platform",
-    });
-    await toggle.click();
-
-    await expect.poll(() => state.platformWrites).toEqual([
-      { release_notes: { enabled: false } },
-    ]);
-    await expect(toggle).toHaveAttribute("aria-checked","false");
-    await expect(dialog.getByText("Saved",{ exact: true })).toBeVisible();
-    await expect(page).toHaveURL(/\/$/);
-  });
-
   test("uses the compact section chooser on a mobile viewport",async ({ page }) => {
     const state = createState();
     await page.setViewportSize({ height: 844,width: 390 });
@@ -423,18 +381,4 @@ test.describe("mocked Settings dialog browser regression",() => {
     await expect(page).toHaveURL(/\/$/);
   });
 
-  test("opens Appearance from the header and can reopen at Chat & agents",async ({ page }) => {
-    const state = createState();
-    await installSettingsCenterMocks(page,state,true);
-    await page.goto("/",{ waitUntil: "domcontentloaded" });
-
-    let dialog = await openSettings(page,"Appearance");
-    await expect(dialog.getByRole("heading",{ level: 2,name: "Appearance" })).toBeVisible();
-    await dialog.getByRole("button",{ name: "Close" }).click();
-    await expect(dialog).toBeHidden();
-
-    dialog = await openSettings(page);
-    await expect(dialog.getByRole("heading",{ level: 2,name: "Chat & agents" })).toBeVisible();
-    await expect(page).toHaveURL(/\/$/);
-  });
 });

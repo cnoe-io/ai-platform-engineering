@@ -14,8 +14,7 @@ const capabilities = [
   {
     id: "chat",
     title: "Chat",
-    description:
-      "Have natural conversations with AI agents to manage infrastructure, debug issues, and automate tasks.",
+    description: "Ask agents questions, troubleshoot issues, and get work done.",
     icon: MessageSquare,
     href: "/chat",
     color: "text-blue-400",
@@ -25,8 +24,7 @@ const capabilities = [
   {
     id: "agents",
     title: "Agents",
-    description:
-      "Create and manage custom AI agents with models, prompts, skills, and tool access for your team.",
+    description: "Build AI agents with the models, skills, and tools your team needs.",
     icon: Bot,
     href: "/dynamic-agents",
     color: "text-cyan-400",
@@ -36,8 +34,7 @@ const capabilities = [
   {
     id: "mcp-servers",
     title: "Tools",
-    description:
-      "Connect agents to APIs, infrastructure systems, and internal services.",
+    description: "Connect agents to APIs, infrastructure, and internal services.",
     icon: Server,
     href: "/dynamic-agents?tab=mcp-servers",
     color: "text-teal-400",
@@ -47,8 +44,7 @@ const capabilities = [
   {
     id: "skills",
     title: "Skills",
-    description:
-      "Browse and run pre-built agent workflows for common platform engineering tasks across your stack.",
+    description: "Discover reusable skills and templates for common tasks.",
     icon: Zap,
     href: "/skills",
     color: "text-amber-400",
@@ -58,8 +54,7 @@ const capabilities = [
   {
     id: "workflows",
     title: "Workflows",
-    description:
-      "Create and manage self-service workflows that chain agent actions into repeatable multi-step tasks.",
+    description: "Automate repeatable, multi-step work across your tools.",
     icon: Workflow,
     href: "/workflows",
     color: "text-violet-400",
@@ -69,8 +64,7 @@ const capabilities = [
   {
     id: "knowledge-bases",
     title: "Knowledge Bases",
-    description:
-      "Search and explore your organization's knowledge through RAG-powered semantic search and graph views.",
+    description: "Search trusted organizational knowledge and data sources.",
     icon: Database,
     href: "/knowledge-bases",
     color: "text-emerald-400",

@@ -60,7 +60,7 @@ function KnowledgeBasesLayoutContent({
   if (ragHealth === "disconnected") {
     return (
       <main className="min-h-0 flex-1 overflow-y-auto">
-        <div className="flex min-h-full w-full max-w-none flex-col px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+        <div className="flex min-h-full w-full max-w-none flex-col px-4 pb-6 pt-3 sm:px-6 lg:pb-8">
           <KnowledgeBasesHeader
             description={pageDescriptions[activeItem.id]}
             href={activeItem.href ?? "/knowledge-bases/search"}
@@ -109,6 +109,8 @@ function KnowledgeBasesLayoutContent({
         />
       )}
       navigation={<KnowledgeSidebar graphRagEnabled={graphRagEnabled} />}
+      navigationAreaKey="knowledge"
+      navigationVersion={`${activeTab}:${graphRagEnabled}`}
     >
       {children}
     </WorkspaceShell>

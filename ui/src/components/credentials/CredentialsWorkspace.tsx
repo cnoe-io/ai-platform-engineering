@@ -1,39 +1,18 @@
 "use client";
 
 import {
-  WorkspaceSectionNavigation,
-  type WorkspaceNavigationGroup,
+  WorkspaceNavigationList,
 } from "@/components/layout/WorkspaceNavigation";
 import { WorkspacePageHeader } from "@/components/layout/WorkspacePageHeader";
 import { WorkspaceShell } from "@/components/layout/WorkspaceShell";
-import { Cable,KeyRound } from "lucide-react";
 import { useRouter } from "next/navigation";
 import React from "react";
 
+import { CREDENTIALS_GROUPS } from "./navigation";
 import { ProviderConnections } from "./ProviderConnections";
 import { SecretsManager } from "./SecretsManager";
 
 export type CredentialsSection = "connections" | "secrets";
-
-const CREDENTIALS_GROUPS: WorkspaceNavigationGroup[] = [{
-  id: "credentials-sections",
-  items: [
-    {
-      id: "connections",
-      label: "Connected Apps",
-      href: "/credentials/connections",
-      icon: Cable,
-      description: "Manage OAuth connections",
-    },
-    {
-      id: "secrets",
-      label: "Saved Secrets",
-      href: "/credentials/secrets",
-      icon: KeyRound,
-      description: "Store protected credentials",
-    },
-  ],
-}];
 
 export function CredentialsWorkspace({
   activeSection,
@@ -89,13 +68,14 @@ export function CredentialsWorkspace({
         />
       )}
       navigation={(
-        <WorkspaceSectionNavigation
+        <WorkspaceNavigationList
           activeItemId={activeSection}
+          ariaLabel="Credentials sections"
           groups={CREDENTIALS_GROUPS}
-          navigationLabel="Credentials sections"
-          pickerLabel="Credentials section"
         />
       )}
+      navigationAreaKey="credentials"
+      navigationVersion={activeSection}
     >
       {activeSection === "connections" ? <ProviderConnections /> : <SecretsManager />}
     </WorkspaceShell>

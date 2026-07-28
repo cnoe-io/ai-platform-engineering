@@ -1,14 +1,6 @@
 "use client";
 
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
@@ -19,11 +11,11 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { useApplicationNavigation } from "@/components/layout/ApplicationNavigationContext";
 import { useWorkspaceRail } from "@/components/layout/WorkspaceRailContext";
 import { cn } from "@/lib/utils";
 import {
   ChevronDown,
-  PanelLeft,
   PanelLeftClose,
   PanelLeftOpen,
   type LucideIcon,
@@ -89,7 +81,7 @@ interface CollapsedNavigationFlyoutProps {
  * Hover and focus expose child destinations without changing the rail width.
  * Click keeps the panel available for touchpads and keyboard users.
  */
-function CollapsedNavigationFlyout({
+export function CollapsedNavigationFlyout({
   active,
   children,
   icon: Icon,
@@ -165,7 +157,7 @@ function CollapsedNavigationFlyout({
         <div className="border-b border-border/70 px-2 pb-2 pt-1 text-sm font-semibold">
           {label}
         </div>
-        {children(close)}
+        {open ? children(close) : null}
       </PopoverContent>
     </Popover>
   );
@@ -184,7 +176,12 @@ function NavigationItem({
   item: WorkspaceNavigationItem;
   onNavigate?: () => void;
 }): React.ReactElement {
+  const applicationNavigation = useApplicationNavigation();
   const Icon = item.icon;
+  const handleNavigate = () => {
+    onNavigate?.();
+    applicationNavigation?.closeMobileNavigation();
+  };
   const itemClassName = cn(
     "group flex w-full items-center gap-3 rounded-xl border text-left outline-none transition-colors",
     "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
@@ -239,9 +236,10 @@ function NavigationItem({
       aria-current={active ? "page" : undefined}
       aria-label={collapsed ? item.label : undefined}
       className={itemClassName}
+      data-navigation-leaf="true"
       data-testid={item.testId}
       href={item.href}
-      onClick={onNavigate}
+      onClick={handleNavigate}
       prefetch={item.prefetch}
     >
       {contents}
@@ -251,10 +249,11 @@ function NavigationItem({
       aria-current={active ? "page" : undefined}
       aria-label={collapsed ? item.label : undefined}
       className={itemClassName}
+      data-navigation-leaf="true"
       data-testid={item.testId}
       onClick={() => {
         item.onSelect?.();
-        onNavigate?.();
+        handleNavigate();
       }}
       type="button"
     >
@@ -503,20 +502,7 @@ export function WorkspaceSectionPicker({
   );
 }
 
-type WorkspaceNavigationBreakpoint = "lg" | "xl";
-type WorkspaceCompactNavigation = "drawer" | "picker";
-
-function compactVisibilityClass(breakpoint: WorkspaceNavigationBreakpoint): string {
-  return breakpoint === "lg" ? "lg:hidden" : "xl:hidden";
-}
-
-function desktopVisibilityClass(breakpoint: WorkspaceNavigationBreakpoint): string {
-  return breakpoint === "lg"
-    ? "hidden w-64 shrink-0 lg:block"
-    : "hidden min-h-full w-full shrink-0 border-r border-border/60 pr-4 xl:col-start-1 xl:row-start-1 xl:row-span-2 xl:block";
-}
-
-function WorkspaceRailToggle(): React.ReactElement | null {
+export function WorkspaceRailToggle(): React.ReactElement | null {
   const { collapsed,collapsible,toggle } = useWorkspaceRail();
   if (!collapsible) return null;
   const Icon = collapsed ? PanelLeftOpen : PanelLeftClose;
@@ -551,137 +537,39 @@ function WorkspaceRailToggle(): React.ReactElement | null {
   ) : control;
 }
 
-interface WorkspaceNavigationDrawerProps {
-  children: (close: () => void) => React.ReactNode;
-  className?: string;
-  navigationLabel: string;
-}
-
-function WorkspaceNavigationDrawer({
-  children,
-  className,
-  navigationLabel,
-}: WorkspaceNavigationDrawerProps): React.ReactElement {
-  const [open,setOpen] = useState(false);
-
-  return (
-    <div className={className}>
-      <Dialog onOpenChange={setOpen} open={open}>
-        <DialogTrigger asChild>
-          <button
-            className="flex min-h-11 w-full items-center justify-between gap-3 rounded-xl border border-border bg-background px-3 py-2 text-left text-sm font-medium outline-none transition-colors hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:w-auto"
-            type="button"
-          >
-            <span className="flex min-w-0 items-center gap-2">
-              <PanelLeft aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground" />
-              <span className="truncate">{navigationLabel}</span>
-            </span>
-            <ChevronDown aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground" />
-          </button>
-        </DialogTrigger>
-        <DialogContent className="left-0 top-0 h-dvh w-[min(20rem,90vw)] max-w-none translate-x-0 translate-y-0 gap-0 overflow-hidden rounded-none border-y-0 border-l-0 p-0 sm:rounded-none">
-          <DialogHeader className="border-b border-border px-5 py-5 pr-12 text-left">
-            <DialogTitle>{navigationLabel}</DialogTitle>
-            <DialogDescription>Choose a destination without leaving your current context.</DialogDescription>
-          </DialogHeader>
-          <div className="min-h-0 overflow-y-auto px-4 py-5">
-            {children(() => setOpen(false))}
-          </div>
-        </DialogContent>
-      </Dialog>
-    </div>
-  );
-}
-
 interface WorkspaceSectionNavigationProps {
   activeItemId: string;
-  compactVariant?: WorkspaceCompactNavigation;
-  desktopBreakpoint?: WorkspaceNavigationBreakpoint;
-  desktopFooter?: React.ReactNode;
   groups: WorkspaceNavigationGroup[];
-  mobileFooter?: React.ReactNode;
   navigationLabel: string;
   pickerLabel?: string;
 }
 
 /**
- * Canonical responsive section navigation used by page-style workspaces.
- * Routed workspaces use a drawer until there is room for a persistent rail.
- * The Settings dialog can opt into its compact native picker instead.
+ * Responsive section navigation for the Settings dialog.
+ *
+ * Routed workspaces register their navigation with the application rail;
+ * Settings remains self-contained and uses a native compact picker.
  */
 export function WorkspaceSectionNavigation({
   activeItemId,
-  compactVariant = "drawer",
-  desktopBreakpoint = "xl",
-  desktopFooter,
   groups,
-  mobileFooter,
   navigationLabel,
   pickerLabel = navigationLabel,
 }: WorkspaceSectionNavigationProps): React.ReactElement {
-  const compactClassName = compactVisibilityClass(desktopBreakpoint);
-  const { collapsed } = useWorkspaceRail();
-
   return (
     <>
-      {compactVariant === "picker" ? (
-        <div className={cn("space-y-3",compactClassName)}>
-          <WorkspaceSectionPicker
-            activeItemId={activeItemId}
-            ariaLabel={pickerLabel}
-            groups={groups}
-          />
-          {mobileFooter}
-        </div>
-      ) : (
-        <WorkspaceNavigationDrawer
-          className={compactClassName}
-          navigationLabel={navigationLabel}
-        >
-          {(close) => (
-            <>
-              <WorkspaceNavigationList
-                activeItemId={activeItemId}
-                ariaLabel={navigationLabel}
-                groups={groups}
-                onNavigate={close}
-              />
-              {mobileFooter}
-            </>
-          )}
-        </WorkspaceNavigationDrawer>
-      )}
-      <aside
-        className={cn(
-          desktopVisibilityClass(desktopBreakpoint),
-        )}
-      >
-        {desktopBreakpoint === "xl" ? (
-          <div className="sticky top-6 flex h-[calc(100dvh-7rem)] min-h-0 flex-col">
-            <WorkspaceNavigationList
-              activeItemId={activeItemId}
-              ariaLabel={navigationLabel}
-              className="min-h-0 overflow-y-auto"
-              collapsed={collapsed}
-              groups={groups}
-            />
-            <div className="mt-auto shrink-0 bg-background pt-3">
-              {!collapsed ? desktopFooter : null}
-              <div className="mt-2">
-                <WorkspaceRailToggle />
-              </div>
-            </div>
-          </div>
-        ) : (
-          <>
-            <WorkspaceNavigationList
-              activeItemId={activeItemId}
-              ariaLabel={navigationLabel}
-              groups={groups}
-            />
-            {desktopFooter}
-          </>
-        )}
+      <WorkspaceSectionPicker
+        activeItemId={activeItemId}
+        ariaLabel={pickerLabel}
+        className="lg:hidden"
+        groups={groups}
+      />
+      <aside className="hidden w-64 shrink-0 lg:block">
+        <WorkspaceNavigationList
+          activeItemId={activeItemId}
+          ariaLabel={navigationLabel}
+          groups={groups}
+        />
       </aside>
     </>
   );
@@ -697,7 +585,7 @@ interface WorkspaceHierarchicalNavigationListProps {
   onNavigate?: () => void;
 }
 
-function WorkspaceHierarchicalNavigationList({
+export function WorkspaceHierarchicalNavigationList({
   activeCategoryId,
   activeItemId,
   categories,
@@ -865,63 +753,5 @@ function WorkspaceHierarchicalNavigationList({
         })}
       </nav>
     </TooltipProvider>
-  );
-}
-
-interface WorkspaceHierarchicalSectionNavigationProps {
-  activeCategoryId: string;
-  activeItemId: string;
-  categories: WorkspaceNavigationCategory[];
-  navigationLabel: string;
-}
-
-/**
- * Responsive two-level navigation for information-dense workspaces.
- * Categories are persistent at wide widths and available in a focus-trapped
- * drawer when the rail would take too much space from the page content.
- */
-export function WorkspaceHierarchicalSectionNavigation({
-  activeCategoryId,
-  activeItemId,
-  categories,
-  navigationLabel,
-}: WorkspaceHierarchicalSectionNavigationProps): React.ReactElement {
-  const { collapsed } = useWorkspaceRail();
-
-  return (
-    <>
-      <WorkspaceNavigationDrawer
-        className="xl:hidden"
-        navigationLabel={navigationLabel}
-      >
-        {(close) => (
-          <WorkspaceHierarchicalNavigationList
-            activeCategoryId={activeCategoryId}
-            activeItemId={activeItemId}
-            categories={categories}
-            navigationLabel={navigationLabel}
-            onNavigate={close}
-          />
-        )}
-      </WorkspaceNavigationDrawer>
-
-      <aside
-        className="hidden min-h-full w-full shrink-0 border-r border-border/60 pr-4 xl:col-start-1 xl:row-start-1 xl:row-span-2 xl:block"
-      >
-        <div className="sticky top-6 flex h-[calc(100dvh-7rem)] min-h-0 flex-col">
-          <WorkspaceHierarchicalNavigationList
-            activeCategoryId={activeCategoryId}
-            activeItemId={activeItemId}
-            categories={categories}
-            className="min-h-0 overflow-y-auto"
-            collapsed={collapsed}
-            navigationLabel={navigationLabel}
-          />
-          <div className="mt-auto shrink-0 bg-background pt-3">
-            <WorkspaceRailToggle />
-          </div>
-        </div>
-      </aside>
-    </>
   );
 }

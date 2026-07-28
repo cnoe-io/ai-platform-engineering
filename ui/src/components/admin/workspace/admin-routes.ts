@@ -44,7 +44,6 @@ export type AdminDestinationId =
   | "feedback"
   | "metrics"
   | "health"
-  | "cas-insights"
   | "access-before-sign-in"
   | "ai-review"
   | "action-audit"
@@ -216,14 +215,6 @@ export const ADMIN_CATEGORIES: AdminCategoryDefinition[] = [
         description: "Check platform services and dependency health.",
         icon: Database,
         gateKey: "health",
-      },
-      {
-        id: "cas-insights",
-        href: "/admin/operations/authorization-insights",
-        label: "Authorization Insights",
-        description: "Inspect authorization-service health and decisions.",
-        icon: ShieldCheck,
-        gateKey: "metrics",
       },
     ],
   },

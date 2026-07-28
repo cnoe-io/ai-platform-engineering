@@ -865,13 +865,53 @@ pre code.hljs {
   background: linear-gradient(to bottom right, var(--gradient-from), var(--gradient-to));
 }
 
-/* Each active top-nav pill reveals its local slice of one gradient spanning
-   the full navigation strip. JS supplies the strip width and pill offset. */
-.app-header-nav-gradient-window {
-  background-image: linear-gradient(to right, var(--gradient-from), var(--gradient-to));
-  background-position: var(--app-header-nav-gradient-offset, 0) center;
-  background-repeat: no-repeat;
-  background-size: var(--app-header-nav-gradient-width, 100%) 100%;
+/* Ambient motion for the Home welcome banner. The first layer follows the
+   pointer while the theme gradient drifts slowly underneath it. */
+.welcome-banner {
+  --welcome-pointer-x: 50%;
+  --welcome-pointer-y: 50%;
+  background-image:
+    radial-gradient(
+      circle at var(--welcome-pointer-x) var(--welcome-pointer-y),
+      rgb(255 255 255 / 15%) 0,
+      rgb(255 255 255 / 4%) 18%,
+      transparent 42%
+    ),
+    linear-gradient(
+      120deg,
+      var(--gradient-from),
+      color-mix(in srgb, var(--gradient-from) 45%, var(--gradient-to)),
+      var(--gradient-to),
+      color-mix(in srgb, var(--gradient-to) 60%, var(--gradient-from))
+    );
+  background-position: center, 0% 50%;
+  background-size: 100% 100%, 240% 240%;
+  animation: welcome-banner-gradient 12s ease-in-out infinite alternate;
+  box-shadow:
+    0 18px 45px color-mix(in srgb, var(--gradient-to) 14%, transparent),
+    inset 0 1px rgb(255 255 255 / 11%);
+}
+
+.welcome-banner-sparkle {
+  animation: welcome-banner-sparkle 3.5s ease-in-out infinite;
+  transform-origin: center;
+}
+
+@keyframes welcome-banner-gradient {
+  from { background-position: center, 0% 50%; }
+  to { background-position: center, 100% 50%; }
+}
+
+@keyframes welcome-banner-sparkle {
+  0%, 100% { opacity: 0.72; transform: rotate(-4deg) scale(0.96); }
+  50% { opacity: 1; transform: rotate(7deg) scale(1.08); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .welcome-banner,
+  .welcome-banner-sparkle {
+    animation: none;
+  }
 }
 
 /* Restrained brand-gradient selection for workspace navigation. The first

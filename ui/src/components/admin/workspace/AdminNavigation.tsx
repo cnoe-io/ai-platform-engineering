@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  WorkspaceHierarchicalSectionNavigation,
+  WorkspaceHierarchicalNavigationList,
   type WorkspaceNavigationCategory,
   type WorkspaceNavigationGroup,
 } from "@/components/layout/WorkspaceNavigation";
@@ -11,7 +11,7 @@ import type {
 } from "@/components/admin/workspace/admin-routes";
 
 interface AdminNavigationProps {
-  activeDestination: AdminDestinationDefinition;
+  activeDestination?: AdminDestinationDefinition;
   categories: AdminCategoryDefinition[];
   searchParams: URLSearchParams;
 }
@@ -66,19 +66,27 @@ export function AdminNavigation({
       id: category.id,
       label: category.label,
       icon: category.icon,
-      groups: destinationGroups(category, searchParams, activeDestination.id),
+      groups: destinationGroups(
+        category,
+        searchParams,
+        activeDestination?.id ?? categories[0]?.destinations[0]?.id ?? "users",
+      ),
     }),
   );
-  const activeCategory = categories.find((category) =>
+  const activeCategory = activeDestination ? categories.find((category) =>
     category.destinations.some(
       (destination) => destination.id === activeDestination.id,
     ),
-  );
+  ) : undefined;
 
   return (
-    <WorkspaceHierarchicalSectionNavigation
-      activeCategoryId={activeCategory?.id ?? categories[0]?.id ?? ""}
-      activeItemId={activeDestination.id}
+    <WorkspaceHierarchicalNavigationList
+      activeCategoryId={
+        activeDestination
+          ? activeCategory?.id ?? categories[0]?.id ?? ""
+          : ""
+      }
+      activeItemId={activeDestination?.id ?? ""}
       categories={navigationCategories}
       navigationLabel="Admin sections"
     />
