@@ -2058,6 +2058,29 @@ export function DynamicAgentEditor({
             </>
           )}
         </div>
+        {!readOnly && firstBlocker && !loading && (
+          <div
+            id="create-agent-blocker-hint"
+            role="status"
+            aria-live="polite"
+            data-testid="create-agent-blocker-hint"
+            className="flex flex-wrap items-center justify-end gap-x-2 gap-y-1 text-xs text-muted-foreground"
+          >
+            <span>
+              Complete <span className="font-medium text-foreground">{firstBlocker.label}</span>
+              {blockerStepLabel ? ` on ${blockerStepLabel}` : ""} to create this agent.
+            </span>
+            {blockerStepLabel && firstBlocker.step !== activeStep ? (
+              <button
+                type="button"
+                onClick={() => selectStep(firstBlocker.step)}
+                className="rounded-sm font-medium text-primary underline underline-offset-2 hover:text-primary/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                Go to {blockerStepLabel}
+              </button>
+            ) : null}
+          </div>
+        )}
         <Button type="button" variant="outline" onClick={onCancel} disabled={loading}>
           {readOnly ? "Close" : "Cancel"}
         </Button>
@@ -2065,9 +2088,9 @@ export function DynamicAgentEditor({
           <Button
             onClick={handleSubmit}
             disabled={loading || !isValid}
-            // Native-tooltip mirror of the inline hint above. Helps users who
-            // hover the button looking for an explanation when they miss the
-            // inline text (e.g. on narrow screens where the hint wraps).
+            aria-describedby={!loading && firstBlocker ? "create-agent-blocker-hint" : undefined}
+            // Native-tooltip mirror of the visible hint. Helps users who hover
+            // the button looking for an explanation when the hint wraps.
             title={
               !loading && firstBlocker
                 ? `${firstBlocker.label} is required${blockerStepLabel ? ` (on ${blockerStepLabel} step)` : ""}`

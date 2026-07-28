@@ -1,12 +1,11 @@
 /**
  * Tests for how DynamicAgentEditor enforces required fields on submit.
  *
- * Enforcement is intentionally quiet: the Create Agent button is `disabled`
- * while any required field is missing (Owner Team, name, model, system
- * prompt), with a hover-only native `title=` explaining what's left. The
- * owner picker carries a silent `aria-invalid` for screen readers. We
- * deliberately do NOT render loud red badges, inline error boxes, or a
- * footer "Required: …" banner — the asterisk + disabled button are enough.
+ * The Create Agent button is `disabled` while any required field is missing
+ * (Owner Team, name, model, system prompt). A subdued footer hint explains
+ * the first blocker and links back to its wizard step. The owner picker also
+ * carries `aria-invalid`; we deliberately avoid loud red badges or inline
+ * error boxes.
  */
 
 import React from "react";
@@ -152,7 +151,7 @@ describe("DynamicAgentEditor — required-field enforcement", () => {
     jest.restoreAllMocks();
   });
 
-  it("disables Create Agent (with a hover tooltip) while Owner Team is empty", async () => {
+  it("explains that Owner Team blocks agent creation", async () => {
     render(<DynamicAgentEditor onCancel={jest.fn()} onSave={jest.fn()} />);
     await flushAsync();
 
@@ -164,17 +163,18 @@ describe("DynamicAgentEditor — required-field enforcement", () => {
     fireEvent.change(nameInput, { target: { value: "blocker-test-agent" } });
 
     // At this point: name ✔, model ✔ (auto-picked from the models fetch),
-    // owner_team ✗. Enforcement is quiet: the button stays disabled and only
-    // the hover tooltip names what's missing — no loud footer banner.
+    // owner_team ✗. The button stays disabled and both the visible hint and
+    // native tooltip name what's missing.
     const createButton = await screen.findByRole("button", { name: /Create Agent/i });
     expect(createButton).toBeDisabled();
+    expect(createButton).toHaveAttribute("aria-describedby", "create-agent-blocker-hint");
     expect(createButton).toHaveAttribute(
       "title",
       expect.stringContaining("Owner Team is required") as unknown as string
     );
 
-    // The loud footer "Required: …" hint must NOT be rendered.
-    expect(screen.queryByTestId("create-agent-blocker-hint")).not.toBeInTheDocument();
+    const hint = screen.getByTestId("create-agent-blocker-hint");
+    expect(hint).toHaveTextContent("Complete Owner Team on Basic Info to create this agent.");
   });
 
   it("marks the empty Owner Team picker aria-invalid without rendering a loud error box", async () => {
@@ -212,6 +212,37 @@ describe("DynamicAgentEditor — required-field enforcement", () => {
     expect(screen.getByRole("heading", { name: "Step 5: Advanced" })).toBeInTheDocument();
   });
 
+  it("returns to Basic Info from the Owner Team blocker guidance", async () => {
+    const onStepChange = jest.fn();
+    render(
+      <DynamicAgentEditor
+        initialStep="advanced"
+        onStepChange={onStepChange}
+        onCancel={jest.fn()}
+        onSave={jest.fn()}
+      />,
+    );
+    await flushAsync();
+
+    const nameInput = screen.queryByPlaceholderText(/Code Review Agent/i);
+    expect(nameInput).not.toBeInTheDocument();
+
+    // Agent name is the first blocker on an empty form, so fill it by visiting
+    // Basic Info once, then return to Advanced to isolate Owner Team.
+    fireEvent.click(screen.getByRole("button", { name: /^1 Basic Info$/i }));
+    fireEvent.change(screen.getByPlaceholderText(/Code Review Agent/i), {
+      target: { value: "blocker-test-agent" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Advanced/i }));
+
+    const goToBasicInfo = screen.getByRole("button", { name: /Go to Basic Info/i });
+    expect(goToBasicInfo).toBeVisible();
+    fireEvent.click(goToBasicInfo);
+
+    expect(onStepChange).toHaveBeenLastCalledWith("basic");
+    expect(screen.getByLabelText(/Owner Team/i)).toBeInTheDocument();
+  });
+
   it("enables Create Agent once Owner Team and the remaining fields are filled", async () => {
     render(<DynamicAgentEditor onCancel={jest.fn()} onSave={jest.fn()} />);
     await flushAsync();
@@ -227,12 +258,15 @@ describe("DynamicAgentEditor — required-field enforcement", () => {
     await pickTeam(/Owner Team/i, "platform");
 
     // Owner Team is no longer the blocker, so the picker clears aria-invalid
-    // and the tooltip stops naming it (system prompt is the remaining blocker).
+    // and the hint advances to the remaining system-prompt blocker.
     await waitFor(() => {
       expect(screen.getByLabelText(/Owner Team/i)).not.toHaveAttribute("aria-invalid", "true");
       expect(createButton).not.toHaveAttribute(
         "title",
         expect.stringContaining("Owner Team is required") as unknown as string,
+      );
+      expect(screen.getByTestId("create-agent-blocker-hint")).toHaveTextContent(
+        "Complete Instructions (system prompt) on Instructions to create this agent.",
       );
     });
   });
