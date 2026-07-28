@@ -11,8 +11,8 @@ import {
 } from "./_mocked-rbac";
 
 const adminSession = {
-  email: "sraradhy@cisco.com",
-  name: "Sri Aradhyula",
+  email: "user@example.com",
+  name: "Example User",
   role: "admin" as const,
   canViewAdmin: true,
 };
@@ -1417,7 +1417,7 @@ test.describe("mocked MCP OpenFGA tuple browser regression", () => {
     const mocks = await installRagFileIngestMocks(page);
 
     await page.goto("/knowledge-bases/ingest", { waitUntil: "domcontentloaded" });
-    await expect(page.getByRole("heading", { name: "Data Sources", level: 2 })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Data Sources", level: 1 })).toBeVisible();
 
     await page.getByRole("button", { name: "File" }).click();
     const fileInput = page.locator('input[type="file"]');
@@ -1458,7 +1458,7 @@ test.describe("mocked MCP OpenFGA tuple browser regression", () => {
     await installRagFileIngestMocks(page);
 
     await page.goto("/knowledge-bases/ingest", { waitUntil: "domcontentloaded" });
-    await expect(page.getByRole("heading", { name: "Data Sources", level: 2 })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Data Sources", level: 1 })).toBeVisible();
 
     const navigation = page.getByRole("navigation", { name: "Knowledge Base sections" });
     const activeItem = navigation.getByRole("link", { name: /Data Sources/ });
@@ -1467,7 +1467,16 @@ test.describe("mocked MCP OpenFGA tuple browser regression", () => {
     await expect(activeItem).toHaveClass(/workspace-navigation-active/);
     await expect(page.getByText("Navigation", { exact: true })).toHaveCount(0);
 
-    await expect(page.getByRole("heading", { name: "Knowledge Bases", level: 1 })).toBeVisible();
+    const breadcrumb = page.getByRole("navigation",{ name: "Breadcrumb" });
+    await expect(breadcrumb.getByRole("link",{ name: "Home" })).toHaveAttribute("href","/");
+    await expect(breadcrumb.getByRole("link",{ name: "Knowledge Bases" })).toHaveAttribute(
+      "href",
+      "/knowledge-bases/search",
+    );
+    await expect(breadcrumb.getByRole("link",{ name: "Data Sources" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
     await expect(page.getByRole("button", { name: /Knowledge Base navigation/ })).toHaveCount(0);
   });
 });

@@ -14,7 +14,7 @@ import {
 import { AgentPicker,type AgentPickerOption } from "@/components/ui/agent-picker";
 import type { AutoSaveState } from "@/hooks/use-keyed-auto-save";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
-import { AlertTriangle,Bot,Loader2 } from "lucide-react";
+import { AlertTriangle,Bot,CalendarClock,Loader2 } from "lucide-react";
 import { useEffect,useState } from "react";
 
 type PendingAction = "set" | "clear";
@@ -31,6 +31,10 @@ export function PlatformDefaultsSettings({
   const [loadError,setLoadError] = useState<string | null>(null);
   const [saveState,setSaveState] = useState<AutoSaveState>({ status: "idle" });
   const [configSource,setConfigSource] = useState("fallback");
+  const [selectedScheduleEditorAgentId,setSelectedScheduleEditorAgentId] = useState<string | null>(null);
+  const [savedScheduleEditorAgentId,setSavedScheduleEditorAgentId] = useState<string | null>(null);
+  const [scheduleEditorSource,setScheduleEditorSource] = useState("fallback");
+  const [scheduleEditorSaveState,setScheduleEditorSaveState] = useState<AutoSaveState>({ status: "idle" });
   const [confirmAction,setConfirmAction] = useState<PendingAction | null>(null);
 
   useEffect(() => {
@@ -55,6 +59,10 @@ export function PlatformDefaultsSettings({
         setSelectedAgentId(value);
         setSavedAgentId(value);
         setConfigSource(configData.data.source || "fallback");
+        const scheduleEditorValue = configData.data.schedule_editor_agent_id ?? null;
+        setSelectedScheduleEditorAgentId(scheduleEditorValue);
+        setSavedScheduleEditorAgentId(scheduleEditorValue);
+        setScheduleEditorSource(configData.data.schedule_editor_agent_source || "fallback");
       } catch (reason) {
         if (!cancelled) {
           setLoadError(reason instanceof Error ? reason.message : "Could not load the platform default");
@@ -114,6 +122,41 @@ export function PlatformDefaultsSettings({
     }
   };
 
+  const selectScheduleEditorAgent = async (value: string) => {
+    const next = value || null;
+    if (next === savedScheduleEditorAgentId) {
+      setSelectedScheduleEditorAgentId(savedScheduleEditorAgentId);
+      return;
+    }
+
+    setSelectedScheduleEditorAgentId(next);
+    setScheduleEditorSaveState({ status: "saving" });
+    try {
+      const response = await fetch("/api/admin/platform-config",{
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ schedule_editor_agent_id: next }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || "Could not update the scheduler editor agent");
+      }
+      const effectiveValue = data.data?.schedule_editor_agent_id ?? null;
+      setSelectedScheduleEditorAgentId(effectiveValue);
+      setSavedScheduleEditorAgentId(effectiveValue);
+      setScheduleEditorSource(data.data?.schedule_editor_agent_source || "fallback");
+      setScheduleEditorSaveState({ status: "saved" });
+    } catch (reason) {
+      setSelectedScheduleEditorAgentId(savedScheduleEditorAgentId);
+      setScheduleEditorSaveState({
+        status: "error",
+        error: reason instanceof Error
+          ? reason.message
+          : "Could not update the scheduler editor agent",
+      });
+    }
+  };
+
   const selectedAgent = agents.find((agent) => agent._id === selectedAgentId);
   const savedAgentMissing = Boolean(savedAgentId) && !agents.some((agent) => agent._id === savedAgentId);
   const missingSelectedOption = selectedAgentId && !agents.some((agent) => agent._id === selectedAgentId)
@@ -125,6 +168,20 @@ export function PlatformDefaultsSettings({
     ...(missingSelectedOption ? [missingSelectedOption] : []),
   ];
   const selectedAgentName = selectedAgent?.name ?? selectedAgentId ?? "this agent";
+  const selectedScheduleEditorAgent = agents.find(
+    (agent) => agent._id === selectedScheduleEditorAgentId,
+  );
+  const missingScheduleEditorOption = selectedScheduleEditorAgentId && !selectedScheduleEditorAgent
+    ? {
+        value: selectedScheduleEditorAgentId,
+        label: `${selectedScheduleEditorAgentId} (not visible to you)`,
+      }
+    : null;
+  const scheduleEditorOptions: AgentPickerOption[] = [
+    { value: "",label: "Use deployment/default chat agent" },
+    ...agents.map((agent) => ({ value: agent._id,label: agent.name })),
+    ...(missingScheduleEditorOption ? [missingScheduleEditorOption] : []),
+  ];
 
   return (
     <>
@@ -179,6 +236,61 @@ export function PlatformDefaultsSettings({
                 <p className="text-xs text-muted-foreground">Agent description: {selectedAgent.description}</p>
               ) : null}
               <AutoSaveStatus state={saveState} />
+            </div>
+          </div>
+        )}
+      </SettingsCard>
+
+      <SettingsCard
+        description={(
+          <>
+            Choose the agent opened by <em>Chat with agent</em> when a schedule has no schedule-specific editor agent.
+          </>
+        )}
+        title={<span className="flex items-center gap-2"><CalendarClock className="h-5 w-5 text-primary" />Scheduler editor agent</span>}
+      >
+        {loading ? (
+          <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading scheduler editor default…
+          </div>
+        ) : loadError ? (
+          <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+            {loadError}
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {scheduleEditorSource === "env" ? (
+              <p className="text-xs text-muted-foreground">
+                Currently using the deployment value (<code>SCHEDULE_EDITOR_AGENT_ID</code>). Choosing another agent here overrides it.
+              </p>
+            ) : null}
+            <div className="space-y-2">
+              <label className="text-sm font-medium" htmlFor="schedule-editor-agent">
+                Agent for schedule editing
+              </label>
+              <AgentPicker
+                ariaLabel="Scheduler editor agent"
+                disabled={readOnly || scheduleEditorSaveState.status === "saving"}
+                emptyLabel="No agents match"
+                hideIdSuffix
+                id="schedule-editor-agent"
+                onChange={(value) => void selectScheduleEditorAgent(value)}
+                options={scheduleEditorOptions}
+                placeholder="Select the scheduler editor agent..."
+                searchPlaceholder="Search agents..."
+                triggerClassName="max-w-sm"
+                value={selectedScheduleEditorAgentId ?? ""}
+              />
+              {selectedScheduleEditorAgent ? (
+                <p className="text-xs text-muted-foreground">
+                  Agent description: {selectedScheduleEditorAgent.description}
+                </p>
+              ) : null}
+              <p className="text-xs text-muted-foreground">
+                This setting does not grant users access to the selected agent.
+              </p>
+              <AutoSaveStatus state={scheduleEditorSaveState} />
             </div>
           </div>
         )}

@@ -1,23 +1,39 @@
 "use client";
 
 import { AuthGuard } from "@/components/auth-guard";
-import { WorkspaceHeader } from "@/components/layout/WorkspaceHeader";
-import { KnowledgeSidebar } from "@/components/rag/KnowledgeSidebar";
+import { WorkspacePageHeader } from "@/components/layout/WorkspacePageHeader";
+import { WorkspaceShell } from "@/components/layout/WorkspaceShell";
+import {
+  KNOWLEDGE_NAV_ITEMS,
+  KnowledgeSidebar,
+  knowledgeTabForPath,
+} from "@/components/rag/KnowledgeSidebar";
 import { Button } from "@/components/ui/button";
 import { CAIPESpinner } from "@/components/ui/caipe-spinner";
 import { useRAGHealth } from "@/hooks/use-rag-health";
 import { config } from "@/lib/config";
-import { BookOpen,RefreshCw,WifiOff } from "lucide-react";
+import { RefreshCw,WifiOff } from "lucide-react";
+import { usePathname } from "next/navigation";
 import React from "react";
 
-function KnowledgeBasesHeader(): React.ReactElement {
+function KnowledgeBasesHeader({
+  description,
+  href,
+  title,
+}: {
+  description: string;
+  href: string;
+  title: string;
+}): React.ReactElement {
   return (
-    <WorkspaceHeader
-      description="Manage data sources, search content, and explore relationships."
-      icon={BookOpen}
-      iconAnimationClassName="motion-safe:duration-300 motion-safe:group-hover:-rotate-6 motion-safe:group-hover:scale-110"
-      iconTestId="knowledge-bases-header-icon"
-      title="Knowledge Bases"
+    <WorkspacePageHeader
+      breadcrumbs={[
+        { label: "Home",href: "/" },
+        { label: "Knowledge Bases",href: "/knowledge-bases/search" },
+        { label: title,href },
+      ]}
+      description={description}
+      title={title}
     />
   );
 }
@@ -27,15 +43,29 @@ function KnowledgeBasesLayoutContent({
 }: {
   children: React.ReactNode;
 }) {
+  const pathname = usePathname();
   // Use the shared RAG health hook
   const { status: ragHealth, graphRagEnabled, checkNow: checkRagHealth } = useRAGHealth();
+  const activeTab = knowledgeTabForPath(pathname);
+  const activeItem = KNOWLEDGE_NAV_ITEMS.find((item) => item.id === activeTab)
+    ?? KNOWLEDGE_NAV_ITEMS[0];
+  const pageDescriptions: Record<string,string> = {
+    graph: "Explore entities and relationships across your knowledge sources.",
+    ingest: "Ingest and manage the sources available to knowledge retrieval.",
+    "mcp-tools": "Configure the knowledge search tools exposed through MCP.",
+    search: "Search and explore your approved knowledge bases.",
+  };
 
   // Disconnected state
   if (ragHealth === "disconnected") {
     return (
       <main className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex min-h-full w-full max-w-[108rem] flex-col px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-          <KnowledgeBasesHeader />
+        <div className="flex min-h-full w-full max-w-none flex-col px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+          <KnowledgeBasesHeader
+            description={pageDescriptions[activeItem.id]}
+            href={activeItem.href ?? "/knowledge-bases/search"}
+            title={activeItem.label}
+          />
           <div className="flex flex-1 flex-col items-center justify-center p-4 text-center text-muted-foreground">
           <WifiOff className="h-16 w-16 mb-4 text-destructive" />
           <h2 className="text-2xl font-bold mb-2 text-foreground">RAG Server Unavailable</h2>
@@ -65,19 +95,23 @@ function KnowledgeBasesLayoutContent({
     );
   }
 
-  // Connected - use the same page-style workspace shell as Settings and Credentials.
+  // Connected workspaces share the same responsive rail and contextual header.
   return (
-    <main className="min-h-0 flex-1 overflow-y-auto lg:overflow-hidden">
-      <div className="mx-auto flex min-h-full w-full max-w-[108rem] flex-col px-4 py-6 sm:px-6 lg:h-full lg:px-8 lg:py-8">
-        <KnowledgeBasesHeader />
-        <div className="space-y-6 lg:flex lg:min-h-0 lg:flex-1 lg:items-stretch lg:gap-10 lg:space-y-0">
-          <KnowledgeSidebar graphRagEnabled={graphRagEnabled} />
-          <div className="flex min-h-[42rem] min-w-0 flex-1 flex-col overflow-hidden lg:min-h-0">
-            {children}
-          </div>
-        </div>
-      </div>
-    </main>
+    <WorkspaceShell
+      className="xl:overflow-hidden"
+      containerClassName="min-h-full xl:h-full"
+      contentClassName="flex min-h-[42rem] flex-col overflow-hidden xl:min-h-0"
+      header={(
+        <KnowledgeBasesHeader
+          description={pageDescriptions[activeItem.id]}
+          href={activeItem.href ?? "/knowledge-bases/search"}
+          title={activeItem.label}
+        />
+      )}
+      navigation={<KnowledgeSidebar graphRagEnabled={graphRagEnabled} />}
+    >
+      {children}
+    </WorkspaceShell>
   );
 }
 

@@ -243,13 +243,7 @@ export function LLMProvidersTab() {
     <section className="space-y-6">
       <Card className="rounded-none border-0 bg-transparent shadow-none">
         <CardHeader className="px-0 pb-5 pt-0">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <CardTitle className="text-xl">Model Providers</CardTitle>
-              <CardDescription>
-                Save the provider keys agents need to use each model.
-              </CardDescription>
-            </div>
+          <div className="flex justify-end">
             <Button type="button" variant="outline" size="sm" onClick={() => void load()} disabled={loading}>
               {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Settings className="mr-2 h-4 w-4" />}
               Refresh

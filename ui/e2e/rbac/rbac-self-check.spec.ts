@@ -330,7 +330,11 @@ test.describe("mocked RBAC Self Check browser regression", () => {
     });
 
     await expect(page.getByRole("button", { name: "Security & Policy" })).toHaveAttribute("data-active", "true");
-    await expect(page.getByRole("link", { name: "Self Check" })).toHaveAttribute(
+    await expect(
+      page
+        .getByRole("navigation",{ name: "Admin sections" })
+        .getByRole("link", { name: "Self Check" }),
+    ).toHaveAttribute(
       "aria-current",
       "page",
     );

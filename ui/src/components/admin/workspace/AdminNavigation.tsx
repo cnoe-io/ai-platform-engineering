@@ -16,7 +16,7 @@ interface AdminNavigationProps {
   searchParams: URLSearchParams;
 }
 
-function destinationHref(
+export function adminDestinationHref(
   destination: AdminDestinationDefinition,
   searchParams: URLSearchParams,
   activeDestinationId: AdminDestinationDefinition["id"],
@@ -51,7 +51,7 @@ function destinationGroups(
     label: key === "destinations" ? undefined : key,
     items: destinations.map((destination) => ({
       ...destination,
-      href: destinationHref(destination, searchParams, activeDestinationId),
+      href: adminDestinationHref(destination, searchParams, activeDestinationId),
     })),
   }));
 }
@@ -81,7 +81,6 @@ export function AdminNavigation({
       activeItemId={activeDestination.id}
       categories={navigationCategories}
       navigationLabel="Admin sections"
-      pickerLabel="Admin section"
     />
   );
 }

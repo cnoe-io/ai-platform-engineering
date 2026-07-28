@@ -7,7 +7,7 @@ import { getErrorMessage } from "@/lib/error-utils";
 import { LastReviewBadge } from "@/components/ai-review";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card,CardContent,CardDescription,CardHeader,CardTitle } from "@/components/ui/card";
+import { Card,CardContent,CardHeader } from "@/components/ui/card";
 import { toYaml } from "@/lib/yaml-serializer";
 import type { DynamicAgentConfigWithPermissions } from "@/types/dynamic-agent";
 import {
@@ -375,14 +375,7 @@ export function DynamicAgentsTab({
   return (
     <Card className="rounded-none border-0 bg-transparent shadow-none">
       <CardHeader className="px-0 pb-5 pt-0">
-        <div className="flex items-center justify-between">
-          <div>
-            <CardTitle className="text-xl">Agents</CardTitle>
-            <CardDescription>
-              Build agents and choose the instructions, tools, and model they use.
-            </CardDescription>
-          </div>
-          <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
@@ -400,7 +393,6 @@ export function DynamicAgentsTab({
               <Plus className="h-4 w-4 mr-2" />
               New Agent
             </Button>
-          </div>
         </div>
       </CardHeader>
       <CardContent className="px-0 pt-6">

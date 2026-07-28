@@ -115,7 +115,6 @@ export const ADMIN_CATEGORIES: AdminCategoryDefinition[] = [
         description: "Import and reconcile agents from platform configuration.",
         icon: Bot,
         gateKey: "agents",
-        subgroup: "Resources",
       },
       {
         id: "mcp",
@@ -124,7 +123,6 @@ export const ADMIN_CATEGORIES: AdminCategoryDefinition[] = [
         description: "Manage the remote MCP providers available to users.",
         icon: Plug,
         gateKey: "mcp",
-        subgroup: "Resources",
       },
       {
         id: "skills",
@@ -133,7 +131,6 @@ export const ADMIN_CATEGORIES: AdminCategoryDefinition[] = [
         description: "Manage external skill catalogs and crawl sources.",
         icon: Layers,
         gateKey: "skills",
-        subgroup: "Resources",
       },
       {
         id: "service-accounts",
@@ -142,7 +139,6 @@ export const ADMIN_CATEGORIES: AdminCategoryDefinition[] = [
         description: "Manage machine identities and their platform access.",
         icon: KeyRound,
         gateKey: "service_accounts",
-        subgroup: "Resources",
       },
       {
         id: "credentials",
@@ -151,7 +147,6 @@ export const ADMIN_CATEGORIES: AdminCategoryDefinition[] = [
         description: "Review and manage platform credential access.",
         icon: Shield,
         gateKey: "credentials",
-        subgroup: "Resources",
       },
     ],
   },

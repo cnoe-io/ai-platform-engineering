@@ -2,7 +2,7 @@
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card,CardContent,CardDescription,CardHeader,CardTitle } from "@/components/ui/card";
+import { Card,CardContent,CardHeader } from "@/components/ui/card";
 import {
 Dialog,
 DialogContent,
@@ -218,13 +218,7 @@ export function ConversationsTab() {
   return (
     <Card className="rounded-none border-0 bg-transparent shadow-none">
       <CardHeader className="px-0 pb-5 pt-0">
-        <div className="flex items-center justify-between">
-          <div>
-            <CardTitle className="text-xl">Conversations</CardTitle>
-            <CardDescription>
-              View and manage Dynamic Agent conversations. Clear checkpoint data to remove message history.
-            </CardDescription>
-          </div>
+        <div className="flex justify-end">
           <Button variant="outline" size="sm" onClick={fetchConversations} disabled={loading}>
             <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
             Refresh

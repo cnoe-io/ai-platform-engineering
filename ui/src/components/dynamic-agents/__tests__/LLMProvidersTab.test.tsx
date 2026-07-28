@@ -57,10 +57,10 @@ describe("LLMProvidersTab", () => {
   it("shows provider status cards without mixing in the model registry", async () => {
     render(<LLMProvidersTab />);
 
-    expect(await screen.findByText("Model Providers")).toBeInTheDocument();
     expect(await screen.findByText("OpenAI")).toBeInTheDocument();
     expect(screen.getByText("AWS Bedrock")).toBeInTheDocument();
     expect(await screen.findByText("Ready")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Refresh" })).toBeInTheDocument();
     expect(screen.queryByText("LLM models content")).not.toBeInTheDocument();
   });
 
