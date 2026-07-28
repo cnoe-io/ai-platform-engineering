@@ -32,6 +32,7 @@ const SHAREABLE_TYPES = [
   "knowledge_base",
   "data_source",
   "mcp_tool",
+  "ingestion_source",
 ] as const;
 
 interface ParsedType {

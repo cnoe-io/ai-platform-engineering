@@ -588,6 +588,22 @@ appConfig:
   #     github: []
   #   enabled: true
 
+  # RAG ingestion source configurations
+  rag_sources: []
+  # Example:
+  # - source_type: "slack_channel"
+  #   channel_id: "C1234567890"
+  #   name: "eng-general"
+  #   description: "Engineering general channel"
+  #   owner_team: "team-example"          # optional — omit for a global, unowned source
+  #   shared_with_teams: []
+  #   visibility: "global"                 # optional, defaults to "global" for config-driven sources
+  #   default_chunk_size: 10000
+  #   default_chunk_overlap: 2000
+  #   reload_interval: 86400
+  #   lookback_days: 30
+  #   include_bots: false
+
   # Workflow configurations (multi-step automated pipelines)
   workflow_configs: []
   # Example:
