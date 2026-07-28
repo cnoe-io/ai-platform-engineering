@@ -25,8 +25,10 @@ dependencies = [
     "pyjwt[crypto]==2.13.0",
     # S3 attachment store (services/attachment_store.py). Present transitively
     # today (via cnoe-agent-utils / langchain-aws) but declared explicitly so the
-    # S3 backend has a pinned, first-class dependency. Matches the audit-service pin.
-    "boto3==1.42.7",
+    # S3 backend has a pinned, first-class dependency. Pinned to match the version
+    # cnoe-agent-utils requires (it hard-pins boto3==1.43.16), so the lock stays
+    # consistent and `uv lock --locked` passes.
+    "boto3==1.43.16",
 ]
 
 [project.optional-dependencies]
