@@ -7,7 +7,7 @@ import { ObjectId } from 'mongodb';
 
 const mockGetServerSession = jest.fn();
 jest.mock('next-auth', () => ({
-  getServerSession: (...args: any[]) => mockGetServerSession(...args),
+  getServerSession: (...args: unknown[]) => mockGetServerSession(...args),
 }));
 jest.mock('@/lib/auth-config', () => ({
   authOptions: {},
@@ -18,13 +18,13 @@ jest.mock('@/lib/config', () => ({
   getConfig: (key: string) => key === 'ssoEnabled',
 }));
 
-const mockCollections: Record<string, any> = {};
+const mockCollections: Record<string, unknown> = {};
 const mockGetCollection = jest.fn((name: string) => {
   if (!mockCollections[name]) mockCollections[name] = createMockCollection();
   return Promise.resolve(mockCollections[name]);
 });
 jest.mock('@/lib/mongodb', () => ({
-  getCollection: (...args: any[]) => mockGetCollection(...args),
+  getCollection: (...args: unknown[]) => mockGetCollection(...args),
   isMongoDBConfigured: true,
 }));
 
@@ -95,8 +95,8 @@ beforeEach(() => {
 });
 
 describe('requireConversationAccess — admin audit', () => {
-  let requireConversationAccess: any;
-  let ApiError: any;
+  let requireConversationAccess: unknown;
+  let ApiError: unknown;
 
   beforeEach(async () => {
     jest.resetModules();
@@ -321,7 +321,7 @@ describe('requireConversationAccess — admin audit', () => {
 });
 
 describe('GET /api/chat/conversations/[id] — access_level in response', () => {
-  let GET: any;
+  let GET: unknown;
 
   beforeEach(async () => {
     jest.resetModules();

@@ -1,6 +1,8 @@
 # Copyright 2025 CNOE
 # SPDX-License-Identifier: Apache-2.0
 
+# assisted-by claude code claude-sonnet-4-6
+
 import functools
 import logging
 from enum import Enum
@@ -15,27 +17,39 @@ from mcp_agent_auth.token import get_request_token
 WEBEX_API_BASE = "https://webexapis.com/v1"
 
 
+def get_provider_header_token() -> Optional[str]:
+    """Read a per-user Webex OAuth token forwarded by agentgateway on X-CAIPE-Provider-Token."""
+    try:
+        from fastmcp.server.dependencies import get_http_request
+
+        req = get_http_request()
+        token = req.headers.get("x-caipe-provider-token", "").strip()
+        return token or None
+    except RuntimeError:
+        return None
+
+
 class PostMessage(BaseModel):
-    text: Annotated[str, Field(description="Text message to send")]
+    text: Annotated[
+        str | None, Field(description="Text message to send")
+    ] = None
     to_person_email: Annotated[
         str | None,
-        Field(description="Email of the person to send the message to", default=None),
-    ]
+        Field(description="Email of the person to send the message to"),
+    ] = None
     markdown: Annotated[
-        str | None, Field(description="Markdown message to send", default=None)
-    ]
+        str | None, Field(description="Markdown message to send")
+    ] = None
     room_id: Annotated[
         str | None,
-        Field(description="Room that will receive the message", default=None),
-    ]
+        Field(description="Room that will receive the message"),
+    ] = None
     parent_id: Annotated[
         str | None,
         Field(
-            description="If specified, this message is a reply in a thread ("
-            "parentId)",
-            default=None,
+            description="If specified, this message is a reply in a thread (parentId)"
         ),
-    ]
+    ] = None
 
     class Config:
         description = """Send a message to a Webex room or user.
@@ -44,15 +58,15 @@ class PostMessage(BaseModel):
             At least one of 'text' or 'markdown' must be provided.
         """
 
-    @model_validator(mode="before")
-    def validate_message_content(cls, data):
-        if not (data.get("text") or data.get("markdown")):
+    @model_validator(mode="after")
+    def validate_message_content(self):
+        if not (self.text or self.markdown):
             raise ValueError("Either 'text' or 'markdown' must be provided")
 
-        if not (data.get("room_id") or data.get("to_person_email")):
+        if not (self.room_id or self.to_person_email):
             raise ValueError("Either 'room_id' or 'to_person_email' must be provided")
 
-        return data
+        return self
 
 
 class CreateRoom(BaseModel):
@@ -165,8 +179,8 @@ def register_tools(server, auth_token: Optional[str] = None) -> None:
     http_client = httpx.AsyncClient(base_url=WEBEX_API_BASE)
 
     def _get_token() -> str:
-        """Resolve bearer token: per-request header takes priority over startup env token."""
-        return get_request_token("WEBEX_TOKEN") or auth_token or ""
+        """Resolve bearer token: provider header (per-user OAuth) → MCP auth token → startup env token."""
+        return get_provider_header_token() or get_request_token("WEBEX_TOKEN") or auth_token or ""
 
     def handle_mcp_errors(func):
         @functools.wraps(func)

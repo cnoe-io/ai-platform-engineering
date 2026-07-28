@@ -11,8 +11,31 @@ withErrorHandler,
 } from '@/lib/api-middleware';
 import { getConfig } from '@/lib/config';
 import { getCollection,isMongoDBConfigured } from '@/lib/mongodb';
-import { getReadableSlackChannelNames } from '@/lib/rbac/user-insights-scope';
+import {
+resolveAuthorizedAdminSimulationScope,
+simulationSubjectCanManageAdminSurface,
+} from '@/lib/rbac/admin-simulation-server';
+import { resolveInsightsUserFilter } from '@/lib/rbac/insights-user-filter';
+import { getOwnedAgentConversationIds, getOwnedAgents, getReadableSlackChannelNames } from '@/lib/rbac/user-insights-scope';
+import type { Conversation } from '@/types/mongodb';
+import type { Document,ObjectId } from 'mongodb';
 import { NextRequest,NextResponse } from 'next/server';
+
+interface FeedbackDocument extends Document {
+  _id?: ObjectId;
+  channel_name?: string;
+  comment?: string;
+  conversation_id?: string;
+  created_at?: Date;
+  message_id?: string;
+  rating?: string;
+  slack_permalink?: string;
+  source?: string;
+  trace_id?: string;
+  user_email?: string;
+  user_id?: string;
+  value?: string;
+}
 
 export const GET = withErrorHandler(async (request: NextRequest) => {
   if (!getConfig('feedbackEnabled')) {
@@ -34,31 +57,55 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   }
 
   const { session } = await getAuthFromBearerOrSession(request);
-  const isFullAdmin = await requireRbacPermission(session, 'admin_ui', 'view').then(
-    () => true,
-    () => false
-  );
+  const { searchParams } = request.nextUrl;
+  const simulationScope = await resolveAuthorizedAdminSimulationScope(searchParams, session);
+  const isFullAdmin = simulationScope
+    ? await simulationSubjectCanManageAdminSurface(simulationScope, 'feedback')
+    : await requireRbacPermission(session, 'admin_ui', 'view').then(
+        () => true,
+        () => false
+      );
 
   let scopedChannelNames: string[] | null = null;
   let scopedOwnerEmail: string | null = null;
+  let scopedOwnedAgentConvIds: string[] | null = null;
   if (!isFullAdmin) {
-    const sub = typeof session.sub === 'string' ? session.sub.trim() : '';
-    const email = typeof session.user?.email === 'string' ? session.user.email.trim() : '';
-    if (!sub) {
+    const openfgaUser = simulationScope?.openfgaUser ?? (
+      typeof session.sub === 'string' && session.sub.trim()
+        ? `user:${session.sub.trim()}`
+        : ''
+    );
+    const email = simulationScope?.ownerEmail ?? (
+      typeof session.user?.email === 'string' ? session.user.email.trim() : ''
+    );
+    if (!openfgaUser) {
       return NextResponse.json(
         { success: false, error: 'Unauthorized', code: 'UNAUTHORIZED' },
         { status: 401 }
       );
     }
-    scopedChannelNames = await getReadableSlackChannelNames(`user:${sub}`);
+    const [channelNames, ownedAgents] = await Promise.all([
+      getReadableSlackChannelNames(openfgaUser),
+      getOwnedAgents(openfgaUser),
+    ]);
+    scopedChannelNames = channelNames;
     scopedOwnerEmail = email || null;
+    // Feedback rows carry no agent field — match owned-agent feedback by the
+    // conversation_ids routed to those agents (both Slack and web surfaces).
+    scopedOwnedAgentConvIds = ownedAgents.length > 0
+      ? (await getOwnedAgentConversationIds(ownedAgents)).ids
+      : [];
   }
 
-    const { searchParams } = new URL(request.url);
     const rating = searchParams.get('rating'); // 'positive' | 'negative' | null (all)
     const source = searchParams.get('source'); // 'web' | 'slack' | null (all)
     const channel = searchParams.get('channel'); // comma-separated channel names | null (all)
     const userFilter = searchParams.get('user'); // comma-separated user emails | null (all)
+    const teamFilter = searchParams.get('team'); // comma-separated team slugs | null (all)
+    const { active: hasUserFilter, emails: userEmails } = await resolveInsightsUserFilter(
+      userFilter,
+      teamFilter,
+    );
     const search = searchParams.get('search'); // comma-separated search terms OR'd as regex on comment/value
     const from = searchParams.get('from'); // ISO date string for start of range
     const to = searchParams.get('to'); // ISO date string for end of range
@@ -66,9 +113,9 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     const limit = Math.min(100, Math.max(1, parseInt(searchParams.get('limit') || '50', 10)));
     const skip = (page - 1) * limit;
 
-    const feedbackColl = await getCollection('feedback');
+    const feedbackColl = await getCollection<FeedbackDocument>('feedback');
 
-    const filter: Record<string, any> = {};
+    const filter: Document = {};
     if (rating === 'positive' || rating === 'negative') {
       filter.rating = rating;
     }
@@ -85,13 +132,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         }
       }
     }
-    if (userFilter) {
-      const users = userFilter.split(',').map((u) => u.trim()).filter(Boolean);
-      if (users.length === 1) {
-        filter.user_email = users[0];
-      } else if (users.length > 1) {
-        filter.user_email = { $in: users };
-      }
+    if (hasUserFilter) {
+      filter.user_email = userEmails.length === 1 ? userEmails[0] : { $in: userEmails };
     }
     if (search) {
       const terms = search.split(',').map((t) => t.trim()).filter(Boolean);
@@ -109,7 +151,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       if (to) filter.created_at.$lte = new Date(to);
     }
 
-    // Non-admin: scope to their readable Slack channels OR their own web feedback.
+    // Non-admin: scope to their readable Slack channels, their own web feedback,
+    // OR feedback on conversations routed to agents they own.
     if (!isFullAdmin) {
       const scopeClauses: Record<string, unknown>[] = [];
       if (scopedChannelNames && scopedChannelNames.length > 0) {
@@ -123,11 +166,15 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       if (scopedOwnerEmail) {
         scopeClauses.push({ user_email: scopedOwnerEmail });
       }
+      if (scopedOwnedAgentConvIds && scopedOwnedAgentConvIds.length > 0) {
+        scopeClauses.push({ conversation_id: { $in: scopedOwnedAgentConvIds } });
+      }
       if (scopeClauses.length === 0) {
         return successResponse({
           entries: [],
           channels: [],
           users: [],
+          summary: { positive: 0, negative: 0, total: 0, positive_rate: 0 },
           pagination: { page, limit, total: 0, total_pages: 0 },
         });
       }
@@ -147,7 +194,14 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       ? { user_email: { $ne: null } }
       : { ...filter, user_email: { $ne: null } };
 
-    const [docs, totalCount, channels, distinctUsers] = await Promise.all([
+    // Summary counts (positive/negative rate) reflect the same scope + filters
+    // as the list, EXCEPT the rating toggle — the rate should describe the whole
+    // scoped set, not just the currently-selected rating. RBAC scope, source,
+    // channel, user, search, and date filters all still apply.
+    const { rating: _omitRating, ...summaryFilter } = filter;
+    void _omitRating;
+
+    const [docs, totalCount, channels, distinctUsers, summaryCounts] = await Promise.all([
       feedbackColl
         .find(filter)
         .sort({ created_at: -1 })
@@ -157,20 +211,40 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       feedbackColl.countDocuments(filter),
       feedbackColl.distinct('channel_name', channelDistinctFilter),
       feedbackColl.distinct('user_email', userDistinctFilter),
+      feedbackColl
+        .aggregate([
+          { $match: summaryFilter },
+          { $group: { _id: '$rating', count: { $sum: 1 } } },
+        ])
+        .toArray(),
     ]);
 
+    let positive = 0;
+    let negative = 0;
+    for (const row of summaryCounts as Array<{ _id: string; count: number }>) {
+      if (row._id === 'positive') positive = row.count;
+      else if (row._id === 'negative') negative = row.count;
+    }
+    const summaryTotal = positive + negative;
+    const summary = {
+      positive,
+      negative,
+      total: summaryTotal,
+      positive_rate: summaryTotal > 0 ? Math.round((positive / summaryTotal) * 100) : 0,
+    };
+
     // For web feedback that has a conversation_id, batch-fetch conversation titles
-    const convIds = [...new Set(
-      docs.map((d: any) => d.conversation_id).filter(Boolean)
-    )];
+    const convIds = [...new Set(docs.flatMap((doc) =>
+      doc.conversation_id ? [doc.conversation_id] : []
+    ))];
     let convTitleMap = new Map<string, string>();
     if (convIds.length > 0) {
       try {
-        const conversations = await getCollection('conversations');
+        const conversations = await getCollection<Conversation>('conversations');
         const convDocs = await conversations
           .find({ _id: { $in: convIds } }, { projection: { _id: 1, title: 1 } })
           .toArray();
-        convTitleMap = new Map(convDocs.map((c: any) => [c._id, c.title]));
+        convTitleMap = new Map(convDocs.map((conversation) => [conversation._id, conversation.title]));
       } catch {
         // conversations collection may not exist for Slack-only data
       }
@@ -186,7 +260,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       other: 'Other',
     };
 
-    const entries = docs.map((doc: any) => {
+    const entries = docs.map((doc) => {
       const valueLabel = VALUE_LABELS[doc.value] || doc.value || null;
       const comment = doc.comment || null;
       // Combine value and comment: "Wrong answer; check the team..."
@@ -220,6 +294,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       entries,
       channels: (channels as string[]).sort(),
       users: (distinctUsers as string[]).sort(),
+      summary,
       pagination: {
         page,
         limit,

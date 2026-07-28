@@ -2,6 +2,7 @@
 
 import { expect, test, type Page } from "@playwright/test";
 
+import { openAddMcpServerEditor } from "./_mcp-browser-fixtures";
 import {
   fulfillJson,
   installMockedRbacApp,
@@ -146,8 +147,7 @@ test.describe("RBAC e2e — MCP server permission gating", () => {
 
     await page.goto("/dynamic-agents?tab=mcp-servers", { waitUntil: "domcontentloaded" });
     await expect(page.getByText("No MCP Servers Yet")).toBeVisible();
-    await page.getByRole("button", { name: "Add Server" }).first().click();
-    await expect(page.getByText("Add MCP Server")).toBeVisible();
+    await openAddMcpServerEditor(page);
     await expect(page.getByRole("button", { name: "Create Server" })).toBeVisible();
   });
 

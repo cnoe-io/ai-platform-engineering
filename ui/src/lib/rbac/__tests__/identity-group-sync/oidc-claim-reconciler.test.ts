@@ -166,4 +166,49 @@ describe("OIDC claim identity group reconciliation", () => {
       })
     );
   });
+
+  it("no-ops when no rules are stored and allowTeamCreation is false", async () => {
+    listIdentityGroupSyncRules.mockReset().mockResolvedValue([]);
+    const { reconcileOidcClaimGroupsForUser } = await import("../../oidc-claim-reconciler");
+
+    await reconcileOidcClaimGroupsForUser({
+      subject: "keycloak-sub",
+      email: "bob@example.test",
+      displayName: "Bob",
+      groups: ["Sales"],
+      now: "2026-05-12T00:00:00.000Z",
+    });
+
+    expect(applyIdentityGroupSyncPlan).not.toHaveBeenCalled();
+  });
+
+  it("synthesizes a passthrough rule and writes membership tuples when no rules are stored but allowTeamCreation=true", async () => {
+    // Regression test for #2265: IDENTITY_SYNC_LOGIN_AUTO_CREATE_TEAMS=true with
+    // no pre-configured identity-group-sync rules used to silently no-op,
+    // leaving OpenFGA team membership tuples unwritten.
+    listIdentityGroupSyncRules.mockReset().mockResolvedValue([]);
+    const { reconcileOidcClaimGroupsForUser } = await import("../../oidc-claim-reconciler");
+
+    await reconcileOidcClaimGroupsForUser({
+      subject: "keycloak-sub",
+      email: "bob@example.test",
+      displayName: "Bob",
+      groups: ["Sales"],
+      now: "2026-05-12T00:00:00.000Z",
+      allowTeamCreation: true,
+    });
+
+    expect(applyIdentityGroupSyncPlan).toHaveBeenCalledWith(
+      expect.objectContaining({
+        plan: expect.objectContaining({
+          teams_to_create: expect.arrayContaining([
+            expect.objectContaining({ slug: "sales", name: "Sales", source_group_id: "Sales" }),
+          ]),
+          tuple_writes: expect.arrayContaining([
+            expect.objectContaining({ object: "team:sales", relation: "member" }),
+          ]),
+        }),
+      })
+    );
+  });
 });

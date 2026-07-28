@@ -56,6 +56,8 @@ def test_parent_chart_renders_bridge_token_validation_env() -> None:
     assert 'value: "RS256"' in rendered
     assert "name: AUDIT_SERVICE_URL" in rendered
     assert 'value: "http://audit-service:8010"' in rendered
+    assert "name: CAIPE_RESTRICTED_MCP_SERVERS" in rendered
+    assert 'value: "scheduler"' in rendered
     assert "name: MONGODB_DATABASE" not in rendered
     assert "name: MONGODB_URI" not in rendered
 
@@ -211,6 +213,28 @@ def test_webex_bot_configmap_includes_in_cluster_service_urls() -> None:
         assert key in rendered
     assert "http://ai-platform-engineering-keycloak:8080" in rendered
     assert "http://ai-platform-engineering-openfga:8080" in rendered
+
+
+def test_webex_bot_catalog_renders_default_marker() -> None:
+    rendered = _helm_template_webex_bot(
+        "--set-json",
+        'webex-bot.bots=[{"id":"primary","name":"Primary bot","tokenEnv":"PRIMARY_TOKEN","default":true}]',
+    )
+    docs = [doc for doc in yaml.safe_load_all(rendered) if isinstance(doc, dict)]
+    config = next(
+        doc
+        for doc in docs
+        if doc.get("kind") == "ConfigMap"
+        and doc.get("metadata", {}).get("name") == "caipe-webex-bot-config"
+    )
+    assert json.loads(config["data"]["WEBEX_INTEGRATION_BOTS_JSON"]) == [
+        {
+            "id": "primary",
+            "name": "Primary bot",
+            "tokenEnv": "PRIMARY_TOKEN",
+            "default": True,
+        }
+    ]
 
 
 def test_openfga_helm_model_is_the_single_json_artifact() -> None:

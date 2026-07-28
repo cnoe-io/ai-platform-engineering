@@ -72,3 +72,10 @@ def test_sanitize_url_rejects_unresolvable_hostname(monkeypatch):
 
   with pytest.raises(ValueError, match="could not be resolved"):
     sanitize_url("https://nonexistent.invalid/page")
+
+
+def test_sanitize_url_allows_private_when_flag_set(monkeypatch):
+  _patch_dns(monkeypatch, {"internal.example.com": ["10.1.2.3"]})
+
+  result = sanitize_url("https://internal.example.com/docs", allow_non_public_urls=True)
+  assert result == "https://internal.example.com/docs"

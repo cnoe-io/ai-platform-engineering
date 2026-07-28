@@ -64,12 +64,12 @@ export function SecretSharingPanel({
   React.useEffect(() => {
     async function loadTeams() {
       try {
-        const response = await fetch("/api/admin/teams");
+        const response = await fetch("/api/dynamic-agents/teams");
         if (!response.ok) {
           throw new Error("Could not load teams");
         }
-        const payload = apiData<{ teams?: TeamOption[] }>(await response.json());
-        setTeamOptions(payload.teams ?? []);
+        const payload = apiData<{ teams?: TeamOption[] } | TeamOption[]>(await response.json());
+        setTeamOptions(Array.isArray(payload) ? payload : payload.teams ?? []);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Could not load teams");
       }

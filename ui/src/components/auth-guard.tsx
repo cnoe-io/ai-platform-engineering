@@ -5,7 +5,7 @@ import { isTokenExpired } from "@/lib/auth-utils";
 import { getConfig } from "@/lib/config";
 import { signOut,useSession } from "next-auth/react";
 import { usePathname,useRouter } from "next/navigation";
-import { useEffect,useState } from "react";
+import { useCallback,useEffect,useState } from "react";
 
 interface AuthGuardProps {
   children: React.ReactNode;
@@ -22,8 +22,6 @@ export function AuthGuard({ children }: AuthGuardProps) {
   const { data: session, status } = useSession();
   const router = useRouter();
   const pathname = usePathname();
-  // Initialize authChecked to true if already authenticated to avoid spinner on navigation
-  const [authChecked, setAuthChecked] = useState(status === "authenticated");
   const [loadingTimeout, setLoadingTimeout] = useState(false);
   const [autoResetInitiated, setAutoResetInitiated] = useState(false);
 
@@ -31,13 +29,13 @@ export function AuthGuard({ children }: AuthGuardProps) {
    * Build a login URL that preserves the current page as callbackUrl so the
    * user returns here after re-authenticating (e.g. /chat/<uuid>).
    */
-  function loginUrl(params?: string): string {
+  const loginUrl = useCallback((params?: string): string => {
     const cb = pathname && pathname !== '/' && pathname !== '/login'
       ? `callbackUrl=${encodeURIComponent(pathname)}`
       : '';
     const parts = [params, cb].filter(Boolean).join('&');
     return parts ? `/login?${parts}` : '/login';
-  }
+  }, [pathname]);
 
   // Check for corrupted session cookies on mount
   useEffect(() => {
@@ -56,13 +54,12 @@ export function AuthGuard({ children }: AuthGuardProps) {
       });
       window.location.href = loginUrl('session_reset=auto');
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [loginUrl]);
 
   // Enhanced timeout mechanism - if stuck for more than 5 seconds, show cancel button
   // If stuck for more than 15 seconds, auto-reset and redirect
   useEffect(() => {
-    if ((status === "authenticated" || status === "loading") && !authChecked) {
+    if (status === "loading") {
       // Show cancel button after 5 seconds
       const timeoutButton = setTimeout(() => {
         console.warn("[AuthGuard] Authorization check taking too long - showing reset option");
@@ -71,7 +68,7 @@ export function AuthGuard({ children }: AuthGuardProps) {
 
       // Auto-reset after 15 seconds if still stuck
       const timeoutReset = setTimeout(() => {
-        if (!authChecked && !autoResetInitiated) {
+        if (!autoResetInitiated) {
           console.error("[AuthGuard] Authorization stuck for 15s - auto-resetting session...");
           setAutoResetInitiated(true);
 
@@ -95,11 +92,10 @@ export function AuthGuard({ children }: AuthGuardProps) {
         clearTimeout(timeoutReset);
       };
     }
-  }, [status, authChecked, autoResetInitiated]);
+  }, [status, autoResetInitiated, loginUrl]);
 
   useEffect(() => {
     if (!getConfig('ssoEnabled')) {
-      setAuthChecked(true);
       return;
     }
 
@@ -122,8 +118,6 @@ export function AuthGuard({ children }: AuthGuardProps) {
       if (isTokenExpiryHandling) {
         // Let TokenExpiryGuard handle the expiry with its modal
         console.log("[AuthGuard] TokenExpiryGuard is handling expiry, skipping redirect");
-        // Still set authChecked to true to prevent infinite loading
-        setAuthChecked(true);
         return;
       }
 
@@ -139,8 +133,6 @@ export function AuthGuard({ children }: AuthGuardProps) {
 
       // Check if user is authorized (has required group)
       if (session?.isAuthorized === false) {
-        // Set authChecked before redirect to prevent stuck state
-        setAuthChecked(true);
         router.push("/unauthorized");
         return;
       }
@@ -151,8 +143,6 @@ export function AuthGuard({ children }: AuthGuardProps) {
 
       if (tokenExpiry && isTokenExpired(tokenExpiry, 60)) {
         console.warn("[AuthGuard] Token expired without refresh, redirecting to login...");
-        // Set authChecked before redirect to prevent stuck state
-        setAuthChecked(true);
         router.push(loginUrl('session_expired=true'));
         return;
       }
@@ -162,10 +152,9 @@ export function AuthGuard({ children }: AuthGuardProps) {
         sessionStorage.removeItem('token-expiry-handling');
       }
 
-      setAuthChecked(true);
       console.log("[AuthGuard] ✅ Authorization complete, rendering app");
     }
-  }, [status, session, router]);
+  }, [status, session, router, loginUrl]);
 
   // If SSO is not enabled, render children directly
   if (!getConfig('ssoEnabled')) {
@@ -173,12 +162,10 @@ export function AuthGuard({ children }: AuthGuardProps) {
   }
 
   // Show loading while checking authentication/authorization
-  if (status === "loading" || !authChecked) {
-    const message = status === "loading"
-      ? "Checking authentication..."
-      : loadingTimeout
-        ? "Session verification stuck - click below to reset"
-        : "Verifying authorization...";
+  if (status === "loading") {
+    const message = loadingTimeout
+      ? "Session verification stuck - click below to reset"
+      : "Checking authentication...";
 
     const handleCancel = async () => {
       console.log("[AuthGuard] User manually resetting session...");

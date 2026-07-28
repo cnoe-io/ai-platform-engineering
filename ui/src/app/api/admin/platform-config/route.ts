@@ -6,6 +6,12 @@
 import { ApiError,requireRbacPermission,withAuth,withErrorHandler } from '@/lib/api-middleware';
 import { getCollection } from '@/lib/mongodb';
 import {
+normalizePlatformDefaultAgentId,
+PLATFORM_AGENT_ID_PATTERN,
+PLATFORM_CONFIG_ID,
+type PlatformDefaultAgentDocument,
+} from '@/lib/platform-default-agent';
+import {
 DEFAULT_DISCOVERY_CACHE_TTL_MINUTES,
 MAX_DISCOVERY_CACHE_TTL_MINUTES,
 MIN_DISCOVERY_CACHE_TTL_MINUTES,
@@ -20,33 +26,79 @@ withJsonResponseCache,
 } from '@/lib/server-response-cache';
 import { NextRequest,NextResponse } from 'next/server';
 
-const CONFIG_ID = 'platform_settings';
-const OPENFGA_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._~@|*+=,/-]{0,191}$/;
 const platformConfigCache = createJsonResponseCacheStore();
 
-interface PlatformConfigDoc {
-  _id?: string;
-  default_agent_id?: unknown;
+interface PlatformConfigDoc extends PlatformDefaultAgentDocument {
+  schedule_editor_agent_id?: unknown;
   slack_victorops_escalation_agent_id?: unknown;
   release_notes?: unknown;
   discovery_cache_ttl_minutes?: unknown;
+  remote_mcp_catalog?: unknown;
+}
+
+export interface CustomMCPCatalogEntry {
+  id: string;
+  name: string;
+  description: string;
+  endpoint: string;
+  logo_url?: string;
+  provider_key: string;
+}
+
+export interface RemoteMCPCatalogConfig {
+  enabled_providers: string[] | null;
+  custom_entries: CustomMCPCatalogEntry[];
+}
+
+function normalizeCustomMCPEntry(entry: unknown, idx: number): CustomMCPCatalogEntry | null {
+  if (!isRecord(entry)) return null;
+  const name = typeof entry.name === 'string' ? entry.name.trim() : '';
+  if (!name) return null;
+  const endpoint = typeof entry.endpoint === 'string' ? entry.endpoint.trim() : '';
+  if (!endpoint) return null;
+  try { new URL(endpoint); } catch { return null; }
+  const provider_key = typeof entry.provider_key === 'string' ? entry.provider_key.trim().toLowerCase() : '';
+  if (!provider_key) return null;
+  const id = typeof entry.id === 'string' && entry.id.trim() ? entry.id.trim() : `custom-${idx}`;
+  return {
+    id,
+    name,
+    description: typeof entry.description === 'string' ? entry.description.trim() : '',
+    endpoint,
+    logo_url: typeof entry.logo_url === 'string' && entry.logo_url.trim() ? entry.logo_url.trim() : undefined,
+    provider_key,
+  };
+}
+
+// `defaultEnabledProviders` only applies when the input has no
+// `enabled_providers` key at all (e.g. no config document has ever been
+// saved). An explicit `enabled_providers: null` — the "Enable all" admin
+// action — always means "show every built-in provider", not "unset".
+function normalizeRemoteMCPCatalog(
+  input: unknown,
+  defaultEnabledProviders: string[] | null = null,
+): RemoteMCPCatalogConfig {
+  const source = isRecord(input) ? input : {};
+  let enabled_providers: string[] | null = defaultEnabledProviders;
+  if (Array.isArray(source.enabled_providers)) {
+    enabled_providers = (source.enabled_providers as unknown[])
+      .filter((v): v is string => typeof v === 'string' && Boolean(v.trim()))
+      .map((v) => v.trim().toLowerCase());
+  } else if (Object.prototype.hasOwnProperty.call(source, 'enabled_providers')) {
+    enabled_providers = null;
+  }
+  const custom_entries: CustomMCPCatalogEntry[] = [];
+  if (Array.isArray(source.custom_entries)) {
+    for (let i = 0; i < (source.custom_entries as unknown[]).length; i++) {
+      const entry = normalizeCustomMCPEntry((source.custom_entries as unknown[])[i], i);
+      if (entry) custom_entries.push(entry);
+    }
+  }
+  return { enabled_providers, custom_entries };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function normalizeDefaultAgentId(value: unknown): string | null {
-  if (value == null) return null;
-  if (typeof value !== 'string') {
-    throw new ApiError('default_agent_id must be a string or null', 400, 'INVALID_DEFAULT_AGENT_ID');
-  }
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  if (!OPENFGA_ID_PATTERN.test(trimmed)) {
-    throw new ApiError('default_agent_id is not a valid OpenFGA object id', 400, 'INVALID_DEFAULT_AGENT_ID');
-  }
-  return trimmed;
 }
 
 function normalizeVictoropsAgentId(value: unknown): string | null {
@@ -56,8 +108,29 @@ function normalizeVictoropsAgentId(value: unknown): string | null {
   }
   const trimmed = value.trim();
   if (!trimmed) return null;
-  if (!OPENFGA_ID_PATTERN.test(trimmed)) {
+  if (!PLATFORM_AGENT_ID_PATTERN.test(trimmed)) {
     throw new ApiError('slack_victorops_escalation_agent_id is not a valid OpenFGA object id', 400, 'INVALID_VICTOROPS_AGENT_ID');
+  }
+  return trimmed;
+}
+
+function normalizeScheduleEditorAgentId(value: unknown): string | null {
+  if (value == null) return null;
+  if (typeof value !== 'string') {
+    throw new ApiError(
+      'schedule_editor_agent_id must be a string or null',
+      400,
+      'INVALID_SCHEDULE_EDITOR_AGENT_ID',
+    );
+  }
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (!PLATFORM_AGENT_ID_PATTERN.test(trimmed)) {
+    throw new ApiError(
+      'schedule_editor_agent_id is not a valid OpenFGA object id',
+      400,
+      'INVALID_SCHEDULE_EDITOR_AGENT_ID',
+    );
   }
   return trimmed;
 }
@@ -95,14 +168,18 @@ async function getPlatformConfig(request: NextRequest) {
   return await withAuth(request, async (_req, _user, session) => {
     await requireResourcePermission(session, {
       type: 'system_config',
-      id: CONFIG_ID,
+      id: PLATFORM_CONFIG_ID,
       action: 'read',
     });
     const col = await getCollection<PlatformConfigDoc>('platform_config');
-    const doc = await col.findOne({ _id: CONFIG_ID } as never);
+    const doc = await col.findOne({ _id: PLATFORM_CONFIG_ID } as never);
 
-    const defaultAgentId = normalizeDefaultAgentId(doc?.default_agent_id);
+    const defaultAgentId = normalizePlatformDefaultAgentId(doc?.default_agent_id);
     const envFallback = process.env.DEFAULT_AGENT_ID || null;
+    const scheduleEditorAgentId = normalizeScheduleEditorAgentId(
+      doc?.schedule_editor_agent_id,
+    );
+    const scheduleEditorEnvFallback = process.env.SCHEDULE_EDITOR_AGENT_ID?.trim() || null;
     const discoveryTtlMinutes =
       normalizeDiscoveryCacheTtlMinutes(doc?.discovery_cache_ttl_minutes) ??
       normalizeDiscoveryCacheTtlMinutes(process.env.DISCOVERY_CACHE_TTL_MINUTES) ??
@@ -116,10 +193,17 @@ async function getPlatformConfig(request: NextRequest) {
       data: {
         default_agent_id: defaultAgentId ?? envFallback,
         source: defaultAgentId ? 'db' : (envFallback ? 'env' : 'fallback'),
+        schedule_editor_agent_id: scheduleEditorAgentId ?? scheduleEditorEnvFallback,
+        schedule_editor_agent_source: scheduleEditorAgentId
+          ? 'db'
+          : (scheduleEditorEnvFallback ? 'env' : 'fallback'),
         slack_victorops_escalation_agent_id: victoropsAgentId ?? victoropsEnvFallback,
         slack_victorops_escalation_agent_source: victoropsAgentId ? 'db' : (victoropsEnvFallback ? 'env' : 'fallback'),
         release_notes: normalizeReleaseNotesConfig(doc?.release_notes),
         discovery_cache_ttl_minutes: discoveryTtlMinutes,
+        // Default (no config saved yet) is "disable all" — operators opt in
+        // per provider rather than every built-in showing up unconfigured.
+        remote_mcp_catalog: normalizeRemoteMCPCatalog(doc?.remote_mcp_catalog, []),
       },
     });
   });
@@ -130,7 +214,7 @@ export const PATCH = withErrorHandler(async (request: NextRequest) => {
     await requireRbacPermission(session, 'admin_ui', 'admin');
     await requireResourcePermission(session, {
       type: 'system_config',
-      id: CONFIG_ID,
+      id: PLATFORM_CONFIG_ID,
       action: 'admin',
     });
 
@@ -142,8 +226,19 @@ export const PATCH = withErrorHandler(async (request: NextRequest) => {
     };
 
     const hasDefaultAgentUpdate = Object.prototype.hasOwnProperty.call(body, 'default_agent_id');
-    const nextDefaultAgentId = hasDefaultAgentUpdate ? normalizeDefaultAgentId(body.default_agent_id) : null;
+    const nextDefaultAgentId = hasDefaultAgentUpdate ? normalizePlatformDefaultAgentId(body.default_agent_id) : null;
     if (hasDefaultAgentUpdate) update.default_agent_id = nextDefaultAgentId;
+
+    // The scheduler editor agent only selects which existing agent opens when
+    // an admin clicks "Chat with agent". It does not grant agent access.
+    const hasScheduleEditorUpdate = Object.prototype.hasOwnProperty.call(
+      body,
+      'schedule_editor_agent_id',
+    );
+    const nextScheduleEditorAgentId = hasScheduleEditorUpdate
+      ? normalizeScheduleEditorAgentId(body.schedule_editor_agent_id)
+      : null;
+    if (hasScheduleEditorUpdate) update.schedule_editor_agent_id = nextScheduleEditorAgentId;
 
     // Slack VictorOps escalation agent (Admin → Integrations → Slack →
     // Advanced). Unlike the platform default this does NOT grant any user
@@ -163,6 +258,10 @@ export const PATCH = withErrorHandler(async (request: NextRequest) => {
     // `null` clears the override (= "use the default 60 min"); otherwise
     // we strictly require an integer in [MIN, MAX] so a fat-fingered
     // PATCH can't silently disable caching for everyone.
+    if (Object.prototype.hasOwnProperty.call(body, 'remote_mcp_catalog')) {
+      update.remote_mcp_catalog = normalizeRemoteMCPCatalog(body.remote_mcp_catalog);
+    }
+
     if (Object.prototype.hasOwnProperty.call(body, 'discovery_cache_ttl_minutes')) {
       const raw = body.discovery_cache_ttl_minutes;
       if (raw === null) {
@@ -187,9 +286,9 @@ export const PATCH = withErrorHandler(async (request: NextRequest) => {
 
     const col = await getCollection<PlatformConfigDoc>('platform_config');
     const previousDoc = hasDefaultAgentUpdate
-      ? await col.findOne({ _id: CONFIG_ID } as never)
+      ? await col.findOne({ _id: PLATFORM_CONFIG_ID } as never)
       : null;
-    const previousDefaultAgentId = normalizeDefaultAgentId(previousDoc?.default_agent_id);
+    const previousDefaultAgentId = normalizePlatformDefaultAgentId(previousDoc?.default_agent_id);
     const defaultAgentChanged = hasDefaultAgentUpdate && previousDefaultAgentId !== nextDefaultAgentId;
 
     // Selecting a non-null default agent grants `user:*` `can_use` on it,
@@ -226,7 +325,7 @@ export const PATCH = withErrorHandler(async (request: NextRequest) => {
       }
     }
     await col.updateOne(
-      { _id: CONFIG_ID } as never,
+      { _id: PLATFORM_CONFIG_ID } as never,
       {
         $set: update,
       },
@@ -241,12 +340,26 @@ export const PATCH = withErrorHandler(async (request: NextRequest) => {
         ...(Object.prototype.hasOwnProperty.call(update, 'default_agent_id')
           ? { default_agent_id: update.default_agent_id }
           : {}),
+        ...(Object.prototype.hasOwnProperty.call(update, 'schedule_editor_agent_id')
+          ? {
+              schedule_editor_agent_id:
+                update.schedule_editor_agent_id ??
+                process.env.SCHEDULE_EDITOR_AGENT_ID?.trim() ??
+                null,
+              schedule_editor_agent_source: update.schedule_editor_agent_id
+                ? 'db'
+                : (process.env.SCHEDULE_EDITOR_AGENT_ID?.trim() ? 'env' : 'fallback'),
+            }
+          : {}),
         ...(Object.prototype.hasOwnProperty.call(update, 'slack_victorops_escalation_agent_id')
           ? { slack_victorops_escalation_agent_id: update.slack_victorops_escalation_agent_id }
           : {}),
         ...(update.release_notes ? { release_notes: update.release_notes } : {}),
         ...(Object.prototype.hasOwnProperty.call(update, 'discovery_cache_ttl_minutes')
           ? { discovery_cache_ttl_minutes: update.discovery_cache_ttl_minutes }
+          : {}),
+        ...(Object.prototype.hasOwnProperty.call(update, 'remote_mcp_catalog')
+          ? { remote_mcp_catalog: update.remote_mcp_catalog }
           : {}),
       },
     });

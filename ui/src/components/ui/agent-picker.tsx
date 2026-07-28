@@ -29,6 +29,8 @@ interface AgentPickerProps {
   ariaLabel?: string;
   /** Hide the `agent:<id>` code suffix on rows and trigger. */
   hideIdSuffix?: boolean;
+  /** Value emitted by the clear action. Defaults to an empty selection. */
+  clearValue?: string;
 }
 
 export function AgentPicker({
@@ -44,6 +46,7 @@ export function AgentPicker({
   id,
   ariaLabel,
   hideIdSuffix = false,
+  clearValue = "",
 }: AgentPickerProps) {
   const [open, setOpen] = React.useState(false);
   const [query, setQuery] = React.useState("");
@@ -75,7 +78,7 @@ export function AgentPicker({
 
   const clear = (e: React.MouseEvent) => {
     e.stopPropagation();
-    onChange("");
+    onChange(clearValue);
   };
 
   const pick = (option: AgentPickerOption) => {
@@ -121,7 +124,7 @@ export function AgentPicker({
               <span className="text-muted-foreground">{placeholder}</span>
             )}
           </div>
-          {selected && !disabled && (
+          {selected && selected.value !== clearValue && !disabled && (
             <X
               role="button"
               aria-label="Clear agent selection"

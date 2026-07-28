@@ -1,5 +1,7 @@
 "use client";
 
+import { getErrorMessage } from "@/lib/error-utils";
+
 import { ConversationDetailDialog } from "@/components/admin/security/ConversationDetailDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -22,7 +24,6 @@ X
 import React,{ useCallback,useEffect,useRef,useState } from "react";
 
 interface AuditLogsTabProps {
-  isAdmin: boolean;
   onUserClick?: (email: string) => void;
 }
 
@@ -41,7 +42,7 @@ const STATUS_OPTIONS = [
   { value: "deleted", label: "Deleted" },
 ];
 
-export function AuditLogsTab({ isAdmin, onUserClick }: AuditLogsTabProps) {
+export function AuditLogsTab({ onUserClick }: AuditLogsTabProps) {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [ownerEmail, setOwnerEmail] = useState("");
   const [searchTitle, setSearchTitle] = useState("");
@@ -152,8 +153,8 @@ export function AuditLogsTab({ isAdmin, onUserClick }: AuditLogsTabProps) {
       if (!json.success) throw new Error(json.error || "Failed to load audit logs");
       setResult(json.data);
       setSearched(true);
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err) {
+      setError(getErrorMessage(err, ""));
     } finally {
       setLoading(false);
     }
@@ -219,8 +220,8 @@ export function AuditLogsTab({ isAdmin, onUserClick }: AuditLogsTabProps) {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err) {
+      setError(getErrorMessage(err, ""));
     } finally {
       setExporting(false);
     }

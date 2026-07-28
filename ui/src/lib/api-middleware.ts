@@ -2,12 +2,13 @@
 // Provides authentication, error handling, and validation
 
 import { createHash } from 'crypto';
+import type { Collection, Document } from 'mongodb';
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions, isBootstrapAdmin } from '@/lib/auth-config';
 import { getConfig } from '@/lib/config';
 import { getCollection } from '@/lib/mongodb';
-import type { User } from '@/types/mongodb';
+import type { Conversation, User } from '@/types/mongodb';
 import type { TeamMembershipSource } from '@/types/identity-group-sync';
 import { validateBearerJWT, validateLocalSkillsJWT } from '@/lib/jwt-validation';
 import { ApiError } from '@/lib/api-error';
@@ -141,8 +142,19 @@ export interface GetAuthenticatedUserOptions {
   allowAnonymous?: boolean;
 }
 
-type SessionAuthSession = Record<string, unknown> & {
-  user?: Record<string, unknown> | null;
+type SessionAuthSession = {
+  accessToken?: string;
+  canViewAdmin?: boolean;
+  catalogKey?: string;
+  isAuthorized?: boolean;
+  isServiceAccount?: boolean;
+  org?: string;
+  role?: string;
+  sub?: string;
+  user?: {
+    email?: string;
+    name?: string;
+  } | null;
 };
 
 type SessionAuthPayload = {
@@ -462,6 +474,11 @@ function resolveLegacyWithAuthRbacPolicy(request: NextRequest): RouteRbacPolicy 
       ? { resource: 'dynamic_agent', scope: 'view' }
       : { resource: 'dynamic_agent', scope: 'invoke' };
   }
+  if (pathname.startsWith('/api/schedules')) {
+    return method === 'GET'
+      ? { resource: 'dynamic_agent', scope: 'view' }
+      : { resource: 'dynamic_agent', scope: 'invoke' };
+  }
   if (pathname.startsWith('/api/catalog-api-keys')) {
     return { resource: 'skill', scope: 'configure' };
   }
@@ -504,7 +521,7 @@ export async function withAuth<T>(
   handler: (
     request: NextRequest,
     user: { email: string; name: string; role: string },
-    session: any
+    session: SessionAuthSession
   ) => Promise<T>
 ): Promise<T> {
   const { user, session } = await getAuthFromBearerOrSession(request);
@@ -537,7 +554,7 @@ export async function withAuth<T>(
  */
 export async function getAuthFromBearerOrSession(
   request: NextRequest,
-): Promise<{ user: { email: string; name: string; role: string }; session: any }> {
+): Promise<{ user: { email: string; name: string; role: string }; session: SessionAuthSession }> {
   const authHeader = request.headers.get('Authorization');
   const catalogKey = request.headers.get('X-Caipe-Catalog-Key');
 
@@ -545,7 +562,10 @@ export async function getAuthFromBearerOrSession(
   if (catalogKey) {
     return {
       user: { email: 'catalog-key-user@local', name: 'Catalog API Key', role: 'user' },
-      session: { role: 'user', canViewAdmin: false, catalogKey },
+      // sub must be present so filterSkillsByOpenFga does not short-circuit to [].
+      // The synthetic subject is used only for OpenFGA read checks on global skills;
+      // it never appears in audit logs for user-owned resources.
+      session: { role: 'user', canViewAdmin: false, catalogKey, sub: 'catalog-key-user@local' },
     };
   }
 
@@ -558,7 +578,8 @@ export async function getAuthFromBearerOrSession(
     if (localIdentity) {
       return {
         user: { email: localIdentity.email, name: localIdentity.name, role: 'user' },
-        session: { role: 'user' },
+        // sub must be present so filterSkillsByOpenFga resolves the caller's identity.
+        session: { role: 'user', sub: localIdentity.email },
       };
     }
 
@@ -611,7 +632,7 @@ export async function withRbacAuth<T>(
   handler: (
     req: NextRequest,
     user: { email: string; name: string; role: string },
-    session: any
+    session: SessionAuthSession
   ) => Promise<T>
 ): Promise<T> {
   const { user, session } = await getAuthFromBearerOrSession(request);
@@ -793,7 +814,6 @@ export async function requireRbacPermission(
   session: { accessToken?: string; sub?: string; org?: string; role?: string; user?: { email?: string } },
   resource: RbacResource,
   scope: RbacScope,
-  _context?: Record<string, unknown>
 ): Promise<void> {
   const accessToken = session.accessToken;
   const email = session.user?.email;
@@ -1126,16 +1146,10 @@ export function handleApiError(error: unknown): NextResponse {
 /**
  * Wrap API route handler with error handling.
  */
-export function withErrorHandler<T>(
-  handler: (request: NextRequest, context?: any) => Promise<NextResponse<T>>
-): (request: NextRequest, context?: any) => Promise<NextResponse<T>>;
-export function withErrorHandler(
-  handler: (request: NextRequest, context?: any) => Promise<Response>
-): (request: NextRequest, context?: any) => Promise<Response>;
-export function withErrorHandler(
-  handler: (request: NextRequest, context?: any) => Promise<Response>
-) {
-  return async (request: NextRequest, context?: any): Promise<Response> => {
+export function withErrorHandler<TContext, TResponse extends Response>(
+  handler: (request: NextRequest, context: TContext) => Promise<TResponse>
+): (request: NextRequest, context: TContext) => Promise<Response> {
+  return async (request: NextRequest, context: TContext): Promise<Response> => {
     try {
       return await handler(request, context);
     } catch (error) {
@@ -1182,8 +1196,11 @@ export function validateCredentialsRef(
 /**
  * Validate required fields in request body
  */
-export function validateRequired(data: any, fields: string[]): void {
-  const missing = fields.filter((field) => data[field] === undefined || data[field] === null);
+export function validateRequired(data: object, fields: string[]): void {
+  const missing = fields.filter((field) => {
+    const value = Reflect.get(data, field);
+    return value === undefined || value === null;
+  });
 
   if (missing.length > 0) {
     throw new ApiError(
@@ -1364,9 +1381,11 @@ export async function getUserTeamIds(userEmail: string): Promise<string[]> {
 export type ConversationAccessLevel = 'owner' | 'shared' | 'shared_readonly' | 'admin_audit';
 
 interface ConversationAccessResult {
-  conversation: any;
+  conversation: ConversationAccessDocument;
   access_level: ConversationAccessLevel;
 }
+
+type ConversationAccessDocument = Conversation & Document;
 
 function normalizedIdentity(value: unknown): string {
   return typeof value === 'string' ? value.trim().toLowerCase() : '';
@@ -1396,7 +1415,7 @@ function isConversationOwnerForAccess(
 export async function requireConversationAccess(
   conversationId: string,
   userId: string,
-  getCollectionFn: (name: string) => Promise<any>,
+  getCollectionFn: (name: string) => Promise<Collection<ConversationAccessDocument>>,
   session?: { role?: string; sub?: string }
 ): Promise<ConversationAccessResult> {
   const conversations = await getCollectionFn('conversations');

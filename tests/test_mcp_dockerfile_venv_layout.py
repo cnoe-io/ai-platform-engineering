@@ -18,6 +18,7 @@ EXPECTED_SHARED_DOCKERFILE_MCPS = {
   "mcp-splunk": "splunk",
   "mcp-victorops": "victorops",
   "mcp-webex": "webex",
+  "mcp-webex-meetings": "webex-meetings",
 }
 
 

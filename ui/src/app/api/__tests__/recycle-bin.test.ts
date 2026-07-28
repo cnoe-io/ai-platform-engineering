@@ -30,7 +30,7 @@ import { ObjectId } from 'mongodb';
 
 const mockGetServerSession = jest.fn();
 jest.mock('next-auth', () => ({
-  getServerSession: (...args: any[]) => mockGetServerSession(...args),
+  getServerSession: (...args: unknown[]) => mockGetServerSession(...args),
 }));
 
 jest.mock('@/lib/auth-config', () => ({
@@ -43,7 +43,7 @@ jest.mock('@/lib/config', () => ({
   getConfig: (key: string) => key === 'ssoEnabled',
 }));
 
-const mockCollections: Record<string, any> = {};
+const mockCollections: Record<string, unknown> = {};
 const mockGetCollection = jest.fn((name: string) => {
   if (!mockCollections[name]) {
     mockCollections[name] = createMockCollection();
@@ -52,7 +52,7 @@ const mockGetCollection = jest.fn((name: string) => {
 });
 
 jest.mock('@/lib/mongodb', () => ({
-  getCollection: (...args: any[]) => mockGetCollection(...args),
+  getCollection: (...args: unknown[]) => mockGetCollection(...args),
   isMongoDBConfigured: true,
 }));
 
@@ -113,7 +113,7 @@ function authenticatedSession(email = 'user@example.com') {
   };
 }
 
-function makeConversation(overrides: any = {}) {
+function makeConversation(overrides: unknown = {}) {
   return {
     _id: '550e8400-e29b-41d4-a716-446655440000',
     title: 'Test Conversation',
@@ -400,7 +400,6 @@ describe('Archive API', () => {
 
       const req = makeRequest('http://localhost:3000/api/chat/conversations/trash');
       const res = await GET_TRASH(req);
-      const body = await res.json();
 
       expect(res.status).toBe(200);
 

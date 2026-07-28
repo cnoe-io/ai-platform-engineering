@@ -36,7 +36,6 @@ from .accessible_agents_client import AccessibleAgentsClient
 from .command_rate_limiter import CommandRateLimiter
 from .dm_authz_client import DmAuthzClient
 from .dm_thread_overrides import OverrideKey
-from .user_preferences_client import UserPreferencesClient
 
 
 # --- copy ----------------------------------------------------------------
@@ -60,8 +59,8 @@ LIST_HEADER = (
 )
 
 USE_MISSING_ARG_MESSAGE = (
-    "Usage: `use <agent-id>` (or `use default` to clear your saved "
-    "preference and revert to the deployment default)."
+    "Usage: `use <agent-id>` (or `use default` to return to this bot's "
+    "configured default)."
 )
 
 USE_DENIED_MESSAGE = (
@@ -85,13 +84,8 @@ USE_OK_MESSAGE = (
 )
 
 USE_DEFAULT_OK_MESSAGE = (
-    "Cleared your saved DM preference and any active space override. "
-    "Future direct messages will route to the deployment default."
-)
-
-USE_DEFAULT_PARTIAL_OK_MESSAGE = (
-    "Cleared the space override. I couldn't update your saved preference "
-    "right now — try again later, or set it in the CAIPE Settings UI."
+    "Cleared the active space override. Future direct messages will use this "
+    "bot's configured default."
 )
 
 PDP_UNAVAILABLE_MESSAGE = (
@@ -102,11 +96,11 @@ HELP_MESSAGE = (
     "**CAIPE bot commands**\n"
     "• `list` — show the agents you can use\n"
     "• `use <agent>` — route this 1:1 space to a specific agent "
-    "(type `use default` to clear your saved preference)\n"
+    "(type `use default` to clear the room override)\n"
     "• `help` — show this message\n"
     "\n"
-    "Direct messages dispatch via: space override → your saved default → "
-    "the deployment default."
+    "Direct messages dispatch via: space override → this bot's configured "
+    "default."
 )
 
 
@@ -229,7 +223,6 @@ def handle_use_command(
     override_key: Optional[OverrideKey],
     override_store: _OverrideStoreProto,
     dm_authz_client: DmAuthzClient,
-    user_preferences_client: UserPreferencesClient,
     accessible_agents_client: Optional[AccessibleAgentsClient] = None,
     rate_limiter: Optional[CommandRateLimiter] = None,
 ) -> TextCommandResult:
@@ -244,10 +237,8 @@ def handle_use_command(
 
     if argument.lower() == "default":
         return _handle_use_default(
-            bearer_token=bearer_token,
             override_key=override_key,
             override_store=override_store,
-            user_preferences_client=user_preferences_client,
         )
 
     if not is_dm or override_key is None:
@@ -273,22 +264,13 @@ def handle_use_command(
 
 def _handle_use_default(
     *,
-    bearer_token: str,
     override_key: Optional[OverrideKey],
     override_store: _OverrideStoreProto,
-    user_preferences_client: UserPreferencesClient,
 ) -> TextCommandResult:
     if override_key is not None:
         override_store.clear(override_key)
-    pref_cleared = user_preferences_client.clear_dm_default_agent(
-        bearer_token=bearer_token
-    )
-    if pref_cleared:
-        return TextCommandResult(
-            text=USE_DEFAULT_OK_MESSAGE, code="use_default_ok"
-        )
     return TextCommandResult(
-        text=USE_DEFAULT_PARTIAL_OK_MESSAGE, code="use_default_partial"
+        text=USE_DEFAULT_OK_MESSAGE, code="use_default_ok"
     )
 
 

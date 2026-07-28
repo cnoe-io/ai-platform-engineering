@@ -33,13 +33,26 @@ export function SlackVictoropsAgentSetting({ disabled = false }: { disabled?: bo
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const [agentsRes, configRes] = await Promise.all([
-        fetch("/api/dynamic-agents?enabled_only=true").then((r) => r.json()).catch(() => ({ data: { items: [] } })),
+      const loadAllAgents = async (): Promise<DynamicAgentOption[]> => {
+        const items: DynamicAgentOption[] = [];
+        let page = 1;
+        let hasMore = true;
+        while (hasMore) {
+          const agentsRes = await fetch(`/api/dynamic-agents?enabled_only=true&page=${page}&page_size=100`)
+            .then((r) => r.json())
+            .catch(() => ({ data: { items: [] } }));
+          const pageItems: DynamicAgentOption[] = agentsRes?.data?.items ?? agentsRes?.items ?? [];
+          items.push(...pageItems);
+          hasMore = Boolean(agentsRes?.data?.has_more ?? agentsRes?.has_more);
+          page += 1;
+        }
+        return items;
+      };
+      const [items, configRes] = await Promise.all([
+        loadAllAgents(),
         fetch("/api/admin/platform-config").then((r) => r.json()).catch(() => ({ success: false })),
       ]);
       if (cancelled) return;
-      const items: DynamicAgentOption[] =
-        agentsRes?.data?.items ?? agentsRes?.items ?? [];
       setAgents(items);
       if (configRes?.success) {
         const id = (configRes.data?.slack_victorops_escalation_agent_id as string | null) ?? SUPERVISOR_VALUE;

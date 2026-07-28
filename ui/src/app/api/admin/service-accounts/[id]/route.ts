@@ -11,14 +11,17 @@ import { deleteServiceAccountClient } from "@/lib/rbac/keycloak-admin";
 import { logOpenFgaRebacAuditEvent } from "@/lib/rbac/audit";
 import { getBySub, updateStatus } from "@/lib/service-accounts";
 import { isProtectedServiceAccount } from "@/types/mongodb";
+import { hasOrganizationAdmin } from "@/lib/rbac/platform-admin";
 
 /**
  * GET /api/admin/service-accounts/[id]
  *
  * Detail for a single service account. `[id]` is the SA's OpenFGA subject id
  * (`sa_sub`). Gated by `check(user:<caller>, can_manage, service_account:<id>)`
- * — i.e. the caller must belong to the owning team (FR-021/022). Non-members
- * get 404 (do not reveal existence).
+ * — i.e. the caller must belong to the owning team (FR-021/022) — OR be an
+ * org admin (`hasOrganizationAdmin`), mirroring the bypass every other
+ * shareable resource type grants org admins. Non-members get 404 (do not
+ * reveal existence).
  *
  * Current scopes are read AUTHORITATIVELY from OpenFGA (not the Mongo display
  * snapshot, FR-014). NEVER returns credential material (FR-005).
@@ -65,7 +68,7 @@ export async function GET(_request: Request, context: RouteContext) {
       relation: "can_manage",
       object: `service_account:${id}`,
     });
-    if (!decision.allowed) {
+    if (!decision.allowed && !(await hasOrganizationAdmin(session))) {
       // Do not reveal existence to non-members (FR-022).
       return NextResponse.json(
         { success: false, error: "Service account not found" },
@@ -132,7 +135,8 @@ export async function GET(_request: Request, context: RouteContext) {
 /**
  * DELETE /api/admin/service-accounts/[id]
  *
- * Revoke a service account (US4; FR-018/018a) — terminal. Gated by can_manage.
+ * Revoke a service account (US4; FR-018/018a) — terminal. Gated by can_manage
+ * OR org admin.
  * Steps:
  *  1. Delete the Keycloak client (the credential stops authenticating).
  *  2. Delete ALL OpenFGA tuples for service_account:<id> — ownership
@@ -169,7 +173,7 @@ export async function DELETE(_request: Request, context: RouteContext) {
       relation: "can_manage",
       object: `service_account:${id}`,
     });
-    if (!canManage.allowed) {
+    if (!canManage.allowed && !(await hasOrganizationAdmin(session))) {
       return NextResponse.json(
         { success: false, error: "Service account not found" },
         { status: 404 },

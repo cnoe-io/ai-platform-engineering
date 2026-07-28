@@ -88,7 +88,7 @@ export function useEditorDirtyTracking<T extends object>(
   // but avoids reading refs during render.
   useEffect(() => {
     if (snapshotState.key !== snapshotKey) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: re-snapshot when snapshotKey changes
+
       setSnapshotState({ key: snapshotKey, values: currentValues });
     }
     // currentValues intentionally omitted: we only re-snapshot on key change.

@@ -44,8 +44,8 @@
   ],
   "accessTokenLifespan": 3600,
   "accessTokenLifespanForImplicitFlow": 900,
-  "ssoSessionIdleTimeout": 28800,
-  "ssoSessionMaxLifespan": 86400,
+  "ssoSessionIdleTimeout": 604800,
+  "ssoSessionMaxLifespan": 1209600,
   "offlineSessionIdleTimeout": 2592000,
   "offlineSessionMaxLifespan": 5184000,
   "accessCodeLifespan": 60,
@@ -229,6 +229,31 @@
       "enabled": true,
       "publicClient": false,
       "secret": "caipe-webex-bot-dev-secret",
+      "bearerOnly": false,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "authorizationServicesEnabled": false,
+      "protocol": "openid-connect",
+      "fullScopeAllowed": true,
+      "defaultClientScopes": [
+        "profile",
+        "email",
+        "roles",
+        "groups",
+        "org"
+      ],
+      "attributes": {
+        "oidc.token.exchange.enabled": "true"
+      }
+    },
+    {
+      "clientId": "caipe-scheduler-runner",
+      "name": "CAIPE Scheduler Runner",
+      "description": "Confidential client scoped to scheduled-run owner impersonation (token-exchange requested_subject). Used by the BFF to mint owner bearers for cron fires (scheduled-job-auth Approach 2).",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "caipe-scheduler-runner-dev-secret",
       "bearerOnly": false,
       "standardFlowEnabled": false,
       "directAccessGrantsEnabled": false,

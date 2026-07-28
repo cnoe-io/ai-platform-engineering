@@ -1,6 +1,13 @@
 // MongoDB collection type definitions
 
+import type { StreamEvent } from '@/lib/streaming/types';
+import type { TimelineSegment } from '@/types/dynamic-agent-timeline';
 import { ObjectId } from 'mongodb';
+
+export type StoredStreamEvent = Omit<StreamEvent, 'raw' | 'timestamp'> & {
+  raw?: unknown;
+  timestamp: Date | string;
+};
 
 // ============================================================================
 // User Collection
@@ -68,7 +75,6 @@ export interface Conversation {
     /** UI version (from package.json) when client_type is 'webui' */
     ui_version?: string;
     total_messages: number;
-    total_tokens?: number;
     /** @deprecated Kept for backward compat with old conversations */
     agent_version?: string;
     /** @deprecated Kept for backward compat with old conversations */
@@ -133,21 +139,31 @@ export interface Message {
     turn_id: string;
     source?: string;
     model?: string;
-    tokens_used?: number;
     latency_ms?: number;
     agent_name?: string;
     is_final?: boolean;
-    timeline_segments?: any[]; // TimelineSegment[] persisted for plan/thinking/answer reconstruction
+    timeline_segments?: TimelineSegment[]; // Persisted for plan/thinking/answer reconstruction
+    task_id?: string;
+    turn_status?: string;
+    is_interrupted?: boolean;
+    // Slack linking metadata — set on messages persisted by the Slack bot so
+    // stats/audit views can deep-link back to the source thread.
+    channel_id?: string;
+    channel_name?: string;
+    thread_ts?: string;
+    slack_permalink?: string;
   };
   artifacts?: Artifact[];
-  stream_events?: any[]; // Protocol-agnostic stream events for Dynamic Agents (tool_start, tool_end, etc.)
+  stream_events?: StoredStreamEvent[];
+  /** Legacy name used by older conversation records. */
+  sse_events?: StoredStreamEvent[];
   feedback?: MessageFeedback;
 }
 
 export interface Artifact {
   type: string;
   name: string;
-  data: Record<string, any>;
+  data: Record<string, unknown>;
 }
 
 export interface MessageFeedback {
@@ -313,6 +329,8 @@ export interface UpdateConversationRequest {
   tags?: string[];
   is_archived?: boolean;
   is_pinned?: boolean;
+  /** Re-link a conversation to a new agent (e.g. resume a deprecated-agent conversation). */
+  participants?: Participant[];
 }
 
 export interface PatchConversationMetadataRequest {
@@ -335,25 +353,38 @@ export interface ShareConversationRequest {
 export interface AddMessageRequest {
   message_id?: string; // Client-generated ID for cross-reference
   role: 'user' | 'assistant' | 'system';
-  content: string;
+  // Optional: integration turns (e.g. the Slack bot) persist metadata only and
+  // omit content to avoid duplicating content that already lives in Slack.
+  content?: string;
   // Sender identity for shared conversations (optional for backward compatibility)
   sender_email?: string;
   sender_name?: string;
   sender_image?: string;
   metadata?: {
     turn_id: string;
+    // Source of the message; defaults to 'web' when omitted. Integrations
+    // (Slack bot, scheduler) set this so stats attribute per-surface.
+    source?: string;
     model?: string;
-    tokens_used?: number;
     latency_ms?: number;
     agent_name?: string;
+    // Integrations (Slack bot) know only the agent_id; the server resolves it
+    // to the canonical display name (agent_name) so both surfaces store the
+    // same label. Ignored when agent_name is provided directly.
+    agent_id?: string;
     is_final?: boolean;
     turn_status?: string; // "done" | "interrupted" | "waiting_for_input"
     is_interrupted?: boolean;
     task_id?: string;
-    timeline_segments?: any[]; // TimelineSegment[] for plan/thinking/answer reconstruction
+    timeline_segments?: TimelineSegment[]; // Plan/thinking/answer reconstruction
+    // Slack linking metadata (deep-link back to the source thread)
+    channel_id?: string;
+    channel_name?: string;
+    thread_ts?: string;
+    slack_permalink?: string;
   };
   artifacts?: Artifact[];
-  stream_events?: any[]; // Protocol-agnostic stream events for Dynamic Agents (tool_start, tool_end, etc.)
+  stream_events?: StoredStreamEvent[];
 }
 
 export interface UpdateMessageRequest {
@@ -394,7 +425,7 @@ export interface UpdateSettingsRequest {
 // API Response Types
 // ============================================================================
 
-export interface ApiResponse<T = any> {
+export interface ApiResponse<T = unknown> {
   success: boolean;
   data?: T;
   error?: string;
@@ -422,7 +453,7 @@ export interface UserActivity {
   action: string;
   resource_type: 'conversation' | 'message' | 'settings' | 'share';
   resource_id: string;
-  details?: Record<string, any>;
+  details?: Record<string, unknown>;
 }
 
 // ============================================================================

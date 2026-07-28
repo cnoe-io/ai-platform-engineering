@@ -8,12 +8,13 @@ import {
 } from "@/lib/rbac/keycloak-admin";
 import { logOpenFgaRebacAuditEvent } from "@/lib/rbac/audit";
 import { getBySub } from "@/lib/service-accounts";
+import { hasOrganizationAdmin } from "@/lib/rbac/platform-admin";
 
 /**
  * POST /api/admin/service-accounts/[id]/rotate
  *
  * Rotate the credential (US4; FR-017/019). `[id]` is the SA's OpenFGA subject
- * id (`sa_sub`). Gated by can_manage. Regenerates the Keycloak client secret
+ * id (`sa_sub`). Gated by can_manage OR org admin. Regenerates the Keycloak client secret
  * (the old secret stops working immediately) and returns the NEW secret ONCE.
  * Scopes are unchanged (FR-019) — no OpenFGA/Mongo scope writes here.
  *
@@ -48,7 +49,7 @@ export async function POST(_request: Request, context: RouteContext) {
       relation: "can_manage",
       object: `service_account:${id}`,
     });
-    if (!canManage.allowed) {
+    if (!canManage.allowed && !(await hasOrganizationAdmin(session))) {
       // 404 to non-managers (don't reveal existence).
       return NextResponse.json(
         { success: false, error: "Service account not found" },

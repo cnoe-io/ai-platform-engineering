@@ -59,7 +59,15 @@ function TruncatableDescription({ text }: { text: string }) {
 }
 
 // Result card component with collapsible metadata
-function ResultCard({ result, index }: { result: SearchResultItem; index: number }) {
+function ResultCard({
+    result,
+    index,
+    onExploreEntity,
+}: {
+    result: SearchResultItem;
+    index: number;
+    onExploreEntity?: (entityType: string, primaryKey: string) => void;
+}) {
     const [showMetadata, setShowMetadata] = useState(false);
     
     // Extract useful metadata fields
@@ -68,6 +76,8 @@ function ResultCard({ result, index }: { result: SearchResultItem; index: number
     const docType = metadata.doc_type as string | undefined;
     const datasourceId = metadata.datasource_id as string | undefined;
     const title = metadata.title as string | undefined;
+    const entityType = metadata.entity_type as string | undefined;
+    const primaryKey = metadata.primary_key as string | undefined;
     
     return (
         <div className="rounded-lg border border-border bg-card overflow-hidden">
@@ -91,6 +101,15 @@ function ResultCard({ result, index }: { result: SearchResultItem; index: number
                     <span className="text-xs text-muted-foreground">
                         Score: <span className="font-mono">{result.score.toFixed(3)}</span>
                     </span>
+                    {onExploreEntity && entityType && primaryKey && (
+                        <button
+                            type="button"
+                            onClick={() => onExploreEntity(entityType, primaryKey)}
+                            className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                        >
+                            Explore <ArrowRight className="h-3 w-3" />
+                        </button>
+                    )}
                 </div>
             </div>
             
@@ -170,7 +189,15 @@ function ResultCard({ result, index }: { result: SearchResultItem; index: number
 }
 
 // Collapsible result section component
-function ResultSection({ label, items }: { label: string; items: SearchResultItem[] }) {
+function ResultSection({
+    label,
+    items,
+    onExploreEntity,
+}: {
+    label: string;
+    items: SearchResultItem[];
+    onExploreEntity?: (entityType: string, primaryKey: string) => void;
+}) {
     const [expanded, setExpanded] = useState(true);
     
     return (
@@ -207,6 +234,7 @@ function ResultSection({ label, items }: { label: string; items: SearchResultIte
                                         key={`${label}-${index}`} 
                                         result={result} 
                                         index={index} 
+                                        onExploreEntity={onExploreEntity}
                                     />
                                 ))}
                             </div>
@@ -239,7 +267,7 @@ export default function SearchView({ onExploreEntity, onNavigateToDataSources }:
     // Filter configuration
     const [validFilterKeys, setValidFilterKeys] = useState<string[]>([]);
     const [filterKeyTypes, setFilterKeyTypes] = useState<Record<string, string>>({});
-    const [supportedDocTypes, setSupportedDocTypes] = useState<string[]>([]);
+    const [, setSupportedDocTypes] = useState<string[]>([]);
     const [selectedFilterKey, setSelectedFilterKey] = useState('');
     const [customFilterKey, setCustomFilterKey] = useState('');
     const [filterValue, setFilterValue] = useState('');
@@ -279,9 +307,11 @@ export default function SearchView({ onExploreEntity, onNavigateToDataSources }:
                 );
                 
                 setAvailableTools(searchTools);
-                if (searchTools.length > 0 && !searchTools.find(t => t.name === selectedTool)) {
-                    setSelectedTool(searchTools[0].name);
-                }
+                setSelectedTool((currentTool) =>
+                    searchTools.some((tool) => tool.name === currentTool)
+                        ? currentTool
+                        : (searchTools[0]?.name ?? currentTool),
+                );
             } catch (error) {
                 console.error('Failed to fetch MCP tool schemas:', error);
             } finally {
@@ -750,7 +780,12 @@ export default function SearchView({ onExploreEntity, onNavigateToDataSources }:
 
                                 {/* Render results grouped by label */}
                                 {parsedResults && Object.entries(parsedResults).map(([label, items]) => (
-                                    <ResultSection key={label} label={label} items={items} />
+                                    <ResultSection
+                                        key={label}
+                                        label={label}
+                                        items={items}
+                                        onExploreEntity={onExploreEntity}
+                                    />
                                 ))}
 
                                 {totalResultCount === 0 && (

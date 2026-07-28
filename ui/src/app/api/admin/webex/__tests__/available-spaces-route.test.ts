@@ -1,119 +1,125 @@
-/**
- * @jest-environment node
- */
+/** @jest-environment node */
 
 import { NextRequest } from "next/server";
 
-import {
-  canonicalizeWebexSpaceId,
-  isSafeWebexPaginationUrl,
-} from "../available-spaces/route";
+const mockCallWebexBotAdmin = jest.fn();
 
-describe("available-spaces route helpers", () => {
-  it("allows only https webexapis.com pagination links", () => {
-    expect(isSafeWebexPaginationUrl("https://webexapis.com/v1/rooms?max=100")).toBe(true);
-    expect(isSafeWebexPaginationUrl("http://webexapis.com/v1/rooms")).toBe(false);
-    expect(isSafeWebexPaginationUrl("https://evil.example/v1/rooms")).toBe(false);
-  });
-
-  it("canonicalizes Webex public room IDs to raw UUIDs", () => {
-    expect(
-      canonicalizeWebexSpaceId(
-        "Y2lzY29zcGFyazovL3VzL1JPT00vNmY5MWIwNzAtNTMxYS0xMWYxLTkyNmQtNmZkM2MyMGRmZGM0"
-      )
-    ).toBe("6f91b070-531a-11f1-926d-6fd3c20dfdc4");
-    expect(canonicalizeWebexSpaceId("6f91b070-531a-11f1-926d-6fd3c20dfdc4")).toBe(
-      "6f91b070-531a-11f1-926d-6fd3c20dfdc4"
-    );
-  });
-});
-
-jest.mock("@/lib/rbac/keycloak-authz", () => ({
-  checkPermission: jest.fn(async () => ({ allowed: true })),
-}));
-
-jest.mock("@/lib/rbac/openfga", () => ({
-  checkOpenFgaTuple: jest.fn(async () => ({ allowed: true })),
-}));
-
-jest.mock("@/lib/jwt-validation", () => ({
-  validateLocalSkillsJWT: jest.fn(async () => null),
-  validateBearerJWT: jest.fn(async () => ({
-    sub: "alice-sub",
-    email: "alice@example.com",
-    name: "Alice",
+jest.mock("@/lib/api-middleware", () => ({
+  getAuthFromBearerOrSession: jest.fn(async () => ({
+    user: { email: "admin@example.com" },
+    session: { user: { email: "admin@example.com" } },
   })),
+  requireRbacPermission: jest.fn(async () => undefined),
+  successResponse: (data: unknown) => Response.json({ success: true, data }),
+  withErrorHandler: (handler: (request: NextRequest) => Promise<Response>) => handler,
+  ApiError: class ApiError extends Error {
+    statusCode: number;
+
+    constructor(message: string, statusCode: number) {
+      super(message);
+      this.statusCode = statusCode;
+    }
+  },
 }));
 
-jest.mock("@/lib/config", () => ({ getConfig: () => true }));
-jest.mock("next-auth", () => ({ getServerSession: jest.fn() }));
-jest.mock("@/lib/auth-config", () => ({
-  authOptions: {},
-  isBootstrapAdmin: jest.fn().mockReturnValue(false),
-  REQUIRED_ADMIN_GROUP: "",
+jest.mock("@/lib/webex-bot-admin", () => ({
+  callWebexBotAdmin: (...args: unknown[]) => mockCallWebexBotAdmin(...args),
 }));
+
+jest.mock("@/lib/rbac/discovery-cache-config", () => ({
+  getDiscoveryCacheTtlMs: jest.fn(async () => 3_600_000),
+}));
+
+const bots = [
+  { id: "primary", name: "Primary", available: true },
+  { id: "secondary", name: "Secondary", available: true },
+];
+
+function runtimeSnapshot(botId: string, spaces: Array<Record<string, unknown>>) {
+  return {
+    spaces,
+    total_matches: spaces.length,
+    total_visible: spaces.length,
+    next_cursor: null,
+    has_more: false,
+    cached: false,
+    fetched_at: 123,
+    bot: bots.find((bot) => bot.id === botId),
+  };
+}
 
 describe("GET /api/admin/webex/available-spaces", () => {
-  const originalIntegrationToken = process.env.WEBEX_INTEGRATION_BOT_ACCESS_TOKEN;
-
-  afterEach(() => {
-    if (originalIntegrationToken === undefined) {
-      delete process.env.WEBEX_INTEGRATION_BOT_ACCESS_TOKEN;
-    } else {
-      process.env.WEBEX_INTEGRATION_BOT_ACCESS_TOKEN = originalIntegrationToken;
-    }
-    jest.restoreAllMocks();
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockCallWebexBotAdmin.mockImplementation(async (path: string) => {
+      if (path === "/admin/webex/bots") return { bots };
+      if (path === "/admin/webex/bots/primary/spaces") {
+        return runtimeSnapshot("primary", [
+          { id: "shared", name: "Shared", type: "group", is_locked: false },
+          { id: "primary", name: "Primary only", type: "group", is_locked: false },
+        ]);
+      }
+      if (path === "/admin/webex/bots/secondary/spaces") {
+        return runtimeSnapshot("secondary", [
+          { id: "shared", name: "Shared", type: "group", is_locked: false },
+        ]);
+      }
+      throw new Error(`Unexpected path: ${path}`);
+    });
   });
 
-  it("uses WEBEX_INTEGRATION_BOT_ACCESS_TOKEN for Webex API calls", async () => {
-    process.env.WEBEX_INTEGRATION_BOT_ACCESS_TOKEN = "integration-token";
-    const fetchMock = jest.spyOn(global, "fetch").mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        items: [
-          {
-            id: "Y2lzY29zcGFyazovL3VzL1JPT00vNmY5MWIwNzAtNTMxYS0xMWYxLTkyNmQtNmZkM2MyMGRmZGM0",
-            title: "Ops",
-          },
-        ],
-      }),
-      headers: { get: () => null },
-    } as unknown as Response);
-
+  it("asks the runtime to discover spaces for the selected bot", async () => {
     const { GET } = await import("../available-spaces/route");
-    const response = await GET(
-      new NextRequest("http://localhost:3000/api/admin/webex/available-spaces", {
-        headers: { Authorization: "Bearer test-token" },
-      })
-    );
+    const response = await GET(new NextRequest(
+      "http://localhost/api/admin/webex/available-spaces?bot_id=secondary&refresh=1&q=ops&limit=50",
+    ));
 
     expect(response.status).toBe(200);
-    const body = await response.json();
-    expect(body.data.spaces[0]).toEqual(
-      expect.objectContaining({
-        id: "6f91b070-531a-11f1-926d-6fd3c20dfdc4",
-        webex_room_id:
-          "Y2lzY29zcGFyazovL3VzL1JPT00vNmY5MWIwNzAtNTMxYS0xMWYxLTkyNmQtNmZkM2MyMGRmZGM0",
-      })
-    );
-    expect(fetchMock).toHaveBeenCalledWith(
-      "https://webexapis.com/v1/rooms?max=100&sortBy=lastactivity",
-      expect.objectContaining({
-        headers: { Authorization: "Bearer integration-token" },
-      })
+    await expect(response.json()).resolves.toMatchObject({
+      data: {
+        bot: { id: "secondary" },
+        spaces: [{ id: "shared", available_bot_ids: ["secondary"] }],
+      },
+    });
+    expect(mockCallWebexBotAdmin).toHaveBeenCalledWith(
+      "/admin/webex/bots/secondary/spaces",
+      {
+        query: {
+          refresh: 1,
+          cache_ttl_seconds: 3600,
+          q: "ops",
+          cursor: undefined,
+          limit: 50,
+        },
+      },
     );
   });
 
-  it("returns 503 when WEBEX_INTEGRATION_BOT_ACCESS_TOKEN is unset", async () => {
-    delete process.env.WEBEX_INTEGRATION_BOT_ACCESS_TOKEN;
+  it("merges physical spaces across available bots", async () => {
     const { GET } = await import("../available-spaces/route");
-    const response = await GET(
-      new NextRequest("http://localhost:3000/api/admin/webex/available-spaces", {
-        headers: { Authorization: "Bearer test-token" },
-      })
-    );
+    const response = await GET(new NextRequest(
+      "http://localhost/api/admin/webex/available-spaces",
+    ));
+    const body = await response.json();
 
-    expect(response.status).toBe(503);
+    expect(body.data.spaces).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: "shared",
+        available_bot_ids: ["primary", "secondary"],
+      }),
+      expect.objectContaining({ id: "primary", available_bot_ids: ["primary"] }),
+    ]));
+  });
+
+  it("rejects an unavailable bot before asking the runtime for spaces", async () => {
+    mockCallWebexBotAdmin.mockResolvedValueOnce({
+      bots: [{ id: "offline", name: "Offline", available: false }],
+    });
+    const { GET } = await import("../available-spaces/route");
+
+    await expect(GET(new NextRequest(
+      "http://localhost/api/admin/webex/available-spaces?bot_id=offline",
+    ))).rejects.toMatchObject({ statusCode: 400 });
+    expect(mockCallWebexBotAdmin).toHaveBeenCalledTimes(1);
   });
 });

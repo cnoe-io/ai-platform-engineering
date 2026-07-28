@@ -9,7 +9,7 @@ image:
 #
 # Default points at our project image — `build/Dockerfile.keycloak-init` —
 # which is wolfi-base + python-3.13 + curl + sed + grep + awk. We need
-# python3 because init-idp.sh does richer JSON munging on the realm user
+# python-3.13 because init-idp.sh does richer JSON munging on the realm user
 # profile (`alpine/curl` lacks python3 and the script exits 127).
 #
 # Override with --set initImage.repository=… for air-gapped registries.
@@ -70,9 +70,10 @@ features:
 # ---------- Strict client-secret mode (production hardening) ----------
 # When true, the init-idp and init-token-exchange Jobs run a final guard at
 # the end of their reconcile passes: they attempt a `client_credentials`
-# token grant for each of the four known development placeholder secrets
+# token grant for each known development placeholder secret
 # (caipe-ui-dev-secret, caipe-platform-dev-secret, caipe-slack-bot-dev-secret,
-# caipe-webex-bot-dev-secret). If Keycloak still accepts ANY of them — for
+# caipe-webex-bot-dev-secret, and caipe-scheduler-runner-dev-secret when the
+# scheduler is enabled). If Keycloak still accepts ANY of them, for
 # example because an operator forgot to set the matching `secretRef` /
 # `externalSecret` — the Job logs a loud ERROR identifying the client and
 # exits non-zero, failing the Helm install fast.
@@ -143,6 +144,13 @@ uiClient:
 # single login lasts a full working session — 28800 = 8h, which matches the
 # realm ssoSessionIdleTimeout and avoids re-authenticating throughout the day.
 # Keep it <= ssoSessionMaxLifespan (86400). Omit to inherit the realm default.
+#
+# This client is reconciled imperatively by init-idp.sh on every
+# post-install/post-upgrade — NOT only via first-boot realm import. That
+# matters on persistent-database deployments (database.enabled=true): the
+# realm already exists on upgrade, so a client added to realm-config.json
+# alone would never be created and `dev-login` would hit "Client not found".
+# The init-idp Job creates/updates it from these values on each helm upgrade.
 cliClient:
   clientId: "caipe-cli"
   accessTokenLifespan: 28800
@@ -302,6 +310,25 @@ tokenExchange:
 webexTokenExchange:
   enabled: true
   botClientId: "caipe-webex-bot"
+  botClientSecret: ""
+  secretRef: ""
+  externalSecret:
+    enabled: false
+    refreshInterval: "1h"
+    secretStoreRef:
+      name: "vault"
+      kind: "ClusterSecretStore"
+    remoteRef:
+      key: ""
+      property: ""
+
+# ---------- Token exchange for the scheduler runner (RFC 8693 / impersonation) ----------
+# Mirrors tokenExchange above. Used by the BFF to mint a schedule owner's bearer
+# for cron fires. The generated Secret key is KC_SCHEDULER_CLIENT_SECRET.
+# When `enabled` is omitted, inherits tokenExchange.enabled.
+schedulerTokenExchange:
+  enabled: true
+  botClientId: "caipe-scheduler-runner"
   botClientSecret: ""
   secretRef: ""
   externalSecret:

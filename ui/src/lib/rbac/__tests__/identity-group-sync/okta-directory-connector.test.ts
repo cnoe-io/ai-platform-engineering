@@ -122,7 +122,13 @@ describe("Okta directory connector (SDK-based)", () => {
         display_name: "Engineering Platform Users",
         member_count: 1,
         members: [
-          { subject: undefined, email: "bob@example.test", display_name: "Bob Example", active: true },
+          {
+            subject: undefined,
+            email: "bob@example.test",
+            okta_user_id: "00u-bob",
+            display_name: "Bob Example",
+            active: true,
+          },
         ],
       }),
     ]);
@@ -170,8 +176,20 @@ describe("Okta directory connector (SDK-based)", () => {
     const [group] = await fetchOktaExternalGroups({ providerId: "okta-main" });
 
     expect(group.members).toEqual([
-      { subject: undefined, email: "gone@example.test", display_name: "gone@example.test", active: false },
-      { subject: undefined, email: "ok@example.test", display_name: "ok@example.test", active: true },
+      {
+        subject: undefined,
+        email: "gone@example.test",
+        okta_user_id: "u1",
+        display_name: "gone@example.test",
+        active: false,
+      },
+      {
+        subject: undefined,
+        email: "ok@example.test",
+        okta_user_id: "u2",
+        display_name: "ok@example.test",
+        active: true,
+      },
     ]);
   });
 

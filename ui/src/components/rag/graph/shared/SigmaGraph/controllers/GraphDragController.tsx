@@ -2,6 +2,8 @@
 
 import { useRegisterEvents,useSigma } from '@react-sigma/core';
 import { useEffect } from 'react';
+import type { SigmaNodeEventPayload } from 'sigma/types';
+import type { GraphEdgeAttributes,GraphNodeAttributes } from '../../graphTypes';
 
 interface GraphDragControllerProps {
     setIsDragging: (dragging: boolean) => void;
@@ -11,15 +13,15 @@ interface GraphDragControllerProps {
  * Component to enable node dragging in the Sigma graph.
  */
 const GraphDragController: React.FC<GraphDragControllerProps> = ({ setIsDragging }) => {
-    const sigma = useSigma();
-    const registerEvents = useRegisterEvents();
+    const sigma = useSigma<GraphNodeAttributes,GraphEdgeAttributes>();
+    const registerEvents = useRegisterEvents<GraphNodeAttributes,GraphEdgeAttributes>();
 
     useEffect(() => {
         let draggedNode: string | null = null;
         let isDragging = false;
         let dragOffset = { x: 0, y: 0 };
 
-        const handleDown = (event: any) => {
+        const handleDown = (event: SigmaNodeEventPayload) => {
             if (!event.node) return;
 
             const node = event.node;

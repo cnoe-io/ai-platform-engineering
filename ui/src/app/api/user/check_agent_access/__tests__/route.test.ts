@@ -24,6 +24,7 @@
 import { NextRequest } from "next/server";
 
 const mockGetAuth = jest.fn();
+const mockGetCollection = jest.fn();
 const mockEvaluateAgentAccess = jest.fn();
 
 jest.mock("@/lib/api-middleware", () => {
@@ -36,6 +37,10 @@ jest.mock("@/lib/api-middleware", () => {
 
 jest.mock("@/lib/rbac/pdp-shared", () => ({
   evaluateAgentAccess: (...args: unknown[]) => mockEvaluateAgentAccess(...args),
+}));
+
+jest.mock("@/lib/mongodb", () => ({
+  getCollection: (...args: unknown[]) => mockGetCollection(...args),
 }));
 
 import { POST } from "../route";
@@ -58,6 +63,12 @@ describe("POST /api/user/check_agent_access", () => {
     mockGetAuth.mockResolvedValue({
       user: { email: "alice@example.com", name: "Alice", role: "user" },
       session: { sub: "alice-sub", org: "default" },
+    });
+    mockGetCollection.mockResolvedValue({
+      findOne: jest.fn().mockResolvedValue({
+        _id: "argocd-agent",
+        enabled: true,
+      }),
     });
   });
 
@@ -104,6 +115,27 @@ describe("POST /api/user/check_agent_access", () => {
     });
   });
 
+  it("passes an explicit team scope to the shared PDP", async () => {
+    mockEvaluateAgentAccess.mockResolvedValue({
+      allowed: true,
+      path: "team_union",
+      matchedTeamSlug: "platform-eng",
+      reasonCode: "ALLOW_TEAM_UNION",
+    });
+
+    const response = await POST(makeRequest({
+      agent_id: "argocd-agent",
+      team_slug: "platform-eng",
+    }));
+
+    expect(response.status).toBe(200);
+    expect(mockEvaluateAgentAccess).toHaveBeenCalledWith({
+      subject: "alice-sub",
+      agentId: "argocd-agent",
+      teamSlug: "platform-eng",
+    });
+  });
+
   it("denies with stable reason code when PDP denies", async () => {
     mockEvaluateAgentAccess.mockResolvedValue({
       allowed: false,
@@ -120,6 +152,23 @@ describe("POST /api/user/check_agent_access", () => {
       reason: "DENY_NO_CAPABILITY",
       path: "denied",
     });
+  });
+
+  it("denies a deleted agent before consulting OpenFGA", async () => {
+    mockGetCollection.mockResolvedValue({
+      findOne: jest.fn().mockResolvedValue(null),
+    });
+
+    const response = await POST(makeRequest({ agent_id: "deleted-agent" }));
+
+    expect(response.status).toBe(200);
+    const json = await bodyOf(response);
+    expect(json.data).toEqual({
+      allowed: false,
+      reason: "DENY_AGENT_NOT_FOUND",
+      path: "denied",
+    });
+    expect(mockEvaluateAgentAccess).not.toHaveBeenCalled();
   });
 
   it("returns 401 when the caller is not signed in", async () => {
@@ -151,6 +200,16 @@ describe("POST /api/user/check_agent_access", () => {
     expect(response.status).toBe(400);
     const json = await bodyOf(response);
     expect(json.code).toBe("INVALID_BODY");
+  });
+
+  it("returns 400 when team_slug is not an OpenFGA-safe string", async () => {
+    const response = await POST(makeRequest({
+      agent_id: "argocd-agent",
+      team_slug: "bad/team",
+    }));
+
+    expect(response.status).toBe(400);
+    expect(mockEvaluateAgentAccess).not.toHaveBeenCalled();
   });
 
   it("returns 400 when body is not valid JSON", async () => {

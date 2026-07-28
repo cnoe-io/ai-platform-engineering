@@ -1,5 +1,6 @@
 import type { TeamMembershipSource } from "@/types/identity-group-sync";
 
+import { loopYieldEvery, maybeYield } from "./event-loop-yield";
 import type { OpenFgaTupleKey } from "./openfga";
 
 export interface ReconcileTeamMembershipSourcesInput {
@@ -62,28 +63,51 @@ function uniqueTuples(tuples: Array<OpenFgaTupleKey | null>): OpenFgaTupleKey[] 
   return out;
 }
 
-export function reconcileTeamMembershipSources(
+export async function reconcileTeamMembershipSources(
   input: ReconcileTeamMembershipSourcesInput
-): ReconcileTeamMembershipSourcesResult {
-  const existingActive = input.existingSources.filter((source) => source.status === "active");
-  const existingBySource = new Map(existingActive.map((source) => [sourceKey(source), source]));
-  const desiredBySource = new Map(input.desiredSources.map((source) => [sourceKey(source), source]));
+): Promise<ReconcileTeamMembershipSourcesResult> {
+  // A full-directory reconcile walks hundreds of thousands of sources across
+  // several passes with no awaited I/O; yield to the event loop periodically so
+  // the pod's k8s liveness probe (served by this same process) still gets a
+  // turn and the pod isn't SIGKILLed mid-reconcile.
+  const yieldEvery = loopYieldEvery();
+  let processed = 0;
 
-  const sourcesToAdd = input.desiredSources.filter((source) => !existingBySource.has(sourceKey(source)));
-  const sourcesToRemove = existingActive
-    .filter((source) => source.managed && !desiredBySource.has(sourceKey(source)))
+  const existingActive: TeamMembershipSource[] = [];
+  const existingBySource = new Map<string, TeamMembershipSource>();
+  for (const source of input.existingSources) {
+    await maybeYield(++processed, yieldEvery);
+    if (source.status !== "active") continue;
+    existingActive.push(source);
+    existingBySource.set(sourceKey(source), source);
+  }
+
+  const desiredBySource = new Map<string, TeamMembershipSource>();
+  const sourcesToAdd: TeamMembershipSource[] = [];
+  for (const source of input.desiredSources) {
+    await maybeYield(++processed, yieldEvery);
+    const key = sourceKey(source);
+    desiredBySource.set(key, source);
+    if (!existingBySource.has(key)) sourcesToAdd.push(source);
+  }
+
+  const sourcesToRemove: TeamMembershipSource[] = [];
+  for (const source of existingActive) {
+    await maybeYield(++processed, yieldEvery);
+    if (!source.managed || desiredBySource.has(sourceKey(source))) continue;
     // Scope guard: when the caller observed only a subset of groups (e.g. a
     // group filter), never remove memberships for groups outside that subset —
     // their absence from `desiredSources` just means we didn't look, not that
     // the membership is gone. Rows with no external_group_id (defensive) are
     // only removable in a full reconcile.
-    .filter((source) => {
-      if (!input.observedGroupIds) return true; // full snapshot: remove freely
-      return source.external_group_id
+    if (input.observedGroupIds) {
+      const inScope = source.external_group_id
         ? input.observedGroupIds.has(source.external_group_id)
         : false;
-    })
-    .map((source) => ({ ...source, status: "removed" as const, removed_at: input.now }));
+      if (!inScope) continue;
+    }
+    sourcesToRemove.push({ ...source, status: "removed" as const, removed_at: input.now });
+  }
 
   // Tuple writes cover EVERY membership that should hold a live tuple after
   // this reconcile — the retained existing sources plus the newly-added ones —
@@ -99,28 +123,31 @@ export function reconcileTeamMembershipSources(
   // stored, so a steady-state sync performs zero actual writes. uniqueTuples
   // collapses multiple sources that map to the same (user, relation, team).
   const removedKeys = new Set(sourcesToRemove.map((source) => sourceKey(source)));
-  const activeAfterReconcile = [
-    ...existingActive.filter((source) => !removedKeys.has(sourceKey(source))),
-    ...sourcesToAdd,
-  ];
+  const survivingSources: TeamMembershipSource[] = [];
+  for (const source of existingActive) {
+    await maybeYield(++processed, yieldEvery);
+    if (!removedKeys.has(sourceKey(source))) survivingSources.push(source);
+  }
+  const activeAfterReconcile = [...survivingSources, ...sourcesToAdd];
   const tupleWrites = uniqueTuples(
     activeAfterReconcile
       .filter((source) => source.status === "active" && source.user_subject)
       .map(memberTuple)
   );
 
+  // A removed source's tuple must only be deleted when NO surviving (retained,
+  // not-removed) active source still grants the same (user, relation, team)
+  // access — otherwise we'd revoke a tuple another membership source still
+  // backs. Precompute the set of access keys that survive the reconcile so this
+  // is an O(1) lookup per removed source; the previous nested `.some()` scan was
+  // O(n²) over existingActive × sourcesToRemove and, at full-directory scale
+  // (hundreds of thousands of sources), pinned the event loop long enough to
+  // trip the pod's liveness probe.
+  const survivingAccessKeys = new Set(survivingSources.map((source) => accessKey(source)));
   const tupleDeletes = uniqueTuples(
     sourcesToRemove
       .filter((source) => source.user_subject)
-      .filter((source) => {
-        const otherActiveSource = existingActive.some(
-          (existing) =>
-            sourceKey(existing) !== sourceKey(source) &&
-            accessKey(existing) === accessKey(source) &&
-            !sourcesToRemove.some((removed) => sourceKey(removed) === sourceKey(existing))
-        );
-        return !otherActiveSource;
-      })
+      .filter((source) => !survivingAccessKeys.has(accessKey(source)))
       .map(memberTuple)
   );
 

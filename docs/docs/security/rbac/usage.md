@@ -60,7 +60,12 @@ the caller's own Keycloak row when OpenFGA allows
 `user_profile:<id>#can_read`. Team owners and team admins can manage membership
 and Knowledge Base grants for teams where they hold a scoped team role; unrelated
 teams and platform-wide user operations remain admin-only. The baseline Metrics &
-Health tabs require `admin_surface:metrics#can_read`. The Settings → Skills tab
+Health category exposes Health to members through
+`admin_surface:health#can_read`; Metrics and Authorization Insights require
+administrator access. Baseline members also get scoped Insights (Statistics and
+Feedback) plus configured-only Slack and Webex integration views. Those views
+return only the member's own web activity and connected resources available to
+the member or one of their teams. The Settings → Skills tab
 shows configured Skill Hubs read-only through `admin_surface:skills#can_read`;
 adding, refreshing, editing, or deleting hubs requires
 `admin_surface:skills#can_manage`.
@@ -394,18 +399,20 @@ Keycloak subject against the default member and admin OpenFGA baselines. This is
 the fastest way to verify first-login or bootstrap tuple repair: a normal member
 should match the member baseline for `organization:<org>#can_use`,
 `user_profile:<sub>#can_read`, and read-only
-`admin_surface:<users|teams|skills|metrics|health>#can_read`, while admin-only
+`admin_surface:<users|teams|skills|slack|webex|feedback|stats|health>#can_read`, while admin-only
 checks such as `organization:<org>#can_manage` should drift from the member
 baseline but match the admin baseline.
 
-Use the subtle **View as** control beside the Admin top-level category tabs to
+Use the subtle **View as** control beside the Admin heading to
 preview the Admin console as a real OpenFGA principal. The modal searches users by
 email/name/Keycloak subject and teams by name/slug, with a `member`/`admin`
 userset relation for team previews. The preview is read-only: tab visibility is
 evaluated as the selected `user:<sub>` or `team:<slug>#relation`, but the browser
-session remains the signed-in admin and Slack/Webex mutation controls are
-disabled. Use this to answer "what would this manager see?" before granting or
-revoking relationships in Access Manager.
+session remains the signed-in admin and all mutation controls are disabled.
+Configured Slack channels, Webex spaces, Statistics, and Feedback are scoped to
+that same simulated subject, including concrete resources it owns or receives
+through a team grant. Use this to answer "what would this manager see?" before granting
+or revoking relationships in Access Manager.
 
 Use **Admin → Security & Policy → OpenFGA ReBAC → Policy Graph** to inspect the
 same relationships visually without starting from the full tuple blast radius.
@@ -1041,7 +1048,7 @@ The **Step 2a: Verify Webex Space ReBAC** panel checks the selected space using 
 OpenFGA tuple read shape that runtime dispatch uses. If a space has no routeable
 agent, diagnostics shows **Fix missing association with `agent:<id>`** when a
 default Dynamic Agent is available. That repair creates the missing OpenFGA-backed
-association with `listen: all`, priority `100`, and refreshes the diagnostics. If
+association with `listen: mention`, priority `100`, and refreshes the diagnostics. If
 the repair reports `fetch failed`, check that the UI server can reach OpenFGA with
 `OPENFGA_HTTP` and the expected `OPENFGA_STORE_ID`.
 
@@ -1092,8 +1099,9 @@ status. Webex dispatch creates or reuses a `client_type=webex` CAIPE
 conversation before calling `/api/v1/chat/stream/start`; a `404 Conversation not
 found` means that conversation upsert step did not run or failed.
 
-Keep `WEBEX_AUTO_ASSIGN_UNMAPPED_SPACES=false` unless the configured default team
-and agent are intentionally safe for newly observed spaces.
+Use `spaces.accessMode: all_spaces` only when that bot's configured default team
+and agent are intentionally safe for every newly observed group space. Use
+`allowlist` when an administrator must approve each space.
 
 ---
 
@@ -1150,6 +1158,15 @@ NextAuth holds the refresh token and silently refreshes before expiry. If the re
 **Q: Can I add a custom role and enforce it at AgentGateway?**
 
 Yes for application/UI roles. In Keycloak Admin: Realm Roles → Create. Add it to `default-roles-caipe` if it should be universal. Add an IdP mapper if it should come from an upstream group. For AgentGateway authorization, model the access as OpenFGA relationships instead of editing CEL rules.
+
+**Q: How does the Skills Catalog API authenticate non-browser callers?**
+
+Two paths bypass Keycloak:
+
+- **Catalog API key** (`X-Caipe-Catalog-Key` header, used by `caipe-skills.py` and the skills gateway): the BFF assigns the synthetic subject `catalog-key-user@local`. In read mode `filterSkillsByOpenFga` returns `default` (filesystem) + `hub` + globally-visible `agent_skills` without querying OpenFGA — no per-skill tuples exist for machine callers. In use mode it falls through to normal per-skill `can_use` checks.
+- **Local skills JWT** (`Authorization: Bearer <HS256>` from `/api/skills/token`): the BFF derives `session.sub` from the token's `email` claim and runs full OpenFGA evaluation — `default` skills pass through; `agent_skills` require a `can_read` tuple.
+
+Both paths require a populated `session.sub`; without it `filterSkillsByOpenFga` short-circuits to an empty result.
 
 **Q: Where do I look to change something?**
 

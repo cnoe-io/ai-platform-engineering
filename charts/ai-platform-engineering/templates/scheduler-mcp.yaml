@@ -1,0 +1,166 @@
+{{- $schedulerEnabled := dig "scheduler" "enabled" false (.Values.global | default dict) -}}
+{{- $mcp := .Values.schedulerMcp | default dict -}}
+{{- if and $schedulerEnabled ($mcp.enabled | default false) -}}
+{{- $name := $mcp.nameOverride | default "mcp-scheduler" -}}
+{{- $image := $mcp.image | default dict -}}
+{{- $service := $mcp.service | default dict -}}
+{{- $port := $service.port | default 8000 -}}
+{{- $tokenSecretName := dig "scheduler" "serviceTokenSecretName" "caipe-scheduler-service-token" (.Values.global | default dict) -}}
+{{- $tokenSecretKey := dig "scheduler" "serviceTokenSecretKey" "token" (.Values.global | default dict) -}}
+{{- $auth := $mcp.auth | default dict -}}
+{{- $keycloak := $.Values.keycloak | default dict -}}
+{{- $realmConfig := $keycloak.realm | default dict -}}
+{{- $realm := $realmConfig.name | default "caipe" -}}
+{{- $dynamicAgents := index $.Values "dynamic-agents" | default dict -}}
+{{- $dynamicAgentConfig := $dynamicAgents.config | default dict -}}
+{{- $defaultIssuer := index $dynamicAgentConfig "OIDC_ISSUER" | default (printf "http://%s-keycloak:8080/realms/%s" $.Release.Name $realm) -}}
+{{- $issuer := $auth.issuer | default $defaultIssuer -}}
+{{- $jwksUri := $auth.jwksUri | default (printf "http://%s-keycloak:8080/realms/%s/protocol/openid-connect/certs" $.Release.Name $realm) -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    helm.sh/chart: {{ include "ai-platform-engineering.chart" . }}
+    app.kubernetes.io/name: {{ $name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/component: mcp
+    app.kubernetes.io/part-of: caipe-scheduler
+spec:
+  replicas: {{ $mcp.replicaCount | default 1 }}
+  revisionHistoryLimit: {{ $mcp.revisionHistoryLimit | default 3 }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $name }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: mcp
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ $name }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: mcp
+        app.kubernetes.io/part-of: caipe-scheduler
+      {{- with $mcp.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      automountServiceAccountToken: false
+      {{- with $mcp.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: mcp
+          image: "{{ include "ai-platform-engineering.imageRepository" (dict "root" $ "repository" $image.repository) }}:{{ $image.tag | default (include "ai-platform-engineering.appVersion" .) }}"
+          imagePullPolicy: {{ $image.pullPolicy | default "IfNotPresent" }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1001
+            runAsGroup: 1001
+            capabilities:
+              drop: ["ALL"]
+          {{- with $mcp.command }}
+          command:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $mcp.args }}
+          args:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ $port }}
+              protocol: TCP
+          env:
+            {{- range $name, $value := $mcp.env }}
+            - name: {{ $name }}
+              value: {{ $value | quote }}
+            {{- end }}
+            - name: SCHEDULER_SERVICE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $tokenSecretName | quote }}
+                  key: {{ $tokenSecretKey | quote }}
+            - name: MCP_AUTH_MODE
+              value: {{ $auth.mode | default "none" | quote }}
+            - name: JWKS_URI
+              value: {{ $jwksUri | quote }}
+            - name: ISSUER
+              value: {{ $issuer | quote }}
+            - name: AUDIENCE
+              value: {{ $auth.audience | default "caipe-platform" | quote }}
+          startupProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 30
+          livenessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          {{- with $mcp.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      {{- with $mcp.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $mcp.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $mcp.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    helm.sh/chart: {{ include "ai-platform-engineering.chart" . }}
+    app.kubernetes.io/name: {{ $name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/component: mcp
+    app.kubernetes.io/part-of: caipe-scheduler
+spec:
+  type: {{ $service.type | default "ClusterIP" }}
+  ports:
+    - name: http
+      port: {{ $port }}
+      targetPort: http
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: {{ $name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}

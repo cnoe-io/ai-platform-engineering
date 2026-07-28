@@ -1,10 +1,11 @@
+import { getErrorMessage } from "@/lib/error-utils";
 import {
 ApiError,
 getAuthFromBearerOrSession,
 withErrorHandler,
 } from '@/lib/api-middleware';
 import { getServerOnlyConfig } from '@/lib/config';
-import { requireBaselineAdminSurfaceRead } from '@/lib/rbac/require-openfga';
+import { requireAdminSurfaceManage } from '@/lib/rbac/require-openfga';
 import { NextRequest,NextResponse } from 'next/server';
 
 const PROM_QUERY_TIMEOUT_MS = 15_000;
@@ -13,7 +14,7 @@ const PROM_QUERY_TIMEOUT_MS = 15_000;
  * GET /api/admin/metrics
  *
  * Proxies PromQL queries to the Prometheus HTTP API.
- * OpenFGA baseline Metrics viewers may view metrics.
+ * Metrics are restricted to administrators.
  *
  * Query params:
  *   query  – PromQL expression (required)
@@ -21,12 +22,13 @@ const PROM_QUERY_TIMEOUT_MS = 15_000;
  *   start  – RFC3339 or unix timestamp (range queries)
  *   end    – RFC3339 or unix timestamp (range queries)
  *   step   – duration string e.g. "60s" (range queries)
+ *   time   – RFC3339 or unix timestamp (historical instant queries)
  *
  * POST /api/admin/metrics/batch (future)
  */
 export const GET = withErrorHandler(async (request: NextRequest): Promise<NextResponse> => {
   const { session } = await getAuthFromBearerOrSession(request);
-  await requireBaselineAdminSurfaceRead(session, 'metrics');
+  await requireAdminSurfaceManage(session, 'metrics');
 
   const { prometheusUrl } = getServerOnlyConfig();
 
@@ -50,6 +52,7 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
   const queryType = searchParams.get('type') || 'instant';
   const start = searchParams.get('start');
   const end = searchParams.get('end');
+  const time = searchParams.get('time');
   const step = searchParams.get('step') || '60s';
 
   let promUrl: string;
@@ -62,6 +65,7 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
     promUrl = `${prometheusUrl}/api/v1/query_range?${params}`;
   } else {
     const params = new URLSearchParams({ query });
+    if (time) params.set('time', time);
     promUrl = `${prometheusUrl}/api/v1/query?${params}`;
   }
 
@@ -85,12 +89,12 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
     return NextResponse.json({ success: true, data }, {
       headers: { 'Cache-Control': 'no-store' },
     });
-  } catch (err: any) {
+  } catch (err) {
     if (err instanceof ApiError) throw err;
-    if (err.name === 'AbortError') {
+    if (err instanceof Error && err.name === 'AbortError') {
       throw new ApiError('Prometheus query timed out', 504);
     }
-    console.error('[Metrics] Prometheus fetch error:', err.message);
+    console.error('[Metrics] Prometheus fetch error:', getErrorMessage(err, ""));
     throw new ApiError('Failed to reach Prometheus', 502);
   } finally {
     clearTimeout(timeout);
@@ -105,7 +109,7 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
  */
 export const POST = withErrorHandler(async (request: NextRequest): Promise<NextResponse> => {
   const { session } = await getAuthFromBearerOrSession(request);
-  await requireBaselineAdminSurfaceRead(session, 'metrics');
+  await requireAdminSurfaceManage(session, 'metrics');
 
   const { prometheusUrl } = getServerOnlyConfig();
 
@@ -123,7 +127,9 @@ export const POST = withErrorHandler(async (request: NextRequest): Promise<NextR
     type?: 'instant' | 'range';
     start?: string;
     end?: string;
+    time?: string;
     step?: string;
+    rangeSeconds?: number;
   }> = body.queries;
 
   if (!Array.isArray(queries) || queries.length === 0) {
@@ -134,22 +140,32 @@ export const POST = withErrorHandler(async (request: NextRequest): Promise<NextR
     throw new ApiError('Maximum 20 queries per batch', 400);
   }
 
-  const results: Record<string, any> = {};
+  const results: Record<string, unknown> = {};
 
   await Promise.all(
     queries.map(async (q) => {
       try {
         let promUrl: string;
         if (q.type === 'range') {
+          const defaultEnd = Math.floor(Date.now() / 1000);
+          const resolvedEnd = q.end || `${defaultEnd}`;
+          const numericEnd = Number(resolvedEnd);
+          const relativeRange = typeof q.rangeSeconds === 'number'
+            && Number.isFinite(q.rangeSeconds)
+            && q.rangeSeconds > 0
+            ? Math.floor(q.rangeSeconds)
+            : 3600;
+          const resolvedStart = q.start || `${(Number.isFinite(numericEnd) ? numericEnd : defaultEnd) - relativeRange}`;
           const params = new URLSearchParams({
             query: q.query,
-            start: q.start || `${Math.floor(Date.now() / 1000) - 3600}`,
-            end: q.end || `${Math.floor(Date.now() / 1000)}`,
+            start: resolvedStart,
+            end: resolvedEnd,
             step: q.step || '60s',
           });
           promUrl = `${prometheusUrl}/api/v1/query_range?${params}`;
         } else {
           const params = new URLSearchParams({ query: q.query });
+          if (q.time) params.set('time', q.time);
           promUrl = `${prometheusUrl}/api/v1/query?${params}`;
         }
 
@@ -169,8 +185,13 @@ export const POST = withErrorHandler(async (request: NextRequest): Promise<NextR
         } finally {
           clearTimeout(timeout);
         }
-      } catch (err: any) {
-        results[q.id] = { status: 'error', error: err.message };
+      } catch (err) {
+        results[q.id] = {
+          status: 'error',
+          error: err instanceof Error && err.name === 'AbortError'
+            ? 'Prometheus query timed out'
+            : getErrorMessage(err, ""),
+        };
       }
     }),
   );

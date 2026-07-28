@@ -24,11 +24,13 @@ import { ImportSkillMdDialog } from "../ImportSkillMdDialog";
 import { RepoImportPanel } from "../RepoImportPanel";
 import { GithubImportPanel } from "../GithubImportPanel";
 
+const fetchMock = jest.fn() as jest.MockedFunction<typeof fetch>;
+
 beforeEach(() => {
   mockToast.mockClear();
   mockFetchTemplates.mockReset();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (global as any).fetch = jest.fn();
+  fetchMock.mockReset();
+  global.fetch = fetchMock;
 });
 
 /**
@@ -43,7 +45,7 @@ function mockFetchResponse(opts: {
   status: number;
   body?: unknown;
   contentType?: string;
-}): unknown {
+}): Response {
   const ct = opts.contentType ?? "application/json";
   const text =
     typeof opts.body === "string"
@@ -59,7 +61,7 @@ function mockFetchResponse(opts: {
     text: async () => text,
     json: async () =>
       typeof opts.body === "string" ? opts.body : (opts.body as unknown),
-  };
+  } as unknown as Response;
 }
 
 // ---------------------------------------------------------------------------
@@ -196,8 +198,7 @@ describe("RepoImportPanel", () => {
   });
 
   it("POSTs to /api/skills/import with source=github by default", async () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (global.fetch as any).mockResolvedValueOnce(
+    fetchMock.mockResolvedValueOnce(
       mockFetchResponse({
         ok: true,
         status: 200,
@@ -222,8 +223,6 @@ describe("RepoImportPanel", () => {
     await waitFor(() => expect(onImported).toHaveBeenCalledTimes(1));
     expect(onImported).toHaveBeenCalledWith({ "a.txt": "hi", "b.txt": "ho" });
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const fetchMock = global.fetch as any;
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/skills/import",
       expect.objectContaining({
@@ -240,8 +239,7 @@ describe("RepoImportPanel", () => {
   });
 
   it("switches placeholders + body source when GitLab is selected", async () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (global.fetch as any).mockResolvedValueOnce(
+    fetchMock.mockResolvedValueOnce(
       mockFetchResponse({
         ok: true,
         status: 200,
@@ -273,12 +271,10 @@ describe("RepoImportPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Import$/ }));
 
     await waitFor(() => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      expect((global.fetch as any).mock.calls).toHaveLength(1);
+      expect(fetchMock.mock.calls).toHaveLength(1);
     });
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const body = JSON.parse((global.fetch as any).mock.calls[0][1].body);
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
     expect(body.source).toBe("gitlab");
     expect(body.repo).toBe("mycorp/platform");
     expect(body.paths).toEqual(["skills/example"]);
@@ -301,8 +297,7 @@ describe("RepoImportPanel", () => {
   });
 
   it("surfaces a conflict toast when first-wins drops a duplicate", async () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (global.fetch as any).mockResolvedValueOnce(
+    fetchMock.mockResolvedValueOnce(
       mockFetchResponse({
         ok: true,
         status: 200,
@@ -342,8 +337,7 @@ describe("RepoImportPanel", () => {
   });
 
   it("toasts on non-OK responses and does NOT call onImported", async () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (global.fetch as any).mockResolvedValueOnce(
+    fetchMock.mockResolvedValueOnce(
       mockFetchResponse({
         ok: false,
         status: 404,
@@ -378,8 +372,7 @@ describe("RepoImportPanel", () => {
   // toast pointing at the actual upstream status + body excerpt.
   // -------------------------------------------------------------------------
   it("surfaces an actionable error when the server returns HTML (e.g. 504)", async () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (global.fetch as any).mockResolvedValueOnce(
+    fetchMock.mockResolvedValueOnce(
       mockFetchResponse({
         ok: false,
         status: 504,

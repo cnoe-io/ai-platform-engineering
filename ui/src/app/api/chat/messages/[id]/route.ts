@@ -10,7 +10,7 @@ withErrorHandler,
 import { getCollection } from '@/lib/mongodb';
 import { requireResourcePermission } from '@/lib/rbac/resource-authz';
 import type { Message,UpdateMessageRequest } from '@/types/mongodb';
-import { ObjectId } from 'mongodb';
+import { ObjectId,type Document,type Filter } from 'mongodb';
 import { NextRequest } from 'next/server';
 
 // PUT /api/chat/messages/[id]
@@ -27,7 +27,7 @@ export const PUT = withErrorHandler(async (
 
     // Look up by MongoDB _id first, then fall back to client-generated message_id.
     // This allows the chat store to update messages using the UUID it generated.
-    let filter: any;
+    let filter: Filter<Message>;
     if (ObjectId.isValid(messageId)) {
       filter = { _id: new ObjectId(messageId) };
     } else {
@@ -46,7 +46,7 @@ export const PUT = withErrorHandler(async (
     });
 
     // Build update
-    const update: any = {};
+    const update: Document = {};
 
     // Feedback is no longer written here — use POST /api/feedback instead.
 

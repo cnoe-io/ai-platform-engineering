@@ -145,11 +145,10 @@ function defaultRouteForAgent(
     enabled: true,
     priority: 100,
     // Materialised from an existing OpenFGA channel→agent tuple that has no
-    // Mongo route metadata yet. The tuple is the opt-in signal, so default
-    // to listening on both @mentions and plain channel messages; admins can
-    // narrow via the Step-2a route picker.
-    // assisted-by Cursor claude-opus-4-7
-    users: { enabled: true, listen: "all" },
+    // Mongo route metadata yet. The tuple is the opt-in signal, but default
+    // to mention-only; admins can widen to "all" via the Step-2a route
+    // picker.
+    users: { enabled: true, listen: "mention" },
     source_type: "manual",
     status: "active",
     created_at: now,

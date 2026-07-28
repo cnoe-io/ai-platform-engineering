@@ -92,7 +92,7 @@ describe('RAG org-admin bypass', () => {
       org: 'caipe',
       accessToken: 'admin-token',
       user: { email: 'admin@example.com' },
-    } as any);
+    } as unknown);
     (global.fetch as jest.Mock).mockResolvedValue({
       ok: true,
       status: 200,
@@ -128,7 +128,7 @@ describe('RAG org-admin bypass', () => {
       org: 'caipe',
       accessToken: 'admin-token',
       user: { email: 'admin@example.com' },
-    } as any);
+    } as unknown);
 
     const { GET } = await import('@/app/api/rag/[...path]/route');
     await GET(
@@ -151,7 +151,7 @@ describe('RAG org-admin bypass', () => {
       org: 'caipe',
       accessToken: 'admin-token',
       user: { email: 'admin@example.com' },
-    } as any);
+    } as unknown);
     mockCheckOpenFgaTuple.mockImplementation(async (tuple: { object: string; relation: string }) => {
       if (tuple.object === 'organization:caipe' && tuple.relation === 'can_manage') {
         return { allowed: true };
@@ -196,7 +196,7 @@ describe('RAG org-admin bypass', () => {
       org: 'caipe',
       accessToken: 'admin-token',
       user: { email: 'admin@example.com' },
-    } as any);
+    } as unknown);
     mockCheckOpenFgaTuple.mockResolvedValue({ allowed: true });
     const upstreamFetch = jest
       .fn()

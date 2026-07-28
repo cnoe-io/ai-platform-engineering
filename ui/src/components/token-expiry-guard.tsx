@@ -1,7 +1,5 @@
 "use client";
 
-// assisted-by Codex Codex-sonnet-4-6
-
 import { Button } from "@/components/ui/button";
 import { formatTimeUntilExpiry,getTimeUntilExpiry,getWarningTimestamp,isTokenExpired } from "@/lib/auth-utils";
 import { getConfig } from "@/lib/config";
@@ -11,11 +9,35 @@ import { signOut,useSession } from "next-auth/react";
 import { useCallback,useEffect,useRef,useState } from "react";
 
 const LOGIN_REDIRECT_COUNTDOWN_SECONDS = 5;
+// Keepalive fires at 75% of the Keycloak SSO session idle timeout (default 8h → 6h).
+// Each successful token exchange resets the server-side idle timer, preventing
+// users from being silently logged out while the tab is open but idle.
+const SESSION_KEEPALIVE_INTERVAL_MS = 6 * 60 * 60 * 1000;
+// AccessTokenMissing is intentionally absent here — it has its own retry-budget
+// handling above (lines 198-211) and must never fall through to immediate logout.
 const SESSION_CREDENTIAL_ERRORS = new Set([
   "RefreshTokenExpired",
   "RefreshTokenError",
-  "AccessTokenMissing",
 ]);
+/**
+ * How many consecutive 30s check cycles we tolerate seeing the token as
+ * expired / access-token-missing before giving up and forcing a re-login.
+ *
+ * A single bad reading can be caused by a transient blip (a slow/aborted
+ * `updateSession()` fetch, a brief server-side token-store cache miss, or the
+ * client momentarily racing ahead of an in-flight refresh) even though the
+ * underlying OIDC refresh token is still perfectly valid and the very next
+ * check would see a healthy session. Forcing an immediate sign-out on the
+ * first bad reading produces exactly the symptom users report as "the
+ * auto-refresh banner shows but I still get logged out" — the session gets
+ * torn down before a retry ever gets a chance to run.
+ *
+ * This counter is driven by wall-clock check cycles (not by whether
+ * `updateSession()` happens to throw), so it always terminates within a
+ * bounded time even if retries keep "succeeding" without actually resolving
+ * the underlying problem.
+ */
+const MAX_CONSECUTIVE_PROBLEM_TICKS = 3;
 
 /**
  * TokenExpiryGuard Component
@@ -37,6 +59,7 @@ export function TokenExpiryGuard() {
   const checkIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const countdownIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const redirectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const keepaliveIntervalRef = useRef<NodeJS.Timeout | null>(null);
   /** Tracks user dismissal — stores the expiresAt timestamp for which the warning was dismissed.
    *  This way, if the token is refreshed (new expiresAt), the warning can show again for the new cycle. */
   const dismissedForExpiryRef = useRef<number | null>(null);
@@ -44,6 +67,13 @@ export function TokenExpiryGuard() {
   const isRefreshingRef = useRef(false);
   /** Cooldown: timestamp of the last successful refresh to prevent rapid re-refresh loops. */
   const lastRefreshAtRef = useRef<number>(0);
+  /**
+   * Consecutive 30s check cycles that observed a bad token state (expired or
+   * access-token-missing). Reset to 0 whenever a check cycle sees a healthy
+   * token. See MAX_CONSECUTIVE_PROBLEM_TICKS for why this drives the
+   * give-up decision instead of individual `updateSession()` failures.
+   */
+  const consecutiveProblemTicksRef = useRef(0);
 
   const clearRedirectTimers = useCallback(() => {
     if (countdownIntervalRef.current) {
@@ -132,13 +162,17 @@ export function TokenExpiryGuard() {
       console.log("[TokenExpiryGuard] Silent refresh triggered successfully");
       return true;
     } catch (error) {
+      // Don't force a logout here — this may run during the proactive 5-minute
+      // warning window where plenty of time remains, or as a bounded retry
+      // from checkTokenExpiry. Callers decide whether/when to give up based on
+      // consecutiveProblemTicksRef so a single transient failure never directly
+      // tears down the session.
       console.error("[TokenExpiryGuard] Silent refresh failed:", error);
-      beginLoginCountdown("refresh_failed");
       return false;
     } finally {
       isRefreshingRef.current = false;
     }
-  }, [beginLoginCountdown, session?.hasRefreshToken, updateSession]);
+  }, [session?.hasRefreshToken, updateSession]);
 
   // Check token expiry
   const checkTokenExpiry = useCallback(() => {
@@ -151,6 +185,35 @@ export function TokenExpiryGuard() {
     }
 
     // Check if token refresh failed or the server-side token cache was lost.
+    //
+    // "AccessTokenMissing" can be transient — a momentary miss on the
+    // server-side token store (see auth-token-store.ts's short-TTL L1 cache
+    // falling through to MongoDB) rather than a genuinely dead session — so
+    // it gets one retry via the shared budget before we give up.
+    //
+    // "RefreshTokenExpired"/"RefreshTokenError", by contrast, are only ever
+    // set by the jwt() callback *after* it already tried the OIDC refresh_token
+    // grant and failed (auth-config.ts refreshAccessToken()). Once set, the
+    // server-side callback intentionally skips retrying
+    // ("Token refresh already failed, skipping refresh attempt") until a
+    // fresh login, so retrying client-side here would just loop forever
+    // without ever recovering — keep the original immediate-logout behavior
+    // for those two.
+    if (session.error === "AccessTokenMissing") {
+      consecutiveProblemTicksRef.current += 1;
+      console.error(
+        `[TokenExpiryGuard] Session credentials unavailable: ${session.error} ` +
+        `(tick ${consecutiveProblemTicksRef.current}/${MAX_CONSECUTIVE_PROBLEM_TICKS})`,
+      );
+      if (session.hasRefreshToken && consecutiveProblemTicksRef.current < MAX_CONSECUTIVE_PROBLEM_TICKS) {
+        if (!isRefreshingRef.current) {
+          void attemptSilentRefresh();
+        }
+      } else {
+        beginLoginCountdown("refresh_failed");
+      }
+      return;
+    }
     if (SESSION_CREDENTIAL_ERRORS.has(session.error ?? "")) {
       console.error(`[TokenExpiryGuard] Session credentials unavailable: ${session.error}`);
       beginLoginCountdown("refresh_failed");
@@ -177,11 +240,39 @@ export function TokenExpiryGuard() {
     // Update time remaining for display
     setTimeRemaining(formatTimeUntilExpiry(secondsUntilExpiry));
 
-    // Token has expired
+    // Token has expired (per the client's current copy of the session).
+    //
+    // This does NOT necessarily mean the refresh token is dead — session.error
+    // would already have been set and caught above in that case. It's more
+    // often the client briefly racing ahead of an in-flight or just-completed
+    // server-side refresh (e.g. concurrent requests reading a stale cookie
+    // before the browser applies an updated Set-Cookie, per auth-config.ts's
+    // in-flight refresh dedup). Give the retry budget a chance to catch up
+    // before forcing a re-login.
     if (isExpired) {
-      console.error("[TokenExpiryGuard] Token expired! Forcing logout...");
-      beginLoginCountdown("expired");
+      consecutiveProblemTicksRef.current += 1;
+      console.error(
+        `[TokenExpiryGuard] Token expired! Attempting recovery before logout... ` +
+        `(tick ${consecutiveProblemTicksRef.current}/${MAX_CONSECUTIVE_PROBLEM_TICKS})`,
+      );
+      if (session.hasRefreshToken && consecutiveProblemTicksRef.current < MAX_CONSECUTIVE_PROBLEM_TICKS) {
+        if (!isRefreshingRef.current) {
+          void attemptSilentRefresh();
+        }
+      } else {
+        beginLoginCountdown("expired");
+      }
       return;
+    }
+
+    // Token state is healthy this cycle — clear the problem-tick counter so a
+    // future isolated blip gets the full retry budget again.
+    consecutiveProblemTicksRef.current = 0;
+    // Release the AuthGuard coordination flag if we set it during the warning
+    // window or expired retry ticks. Without this, AuthGuard stays suppressed
+    // even after the session has fully recovered.
+    if (typeof window !== 'undefined') {
+      sessionStorage.removeItem('token-expiry-handling');
     }
 
     // If the token was refreshed (expiresAt changed), clear the dismissed state
@@ -246,6 +337,33 @@ export function TokenExpiryGuard() {
       }
     };
   }, [status, checkTokenExpiry]);
+
+  // Proactive session keepalive: force-refresh the token on a fixed interval so
+  // the Keycloak SSO session idle timer never reaches its limit while the tab is
+  // open. Without this, a user idle for longer than ssoSessionIdleTimeout (8h)
+  // has their refresh token invalidated server-side, causing the next expiry check
+  // to fail with invalid_token and immediately log them out.
+  useEffect(() => {
+    if (!getConfig('ssoEnabled') || status !== "authenticated" || !session?.hasRefreshToken) {
+      return;
+    }
+
+    keepaliveIntervalRef.current = setInterval(async () => {
+      console.log("[TokenExpiryGuard] Proactive keepalive — refreshing token to reset SSO idle timer");
+      try {
+        await updateSession({ forceRefresh: true });
+      } catch (error) {
+        console.warn("[TokenExpiryGuard] Keepalive refresh failed:", error);
+      }
+    }, SESSION_KEEPALIVE_INTERVAL_MS);
+
+    return () => {
+      if (keepaliveIntervalRef.current) {
+        clearInterval(keepaliveIntervalRef.current);
+        keepaliveIntervalRef.current = null;
+      }
+    };
+  }, [status, session?.hasRefreshToken, updateSession]);
 
   useEffect(() => clearRedirectTimers, [clearRedirectTimers]);
 

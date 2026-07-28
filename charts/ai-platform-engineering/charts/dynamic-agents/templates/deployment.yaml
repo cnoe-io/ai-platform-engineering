@@ -47,13 +47,22 @@ spec:
             - name: http
               containerPort: {{ .Values.service.port }}
               protocol: TCP
+            {{- if eq (include "dynamic-agents.metricsPortSeparate" .) "true" }}
+            - name: metrics
+              containerPort: {{ .Values.service.metricsPort }}
+              protocol: TCP
+            {{- end }}
           env:
+            - name: METRICS_PORT
+              value: {{ .Values.service.metricsPort | default 0 | quote }}
             - name: KEYCLOAK_URL
               value: {{ index .Values.config "KEYCLOAK_URL" | default (printf "http://%s-keycloak:8080" .Release.Name) | quote }}
             - name: OPENFGA_HTTP
               value: {{ index .Values.config "OPENFGA_HTTP" | default (printf "http://%s-openfga:8080" .Release.Name) | quote }}
             - name: CREDENTIAL_API_URL
               value: {{ index .Values.config "CREDENTIAL_API_URL" | default (printf "http://%s-caipe-ui:3000/api/credentials" .Release.Name) | quote }}
+            - name: CAIPE_API_URL
+              value: {{ index .Values.config "CAIPE_API_URL" | default (printf "http://%s-caipe-ui:3000" .Release.Name) | quote }}
             - name: AUDIT_SERVICE_URL
               value: {{ index .Values.config "AUDIT_SERVICE_URL" | default (printf "http://%s-audit-service:8010" .Release.Name) | quote }}
             {{- if .Values.agentContext.existingSecret.name }}

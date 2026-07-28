@@ -20,6 +20,9 @@ discover/sync flow already consumes.
 {{- $svc := $sub.service | default dict }}
 {{- $listenPort := $svc.port | default 4000 }}
 {{- $adminPort := $svc.adminPort | default 15000 }}
+{{- $explicitBindAddrs := $svc.explicitBindAddrs | default false }}
+{{- $statsPort := $svc.statsPort | default 15020 }}
+{{- $readinessPort := $svc.readinessPort | default 15021 }}
 {{- $static := $agw.static | default dict }}
 {{- $jwt := $static.jwtAuth | default dict }}
 {{- $extAuth := $agw.extAuth | default dict }}
@@ -108,6 +111,10 @@ data:
             {{- end }}
     config:
       adminAddr: {{ printf "0.0.0.0:%v" $adminPort | quote }}
+      {{- if $explicitBindAddrs }}
+      statsAddr: {{ printf "0.0.0.0:%v" $statsPort | quote }}
+      readinessAddr: {{ printf "0.0.0.0:%v" $readinessPort | quote }}
+      {{- end }}
       logging:
         level: info
         format: json

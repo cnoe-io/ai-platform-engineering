@@ -37,10 +37,13 @@ def test_space_resolver_uses_plain_language_for_incomplete_team(
     monkeypatch.setattr(
         resolver,
         "_load_space_team_sync",
-        lambda _space_id: {"_id": "team-1", "name": "Platform Eng"},
+        lambda _bot_id, _space_id: {
+            "team": {"_id": "team-1", "name": "Platform Eng"},
+            "bot_id": "primary",
+        },
     )
 
-    result = asyncio.run(resolver.resolve("space12345"))
+    result = asyncio.run(resolver.resolve("primary", "space12345"))
 
     assert result.team_slug is None
     assert result.deny_message == user_messages.TEAM_SETUP_INCOMPLETE_MESSAGE.format(

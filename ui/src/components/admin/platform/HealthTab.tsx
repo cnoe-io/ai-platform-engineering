@@ -15,7 +15,6 @@ import {
   type PlatformHealthCapability,
   type PlatformDiagnosticProbe,
 } from "@/hooks/use-platform-health-probes";
-import { useServiceHealth, type HealthStatus, type ServiceHealth } from "@/hooks/use-service-health";
 import { cn } from "@/lib/utils";
 import {
   AlertTriangle,
@@ -31,6 +30,7 @@ import {
 } from "lucide-react";
 import React, { useCallback, useEffect, useState } from "react";
 
+type HealthStatus = "healthy" | "degraded" | "down" | "unknown";
 type UiStatus = HealthStatus | "disabled";
 
 const STATUS_CONFIG: Record<
@@ -165,8 +165,6 @@ function capabilityToUiStatus(status: PlatformHealthCapability["status"]): UiSta
 }
 
 export function HealthTab() {
-  const { services, loading, error, configured, refetch } =
-    useServiceHealth({ refreshInterval: 30_000 });
   const {
     capabilities,
     summary,
@@ -181,17 +179,11 @@ export function HealthTab() {
     platformStatus === "checking" ? "unknown" : platformStatus;
   const overallConfig = STATUS_CONFIG[systemStatus];
   const OverallIcon = overallConfig.icon;
-  const prometheusUnavailable = !configured || error === "Prometheus not configured";
-  const operationalError =
-    error && error !== "Prometheus not configured" ? error : null;
   const [slackStatus, setSlackStatus] = useState<SlackDirectoryStatus | null>(null);
   const [slackStatusError, setSlackStatusError] = useState<string | null>(null);
   const [webexStatus, setWebexStatus] = useState<WebexDirectoryStatus | null>(null);
   const [webexStatusError, setWebexStatusError] = useState<string | null>(null);
   const [selectedCapability, setSelectedCapability] = useState<PlatformHealthCapability | null>(null);
-
-  const agentServices = services.filter((service) => service.name.startsWith("Agent: "));
-  const platformMetricServices = services.filter((service) => !service.name.startsWith("Agent: "));
 
   const loadSlackStatus = useCallback(async () => {
     try {
@@ -241,10 +233,9 @@ export function HealthTab() {
 
   const refreshAll = useCallback(() => {
     refreshPlatformHealth();
-    void refetch();
     void loadSlackStatus();
     void loadWebexStatus();
-  }, [refreshPlatformHealth, refetch, loadSlackStatus, loadWebexStatus]);
+  }, [refreshPlatformHealth, loadSlackStatus, loadWebexStatus]);
 
   const slackCapability = capabilities.find((capability) => capability.id === "slack-integration") ?? null;
   const webexCapability = capabilities.find((capability) => capability.id === "webex-integration") ?? null;
@@ -282,9 +273,9 @@ export function HealthTab() {
             size="sm"
             className="shrink-0 gap-1.5"
             onClick={refreshAll}
-            disabled={loading || platformStatus === "checking"}
+            disabled={platformStatus === "checking"}
           >
-            {loading || platformStatus === "checking" ? (
+            {platformStatus === "checking" ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
             ) : (
               <RefreshCw className="h-3.5 w-3.5" />
@@ -366,76 +357,9 @@ export function HealthTab() {
         </Card>
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Metrics</CardTitle>
-          <CardDescription>
-            Optional Prometheus-backed runtime signals.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {prometheusUnavailable ? (
-            <p className="text-sm text-muted-foreground">
-              Prometheus is not configured for this UI service.
-            </p>
-          ) : loading && platformMetricServices.length === 0 ? (
-            <div className="flex items-center justify-center py-4">
-              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-              <span className="ml-2 text-sm text-muted-foreground">Loading metrics...</span>
-            </div>
-          ) : (
-            <div className="divide-y divide-border/60 overflow-hidden rounded-lg border border-border/70">
-              {platformMetricServices.map((service) => (
-                <MetricRow key={service.name} service={service} />
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {configured && agentServices.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Agent Status</CardTitle>
-            <CardDescription>Sub-agent availability from Prometheus.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {agentServices.map((service) => {
-                const cfg = STATUS_CONFIG[service.status];
-                const Icon = cfg.icon;
-                return (
-                  <div
-                    key={service.name}
-                    className="flex items-center gap-3 rounded-lg bg-muted/50 p-3"
-                  >
-                    <Icon className={cn("h-4 w-4 shrink-0", cfg.color)} />
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium">
-                        {service.name.replace("Agent: ", "")}
-                      </p>
-                      <p className="text-xs text-muted-foreground">{service.detail}</p>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {operationalError && (
-        <Card className="border-destructive/50">
-          <CardContent className="py-4">
-            <p className="text-sm text-destructive">{operationalError}</p>
-          </CardContent>
-        </Card>
-      )}
-
       <CapabilityDiagnosticsDialog
         capability={selectedCapability}
         probes={selectedCapabilityProbes}
-        metricServices={selectedCapability?.id === "metrics" ? platformMetricServices : []}
         onOpenChange={(open) => {
           if (!open) setSelectedCapability(null);
         }}
@@ -530,12 +454,10 @@ function probeToUiStatus(status: PlatformDiagnosticProbe["status"]): UiStatus {
 function CapabilityDiagnosticsDialog({
   capability,
   probes,
-  metricServices,
   onOpenChange,
 }: {
   capability: PlatformHealthCapability | null;
   probes: PlatformDiagnosticProbe[];
-  metricServices: ServiceHealth[];
   onOpenChange: (open: boolean) => void;
 }) {
   if (!capability) return null;
@@ -592,18 +514,6 @@ function CapabilityDiagnosticsDialog({
                 ))}
               </div>
             </section>
-          ) : metricServices.length > 0 ? (
-            <section className="space-y-3">
-              <div>
-                <p className="text-sm font-medium">Metric Signals</p>
-                <p className="text-xs text-muted-foreground">Prometheus-backed runtime signals.</p>
-              </div>
-              <div className="divide-y divide-border/60 overflow-hidden rounded-lg border border-border/70">
-                {metricServices.map((service) => (
-                  <MetricRow key={service.name} service={service} />
-                ))}
-              </div>
-            </section>
           ) : (
             <section className="rounded-lg border border-border/70 bg-muted/20 p-3 text-sm text-muted-foreground">
               No additional upstream probes are registered for this capability.
@@ -647,24 +557,6 @@ function DiagnosticProbeRow({ probe }: { probe: PlatformDiagnosticProbe }) {
       <div className="flex shrink-0 items-center gap-2">
         <Icon className={cn("h-4 w-4", cfg.color)} />
         <span className="text-sm">{probe.status === "warning" ? "Warning" : cfg.label}</span>
-      </div>
-    </div>
-  );
-}
-
-function MetricRow({ service }: { service: { name: string; status: HealthStatus; detail: string } }) {
-  const cfg = STATUS_CONFIG[service.status];
-  const Icon = cfg.icon;
-
-  return (
-    <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 bg-muted/30 px-4 py-3">
-      <div className="min-w-0">
-        <p className="text-sm font-medium">{service.name}</p>
-        <p className="mt-1 text-xs text-muted-foreground">{service.detail}</p>
-      </div>
-      <div className="flex shrink-0 items-center gap-2">
-        <Icon className={cn("h-4 w-4", cfg.color)} />
-        <span className="text-sm">{cfg.label}</span>
       </div>
     </div>
   );

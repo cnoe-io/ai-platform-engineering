@@ -1,6 +1,5 @@
 "use client";
 
-import { DmAgentPreferencePanel } from "@/components/settings/DmAgentPreference/DmAgentPreferencePanel";
 import { Button } from "@/components/ui/button";
 import { apiClient } from "@/lib/api-client";
 import { getConfig } from "@/lib/config";
@@ -428,12 +427,6 @@ export function SettingsPanel() {
                     ))}
                   </div>
                 </section>
-
-                {/* Preview Section */}
-                {/* DM default-agent preference (spec FR-019..FR-022). Lives
-                    inside the existing settings panel so it's discoverable
-                    next to other personalization controls. */}
-                <DmAgentPreferencePanel />
 
                 <section>
                   <div className="flex items-center gap-2 mb-3">

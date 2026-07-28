@@ -152,6 +152,12 @@ export interface Config {
   defaultGradientTheme: string;
   /** Dynamic Agents server URL for custom agent chat */
   dynamicAgentsUrl: string;
+  /** Optional default agent ID used to edit scheduled jobs */
+  scheduleEditorAgentId: string | null;
+  /** Whether the scheduled-agent workflow is enabled */
+  schedulerEnabled: boolean;
+  /** Whether the Schedules navigation tab is limited to administrators */
+  schedulerAdminOnly: boolean;
   /** Whether Jira ticket creation from feedback/report is enabled */
   jiraTicketEnabled: boolean;
   /** Jira project key for ticket creation (e.g., "OPENSD") */
@@ -257,6 +263,9 @@ const DEFAULT_CONFIG: Config = {
   defaultTheme: DEFAULT_THEME,
   defaultGradientTheme: DEFAULT_GRADIENT_THEME,
   dynamicAgentsUrl: 'http://localhost:8100',
+  scheduleEditorAgentId: null,
+  schedulerEnabled: false,
+  schedulerAdminOnly: false,
   agentProtocol: 'agui',
   reportProblemEnabled: true,
   jiraTicketEnabled: false,
@@ -289,14 +298,6 @@ const ENABLED_VALUES = new Set(['1', 'true', 'yes', 'on']);
 function enabledEnv(name: string): boolean {
   const raw = env(name)?.trim().toLowerCase();
   return raw ? ENABLED_VALUES.has(raw) : false;
-}
-
-/**
- * Read a browser-facing runtime env var dynamically so Next.js does not inline
- * a build-time NEXT_PUBLIC_* value into the server bundle.
- */
-function publicEnv(name: string): string | undefined {
-  return process.env[`NEXT_PUBLIC_${name}`] || undefined;
 }
 
 /**
@@ -454,6 +455,9 @@ export function getServerConfig(): Config {
     defaultTheme: validated(env('DEFAULT_THEME'), VALID_THEMES, DEFAULT_THEME),
     defaultGradientTheme: validated(env('DEFAULT_GRADIENT_THEME'), VALID_GRADIENT_THEMES, DEFAULT_GRADIENT_THEME),
     dynamicAgentsUrl,
+    scheduleEditorAgentId: env('SCHEDULE_EDITOR_AGENT_ID') || null,
+    schedulerEnabled: env('SCHEDULER_ENABLED') === 'true',
+    schedulerAdminOnly: env('SCHEDULER_ADMIN_ONLY') === 'true',
     agentProtocol,
     reportProblemEnabled,
     jiraTicketEnabled,

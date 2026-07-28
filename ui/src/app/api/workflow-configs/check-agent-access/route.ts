@@ -54,8 +54,20 @@ async function resolveAgentNames(agentIds: string[]): Promise<Map<string, string
   return names;
 }
 
-// Check whether team:{slug}#member has the `user` relation on agent:{agentId}.
+// A global agent's `user:*` grant covers every team's users. Otherwise, check
+// whether team:{slug}#member has an explicit `user` relation on the agent.
 async function teamHasAgentAccess(teamSlug: string, agentId: string): Promise<boolean> {
+  try {
+    const globalResult = await checkOpenFgaTuple({
+      user: "user:*",
+      relation: "user",
+      object: `agent:${agentId}`,
+    });
+    if (globalResult.allowed) return true;
+  } catch {
+    // A failed global check does not rule out an explicit team grant.
+  }
+
   try {
     const result = await checkOpenFgaTuple({
       user: `team:${teamSlug}#member`,

@@ -10,6 +10,7 @@
  * keeps the UI focused and matches how AI Suggest's task registry works.
  */
 
+import { AdminBadge } from "@/components/admin/shared/AdminBadge";
 import { SaveButton } from "@/components/admin/shared/SaveButton";
 import { Tabs,TabsContent,TabsList,TabsTrigger } from "@/components/ui/tabs";
 import { useSubtabParam } from "@/hooks/use-subtab-param";
@@ -44,7 +45,7 @@ const TARGETS: TargetTab[] = [
 
 const TARGET_VALUES: readonly string[] = TARGETS.map((t) => t.target);
 
-export function ReviewConfigsTab() {
+export function ReviewConfigsTab({ readOnly = false }: { readOnly?: boolean }) {
   // Active target is mirrored to the `subtab` URL param so the chosen review
   // config (Agents / Skills) is deep-linkable and survives refresh.
   const [activeTarget, setActiveTarget] = useSubtabParam(TARGET_VALUES, TARGETS[0].target);
@@ -85,6 +86,7 @@ export function ReviewConfigsTab() {
           <h3 className="text-base font-semibold flex items-center gap-2">
             <ShieldCheck className="h-4 w-4 text-primary" />
             AI Review configurations
+            <AdminBadge />
           </h3>
           <p className="text-xs text-muted-foreground">
             Edit the rubric that grades content before save in each consumer
@@ -95,7 +97,7 @@ export function ReviewConfigsTab() {
           onSave={() => editorRefs.current[activeTarget]?.save()}
           saving={activeSaving}
           dirty={activeDirty}
-          disabled={!activeReady}
+          disabled={readOnly || !activeReady}
         />
       </div>
 
@@ -122,6 +124,7 @@ export function ReviewConfigsTab() {
                 editorRefs.current[target] = instance;
               }}
               target={target}
+              readOnly={readOnly}
               showInlineSave={false}
               onSavingChange={(saving) => setTargetSaving(target, saving)}
               onReadyChange={(ready) => setTargetReady(target, ready)}

@@ -25,7 +25,7 @@ async function parseApiResponse<T>(response: Response): Promise<T> {
   return json.data;
 }
 
-export function OAuthConnectorAdminPanel() {
+export function OAuthConnectorAdminPanel({ readOnly = false }: { readOnly?: boolean }) {
   const [connectors, setConnectors] = React.useState<OAuthConnectorMetadata[]>([]);
   const [form, setForm] = React.useState({
     name: "",
@@ -80,6 +80,7 @@ export function OAuthConnectorAdminPanel() {
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (readOnly) return;
     const body = {
       ...form,
       scopes: form.scopes
@@ -124,6 +125,7 @@ export function OAuthConnectorAdminPanel() {
   };
 
   const handleEdit = (connector: OAuthConnectorMetadata) => {
+    if (readOnly) return;
     setEditingConnector(connector);
     setForm({
       name: connector.name,
@@ -140,6 +142,7 @@ export function OAuthConnectorAdminPanel() {
   };
 
   const handleDelete = async (connector: OAuthConnectorMetadata) => {
+    if (readOnly) return;
     if (!confirm(`Delete "${connector.name}"? This will disable it and cannot be undone.`)) return;
     const response = await fetch(`/api/admin/credentials/oauth-connectors/${connector.id}`, {
       method: "DELETE",
@@ -152,6 +155,7 @@ export function OAuthConnectorAdminPanel() {
   };
 
   const handleEnabledChange = async (connector: OAuthConnectorMetadata, enabled: boolean) => {
+    if (readOnly) return;
     const response = await fetch(`/api/admin/credentials/oauth-connectors/${connector.id}`, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
@@ -178,7 +182,7 @@ export function OAuthConnectorAdminPanel() {
             credential payloads and are never shown here.
           </p>
         </div>
-        <Button type="button" onClick={() => setCreateOpen(true)}>
+        <Button type="button" onClick={() => setCreateOpen(true)} disabled={readOnly}>
           Add OAuth Provider
         </Button>
       </div>
@@ -300,6 +304,7 @@ export function OAuthConnectorAdminPanel() {
                     size="sm"
                     aria-label={`Edit ${connector.name}`}
                     onClick={() => handleEdit(connector)}
+                    disabled={readOnly}
                   >
                     Edit
                   </Button>
@@ -309,6 +314,7 @@ export function OAuthConnectorAdminPanel() {
                     size="sm"
                     aria-label={`${connector.enabled === false ? "Enable" : "Disable"} ${connector.name}`}
                     onClick={() => void handleEnabledChange(connector, connector.enabled === false)}
+                    disabled={readOnly}
                   >
                     {connector.enabled === false ? "Enable" : "Disable"}
                   </Button>
@@ -318,6 +324,7 @@ export function OAuthConnectorAdminPanel() {
                     size="sm"
                     aria-label={`Delete ${connector.name}`}
                     onClick={() => void handleDelete(connector)}
+                    disabled={readOnly}
                   >
                     Delete
                   </Button>

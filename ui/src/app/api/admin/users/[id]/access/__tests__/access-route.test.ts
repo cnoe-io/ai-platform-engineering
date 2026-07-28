@@ -25,7 +25,7 @@
 import { NextRequest } from "next/server";
 
 const mockGetAuth = jest.fn();
-const mockRequireUserProfileRead = jest.fn();
+const mockRequireAdminSimulationUserProfileRead = jest.fn();
 const mockGetRealmUserById = jest.fn();
 const mockMembershipFind = jest.fn();
 const mockTeamsFind = jest.fn();
@@ -75,9 +75,9 @@ jest.mock("@/lib/rbac/keycloak-admin", () => ({
   getRealmUserById: (...args: unknown[]) => mockGetRealmUserById(...args),
 }));
 
-jest.mock("@/lib/rbac/require-openfga", () => ({
-  requireUserProfileRead: (...args: unknown[]) =>
-    mockRequireUserProfileRead(...args),
+jest.mock("@/lib/rbac/admin-simulation-server", () => ({
+  requireAdminSimulationUserProfileRead: (...args: unknown[]) =>
+    mockRequireAdminSimulationUserProfileRead(...args),
 }));
 
 jest.mock("@/lib/rbac/mongo-collections", () => ({
@@ -98,9 +98,9 @@ jest.mock("@/lib/rbac/openfga", () => {
   };
 });
 
-function request(id: string) {
+function request(id: string, query = "") {
   const req = new NextRequest(
-    new URL(`/api/admin/users/${id}/access`, "http://localhost:3000"),
+    new URL(`/api/admin/users/${id}/access${query}`, "http://localhost:3000"),
     { method: "GET", headers: { Authorization: "Bearer t" } }
   );
   return { req, context: { params: Promise.resolve({ id }) } };
@@ -111,7 +111,7 @@ beforeEach(() => {
   mongoConfigured = true;
   grantTable = {};
   mockGetAuth.mockResolvedValue({ session: { sub: "admin-sub" } });
-  mockRequireUserProfileRead.mockResolvedValue(undefined);
+  mockRequireAdminSimulationUserProfileRead.mockResolvedValue(undefined);
   mockGetRealmUserById.mockResolvedValue({
     id: "user-1",
     email: "Dev@Example.com",
@@ -128,6 +128,30 @@ beforeEach(() => {
 });
 
 describe("GET /api/admin/users/[id]/access", () => {
+  it("authorizes the read using the selected preview subject", async () => {
+    mockMembershipFind.mockResolvedValue([]);
+    mockTeamsFind.mockResolvedValue([]);
+
+    const { GET } = await import("../route");
+    const { req, context } = request(
+      "user-1",
+      "?simulate_type=user&simulate_id=preview-user",
+    );
+    const res = await GET(req, context);
+
+    expect(res.status).toBe(200);
+    expect(mockRequireAdminSimulationUserProfileRead).toHaveBeenCalledWith(
+      expect.objectContaining({
+        get: expect.any(Function),
+      }),
+      { sub: "admin-sub" },
+      "user-1",
+    );
+    const searchParams = mockRequireAdminSimulationUserProfileRead.mock.calls[0][0];
+    expect(searchParams.get("simulate_type")).toBe("user");
+    expect(searchParams.get("simulate_id")).toBe("preview-user");
+  });
+
   it("aggregates access from active team memberships with team-based reasons", async () => {
     mockMembershipFind.mockResolvedValue([
       { team_slug: "platform", relationship: "admin" },

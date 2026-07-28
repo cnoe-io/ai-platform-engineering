@@ -36,6 +36,8 @@ datastore:
 migrate:
   enabled: true
   backoffLimit: 6
+  helmHookDeletePolicy: "before-hook-creation,hook-succeeded"
+  argocdHookDeletePolicy: "BeforeHookCreation,HookSucceeded"
 
 playground:
   enabled: false
@@ -50,6 +52,8 @@ init:
   seedSub: ""
   seedTuples: []
   backoffLimit: 6
+  helmHookDeletePolicy: "before-hook-creation"
+  argocdHookDeletePolicy: "BeforeHookCreation"
 
 resources:
   requests:

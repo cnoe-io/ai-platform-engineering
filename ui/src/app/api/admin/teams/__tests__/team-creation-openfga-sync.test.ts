@@ -63,7 +63,7 @@ jest.mock("@/lib/rbac/team-membership-source-store", () => ({
   upsertTeamMembershipSource: (...args: unknown[]) => mockUpsertTeamMembershipSource(...args),
 }));
 
-const mockCollections: Record<string, any> = {};
+const mockCollections: Record<string, unknown> = {};
 let mockIsMongoDBConfigured = true;
 
 jest.mock("@/lib/mongodb", () => ({
@@ -158,7 +158,7 @@ describe("POST /api/admin/teams — OpenFGA team-membership tuple sync", () => {
     //    invitee's member tuple. We don't care about call order, but every
     //    expected tuple must show up in some write batch.
     const allWrites = mockWriteOpenFgaTuples.mock.calls.flatMap(
-      (call: any[]) => call[0]?.writes ?? [],
+      (call: unknown[]) => call[0]?.writes ?? [],
     );
     expect(allWrites).toEqual(
       expect.arrayContaining([
@@ -203,9 +203,9 @@ describe("POST /api/admin/teams — OpenFGA team-membership tuple sync", () => {
     // And we don't write a duplicate `member` tuple for the creator either —
     // they get one `admin` and one `member` tuple, full stop.
     const adminCreatorWrites = mockWriteOpenFgaTuples.mock.calls
-      .flatMap((call: any[]) => call[0]?.writes ?? [])
+      .flatMap((call: unknown[]) => call[0]?.writes ?? [])
       .filter(
-        (t: any) =>
+        (t: unknown) =>
           t.user === "user:admin@example.com-sub" && t.object === "team:platform",
       );
     expect(adminCreatorWrites).toEqual(
@@ -241,7 +241,7 @@ describe("POST /api/admin/teams — OpenFGA team-membership tuple sync", () => {
     // The reconciler at lib/rbac/membership-reconciler.ts skips any source
     // row without user_subject, so this field MUST be populated at write time.
     const sourceCalls = mockUpsertTeamMembershipSource.mock.calls.map(
-      (c: any[]) => c[0],
+      (c: unknown[]) => c[0],
     );
     expect(sourceCalls).toEqual(
       expect.arrayContaining([
@@ -291,7 +291,7 @@ describe("POST /api/admin/teams — OpenFGA team-membership tuple sync", () => {
 
     expect(response.status).toBe(201);
     const allWrites = mockWriteOpenFgaTuples.mock.calls.flatMap(
-      (call: any[]) => call[0]?.writes ?? [],
+      (call: unknown[]) => call[0]?.writes ?? [],
     );
     // Creator's tuples are still written.
     expect(allWrites).toEqual(
@@ -308,7 +308,7 @@ describe("POST /api/admin/teams — OpenFGA team-membership tuple sync", () => {
     // The membership source row is still upserted (without user_subject) so
     // the audit/reconciler can repair it later.
     const sourceCalls = mockUpsertTeamMembershipSource.mock.calls.map(
-      (c: any[]) => c[0],
+      (c: unknown[]) => c[0],
     );
     expect(sourceCalls).toEqual(
       expect.arrayContaining([

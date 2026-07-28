@@ -23,7 +23,7 @@ import { ObjectId } from 'mongodb';
 
 const mockGetServerSession = jest.fn();
 jest.mock('next-auth', () => ({
-  getServerSession: (...args: any[]) => mockGetServerSession(...args),
+  getServerSession: (...args: unknown[]) => mockGetServerSession(...args),
 }));
 
 jest.mock('@/lib/auth-config', () => ({
@@ -36,7 +36,7 @@ jest.mock('@/lib/config', () => ({
   getConfig: (key: string) => key === 'ssoEnabled',
 }));
 
-const mockCollections: Record<string, any> = {};
+const mockCollections: Record<string, unknown> = {};
 const mockGetCollection = jest.fn((name: string) => {
   if (!mockCollections[name]) {
     mockCollections[name] = createMockCollection();
@@ -45,7 +45,7 @@ const mockGetCollection = jest.fn((name: string) => {
 });
 
 jest.mock('@/lib/mongodb', () => ({
-  getCollection: (...args: any[]) => mockGetCollection(...args),
+  getCollection: (...args: unknown[]) => mockGetCollection(...args),
   isMongoDBConfigured: true,
 }));
 
@@ -105,24 +105,7 @@ const OWNER_EMAIL = 'owner@example.com';
 const MEMBER_EMAIL = 'member@example.com';
 const NON_MEMBER_EMAIL = 'outsider@example.com';
 
-const TEAM_WITH_MEMBER = {
-  _id: TEAM_ID_1,
-  name: 'Platform Engineering',
-  members: [
-    { user_id: OWNER_EMAIL, role: 'owner', added_at: new Date(), added_by: OWNER_EMAIL },
-    { user_id: MEMBER_EMAIL, role: 'member', added_at: new Date(), added_by: OWNER_EMAIL },
-  ],
-};
-
-const TEAM_WITHOUT_MEMBER = {
-  _id: TEAM_ID_2,
-  name: 'Other Team',
-  members: [
-    { user_id: 'someone@example.com', role: 'owner', added_at: new Date(), added_by: 'someone@example.com' },
-  ],
-};
-
-function makeConversation(overrides: Record<string, any> = {}) {
+function makeConversation(overrides: Record<string, unknown> = {}) {
   return {
     _id: 'conv-' + Math.random().toString(36).slice(2, 10),
     title: 'Test Conversation',
@@ -157,7 +140,7 @@ beforeEach(() => {
 // ============================================================================
 
 describe('getUserTeamIds', () => {
-  let getUserTeamIds: any;
+  let getUserTeamIds: unknown;
 
   beforeEach(async () => {
     jest.resetModules();
@@ -247,14 +230,12 @@ describe('getUserTeamIds', () => {
 // ============================================================================
 
 describe('requireConversationAccess — team-based access', () => {
-  let requireConversationAccess: any;
-  let ApiError: any;
+  let requireConversationAccess: unknown;
 
   beforeEach(async () => {
     jest.resetModules();
     const mod = await import('@/lib/api-middleware');
     requireConversationAccess = mod.requireConversationAccess;
-    ApiError = mod.ApiError;
   });
 
   it('grants access when user is the owner', async () => {
@@ -489,7 +470,7 @@ describe('requireConversationAccess — team-based access', () => {
 // ============================================================================
 
 describe('GET /api/chat/conversations — team sharing', () => {
-  let GET: any;
+  let GET: unknown;
 
   beforeEach(async () => {
     jest.resetModules();
@@ -632,7 +613,7 @@ describe('GET /api/chat/conversations — team sharing', () => {
 // ============================================================================
 
 describe('GET /api/chat/shared — team sharing', () => {
-  let GET: any;
+  let GET: unknown;
 
   beforeEach(async () => {
     jest.resetModules();

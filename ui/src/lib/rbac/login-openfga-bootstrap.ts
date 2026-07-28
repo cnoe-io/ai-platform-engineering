@@ -1,6 +1,8 @@
 import { getCollection } from "@/lib/mongodb";
 import {
+  baselineMemberTuples,
   effectiveBaselineBootstrapTuples,
+  getBaselineFgaProfile,
   getBaselineFgaProfileBundle,
   type TeamBaselineProfileOverride,
 } from "@/lib/rbac/baseline-access";
@@ -187,5 +189,85 @@ export async function reconcileLoginOpenFgaAccess(
       `[LoginOpenFGA] Failed to bootstrap OpenFGA access for ${input.email ?? subject}: ${warning}`
     );
     return { status: "failed", tuple_write_count: 0, warning };
+  }
+}
+
+export interface SyncedBaselineBootstrapResult {
+  status: LoginOpenFgaBootstrapStatus;
+  subject_count: number;
+  tuple_write_count: number;
+  warning?: string;
+}
+
+/**
+ * Grant the global org-member baseline (the same grants an interactive web
+ * login writes via `reconcileLoginOpenFgaAccess`, incl. the `mcp-gateway-call`
+ * grant `user:<sub> caller mcp_gateway:list`) to a set of subjects resolved by
+ * a background directory sync.
+ *
+ * Why this exists: the directory-sync path only ever writes team-membership
+ * tuples (`user:<sub> <relation> team:<slug>`). It never wrote the member
+ * baseline, so a user who was provisioned purely by Okta sync — and never
+ * interactively signed into the web UI — held team tuples but lacked the
+ * `mcp_gateway:list` caller tuple that AgentGateway's coarse ext_authz gate
+ * requires. Those users passed auth, minted OBO tokens, then got
+ * `DENY_NO_CAPABILITY` at the gateway and saw zero MCP tools. This closes that
+ * gap so RBAC is granted before the person ever logs into CAIPE.
+ *
+ * Scope: member baseline only. Org-admin status is not derivable from a
+ * directory sync (there is no trustworthy admin signal in a group membership),
+ * so admin baselines remain owned by the interactive-login / bootstrap-admin
+ * paths. Team profile overrides likewise stay a login-time concern; this writes
+ * the global member baseline so every synced user clears the coarse gate.
+ *
+ * Idempotent + self-healing: `writeOpenFgaTuples` reads each candidate tuple
+ * back and drops the ones already stored, so re-emitting the baseline for every
+ * resolved subject on every sync run performs zero writes in steady state while
+ * still backfilling any user who is missing it. This is what lets a routine
+ * sync of already-synced users repair the entire affected population.
+ *
+ * Best-effort: never throws. Callers (the sync runner) treat baseline bootstrap
+ * as non-fatal so a bootstrap hiccup can't fail the membership reconcile that
+ * already committed.
+ */
+export async function reconcileSyncedUsersBaselineAccess(
+  subjects: Iterable<string>
+): Promise<SyncedBaselineBootstrapResult> {
+  const uniqueSubjects: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of subjects) {
+    const subject = raw?.trim();
+    if (!subject || seen.has(subject)) continue;
+    seen.add(subject);
+    uniqueSubjects.push(subject);
+  }
+
+  if (uniqueSubjects.length === 0) {
+    return { status: "skipped", subject_count: 0, tuple_write_count: 0 };
+  }
+
+  try {
+    const profile = await getBaselineFgaProfile();
+    const writes = uniqueSubjects.flatMap((subject) => baselineMemberTuples(subject, profile));
+    if (writes.length === 0) {
+      return { status: "skipped", subject_count: uniqueSubjects.length, tuple_write_count: 0 };
+    }
+    const result = await writeOpenFgaTuples({ writes, deletes: [] });
+    return {
+      status: "completed",
+      subject_count: uniqueSubjects.length,
+      tuple_write_count: result.writes,
+    };
+  } catch (error) {
+    const warning = error instanceof Error ? error.message : String(error);
+    console.warn(
+      `[LoginOpenFGA] Failed to bootstrap baseline OpenFGA access for ${uniqueSubjects.length} synced user(s): ${warning}`
+    );
+    return {
+      status: "failed",
+      subject_count: uniqueSubjects.length,
+      tuple_write_count: 0,
+      warning,
+    };
   }
 }

@@ -98,26 +98,78 @@ export async function createServiceAccountDoc(
   return { ...doc, _id: result.insertedId };
 }
 
+/** Escape user-supplied text for safe use inside a `new RegExp(...)`. */
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+export interface ListByOwningTeamsOptions {
+  includeRevoked?: boolean;
+  /** Case-insensitive substring match against name/description. */
+  search?: string;
+  skip?: number;
+  limit?: number;
+}
+
 /**
- * List SAs owned by any of the given teams (FR-014/021 — the caller's teams).
- * Active only by default; pass `includeRevoked` for audit views. Sorted newest
- * first. Returns [] when Mongo is not configured.
+ * Build the Mongo filter shared by {@link listByOwningTeams} and
+ * {@link countByOwningTeams} so the page + the total always agree.
+ *
+ * `owningTeamIds === null` means unbounded (org-admin, no team filter);
+ * an empty array means "caller belongs to no team" and must match nothing.
  */
-export async function listByOwningTeams(
-  owningTeamIds: string[],
-  options: { includeRevoked?: boolean } = {},
-): Promise<ServiceAccount[]> {
-  if (!isMongoDBConfigured || owningTeamIds.length === 0) {
-    return [];
+function buildOwningTeamsFilter(
+  owningTeamIds: string[] | null,
+  options: Pick<ListByOwningTeamsOptions, "includeRevoked" | "search">,
+): Record<string, unknown> {
+  const filter: Record<string, unknown> = {};
+  if (owningTeamIds !== null) {
+    filter.owning_team_id = { $in: owningTeamIds };
   }
-  const collection = await getCollection<ServiceAccount>(COLLECTION);
-  const filter: Record<string, unknown> = {
-    owning_team_id: { $in: owningTeamIds },
-  };
   if (!options.includeRevoked) {
     filter.status = "active";
   }
-  return collection.find(filter).sort({ created_at: -1 }).toArray();
+  const search = options.search?.trim();
+  if (search) {
+    const rx = new RegExp(escapeRegExp(search), "i");
+    filter.$or = [{ name: rx }, { description: rx }];
+  }
+  return filter;
+}
+
+/**
+ * List SAs owned by any of the given teams (FR-014/021 — the caller's teams).
+ * Pass `owningTeamIds: null` for the unbounded org-admin view (no team
+ * filter); an empty array intentionally matches nothing (caller has no
+ * teams). Active only by default; pass `includeRevoked` for audit views.
+ * `skip`/`limit` opt into pagination — omit both for the full result set.
+ * Sorted newest first. Returns [] when Mongo is not configured.
+ */
+export async function listByOwningTeams(
+  owningTeamIds: string[] | null,
+  options: ListByOwningTeamsOptions = {},
+): Promise<ServiceAccount[]> {
+  if (!isMongoDBConfigured || (owningTeamIds !== null && owningTeamIds.length === 0)) {
+    return [];
+  }
+  const collection = await getCollection<ServiceAccount>(COLLECTION);
+  const filter = buildOwningTeamsFilter(owningTeamIds, options);
+  let cursor = collection.find(filter).sort({ created_at: -1 });
+  if (typeof options.skip === "number") cursor = cursor.skip(options.skip);
+  if (typeof options.limit === "number") cursor = cursor.limit(options.limit);
+  return cursor.toArray();
+}
+
+/** Total count matching the same filter as {@link listByOwningTeams}, for pagination. */
+export async function countByOwningTeams(
+  owningTeamIds: string[] | null,
+  options: Pick<ListByOwningTeamsOptions, "includeRevoked" | "search"> = {},
+): Promise<number> {
+  if (!isMongoDBConfigured || (owningTeamIds !== null && owningTeamIds.length === 0)) {
+    return 0;
+  }
+  const collection = await getCollection<ServiceAccount>(COLLECTION);
+  return collection.countDocuments(buildOwningTeamsFilter(owningTeamIds, options));
 }
 
 /**

@@ -23,7 +23,11 @@ function makeRow(overrides: Partial<ConnectorOnboardingRow>): ConnectorOnboardin
   };
 }
 
-function renderWizard(rows: ConnectorOnboardingRow[], onApply = jest.fn()) {
+function renderWizard(
+  rows: ConnectorOnboardingRow[],
+  onApply = jest.fn(),
+  searchValue?: string,
+) {
   render(
     <ConnectorOnboardingWizard
       itemSingular="space"
@@ -51,6 +55,7 @@ function renderWizard(rows: ConnectorOnboardingRow[], onApply = jest.fn()) {
       onClearSelection={jest.fn()}
       onRowChange={jest.fn()}
       onApply={onApply}
+      searchValue={searchValue}
     />,
   );
   return onApply;
@@ -119,4 +124,29 @@ it("shows non-team direct rooms as personal DMs instead of team-assigned rows", 
   expect(screen.getAllByText("Personal DM")).toHaveLength(2);
   expect(screen.getByText("Direct user routing")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Set up 0 spaces" })).toBeDisabled();
+});
+
+it("matches a row by ID when the name does not contain the search string", () => {
+  renderWizard(
+    [
+      makeRow({ id: "C0912ABCDE", name: "general", secondary: "channel" }),
+      makeRow({ id: "C0100OTHER", name: "random", secondary: "channel" }),
+    ],
+    jest.fn(),
+    "c0912",
+  );
+
+  expect(screen.getByText("general")).toBeInTheDocument();
+  expect(screen.queryByText("random")).not.toBeInTheDocument();
+});
+
+it("excludes a row whose name, id, and secondary all fail to match the search", () => {
+  renderWizard(
+    [makeRow({ id: "C0912ABCDE", name: "general", secondary: "channel" })],
+    jest.fn(),
+    "nonexistent",
+  );
+
+  expect(screen.queryByText("general")).not.toBeInTheDocument();
+  expect(screen.getByText('No spaces match "nonexistent".')).toBeInTheDocument();
 });

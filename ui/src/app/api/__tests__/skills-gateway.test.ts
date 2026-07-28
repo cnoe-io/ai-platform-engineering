@@ -18,7 +18,7 @@
 // ============================================================================
 
 const mockNextResponseJson = jest.fn(
-  (data: any, init?: { status?: number }) => ({
+  (data: unknown, init?: { status?: number }) => ({
     json: async () => data,
     status: init?.status ?? 200,
   }),
@@ -26,7 +26,7 @@ const mockNextResponseJson = jest.fn(
 
 jest.mock('next/server', () => ({
   NextRequest: Request,
-  NextResponse: { json: (...args: any[]) => mockNextResponseJson(...args) },
+  NextResponse: { json: (...args: unknown[]) => mockNextResponseJson(...args) },
 }));
 
 jest.mock('next-auth', () => ({ getServerSession: jest.fn() }));
@@ -60,7 +60,7 @@ jest.mock('@/lib/config', () => ({
 // Jest's manual mock factory handles dynamic imports within the same module.
 const mockLoadTemplates = jest.fn().mockReturnValue([]);
 jest.mock('@/app/api/skills/skill-templates-loader', () => ({
-  loadSkillTemplatesInternal: (...args: any[]) => mockLoadTemplates(...args),
+  loadSkillTemplatesInternal: (...args: unknown[]) => mockLoadTemplates(...args),
 }));
 
 jest.spyOn(console, 'error').mockImplementation(() => {});
@@ -279,7 +279,7 @@ describe('GET /api/skills — Skills Gateway', () => {
 
       const data = await res.json();
       expect(data.skills).toHaveLength(2);
-      const names = data.skills.map((s: any) => s.name).sort();
+      const names = data.skills.map((s: unknown) => s.name).sort();
       expect(names).toEqual(['lint-python', 'monitor-alerts']);
     });
 

@@ -1,0 +1,349 @@
+// Unit tests for the Insights RBAC scope helpers: owned-agent resolution,
+// name resolution, and the fail-closed behaviour every helper promises.
+
+const mockListOpenFgaObjects = jest.fn();
+const mockCheckOpenFgaTuple = jest.fn();
+jest.mock('@/lib/rbac/openfga', () => ({
+  listOpenFgaObjects: (...args: unknown[]) => mockListOpenFgaObjects(...args),
+  checkOpenFgaTuple: (...args: unknown[]) => mockCheckOpenFgaTuple(...args),
+}));
+
+const mockGetCollection = jest.fn();
+jest.mock('@/lib/mongodb', () => ({
+  getCollection: (...args: unknown[]) => mockGetCollection(...args),
+}));
+
+jest.mock('@/lib/rbac/slack-channel-grant-store', () => ({
+  slackChannelSubjectId: (ws: string, ch: string) => `${ws}:${ch}`,
+}));
+
+jest.mock('@/lib/rbac/webex-space-grant-store', () => ({
+  webexSpaceSubjectId: (ws: string, space: string) => `${ws}:${space}`,
+}));
+
+import {
+  getAgentsByIds,
+  getAllAgents,
+  getInsightsActorTeamSlugs,
+  getOwnedAgentConversationIds,
+  getOwnedAgents,
+  getReadableConversationIds,
+  getReadableMessagingConversationScope,
+  getReadableSlackChannelNames,
+  getReadableWebexSpaceIds,
+} from '../user-insights-scope';
+
+/** Minimal collection stub keyed by the method a given helper calls. */
+function collectionStub(overrides: Record<string, unknown> = {}) {
+  return {
+    find: jest.fn().mockReturnValue({
+      limit: jest.fn().mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) }),
+      toArray: jest.fn().mockResolvedValue([]),
+    }),
+    distinct: jest.fn().mockResolvedValue([]),
+    ...overrides,
+  };
+}
+
+beforeEach(() => {
+  mockListOpenFgaObjects.mockReset();
+  mockCheckOpenFgaTuple.mockReset();
+  mockGetCollection.mockReset();
+});
+
+describe('getInsightsActorTeamSlugs', () => {
+  it('lists computed team membership and returns unique slugs', async () => {
+    mockListOpenFgaObjects.mockResolvedValue({
+      objects: ['team:primary', 'team:secondary', 'team:primary'],
+    });
+
+    expect(await getInsightsActorTeamSlugs('user:sub-1')).toEqual([
+      'primary',
+      'secondary',
+    ]);
+    expect(mockListOpenFgaObjects).toHaveBeenCalledWith({
+      user: 'user:sub-1',
+      relation: 'member',
+      type: 'team',
+    });
+  });
+
+  it('fails closed for an empty actor or PDP error', async () => {
+    expect(await getInsightsActorTeamSlugs('')).toEqual([]);
+    expect(mockListOpenFgaObjects).not.toHaveBeenCalled();
+
+    mockListOpenFgaObjects.mockRejectedValue(new Error('fga down'));
+    expect(await getInsightsActorTeamSlugs('user:sub-1')).toEqual([]);
+  });
+});
+
+describe('getReadableSlackChannelNames', () => {
+  it('returns readable mapped channels while excluding direct messages', async () => {
+    mockGetCollection.mockResolvedValue(
+      collectionStub({
+        find: jest.fn().mockReturnValue({
+          limit: jest.fn().mockReturnValue({
+            toArray: jest.fn().mockResolvedValue([
+              {
+                slack_workspace_id: 'T123',
+                slack_channel_id: 'C123',
+                channel_name: 'shared-channel',
+              },
+              {
+                slack_workspace_id: 'T123',
+                slack_channel_id: 'D123',
+                channel_name: 'direct-message',
+              },
+            ]),
+          }),
+        }),
+      }),
+    );
+    mockCheckOpenFgaTuple.mockResolvedValue({ allowed: true });
+
+    expect(await getReadableSlackChannelNames('user:sub-1')).toEqual([
+      'shared-channel',
+    ]);
+    expect(mockCheckOpenFgaTuple).toHaveBeenCalledTimes(1);
+    expect(mockCheckOpenFgaTuple).toHaveBeenCalledWith({
+      user: 'user:sub-1',
+      relation: 'can_read',
+      object: 'slack_channel:T123:C123',
+    });
+  });
+});
+
+describe('getReadableWebexSpaceIds', () => {
+  it('returns only readable mapped spaces', async () => {
+    mockGetCollection.mockResolvedValue(
+      collectionStub({
+        find: jest.fn().mockReturnValue({
+          limit: jest.fn().mockReturnValue({
+            toArray: jest.fn().mockResolvedValue([
+              {
+                webex_workspace_id: 'WX123',
+                webex_space_id: 'space-readable',
+              },
+              {
+                webex_workspace_id: 'WX123',
+                webex_space_id: 'space-denied',
+              },
+            ]),
+          }),
+        }),
+      }),
+    );
+    mockCheckOpenFgaTuple.mockImplementation(
+      ({ object }: { object: string }) =>
+        Promise.resolve({ allowed: object.endsWith(':space-readable') }),
+    );
+
+    expect(await getReadableWebexSpaceIds('user:sub-1')).toEqual([
+      'space-readable',
+    ]);
+    expect(mockCheckOpenFgaTuple).toHaveBeenCalledWith({
+      user: 'user:sub-1',
+      relation: 'can_read',
+      object: 'webex_space:WX123:space-readable',
+    });
+  });
+});
+
+describe('getReadableMessagingConversationScope', () => {
+  it('combines authorized Slack channel ids with Webex spaces', async () => {
+    const slackMappings = collectionStub({
+      find: jest.fn().mockReturnValue({
+        limit: jest.fn().mockReturnValue({
+          toArray: jest.fn().mockResolvedValue([
+            {
+              slack_workspace_id: 'T123',
+              slack_channel_id: 'C123',
+              channel_name: 'shared-channel',
+            },
+          ]),
+        }),
+      }),
+    });
+    const webexMappings = collectionStub({
+      find: jest.fn().mockReturnValue({
+        limit: jest.fn().mockReturnValue({
+          toArray: jest.fn().mockResolvedValue([
+            {
+              webex_workspace_id: 'WX123',
+              webex_space_id: 'space-readable',
+            },
+          ]),
+        }),
+      }),
+    });
+    mockGetCollection.mockImplementation((name: string) =>
+      Promise.resolve(
+        name === 'channel_team_mappings' ? slackMappings : webexMappings,
+      ),
+    );
+    mockCheckOpenFgaTuple.mockResolvedValue({ allowed: true });
+
+    expect(
+      await getReadableMessagingConversationScope('user:sub-1'),
+    ).toEqual({
+      slackChannelIds: ['C123'],
+      webexSpaceIds: ['space-readable'],
+    });
+  });
+});
+
+describe('getReadableConversationIds', () => {
+  it('lists and normalizes explicit conversation grants', async () => {
+    mockListOpenFgaObjects.mockResolvedValue({
+      objects: [
+        'conversation:conversation-1',
+        'conversation-2',
+        'conversation:conversation-1',
+      ],
+    });
+
+    expect(await getReadableConversationIds('user:sub-1')).toEqual([
+      'conversation-1',
+      'conversation-2',
+    ]);
+    expect(mockListOpenFgaObjects).toHaveBeenCalledWith({
+      user: 'user:sub-1',
+      relation: 'can_read',
+      type: 'conversation',
+    });
+  });
+
+  it('fails closed when conversation grants cannot be listed', async () => {
+    mockListOpenFgaObjects.mockRejectedValue(new Error('fga down'));
+    expect(await getReadableConversationIds('user:sub-1')).toEqual([]);
+  });
+});
+
+describe('getAgentsByIds', () => {
+  it('resolves display names from dynamic_agents, falling back to id', async () => {
+    mockGetCollection.mockResolvedValue(
+      collectionStub({
+        find: jest.fn().mockReturnValue({
+          toArray: jest.fn().mockResolvedValue([{ _id: 'agent-a', name: 'Alpha' }]),
+        }),
+      }),
+    );
+
+    const result = await getAgentsByIds(['agent-a', 'agent-b']);
+    expect(result).toEqual([
+      { id: 'agent-a', name: 'Alpha' },
+      { id: 'agent-b', name: 'agent-b' }, // no doc → id === name
+    ]);
+  });
+
+  it('dedupes and trims ids, returns [] for empty input', async () => {
+    expect(await getAgentsByIds([])).toEqual([]);
+    expect(await getAgentsByIds(['  ', ''])).toEqual([]);
+    expect(mockGetCollection).not.toHaveBeenCalled();
+  });
+
+  it('fails open to id === name when the collection throws', async () => {
+    mockGetCollection.mockRejectedValue(new Error('mongo down'));
+    const result = await getAgentsByIds(['agent-a']);
+    expect(result).toEqual([{ id: 'agent-a', name: 'agent-a' }]);
+  });
+});
+
+describe('getOwnedAgents', () => {
+  it('lists can_manage agents, strips the agent: prefix, resolves names', async () => {
+    mockListOpenFgaObjects.mockResolvedValue({ objects: ['agent:agent-a', 'agent:agent-b'] });
+    mockGetCollection.mockResolvedValue(
+      collectionStub({
+        find: jest.fn().mockReturnValue({
+          toArray: jest.fn().mockResolvedValue([{ _id: 'agent-a', name: 'Alpha' }]),
+        }),
+      }),
+    );
+
+    const result = await getOwnedAgents('user:sub-1');
+    expect(mockListOpenFgaObjects).toHaveBeenCalledWith({
+      user: 'user:sub-1',
+      relation: 'can_manage',
+      type: 'agent',
+    });
+    expect(result).toEqual([
+      { id: 'agent-a', name: 'Alpha' },
+      { id: 'agent-b', name: 'agent-b' },
+    ]);
+  });
+
+  it('returns [] when the user owns no agents', async () => {
+    mockListOpenFgaObjects.mockResolvedValue({ objects: [] });
+    expect(await getOwnedAgents('user:sub-1')).toEqual([]);
+  });
+
+  it('fails closed to [] when OpenFGA throws', async () => {
+    mockListOpenFgaObjects.mockRejectedValue(new Error('fga down'));
+    expect(await getOwnedAgents('user:sub-1')).toEqual([]);
+  });
+});
+
+describe('getAllAgents', () => {
+  it('returns every dynamic agent as {id,name}', async () => {
+    mockGetCollection.mockResolvedValue(
+      collectionStub({
+        find: jest.fn().mockReturnValue({
+          limit: jest.fn().mockReturnValue({
+            toArray: jest.fn().mockResolvedValue([
+              { _id: 'agent-a', name: 'Alpha' },
+              { _id: 'agent-b' }, // name falls back to id
+            ]),
+          }),
+        }),
+      }),
+    );
+
+    expect(await getAllAgents()).toEqual([
+      { id: 'agent-a', name: 'Alpha' },
+      { id: 'agent-b', name: 'agent-b' },
+    ]);
+  });
+
+  it('fails closed to [] on error', async () => {
+    mockGetCollection.mockRejectedValue(new Error('mongo down'));
+    expect(await getAllAgents()).toEqual([]);
+  });
+});
+
+describe('getOwnedAgentConversationIds', () => {
+  it('unions Slack (by id) and web (by name) conversation ids', async () => {
+    const convCol = collectionStub({
+      find: jest.fn().mockReturnValue({
+        limit: jest.fn().mockReturnValue({
+          toArray: jest.fn().mockResolvedValue([{ _id: 'conv-slack-1' }, { _id: 'conv-shared' }]),
+        }),
+      }),
+    });
+    const msgCol = collectionStub({
+      distinct: jest.fn().mockResolvedValue(['conv-web-1', 'conv-shared']),
+    });
+    mockGetCollection.mockImplementation((name: string) =>
+      Promise.resolve(name === 'conversations' ? convCol : msgCol),
+    );
+
+    const { ids, capped } = await getOwnedAgentConversationIds([
+      { id: 'agent-a', name: 'Alpha' },
+    ]);
+    expect(capped).toBe(false);
+    expect(new Set(ids)).toEqual(new Set(['conv-slack-1', 'conv-shared', 'conv-web-1']));
+  });
+
+  it('returns empty for no agents without touching the DB', async () => {
+    const result = await getOwnedAgentConversationIds([]);
+    expect(result).toEqual({ ids: [], capped: false });
+    expect(mockGetCollection).not.toHaveBeenCalled();
+  });
+
+  it('fails closed to [] on error', async () => {
+    mockGetCollection.mockRejectedValue(new Error('mongo down'));
+    expect(await getOwnedAgentConversationIds([{ id: 'a', name: 'A' }])).toEqual({
+      ids: [],
+      capped: false,
+    });
+  });
+});

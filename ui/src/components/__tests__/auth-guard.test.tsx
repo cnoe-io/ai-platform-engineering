@@ -54,7 +54,7 @@ describe('AuthGuard', () => {
 
     mockUseRouter.mockReturnValue({
       push: mockPush,
-    } as any)
+    } as unknown)
   })
 
   describe('SSO Disabled', () => {
@@ -71,7 +71,7 @@ describe('AuthGuard', () => {
       mockUseSession.mockReturnValue({
         data: null,
         status: 'unauthenticated',
-      } as any)
+      } as unknown)
 
       render(
         <AuthGuard>
@@ -101,7 +101,7 @@ describe('AuthGuard', () => {
       mockUseSession.mockReturnValue({
         data: null,
         status: 'loading',
-      } as any)
+      } as unknown)
 
       render(
         <AuthGuard>
@@ -117,7 +117,7 @@ describe('AuthGuard', () => {
       mockUseSession.mockReturnValue({
         data: null,
         status: 'loading',
-      } as any)
+      } as unknown)
 
       render(
         <AuthGuard>
@@ -136,7 +136,7 @@ describe('AuthGuard', () => {
       mockUseSession.mockReturnValue({
         data: null,
         status: 'unauthenticated',
-      } as any)
+      } as unknown)
 
       render(
         <AuthGuard>
@@ -156,7 +156,7 @@ describe('AuthGuard', () => {
       mockUseSession.mockReturnValue({
         data: null,
         status: 'unauthenticated',
-      } as any)
+      } as unknown)
 
       render(
         <AuthGuard>
@@ -174,7 +174,7 @@ describe('AuthGuard', () => {
         data: {
           user: { name: 'Test User', email: 'test@example.com' },
           isAuthorized: false,
-        } as any,
+        } as unknown,
         status: 'authenticated',
       })
 
@@ -195,7 +195,7 @@ describe('AuthGuard', () => {
           user: { name: 'Test User', email: 'test@example.com' },
           isAuthorized: true,
           error: 'RefreshTokenExpired',
-        } as any,
+        } as unknown,
         status: 'authenticated',
       })
 
@@ -216,7 +216,7 @@ describe('AuthGuard', () => {
           user: { name: 'Test User', email: 'test@example.com' },
           isAuthorized: true,
           error: 'RefreshTokenError',
-        } as any,
+        } as unknown,
         status: 'authenticated',
       })
 
@@ -239,7 +239,7 @@ describe('AuthGuard', () => {
           user: { name: 'Test User', email: 'test@example.com' },
           isAuthorized: true,
           expiresAt: expiredTime,
-        } as any,
+        } as unknown,
         status: 'authenticated',
       })
 
@@ -262,7 +262,7 @@ describe('AuthGuard', () => {
           user: { name: 'Test User', email: 'test@example.com' },
           isAuthorized: true,
           expiresAt: futureExpiry,
-        } as any,
+        } as unknown,
         status: 'authenticated',
       })
 
@@ -287,7 +287,7 @@ describe('AuthGuard', () => {
           user: { name: 'Test User', email: 'test@example.com' },
           isAuthorized: true,
           expiresAt: futureExpiry,
-        } as any,
+        } as unknown,
         status: 'authenticated',
       })
 
@@ -313,7 +313,7 @@ describe('AuthGuard', () => {
           user: { name: 'Test User', email: 'test@example.com' },
           isAuthorized: true,
           expiresAt: soonExpiry,
-        } as any,
+        } as unknown,
         status: 'authenticated',
       })
 
@@ -336,7 +336,7 @@ describe('AuthGuard', () => {
           user: { name: 'Test User', email: 'test@example.com' },
           isAuthorized: true,
           expiresAt: validExpiry,
-        } as any,
+        } as unknown,
         status: 'authenticated',
       })
 
@@ -370,7 +370,7 @@ describe('AuthGuard', () => {
           user: { name: 'Test User', email: 'test@example.com' },
           isAuthorized: true,
           // No expiresAt field
-        } as any,
+        } as unknown,
         status: 'authenticated',
       })
 
@@ -390,7 +390,7 @@ describe('AuthGuard', () => {
         data: {
           user: { name: 'Test User', email: 'test@example.com' },
           isAuthorized: false, // Explicitly set to false
-        } as any,
+        } as unknown,
         status: 'authenticated',
       })
 
@@ -414,7 +414,7 @@ describe('AuthGuard', () => {
           isAuthorized: true,
           error: 'RefreshTokenExpired',
           expiresAt: expiredTime,
-        } as any,
+        } as unknown,
         status: 'authenticated',
       })
 
@@ -462,7 +462,7 @@ describe('AuthGuard', () => {
           user: { name: 'Test User', email: 'test@example.com' },
           isAuthorized: true,
           expiresAt: soonExpiry,
-        } as any,
+        } as unknown,
         status: 'authenticated',
       })
 
@@ -488,7 +488,7 @@ describe('AuthGuard', () => {
           isAuthorized: true,
           error: 'RefreshTokenMissing',
           expiresAt: Math.floor(Date.now() / 1000) + 600,
-        } as any,
+        } as unknown,
         status: 'authenticated',
       })
 
@@ -509,7 +509,7 @@ describe('AuthGuard', () => {
       mockUseSession.mockReturnValue({
         data: null,
         status: 'loading',
-      } as any)
+      } as unknown)
 
       const { rerender } = render(
         <AuthGuard>
@@ -526,7 +526,7 @@ describe('AuthGuard', () => {
           user: { name: 'Test User', email: 'test@example.com' },
           isAuthorized: true,
           expiresAt: Math.floor(Date.now() / 1000) + 600,
-        } as any,
+        } as unknown,
         status: 'authenticated',
       })
 
@@ -579,7 +579,7 @@ describe('AuthGuard', () => {
       mockUseSession.mockReturnValue({
         data: null,
         status: 'unauthenticated',
-      } as any)
+      } as unknown)
 
       render(
         <AuthGuard>
@@ -598,7 +598,7 @@ describe('AuthGuard', () => {
       mockUseSession.mockReturnValue({
         data: null,
         status: 'unauthenticated',
-      } as any)
+      } as unknown)
 
       render(
         <AuthGuard>
@@ -619,7 +619,7 @@ describe('AuthGuard', () => {
       mockUseSession.mockReturnValue({
         data: null,
         status: 'unauthenticated',
-      } as any)
+      } as unknown)
 
       render(
         <AuthGuard>
@@ -640,7 +640,7 @@ describe('AuthGuard', () => {
       mockUseSession.mockReturnValue({
         data: null,
         status: 'unauthenticated',
-      } as any)
+      } as unknown)
 
       render(
         <AuthGuard>
@@ -664,7 +664,7 @@ describe('AuthGuard', () => {
           user: { name: 'Test User', email: 'test@example.com' },
           isAuthorized: true,
           expiresAt: expiredTime,
-        } as any,
+        } as unknown,
         status: 'authenticated',
       })
 
@@ -689,7 +689,7 @@ describe('AuthGuard', () => {
           user: { name: 'Test User', email: 'test@example.com' },
           isAuthorized: true,
           error: 'RefreshTokenExpired',
-        } as any,
+        } as unknown,
         status: 'authenticated',
       })
 
@@ -714,7 +714,7 @@ describe('AuthGuard', () => {
           user: { name: 'Test User', email: 'test@example.com' },
           isAuthorized: true,
           error: 'RefreshTokenExpired',
-        } as any,
+        } as unknown,
         status: 'authenticated',
       })
 

@@ -36,11 +36,10 @@ on:
         default: ''
 
 permissions:
-  contents: write
-  issues: write
-  packages: write
-  pull-requests: write
   actions: read
+  contents: write
+  packages: write
+  pull-requests: read
 
 jobs:
   publish-prebuild:
@@ -102,7 +101,7 @@ jobs:
             console.log(`Labels: ${pr.labels.map(l => l.name).join(', ')}`);
 
       - name: 📥 Checkout repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
           ref: ${{ steps.pr-info.outputs.head_sha }}
           fetch-depth: 0
@@ -190,7 +189,7 @@ jobs:
 
       - name: ⚙️ Set up Helm
         if: steps.version-check.outputs.skip != 'true'
-        uses: azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5.0.0
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
         with:
           version: v3.14.0
 

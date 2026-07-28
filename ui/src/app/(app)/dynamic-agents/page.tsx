@@ -7,6 +7,7 @@ import { ConversationsTab } from "@/components/dynamic-agents/ConversationsTab";
 import { DynamicAgentsTab } from "@/components/dynamic-agents/DynamicAgentsTab";
 import { LLMProvidersTab } from "@/components/dynamic-agents/LLMProvidersTab";
 import { MCPServersTab } from "@/components/dynamic-agents/MCPServersTab";
+import { isAgentSetupStep,type AgentSetupStep } from "@/components/dynamic-agents/deep-linking";
 import { UnsavedChangesDialog } from "@/components/shared/UnsavedChangesDialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs,TabsContent,TabsList,TabsTrigger } from "@/components/ui/tabs";
@@ -17,6 +18,7 @@ import { usePathname,useRouter,useSearchParams } from "next/navigation";
 import React from "react";
 
 const BASE_VISIBLE_TABS = ["agents", "mcp-servers", "llm-models"] as const;
+const RESOURCE_QUERY_KEYS = ["agent", "server", "model", "step"] as const;
 
 function DynamicAgentsPageContent() {
   const router = useRouter();
@@ -31,6 +33,11 @@ function DynamicAgentsPageContent() {
 
   const requestedTab = searchParams.get("tab") ?? "agents";
   const activeTab = visibleTabs.has(requestedTab) ? requestedTab : "agents";
+  const selectedAgentId = searchParams.get("agent");
+  const selectedServerId = searchParams.get("server");
+  const selectedModelId = searchParams.get("model");
+  const requestedAgentStep = searchParams.get("step");
+  const agentStep = isAgentSetupStep(requestedAgentStep) ? requestedAgentStep : "basic";
 
   // When the embedded DynamicAgentEditor has unsaved changes, switching sibling
   // tabs would unmount it and silently discard work. Intercept the switch and
@@ -39,10 +46,41 @@ function DynamicAgentsPageContent() {
   // navigation handled by AppHeader.
   const [pendingTab, setPendingTab] = React.useState<string | null>(null);
 
+  function hrefFor(params: URLSearchParams): string {
+    const query = params.toString();
+    return query ? `${pathname}?${query}` : pathname;
+  }
+
+  function clearResourceSelection(params: URLSearchParams) {
+    RESOURCE_QUERY_KEYS.forEach((key) => params.delete(key));
+  }
+
   function performTabSwitch(tab: string) {
     const params = new URLSearchParams(searchParams.toString());
     params.set("tab", tab);
-    router.push(`${pathname}?${params.toString()}`);
+    clearResourceSelection(params);
+    router.push(hrefFor(params));
+  }
+
+  function selectResource(tab: "agents" | "mcp-servers" | "llm-models", key: "agent" | "server" | "model", id: string | null) {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("tab", tab);
+    clearResourceSelection(params);
+    if (id) {
+      params.set(key, id);
+      if (key === "agent") params.set("step", "basic");
+    }
+    router.push(hrefFor(params));
+  }
+
+  function setAgentStep(step: AgentSetupStep) {
+    if (!selectedAgentId) return;
+    const params = new URLSearchParams(searchParams.toString());
+    clearResourceSelection(params);
+    params.set("tab", "agents");
+    params.set("agent", selectedAgentId);
+    params.set("step", step);
+    router.replace(hrefFor(params));
   }
 
   function setActiveTab(tab: string) {
@@ -101,15 +139,26 @@ function DynamicAgentsPageContent() {
             </TabsList>
 
             <TabsContent value="agents" className="space-y-4">
-              <DynamicAgentsTab />
+              <DynamicAgentsTab
+                selectedAgentId={selectedAgentId}
+                initialStep={agentStep}
+                onSelectedAgentChange={(id) => selectResource("agents", "agent", id)}
+                onStepChange={setAgentStep}
+              />
             </TabsContent>
 
             <TabsContent value="mcp-servers" className="space-y-4">
-              <MCPServersTab />
+              <MCPServersTab
+                selectedServerId={selectedServerId}
+                onSelectedServerChange={(id) => selectResource("mcp-servers", "server", id)}
+              />
             </TabsContent>
 
             <TabsContent value="llm-models" className="space-y-4">
-              <LLMProvidersTab />
+              <LLMProvidersTab
+                selectedModelId={selectedModelId}
+                onSelectedModelChange={(id) => selectResource("llm-models", "model", id)}
+              />
             </TabsContent>
 
             {showConversations && (

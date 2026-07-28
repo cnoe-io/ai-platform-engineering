@@ -8,6 +8,7 @@ import { withWebexSpaceRebacManageAuth } from "../_lib";
 
 const ALLOWED_FIELDS = new Set([
   "workspace_id",
+  "bot_id",
   "space_id",
   "space_name",
   "team_slug",
@@ -40,6 +41,7 @@ function parseOnboardBody(value: unknown) {
     }
   }
   return {
+    bot_id: readRequiredString(input.bot_id, "bot_id"),
     workspace_id: readOptionalString(input.workspace_id),
     space_id: readRequiredString(input.space_id, "space_id"),
     space_name: readOptionalString(input.space_name),

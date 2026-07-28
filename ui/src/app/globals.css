@@ -451,6 +451,84 @@
     -webkit-text-fill-color: transparent;
   }
 
+  /* One-shot brand flourish using the active gradient theme. */
+  .brand-name {
+    display: inline-block;
+    background-image: linear-gradient(
+      90deg,
+      var(--gradient-from) 0%,
+      var(--gradient-to) 33.333%,
+      var(--gradient-from) 33.334%,
+      color-mix(in srgb, var(--gradient-from) 70%, white) 43%,
+      color-mix(in srgb, var(--gradient-to) 58%, white) 50%,
+      var(--gradient-to) 66.666%,
+      var(--gradient-from) 66.667%,
+      var(--gradient-to) 100%
+    );
+    background-position: 100% 50%;
+    background-repeat: no-repeat;
+    background-size: 300% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .brand-sparkle {
+    color: var(--gradient-to);
+    opacity: 0;
+    transform: translate3d(-0.2rem, 0.2rem, 0) scale(0.35) rotate(-30deg);
+    transform-origin: center;
+  }
+
+  .brand-link:is(:hover, :focus-visible) .brand-name {
+    animation: brand-gradient-sweep 1050ms cubic-bezier(0.4, 0, 0.2, 1) both;
+  }
+
+  .brand-link:is(:hover, :focus-visible) .brand-sparkle {
+    animation: brand-sparkle-finish 1250ms cubic-bezier(0.4, 0, 0.2, 1) both;
+  }
+
+  @keyframes brand-gradient-sweep {
+    0% {
+      background-position: 100% 50%;
+      filter: brightness(1);
+    }
+    68% {
+      filter: brightness(1.16);
+    }
+    100% {
+      background-position: 0% 50%;
+      filter: brightness(1);
+    }
+  }
+
+  @keyframes brand-sparkle-finish {
+    0%, 64% {
+      opacity: 0;
+      transform: translate3d(-0.2rem, 0.2rem, 0) scale(0.35) rotate(-30deg);
+    }
+    76% {
+      opacity: 1;
+      transform: translate3d(0, 0, 0) scale(1.15) rotate(8deg);
+      filter: drop-shadow(0 0 0.3rem color-mix(in srgb, var(--gradient-to) 70%, transparent));
+    }
+    88% {
+      opacity: 0.9;
+      transform: translate3d(0.1rem, -0.1rem, 0) scale(0.85) rotate(20deg);
+    }
+    100% {
+      opacity: 0;
+      transform: translate3d(0.2rem, -0.2rem, 0) scale(0.45) rotate(35deg);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .brand-link:is(:hover, :focus-visible) .brand-name,
+    .brand-link:is(:hover, :focus-visible) .brand-sparkle {
+      animation: none;
+    }
+  }
+
   /* Glow effect for primary elements */
   .glow-primary {
     box-shadow: 0 0 20px hsl(var(--primary) / 0.3), 0 0 40px hsl(var(--primary) / 0.1);

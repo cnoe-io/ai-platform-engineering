@@ -11,11 +11,24 @@ const FEATURES = [
     color: '#0284c7',
     to: '/docs/features/custom-agents',
     items: [
-      'No-code Agent Builder UI — configure system prompt, model, and tools interactively',
+      'No-code Agent Builder UI — configure identity, owner team, system prompt, model, tools, skills, subagents, middleware, approvals, and workflow access',
       'dynamic-agents Helm chart — deploy the agent runtime independently',
-      'Seed config: pre-wire agents and MCP servers at chart install time',
-      'Per-agent system prompts, personas, and multi-model targeting',
+      'App config bootstrap: pre-wire models, MCP servers, agents, and workflows at chart install time',
+      'Team/global ownership with RBAC-managed sharing',
       'MongoDB-backed persistence, Prometheus metrics, ExternalSecrets integration',
+    ],
+  },
+  {
+    title: 'Workflows',
+    icon: '🔁',
+    color: '#0d9488',
+    to: '/docs/features/workflows',
+    items: [
+      'Visual workflow builder for chaining dynamic agents into multi-step automations',
+      'Step prompts support Jinja2 templates with previous outputs and user context',
+      'Per-step error handling: abort, skip, or retry with configurable attempts',
+      'MongoDB-backed workflow configs, run history, event timelines, and artifacts',
+      'Custom agents can trigger and monitor approved workflows as built-in tools',
     ],
   },
   {
@@ -25,10 +38,24 @@ const FEATURES = [
     to: '/docs/features/custom-agents',
     items: [
       'No-code Agent Builder UI — create agents without writing code',
-      'seedConfig.mcp_servers — plug in external MCP servers at chart install time',
+      'appConfig.mcp_servers — plug in external MCP servers at chart install time',
       'Per-tool MCP servers for each integration',
-      'Supported protocols: MCP, AG-UI/SSE, OpenAI-compatible',
+      'Supported MCP transports: stdio, SSE, and Streamable HTTP',
+      'Credential sources: secret refs, caller tokens, and provider connections',
       'LiteLLM proxy support — any LLM provider through a single endpoint',
+    ],
+  },
+  {
+    title: 'Credentials & Secrets',
+    icon: '🔑',
+    color: '#0d9488',
+    to: '/docs/ui/features',
+    items: [
+      'Connected Apps — link Atlassian, GitHub, GitLab, PagerDuty, and Webex for user-scoped MCP access',
+      'Connection health, reconnect, and permission review from one Credentials page',
+      'Saved Secrets — store bearer tokens and other secret types without showing values again',
+      'Rotate, share, and revoke secrets with team-scoped RBAC',
+      'Server-side credential retrieval for agents and MCP servers — raw secrets never return to the browser',
     ],
   },
   {
@@ -60,9 +87,10 @@ const FEATURES = [
     icon: '🧠',
     color: '#0891b2',
     items: [
-      'Unified RAG (Unstructured and Graph RAG)',
-      'Ingestors: Web, ArgoCD, AWS, Backstage, Confluence, Jira, GitHub, Webex, Slack',
-      'Designed to support large volume of ingestion and querying across data sources',
+      'Unified RAG with hybrid vector search and optional Graph RAG',
+      'Ingestors: Web, AWS, Kubernetes, Backstage, ArgoCD, GitHub, Jira, Confluence, Slack, Webex',
+      'MCP tools for search, fetch, datasource discovery, and graph exploration',
+      'OAuth2/RBAC-aware ingestion and querying across data sources',
     ],
   },
   {
@@ -72,18 +100,6 @@ const FEATURES = [
     items: [
       'Chat persistence memory with multi-turn conversation',
       'Fact extraction across chats for a user',
-    ],
-  },
-  {
-    title: 'Agentic Workflows',
-    icon: '⚙️',
-    color: '#0891b2',
-    items: [
-      'Deterministic sequential agent pipelines with no hallucinated steps',
-      'Multi-agent orchestration with dynamic tool routing',
-      'Skills-based workflow composition',
-      'Parallel and sequential agent execution patterns',
-      'Workflow state persistence across sessions via MongoDB checkpointing',
     ],
   },
   {

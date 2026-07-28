@@ -9,8 +9,10 @@ import {
   gotoMcpServersTab,
   installMcpBrowserMocks,
   JIRA_MCP_UPSTREAM_ONLY_SERVER,
+  openAddMcpServerEditor,
   openMcpServerEditor,
   openMcpTestModal,
+  selectMcpTestTool,
   waitForMcpTestToolsLoaded,
   type TestToolResponseBody,
 } from "./_mcp-browser-fixtures";
@@ -176,7 +178,7 @@ test.describe("RBAC e2e — MCP upstream-only credentials (mocked)", () => {
 
     await openMcpTestModal(page, "Jira");
     await waitForMcpTestToolsLoaded(page);
-    await page.locator("#mcp-test-tool").selectOption("get_current_user_account_id");
+    await selectMcpTestTool(page, "get_current_user_account_id");
     await page.getByRole("button", { name: "Run tool" }).click();
 
     await expect(
@@ -192,7 +194,7 @@ test.describe("RBAC e2e — MCP upstream-only credentials (mocked)", () => {
     const mocks = await installMcpBrowserMocks(page, { servers: [] });
 
     await gotoMcpServersTab(page);
-    await page.getByRole("button", { name: "Add Server" }).first().click();
+    await openAddMcpServerEditor(page);
     await page.getByLabel(/Display Name/i).fill("Upstream-only MCP");
     await page.getByRole("button", { name: /Edit generated name/i }).click();
     await page.getByLabel(/Generated name/i).fill("upstream-only");

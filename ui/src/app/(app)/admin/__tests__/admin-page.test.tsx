@@ -3,7 +3,7 @@
  *
  * Covers:
  * - Loading state
- * - Error state with retry
+ * - Fatal auth errors and card-local stats errors
  * - Read-only badge and descriptions for non-admin users
  * - Admin actions visibility (role change, team CRUD) for admin users
  * - Admin actions hidden for read-only users
@@ -13,7 +13,7 @@
 // assisted-by Codex Codex-sonnet-4-6
 
 import React from 'react';
-import { render, screen, waitFor, within, fireEvent } from '@testing-library/react';
+import { act, render, screen, waitFor, within, fireEvent } from '@testing-library/react';
 
 // assisted-by Codex Codex-sonnet-4-6
 
@@ -22,6 +22,7 @@ import { render, screen, waitFor, within, fireEvent } from '@testing-library/rea
 // ============================================================================
 
 let mockIsAdmin = false;
+const pushMock = jest.fn();
 const replaceMock = jest.fn();
 let currentSearchParams = new URLSearchParams();
 jest.mock('@/hooks/use-admin-role', () => ({
@@ -35,7 +36,7 @@ jest.mock('next-auth/react', () => ({
 
 jest.mock('next/navigation', () => ({
   useSearchParams: () => currentSearchParams,
-  useRouter: () => ({ push: jest.fn(), replace: replaceMock, back: jest.fn(), refresh: jest.fn() }),
+  useRouter: () => ({ push: pushMock, replace: replaceMock, back: jest.fn(), refresh: jest.fn() }),
   usePathname: () => '/admin',
 }));
 
@@ -69,6 +70,33 @@ jest.mock('@/components/admin/shared/SimpleLineChart', () => ({
   SimpleLineChart: () => <div data-testid="line-chart" />,
 }));
 
+jest.mock('@/components/admin/shared/FeedbackTrendChart', () => ({
+  FeedbackTrendChart: ({
+    data,
+    onPointClick,
+  }: {
+    data: Array<{ date: string; label: string; positive: number; negative: number }>;
+    onPointClick?: (point: {
+      date: string;
+      label: string;
+      positive: number;
+      negative: number;
+    }) => void;
+  }) => (
+    <div data-testid="feedback-trend-chart">
+      {JSON.stringify(data)}
+      {data.map((point) => (
+        <button
+          aria-label={`View feedback for ${point.label}`}
+          key={point.date}
+          onClick={() => onPointClick?.(point)}
+          type="button"
+        />
+      ))}
+    </div>
+  ),
+}));
+
 jest.mock('@/components/admin/platform/MetricsTab', () => ({
   MetricsTab: () => <div data-testid="metrics-tab">MetricsTab</div>,
 }));
@@ -78,15 +106,35 @@ jest.mock('@/components/admin/platform/HealthTab', () => ({
 }));
 
 jest.mock('@/components/admin/settings/ReviewConfigsTab', () => ({
-  ReviewConfigsTab: () => <div data-testid="review-configs-tab">ReviewConfigsTab</div>,
+  ReviewConfigsTab: (props: { readOnly?: boolean }) => (
+    <div data-testid="review-configs-tab" data-read-only={String(Boolean(props.readOnly))}>
+      ReviewConfigsTab
+    </div>
+  ),
 }));
 
 jest.mock('@/components/admin/settings/PlatformSettingsTab', () => ({
-  PlatformSettingsTab: () => <div data-testid="platform-settings-tab">PlatformSettingsTab</div>,
+  PlatformSettingsTab: (props: { isAdmin?: boolean; readOnly?: boolean }) => (
+    <div
+      data-testid="platform-settings-tab"
+      data-admin={String(Boolean(props.isAdmin))}
+      data-read-only={String(Boolean(props.readOnly))}
+    >
+      PlatformSettingsTab
+    </div>
+  ),
 }));
 
 jest.mock('@/components/admin/settings/ReleaseNotesSettingsTab', () => ({
   ReleaseNotesSettingsTab: () => <div data-testid="release-notes-settings-tab">ReleaseNotesSettingsTab</div>,
+}));
+
+jest.mock('@/components/admin/ServiceAccountsTab', () => ({
+  ServiceAccountsTab: (props: { readOnly?: boolean }) => (
+    <div data-testid="service-accounts-tab" data-read-only={String(Boolean(props.readOnly))}>
+      ServiceAccountsTab
+    </div>
+  ),
 }));
 
 jest.mock('@/components/admin/insights/SkillMetricsCards', () => ({
@@ -94,10 +142,6 @@ jest.mock('@/components/admin/insights/SkillMetricsCards', () => ({
   CategoryBreakdown: () => <div />,
   RunStatsTable: () => <div />,
   TopCreatorsCard: () => <div />,
-}));
-
-jest.mock('@/components/admin/platform/CheckpointStatsSection', () => ({
-  CheckpointStatsSection: () => <div data-testid="checkpoint-stats">CheckpointStatsSection</div>,
 }));
 
 jest.mock('@/components/admin/security/AccessExplorerTab', () => ({
@@ -162,7 +206,29 @@ jest.mock('@/lib/api-client', () => ({
 }));
 
 jest.mock('framer-motion', () => ({
-  motion: { div: ({ children, ...props }: any) => <div {...props}>{children}</div> },
+  motion: {
+    div: ({ children, ...props }: React.HTMLAttributes<HTMLDivElement>) => <div {...props}>{children}</div>,
+    span: ({
+      animate,
+      children,
+      initial,
+      layoutId,
+      transition,
+      ...props
+    }: React.HTMLAttributes<HTMLSpanElement> & {
+      animate?: unknown;
+      initial?: unknown;
+      layoutId?: string;
+      transition?: unknown;
+    }) => {
+      void animate;
+      void initial;
+      void layoutId;
+      void transition;
+      return <span {...props}>{children}</span>;
+    },
+  },
+  useReducedMotion: () => false,
 }));
 
 const mockStatsResponse = {
@@ -192,6 +258,8 @@ const mockStatsResponse = {
       completion_rate: 0,
       avg_messages_per_workflow: 0,
     },
+    available_channels: ['primary-channel'],
+    available_agents: [{ id: 'agent-primary', name: 'Primary Agent' }],
   },
 };
 
@@ -231,19 +299,13 @@ const mockTeamsResponse = {
       {
         _id: 'team-1',
         name: 'Platform Team',
+        slug: 'platform-team',
         description: 'The platform engineering team',
         owner_id: 'admin@example.com',
         created_at: new Date().toISOString(),
-        // Commit 4/8 + 5/8 of the canonical-team-membership refactor:
-        // `member_count` is the new server-aggregated truth from
-        // `team_membership_sources`. We still emit a legacy `members[]`
-        // so older defensive readers (search/filter UX) keep working
-        // through the dual-write window.
+        // Production list responses expose the canonical count and intentionally
+        // omit the retired embedded members[]. Team filters must use the slug.
         member_count: 2,
-        members: [
-          { user_id: 'admin@example.com', role: 'owner', added_at: new Date().toISOString() },
-          { user_id: 'user@example.com', role: 'member', added_at: new Date().toISOString() },
-        ],
       },
     ],
   },
@@ -279,7 +341,21 @@ const allGatesOpen = {
   migrations: true,
 };
 
-function setupFetchMock(overrides: Record<string, any> = {}): jest.Mock {
+const baselineUserGates = {
+  ...allGatesOpen,
+  roles: false,
+  metrics: false,
+  audit_logs: false,
+  action_audit: false,
+  openfga: false,
+  migrations: false,
+};
+
+function setupFetchMock(overrides: {
+  tabGates?: Record<string, boolean>;
+  integrationPanelModes?: { slack: string; webex: string };
+  simulation?: unknown;
+} = {}): jest.Mock {
   const mock = jest.fn((url: string) => {
     if (url.includes('/api/rbac/admin-tab-gates')) {
       return Promise.resolve({
@@ -291,21 +367,25 @@ function setupFetchMock(overrides: Record<string, any> = {}): jest.Mock {
             slack: 'full',
             webex: 'full',
           },
+          simulation: overrides.simulation ?? null,
         }),
       });
     }
     if (url.includes('/api/admin/stats') && !url.includes('skills')) {
+      const statsResponse = typeof overrides.stats === 'function'
+        ? overrides.stats(url)
+        : overrides.stats;
       if (overrides.statsStatus) {
         return Promise.resolve({
           ok: overrides.statsStatus >= 200 && overrides.statsStatus < 300,
           status: overrides.statsStatus,
-          json: () => Promise.resolve(overrides.stats || { success: false, error: 'Forbidden' }),
+          json: () => Promise.resolve(statsResponse || { success: false, error: 'Forbidden' }),
         });
       }
       return Promise.resolve({
         ok: true,
         status: 200,
-        json: () => Promise.resolve(overrides.stats || mockStatsResponse),
+        json: () => Promise.resolve(statsResponse || mockStatsResponse),
       });
     }
     if (url.includes('/api/admin/users')) {
@@ -367,7 +447,7 @@ function setupFetchMock(overrides: Record<string, any> = {}): jest.Mock {
       json: () => Promise.resolve({ success: true, data: {} }),
     });
   });
-  global.fetch = mock as any;
+  global.fetch = mock as unknown;
   return mock;
 }
 
@@ -428,16 +508,15 @@ describe('Admin Dashboard Page', () => {
   });
 
   describe('Error state', () => {
-    it('shows error message and retry button on fetch failure', async () => {
+    it('keeps the page usable and shows card-local errors on stats fetch failure', async () => {
       // Must be on a tab with a loader (stats) so a fetch is actually triggered.
       currentSearchParams = new URLSearchParams('cat=insights&tab=stats');
       (global.fetch as jest.Mock) = jest.fn().mockRejectedValue(new Error('Network error'));
       render(<AdminPage />);
 
-      await waitFor(() => {
-        expect(screen.getByText(/network error/i)).toBeInTheDocument();
-      });
-      expect(screen.getByText('Retry')).toBeInTheDocument();
+      expect((await screen.findAllByText(/network error/i)).length).toBeGreaterThan(1);
+      expect(screen.getByRole('heading', { name: 'Admin' })).toBeInTheDocument();
+      expect(screen.queryByText('Retry')).not.toBeInTheDocument();
     });
 
     it('shows auth error on 401 response', async () => {
@@ -461,6 +540,7 @@ describe('Admin Dashboard Page', () => {
       mockIsAdmin = false;
       mockIsDevAnonymousAuthEnabled.mockReturnValue(false);
       setupFetchMock({
+        tabGates: baselineUserGates,
         integrationPanelModes: { slack: 'self_service', webex: 'self_service' },
       });
     });
@@ -551,6 +631,23 @@ describe('Admin Dashboard Page', () => {
       });
       expect(screen.getByTestId('slack-integration-panel')).toHaveAttribute('data-disabled', 'false');
     });
+
+    it('shows scoped Insights and configured integrations but only Health from Metrics & Health', async () => {
+      render(<AdminPage />);
+
+      expect(await screen.findByRole('button', { name: 'Integrations' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Insights' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Metrics & Health' })).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Insights' }));
+      expect(await screen.findByRole('tab', { name: 'Statistics' })).toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: 'Feedback' })).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Metrics & Health' }));
+      expect(screen.getByRole('tab', { name: 'Health' })).toBeInTheDocument();
+      expect(screen.queryByRole('tab', { name: 'Metrics' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('tab', { name: 'Authorization Insights' })).not.toBeInTheDocument();
+    });
   });
 
   describe('Admin mode', () => {
@@ -571,8 +668,9 @@ describe('Admin Dashboard Page', () => {
       fireEvent.click(screen.getByRole('button', { name: /view as/i }));
 
       expect(screen.getByRole('dialog')).toBeInTheDocument();
-      expect(screen.getByText('View As Effective Permissions')).toBeInTheDocument();
-      const search = screen.getByPlaceholderText(/search by email, name, or keycloak sub/i);
+      expect(screen.getByText('View As — Read-Only Access Preview')).toBeInTheDocument();
+      expect(screen.getByText(/does not sign in as them or change your current session/i)).toBeInTheDocument();
+      const search = screen.getByPlaceholderText(/search by email, name, or user id/i);
       fireEvent.change(search, { target: { value: 'user' } });
 
       await waitFor(() => {
@@ -586,6 +684,222 @@ describe('Admin Dashboard Page', () => {
         expect.stringContaining('simulate_type=user&simulate_id=kc-user'),
         { scroll: false }
       );
+    });
+
+    it('shows the simulated user name and baseline navigation instead of a blank shell', async () => {
+      currentSearchParams = new URLSearchParams('simulate_type=user&simulate_id=kc-user');
+      setupFetchMock({
+        tabGates: {
+          ...allGatesOpen,
+          roles: false,
+          identity_group_sync: false,
+          slack: true,
+          webex: true,
+          feedback: true,
+          stats: true,
+          metrics: false,
+          audit_logs: false,
+          action_audit: false,
+          openfga: false,
+          migrations: false,
+        },
+        simulation: {
+          active: true,
+          readonly: true,
+          subject: {
+            type: 'user',
+            id: 'kc-user',
+            openfga_user: 'user:kc-user',
+            display_name: 'Regular User',
+            email: 'user@example.com',
+          },
+        },
+        integrationPanelModes: {
+          slack: 'self_service',
+          webex: 'self_service',
+        },
+      });
+
+      render(<AdminPage />);
+
+      expect(await screen.findByRole('button', { name: /viewing as regular user/i })).toBeInTheDocument();
+      expect(screen.queryByText(/previewing regular user's effective access/i)).not.toBeInTheDocument();
+      expect(screen.getByText(/manage access.*teams.*health.*platform settings/i)).toBeInTheDocument();
+      expect(screen.queryByText('Access Preview · Read-Only')).not.toBeInTheDocument();
+      expect(screen.queryByText(/no user session is impersonated/i)).not.toBeInTheDocument();
+      await waitFor(() => {
+        expect(screen.getByRole('tab', { name: 'Users' })).toBeInTheDocument();
+        expect(screen.getByRole('tab', { name: 'Teams' })).toBeInTheDocument();
+      });
+      expect(screen.getByRole('button', { name: 'Integrations' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Insights' })).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Integrations' }));
+      expect(await screen.findByRole('tab', { name: 'Slack' })).toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: 'Webex' })).toBeInTheDocument();
+      expect(screen.getByTestId('slack-integration-panel')).toHaveAttribute('data-self-service', 'true');
+      expect(screen.getByTestId('slack-integration-panel')).toHaveAttribute('data-disabled', 'true');
+
+      fireEvent.click(screen.getByRole('button', { name: 'Insights' }));
+      await waitFor(() => {
+        expect(global.fetch).toHaveBeenCalledWith(
+          expect.stringMatching(/\/api\/admin\/stats\?.*simulate_type=user.*simulate_id=kc-user/),
+          expect.objectContaining({ signal: expect.any(AbortSignal) })
+        );
+      });
+      expect(await screen.findByRole('tab', { name: 'Statistics' })).toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: 'Feedback' })).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Metrics & Health' }));
+      expect(screen.getByRole('tab', { name: 'Health' })).toBeInTheDocument();
+      expect(screen.queryByRole('tab', { name: 'Metrics' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('tab', { name: 'Authorization Insights' })).not.toBeInTheDocument();
+      expect(screen.queryByText(/No Admin access is available/i)).not.toBeInTheDocument();
+    });
+
+    it('scopes Teams & Users data requests to the selected preview account', async () => {
+      currentSearchParams = new URLSearchParams(
+        'simulate_type=user&simulate_id=kc-user&cat=people&tab=users'
+      );
+      const fetchMock = setupFetchMock({
+        tabGates: baselineUserGates,
+        simulation: {
+          active: true,
+          readonly: true,
+          subject: {
+            type: 'user',
+            id: 'kc-user',
+            openfga_user: 'user:kc-user',
+            display_name: 'Regular User',
+          },
+        },
+      });
+
+      render(<AdminPage />);
+
+      await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalledWith(
+          '/api/admin/users?page=1&pageSize=20&simulate_type=user&simulate_id=kc-user'
+        );
+        expect(fetchMock).toHaveBeenCalledWith(
+          '/api/admin/teams?simulate_type=user&simulate_id=kc-user'
+        );
+      });
+
+    });
+
+    it('scopes the Teams grid request to the selected preview account', async () => {
+      currentSearchParams = new URLSearchParams(
+        'simulate_type=user&simulate_id=kc-user&cat=people&tab=teams'
+      );
+      const fetchMock = setupFetchMock({
+        tabGates: baselineUserGates,
+        simulation: {
+          active: true,
+          readonly: true,
+          subject: {
+            type: 'user',
+            id: 'kc-user',
+            openfga_user: 'user:kc-user',
+            display_name: 'Regular User',
+          },
+        },
+      });
+
+      render(<AdminPage />);
+
+      await waitFor(() => {
+        const gridRequest = fetchMock.mock.calls.find(([url]) =>
+          typeof url === 'string'
+          && url.includes('/api/admin/teams?page=1')
+          && url.includes('simulate_type=user')
+          && url.includes('simulate_id=kc-user')
+        );
+        expect(gridRequest).toBeDefined();
+      });
+    });
+
+    it('uses a simulated admin\'s effective access while keeping the preview read-only', async () => {
+      currentSearchParams = new URLSearchParams('simulate_type=user&simulate_id=admin-target');
+      setupFetchMock({
+        tabGates: {
+          ...allGatesOpen,
+          credentials: true,
+          service_accounts: true,
+        },
+        simulation: {
+          active: true,
+          readonly: true,
+          subject: {
+            type: 'user',
+            id: 'admin-target',
+            openfga_user: 'user:admin-target',
+            display_name: 'Target Admin',
+            organization_admin: true,
+          },
+        },
+        integrationPanelModes: {
+          slack: 'full',
+          webex: 'full',
+        },
+      });
+
+      render(<AdminPage />);
+
+      expect(await screen.findByRole('button', { name: /viewing as target admin/i })).toBeInTheDocument();
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'Settings' })).toHaveAttribute('aria-pressed', 'true');
+      });
+      expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
+        'General',
+        'Agents',
+        'MCP',
+        'Skills',
+        'Service Accounts',
+        'AI Review',
+        'Credentials',
+      ]);
+      expect(screen.getByTestId('platform-settings-tab')).toHaveAttribute('data-admin', 'true');
+      expect(screen.getByTestId('platform-settings-tab')).toHaveAttribute('data-read-only', 'true');
+
+      fireEvent.click(screen.getByRole('button', { name: 'Integrations' }));
+      expect(await screen.findByTestId('slack-integration-panel')).toHaveAttribute(
+        'data-self-service',
+        'false',
+      );
+      expect(screen.getByTestId('slack-integration-panel')).toHaveAttribute('data-disabled', 'true');
+    });
+
+    it('scopes Feedback requests to the selected preview account', async () => {
+      currentSearchParams = new URLSearchParams(
+        'simulate_type=user&simulate_id=kc-user&cat=insights&tab=feedback'
+      );
+      setupFetchMock({
+        tabGates: baselineUserGates,
+        integrationPanelModes: {
+          slack: 'self_service',
+          webex: 'self_service',
+        },
+        simulation: {
+          active: true,
+          readonly: true,
+          subject: {
+            type: 'user',
+            id: 'kc-user',
+            openfga_user: 'user:kc-user',
+            display_name: 'Regular User',
+            email: 'user@example.com',
+          },
+        },
+      });
+
+      render(<AdminPage />);
+
+      await waitFor(() => {
+        expect(global.fetch).toHaveBeenCalledWith(
+          expect.stringMatching(/\/api\/admin\/feedback\?.*simulate_type=user.*simulate_id=kc-user/)
+        );
+      });
     });
 
     it('does not show Read-Only badge', async () => {
@@ -751,10 +1065,12 @@ describe('Admin Dashboard Page', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
       expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
         'General',
-        'AI Review',
-        'Credentials',
+        'Agents',
+        'MCP',
         'Skills',
         'Service Accounts',
+        'AI Review',
+        'Credentials',
       ]);
       expect(screen.getByTestId('platform-settings-tab')).toBeInTheDocument();
       // Release notes lives under General, not as a standalone tab.
@@ -824,7 +1140,7 @@ describe('Admin Dashboard Page', () => {
 
       expect(await screen.findByText('Settings')).toBeInTheDocument();
 
-      expect(screen.getByRole('button', { name: 'Settings' })).toHaveClass('bg-primary');
+      expect(screen.getByRole('button', { name: 'Settings' })).toHaveAttribute('aria-pressed', 'true');
       expect(screen.getByRole('tab', { name: /^General$/i })).toHaveAttribute(
         'aria-selected',
         'true'
@@ -842,7 +1158,7 @@ describe('Admin Dashboard Page', () => {
       render(<AdminPage />);
 
       expect(await screen.findByText('Settings')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Settings' })).toHaveClass('bg-primary');
+      expect(screen.getByRole('button', { name: 'Settings' })).toHaveAttribute('aria-pressed', 'true');
       // An unknown tab value falls through to the first visible Settings tab
       // (General), which renders both the platform settings and the release
       // notes preference/config sections.
@@ -856,6 +1172,7 @@ describe('Admin Dashboard Page', () => {
 
     it.each([
       ['settings', 'settings', /^General$/i],
+      ['settings', 'agents', /^Agents$/i],
       ['settings', 'ai-review', /^AI Review$/i],
       ['settings', 'skills', /^Skills$/i],
       ['people', 'users', /^Users$/i],
@@ -891,7 +1208,7 @@ describe('Admin Dashboard Page', () => {
       render(<AdminPage />);
 
       expect(await screen.findByText('Integrations')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Integrations' })).toHaveClass('bg-primary');
+      expect(screen.getByRole('button', { name: 'Integrations' })).toHaveAttribute('aria-pressed', 'true');
       expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
         'Slack',
         'Webex',
@@ -906,7 +1223,7 @@ describe('Admin Dashboard Page', () => {
       render(<AdminPage />);
 
       expect(await screen.findByText('Integrations')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Integrations' })).toHaveClass('bg-primary');
+      expect(screen.getByRole('button', { name: 'Integrations' })).toHaveAttribute('aria-pressed', 'true');
       expect(screen.getByRole('tab', { name: /^Webex$/i })).toHaveAttribute('aria-selected', 'true');
       expect(screen.getByTestId('webex-integration-panel')).toBeInTheDocument();
     });
@@ -917,7 +1234,7 @@ describe('Admin Dashboard Page', () => {
       render(<AdminPage />);
 
       expect(await screen.findByText('Settings')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Settings' })).toHaveClass('bg-primary');
+      expect(screen.getByRole('button', { name: 'Settings' })).toHaveAttribute('aria-pressed', 'true');
       expect(screen.getByRole('tab', { name: /^General$/i })).toHaveAttribute(
         'aria-selected',
         'true'
@@ -935,7 +1252,7 @@ describe('Admin Dashboard Page', () => {
       render(<AdminPage />);
 
       expect(await screen.findByText('Security & Policy')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Security & Policy' })).toHaveClass('bg-primary');
+      expect(screen.getByRole('button', { name: 'Security & Policy' })).toHaveAttribute('aria-pressed', 'true');
       expect(screen.getByRole('tab', { name: /^Access Explorer$/i })).toHaveAttribute(
         'aria-selected',
         'true'
@@ -960,7 +1277,7 @@ describe('Admin Dashboard Page', () => {
       render(<AdminPage />);
 
       expect(await screen.findByText('Settings')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Settings' })).toHaveClass('bg-primary');
+      expect(screen.getByRole('button', { name: 'Settings' })).toHaveAttribute('aria-pressed', 'true');
       expect(screen.getByRole('tab', { name: /^General$/i })).toHaveAttribute(
         'aria-selected',
         'true'
@@ -978,15 +1295,16 @@ describe('Admin Dashboard Page', () => {
       render(<AdminPage />);
 
       expect(await screen.findByText('Insights')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Insights' })).toHaveClass('bg-primary');
+      expect(screen.getByRole('button', { name: 'Insights' })).toHaveAttribute('aria-pressed', 'true');
       expect(screen.getByRole('tab', { name: /^Statistics$/i })).toHaveAttribute(
         'aria-selected',
         'true'
       );
       expect(screen.queryByRole('tab', { name: /^Insights$/i })).not.toBeInTheDocument();
-      expect(replaceMock).toHaveBeenCalledWith('/admin?cat=insights&tab=stats', {
-        scroll: false,
-      });
+      expect(replaceMock).toHaveBeenCalledWith(
+        '/admin?cat=insights&tab=stats&dateRange=30d',
+        { scroll: false },
+      );
     });
 
     it('opens the requested Access Explorer sub-tab from the query string', async () => {
@@ -996,7 +1314,7 @@ describe('Admin Dashboard Page', () => {
 
       expect(await screen.findByText('Security & Policy')).toBeInTheDocument();
 
-      expect(screen.getByRole('button', { name: 'Security & Policy' })).toHaveClass('bg-primary');
+      expect(screen.getByRole('button', { name: 'Security & Policy' })).toHaveAttribute('aria-pressed', 'true');
       expect(screen.getByRole('tab', { name: /^Access Explorer$/i })).toHaveAttribute(
         'aria-selected',
         'true'
@@ -1014,7 +1332,7 @@ describe('Admin Dashboard Page', () => {
 
       expect(await screen.findByText('Security & Policy')).toBeInTheDocument();
 
-      expect(screen.getByRole('button', { name: 'Security & Policy' })).toHaveClass('bg-primary');
+      expect(screen.getByRole('button', { name: 'Security & Policy' })).toHaveAttribute('aria-pressed', 'true');
       expect(screen.getByRole('tab', { name: /^Self Check$/i })).toHaveAttribute(
         'aria-selected',
         'true'
@@ -1029,7 +1347,7 @@ describe('Admin Dashboard Page', () => {
 
       expect(await screen.findByText('Security & Policy')).toBeInTheDocument();
 
-      expect(screen.getByRole('button', { name: 'Security & Policy' })).toHaveClass('bg-primary');
+      expect(screen.getByRole('button', { name: 'Security & Policy' })).toHaveAttribute('aria-pressed', 'true');
       expect(screen.getByRole('tab', { name: /^Access Explorer$/i })).toHaveAttribute(
         'aria-selected',
         'true'
@@ -1049,7 +1367,7 @@ describe('Admin Dashboard Page', () => {
 
       expect(await screen.findByText('Integrations')).toBeInTheDocument();
 
-      expect(screen.getByRole('button', { name: 'Integrations' })).toHaveClass('bg-primary');
+      expect(screen.getByRole('button', { name: 'Integrations' })).toHaveAttribute('aria-pressed', 'true');
       expect(screen.getByRole('tab', { name: /^Slack$/i })).toHaveAttribute(
         'aria-selected',
         'true'
@@ -1236,6 +1554,179 @@ describe('Admin Dashboard Page', () => {
       expect(teamRequests[1][0]).toEqual(expect.stringContaining('fresh='));
       expect(teamRequests[1][1]).toMatchObject({ cache: 'no-store' });
     });
+
+    it('does not request archived teams or show the Archived badge by default', async () => {
+      currentSearchParams = new URLSearchParams('cat=people&tab=teams');
+      const fetchMock = setupFetchMock();
+
+      render(<AdminPage />);
+
+      expect(await screen.findByText('Platform Team')).toBeInTheDocument();
+      expect(screen.queryByText('Archived')).not.toBeInTheDocument();
+
+      const teamRequests = fetchMock.mock.calls.filter(([url]) =>
+        String(url).includes('/api/admin/teams')
+      );
+      expect(teamRequests.length).toBeGreaterThan(0);
+      teamRequests.forEach(([url]) => {
+        expect(String(url)).not.toContain('include_archived=true');
+      });
+    });
+
+    it('requests archived teams when "Show archived" is checked', async () => {
+      currentSearchParams = new URLSearchParams('cat=people&tab=teams');
+      const fetchMock = setupFetchMock();
+
+      render(<AdminPage />);
+
+      expect(await screen.findByText('Platform Team')).toBeInTheDocument();
+
+      fireEvent.click(screen.getByLabelText(/show archived/i));
+
+      await waitFor(() => {
+        const teamRequests = fetchMock.mock.calls.filter(([url]) =>
+          String(url).includes('/api/admin/teams')
+        );
+        expect(
+          teamRequests.some(([url]) => String(url).includes('include_archived=true'))
+        ).toBe(true);
+      });
+    });
+
+    it('renders the Archived badge for teams with status "archived"', async () => {
+      currentSearchParams = new URLSearchParams('cat=people&tab=teams');
+      setupFetchMock({
+        teams: (url: string) => {
+          const includeArchived = new URL(url, 'http://localhost').searchParams.get('include_archived') === 'true';
+          const teams = includeArchived
+            ? [
+                {
+                  _id: 'team-archived',
+                  name: 'Retired Team',
+                  owner_id: 'admin@example.com',
+                  created_at: new Date().toISOString(),
+                  member_count: 1,
+                  members: [],
+                  status: 'archived',
+                },
+              ]
+            : [];
+          return { success: true, data: { teams, total: teams.length, page: 1, page_size: 12 } };
+        },
+      });
+
+      render(<AdminPage />);
+
+      fireEvent.click(screen.getByLabelText(/show archived/i));
+
+      expect(await screen.findByText('Retired Team')).toBeInTheDocument();
+      expect(screen.getByText('Archived')).toBeInTheDocument();
+    });
+  });
+
+  describe('Insights filter deep links', () => {
+    it('makes the default Statistics range explicit in the URL', async () => {
+      currentSearchParams = new URLSearchParams('cat=insights&tab=stats');
+      setupFetchMock();
+
+      render(<AdminPage />);
+
+      await waitFor(() => {
+        expect(replaceMock).toHaveBeenCalledWith(
+          '/admin?cat=insights&tab=stats&dateRange=30d',
+          { scroll: false },
+        );
+      });
+    });
+
+    it('applies Statistics URL filters to the first card requests', async () => {
+      currentSearchParams = new URLSearchParams({
+        cat: 'insights',
+        tab: 'stats',
+        source: 'slack',
+        statsChannels: 'primary-channel',
+        statsAgents: 'agent-primary',
+        statsIncludeBots: 'true',
+        users: 'test-user@example.com',
+        dateRange: '7d',
+      });
+      const fetchMock = setupFetchMock();
+
+      render(<AdminPage />);
+      await screen.findByText('42');
+
+      const statsUrls = fetchMock.mock.calls
+        .map(([url]) => new URL(url, 'http://localhost'))
+        .filter((url) => url.pathname === '/api/admin/stats');
+      expect(statsUrls.length).toBeGreaterThan(0);
+      expect(statsUrls.every((url) => (
+        url.searchParams.get('source') === 'slack'
+        && url.searchParams.get('channel') === 'primary-channel'
+        && url.searchParams.get('agent') === 'agent-primary'
+        && url.searchParams.get('include_bots') === 'true'
+        && url.searchParams.get('user') === 'test-user@example.com'
+        && url.searchParams.get('range') === '7d'
+      ))).toBe(true);
+      expect(screen.getByLabelText(/show bot users/i)).toBeChecked();
+      expect(await screen.findByRole('button', { name: /Primary Agent/ })).toBeInTheDocument();
+
+      fireEvent.click(screen.getByLabelText(/show bot users/i));
+      const updatedStatsUrl = new URL(replaceMock.mock.calls.at(-1)?.[0], 'http://localhost');
+      expect(updatedStatsUrl.searchParams.has('statsIncludeBots')).toBe(false);
+      expect(updatedStatsUrl.searchParams.get('statsChannels')).toBe('primary-channel');
+      expect(updatedStatsUrl.searchParams.get('statsAgents')).toBe('agent-primary');
+    });
+
+    it('applies Feedback URL filters to the initial request', async () => {
+      currentSearchParams = new URLSearchParams({
+        cat: 'insights',
+        tab: 'feedback',
+        source: 'slack',
+        channels: 'primary-channel',
+        rating: 'negative',
+        search: 'incorrect',
+        users: 'team:Platform Team,test-user@example.com',
+        dateRange: '7d',
+      });
+      const fetchMock = setupFetchMock({
+        feedback: {
+          ...mockFeedbackResponse,
+          data: {
+            ...mockFeedbackResponse.data,
+            channels: ['primary-channel'],
+            users: ['test-user@example.com'],
+          },
+        },
+      });
+
+      render(<AdminPage />);
+
+      await waitFor(() => {
+        expect(fetchMock.mock.calls.some(([url]) => String(url).startsWith('/api/admin/feedback?'))).toBe(true);
+      });
+      const feedbackUrls = fetchMock.mock.calls
+        .map(([url]) => new URL(url, 'http://localhost'))
+        .filter((url) => url.pathname === '/api/admin/feedback');
+      expect(feedbackUrls).toHaveLength(1);
+      const feedbackUrl = feedbackUrls[0];
+      expect(feedbackUrl.searchParams.get('source')).toBe('slack');
+      expect(feedbackUrl.searchParams.get('channel')).toBe('primary-channel');
+      expect(feedbackUrl.searchParams.get('rating')).toBe('negative');
+      expect(feedbackUrl.searchParams.get('search')).toBe('incorrect');
+      expect(feedbackUrl.searchParams.get('team')).toBe('platform-team');
+      expect(feedbackUrl.searchParams.get('user')).toBe('test-user@example.com');
+      const from = Date.parse(feedbackUrl.searchParams.get('from') ?? '');
+      const to = Date.parse(feedbackUrl.searchParams.get('to') ?? '');
+      expect(to - from).toBeGreaterThanOrEqual(6.9 * 24 * 60 * 60 * 1000);
+      expect(to - from).toBeLessThanOrEqual(7.1 * 24 * 60 * 60 * 1000);
+      expect(screen.getByRole('button', { name: 'negative' })).toHaveClass('bg-primary');
+
+      fireEvent.click(screen.getByRole('button', { name: 'all' }));
+      const updatedFeedbackUrl = new URL(replaceMock.mock.calls.at(-1)?.[0], 'http://localhost');
+      expect(updatedFeedbackUrl.searchParams.has('rating')).toBe(false);
+      expect(updatedFeedbackUrl.searchParams.get('source')).toBe('slack');
+      expect(updatedFeedbackUrl.searchParams.get('channels')).toBe('primary-channel');
+    });
   });
 
   describe('Stats rendering', () => {
@@ -1267,6 +1758,490 @@ describe('Admin Dashboard Page', () => {
       expect(screen.getByText('Conversations')).toBeInTheDocument();
       expect(screen.getByText('Messages')).toBeInTheDocument();
       expect(screen.getByText('Daily Active Users (DAU)')).toBeInTheDocument();
+      expect(screen.queryByText('NaN')).not.toBeInTheDocument();
+    });
+
+    it('does not refresh the default 30-day stats after entering Statistics', async () => {
+      const fetchMock = setupFetchMock();
+      render(<AdminPage />);
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Insights' }));
+      await screen.findByText('42');
+      await act(async () => {
+        await new Promise((resolve) => window.setTimeout(resolve, 200));
+      });
+
+      const statsUrls = fetchMock.mock.calls
+        .map(([url]) => new URL(url, 'http://localhost'))
+        .filter((url) => url.pathname === '/api/admin/stats');
+      expect(statsUrls).toHaveLength(10);
+      expect(new Set(statsUrls.map((url) => url.searchParams.get('section'))).size).toBe(10);
+      expect(statsUrls.every((url) => url.searchParams.get('range') === '30d')).toBe(true);
+    });
+
+    it('passes positive and negative daily feedback as separate chart series', async () => {
+      setupFetchMock({
+        stats: {
+          ...mockStatsResponse,
+          data: {
+            ...mockStatsResponse.data,
+            feedback_summary: {
+              positive: 8,
+              negative: 3,
+              total: 11,
+              daily: [{ date: '2026-07-20', positive: 8, negative: 3 }],
+            },
+          },
+        },
+      });
+      render(<AdminPage />);
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Insights' }));
+
+      const chart = await screen.findByTestId('feedback-trend-chart');
+      expect(chart).toHaveTextContent('"positive":8');
+      expect(chart).toHaveTextContent('"negative":3');
+      expect(chart).not.toHaveTextContent('"value":11');
+    });
+
+    it('pushes Feedback onto browser history with the clicked trend date', async () => {
+      currentSearchParams = new URLSearchParams({
+        cat: 'insights',
+        tab: 'stats',
+        source: 'slack',
+        users: 'test-user@example.com',
+        statsAgents: 'agent-primary',
+        dateRange: '30d',
+      });
+      setupFetchMock({
+        stats: {
+          ...mockStatsResponse,
+          data: {
+            ...mockStatsResponse.data,
+            feedback_summary: {
+              positive: 8,
+              negative: 3,
+              total: 11,
+              daily: [{ date: '2026-07-20', positive: 8, negative: 3 }],
+            },
+          },
+        },
+      });
+
+      render(<AdminPage />);
+
+      fireEvent.click(await screen.findByRole('button', { name: 'View feedback for Jul 20' }));
+
+      const targetUrl = new URL(pushMock.mock.calls.at(-1)?.[0], 'http://localhost');
+      expect(targetUrl.pathname).toBe('/admin');
+      expect(targetUrl.searchParams.get('cat')).toBe('insights');
+      expect(targetUrl.searchParams.get('tab')).toBe('feedback');
+      expect(targetUrl.searchParams.get('dateRange')).toBe('custom');
+      expect(targetUrl.searchParams.get('from')).toBe(
+        new Date(2026, 6, 20, 0, 0, 0, 0).toISOString(),
+      );
+      expect(targetUrl.searchParams.get('to')).toBe(
+        new Date(2026, 6, 20, 23, 59, 59, 999).toISOString(),
+      );
+      expect(targetUrl.searchParams.get('source')).toBe('slack');
+      expect(targetUrl.searchParams.get('users')).toBe('test-user@example.com');
+      expect(targetUrl.searchParams.get('statsAgents')).toBe('agent-primary');
+      expect(replaceMock).not.toHaveBeenCalledWith(
+        expect.stringContaining('tab=feedback'),
+        { scroll: false },
+      );
+    });
+
+    it('resets a custom Feedback date when manually returning to Statistics', async () => {
+      currentSearchParams = new URLSearchParams({
+        cat: 'insights',
+        tab: 'feedback',
+        source: 'slack',
+        dateRange: 'custom',
+        from: new Date(2026, 6, 20, 0, 0, 0, 0).toISOString(),
+        to: new Date(2026, 6, 20, 23, 59, 59, 999).toISOString(),
+      });
+      setupFetchMock();
+
+      render(<AdminPage />);
+
+      fireEvent.mouseDown(
+        await screen.findByRole('tab', { name: 'Statistics' }),
+        { button: 0, ctrlKey: false },
+      );
+
+      const targetUrl = new URL(replaceMock.mock.calls.at(-1)?.[0], 'http://localhost');
+      expect(targetUrl.searchParams.get('cat')).toBe('insights');
+      expect(targetUrl.searchParams.get('tab')).toBe('stats');
+      expect(targetUrl.searchParams.get('dateRange')).toBe('30d');
+      expect(targetUrl.searchParams.has('from')).toBe(false);
+      expect(targetUrl.searchParams.has('to')).toBe(false);
+      expect(targetUrl.searchParams.get('source')).toBe('slack');
+    });
+
+    it('loads a requested Top Users page without changing the other leaderboard page', async () => {
+      const fetchMock = setupFetchMock({
+        stats: (url: string) => {
+          const requestUrl = new URL(url, 'http://localhost');
+          if (requestUrl.searchParams.get('section') !== 'top_users') {
+            // Section requests return only their own payload in production.
+            // Keeping unrelated responses empty prevents a later request from
+            // replacing the Top Users page under test with fixture defaults.
+            return { success: true, data: {} };
+          }
+          const conversationsPage = Number(
+            requestUrl.searchParams.get('top_conversations_page') ?? '1',
+          );
+          const messagesPage = Number(
+            requestUrl.searchParams.get('top_messages_page') ?? '1',
+          );
+          return {
+            success: true,
+            data: {
+              top_users: {
+                by_conversations: [{
+                  _id: conversationsPage === 2
+                    ? 'test-user-11@example.com'
+                    : 'test-user-01@example.com',
+                  name: conversationsPage === 2 ? 'Test User 11' : 'Test User 01',
+                  count: 20,
+                  owner_type: 'linked',
+                }],
+                by_messages: [{
+                  _id: messagesPage === 2
+                    ? 'test-message-user-11@example.com'
+                    : 'test-message-user-01@example.com',
+                  name: messagesPage === 2 ? 'Test Message User 11' : 'Test Message User 01',
+                  count: 40,
+                  owner_type: 'linked',
+                }],
+                pagination: {
+                  by_conversations: {
+                    page: conversationsPage,
+                    limit: 10,
+                    total: 21,
+                    total_pages: 3,
+                  },
+                  by_messages: {
+                    page: messagesPage,
+                    limit: 10,
+                    total: 21,
+                    total_pages: 3,
+                  },
+                },
+              },
+            },
+          };
+        },
+      });
+      render(<AdminPage />);
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Insights' }));
+      await screen.findByText('Test User 01');
+
+      const pageInput = screen.getByRole('spinbutton', {
+        name: 'Go to top users by conversations page',
+      });
+      fireEvent.change(pageInput, { target: { value: '2' } });
+      fireEvent.submit(pageInput.closest('form') as HTMLFormElement);
+
+      expect(await screen.findByText('Test User 11')).toBeInTheDocument();
+      expect(screen.getByText('#11')).toBeInTheDocument();
+      expect(screen.getByText('Test Message User 01')).toBeInTheDocument();
+
+      const lastTopUsersRequest = fetchMock.mock.calls
+        .map(([url]) => new URL(url, 'http://localhost'))
+        .filter((url) => (
+          url.pathname === '/api/admin/stats'
+          && url.searchParams.get('section') === 'top_users'
+        ))
+        .at(-1);
+      expect(lastTopUsersRequest?.searchParams.get('top_conversations_page')).toBe('2');
+      expect(lastTopUsersRequest?.searchParams.get('top_messages_page')).toBe('1');
+    });
+
+    it('shows pagination loading only on the requested Top Users card', async () => {
+      const topUsersResponse = (url: string) => {
+        const requestUrl = new URL(url, 'http://localhost');
+        if (requestUrl.searchParams.get('section') !== 'top_users') {
+          return { success: true, data: {} };
+        }
+        const conversationsPage = Number(
+          requestUrl.searchParams.get('top_conversations_page') ?? '1',
+        );
+        return {
+          success: true,
+          data: {
+            top_users: {
+              by_conversations: [{
+                _id: conversationsPage === 2
+                  ? 'test-user-11@example.com'
+                  : 'test-user-01@example.com',
+                name: conversationsPage === 2 ? 'Test User 11' : 'Test User 01',
+                count: 20,
+                owner_type: 'linked',
+              }],
+              by_messages: [{
+                _id: 'test-message-user-01@example.com',
+                name: 'Test Message User 01',
+                count: 40,
+                owner_type: 'linked',
+              }],
+              pagination: {
+                by_conversations: {
+                  page: conversationsPage,
+                  limit: 10,
+                  total: 21,
+                  total_pages: 3,
+                },
+                by_messages: {
+                  page: 1,
+                  limit: 10,
+                  total: 21,
+                  total_pages: 3,
+                },
+              },
+            },
+          },
+        };
+      };
+      const baseFetch = setupFetchMock({ stats: topUsersResponse });
+      let deferNextTopUsersRequest = false;
+      let resolveTopUsersRequest: (() => void) | undefined;
+      const fetchMock = jest.fn((url: string) => {
+        const requestUrl = new URL(url, 'http://localhost');
+        if (
+          deferNextTopUsersRequest
+          && requestUrl.pathname === '/api/admin/stats'
+          && requestUrl.searchParams.get('section') === 'top_users'
+        ) {
+          deferNextTopUsersRequest = false;
+          return new Promise((resolve) => {
+            resolveTopUsersRequest = () => resolve({
+              ok: true,
+              status: 200,
+              json: () => Promise.resolve(topUsersResponse(url)),
+            });
+          });
+        }
+        return baseFetch(url);
+      });
+      global.fetch = fetchMock as unknown as typeof fetch;
+
+      render(<AdminPage />);
+      fireEvent.click(await screen.findByRole('button', { name: 'Insights' }));
+      await screen.findByText('Test User 01');
+
+      deferNextTopUsersRequest = true;
+      fireEvent.click(screen.getByRole('button', {
+        name: 'Next top users by conversations page',
+      }));
+
+      await waitFor(() => {
+        expect(
+          screen.getByTestId('stats-card-top-users-conversations'),
+        ).toHaveAttribute('aria-busy', 'true');
+        expect(
+          screen.getByTestId('stats-card-top-users-messages'),
+        ).toHaveAttribute('aria-busy', 'false');
+      });
+      expect(screen.getByText('Test Message User 01')).toBeInTheDocument();
+
+      await act(async () => {
+        resolveTopUsersRequest?.();
+      });
+      expect(await screen.findByText('Test User 11')).toBeInTheDocument();
+    });
+
+    it('updates cards independently and issues one request per section when a filter changes', async () => {
+      const baseFetch = setupFetchMock();
+      let resolveFeedback: ((response: unknown) => void) | undefined;
+      let deferFeedback = false;
+      const fetchMock = jest.fn((url: string) => {
+        const section = url.includes('/api/admin/stats?')
+          ? new URL(url, 'http://localhost').searchParams.get('section')
+          : null;
+        if (deferFeedback && section === 'feedback') {
+          return new Promise((resolve) => {
+            resolveFeedback = resolve;
+          });
+        }
+        return baseFetch(url);
+      });
+      global.fetch = fetchMock as unknown as typeof fetch;
+
+      render(<AdminPage />);
+      fireEvent.click(await screen.findByRole('button', { name: 'Insights' }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId('stats-card-top-agents')).toHaveAttribute('aria-busy', 'false');
+      });
+
+      const callsBeforeFilter = fetchMock.mock.calls.length;
+      deferFeedback = true;
+      fireEvent.change(screen.getByDisplayValue('All Sources'), { target: { value: 'web' } });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('stats-card-feedback-summary')).toHaveAttribute('aria-busy', 'true');
+        expect(screen.getByTestId('stats-card-top-agents')).toHaveAttribute('aria-busy', 'false');
+      });
+      expect(screen.getByText('Top Agents by Usage')).toBeInTheDocument();
+
+      const refreshCalls = fetchMock.mock.calls
+        .slice(callsBeforeFilter)
+        .map(([url]) => new URL(url, 'http://localhost').searchParams.get('section'))
+        .filter(Boolean);
+      expect(refreshCalls).toHaveLength(9);
+      expect(new Set(refreshCalls).size).toBe(9);
+      expect(refreshCalls).not.toContain('filters');
+      const refreshUrls = fetchMock.mock.calls
+        .slice(callsBeforeFilter)
+        .map(([url]) => new URL(url, 'http://localhost'))
+        .filter((url) => url.pathname === '/api/admin/stats');
+      expect(refreshUrls).toHaveLength(9);
+      expect(refreshUrls.every((url) => url.searchParams.get('source') === 'web')).toBe(true);
+      await waitFor(() => {
+        expect(fetchMock.mock.calls.slice(callsBeforeFilter).some(([url]) => {
+          const parsed = new URL(url, 'http://localhost');
+          return parsed.pathname === '/api/admin/stats/skills'
+            && parsed.searchParams.get('source') === 'web';
+        })).toBe(true);
+      });
+
+      resolveFeedback?.({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({
+          success: true,
+          data: { feedback_summary: mockStatsResponse.data.feedback_summary },
+        }),
+      });
+      await waitFor(() => {
+        expect(screen.getByTestId('stats-card-feedback-summary')).toHaveAttribute('aria-busy', 'false');
+      });
+
+      const callsBeforeBotFilter = fetchMock.mock.calls.length;
+      fireEvent.click(screen.getByLabelText(/show bot users/i));
+      await waitFor(() => {
+        expect(fetchMock.mock.calls.length).toBe(callsBeforeBotFilter + 4);
+      });
+      const botFilterSections = fetchMock.mock.calls
+        .slice(callsBeforeBotFilter)
+        .map(([url]) => new URL(url, 'http://localhost').searchParams.get('section'));
+      expect(new Set(botFilterSections)).toEqual(new Set([
+        'top_users',
+        'top_agents',
+        'response_time',
+        'hourly_heatmap',
+      ]));
+    });
+
+    it('applies an agent selection to every card, including overview', async () => {
+      const filteredStats = {
+        ...mockStatsResponse,
+        data: {
+          ...mockStatsResponse.data,
+          overview: {
+            ...mockStatsResponse.data.overview,
+            total_users: 7,
+            total_conversations: 8,
+            total_messages: 9,
+          },
+        },
+      };
+      const fetchMock = setupFetchMock({
+        stats: (url: string) => new URL(url, 'http://localhost').searchParams.has('agent')
+          ? filteredStats
+          : mockStatsResponse,
+      });
+
+      render(<AdminPage />);
+      fireEvent.click(await screen.findByRole('button', { name: 'Insights' }));
+      await screen.findByText('42');
+
+      const callsBeforeFilter = fetchMock.mock.calls.length;
+      fireEvent.click(await screen.findByRole('button', { name: 'All Agents' }));
+      fireEvent.click(await screen.findByRole('button', { name: 'Primary Agent' }));
+
+      await waitFor(() => {
+        const usersCard = screen.getByText('Total Users').closest('.rounded-lg');
+        expect(within(usersCard as HTMLElement).getByText('7')).toBeInTheDocument();
+      });
+
+      const refreshUrls = fetchMock.mock.calls
+        .slice(callsBeforeFilter)
+        .map(([url]) => new URL(url, 'http://localhost'))
+        .filter((url) => url.pathname === '/api/admin/stats');
+      expect(refreshUrls).toHaveLength(9);
+      expect(refreshUrls.every((url) => url.searchParams.get('agent') === 'agent-primary')).toBe(true);
+      expect(refreshUrls.find((url) => url.searchParams.get('section') === 'overview'))
+        .toBeDefined();
+    });
+
+    it('applies a Slack channel selection to every card request', async () => {
+      const fetchMock = setupFetchMock();
+      render(<AdminPage />);
+      fireEvent.click(await screen.findByRole('button', { name: 'Insights' }));
+      await screen.findByText('42');
+
+      fireEvent.change(screen.getByDisplayValue('All Sources'), { target: { value: 'slack' } });
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'All Channels' })).toBeInTheDocument();
+      });
+      await waitFor(() => {
+        const sourceRefreshes = fetchMock.mock.calls.filter(([url]) => {
+          const parsed = new URL(url, 'http://localhost');
+          return parsed.pathname === '/api/admin/stats' && parsed.searchParams.get('source') === 'slack';
+        });
+        expect(sourceRefreshes.length).toBeGreaterThanOrEqual(9);
+      });
+
+      const callsBeforeChannel = fetchMock.mock.calls.length;
+      fireEvent.click(screen.getByRole('button', { name: 'All Channels' }));
+      fireEvent.click(await screen.findByRole('button', { name: 'primary-channel' }));
+
+      await waitFor(() => {
+        const channelRefreshes = fetchMock.mock.calls
+          .slice(callsBeforeChannel)
+          .map(([url]) => new URL(url, 'http://localhost'))
+          .filter((url) => url.pathname === '/api/admin/stats');
+        expect(channelRefreshes).toHaveLength(9);
+        expect(channelRefreshes.every((url) => (
+          url.searchParams.get('source') === 'slack'
+          && url.searchParams.get('channel') === 'primary-channel'
+        ))).toBe(true);
+      });
+    });
+
+    it('refreshes every card with the canonical team slug when members are not embedded', async () => {
+      const fetchMock = setupFetchMock();
+      render(<AdminPage />);
+      fireEvent.click(await screen.findByRole('button', { name: 'Insights' }));
+      await screen.findByText('42');
+
+      fireEvent.click(screen.getByRole('button', { name: 'All Users & Teams' }));
+      const callsBeforeTeam = fetchMock.mock.calls.length;
+      fireEvent.click(await screen.findByRole('button', { name: 'team:Platform Team' }));
+
+      await waitFor(() => {
+        const teamRefreshes = fetchMock.mock.calls
+          .slice(callsBeforeTeam)
+          .map(([url]) => new URL(url, 'http://localhost'))
+          .filter((url) => url.pathname === '/api/admin/stats');
+        expect(teamRefreshes).toHaveLength(9);
+        expect(teamRefreshes.every((url) => (
+          url.searchParams.get('team') === 'platform-team'
+          && url.searchParams.has('user') === false
+        ))).toBe(true);
+      });
+      await waitFor(() => {
+        expect(fetchMock.mock.calls.slice(callsBeforeTeam).some(([url]) => {
+          const parsed = new URL(url, 'http://localhost');
+          return parsed.pathname === '/api/admin/stats/skills'
+            && parsed.searchParams.get('team') === 'platform-team'
+            && parsed.searchParams.has('user') === false;
+        })).toBe(true);
+      });
     });
 
     it('renders user list with correct data', async () => {
@@ -1281,7 +2256,7 @@ describe('Admin Dashboard Page', () => {
       expect(screen.getByText('Regular User')).toBeInTheDocument();
     });
 
-    it('fetches stats with date range params', async () => {
+    it('fetches stats with a relative date preset', async () => {
       const fetchMock = setupFetchMock();
 
       render(<AdminPage />);
@@ -1292,14 +2267,69 @@ describe('Admin Dashboard Page', () => {
 
       await waitFor(() => {
         expect(fetchMock).toHaveBeenCalledWith(
-          expect.stringContaining('/api/admin/stats?from=')
+          expect.stringMatching(/\/api\/admin\/stats\?.*range=30d/),
+          expect.objectContaining({ signal: expect.any(AbortSignal) })
         );
       });
 
-      // Initial fetch uses from/to date params instead of range=30d
+      // Presets stay relative, so a manual refresh advances the range endpoint.
       expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining('/api/admin/stats?from=')
+        expect.stringMatching(/\/api\/admin\/stats\?.*range=30d/),
+        expect.objectContaining({ signal: expect.any(AbortSignal) })
       );
+    });
+
+    it('updates all overview cards when the date range changes', async () => {
+      const shortRangeStats = {
+        ...mockStatsResponse,
+        data: {
+          ...mockStatsResponse.data,
+          overview: {
+            ...mockStatsResponse.data.overview,
+            total_users: 2,
+            total_conversations: 3,
+            total_messages: 4,
+          },
+        },
+      };
+      setupFetchMock({
+        stats: (url: string) => {
+          const requestUrl = new URL(url, 'http://localhost:3000');
+          if (requestUrl.searchParams.get('range') === '1h') return shortRangeStats;
+          const fromParam = requestUrl.searchParams.get('from');
+          const toParam = requestUrl.searchParams.get('to');
+          if (fromParam && toParam) {
+            const from = new Date(fromParam);
+            const to = new Date(toParam);
+            if (to.getTime() - from.getTime() <= 2 * 60 * 60 * 1000) {
+              return shortRangeStats;
+            }
+          }
+          return mockStatsResponse;
+        },
+      });
+
+      render(<AdminPage />);
+      fireEvent.click(await screen.findByRole('button', { name: 'Insights' }));
+      await screen.findByText('42');
+
+      fireEvent.click(screen.getByRole('button', { name: '1h' }));
+
+      await waitFor(() => {
+        const usersCard = screen.getByText('Total Users').closest('.rounded-lg');
+        const conversationsCard = screen.getByText('Conversations').closest('.rounded-lg');
+        const messagesCard = screen.getByText('Messages').closest('.rounded-lg');
+        expect(within(usersCard as HTMLElement).getByText('2')).toBeInTheDocument();
+        expect(within(conversationsCard as HTMLElement).getByText('3')).toBeInTheDocument();
+        expect(within(messagesCard as HTMLElement).getByText('4')).toBeInTheDocument();
+      });
+      await waitFor(() => {
+        expect((global.fetch as jest.Mock).mock.calls.some(([url]) => {
+          const parsed = new URL(url, 'http://localhost');
+          return parsed.pathname === '/api/admin/stats/skills'
+            && parsed.searchParams.get('range') === '1h';
+        })).toBe(true);
+      });
     });
   });
 });

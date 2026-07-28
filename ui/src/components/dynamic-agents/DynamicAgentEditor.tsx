@@ -1,5 +1,8 @@
 "use client";
 
+import { getErrorMessage } from "@/lib/error-utils";
+import type { Extension } from "@codemirror/state";
+
 import {
 AiReviewButton,
 AiReviewPanel,
@@ -46,6 +49,7 @@ import { MiddlewarePicker } from "./MiddlewarePicker";
 import { SkillsSelector } from "./SkillsSelector";
 import { SubagentPicker } from "./SubagentPicker";
 import { WorkflowToolsPicker } from "./WorkflowToolsPicker";
+import type { AgentSetupStep } from "./deep-linking";
 
 // Lazy-load CodeMirror to avoid SSR issues
 const CodeMirrorEditor = React.lazy(() => import("@uiw/react-codemirror"));
@@ -55,6 +59,8 @@ interface DynamicAgentEditorProps {
   cloneFrom?: DynamicAgentConfig | null; // Agent to clone from (for pre-filling)
   readOnly?: boolean; // true for view-only mode
   readOnlyReason?: "config" | "permissions"; // why readOnly is true
+  initialStep?: AgentSetupStep;
+  onStepChange?: (step: AgentSetupStep) => void;
   onSave: () => void;
   onCancel: () => void;
 }
@@ -132,7 +138,7 @@ const STEPS = [
   },
 ];
 
-type StepId = typeof STEPS[number]["id"];
+type StepId = AgentSetupStep;
 
 /**
  * Horizontal step indicator component
@@ -336,7 +342,16 @@ function AdvancedStep({
   );
 }
 
-export function DynamicAgentEditor({ agent, cloneFrom, readOnly, readOnlyReason, onSave, onCancel }: DynamicAgentEditorProps) {
+export function DynamicAgentEditor({
+  agent,
+  cloneFrom,
+  readOnly,
+  readOnlyReason,
+  initialStep = "basic",
+  onStepChange,
+  onSave,
+  onCancel,
+}: DynamicAgentEditorProps) {
   const isEditing = !!agent;
   const isCloning = !!cloneFrom;
   const { toast } = useToast();
@@ -408,10 +423,11 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, readOnlyReason,
   const [showCustomPicker, setShowCustomPicker] = React.useState(false);
 
   // Sync request_user_input interrupt rule with builtin tool enabled state
+  const hasRequestUserInputInterrupt = !!interruptOn?.builtin?.request_user_input;
   React.useEffect(() => {
     const cfg = (builtinTools as Record<string, { enabled?: boolean } | undefined>)?.["request_user_input"];
     const isEnabled = !!(cfg && cfg.enabled);
-    const hasRule = !!interruptOn?.builtin?.request_user_input;
+    const hasRule = hasRequestUserInputInterrupt;
 
     if (isEnabled && !hasRule) {
       // Tool enabled — add the rule
@@ -424,7 +440,8 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, readOnlyReason,
       setInterruptOn((prev) => {
         const next = { ...prev };
         if (next.builtin) {
-          const { request_user_input: _, ...rest } = next.builtin;
+          const rest = { ...next.builtin };
+          delete rest.request_user_input;
           if (Object.keys(rest).length === 0) {
             delete next.builtin;
           } else {
@@ -434,7 +451,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, readOnlyReason,
         return next;
       });
     }
-  }, [builtinTools]);
+  }, [builtinTools, hasRequestUserInputInterrupt]);
 
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -443,7 +460,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, readOnlyReason,
   const [blockingMessage, setBlockingMessage] = React.useState<string | null>(
     null,
   );
-  const [middlewareError, setMiddlewareError] = React.useState(false);
+  const [, setMiddlewareError] = React.useState(false);
   const [availableModels, setAvailableModels] = React.useState<
     { model_id: string; name: string; provider: string; description: string }[]
   >([]);
@@ -513,7 +530,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, readOnlyReason,
   }, [editorHeight]);
 
   // CodeMirror extensions for markdown syntax highlighting
-  const [cmExtensions, setCmExtensions] = React.useState<any[]>([]);
+  const [cmExtensions, setCmExtensions] = React.useState<Extension[]>([]);
   React.useEffect(() => {
     let cancelled = false;
     Promise.all([
@@ -660,7 +677,16 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, readOnlyReason,
   }, [agent?._id]);
 
   // Step wizard state
-  const [activeStep, setActiveStep] = React.useState<StepId>("basic");
+  const [activeStep, setActiveStep] = React.useState<StepId>(initialStep);
+
+  React.useEffect(() => {
+    setActiveStep(initialStep);
+  }, [initialStep]);
+
+  const selectStep = React.useCallback((step: StepId) => {
+    setActiveStep(step);
+    onStepChange?.(step);
+  }, [onStepChange]);
 
   // Local state for the in-app "you have unsaved changes" confirmation when the
   // user clicks the back arrow. We don't route this through the global store's
@@ -730,7 +756,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, readOnlyReason,
 
   const goToPreviousStep = () => {
     if (currentStepIndex > 0) {
-      setActiveStep(STEPS[currentStepIndex - 1].id);
+      selectStep(STEPS[currentStepIndex - 1].id);
     }
   };
 
@@ -756,7 +782,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, readOnlyReason,
       setBlockingMessage(null);
     }
     if (currentStepIndex < STEPS.length - 1) {
-      setActiveStep(STEPS[currentStepIndex + 1].id);
+      selectStep(STEPS[currentStepIndex + 1].id);
     }
   };
 
@@ -849,9 +875,9 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, readOnlyReason,
           break;
         }
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error(`AI suggest (${field}) failed:`, err);
-      toast(err.message || "Failed to generate suggestion", "error");
+      toast(getErrorMessage(err, "") || "Failed to generate suggestion", "error");
     } finally {
       setGeneratingField(null);
     }
@@ -928,7 +954,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, readOnlyReason,
         );
         // Return to the reviewed content so the user can see and act on the
         // inline comments; the banner below carries the message.
-        setActiveStep("instructions");
+        selectStep("instructions");
         setBlockingMessage(message);
         setLoading(false);
         return;
@@ -1067,14 +1093,19 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, readOnlyReason,
       useUnsavedChangesStore.getState().setUnsaved(false);
 
       onSave();
-    } catch (err: any) {
-      if (err?.code === "TRANSFER_NOT_MEMBER_UNCONFIRMED") {
+    } catch (err) {
+      if (
+        typeof err === "object" &&
+        err !== null &&
+        "code" in err &&
+        err.code === "TRANSFER_NOT_MEMBER_UNCONFIRMED"
+      ) {
         setTransferNeedsServerConfirm(true);
         setError(
           "You are not a member of the destination team. Click \"Confirm Transfer\" to transfer ownership anyway.",
         );
       } else {
-        setError(err.message || "An error occurred");
+        setError(getErrorMessage(err, "") || "An error occurred");
       }
     } finally {
       setLoading(false);
@@ -1192,7 +1223,7 @@ export function DynamicAgentEditor({ agent, cloneFrom, readOnly, readOnlyReason,
             <StepIndicator 
               steps={STEPS} 
               currentStep={activeStep} 
-              onStepClick={setActiveStep} 
+              onStepClick={selectStep}
             />
           </div>
 

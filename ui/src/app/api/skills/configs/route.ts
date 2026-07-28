@@ -110,8 +110,9 @@ const VALID_VISIBILITIES: SkillVisibility[] = ["private", "team", "global"];
 function stripSharedWithTeamsFromMongoFields<T extends { shared_with_teams?: unknown }>(
   value: T,
 ): Omit<T, "shared_with_teams"> {
-  const { shared_with_teams: _omit, ...rest } = value;
-  return rest;
+  const result = { ...value };
+  delete result.shared_with_teams;
+  return result;
 }
 
 function normalizeTeamRefList(values: string[] | undefined | null): string[] {
@@ -215,7 +216,6 @@ async function updateAgentSkillInMongoDB(
 
 async function deleteAgentSkillFromMongoDB(
   id: string,
-  user: { email: string; role?: string },
 ): Promise<void> {
   const collection = await getCollection<AgentSkill>("agent_skills");
 
@@ -232,10 +232,7 @@ async function deleteAgentSkillFromMongoDB(
   await syncSkillResource("delete", id, existing.name);
 }
 
-async function getAgentSkillsFromMongoDB(
-  _ownerEmail: string,
-  _opts: { isAdmin: boolean; realmRoles: string[] }
-): Promise<AgentSkill[]> {
+async function getAgentSkillsFromMongoDB(): Promise<AgentSkill[]> {
   const collection = await getCollection<AgentSkill>("agent_skills");
 
   const configs = await collection
@@ -248,8 +245,6 @@ async function getAgentSkillsFromMongoDB(
 
 async function getAgentSkillByIdFromMongoDB(
   id: string,
-  _ownerEmail: string,
-  _opts: { isAdmin: boolean; realmRoles: string[] }
 ): Promise<AgentSkill | null> {
   const collection = await getCollection<AgentSkill>("agent_skills");
 
@@ -399,12 +394,9 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   const id = searchParams.get("id");
 
   return await withAuth(request, async (req, user, session) => {
-    const isAdmin = user.role === "admin";
-    const listOpts = { isAdmin, realmRoles: [] };
-
     if (id) {
       console.log(`[API GET] Fetching single config: ${id} for user: ${user.email}`);
-      const config = await getAgentSkillByIdFromMongoDB(id, user.email, listOpts);
+      const config = await getAgentSkillByIdFromMongoDB(id);
       if (!config) {
         console.log(`[API GET] Config not found: ${id}`);
         throw new ApiError("Agent config not found", 404);
@@ -423,7 +415,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       return NextResponse.json(hydrated) as NextResponse;
     } else {
       console.log(`[API GET] Fetching all configs for user: ${user.email}`);
-      const configs = await getAgentSkillsFromMongoDB(user.email, listOpts);
+      const configs = await getAgentSkillsFromMongoDB();
       const visibleConfigs = await filterResourcesByPermission(session, configs, {
         type: "skill",
         action: "discover",
@@ -462,7 +454,7 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
       throw new ApiError("At least one field must be provided for update", 400);
     }
 
-    const preUpdate = await getAgentSkillVisibleToUser(id, user.email);
+    const preUpdate = await getAgentSkillVisibleToUser(id);
     if (preUpdate && preUpdate.owner_id === user.email) {
       const healOwnerSubject =
         typeof session?.sub === "string" && session.sub.trim() ? session.sub.trim() : null;
@@ -637,7 +629,7 @@ export const DELETE = withErrorHandler(async (request: NextRequest) => {
 
   return await withAuth(request, async (req, user, session) => {
     await requireSkillPermission(session, id, "delete");
-    await deleteAgentSkillFromMongoDB(id, user);
+    await deleteAgentSkillFromMongoDB(id);
     // Drop history rows for this skill so we don't leak orphaned
     // revision documents that nobody can render. Best-effort: a
     // failure here doesn't undo the delete (the skill is already

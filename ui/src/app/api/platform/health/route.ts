@@ -7,6 +7,11 @@ import {
   getServerConfig,
   getServerOnlyConfig,
 } from "@/lib/config";
+import {
+  getSlackIntegrationToken,
+  isSlackIntegrationEnabled,
+  isWebexIntegrationEnabled,
+} from "@/lib/integration-config";
 import { getRequestOrigin } from "@/app/api/skills/_lib/request-origin";
 import {
   createJsonResponseCacheStore,
@@ -66,7 +71,6 @@ interface DiagnosticProbeResult {
 const HTTP_TIMEOUT_MS = 3000;
 const TCP_TIMEOUT_MS = 2000;
 const healthCache = createJsonResponseCacheStore();
-const ENABLED_VALUES = new Set(["1", "true", "yes", "on"]);
 const DISABLED_VALUES = new Set(["0", "false", "no", "off"]);
 
 function envValue(name: string): string | null {
@@ -75,11 +79,6 @@ function envValue(name: string): string | null {
   if (value.startsWith("<") && value.endsWith(">")) return null;
   if (value.toLowerCase().includes("your-")) return null;
   return value;
-}
-
-function envEnabled(name: string): boolean {
-  const value = envValue(name)?.toLowerCase();
-  return value ? ENABLED_VALUES.has(value) : false;
 }
 
 function envExplicitlyDisabled(name: string): boolean {
@@ -97,51 +96,6 @@ function envPort(name: string, defaultPort: number): number {
 
 function trimTrailingSlash(value: string): string {
   return value.replace(/\/$/, "");
-}
-
-function hasComposeProfile(...profileNames: string[]): boolean {
-  const profiles = new Set(
-    (process.env.COMPOSE_PROFILES ?? "")
-      .split(",")
-      .map((profile) => profile.trim())
-      .filter(Boolean),
-  );
-  return profileNames.some((profile) => profiles.has(profile));
-}
-
-function slackDirectoryToken(): string | null {
-  return envValue("SLACK_BOT_TOKEN") ?? envValue("SLACK_INTEGRATION_BOT_TOKEN");
-}
-
-function slackIntegrationEnabled(): boolean {
-  return (
-    Boolean(
-      envEnabled("SLACK_INTEGRATION_ENABLED") ||
-        envEnabled("SLACK_ADMIN_API_ENABLED") ||
-        envEnabled("SLACK_BOT_ADMIN_DEV_AUTH_ENABLED"),
-    ) ||
-    hasComposeProfile("slack-bot", "all-integrations")
-  );
-}
-
-function webexIntegrationToken(): string | null {
-  return (
-    envValue("WEBEX_INTEGRATION_BOT_ACCESS_TOKEN") ??
-    envValue("WEBEX_ACCESS_TOKEN") ??
-    envValue("WEBEX_TOKEN")
-  );
-}
-
-function webexIntegrationEnabled(): boolean {
-  return (
-    Boolean(
-      envEnabled("WEBEX_INTEGRATION_ENABLED") ||
-        webexIntegrationToken() ||
-        envValue("WEBEX_BOT_ADMIN_CLIENT_SECRET") ||
-        envValue("KEYCLOAK_WEBEX_BOT_ADMIN_CLIENT_SECRET"),
-    ) ||
-    hasComposeProfile("webex-bot", "all-integrations")
-  );
 }
 
 function auditServiceUrl(): string {
@@ -951,7 +905,7 @@ async function probeSlackIntegration(): Promise<CapabilityResult | null> {
       detail: "Not Configured",
     });
   }
-  if (!slackIntegrationEnabled()) {
+  if (!isSlackIntegrationEnabled()) {
     return disabledCapability({
       id: "slack-integration",
       label: "Slack",
@@ -964,7 +918,7 @@ async function probeSlackIntegration(): Promise<CapabilityResult | null> {
   const startedAt = Date.now();
   const issues: string[] = [];
 
-  if (!slackDirectoryToken()) {
+  if (!getSlackIntegrationToken()) {
     issues.push("Slack directory token is not configured on the UI service");
   }
 
@@ -999,7 +953,7 @@ async function probeWebexIntegration(): Promise<CapabilityResult | null> {
       detail: "Not Configured",
     });
   }
-  if (!webexIntegrationEnabled()) {
+  if (!isWebexIntegrationEnabled()) {
     return disabledCapability({
       id: "webex-integration",
       label: "Webex",
@@ -1011,10 +965,6 @@ async function probeWebexIntegration(): Promise<CapabilityResult | null> {
 
   const startedAt = Date.now();
   const issues: string[] = [];
-
-  if (!webexIntegrationToken()) {
-    issues.push("Webex integration token is not configured on the UI service");
-  }
 
   try {
     await withTimeout(

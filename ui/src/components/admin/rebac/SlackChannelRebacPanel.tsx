@@ -1,8 +1,11 @@
 "use client";
 
 import { HelpCircle } from "lucide-react";
+import { useMemo } from "react";
 
 import { Tooltip,TooltipContent,TooltipTrigger } from "@/components/ui/tooltip";
+import type { AdminSimulationQueryTarget } from "@/lib/rbac/admin-simulation-query";
+import { withAdminSimulationParams } from "@/lib/rbac/admin-simulation-query";
 import type {
 ConnectorAdminAdapter,
 DiagnosticRoute,
@@ -321,9 +324,28 @@ const SLACK_ADAPTER: ConnectorAdminAdapter = {
 export function SlackChannelRebacPanel({
   disabled = false,
   selfService = false,
+  simulationTarget = null,
 }: {
   disabled?: boolean;
   selfService?: boolean;
+  simulationTarget?: AdminSimulationQueryTarget | null;
 }) {
-  return <ConnectorAdminPanel adapter={SLACK_ADAPTER} disabled={disabled} selfService={selfService} />;
+  const adapter = useMemo<ConnectorAdminAdapter>(
+    () => ({
+      ...SLACK_ADAPTER,
+      api: {
+        ...SLACK_ADAPTER.api,
+        list: withAdminSimulationParams(SLACK_ADAPTER.api.list, simulationTarget),
+      },
+    }),
+    [simulationTarget],
+  );
+  return (
+    <ConnectorAdminPanel
+      adapter={adapter}
+      configuredSearchParam="slackChannelSearch"
+      disabled={disabled}
+      selfService={selfService}
+    />
+  );
 }

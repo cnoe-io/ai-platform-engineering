@@ -28,10 +28,23 @@ jest.mock("@/lib/rbac/openfga", () => ({
   checkOpenFgaTuple: (...args: unknown[]) => mockCheckOpenFgaTuple(...args),
 }));
 
+const mockResolveAuthorizedAdminSimulationScope = jest.fn();
+jest.mock("@/lib/rbac/admin-simulation-server", () => ({
+  resolveAuthorizedAdminSimulationScope: (...args: unknown[]) =>
+    mockResolveAuthorizedAdminSimulationScope(...args),
+}));
+
+const mockHasOrganizationAdmin = jest.fn();
+jest.mock("@/lib/rbac/platform-admin", () => ({
+  hasOrganizationAdmin: (...args: unknown[]) => mockHasOrganizationAdmin(...args),
+}));
+
 const mockListByOwningTeams = jest.fn();
+const mockCountByOwningTeams = jest.fn();
 const mockGetBySub = jest.fn();
 jest.mock("@/lib/service-accounts", () => ({
   listByOwningTeams: (...args: unknown[]) => mockListByOwningTeams(...args),
+  countByOwningTeams: (...args: unknown[]) => mockCountByOwningTeams(...args),
   getBySub: (...args: unknown[]) => mockGetBySub(...args),
 }));
 
@@ -83,6 +96,9 @@ const SA_DOC = {
 beforeEach(() => {
   jest.clearAllMocks();
   mockGetServerSession.mockResolvedValue(SESSION);
+  mockCheckOpenFgaTuple.mockResolvedValue({ allowed: false });
+  mockResolveAuthorizedAdminSimulationScope.mockResolvedValue(null);
+  mockHasOrganizationAdmin.mockResolvedValue(false);
 });
 
 describe("GET /api/admin/service-accounts (list)", () => {
@@ -135,6 +151,9 @@ describe("GET /api/admin/service-accounts (list)", () => {
   });
 
   it("?team= returns empty (no Mongo query) when the caller is NOT in that team", async () => {
+    // Regression guard: non-admin callers are still bounded by their own team
+    // memberships even when a ?team= filter is present — the admin bypass
+    // below must not weaken this default (non-admin) path.
     mockListOpenFgaObjects.mockResolvedValue({ objects: ["team:team-sre"] });
 
     const res = await listGET(
@@ -144,6 +163,89 @@ describe("GET /api/admin/service-accounts (list)", () => {
     const body = await res.json();
     expect(body.data.items).toEqual([]);
     expect(mockListByOwningTeams).not.toHaveBeenCalled();
+  });
+
+  it("admin + ?team= bypasses the membership intersection entirely", async () => {
+    mockHasOrganizationAdmin.mockResolvedValue(true);
+    mockListByOwningTeams.mockResolvedValue([SA_DOC]);
+
+    const res = await listGET(
+      listRequest("http://localhost:3000/api/admin/service-accounts?team=team-sre"),
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.items).toHaveLength(1);
+    expect(body.data.items[0].id).toBe("sa-123");
+
+    // The bypass must skip the OpenFGA membership lookup altogether.
+    expect(mockListOpenFgaObjects).not.toHaveBeenCalled();
+    expect(mockListByOwningTeams).toHaveBeenCalledWith(["team-sre"], { includeRevoked: false });
+  });
+
+  it("admin WITHOUT ?team= sees SAs across every team (org-wide, unbounded)", async () => {
+    mockHasOrganizationAdmin.mockResolvedValue(true);
+    mockListByOwningTeams.mockResolvedValue([SA_DOC]);
+
+    const res = await listGET(listRequest());
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.items).toHaveLength(1);
+
+    // No team filter, no preview subject: the admin sees every team's SAs, so
+    // the caller's own membership lookup is never consulted, and the Mongo
+    // query is unbounded (owningTeamIds === null, not the caller's teams).
+    expect(mockListOpenFgaObjects).not.toHaveBeenCalled();
+    expect(mockListByOwningTeams).toHaveBeenCalledWith(null, { includeRevoked: false });
+  });
+
+  it("uses the preview subject's team memberships for a read-only simulation", async () => {
+    mockResolveAuthorizedAdminSimulationScope.mockResolvedValue({
+      openfgaUser: "user:target-sub",
+      ownerEmail: "target@example.com",
+      subjectType: "user",
+      subjectId: "target-sub",
+    });
+    mockListOpenFgaObjects.mockResolvedValue({ objects: ["team:target-team"] });
+    mockListByOwningTeams.mockResolvedValue([]);
+
+    const res = await listGET(
+      listRequest(
+        "http://localhost:3000/api/admin/service-accounts?simulate_type=user&simulate_id=target-sub",
+      ),
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockListOpenFgaObjects).toHaveBeenCalledWith({
+      user: "user:target-sub",
+      relation: "member",
+      type: "team",
+    });
+    expect(mockListByOwningTeams).toHaveBeenCalledWith(["target-team"], {
+      includeRevoked: false,
+    });
+  });
+
+  it("limits a team userset preview to the selected team's service accounts", async () => {
+    mockResolveAuthorizedAdminSimulationScope.mockResolvedValue({
+      openfgaUser: "team:platform#member",
+      ownerEmail: "",
+      subjectType: "team",
+      subjectId: "platform",
+      teamRelation: "member",
+    });
+    mockListByOwningTeams.mockResolvedValue([]);
+
+    const res = await listGET(
+      listRequest(
+        "http://localhost:3000/api/admin/service-accounts?simulate_type=team&simulate_id=platform",
+      ),
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockListOpenFgaObjects).not.toHaveBeenCalled();
+    expect(mockListByOwningTeams).toHaveBeenCalledWith(["platform"], {
+      includeRevoked: false,
+    });
   });
 });
 
@@ -188,5 +290,19 @@ describe("GET /api/admin/service-accounts/[id] (detail)", () => {
     mockGetServerSession.mockResolvedValue(null);
     const res = await detailGET(new Request("http://localhost"), detailCtx("sa-123"));
     expect(res.status).toBe(401);
+  });
+
+  it("org admin can view a SA owned by a team they don't belong to", async () => {
+    mockCheckOpenFgaTuple.mockResolvedValue({ allowed: false });
+    mockHasOrganizationAdmin.mockResolvedValue(true);
+    mockGetBySub.mockResolvedValue(SA_DOC);
+    mockListOpenFgaObjects
+      .mockResolvedValueOnce({ objects: ["agent:incident-resolver"] })
+      .mockResolvedValueOnce({ objects: ["tool:jira/search", "tool:jira/*"] });
+
+    const res = await detailGET(new Request("http://localhost"), detailCtx("sa-123"));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.id).toBe("sa-123");
   });
 });

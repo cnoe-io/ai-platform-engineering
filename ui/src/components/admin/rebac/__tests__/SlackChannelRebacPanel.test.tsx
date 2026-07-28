@@ -51,7 +51,7 @@ beforeEach(() => {
         },
       });
     }
-    if (url === "/api/dynamic-agents?enabled_only=true") {
+    if (url.startsWith("/api/dynamic-agents?enabled_only=true")) {
       return response({
         data: {
           items: [
@@ -275,6 +275,22 @@ function response(payload: unknown): Response {
   } as Response;
 }
 
+it("scopes the configured channel list to the simulated user", async () => {
+  render(
+    <SlackChannelRebacPanel
+      selfService
+      disabled
+      simulationTarget={{ type: "user", id: "target-sub" }}
+    />,
+  );
+
+  await waitFor(() => {
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/admin/slack/channels?simulate_type=user&simulate_id=target-sub&health=1",
+    );
+  });
+});
+
 it("shows a loading spinner while self-service channels load", async () => {
   let resolveChannels: ((value: Response) => void) | undefined;
   const channelsPromise = new Promise<Response>((resolve) => {
@@ -287,7 +303,7 @@ it("shows a loading spinner while self-service channels load", async () => {
     ) {
       return channelsPromise;
     }
-    if (url === "/api/dynamic-agents?enabled_only=true") {
+    if (url.startsWith("/api/dynamic-agents?enabled_only=true")) {
       return response({ data: { items: [] } });
     }
     return response({});
@@ -328,7 +344,7 @@ it("shows discovery loading while Find channels scans Slack", async () => {
     if (url.startsWith("/api/admin/slack/available-channels")) {
       return discoveryPromise;
     }
-    if (url === "/api/dynamic-agents?enabled_only=true") {
+    if (url.startsWith("/api/dynamic-agents?enabled_only=true")) {
       return response({
         data: { items: [{ _id: "incident-agent", name: "Incident Agent" }] },
       });
@@ -463,7 +479,7 @@ it("preserves imported escalation/overthink/bots when editing a route (no data l
         },
       });
     }
-    if (url === "/api/dynamic-agents?enabled_only=true") {
+    if (url.startsWith("/api/dynamic-agents?enabled_only=true")) {
       return response({
         data: { items: [{ _id: "incident-agent", name: "Incident Agent" }] },
       });
@@ -603,7 +619,7 @@ it("renders the full per-channel/agent breakdown in the sync preview modal", asy
     ) {
       return response({ data: { channels: [] } });
     }
-    if (url === "/api/dynamic-agents?enabled_only=true") {
+    if (url.startsWith("/api/dynamic-agents?enabled_only=true")) {
       return response({ data: { items: [] } });
     }
     if (url === "/api/dynamic-agents/teams") {
@@ -947,7 +963,7 @@ it("discovers Slack channels even when no onboarding default team is configured"
     ) {
       return response({ data: { channels: [] } });
     }
-    if (url === "/api/dynamic-agents?enabled_only=true") {
+    if (url.startsWith("/api/dynamic-agents?enabled_only=true")) {
       return response({
         data: {
           items: [{ _id: "incident-agent", name: "Incident Agent" }],
@@ -1232,6 +1248,37 @@ it("opens the sub-tab named by the subtab URL param on load", async () => {
       name: "Advanced Setup - Import/Sync with Slackbot",
     }),
   ).toBeInTheDocument();
+});
+
+it("deep-links and updates the configured channel search", async () => {
+  currentSearchParams = new URLSearchParams(
+    "cat=integrations&tab=slack&subtab=channels&slackChannelSearch=incidents",
+  );
+  const { rerender } = render(<SlackChannelRebacPanel />);
+
+  const searchInput = await screen.findByRole("textbox", {
+    name: "Search configured channels",
+  });
+  expect(searchInput).toHaveValue("incidents");
+  expect(await screen.findByText("#incidents")).toBeInTheDocument();
+
+  fireEvent.change(searchInput, { target: { value: "platform-engineering" } });
+  expect(replaceMock).toHaveBeenLastCalledWith(
+    "/admin?cat=integrations&tab=slack&subtab=channels&slackChannelSearch=platform-engineering",
+    { scroll: false },
+  );
+
+  currentSearchParams = new URLSearchParams(
+    "cat=integrations&tab=slack&subtab=channels&slackChannelSearch=C123456789",
+  );
+  rerender(<SlackChannelRebacPanel />);
+  expect(searchInput).toHaveValue("C123456789");
+
+  fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+  expect(replaceMock).toHaveBeenLastCalledWith(
+    "/admin?cat=integrations&tab=slack&subtab=channels",
+    { scroll: false },
+  );
 });
 
 it("shows Slack bot runtime sync status and triggers reload/config sync", async () => {

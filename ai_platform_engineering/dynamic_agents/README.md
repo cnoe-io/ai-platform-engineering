@@ -43,7 +43,10 @@ Dynamic Agents provide a flexible way to create purpose-built AI assistants with
 ### Tracing & Observability
 - Langfuse integration for LLM tracing
 - Per-session trace grouping
-- Tool call and token count tracking
+- Prometheus metrics at `/metrics` for requests, turns, model calls, tools, and runtime saturation
+- Model usage by configured model ID, including provider-reported input and output tokens
+- Exactly one terminal outcome per turn: `success`, `error`, `interrupted`, or `cancelled`
+- Time to first user-visible response and end-to-end turn latency histograms
 
 ## Running Locally
 
@@ -75,6 +78,9 @@ Create a `.env` file in the `dynamic_agents` directory:
 HOST=0.0.0.0
 PORT=8001
 DEBUG=false
+# Serve /metrics on a dedicated port instead of PORT (default: unset, same port as PORT).
+# Useful when the main API port is on strict mTLS but metrics scrapers need a permissive port.
+# METRICS_PORT=9001
 
 # MongoDB
 MONGODB_URI=mongodb://localhost:27017
@@ -141,6 +147,7 @@ The API documentation is available at:
 |----------|-------------|---------|
 | `HOST` | Server bind address | `0.0.0.0` |
 | `PORT` | Server port | `8001` |
+| `METRICS_PORT` | Dedicated port for `/metrics` (0 = same as `PORT`) | `0` |
 | `DEBUG` | Enable debug mode / hot reload / dev auth bypass | `false` |
 | `MONGODB_URI` | MongoDB connection string | `mongodb://localhost:27017` |
 | `MONGODB_DATABASE` | Database name | `caipe` |

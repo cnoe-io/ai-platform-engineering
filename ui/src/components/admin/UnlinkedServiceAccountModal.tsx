@@ -213,7 +213,7 @@ export function UnlinkedServiceAccountModal({
             Loading...
           </div>
         ) : (
-          <div className="space-y-4">
+          <div className="max-h-[65vh] overflow-y-auto space-y-4 pr-1">
             {error && (
               <div
                 className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive"

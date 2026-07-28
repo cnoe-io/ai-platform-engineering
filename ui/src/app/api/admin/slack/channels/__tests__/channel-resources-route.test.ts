@@ -18,7 +18,7 @@ const mockEnsureSlackBotOboPermissions = jest.fn();
 // (See Phase 3 comment above the removed mockEnsureTeamClientScope.)
 const mockCallSlackBotAdmin = jest.fn();
 
-const mockCollections: Record<string, any> = {};
+const mockCollections: Record<string, unknown> = {};
 
 jest.mock("@/lib/rbac/keycloak-authz", () => ({
   checkPermission: (...args: unknown[]) => mockCheckPermission(...args),
@@ -114,7 +114,7 @@ jest.mock("@/lib/auth-config", () => ({
   REQUIRED_ADMIN_GROUP: "",
 }));
 
-function matchesFilter(row: any, filter: Record<string, any>): boolean {
+function matchesFilter(row: unknown, filter: Record<string, unknown>): boolean {
   return Object.entries(filter).every(([key, value]) => {
     const resolved = key.includes(".")
       ? key.split(".").reduce((acc, part) => acc?.[part], row)
@@ -129,10 +129,10 @@ function matchesFilter(row: any, filter: Record<string, any>): boolean {
   });
 }
 
-function createMockCollection(rows: any[]) {
+function createMockCollection(rows: unknown[]) {
   return {
     rows,
-    find: jest.fn((filter: Record<string, any> = {}) => {
+    find: jest.fn((filter: Record<string, unknown> = {}) => {
       const matching = rows.filter((row) => matchesFilter(row, filter));
       return {
         sort: jest.fn().mockReturnThis(),
@@ -140,10 +140,10 @@ function createMockCollection(rows: any[]) {
         toArray: jest.fn().mockResolvedValue(matching),
       };
     }),
-    findOne: jest.fn(async (filter: Record<string, any>) =>
+    findOne: jest.fn(async (filter: Record<string, unknown>) =>
       rows.find((row) => matchesFilter(row, filter)) ?? null
     ),
-    updateOne: jest.fn(async (filter: Record<string, any>, update: any, options?: any) => {
+    updateOne: jest.fn(async (filter: Record<string, unknown>, update: unknown, options?: unknown) => {
       const row = rows.find((candidate) => matchesFilter(candidate, filter));
       if (row && update.$set) Object.assign(row, update.$set);
       if (!row && options?.upsert) {
@@ -151,14 +151,14 @@ function createMockCollection(rows: any[]) {
       }
       return { matchedCount: row ? 1 : 0, modifiedCount: row ? 1 : 0, upsertedCount: row ? 0 : 1 };
     }),
-    updateMany: jest.fn(async (filter: Record<string, any>, update: any) => {
+    updateMany: jest.fn(async (filter: Record<string, unknown>, update: unknown) => {
       const matching = rows.filter((candidate) => matchesFilter(candidate, filter));
       for (const row of matching) {
         if (update.$set) Object.assign(row, update.$set);
       }
       return { matchedCount: matching.length, modifiedCount: matching.length };
     }),
-    deleteOne: jest.fn(async (filter: Record<string, any>) => {
+    deleteOne: jest.fn(async (filter: Record<string, unknown>) => {
       const index = rows.findIndex((candidate) => matchesFilter(candidate, filter));
       if (index >= 0) {
         rows.splice(index, 1);
@@ -429,6 +429,70 @@ describe("Slack channel ReBAC APIs", () => {
         can_manage: true,
       }),
     ]);
+  });
+
+  it("scopes a View As channel list to the simulated user without repairing grants", async () => {
+    mockCollections.channel_team_mappings = createMockCollection([
+      {
+        slack_workspace_id: workspaceId,
+        slack_channel_id: channelId,
+        channel_name: "incidents",
+        team_slug: "platform-engineering",
+        active: true,
+      },
+      {
+        slack_workspace_id: workspaceId,
+        slack_channel_id: "CNOACCESS",
+        channel_name: "private-leadership",
+        team_slug: "leadership",
+        active: true,
+      },
+    ]);
+    mockCheckOpenFgaTuple.mockImplementation(async (tuple: {
+      user: string;
+      relation: string;
+      object: string;
+    }) => ({
+      allowed:
+        (tuple.user === "user:alice-sub" &&
+          tuple.relation === "can_manage" &&
+          tuple.object === "organization:caipe") ||
+        (tuple.user === "user:target-sub" &&
+          tuple.relation === "can_read" &&
+          tuple.object === `slack_channel:${workspaceAlias}--${channelId}`),
+    }));
+    const { GET } = await import("../route");
+
+    const response = await GET(
+      request("/api/admin/slack/channels?simulate_type=user&simulate_id=target-sub")
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.channels).toEqual([
+      expect.objectContaining({
+        channel_id: channelId,
+        channel_name: "incidents",
+        can_manage: false,
+      }),
+    ]);
+    expect(mockCheckOpenFgaTuple).toHaveBeenCalledWith({
+      user: "user:target-sub",
+      relation: "can_read",
+      object: `slack_channel:${workspaceAlias}--${channelId}`,
+    });
+    expect(mockWriteOpenFgaTuples).not.toHaveBeenCalled();
+  });
+
+  it("rejects View As channel scoping for a non-admin caller", async () => {
+    mockCheckOpenFgaTuple.mockResolvedValue({ allowed: false });
+    const { GET } = await import("../route");
+
+    const response = await GET(
+      request("/api/admin/slack/channels?simulate_type=user&simulate_id=target-sub")
+    );
+
+    expect(response.status).toBe(403);
   });
 
   it("repairs stale team-shared Slack channel tuples so team members can edit routes", async () => {
@@ -998,10 +1062,10 @@ describe("Slack channel ReBAC APIs", () => {
         $set: expect.objectContaining({
           source_type: "bootstrap",
           status: "active",
-          // Bootstrap stamps listen:"all" so the bot responds to both
-          // @mentions and plain channel messages when the admin explicitly
+          // Bootstrap stamps listen:"mention" so the bot only responds
+          // when explicitly @-mentioned when the admin explicitly
           // ran "Setup Slack channel association".
-          users: { enabled: true, listen: "all" },
+          users: { enabled: true, listen: "mention" },
         }),
       }),
       { upsert: true }
@@ -1117,9 +1181,9 @@ describe("Slack channel ReBAC APIs", () => {
       expect.objectContaining({
         $set: expect.objectContaining({
           priority: 100,
-          // Bootstrap-created routes listen on both @mentions and plain
-          // channel messages — see ui/src/app/api/admin/slack/channels/defaults/route.ts.
-          users: { enabled: true, listen: "all" },
+          // Bootstrap-created routes listen mention-only by default — see
+          // ui/src/app/api/admin/slack/channels/defaults/route.ts.
+          users: { enabled: true, listen: "mention" },
           source_type: "bootstrap",
         }),
       }),

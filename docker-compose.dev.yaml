@@ -355,6 +355,33 @@ services:
       - all-agents
       - mcp-servers
 
+  mcp-webex-meetings:
+    build:
+      context: .
+      dockerfile: build/agents/Dockerfile.mcp
+      args:
+        - AGENT_NAME=webex-meetings
+    image: ghcr.io/cnoe-io/mcp-webex-meetings:${IMAGE_TAG:-localtag}
+    container_name: mcp-webex-meetings
+    env_file: [.env]
+    ports: ["18013:8000"]
+    volumes:
+      - ./ai_platform_engineering/mcp/webex-meetings:/app/ai_platform_engineering/mcp/webex-meetings
+    environment:
+      - MCP_MODE=http
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8000
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(1); result=s.connect_ex(('localhost', 8000)); s.close(); exit(0 if result == 0 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    profiles:
+      - webex-meetings
+      - all-agents
+      - mcp-servers
+
   mcp-victorops:
     build:
       context: .
@@ -590,6 +617,9 @@ services:
       - PAGERDUTY_CLIENT_SECRET=${PAGERDUTY_CLIENT_SECRET:-}
       - PAGERDUTY_REDIRECT_URI=${PAGERDUTY_REDIRECT_URI:-}
       - PAGERDUTY_SCOPES=${PAGERDUTY_SCOPES:-}
+      - AMPLITUDE_CLIENT_ID=${AMPLITUDE_CLIENT_ID:-}
+      - AMPLITUDE_CLIENT_SECRET=${AMPLITUDE_CLIENT_SECRET:-}
+      - CREDENTIAL_BOOTSTRAP_OAUTH_CONNECTORS_JSON=${CREDENTIAL_BOOTSTRAP_OAUTH_CONNECTORS_JSON:-}
       # 098 Enterprise RBAC — Keycloak AuthZ (requires --profile rbac)
       - KEYCLOAK_URL=${KEYCLOAK_URL:-http://keycloak:7080}
       - KEYCLOAK_REALM=${KEYCLOAK_REALM:-caipe}
@@ -618,7 +648,6 @@ services:
       - SLACK_BOT_ADMIN_TOKEN_URL=${SLACK_BOT_ADMIN_TOKEN_URL:-http://keycloak:7080/realms/caipe/protocol/openid-connect/token}
       - SLACK_BOT_ADMIN_DEV_AUTH_ENABLED=${SLACK_BOT_ADMIN_DEV_AUTH_ENABLED:-false}
       - SLACK_BOT_ADMIN_DEV_TOKEN=${SLACK_BOT_ADMIN_DEV_TOKEN:-}
-      - WEBEX_INTEGRATION_BOT_ACCESS_TOKEN=${WEBEX_INTEGRATION_BOT_ACCESS_TOKEN:-}
       - WEBEX_WORKSPACE_ALIAS=${WEBEX_WORKSPACE_ALIAS:-CAIPE-WEBEX}
       - WEBEX_LINK_HMAC_SECRET=${WEBEX_LINK_HMAC_SECRET:-${WEBEX_SIGNING_SECRET:-}}
       - WEBEX_BOT_ADMIN_URL=${WEBEX_BOT_ADMIN_URL:-http://webex-bot:3002}
@@ -802,6 +831,9 @@ services:
       - PAGERDUTY_CLIENT_SECRET=${PAGERDUTY_CLIENT_SECRET:-}
       - PAGERDUTY_REDIRECT_URI=${PAGERDUTY_REDIRECT_URI:-}
       - PAGERDUTY_SCOPES=${PAGERDUTY_SCOPES:-}
+      - AMPLITUDE_CLIENT_ID=${AMPLITUDE_CLIENT_ID:-}
+      - AMPLITUDE_CLIENT_SECRET=${AMPLITUDE_CLIENT_SECRET:-}
+      - CREDENTIAL_BOOTSTRAP_OAUTH_CONNECTORS_JSON=${CREDENTIAL_BOOTSTRAP_OAUTH_CONNECTORS_JSON:-}
       - KEYCLOAK_URL=${KEYCLOAK_URL:-http://keycloak:7080}
       - KEYCLOAK_REALM=${KEYCLOAK_REALM:-caipe}
       - KEYCLOAK_RESOURCE_SERVER_ID=${KEYCLOAK_RESOURCE_SERVER_ID:-caipe-platform}
@@ -818,7 +850,6 @@ services:
       - SLACK_BOT_ADMIN_TOKEN_URL=${SLACK_BOT_ADMIN_TOKEN_URL:-http://keycloak:7080/realms/caipe/protocol/openid-connect/token}
       - SLACK_BOT_ADMIN_DEV_AUTH_ENABLED=${SLACK_BOT_ADMIN_DEV_AUTH_ENABLED:-false}
       - SLACK_BOT_ADMIN_DEV_TOKEN=${SLACK_BOT_ADMIN_DEV_TOKEN:-}
-      - WEBEX_INTEGRATION_BOT_ACCESS_TOKEN=${WEBEX_INTEGRATION_BOT_ACCESS_TOKEN:-}
       - WEBEX_WORKSPACE_ALIAS=${WEBEX_WORKSPACE_ALIAS:-CAIPE-WEBEX}
       - WEBEX_LINK_HMAC_SECRET=${WEBEX_LINK_HMAC_SECRET:-${WEBEX_SIGNING_SECRET:-}}
       - WEBEX_BOT_ADMIN_URL=${WEBEX_BOT_ADMIN_URL:-http://webex-bot:3002}
@@ -1022,6 +1053,9 @@ services:
       - OPENFGA_STORE_ID=${OPENFGA_STORE_ID:-}
       - AUTHZ_TRACING_ENABLED=${AUTHZ_TRACING_ENABLED:-false}
       - OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:-}
+      # Dedicated /metrics port. 0 (default) serves metrics on the main API
+      # port — current behavior, unchanged.
+      - METRICS_PORT=${DYNAMIC_AGENTS_METRICS_PORT:-0}
 
     healthcheck:
       # Use /healthz (matches FastAPI route in routes/health.py and the Helm chart probes).
@@ -1840,6 +1874,7 @@ services:
       - DEV_HOT_RELOAD=${DEV_HOT_RELOAD:-false}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - WEBEX_INTEGRATION_BOT_ACCESS_TOKEN=${WEBEX_INTEGRATION_BOT_ACCESS_TOKEN:-}
+      - WEBEX_INTEGRATION_BOTS_JSON=${WEBEX_INTEGRATION_BOTS_JSON:-}
       - WEBEX_WORKSPACE_ALIAS=${WEBEX_WORKSPACE_ALIAS:-CAIPE-WEBEX}
       - WEBEX_WORKSPACE_ID=${WEBEX_WORKSPACE_ID:-}
       - CAIPE_API_URL=${CAIPE_API_URL:-http://caipe-ui:3000}
@@ -1850,9 +1885,6 @@ services:
       - WEBEX_THREAD_CONTEXT_ENABLED=${WEBEX_THREAD_CONTEXT_ENABLED:-true}
       - WEBEX_THREAD_CONTEXT_MAX_MESSAGES=${WEBEX_THREAD_CONTEXT_MAX_MESSAGES:-10}
       - WEBEX_THREAD_CONTEXT_MAX_CHARS=${WEBEX_THREAD_CONTEXT_MAX_CHARS:-4000}
-      - WEBEX_AUTO_ASSIGN_UNMAPPED_SPACES=${WEBEX_AUTO_ASSIGN_UNMAPPED_SPACES:-false}
-      - WEBEX_DEFAULT_TEAM_SLUG=${WEBEX_DEFAULT_TEAM_SLUG:-}
-      - WEBEX_DEFAULT_AGENT_ID=${WEBEX_DEFAULT_AGENT_ID:-}
       - WEBEX_ADMIN_API_ENABLED=${WEBEX_ADMIN_API_ENABLED:-false}
       - WEBEX_ADMIN_API_HOST=${WEBEX_ADMIN_API_HOST:-0.0.0.0}
       - WEBEX_ADMIN_API_PORT=${WEBEX_ADMIN_API_PORT:-3002}

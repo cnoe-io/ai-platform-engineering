@@ -62,6 +62,7 @@ describe("messaging RBAC migration derivation", () => {
         subjectType: "webex_space",
         idField: "space_id",
         routeIdField: "space_id",
+        botScopedAgentRoutes: true,
       },
       grants: [
         {
@@ -90,6 +91,87 @@ describe("messaging RBAC migration derivation", () => {
       unsupported_actions: 1,
       tuples_planned: 1,
     });
+  });
+
+  it("backfills Webex agent routes through a bot-scoped installation", () => {
+    const plan = deriveMessagingRebacPlan({
+      surface: {
+        migrationId: "webex_space_rebac_backfill_v1",
+        schemaArea: "webex_space_rebac",
+        confirmation: "MIGRATE webex_space_rebac TO v2",
+        subjectType: "webex_space",
+        idField: "space_id",
+        routeIdField: "space_id",
+        botScopedAgentRoutes: true,
+      },
+      grants: [],
+      routes: [
+        {
+          bot_id: "bot-primary",
+          workspace_id: "WEBEX",
+          space_id: "space-1",
+          agent_id: "agent-1",
+          status: "active",
+        },
+      ],
+    });
+
+    expect(plan.tuples).toEqual([
+      {
+        user: "webex_bot:bot-primary",
+        relation: "bot",
+        object: "webex_bot_installation:bot-primary--WEBEX--space-1",
+      },
+      {
+        user: "webex_space:WEBEX--space-1",
+        relation: "space",
+        object: "webex_bot_installation:bot-primary--WEBEX--space-1",
+      },
+      {
+        user: "webex_bot_installation:bot-primary--WEBEX--space-1",
+        relation: "user",
+        object: "agent:agent-1",
+      },
+    ]);
+    expect(plan.relationships).toEqual([
+      expect.objectContaining({
+        subject: {
+          type: "webex_bot_installation",
+          id: "bot-primary--WEBEX--space-1",
+        },
+        action: "use",
+        resource: { type: "agent", id: "agent-1" },
+      }),
+    ]);
+  });
+
+  it("does not guess a bot for legacy Webex routes", () => {
+    const plan = deriveMessagingRebacPlan({
+      surface: {
+        migrationId: "webex_space_rebac_backfill_v1",
+        schemaArea: "webex_space_rebac",
+        confirmation: "MIGRATE webex_space_rebac TO v2",
+        subjectType: "webex_space",
+        idField: "space_id",
+        routeIdField: "space_id",
+        botScopedAgentRoutes: true,
+      },
+      grants: [],
+      routes: [
+        {
+          workspace_id: "WEBEX",
+          space_id: "space-1",
+          agent_id: "agent-1",
+          status: "active",
+        },
+      ],
+    });
+
+    expect(plan.tuples).toEqual([]);
+    expect(plan.counts).toMatchObject({ legacy_routes_requiring_bot_assignment: 1 });
+    expect(plan.warnings).toEqual([
+      expect.stringContaining("Webex Legacy migration tab"),
+    ]);
   });
 
   it("returns an empty plan for empty messaging inputs", () => {

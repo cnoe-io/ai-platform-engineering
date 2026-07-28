@@ -1,5 +1,7 @@
 "use client";
 
+import { getErrorMessage } from "@/lib/error-utils";
+
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -170,7 +172,7 @@ export function AgentBuilderEditor({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitStatus, setSubmitStatus] = useState<"idle" | "success" | "error">("idle");
-  const [submitError, setSubmitError] = useState<string>("");
+  const [, setSubmitError] = useState<string>("");
   const [expandedTasks, setExpandedTasks] = useState<Set<number>>(new Set([0]));
 
   const handleInputChange = (field: string, value: string) => {
@@ -303,7 +305,7 @@ export function AgentBuilderEditor({
     if (!validation.isValid) {
       // Show user-friendly error message
       const errorMessages = Object.entries(validation.errors)
-        .map(([field, msg]) => `• ${msg}`)
+        .map(([, msg]) => `• ${msg}`)
         .join('\n');
       
       // Only show toast if there are actual error messages
@@ -385,9 +387,9 @@ export function AgentBuilderEditor({
           onSuccess();
         }, 1500);
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error("Error saving agent config:", error);
-      const errorMessage = error.message || "Failed to save configuration";
+      const errorMessage = getErrorMessage(error, "") || "Failed to save configuration";
       setSubmitError(errorMessage);
       setSubmitStatus("error");
       
@@ -1035,9 +1037,9 @@ export function YamlImportDialog({
           onOpenChange(false);
         }, 1500);
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error("Failed to import YAML:", error);
-      setImportError(error.message);
+      setImportError(getErrorMessage(error, ""));
       setImportStatus("error");
     } finally {
       setIsImporting(false);

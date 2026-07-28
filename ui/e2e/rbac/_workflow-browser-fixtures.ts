@@ -151,7 +151,6 @@ export function buildMcpWorkflowAgentFixture(): WorkflowAgentFixture {
 export function buildDefaultWorkflowCatalog(
   privateAgentId = "agent-private",
 ): WorkflowFixture[] {
-  const privateAgent = buildPrivateAgentFixture();
   const mcpAgent = buildMcpWorkflowAgentFixture();
 
   return [
@@ -190,7 +189,7 @@ export function buildDefaultWorkflowCatalog(
         {
           type: "step",
           display_text: "Use private agent",
-          agent_id: privateAgent.id,
+          agent_id: privateAgentId,
           prompt: "Run the private agent",
           on_error: "abort",
           retry: null,
@@ -211,7 +210,7 @@ export function buildDefaultWorkflowCatalog(
         {
           type: "step",
           display_text: "Personal step",
-          agent_id: privateAgent.id,
+          agent_id: privateAgentId,
           prompt: "Run privately",
           on_error: "abort",
           retry: null,
@@ -329,6 +328,7 @@ export type WorkflowRunFixture = {
   started_at?: string;
   completed_at?: string;
   trigger_info?: { triggered_by?: string; user_email?: string };
+  shared_with_teams?: string[] | null;
   steps: Array<{
     type: "step";
     index: number;
@@ -338,6 +338,21 @@ export type WorkflowRunFixture = {
     error?: string | null;
     response?: string | null;
     attempts: number;
+    interrupt?: {
+      type: "input_required" | "tool_approval";
+      interruptId?: string;
+      prompt?: string;
+      fields?: Array<{
+        field_name: string;
+        field_label?: string;
+        field_type?: string;
+        field_values?: string[];
+        required?: boolean;
+      }>;
+      agent?: string;
+      toolName?: string;
+      toolArgs?: Record<string, unknown>;
+    } | null;
   }>;
   events?: Record<string, unknown[]>;
 };

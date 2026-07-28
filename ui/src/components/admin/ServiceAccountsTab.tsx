@@ -13,10 +13,13 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Bot,
+  ChevronLeft,
+  ChevronRight,
   KeyRound,
   Loader2,
   Plus,
   RefreshCw,
+  Search,
   Settings,
   ShieldCheck,
   Trash2,
@@ -32,12 +35,18 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { TeamPicker, type TeamPickerOption } from "@/components/ui/team-picker";
 import { ProviderSelect, type ProviderOption } from "@/components/ui/provider-select";
 import { CopyButton } from "@/components/ui/copy-button";
+import { withAdminSimulationParams } from "@/lib/rbac/admin-simulation-query";
+import type { AdminSimulationQueryTarget } from "@/lib/rbac/admin-simulation-query";
 import { cn } from "@/lib/utils";
 import { getProviderDisplayName } from "@/lib/credentials/provider-display-names";
+
+// Matches the BFF default (`page_size` defaults to 24 server-side too).
+const PAGE_SIZE = 24;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types (mirror the BFF contract; never include secret material on list/detail)
@@ -110,8 +119,15 @@ interface ServiceAccountCredential {
 // Component
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function ServiceAccountsTab() {
+export function ServiceAccountsTab({
+  readOnly = false,
+  simulationTarget = null,
+}: {
+  readOnly?: boolean;
+  simulationTarget?: AdminSimulationQueryTarget | null;
+}) {
   const [items, setItems] = useState<ServiceAccountListItem[]>([]);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -121,15 +137,41 @@ export function ServiceAccountsTab() {
   const [createdName, setCreatedName] = useState<string>("");
   const [manageId, setManageId] = useState<string | null>(null);
 
+  const [searchDraft, setSearchDraft] = useState("");
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+
+  // Debounce typed input before it drives a fetch, resetting to page 1 so a
+  // new search always starts from the top of the result set.
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      setSearch(searchDraft.trim());
+      setPage(1);
+    }, 300);
+    return () => window.clearTimeout(id);
+  }, [searchDraft]);
+
+  const listUrl = useMemo(() => {
+    const params = new URLSearchParams();
+    params.set("page", String(page));
+    params.set("page_size", String(PAGE_SIZE));
+    if (search) params.set("search", search);
+    return withAdminSimulationParams(
+      `/api/admin/service-accounts?${params.toString()}`,
+      simulationTarget,
+    );
+  }, [page, search, simulationTarget]);
+
   const loadList = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
     try {
-      const res = await fetch("/api/admin/service-accounts");
+      const res = await fetch(listUrl);
       const body = await res.json();
       if (!res.ok || !body.success) {
         throw new Error(body.error || "Failed to load service accounts");
       }
       setItems(body.data.items ?? []);
+      setTotal(body.data.total ?? body.data.items?.length ?? 0);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load service accounts");
@@ -137,11 +179,13 @@ export function ServiceAccountsTab() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [listUrl]);
 
   useEffect(() => {
     void loadList();
   }, [loadList]);
+
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   const handleCreated = useCallback(
     (cred: CreatedCredential, name: string) => {
@@ -187,7 +231,11 @@ export function ServiceAccountsTab() {
             )}
             Refresh
           </Button>
-          <Button className="gap-2" onClick={() => setCreateOpen(true)}>
+          <Button
+            className="gap-2"
+            onClick={() => setCreateOpen(true)}
+            disabled={readOnly}
+          >
             <Plus className="h-4 w-4" />
             Create Service Account
           </Button>
@@ -200,22 +248,47 @@ export function ServiceAccountsTab() {
         </div>
       )}
 
+      <div className="relative max-w-sm">
+        <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          value={searchDraft}
+          onChange={(e) => setSearchDraft(e.target.value)}
+          placeholder="Search by name or description..."
+          className="pl-8"
+          aria-label="Search service accounts"
+        />
+      </div>
+
       {loading ? (
         <div className="flex items-center justify-center py-12 text-muted-foreground">
           <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading service accounts...
         </div>
       ) : items.length === 0 ? (
-        <div className="rounded-lg border border-dashed py-12 text-center">
-          <Bot className="mx-auto mb-4 h-12 w-12 text-muted-foreground" />
-          <h3 className="mb-1 text-lg font-semibold">No service accounts yet</h3>
-          <p className="mb-4 text-muted-foreground">
-            Create one to give an external integration scoped, auditable access.
-          </p>
-          <Button className="gap-2" onClick={() => setCreateOpen(true)}>
-            <Plus className="h-4 w-4" />
-            Create your first service account
-          </Button>
-        </div>
+        search ? (
+          <div className="rounded-lg border border-dashed py-12 text-center">
+            <Search className="mx-auto mb-4 h-12 w-12 text-muted-foreground" />
+            <h3 className="mb-1 text-lg font-semibold">No matching service accounts</h3>
+            <p className="text-muted-foreground">
+              No service accounts match &ldquo;{search}&rdquo;.
+            </p>
+          </div>
+        ) : (
+          <div className="rounded-lg border border-dashed py-12 text-center">
+            <Bot className="mx-auto mb-4 h-12 w-12 text-muted-foreground" />
+            <h3 className="mb-1 text-lg font-semibold">No service accounts yet</h3>
+            <p className="mb-4 text-muted-foreground">
+              Create one to give an external integration scoped, auditable access.
+            </p>
+            <Button
+              className="gap-2"
+              onClick={() => setCreateOpen(true)}
+              disabled={readOnly}
+            >
+              <Plus className="h-4 w-4" />
+              Create your first service account
+            </Button>
+          </div>
+        )
       ) : (
         <div className="rounded-lg border border-border overflow-hidden bg-card">
           <div className="overflow-x-auto">
@@ -237,6 +310,7 @@ export function ServiceAccountsTab() {
                     sa={sa}
                     zebra={idx % 2 === 1}
                     onManage={() => setManageId(sa.id)}
+                    readOnly={readOnly}
                   />
                 ))}
               </tbody>
@@ -245,28 +319,60 @@ export function ServiceAccountsTab() {
         </div>
       )}
 
-      <CreateServiceAccountDialog
-        open={createOpen}
-        onOpenChange={setCreateOpen}
-        onCreated={handleCreated}
-      />
+      {total > PAGE_SIZE && (
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-muted-foreground">
+            Page {page} of {totalPages} ({total} total)
+          </span>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              aria-label="Previous page"
+              onClick={() => setPage((p) => p - 1)}
+              disabled={page <= 1 || loading}
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              aria-label="Next page"
+              onClick={() => setPage((p) => p + 1)}
+              disabled={page >= totalPages || loading}
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      )}
 
-      <ManageServiceAccountDialog
-        key={manageId ?? "no-manage"}
-        saId={manageId}
-        onClose={() => setManageId(null)}
-        onMutated={() => loadList(true)}
-        onRotated={handleRotated}
-      />
+      {!readOnly && (
+        <>
+          <CreateServiceAccountDialog
+            open={createOpen}
+            onOpenChange={setCreateOpen}
+            onCreated={handleCreated}
+          />
 
-      <CredentialRevealDialog
-        // Remount per credential so the acknowledgement checkbox resets without
-        // a setState-in-effect.
-        key={credential?.client_id ?? "no-credential"}
-        credential={credential}
-        name={createdName}
-        onClose={() => setCredential(null)}
-      />
+          <ManageServiceAccountDialog
+            key={manageId ?? "no-manage"}
+            saId={manageId}
+            onClose={() => setManageId(null)}
+            onMutated={() => loadList(true)}
+            onRotated={handleRotated}
+          />
+
+          <CredentialRevealDialog
+            // Remount per credential so the acknowledgement checkbox resets without
+            // a setState-in-effect.
+            key={credential?.client_id ?? "no-credential"}
+            credential={credential}
+            name={createdName}
+            onClose={() => setCredential(null)}
+          />
+        </>
+      )}
     </div>
   );
 }
@@ -279,10 +385,12 @@ function ServiceAccountRow({
   sa,
   zebra,
   onManage,
+  readOnly,
 }: {
   sa: ServiceAccountListItem;
   zebra: boolean;
   onManage: () => void;
+  readOnly: boolean;
 }) {
   return (
     <tr className={cn("border-b border-border/60", zebra && "bg-muted/20")}>
@@ -322,7 +430,7 @@ function ServiceAccountRow({
           variant="outline"
           className="gap-1.5"
           onClick={onManage}
-          disabled={sa.status === "revoked"}
+          disabled={readOnly || sa.status === "revoked"}
         >
           <Settings className="h-3.5 w-3.5" />
           {sa.status === "revoked" ? "Revoked" : "Manage"}

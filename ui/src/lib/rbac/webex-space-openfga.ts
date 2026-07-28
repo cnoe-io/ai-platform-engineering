@@ -1,6 +1,8 @@
-import { ApiError } from "@/lib/api-middleware";
+import { ApiError } from "@/lib/api-error";
 import { readOpenFgaTuples } from "@/lib/rbac/openfga";
 import { webexSpaceSubjectId } from "@/lib/rbac/webex-space-grant-store";
+
+import { webexBotInstallationUser } from "./webex-bot-openfga";
 
 const MAX_ID_LENGTH = 128;
 const ID_PATTERN = /^[a-zA-Z0-9._-]+$/;
@@ -30,11 +32,7 @@ function agentIdFromObject(object: string): string | null {
   return agentId || null;
 }
 
-export async function listOpenFgaWebexSpaceAgentIds(
-  workspaceId: string,
-  spaceId: string
-): Promise<string[]> {
-  const user = webexSpaceOpenFgaUser(workspaceId, spaceId);
+async function listOpenFgaAgentIds(user: string): Promise<string[]> {
   const seen = new Set<string>();
   let continuationToken: string | undefined;
   do {
@@ -50,4 +48,20 @@ export async function listOpenFgaWebexSpaceAgentIds(
     continuationToken = result.continuationToken;
   } while (continuationToken);
   return Array.from(seen).sort();
+}
+
+/** Read pre-multi-bot route tuples. Used only by the explicit migration flow. */
+export function listOpenFgaWebexSpaceAgentIds(
+  workspaceId: string,
+  spaceId: string,
+): Promise<string[]> {
+  return listOpenFgaAgentIds(webexSpaceOpenFgaUser(workspaceId, spaceId));
+}
+
+export function listOpenFgaWebexBotAgentIds(
+  botId: string,
+  workspaceId: string,
+  spaceId: string,
+): Promise<string[]> {
+  return listOpenFgaAgentIds(webexBotInstallationUser(botId, workspaceId, spaceId));
 }

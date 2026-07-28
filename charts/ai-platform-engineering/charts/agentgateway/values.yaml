@@ -34,6 +34,20 @@ service:
   port: 4000
   adminPort: 15000
   statsPort: 15020
+  # Optional: relocate the proxy's OWN stats + readiness bind addresses off
+  # agentgateway's built-in defaults (15020 / 15021). Leave this false to keep
+  # the previous behavior — the static config renders no statsAddr/readinessAddr
+  # and the proxy uses its defaults (fully backward compatible).
+  #
+  # Set true to bind stats -> statsPort and readiness -> readinessPort instead.
+  # This is required when running agentgateway WITH an Istio sidecar, because the
+  # sidecar reserves 15020 (pilot-agent status/metrics) and 15021 (health) and
+  # the two Envoy/proxy processes share one network namespace — leaving the
+  # proxy on the defaults collides and crash-loops ("Address already in use").
+  explicitBindAddrs: false
+  # Only used when explicitBindAddrs is true. Container port + rendered
+  # readinessAddr for the proxy's readiness server.
+  readinessPort: 15021
 
 ingress:
   enabled: false

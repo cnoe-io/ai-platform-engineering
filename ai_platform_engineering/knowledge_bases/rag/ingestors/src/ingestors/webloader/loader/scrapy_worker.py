@@ -58,7 +58,7 @@ class SSRFProtectionMiddleware:
   def process_request(self, request: Request, spider):
     # assisted-by claude code claude-sonnet-4-6
     is_safe, reason = is_publicly_routable_url(request.url)
-    if is_safe:
+    if is_safe or getattr(spider, "allow_non_public_urls", False):
       return None
 
     error_msg = f"Blocked unsafe crawl URL because it must resolve only to publicly routable IP addresses ({reason}): {request.url}"
@@ -97,6 +97,7 @@ class WorkerSpider(Spider):
     self.follow_external = request.follow_external_links
     self.allowed_patterns = request.allowed_url_patterns or []
     self.denied_patterns = request.denied_url_patterns or []
+    self.allow_non_public_urls = request.allow_non_public_urls or False
 
     # Track the effective domain (may change after redirect for sitemap mode)
     self.effective_domain: str | None = None
@@ -207,7 +208,7 @@ class WorkerSpider(Spider):
       return True
 
     is_safe, reason = is_publicly_routable_url(url)
-    if is_safe:
+    if is_safe or self.allow_non_public_urls:
       return True
 
     error_msg = f"Blocked unsafe crawl URL because it must resolve only to publicly routable IP addresses ({reason}): {url}"
@@ -298,7 +299,26 @@ class WorkerSpider(Spider):
 
     # Extract URLs from sitemap
     urls = re.findall(r"<loc>(.*?)</loc>", response.text)
-    self.urls_found_in_sitemap = len(urls)
+
+    # A sitemap *index* (root element <sitemapindex>) lists other sitemaps,
+    # not pages — its <loc> entries point to child sitemap files. Dispatching
+    # those straight to parse_page fetches XML and "successfully" gets a
+    # response, but content extraction finds nothing, silently reporting
+    # N URLs found / 0 scraped. Recurse into each child sitemap instead.
+    if "<sitemapindex" in response.text[:2000]:
+      self._log(logging.INFO, f"Sitemap index at {response.url} references {len(urls)} child sitemap(s); fetching each")
+      for sitemap_url in urls[: self.max_pages]:
+        request = self._safe_request(
+          sitemap_url,
+          callback=self.parse_sitemap,
+          errback=self.handle_sitemap_error,
+          meta=response.meta,
+        )
+        if request:
+          yield request
+      return
+
+    self.urls_found_in_sitemap += len(urls)
 
     self._log(logging.INFO, f"Found {len(urls)} URLs in sitemap")
 
@@ -309,8 +329,10 @@ class WorkerSpider(Spider):
         urls_to_crawl.append(url)
         self.pending_urls.add(url)
 
-    # Set total for progress tracking
-    self.total_pages_to_crawl = len(urls_to_crawl)
+    # Set total for progress tracking. Accumulate rather than overwrite:
+    # a sitemap index fans out to multiple child sitemaps, each reaching
+    # this point once, and the reported total should cover all of them.
+    self.total_pages_to_crawl = (self.total_pages_to_crawl or 0) + len(urls_to_crawl)
 
     self._log(logging.INFO, f"Queued {len(urls_to_crawl)} URLs for crawling. Filtered: {self.urls_filtered_external} external, {self.urls_filtered_pattern} by pattern, {self.urls_filtered_max_pages} over max pages limit")
 

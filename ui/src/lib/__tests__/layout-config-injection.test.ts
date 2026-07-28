@@ -50,7 +50,7 @@ describe('layout config injection pipeline', () => {
       const fn = new Function(`window.__APP_CONFIG__=${script};`);
       fn();
 
-      const injected = (window as any).__APP_CONFIG__;
+      const injected = (window as unknown).__APP_CONFIG__;
       expect(injected).toBeDefined();
       expect(injected.appName).toBe('TestApp');
       expect(injected.ssoEnabled).toBe(true);
@@ -70,7 +70,7 @@ describe('layout config injection pipeline', () => {
       const fn = new Function(`window.__APP_CONFIG__=${script};`);
       fn();
 
-      const injected = (window as any).__APP_CONFIG__;
+      const injected = (window as unknown).__APP_CONFIG__;
       expect(injected.appName).toBe('</script><script>alert(1)</script>');
     });
   });

@@ -1,9 +1,10 @@
 "use client";
 
+import { getErrorMessage } from "@/lib/error-utils";
+
 import { ChatView } from "@/components/chat/DynamicAgentChatView";
 import { CAIPESpinner } from "@/components/ui/caipe-spinner";
 import { apiClient } from "@/lib/api-client";
-import { getConfig } from "@/lib/config";
 import { getStorageMode } from "@/lib/storage-config";
 import { useChatStore } from "@/store/chat-store";
 import type { Conversation as LocalConversation, ConversationAccessLevel } from "@/types/a2a";
@@ -11,8 +12,8 @@ import { getAgentId,isDynamicAgentConversation } from "@/types/a2a";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 import type { Conversation } from "@/types/mongodb";
 import { useSession } from "next-auth/react";
-import { useParams,useRouter,useSearchParams } from "next/navigation";
-import { useEffect,useMemo,useRef,useState } from "react";
+import { useParams,useRouter } from "next/navigation";
+import { useEffect,useRef,useState } from "react";
 
 /**
  * ChatContainer - renders the appropriate chat view based on conversation type.
@@ -22,12 +23,10 @@ import { useEffect,useMemo,useRef,useState } from "react";
 export function ChatContainer() {
   const params = useParams();
   const router = useRouter();
-  const searchParams = useSearchParams();
   const { data: session } = useSession();
   
   // Get uuid from params - this will be undefined on /chat (redirect page)
   const uuid = params?.uuid as string | undefined;
-  const adminOrigin = searchParams.get('from') as 'audit-logs' | 'feedback' | null;
 
   const [agentInfo, setAgentInfo] = useState<DynamicAgentConfig | null>(null);
   // Track when a dynamic agent has been deleted but conversation still references it
@@ -44,14 +43,6 @@ export function ChatContainer() {
       return conv ? getAgentId(conv) : undefined;
     }
   );
-
-  const dynamicAgentsUrl = getConfig('dynamicAgentsUrl');
-
-  // Compute the dynamic-agent chat endpoint for the selected agent.
-  const chatEndpoint = useMemo(() => {
-    if (!selectedAgentId) return '';
-    return `${dynamicAgentsUrl}/agents/${selectedAgentId}/chat`;
-  }, [selectedAgentId, dynamicAgentsUrl]);
 
   const storageMode = getStorageMode();
 
@@ -199,7 +190,7 @@ export function ChatContainer() {
             } catch (err) {
               console.warn('[ChatContainer] Failed to load messages from server:', err);
             }
-          } catch (apiErr: any) {
+          } catch (apiErr) {
             const storeConv = useChatStore.getState().conversations.find(c => c.id === uuid);
             if (storeConv) {
               console.log("[ChatContainer] Conversation appeared in store during fetch");
@@ -207,10 +198,10 @@ export function ChatContainer() {
               return;
             }
 
-            if (apiErr.message?.includes('not found') || apiErr.message?.includes('404')) {
+            if (getErrorMessage(apiErr, "")?.includes('not found') || getErrorMessage(apiErr, "")?.includes('404')) {
               console.log("[ChatContainer] Conversation not found in MongoDB (expected for new conversations)");
             } else {
-              console.warn("[ChatContainer] Failed to load from MongoDB:", apiErr.message);
+              console.warn("[ChatContainer] Failed to load from MongoDB:", getErrorMessage(apiErr, ""));
             }
             const newConv: LocalConversation = {
               id: uuid,
@@ -364,10 +355,6 @@ export function ChatContainer() {
     );
   }
 
-  const conversationTitle = conversation
-    ? ('_id' in conversation ? conversation.title : conversation.title)
-    : undefined;
-
   const isReadOnly = accessLevel === 'admin_audit' || accessLevel === 'shared_readonly';
   const readOnlyReason = accessLevel === 'admin_audit' ? 'admin_audit' : accessLevel === 'shared_readonly' ? 'shared_readonly' : undefined;
 
@@ -375,38 +362,21 @@ export function ChatContainer() {
   // having no messages is legitimate (e.g., messages were deleted) — not a loading state.
   const isLoadingMessages = fetchInProgress || (storageMode === 'mongodb' && !storeHasMessages && !fetchDone && conversation?.title !== "New Conversation");
 
-  // Every conversation is bound to a dynamic agent. If somehow none is selected
-  // (e.g. a legacy conversation with no agent participant), prompt the user to
-  // pick one rather than falling back to a default chat surface.
-  if (!selectedAgentId) {
-    return (
-      <div className="flex-1 flex items-center justify-center">
-        <div className="flex flex-col items-center gap-4 text-center">
-          <p className="text-sm text-muted-foreground">
-            This conversation isn’t linked to an agent. Select an agent to start chatting.
-          </p>
-          <button
-            onClick={() => router.push("/chat")}
-            className="text-sm text-primary hover:underline"
-          >
-            Start a new conversation
-          </button>
-        </div>
-      </div>
-    );
-  }
+  // Legacy conversations from the deprecated supervisor-agent era have no agent
+  // participant (participants: []). Treat them the same as conversations whose
+  // agent was later deleted: show the full chat history in read-only mode with
+  // an "agent deleted" banner and a CTA to start a new conversation.
+  const effectiveAgentId = selectedAgentId ?? "deprecated-supervisor-agent";
+  const isAgentGone = agentNotFound || !selectedAgentId;
 
   return (
     <ChatView
-      endpoint={chatEndpoint}
       conversationId={uuid}
-      conversationTitle={conversationTitle}
-      selectedAgentId={selectedAgentId}
+      selectedAgentId={effectiveAgentId}
       agent={agentInfo}
-      agentNotFound={agentNotFound}
+      agentNotFound={isAgentGone}
       readOnly={isReadOnly}
       readOnlyReason={readOnlyReason}
-      adminOrigin={adminOrigin}
       isLoadingMessages={isLoadingMessages}
     />
   );

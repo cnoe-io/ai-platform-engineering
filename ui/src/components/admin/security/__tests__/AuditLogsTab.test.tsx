@@ -59,7 +59,7 @@ jest.mock("@/components/ui/button", () => ({
   // eslint-disable-next-line react/display-name
   Button: React.forwardRef(
     (
-      { children, onClick, disabled, type, ...props }: any,
+      { children, onClick, disabled, type, ...props }: unknown,
       ref: React.Ref<HTMLButtonElement>
     ) => (
       <button ref={ref} onClick={onClick} disabled={disabled} type={type} {...props}>
@@ -71,11 +71,11 @@ jest.mock("@/components/ui/button", () => ({
 
 jest.mock("@/components/ui/input", () => ({
   // eslint-disable-next-line react/display-name
-  Input: React.forwardRef((props: any, ref: any) => <input ref={ref} {...props} />),
+  Input: React.forwardRef((props: unknown, ref: unknown) => <input ref={ref} {...props} />),
 }));
 
 jest.mock("@/components/ui/badge", () => ({
-  Badge: ({ children, ...props }: any) => <span {...props}>{children}</span>,
+  Badge: ({ children, ...props }: unknown) => <span {...props}>{children}</span>,
 }));
 
 jest.mock("@/components/admin/security/ConversationDetailDialog", () => ({
@@ -153,7 +153,7 @@ describe("AuditLogsTab", () => {
 
   it("auto-loads audit logs on mount without clicking Search", async () => {
     await act(async () => {
-      render(<AuditLogsTab isAdmin={true} />);
+      render(<AuditLogsTab />);
       jest.runAllTimers();
     });
 
@@ -169,7 +169,7 @@ describe("AuditLogsTab", () => {
 
   it("shows results after auto-load", async () => {
     await act(async () => {
-      render(<AuditLogsTab isAdmin={true} />);
+      render(<AuditLogsTab />);
       jest.runAllTimers();
     });
 
@@ -180,7 +180,7 @@ describe("AuditLogsTab", () => {
 
   it("does not show empty state prompt after auto-load", async () => {
     await act(async () => {
-      render(<AuditLogsTab isAdmin={true} />);
+      render(<AuditLogsTab />);
       jest.runAllTimers();
     });
 
@@ -195,7 +195,7 @@ describe("AuditLogsTab", () => {
 
   it("conversation links include ?from=audit-logs", async () => {
     await act(async () => {
-      render(<AuditLogsTab isAdmin={true} />);
+      render(<AuditLogsTab />);
       jest.runAllTimers();
     });
 
@@ -213,7 +213,7 @@ describe("AuditLogsTab", () => {
 
   it("Search button triggers a new fetch", async () => {
     await act(async () => {
-      render(<AuditLogsTab isAdmin={true} />);
+      render(<AuditLogsTab />);
       jest.runAllTimers();
     });
 
@@ -241,7 +241,7 @@ describe("AuditLogsTab", () => {
 
   it("Reset clears results and shows empty state", async () => {
     await act(async () => {
-      render(<AuditLogsTab isAdmin={true} />);
+      render(<AuditLogsTab />);
       jest.runAllTimers();
     });
 
@@ -277,7 +277,7 @@ describe("AuditLogsTab", () => {
     });
 
     await act(async () => {
-      render(<AuditLogsTab isAdmin={true} />);
+      render(<AuditLogsTab />);
       jest.runAllTimers();
     });
 
@@ -298,7 +298,7 @@ describe("AuditLogsTab", () => {
     });
 
     await act(async () => {
-      render(<AuditLogsTab isAdmin={true} />);
+      render(<AuditLogsTab />);
       jest.runAllTimers();
     });
 

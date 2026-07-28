@@ -20,7 +20,7 @@ jest.mock('@/lib/config', () => ({
   getConfig: (key: string) => key === 'ssoEnabled',
 }));
 
-const mockCollections: Record<string, any> = {};
+const mockCollections: Record<string, unknown> = {};
 const mockGetCollection = jest.fn((name: string) => {
   if (!mockCollections[name]) {
     mockCollections[name] = createMockCollection();
@@ -93,7 +93,7 @@ const VALID_UUID = '550e8400-e29b-41d4-a716-446655440000';
 const OWNER_EMAIL = 'owner@example.com';
 const STRANGER_EMAIL = 'stranger@example.com';
 
-function makeConversation(overrides: Record<string, any> = {}) {
+function makeConversation(overrides: Record<string, unknown> = {}) {
   return {
     _id: VALID_UUID,
     title: 'Test Conversation',

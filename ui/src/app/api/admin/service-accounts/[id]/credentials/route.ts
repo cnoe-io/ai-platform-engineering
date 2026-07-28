@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth-config";
 import { checkOpenFgaTuple } from "@/lib/rbac/openfga";
 import { logOpenFgaRebacAuditEvent } from "@/lib/rbac/audit";
 import { getBySub } from "@/lib/service-accounts";
+import { hasOrganizationAdmin } from "@/lib/rbac/platform-admin";
 import { getProviderConnectionService } from "@/lib/credentials/oauth-service-factory";
 import { BUILT_IN_OAUTH_CONNECTORS } from "@/lib/credentials/built-in-oauth-connectors";
 import { getCollection } from "@/lib/mongodb";
@@ -17,9 +18,9 @@ import type { ProviderConnectionDocument } from "@/lib/credentials/oauth-service
  *
  * Manage provider credentials (pasted static tokens) owned by a service
  * account. `[id]` is the SA's OpenFGA subject id (`sa_sub`). All three
- * verbs are gated by the SAME `can_manage` check used elsewhere in the SA
- * admin API (owning-team member). Non-members get 404 (do not reveal
- * existence — FR-022).
+ * verbs are gated by the SAME `can_manage` OR org-admin check used elsewhere
+ * in the SA admin API (owning-team member). Non-members get 404 (do not
+ * reveal existence — FR-022).
  *
  * GET  — list provider connections owned by this SA. Returns connection
  *         metadata; NEVER returns token material (FR-005).
@@ -52,20 +53,20 @@ function assertFeatureEnabled(): NextResponse | null {
   return null;
 }
 
-/** Resolve the SA and gate by can_manage. Returns [sa_sub, 403/404 response | null]. */
+/** Resolve the SA and gate by can_manage OR org admin. Returns [sa_sub, 403/404 response | null]. */
 async function resolveAndGate(
-  callerSub: string,
+  session: { sub?: string; user?: { email?: string | null } },
   id: string,
 ): Promise<
   | { sa_sub: string; error?: never }
   | { sa_sub?: never; error: NextResponse }
 > {
   const decision = await checkOpenFgaTuple({
-    user: `user:${callerSub}`,
+    user: `user:${session.sub}`,
     relation: "can_manage",
     object: `service_account:${id}`,
   });
-  if (!decision.allowed) {
+  if (!decision.allowed && !(await hasOrganizationAdmin(session))) {
     return {
       error: NextResponse.json(
         { success: false, error: "Service account not found" },
@@ -128,7 +129,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
   }
 
   try {
-    const result = await resolveAndGate(session.sub, id);
+    const result = await resolveAndGate(session, id);
     if (result.error) return result.error;
     const { sa_sub } = result;
 
@@ -213,7 +214,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       : undefined;
 
   try {
-    const result = await resolveAndGate(session.sub, id);
+    const result = await resolveAndGate(session, id);
     if (result.error) return result.error;
     const { sa_sub } = result;
 
@@ -326,7 +327,7 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
   }
 
   try {
-    const result = await resolveAndGate(session.sub, id);
+    const result = await resolveAndGate(session, id);
     if (result.error) return result.error;
     const { sa_sub } = result;
 

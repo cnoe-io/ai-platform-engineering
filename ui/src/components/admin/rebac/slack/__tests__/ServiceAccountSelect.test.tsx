@@ -74,6 +74,58 @@ it("shows 'No active service accounts' when teamSlug is set but server returns e
 });
 
 // ---------------------------------------------------------------------------
+// displayName fallback (caller lacks team membership but a value is saved)
+// ---------------------------------------------------------------------------
+
+it("shows the displayName fallback (not the empty-state message) when SA list is empty but value+displayName are set", async () => {
+  global.fetch = jest.fn().mockResolvedValue(
+    mockResponse({ success: true, data: { items: [] } }),
+  );
+
+  render(
+    <ServiceAccountSelect
+      value="sub-saved-999"
+      onChange={jest.fn()}
+      teamSlug="platform-engineering"
+      displayName="legacy-incident-bot"
+    />,
+  );
+
+  const trigger = await screen.findByRole("button", { name: "Service account" });
+  expect(trigger).toHaveTextContent("legacy-incident-bot");
+  expect(screen.queryByText(/no active service accounts/i)).not.toBeInTheDocument();
+});
+
+it("still shows the empty-state message when list is empty and neither value nor displayName is set", async () => {
+  global.fetch = jest.fn().mockResolvedValue(
+    mockResponse({ success: true, data: { items: [] } }),
+  );
+
+  render(
+    <ServiceAccountSelect value="" onChange={jest.fn()} teamSlug="platform-engineering" />,
+  );
+
+  expect(await screen.findByText(/no active service accounts/i)).toBeInTheDocument();
+});
+
+it("prefers the fetched SA's own name over displayName once the list loads and contains it", async () => {
+  global.fetch = jest.fn().mockResolvedValue(mockResponse(twoActiveAccounts()));
+
+  render(
+    <ServiceAccountSelect
+      value="sub-beta-002"
+      onChange={jest.fn()}
+      teamSlug="platform-engineering"
+      displayName="stale-cached-name"
+    />,
+  );
+
+  const trigger = await screen.findByRole("button", { name: "Service account" });
+  expect(trigger).toHaveTextContent("deploy-bot");
+  expect(trigger).not.toHaveTextContent("stale-cached-name");
+});
+
+// ---------------------------------------------------------------------------
 // TEST-9: fetch failure → distinct error state + retry
 // ---------------------------------------------------------------------------
 

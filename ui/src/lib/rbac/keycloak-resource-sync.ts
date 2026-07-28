@@ -40,8 +40,13 @@ async function getClientUuid(clientId: string): Promise<string | null> {
   const qs = new URLSearchParams({ clientId });
   const response = await adminFetch(`/clients?${qs.toString()}`, { method: "GET" });
   if (!response.ok) {
-    console.warn(
-      `[KeycloakResourceSync] list clients failed: ${response.status} ${clientId}`
+    // This is a list endpoint: a client that doesn't exist returns 200 with an
+    // empty array, never a 404. A non-OK response here is always a real
+    // failure (bad/expired admin token, permissions, Keycloak down) — log it
+    // as an error, not as "client not found", so it isn't mistaken for the
+    // benign case downstream.
+    console.error(
+      `[KeycloakResourceSync] Keycloak admin API call failed while looking up client ${clientId}: ${response.status}`
     );
     return null;
   }
@@ -58,6 +63,12 @@ async function deleteResourceByName(clientUuid: string, resourceName: string): P
   const qs = new URLSearchParams({ name: resourceName });
   const listResponse = await adminFetch(`${basePath}?${qs.toString()}`, { method: "GET" });
   if (!listResponse.ok) {
+    // Same reasoning as getClientUuid: this list endpoint 200s with an empty
+    // array when nothing matches, so a non-OK response here means the lookup
+    // itself failed, not that the resource is already gone.
+    console.error(
+      `[KeycloakResourceSync] Keycloak admin API call failed while looking up resource ${resourceName} for deletion: ${listResponse.status}`
+    );
     return;
   }
   const rows = (await listResponse.json()) as Array<{ id?: string; name?: string }>;
@@ -103,10 +114,14 @@ async function syncCaipeResource(
   }
 
   try {
+    // `getClientUuid` returning null is ambiguous by design (it covers both
+    // "client genuinely doesn't exist" and "the lookup call itself failed",
+    // the latter already logged loudly with console.error above) — either
+    // way there's nothing more to do here, so skip the rest of the sync.
     const clientUuid = await getClientUuid(getAuthzClientId());
     if (!clientUuid) {
       console.warn(
-        `[KeycloakResourceSync] Authz client ${getAuthzClientId()} not found — skip`
+        `[KeycloakResourceSync] Authz client ${getAuthzClientId()} unresolved — skip ${opts.resourceName}`
       );
       return;
     }
@@ -137,7 +152,13 @@ async function syncCaipeResource(
     }
     if (!createResponse.ok) {
       const detail = await createResponse.text();
-      console.warn(
+      // Deliberately fire-and-forget: a Keycloak resource-sync failure must
+      // not block the task/skill create/update itself (see syncTaskResource /
+      // syncSkillResource callers). But this IS a real failure (auth expired,
+      // permission denied, Keycloak down) — log as an error, not a warning,
+      // so it's distinguishable from expected/benign outcomes and doesn't get
+      // silently missed.
+      console.error(
         `[KeycloakResourceSync] create ${opts.resourceName} failed: ${createResponse.status} ${detail.slice(0, 300)}`
       );
     }

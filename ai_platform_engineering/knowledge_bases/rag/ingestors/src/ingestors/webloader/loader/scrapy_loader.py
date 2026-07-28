@@ -119,6 +119,7 @@ class ScrapyLoader:
         concurrent_requests=settings.concurrent_requests,
         respect_robots_txt=settings.respect_robots_txt,
         user_agent=settings.user_agent,
+        allow_non_public_urls=settings.allow_non_public_urls,
         ingestor_id=self.client.ingestor_id or "",
         datasource_name=getattr(self.datasource_info, "name", "") or "",
         reload_interval=reload_interval,

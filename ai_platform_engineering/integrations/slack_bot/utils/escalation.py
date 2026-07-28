@@ -26,7 +26,6 @@ def execute_escalation(
   user_id: str,
   escalation_config: EscalationConfig,
   agent_id: str = "",
-  conversation_id: str = "",
 ):
   """Run all configured escalation actions.
 
@@ -39,7 +38,6 @@ def execute_escalation(
       user_id: Slack user ID of the person who triggered escalation.
       escalation_config: Parsed escalation configuration.
       agent_id: Agent ID for VictorOps AI queries (channel default).
-      conversation_id: Conversation UUID for VictorOps AI queries.
 
   Returns:
       List of result summary strings.
@@ -54,7 +52,6 @@ def execute_escalation(
       thread_ts,
       escalation_config.victorops.team,
       agent_id=agent_id,
-      conversation_id=conversation_id,
     )
     results.append(result)
 
@@ -81,22 +78,35 @@ def _ping_victorops_oncall(
   thread_ts: str,
   team: str,
   agent_id: str,
-  conversation_id: str,
 ) -> str:
   """Query the AI for VictorOps on-call via SSE, resolve to Slack user, and ping them."""
-  if not agent_id or not conversation_id:
-    logger.error(f"[{thread_ts}] VictorOps: missing agent_id or conversation_id")
+  if not agent_id:
+    logger.error(f"[{thread_ts}] VictorOps: missing agent_id")
     slack_client.chat_postMessage(
       channel=channel_id,
       thread_ts=thread_ts,
       text=f"Could not determine on-call for team *{team}*. Please check VictorOps manually.",
     )
-    return "victorops: missing agent_id or conversation_id"
+    return "victorops: missing agent_id"
 
   try:
     prompt = f"RESPOND IN 1 WORD THAT IS USER EMAIL. WHO IS ON CALL FOR TEAM {team}?"
     logger.info(f"[{thread_ts}] VictorOps: querying on-call for team {team} (agent={agent_id})")
     accumulated_text: list[str] = []
+
+    # Register a fresh conversation (no idempotency_key) so the on-call lookup
+    # does not inherit the channel thread history, which can be very large and
+    # cause incorrect results. Retain the originating thread only as metadata
+    # so authorized Insights viewers can navigate back to Slack.
+    conv_result = sse_client.create_conversation(
+      title="VictorOps on-call lookup",
+      agent_id=agent_id,
+      metadata={
+        "channel_id": channel_id,
+        "thread_ts": thread_ts,
+      },
+    )
+    conversation_id = conv_result["conversation_id"]
 
     for event in sse_client.stream_chat(
       message=prompt,

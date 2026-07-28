@@ -210,25 +210,27 @@ const sidebars: SidebarsConfig = {
     {
       type: 'category',
       label: 'Architecture',
+      link: {
+        type: 'generated-index',
+        description:
+          'Solution architecture, gateway, identity federation, Slack authorization, scheduler, and streaming.',
+      },
       items: [
+        { type: 'doc', id: 'architecture/index', label: 'Solution Architecture' },
+        { type: 'doc', id: 'architecture/gateway', label: 'AgentGateway' },
         {
           type: 'doc',
-          id: 'architecture/index',
-        },
-        {
-          type: 'doc',
-          id: 'architecture/gateway',
+          id: 'architecture/scheduler',
         },
         {
           type: 'doc',
           id: 'architecture/enterprise-identity-federation',
           label: 'Enterprise Identity Federation',
         },
-        {
-          type: 'doc',
-          id: 'architecture/slack-bot-authorization',
-          label: 'Slack Bot Authorization',
-        },
+        { type: 'doc', id: 'architecture/slack-bot-authorization', label: 'Slack Bot Authorization' },
+        { type: 'doc', id: 'architecture/slack-io-guardrails', label: 'Slack I/O Guardrails' },
+        { type: 'doc', id: 'architecture/scheduler', label: 'Scheduler' },
+        { type: 'doc', id: 'architecture/streaming_architecture', label: 'Streaming Architecture' },
       ],
     },
     {
@@ -236,6 +238,7 @@ const sidebars: SidebarsConfig = {
       label: 'Features',
       items: [
         { type: 'doc', id: 'features/custom-agents', label: 'Custom Agents' },
+        { type: 'doc', id: 'features/workflows', label: 'Workflows' },
         {
           type: 'category',
           label: 'Rich Web UI',
@@ -277,6 +280,7 @@ const sidebars: SidebarsConfig = {
           items: [
             { type: 'doc', id: 'integrations/slack-bot', label: 'Slack Bot' },
             { type: 'doc', id: 'integrations/webex-bot', label: 'Webex Bot' },
+            { type: 'doc', id: 'integrations/webex-meetings-mcp', label: 'Webex Meetings MCP' },
             { type: 'doc', id: 'api/webex-integration', label: 'Webex Bot RBAC API' },
             { type: 'doc', id: 'integrations/cli', label: 'CAIPE CLI' },
           ],

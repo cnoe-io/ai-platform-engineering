@@ -4,6 +4,7 @@ IdentityGroupSyncRule,
 TeamRelationshipRole,
 } from "@/types/identity-group-sync";
 
+import { loopYieldEvery, maybeYield } from "./event-loop-yield";
 import { normalizeTeamSlug } from "./team-slugs";
 
 export interface IdentityGroupRuleMatch {
@@ -64,15 +65,18 @@ function roleFromCapture(
   return rule.role_map[roleLabel] ?? null;
 }
 
-export function evaluateIdentityGroupRules(
+export async function evaluateIdentityGroupRules(
   input: EvaluateIdentityGroupRulesInput
-): EvaluateIdentityGroupRulesResult {
+): Promise<EvaluateIdentityGroupRulesResult> {
   const matches: IdentityGroupRuleMatch[] = [];
   const ignored: IgnoredIdentityGroup[] = [];
   const conflicts: IdentityGroupRuleConflict[] = [];
   const rules = [...input.rules].sort((a, b) => a.priority - b.priority);
 
+  const yieldEvery = loopYieldEvery();
+  let processed = 0;
   for (const group of input.groups) {
+    await maybeYield(++processed, yieldEvery);
     let resolved = false;
     for (const rule of rules) {
       if (!rule.enabled || rule.review_status === "disabled") {

@@ -190,7 +190,7 @@ export function StepToolOverridePicker({
       return;
     }
     let cancelled = false;
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: start loading state before async fetch
+
     setAgentLoading(true);
     fetch(`/api/dynamic-agents/agents/${encodeURIComponent(agentId)}`)
       .then((r) => r.json())

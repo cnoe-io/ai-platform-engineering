@@ -8,7 +8,7 @@ CAIPE RAG is an intelligent knowledge platform that combines vector-based retrie
 
 The platform:
 
-- **Ingests data** from multiple sources (web pages, AWS, Kubernetes, Backstage, Slack, Confluence, and more)
+- **Ingests data** from multiple sources (web pages, AWS, Kubernetes, Backstage, Jira, Slack, Confluence, and more)
 - **Performs hybrid search** combining semantic understanding with keyword matching
 - **Maintains a knowledge graph** for entity relationships and complex reasoning
 - **Automatically discovers relationships** between entity types using AI-powered ontology agents
@@ -101,6 +101,7 @@ CAIPE RAG includes ingestors for various data sources. See [Ingestors](ingestors
 | Backstage | Graph Entities | Service catalog entities |
 | ArgoCD | Graph Entities | Applications, projects, clusters |
 | GitHub | Graph Entities | Organizations, repositories, teams |
+| Jira | Documents | Issues, comments, links, JQL-filtered project data |
 | Confluence | Documents | Space pages with incremental sync |
 | Slack | Documents | Channel conversations and threads |
 | Webex | Documents | Space messages |

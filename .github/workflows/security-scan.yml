@@ -51,12 +51,33 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Harden runner
-        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
         with:
           egress-policy: audit
 
+      # Fork-triggered pull_request runs never receive repo secrets (GitHub
+      # security boundary), so CI_SECURITY_APP_ID/PRIVATE_KEY resolve empty
+      # there and create-github-app-token hard-fails. The default GITHUB_TOKEN
+      # is also forced read-only for fork PRs regardless of declared
+      # permissions, so security-events: write is unavailable either way.
+      # Detect that case and skip the app-token + SARIF upload, but still run
+      # the scan itself so contributors get results in the job log.
+      - name: 🔍 Determine fork status
+        id: fork-check
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          BASE_REPO: ${{ github.repository }}
+        run: |
+          if [[ "$EVENT_NAME" == "pull_request" && "$HEAD_REPO" != "$BASE_REPO" ]]; then
+            echo "is_fork=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_fork=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: 🔑 Generate GitHub App token
         id: app-token
+        if: steps.fork-check.outputs.is_fork != 'true'
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
         with:
           app-id: ${{ secrets.CI_SECURITY_APP_ID }}
@@ -64,7 +85,7 @@ jobs:
           permission-security-events: write
 
       - name: Checkout code
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
           repository: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || github.repository }}
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || inputs.tag || github.ref }}
@@ -79,8 +100,8 @@ jobs:
           output-format: sarif
 
       - name: Upload SARIF to GitHub Code Scanning
-        uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
-        if: ${{ always() && steps.scan.outputs.sarif != '' }}
+        uses: github/codeql-action/upload-sarif@7188fc363630916deb702c7fdcf4e481b751f97a # v4.37.1
+        if: ${{ always() && steps.scan.outputs.sarif != '' && steps.fork-check.outputs.is_fork != 'true' }}
         with:
           sarif_file: ${{ steps.scan.outputs.sarif }}
           # Keep this stable as "grype": GitHub Code Scanning correlates SARIF
@@ -95,6 +116,11 @@ jobs:
           sha: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+
+      - name: ℹ️ Note SARIF upload skipped for fork PR
+        if: ${{ always() && steps.fork-check.outputs.is_fork == 'true' }}
+        run: |
+          echo "::notice::This PR is from a fork, so results can't be uploaded to GitHub Code Scanning (that needs security-events: write, unavailable to fork-triggered pull_request runs). The Grype scan above still ran — see its output for findings. A maintainer can re-run this workflow after merge to get code-scanning annotations."
 
   scan-containers:
     name: Container scan (${{ matrix.image }})
@@ -133,7 +159,7 @@ jobs:
           - mcp-webex
     steps:
       - name: Harden runner
-        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
         with:
           egress-policy: audit
 
@@ -166,7 +192,7 @@ jobs:
           output-format: sarif
 
       - name: Upload SARIF to GitHub Code Scanning
-        uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
+        uses: github/codeql-action/upload-sarif@7188fc363630916deb702c7fdcf4e481b751f97a # v4.37.1
         if: ${{ always() && steps.scan.outputs.sarif != '' }}
         with:
           sarif_file: ${{ steps.scan.outputs.sarif }}

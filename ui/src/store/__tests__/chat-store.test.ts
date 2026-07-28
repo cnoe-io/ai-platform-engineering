@@ -17,7 +17,7 @@
 // ============================================================================
 
 // Use global to avoid TDZ issues with jest.mock factories
-(global as any).__mockStorageMode = 'mongodb';
+(global as unknown).__mockStorageMode = 'mongodb';
 
 jest.mock('@/lib/api-client', () => ({
   apiClient: {
@@ -31,13 +31,13 @@ jest.mock('@/lib/api-client', () => ({
 }));
 
 jest.mock('@/lib/storage-config', () => ({
-  getStorageMode: () => (global as any).__mockStorageMode,
-  shouldUseLocalStorage: () => (global as any).__mockStorageMode === 'localStorage',
+  getStorageMode: () => (global as unknown).__mockStorageMode,
+  shouldUseLocalStorage: () => (global as unknown).__mockStorageMode === 'localStorage',
 }));
 
 jest.mock('@/lib/utils', () => ({
   generateId: () => `test-id-${Math.random().toString(36).slice(2, 9)}`,
-  cn: (...args: any[]) => args.filter(Boolean).join(' '),
+  cn: (...args: unknown[]) => args.filter(Boolean).join(' '),
 }));
 
 // ============================================================================
@@ -98,7 +98,7 @@ describe('chat-store', () => {
     jest.clearAllMocks();
     jest.useFakeTimers();
     window.localStorage.clear();
-    (global as any).__mockStorageMode = 'mongodb';
+    (global as unknown).__mockStorageMode = 'mongodb';
     resetStore();
   });
 
@@ -375,7 +375,7 @@ describe('chat-store', () => {
     });
 
     it('skips loading in localStorage mode', async () => {
-      (global as any).__mockStorageMode = 'localStorage';
+      (global as unknown).__mockStorageMode = 'localStorage';
 
       const conv = makeConversation({ id: 'ls-load' });
       useChatStore.setState({ conversations: [conv] });
@@ -550,7 +550,7 @@ describe('chat-store', () => {
       useChatStore.setState({ conversations: [conv] });
 
       // Use a deferred promise so we can control when the API call resolves
-      let resolveApi!: (value: any) => void;
+      let resolveApi!: (value: unknown) => void;
       const apiPromise = new Promise(resolve => { resolveApi = resolve; });
       mockApiClient.getMessages.mockReturnValue(apiPromise);
 
@@ -843,6 +843,36 @@ describe('chat-store', () => {
       expect(useChatStore.getState().conversations.map((c) => c.id)).toContain('shared-load');
     });
 
+    it('preserves scheduled-run metadata from the server conversation list', async () => {
+      mockApiClient.getConversations.mockResolvedValue({
+        items: [
+          {
+            _id: 'scheduled-conversation',
+            title: 'Scheduled Chat',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            metadata: {
+              source: 'scheduler',
+              schedule_id: 'sched_123',
+              schedule_title: 'Daily platform report',
+            },
+          },
+        ],
+        total: 1,
+        page: 1,
+        page_size: 100,
+        has_more: false,
+      });
+
+      await useChatStore.getState().loadConversationsFromServer();
+
+      expect(useChatStore.getState().conversations[0]?.metadata).toEqual({
+        source: 'scheduler',
+        schedule_id: 'sched_123',
+        schedule_title: 'Daily platform report',
+      });
+    });
+
     it('removes conversations that exist locally but not on server', async () => {
       // Local state has 3 conversations
       const conv1 = makeConversation({ id: 'keep-1', title: 'Keep Me' });
@@ -1087,7 +1117,7 @@ describe('chat-store', () => {
     });
 
     it('skips loading in localStorage mode', async () => {
-      (global as any).__mockStorageMode = 'localStorage';
+      (global as unknown).__mockStorageMode = 'localStorage';
 
       useChatStore.setState({
         conversations: [makeConversation()],
@@ -1149,7 +1179,7 @@ describe('chat-store', () => {
       useChatStore.getState().setConversationStreaming('auto-save-conv', {
         conversationId: 'auto-save-conv',
         messageId: 'auto-save-msg',
-        client: {} as any,
+        client: {} as unknown,
       });
 
       expect(useChatStore.getState().isStreaming).toBe(true);
@@ -1177,7 +1207,7 @@ describe('chat-store', () => {
       useChatStore.getState().setConversationStreaming('background-conv', {
         conversationId: 'background-conv',
         messageId: 'msg-1',
-        client: {} as any,
+        client: {} as unknown,
       });
 
       useChatStore.getState().setConversationStreaming('background-conv', null);
@@ -1193,7 +1223,7 @@ describe('chat-store', () => {
       useChatStore.getState().setConversationStreaming('no-save-start', {
         conversationId: 'no-save-start',
         messageId: 'msg-1',
-        client: {} as any,
+        client: {} as unknown,
       });
 
       jest.advanceTimersByTime(1000);
@@ -1225,7 +1255,7 @@ describe('chat-store', () => {
     });
 
     it('does not call server in localStorage mode', async () => {
-      (global as any).__mockStorageMode = 'localStorage';
+      (global as unknown).__mockStorageMode = 'localStorage';
 
       // The store is already created, but createConversation checks
       // getStorageMode() internally on each call
@@ -1388,7 +1418,7 @@ describe('chat-store', () => {
           ['cancel-save-test', {
             conversationId: 'cancel-save-test',
             messageId: 'cancel-msg',
-            client: mockClient as any,
+            client: mockClient as unknown,
           }],
         ]),
         isStreaming: true,
@@ -1430,7 +1460,7 @@ describe('chat-store', () => {
           ['cancel-mark-test', {
             conversationId: 'cancel-mark-test',
             messageId: 'mark-msg',
-            client: mockClient as any,
+            client: mockClient as unknown,
           }],
         ]),
         isStreaming: true,
@@ -1729,7 +1759,7 @@ describe('chat-store', () => {
       useChatStore.getState().setConversationStreaming('bg-conv', {
         conversationId: 'bg-conv',
         messageId: 'bg-msg',
-        client: {} as any,
+        client: {} as unknown,
       });
 
       // Stop streaming — should mark as unviewed since user is on a different conversation
@@ -1751,7 +1781,7 @@ describe('chat-store', () => {
       useChatStore.getState().setConversationStreaming('active-stream', {
         conversationId: 'active-stream',
         messageId: 'active-msg',
-        client: {} as any,
+        client: {} as unknown,
       });
       useChatStore.getState().setConversationStreaming('active-stream', null);
 
@@ -1770,7 +1800,7 @@ describe('chat-store', () => {
       useChatStore.getState().setConversationStreaming('start-only', {
         conversationId: 'start-only',
         messageId: 'msg-1',
-        client: {} as any,
+        client: {} as unknown,
       });
 
       expect(useChatStore.getState().hasUnviewedMessages('start-only')).toBe(false);
@@ -1790,7 +1820,7 @@ describe('chat-store', () => {
       useChatStore.getState().setConversationStreaming('lifecycle-conv', {
         conversationId: 'lifecycle-conv',
         messageId: 'lc-msg',
-        client: {} as any,
+        client: {} as unknown,
       });
       expect(useChatStore.getState().isConversationStreaming('lifecycle-conv')).toBe(true);
       expect(useChatStore.getState().hasUnviewedMessages('lifecycle-conv')).toBe(false);
@@ -1820,10 +1850,10 @@ describe('chat-store', () => {
 
       // Start streaming on both background conversations
       useChatStore.getState().setConversationStreaming('bg-1', {
-        conversationId: 'bg-1', messageId: 'msg-bg1', client: {} as any,
+        conversationId: 'bg-1', messageId: 'msg-bg1', client: {} as unknown,
       });
       useChatStore.getState().setConversationStreaming('bg-2', {
-        conversationId: 'bg-2', messageId: 'msg-bg2', client: {} as any,
+        conversationId: 'bg-2', messageId: 'msg-bg2', client: {} as unknown,
       });
 
       // bg-1 finishes first
@@ -1854,7 +1884,7 @@ describe('chat-store', () => {
       useChatStore.getState().setConversationStreaming('stream-check', {
         conversationId: 'stream-check',
         messageId: 'msg-1',
-        client: {} as any,
+        client: {} as unknown,
       });
 
       expect(useChatStore.getState().isConversationStreaming('stream-check')).toBe(true);
@@ -1872,7 +1902,7 @@ describe('chat-store', () => {
       useChatStore.getState().setConversationStreaming('was-streaming', {
         conversationId: 'was-streaming',
         messageId: 'msg-ws',
-        client: {} as any,
+        client: {} as unknown,
       });
       useChatStore.getState().setConversationStreaming('was-streaming', null);
 
@@ -1888,10 +1918,10 @@ describe('chat-store', () => {
       useChatStore.setState({ conversations: [conv1, conv2] });
 
       useChatStore.getState().setConversationStreaming('multi-1', {
-        conversationId: 'multi-1', messageId: 'msg-m1', client: {} as any,
+        conversationId: 'multi-1', messageId: 'msg-m1', client: {} as unknown,
       });
       useChatStore.getState().setConversationStreaming('multi-2', {
-        conversationId: 'multi-2', messageId: 'msg-m2', client: {} as any,
+        conversationId: 'multi-2', messageId: 'msg-m2', client: {} as unknown,
       });
 
       expect(useChatStore.getState().isConversationStreaming('multi-1')).toBe(true);
@@ -1913,12 +1943,12 @@ describe('chat-store', () => {
       expect(useChatStore.getState().isStreaming).toBe(false);
 
       useChatStore.getState().setConversationStreaming('global-1', {
-        conversationId: 'global-1', messageId: 'msg-g1', client: {} as any,
+        conversationId: 'global-1', messageId: 'msg-g1', client: {} as unknown,
       });
       expect(useChatStore.getState().isStreaming).toBe(true);
 
       useChatStore.getState().setConversationStreaming('global-2', {
-        conversationId: 'global-2', messageId: 'msg-g2', client: {} as any,
+        conversationId: 'global-2', messageId: 'msg-g2', client: {} as unknown,
       });
       expect(useChatStore.getState().isStreaming).toBe(true);
 
@@ -2029,7 +2059,7 @@ describe('chat-store', () => {
       useChatStore.getState().setConversationStreaming('conv-hitl', {
         conversationId: 'conv-hitl',
         messageId: 'msg-1',
-        client: {} as any,
+        client: {} as unknown,
       });
 
       expect(useChatStore.getState().isConversationInputRequired('conv-hitl')).toBe(false);
@@ -2046,7 +2076,7 @@ describe('chat-store', () => {
       useChatStore.getState().setConversationStreaming('conv-a', {
         conversationId: 'conv-a',
         messageId: 'msg-a',
-        client: {} as any,
+        client: {} as unknown,
       });
 
       expect(useChatStore.getState().isConversationInputRequired('conv-a')).toBe(false);

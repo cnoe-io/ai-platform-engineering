@@ -786,6 +786,43 @@ describe("ProviderConnections", () => {
     expect(screen.getAllByText(/Reconnect Atlassian to restore access/i)).toHaveLength(2);
   });
 
+  it("does not auto-refresh an expiring connection with renewable === false", async () => {
+    // Regression test for needsAutoRefresh(): a connection with no refresh
+    // token (renewable === false) must never be silently POSTed to
+    // /refresh just because it falls inside the 15-minute expiry window —
+    // it needs manual reconnect instead.
+    const fetchMock = jest.fn(async (url: string) => {
+      if (url === "/api/credentials/oauth-connectors") {
+        return response([
+          { id: "atlassian-connector", provider: "atlassian", name: "Atlassian", enabled: true },
+        ]);
+      }
+      if (url === "/api/credentials/connections") {
+        return response([
+          {
+            id: "atlassian-connection",
+            connectorId: "atlassian-connector",
+            provider: "atlassian",
+            status: "connected",
+            renewable: false,
+            expiresAt: new Date(Date.now() + 60_000).toISOString(),
+            updatedAt: "2026-05-21T10:00:00.000Z",
+          },
+        ]);
+      }
+      return response({}, false, 404);
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    render(<ProviderConnections />);
+
+    expect(await screen.findByText("connected")).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      "/api/credentials/connections/atlassian-connection/refresh",
+      expect.anything(),
+    );
+  });
+
   describe("advanced scope selection", () => {
     function mockFetch(connectors: unknown[], connections: unknown[]) {
       global.fetch = jest.fn(async (url) => {

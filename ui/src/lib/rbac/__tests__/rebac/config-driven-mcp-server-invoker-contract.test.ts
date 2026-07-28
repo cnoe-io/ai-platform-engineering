@@ -19,7 +19,6 @@ import {
 const SERVER_ID = "argocd";
 const ORG_ID = "caipe";
 const MEMBER_SUB = "member-sub";
-const ADMIN_SUB = "admin-sub";
 
 const REPO_ROOT = join(__dirname, "..", "..", "..", "..", "..", "..");
 const CHART_JSON = join(

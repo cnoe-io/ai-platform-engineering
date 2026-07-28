@@ -11,6 +11,7 @@ DialogFooter,
 DialogHeader,
 DialogTitle,
 } from "@/components/ui/dialog";
+import { AgentPicker, type AgentPickerOption } from "@/components/ui/agent-picker";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { toYaml } from "@/lib/yaml-serializer";
@@ -33,7 +34,8 @@ Trash2,
 Zap,
 } from "lucide-react";
 import React from "react";
-import { MCPServerEditor } from "./MCPServerEditor";
+import { MCPServerEditor, type MCPServerInitialValues } from "./MCPServerEditor";
+import { RemoteMCPCatalogDialog, type RemoteMCPTemplate } from "./RemoteMCPCatalogDialog";
 
 // assisted-by Codex Codex-sonnet-4-6
 export const MCP_SERVERS_REFRESH_INTERVAL_MS = 10_000;
@@ -69,6 +71,11 @@ interface AgentGatewayMigrationWarning {
 interface FetchServersOptions {
   showLoading?: boolean;
   preserveListOnError?: boolean;
+}
+
+interface MCPServersTabProps {
+  selectedServerId?: string | null;
+  onSelectedServerChange?: (serverId: string | null) => void;
 }
 
 interface ToolTestResult {
@@ -190,13 +197,22 @@ function toolHealthDotClass(status: ToolHealthStatus): string {
   }
 }
 
-export function MCPServersTab() {
+export function MCPServersTab({
+  selectedServerId,
+  onSelectedServerChange,
+}: MCPServersTabProps = {}) {
   const [servers, setServers] = React.useState<MCPServerConfigWithPermissions[]>([]);
   const [listCapabilities, setListCapabilities] = React.useState(DEFAULT_LIST_CAPABILITIES);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [editingServer, setEditingServer] = React.useState<MCPServerConfigWithPermissions | null>(null);
+  const [selectionLoading, setSelectionLoading] = React.useState(false);
+  const [selectionError, setSelectionError] = React.useState<string | null>(null);
+  const selectionRequestRef = React.useRef(0);
+  const loadedSelectionIdRef = React.useRef<string | null>(null);
   const [isCreating, setIsCreating] = React.useState(false);
+  const [showCatalog, setShowCatalog] = React.useState(false);
+  const [catalogInitialValues, setCatalogInitialValues] = React.useState<MCPServerInitialValues | null>(null);
   const [probeResults, setProbeResults] = React.useState<Record<string, ProbeResult>>({});
   const [agentGatewayMigrationWarnings, setAgentGatewayMigrationWarnings] = React.useState<
     AgentGatewayMigrationWarning[]
@@ -251,6 +267,56 @@ export function MCPServersTab() {
   React.useEffect(() => {
     fetchServers();
   }, [fetchServers]);
+
+  React.useEffect(() => {
+    if (selectedServerId === undefined) return;
+
+    const requestId = ++selectionRequestRef.current;
+    if (!selectedServerId) {
+      loadedSelectionIdRef.current = null;
+      setEditingServer(null);
+      setSelectionError(null);
+      setSelectionLoading(false);
+      return;
+    }
+
+    if (loadedSelectionIdRef.current === selectedServerId) {
+      setSelectionError(null);
+      setSelectionLoading(false);
+      return;
+    }
+
+    setSelectionLoading(true);
+    setSelectionError(null);
+    void (async () => {
+      try {
+        const response = await fetch(`/api/mcp-servers?id=${encodeURIComponent(selectedServerId)}`, {
+          cache: "no-store",
+        });
+        const data = await response.json();
+        if (!data.success) {
+          throw new Error(data.error || "MCP server not found");
+        }
+        if (selectionRequestRef.current === requestId) {
+          loadedSelectionIdRef.current = selectedServerId;
+          setEditingServer({
+            ...data.data,
+            permissions: data.data.permissions ?? DEFAULT_ROW_PERMISSIONS,
+          });
+        }
+      } catch (err: unknown) {
+        if (selectionRequestRef.current === requestId) {
+          loadedSelectionIdRef.current = null;
+          setEditingServer(null);
+          setSelectionError(errorMessage(err, "Failed to load MCP server"));
+        }
+      } finally {
+        if (selectionRequestRef.current === requestId) {
+          setSelectionLoading(false);
+        }
+      }
+    })();
+  }, [selectedServerId]);
 
   React.useEffect(() => {
     const refreshFromBackend = () => {
@@ -483,29 +549,87 @@ export function MCPServersTab() {
     }
   };
 
+  const openServer = (server: MCPServerConfigWithPermissions) => {
+    loadedSelectionIdRef.current = server._id;
+    setSelectionError(null);
+    setEditingServer(server);
+    onSelectedServerChange?.(server._id);
+  };
+
+  const closeServerEditor = () => {
+    selectionRequestRef.current += 1;
+    loadedSelectionIdRef.current = null;
+    setEditingServer(null);
+    setIsCreating(false);
+    setCatalogInitialValues(null);
+    setSelectionError(null);
+    setSelectionLoading(false);
+    onSelectedServerChange?.(null);
+  };
+
+  const handleCatalogSelect = (template: RemoteMCPTemplate) => {
+    setCatalogInitialValues({
+      name: template.name,
+      description: template.description,
+      endpoint: template.endpoint,
+      credential_sources: template.credential_sources,
+    });
+    setIsCreating(true);
+  };
+
+  const hasMatchingSelectedServer = editingServer?._id === selectedServerId;
+
+  if (selectedServerId && selectionLoading && !hasMatchingSelectedServer) {
+    return (
+      <Card>
+        <CardContent className="flex items-center justify-center py-12">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (selectedServerId && selectionError && !hasMatchingSelectedServer) {
+    return (
+      <Card>
+        <CardContent className="py-12 text-center">
+          <p className="text-destructive">{selectionError}</p>
+          <Button variant="outline" className="mt-4" onClick={closeServerEditor}>
+            Back to MCP Servers
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
   if (isCreating || editingServer) {
     return (
       <MCPServerEditor
+        key={editingServer?._id ?? "new"}
         server={editingServer}
+        initialValues={catalogInitialValues ?? undefined}
         readOnly={
           isCreating
             ? false
             : isLockedConfigDrivenServer(editingServer) || !serverCanManage(editingServer)
         }
         onSave={() => {
-          setEditingServer(null);
-          setIsCreating(false);
+          closeServerEditor();
           fetchServers();
         }}
-        onCancel={() => {
-          setEditingServer(null);
-          setIsCreating(false);
-        }}
+        onCancel={closeServerEditor}
       />
     );
   }
 
   return (
+    <>
+      <RemoteMCPCatalogDialog
+        open={showCatalog}
+        onOpenChange={setShowCatalog}
+        onSelect={handleCatalogSelect}
+        onSelectCustom={() => setIsCreating(true)}
+      />
     <Card>
       <CardHeader>
         <div className="flex items-center justify-between">
@@ -536,7 +660,7 @@ export function MCPServersTab() {
               <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
               Refresh
             </Button>
-            <Button size="sm" onClick={() => setIsCreating(true)}>
+            <Button size="sm" onClick={() => setShowCatalog(true)}>
               <Plus className="h-4 w-4 mr-2" />
               Add Server
             </Button>
@@ -612,7 +736,7 @@ export function MCPServersTab() {
             <p className="text-muted-foreground mb-4">
               Add your first MCP server to enable tool access for agents.
             </p>
-            <Button onClick={() => setIsCreating(true)}>
+            <Button onClick={() => setShowCatalog(true)}>
               <Plus className="h-4 w-4 mr-2" />
               Add Server
             </Button>
@@ -639,7 +763,7 @@ export function MCPServersTab() {
                     className={`grid grid-cols-12 gap-4 py-3 px-2 rounded-lg hover:bg-muted/50 items-center ${
                       serverCanManage(server) ? "cursor-pointer" : "cursor-default"
                     }`}
-                    onClick={() => setEditingServer(server)}
+                    onClick={() => openServer(server)}
                   >
                     <div className="col-span-3">
                       <div className="flex items-center gap-3">
@@ -916,6 +1040,7 @@ export function MCPServersTab() {
         }}
       />
     </Card>
+    </>
   );
 }
 
@@ -1132,6 +1257,14 @@ function MCPToolTestDialog({
   }, [open, server]);
 
   const selectedToolDetails = tools.find((tool) => tool.name === selectedTool);
+  const toolPickerOptions: AgentPickerOption[] = React.useMemo(
+    () =>
+      tools.map((tool) => ({
+        value: tool.name,
+        label: tool.name,
+      })),
+    [tools],
+  );
   const selectedProperties = React.useMemo(
     () => schemaProperties(selectedToolDetails),
     [selectedToolDetails],
@@ -1246,21 +1379,20 @@ function MCPToolTestDialog({
                 <label htmlFor="mcp-test-tool" className="text-sm font-medium">
                   Tool
                 </label>
-                <select
+                <AgentPicker
                   id="mcp-test-tool"
+                  ariaLabel="Tool"
+                  options={toolPickerOptions}
                   value={selectedTool}
-                  onChange={(event) => {
-                    setSelectedTool(event.target.value);
+                  onChange={(value) => {
+                    setSelectedTool(value);
                     setResult(null);
                   }}
-                  className="h-10 rounded-md border border-input bg-background px-3 text-sm"
-                >
-                  {tools.map((tool) => (
-                    <option key={tool.namespaced_name || tool.name} value={tool.name}>
-                      {tool.name}
-                    </option>
-                  ))}
-                </select>
+                  placeholder="Select tool..."
+                  searchPlaceholder="Search tools..."
+                  emptyLabel="No tools match"
+                  hideIdSuffix
+                />
                 {selectedToolDetails?.description && (
                   <p className="text-xs text-muted-foreground">{selectedToolDetails.description}</p>
                 )}
