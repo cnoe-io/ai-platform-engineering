@@ -10,6 +10,7 @@ import {
   FileText,
   Gauge,
   HeartPulse,
+  Info,
   Layers,
   Loader2,
   RefreshCw,
@@ -304,7 +305,13 @@ function KpiCard({
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
-                <AlertCircle className="h-3.5 w-3.5 cursor-help text-muted-foreground/60" />
+                <button
+                  type="button"
+                  aria-label={`About ${title}`}
+                  className="rounded-full text-muted-foreground/60 transition-colors hover:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <Info className="h-3.5 w-3.5" />
+                </button>
               </TooltipTrigger>
               <TooltipContent className="max-w-xs text-xs">{tooltip}</TooltipContent>
             </Tooltip>
@@ -403,8 +410,8 @@ export function TomeAnalyticsTab() {
         : "fail";
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-start justify-between gap-4">
+    <div className="flex flex-col gap-6">
+      <div className="order-1 flex items-start justify-between gap-4">
         <div>
           <h3 className="flex items-center gap-2 text-lg font-semibold">
             <Gauge className="h-5 w-5" />
@@ -423,7 +430,7 @@ export function TomeAnalyticsTab() {
         </Link>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="order-2 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard
           title="Adoption"
           icon={<Users className="h-4 w-4" />}
@@ -488,7 +495,7 @@ export function TomeAnalyticsTab() {
         />
       </div>
 
-      <div>
+      <div className="order-5">
         <h3 className="flex items-center gap-2 text-lg font-semibold">
           <Database className="h-5 w-5" />
           Platform coverage and health
@@ -498,7 +505,7 @@ export function TomeAnalyticsTab() {
         </p>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="order-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard
           title="Project coverage"
           icon={<FileText className="h-4 w-4" />}
@@ -573,7 +580,7 @@ export function TomeAnalyticsTab() {
         />
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <div className="order-7 grid grid-cols-1 gap-4 sm:grid-cols-2">
         <KpiCard
           title="Tome hierarchy"
           icon={<Layers className="h-4 w-4" />}
@@ -608,7 +615,7 @@ export function TomeAnalyticsTab() {
       </div>
 
       {leadership && (
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <div className="order-8 grid grid-cols-1 gap-4 lg:grid-cols-2">
           <div className="rounded-lg border border-border bg-card p-4">
             <h3 className="flex items-center gap-2 text-sm font-semibold">
               <Users className="h-4 w-4" />
@@ -646,7 +653,7 @@ export function TomeAnalyticsTab() {
         </div>
       )}
 
-      <div>
+      <div className="order-3">
         <h3 className="flex items-center gap-2 text-lg font-semibold">
           <TrendingUp className="h-5 w-5" />
           Trends
@@ -654,7 +661,7 @@ export function TomeAnalyticsTab() {
         <p className="text-sm text-muted-foreground">Last 30 days (7 days for query latency).</p>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <div className="order-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
         <TrendCard
           title="Daily active users"
           icon={<Users className="h-4 w-4 text-muted-foreground" />}
@@ -851,7 +858,7 @@ export function TomeAnalyticsTab() {
         </TrendCard>
       </div>
 
-      <div className="flex items-center justify-between">
+      <div className="order-9 flex items-center justify-between">
         <div>
           <h3 className="flex items-center gap-2 text-lg font-semibold">
             <Activity className="h-5 w-5" />
@@ -869,12 +876,12 @@ export function TomeAnalyticsTab() {
       </div>
 
       {error && (
-        <p className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+        <p className="order-10 rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
           {error}
         </p>
       )}
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
+      <div className="order-11 grid grid-cols-1 gap-4 sm:grid-cols-4">
         <StatCard title="Projects" value={String(totals?.projectCount ?? 0)} icon={<FileText className="h-4 w-4" />} />
         <StatCard
           title="Ingesting now"
@@ -889,7 +896,7 @@ export function TomeAnalyticsTab() {
         />
       </div>
 
-      <div className="rounded-lg border border-border overflow-hidden bg-card">
+      <div className="order-12 overflow-hidden rounded-lg border border-border bg-card">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
