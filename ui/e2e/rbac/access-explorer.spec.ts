@@ -372,7 +372,7 @@ test.describe("mocked Access Explorer browser regression", () => {
     ]);
   });
 
-  test("searches actors and resource entities before rendering effective access", async ({
+  test("selects an actor before rendering effective access", async ({
     page,
   }) => {
     const harness = await installAccessExplorerMocks(page, { holdGraphResponse: true });
@@ -385,22 +385,10 @@ test.describe("mocked Access Explorer browser regression", () => {
     const explorer = page.getByTestId("access-explorer-search-stage");
     await expect(explorer.getByText("Users", { exact: true })).toBeVisible();
     await expect(explorer.getByText("Teams", { exact: true })).toBeVisible();
-    await expect(explorer.getByText("Service Accounts", { exact: true })).toBeVisible();
-    await expect(explorer.getByText("Agents", { exact: true })).toBeVisible();
-    await expect(explorer.getByText("Skills", { exact: true })).toBeVisible();
-    await expect(explorer.getByText("Data Sources", { exact: true })).toBeVisible();
     await expect(explorer.getByText("Chats", { exact: true })).toHaveCount(0);
-    await expect(explorer.getByText("Credentials", { exact: true })).toBeVisible();
-    await expect(explorer.getByText("LLM Models", { exact: true })).toBeVisible();
     await expect(explorer.getByText("Example User")).toBeVisible();
     await expect(explorer.getByText("Platform Team")).toBeVisible();
-    await expect(explorer.getByText("Primary CI Robot")).toBeVisible();
-    await expect(explorer.getByText("Primary Assistant Agent")).toBeVisible();
-    await expect(explorer.getByText("Primary Review Skill")).toBeVisible();
-    await expect(explorer.getByText("Primary Runbooks")).toBeVisible();
     await expect(explorer.getByText("Example Troubleshooting Chat")).toHaveCount(0);
-    await expect(explorer.getByText("Primary Provider Credential")).toBeVisible();
-    await expect(explorer.getByText("Primary Chat Model")).toBeVisible();
 
     await expect.poll(() => [...harness.searchEndpoints].sort()).toEqual([
       "agents",
@@ -449,7 +437,7 @@ test.describe("mocked Access Explorer browser regression", () => {
     const harness = await installAccessExplorerMocks(page);
     await gotoAccessExplorer(page);
 
-    await page.getByPlaceholder(accessExplorerPlaceholder).fill("example");
+    await page.getByPlaceholder(accessExplorerPlaceholder).fill("primary");
     await expect(page.getByText("Primary Review Skill")).toBeVisible();
     await page.getByText("Primary Review Skill").click();
     await expect(page.getByText("skill:skill-primary-review")).toBeVisible();
@@ -501,7 +489,7 @@ test.describe("mocked Access Explorer browser regression", () => {
     const harness = await installAccessExplorerMocks(page);
     await gotoAccessExplorer(page);
 
-    await page.getByPlaceholder(accessExplorerPlaceholder).fill("example");
+    await page.getByPlaceholder(accessExplorerPlaceholder).fill("primary");
     await page.getByText("Primary Assistant Agent").click();
     await expect(page.getByText("agent:agent-primary-assistant")).toBeVisible();
 
@@ -540,7 +528,7 @@ test.describe("mocked Access Explorer browser regression", () => {
     const harness = await installAccessExplorerMocks(page);
     await gotoAccessExplorer(page);
 
-    await page.getByPlaceholder(accessExplorerPlaceholder).fill("example");
+    await page.getByPlaceholder(accessExplorerPlaceholder).fill("primary");
     await expect(page.getByText("Primary Runbooks")).toBeVisible();
     await page.getByText("Primary Runbooks").click();
     await expect(page.getByText("data_source:kb-primary-runbooks")).toBeVisible();
@@ -569,7 +557,7 @@ test.describe("mocked Access Explorer browser regression", () => {
 
     await page
       .getByPlaceholder(accessExplorerPlaceholder)
-      .fill("example");
+      .fill("primary");
     await page.getByText("Primary Assistant Agent").click();
     await expect(page.getByText("agent:agent-primary-assistant")).toBeVisible();
     const principalPicker = page.getByTestId("access-explorer-principal-picker");

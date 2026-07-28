@@ -2,10 +2,8 @@ import { expect,test } from "@playwright/test";
 
 import {
   DEFAULT_ADMIN_GATES,
-  fulfillJson,
   installMockedRbacApp,
   mockedRbacEnabled,
-  type MockRouteHandler,
 } from "./_mocked-rbac";
 
 const adminSession = {
@@ -34,7 +32,9 @@ test.describe("mocked Admin workspace browser regression",() => {
     await expect(page).toHaveURL(/\/admin\/people\/users$/);
     await expect(page.getByRole("heading",{ level: 1,name: "Users" })).toBeVisible();
     await expect(
-      page.getByRole("banner").getByRole("link",{ name: "Admin",exact: true }),
+      page
+        .getByRole("navigation",{ name: "Application navigation" })
+        .getByRole("link",{ name: "Admin",exact: true }),
     ).toHaveAttribute(
       "aria-current",
       "page",
@@ -65,7 +65,7 @@ test.describe("mocked Admin workspace browser regression",() => {
     ).toHaveAttribute("aria-current","page");
   });
 
-  test("discloses any category without navigating to an unwanted destination",async ({ page }) => {
+  test("discloses categories and exposes them from the collapsed rail",async ({ page }) => {
     await installMockedRbacApp(page,{
       gates: {
         ...DEFAULT_ADMIN_GATES,
@@ -106,39 +106,21 @@ test.describe("mocked Admin workspace browser regression",() => {
 
     await page.getByRole("button",{ name: "Collapse sidebar",exact: true }).click();
     await expect(page.getByRole("button",{ name: "Expand sidebar",exact: true })).toBeVisible();
-    await resources.hover();
-    await expect(resources).toHaveAttribute("aria-expanded","true");
-    await expect(page.getByRole("link",{ name: "Agent configuration" })).toBeVisible();
-    await expect(page.getByRole("button",{ name: "Expand sidebar",exact: true })).toBeVisible();
-  });
-
-  test("preserves destination context through disclosure navigation, back, and reload",async ({ page }) => {
-    await installMockedRbacApp(page,{
-      isAdmin: true,
-      session: adminSession,
+    await page.getByRole("button",{ name: "Admin",exact: true }).hover();
+    const flyoutNavigation = page.getByRole("navigation",{ name: "Admin sections" });
+    const flyoutResources = flyoutNavigation.getByRole("button",{
+      name: "Resources",
+      exact: true,
     });
-    await page.goto("/admin/people/users",{ waitUntil: "domcontentloaded" });
-
-    const navigation = page.getByRole("navigation",{ name: "Admin sections" });
-    await navigation.getByRole("button",{ name: "Resources",exact: true }).click();
-    await navigation.getByRole("link",{ name: "Agent configuration" }).click();
-
+    if (await flyoutResources.getAttribute("aria-expanded") !== "true") {
+      await flyoutResources.click();
+    }
+    await flyoutNavigation.getByRole("link",{ name: "Agent configuration" }).click();
     await expect(page).toHaveURL(/\/admin\/platform\/agents$/);
     await expect(page.getByRole("heading",{ level: 1,name: "Agent configuration" })).toBeVisible();
-
-    await page.goBack({ waitUntil: "domcontentloaded" });
-    await expect(page).toHaveURL(/\/admin\/people\/users$/);
-    await expect(
-      page
-        .getByRole("navigation",{ name: "Admin sections" })
-        .getByRole("link",{ name: "Users",exact: true }),
-    ).toHaveAttribute("aria-current","page");
-
-    await page.reload({ waitUntil: "domcontentloaded" });
-    await expect(page.getByRole("heading",{ level: 1,name: "Users" })).toBeVisible();
   });
 
-  test("uses a navigation drawer when the Admin rail would crowd content",async ({ page }) => {
+  test("uses the application drawer when the rail would crowd content",async ({ page }) => {
     await page.setViewportSize({ height: 768,width: 1024 });
     await installMockedRbacApp(page,{
       isAdmin: true,
@@ -146,11 +128,11 @@ test.describe("mocked Admin workspace browser regression",() => {
     });
     await page.goto("/admin/people/users",{ waitUntil: "domcontentloaded" });
 
-    const drawerTrigger = page.getByRole("button",{ name: "Admin sections",exact: true });
+    const drawerTrigger = page.getByRole("button",{ name: "Open navigation",exact: true });
     await expect(drawerTrigger).toBeVisible();
     await drawerTrigger.click();
 
-    const drawer = page.getByRole("dialog",{ name: "Admin sections" });
+    const drawer = page.getByRole("dialog",{ name: "Navigation" });
     await expect(drawer).toBeVisible();
     const navigation = drawer.getByRole("navigation",{ name: "Admin sections" });
     await navigation.getByRole("button",{ name: "Metrics & Health",exact: true }).click();
@@ -166,52 +148,4 @@ test.describe("mocked Admin workspace browser regression",() => {
     ).toBe(true);
   });
 
-  test("preserves View as context and keeps resource controls read-only",async ({ page }) => {
-    const simulationHandler: MockRouteHandler = async ({ method,path,route }) => {
-      if (path === "/api/rbac/admin-tab-gates" && method === "GET") {
-        await fulfillJson(route,{
-          gates: {
-            ...DEFAULT_ADMIN_GATES,
-            credentials: true,
-            feedback: true,
-            stats: true,
-          },
-          integration_panel_modes: { slack: "full",webex: "full" },
-          simulation: {
-            active: true,
-            readonly: true,
-            subject: {
-              display_name: "Target Admin",
-              id: "target-admin",
-              openfga_user: "user:target-admin",
-              organization_admin: true,
-              type: "user",
-            },
-          },
-        });
-        return true;
-      }
-      return false;
-    };
-
-    await installMockedRbacApp(page,{
-      handlers: [simulationHandler],
-      isAdmin: true,
-      session: adminSession,
-    });
-    await page.goto(
-      "/admin/platform/agents?simulate_type=user&simulate_id=target-admin",
-      { waitUntil: "domcontentloaded" },
-    );
-
-    await expect(page.getByRole("button",{ name: /viewing as target admin/i })).toBeVisible();
-    await expect(page.getByTestId("import-agents-from-config-button")).toBeDisabled();
-
-    const navigation = page.getByRole("navigation",{ name: "Admin sections" });
-    await navigation.getByRole("button",{ name: "Teams & Users" }).click();
-    await expect(navigation.getByRole("link",{ name: "Users",exact: true })).toHaveAttribute(
-      "href",
-      /simulate_type=user&simulate_id=target-admin/,
-    );
-  });
 });

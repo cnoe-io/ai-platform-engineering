@@ -1,6 +1,11 @@
 "use client";
 
 import { AppHeader } from "@/components/layout/AppHeader";
+import {
+  ApplicationNavigationDrawer,
+  ApplicationNavigationRail,
+} from "@/components/layout/ApplicationNavigation";
+import { ApplicationNavigationProvider } from "@/components/layout/ApplicationNavigationContext";
 import { LiveStreamBanner } from "@/components/layout/LiveStreamBanner";
 import { SettingsDialogProvider } from "@/components/settings/SettingsDialogProvider";
 import { useUserInit } from "@/hooks/use-user-init";
@@ -16,11 +21,19 @@ export default function AppLayout({
   
   return (
     <SettingsDialogProvider>
-      <div className="h-screen flex flex-col bg-background noise-overlay">
-        <AppHeader />
-        <LiveStreamBanner />
-        {children}
-      </div>
+      <ApplicationNavigationProvider>
+        <div className="flex h-screen bg-background noise-overlay">
+          <ApplicationNavigationRail />
+          <div className="flex min-w-0 flex-1 flex-col">
+            <AppHeader />
+            <LiveStreamBanner />
+            <div className="flex min-h-0 flex-1 flex-col">
+              {children}
+            </div>
+          </div>
+          <ApplicationNavigationDrawer />
+        </div>
+      </ApplicationNavigationProvider>
     </SettingsDialogProvider>
   );
 }

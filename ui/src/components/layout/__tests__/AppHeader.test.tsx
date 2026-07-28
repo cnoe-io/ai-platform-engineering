@@ -1,8 +1,8 @@
 /**
- * Unit tests for AppHeader component
+ * Unit tests for the application chrome.
  *
- * Nav tab visibility:
- * - Personal Insights tab is NOT in the nav pills (moved to user menu)
+ * Application rail visibility:
+ * - Personal Insights is NOT a global destination (moved to user menu)
  * - Skills and Chat tabs are always visible
  * - Knowledge Bases tab is visible when RAG is enabled
  * - Admin tab is visible for admin users, disabled without MongoDB
@@ -16,7 +16,14 @@
  */
 
 import React from 'react'
-import { render, screen, fireEvent } from '@testing-library/react'
+import Link from 'next/link'
+import {
+  render as testingRender,
+  screen,
+  fireEvent,
+  type RenderOptions,
+  type RenderResult,
+} from '@testing-library/react'
 
 // ============================================================================
 // Mocks — must be before imports
@@ -37,6 +44,7 @@ let mockPathname = '/chat'
 const mockRouterPush = jest.fn()
 jest.mock('next/navigation', () => ({
   usePathname: () => mockPathname,
+  useSearchParams: () => new URLSearchParams(),
   useRouter: () => ({
     push: mockRouterPush,
     replace: jest.fn(),
@@ -47,13 +55,6 @@ jest.mock('next/navigation', () => ({
   }),
 }))
 
-// Controls the simulated container width in the ResizeObserver mock (jest.setup.js).
-// Pass true to simulate a narrow container (triggers nav overflow / More button).
-// Pass false to restore the default wide container (all items visible).
-function setHeaderNavConstrained(constrained: boolean) {
-  ;(global as unknown).__mockContainerWidth = constrained ? 0 : 2000
-}
-
 // Mock admin role hook
 let mockIsAdmin = false
 let mockCanAccessDynamicAgents = false
@@ -61,6 +62,29 @@ jest.mock('@/hooks/use-admin-role', () => ({
   useAdminRole: () => ({
     isAdmin: mockIsAdmin,
     canAccessDynamicAgents: mockCanAccessDynamicAgents,
+  }),
+}))
+
+jest.mock('@/hooks/useAdminTabGates', () => ({
+  useAdminTabGates: () => ({
+    gates: { dynamic_agent_conversations: false },
+    loading: false,
+  }),
+}))
+
+jest.mock('@/hooks/use-kb-tab-gates', () => ({
+  useKbTabGates: () => ({
+    gates: {
+      search: true,
+      data_sources: true,
+      graph: true,
+      mcp_tools: true,
+      has_any_kb: true,
+      can_ingest: true,
+      can_search: true,
+    },
+    loading: false,
+    orgAdminBypass: true,
   }),
 }))
 
@@ -209,6 +233,15 @@ jest.mock('@/lib/config', () => ({
     githubUrl: 'https://github.com/example',
     ssoEnabled: true,
     envBadge: '',
+    workflowsEnabled: false,
+    dynamicAgentsEnabled: true,
+    schedulerEnabled: false,
+    schedulerAdminOnly: false,
+    userConnectionsEnabled: true,
+    feedbackEnabled: true,
+    auditLogsEnabled: true,
+    credentialsEnabled: true,
+    oktaSyncEnabled: true,
     get storageMode() { return mockStorageMode },
     get ragEnabled() { return mockRagEnabled },
     get reportProblemEnabled() { return mockReportProblemEnabled },
@@ -340,6 +373,44 @@ jest.mock('@/lib/utils', () => ({
 // ============================================================================
 
 import { AppHeader } from '../AppHeader'
+import { ApplicationNavigationRail } from '../ApplicationNavigation'
+import {
+  ApplicationNavigationProvider,
+  useRegisterApplicationNavigation,
+} from '../ApplicationNavigationContext'
+
+function AdminNavigationFixture() {
+  useRegisterApplicationNavigation({
+    areaKey: 'admin',
+    content: (
+      <nav aria-label="Admin sections">
+        <Link data-navigation-leaf="true" href="/admin/people/users">Users</Link>
+      </nav>
+    ),
+    version: 'users',
+  })
+  return null
+}
+
+function render(
+  ui: React.ReactElement,
+  options?: RenderOptions,
+): RenderResult {
+  const renderChrome = (content: React.ReactElement) => (
+    <ApplicationNavigationProvider>
+      <ApplicationNavigationRail />
+      {content}
+    </ApplicationNavigationProvider>
+  )
+  const result = testingRender(renderChrome(ui),options)
+  const rerender = result.rerender
+  return {
+    ...result,
+    rerender: (nextUi: React.ReactNode) => {
+      rerender(renderChrome(nextUi as React.ReactElement))
+    },
+  }
+}
 
 // ============================================================================
 // Tests
@@ -359,9 +430,10 @@ beforeEach(() => {
   lastPopoverState = { open: false }
 })
 
-describe('AppHeader — nav tabs', () => {
+describe('AppHeader — application chrome', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    window.localStorage.removeItem('application-navigation-collapsed')
     mockStorageMode = 'mongodb'
     mockPathname = '/chat'
     mockIsAdmin = false
@@ -370,7 +442,6 @@ describe('AppHeader — nav tabs', () => {
     mockReportProblemEnabled = false
     mockRuntimeStatus = 'connected'
     mockRagStatus = 'connected'
-    setHeaderNavConstrained(false)
     mockStreamingConversations = new Map()
     mockUnviewedConversations = new Set()
     mockInputRequiredConversations = new Set()
@@ -384,7 +455,7 @@ describe('AppHeader — nav tabs', () => {
   })
 
   describe('Insights tab removed from nav', () => {
-    it('does NOT show Personal Insights in the nav pills even with MongoDB', () => {
+    it('does NOT show Personal Insights in the application rail even with MongoDB', () => {
       render(<AppHeader />)
       // Insights was moved to user menu — it should NOT be a tab
       const navLinks = screen.queryAllByTestId(/^link-/)
@@ -441,30 +512,60 @@ describe('AppHeader — nav tabs', () => {
       expect(screen.getByTestId('link-/chat')).toHaveTextContent('Chat')
     })
 
-    it('collapses nav items into More dropdown and keeps right cluster intact on narrow widths', () => {
-      setHeaderNavConstrained(true)
+    it('keeps global destinations in the rail and discloses active section navigation', () => {
       mockStorageMode = 'mongodb'
       mockIsAdmin = true
+      mockPathname = '/admin/people/users'
       mockReportProblemEnabled = true
 
-      render(<AppHeader />)
+      render(
+        <>
+          <AdminNavigationFixture />
+          <AppHeader />
+        </>,
+      )
 
-      // Nav items overflow into More
-      const moreButton = screen.getByRole('button', {
-        name: /more navigation; chat is current/i,
-      })
-      expect(moreButton).toHaveTextContent('More')
-      // All items still accessible (inside the always-open popover mock)
+      expect(
+        screen.getByRole('navigation', { name: 'Application navigation' }),
+      ).toBeInTheDocument()
       expect(screen.getByText('Home')).toBeInTheDocument()
       expect(screen.getByTestId('link-/chat')).toHaveTextContent('Chat')
       expect(screen.getByText('Skills')).toBeInTheDocument()
       expect(screen.getByTestId('link-/dynamic-agents')).toBeInTheDocument()
       expect(screen.getByTestId('link-/admin')).toBeInTheDocument()
-      // Right cluster: status stays icon-only circle, Report a Problem keeps its label
+      expect(screen.getByRole('navigation', { name: 'Admin sections' })).toBeInTheDocument()
+      const disclosure = screen.getByRole('button', { name: 'Hide Admin sections' })
+      fireEvent.click(disclosure)
+      expect(screen.queryByRole('navigation', { name: 'Admin sections' })).not.toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: 'Show Admin sections' }))
+      expect(screen.getByRole('navigation', { name: 'Admin sections' })).toBeInTheDocument()
       expect(screen.getByRole('button', { name: /system status: healthy/i })).toHaveClass('w-8')
       expect(screen.getByText('Report a Problem')).toBeInTheDocument()
       expect(screen.getByTestId('settings-panel')).toBeInTheDocument()
       expect(screen.getByTestId('user-menu')).toBeInTheDocument()
+    })
+
+    it('opens inactive section navigation on hover and highlights only the current item', () => {
+      mockPathname = '/chat'
+      mockRagEnabled = true
+
+      render(<AppHeader />)
+      fireEvent.click(screen.getByRole('button', { name: 'Collapse sidebar' }))
+
+      const chat = screen.getByTestId('link-/chat')
+      const knowledge = screen.getByRole('button', { name: 'Knowledge Bases' })
+      const agents = screen.getByRole('button', { name: 'Agents' })
+      const credentials = screen.getByRole('button', { name: 'Credentials' })
+
+      expect(chat.querySelector('.gradient-primary-br')).not.toBeNull()
+      expect(knowledge.querySelector('.gradient-primary-br')).toBeNull()
+      expect(agents.querySelector('.gradient-primary-br')).toBeNull()
+      expect(credentials.querySelector('.gradient-primary-br')).toBeNull()
+
+      fireEvent.mouseEnter(knowledge)
+      expect(
+        screen.getByRole('navigation', { name: 'Knowledge Base sections' }),
+      ).toBeInTheDocument()
     })
 
     it('shows Skills as active on /skills', () => {

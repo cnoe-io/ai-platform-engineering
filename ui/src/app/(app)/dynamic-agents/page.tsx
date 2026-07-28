@@ -10,19 +10,20 @@ import { LLMProvidersTab } from "@/components/dynamic-agents/LLMProvidersTab";
 import { MCPServersTab } from "@/components/dynamic-agents/MCPServersTab";
 import { isAgentSetupStep,type AgentSetupStep } from "@/components/dynamic-agents/deep-linking";
 import {
-  WorkspaceSectionNavigation,
-  type WorkspaceNavigationGroup,
+  BASE_DYNAMIC_AGENT_TABS,
+  buildDynamicAgentNavigationGroups,
+} from "@/components/dynamic-agents/navigation";
+import {
+  WorkspaceNavigationList,
 } from "@/components/layout/WorkspaceNavigation";
 import { WorkspacePageHeader } from "@/components/layout/WorkspacePageHeader";
 import { WorkspaceShell } from "@/components/layout/WorkspaceShell";
 import { UnsavedChangesDialog } from "@/components/shared/UnsavedChangesDialog";
 import { useAdminTabGates } from "@/hooks/useAdminTabGates";
 import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
-import { Bot,Cpu,KeyRound,MessageSquare,Server } from "lucide-react";
 import { usePathname,useRouter,useSearchParams } from "next/navigation";
 import React from "react";
 
-const BASE_VISIBLE_TABS = ["agents", "mcp-servers", "model-providers", "llm-models"] as const;
 const RESOURCE_QUERY_KEYS = ["agent", "server", "model", "step"] as const;
 
 function DynamicAgentsPageContent() {
@@ -32,7 +33,11 @@ function DynamicAgentsPageContent() {
   const { gates } = useAdminTabGates();
   const showConversations = Boolean(gates.dynamic_agent_conversations);
   const visibleTabs = React.useMemo(
-    () => new Set<string>(showConversations ? [...BASE_VISIBLE_TABS, "conversations"] : BASE_VISIBLE_TABS),
+    () => new Set<string>(
+      showConversations
+        ? [...BASE_DYNAMIC_AGENT_TABS, "conversations"]
+        : BASE_DYNAMIC_AGENT_TABS,
+    ),
     [showConversations],
   );
 
@@ -112,54 +117,12 @@ function DynamicAgentsPageContent() {
     setPendingTab(null);
   }
 
-  const navigationGroups: WorkspaceNavigationGroup[] = [{
-    id: "agent-sections",
-    items: [
-      {
-        id: "agents",
-        label: "Agents",
-        icon: Bot,
-        description: "Create and configure agents",
-        onSelect: () => setActiveTab("agents"),
-      },
-      {
-        id: "mcp-servers",
-        label: "MCP Servers",
-        icon: Server,
-        description: "Connect tools and services",
-        onSelect: () => setActiveTab("mcp-servers"),
-      },
-      {
-        id: "model-settings",
-        label: "Models",
-        icon: Cpu,
-        description: "Configure providers and models",
-        children: [
-          {
-            id: "model-providers",
-            label: "Model Providers",
-            icon: KeyRound,
-            description: "Connect model providers",
-            onSelect: () => setActiveTab("model-providers"),
-          },
-          {
-            id: "llm-models",
-            label: "LLM Models",
-            icon: Cpu,
-            description: "Register available models",
-            onSelect: () => setActiveTab("llm-models"),
-          },
-        ],
-      },
-      ...(showConversations ? [{
-        id: "conversations",
-        label: "Conversations",
-        icon: MessageSquare,
-        description: "Review agent conversations",
-        onSelect: () => setActiveTab("conversations"),
-      }] : []),
-    ],
-  }];
+  const navigationGroups = buildDynamicAgentNavigationGroups({
+    destinationForTab: (tab) => ({
+      onSelect: () => setActiveTab(tab),
+    }),
+    showConversations,
+  });
   const activeNavigationItem = navigationGroups
     .flatMap((group) => group.items)
     .flatMap((item) => item.children ?? [item])
@@ -218,13 +181,14 @@ function DynamicAgentsPageContent() {
           />
         )}
         navigation={(
-          <WorkspaceSectionNavigation
+          <WorkspaceNavigationList
             activeItemId={activeTab}
+            ariaLabel="Agent sections"
             groups={navigationGroups}
-            navigationLabel="Agent sections"
-            pickerLabel="Agent section"
           />
         )}
+        navigationAreaKey="dynamic-agents"
+        navigationVersion={`${activeTab}:${showConversations}:${searchParams.toString()}`}
       >
         {activeTab === "agents" ? (
           <DynamicAgentsTab

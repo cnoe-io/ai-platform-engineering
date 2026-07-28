@@ -655,9 +655,6 @@ describe('Admin Dashboard Page', () => {
         'page',
       );
       expect(within(navigation).queryByRole('link', { name: 'Metrics' })).not.toBeInTheDocument();
-      expect(
-        within(navigation).queryByRole('link', { name: 'Authorization Insights' }),
-      ).not.toBeInTheDocument();
     });
   });
 

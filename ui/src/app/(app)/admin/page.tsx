@@ -544,6 +544,15 @@ function AdminPage() {
         (destination) => destination.subgroup === activeDestination.subgroup,
       )
     : undefined;
+  const adminNavigationVersion = [
+    activeDestination.id,
+    searchParams.toString(),
+    visibleCategories
+      .map((category) =>
+        `${category.id}:${category.destinations.map((destination) => destination.id).join(",")}`,
+      )
+      .join("|"),
+  ].join(";");
 
   useEffect(() => {
     if (adminRoleLoading || adminTabGatesLoading) return;
@@ -1469,6 +1478,8 @@ function AdminPage() {
             searchParams={new URLSearchParams(searchParams.toString())}
           />
         ) : null}
+        navigationAreaKey="admin"
+        navigationVersion={adminNavigationVersion}
       >
         <Tabs value={activeTab} className="space-y-4">
 

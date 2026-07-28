@@ -54,10 +54,6 @@ jest.mock("@/components/ui/button", () => ({
   Button: ({ children, ...rest }: unknown) => <button {...rest}>{children}</button>,
 }));
 
-jest.mock("@/components/rag/RagAuthBanner", () => ({
-  RagAuthIndicator: () => <div data-testid="rag-auth-indicator" />,
-}));
-
 const mockUseKbTabGates = jest.fn();
 jest.mock("@/hooks/use-kb-tab-gates", () => ({
   useKbTabGates: () => mockUseKbTabGates(),

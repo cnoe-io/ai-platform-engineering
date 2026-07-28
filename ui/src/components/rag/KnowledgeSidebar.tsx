@@ -1,10 +1,9 @@
 "use client";
 
 import {
-  WorkspaceSectionNavigation,
+  WorkspaceNavigationList,
   type WorkspaceNavigationGroup,
 } from "@/components/layout/WorkspaceNavigation";
-import { RagAuthIndicator } from "@/components/rag/RagAuthBanner";
 import { useKbTabGates } from "@/hooks/use-kb-tab-gates";
 import type { KbTabKey } from "@/lib/rbac/types";
 import { Database,GitFork,Search,Wrench } from "lucide-react";
@@ -59,6 +58,7 @@ export const KNOWLEDGE_NAV_ITEMS: Array<{
 ];
 
 export function knowledgeTabForPath(pathname: string | null): string {
+  if (!pathname?.startsWith("/knowledge-bases")) return "";
   if (pathname?.includes("/mcp-tools")) return "mcp-tools";
   if (pathname?.includes("/ingest")) return "ingest";
   if (pathname?.includes("/graph")) return "graph";
@@ -114,36 +114,18 @@ export function KnowledgeSidebar({
     }),
   }];
 
-  const accessStatus = (
-    <div className="mt-7 px-2">
-      <div className="mb-2 text-[10px] uppercase tracking-wider text-muted-foreground">
-        Knowledge Base access
-      </div>
-      <div className="flex justify-start">
-        <RagAuthIndicator />
-      </div>
-    </div>
-  );
-
   return (
-    <WorkspaceSectionNavigation
-      activeItemId={activeTab}
-      desktopFooter={(
-        <>
-          {showNoKbBanner ? (
-            <div className="mt-4">
-              <NoKnowledgeBaseAccessBanner testId="kb-sidebar-no-access-banner" />
-            </div>
-          ) : null}
-          {accessStatus}
-        </>
-      )}
-      groups={groups}
-      mobileFooter={showNoKbBanner ? (
-        <NoKnowledgeBaseAccessBanner testId="kb-mobile-no-access-banner" />
+    <>
+      <WorkspaceNavigationList
+        activeItemId={activeTab}
+        ariaLabel="Knowledge Base sections"
+        groups={groups}
+      />
+      {showNoKbBanner ? (
+        <div className="mt-4">
+          <NoKnowledgeBaseAccessBanner testId="kb-sidebar-no-access-banner" />
+        </div>
       ) : null}
-      navigationLabel="Knowledge Base sections"
-      pickerLabel="Knowledge Base section"
-    />
+    </>
   );
 }

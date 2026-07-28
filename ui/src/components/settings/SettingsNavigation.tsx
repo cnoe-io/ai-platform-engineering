@@ -48,8 +48,6 @@ export function SettingsNavigation({
     <>
       <WorkspaceSectionNavigation
         activeItemId={activeRoute.id}
-        compactVariant="picker"
-        desktopBreakpoint="lg"
         groups={groups}
         navigationLabel="Settings sections"
         pickerLabel="Settings section"
