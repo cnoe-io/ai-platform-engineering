@@ -510,7 +510,14 @@ export function ProjectSettingsPanel({
             description={`Reconfigure this ${projectKind}. Changes apply to future ${
               isSynthesized ? "syntheses" : "ingests"
             }.`}
-            titleAccessory={rbac ? <RbacPolicyDialog rbac={rbac} /> : undefined}
+            titleAccessory={
+              rbac ? (
+                <RbacPolicyDialog
+                  rbac={rbac}
+                  showOperatorGuidance={canManageSteward}
+                />
+              ) : undefined
+            }
           />
 
           {!canEdit && (
@@ -998,9 +1005,62 @@ function Section({
   );
 }
 
-function RbacPolicyDialog({ rbac }: { rbac: TomeRbacConfiguration }) {
+function RbacPolicyDialog({
+  rbac,
+  showOperatorGuidance,
+}: {
+  rbac: TomeRbacConfiguration;
+  showOperatorGuidance: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [modelState, setModelState] = useState<
+    "idle" | "checking" | "repair-needed" | "healthy" | "repaired" | "error"
+  >("idle");
+  const [repairing, setRepairing] = useState(false);
+
+  const inspectModel = useCallback(async () => {
+    setModelState("checking");
+    try {
+      const response = await fetch("/api/tome/admin/openfga-model", {
+        cache: "no-store",
+      });
+      const body = (await response.json().catch(() => ({}))) as {
+        healthy?: boolean;
+      };
+      if (!response.ok) throw new Error("model inspection failed");
+      setModelState(body.healthy ? "healthy" : "repair-needed");
+    } catch {
+      setModelState("error");
+    }
+  }, []);
+
+  const repairModel = useCallback(async () => {
+    setRepairing(true);
+    try {
+      const response = await fetch("/api/tome/admin/openfga-model", {
+        method: "POST",
+      });
+      if (!response.ok) throw new Error("model repair failed");
+      setModelState("repaired");
+    } catch {
+      setModelState("error");
+    } finally {
+      setRepairing(false);
+    }
+  }, []);
+
+  const handleOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      setOpen(nextOpen);
+      if (nextOpen && showOperatorGuidance) {
+        void inspectModel();
+      }
+    },
+    [inspectModel, showOperatorGuidance],
+  );
+
   return (
-    <Dialog>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <TooltipProvider>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -1016,7 +1076,15 @@ function RbacPolicyDialog({ rbac }: { rbac: TomeRbacConfiguration }) {
               </Button>
             </DialogTrigger>
           </TooltipTrigger>
-          <TooltipContent side="top">View access policy</TooltipContent>
+          <TooltipContent side="top" className="max-w-xs">
+            <p>View access policy</p>
+            {showOperatorGuidance && (
+              <p className="mt-1 text-xs">
+                Admin note: If inherited BHAG or Area access is missing, the active
+                OpenFGA model may be outdated. Open this panel to check and repair it.
+              </p>
+            )}
+          </TooltipContent>
         </Tooltip>
       </TooltipProvider>
 
@@ -1067,6 +1135,71 @@ function RbacPolicyDialog({ rbac }: { rbac: TomeRbacConfiguration }) {
             {rbac.inheritance}. Child access does not grant access back to its parent.
           </p>
         </div>
+
+        {showOperatorGuidance && (
+          <div
+            className="rounded-lg border border-border/70 p-4"
+            aria-live="polite"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-medium">Inherited access model</p>
+                {modelState === "checking" && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Checking the active OpenFGA model…
+                  </p>
+                )}
+                {modelState === "repair-needed" && (
+                  <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+                    The model is missing document parent inheritance. Repairing it
+                    publishes a corrected model without changing existing access tuples.
+                  </p>
+                )}
+                {modelState === "healthy" && (
+                  <p className="mt-1 text-xs text-emerald-700 dark:text-emerald-300">
+                    The active model supports BHAG and Area inheritance.
+                  </p>
+                )}
+                {modelState === "repaired" && (
+                  <p className="mt-1 text-xs text-emerald-700 dark:text-emerald-300">
+                    Model repaired. Save this project again to restore any parent link
+                    that previously failed.
+                  </p>
+                )}
+                {modelState === "error" && (
+                  <p className="mt-1 text-xs text-destructive">
+                    The model could not be checked or repaired. Review Platform Health
+                    and try again.
+                  </p>
+                )}
+              </div>
+              {modelState === "repair-needed" && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void repairModel()}
+                  disabled={repairing}
+                >
+                  {repairing ? (
+                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                  ) : null}
+                  {repairing ? "Repairing…" : "Repair model"}
+                </Button>
+              )}
+              {modelState === "error" && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void inspectModel()}
+                >
+                  Retry
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );

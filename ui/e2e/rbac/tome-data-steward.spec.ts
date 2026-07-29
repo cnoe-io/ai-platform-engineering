@@ -378,7 +378,16 @@ test.describe("Tome data-steward controls (mocked)", () => {
     await saveButton.locator("..").hover();
     await expect(page.getByText("Project view only access", { exact: true })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Access & RBAC" })).not.toBeVisible();
-    await page.getByRole("button", { name: "View access policy" }).click();
+    const accessPolicyButton = page.getByRole("button", {
+      name: "View access policy",
+    });
+    await accessPolicyButton.hover();
+    const viewerTooltip = page.getByRole("tooltip").filter({
+      hasText: "View access policy",
+    });
+    await expect(viewerTooltip).toBeVisible();
+    await expect(viewerTooltip).not.toContainText("Admin note");
+    await accessPolicyButton.click();
     await expect(page.getByRole("heading", { name: "Access & RBAC" })).toBeVisible();
     await expect(page.getByText("Direct read", { exact: true })).toBeVisible();
     await expect(page.getByText("Example Team members", { exact: true })).toBeVisible();
@@ -391,6 +400,70 @@ test.describe("Tome data-steward controls (mocked)", () => {
       page.getByText("team:example-team#member reader", { exact: false }),
     ).toBeVisible();
     await expect(page.getByText("All Tome administrators")).toBeVisible();
+  });
+
+  test("settings access tooltip gives Tome admins model recovery guidance", async ({
+    page,
+  }) => {
+    let repairRequests = 0;
+    const modelRepairHandler: MockRouteHandler = async ({ route, path, method }) => {
+      if (path !== "/api/tome/admin/openfga-model") return false;
+      if (method === "GET") {
+        await fulfillJson(route, {
+          healthy: false,
+          activeModelId: "model-stale",
+        });
+        return true;
+      }
+      if (method === "POST") {
+        repairRequests += 1;
+        await fulfillJson(route, {
+          healthy: true,
+          activeModelId: "model-repaired",
+          changed: true,
+        });
+        return true;
+      }
+      return false;
+    };
+
+    await installMockedRbacApp(page, {
+      session: { email: "admin@example.test", name: "Example Admin" },
+      handlers: [
+        modelRepairHandler,
+        tomeHandler(true, {
+          canManageSteward: true,
+        }),
+      ],
+    });
+
+    await page.goto(`/projects/${SLUG}/tome/settings`, {
+      waitUntil: "domcontentloaded",
+    });
+
+    await page.getByRole("button", { name: "View access policy" }).hover();
+    const tooltip = page.getByRole("tooltip").filter({
+      hasText: "If inherited BHAG or Area access is missing",
+    });
+    await expect(tooltip).toBeVisible();
+    await expect(tooltip).toContainText(
+      "Open this panel to check and repair it.",
+    );
+
+    await page.getByRole("button", { name: "View access policy" }).click();
+    await expect(
+      page.getByText("The model is missing document parent inheritance.", {
+        exact: false,
+      }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Repair model" }).click();
+    await expect(
+      page.getByText(
+        "Model repaired. Save this project again to restore any parent link that previously failed.",
+        { exact: true },
+      ),
+    ).toBeVisible();
+    expect(repairRequests).toBe(1);
   });
 
   test("unshared entities are hidden from the hub and denied by direct URL/API", async ({

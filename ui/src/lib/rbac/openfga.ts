@@ -71,6 +71,33 @@ export interface OpenFgaCheckResult {
   allowed: boolean;
 }
 
+interface OpenFgaAuthorizationTypeDefinition {
+  type: string;
+  relations?: Record<string, unknown>;
+  metadata?: {
+    relations?: Record<string, unknown>;
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+}
+
+interface OpenFgaAuthorizationModel {
+  id?: string;
+  schema_version: string;
+  type_definitions: OpenFgaAuthorizationTypeDefinition[];
+  conditions?: Record<string, unknown>;
+}
+
+export interface OpenFgaDocumentParentModelStatus {
+  healthy: boolean;
+  activeModelId: string;
+}
+
+export interface OpenFgaDocumentParentRepairResult
+  extends OpenFgaDocumentParentModelStatus {
+  changed: boolean;
+}
+
 function assertWritableRelations(diff: TeamResourceTupleDiff): void {
   const materialized = [...diff.writes, ...diff.deletes].find((tuple) =>
     tuple.relation.startsWith("can_")
@@ -415,6 +442,210 @@ export async function getOpenFgaStoreId(): Promise<string> {
       });
   }
   return _storeIdPromise;
+}
+
+const DOCUMENT_PARENT_READ_TRAVERSAL = {
+  tupleToUserset: {
+    tupleset: { relation: "parent" },
+    computedUserset: { relation: "can_read" },
+  },
+};
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function documentDefinition(
+  model: OpenFgaAuthorizationModel,
+): OpenFgaAuthorizationTypeDefinition {
+  const definition = model.type_definitions.find((candidate) => candidate.type === "document");
+  if (!definition) {
+    throw new Error("The active OpenFGA model does not define the document type");
+  }
+  return definition;
+}
+
+function hasDocumentParentReadTraversal(definition: OpenFgaAuthorizationTypeDefinition): boolean {
+  const canRead = asRecord(definition.relations?.can_read);
+  const union = asRecord(canRead?.union);
+  const children = union?.child;
+  return (
+    Array.isArray(children) &&
+    children.some((child) => {
+      const tupleToUserset = asRecord(asRecord(child)?.tupleToUserset);
+      const tupleset = asRecord(tupleToUserset?.tupleset);
+      const computedUserset = asRecord(tupleToUserset?.computedUserset);
+      return tupleset?.relation === "parent" && computedUserset?.relation === "can_read";
+    })
+  );
+}
+
+function hasWritableDocumentParentRelation(
+  definition: OpenFgaAuthorizationTypeDefinition,
+): boolean {
+  return Boolean(asRecord(asRecord(definition.relations?.parent)?.this));
+}
+
+function hasDocumentParentMetadata(definition: OpenFgaAuthorizationTypeDefinition): boolean {
+  const parent = asRecord(definition.metadata?.relations?.parent);
+  const relatedTypes = parent?.directly_related_user_types;
+  return (
+    Array.isArray(relatedTypes) &&
+    relatedTypes.some((relatedType) => asRecord(relatedType)?.type === "document")
+  );
+}
+
+function isDocumentParentModelHealthy(model: OpenFgaAuthorizationModel): boolean {
+  const definition = documentDefinition(model);
+  return (
+    hasWritableDocumentParentRelation(definition) &&
+    hasDocumentParentReadTraversal(definition) &&
+    hasDocumentParentMetadata(definition)
+  );
+}
+
+async function getActiveOpenFgaAuthorizationModel(): Promise<OpenFgaAuthorizationModel> {
+  const baseUrl = openFgaHttpUrl();
+  if (!baseUrl) throw new Error("OPENFGA_HTTP is not set");
+  const storeId = await getOpenFgaStoreId();
+  const response = await fetch(
+    `${baseUrl}/stores/${storeId}/authorization-models?page_size=1`,
+    {
+      method: "GET",
+      headers: openFgaHeaders(),
+      cache: "no-store",
+    },
+  );
+  if (!response.ok) {
+    const errorBody = await response.text().catch(() => "");
+    throw new Error(
+      `OpenFGA authorization model read failed: ${response.status} ${errorBody.slice(0, 200)}`,
+    );
+  }
+  const payload = (await response.json()) as {
+    authorization_models?: OpenFgaAuthorizationModel[];
+  };
+  const model = payload.authorization_models?.[0];
+  if (!model?.id || !model.schema_version || !Array.isArray(model.type_definitions)) {
+    throw new Error("OpenFGA did not return an active authorization model");
+  }
+  return model;
+}
+
+function patchDocumentParentModel(
+  model: OpenFgaAuthorizationModel,
+): OpenFgaAuthorizationModel {
+  const patched = JSON.parse(JSON.stringify(model)) as OpenFgaAuthorizationModel;
+  const definition = documentDefinition(patched);
+  const canRead = asRecord(definition.relations?.can_read);
+  const union = asRecord(canRead?.union);
+  const children = union?.child;
+  const parentRelation = definition.relations?.parent;
+  const parentMetadata = definition.metadata?.relations?.parent;
+  const parentMetadataRecord = asRecord(parentMetadata);
+  const relatedParentTypes = parentMetadataRecord?.directly_related_user_types;
+  if (!canRead || !union || !Array.isArray(children)) {
+    throw new Error(
+      "The active OpenFGA document#can_read relation is not a union and cannot be repaired safely",
+    );
+  }
+  if (parentRelation !== undefined && !hasWritableDocumentParentRelation(definition)) {
+    throw new Error(
+      "The active OpenFGA document#parent relation has an unfamiliar shape and cannot be repaired safely",
+    );
+  }
+  if (
+    parentMetadata !== undefined &&
+    (!parentMetadataRecord || !Array.isArray(relatedParentTypes))
+  ) {
+    throw new Error(
+      "The active OpenFGA document#parent metadata has an unfamiliar shape and cannot be repaired safely",
+    );
+  }
+
+  const patchedParentMetadata = hasDocumentParentMetadata(definition)
+    ? parentMetadata
+    : {
+        ...parentMetadataRecord,
+        directly_related_user_types: [
+          ...(Array.isArray(relatedParentTypes) ? relatedParentTypes : []),
+          { type: "document" },
+        ],
+      };
+
+  definition.relations = {
+    ...definition.relations,
+    parent: definition.relations?.parent ?? { this: {} },
+    can_read: hasDocumentParentReadTraversal(definition)
+      ? canRead
+      : {
+          ...canRead,
+          union: {
+            ...union,
+            child: [...children, DOCUMENT_PARENT_READ_TRAVERSAL],
+          },
+        },
+  };
+  definition.metadata = {
+    ...definition.metadata,
+    relations: {
+      ...definition.metadata?.relations,
+      parent: patchedParentMetadata,
+    },
+  };
+  return patched;
+}
+
+export async function getDocumentParentModelStatus(): Promise<OpenFgaDocumentParentModelStatus> {
+  const model = await getActiveOpenFgaAuthorizationModel();
+  return {
+    healthy: isDocumentParentModelHealthy(model),
+    activeModelId: model.id!,
+  };
+}
+
+/**
+ * Repair only Tome's document-parent inheritance on the currently active
+ * model. All unrelated definitions are preserved, and a healthy model is a
+ * no-op. Publishing a new model does not alter relationship tuples.
+ */
+export async function repairDocumentParentModel(): Promise<OpenFgaDocumentParentRepairResult> {
+  const model = await getActiveOpenFgaAuthorizationModel();
+  if (isDocumentParentModelHealthy(model)) {
+    return { healthy: true, activeModelId: model.id!, changed: false };
+  }
+
+  const patched = patchDocumentParentModel(model);
+  const baseUrl = openFgaHttpUrl();
+  if (!baseUrl) throw new Error("OPENFGA_HTTP is not set");
+  const storeId = await getOpenFgaStoreId();
+  const body = {
+    schema_version: patched.schema_version,
+    type_definitions: patched.type_definitions,
+    ...(patched.conditions ? { conditions: patched.conditions } : {}),
+  };
+  const response = await fetch(`${baseUrl}/stores/${storeId}/authorization-models`, {
+    method: "POST",
+    headers: openFgaHeaders(),
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    const errorBody = await response.text().catch(() => "");
+    throw new Error(
+      `OpenFGA authorization model repair failed: ${response.status} ${errorBody.slice(0, 200)}`,
+    );
+  }
+  const payload = (await response.json()) as { authorization_model_id?: string };
+  if (!payload.authorization_model_id) {
+    throw new Error("OpenFGA did not return the repaired authorization model id");
+  }
+  return {
+    healthy: true,
+    activeModelId: payload.authorization_model_id,
+    changed: true,
+  };
 }
 
 function tupleKeysEqual(a: OpenFgaTupleKey, b: OpenFgaTupleKey): boolean {
