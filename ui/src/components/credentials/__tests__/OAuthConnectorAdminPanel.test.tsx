@@ -160,40 +160,13 @@ describe("OAuthConnectorAdminPanel", () => {
     );
   });
 
-  it("lists Figma as MCP-managed OAuth without offering a REST OAuth form", async () => {
+  it("does not offer Figma as an OAuth template", async () => {
     const user = userEvent.setup();
     render(<OAuthConnectorAdminPanel />);
 
     await screen.findByText("GitHub");
     await user.click(screen.getByRole("button", { name: /add oauth provider/i }));
-    expect(
-      screen.getByRole("option", { name: /figma \(mcp-managed oauth\)/i }),
-    ).toBeInTheDocument();
-
-    await user.selectOptions(screen.getByLabelText(/built-in template/i), "figma");
-
-    expect(screen.getByLabelText(/built-in template/i)).toHaveValue("figma");
-    expect(screen.getByRole("note")).toHaveTextContent(
-      /figma's hosted mcp server manages its own oauth flow/i,
-    );
-    expect(
-      screen.getByRole("link", { name: /view figma mcp access requirements/i }),
-    ).toHaveAttribute(
-      "href",
-      "https://developers.figma.com/docs/figma-mcp-server/",
-    );
-    expect(screen.queryByLabelText(/client id/i)).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /save connector/i })).not.toBeInTheDocument();
-  });
-
-  it("opens Figma MCP access requirements from a provider deep link", async () => {
-    render(<OAuthConnectorAdminPanel initialProvider="figma" />);
-
-    expect(
-      await screen.findByRole("dialog", { name: /add oauth provider/i }),
-    ).toBeInTheDocument();
-    expect(screen.getByLabelText(/built-in template/i)).toHaveValue("figma");
-    expect(screen.getByRole("note")).toHaveTextContent(/mcp catalog/i);
+    expect(screen.queryByRole("option", { name: /figma/i })).not.toBeInTheDocument();
   });
 
   it("lets admins enable disabled OAuth providers", async () => {

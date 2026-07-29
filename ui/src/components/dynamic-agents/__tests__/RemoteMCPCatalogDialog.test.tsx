@@ -47,7 +47,6 @@ describe("RemoteMCPCatalogDialog", () => {
   });
 
   it.each([
-    ["Figma", "https://mcp.figma.com/mcp", "figma"],
     ["Box", "https://mcp.box.com", "box"],
     ["Airtable", "https://mcp.airtable.com/mcp", "airtable"],
   ])("pre-fills the official %s MCP endpoint", async (name, endpoint, provider) => {
@@ -121,12 +120,11 @@ describe("RemoteMCPCatalogDialog", () => {
     expect(results.contains(search)).toBe(false);
   });
 
-  it("renders the three providers from local logo assets", async () => {
+  it("renders Box and Airtable from local logo assets without offering Figma", async () => {
     renderCatalog();
-    await screen.findByText("Figma", { exact: true });
+    await screen.findByText("Box", { exact: true });
 
     for (const [name, src] of [
-      ["Figma", "/provider-logos/figma.svg"],
       ["Box", "/provider-logos/box.svg"],
       ["Airtable", "/provider-logos/airtable.svg"],
     ]) {
@@ -134,5 +132,6 @@ describe("RemoteMCPCatalogDialog", () => {
       expect(tile).not.toBeNull();
       expect(tile!.querySelector("img")).toHaveAttribute("src", src);
     }
+    expect(screen.queryByText("Figma", { exact: true })).not.toBeInTheDocument();
   });
 });

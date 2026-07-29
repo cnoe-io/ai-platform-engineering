@@ -25,7 +25,6 @@ const BUILTIN_PROVIDERS = [
   { key: "atlassian", name: "Atlassian" },
   { key: "aws", name: "AWS" },
   { key: "box", name: "Box" },
-  { key: "figma", name: "Figma" },
   { key: "github", name: "GitHub Copilot" },
   { key: "linear", name: "Linear" },
   { key: "notion", name: "Notion" },

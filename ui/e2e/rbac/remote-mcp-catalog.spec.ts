@@ -58,7 +58,7 @@ test.describe("remote MCP catalog dialog", () => {
     await expect(page.getByText("Amplitude", { exact: true })).toBeVisible();
     await expect(page.getByText("Airtable", { exact: true })).toBeVisible();
     await expect(page.getByText("Box", { exact: true })).toBeVisible();
-    await expect(page.getByText("Figma", { exact: true })).toBeVisible();
+    await expect(page.getByText("Figma", { exact: true })).toHaveCount(0);
     await expect(page.getByText("Linear", { exact: true })).toBeVisible();
     await expect(page.getByText("ThousandEyes", { exact: true })).toBeVisible();
   });

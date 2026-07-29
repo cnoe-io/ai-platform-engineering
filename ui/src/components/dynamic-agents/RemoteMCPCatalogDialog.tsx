@@ -128,23 +128,6 @@ const REMOTE_MCP_PROVIDERS: ProviderEntry[] = [
     ],
   },
   {
-    key: "figma",
-    name: "Figma",
-    description: "Inspect design files, components, assets, and variable tokens",
-    endpoint: "https://mcp.figma.com/mcp",
-    logoSrc: "/provider-logos/figma.svg",
-    accentClass: "hover:border-purple-500/50 hover:bg-purple-500/5",
-    credential_sources: [
-      {
-        kind: "provider_connection",
-        name: "X-CAIPE-Provider-Token",
-        provider: "figma",
-        target: "header",
-      },
-    ],
-    note: "Requires CAIPE approval in the Figma MCP Catalog",
-  },
-  {
     key: "github",
     name: "GitHub Copilot",
     description: "Code search, pull request review, and repository insights via Copilot",
@@ -245,19 +228,6 @@ function AtlassianIcon() {
   );
 }
 
-function FigmaIcon() {
-  return (
-    <svg aria-hidden="true" className="h-8 w-8" viewBox="0 0 32 32" fill="none">
-      <rect x="4" y="4" width="12" height="12" rx="6" fill="#FF7262"/>
-      <rect x="4" y="16" width="12" height="12" rx="6" fill="#0ACF83"/>
-      <rect x="16" y="4" width="12" height="12" rx="6" fill="#F24E1E"/>
-      <circle cx="22" cy="22" r="6" fill="#1ABCFE"/>
-      <rect x="4" y="10" width="12" height="12" rx="0" fill="#A259FF"/>
-      <circle cx="10" cy="16" r="6" fill="#A259FF"/>
-    </svg>
-  );
-}
-
 function GitHubIcon() {
   return (
     <svg aria-hidden="true" className="h-8 w-8" viewBox="0 0 24 24" fill="currentColor">
@@ -329,7 +299,6 @@ function ProviderLogo({ provider }: { provider: ProviderEntry }) {
     case "Amplitude": return <AmplitudeIcon />;
     case "Atlassian": return <AtlassianIcon />;
     case "AWS Knowledge": return <AWSIcon />;
-    case "Figma": return <FigmaIcon />;
     case "GitHub Copilot": return <GitHubIcon />;
     case "Linear": return <LinearIcon />;
     case "Notion": return <NotionIcon />;
