@@ -108,6 +108,25 @@ export interface McpToolRelationshipInput extends OwnedResourceInput {
   previousSharedWithOrg?: boolean;
 }
 
+/**
+ * Input for `buildIngestionSourceRelationshipTupleDiff`.
+ *
+ * `ingestion_source` is a standalone shareable resource (spec
+ * 2026-07-21-rag-source-config-db) — it does not inherit from a
+ * `knowledge_base`/`data_source`, since a source describes where content is
+ * pulled *from*, not the resulting indexed data.
+ */
+export interface IngestionSourceRelationshipInput extends OwnedResourceInput {
+  sourceId: string;
+  nextSharedTeamSlugs?: readonly string[] | null;
+  previousSharedTeamSlugs?: readonly string[] | null;
+  previousOwnerTeamSlug?: string | null;
+  /** `visibility: "global"` — grants every authenticated user `reader` via `user:*`. */
+  globalUserAccess?: boolean;
+  /** Prior global-visibility state, so a `true` → `false` flip emits a revoke delete. */
+  previousGlobalUserAccess?: boolean;
+}
+
 export interface KnowledgeBaseRelationshipInput extends OwnedResourceInput {
   knowledgeBaseId: string;
   /**
@@ -533,4 +552,38 @@ export function buildMcpToolRelationshipTupleDiff(
     // same relation set.
     extraMemberRelations: ["user", "caller"],
   });
+}
+
+/**
+ * Build an ingestion_source tuple diff. Mirrors the owner + shared-teams
+ * semantics of `buildDataSourceRelationshipTupleDiff`/`buildMcpToolRelationshipTupleDiff`,
+ * plus a `visibility: "global"` → `user:* reader` grant (same encoding as
+ * `globalUserAccess` on agents, see `buildAgentRelationshipTupleDiff`).
+ */
+export function buildIngestionSourceRelationshipTupleDiff(
+  input: IngestionSourceRelationshipInput
+): TeamResourceTupleDiff {
+  if (!isValidOpenFgaId(input.sourceId)) {
+    throw new Error(`Invalid OpenFGA ingestion source id: ${input.sourceId}`);
+  }
+  const diff = buildShareableResourceTupleDiff({
+    objectType: "ingestion_source",
+    objectId: input.sourceId,
+    creatorSubject: input.creatorSubject,
+    ownerSubject: input.ownerSubject,
+    ownerTeamSlug: input.ownerTeamSlug,
+    nextSharedTeamSlugs: input.nextSharedTeamSlugs,
+    previousSharedTeamSlugs: input.previousSharedTeamSlugs,
+    previousOwnerTeamSlug: input.previousOwnerTeamSlug,
+  });
+
+  const object = `ingestion_source:${input.sourceId}`;
+  const writes = [...diff.writes];
+  const deletes = [...diff.deletes];
+  if (input.globalUserAccess) {
+    writes.push({ user: "user:*", relation: "reader", object });
+  } else if (input.previousGlobalUserAccess) {
+    deletes.push({ user: "user:*", relation: "reader", object });
+  }
+  return { writes: uniqueTuples(writes), deletes: uniqueTuples(deletes) };
 }

@@ -10,7 +10,7 @@
  */
 
 import React from 'react'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 
 // ============================================================================
 // Mocks — must be before imports
@@ -54,6 +54,7 @@ let mockActiveConversationId: string | null = null
 const mockSetActiveConversation = jest.fn()
 const mockCreateConversation = jest.fn(() => 'new-conv-id')
 const mockDeleteConversation = jest.fn()
+const mockUpdateConversationTitle = jest.fn().mockResolvedValue(undefined)
 const mockLoadConversationsFromServer = jest.fn().mockResolvedValue(undefined)
 const mockLoadMessagesFromServer = jest.fn().mockResolvedValue(undefined)
 const mockIsConversationStreaming = jest.fn(() => false)
@@ -73,6 +74,7 @@ jest.mock('@/store/chat-store', () => {
       setActiveConversation: mockSetActiveConversation,
       createConversation: mockCreateConversation,
       deleteConversation: mockDeleteConversation,
+      updateConversationTitle: mockUpdateConversationTitle,
       loadConversationsFromServer: mockLoadConversationsFromServer,
       loadMessagesFromServer: mockLoadMessagesFromServer,
       isConversationStreaming: mockIsConversationStreaming,
@@ -97,8 +99,10 @@ jest.mock('lucide-react', () => ({
   Plus: (props: unknown) => <span data-testid="icon-plus" {...props} />,
   Archive: (props: unknown) => <span data-testid="icon-archive" {...props} />,
   ArchiveRestore: (props: unknown) => <span data-testid="icon-archive-restore" {...props} />,
+  Check: (props: unknown) => <span data-testid="icon-check" {...props} />,
   ChevronLeft: (props: unknown) => <span data-testid="icon-chevron-left" {...props} />,
   ChevronRight: (props: unknown) => <span data-testid="icon-chevron-right" {...props} />,
+  Pencil: (props: unknown) => <span data-testid="icon-pencil" {...props} />,
   Sparkles: (props: unknown) => <span data-testid="icon-sparkles" {...props} />,
   Zap: (props: unknown) => <span data-testid="icon-zap" {...props} />,
   Database: (props: unknown) => <span data-testid="icon-database" {...props} />,
@@ -109,6 +113,7 @@ jest.mock('lucide-react', () => ({
   Users: (props: unknown) => <span data-testid="icon-users" {...props} />,
   TrendingUp: (props: unknown) => <span data-testid="icon-trending-up" {...props} />,
   RefreshCw: (props: unknown) => <span data-testid="icon-refresh" {...props} />,
+  X: (props: unknown) => <span data-testid="icon-x" {...props} />,
 }))
 
 jest.mock('@/components/ui/button', () => ({
@@ -614,6 +619,46 @@ describe('Sidebar — Live Status Indicator', () => {
       fireEvent.click(screen.getByText('Clickable Chat'))
 
       expect(mockSetActiveConversation).toHaveBeenCalledWith('conv-click')
+    })
+
+    it('renames a conversation from the action buttons', async () => {
+      mockConversations = [
+        makeConv('conv-rename', 'Original Title', {
+          owner_id: 'test@test.com',
+        }),
+      ]
+
+      render(<Sidebar {...defaultProps} />)
+
+      fireEvent.click(screen.getByRole('button', { name: 'Rename conversation' }))
+      const titleInput = screen.getByRole('textbox', { name: 'Conversation title' })
+      fireEvent.change(titleInput, { target: { value: 'Updated Title' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Save title' }))
+
+      await waitFor(() => {
+        expect(mockUpdateConversationTitle).toHaveBeenCalledWith('conv-rename', 'Updated Title')
+        expect(screen.queryByRole('textbox', { name: 'Conversation title' })).not.toBeInTheDocument()
+      })
+    })
+
+    it('cancels title editing without saving', () => {
+      mockConversations = [
+        makeConv('conv-rename', 'Original Title', {
+          owner_id: 'test@test.com',
+        }),
+      ]
+
+      render(<Sidebar {...defaultProps} />)
+
+      fireEvent.click(screen.getByRole('button', { name: 'Rename conversation' }))
+      fireEvent.change(screen.getByRole('textbox', { name: 'Conversation title' }), {
+        target: { value: 'Discarded Title' },
+      })
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel rename' }))
+
+      expect(screen.queryByRole('textbox', { name: 'Conversation title' })).not.toBeInTheDocument()
+      expect(screen.getByText('Original Title')).toBeInTheDocument()
+      expect(mockUpdateConversationTitle).not.toHaveBeenCalled()
     })
   })
 

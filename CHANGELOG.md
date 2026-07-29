@@ -1,4 +1,12 @@
+## 0.5.63 (2026-07-28)
+
+### Fix
+
+- **credentials**: load caller teams in secret sharing (#2312)
+
 ## 0.5.62 (2026-07-26)
+
+## 0.5.61-dev.3 (2026-07-24)
 
 ### Fix
 
@@ -7,7 +15,17 @@
 - **skills**: isCatalogKey must match user:-prefixed subject
 - **skills**: catalog key returns hub and global agent_skills, not only default
 - **skills**: catalog key and local skills JWT missing sub drops all skills
+
+## 0.5.61-dev.2 (2026-07-24)
+
+### Fix
+
 - **rag**: recurse into sitemap index children instead of scraping them as pages (#2293)
+
+## 0.5.61-dev.1 (2026-07-24)
+
+### Fix
+
 - **CI**: ui
 
 ## 0.5.61 (2026-07-24)

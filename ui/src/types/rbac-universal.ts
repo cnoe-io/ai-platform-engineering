@@ -56,6 +56,7 @@ export const UNIVERSAL_REBAC_RESOURCE_TYPE_NAMES = [
   "knowledge_base",
   "data_source",
   "mcp_tool",
+  "ingestion_source",
   "document",
   "skill",
   "task",
