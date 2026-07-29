@@ -79,6 +79,14 @@ GRID_HITL_FORM_VALUES_JSON='{"key_type":"individual","model":"gpt-4o-mini"}' \
 npm run test:e2e:grid:ui:approve
 ```
 
+The `Create Jira ticket` scenario includes default input-required values:
+project key `SRE`, issue type `Task`, a GRID prod testing summary/description,
+epic `GRID Prod 0.5.x Deployment Testing`, labels, and priority `Medium`.
+Override those defaults with `GRID_JIRA_PROJECT_KEY`, `GRID_JIRA_EPIC`,
+`GRID_JIRA_ISSUE_TYPE`, `GRID_JIRA_SUMMARY`, `GRID_JIRA_DESCRIPTION`,
+`GRID_JIRA_LABELS`, or `GRID_JIRA_PRIORITY`. For a full per-scenario override,
+set `GRID_CREATE_JIRA_TICKET_HITL_FORM_VALUES_JSON`.
+
 When the GRID login page appears, the spec clicks **Sign in with SSO**. Complete
 Cisco/Duo login in the Playwright browser window and wait for GRID chat to load.
 If `GRID_SSO_EMAIL` is set, the spec fills the Duo email step and clicks

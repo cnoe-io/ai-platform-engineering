@@ -13,7 +13,7 @@ const defaultGridAuthTimeoutMs = gridInteractiveSso ? 600_000 : 30_000;
 const gridAuthTimeoutMs = Number(process.env.GRID_AUTH_TIMEOUT_MS || defaultGridAuthTimeoutMs);
 const gridExecutionTimeoutMs = Number(process.env.GRID_EXECUTION_TIMEOUT_MS || 300_000);
 const gridAutoApproveToolCalls = process.env.GRID_AUTO_APPROVE_TOOL_CALLS === "true";
-const gridHitlFormValues = loadGridHitlFormValues();
+const gridHitlFormValues = loadGridHitlFormValues("GRID_HITL_FORM_VALUES_JSON");
 const gridReuseConversation = process.env.GRID_REUSE_CONVERSATION === "true";
 const gridDismissPopups = process.env.GRID_DISMISS_POPUPS !== "false";
 const shouldRunGridProd = process.env.RUN_GRID_PROD === "true";
@@ -60,10 +60,11 @@ function loadGridScenarios(): GridProdScenario[] {
   return allGridProdScenarios;
 }
 
-function loadGridHitlFormValues(): Record<string, string> {
-  if (!process.env.GRID_HITL_FORM_VALUES_JSON) return {};
+function loadGridHitlFormValues(envName: string): Record<string, string> {
+  const rawValues = process.env[envName];
+  if (!rawValues) return {};
 
-  const parsed = JSON.parse(process.env.GRID_HITL_FORM_VALUES_JSON) as Record<string, unknown>;
+  const parsed = JSON.parse(rawValues) as Record<string, unknown>;
   return Object.fromEntries(Object.entries(parsed).map(([key, value]) => [key, String(value)]));
 }
 
@@ -240,7 +241,7 @@ async function waitForScenarioExecution(page: Page, scenario: GridProdScenario, 
     await dismissBlockingPopups(page);
     await failOnVisibleChatError(page);
 
-    const hitlSignal = await handleHitlIfPresent(page);
+    const hitlSignal = await handleHitlIfPresent(page, scenario);
     if (hitlSignal) {
       lastSignal = hitlSignal;
       await page.waitForTimeout(1_000);
@@ -266,7 +267,7 @@ async function waitForScenarioExecution(page: Page, scenario: GridProdScenario, 
   ].join(" "));
 }
 
-async function handleHitlIfPresent(page: Page): Promise<string | undefined> {
+async function handleHitlIfPresent(page: Page, scenario: GridProdScenario): Promise<string | undefined> {
   const approve = page.getByRole("button", { name: /^approve$/i }).last();
   if (await isVisible(approve)) {
     if (gridAutoApproveToolCalls) {
@@ -279,11 +280,16 @@ async function handleHitlIfPresent(page: Page): Promise<string | undefined> {
 
   const submit = page.getByRole("button", { name: /^submit$/i }).last();
   if (await isVisible(submit) && await isVisible(page.getByText(/Input Required|Additional Input Required|Please provide/i).last())) {
-    if (Object.keys(gridHitlFormValues).length > 0) {
-      await fillHitlForm(page, gridHitlFormValues);
-      await expect(submit).toBeEnabled({ timeout: 30_000 });
-      await submit.click();
-      return "submitted input-required form values and is waiting for execution to continue";
+    const hitlFormValues = hitlFormValuesFor(scenario);
+    if (Object.keys(hitlFormValues).length > 0) {
+      const filledCount = await fillHitlForm(page, hitlFormValues);
+      if (filledCount > 0) {
+        await expect(submit).toBeEnabled({ timeout: 30_000 });
+        await submit.click();
+        return `submitted ${filledCount} input-required form value(s) and is waiting for execution to continue`;
+      }
+
+      return "input-required form is visible, but no fields matched the configured default values";
     }
     return "waiting for manual input-required form submission";
   }
@@ -291,24 +297,163 @@ async function handleHitlIfPresent(page: Page): Promise<string | undefined> {
   return undefined;
 }
 
-async function fillHitlForm(page: Page, values: Record<string, string>) {
-  for (const [fieldName, value] of Object.entries(values)) {
-    const label = fieldLabelPattern(fieldName);
-    const field = page.getByLabel(label).last();
-    if (!(await isVisible(field))) continue;
-
-    const tagName = await field.evaluate((node) => node.tagName.toLowerCase()).catch(() => "");
-    if (tagName === "select") {
-      await field.selectOption(value);
-    } else {
-      await field.fill(value);
-    }
-  }
+function hitlFormValuesFor(scenario: GridProdScenario): Record<string, string> {
+  return {
+    ...(scenario.hitlFormValues ?? {}),
+    ...jiraEnvHitlValues(scenario),
+    ...gridHitlFormValues,
+    ...loadGridHitlFormValues(scenarioHitlEnvName(scenario)),
+  };
 }
 
-function fieldLabelPattern(fieldName: string) {
-  const spaced = fieldName.replace(/[_-]+/g, " ");
-  return new RegExp(`^${escapeRegExp(spaced)}$`, "i");
+function scenarioHitlEnvName(scenario: GridProdScenario) {
+  return `GRID_${scenario.id.toUpperCase().replace(/[^A-Z0-9]+/g, "_")}_HITL_FORM_VALUES_JSON`;
+}
+
+function jiraEnvHitlValues(scenario: GridProdScenario): Record<string, string> {
+  if (scenario.id !== "create-jira-ticket") return {};
+
+  return compactValues({
+    jira_project_key: process.env.GRID_JIRA_PROJECT_KEY,
+    project_key: process.env.GRID_JIRA_PROJECT_KEY,
+    project: process.env.GRID_JIRA_PROJECT_KEY,
+    issue_type: process.env.GRID_JIRA_ISSUE_TYPE,
+    summary: process.env.GRID_JIRA_SUMMARY,
+    title: process.env.GRID_JIRA_SUMMARY,
+    description: process.env.GRID_JIRA_DESCRIPTION,
+    epic_key: process.env.GRID_JIRA_EPIC,
+    epic: process.env.GRID_JIRA_EPIC,
+    parent: process.env.GRID_JIRA_EPIC,
+    labels: process.env.GRID_JIRA_LABELS,
+    priority: process.env.GRID_JIRA_PRIORITY,
+  });
+}
+
+function compactValues(values: Record<string, string | undefined>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(values).filter((entry): entry is [string, string] => Boolean(entry[1])),
+  );
+}
+
+async function fillHitlForm(page: Page, values: Record<string, string>): Promise<number> {
+  const form = page.locator("form").last();
+  if (!(await isVisible(form))) return 0;
+
+  let filledCount = 0;
+  const filledIndexes = new Set<number>();
+  const entries = Object.entries(values).sort(([left], [right]) => right.length - left.length);
+
+  for (const [fieldName, value] of entries) {
+    const match = await matchingHitlField(form, fieldName, filledIndexes);
+    if (!match) continue;
+
+    const tagName = await match.field.evaluate((node) => node.tagName.toLowerCase()).catch(() => "");
+    let filled = true;
+    if (tagName === "select") {
+      filled = await selectHitlOption(match.field, value);
+    } else {
+      await match.field.fill(value);
+    }
+
+    if (!filled) continue;
+
+    filledIndexes.add(match.index);
+    filledCount += 1;
+  }
+
+  return filledCount;
+}
+
+async function matchingHitlField(
+  form: Locator,
+  fieldName: string,
+  filledIndexes: Set<number>,
+): Promise<{ field: Locator; index: number } | undefined> {
+  const fields = form.locator(
+    "input:not([type='hidden']):not([type='checkbox']):not([type='radio']), textarea, select",
+  );
+  const count = await fields.count();
+
+  for (let index = 0; index < count; index += 1) {
+    if (filledIndexes.has(index)) continue;
+
+    const field = fields.nth(index);
+    if (!(await field.isEnabled().catch(() => false))) continue;
+
+    const descriptor = await hitlFieldDescriptor(field);
+    if (fieldNameMatchesDescriptor(fieldName, descriptor)) {
+      return { field, index };
+    }
+  }
+
+  return undefined;
+}
+
+async function hitlFieldDescriptor(field: Locator): Promise<string> {
+  return field.evaluate((node) => {
+    const parts = [
+      node.getAttribute("aria-label"),
+      node.getAttribute("name"),
+      node.getAttribute("id"),
+      node.getAttribute("placeholder"),
+      node.getAttribute("autocomplete"),
+    ];
+
+    let current = node.parentElement;
+    for (let depth = 0; current && depth < 3; depth += 1, current = current.parentElement) {
+      if (current.tagName.toLowerCase() === "form") break;
+
+      const localText = Array.from(current.querySelectorAll("label, p, span"))
+        .map((child) => child.textContent ?? "")
+        .join(" ");
+      parts.push(localText);
+    }
+
+    return parts.filter(Boolean).join(" ");
+  });
+}
+
+function fieldNameMatchesDescriptor(fieldName: string, descriptor: string) {
+  const normalizedDescriptor = normalizeFieldName(descriptor);
+  return fieldNameAliases(fieldName).some((alias) => normalizedDescriptor.includes(normalizeFieldName(alias)));
+}
+
+function fieldNameAliases(fieldName: string) {
+  const spaced = fieldName.replace(/[_-]+/g, " ").trim();
+  const aliases = new Set([fieldName, spaced]);
+  aliases.add(spaced.replace(/^(jira|ticket|issue)\s+/, ""));
+  aliases.add(spaced.replace(/\s+(key|id)$/, ""));
+  aliases.add(spaced.replace(/^(jira|ticket|issue)\s+/, "").replace(/\s+(key|id)$/, ""));
+  return Array.from(aliases).filter(Boolean);
+}
+
+function normalizeFieldName(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+async function selectHitlOption(field: Locator, value: string): Promise<boolean> {
+  const selectedByValue = await field.selectOption(value).then(() => true).catch(() => false);
+  if (selectedByValue) return true;
+
+  const selectedByLabel = await field.selectOption({ label: value }).then(() => true).catch(() => false);
+  if (selectedByLabel) return true;
+
+  const matchingValue = await field.evaluate((node, expected) => {
+    const select = node as HTMLSelectElement;
+    const normalizedExpected = String(expected).toLowerCase();
+    const option = Array.from(select.options).find((candidate) => {
+      const label = candidate.label || candidate.textContent || "";
+      return label.toLowerCase().includes(normalizedExpected) || candidate.value.toLowerCase().includes(normalizedExpected);
+    });
+    return option?.value || "";
+  }, value);
+
+  if (matchingValue) {
+    await field.selectOption(matchingValue);
+    return true;
+  }
+
+  return false;
 }
 
 async function failOnVisibleChatError(page: Page) {

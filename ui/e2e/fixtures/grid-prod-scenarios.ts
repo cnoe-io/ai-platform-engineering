@@ -4,6 +4,7 @@ export interface GridProdScenario {
   name: string;
   prompt: string;
   livePrompt?: string;
+  hitlFormValues?: Record<string, string>;
   expectedResponse: string[];
   liveExpected?: string[];
 }
@@ -75,6 +76,26 @@ export const gridProdWorkflowScenarios: GridProdScenario[] = [
     area: "workflow",
     name: "Create Jira ticket",
     prompt: "Create a Jira ticket for the GRID prod 0.5.x deployment follow-up and ask for project key and epic",
+    livePrompt: [
+      "Execute skill: Create Jira ticket",
+      "",
+      "Create a Jira ticket for the GRID prod 0.5.x deployment follow-up.",
+      "Use project key SRE, issue type Task, summary \"GRID prod 0.5.x deployment testing follow-up\", and epic \"GRID Prod 0.5.x Deployment Testing\" if the workflow asks for defaults.",
+    ].join("\n"),
+    hitlFormValues: {
+      jira_project_key: "SRE",
+      project_key: "SRE",
+      project: "SRE",
+      issue_type: "Task",
+      summary: "GRID prod 0.5.x deployment testing follow-up",
+      title: "GRID prod 0.5.x deployment testing follow-up",
+      description: "Created by Playwright live GRID smoke testing for prod 0.5.x deployment validation.",
+      epic_key: "GRID Prod 0.5.x Deployment Testing",
+      epic: "GRID Prod 0.5.x Deployment Testing",
+      parent: "GRID Prod 0.5.x Deployment Testing",
+      labels: "grid-prod, playwright, deployment-testing",
+      priority: "Medium",
+    },
     expectedResponse: ["Jira Ticket Creation", "project key and epic"],
     liveExpected: ["Jira", "ticket"],
   },
