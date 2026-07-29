@@ -152,7 +152,10 @@ describe("adoptConfigImportedRagSources", () => {
       sharedTeamSlugs: [],
     });
 
-    expect(result).toEqual({ adopted: [], skipped: ["slack-channel-C1"] });
+    expect(result).toEqual({
+      adopted: [],
+      skipped: [{ source_id: "slack-channel-C1", reason: "already_adopted" }],
+    });
     expect(mockReconcileIngestionSourceRelationships).not.toHaveBeenCalled();
   });
 
@@ -169,7 +172,10 @@ describe("adoptConfigImportedRagSources", () => {
       sharedTeamSlugs: [],
     });
 
-    expect(result).toEqual({ adopted: [], skipped: ["web-url-x"] });
+    expect(result).toEqual({
+      adopted: [],
+      skipped: [{ source_id: "web-url-x", reason: "not_config_driven" }],
+    });
   });
 
   // T057 — a subsequent adopt call against a record the boot seed left
@@ -190,7 +196,22 @@ describe("adoptConfigImportedRagSources", () => {
       sharedTeamSlugs: [],
     });
 
-    expect(first).toEqual({ adopted: [], skipped: ["slack-channel-C1"] });
-    expect(second).toEqual({ adopted: [], skipped: ["slack-channel-C1"] });
+    const expectedSkip = [{ source_id: "slack-channel-C1", reason: "already_adopted" }];
+    expect(first).toEqual({ adopted: [], skipped: expectedSkip });
+    expect(second).toEqual({ adopted: [], skipped: expectedSkip });
+  });
+
+  it("reports not_found for an id with no matching record", async () => {
+    mockCollection.findOne.mockResolvedValue(null);
+
+    const result = await adoptConfigImportedRagSources(["does-not-exist"], {
+      ownerTeamSlug: "platform",
+      sharedTeamSlugs: [],
+    });
+
+    expect(result).toEqual({
+      adopted: [],
+      skipped: [{ source_id: "does-not-exist", reason: "not_found" }],
+    });
   });
 });
