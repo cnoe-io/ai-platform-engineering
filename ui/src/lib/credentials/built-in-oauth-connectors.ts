@@ -7,6 +7,27 @@ export interface BuiltInOAuthConnectorDescriptor {
   pkce?: boolean;
 }
 
+export interface McpManagedOAuthProviderDescriptor {
+  provider: "figma";
+  name: string;
+  docsUrl: string;
+  description: string;
+}
+
+/**
+ * Hosted MCP providers whose authorization flow cannot be configured as a
+ * standard CAIPE authorization-code connector.
+ */
+export const MCP_MANAGED_OAUTH_PROVIDERS: McpManagedOAuthProviderDescriptor[] = [
+  {
+    provider: "figma",
+    name: "Figma",
+    docsUrl: "https://developers.figma.com/docs/figma-mcp-server/",
+    description:
+      "Figma's hosted MCP server manages its own OAuth flow. CAIPE must be approved and listed in the Figma MCP Catalog before users can connect.",
+  },
+];
+
 export const BUILT_IN_OAUTH_CONNECTORS: BuiltInOAuthConnectorDescriptor[] = [
   {
     provider: "airtable",

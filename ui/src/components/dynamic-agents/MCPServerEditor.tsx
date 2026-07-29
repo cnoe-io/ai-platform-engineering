@@ -20,7 +20,10 @@ import {
   SUPPRESS_PASSWORD_MANAGER_INPUT_PROPS,
   SUPPRESS_SECRET_LIKE_INPUT_PROPS,
 } from "@/lib/suppress-password-manager";
-import { BUILT_IN_OAUTH_CONNECTORS } from "@/lib/credentials/built-in-oauth-connectors";
+import {
+  BUILT_IN_OAUTH_CONNECTORS,
+  MCP_MANAGED_OAUTH_PROVIDERS,
+} from "@/lib/credentials/built-in-oauth-connectors";
 import { normalizeCustomProviderCredentialSource } from "@/lib/mcp-credential-scope";
 import type {
 MCPCredentialSource,
@@ -1397,9 +1400,15 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel, initialVal
                     BUILT_IN_OAUTH_CONNECTORS.find(
                       (connector) => connector.provider === source.provider,
                     )?.name ??
+                    MCP_MANAGED_OAUTH_PROVIDERS.find(
+                      (connector) => connector.provider === source.provider,
+                    )?.name ??
                     source.provider!,
                   hasConnector: oauthConnectorOptions.some(
                     (c) => c.provider === source.provider,
+                  ),
+                  mcpManaged: MCP_MANAGED_OAUTH_PROVIDERS.some(
+                    (connector) => connector.provider === source.provider,
                   ),
                 }));
                 return (
@@ -1411,7 +1420,13 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel, initialVal
                           {credentialProbe.missingCredentials.join(", ")}
                         </span>
                       </p>
-                      {connectableProviders.map(({ sourceIndex, provider, name, hasConnector }) =>
+                      {connectableProviders.map(({
+                        sourceIndex,
+                        provider,
+                        name,
+                        hasConnector,
+                        mcpManaged,
+                      }) =>
                         hasConnector ? (
                           <Button
                             key={provider}
@@ -1422,6 +1437,16 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel, initialVal
                           >
                             Connect {name}
                           </Button>
+                        ) : mcpManaged ? (
+                          <a
+                            key={`${provider}-${sourceIndex}`}
+                            href={`/admin?tab=credentials&credentialsTab=oauth-providers&oauthProvider=${encodeURIComponent(provider)}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs underline underline-offset-2 hover:text-foreground"
+                          >
+                            View {name} MCP access requirements
+                          </a>
                         ) : (
                           <span
                             key={`${provider}-${sourceIndex}`}

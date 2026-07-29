@@ -1,4 +1,7 @@
-import { BUILT_IN_OAUTH_CONNECTORS } from "../built-in-oauth-connectors";
+import {
+  BUILT_IN_OAUTH_CONNECTORS,
+  MCP_MANAGED_OAUTH_PROVIDERS,
+} from "../built-in-oauth-connectors";
 
 describe("built-in OAuth connectors for remote MCP providers", () => {
   it("defines Airtable as a public PKCE client with the official MCP scopes", () => {
@@ -38,5 +41,13 @@ describe("built-in OAuth connectors for remote MCP providers", () => {
     expect(
       BUILT_IN_OAUTH_CONNECTORS.some((connector) => connector.provider === "figma"),
     ).toBe(false);
+    expect(
+      MCP_MANAGED_OAUTH_PROVIDERS.find((connector) => connector.provider === "figma"),
+    ).toEqual(
+      expect.objectContaining({
+        name: "Figma",
+        docsUrl: "https://developers.figma.com/docs/figma-mcp-server/",
+      }),
+    );
   });
 });

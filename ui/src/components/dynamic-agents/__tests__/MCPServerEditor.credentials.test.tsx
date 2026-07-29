@@ -461,6 +461,72 @@ describe("MCPServerEditor credential sources", () => {
     expect(screen.getByLabelText(/^secret$/i)).toHaveValue("secret-airtable-token");
   });
 
+  it("links to Figma MCP access requirements instead of offering REST OAuth or PAT setup", async () => {
+    global.fetch = jest.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/mcp-servers/agentgateway/discover") {
+        return response({ targets: [] });
+      }
+      if (
+        url === "/api/credentials/secrets" ||
+        url === "/api/credentials/connections" ||
+        url === "/api/credentials/oauth-connectors"
+      ) {
+        return response([]);
+      }
+      if (url === "/api/mcp-servers/credential-probe" && init?.method === "POST") {
+        return response({
+          ok: true,
+          status: 401,
+          credentialOrigins: [
+            {
+              name: "X-CAIPE-Provider-Token",
+              origin: "none",
+              provider: "figma",
+            },
+          ],
+          missingCredentials: ["X-CAIPE-Provider-Token"],
+        });
+      }
+      return response({});
+    }) as jest.Mock;
+
+    const user = userEvent.setup();
+    render(
+      <MCPServerEditor
+        server={null}
+        initialValues={{
+          name: "Figma",
+          endpoint: "https://mcp.figma.com/mcp",
+          credential_sources: [
+            {
+              kind: "provider_connection",
+              target: "header",
+              name: "X-CAIPE-Provider-Token",
+              provider: "figma",
+            },
+          ],
+        }}
+        onSave={jest.fn()}
+        onCancel={jest.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /test connection/i }));
+
+    expect(
+      await screen.findByRole("link", { name: /view figma mcp access requirements/i }),
+    ).toHaveAttribute(
+      "href",
+      "/admin?tab=credentials&credentialsTab=oauth-providers&oauthProvider=figma",
+    );
+    expect(
+      screen.queryByRole("button", { name: /create figma token secret/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: /configure figma oauth/i }),
+    ).not.toBeInTheDocument();
+  });
+
   it("sends an empty credential_sources array when all credentials are removed on edit", async () => {
     global.fetch = jest.fn(async (url: string, init?: RequestInit) => {
       if (url === "/api/mcp-servers/agentgateway/discover") {

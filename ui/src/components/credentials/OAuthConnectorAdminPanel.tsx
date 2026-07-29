@@ -4,7 +4,11 @@ import React from "react";
 
 import { SaveButton } from "@/components/admin/shared/SaveButton";
 import { Button } from "@/components/ui/button";
-import { BUILT_IN_OAUTH_CONNECTORS } from "@/lib/credentials/built-in-oauth-connectors";
+import {
+  BUILT_IN_OAUTH_CONNECTORS,
+  MCP_MANAGED_OAUTH_PROVIDERS,
+  type McpManagedOAuthProviderDescriptor,
+} from "@/lib/credentials/built-in-oauth-connectors";
 
 interface OAuthConnectorMetadata {
   id: string;
@@ -66,6 +70,16 @@ function builtInConnectorForm(provider: string): OAuthConnectorForm | null {
   };
 }
 
+function mcpManagedOAuthProvider(
+  provider: string,
+): McpManagedOAuthProviderDescriptor | null {
+  return (
+    MCP_MANAGED_OAUTH_PROVIDERS.find(
+      (candidate) => candidate.provider === provider,
+    ) ?? null
+  );
+}
+
 async function parseApiResponse<T>(response: Response): Promise<T> {
   const json = (await response.json()) as { data: T };
   return json.data;
@@ -83,6 +97,8 @@ export function OAuthConnectorAdminPanel({
   const [form, setForm] = React.useState<OAuthConnectorForm>(EMPTY_CONNECTOR_FORM);
   const [createOpen, setCreateOpen] = React.useState(false);
   const [editingConnector, setEditingConnector] = React.useState<OAuthConnectorMetadata | null>(null);
+  const [managedProvider, setManagedProvider] =
+    React.useState<McpManagedOAuthProviderDescriptor | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const initialProviderHandled = React.useRef<string | null>(null);
 
@@ -118,6 +134,7 @@ export function OAuthConnectorAdminPanel({
 
     const existing = connectors.find((connector) => connector.provider === initialProvider);
     if (existing) {
+      setManagedProvider(null);
       setEditingConnector(existing);
       setForm({
         name: existing.name,
@@ -134,8 +151,18 @@ export function OAuthConnectorAdminPanel({
       return;
     }
 
+    const managed = mcpManagedOAuthProvider(initialProvider);
+    if (managed) {
+      setManagedProvider(managed);
+      setEditingConnector(null);
+      setForm(EMPTY_CONNECTOR_FORM);
+      setCreateOpen(true);
+      return;
+    }
+
     const template = builtInConnectorForm(initialProvider);
     if (template) {
+      setManagedProvider(null);
       setEditingConnector(null);
       setForm(template);
       setCreateOpen(true);
@@ -147,7 +174,20 @@ export function OAuthConnectorAdminPanel({
   };
 
   const applyBuiltInTemplate = (event: React.ChangeEvent<HTMLSelectElement>) => {
-    const template = builtInConnectorForm(event.target.value);
+    const provider = event.target.value;
+    const managed = mcpManagedOAuthProvider(provider);
+    if (managed) {
+      setManagedProvider(managed);
+      setEditingConnector(null);
+      setForm(EMPTY_CONNECTOR_FORM);
+      return;
+    }
+    setManagedProvider(null);
+    if (!provider) {
+      setForm(EMPTY_CONNECTOR_FORM);
+      return;
+    }
+    const template = builtInConnectorForm(provider);
     if (!template) return;
     setForm((current) => ({
       ...template,
@@ -191,8 +231,23 @@ export function OAuthConnectorAdminPanel({
     setCreateOpen(false);
   };
 
+  const openCreateDialog = () => {
+    setEditingConnector(null);
+    setManagedProvider(null);
+    setForm(EMPTY_CONNECTOR_FORM);
+    setCreateOpen(true);
+  };
+
+  const closeCreateDialog = () => {
+    setCreateOpen(false);
+    setEditingConnector(null);
+    setManagedProvider(null);
+    setForm(EMPTY_CONNECTOR_FORM);
+  };
+
   const handleEdit = (connector: OAuthConnectorMetadata) => {
     if (readOnly) return;
+    setManagedProvider(null);
     setEditingConnector(connector);
     setForm({
       name: connector.name,
@@ -249,7 +304,7 @@ export function OAuthConnectorAdminPanel({
             credential payloads and are never shown here.
           </p>
         </div>
-        <Button type="button" onClick={() => setCreateOpen(true)} disabled={readOnly}>
+        <Button type="button" onClick={openCreateDialog} disabled={readOnly}>
           Add OAuth Provider
         </Button>
       </div>
@@ -269,13 +324,15 @@ export function OAuthConnectorAdminPanel({
               <div>
                 <h2 className="text-lg font-medium">{editingConnector ? "Edit OAuth Provider" : "Add OAuth Provider"}</h2>
                 <p className="text-sm text-muted-foreground">
-                  Configure a standard authorization-code connector for user connections.
+                  {managedProvider
+                    ? "Review authorization requirements for this hosted MCP provider."
+                    : "Configure a standard authorization-code connector for user connections."}
                 </p>
               </div>
               <button
                 type="button"
                 className="text-sm text-muted-foreground"
-                onClick={() => { setCreateOpen(false); setEditingConnector(null); }}
+                onClick={closeCreateDialog}
               >
                 Close
               </button>
@@ -286,11 +343,12 @@ export function OAuthConnectorAdminPanel({
                 <select
                   className="w-full rounded-md border border-input bg-background px-3 py-2"
                   value={
-                    BUILT_IN_OAUTH_CONNECTORS.some(
+                    managedProvider?.provider ??
+                    (BUILT_IN_OAUTH_CONNECTORS.some(
                       (descriptor) => descriptor.provider === form.provider,
                     )
                       ? form.provider
-                      : ""
+                      : "")
                   }
                   onChange={applyBuiltInTemplate}
                 >
@@ -300,52 +358,85 @@ export function OAuthConnectorAdminPanel({
                       {descriptor.name}
                     </option>
                   ))}
+                  <optgroup label="MCP-managed authorization">
+                    {MCP_MANAGED_OAUTH_PROVIDERS.map((descriptor) => (
+                      <option key={descriptor.provider} value={descriptor.provider}>
+                        {descriptor.name} (MCP-managed OAuth)
+                      </option>
+                    ))}
+                  </optgroup>
                 </select>
               </label>
-              <label className="space-y-1 text-sm">
-                <span>Display name</span>
-                <input className="w-full rounded-md border border-input bg-background px-3 py-2" value={form.name} onChange={updateForm("name")} required />
-              </label>
-              <label className="space-y-1 text-sm">
-                <span>Provider</span>
-                <input className="w-full rounded-md border border-input bg-background px-3 py-2" value={form.provider} onChange={updateForm("provider")} required />
-              </label>
-              <label className="space-y-1 text-sm">
-                <span>Client ID</span>
-                <input className="w-full rounded-md border border-input bg-background px-3 py-2" value={form.clientId} onChange={updateForm("clientId")} required />
-              </label>
-              {!form.pkce && (
-                <label className="space-y-1 text-sm">
-                  <span>Client secret</span>
-                  <input className="w-full rounded-md border border-input bg-background px-3 py-2" value={form.clientSecret} onChange={updateForm("clientSecret")} required type="password" />
-                </label>
+              {managedProvider ? (
+                <div
+                  role="note"
+                  className="space-y-3 rounded-md border border-amber-500/40 bg-amber-500/10 p-4 text-sm md:col-span-2"
+                >
+                  <p className="font-medium">{managedProvider.name} uses MCP-managed OAuth</p>
+                  <p className="text-muted-foreground">{managedProvider.description}</p>
+                  <p className="text-muted-foreground">
+                    Do not enter a Figma REST OAuth client ID, secret, callback, or REST API
+                    scopes here; those credentials do not authorize the hosted Figma MCP server.
+                  </p>
+                  <a
+                    href={managedProvider.docsUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex font-medium text-primary underline underline-offset-4"
+                  >
+                    View Figma MCP access requirements
+                  </a>
+                </div>
+              ) : (
+                <>
+                  <label className="space-y-1 text-sm">
+                    <span>Display name</span>
+                    <input className="w-full rounded-md border border-input bg-background px-3 py-2" value={form.name} onChange={updateForm("name")} required />
+                  </label>
+                  <label className="space-y-1 text-sm">
+                    <span>Provider</span>
+                    <input className="w-full rounded-md border border-input bg-background px-3 py-2" value={form.provider} onChange={updateForm("provider")} required />
+                  </label>
+                  <label className="space-y-1 text-sm">
+                    <span>Client ID</span>
+                    <input className="w-full rounded-md border border-input bg-background px-3 py-2" value={form.clientId} onChange={updateForm("clientId")} required />
+                  </label>
+                  {!form.pkce && (
+                    <label className="space-y-1 text-sm">
+                      <span>Client secret</span>
+                      <input className="w-full rounded-md border border-input bg-background px-3 py-2" value={form.clientSecret} onChange={updateForm("clientSecret")} required type="password" />
+                    </label>
+                  )}
+                  <label className="flex items-center gap-2 text-sm md:col-span-2">
+                    <input
+                      type="checkbox"
+                      checked={form.pkce}
+                      onChange={(e) => setForm((current) => ({ ...current, pkce: e.target.checked, clientSecret: "" }))}
+                    />
+                    <span>Public client (PKCE only — no client secret)</span>
+                  </label>
+                  <label className="space-y-1 text-sm">
+                    <span>Authorization URL</span>
+                    <input className="w-full rounded-md border border-input bg-background px-3 py-2" value={form.authorizationUrl} onChange={updateForm("authorizationUrl")} required />
+                  </label>
+                  <label className="space-y-1 text-sm">
+                    <span>Token URL</span>
+                    <input className="w-full rounded-md border border-input bg-background px-3 py-2" value={form.tokenUrl} onChange={updateForm("tokenUrl")} required />
+                  </label>
+                  <label className="space-y-1 text-sm md:col-span-2">
+                    <span>Scopes</span>
+                    <input className="w-full rounded-md border border-input bg-background px-3 py-2" value={form.scopes} onChange={updateForm("scopes")} placeholder="offline_access read_user" />
+                  </label>
+                  <label className="space-y-1 text-sm md:col-span-2">
+                    <span>Redirect URI</span>
+                    <input className="w-full rounded-md border border-input bg-background px-3 py-2" value={form.redirectUri} onChange={updateForm("redirectUri")} required />
+                  </label>
+                </>
               )}
-              <label className="flex items-center gap-2 text-sm md:col-span-2">
-                <input
-                  type="checkbox"
-                  checked={form.pkce}
-                  onChange={(e) => setForm((current) => ({ ...current, pkce: e.target.checked, clientSecret: "" }))}
-                />
-                <span>Public client (PKCE only — no client secret)</span>
-              </label>
-              <label className="space-y-1 text-sm">
-                <span>Authorization URL</span>
-                <input className="w-full rounded-md border border-input bg-background px-3 py-2" value={form.authorizationUrl} onChange={updateForm("authorizationUrl")} required />
-              </label>
-              <label className="space-y-1 text-sm">
-                <span>Token URL</span>
-                <input className="w-full rounded-md border border-input bg-background px-3 py-2" value={form.tokenUrl} onChange={updateForm("tokenUrl")} required />
-              </label>
-              <label className="space-y-1 text-sm md:col-span-2">
-                <span>Scopes</span>
-                <input className="w-full rounded-md border border-input bg-background px-3 py-2" value={form.scopes} onChange={updateForm("scopes")} placeholder="offline_access read_user" />
-              </label>
-              <label className="space-y-1 text-sm md:col-span-2">
-                <span>Redirect URI</span>
-                <input className="w-full rounded-md border border-input bg-background px-3 py-2" value={form.redirectUri} onChange={updateForm("redirectUri")} required />
-              </label>
             </div>
-            <SaveButton type="submit" saving={false} ariaLabel="Save connector" />
+            {!managedProvider && (
+              <SaveButton type="submit" saving={false} ariaLabel="Save connector" />
+            )}
           </form>
         </div>
       )}
