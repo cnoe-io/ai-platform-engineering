@@ -35,7 +35,6 @@ from langchain.agents.middleware.pii import PIIMiddleware
 from langchain.agents.middleware.tool_call_limit import ToolCallLimitMiddleware
 from langchain.agents.middleware.tool_retry import ToolRetryMiddleware
 from langchain.agents.middleware.tool_selection import LLMToolSelectorMiddleware
-from langchain_anthropic.middleware.prompt_caching import AnthropicPromptCachingMiddleware
 from langchain_aws.middleware.prompt_caching import BedrockPromptCachingMiddleware
 from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 from langgraph.errors import GraphBubbleUp
@@ -543,20 +542,24 @@ def _build_prompt_cache_middleware(model_id: str) -> AgentMiddleware | None:
     The Bedrock client adapter is selected by ``resolve_bedrock_client`` (the same
     logic ``LLMFactory`` uses at instantiation time):
 
-    - ``anthropic`` -> ``ChatAnthropicBedrock``: use the langchain_anthropic
-      caching middleware. ``unsupported_model_behavior="warn"`` so an unrecognized
-      model id logs rather than raising and breaking the turn.
+    - ``anthropic`` -> ``ChatAnthropicBedrock``: return None. ``create_deep_agent``
+      already appends ``AnthropicPromptCachingMiddleware`` unconditionally to the
+      parent, every subagent, and the general-purpose subagent. Adding our own
+      would put two instances with the same ``.name`` in a ``create_agent`` call,
+      which raises ``AssertionError: Please remove duplicate middleware instances``
+      at graph-build time and breaks every turn. deepagents owns this path.
     - ``converse`` -> ``ChatBedrockConverse``: use the langchain_aws caching
-      middleware.
+      middleware. deepagents' Anthropic caching mw no-ops on Converse models
+      (``unsupported_model_behavior="ignore"``), so this is additive and its class
+      name does not collide with the injected Anthropic one.
     - ``legacy`` -> ``ChatBedrock``: no native caching middleware exists; return
       None (caching is silently unavailable for this client).
 
-    Both middlewares set ``model_settings["cache_control"]`` instead of mutating
-    message content, so cache markers never enter the checkpointed state.
+    ``BedrockPromptCachingMiddleware`` sets ``model_settings["cache_control"]``
+    instead of mutating message content, so cache markers never enter the
+    checkpointed state.
     """
     resolved = resolve_bedrock_client(model_id, enable_cache=True)
-    if resolved == "anthropic":
-        return AnthropicPromptCachingMiddleware(unsupported_model_behavior="warn")
     if resolved == "converse":
         return BedrockPromptCachingMiddleware()
     return None

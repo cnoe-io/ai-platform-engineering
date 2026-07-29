@@ -163,16 +163,16 @@ def test_plain_text_messages_pass_through_unchanged(tmp_path):
 # --- prompt-cache middleware selection ---------------------------------------
 
 
-def test_prompt_cache_middleware_anthropic_client():
-    from langchain_anthropic.middleware.prompt_caching import (
-        AnthropicPromptCachingMiddleware,
-    )
-
+def test_prompt_cache_middleware_anthropic_client_returns_none():
     from dynamic_agents.services.middleware import _build_prompt_cache_middleware
 
-    # An "anthropic" model id resolves to ChatAnthropicBedrock -> anthropic middleware.
+    # An "anthropic" model id resolves to ChatAnthropicBedrock. deepagents already
+    # injects AnthropicPromptCachingMiddleware unconditionally (parent + every
+    # subagent), so we must NOT add our own — a second instance with the same
+    # .name makes create_agent raise "duplicate middleware instances". So this
+    # returns None and deepagents owns the Anthropic caching path.
     mw = _build_prompt_cache_middleware("global.anthropic.claude-sonnet-4-5-20250929-v1:0")
-    assert isinstance(mw, AnthropicPromptCachingMiddleware)
+    assert mw is None
 
 
 def test_prompt_cache_middleware_converse_client():
@@ -200,9 +200,12 @@ def test_prompt_cache_middleware_gated_off_for_non_bedrock_provider(tmp_path):
     assert "BedrockPromptCachingMiddleware" not in names
 
 
-def test_prompt_cache_middleware_attached_for_bedrock_provider(tmp_path):
+def test_prompt_cache_middleware_not_added_for_anthropic_bedrock(tmp_path):
     from dynamic_agents.services.middleware import build_middleware
 
+    # Anthropic Bedrock model: caching is enabled and the provider is bedrock, but
+    # we still add NO caching middleware — deepagents injects the Anthropic one
+    # itself. Adding ours here would duplicate it and crash create_agent.
     stack = build_middleware(
         None,
         model_id="global.anthropic.claude-sonnet-4-5-20250929-v1:0",
@@ -210,7 +213,24 @@ def test_prompt_cache_middleware_attached_for_bedrock_provider(tmp_path):
         enable_prompt_cache=True,
     )
     names = [type(m).__name__ for m in stack]
-    assert "AnthropicPromptCachingMiddleware" in names
+    assert "AnthropicPromptCachingMiddleware" not in names
+    assert "BedrockPromptCachingMiddleware" not in names
+
+
+def test_prompt_cache_middleware_added_for_converse_bedrock(tmp_path):
+    from dynamic_agents.services.middleware import build_middleware
+
+    # A Converse (non-anthropic) Bedrock model: deepagents' Anthropic caching mw
+    # no-ops here, so we DO add BedrockPromptCachingMiddleware — additive, no
+    # name collision.
+    stack = build_middleware(
+        None,
+        model_id="us.amazon.nova-pro-v1:0",
+        model_provider="aws-bedrock",
+        enable_prompt_cache=True,
+    )
+    names = [type(m).__name__ for m in stack]
+    assert "BedrockPromptCachingMiddleware" in names
 
 
 # --- awrap_model_call integration -------------------------------------------
