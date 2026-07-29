@@ -1,5 +1,5 @@
 export interface BuiltInOAuthConnectorDescriptor {
-  provider: "amplitude" | "atlassian" | "figma" | "github" | "gitlab" | "linear" | "notion" | "pagerduty" | "webex";
+  provider: "airtable" | "amplitude" | "atlassian" | "box" | "figma" | "github" | "gitlab" | "linear" | "notion" | "pagerduty" | "webex";
   name: string;
   authorizationUrl: string;
   tokenUrl: string;
@@ -9,12 +9,39 @@ export interface BuiltInOAuthConnectorDescriptor {
 
 export const BUILT_IN_OAUTH_CONNECTORS: BuiltInOAuthConnectorDescriptor[] = [
   {
+    provider: "airtable",
+    name: "Airtable",
+    authorizationUrl: "https://airtable.com/oauth2/v1/authorize",
+    tokenUrl: "https://airtable.com/oauth2/v1/token",
+    scopes: [
+      "data.records:read",
+      "data.records:write",
+      "schema.bases:read",
+      "schema.bases:write",
+      "data.recordComments:read",
+      "data.recordComments:write",
+      "workspacesAndBases:read",
+    ],
+    // Airtable requires S256 PKCE and supports public OAuth integrations
+    // without a client secret.
+    pkce: true,
+  },
+  {
     provider: "amplitude",
     name: "Amplitude",
     authorizationUrl: "https://app.amplitude.com/oauth2/authorize",
     tokenUrl: "https://app.amplitude.com/oauth2/token",
     scopes: ["read:user", "read:chart", "read:dashboard"],
     pkce: true,
+  },
+  {
+    provider: "box",
+    name: "Box",
+    authorizationUrl: "https://account.box.com/api/oauth2/authorize",
+    tokenUrl: "https://api.box.com/oauth2/token",
+    // Box MCP access is configured on the Box integration rather than by
+    // requesting OAuth scopes in the authorization URL.
+    scopes: [],
   },
   {
     provider: "github",
@@ -81,13 +108,6 @@ export const BUILT_IN_OAUTH_CONNECTORS: BuiltInOAuthConnectorDescriptor[] = [
     authorizationUrl: "https://gitlab.com/oauth/authorize",
     tokenUrl: "https://gitlab.com/oauth/token",
     scopes: ["api", "read_user"],
-  },
-  {
-    provider: "figma",
-    name: "Figma",
-    authorizationUrl: "https://www.figma.com/oauth",
-    tokenUrl: "https://www.figma.com/api/oauth/token",
-    scopes: ["file_content"],
   },
   {
     provider: "linear",

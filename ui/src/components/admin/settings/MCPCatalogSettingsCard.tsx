@@ -21,8 +21,10 @@ import React, { useEffect, useState } from "react";
 
 const BUILTIN_PROVIDERS = [
   { key: "amplitude", name: "Amplitude" },
+  { key: "airtable", name: "Airtable" },
   { key: "atlassian", name: "Atlassian" },
   { key: "aws", name: "AWS" },
+  { key: "box", name: "Box" },
   { key: "figma", name: "Figma" },
   { key: "github", name: "GitHub Copilot" },
   { key: "linear", name: "Linear" },

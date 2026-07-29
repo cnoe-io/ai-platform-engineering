@@ -56,8 +56,29 @@ test.describe("remote MCP catalog dialog", () => {
     // clash with tile subtitles/descriptions that substring-match the name
     // (e.g. "mcp.amplitude.com", or "...teams in Linear").
     await expect(page.getByText("Amplitude", { exact: true })).toBeVisible();
+    await expect(page.getByText("Airtable", { exact: true })).toBeVisible();
+    await expect(page.getByText("Box", { exact: true })).toBeVisible();
+    await expect(page.getByText("Figma", { exact: true })).toBeVisible();
     await expect(page.getByText("Linear", { exact: true })).toBeVisible();
     await expect(page.getByText("ThousandEyes", { exact: true })).toBeVisible();
+  });
+
+  test("catalog search filters providers and preserves the custom action", async ({ page }) => {
+    await installMcpBrowserMocks(page);
+    await installCatalogPlatformConfig(page);
+    await gotoMcpServersTab(page);
+
+    await page.getByRole("button", { name: "Add Server" }).first().click();
+    const search = page.getByRole("searchbox", { name: "Search MCP providers" });
+    await expect(search).toBeVisible({ timeout: 10_000 });
+
+    await search.fill("mcp.airtable.com");
+    await expect(page.getByText("Airtable", { exact: true })).toBeVisible();
+    await expect(page.getByText("Box", { exact: true })).toHaveCount(0);
+
+    await search.fill("no-such-provider");
+    await expect(page.getByText("No MCP providers found")).toBeVisible();
+    await expect(page.getByText("Custom", { exact: true })).toBeVisible();
   });
 
   test("catalog dialog does not offer Zapier", async ({ page }) => {

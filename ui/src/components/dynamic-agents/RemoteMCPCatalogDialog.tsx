@@ -9,8 +9,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import type { MCPCredentialSource } from "@/types/dynamic-agent";
-import { ArrowRight, Loader2, Plug, Plus } from "lucide-react";
+import { ArrowRight, Loader2, Plug, Plus, Search } from "lucide-react";
 import React, { useEffect, useState } from "react";
 
 export interface RemoteMCPTemplate {
@@ -67,6 +68,23 @@ const REMOTE_MCP_PROVIDERS: ProviderEntry[] = [
     ],
   },
   {
+    key: "airtable",
+    name: "Airtable",
+    description: "Read and update bases, tables, records, schemas, and comments",
+    endpoint: "https://mcp.airtable.com/mcp",
+    logoSrc: "/provider-logos/airtable.svg",
+    accentClass: "hover:border-cyan-500/50 hover:bg-cyan-500/5",
+    credential_sources: [
+      {
+        kind: "provider_connection",
+        name: "X-CAIPE-Provider-Token",
+        provider: "airtable",
+        target: "header",
+        fallback_env: "AIRTABLE_API_TOKEN",
+      },
+    ],
+  },
+  {
     key: "atlassian",
     name: "Atlassian",
     description: "Search Jira issues, Confluence pages, and project data",
@@ -100,11 +118,29 @@ const REMOTE_MCP_PROVIDERS: ProviderEntry[] = [
     note: "Requires AWS to allowlist your redirect URI before OAuth client registration",
   },
   {
+    key: "box",
+    name: "Box",
+    description: "Search, read, analyze, and manage enterprise content in Box",
+    endpoint: "https://mcp.box.com",
+    logoSrc: "/provider-logos/box.svg",
+    logoBg: "bg-white",
+    accentClass: "hover:border-blue-500/50 hover:bg-blue-500/5",
+    credential_sources: [
+      {
+        kind: "provider_connection",
+        name: "X-CAIPE-Provider-Token",
+        provider: "box",
+        target: "header",
+        fallback_env: "BOX_ACCESS_TOKEN",
+      },
+    ],
+  },
+  {
     key: "figma",
     name: "Figma",
     description: "Inspect design files, components, assets, and variable tokens",
-    endpoint: "https://www.figma.com/api/mcp",
-    logoSrc: "https://upload.wikimedia.org/wikipedia/commons/3/33/Figma-logo.svg",
+    endpoint: "https://mcp.figma.com/mcp",
+    logoSrc: "/provider-logos/figma.svg",
     accentClass: "hover:border-purple-500/50 hover:bg-purple-500/5",
     credential_sources: [
       {
@@ -114,7 +150,7 @@ const REMOTE_MCP_PROVIDERS: ProviderEntry[] = [
         target: "header",
       },
     ],
-    note: "Early access — verify endpoint before use",
+    note: "Requires CAIPE approval in the Figma MCP Catalog",
   },
   {
     key: "github",
@@ -373,11 +409,13 @@ export function RemoteMCPCatalogDialog({
 }: RemoteMCPCatalogDialogProps) {
   const [catalogConfig, setCatalogConfig] = useState<CatalogConfig | null>(null);
   const [loadingConfig, setLoadingConfig] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
     if (!open) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: mark loading before the platform-config fetch kicked off below
     setLoadingConfig(true);
+    setSearchQuery("");
     fetch("/api/admin/platform-config")
       .then((r) => r.json())
       .catch(() => ({ success: false }))
@@ -395,8 +433,21 @@ export function RemoteMCPCatalogDialog({
     ? new Set(catalogConfig.enabled_providers)
     : null;
 
+  const safeHostname = (url: string) => {
+    try { return new URL(url).hostname; } catch { return url; }
+  };
+
   const visibleBuiltins = REMOTE_MCP_PROVIDERS.filter((p) => !enabledKeys || enabledKeys.has(p.key));
   const customEntries = catalogConfig?.custom_entries ?? [];
+  const normalizedQuery = searchQuery.trim().toLowerCase();
+  const matchesQuery = (entry: { name: string; description: string; endpoint: string }) => {
+    if (!normalizedQuery) return true;
+    return [entry.name, entry.description, safeHostname(entry.endpoint)]
+      .some((value) => value.toLowerCase().includes(normalizedQuery));
+  };
+  const filteredBuiltins = visibleBuiltins.filter(matchesQuery);
+  const filteredCustomEntries = customEntries.filter(matchesQuery);
+  const hasProviderResults = filteredBuiltins.length > 0 || filteredCustomEntries.length > 0;
 
   const selectBuiltin = (provider: ProviderEntry) => {
     onOpenChange(false);
@@ -420,13 +471,9 @@ export function RemoteMCPCatalogDialog({
     });
   };
 
-  const safeHostname = (url: string) => {
-    try { return new URL(url).hostname; } catch { return url; }
-  };
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+      <DialogContent className="max-w-2xl max-h-[80vh] overflow-hidden grid-rows-[auto_auto_minmax(0,1fr)]">
         <DialogHeader>
           <DialogTitle>Add MCP Server</DialogTitle>
           <DialogDescription>
@@ -434,56 +481,82 @@ export function RemoteMCPCatalogDialog({
           </DialogDescription>
         </DialogHeader>
 
+        <div className="relative">
+          <Search
+            aria-hidden="true"
+            className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+          />
+          <Input
+            aria-label="Search MCP providers"
+            className="pl-9"
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder="Search providers..."
+            type="search"
+            value={searchQuery}
+          />
+        </div>
+
         {loadingConfig ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
           </div>
         ) : (
-          <div className="grid grid-cols-2 gap-3 mt-1">
-            {visibleBuiltins.map((provider) => (
-              <ProviderTile
-                key={provider.key}
-                name={provider.name}
-                hostname={safeHostname(provider.endpoint)}
-                description={provider.description}
-                note={provider.note}
-                logo={<ProviderLogo provider={provider} />}
-                accentClass={provider.accentClass}
-                onClick={() => selectBuiltin(provider)}
-              />
-            ))}
+          <div data-testid="mcp-provider-results" className="min-h-0 overflow-y-auto pr-1">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {filteredBuiltins.map((provider) => (
+                <ProviderTile
+                  key={provider.key}
+                  name={provider.name}
+                  hostname={safeHostname(provider.endpoint)}
+                  description={provider.description}
+                  note={provider.note}
+                  logo={<ProviderLogo provider={provider} />}
+                  accentClass={provider.accentClass}
+                  onClick={() => selectBuiltin(provider)}
+                />
+              ))}
 
-            {customEntries.map((entry) => (
-              <ProviderTile
-                key={entry.id}
-                name={entry.name}
-                hostname={safeHostname(entry.endpoint)}
-                description={entry.description}
-                logo={<CustomEntryLogo logoUrl={entry.logo_url} />}
-                accentClass="hover:border-primary/50 hover:bg-primary/5"
-                onClick={() => selectCustom(entry)}
-              />
-            ))}
+              {filteredCustomEntries.map((entry) => (
+                <ProviderTile
+                  key={entry.id}
+                  name={entry.name}
+                  hostname={safeHostname(entry.endpoint)}
+                  description={entry.description}
+                  logo={<CustomEntryLogo logoUrl={entry.logo_url} />}
+                  accentClass="hover:border-primary/50 hover:bg-primary/5"
+                  onClick={() => selectCustom(entry)}
+                />
+              ))}
 
-            {/* Blank form tile */}
-            <button
-              type="button"
-              onClick={() => { onOpenChange(false); onSelectCustom(); }}
-              className="group flex flex-col gap-3 rounded-lg border border-dashed bg-card p-4 text-left transition-colors duration-150 cursor-pointer hover:border-primary/50 hover:bg-primary/5"
-            >
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-md border bg-background">
-                  <Plus className="h-5 w-5 text-muted-foreground" />
+              {!hasProviderResults && (
+                <div className="col-span-full rounded-lg border border-dashed px-4 py-8 text-center">
+                  <p className="text-sm font-medium">No MCP providers found</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Try a different name, hostname, or capability.
+                  </p>
                 </div>
-                <div>
-                  <div className="font-semibold text-sm">Custom</div>
-                  <div className="text-[10px] text-muted-foreground">Blank form</div>
+              )}
+
+              {/* Blank form tile */}
+              <button
+                type="button"
+                onClick={() => { onOpenChange(false); onSelectCustom(); }}
+                className="group flex flex-col gap-3 rounded-lg border border-dashed bg-card p-4 text-left transition-colors duration-150 cursor-pointer hover:border-primary/50 hover:bg-primary/5"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-md border bg-background">
+                    <Plus className="h-5 w-5 text-muted-foreground" />
+                  </div>
+                  <div>
+                    <div className="font-semibold text-sm">Custom</div>
+                    <div className="text-[10px] text-muted-foreground">Blank form</div>
+                  </div>
                 </div>
-              </div>
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                Configure any MCP server manually — local process, internal service, or any remote endpoint.
-              </p>
-            </button>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Configure any MCP server manually — local process, internal service, or any remote endpoint.
+                </p>
+              </button>
+            </div>
           </div>
         )}
       </DialogContent>
