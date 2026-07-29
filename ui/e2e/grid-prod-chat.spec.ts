@@ -4,8 +4,9 @@ import { allGridProdScenarios, type GridProdScenario } from "./fixtures/grid-pro
 
 const defaultGridChatUrl = "https://grid.outshift.io/chat";
 const gridChatUrl = process.env.GRID_CHAT_URL || defaultGridChatUrl;
-const gridStorageState = process.env.GRID_STORAGE_STATE;
-const gridSaveStorageState = process.env.GRID_SAVE_STORAGE_STATE;
+const defaultGridStorageState = "./e2e/.auth/grid-prod.json";
+const gridSaveStorageState = process.env.GRID_SAVE_STORAGE_STATE || defaultGridStorageState;
+const gridStorageState = process.env.GRID_STORAGE_STATE || gridSaveStorageState;
 const gridInteractiveSso = process.env.GRID_INTERACTIVE_SSO === "true";
 const gridSsoEmail = process.env.GRID_SSO_EMAIL;
 const defaultGridAuthTimeoutMs = gridInteractiveSso ? 600_000 : 30_000;
@@ -95,11 +96,11 @@ async function startFreshConversation(page: Page) {
   if (!(await isVisible(newChat))) return;
 
   const beforeUrl = page.url();
-  await Promise.all([
-    page.waitForURL((url) => url.toString() !== beforeUrl, { timeout: 15_000 }).catch(() => undefined),
-    newChat.click({ timeout: 10_000 }),
+  await newChat.click({ timeout: 10_000 });
+  await Promise.race([
+    page.waitForURL((url) => url.toString() !== beforeUrl, { timeout: 2_000 }).catch(() => undefined),
+    page.waitForTimeout(500),
   ]);
-  await page.waitForTimeout(1_000);
 }
 
 async function waitForChatInput(page: Page): Promise<Locator> {
