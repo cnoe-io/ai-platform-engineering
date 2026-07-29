@@ -55,6 +55,18 @@ jobs:
               return;
             }
 
+            // Dependabot-triggered pull_request runs are on a branch of this
+            // same repo (not a fork), but GitHub Actions still denies them
+            // repo secrets by default — same CI_BUILD_APP_ID/PRIVATE_KEY gap
+            // as the fork case above, just a different trigger for it.
+            const isDependabot = context.actor === 'dependabot[bot]' || pr.user?.login === 'dependabot[bot]';
+            if (isDependabot) {
+              core.setOutput('should_run', 'false');
+              core.setOutput('reason', 'Dependabot PR — GitHub Actions denies repo secrets to Dependabot-triggered pull_request runs; version bump is applied after merge');
+              core.notice('should_run=false: Dependabot PR — skipping version-bump auto-commit; auto-tag.yml finalizes the version on push to main.');
+              return;
+            }
+
             const supportedBase = pr.base.ref === 'main' || pr.base.ref.startsWith('release/');
             if (!supportedBase) {
               core.setOutput('should_run', 'false');
