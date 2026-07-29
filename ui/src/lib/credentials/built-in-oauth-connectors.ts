@@ -137,9 +137,9 @@ export const BUILT_IN_OAUTH_CONNECTORS: BuiltInOAuthConnectorDescriptor[] = [
       "profile",
       "offline_access",
     ],
-    // Microsoft documents Work IQ MCP coding clients as public clients. Each
-    // tool invocation is user-scoped, so use delegated authorization + PKCE.
-    pkce: true,
+    // CAIPE is a server-side web application, so use a confidential OAuth
+    // client with a Web redirect URI. The shared OAuth service still applies
+    // PKCE to the authorization-code exchange.
     tenantIdRequired: true,
   },
 ];

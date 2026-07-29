@@ -34,7 +34,7 @@ describe("built-in OAuth connectors for remote MCP providers", () => {
     });
   });
 
-  it("defines SharePoint Work IQ as a tenant-scoped public PKCE client", () => {
+  it("defines SharePoint Work IQ as a tenant-scoped confidential web client", () => {
     expect(
       BUILT_IN_OAUTH_CONNECTORS.find((connector) => connector.provider === "sharepoint"),
     ).toEqual({
@@ -50,7 +50,6 @@ describe("built-in OAuth connectors for remote MCP providers", () => {
         "profile",
         "offline_access",
       ],
-      pkce: true,
       tenantIdRequired: true,
     });
   });

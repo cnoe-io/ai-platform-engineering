@@ -160,7 +160,7 @@ describe("OAuthConnectorAdminPanel", () => {
     );
   });
 
-  it("builds a tenant-specific SharePoint PKCE connector from its deep link", async () => {
+  it("builds a tenant-specific confidential SharePoint connector from its deep link", async () => {
     render(
       <OAuthConnectorAdminPanel
         initialProvider="sharepoint"
@@ -182,8 +182,8 @@ describe("OAuthConnectorAdminPanel", () => {
     expect(screen.getByLabelText(/^scopes$/i)).toHaveValue(
       "https://agent365.svc.cloud.microsoft/agents/tenants/11111111-2222-3333-4444-555555555555/servers/mcp_SharePointRemoteServer/.default openid profile offline_access",
     );
-    expect(screen.getByLabelText(/public client \(pkce/i)).toBeChecked();
-    expect(screen.queryByLabelText(/^client secret$/i)).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/public client \(pkce/i)).not.toBeChecked();
+    expect(screen.getByLabelText(/^client secret$/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/redirect uri/i)).toHaveValue(
       "http://localhost/api/credentials/oauth/sharepoint/callback",
     );
