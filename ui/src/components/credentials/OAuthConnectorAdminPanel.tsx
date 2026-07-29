@@ -104,6 +104,21 @@ async function parseApiResponse<T>(response: Response): Promise<T> {
   return json.data;
 }
 
+async function parseApiError(
+  response: Response,
+  fallback: string,
+): Promise<string> {
+  try {
+    const json = (await response.json()) as { error?: unknown };
+    if (typeof json.error === "string" && json.error.trim()) {
+      return json.error;
+    }
+  } catch {
+    // Preserve the fallback when an upstream proxy returns a non-JSON error.
+  }
+  return fallback;
+}
+
 export function OAuthConnectorAdminPanel({
   readOnly = false,
   initialProvider,
@@ -256,26 +271,30 @@ export function OAuthConnectorAdminPanel({
       ? `/api/admin/credentials/oauth-connectors/${editingConnector.id}`
       : "/api/admin/credentials/oauth-connectors";
     const method = editingConnector ? "PUT" : "POST";
-    const response = await fetch(url, {
-      method,
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (!response.ok) {
+    try {
+      const response = await fetch(url, {
+        method,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!response.ok) {
+        setError(await parseApiError(response, "Could not save OAuth connector"));
+        return;
+      }
+      const connector = await parseApiResponse<OAuthConnectorMetadata>(response);
+      if (editingConnector) {
+        setConnectors((current) =>
+          current.map((c) => (c.id === connector.id ? connector : c)).sort((a, b) => a.name.localeCompare(b.name)),
+        );
+      } else {
+        setConnectors((current) => [...current, connector].sort((a, b) => a.name.localeCompare(b.name)));
+      }
+      setForm(EMPTY_CONNECTOR_FORM);
+      setEditingConnector(null);
+      setCreateOpen(false);
+    } catch {
       setError("Could not save OAuth connector");
-      return;
     }
-    const connector = await parseApiResponse<OAuthConnectorMetadata>(response);
-    if (editingConnector) {
-      setConnectors((current) =>
-        current.map((c) => (c.id === connector.id ? connector : c)).sort((a, b) => a.name.localeCompare(b.name)),
-      );
-    } else {
-      setConnectors((current) => [...current, connector].sort((a, b) => a.name.localeCompare(b.name)));
-    }
-    setForm(EMPTY_CONNECTOR_FORM);
-    setEditingConnector(null);
-    setCreateOpen(false);
   };
 
   const openCreateDialog = () => {

@@ -101,6 +101,52 @@ describe("OAuthConnectorAdminPanel", () => {
     );
   });
 
+  it("shows the API validation message when a connector cannot be saved", async () => {
+    const user = userEvent.setup();
+    global.fetch = jest.fn(async (_url, init) => {
+      if (init?.method === "POST") {
+        return {
+          ok: false,
+          json: async () => ({
+            success: false,
+            error: "PFX certificate is not currently valid",
+            code: "INVALID_CERTIFICATE",
+          }),
+        } as Response;
+      }
+      return {
+        ok: true,
+        json: async () => ({ success: true, data: [] }),
+      } as Response;
+    }) as jest.Mock;
+
+    render(<OAuthConnectorAdminPanel />);
+
+    await screen.findByText("No OAuth connectors configured.");
+    await user.click(screen.getByRole("button", { name: /add oauth provider/i }));
+    await user.type(screen.getByLabelText(/display name/i), "Example");
+    await user.type(screen.getByLabelText(/^provider/i), "example");
+    await user.type(screen.getByLabelText(/client id/i), "example-client");
+    await user.type(screen.getByLabelText(/^client secret$/i), "example-secret");
+    await user.type(
+      screen.getByLabelText(/authorization url/i),
+      "https://idp.example.com/oauth/authorize",
+    );
+    await user.type(
+      screen.getByLabelText(/token url/i),
+      "https://idp.example.com/oauth/token",
+    );
+    await user.type(
+      screen.getByLabelText(/redirect uri/i),
+      "https://caipe.example.com/oauth/callback",
+    );
+    await user.click(screen.getByRole("button", { name: /save connector/i }));
+
+    expect(
+      await screen.findByText("PFX certificate is not currently valid"),
+    ).toBeInTheDocument();
+  });
+
   it("prefills GitLab.com connector defaults from the built-in provider template", async () => {
     const user = userEvent.setup();
     render(<OAuthConnectorAdminPanel />);
