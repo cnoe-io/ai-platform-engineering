@@ -598,21 +598,62 @@ const TOOLS: ToolDef[] = [
   {
     name: "tome_edit_page",
     description:
-      "Write new content to a specific wiki page in a project. Goes through the same persist and audit path as the UI editor, and is RBAC-gated identically (editor role required). `project_slug` and `page_path` (e.g. `charter.md` or `repos/mycelium/overview.md`) are required; `markdown` is the full replacement content. Will fail if an ingest is in progress.",
+      "Edit a specific wiki page in a project. Goes through the same persist and audit path as the UI editor, and is RBAC-gated identically (editor role required). `project_slug` and `page_path` (e.g. `charter.md` or `repos/mycelium/overview.md`) are required, plus exactly one of: `markdown` (full replacement content — whole-page rewrite), or `old_string`+`new_string` (targeted string-replace, modeled on Claude Code's own `Edit` tool — `old_string` must match exactly once in the current page unless `replace_all` is set, and is left untouched elsewhere in the page). Will fail if an ingest is in progress.",
     inputSchema: schema(
-      { project_slug: STR, page_path: STR, markdown: STR, message: STR },
-      ["project_slug", "page_path", "markdown"],
+      {
+        project_slug: STR,
+        page_path: STR,
+        markdown: STR,
+        old_string: STR,
+        new_string: STR,
+        replace_all: { type: "boolean" },
+        message: STR,
+      },
+      ["project_slug", "page_path"],
     ),
     handler: async (_req, fwd, args) => {
       const slug = encodeURIComponent(String(args.project_slug));
       const pagePath = String(args.page_path).replace(/^\/+/, "");
       const encodedPath = pagePath.split("/").map(encodeURIComponent).join("/");
-      const body: Record<string, unknown> = { markdown: String(args.markdown) };
+      const pageUrl = `/api/tome/projects/${slug}/pages/${encodedPath}`;
+
+      const hasMarkdown = typeof args.markdown === "string";
+      const hasStringReplace =
+        typeof args.old_string === "string" && typeof args.new_string === "string";
+      if (hasMarkdown === hasStringReplace) {
+        return toolText(
+          "Provide exactly one of `markdown` (full replacement), or `old_string`+`new_string` (targeted replace).",
+          true,
+        );
+      }
+
+      let markdown: string;
+      if (hasMarkdown) {
+        markdown = String(args.markdown);
+      } else {
+        const oldString = String(args.old_string);
+        const newString = String(args.new_string);
+        const replaceAll = Boolean(args.replace_all);
+        const current = ensureOk(await fwd("GET", pageUrl), "get page");
+        const currentMarkdown = String(current?.markdown ?? "");
+        const occurrences = currentMarkdown.split(oldString).length - 1;
+        if (occurrences === 0) {
+          return toolText(`\`old_string\` not found in ${pagePath}.`, true);
+        }
+        if (occurrences > 1 && !replaceAll) {
+          return toolText(
+            `\`old_string\` matches ${occurrences} times in ${pagePath} — pass \`replace_all: true\` or include more context to make it unique.`,
+            true,
+          );
+        }
+        markdown = replaceAll
+          ? currentMarkdown.split(oldString).join(newString)
+          : currentMarkdown.replace(oldString, newString);
+      }
+
+      const body: Record<string, unknown> = { markdown };
       if (args.message) body.message = String(args.message);
-      ensureOk(
-        await fwd("PUT", `/api/tome/projects/${slug}/pages/${encodedPath}`, body),
-        "edit page",
-      );
+      ensureOk(await fwd("PUT", pageUrl, body), "edit page");
       return toolText(`Updated ${pagePath}.`);
     },
   },
