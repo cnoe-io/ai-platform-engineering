@@ -22,6 +22,7 @@ import {
   type IngestionSourceIdentity,
 } from "@/lib/ingestion-source-id";
 import { getCollection } from "@/lib/mongodb";
+import { allowedSourceTypesForIngestorServiceAccount } from "@/lib/rbac/ingestor-service-accounts";
 import { reconcileIngestionSourceRelationships } from "@/lib/rbac/openfga-owned-resources-reconcile";
 import { caipeOrgKey } from "@/lib/rbac/organization";
 import {
@@ -91,6 +92,26 @@ async function canUseTeamSlug(
     } catch {
       return false;
     }
+  }
+}
+
+/**
+ * UI-only/advisory flag for whether the caller can manage this source — the
+ * PATCH/DELETE routes' own `can_manage` check remains authoritative.
+ */
+async function canManageSource(
+  session: Parameters<typeof requireResourcePermission>[0],
+  sourceId: string,
+): Promise<boolean> {
+  try {
+    await requireResourcePermission(
+      session,
+      { type: "ingestion_source", id: sourceId, action: "manage" },
+      { bypassForOrgAdmin: true },
+    );
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -175,8 +196,24 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   const limitParam = Number.parseInt(searchParams.get("limit") ?? "", 10);
   const limit = Number.isFinite(limitParam) && limitParam > 0 ? limitParam : 200;
 
+  // Recognized ingestor service accounts (RAG_INGESTOR_SERVICE_ACCOUNTS) are
+  // scoped by identity, not by OpenFGA per-resource tuples: force
+  // source_type to the intersection of the SA's declared allow-list and any
+  // explicitly requested type, so a query param can only narrow, never
+  // widen, the SA's scope. Skip the OpenFGA filter below entirely for this
+  // caller — its scope is fully determined by the forced query.
+  const ingestorAllowedTypes = allowedSourceTypesForIngestorServiceAccount(session);
+
   const query: Record<string, unknown> = {};
-  if (sourceType) query.source_type = sourceType;
+  if (ingestorAllowedTypes) {
+    const requestedTypes: IngestionSourceType[] = sourceType
+      ? [sourceType as IngestionSourceType]
+      : Array.from(ingestorAllowedTypes);
+    const effectiveTypes = requestedTypes.filter((t) => ingestorAllowedTypes.has(t));
+    query.source_type = effectiveTypes.length === 1 ? effectiveTypes[0] : { $in: effectiveTypes };
+  } else if (sourceType) {
+    query.source_type = sourceType;
+  }
   if (ownerTeamSlug) query.owner_team_slug = ownerTeamSlug;
 
   const collection = await getCollection<IngestionSourceConfig>(COLLECTION_NAME);
@@ -186,14 +223,23 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     .limit(limit)
     .toArray();
 
-  const visibleResults = await filterResourcesByPermission(
-    session,
-    results,
-    { type: "ingestion_source", action: "read", id: (source) => source.source_id },
-    { bypassForOrgAdmin: true },
+  const visibleResults = ingestorAllowedTypes
+    ? results
+    : await filterResourcesByPermission(
+        session,
+        results,
+        { type: "ingestion_source", action: "read", id: (source) => source.source_id },
+        { bypassForOrgAdmin: true },
+      );
+
+  const sourcesWithPermissions = await Promise.all(
+    visibleResults.map(async (source) => ({
+      ...source,
+      _permissions: { can_manage: await canManageSource(session, source.source_id) },
+    })),
   );
 
-  return successResponse({ sources: visibleResults });
+  return successResponse({ sources: sourcesWithPermissions });
 });
 
 // ═══════════════════════════════════════════════════════════════
