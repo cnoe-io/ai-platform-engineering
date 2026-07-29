@@ -2,8 +2,8 @@
 
 // The projects tagged to a BHAG (via `labels.initiatives`). Rendered inside the
 // BHAG's Settings (in place of the Sources editor) and on the Synthesize page.
-// A BHAG has no connectors — its "sources" are the wikis of the projects beneath
-// it, which the agent reads to synthesize the strategic view.
+// Child-project wikis are roll-up inputs for a BHAG/Area synthesis, alongside
+// any data sources attached directly to the synthesized entity.
 //
 // On the Synthesize page (`preflight`), each project shows a resource-access
 // indicator: a child re-ingest only refreshes what the triggering user's

@@ -1,12 +1,10 @@
-"""BHAG synthesis agent — synthesizes a strategic goal's wiki from the wikis of
-the projects tagged to it.
+"""BHAG/Area synthesis agent.
 
-A BHAG (Big Hairy Audacious Goal) has no sources of its own. Its dynamic pages
-are a cross-project synthesis: the agent READS each child project's on-disk wiki
-(materialized by the workspace sync) and rolls them up, grounded strictly in
-what those wikis say. This is the first of a suite of cross-project subagents
-(see #66 integrity / graph resolver, #42 compression) — each its own route +
-module, sharing `run_stream.consume_agent_query` and `build_agent_options`.
+The agent reads each child project's on-disk wiki and enriches that roll-up
+with the BHAG/Area's directly attached GitHub, Confluence, and Webex sources.
+This is the first of a suite of cross-project subagents (see #66 integrity /
+graph resolver, #42 compression) — each its own route + module, sharing
+`run_stream.consume_agent_query` and `build_agent_options`.
 
 The backend POSTs an `IngestRequest` whose `snapshot.project_type == "bhag"` and
 whose `snapshot.child_projects` lists the tagged projects. The route refreshes
@@ -15,13 +13,22 @@ the children on disk first (under their locks), then drives this loop.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from collections.abc import AsyncIterator
+from typing import Any
 from uuid import UUID
 
 from tome_agent import prompts
-from tome_agent.agent.loop import build_agent_options, project_root
+from tome_agent.agent import http_client
+from tome_agent.agent.connectors import REGISTRY
+from tome_agent.agent.ingestor import resolve_connector_extras
+from tome_agent.agent.loop import (
+    build_agent_options,
+    project_root,
+    sources_for_connector,
+)
 from tome_agent.agent.run_stream import consume_agent_query, emit_log, now_iso
 from tome_agent.orchestrator.contract import IngestEventPayload, ProjectSnapshot
 from tome_agent.reports import schema as report_schema
@@ -40,15 +47,41 @@ def _build_synthesis_system_prompt(
     snapshot: ProjectSnapshot,
     is_greenfield: bool,
     seed_stable_pages: bool,
+    connector_extras: dict[str, Any] | None = None,
 ) -> str:
     """System prompt for a BHAG or Area synthesis. The loop widens the read
-    fence to the child dirs; the agent reads those (read-only) and synthesizes,
-    grounded strictly in what the child wikis say."""
+    fence to the child dirs and combines those read-only wikis with direct
+    connector sources."""
     from tome_agent.agent.connectors.base import format_pages
 
     top_level = format_pages(report_schema.default_pages())
+    connector_extras = connector_extras or {}
+    connector_blocks: list[str] = []
+    citation_blocks: list[str] = []
+    research_blocks: list[str] = []
+    for connector in REGISTRY:
+        sources = sources_for_connector(snapshot, connector)
+        connector_blocks.append(
+            connector.system_prompt_block(
+                sources,
+                extra_data=connector_extras.get(connector.slug),
+            )
+        )
+        citation = connector.citation_guidance(sources)
+        if citation:
+            citation_blocks.append(citation)
+        research = connector.deep_research_guidance(sources)
+        if research:
+            research_blocks.append(research)
+    connector_section = "\n\n".join(connector_blocks)
 
     write_root = project_root(snapshot.project_id)
+    entity_kind = "Area" if snapshot.project_type == "area" else "BHAG"
+    tag_hint = (
+        "tag projects to this Area from their Settings, under Area"
+        if snapshot.project_type == "area"
+        else "tag projects to this BHAG from their Settings, under BHAG / Initiatives"
+    )
     children = snapshot.child_projects or []
     if children:
         child_lines = "\n".join(
@@ -57,11 +90,11 @@ def _build_synthesis_system_prompt(
             for c in children
         )
         children_block = (
-            f"YOUR WRITE ROOT (this BHAG's own wiki, also your cwd): `{write_root}`. "
+            f"YOUR WRITE ROOT (this {entity_kind}'s own wiki, also your cwd): `{write_root}`. "
             "Every Write/Edit path must be relative to THIS root — never absolute, "
             "and never one of the child paths below even though they look like "
             "real, writable project directories.\n\n"
-            "PROJECTS UNDER THIS BHAG — read their wikis at these absolute paths "
+            f"PROJECTS UNDER THIS {entity_kind.upper()} — read their wikis at these absolute paths "
             "(READ-ONLY: you may Read/Glob/Grep them, but writing here is never "
             f"allowed — only `{write_root}` is writable):\n\n"
             f"{child_lines}\n\n"
@@ -70,7 +103,11 @@ def _build_synthesis_system_prompt(
             "`/project/<id>/wiki/overview.md`). DISCOVER before reading: for each "
             "child, run `Glob` with pattern `<that-path>/*.md` to list its actual "
             "pages, THEN Read the ones that matter (overview, status, standup, "
-            "charter). Do NOT guess filenames or retry the same path. Skip a child "
+            "charter). Also Glob `<that-path>/issues/*.md` and "
+            "`<that-path>/decisions/*.md`; read every entry whose frontmatter "
+            "priority is `critical`, including resolved/accepted/rejected entries "
+            "so the strategic view reflects lifecycle outcomes. Do NOT guess "
+            "filenames or retry the same path. Skip a child "
             "whose Glob returns nothing — its wiki is empty.\n\n"
             "Then synthesize across the children — shared themes, cross-project "
             "progress, risks, and how each project ladders up to this goal. GROUND "
@@ -80,26 +117,29 @@ def _build_synthesis_system_prompt(
         )
     else:
         children_block = (
-            f"YOUR WRITE ROOT (this BHAG's own wiki, also your cwd): `{write_root}`.\n\n"
-            "NO PROJECTS ARE TAGGED TO THIS BHAG YET. Do not invent child projects "
-            "or their status. Write only what the charter/seed context supports, and "
-            "note in overview.md that no projects are tagged yet (tag projects to this "
-            "BHAG from their Settings, under BHAG / Initiatives)."
+            f"YOUR WRITE ROOT (this {entity_kind}'s own wiki, also your cwd): `{write_root}`.\n\n"
+            f"NO PROJECTS ARE TAGGED TO THIS {entity_kind.upper()} YET. "
+            "Do not invent child projects "
+            "or their status. Use the directly attached sources below when present; "
+            "otherwise write only what the charter/seed context supports. In either "
+            "case, "
+            f"note in overview.md that no projects are tagged yet ({tag_hint})."
         )
 
     stable_paths = ", ".join(f"`{p}`" for p in report_schema.default_stable_paths())
     if not is_greenfield:
         mode_block = (
             "MODE: INCREMENTAL SYNTHESIS. Re-read the child wikis and your existing "
-            "pages; rewrite the dynamic/report pages to reflect the current "
-            "cross-project state. Preserve stable/hidden pages (human-owned)."
+            "pages; refresh the attached direct sources; rewrite the dynamic/report "
+            "pages to reflect the current combined state. Preserve stable/hidden "
+            "pages (human-owned)."
         )
     elif seed_stable_pages:
         mode_block = (
             "MODE: GREENFIELD SYNTHESIS, STABLE-PAGE SEEDING ENABLED. The team opted in "
             f"to a best-effort agent draft of the stable pages ({stable_paths}). For "
             "EACH: Read it, then OVERWRITE with a draft synthesized from the child "
-            "projects' charters/objectives — fill the existing `## section` headers, "
+            "projects and attached sources — fill the existing `## section` headers, "
             "keep the YAML frontmatter + kind. Begin each stable page body with a "
             "one-line italic note marking it an agent draft for human review. Also "
             "write the dynamic/report/hidden pages."
@@ -109,22 +149,22 @@ def _build_synthesis_system_prompt(
             "MODE: GREENFIELD SYNTHESIS. The stable pages "
             f"({stable_paths}) are pre-created and human-owned — do NOT write or "
             "overwrite them. Write the dynamic/report/hidden pages from the "
-            "child wikis, with each page's declared kind in the YAML frontmatter."
+            "child wikis and attached sources, with each page's declared kind in "
+            "the YAML frontmatter."
         )
 
     is_area = snapshot.project_type == "area"
     if is_area:
         entity_header = (
             f'THIS IS AN AREA: "{snapshot.name}" — a mid-tier grouping that spans '
-            "multiple projects. It has NO repos, Confluence, or Webex sources of its "
-            "own. Its wiki is a SYNTHESIS synthesized from the projects tagged to it."
+            "multiple projects. Its wiki is synthesized from the projects tagged to "
+            "it plus the directly attached sources listed below."
         )
     else:
         entity_header = (
             f'THIS IS A BHAG (Big Hairy Audacious Goal): "{snapshot.name}" — a strategic '
-            "goal that spans multiple projects. It has NO repos, Confluence, or Webex "
-            "sources of its own. Its wiki is a SYNTHESIS synthesized from the projects "
-            "tagged to it."
+            "goal that spans multiple projects. Its wiki is synthesized from the "
+            "projects tagged to it plus the directly attached sources listed below."
         )
 
     charter_label = "AREA CONTEXT" if is_area else "BHAG CHARTER"
@@ -139,7 +179,16 @@ TOP-LEVEL PAGES (cross-cutting):
 
 {top_level}
 
+DIRECTLY ATTACHED SOURCES:
+
+{connector_section}
+
 {mode_block}"""
+
+    if citation_blocks:
+        project_block += "\n\n" + "\n\n".join(citation_blocks)
+    if research_blocks:
+        project_block += "\n\n" + "\n\n".join(research_blocks)
 
     return f"{prompts.load('INGEST')}\n\n---\n\n{project_block}"
 
@@ -148,6 +197,7 @@ async def stream_synthesis(
     *,
     run_id: UUID,
     seed: str | None,
+    connector_data: dict[str, Any],
     snapshot: ProjectSnapshot,
     is_greenfield: bool,
     report_id: UUID,
@@ -156,6 +206,9 @@ async def stream_synthesis(
     """Run a BHAG synthesis as a Claude Agent SDK loop. Yields IngestEvents the
     agent's HTTP handler writes to the SSE response."""
     log_buf: list[IngestEventPayload] = []
+    templates = await asyncio.to_thread(http_client.fetch_page_templates)
+    report_schema.set_template_overrides(templates)
+    connector_extras = await resolve_connector_extras(snapshot, connector_data)
 
     async def on_write(page_path: str, byte_count: int) -> None:
         log_buf.append(
@@ -171,7 +224,10 @@ async def stream_synthesis(
     options = build_agent_options(
         snapshot=snapshot,
         system_prompt=_build_synthesis_system_prompt(
-            snapshot, is_greenfield, seed_stable_pages
+            snapshot,
+            is_greenfield,
+            seed_stable_pages,
+            connector_extras,
         ),
         model=_synthesis_model(),
         max_turns=MAX_TURNS,
@@ -183,17 +239,26 @@ async def stream_synthesis(
 
     entity_kind = "Area" if snapshot.project_type == "area" else "BHAG"
     prompt_parts = [
-        f"Run a {'GREENFIELD' if is_greenfield else 'INCREMENTAL'} {entity_kind} synthesis for "
-        f"\"{snapshot.name}\". Begin by reading your own existing wiki pages, then "
-        f"read the wikis of the child projects at the paths listed in the system "
-        f"prompt, and synthesize this {entity_kind}'s pages. Ground everything in the child "
-        f"wikis — do not invent."
+        (
+            f"Run a {'GREENFIELD' if is_greenfield else 'INCREMENTAL'} "
+            f'{entity_kind} synthesis for "{snapshot.name}". Begin by reading '
+            "your own existing wiki pages, then read the wikis of the child "
+            "projects at the paths listed in the system prompt, investigate the "
+            f"directly attached sources, and synthesize this {entity_kind}'s "
+            "pages. Ground everything in those inputs — do not invent."
+        )
     ]
     if seed and seed.strip():
         prompt_parts.append(
             "\n\nUSER SEED INSTRUCTION (one-shot focus for this run):\n"
             f"{seed.strip()}"
         )
+    for connector in REGISTRY:
+        extension = connector.prompt_extension(
+            connector_extras.get(connector.slug)
+        )
+        if extension:
+            prompt_parts.append(extension)
     prompt = "".join(prompt_parts)
 
     child_count = len(snapshot.child_projects or [])
@@ -203,6 +268,12 @@ async def stream_synthesis(
         f"(mode={'greenfield' if is_greenfield else 'incremental'}, "
         f"projects={child_count}, model={_synthesis_model()})"
     )
+    for connector in REGISTRY:
+        sources = sources_for_connector(snapshot, connector)
+        for line in connector.log_lines(
+            sources, connector_extras.get(connector.slug)
+        ):
+            yield emit_log(line)
     if seed and seed.strip():
         yield emit_log(f"· seed: {seed.strip()[:200]}")
 

@@ -60,8 +60,108 @@ describe("Tooltip primitive", () => {
     // computed styles because the class is what's portable across
     // theme / Tailwind compilation.
     expect(tooltip.className).toMatch(/max-h-\[min\(60vh,480px\)\]/);
+    expect(tooltip.className).toMatch(/overflow-x-auto/);
     expect(tooltip.className).toMatch(/overflow-y-auto/);
     expect(tooltip.className).toMatch(/overscroll-contain/);
+  });
+
+  it("caps the default single-line tooltip width at the viewport edge", () => {
+    render(
+      <TooltipProvider delayDuration={0}>
+        <Tooltip defaultOpen>
+          <TooltipTrigger asChild>
+            <button type="button">?</button>
+          </TooltipTrigger>
+          <TooltipContent>Project view only access</TooltipContent>
+        </Tooltip>
+      </TooltipProvider>,
+    );
+
+    expect(screen.getByRole("tooltip").className).toMatch(
+      /max-w-\[calc\(100vw-1rem\)\]/,
+    );
+  });
+
+  it("clamps a transformed tooltip using its rendered width", () => {
+    const originalInnerWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      value: 1000,
+    });
+
+    const rectSpy = jest
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockImplementation(function getBoundingClientRect() {
+        if (this.getAttribute("data-testid") === "trigger") {
+          return {
+            bottom: 140,
+            height: 40,
+            left: 950,
+            right: 1000,
+            top: 100,
+            width: 50,
+            x: 950,
+            y: 100,
+            toJSON: () => ({}),
+          };
+        }
+
+        if (this.getAttribute("role") === "tooltip") {
+          return {
+            bottom: 48,
+            height: 48,
+            left: 0,
+            right: 180,
+            top: 0,
+            width: 180,
+            x: 0,
+            y: 0,
+            toJSON: () => ({}),
+          };
+        }
+
+        return {
+          bottom: 0,
+          height: 0,
+          left: 0,
+          right: 0,
+          top: 0,
+          width: 0,
+          x: 0,
+          y: 0,
+          toJSON: () => ({}),
+        };
+      });
+    // Deliberately smaller than the rendered box above. The positioning
+    // code must ignore these layout dimensions or transformed content can
+    // still overflow after a viewport resize.
+    const widthSpy = jest
+      .spyOn(HTMLElement.prototype, "offsetWidth", "get")
+      .mockImplementation(function offsetWidth() {
+        return this.getAttribute("role") === "tooltip" ? 160 : 0;
+      });
+    const heightSpy = jest
+      .spyOn(HTMLElement.prototype, "offsetHeight", "get")
+      .mockImplementation(function offsetHeight() {
+        return this.getAttribute("role") === "tooltip" ? 40 : 0;
+      });
+
+    try {
+      renderTooltip("Project view only access");
+
+      const tooltip = screen.getByRole("tooltip");
+      // 1000px viewport - 8px gutter - 90px rendered half-width.
+      expect(tooltip.style.left).toBe("902px");
+      expect(tooltip.style.visibility).toBe("visible");
+    } finally {
+      rectSpy.mockRestore();
+      widthSpy.mockRestore();
+      heightSpy.mockRestore();
+      Object.defineProperty(window, "innerWidth", {
+        configurable: true,
+        value: originalInnerWidth,
+      });
+    }
   });
 
   it("no longer applies `pointer-events-none`, so the cursor can land on the tooltip and scroll it", () => {

@@ -242,11 +242,20 @@ export function TooltipContent({
 }: TooltipContentProps) {
   const { open, triggerRef, hoverHoldRef, cancelPendingClose, scheduleClose } =
     React.useContext(TooltipStateContext);
-  const [position, setPosition] = React.useState({ top: 0, left: 0 });
+  const [position, setPosition] = React.useState({
+    top: 0,
+    left: 0,
+    ready: false,
+  });
   const contentRef = React.useRef<HTMLDivElement | null>(null);
 
   React.useEffect(() => {
-    if (!open || !triggerRef.current) return;
+    if (!open || !triggerRef.current) {
+      setPosition((current) =>
+        current.ready ? { ...current, ready: false } : current,
+      );
+      return;
+    }
 
     // Viewport gutter so the tooltip never hugs the edge.
     const VIEWPORT_MARGIN = 8;
@@ -257,8 +266,15 @@ export function TooltipContent({
 
       const rect = trigger.getBoundingClientRect();
       const viewportH = window.innerHeight;
+      const viewportW = window.innerWidth;
       const contentEl = contentRef.current;
-      const contentH = contentEl?.offsetHeight ?? 0;
+      // Use the rendered box rather than offset dimensions. Transforms,
+      // browser scaling, and fractional layout can make the visual tooltip
+      // larger than offsetWidth/offsetHeight; clamping against the smaller
+      // layout box lets the rendered edge escape the viewport after resize.
+      const contentRect = contentEl?.getBoundingClientRect();
+      const contentH = contentRect?.height ?? 0;
+      const contentW = contentRect?.width ?? 0;
 
       let top = 0;
       let left = 0;
@@ -282,7 +298,7 @@ export function TooltipContent({
           break;
       }
 
-      // Clamp to viewport. The translate applied via Tailwind in
+      // Clamp to the viewport on both axes. The translate applied via Tailwind in
       // the content `<div>` shifts the actual rendered position:
       // top      → -translate-y-full        (body bottom == top)
       // bottom   → no Y translate           (body top    == top)
@@ -319,12 +335,39 @@ export function TooltipContent({
         }
       }
 
-      setPosition({ top, left });
+      if (contentW > 0) {
+        const effectiveW = Math.min(
+          contentW,
+          viewportW - 2 * VIEWPORT_MARGIN,
+        );
+
+        if (side === "top" || side === "bottom") {
+          const half = effectiveW / 2;
+          left = Math.min(
+            Math.max(left, VIEWPORT_MARGIN + half),
+            viewportW - VIEWPORT_MARGIN - half,
+          );
+        } else if (side === "left") {
+          // Body right = left because the content translates -100% on X.
+          left = Math.min(
+            Math.max(left, VIEWPORT_MARGIN + effectiveW),
+            viewportW - VIEWPORT_MARGIN,
+          );
+        } else {
+          // Body left = left for a right-side tooltip.
+          left = Math.min(
+            Math.max(left, VIEWPORT_MARGIN),
+            viewportW - VIEWPORT_MARGIN - effectiveW,
+          );
+        }
+      }
+
+      setPosition({ top, left, ready: true });
     };
 
-    // Initial position, then again on the next frame so the
-    // measurement step sees the actual rendered height (otherwise
-    // `contentRef.current.offsetHeight` is 0 on first paint).
+    // Keep the body hidden until the first measurement applies, preventing
+    // the tooltip from flashing at (0, 0). Measure again on the next frame in
+    // case fonts or wrapped content changed its dimensions.
     updatePosition();
     const raf = requestAnimationFrame(updatePosition);
 
@@ -373,7 +416,7 @@ export function TooltipContent({
         // default) so the cursor can land on the tooltip and read
         // / scroll the body — keeping the tooltip open via the
         // hover-hold counter above.
-        "fixed z-[9999] px-2 py-1 text-xs font-medium text-popover-foreground bg-popover border border-border rounded-md shadow-lg whitespace-nowrap",
+        "fixed z-[9999] max-w-[calc(100vw-1rem)] overflow-x-auto whitespace-nowrap px-2 py-1 text-xs font-medium text-popover-foreground bg-popover border border-border rounded-md shadow-lg",
         // Cap the tooltip height to ~60% of the viewport (with a
         // hard upper bound) and scroll internally when the body
         // overflows. Short tooltips are well under this cap, so
@@ -393,6 +436,7 @@ export function TooltipContent({
       style={{
         top: `${position.top}px`,
         left: `${position.left}px`,
+        visibility: position.ready ? "visible" : "hidden",
       }}
     >
       {children}

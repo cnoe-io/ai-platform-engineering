@@ -11,6 +11,8 @@ type TestSessionInput = {
   email: string;
   subject: string;
   role?: "admin" | "user";
+  /** Defaults from role so synthetic viewer sessions do not render admin UI. */
+  canViewAdmin?: boolean;
   /** Override the embedded token expiry (unix seconds). Defaults to now + 1h. */
   expiresAt?: number;
   /** Set the `hasRefreshToken` claim on the minted token when provided. */
@@ -557,6 +559,7 @@ export async function installTestSession(
 
   const nowSeconds = Math.floor(Date.now() / 1000);
   const tokenExpiresAt = input.expiresAt ?? nowSeconds + 60 * 60;
+  const role = input.role ?? "admin";
   const token = await encode({
     secret,
     maxAge: 60 * 60,
@@ -567,8 +570,8 @@ export async function installTestSession(
       accessToken: "rbac-e2e-local-access-token",
       expiresAt: tokenExpiresAt,
       isAuthorized: true,
-      role: input.role ?? "admin",
-      canViewAdmin: true,
+      role,
+      canViewAdmin: input.canViewAdmin ?? role === "admin",
       canAccessDynamicAgents: true,
       org: process.env.CAIPE_ORG_KEY?.trim() || "caipe",
       ...(input.hasRefreshToken !== undefined
@@ -577,12 +580,15 @@ export async function installTestSession(
     },
   });
 
+  const secureCookie = new URL(env.baseUrl).protocol === "https:";
   await page.context().addCookies([
     {
+      // auth-config.ts deliberately keeps this stable across HTTP and HTTPS.
       name: "next-auth.session-token",
       value: token,
       url: env.baseUrl,
       httpOnly: true,
+      secure: secureCookie,
       sameSite: "Lax",
       // Keep the browser-level cookie alive past the embedded token expiry so
       // tests that start with an already-expired token still load authenticated.

@@ -17,6 +17,7 @@ import {
   type ChatSession,
   type ChatMessage,
   type EdgeIndexRow,
+  type TrackedEntityIndexRow,
   type Gist,
 } from "@/types/tome";
 
@@ -52,6 +53,12 @@ export async function getTomeEdgesIndexCollection(): Promise<
   Collection<EdgeIndexRow>
 > {
   return getCollection<EdgeIndexRow>(TOME_COLLECTIONS.EDGES_INDEX);
+}
+
+export async function getTomeTrackedEntitiesIndexCollection(): Promise<
+  Collection<TrackedEntityIndexRow>
+> {
+  return getCollection<TrackedEntityIndexRow>(TOME_COLLECTIONS.TRACKED_ENTITIES_INDEX);
 }
 
 export async function getTomeGistsCollection(): Promise<Collection<Gist>> {

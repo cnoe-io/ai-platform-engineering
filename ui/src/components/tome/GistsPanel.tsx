@@ -46,9 +46,11 @@ function timeLabel(iso: string): string {
 
 export function GistsPanel({
   slug,
+  canEdit,
   onOpenGist,
 }: {
   slug: string;
+  canEdit: boolean;
   onOpenGist: (id: string) => void;
 }) {
   const [gists, setGists] = useState<Gist[] | null>(null);
@@ -105,7 +107,11 @@ export function GistsPanel({
         <PanelHeader
           title="Gists"
           description="Quick, non-committal context saved outside the wiki."
-          action={<NewGistDialog slug={slug} onCreated={(gist) => onOpenGist(gist.id)} />}
+          action={
+            canEdit ? (
+              <NewGistDialog slug={slug} onCreated={(gist) => onOpenGist(gist.id)} />
+            ) : undefined
+          }
         />
       </div>
 
@@ -194,15 +200,17 @@ export function GistsPanel({
                       </div>
                     )}
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 shrink-0 text-muted-foreground/60 hover:text-destructive"
-                    aria-label="Delete gist"
-                    onClick={() => void remove(gist)}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
+                  {canEdit && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 shrink-0 text-muted-foreground/60 hover:text-destructive"
+                      aria-label="Delete gist"
+                      onClick={() => void remove(gist)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
                 </li>
               ))}
             </ul>

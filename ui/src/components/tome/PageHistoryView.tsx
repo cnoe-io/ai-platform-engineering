@@ -7,6 +7,7 @@ import { History, Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { ViewOnlyTooltip } from "@/components/tome/ViewOnlyTooltip";
 import { cn } from "@/lib/utils";
 
 /**
@@ -35,11 +36,13 @@ interface RevisionDetail {
 export function PageHistoryView({
   slug,
   path,
+  canEdit,
   onReverted,
   onOpenRun,
 }: {
   slug: string;
   path: string;
+  canEdit: boolean;
   /** Called after a successful revert so the caller can reload the wiki page. */
   onReverted?: () => void;
   /** Navigate to the ingest run that produced a revision. */
@@ -231,10 +234,21 @@ export function PageHistoryView({
             <div className="flex items-center justify-between gap-3 border-b px-5 py-2">
               <span className="text-xs text-muted-foreground">{headerNote}</span>
               {selectedIdx !== 0 && (
-                <Button size="sm" variant="outline" onClick={() => void revert()} disabled={reverting}>
-                  {reverting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <History className="h-3.5 w-3.5" />}
-                  Revert to this
-                </Button>
+                <ViewOnlyTooltip viewOnly={!canEdit}>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void revert()}
+                    disabled={reverting || !canEdit}
+                  >
+                    {reverting ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <History className="h-3.5 w-3.5" />
+                    )}
+                    Revert to this
+                  </Button>
+                </ViewOnlyTooltip>
               )}
             </div>
             {error && (

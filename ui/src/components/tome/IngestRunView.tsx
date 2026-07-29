@@ -57,12 +57,14 @@ export function IngestRunView({
   runId,
   onPagesChanged,
   onReviewDraft,
+  canEdit,
 }: {
   slug: string;
   runId: string;
   onPagesChanged?: () => void;
   /** Jump to the draft-review diff view for this run. */
   onReviewDraft?: (runId: string) => void;
+  canEdit: boolean;
 }) {
   // The parent run's detail (cascade metadata + status), surfaced from the
   // parent pane. Retained while viewing a child so the cascade panel persists.
@@ -125,7 +127,7 @@ export function IngestRunView({
           slug={slug}
           runId={runId}
           label={parentLabel}
-          allowStop
+          allowStop={canEdit}
           onStatus={setParent}
           onFinished={onPagesChanged}
         />

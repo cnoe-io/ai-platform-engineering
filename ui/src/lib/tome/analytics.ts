@@ -20,7 +20,7 @@ import { getServerOnlyConfig } from "@/lib/config";
 import { getCollection } from "@/lib/mongodb";
 import { getTomeChatMessagesCollection } from "@/lib/tome/mongo-collections";
 import type { Document } from "mongodb";
-import type { ProjectDocument } from "@/types/projects";
+import { dataStewardLabel, type ProjectDocument } from "@/types/projects";
 import type { ActiveIngestRun } from "@/types/tome";
 
 export interface ProjectEngagement {
@@ -635,7 +635,7 @@ export async function getTomeLeadershipKpis(windowDays = 30): Promise<TomeLeader
       type: project.type,
       slug: project.slug,
       name: project.name,
-      dataSteward: project.data_steward,
+      dataSteward: dataStewardLabel(project.data_steward) || undefined,
       sources: project.sources,
       initiatives: project.labels?.initiatives,
       areas: project.labels?.areas,

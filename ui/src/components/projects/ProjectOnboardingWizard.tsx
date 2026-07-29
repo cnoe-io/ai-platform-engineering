@@ -110,13 +110,13 @@ const ENTITY_TYPE_OPTIONS: {
   {
     value: "area",
     label: "Area",
-    description: "A mid-tier grouping under a BHAG",
+    description: "A mid-tier grouping with child projects and direct sources",
     icon: Layers,
   },
   {
     value: "bhag",
     label: "BHAG",
-    description: "A strategic goal that spans multiple projects",
+    description: "A strategic goal with child projects and direct sources",
     icon: Target,
   },
 ];
@@ -152,19 +152,23 @@ function buildWizardSteps(
   const access: WizardStepMeta = {
     id: "access",
     title: "Access Control",
-    subtitle: entityType === "project" ? "Assign a team and data steward" : "Assign a team",
+    subtitle: "Assign an owning team and a scoped data steward",
     icon: Shield,
     gradient: DEFAULT_GRADIENT,
     kind: "access",
   };
-  // BHAG/Area are synthesis-only wikis, not deployable projects — skip the
-  // Integrations step entirely (neither sources nor app tiles apply).
-  const relevantConfigSteps = entityType === "project" ? configSteps : [];
+  // BHAGs/Areas can attach the same data sources as projects, but do not
+  // provision project-only app integrations.
+  const relevantConfigSteps =
+    entityType === "project" ? configSteps : configSteps.filter(isSourceStep);
   const integrations: WizardStepMeta | null = relevantConfigSteps.length
     ? {
         id: "integrations",
         title: "Integrations",
-        subtitle: "Enable the apps and sources for this project",
+        subtitle:
+          entityType === "project"
+            ? "Enable apps and data sources"
+            : "Attach data sources for synthesis",
         icon: Boxes,
         gradient: DEFAULT_GRADIENT,
         kind: "integrations",
@@ -214,9 +218,10 @@ export function ProjectOnboardingWizard({
   // User-shared data sources (collected by the configured `source` steps;
   // forwarded to connected external apps on onboarding).
   const [githubReposRaw, setGithubReposRaw] = useState("");
-  // Data steward for the source-activity feed: the principal the feed runs as.
-  // Blank means the create API assigns the creator (owner) explicitly.
+  // The scoped OpenFGA writer may be one user or every member of one team.
+  const [stewardType, setStewardType] = useState<"user" | "team">("user");
   const [stewardEmail, setStewardEmail] = useState("");
+  const [stewardTeamId, setStewardTeamId] = useState("");
   const [blastRadius, setBlastRadius] = useState<"small" | "large" | "">("");
   const [optionality, setOptionality] = useState<string[]>([]);
   const [confluenceUrl, setConfluenceUrl] = useState("");
@@ -250,6 +255,10 @@ export function ProjectOnboardingWizard({
 
   const wizardSteps = useMemo(
     () => buildWizardSteps(configSteps, entityType),
+    [configSteps, entityType],
+  );
+  const entityConfigSteps = useMemo(
+    () => (entityType === "project" ? configSteps : configSteps.filter(isSourceStep)),
     [configSteps, entityType],
   );
   const phase = wizardSteps[phaseIndex] ?? wizardSteps[0];
@@ -389,7 +398,9 @@ export function ProjectOnboardingWizard({
     setDescription("");
     setTeamId("");
     setGithubReposRaw("");
+    setStewardType("user");
     setStewardEmail("");
+    setStewardTeamId("");
     setBlastRadius("");
     setOptionality([]);
     setConfluenceUrl("");
@@ -407,47 +418,51 @@ export function ProjectOnboardingWizard({
     setError(null);
     setProvisioning(true);
 
+    // Only collect source data for sources the user actually enabled.
+    const enabledSourceKinds = new Set(
+      entityConfigSteps
+        .filter((s) => isSourceStep(s) && enabled[s.id])
+        .map((s) => s.source),
+    );
+    const github_repos = enabledSourceKinds.has("github")
+      ? githubReposRaw.split(/[\n,]/).map((s) => s.trim()).filter(Boolean)
+      : [];
+    const confluence_url = enabledSourceKinds.has("confluence")
+      ? confluenceUrl.trim() || undefined
+      : undefined;
+    const webex_rooms = enabledSourceKinds.has("webex")
+      ? webexRooms.map(toWebexRoomSource)
+      : [];
+    const common = {
+      name: projectName.trim(),
+      description: description.trim() || undefined,
+      team_id: teamId,
+      data_steward:
+        stewardType === "team"
+          ? { type: "team", team_id: stewardTeamId }
+          : stewardEmail.trim()
+            ? { type: "user", email: stewardEmail.trim() }
+            : undefined,
+      github_repos,
+      confluence_url,
+      webex_rooms,
+    };
+
     let payload: Record<string, unknown>;
     if (entityType === "bhag") {
       payload = {
+        ...common,
         type: "bhag",
-        name: projectName.trim(),
-        description: description.trim() || undefined,
-        team_id: teamId,
       };
     } else if (entityType === "area") {
       payload = {
+        ...common,
         type: "area",
-        name: projectName.trim(),
-        description: description.trim() || undefined,
-        team_id: teamId,
         initiatives: selectedBhagName ? [selectedBhagName] : [],
       };
     } else {
-      // Only collect source data for sources the user actually enabled.
-      const enabledSourceKinds = new Set(
-        configSteps
-          .filter((s) => isSourceStep(s) && enabled[s.id])
-          .map((s) => s.source),
-      );
-      const github_repos = enabledSourceKinds.has("github")
-        ? githubReposRaw.split(/[\n,]/).map((s) => s.trim()).filter(Boolean)
-        : [];
-      const confluence_url = enabledSourceKinds.has("confluence")
-        ? confluenceUrl.trim() || undefined
-        : undefined;
-      const webex_rooms = enabledSourceKinds.has("webex")
-        ? webexRooms.map(toWebexRoomSource)
-        : [];
       payload = {
-        name: projectName.trim(),
-        description: description.trim() || undefined,
-        team_id: teamId,
-        github_repos,
-        confluence_url,
-        webex_rooms,
-        // Blank → the API assigns the creator explicitly (no runtime fallback).
-        data_steward: stewardEmail.trim() || undefined,
+        ...common,
         decision_blast_radius: blastRadius || undefined,
         optionality: optionality.length ? optionality : undefined,
       };
@@ -475,7 +490,7 @@ export function ProjectOnboardingWizard({
       // Provision the enabled app integrations (tile links, http apps) in one
       // call — best-effort, so a provider hiccup doesn't block landing on the
       // project. Sources were already written at create.
-      const appSteps = configSteps
+      const appSteps = entityConfigSteps
         .filter((s) => !isSourceStep(s) && enabled[s.id])
         .map((s) => s.id);
       if (appSteps.length > 0) {
@@ -543,11 +558,12 @@ export function ProjectOnboardingWizard({
     (isCreatePhase && !projectName.trim()) ||
     (isCreatePhase && entityType === "area" && !selectedBhagName) ||
     ((isAccessPhase || isReviewPhase) && (!projectName.trim() || !teamId)) ||
+    ((isAccessPhase || isReviewPhase) && stewardType === "team" && !stewardTeamId) ||
     (isReviewPhase && entityType === "area" && !selectedBhagName);
 
   const stepSummary =
-    configSteps.length > 0
-      ? configSteps.map((step) => step.title).join(" · ")
+    entityConfigSteps.length > 0
+      ? entityConfigSteps.map((step) => step.title).join(" · ")
       : "Create project and finish";
 
   if (!open) {
@@ -932,60 +948,94 @@ export function ProjectOnboardingWizard({
                 <div className="space-y-6">
                   <div className="space-y-4">
                     <div className="space-y-1.5">
-                      <span className="block text-sm font-medium">Team <span className="text-red-500">*</span></span>
+                      <span className="block text-sm font-medium">
+                        Shared directly with <span className="text-red-500">*</span>
+                      </span>
                       <TeamPicker
                         options={teams}
                         value={teamId}
                         onChange={setTeamId}
-                        placeholder="Select owning team"
+                        placeholder="Select a team"
+                        ariaLabel="Shared directly with team"
                         hideSlugSuffix
                         triggerClassName="flex"
                       />
+                      <span className="block text-xs text-muted-foreground">
+                        Members of this team have direct view access. Access can also be inherited
+                        through the BHAG and Area hierarchy.
+                      </span>
                       {!teamsLoading && teams.length === 0 && (
                         <span className="block text-xs text-muted-foreground">
-                          No teams available. Ask an admin to add you to one (a
-                          project must belong to a team).
+                          No teams available. Ask an admin to add you to one. Every Tome entity
+                          must be shared with a team.
                         </span>
                       )}
                       {defaultTeam && teamId === defaultTeam.slug && (
                         <span className="block text-xs text-muted-foreground">
-                          Defaulted to {defaultTeam.name}. Most projects belong here. Change it if this one is different.
+                          Defaulted to {defaultTeam.name}. Members of this team will have direct
+                          view access. Change it if needed.
                         </span>
                       )}
                     </div>
                   </div>
 
-                  {entityType === "project" ? (
-                    <div className="space-y-4 border-t border-border/60 pt-6">
-                      <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                        Data Steward
-                      </h3>
-                      <div className="space-y-1.5">
+                  <div className="space-y-4 border-t border-border/60 pt-6">
+                    <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Data steward (data write and project admin access)
+                    </h3>
+                    <div className="grid grid-cols-2 gap-2">
+                      {(["user", "team"] as const).map((kind) => (
+                        <button
+                          key={kind}
+                          type="button"
+                          onClick={() => setStewardType(kind)}
+                          className={cn(
+                            "rounded-lg border px-3 py-2 text-sm font-medium capitalize transition",
+                            stewardType === kind
+                              ? "border-primary bg-primary/10 text-primary"
+                              : "border-border/60 hover:bg-accent/40",
+                          )}
+                        >
+                          {kind}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="space-y-1.5">
+                      {stewardType === "user" ? (
                         <UserEmailPicker
                           value={stewardEmail}
                           onChange={setStewardEmail}
-                          placeholder="Optional: leave blank to skip"
+                          placeholder="Leave blank to assign yourself"
                           currentUserEmail={currentUserEmail}
                         />
-                        <span className="block text-xs text-muted-foreground">
-                          The person (by email) whose GitHub connection powers this
-                          project&apos;s source activity feed. Defaults to you. This role will
-                          do more later. Changeable in settings.
-                        </span>
-                      </div>
+                      ) : (
+                        <TeamPicker
+                          options={teams}
+                          value={stewardTeamId}
+                          onChange={setStewardTeamId}
+                          placeholder="Select steward team"
+                          hideSlugSuffix
+                          triggerClassName="flex"
+                        />
+                      )}
+                      <span className="block text-xs text-muted-foreground">
+                        This user, or every member of this team, can edit Tome content,
+                        run ingestion or synthesis, and accept or reject draft reviews.
+                        The permission applies only to this {entityType}.
+                      </span>
                     </div>
-                  ) : null}
+                  </div>
                 </div>
               ) : null}
 
               {isIntegrationsPhase ? (
                 <div className="space-y-3">
-                  {configSteps.length === 0 ? (
+                  {entityConfigSteps.length === 0 ? (
                     <p className="text-sm text-muted-foreground">
                       No integrations are configured for this deployment.
                     </p>
                   ) : null}
-                  {configSteps.map((step) => {
+                  {entityConfigSteps.map((step) => {
                     const on = Boolean(enabled[step.id]);
                     const isSource = isSourceStep(step);
                     return (
@@ -1097,13 +1147,23 @@ export function ProjectOnboardingWizard({
                         t.id === teamId || t._id === teamId || t.slug === teamId,
                     );
                     const teamLabel = team?.name?.trim() || team?.slug || teamId;
+                    const stewardTeam = teams.find(
+                      (t) =>
+                        t.id === stewardTeamId ||
+                        t._id === stewardTeamId ||
+                        t.slug === stewardTeamId,
+                    );
+                    const stewardLabel =
+                      stewardType === "team"
+                        ? stewardTeam?.name?.trim() || stewardTeam?.slug || stewardTeamId
+                        : stewardEmail.trim() || currentUserEmail || "Creator";
                     // Only summarize what the user enabled in the Integrations step.
                     const enabledSourceKinds = new Set(
-                      configSteps
+                      entityConfigSteps
                         .filter((s) => isSourceStep(s) && enabled[s.id])
                         .map((s) => s.source),
                     );
-                    const enabledIntegrations = configSteps
+                    const enabledIntegrations = entityConfigSteps
                       .filter((s) => enabled[s.id])
                       .map((s) => s.title);
                     const showGithub = enabledSourceKinds.has("github");
@@ -1159,7 +1219,10 @@ export function ProjectOnboardingWizard({
                               {projectName.trim() || muted}
                             </span>
                           </Row>
-                          <Row label="Team">{teamLabel || muted}</Row>
+                          <Row label="Shared directly with">{teamLabel || muted}</Row>
+                          <Row label="Data steward (data write and project admin access)">
+                            {stewardLabel || muted} ({stewardType})
+                          </Row>
                           {description.trim() ? (
                             <Row label="Description">{description.trim()}</Row>
                           ) : null}
@@ -1291,4 +1354,3 @@ export function ProjectOnboardingWizard({
     </div>
   );
 }
-

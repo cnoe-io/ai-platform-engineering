@@ -3023,6 +3023,9 @@
         "owner": {
           "this": {}
         },
+        "parent": {
+          "this": {}
+        },
         "reader": {
           "this": {}
         },
@@ -3049,6 +3052,16 @@
               {
                 "computedUserset": {
                   "relation": "reader"
+                }
+              },
+              {
+                "tupleToUserset": {
+                  "tupleset": {
+                    "relation": "parent"
+                  },
+                  "computedUserset": {
+                    "relation": "can_read"
+                  }
                 }
               },
               {
@@ -3153,6 +3166,13 @@
               },
               {
                 "type": "service_account"
+              }
+            ]
+          },
+          "parent": {
+            "directly_related_user_types": [
+              {
+                "type": "document"
               }
             ]
           },

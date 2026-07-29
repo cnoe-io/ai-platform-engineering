@@ -33,6 +33,7 @@ import type { ProjectDocument, ProjectSources } from "@/types/projects";
 export function ProjectDetailView({ slug }: { slug: string }) {
   const { kinds: sourceKinds } = useProjectSourceKinds();
   const [project, setProject] = useState<ProjectDocument | null>(null);
+  const [canEdit, setCanEdit] = useState(false);
   const [catalogYaml, setCatalogYaml] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -116,6 +117,7 @@ export function ProjectDetailView({ slug }: { slug: string }) {
           throw new Error(body.error ?? "Failed to load project");
         }
         setProject(body.data.project as ProjectDocument);
+        setCanEdit(body.data.permissions?.can_edit === true);
         setCatalogYaml(body.data.catalog_yaml ?? "");
       })
       .catch((err) => setError(err instanceof Error ? err.message : String(err)))
@@ -243,24 +245,28 @@ export function ProjectDetailView({ slug }: { slug: string }) {
           >
             {project.status}
           </span>
-          <button
-            type="button"
-            onClick={openEdit}
-            title="Edit project"
-            className="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1 text-xs font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
-          >
-            <Pencil className="h-3.5 w-3.5" />
-            Edit
-          </button>
-          <button
-            type="button"
-            onClick={() => setDeleteOpen(true)}
-            title="Delete project"
-            className="inline-flex items-center gap-1.5 rounded-full border border-red-300/40 px-3 py-1 text-xs font-medium text-red-500 transition hover:bg-red-500/10"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-            Delete
-          </button>
+          {canEdit ? (
+            <>
+              <button
+                type="button"
+                onClick={openEdit}
+                title="Edit project"
+                className="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1 text-xs font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+                Edit
+              </button>
+              <button
+                type="button"
+                onClick={() => setDeleteOpen(true)}
+                title="Delete project"
+                className="inline-flex items-center gap-1.5 rounded-full border border-red-300/40 px-3 py-1 text-xs font-medium text-red-500 transition hover:bg-red-500/10"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                Delete
+              </button>
+            </>
+          ) : null}
         </div>
       </header>
 

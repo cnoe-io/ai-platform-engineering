@@ -24,6 +24,8 @@ import {
 } from "@/lib/tome/schema";
 import { getCollection } from "@/lib/mongodb";
 import { parseTomeHref } from "@/lib/tome/tome-links";
+import { filterReadableTomeProjects } from "@/lib/tome/access";
+import { tomeSessionSubject } from "@/lib/tome/data-steward";
 import type { ProjectDocument } from "@/types/projects";
 
 export const dynamic = "force-dynamic";
@@ -51,12 +53,30 @@ function edgeDetail(md: string) {
 
 export const GET = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
   const { slug } = await ctx.params;
-  const { project, projectId } = await loadTomeProject(request, slug); // access check; throws if unauthorized
+  const tctx = await loadTomeProject(request, slug);
+  const { project, projectId } = tctx; // access check; throws if unauthorized
 
-  const [incomingRows, pages] = await Promise.all([
+  const [allIncomingRows, pages] = await Promise.all([
     incomingEdgesFor(slug),
     (await getPageStore()).listPages(projectId),
   ]);
+  const projects = await getCollection<ProjectDocument>("projects");
+  const incomingSourceProjects = await projects
+    .find({
+      slug: {
+        $in: [...new Set(allIncomingRows.map((row) => row.source_project_slug))],
+      },
+    })
+    .toArray();
+  const readableSources = await filterReadableTomeProjects(
+    tomeSessionSubject(tctx.session),
+    incomingSourceProjects,
+    { isAdmin: tctx.canManageSteward },
+  );
+  const readableSourceSlugs = new Set(readableSources.map((row) => row.slug));
+  const incomingRows = allIncomingRows.filter((row) =>
+    readableSourceSlugs.has(row.source_project_slug),
+  );
 
   const outgoing = Object.entries(pages)
     .filter(([path]) => path.startsWith(`${EDGES_DIR}/`))
@@ -97,12 +117,19 @@ export const GET = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
     ...outgoing.map((e) => e.target_project_slug),
     ...incoming.map((e) => e.source_project_slug),
   ]);
-  const projects = await getCollection<ProjectDocument>("projects");
   const rows = await projects
-    .find({ slug: { $in: [...slugs] } }, { projection: { slug: 1, title: 1, name: 1 } })
+    .find(
+      { slug: { $in: [...slugs] } },
+      { projection: { slug: 1, title: 1, name: 1, type: 1 } },
+    )
     .toArray();
+  const readableTitleRows = await filterReadableTomeProjects(
+    tomeSessionSubject(tctx.session),
+    rows,
+    { isAdmin: tctx.canManageSteward },
+  );
   const titles: Record<string, string> = { [slug]: project.title || project.name || slug };
-  for (const r of rows) titles[r.slug] = r.title || r.name || r.slug;
+  for (const r of readableTitleRows) titles[r.slug] = r.title || r.name || r.slug;
 
   return successResponse({ outgoing, incoming, titles });
 });

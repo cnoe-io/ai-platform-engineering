@@ -4,8 +4,9 @@ import { AlertTriangle, ArrowRight, RefreshCw, Sparkles } from "lucide-react";
 
 import { MarkdownRenderer, renderInlineMarkdown } from "@/components/shared/timeline/MarkdownRenderer";
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { parseFrontmatter } from "@/lib/tome/schema";
+import { PanelShell } from "@/components/tome/PanelHeader";
+import { ViewOnlyTooltip } from "@/components/tome/ViewOnlyTooltip";
+import { parseStandup } from "@/lib/tome/standup";
 import type { GlossaryResolver } from "@/lib/tome/tome-links";
 
 interface Props {
@@ -15,48 +16,9 @@ interface Props {
   onNavigate?: (path: string) => void;
   glossaryPreview?: GlossaryResolver;
   onStartIngest?: () => void;
-  /** True for a BHAG/Area: it has no sources of its own, so the empty state
-   * should say "synthesize" instead of "ingest". */
+  /** True for a BHAG/Area, whose primary action is synthesis. */
   isSynthesized?: boolean;
-}
-
-interface StandupSections {
-  whatIsThis: string;
-  headline: string;
-  blockers: string;
-  upNext: string;
-}
-
-// INGEST.md's report-card spec: `## What is this` / `## Headline` /
-// `## Asks / Blockers` / `## Up next`. Matched case-insensitively with a
-// couple of punctuation variants since the agent's exact spacing can drift.
-const SECTION_ALIASES: Record<string, keyof StandupSections> = {
-  "what is this": "whatIsThis",
-  headline: "headline",
-  "asks / blockers": "blockers",
-  "asks/blockers": "blockers",
-  blockers: "blockers",
-  "up next": "upNext",
-};
-
-function parseStandup(markdown: string): StandupSections {
-  const [, body] = parseFrontmatter(markdown);
-  const sections: Partial<StandupSections> = {};
-  const heading = /^##\s+(.+?)\s*$/gm;
-  const matches = [...body.matchAll(heading)];
-  for (let i = 0; i < matches.length; i++) {
-    const key = SECTION_ALIASES[matches[i][1].trim().toLowerCase()];
-    if (!key) continue;
-    const start = (matches[i].index ?? 0) + matches[i][0].length;
-    const end = i + 1 < matches.length ? matches[i + 1].index ?? body.length : body.length;
-    sections[key] = body.slice(start, end).trim();
-  }
-  return {
-    whatIsThis: sections.whatIsThis ?? "",
-    headline: sections.headline ?? "",
-    blockers: sections.blockers ?? "",
-    upNext: sections.upNext ?? "",
-  };
+  canEdit?: boolean;
 }
 
 /**
@@ -71,6 +33,7 @@ export function StandupView({
   glossaryPreview,
   onStartIngest,
   isSynthesized,
+  canEdit = true,
 }: Props) {
   if (!markdown) {
     return (
@@ -84,42 +47,59 @@ export function StandupView({
           {isSynthesized ? "Synthesize this wiki" : "Run an ingest"} to generate one.
         </p>
         {onStartIngest && (
-          <Button size="sm" onClick={onStartIngest} className="gap-1.5">
-            <RefreshCw className="h-3.5 w-3.5" />
-            {isSynthesized ? "Start a synthesis" : "Start an ingest"}
-          </Button>
+          <ViewOnlyTooltip viewOnly={!canEdit}>
+            <Button
+              size="sm"
+              onClick={onStartIngest}
+              className="gap-1.5"
+              disabled={!canEdit}
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+              {isSynthesized ? "Start a synthesis" : "Start an ingest"}
+            </Button>
+          </ViewOnlyTooltip>
         )}
       </div>
     );
   }
 
   const s = parseStandup(markdown);
+  const headline = s.headline.split(/\n+/).find((line) => line.trim())?.trim() ?? "";
 
   return (
-    <ScrollArea className="h-full">
-      <div className="mx-auto w-full max-w-3xl space-y-6 p-8">
-        <div className="space-y-2">
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-            The Standup
-          </span>
-          {s.headline ? (
-            <h1
-              className="text-2xl font-semibold leading-snug"
-              dangerouslySetInnerHTML={{ __html: renderInlineMarkdown(s.headline) }}
-            />
-          ) : (
-            <h1 className="text-2xl font-semibold leading-snug text-muted-foreground">
-              No headline yet
-            </h1>
-          )}
-          {s.whatIsThis && (
-            <p
-              className="text-sm text-muted-foreground"
-              dangerouslySetInnerHTML={{ __html: renderInlineMarkdown(s.whatIsThis) }}
-            />
-          )}
-        </div>
+    <PanelShell maxWidthClassName="max-w-3xl">
+      <div className="space-y-2">
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          The Standup
+        </span>
+        {headline ? (
+          <h1
+            className="text-2xl font-semibold leading-snug"
+            dangerouslySetInnerHTML={{ __html: renderInlineMarkdown(headline) }}
+          />
+        ) : (
+          <h1 className="text-2xl font-semibold leading-snug text-muted-foreground">
+            No headline yet
+          </h1>
+        )}
+        {s.whatIsThis && (
+          <p
+            className="text-sm text-muted-foreground"
+            dangerouslySetInnerHTML={{ __html: renderInlineMarkdown(s.whatIsThis) }}
+          />
+        )}
+      </div>
 
+      {s.fallback ? (
+        <div className="rounded-lg border bg-muted/20 p-5">
+          <MarkdownRenderer
+            content={s.fallback}
+            variant="final"
+            onInternalLink={onNavigate}
+            glossaryPreview={glossaryPreview}
+          />
+        </div>
+      ) : (
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="rounded-lg border bg-muted/30 p-4">
             <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -155,7 +135,7 @@ export function StandupView({
             )}
           </div>
         </div>
-      </div>
-    </ScrollArea>
+      )}
+    </PanelShell>
   );
 }

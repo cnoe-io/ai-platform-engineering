@@ -29,6 +29,8 @@ export const TOME_COLLECTIONS = {
   CHAT_MESSAGES: "tome_chat_messages",
   /** Backlink index over `edges/*.md` pages, keyed by resolved target project. */
   EDGES_INDEX: "tome_edges_index",
+  /** Search/roll-up index over issue, decision, and suggestion pages. */
+  TRACKED_ENTITIES_INDEX: "tome_tracked_entities_index",
   /** Gists — lightweight, non-wiki context chunks. */
   GISTS: "tome_gists",
 } as const;
@@ -109,6 +111,25 @@ export interface EdgeIndexRow {
   target_project_slug: string; // resolved from `target`; same as source slug if same-project
   confidence?: string;
   status: string;
+  updated_at: Date;
+}
+
+/** Denormalized index row for one tracked-entity page. */
+export interface TrackedEntityIndexRow {
+  _id?: string; // `${source_project_id}:${path}`
+  source_project_id: string;
+  source_project_slug: string;
+  path: string;
+  entity_type: "issue" | "decision" | "suggestion";
+  title: string;
+  status: string;
+  priority: string;
+  owner?: string;
+  opened?: string;
+  closed?: string;
+  target?: string;
+  target_project_slug: string;
+  body: string;
   updated_at: Date;
 }
 

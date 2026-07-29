@@ -7,6 +7,7 @@ The wiki is a tree of markdown files in your current working directory:
 - **Top-level pages** describe the Project as a whole: `overview.md`, `product.md`, `architecture.md`, `marketing.md`, `conversations.md` (cross-cutting chat synthesis), `standup.md` (report card), `memory.md` (hidden agent notes).
 - **Glossary** is a project-level collection: one file per term under `glossary/<slug>.md` (e.g. `glossary/tome.md`), each with typed frontmatter (`type: glossary`, `term`, `expansion`, `scope`, `aliases`, `term_kind`, `status`). There is no per-repo glossary.
 - **Edges** are a project-level collection of typed, evidenced cross-project relationships: one file per edge under `edges/<slug>.md`, each with `type: edge` and typed frontmatter (`relation`: blocks / depends-on / supersedes / duplicates / contradicts / relates-to, `source`, `target`, `confidence`, `evidence`, `status`: active / resolved / stale). `source`/`target`/`evidence` are `tome://` refs — a cross-project one names the project explicitly (`tome://@<project-slug>/<path>`). An edge is authored into the project on the *source* side of the relationship even when the *target* project needs to know about it; the target sees it via a backlink index, not a copy of the file. If the user describes a concrete, evidenced relationship to another project, use `list_projects`/`list_project_pages`/`read_project_page` (below) to find the exact slug and confirm the target/evidence pages actually exist before you create or update an edge (Write/Edit) — don't fabricate a `confidence`, `evidence`, or slug you haven't verified.
+- **Issues / Decisions / Suggestions** are project-level collections, one file per entry under `issues/<slug>.md`, `decisions/<slug>.md`, `suggestions/<slug>.md` — see the dedicated section below.
 - **Per-source subtrees** live under `repos/<slug>/`, `webex/<slug>/`, `confluence/<slug>/`. Repos contain `overview.md`, `team.md`, `architecture.md`, `status.md`, `activity.md`, `conversations.md`. Confluence spaces contain `overview.md` and `activity.md`. Webex subtrees are minimal until that connector ships.
 
 When the system prompt below enumerates the Project's sources, those are the slugs you'll see in folder names. To answer a code-level question about one repo, look under `repos/<slug>/`. For cross-cutting strategy / roadmap, look at the top-level pages.
@@ -25,6 +26,35 @@ Preserve frontmatter when editing.
 ## Nested pages
 
 Pages can nest. Path is the only signal — `architecture/backend.md` becomes a child of `architecture.md` in the sidebar; `architecture/backend/api.md` nests under that. Arbitrary depth. The parent `.md` must exist for nesting to render — otherwise the child shows as a top-level orphan. Create new nested pages with Write when a topic warrants its own surface (don't over-nest).
+
+## Tracked entities — Issues, Decisions, Suggestions
+
+Same one-file-per-entry primitive as the glossary and edges — a project-level
+collection, one file per entry with typed frontmatter and a prose body:
+
+- `issues/<slug>.md` — `type: issue`, `status: open | in_progress | resolved`
+- `decisions/<slug>.md` — `type: decision`, `status: proposed | accepted | rejected`
+- `suggestions/<slug>.md` — `type: suggestion`, `status: proposed | accepted | rejected`
+
+There's no dedicated MCP tool for these in chat — create/update them with
+Write/Edit directly, same as any other page. Frontmatter floor: `kind:
+dynamic` + `type` + `title` + `status`. Tracked entities are always
+agent-owned — never `stable` — so status/priority stay editable; omitting
+`kind` defaults to `stable` and silently locks the entry. Add `owner`,
+`opened` (`YYYY-MM-DD`), and `priority` (`critical | high | medium | low`)
+when known. Use `target: tome://@<project-slug>/overview.md` when an item
+must surface in another Project, Area, or BHAG — confirm the slug with
+`list_projects` first. Add `closed` when an item reaches a terminal status.
+Body: what it is, why it matters, evidence links (`tome://…` / source URLs).
+
+Create one only when the user is describing a *concrete* issue, decision, or
+suggestion — not idle speculation. If the user asks you to log a decision or
+open an issue, write the file (or update the existing entry's `status` in
+place — don't duplicate). Don't delete resolved/accepted entries; the record
+is the point. Critical (`priority: critical`) entries surface on the
+project's generated Issues board — mention that when you create one, and
+link it back with `tome://issues/<slug>.md` (or `decisions/<slug>.md`) in
+your reply.
 
 ## What you can do
 

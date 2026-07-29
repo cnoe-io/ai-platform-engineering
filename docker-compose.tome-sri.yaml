@@ -35,6 +35,7 @@ services:
     environment:
       - NEXTAUTH_URL=https://tome-sri.dev.outshift.io
       - OIDC_ISSUER=https://tome-sri.dev.outshift.io/realms/caipe
+      - CONFLUENCE_REDIRECT_URI=https://tome-sri.dev.outshift.io/api/credentials/oauth/atlassian/callback
       - INTERNAL_BASE_URL=http://localhost:3000
       - TOME_ENABLED=${TOME_ENABLED:-true}
       - TOME_AGENT_URL=http://tome-agent-tome:8766

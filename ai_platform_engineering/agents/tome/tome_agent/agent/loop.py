@@ -363,7 +363,10 @@ def build_agent_options(
     # list so the SDK never offers them to Claude; the same restriction
     # keeps delete_page and the cross-project lookups editor-only below.
     mcp_servers["tome"] = build_tome_mcp(
-        project_id=project_id, project_dir=pdir, author=persist_author
+        project_id=project_id,
+        project_dir=pdir,
+        author=persist_author,
+        readable_projects=snapshot.readable_projects,
     )
     if agent_role == "viewer":
         allowed = ["Read", "Glob", "Grep", *WEB_TOOLS, "mcp__tome__get_page_templates"]

@@ -22,6 +22,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { ChildProjectsPanel } from "@/components/tome/BhagProjectsPanel";
 import { PanelShell } from "@/components/tome/PanelHeader";
+import { ViewOnlyTooltip } from "@/components/tome/ViewOnlyTooltip";
 import { ProviderLogo } from "@/components/credentials/provider-logo";
 import { preflightState, type PreflightSourceResult } from "@/lib/tome/preflight";
 import { cn } from "@/lib/utils";
@@ -297,8 +298,8 @@ export function IngestPanel({
   /** Open the draft-review diff view for a run awaiting review. */
   onReviewDraft: (runId: string) => void;
   onRunStarted: (runId: string) => void;
-  /** Synthesis mode (BHAG or Area): no sources, synthesizes from tagged
-   * child projects. */
+  /** Synthesis mode (BHAG or Area): combines tagged child-project wikis with
+   * any directly attached sources. */
   isSynthesized?: boolean;
   /** Which synthesized kind this is, for copy — only meaningful when
    * `isSynthesized`. */
@@ -470,14 +471,15 @@ export function IngestPanel({
     setStarting(true);
     setError(null);
     const selectedList = (meetings ?? []).filter((m) => selectedMeetings.has(m.id));
-    // BHAGs synthesize from tagged children via /synthesize (no sources/meetings);
-    // regular projects pull their sources via /reingest.
+    // BHAGs/Areas synthesize tagged children plus direct sources via
+    // /synthesize; regular projects pull direct sources via /reingest.
     const endpoint = isSynthesized ? "synthesize" : "reingest";
     const payload = isSynthesized
       ? {
           seed: seed.trim() || undefined,
           seedStablePages: isGreenfield ? seedPages : undefined,
           refreshChildren: refreshChildren || undefined,
+          webexMeetings: selectedList.length > 0 ? selectedList : undefined,
         }
       : {
           seed: seed.trim() || undefined,
@@ -547,13 +549,13 @@ export function IngestPanel({
         }
         description={
           isSynthesized
-            ? `Synthesize this ${entityKind === "area" ? "area's" : "BHAG's"} wiki from the projects tagged to it. The agent reads their wikis. ${entityKind === "area" ? "An area" : "A BHAG"} has no sources of its own.`
+            ? `Synthesize this ${entityKind === "area" ? "area's" : "BHAG's"} wiki from tagged project wikis and its attached sources.`
             : "Re-run the agent over this project's sources to refresh the dynamic wiki."
         }
       >
 
-          {/* Synthesized: the projects rolled up, in place of source preflight. */}
-          {isSynthesized ? (
+          {/* Synthesized entities also show the projects they roll up. */}
+          {isSynthesized && (
             <div className="rounded-lg border">
               <div className="flex items-center justify-between border-b px-4 py-2.5">
                 <span className="text-sm font-medium">
@@ -597,11 +599,14 @@ export function IngestPanel({
                 </span>
               </label>
             </div>
-          ) : (
-          /* Sources preflight */
+          )}
+
+          {/* Sources preflight */}
           <div className="rounded-lg border">
             <div className="flex items-center justify-between border-b px-4 py-2.5">
-              <span className="text-sm font-medium">Project sources</span>
+              <span className="text-sm font-medium">
+                {isSynthesized ? "Attached sources" : "Project sources"}
+              </span>
               <a
                 href={`/projects/${slug}/tome/settings`}
                 className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
@@ -633,7 +638,7 @@ export function IngestPanel({
                   const accessIssue = state === "access_issue";
 
                   const tooltipText = noToken
-                    ? `${row.label} not connected: ingest will skip this source`
+                    ? `${row.label} not connected: the agent will skip this source`
                     : inaccessible.length > 0
                       ? `Connected but no access to: ${inaccessible.join(", ")}`
                       : pf
@@ -690,14 +695,12 @@ export function IngestPanel({
               )}
             </ul>
           </div>
-          )}
 
           {/* Add context */}
           <div className="space-y-3">
             <p className="text-sm font-medium">Add context for this run</p>
 
-            {/* Webex meeting picker — projects only (synthesized types have no Webex). */}
-            {!isSynthesized && (
+            {/* Webex meeting picker — available to projects and synthesized entities. */}
             <div className="rounded-lg border">
               <button
                 type="button"
@@ -800,7 +803,6 @@ export function IngestPanel({
                 </div>
               )}
             </div>
-            )}
 
             {/* Seed instruction */}
             <div>
@@ -900,51 +902,62 @@ export function IngestPanel({
           {/* Run bar */}
           <div className="rounded-lg border px-4 py-3">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-              <Button
-                onClick={() => void start()}
-                disabled={!canEdit || starting || compacting || inProgress || Boolean(reviewRun)}
-                title={
-                  !canEdit
-                    ? `You need edit access to ${isSynthesized ? "synthesize" : "run an ingest"}`
-                    : reviewRun
-                      ? "Resolve the pending draft review before starting a new run"
-                      : inProgress
-                        ? `A ${isSynthesized ? "synthesis" : "ingest"} is already running`
-                        : isSynthesized
-                          ? `Synthesize ${entityKind === "area" ? "Area" : "BHAG"}`
-                          : "Run ingest"
-                }
-              >
-                {starting ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Play className="h-4 w-4" />
-                )}
-                {starting ? "Starting…" : isSynthesized ? "Synthesize" : "Run ingest"}
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => void compact()}
-                disabled={!canEdit || starting || compacting || inProgress || isGreenfield || Boolean(reviewRun)}
-                title={
-                  !canEdit
-                    ? "You need edit access to compact"
-                    : reviewRun
-                      ? "Resolve the pending draft review before starting a new run"
-                      : isGreenfield
-                        ? "Run an ingest first — there's nothing to compact yet"
+              <ViewOnlyTooltip viewOnly={!canEdit}>
+                <Button
+                  onClick={() => void start()}
+                  disabled={!canEdit || starting || compacting || inProgress || Boolean(reviewRun)}
+                  title={
+                    !canEdit
+                      ? undefined
+                      : reviewRun
+                        ? "Resolve the pending draft review before starting a new run"
                         : inProgress
-                          ? "A run is already in progress"
-                          : "Tighten the wiki's prose and fix stale links"
-                }
-              >
-                {compacting ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Scissors className="h-4 w-4" />
-                )}
-                {compacting ? "Compacting…" : "Compact"}
-              </Button>
+                          ? `A ${isSynthesized ? "synthesis" : "ingest"} is already running`
+                          : isSynthesized
+                            ? `Synthesize ${entityKind === "area" ? "Area" : "BHAG"}`
+                            : "Run ingest"
+                  }
+                >
+                  {starting ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Play className="h-4 w-4" />
+                  )}
+                  {starting ? "Starting…" : isSynthesized ? "Synthesize" : "Run ingest"}
+                </Button>
+              </ViewOnlyTooltip>
+              <ViewOnlyTooltip viewOnly={!canEdit}>
+                <Button
+                  variant="outline"
+                  onClick={() => void compact()}
+                  disabled={
+                    !canEdit ||
+                    starting ||
+                    compacting ||
+                    inProgress ||
+                    isGreenfield ||
+                    Boolean(reviewRun)
+                  }
+                  title={
+                    !canEdit
+                      ? undefined
+                      : reviewRun
+                        ? "Resolve the pending draft review before starting a new run"
+                        : isGreenfield
+                          ? "Run an ingest first — there's nothing to compact yet"
+                          : inProgress
+                            ? "A run is already in progress"
+                            : "Tighten the wiki's prose and fix stale links"
+                  }
+                >
+                  {compacting ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Scissors className="h-4 w-4" />
+                  )}
+                  {compacting ? "Compacting…" : "Compact"}
+                </Button>
+              </ViewOnlyTooltip>
               {inProgress && (
                 <Button
                   variant="destructive"

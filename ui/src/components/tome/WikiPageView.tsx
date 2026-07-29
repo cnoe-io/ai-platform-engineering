@@ -14,7 +14,9 @@ import { CrepeEditor, type CrepeEditorHandle } from "@/components/tome/CrepeEdit
 import type { GlossaryResolver } from "@/lib/tome/tome-links";
 import { GlossaryFields } from "@/components/tome/GlossaryFields";
 import { EdgeFields } from "@/components/tome/EdgeFields";
+import { TrackedEntityFields } from "@/components/tome/TrackedEntityFields";
 import { KindBadge } from "@/components/tome/KindBadge";
+import { ViewOnlyTooltip } from "@/components/tome/ViewOnlyTooltip";
 import {
   FM_RELATION,
   FM_SOURCE,
@@ -23,6 +25,7 @@ import {
   FM_TITLE,
   isEdge,
   isGlossaryTerm,
+  isTrackedEntity,
   parseFrontmatter,
   serializeFrontmatter,
   SPEC_BY_PATH,
@@ -60,6 +63,8 @@ interface Props {
   glossaryPreview?: GlossaryResolver;
   /** Rename this page to a new path. When provided, the header path is editable. */
   onRename?: (oldPath: string, newPath: string) => Promise<void>;
+  /** OpenFGA steward/admin decision for all write affordances. */
+  canEdit?: boolean;
 }
 
 /**
@@ -83,6 +88,7 @@ export function WikiPageView({
   onNavigate,
   glossaryPreview,
   onRename,
+  canEdit = true,
 }: Props) {
   const [isEditing, setIsEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -107,6 +113,7 @@ export function WikiPageView({
 
   const isGlossary = useMemo(() => isGlossaryTerm(frontmatter), [frontmatter]);
   const isEdgeEntry = useMemo(() => isEdge(frontmatter), [frontmatter]);
+  const isTrackedEntry = useMemo(() => isTrackedEntity(frontmatter), [frontmatter]);
 
   // Editable copy of the frontmatter for structured (glossary/edge) entries.
   // Kept in sync with the page's frontmatter whenever we're not mid-edit (page
@@ -195,6 +202,8 @@ export function WikiPageView({
         if (relation && source && target) {
           fmToWrite[FM_TITLE] = `${source} ${relation} ${target}`;
         }
+      } else if (isTrackedEntry) {
+        fmToWrite = { ...fmDraft };
       }
       const md = serializeFrontmatter(fmToWrite, editorRef.current.getMarkdown());
       await onWrite(path, md, `edit ${path}`);
@@ -205,7 +214,7 @@ export function WikiPageView({
     } finally {
       setSaving(false);
     }
-  }, [frontmatter, isGlossary, isEdgeEntry, fmDraft, onWrite, path]);
+  }, [frontmatter, isGlossary, isEdgeEntry, isTrackedEntry, fmDraft, onWrite, path]);
 
   const handleCancel = useCallback(() => {
     setIsEditing(false);
@@ -260,7 +269,7 @@ export function WikiPageView({
               className="block w-full max-w-md rounded border border-input bg-background px-1 py-0.5 font-mono text-[11px] text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
               aria-label="Rename page path (Enter to save, Esc to cancel)"
             />
-          ) : onRename && !locked ? (
+          ) : onRename && canEdit && !locked ? (
             <button
               type="button"
               onClick={startRename}
@@ -296,7 +305,7 @@ export function WikiPageView({
               )}
             </Button>
           )}
-          {!locked && <KindToggle currentKind={kind} onChange={handleChangeKind} />}
+          {canEdit && !locked && <KindToggle currentKind={kind} onChange={handleChangeKind} />}
           {isEditing ? (
             <>
               <Button
@@ -312,21 +321,23 @@ export function WikiPageView({
               </Button>
             </>
           ) : (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => setIsEditing(true)}
-              disabled={locked}
-              title={
-                locked
-                  ? awaitingReview
-                    ? "A draft is awaiting review: approve or reject it before editing"
-                    : "Ingest in progress: the wiki is read-only"
-                  : undefined
-              }
-            >
-              Edit
-            </Button>
+            <ViewOnlyTooltip viewOnly={!canEdit}>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setIsEditing(true)}
+                disabled={locked || !canEdit}
+                title={
+                  canEdit && locked
+                    ? awaitingReview
+                      ? "A draft is awaiting review: approve or reject it before editing"
+                      : "Ingest in progress: the wiki is read-only"
+                    : undefined
+                }
+              >
+                Edit
+              </Button>
+            </ViewOnlyTooltip>
           )}
         </div>
       </div>
@@ -373,6 +384,19 @@ export function WikiPageView({
           />
           <div className="px-5 pt-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
             Explanation
+          </div>
+        </>
+      )}
+
+      {isTrackedEntry && (
+        <>
+          <TrackedEntityFields
+            value={isEditing ? fmDraft : frontmatter}
+            editing={isEditing}
+            onChange={setFmDraft}
+          />
+          <div className="px-5 pt-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Context and evidence
           </div>
         </>
       )}

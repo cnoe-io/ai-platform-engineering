@@ -307,17 +307,26 @@ edges beats a dense web of weak ones.
 Same one-file-per-entry primitive as the glossary and edges — a project-level
 collection, one file per entry with typed frontmatter and a prose body:
 
-- `issues/<slug>.md` — `type: issue`, `status: open | resolved`
+- `issues/<slug>.md` — `type: issue`, `status: open | in_progress | resolved`
 - `decisions/<slug>.md` — `type: decision`, `status: proposed | accepted | rejected`
 - `suggestions/<slug>.md` — `type: suggestion`, `status: proposed | accepted | rejected`
 
-Frontmatter floor: `type` + `title` + `status`. Add `owner` and `opened`
-(`YYYY-MM-DD`) when known. Body: what it is, why it matters, and any evidence
-links (`tome://…` / source URLs). Create one only for a *concrete* issue,
-decision, or suggestion that surfaced in the sources — not speculation. Update
-an existing entry's `status` in place rather than duplicating it; don't delete
-resolved/accepted entries (the record is the point). These tracked entries are
-the individual records; narrative pages like `actions.md` summarize across them.
+Frontmatter floor: `kind: dynamic` + `type` + `title` + `status`. Tracked
+entities are always agent-owned — never `stable` — so status/priority stay
+updatable on every ingest instead of freezing at whatever they were when
+first created; omitting `kind` here defaults to `stable` and silently locks
+the entry. Add `owner`, `opened` (`YYYY-MM-DD`), and `priority`
+(`critical | high | medium | low`) when known. Use
+`target: tome://@<project-slug>/overview.md` when an item must surface in
+another Project, Area, or BHAG; confirm the slug first. Add `closed` when an
+item reaches a terminal status. Body: what it is, why it matters, and any
+evidence links (`tome://…` / source URLs). Create one only for a *concrete*
+issue, decision, or suggestion that surfaced in the sources — not speculation.
+Update an existing entry's `status` in place rather than duplicating it; don't
+delete resolved/accepted entries (the record is the point). These tracked
+entries are the individual records; narrative pages like `actions.md` summarize
+across them. BHAG and Area synthesis must review critical tracked entries in
+child wikis before writing the strategic view.
 
 ## Frontmatter format
 
@@ -364,6 +373,31 @@ Write conceptually (per the rule at the top). A few specifics:
   in place (it's invisible when rendered) or refine it. `standup.md` is a
   UI-rendered report card — keep the exact `##` section structure its guidance
   comment specifies.
+
+### Standup output contract
+
+`standup.md` must use this exact block structure. Put each heading on its own
+line, keep the headline to one sentence, and use real `- ` Markdown bullets for
+the final two sections. Do not substitute bold labels for headings and do not
+run multiple items together in one paragraph.
+
+```markdown
+## What is this
+
+One or two plain sentences.
+
+## Headline
+
+One concise sentence.
+
+## Asks / Blockers
+
+- One blocker or ask per bullet.
+
+## Up next
+
+- One milestone or next step per bullet.
+```
 
 ## Output discipline
 

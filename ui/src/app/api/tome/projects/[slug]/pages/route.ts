@@ -24,13 +24,13 @@ type Ctx = { params: Promise<{ slug: string }> };
 
 export const GET = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
   const { slug } = await ctx.params;
-  const { projectId } = await loadTomeProject(request, slug);
+  const { projectId, canEdit, canManageSteward } = await loadTomeProject(request, slug);
 
   const store = await getPageStore();
   const pages = await store.listPages(projectId);
   const tree = buildTree(pages);
 
-  return successResponse({ slug, tree, pages });
+  return successResponse({ slug, tree, pages, canEdit, canManageSteward });
 });
 
 export const POST = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {

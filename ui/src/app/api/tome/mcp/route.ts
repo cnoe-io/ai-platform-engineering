@@ -617,6 +617,154 @@ const TOOLS: ToolDef[] = [
     },
   },
   {
+    name: "tome_issue_create",
+    description:
+      "Create a lifecycle-managed Issue in a project's `issues/` collection. Use `priority: critical` so it appears by default on the Issues board (all priorities are shown there, filterable). `target` may be a confirmed `tome://@project/overview.md` reference to roll the issue up to another Project, Area, or BHAG.",
+    inputSchema: schema(
+      {
+        project_slug: STR,
+        title: STR,
+        description: STR,
+        priority: { type: "string", enum: ["critical", "high", "medium", "low"] },
+        owner: STR,
+        target: STR,
+      },
+      ["project_slug", "title", "description"],
+    ),
+    handler: async (_request, fwd, args) => {
+      const slug = encodeURIComponent(String(args.project_slug));
+      const data = ensureOk(
+        await fwd("POST", `/api/tome/projects/${slug}/entities`, {
+          type: "issue",
+          title: String(args.title),
+          description: String(args.description),
+          ...(args.priority ? { priority: String(args.priority) } : {}),
+          ...(args.owner ? { owner: String(args.owner) } : {}),
+          ...(args.target ? { target: String(args.target) } : {}),
+        }),
+        "create issue",
+      );
+      return toolText(
+        `Created issue "${data.title}" at ${data.path} (status=${data.status}, priority=${data.priority}).`,
+      );
+    },
+  },
+  {
+    name: "tome_issue_set_status",
+    description:
+      "Transition an existing tracked Issue to `open`, `in_progress`, or `resolved`. Use the filename slug from its `issues/<slug>.md` path.",
+    inputSchema: schema(
+      {
+        project_slug: STR,
+        issue_slug: STR,
+        status: { type: "string", enum: ["open", "in_progress", "resolved"] },
+      },
+      ["project_slug", "issue_slug", "status"],
+    ),
+    handler: async (_request, fwd, args) => {
+      const project = encodeURIComponent(String(args.project_slug));
+      const entity = encodeURIComponent(String(args.issue_slug));
+      const data = ensureOk(
+        await fwd("PATCH", `/api/tome/projects/${project}/entities/issue/${entity}`, {
+          status: String(args.status),
+        }),
+        "update issue status",
+      );
+      return toolText(`Issue ${args.issue_slug} is now ${data.status}.`);
+    },
+  },
+  {
+    name: "tome_issue_mark_complete",
+    description:
+      "Mark an existing tracked Issue resolved. This is the explicit lifecycle shortcut for `tome_issue_set_status(..., resolved)`.",
+    inputSchema: schema(
+      { project_slug: STR, issue_slug: STR },
+      ["project_slug", "issue_slug"],
+    ),
+    handler: async (_request, fwd, args) => {
+      const project = encodeURIComponent(String(args.project_slug));
+      const entity = encodeURIComponent(String(args.issue_slug));
+      ensureOk(
+        await fwd("PATCH", `/api/tome/projects/${project}/entities/issue/${entity}`, {
+          status: "resolved",
+        }),
+        "resolve issue",
+      );
+      return toolText(`Issue ${args.issue_slug} is resolved.`);
+    },
+  },
+  {
+    name: "tome_decision_create",
+    description:
+      "Create a lifecycle-managed Decision in a project's `decisions/` collection. Decisions begin as `proposed`; use the status tool to accept or reject them. Critical decisions appear on the generated board and can target another Project, Area, or BHAG with a tome:// ref.",
+    inputSchema: schema(
+      {
+        project_slug: STR,
+        title: STR,
+        description: STR,
+        priority: { type: "string", enum: ["critical", "high", "medium", "low"] },
+        owner: STR,
+        target: STR,
+      },
+      ["project_slug", "title", "description"],
+    ),
+    handler: async (_request, fwd, args) => {
+      const slug = encodeURIComponent(String(args.project_slug));
+      const data = ensureOk(
+        await fwd("POST", `/api/tome/projects/${slug}/entities`, {
+          type: "decision",
+          title: String(args.title),
+          description: String(args.description),
+          ...(args.priority ? { priority: String(args.priority) } : {}),
+          ...(args.owner ? { owner: String(args.owner) } : {}),
+          ...(args.target ? { target: String(args.target) } : {}),
+        }),
+        "create decision",
+      );
+      return toolText(
+        `Created decision "${data.title}" at ${data.path} (status=${data.status}, priority=${data.priority}).`,
+      );
+    },
+  },
+  {
+    name: "tome_decision_set_status",
+    description:
+      "Transition an existing tracked Decision to `proposed`, `accepted`, or `rejected`. Use the filename slug from its `decisions/<slug>.md` path.",
+    inputSchema: schema(
+      {
+        project_slug: STR,
+        decision_slug: STR,
+        status: { type: "string", enum: ["proposed", "accepted", "rejected"] },
+      },
+      ["project_slug", "decision_slug", "status"],
+    ),
+    handler: async (_request, fwd, args) => {
+      const project = encodeURIComponent(String(args.project_slug));
+      const entity = encodeURIComponent(String(args.decision_slug));
+      const data = ensureOk(
+        await fwd("PATCH", `/api/tome/projects/${project}/entities/decision/${entity}`, {
+          status: String(args.status),
+        }),
+        "update decision status",
+      );
+      return toolText(`Decision ${args.decision_slug} is now ${data.status}.`);
+    },
+  },
+  {
+    name: "tome_get_critical_items_report",
+    description:
+      "Get the generated critical Issues/Decisions board for a Project, Area, or BHAG. Area/BHAG results roll up child entities plus cross-project items explicitly targeted at the hierarchy via tome:// refs.",
+    inputSchema: schema({ project_slug: STR }, ["project_slug"]),
+    handler: async (_request, fwd, args) => {
+      const slug = encodeURIComponent(String(args.project_slug));
+      const data = ensureOk(
+        await fwd("GET", `/api/tome/projects/${slug}/critical-items`),
+        "get critical items report",
+      );
+      return toolText(JSON.stringify(data, null, 2));
+    },
+  },
+  {
     name: "tome_get_page_history",
     description:
       "List a wiki page's revision history (newest first) — author, message, timestamp, whether it came from an ingest run (`report_id`), and whether it reverted a prior revision. Use the returned revision `id` with `tome_revert_page` to roll back. `project_slug` and `page_path` are required.",
@@ -789,7 +937,7 @@ const TOOLS: ToolDef[] = [
   {
     name: "tome_create_project",
     description:
-      "Create a new Tome project, BHAG, or Area. `name` and `team_id` (team slug) are required. Optional: `type` (\"project\" default, \"bhag\" for a strategic-goal entity, or \"area\" for a mid-tier grouping — both BHAG and Area ignore sources and are synthesized from tagged children), `description`, `github_repos` (URLs or owner/name), `confluence_url`, `webex_rooms` (array of { room_id, name? }).",
+      "Create a new Tome project, BHAG, or Area. `name` and `team_id` (team slug) are required. Optional: `type` (\"project\" default, \"bhag\" for a strategic-goal entity, or \"area\" for a mid-tier grouping), `description`, `github_repos` (URLs or owner/name), `confluence_url`, `webex_rooms` (array of { room_id, name? }). BHAGs and Areas synthesize tagged child wikis together with these direct sources.",
     inputSchema: schema(
       {
         name: STR,

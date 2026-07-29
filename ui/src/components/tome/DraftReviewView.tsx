@@ -26,10 +26,12 @@ interface DraftPage {
 export function DraftReviewView({
   slug,
   runId,
+  canEdit,
   onResolved,
 }: {
   slug: string;
   runId: string;
+  canEdit: boolean;
   onResolved?: () => void;
 }) {
   const [pages, setPages] = useState<DraftPage[] | null>(null);
@@ -101,7 +103,7 @@ export function DraftReviewView({
               : `${pages.length} page${pages.length === 1 ? "" : "s"} changed`}
           </p>
         </div>
-        {reviewable && (
+        {reviewable && canEdit && (
           <div className="flex items-center gap-2">
             <Button
               size="sm"
@@ -129,6 +131,11 @@ export function DraftReviewView({
               Reject
             </Button>
           </div>
+        )}
+        {reviewable && !canEdit && (
+          <p className="text-xs text-muted-foreground">
+            Only the data steward or a Tome admin can approve or reject this draft.
+          </p>
         )}
       </div>
       {error && (

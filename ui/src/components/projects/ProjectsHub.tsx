@@ -11,10 +11,13 @@ import {
   ChevronDown,
   ChevronRight,
   FolderKanban,
+  GripVertical,
   HelpCircle,
   History,
   Layers,
+  ListOrdered,
   Plus,
+  RotateCcw,
   Rocket,
   Settings,
   Target,
@@ -35,8 +38,12 @@ import {
 } from "@/components/ui/tooltip";
 import { useToast } from "@/components/ui/toast";
 import { normLabel } from "@/lib/projects/labels";
+import {
+  applyBhagOrder,
+  moveBhagAround,
+} from "@/lib/tome/bhag-order";
 import { cn } from "@/lib/utils";
-import type { ProjectDocument } from "@/types/projects";
+import { dataStewardLabel, type ProjectDocument } from "@/types/projects";
 import type { ActiveIngestRun } from "@/types/tome";
 
 type GroupBy = "none" | "initiative" | "area";
@@ -246,6 +253,7 @@ function stewardInitials(email: string): string {
 }
 
 function ProjectCard({ project }: { project: EnrichedProject }) {
+  const steward = dataStewardLabel(project.data_steward);
   const freshness = freshnessLabel(project.last_ingested_at);
   const activeRun = project.active_ingests?.[0];
   const repoCount = project.sources?.repos?.length ?? 0;
@@ -291,12 +299,12 @@ function ProjectCard({ project }: { project: EnrichedProject }) {
       <Tooltip>
         <TooltipTrigger asChild>
           <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
-            {project.data_steward ? (
+            {steward ? (
               <>
                 <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full bg-primary/20 text-[8px] font-semibold text-primary">
-                  {stewardInitials(project.data_steward)}
+                  {stewardInitials(steward)}
                 </span>
-                <span className="truncate max-w-[100px]">{project.data_steward.split("@")[0]}</span>
+                <span className="truncate max-w-[100px]">{steward.split("@")[0]}</span>
               </>
             ) : (
               <>
@@ -307,8 +315,8 @@ function ProjectCard({ project }: { project: EnrichedProject }) {
           </span>
         </TooltipTrigger>
         <TooltipContent>
-          {project.data_steward
-            ? `Data steward: ${project.data_steward}`
+          {steward
+            ? `Data steward: ${steward}`
             : "No data steward assigned. Set one in project settings."}
         </TooltipContent>
       </Tooltip>
@@ -420,7 +428,7 @@ function AreaSubGroup({
             Open wiki
             <ArrowRight className="h-3 w-3" />
           </Link>
-        ) : (
+        ) : onCreateArea ? (
           <button
             type="button"
             onClick={() => onCreateArea?.(label, items)}
@@ -430,7 +438,7 @@ function AreaSubGroup({
             <Plus className="h-3 w-3" />
             {creating ? "Creating…" : "Create area wiki"}
           </button>
-        )}
+        ) : null}
       </div>
 
       {!collapsed && items.length > 0 && (
@@ -459,6 +467,13 @@ function ProjectGroup({
   onCreateArea,
   creating,
   creatingArea,
+  reordering,
+  dragging,
+  dropIndicatorPlacement,
+  onDragStart,
+  onDragEnd,
+  onDragOverGroup,
+  onDrop,
 }: {
   label: string;
   items: EnrichedProject[];
@@ -482,6 +497,17 @@ function ProjectGroup({
   creating?: boolean;
   /** Which area label (normalized) is currently being created, for the nested buttons. */
   creatingArea?: string | null;
+  reordering?: boolean;
+  dragging?: boolean;
+  /** Where the dragged BHAG would land relative to this group, or null if
+   * this group isn't the current drag-over target — renders a ghost line. */
+  dropIndicatorPlacement?: "before" | "after" | null;
+  onDragStart?: () => void;
+  onDragEnd?: () => void;
+  /** Fires on dragover with the placement the drop would use, so the parent
+   * can show a ghost/drop-indicator line before the drop actually happens. */
+  onDragOverGroup?: (placement: "before" | "after") => void;
+  onDrop?: (placement: "before" | "after") => void;
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const isUngrouped = label === "Ungrouped";
@@ -501,8 +527,53 @@ function ProjectGroup({
       : "text-sm font-semibold text-sky-500";
 
   return (
-    <div className="space-y-3">
+    <div
+      className={cn(
+        "relative space-y-3 rounded-xl transition",
+        dragging && "scale-[0.995] bg-primary/5 opacity-60",
+      )}
+      onDragOver={
+        reordering
+          ? (event) => {
+              event.preventDefault();
+              const bounds = event.currentTarget.getBoundingClientRect();
+              onDragOverGroup?.(
+                event.clientY > bounds.top + bounds.height / 2 ? "after" : "before",
+              );
+            }
+          : undefined
+      }
+      onDrop={
+        reordering
+          ? (event) => {
+              event.preventDefault();
+              const bounds = event.currentTarget.getBoundingClientRect();
+              onDrop?.(event.clientY > bounds.top + bounds.height / 2 ? "after" : "before");
+            }
+          : undefined
+      }
+    >
+      {dropIndicatorPlacement === "before" && (
+        <div className="absolute -top-1.5 left-0 right-0 h-0.5 rounded-full bg-primary" />
+      )}
       <div className="flex items-center gap-3">
+        {isBhagGroup && reordering && (
+          <div
+            draggable
+            onDragStart={(event) => {
+              event.dataTransfer.effectAllowed = "move";
+              event.dataTransfer.setData("text/plain", normLabel(label));
+              onDragStart?.();
+            }}
+            onDragEnd={onDragEnd}
+            className="flex cursor-grab items-center gap-1 rounded-lg px-2 py-1.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground active:cursor-grabbing"
+            aria-label={`Drag to reorder BHAG ${label}`}
+            title="Drag to reorder BHAG"
+          >
+            <GripVertical className="h-4 w-4" />
+            <span className="hidden sm:inline">Move</span>
+          </div>
+        )}
         <button
           type="button"
           onClick={() => setCollapsed((c) => !c)}
@@ -539,7 +610,7 @@ function ProjectGroup({
               Open {bhag.name} BHAG wiki
               <ArrowRight className="h-3.5 w-3.5" />
             </Link>
-          ) : (
+          ) : onCreateBhag ? (
             <button
               type="button"
               onClick={() => onCreateBhag?.(label, items)}
@@ -549,7 +620,7 @@ function ProjectGroup({
               <Plus className="h-3.5 w-3.5" />
               {creating ? "Creating…" : "Create BHAG wiki"}
             </button>
-          ))}
+          ) : null)}
 
         {/* Area front door: open the area wiki, or promote this area label into one. */}
         {isAreaGroup &&
@@ -562,7 +633,7 @@ function ProjectGroup({
               Open {area.name} wiki
               <ArrowRight className="h-3.5 w-3.5" />
             </Link>
-          ) : (
+          ) : onCreateArea ? (
             <button
               type="button"
               onClick={() => onCreateArea?.(label, items)}
@@ -572,7 +643,7 @@ function ProjectGroup({
               <Plus className="h-3.5 w-3.5" />
               {creating ? "Creating…" : "Create area wiki"}
             </button>
-          ))}
+          ) : null)}
       </div>
 
       {!collapsed && (
@@ -585,7 +656,7 @@ function ProjectGroup({
                   label={ca.label}
                   items={ca.items}
                   area={ca.area}
-                  onCreateArea={handleAreaCreate}
+                  onCreateArea={onCreateArea ? handleAreaCreate : undefined}
                   creating={creatingArea === normLabel(ca.label)}
                 />
               ))}
@@ -606,6 +677,9 @@ function ProjectGroup({
             </div>
           )}
         </div>
+      )}
+      {dropIndicatorPlacement === "after" && (
+        <div className="absolute -bottom-1.5 left-0 right-0 h-0.5 rounded-full bg-primary" />
       )}
     </div>
   );
@@ -628,6 +702,14 @@ export function ProjectsHub() {
   });
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [isTomeAdmin, setIsTomeAdmin] = useState(false);
+  const [bhagOrder, setBhagOrder] = useState<string[]>([]);
+  const [reordering, setReordering] = useState(false);
+  const [draggedBhag, setDraggedBhag] = useState<string | null>(null);
+  const [dropIndicator, setDropIndicator] = useState<{
+    label: string;
+    placement: "before" | "after";
+  } | null>(null);
+  const [orderSaving, setOrderSaving] = useState(false);
 
   // First-run walkthrough, once per browser (shared key with the wiki). The
   // Help button reopens it any time.
@@ -648,6 +730,7 @@ export function ProjectsHub() {
   const groupBy = (searchParams.get("groupBy") ?? "initiative") as GroupBy;
 
   const setGroupBy = (value: GroupBy) => {
+    setReordering(false);
     const params = new URLSearchParams(searchParams.toString());
     if (value === "initiative") params.delete("groupBy");
     else params.set("groupBy", value);
@@ -790,6 +873,61 @@ export function ProjectsHub() {
     void load();
   }, [load]);
 
+  useEffect(() => {
+    fetch("/api/tome/preferences/bhag-order")
+      .then(async (res) => {
+        const body = await res.json();
+        if (!res.ok) throw new Error(body.error ?? "Failed to load BHAG order");
+        setBhagOrder(body.data?.bhag_order ?? []);
+      })
+      .catch(() => undefined);
+  }, []);
+
+  const persistBhagOrder = useCallback(
+    async (next: string[], previous: string[]) => {
+      setBhagOrder(next);
+      setOrderSaving(true);
+      try {
+        const res = await fetch("/api/tome/preferences/bhag-order", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ bhag_order: next }),
+        });
+        const body = await res.json();
+        if (!res.ok) throw new Error(body.error ?? "Failed to save BHAG order");
+        setBhagOrder(body.data?.bhag_order ?? next);
+      } catch (err) {
+        setBhagOrder(previous);
+        toast(
+          `Could not save BHAG order: ${err instanceof Error ? err.message : String(err)}`,
+          "error",
+        );
+      } finally {
+        setOrderSaving(false);
+      }
+    },
+    [toast],
+  );
+
+  const handleBhagDrop = useCallback(
+    (targetLabel: string, placement: "before" | "after", visibleOrder: string[]) => {
+      setDropIndicator(null);
+      if (!draggedBhag || draggedBhag === targetLabel) {
+        setDraggedBhag(null);
+        return;
+      }
+      const previous = visibleOrder;
+      const next = moveBhagAround(previous, draggedBhag, targetLabel, placement);
+      setDraggedBhag(null);
+      void persistBhagOrder(next, previous);
+    },
+    [draggedBhag, persistBhagOrder],
+  );
+
+  const resetBhagOrder = useCallback(() => {
+    void persistBhagOrder([], bhagOrder);
+  }, [persistBhagOrder, bhagOrder]);
+
   // Keep the active-ingest indicator live without re-triggering the loading
   // state on every tick.
   useEffect(() => {
@@ -818,7 +956,7 @@ export function ProjectsHub() {
   // tags a project to it. Inject an empty group for any entity not already
   // covered, so a freshly created BHAG/Area is findable immediately.
   const entitiesForGroupBy = groupBy === "initiative" ? bhags : groupBy === "area" ? areas : [];
-  const groups = groupProjects(projects, groupBy);
+  let groups = groupProjects(projects, groupBy);
   if (groupBy === "initiative" || groupBy === "area") {
     const covered = new Set(groups.map((g) => normLabel(g.label)));
     for (const entity of entitiesForGroupBy) {
@@ -832,6 +970,22 @@ export function ProjectsHub() {
       });
     }
   }
+  if (groupBy === "initiative") {
+    const ungrouped = groups.filter((group) => group.key === "__ungrouped__");
+    groups = [
+      ...applyBhagOrder(
+        groups.filter((group) => group.key !== "__ungrouped__"),
+        bhagOrder,
+      ),
+      ...ungrouped,
+    ];
+  }
+  const visibleBhagOrder =
+    groupBy === "initiative"
+      ? groups
+          .filter((group) => group.key !== "__ungrouped__")
+          .map((group) => normLabel(group.label))
+      : [];
   const activeIngests = projects.flatMap((p) => p.active_ingests ?? []);
 
   return (
@@ -852,11 +1006,11 @@ export function ProjectsHub() {
               {isTomeAdmin && (
                 <Link
                   href="/projects/admin"
-                  title="TOME Admin"
+                  title="TOME Settings"
                   className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition hover:bg-accent hover:text-foreground"
                 >
                   <Settings className="h-3.5 w-3.5" />
-                  Admin
+                  Settings
                 </Link>
               )}
               <TomeProductFeedback variant="link" />
@@ -893,6 +1047,32 @@ export function ProjectsHub() {
               </Tooltip>
             </TooltipProvider>
             <McpConnectDialog initialOpen={searchParams.get("mcp") === "1"} />
+            {isTomeAdmin && groupBy === "initiative" && (
+              <>
+                <Button
+                  variant={reordering ? "secondary" : "outline"}
+                  size="sm"
+                  className="gap-1.5"
+                  disabled={loading || visibleBhagOrder.length < 2 || orderSaving}
+                  onClick={() => setReordering((current) => !current)}
+                >
+                  <ListOrdered className="h-3.5 w-3.5" />
+                  {orderSaving ? "Saving…" : reordering ? "Done" : "Reorder BHAGs"}
+                </Button>
+                {reordering && bhagOrder.length > 0 && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="gap-1.5 text-muted-foreground"
+                    disabled={orderSaving}
+                    onClick={resetBhagOrder}
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" />
+                    Reset
+                  </Button>
+                )}
+              </>
+            )}
             <select
               value={groupBy}
               onChange={(e) => setGroupBy(e.target.value as GroupBy)}
@@ -988,14 +1168,34 @@ export function ProjectsHub() {
                     area={areaEntity}
                     parentBhagName={parentBhagName}
                     childAreas={childAreas}
-                    onCreateBhag={handleCreateBhag}
-                    onCreateArea={handleCreateArea}
+                    onCreateBhag={isTomeAdmin ? handleCreateBhag : undefined}
+                    onCreateArea={isTomeAdmin ? handleCreateArea : undefined}
                     creating={
                       groupBy === "initiative"
                         ? creatingBhag === normLabel(g.label)
                         : creatingArea === normLabel(g.label)
                     }
                     creatingArea={creatingArea}
+                    reordering={
+                      reordering &&
+                      groupBy === "initiative" &&
+                      g.key !== "__ungrouped__"
+                    }
+                    dragging={draggedBhag === normLabel(g.label)}
+                    dropIndicatorPlacement={
+                      dropIndicator?.label === normLabel(g.label) ? dropIndicator.placement : null
+                    }
+                    onDragStart={() => setDraggedBhag(normLabel(g.label))}
+                    onDragEnd={() => {
+                      setDraggedBhag(null);
+                      setDropIndicator(null);
+                    }}
+                    onDragOverGroup={(placement) =>
+                      setDropIndicator({ label: normLabel(g.label), placement })
+                    }
+                    onDrop={(placement) =>
+                      handleBhagDrop(normLabel(g.label), placement, visibleBhagOrder)
+                    }
                   />
                 );
               })}

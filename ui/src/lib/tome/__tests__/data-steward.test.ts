@@ -1,0 +1,251 @@
+import {
+  dataStewardTuple,
+  getTomeProjectPermissions,
+  reconcileDataSteward,
+  resolveDataSteward,
+  tomeDataObject,
+} from "@/lib/tome/data-steward";
+import type { ProjectDocument } from "@/types/projects";
+
+const mockGetCollection = jest.fn();
+const mockCheckOpenFgaTuple = jest.fn();
+const mockWriteOpenFgaTuples = jest.fn();
+const mockDeleteExactOpenFgaTuples = jest.fn();
+const mockReadOpenFgaTuples = jest.fn();
+const mockIsTomeAdmin = jest.fn();
+const mockCanReadTomeProject = jest.fn();
+
+jest.mock("mongodb", () => ({
+  ObjectId: class MockObjectId {
+    static isValid(): boolean {
+      return false;
+    }
+  },
+}));
+
+jest.mock("@/lib/api-middleware", () => ({
+  ApiError: class MockApiError extends Error {
+    constructor(
+      message: string,
+      public status: number,
+      public code: string,
+    ) {
+      super(message);
+    }
+  },
+}));
+
+jest.mock("@/lib/mongodb", () => ({
+  getCollection: (...args: unknown[]) => mockGetCollection(...args),
+}));
+
+jest.mock("@/lib/rbac/openfga", () => ({
+  checkOpenFgaTuple: (...args: unknown[]) => mockCheckOpenFgaTuple(...args),
+  deleteExactOpenFgaTuples: (...args: unknown[]) => mockDeleteExactOpenFgaTuples(...args),
+  readOpenFgaTuples: (...args: unknown[]) => mockReadOpenFgaTuples(...args),
+  writeOpenFgaTuples: (...args: unknown[]) => mockWriteOpenFgaTuples(...args),
+}));
+
+jest.mock("@/lib/tome/access", () => ({
+  canReadTomeProject: (...args: unknown[]) => mockCanReadTomeProject(...args),
+  tomeDataObject: (p: ProjectDocument) =>
+    `document:tome/${p.type === "bhag" || p.type === "area" ? p.type : "project"}/${p.slug}`,
+}));
+
+jest.mock("@/lib/rbac/tome-admin", () => ({
+  isTomeAdmin: (...args: unknown[]) => mockIsTomeAdmin(...args),
+}));
+
+function project(
+  type: ProjectDocument["type"] = "project",
+  dataSteward?: ProjectDocument["data_steward"],
+): ProjectDocument {
+  return {
+    _id: "project-id",
+    type,
+    slug: "example",
+    name: "Example",
+    title: "Example",
+    description: "",
+    team_id: "team-id",
+    team_slug: "primary",
+    team_name: "Primary",
+    owner_id: "owner@example.com",
+    member_ids: [],
+    domain: "default",
+    tags: [],
+    status: "active",
+    catalog: {} as ProjectDocument["catalog"],
+    components: [],
+    onboarding: {},
+    integrations: {},
+    data_steward: dataSteward,
+    created_at: new Date(),
+    updated_at: new Date(),
+  };
+}
+
+describe("Tome data-steward authorization", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockIsTomeAdmin.mockResolvedValue(false);
+    mockCanReadTomeProject.mockResolvedValue(true);
+    mockWriteOpenFgaTuples.mockResolvedValue({ enabled: true, writes: 1, deletes: 0 });
+    mockDeleteExactOpenFgaTuples.mockResolvedValue({ enabled: true, writes: 0, deletes: 1 });
+    mockReadOpenFgaTuples.mockImplementation(
+      ({ tuple }: { tuple: { user: string; relation: string; object: string } }) =>
+        Promise.resolve({ tuples: [{ key: tuple }] }),
+    );
+  });
+
+  it.each([
+    ["project", "document:tome/project/example"],
+    ["area", "document:tome/area/example"],
+    ["bhag", "document:tome/bhag/example"],
+  ] as const)("scopes %s steward grants to its own object", (type, expected) => {
+    expect(tomeDataObject(project(type))).toBe(expected);
+  });
+
+  it("normalizes a signed-in user into a direct writer tuple", async () => {
+    mockGetCollection.mockReturnValue({
+      findOne: jest.fn().mockResolvedValue({
+        email: "user@example.com",
+        name: "Example User",
+        keycloak_sub: "user-sub",
+        metadata: {},
+      }),
+    });
+
+    const steward = await resolveDataSteward({ type: "user", email: "USER@example.com" });
+
+    expect(steward).toEqual({
+      type: "user",
+      id: "user-sub",
+      name: "Example User",
+      email: "user@example.com",
+    });
+    expect(dataStewardTuple(project(), steward!)).toEqual({
+      user: "user:user-sub",
+      relation: "writer",
+      object: "document:tome/project/example",
+    });
+  });
+
+  it("normalizes a team into a member-userset writer tuple", async () => {
+    mockGetCollection.mockReturnValue({
+      findOne: jest.fn().mockResolvedValue({
+        _id: "team-id",
+        slug: "primary",
+        name: "Primary Team",
+      }),
+    });
+
+    const steward = await resolveDataSteward({ type: "team", team_id: "primary" });
+
+    expect(steward).toEqual({ type: "team", id: "primary", name: "Primary Team" });
+    expect(dataStewardTuple(project("area"), steward!)).toEqual({
+      user: "team:primary#member",
+      relation: "writer",
+      object: "document:tome/area/example",
+    });
+  });
+
+  it("checks the caller's OpenFGA can_write decision", async () => {
+    mockCheckOpenFgaTuple.mockResolvedValue({ allowed: true });
+
+    await expect(
+      getTomeProjectPermissions({
+        project: project("bhag"),
+        user: { email: "user@example.com" },
+        session: { sub: "user-sub", user: { email: "user@example.com" } },
+      }),
+    ).resolves.toEqual({ canRead: true, canEdit: true, canManageSteward: false });
+
+    expect(mockCheckOpenFgaTuple).toHaveBeenCalledWith({
+      user: "user:user-sub",
+      relation: "can_write",
+      object: "document:tome/bhag/example",
+    });
+  });
+
+  it("lets Tome admins edit without a per-entity writer tuple", async () => {
+    mockIsTomeAdmin.mockResolvedValue(true);
+
+    await expect(
+      getTomeProjectPermissions({
+        project: project(),
+        user: { email: "admin@example.com" },
+        session: { sub: "admin-sub" },
+      }),
+    ).resolves.toEqual({ canRead: true, canEdit: true, canManageSteward: true });
+    expect(mockCheckOpenFgaTuple).not.toHaveBeenCalled();
+  });
+
+  it("repairs a stored team steward tuple before checking again", async () => {
+    mockCheckOpenFgaTuple
+      .mockResolvedValueOnce({ allowed: false })
+      .mockResolvedValueOnce({ allowed: true });
+    const stored = { type: "team" as const, id: "primary", name: "Primary Team" };
+
+    await expect(
+      getTomeProjectPermissions({
+        project: project("area", stored),
+        user: { email: "member@example.com" },
+        session: { sub: "member-sub" },
+      }),
+    ).resolves.toEqual({ canRead: true, canEdit: true, canManageSteward: false });
+
+    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
+      writes: [
+        {
+          user: "team:primary#member",
+          relation: "writer",
+          object: "document:tome/area/example",
+        },
+      ],
+      deletes: [],
+    });
+  });
+
+  it("replaces the previous steward tuple when an admin reassigns it", async () => {
+    const previous = {
+      type: "user" as const,
+      id: "old-sub",
+      name: "Old User",
+      email: "old@example.com",
+    };
+    const next = { type: "team" as const, id: "primary", name: "Primary Team" };
+
+    await reconcileDataSteward(project("project", previous), next);
+
+    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
+      writes: [
+        {
+          user: "team:primary#member",
+          relation: "writer",
+          object: "document:tome/project/example",
+        },
+      ],
+      deletes: [],
+    });
+    expect(mockDeleteExactOpenFgaTuples).toHaveBeenCalledWith([
+      {
+        user: "user:old-sub",
+        relation: "writer",
+        object: "document:tome/project/example",
+      },
+    ]);
+  });
+
+  it("fails closed when OpenFGA is unavailable", async () => {
+    mockCheckOpenFgaTuple.mockRejectedValue(new Error("unavailable"));
+
+    await expect(
+      getTomeProjectPermissions({
+        project: project(),
+        user: { email: "user@example.com" },
+        session: { sub: "user-sub" },
+      }),
+    ).resolves.toEqual({ canRead: false, canEdit: false, canManageSteward: false });
+  });
+});

@@ -14,7 +14,7 @@
 // never abort the others.
 
 import { getCollection } from "@/lib/mongodb";
-import type { ProjectDocument } from "@/types/projects";
+import { dataStewardUserEmail, type ProjectDocument } from "@/types/projects";
 
 import { resolveCredentialsForSub } from "../agent-proxy";
 import { isMyceliumConfigured, postEvent } from "../mycelium";
@@ -61,9 +61,11 @@ async function pollProject(project: ProjectDocument & { _id: string }): Promise<
   // fallback. No steward = the feed is inactive until one is assigned (set at
   // onboarding, changeable in Settings). Explicit is easier to reason about
   // than "blank silently means the owner".
-  const steward = project.data_steward;
+  const steward = dataStewardUserEmail(project.data_steward);
   if (!steward) {
-    console.log(`[SourceFeed] ${project.slug}: no data steward assigned; skipping`);
+    console.log(
+      `[SourceFeed] ${project.slug}: no user data steward with delegated credentials; skipping`,
+    );
     return 0;
   }
   const sub = await subForEmail(steward);
@@ -157,7 +159,8 @@ export async function tickSourceFeed(now: Date): Promise<void> {
     const docs = await col
       .find({
         "sources.repos.0": { $exists: true },
-        // Synthesized types (BHAG/Area) have no sources of their own.
+        // Source-activity polling remains project-only; BHAG/Area sources are
+        // consumed on demand by synthesis.
         type: { $nin: ["bhag", "area"] },
         sources_feed_enabled: { $ne: false }, // honor per-project opt-out
       })

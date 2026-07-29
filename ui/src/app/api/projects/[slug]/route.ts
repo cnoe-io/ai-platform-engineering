@@ -11,13 +11,24 @@ import {
 } from "@/lib/api-middleware";
 import { projectCatalogBundleYaml } from "@/lib/projects/backstage-catalog";
 import { runOnboardingDeletes, runOnboardingUpdates } from "@/lib/projects/onboarding-providers";
-import { canManageProjectsOrganization, isProjectTeamMember } from "@/lib/projects/project-admin";
+import { canManageProjectsOrganization } from "@/lib/projects/project-admin";
 import { cleanLabelList } from "@/lib/projects/labels";
 import { isBootstrapAdmin } from "@/lib/auth-config";
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import { getRbacCollection } from "@/lib/rbac/mongo-collections";
 import { auditTome, tomeActorFromAuth, type TomeAuditActor } from "@/lib/tome/audit";
-import type { ProjectDocument } from "@/types/projects";
+import {
+  getTomeReadConfiguration,
+  reconcileTomeReadAccess,
+  removeTomeReadAccess,
+} from "@/lib/tome/access";
+import {
+  dataStewardOpenFgaSubject,
+  getTomeProjectPermissions,
+  reconcileDataSteward,
+  resolveDataSteward,
+} from "@/lib/tome/data-steward";
+import type { DataStewardInput, ProjectDocument } from "@/types/projects";
 import type { Team } from "@/types/teams";
 import type { TeamMembershipSource } from "@/types/identity-group-sync";
 
@@ -101,7 +112,7 @@ export const GET = withErrorHandler(
       throw new ApiError("MongoDB not configured", 503, "MONGODB_NOT_CONFIGURED");
     }
 
-    await getAuthFromBearerOrSession(_request);
+    const { user, session } = await getAuthFromBearerOrSession(_request);
     const { slug } = await context.params;
 
     const projects = await getCollection<ProjectDocument>("projects");
@@ -110,17 +121,48 @@ export const GET = withErrorHandler(
       throw new ApiError("Project not found", 404, "PROJECT_NOT_FOUND");
     }
 
+    const permissions = await getTomeProjectPermissions({ project, user, session });
+    if (!permissions.canRead) {
+      throw new ApiError(
+        "This Tome entity is not shared with one of your teams",
+        403,
+        "TOME_READ_REQUIRED",
+      );
+    }
+    const [readConfiguration, steward] = await Promise.all([
+      getTomeReadConfiguration(project),
+      resolveDataSteward(project.data_steward).catch(() => null),
+    ]);
     return successResponse({
       project: {
         ...project,
         _id: String(project._id),
+      },
+      permissions: {
+        can_read: permissions.canRead,
+        can_edit: permissions.canEdit,
+        can_manage_steward: permissions.canManageSteward,
+      },
+      rbac: {
+        ...readConfiguration,
+        dataSteward: steward
+          ? {
+              type: steward.type,
+              name: steward.name,
+              subject: dataStewardOpenFgaSubject(steward),
+              relation: "writer",
+            }
+          : null,
+        tomeAdminOverride: "admin_surface:tome#can_manage",
       },
       catalog_yaml: projectCatalogBundleYaml(project),
     });
   },
 );
 
-// DELETE a project. Allowed for the project owner or a projects-org admin.
+// DELETE an entity. Regular projects may be deleted by their OpenFGA data
+// steward or a Tome admin. BHAGs and Areas shape the shared hierarchy, so only
+// Tome admins may delete them.
 // Cascades to external resources for onboarding steps configured with a
 // `deleteEndpoint` (best-effort) before removing the CAIPE record.
 export const DELETE = withErrorHandler(
@@ -138,14 +180,22 @@ export const DELETE = withErrorHandler(
       throw new ApiError("Project not found", 404, "PROJECT_NOT_FOUND");
     }
 
-    const isOwner = Boolean(user.email) && project.owner_id === user.email;
-    const isOrgAdmin =
-      (await canManageProjectsOrganization(session)) || isBootstrapAdmin(user.email);
-    if (!isOwner && !isOrgAdmin) {
+    const permissions = await getTomeProjectPermissions({ project, user, session });
+    if (
+      (project.type === "bhag" || project.type === "area") &&
+      !permissions.canManageSteward
+    ) {
       throw new ApiError(
-        "You can only delete projects you own (or as a projects admin)",
+        "Only a Tome admin can delete a BHAG or Area",
         403,
-        "FORBIDDEN",
+        "TOME_ADMIN_REQUIRED",
+      );
+    }
+    if (!permissions.canEdit) {
+      throw new ApiError(
+        "Only this entity's data steward or a Tome admin can delete it",
+        403,
+        "DATA_STEWARD_REQUIRED",
       );
     }
 
@@ -154,6 +204,10 @@ export const DELETE = withErrorHandler(
     const sub = (session as { sub?: string } | undefined)?.sub;
     const externalDeletes = await runOnboardingDeletes(project, sub);
 
+    await Promise.all([
+      removeTomeReadAccess(project),
+      reconcileDataSteward(project, null),
+    ]);
     await projects.deleteOne({ _id: project._id });
 
     auditTome({
@@ -168,7 +222,8 @@ export const DELETE = withErrorHandler(
 );
 
 // PATCH a project's editable fields (title, description, sources).
-// Allowed for the project owner or a projects-org admin.
+// Allowed for its OpenFGA data steward or a Tome admin. Steward assignment
+// itself remains Tome-admin-only.
 // Syncs changes to external resources via configured `updateEndpoint` steps.
 export const PATCH = withErrorHandler(
   async (request: NextRequest, context: { params: Promise<{ slug: string }> }) => {
@@ -185,17 +240,16 @@ export const PATCH = withErrorHandler(
       throw new ApiError("Project not found", 404, "PROJECT_NOT_FOUND");
     }
 
-    const isOwner = Boolean(user.email) && project.owner_id === user.email;
+    const permissions = await getTomeProjectPermissions({ project, user, session });
     const isOrgAdmin =
-      (await canManageProjectsOrganization(session)) || isBootstrapAdmin(user.email);
-    // Team members can edit a project too, matching project visibility (which is
-    // team-based). Without this, a teammate who can see a project can't save it.
-    const isTeamMember = await isProjectTeamMember(project, user.email);
-    if (!isOwner && !isOrgAdmin && !isTeamMember) {
+      permissions.canManageSteward ||
+      (await canManageProjectsOrganization(session)) ||
+      isBootstrapAdmin(user.email);
+    if (!permissions.canEdit) {
       throw new ApiError(
-        "You can only edit projects on your team (or as a projects admin)",
+        "Only this entity's data steward or a Tome admin can edit it",
         403,
-        "FORBIDDEN",
+        "DATA_STEWARD_REQUIRED",
       );
     }
 
@@ -210,23 +264,19 @@ export const PATCH = withErrorHandler(
         confluence_url?: string;
         webex_rooms?: Array<{ room_id?: string; name?: string; slug?: string }>;
       };
-      /** Feed data steward (email): the principal the source feed runs as. */
-      data_steward?: string | null;
+      /** Scoped user/team steward for this Project, Area, or BHAG. */
+      data_steward?: DataStewardInput | null;
       /** Per-project source-feed on/off. */
       sources_feed_enabled?: boolean;
       decision_blast_radius?: "small" | "large" | null;
       optionality?: string[];
     };
 
-    // Steward assignment + feed toggle are governance actions: owner or org
-    // admin only, not a plain team-member editor.
-    const touchesFeedGovernance =
-      "data_steward" in body || "sources_feed_enabled" in body;
-    if (touchesFeedGovernance && !isOwner && !isOrgAdmin) {
+    if ("data_steward" in body && !permissions.canManageSteward) {
       throw new ApiError(
-        "Only the project owner or an admin can change the data steward or feed settings",
+        "Only a Tome admin can change the data steward",
         403,
-        "FORBIDDEN",
+        "TOME_ADMIN_REQUIRED",
       );
     }
 
@@ -268,11 +318,20 @@ export const PATCH = withErrorHandler(
       }
     }
     const $unset: Record<string, ""> = {};
+    let nextDataSteward = null;
     if ("data_steward" in body) {
-      // Empty/null clears the steward → the feed falls back to the owner.
-      const steward = (body.data_steward ?? "").trim().toLowerCase();
-      if (steward) $set["data_steward"] = steward;
-      else $unset["data_steward"] = "";
+      if (!body.data_steward) {
+        throw new ApiError(
+          "A Project, Area, or BHAG must have a data steward",
+          400,
+          "DATA_STEWARD_REQUIRED",
+        );
+      }
+      nextDataSteward = await resolveDataSteward(body.data_steward);
+      if (!nextDataSteward) {
+        throw new ApiError("Data steward is required", 400, "DATA_STEWARD_REQUIRED");
+      }
+      $set["data_steward"] = nextDataSteward;
     }
     if (typeof body.sources_feed_enabled === "boolean") {
       $set["sources_feed_enabled"] = body.sources_feed_enabled;
@@ -303,10 +362,57 @@ export const PATCH = withErrorHandler(
       }
     }
 
-    await projects.updateOne(
-      { _id: project._id },
-      Object.keys($unset).length > 0 ? { $set, $unset } : { $set },
-    );
+    const accessChanged = [
+      "team_id",
+      "team_slug",
+      "team_name",
+      "labels.initiatives",
+      "labels.areas",
+    ].some((key) => key in $set);
+    const accessProjection: ProjectDocument = {
+      ...project,
+      team_id: (typeof $set.team_id === "string" ? $set.team_id : project.team_id),
+      team_slug: (typeof $set.team_slug === "string" ? $set.team_slug : project.team_slug),
+      team_name: (typeof $set.team_name === "string" ? $set.team_name : project.team_name),
+      labels: {
+        ...project.labels,
+        ...("labels.initiatives" in $set
+          ? { initiatives: $set["labels.initiatives"] as string[] }
+          : {}),
+        ...("labels.areas" in $set
+          ? { areas: $set["labels.areas"] as string[] }
+          : {}),
+      },
+    };
+    if (accessChanged) {
+      await reconcileTomeReadAccess(accessProjection);
+    }
+
+    try {
+      if (nextDataSteward) {
+        await reconcileDataSteward(project, nextDataSteward);
+      }
+      await projects.updateOne(
+        { _id: project._id },
+        Object.keys($unset).length > 0 ? { $set, $unset } : { $set },
+      );
+    } catch (error) {
+      if (accessChanged) {
+        await reconcileTomeReadAccess(project).catch((rollbackError) => {
+          console.error("[tome] failed to roll back read-access projection", rollbackError);
+        });
+      }
+      if (nextDataSteward) {
+        const previousSteward = await resolveDataSteward(project.data_steward).catch(() => null);
+        await reconcileDataSteward(
+          { ...project, data_steward: nextDataSteward },
+          previousSteward,
+        ).catch((rollbackError) => {
+          console.error("[tome] failed to roll back data-steward projection", rollbackError);
+        });
+      }
+      throw error;
+    }
 
     const updated = await projects.findOne({ slug });
     if (!updated) throw new ApiError("Project not found after update", 500, "UPDATE_FAILED");
@@ -331,8 +437,22 @@ export const PATCH = withErrorHandler(
       auditSourceChanges(slug, actor, project.sources, updated.sources);
     }
 
+    const updatedReadConfiguration = await getTomeReadConfiguration(updated);
+    const updatedSteward = await resolveDataSteward(updated.data_steward).catch(() => null);
     return successResponse({
       project: { ...updated, _id: String(updated._id) },
+      rbac: {
+        ...updatedReadConfiguration,
+        dataSteward: updatedSteward
+          ? {
+              type: updatedSteward.type,
+              name: updatedSteward.name,
+              subject: dataStewardOpenFgaSubject(updatedSteward),
+              relation: "writer",
+            }
+          : null,
+        tomeAdminOverride: "admin_surface:tome#can_manage",
+      },
       external: externalUpdates,
     });
   },

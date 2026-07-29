@@ -8,7 +8,6 @@ import { ObjectId } from "mongodb";
 import {
   ApiError,
   getAuthFromBearerOrSession,
-  getUserTeamIds,
   successResponse,
   withErrorHandler,
 } from "@/lib/api-middleware";
@@ -19,10 +18,15 @@ import {
 } from "@/lib/projects/backstage-catalog";
 import { buildEmptyOnboardingState } from "@/lib/projects/onboarding-config";
 import { projectMatchesLabels, sanitizeLabels } from "@/lib/projects/labels";
-import { isBootstrapAdmin } from "@/lib/auth-config";
-import { canManageProjectsOrganization } from "@/lib/projects/project-admin";
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
+import { isTomeAdmin, type TomeAdminSession } from "@/lib/rbac/tome-admin";
 import { auditTome, tomeActorFromAuth } from "@/lib/tome/audit";
+import { listReadableTomeProjects, reconcileTomeReadAccess } from "@/lib/tome/access";
+import {
+  reconcileDataSteward,
+  resolveDataSteward,
+  tomeSessionSubject,
+} from "@/lib/tome/data-steward";
 import type { CreateProjectRequest, ProjectDocument, ProjectType } from "@/types/projects";
 import type { Team } from "@/types/teams";
 import type { ActiveIngestRun } from "@/types/tome";
@@ -50,22 +54,18 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   }
 
   const { user, session } = await getAuthFromBearerOrSession(request);
-  const projects = await getCollection<ProjectDocument>("projects");
-  // Bootstrap admins are honored for bearer/API-key callers too (the OpenFGA
-  // org-manage check needs a Keycloak access token, which only cookie sessions
-  // carry) — so the Tome MCP lists the same projects an admin sees in the UI.
-  const isAdmin =
-    (await canManageProjectsOrganization(session)) || isBootstrapAdmin(user.email);
+  // Tome admins see every Project, Area, and BHAG. Overlay the authenticated
+  // email because bearer sessions do not always carry session.user.
+  const adminSession = (session ?? {}) as TomeAdminSession;
+  const isAdmin = await isTomeAdmin({
+    ...adminSession,
+    user: { ...adminSession.user, email: user.email ?? adminSession.user?.email },
+  });
 
-  let filter: Record<string, unknown> = {};
-  if (!isAdmin) {
-    const email = user.email?.trim().toLowerCase();
-    if (!email) {
-      return successResponse({ projects: [] });
-    }
-    const teamIds = await getUserTeamIds(email);
-    filter = { team_id: { $in: teamIds } };
-  }
+  const readableCatalog = await listReadableTomeProjects(
+    tomeSessionSubject(session),
+    { isAdmin },
+  );
 
   // Kind filter. BHAGs share the `projects` collection (type:"bhag") but are a
   // distinct surface, so they must not leak into the normal project grid or any
@@ -74,15 +74,18 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   // everything.
   const { searchParams } = new URL(request.url);
   const typeParam = searchParams.get("type");
-  if (typeParam === "bhag") {
-    filter.type = "bhag";
-  } else if (typeParam === "area") {
-    filter.type = "area";
-  } else if (typeParam !== "all") {
-    filter.$or = [{ type: "project" }, { type: { $exists: false } }];
-  }
-
-  const all = await projects.find(filter).sort({ updated_at: -1 }).toArray();
+  const matchesType = (project: ProjectDocument): boolean => {
+    if (typeParam === "bhag") return project.type === "bhag";
+    if (typeParam === "area") return project.type === "area";
+    if (typeParam === "all") return true;
+    return project.type === "project" || project.type === undefined;
+  };
+  const all = readableCatalog
+    .filter(matchesType)
+    .sort(
+      (a, b) =>
+        new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime(),
+    );
 
   // Label-faceted discovery (FR-006): AND across dimensions, OR within.
   const labelFilter = {
@@ -197,6 +200,26 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
 
   const { user, session } = await getAuthFromBearerOrSession(request);
   const body = (await request.json()) as CreateProjectRequest;
+  const projectType: ProjectType =
+    body.type === "bhag" ? "bhag" : body.type === "area" ? "area" : "project";
+
+  if (projectType !== "project") {
+    const adminSession = (session ?? {}) as TomeAdminSession;
+    const admin = await isTomeAdmin({
+      ...adminSession,
+      user: {
+        ...adminSession.user,
+        email: user.email ?? adminSession.user?.email,
+      },
+    });
+    if (!admin) {
+      throw new ApiError(
+        "Only a Tome admin can create a BHAG or Area",
+        403,
+        "TOME_ADMIN_REQUIRED",
+      );
+    }
+  }
 
   if (!body.name?.trim()) {
     throw new ApiError("Project name is required", 400, "VALIDATION_ERROR");
@@ -213,8 +236,6 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   }
 
   const projects = await getCollection<ProjectDocument>("projects");
-  const projectType: ProjectType =
-    body.type === "bhag" ? "bhag" : body.type === "area" ? "area" : "project";
   const existing = await projects.findOne({ slug, team_id: team._id });
   if (existing) {
     const kindLabel = (t: string | undefined) =>
@@ -227,10 +248,6 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
         : `A ${existingKind} named "${slug}" already exists for this team — BHAGs, Areas, and projects share the same namespace`;
     throw new ApiError(msg, 409, "PROJECT_EXISTS");
   }
-
-  // BHAGs and Areas are synthesis-only: they have no connectors of their own
-  // (their sources are the wikis of their child projects), so we ignore source inputs.
-  const isAreaOrBhag = projectType === "bhag" || projectType === "area";
 
   const description =
     body.description?.trim() ||
@@ -256,14 +273,12 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
         name: (r.name ?? "").trim() || r.room_id.trim(),
         slug: (r.slug ?? "").trim(),
       }));
-  const sources = isAreaOrBhag
-    ? { repos: [], confluence_url: undefined, component_urls: [], webex_rooms: [] }
-    : {
-        repos: cleanUrls(body.github_repos),
-        confluence_url: body.confluence_url?.trim() || undefined,
-        component_urls: cleanUrls(body.component_urls),
-        webex_rooms: cleanWebexRooms(body.webex_rooms),
-      };
+  const sources = {
+    repos: cleanUrls(body.github_repos),
+    confluence_url: body.confluence_url?.trim() || undefined,
+    component_urls: cleanUrls(body.component_urls),
+    webex_rooms: cleanWebexRooms(body.webex_rooms),
+  };
   const sourceIntegrations: Record<string, string> = {};
   if (sources.repos[0]) sourceIntegrations.github_url = sources.repos[0];
   if (sources.confluence_url) sourceIntegrations.confluence_url = sources.confluence_url;
@@ -279,6 +294,14 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     ostinatoId: randomUUID(),
   });
 
+  const requestedSteward =
+    body.data_steward ??
+    (user.email ? { type: "user" as const, email: user.email } : undefined);
+  const dataSteward = await resolveDataSteward(requestedSteward);
+  if (!dataSteward) {
+    throw new ApiError("Data steward is required", 400, "DATA_STEWARD_REQUIRED");
+  }
+
   const now = new Date();
   const doc: ProjectDocument = {
     type: projectType,
@@ -291,11 +314,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     team_name: team.name,
     owner_id: user.email ?? "unknown",
     member_ids: memberIds,
-    // Feed data steward: set explicitly at creation so it's never a magic
-    // "blank means owner". BHAGs and Areas have no sources, so no steward.
-    ...(isAreaOrBhag
-      ? {}
-      : { data_steward: body.data_steward?.trim().toLowerCase() || undefined }),
+    data_steward: dataSteward,
     ...(body.decision_blast_radius ? { decision_blast_radius: body.decision_blast_radius } : {}),
     ...(body.optionality?.length ? { optionality: body.optionality } : {}),
     domain,
@@ -316,6 +335,17 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   };
 
   const result = await projects.insertOne(doc as ProjectDocument & { _id?: ObjectId });
+  try {
+    await reconcileDataSteward(
+      { ...doc, data_steward: undefined },
+      dataSteward,
+    );
+    await reconcileTomeReadAccess(doc);
+  } catch (error) {
+    await projects.deleteOne({ _id: result.insertedId as unknown as string });
+    await reconcileDataSteward(doc, null).catch(() => undefined);
+    throw error;
+  }
 
   auditTome({
     action: "tome.project.create",

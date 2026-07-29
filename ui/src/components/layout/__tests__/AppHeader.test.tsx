@@ -342,7 +342,7 @@ jest.mock('@/lib/utils', () => ({
 // Imports — after mocks
 // ============================================================================
 
-import { AppHeader } from '../AppHeader'
+import { AppHeader, calculateVisibleHeaderNavItems } from '../AppHeader'
 
 // ============================================================================
 // Tests
@@ -439,6 +439,32 @@ describe('AppHeader — nav tabs', () => {
   })
 
   describe('core tabs', () => {
+    it('keeps the nav fit decision stable after the right cluster compacts', () => {
+      const itemWidths = [220, 220, 220, 220]
+      const expandedCount = calculateVisibleHeaderNavItems({
+        containerWidth: 900,
+        logoWidth: 100,
+        currentActionsWidth: 400,
+        expandedActionsWidth: 400,
+        actionsCompact: false,
+        itemWidths,
+        moreWidth: 88,
+      })
+      const compactCount = calculateVisibleHeaderNavItems({
+        // Compact actions reclaim 200px for the left flex container.
+        containerWidth: 1100,
+        logoWidth: 100,
+        currentActionsWidth: 200,
+        expandedActionsWidth: 400,
+        actionsCompact: true,
+        itemWidths,
+        moreWidth: 88,
+      })
+
+      expect(expandedCount).toBe(3)
+      expect(compactCount).toBe(expandedCount)
+    })
+
     it('always shows Skills and Chat tabs', () => {
       render(<AppHeader />)
       expect(screen.getByText('Skills')).toBeInTheDocument()

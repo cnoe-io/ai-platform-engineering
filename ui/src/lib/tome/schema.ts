@@ -358,14 +358,12 @@ export function edgeSlug(label: string): string {
 // Tracked entities — Issues, Decisions, Suggestions (#157). Same one-file-per-
 // entry structured primitive as the glossary and edges: one file per entry
 // under `<dir>/<slug>.md` with `type` + `status` frontmatter and a prose body.
-// This is the doc/storage surface only; the MCP lifecycle tools
-// (tome_issue_mark_complete, etc.) land in a follow-up. Keep vocabularies in
-// sync with reports/schema.py.
+// Keep vocabularies in sync with reports/schema.py.
 // ---------------------------------------------------------------------------
 
 export const ISSUES_DIR = "issues";
 export const ISSUE_TYPE = "issue";
-export const ISSUE_STATUSES = ["open", "resolved"] as const;
+export const ISSUE_STATUSES = ["open", "in_progress", "resolved"] as const;
 export type IssueStatus = (typeof ISSUE_STATUSES)[number];
 
 export const DECISIONS_DIR = "decisions";
@@ -381,6 +379,10 @@ export type SuggestionStatus = (typeof SUGGESTION_STATUSES)[number];
 // Shared frontmatter keys for tracked entities (FM_STATUS is reused).
 export const FM_OWNER = "owner";
 export const FM_OPENED = "opened";
+export const FM_CLOSED = "closed";
+export const FM_PRIORITY = "priority";
+export const TRACKED_ENTITY_PRIORITIES = ["critical", "high", "medium", "low"] as const;
+export type TrackedEntityPriority = (typeof TRACKED_ENTITY_PRIORITIES)[number];
 
 /** True when a page's frontmatter marks it as one of the tracked-entity types. */
 export function isTrackedEntity(fm: Record<string, FrontmatterValue>): boolean {
@@ -625,11 +627,18 @@ export function buildTree(pages: Record<string, string>): PageNode[] {
       const dirPath = parts.slice(0, i).join("/");
       const pageAnchor = `${dirPath}.md`;
       if (nodes.has(pageAnchor) || folders.has(dirPath)) continue;
-      // Structured-entry directories (glossary, edges) sort above per-source
+      // Structured-entry directories sort above per-source
       // connector folders (repos/webex/confluence/etc.) — vocabulary and
       // relationships are cross-cutting reference material, not one more
       // source among sources.
-      const folderOrder = dirPath === GLOSSARY_DIR || dirPath === EDGES_DIR ? 900 : 999;
+      const folderOrder =
+        dirPath === GLOSSARY_DIR ||
+        dirPath === EDGES_DIR ||
+        dirPath === ISSUES_DIR ||
+        dirPath === DECISIONS_DIR ||
+        dirPath === SUGGESTIONS_DIR
+          ? 900
+          : 999;
       folders.set(dirPath, {
         path: dirPath,
         title: pathToTitle(dirPath),

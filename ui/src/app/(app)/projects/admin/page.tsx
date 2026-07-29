@@ -5,10 +5,11 @@ import { useRouter } from "next/navigation";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PageTemplateEditor } from "@/components/tome/PageTemplateEditor";
+import { TomeAdminsTab } from "@/components/tome/admin/TomeAdminsTab";
 import { TomeAnalyticsTab } from "@/components/tome/admin/TomeAnalyticsTab";
 import { useSubtabParam } from "@/hooks/use-subtab-param";
 
-const TOME_ADMIN_TABS = ["page-templates", "analytics"] as const;
+const TOME_ADMIN_TABS = ["page-templates", "analytics", "admins"] as const;
 type TomeAdminTab = (typeof TOME_ADMIN_TABS)[number];
 
 export default function TomeAdminPage() {
@@ -52,9 +53,9 @@ function TomeAdminPageContent() {
   return (
     <section className="mx-auto max-w-5xl space-y-6 p-6">
       <div>
-        <h1 className="text-2xl font-semibold">TOME Admin</h1>
+        <h1 className="text-2xl font-semibold">TOME Settings</h1>
         <p className="text-sm text-muted-foreground">
-          Manage TOME configuration. Visible to TOME Admins only.
+          Manage TOME configuration and administrators. Visible to TOME Admins only.
         </p>
       </div>
 
@@ -62,6 +63,7 @@ function TomeAdminPageContent() {
         <TabsList>
           <TabsTrigger value="page-templates">Page Templates</TabsTrigger>
           <TabsTrigger value="analytics">Analytics</TabsTrigger>
+          <TabsTrigger value="admins">Admins</TabsTrigger>
         </TabsList>
 
         <TabsContent value="page-templates" className="mt-0 space-y-4">
@@ -74,6 +76,10 @@ function TomeAdminPageContent() {
 
         <TabsContent value="analytics" className="mt-0 space-y-4">
           <TomeAnalyticsTab />
+        </TabsContent>
+
+        <TabsContent value="admins" className="mt-0 space-y-4">
+          <TomeAdminsTab />
         </TabsContent>
       </Tabs>
     </section>

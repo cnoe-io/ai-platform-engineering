@@ -18,12 +18,11 @@ export const POST = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
   const tctx = await loadTomeProject(request, slug);
   requireTomeEditor(tctx);
 
-  // A BHAG/Area has no sources to ingest — its wiki is a synthesis of the
-  // projects tagged to it. Route those runs through the dedicated
-  // /synthesize endpoint.
+  // A BHAG/Area processes its direct sources as part of the child-wiki
+  // synthesis. Route those runs through the dedicated /synthesize endpoint.
   if (isSynthesizedType(tctx.project.type)) {
     throw new ApiError(
-      "This project type doesn't ingest sources. Use synthesis instead.",
+      "BHAG and Area sources are processed through synthesis. Use synthesis instead.",
       400,
       "USE_SYNTHESIS",
     );

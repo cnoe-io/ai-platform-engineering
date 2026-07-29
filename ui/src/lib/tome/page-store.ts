@@ -130,9 +130,8 @@ let cached: PageStore | null = null;
  * Resolve the configured PageStore singleton. Phase 1 only wires the `mongo`
  * backend; `s3` is added later behind the same interface.
  *
- * Wrapped in `withEdgesIndex` so the edges backlink index stays in sync
- * from this one choke point, regardless of backend or caller (UI save, ingest
- * agent write, chat agent write all funnel through here).
+ * Wrapped in `withStructuredIndexes` so cross-project edges and tracked
+ * entities stay queryable from this one choke point, regardless of caller.
  */
 export async function getPageStore(): Promise<PageStore> {
   if (cached) return cached;
@@ -140,7 +139,7 @@ export async function getPageStore(): Promise<PageStore> {
   switch (backend) {
     case "mongo": {
       const { MongoPageStore } = await import("./mongo-page-store");
-      cached = withEdgesIndex(new MongoPageStore());
+      cached = withStructuredIndexes(new MongoPageStore());
       return cached;
     }
     // case "s3": ... (added with the object-storage value-add)
@@ -150,26 +149,29 @@ export async function getPageStore(): Promise<PageStore> {
 }
 
 /**
- * Decorate a PageStore's write paths to keep `tome_edges_index` current.
+ * Decorate a PageStore's write paths to keep structured indexes current.
  * Explicit passthrough (not `{...store}`) — the underlying store's methods
  * live on its class prototype, not as own properties, so a spread would drop
  * them all.
  */
-function withEdgesIndex(store: PageStore): PageStore {
+function withStructuredIndexes(store: PageStore): PageStore {
   return {
     writePage: async (projectId, path, markdown, opts) => {
       await store.writePage(projectId, path, markdown, opts);
-      await reindexTouched(projectId, { [path]: markdown });
+      if (opts.status !== "draft") {
+        await reindexTouched(projectId, { [path]: markdown });
+      }
     },
     writePages: async (projectId, pages, opts) => {
       await store.writePages(projectId, pages, opts);
-      await reindexTouched(projectId, pages);
+      if (opts.status !== "draft") {
+        await reindexTouched(projectId, pages);
+      }
     },
     deletePage: async (projectId, path, opts) => {
       await store.deletePage(projectId, path, opts);
-      const { syncEdgeIndex } = await import("./edges-index");
       const slug = await projectSlugFor(projectId);
-      if (slug) await syncEdgeIndex(projectId, slug, path, null);
+      if (slug) await removeFromIndexes(projectId, slug, path);
     },
     readPage: (projectId, path, opts) => store.readPage(projectId, path, opts),
     listPages: (projectId, opts) => store.listPages(projectId, opts),
@@ -178,12 +180,13 @@ function withEdgesIndex(store: PageStore): PageStore {
     promoteDraftReport: async (projectId, reportId) => {
       const paths = await store.listDraftPaths(projectId, reportId);
       await store.promoteDraftReport(projectId, reportId);
-      // Draft writes were excluded from edge reindexing while pending;
-      // reindex now that they're live. Re-read each path's live body.
+      // Re-read each promoted path's live body before refreshing indexes.
       if (paths.length === 0) return;
       const live = await store.listPages(projectId);
       const touched: Record<string, string> = {};
-      for (const p of paths) if (p.startsWith("edges/") && p in live) touched[p] = live[p];
+      for (const p of paths) {
+        if ((p.startsWith("edges/") || isTrackedPath(p)) && p in live) touched[p] = live[p];
+      }
       await reindexTouched(projectId, touched);
     },
     rejectDraftReport: (projectId, reportId) => store.rejectDraftReport(projectId, reportId),
@@ -191,7 +194,7 @@ function withEdgesIndex(store: PageStore): PageStore {
     listTouchedPaths: (projectId, reportId) => store.listTouchedPaths(projectId, reportId),
     revertPage: async (projectId, path, revisionId, opts) => {
       await store.revertPage(projectId, path, revisionId, opts);
-      if (path.startsWith("edges/")) {
+      if (path.startsWith("edges/") || isTrackedPath(path)) {
         const live = await store.listPages(projectId);
         if (path in live) await reindexTouched(projectId, { [path]: live[path] });
       }
@@ -206,13 +209,53 @@ async function reindexTouched(
   projectId: string,
   pages: Record<string, string>,
 ): Promise<void> {
-  const touched = Object.keys(pages).filter((p) => p.startsWith("edges/"));
+  const touched = Object.keys(pages).filter(
+    (path) => path.startsWith("edges/") || isTrackedPath(path),
+  );
   if (touched.length === 0) return;
-  const { syncEdgeIndex } = await import("./edges-index");
   const slug = await projectSlugFor(projectId);
   if (!slug) return;
   for (const path of touched) {
-    await syncEdgeIndex(projectId, slug, path, pages[path]);
+    await syncIndexes(projectId, slug, path, pages[path]);
+  }
+}
+
+function isTrackedPath(path: string): boolean {
+  return (
+    path.startsWith("issues/") ||
+    path.startsWith("decisions/") ||
+    path.startsWith("suggestions/")
+  );
+}
+
+async function syncIndexes(
+  projectId: string,
+  projectSlug: string,
+  path: string,
+  markdown: string,
+): Promise<void> {
+  if (path.startsWith("edges/")) {
+    const { syncEdgeIndex } = await import("./edges-index");
+    await syncEdgeIndex(projectId, projectSlug, path, markdown);
+  }
+  if (isTrackedPath(path)) {
+    const { syncTrackedEntityIndex } = await import("./tracked-entities-index");
+    await syncTrackedEntityIndex(projectId, projectSlug, path, markdown);
+  }
+}
+
+async function removeFromIndexes(
+  projectId: string,
+  projectSlug: string,
+  path: string,
+): Promise<void> {
+  if (path.startsWith("edges/")) {
+    const { syncEdgeIndex } = await import("./edges-index");
+    await syncEdgeIndex(projectId, projectSlug, path, null);
+  }
+  if (isTrackedPath(path)) {
+    const { syncTrackedEntityIndex } = await import("./tracked-entities-index");
+    await syncTrackedEntityIndex(projectId, projectSlug, path, null);
   }
 }
 

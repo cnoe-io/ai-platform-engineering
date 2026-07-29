@@ -38,6 +38,10 @@ import { isMyceliumConfigured, postEvent } from "./mycelium";
 import type { TomeProjectContext } from "./tome-api";
 import type { ProjectDocument } from "@/types/projects";
 import type { IngestDispatch, IngestRun, Report } from "@/types/tome";
+import {
+  isTomeAdminSubject,
+  listReadableTomeProjects,
+} from "./access";
 
 /** Load a project by its stable id (string or ObjectId), normalizing `_id` to string. */
 async function loadProjectById(
@@ -56,6 +60,21 @@ import { resolveBhagChildren, resolveAreaChildren } from "./bhag";
 export { resolveBhagChildren, resolveAreaChildren };
 
 const inflight = new Set<Promise<void>>();
+
+// One AbortController per in-flight run, keyed by runId — lets `cancelRun`
+// actually tear down the agent's SSE stream instead of just flipping the DB
+// status while the background fetch (and the agent's real work) keeps going.
+const runAbortControllers = new Map<string, AbortController>();
+
+/**
+ * Abort the in-flight agent stream for a run, if one is running in this
+ * process. No-op if the run isn't tracked here (e.g. already finished, or
+ * running in a different caipe-ui replica) — the DB status flip in the
+ * DELETE route is still the source of truth for "is this run active."
+ */
+export function cancelRun(runId: string): void {
+  runAbortControllers.get(runId)?.abort();
+}
 
 /**
  * Flip a project's `locked` flag. Locked while an ingest is in flight so human
@@ -222,6 +241,22 @@ async function prepareRun(
     : isArea
       ? await resolveAreaChildren(project.name)
       : [];
+  const actorSub = run.triggered_by_sub ?? "";
+  const actorIsAdmin = actorSub ? await isTomeAdminSubject(actorSub) : false;
+  const readableProjects = await listReadableTomeProjects(actorSub || null, {
+    isAdmin: actorIsAdmin,
+  });
+  const readableSlugs = new Set(readableProjects.map((candidate) => candidate.slug));
+  const blockedChildren = childProjects.filter(
+    (child) => !readableSlugs.has(child.slug),
+  );
+  if (blockedChildren.length > 0) {
+    throw new Error(
+      `OpenFGA denied synthesis source access to: ${blockedChildren
+        .map((child) => child.slug)
+        .join(", ")}`,
+    );
+  }
   if (isBhag || isArea) {
     const kind = isBhag ? "BHAG" : "Area";
     const verb = endpoint === "/synthesize" ? "synthesis" : "compaction";
@@ -244,6 +279,11 @@ async function prepareRun(
     credentials,
     seedStablePages: isGreenfield && dispatch.seedStablePages === true,
     childProjects,
+    readableProjects: readableProjects.map((candidate) => ({
+      project_id: String(candidate._id),
+      slug: candidate.slug,
+      name: candidate.title || candidate.name,
+    })),
   });
 
   return { projectId, reportId, req, endpoint };
@@ -339,7 +379,11 @@ export async function enqueueRun(
  */
 export async function enqueueBhagCascade(
   ctx: TomeProjectContext,
-  opts: { seed?: string | null; seedStablePages?: boolean },
+  opts: {
+    seed?: string | null;
+    seedStablePages?: boolean;
+    webexMeetings?: { id: string; title: string; start: string }[];
+  },
 ): Promise<{ cascadeId: string; parentRunId: string; childCount: number }> {
   const sub = sessionSub(ctx.session);
   const cascadeId = randomUUID();
@@ -388,6 +432,7 @@ export async function enqueueBhagCascade(
       endpoint: "/synthesize",
       seed: opts.seed ?? null,
       seedStablePages: opts.seedStablePages,
+      webexMeetings: opts.webexMeetings,
     },
     cascadeId,
     cascadeRole: "parent",
@@ -581,6 +626,9 @@ async function driveIngest(
   const runs = await getTomeIngestRunsCollection();
   const reports = await getTomeReportsCollection();
   const agentUrl = process.env.TOME_AGENT_URL;
+  const abortController = new AbortController();
+  runAbortControllers.set(runId, abortController);
+  let cancelled = false;
   try {
     // Lock the project for the run's duration — humans can't edit pages (409)
     // while the agent rewrites. Cleared in the finally below.
@@ -592,6 +640,7 @@ async function driveIngest(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(req),
+      signal: abortController.signal,
     });
     if (!res.ok || !res.body) {
       const detail = await res.text().catch(() => "");
@@ -638,21 +687,30 @@ async function driveIngest(
       await auditRunLifecycle(runId, "tome.ingest.awaiting_review");
     }
   } catch (e) {
-    await appendLog(runId, `[--:--:--] ✗ ${String((e as Error)?.message ?? e)}`);
-    await runs.updateOne(
-      { _id: runId },
-      {
-        $set: {
-          status: "failed",
-          error: String((e as Error)?.message ?? e),
-          finished_at: new Date(),
+    cancelled = abortController.signal.aborted;
+    // A user-initiated cancel already set status=failed + error="Stopped by
+    // user" in the DELETE route — don't clobber that with the generic
+    // AbortError message this fetch throws once the signal fires.
+    if (!cancelled) {
+      await appendLog(runId, `[--:--:--] ✗ ${String((e as Error)?.message ?? e)}`);
+      await runs.updateOne(
+        { _id: runId },
+        {
+          $set: {
+            status: "failed",
+            error: String((e as Error)?.message ?? e),
+            finished_at: new Date(),
+          },
         },
-      },
-    );
-    await auditRunLifecycle(runId, "tome.ingest.failed", {
-      error: String((e as Error)?.message ?? e),
-    });
+      );
+      await auditRunLifecycle(runId, "tome.ingest.failed", {
+        error: String((e as Error)?.message ?? e),
+      });
+    } else {
+      await appendLog(runId, "[--:--:--] ✗ Stopped by user");
+    }
   } finally {
+    runAbortControllers.delete(runId);
     // Unlock on success/failure/crash — but keep the wiki read-only while a
     // draft run awaits review; approve/reject/auto-promote clears it.
     const finalRun = await runs.findOne({ _id: runId });

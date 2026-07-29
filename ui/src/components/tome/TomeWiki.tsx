@@ -15,6 +15,7 @@ import {
   HelpCircle,
   Layers,
   Link2,
+  ListChecks,
   MessageSquare,
   MessagesSquare,
   Newspaper,
@@ -54,6 +55,7 @@ import { WikiPageView } from "@/components/tome/WikiPageView";
 import type { GlossaryPreview } from "@/components/tome/CrepeEditor";
 import { parseTomeHref } from "@/lib/tome/tome-links";
 import { StandupView } from "@/components/tome/StandupView";
+import { CriticalItemsBoard } from "@/components/tome/CriticalItemsBoard";
 import { IngestPanel } from "@/components/tome/IngestPanel";
 import { IngestRunView } from "@/components/tome/IngestRunView";
 import { DraftReviewView } from "@/components/tome/DraftReviewView";
@@ -63,16 +65,19 @@ import { Breadcrumb, type Crumb } from "@/components/tome/Breadcrumb";
 import { McpConnectDialog } from "@/components/tome/McpConnectDialog";
 import { TomeProductFeedback } from "@/components/tome/TomeProductFeedback";
 import { EdgeGraphDialog } from "@/components/tome/EdgeGraphDialog";
+import { ViewOnlyTooltip } from "@/components/tome/ViewOnlyTooltip";
 import { parseFrontmatter, SPEC_BY_PATH } from "@/lib/tome/schema";
 import { normLabel } from "@/lib/projects/labels";
 import { cn } from "@/lib/utils";
 import type { PageTreeNode } from "@/types/tome";
-import { isSynthesizedType, type ProjectType } from "@/types/projects";
+import { dataStewardLabel, isSynthesizedType, type ProjectType } from "@/types/projects";
 
 interface PagesResponse {
   slug: string;
   tree: PageTreeNode[];
   pages: Record<string, string>;
+  canEdit: boolean;
+  canManageSteward: boolean;
 }
 
 /** An edge authored in another project, pointing at this one. */
@@ -92,6 +97,7 @@ const ONBOARDING_SEEN_KEY = "tome.onboarding.seen";
 type MainView =
   | { kind: "agent" }
   | { kind: "standup" }
+  | { kind: "criticalItems" }
   | { kind: "feed" }
   | { kind: "gists" }
   | { kind: "gist"; id: string }
@@ -117,6 +123,8 @@ function viewToPath(slug: string, view: MainView): string {
       return base;
     case "standup":
       return `${base}/standup`;
+    case "criticalItems":
+      return `${base}/critical-items`;
     case "feed":
       return `${base}/feed`;
     case "gists":
@@ -148,6 +156,8 @@ function pathToView(segments: string[]): MainView {
       return { kind: "agent" };
     case "standup":
       return { kind: "standup" };
+    case "critical-items":
+      return { kind: "criticalItems" };
     case "feed":
       return { kind: "feed" };
     case "gists":
@@ -235,6 +245,7 @@ export function TomeWiki({ slug }: { slug: string }) {
   const isBhag = projectType === "bhag";
   const isArea = projectType === "area";
   const isSynthesized = isSynthesizedType(projectType);
+  const canEdit = data?.canEdit ?? false;
   // For a BHAG/Area: its own name (the label children are tagged with) and
   // the child projects that resolve from it — surfaced as down-links in the nav.
   const [projectName, setProjectName] = useState("");
@@ -339,7 +350,7 @@ export function TomeWiki({ slug }: { slug: string }) {
           status: typeof p.status === "string" ? p.status : null,
           teamName: typeof p.team_name === "string" ? p.team_name : null,
           tags: Array.isArray(p.tags) ? p.tags.filter((t: unknown) => typeof t === "string") : [],
-          dataSteward: typeof p.data_steward === "string" ? p.data_steward : null,
+          dataSteward: dataStewardLabel(p.data_steward) || null,
         });
       })
       .catch(() => undefined)
@@ -710,6 +721,8 @@ export function TomeWiki({ slug }: { slug: string }) {
         return [{ label: "Agent" }];
       case "standup":
         return [{ label: "Standup" }];
+      case "criticalItems":
+        return [{ label: "Issues" }];
       case "feed":
         return [{ label: "Activity" }];
       case "gists":
@@ -843,6 +856,7 @@ export function TomeWiki({ slug }: { slug: string }) {
   const navActive = {
     agent: view.kind === "agent",
     standup: view.kind === "standup",
+    criticalItems: view.kind === "criticalItems",
     feed: view.kind === "feed",
     gists: view.kind === "gists" || view.kind === "gist",
     settings: view.kind === "settings",
@@ -939,10 +953,13 @@ export function TomeWiki({ slug }: { slug: string }) {
                     <TooltipTrigger asChild>
                       <Badge variant="outline" className="gap-1">
                         <Users className="h-3 w-3" />
-                        Team: {projectMeta.teamName}
+                        Shared with: {projectMeta.teamName}
                       </Badge>
                     </TooltipTrigger>
-                    <TooltipContent side="bottom">Owning team</TooltipContent>
+                    <TooltipContent side="bottom">
+                      Members of this team have direct view access. Access can also be inherited
+                      through the BHAG and Area hierarchy.
+                    </TooltipContent>
                   </Tooltip>
                 )}
                 {projectMeta.dataSteward ? (
@@ -1010,7 +1027,7 @@ export function TomeWiki({ slug }: { slug: string }) {
                     tipTitle={isSynthesized ? "Synthesize" : "Ingest"}
                     tipDescription={
                       isSynthesized
-                        ? `Synthesize this ${isArea ? "area" : "BHAG"}: the agent reads the wikis of the projects tagged to it and writes the strategic view. ${isArea ? "An area" : "A BHAG"} has no sources of its own.`
+                        ? `Synthesize this ${isArea ? "area" : "BHAG"}: the agent combines tagged project wikis with directly attached sources and writes the strategic view.`
                         : "Start an ingest run that (re)builds the wiki from the project's attached sources: GitHub repos, Confluence spaces, and Webex rooms."
                     }
                     tag={awaitingReview ? "needs review" : undefined}
@@ -1063,6 +1080,14 @@ export function TomeWiki({ slug }: { slug: string }) {
                     tipTitle="Standup"
                     tipDescription="The project's report card: headline, blockers, and what's next. Rewritten by the agent on every ingest."
                   />
+                  <NavItem
+                    icon={<ListChecks className="h-4 w-4" />}
+                    label="Issues"
+                    active={navActive.criticalItems}
+                    onClick={() => navigate({ kind: "criticalItems" })}
+                    tipTitle="Issues and decisions"
+                    tipDescription="A generated board of tracked Issues and Decisions, filterable by priority and source project. Areas and BHAGs roll up their child projects plus items explicitly targeted through tome:// links."
+                  />
                 </div>
 
                 <div className="mt-4 flex items-center justify-between gap-1 px-2 pb-1">
@@ -1080,7 +1105,7 @@ export function TomeWiki({ slug }: { slug: string }) {
                         {showHidden ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                       </button>
                     )}
-                    {!loading && (
+                    {!loading && canEdit && (
                       <button
                         type="button"
                         onClick={() => uploadInputRef.current?.click()}
@@ -1091,7 +1116,7 @@ export function TomeWiki({ slug }: { slug: string }) {
                         <Upload className="h-3.5 w-3.5" />
                       </button>
                     )}
-                    {!loading && (
+                    {!loading && canEdit && (
                       <Popover
                         open={newPageOpen}
                         onOpenChange={(o) => {
@@ -1193,9 +1218,15 @@ export function TomeWiki({ slug }: { slug: string }) {
                 ) : isEmpty ? (
                   <div className="px-2 py-2 text-xs text-muted-foreground">
                     <p className="mb-2">No wiki pages yet.</p>
-                    <Button size="sm" onClick={() => navigate({ kind: "ingest" })}>
-                      {isSynthesized ? "Synthesize" : "Run an ingest"}
-                    </Button>
+                    <ViewOnlyTooltip viewOnly={!canEdit}>
+                      <Button
+                        size="sm"
+                        onClick={() => navigate({ kind: "ingest" })}
+                        disabled={!canEdit}
+                      >
+                        {isSynthesized ? "Synthesize" : "Run an ingest"}
+                      </Button>
+                    </ViewOnlyTooltip>
                   </div>
                 ) : (
                   data && (
@@ -1204,7 +1235,7 @@ export function TomeWiki({ slug }: { slug: string }) {
                       selectedPath={navActive.page}
                       onSelect={openPage}
                       showHidden={showHidden}
-                      onDelete={deletePage}
+                      onDelete={canEdit ? deletePage : undefined}
                     />
                   )
                 )}
@@ -1344,7 +1375,8 @@ export function TomeWiki({ slug }: { slug: string }) {
                         awaitingReview={awaitingReview}
                         onNavigate={openArtifact}
                         glossaryPreview={glossaryPreview}
-                        onRename={renamePage}
+                        onRename={canEdit ? renamePage : undefined}
+                        canEdit={canEdit}
                       />
                     ) : (
                       <TomeLoading />
@@ -1360,7 +1392,12 @@ export function TomeWiki({ slug }: { slug: string }) {
                   glossaryPreview={glossaryPreview}
                   onStartIngest={() => navigate({ kind: "ingest" })}
                   isSynthesized={isSynthesized}
+                  canEdit={canEdit}
                 />
+              </div>
+            ) : view.kind === "criticalItems" ? (
+              <div className="min-w-0 flex-1">
+                <CriticalItemsBoard slug={slug} />
               </div>
             ) : view.kind === "feed" ? (
               <div className="min-w-0 flex-1">
@@ -1373,11 +1410,21 @@ export function TomeWiki({ slug }: { slug: string }) {
               </div>
             ) : view.kind === "gists" ? (
               <div className="min-w-0 flex-1">
-                <GistsPanel slug={slug} onOpenGist={(id) => navigate({ kind: "gist", id })} />
+                <GistsPanel
+                  slug={slug}
+                  canEdit={canEdit}
+                  onOpenGist={(id) => navigate({ kind: "gist", id })}
+                />
               </div>
             ) : view.kind === "gist" ? (
               <div className="min-w-0 flex-1">
-                <GistView key={view.id} slug={slug} id={view.id} onBack={() => navigate({ kind: "gists" })} />
+                <GistView
+                  key={view.id}
+                  slug={slug}
+                  id={view.id}
+                  canEdit={canEdit}
+                  onBack={() => navigate({ kind: "gists" })}
+                />
               </div>
             ) : view.kind === "settings" ? (
               <div className="min-w-0 flex-1">
@@ -1391,7 +1438,7 @@ export function TomeWiki({ slug }: { slug: string }) {
               <div className="min-w-0 flex-1">
                 <IngestPanel
                   slug={slug}
-                  canEdit
+                  canEdit={canEdit}
                   isSynthesized={isSynthesized}
                   entityKind={isArea ? "area" : "bhag"}
                   onOpenRun={(runId) => navigate({ kind: "ingestRun", runId })}
@@ -1407,6 +1454,7 @@ export function TomeWiki({ slug }: { slug: string }) {
                   runId={view.runId}
                   onPagesChanged={load}
                   onReviewDraft={(runId) => navigate({ kind: "draftReview", runId })}
+                  canEdit={canEdit}
                 />
               </div>
             ) : view.kind === "draftReview" ? (
@@ -1415,6 +1463,7 @@ export function TomeWiki({ slug }: { slug: string }) {
                   key={view.runId}
                   slug={slug}
                   runId={view.runId}
+                  canEdit={canEdit}
                   onResolved={() => {
                     void load();
                     navigate({ kind: "ingestRun", runId: view.runId });
@@ -1426,6 +1475,7 @@ export function TomeWiki({ slug }: { slug: string }) {
                 <PageHistoryView
                   slug={slug}
                   path={view.path}
+                  canEdit={canEdit}
                   onReverted={load}
                   onOpenRun={(runId) => navigate({ kind: "ingestRun", runId })}
                 />
@@ -1449,7 +1499,8 @@ export function TomeWiki({ slug }: { slug: string }) {
                     awaitingReview={awaitingReview}
                     onNavigate={(path) => navigate({ kind: "page", path })}
                     glossaryPreview={glossaryPreview}
-                    onRename={renamePage}
+                    onRename={canEdit ? renamePage : undefined}
+                    canEdit={canEdit}
                   />
                 ) : (
                   <p className="p-8 text-sm text-muted-foreground">Page not found.</p>
@@ -1532,4 +1583,3 @@ function SidebarSkeleton() {
     </div>
   );
 }
-

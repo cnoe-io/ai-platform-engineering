@@ -265,10 +265,7 @@ async def compact_endpoint(body: IngestRequest):
 
 @app.post("/synthesize")
 async def synthesize_endpoint(body: IngestRequest):
-    """BHAG synthesis: synthesize a strategic goal's wiki from its tagged child
-    projects' wikis. Distinct from `/ingest` (which pulls a single project's
-    sources) — the first of a suite of cross-project subagents. Reuses the
-    IngestRequest contract; `snapshot.child_projects` carries the children."""
+    """BHAG/Area synthesis from tagged child wikis and direct sources."""
     if not _state.ready:
         raise HTTPException(503, "agent not ready")
 
@@ -292,6 +289,7 @@ async def synthesize_endpoint(body: IngestRequest):
                 async for event in stream_synthesis(
                     run_id=body.run_id,
                     seed=body.seed,
+                    connector_data=body.connector_data,
                     snapshot=body.snapshot,
                     is_greenfield=body.is_greenfield,
                     seed_stable_pages=body.seed_stable_pages,

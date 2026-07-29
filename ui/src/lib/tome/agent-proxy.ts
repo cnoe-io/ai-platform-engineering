@@ -12,6 +12,8 @@ import { collectForwardedCredentials } from "@/lib/projects/onboarding-providers
 import { webexRoomSlug } from "@/lib/projects/webex-room";
 
 import { resolveAreaChildren, resolveBhagChildren } from "./bhag";
+import { listReadableTomeProjects } from "./access";
+import { tomeSessionSubject } from "./data-steward";
 import { getPageStore } from "./page-store";
 import { stablePathsIn } from "./schema";
 import type { TomeProjectContext } from "./tome-api";
@@ -109,6 +111,8 @@ interface ProjectSnapshot {
   webex_rooms: WebexRoomSnapshot[];
   confluence_spaces: ConfluenceSpaceSnapshot[];
   child_projects: ChildProjectSnapshot[];
+  /** Per-request OpenFGA-filtered catalog available to cross-project tools. */
+  readable_projects: ChildProjectSnapshot[];
 }
 
 /** ChatRequest — mirrors contract.ChatRequest. */
@@ -248,7 +252,6 @@ function projectConfluenceSpaces(
 export function buildSnapshotFromProject(
   project: ProjectDocument & { _id: string },
 ): ProjectSnapshot {
-  const isSynthesized = isSynthesizedType(project.type);
   return {
     project_id: project._id,
     slug: project.slug,
@@ -257,12 +260,11 @@ export function buildSnapshotFromProject(
     phase: null,
     cadence: null,
     project_type: project.type ?? "project",
-    // Synthesized types (BHAG/Area) have no connectors — sources are empty
-    // regardless of any stale data.
-    repos: isSynthesized ? [] : (project.sources?.repos ?? []).map(toRepoSnapshot),
-    webex_rooms: isSynthesized ? [] : projectWebexRooms(project),
-    confluence_spaces: isSynthesized ? [] : projectConfluenceSpaces(project),
+    repos: (project.sources?.repos ?? []).map(toRepoSnapshot),
+    webex_rooms: projectWebexRooms(project),
+    confluence_spaces: projectConfluenceSpaces(project),
     child_projects: [],
+    readable_projects: [],
   };
 }
 
@@ -292,15 +294,24 @@ export async function buildChatRequest(
     resolveForwardedCredentials(ctx),
   ]);
   const snapshot = buildSnapshot(ctx);
-  // Synthesized types (BHAG/Area) have no sources of their own — their
-  // "context" is the wikis of their tagged child projects. Carry them so chat
-  // can read across them (the agent widens its read fence to the children's
-  // on-disk wikis).
+  const readableProjects = await listReadableTomeProjects(
+    tomeSessionSubject(ctx.session),
+    { isAdmin: ctx.canManageSteward },
+  );
+  snapshot.readable_projects = readableProjects.map((project) => ({
+    project_id: String(project._id),
+    slug: project.slug,
+    name: project.title || project.name,
+  }));
+  const readableSlugs = new Set(snapshot.readable_projects.map((project) => project.slug));
+  // Synthesized types (BHAG/Area) also carry tagged child-project wikis so chat
+  // can read across both those roll-up inputs and directly attached sources.
   if (isSynthesizedType(ctx.project.type)) {
-    snapshot.child_projects =
+    snapshot.child_projects = (
       ctx.project.type === "area"
         ? await resolveAreaChildren(ctx.project.name)
-        : await resolveBhagChildren(ctx.project.name);
+        : await resolveBhagChildren(ctx.project.name)
+    ).filter((project) => readableSlugs.has(project.slug));
   }
   return {
     message: opts.message,
@@ -332,13 +343,18 @@ export function buildIngestRequest(
     connectorData?: Record<string, unknown>;
     credentials?: ForwardedCredentials;
     seedStablePages?: boolean;
-    /** BHAG only: the projects tagged to this goal, to synthesize. */
+    /** BHAG/Area only: tagged child projects to synthesize with direct sources. */
     childProjects?: ChildProjectSnapshot[];
+    /** OpenFGA-filtered cross-project catalog for agent read tools. */
+    readableProjects?: ChildProjectSnapshot[];
   },
 ): AgentIngestRequest {
   const snapshot = buildSnapshotFromProject(project);
   if (opts.childProjects?.length) {
     snapshot.child_projects = opts.childProjects;
+  }
+  if (opts.readableProjects?.length) {
+    snapshot.readable_projects = opts.readableProjects;
   }
   return {
     run_id: opts.runId,

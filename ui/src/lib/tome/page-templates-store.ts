@@ -78,11 +78,12 @@ const FALLBACK_TEMPLATES: Record<TemplateScope, readonly PageSpec[]> = {
 const DEFAULT_GUIDANCE: Record<TemplateScope, Record<string, string>> = {
   "top-level": {
     "standup.md":
-      "Report card — keep this EXACT structure, it's UI-rendered. Under ~200 words.\n" +
-      "## What is this (one or two sentences)\n" +
-      "## Headline (the single most important thing this period, across the effort)\n" +
-      "## Asks / Blockers (bullets — anything blocked / needing help; cite)\n" +
-      "## Up next (bullets — upcoming milestones / deadlines)",
+      "Report card — keep this EXACT Markdown structure; it is parsed by the UI. Under ~200 words.\n" +
+      "Put every heading on its own line with a blank line after it. Do not use bold labels as headings.\n" +
+      "## What is this\nOne or two plain sentences.\n\n" +
+      "## Headline\nOne concise sentence: the single most important thing this period.\n\n" +
+      "## Asks / Blockers\n- One blocker or ask per real Markdown bullet; cite when useful.\n\n" +
+      "## Up next\n- One milestone or deadline per real Markdown bullet.",
     "activity.md":
       "The significant recent work across ALL attached sources, interpreted and " +
       "organized by theme/goal — not a feed. Cite the few items that matter.",

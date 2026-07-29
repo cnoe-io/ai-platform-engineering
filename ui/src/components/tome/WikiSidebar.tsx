@@ -39,7 +39,16 @@ const BASE_PX = 8;
 
 // Collection-root folders that start collapsed, so the rail leads with the
 // top-level synthesis pages rather than per-source subtrees or the glossary.
-const COLLAPSED_ROOTS = new Set(["repos", "webex", "confluence", "glossary", "edges"]);
+const COLLAPSED_ROOTS = new Set([
+  "repos",
+  "webex",
+  "confluence",
+  "glossary",
+  "edges",
+  "issues",
+  "decisions",
+  "suggestions",
+]);
 
 // Root source folders get their provider's brand mark instead of a bare label.
 const ROOT_PROVIDER: Record<string, string> = {

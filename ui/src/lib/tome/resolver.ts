@@ -52,10 +52,12 @@ async function readPageSafe(projectId: string, path: string): Promise<string> {
   }
 }
 
-async function projectBySlug(slug: string): Promise<{ id: string; slug: string } | null> {
+type ResolvedProject = ProjectDocument & { _id: string };
+
+async function projectBySlug(slug: string): Promise<ResolvedProject | null> {
   const projects = await getCollection<ProjectDocument>("projects");
   const p = await projects.findOne({ slug });
-  return p ? { id: String(p._id), slug: p.slug } : null;
+  return p ? { ...p, _id: String(p._id) } : null;
 }
 
 function glossaryFromMarkdown(md: string): {
@@ -121,6 +123,9 @@ export async function resolveRef(
   currentProjectId: string,
   currentSlug: string,
   ref: string,
+  options: {
+    canReadProject?: (project: ResolvedProject) => Promise<boolean>;
+  } = {},
 ): Promise<Resolution> {
   const target = parseTomeHref(ref);
   if (!target) return { kind: "unknown", found: false };
@@ -137,7 +142,12 @@ export async function resolveRef(
         ? { kind: "glossary", found: false }
         : { kind: "page", found: false, path: target.path };
     }
-    projectId = named.id;
+    if (options.canReadProject && !(await options.canReadProject(named))) {
+      return target.glossaryTerm
+        ? { kind: "glossary", found: false }
+        : { kind: "page", found: false, path: target.path };
+    }
+    projectId = named._id;
     projectSlug = named.slug;
     crossProject = true;
   }

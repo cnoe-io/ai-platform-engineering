@@ -51,7 +51,7 @@ class ConfluenceSpaceSnapshot(BaseModel):
 class ChildProjectSnapshot(BaseModel):
     """A project tagged to a BHAG. The agent reads each child's on-disk wiki
     (materialized at `<TTT_PROJECT_ROOT>/<project_id>/` by the workspace sync)
-    to synthesize the BHAG wiki — a BHAG has no sources of its own."""
+    as one input to the BHAG/Area synthesis."""
 
     project_id: str  # CAIPE project id; also the on-disk workspace dir name
     slug: str = ""
@@ -73,24 +73,24 @@ class ProjectSnapshot(BaseModel):
     cadence: str | None = None
     project_type: Literal["project", "bhag", "area"] = "project"
     """Project kind. A `bhag` is a strategic goal whose wiki is synthesized by
-    rolling up its `child_projects` (it has no sources of its own). An `area`
-    is a mid-tier grouping between a BHAG and projects — also synthesized from
-    its `child_projects` (projects tagged to it via `labels.areas`)."""
+    rolling up its `child_projects` plus directly attached sources. An `area`
+    is a mid-tier grouping between a BHAG and projects and follows the same
+    synthesis model."""
     repos: list[RepoSnapshot] = Field(default_factory=list)
     webex_rooms: list[WebexRoomSnapshot] = Field(default_factory=list)
     confluence_spaces: list[ConfluenceSpaceSnapshot] = Field(default_factory=list)
     child_projects: list[ChildProjectSnapshot] = Field(default_factory=list)
-    """BHAG only: the projects tagged to this goal. The agent reads each one's
-    on-disk wiki to build the synthesis."""
+    """BHAG/Area only: child projects whose on-disk wikis feed synthesis."""
+    readable_projects: list[ChildProjectSnapshot] = Field(default_factory=list)
+    """OpenFGA-filtered projects available to cross-project read tools."""
 
 
 SYNTHESIZED_PROJECT_TYPES = ("bhag", "area")
-"""Project types with no sources of their own: synthesized (agent rolls up
-from child projects' wikis) instead of ingested from connectors."""
+"""Project types whose primary action synthesizes child wikis and direct sources."""
 
 
 def is_synthesized_type(project_type: str) -> bool:
-    """True if `project_type` is a synthesized (no-sources, rollup) kind."""
+    """True if `project_type` is a synthesized roll-up kind."""
     return project_type in SYNTHESIZED_PROJECT_TYPES
 
 

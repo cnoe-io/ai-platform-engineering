@@ -63,20 +63,54 @@ export type ProjectSource = "manual" | "backstage";
  * Project kind. A regular `project` ingests its own sources. A `bhag` (Big
  * Hairy Audacious Goal) is a strategic entity with its own wiki whose stable
  * pages are leadership-authored and whose dynamic pages are agent-synthesized
- * from the projects tagged to it (via `labels.initiatives`). A BHAG has
- * no connectors of its own — its sources are its child projects' wikis.
+ * from the projects tagged to it (via `labels.initiatives`) plus any direct
+ * sources attached to the BHAG.
  * An `area` is a mid-tier grouping between a BHAG and its projects; it tags
  * a BHAG via `labels.initiatives` and is synthesized from its child projects
- * (which tag it via `labels.areas`). Like a BHAG, an area has no sources.
+ * (which tag it via `labels.areas`) plus any direct sources attached to it.
  * Legacy documents without a `type` are treated as `project`.
  */
 export type ProjectType = "project" | "bhag" | "area";
 
-/** Project types with no sources of their own: synthesized (agent rolls up
- * from child projects' wikis) instead of ingested from connectors. */
+export type DataStewardKind = "user" | "team";
+
+/**
+ * Display metadata for the one OpenFGA principal that stewards a Tome entity.
+ * Authorization is enforced from the corresponding OpenFGA `document` tuple;
+ * this value keeps the selected user/team legible and supports reconciliation.
+ */
+export interface DataStewardAssignment {
+  type: DataStewardKind;
+  /** Keycloak subject for users; canonical team slug for teams. */
+  id: string;
+  name: string;
+  /** Present only for user stewards. */
+  email?: string;
+}
+
+export type DataStewardInput =
+  | { type: "user"; email: string }
+  | { type: "team"; team_id: string };
+
+export type StoredDataSteward = DataStewardAssignment | string;
+
+export function dataStewardLabel(steward: StoredDataSteward | undefined): string {
+  if (!steward) return "";
+  if (typeof steward === "string") return steward;
+  return steward.name || steward.email || steward.id;
+}
+
+export function dataStewardUserEmail(steward: StoredDataSteward | undefined): string {
+  if (!steward) return "";
+  if (typeof steward === "string") return steward;
+  return steward.type === "user" ? steward.email ?? "" : "";
+}
+
+/** Project types whose primary action is synthesis: the agent rolls up child
+ * project wikis and enriches them with any directly attached sources. */
 export const SYNTHESIZED_PROJECT_TYPES = ["bhag", "area"] as const;
 
-/** True if `type` is a synthesized (no-sources, rollup) project kind. */
+/** True if `type` is a synthesized roll-up project kind. */
 export function isSynthesizedType(type: ProjectType | undefined): boolean {
   return type === "bhag" || type === "area";
 }
@@ -161,14 +195,11 @@ export interface ProjectDocument {
    */
   last_source_event_at?: Date;
   /**
-   * Data steward: the project role that will own the project's data sources and
-   * ingestion. Today it only sets who the source-activity feed runs as (their
-   * connection reads the project's activity); source curation and ingest still
-   * run as the acting user. Set explicitly (onboarding assigns the creator/owner
-   * by default); no implicit fallback. A pragmatic field (an email) that will
-   * become a first-class OpenFGA relation with capability enforcement.
+   * Scoped Tome data steward. The corresponding OpenFGA writer tuple is the
+   * authorization source of truth. Legacy records may still contain an email
+   * string and are reconciled to a user writer tuple on first access.
    */
-  data_steward?: string;
+  data_steward?: StoredDataSteward;
   /** Governance signal: how reversible this project's decisions are. */
   decision_blast_radius?: "small" | "large";
   /** External validation paths this project is pursuing. */
@@ -196,9 +227,8 @@ export interface CreateProjectRequest {
   confluence_url?: string;
   webex_rooms?: WebexRoomSource[];
   component_urls?: string[];
-  /** Data steward for the source-activity feed: the principal the feed runs as.
-   * Defaults to the creator (owner) when omitted. */
-  data_steward?: string;
+  /** User or team that can write Tome content and operate ingestion/review. */
+  data_steward?: DataStewardInput;
   decision_blast_radius?: "small" | "large";
   optionality?: string[];
 }

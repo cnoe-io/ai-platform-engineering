@@ -331,13 +331,14 @@ type mcp_tool
 type document
   relations
     define owner: [user, service_account]
+    define parent: [document]
     define reader: [user, service_account, team#member, team#admin, external_group#member, slack_channel, webex_space]
     define writer: [user, service_account, team#member, team#admin]
     define manager: [user, service_account, team#admin]
     define sharer: [user, service_account, team#member, team#admin]
     define auditor: [user, service_account, team#admin]
     define can_discover: can_read
-    define can_read: reader or can_write or can_delete or owner
+    define can_read: reader or can_read from parent or can_write or can_delete or owner
     define can_write: writer or can_delete or owner
     define can_delete: manager or owner
     define can_share: sharer or can_delete or owner

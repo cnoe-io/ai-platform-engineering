@@ -3,12 +3,18 @@
 // Returns success even on partial failure so the wizard can land on the project.
 import { NextRequest } from "next/server";
 
-import { getAuthFromBearerOrSession, successResponse, withErrorHandler } from "@/lib/api-middleware";
+import {
+  ApiError,
+  getAuthFromBearerOrSession,
+  successResponse,
+  withErrorHandler,
+} from "@/lib/api-middleware";
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
+import { getTomeProjectPermissions } from "@/lib/tome/data-steward";
 import type { OnboardProjectRequest, ProjectDocument } from "@/types/projects";
 
 export const POST = withErrorHandler(async (request: NextRequest) => {
-  await getAuthFromBearerOrSession(request);
+  const { user, session } = await getAuthFromBearerOrSession(request);
 
   if (!isMongoDBConfigured) {
     return successResponse({ skipped: true });
@@ -20,6 +26,20 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   }
 
   const col = await getCollection<ProjectDocument>("projects");
+  const project = await col.findOne({
+    _id: body.project_id as unknown as ProjectDocument["_id"],
+  });
+  if (!project) {
+    throw new ApiError("Project not found", 404, "PROJECT_NOT_FOUND");
+  }
+  const permissions = await getTomeProjectPermissions({ project, user, session });
+  if (!permissions.canEdit) {
+    throw new ApiError(
+      "Only this entity's data steward or a Tome admin can onboard it",
+      403,
+      "DATA_STEWARD_REQUIRED",
+    );
+  }
   await col.updateOne(
     { _id: body.project_id as unknown as ProjectDocument["_id"] },
     { $set: { updated_at: new Date() } },

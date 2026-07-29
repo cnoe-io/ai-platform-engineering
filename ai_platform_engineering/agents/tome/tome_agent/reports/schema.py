@@ -551,13 +551,12 @@ def edge_slug(label: str) -> str:
 # Tracked entities — Issues, Decisions, Suggestions (#157). Same one-file-per-
 # entry structured primitive as the glossary and edges: one file per entry
 # under `<dir>/<slug>.md` with `type` + `status` frontmatter and a prose body.
-# Doc/storage surface only; the MCP lifecycle tools land in a follow-up. Keep
-# vocabularies in sync with ui/src/lib/tome/schema.ts.
+# Keep vocabularies in sync with ui/src/lib/tome/schema.ts.
 # ---------------------------------------------------------------------------
 
 ISSUES_DIR = "issues"
 ISSUE_TYPE = "issue"
-ISSUE_STATUSES: tuple[str, ...] = ("open", "resolved")
+ISSUE_STATUSES: tuple[str, ...] = ("open", "in_progress", "resolved")
 
 DECISIONS_DIR = "decisions"
 DECISION_TYPE = "decision"
@@ -570,15 +569,21 @@ SUGGESTION_STATUSES: tuple[str, ...] = ("proposed", "accepted", "rejected")
 # Shared frontmatter keys for tracked entities (FM_STATUS is reused).
 FM_OWNER = "owner"
 FM_OPENED = "opened"
+FM_CLOSED = "closed"
+FM_PRIORITY = "priority"
+TRACKED_ENTITY_PRIORITIES: tuple[str, ...] = ("critical", "high", "medium", "low")
 
 # Per-type frontmatter shapes — used to generate agent prompt instructions.
 ISSUE_FRONTMATTER: dict[str, str] = {
     FM_TYPE: ISSUE_TYPE,
     FM_TITLE: "<short issue title>",
     FM_KIND: "dynamic",
-    FM_STATUS: "open | resolved",
+    FM_STATUS: "open | in_progress | resolved",
     FM_OWNER: "<who owns it, if known>",
     FM_OPENED: "<YYYY-MM-DD>",
+    FM_CLOSED: "<YYYY-MM-DD when resolved; omit while active>",
+    FM_PRIORITY: "critical | high | medium | low",
+    FM_TARGET: "tome://@<project>/overview.md (optional roll-up target)",
 }
 DECISION_FRONTMATTER: dict[str, str] = {
     FM_TYPE: DECISION_TYPE,
@@ -587,6 +592,9 @@ DECISION_FRONTMATTER: dict[str, str] = {
     FM_STATUS: "proposed | accepted | rejected",
     FM_OWNER: "<decision owner, if known>",
     FM_OPENED: "<YYYY-MM-DD>",
+    FM_CLOSED: "<YYYY-MM-DD when decided; omit while proposed>",
+    FM_PRIORITY: "critical | high | medium | low",
+    FM_TARGET: "tome://@<project>/overview.md (optional roll-up target)",
 }
 SUGGESTION_FRONTMATTER: dict[str, str] = {
     FM_TYPE: SUGGESTION_TYPE,
@@ -595,6 +603,9 @@ SUGGESTION_FRONTMATTER: dict[str, str] = {
     FM_STATUS: "proposed | accepted | rejected",
     FM_OWNER: "<who raised it, if known>",
     FM_OPENED: "<YYYY-MM-DD>",
+    FM_CLOSED: "<YYYY-MM-DD when decided; omit while proposed>",
+    FM_PRIORITY: "critical | high | medium | low",
+    FM_TARGET: "tome://@<project>/overview.md (optional roll-up target)",
 }
 
 _TRACKED_ENTITY_TYPES: frozenset[str] = frozenset(
@@ -849,7 +860,7 @@ class PageNode:
     title: str
     kind: NodeKind
     order: int
-    children: list["PageNode"] = field(default_factory=list)
+    children: list[PageNode] = field(default_factory=list)
 
 
 def build_tree(pages: dict[str, str]) -> list[PageNode]:

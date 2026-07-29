@@ -57,7 +57,13 @@ def _err(message: str) -> dict[str, Any]:
     return {"content": [{"type": "text", "text": message}], "is_error": True}
 
 
-def build_tome_mcp(*, project_id: str, project_dir: Path, author: str):
+def build_tome_mcp(
+    *,
+    project_id: str,
+    project_dir: Path,
+    author: str,
+    readable_projects: list[Any] | None = None,
+):
     """Create the wiki-maintenance MCP server for one project run.
 
     `project_dir` is this run's working copy; the tool validates the target is
@@ -65,6 +71,15 @@ def build_tome_mcp(*, project_id: str, project_dir: Path, author: str):
     `author` tags the tombstone revision.
     """
     pdir = Path(project_dir).resolve()
+    allowed_projects = {
+        str(getattr(project, "slug", "") or ""): {
+            "project_id": str(getattr(project, "project_id", "") or ""),
+            "slug": str(getattr(project, "slug", "") or ""),
+            "name": str(getattr(project, "name", "") or ""),
+        }
+        for project in (readable_projects or [])
+        if getattr(project, "slug", "")
+    }
 
     @tool(
         "delete_page",
@@ -152,28 +167,19 @@ def build_tome_mcp(*, project_id: str, project_dir: Path, author: str):
         {},
     )
     async def list_projects(_args: dict) -> dict[str, Any]:
-        try:
-            projects = await asyncio.to_thread(http_client.fetch_all_projects)
-        except Exception as e:
-            log.warning("list_projects failed", exc_info=True)
-            return _err(f"could not list projects: {type(e).__name__}: {e}")
         return _ok(
             [
                 {
-                    "project_slug": p.get("slug", ""),
-                    "title": p.get("name") or p.get("title") or p.get("slug", ""),
+                    "project_slug": project["slug"],
+                    "title": project["name"] or project["slug"],
                 }
-                for p in projects
-                if p.get("slug")
+                for project in allowed_projects.values()
             ]
         )
 
     async def _resolve_slug(project_slug: str) -> str | None:
-        projects = await asyncio.to_thread(http_client.fetch_all_projects)
-        for p in projects:
-            if p.get("slug") == project_slug:
-                return str(p.get("project_id") or p.get("_id") or p.get("id") or "")
-        return None
+        project = allowed_projects.get(project_slug)
+        return project["project_id"] if project else None
 
     @tool(
         "list_project_pages",

@@ -6,6 +6,7 @@
 import { NextRequest } from "next/server";
 
 import { successResponse, withErrorHandler } from "@/lib/api-middleware";
+import { getTomeProjectPermissions } from "@/lib/tome/data-steward";
 import { loadTomeProject } from "@/lib/tome/tome-api";
 import { resolveRef } from "@/lib/tome/resolver";
 
@@ -17,6 +18,15 @@ export const GET = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
   const { slug } = await ctx.params;
   const tctx = await loadTomeProject(request, slug);
   const ref = new URL(request.url).searchParams.get("ref") ?? "";
-  const result = await resolveRef(tctx.projectId, slug, ref);
+  const result = await resolveRef(tctx.projectId, slug, ref, {
+    canReadProject: async (project) =>
+      (
+        await getTomeProjectPermissions({
+          project,
+          user: tctx.user,
+          session: tctx.session,
+        })
+      ).canRead,
+  });
   return successResponse(result);
 });

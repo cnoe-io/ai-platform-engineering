@@ -78,8 +78,10 @@ def _template_change_note(
         return ""
 
     lines = [
-        "TEMPLATE CHANGES SINCE LAST INGEST (the page-template config was "
-        "edited — reconcile the wiki to match):"
+        (
+            "TEMPLATE CHANGES SINCE LAST INGEST (the page-template config was "
+            "edited — reconcile the wiki to match):"
+        )
     ]
     for path in missing:
         spec = expected[path]
@@ -244,7 +246,7 @@ PROJECT CHARTER (seed context, may be empty):
     return f"{prompts.load('INGEST')}\n\n---\n\n{project_block}"
 
 
-async def _resolve_extras(
+async def resolve_connector_extras(
     snapshot: ProjectSnapshot,
     connector_data: dict[str, Any],
 ) -> dict[str, Any]:
@@ -294,7 +296,7 @@ async def stream_ingest(
         except Exception:
             log.warning("template-change diff skipped", exc_info=True)
 
-    extras = await _resolve_extras(snapshot, connector_data)
+    extras = await resolve_connector_extras(snapshot, connector_data)
 
     # `on_write` callback from the persist hook: emit a `page_written`
     # event the backend forwards to IngestRun.log.
@@ -323,9 +325,11 @@ async def stream_ingest(
     )
 
     prompt_parts = [
-        f"Run a {'GREENFIELD' if is_greenfield else 'INCREMENTAL'} ingest for "
-        f"\"{snapshot.name}\". Begin by reading the existing wiki pages, then fetch "
-        f"recent activity and update pages per the system prompt."
+        (
+            f"Run a {'GREENFIELD' if is_greenfield else 'INCREMENTAL'} ingest "
+            f'for "{snapshot.name}". Begin by reading the existing wiki pages, '
+            "then fetch recent activity and update pages per the system prompt."
+        )
     ]
     if seed and seed.strip():
         prompt_parts.append(

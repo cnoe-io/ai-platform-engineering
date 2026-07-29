@@ -15,9 +15,8 @@ import {
   getAuthFromBearerOrSession,
 } from "@/lib/api-middleware";
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
-import { canManageProjectsOrganization, isProjectTeamMember } from "@/lib/projects/project-admin";
-import { isBootstrapAdmin } from "@/lib/auth-config";
 import { isTomeServerEnabled } from "./guard";
+import { getTomeProjectPermissions } from "./data-steward";
 import type { ProjectDocument } from "@/types/projects";
 
 export interface TomeProjectContext {
@@ -26,8 +25,12 @@ export interface TomeProjectContext {
   projectId: string;
   user: { email?: string };
   session: unknown;
-  /** Whether the caller may edit pages (owner, member, or org admin). */
+  /** Whether OpenFGA authorizes the caller to discover and read this entity. */
+  canRead: boolean;
+  /** Whether OpenFGA authorizes the caller as data steward or Tome admin. */
   canEdit: boolean;
+  /** Tome admins may change the steward assignment itself. */
+  canManageSteward: boolean;
 }
 
 /**
@@ -56,21 +59,14 @@ export async function loadTomeProject(
     throw new ApiError("Project not found", 404, "PROJECT_NOT_FOUND");
   }
 
-  const isOwner = Boolean(user.email) && project.owner_id === user.email;
-  // An explicit per-project member, or a member of the project's team (canonical,
-  // matching visibility). Team membership is the reliable signal; member_ids is a
-  // legacy per-project list and is often empty.
-  const isExplicitMember =
-    Boolean(user.email) && project.member_ids?.includes(user.email ?? "");
-  const isTeamMember = await isProjectTeamMember(project, user.email);
-  const isMember = Boolean(isExplicitMember) || isTeamMember;
-  // Bootstrap admins (BOOTSTRAP_ADMIN_EMAILS) are honored even for API-key /
-  // bearer callers, so the Tome MCP mirrors what an admin sees in the web UI —
-  // the OpenFGA org-manage check only succeeds for cookie sessions carrying a
-  // Keycloak access token.
-  const isOrgAdmin =
-    (await canManageProjectsOrganization(session)) || isBootstrapAdmin(user.email);
-  const canEdit = isOwner || Boolean(isMember) || isOrgAdmin;
+  const permissions = await getTomeProjectPermissions({ project, user, session });
+  if (!permissions.canRead) {
+    throw new ApiError(
+      "This Tome entity is not shared with one of your teams",
+      403,
+      "TOME_READ_REQUIRED",
+    );
+  }
 
   const resolved = { ...project, _id: String(project._id) };
   return {
@@ -78,7 +74,9 @@ export async function loadTomeProject(
     projectId: resolved._id,
     user,
     session,
-    canEdit,
+    canRead: permissions.canRead,
+    canEdit: permissions.canEdit,
+    canManageSteward: permissions.canManageSteward,
   };
 }
 
@@ -105,13 +103,13 @@ export async function ensureTomeTile(slug: string): Promise<void> {
   );
 }
 
-/** Throw 403 unless the caller may edit pages. */
+/** Throw 403 unless OpenFGA authorizes the caller as steward or Tome admin. */
 export function requireTomeEditor(ctx: TomeProjectContext): void {
   if (!ctx.canEdit) {
     throw new ApiError(
-      "You do not have edit access to this project's wiki",
+      "Only this entity's data steward or a Tome admin can modify its data",
       403,
-      "FORBIDDEN",
+      "DATA_STEWARD_REQUIRED",
     );
   }
 }

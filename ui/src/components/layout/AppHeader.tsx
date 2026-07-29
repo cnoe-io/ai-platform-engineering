@@ -160,6 +160,52 @@ type NavItem = {
   badge?: "chat";
 };
 
+export function calculateVisibleHeaderNavItems({
+  containerWidth,
+  logoWidth,
+  currentActionsWidth,
+  expandedActionsWidth,
+  actionsCompact,
+  itemWidths,
+  moreWidth,
+}: {
+  containerWidth: number;
+  logoWidth: number;
+  currentActionsWidth: number;
+  expandedActionsWidth: number;
+  actionsCompact: boolean;
+  itemWidths: number[];
+  moreWidth: number;
+}): number {
+  // Compacting the right cluster increases the flex width available to the
+  // navigation container. Subtract that reclaimed space so the fit decision
+  // is always made against the expanded action width. Otherwise:
+  // overflow -> compact actions -> more room -> expand actions -> overflow.
+  const reclaimedActionsWidth = actionsCompact
+    ? Math.max(0, expandedActionsWidth - currentActionsWidth)
+    : 0;
+  const available =
+    containerWidth - logoWidth - 16 - reclaimedActionsWidth;
+
+  let used = 0;
+  let count = 0;
+  for (let i = 0; i < itemWidths.length; i++) {
+    const wouldNeedMore = i < itemWidths.length - 1;
+    if (
+      used +
+        itemWidths[i] +
+        (wouldNeedMore ? moreWidth : 0) >
+      available
+    ) {
+      break;
+    }
+    used += itemWidths[i];
+    count++;
+  }
+
+  return Math.max(count, 1);
+}
+
 export function AppHeader() {
   const pathname = usePathname();
   const shouldReduceMotion = useReducedMotion();
@@ -615,8 +661,13 @@ export function AppHeader() {
   const navStripRef = React.useRef<HTMLDivElement>(null);
   const leftContainerRef = React.useRef<HTMLDivElement>(null);
   const logoRef = React.useRef<HTMLDivElement>(null);
+  const rightActionsRef = React.useRef<HTMLDivElement>(null);
   // Cached per-item widths — read once when all items are rendered, never again.
   const cachedWidthsRef = React.useRef<number[] | null>(null);
+  // Captured while the right cluster is expanded. When the cluster compacts,
+  // the left flex container grows by the same amount; accounting for that
+  // reclaimed width prevents the two states from toggling each other.
+  const expandedActionsWidthRef = React.useRef<number | null>(null);
   const MORE_WIDTH = 88;
 
   // Phase 1: when item count changes, reset cache and show everything so we can measure.
@@ -632,7 +683,8 @@ export function AppHeader() {
     const strip = navStripRef.current;
     const container = leftContainerRef.current;
     const logo = logoRef.current;
-    if (!strip || !container || !logo) return;
+    const rightActions = rightActionsRef.current;
+    if (!strip || !container || !logo || !rightActions) return;
 
     const recompute = () => {
       if (!cachedWidthsRef.current) {
@@ -642,17 +694,25 @@ export function AppHeader() {
           .map((c) => c.getBoundingClientRect().width);
       }
       const widths = cachedWidthsRef.current;
-      // Available width = container minus logo minus the gap between them (16px).
-      const available = container.offsetWidth - logo.offsetWidth - 16;
-      let used = 0;
-      let count = 0;
-      for (let i = 0; i < widths.length; i++) {
-        const wouldNeedMore = i < widths.length - 1;
-        if (used + widths[i] + (wouldNeedMore ? MORE_WIDTH : 0) > available) break;
-        used += widths[i];
-        count++;
+      const actionsCompact =
+        rightActions.dataset.headerActionsCompact === "true";
+      const currentActionsWidth = rightActions.offsetWidth;
+      if (!actionsCompact || expandedActionsWidthRef.current === null) {
+        expandedActionsWidthRef.current = currentActionsWidth;
       }
-      setVisibleCount(Math.max(count, 1));
+
+      setVisibleCount(
+        calculateVisibleHeaderNavItems({
+          containerWidth: container.offsetWidth,
+          logoWidth: logo.offsetWidth,
+          currentActionsWidth,
+          expandedActionsWidth:
+            expandedActionsWidthRef.current ?? currentActionsWidth,
+          actionsCompact,
+          itemWidths: widths,
+          moreWidth: MORE_WIDTH,
+        }),
+      );
     };
 
     const ro = new ResizeObserver(recompute);
@@ -845,7 +905,14 @@ export function AppHeader() {
       </div>
 
       {/* Status & Actions */}
-      <div className={cn("flex shrink-0 items-center", headerNavCollapsed ? "gap-1.5" : "gap-3")}>
+      <div
+        ref={rightActionsRef}
+        data-header-actions-compact={headerNavCollapsed}
+        className={cn(
+          "flex shrink-0 items-center",
+          headerNavCollapsed ? "gap-1.5" : "gap-3",
+        )}
+      >
         {/* Combined Connection Status */}
         <div className="flex items-center gap-2">
           <Popover>

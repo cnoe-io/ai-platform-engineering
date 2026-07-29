@@ -28,10 +28,12 @@ function timeLabel(iso: string): string {
 export function GistView({
   slug,
   id,
+  canEdit,
   onBack,
 }: {
   slug: string;
   id: string;
+  canEdit: boolean;
   onBack: () => void;
 }) {
   const [gist, setGist] = useState<Gist | null>(null);
@@ -84,7 +86,7 @@ export function GistView({
           Gists
         </Button>
         <div className="ml-auto">
-          {gist && (
+          {gist && canEdit && (
             <Button
               variant="ghost"
               size="sm"

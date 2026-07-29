@@ -6,7 +6,7 @@
 import { NextRequest } from "next/server";
 
 import { ApiError, successResponse, withErrorHandler } from "@/lib/api-middleware";
-import { loadTomeProject } from "@/lib/tome/tome-api";
+import { loadTomeProject, requireTomeEditor } from "@/lib/tome/tome-api";
 import { auditTome, tomeActorFromAuth } from "@/lib/tome/audit";
 import { getTomeGistsCollection } from "@/lib/tome/mongo-collections";
 
@@ -38,16 +38,11 @@ export const GET = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
 export const DELETE = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
   const { slug, id } = await ctx.params;
   const tctx = await loadTomeProject(request, slug);
+  requireTomeEditor(tctx);
 
   const gists = await getTomeGistsCollection();
   const gist = await gists.findOne({ _id: id, project_id: tctx.projectId });
   if (!gist) throw new ApiError("Gist not found", 404, "GIST_NOT_FOUND");
-
-  // Only the creator or a project editor may delete.
-  const isCreator = Boolean(tctx.user.email) && gist.author === tctx.user.email;
-  if (!isCreator && !tctx.canEdit) {
-    throw new ApiError("You do not have permission to delete this gist", 403, "FORBIDDEN");
-  }
 
   await gists.deleteOne({ _id: id, project_id: tctx.projectId });
 

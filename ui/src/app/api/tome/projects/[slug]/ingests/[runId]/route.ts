@@ -4,9 +4,10 @@
 import { NextRequest } from "next/server";
 
 import { ApiError, successResponse, withErrorHandler } from "@/lib/api-middleware";
-import { loadTomeProject } from "@/lib/tome/tome-api";
+import { loadTomeProject, requireTomeEditor } from "@/lib/tome/tome-api";
 import { auditTome, tomeActorFromAuth } from "@/lib/tome/audit";
 import { getTomeIngestRunsCollection } from "@/lib/tome/mongo-collections";
+import { cancelRun } from "@/lib/tome/ingest-runner";
 
 export const dynamic = "force-dynamic";
 
@@ -44,6 +45,7 @@ export const GET = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
 export const DELETE = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
   const { slug, runId } = await ctx.params;
   const tctx = await loadTomeProject(request, slug);
+  requireTomeEditor(tctx);
   const { projectId } = tctx;
 
   const runs = await getTomeIngestRunsCollection();
@@ -57,6 +59,10 @@ export const DELETE = withErrorHandler(async (request: NextRequest, ctx: Ctx) =>
     { _id: runId },
     { $set: { status: "failed", error: "Stopped by user", finished_at: new Date() } },
   );
+  // Actually tear down the agent stream — without this, the DB flip above is
+  // cosmetic: the background fetch (and the agent's real work) keeps running
+  // and can starve/no-op a subsequent run dispatched for the same project.
+  cancelRun(runId);
 
   auditTome({
     action: "tome.ingest.cancel",

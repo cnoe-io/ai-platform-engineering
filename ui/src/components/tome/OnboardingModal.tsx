@@ -329,10 +329,10 @@ function BhagStep() {
             </p>
           </div>
           <p>
-            BHAGs and Areas have no sources of their own. The agent{" "}
-            <span className="font-medium text-foreground">synthesizes</span>{" "}
-            their wiki from the projects (and Areas) tagged beneath them. A
-            project can also skip an Area and tag a BHAG directly.
+            The agent <span className="font-medium text-foreground">synthesizes</span>{" "}
+            BHAG and Area wikis from the projects (and Areas) tagged beneath them,
+            enriched by any GitHub, Confluence, or Webex sources attached directly
+            to the BHAG or Area. A project can also skip an Area and tag a BHAG directly.
           </p>
         </div>
       </StepHeader>

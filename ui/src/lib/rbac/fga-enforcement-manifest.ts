@@ -132,9 +132,15 @@ export const FGA_ENFORCEMENT_MANIFEST: Record<
     notes: "mcp_tool#can_call gates custom-tool invocation; layered under org can_search.",
   },
   document: {
-    status: "role_gated",
-    surfaces: ["ai_platform_engineering/knowledge_bases/rag/server/src/server/restapi.py"],
-    notes: "Document access flows through KB/datasource gates; no standalone FGA gate yet.",
+    status: "rebac_enforced",
+    surfaces: [
+      "ui/src/lib/tome/tome-api.ts",
+      "ui/src/app/api/projects/route.ts",
+      "ui/src/app/api/projects/facets/route.ts",
+      "ui/src/app/api/tome/mcp/route.ts",
+    ],
+    notes:
+      "Tome entities use document:tome/<kind>/<slug>; shared-team readers and parent links drive can_read, while scoped stewards drive can_write.",
   },
   skill: {
     status: "role_gated",

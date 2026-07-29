@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -32,3 +33,31 @@ def test_openfga_init_image_does_not_package_a_duplicate_authorization_model() -
 def test_openfga_init_no_longer_exposes_experiment_aliases() -> None:
     assert "OPENFGA_EXPERIMENT_SUB" not in (ROOT / "docker-compose.dev.yaml").read_text()
     assert "OPENFGA_EXPERIMENT_SUB" not in (ROOT / "deploy/openfga/init/seed.py").read_text()
+
+
+def test_tome_documents_inherit_read_access_from_parent_documents() -> None:
+    model = json.loads(
+        (
+            ROOT
+            / "charts"
+            / "ai-platform-engineering"
+            / "charts"
+            / "openfga"
+            / "authorization-model.json"
+        ).read_text()
+    )
+    document = next(
+        definition
+        for definition in model["type_definitions"]
+        if definition["type"] == "document"
+    )
+
+    assert document["metadata"]["relations"]["parent"][
+        "directly_related_user_types"
+    ] == [{"type": "document"}]
+    assert {
+        "tupleToUserset": {
+            "tupleset": {"relation": "parent"},
+            "computedUserset": {"relation": "can_read"},
+        }
+    } in document["relations"]["can_read"]["union"]["child"]
