@@ -9,15 +9,24 @@ const gridSaveStorageState = process.env.GRID_SAVE_STORAGE_STATE || defaultGridS
 const gridStorageState = process.env.GRID_STORAGE_STATE || gridSaveStorageState;
 const gridInteractiveSso = process.env.GRID_INTERACTIVE_SSO === "true";
 const gridSsoEmail = process.env.GRID_SSO_EMAIL;
+const gridRunId = process.env.GRID_TEST_RUN_ID || new Date().toISOString().replace(/[-:.TZ]/g, "").slice(0, 14);
 const defaultGridAuthTimeoutMs = gridInteractiveSso ? 600_000 : 30_000;
 const gridAuthTimeoutMs = Number(process.env.GRID_AUTH_TIMEOUT_MS || defaultGridAuthTimeoutMs);
 const gridExecutionTimeoutMs = Number(process.env.GRID_EXECUTION_TIMEOUT_MS || 300_000);
 const gridAutoApproveToolCalls = process.env.GRID_AUTO_APPROVE_TOOL_CALLS === "true";
+const gridAutoRespondToUserInput = process.env.GRID_AUTO_RESPOND_TO_USER_INPUT !== "false";
+const gridMaxAutoUserResponses = Number(process.env.GRID_MAX_AUTO_USER_RESPONSES || 5);
+const gridUserResponseCooldownMs = Number(process.env.GRID_USER_RESPONSE_COOLDOWN_MS || 7_500);
 const gridHitlFormValues = loadGridHitlFormValues("GRID_HITL_FORM_VALUES_JSON");
 const gridReuseConversation = process.env.GRID_REUSE_CONVERSATION === "true";
 const gridDismissPopups = process.env.GRID_DISMISS_POPUPS !== "false";
 const shouldRunGridProd = process.env.RUN_GRID_PROD === "true";
 const scenarios = loadGridScenarios();
+
+interface HitlState {
+  userResponsesSent: number;
+  lastUserResponseAt: number;
+}
 
 test.describe("GRID prod chat scenarios", () => {
   test.skip(!shouldRunGridProd, "Set RUN_GRID_PROD=true to run against the live GRID chat app.");
@@ -73,7 +82,7 @@ function expectedLiveText(scenario: GridProdScenario) {
 }
 
 function livePrompt(scenario: GridProdScenario) {
-  return scenario.livePrompt ?? scenario.prompt;
+  return expandGridTemplates(scenario.livePrompt ?? scenario.prompt);
 }
 
 async function openGridChat(page: Page): Promise<Locator> {
@@ -235,13 +244,14 @@ async function waitForScenarioExecution(page: Page, scenario: GridProdScenario, 
     ? expectedAssistantTexts
     : scenario.expectedResponse;
   const deadline = Date.now() + gridExecutionTimeoutMs;
+  const hitlState: HitlState = { userResponsesSent: 0, lastUserResponseAt: 0 };
   let lastSignal = "waiting for assistant response";
 
   while (Date.now() < deadline) {
     await dismissBlockingPopups(page);
     await failOnVisibleChatError(page);
 
-    const hitlSignal = await handleHitlIfPresent(page, scenario);
+    const hitlSignal = await handleHitlIfPresent(page, scenario, hitlState);
     if (hitlSignal) {
       lastSignal = hitlSignal;
       await page.waitForTimeout(1_000);
@@ -264,10 +274,15 @@ async function waitForScenarioExecution(page: Page, scenario: GridProdScenario, 
     `Last observed state: ${lastSignal}.`,
     "If an Approval required card is visible, click Approve or rerun with GRID_AUTO_APPROVE_TOOL_CALLS=true.",
     "If an Input Required form is visible, fill it manually in UI mode or set GRID_HITL_FORM_VALUES_JSON.",
+    "If the agent is waiting for a plain chat reply, rerun with GRID_AUTO_RESPOND_TO_USER_INPUT=true or set a scenario-specific GRID_<SCENARIO_ID>_HITL_RESPONSE.",
   ].join(" "));
 }
 
-async function handleHitlIfPresent(page: Page, scenario: GridProdScenario): Promise<string | undefined> {
+async function handleHitlIfPresent(
+  page: Page,
+  scenario: GridProdScenario,
+  state: HitlState,
+): Promise<string | undefined> {
   const approve = page.getByRole("button", { name: /^approve$/i }).last();
   if (await isVisible(approve)) {
     if (gridAutoApproveToolCalls) {
@@ -278,11 +293,12 @@ async function handleHitlIfPresent(page: Page, scenario: GridProdScenario): Prom
     return "waiting for manual tool approval";
   }
 
-  const submit = page.getByRole("button", { name: /^submit$/i }).last();
-  if (await isVisible(submit) && await isVisible(page.getByText(/Input Required|Additional Input Required|Please provide/i).last())) {
+  const form = await hitlForm(page);
+  const submit = form.getByRole("button", { name: /^submit$/i }).last();
+  if (await isVisible(form) && await isVisible(submit)) {
     const hitlFormValues = hitlFormValuesFor(scenario);
     if (Object.keys(hitlFormValues).length > 0) {
-      const filledCount = await fillHitlForm(page, hitlFormValues);
+      const filledCount = await fillHitlForm(form, scenario, hitlFormValues);
       if (filledCount > 0) {
         await expect(submit).toBeEnabled({ timeout: 30_000 });
         await submit.click();
@@ -294,20 +310,81 @@ async function handleHitlIfPresent(page: Page, scenario: GridProdScenario): Prom
     return "waiting for manual input-required form submission";
   }
 
+  const waitingForUserResponse = await isWaitingForUserResponse(page);
+  if (waitingForUserResponse) {
+    if (!gridAutoRespondToUserInput) return "waiting for manual user response";
+    if (state.userResponsesSent >= gridMaxAutoUserResponses) {
+      return `waiting for user response after ${state.userResponsesSent} default response(s) were already sent`;
+    }
+    if (Date.now() - state.lastUserResponseAt < gridUserResponseCooldownMs) {
+      return "waiting for GRID to process the last default user response";
+    }
+
+    const input = await chatInput(page);
+    if (!(await isVisible(input)) || !(await input.isEnabled().catch(() => false))) {
+      return "waiting for user response, but the chat input is not ready";
+    }
+
+    const response = defaultHitlChatResponse(scenario, state.userResponsesSent + 1);
+    await input.fill(response);
+    await sendMessage(page);
+    state.userResponsesSent += 1;
+    state.lastUserResponseAt = Date.now();
+    return `sent default user response #${state.userResponsesSent} and is waiting for execution to continue`;
+  }
+
   return undefined;
 }
 
+async function hitlForm(page: Page): Promise<Locator> {
+  const forms = page.locator("form");
+  const count = await forms.count();
+
+  for (let index = count - 1; index >= 0; index -= 1) {
+    const form = forms.nth(index);
+    const submit = form.getByRole("button", { name: /^submit$/i }).last();
+    if (await isVisible(form) && await isVisible(submit)) return form;
+  }
+
+  return forms.last();
+}
+
+async function isWaitingForUserResponse(page: Page): Promise<boolean> {
+  return isVisible(
+    page.getByText(
+      /Waiting for user response|waiting for input|waiting for user input|User Input Required|Input Required|Additional Input Required|Please provide/i,
+    ).last(),
+  );
+}
+
 function hitlFormValuesFor(scenario: GridProdScenario): Record<string, string> {
-  return {
+  return expandHitlFormValues({
     ...(scenario.hitlFormValues ?? {}),
     ...jiraEnvHitlValues(scenario),
     ...gridHitlFormValues,
     ...loadGridHitlFormValues(scenarioHitlEnvName(scenario)),
-  };
+  });
+}
+
+function expandHitlFormValues(values: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(values).map(([key, value]) => [key, expandGridTemplates(value)]),
+  );
+}
+
+function expandGridTemplates(value: string): string {
+  return value
+    .replace(/\{\{run_id\}\}/g, gridRunId)
+    .replace(/\{\{timestamp\}\}/g, gridRunId)
+    .replace(/\{\{date\}\}/g, gridRunId.slice(0, 8));
 }
 
 function scenarioHitlEnvName(scenario: GridProdScenario) {
   return `GRID_${scenario.id.toUpperCase().replace(/[^A-Z0-9]+/g, "_")}_HITL_FORM_VALUES_JSON`;
+}
+
+function scenarioHitlResponseEnvName(scenario: GridProdScenario) {
+  return `GRID_${scenario.id.toUpperCase().replace(/[^A-Z0-9]+/g, "_")}_HITL_RESPONSE`;
 }
 
 function jiraEnvHitlValues(scenario: GridProdScenario): Record<string, string> {
@@ -335,10 +412,7 @@ function compactValues(values: Record<string, string | undefined>): Record<strin
   );
 }
 
-async function fillHitlForm(page: Page, values: Record<string, string>): Promise<number> {
-  const form = page.locator("form").last();
-  if (!(await isVisible(form))) return 0;
-
+async function fillHitlForm(form: Locator, scenario: GridProdScenario, values: Record<string, string>): Promise<number> {
   let filledCount = 0;
   const filledIndexes = new Set<number>();
   const entries = Object.entries(values).sort(([left], [right]) => right.length - left.length);
@@ -361,7 +435,7 @@ async function fillHitlForm(page: Page, values: Record<string, string>): Promise
     filledCount += 1;
   }
 
-  return filledCount;
+  return filledCount + await fillRemainingHitlFields(form, scenario, values, filledIndexes);
 }
 
 async function matchingHitlField(
@@ -431,6 +505,98 @@ function normalizeFieldName(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
 
+async function fillRemainingHitlFields(
+  form: Locator,
+  scenario: GridProdScenario,
+  values: Record<string, string>,
+  filledIndexes: Set<number>,
+): Promise<number> {
+  const fields = form.locator(
+    "input:not([type='hidden']):not([type='checkbox']):not([type='radio']), textarea, select",
+  );
+  const count = await fields.count();
+  let filledCount = 0;
+
+  for (let index = 0; index < count; index += 1) {
+    if (filledIndexes.has(index)) continue;
+
+    const field = fields.nth(index);
+    if (!(await field.isEnabled().catch(() => false))) continue;
+    if (await hasHitlFieldValue(field)) continue;
+
+    const descriptor = await hitlFieldDescriptor(field);
+    const fallback = fallbackHitlValue(descriptor, scenario, values, index);
+    if (!fallback) continue;
+
+    const tagName = await field.evaluate((node) => node.tagName.toLowerCase()).catch(() => "");
+    const filled = tagName === "select"
+      ? await selectHitlOption(field, fallback) || await selectFirstHitlOption(field)
+      : await fillTextHitlField(field, fallback);
+    if (!filled) continue;
+
+    filledIndexes.add(index);
+    filledCount += 1;
+  }
+
+  return filledCount;
+}
+
+async function hasHitlFieldValue(field: Locator): Promise<boolean> {
+  const tagName = await field.evaluate((node) => node.tagName.toLowerCase()).catch(() => "");
+  if (tagName === "select") {
+    return field.evaluate((node) => Boolean((node as HTMLSelectElement).value)).catch(() => false);
+  }
+
+  return field.inputValue().then((value) => Boolean(value.trim())).catch(() => false);
+}
+
+async function fillTextHitlField(field: Locator, value: string): Promise<boolean> {
+  await field.fill(value).catch(() => undefined);
+  const tagName = await field.evaluate((node) => node.tagName.toLowerCase()).catch(() => "");
+  const role = await field.getAttribute("role").catch(() => "");
+
+  if (tagName === "input" && role === "combobox") {
+    await field.press("Enter").catch(() => undefined);
+  }
+
+  return hasHitlFieldValue(field);
+}
+
+function fallbackHitlValue(
+  descriptor: string,
+  scenario: GridProdScenario,
+  values: Record<string, string>,
+  index: number,
+): string {
+  const normalized = normalizeFieldName(descriptor);
+  const pick = (...keys: string[]) => keys.map((key) => values[key]).find(Boolean);
+
+  if (/email|username/.test(normalized)) return gridSsoEmail || "eti-sre-cicd.gen";
+  if (/model/.test(normalized)) return pick("model", "models") || "gpt-4o-mini";
+  if (/key.*name|name.*key/.test(normalized)) return pick("key_name", "name") || `grid-prod-playwright-${gridRunId}`;
+  if (/key.*type|type.*key/.test(normalized)) return pick("key_type", "type") || "individual";
+  if (/duration|ttl|expiration|expiry/.test(normalized)) return pick("ttl", "duration", "ttl_hours") || "1 day";
+  if (/budget|limit|quota|max/.test(normalized)) return pick("budget", "max_budget") || "1";
+  if (/purpose|reason/.test(normalized)) return pick("purpose", "description") || "GRID prod Playwright smoke validation";
+  if (/team/.test(normalized)) return pick("team", "space", "team_space") || "SRE";
+  if (/owner|user/.test(normalized)) return pick("owner", "user") || "eti-sre-cicd.gen";
+  if (/project/.test(normalized)) return pick("jira_project_key", "project_key", "project") || "SRE";
+  if (/summary|title/.test(normalized)) return pick("summary", "title") || `${scenario.name} ${gridRunId}`;
+  if (/description|message|details/.test(normalized)) return pick("description", "message", "summary") || defaultHitlChatResponse(scenario, index + 1);
+  if (/priority/.test(normalized)) return pick("priority") || "Medium";
+  if (/label/.test(normalized)) return pick("labels", "tags") || "grid-prod, playwright, deployment-testing";
+  if (/region/.test(normalized)) return pick("region") || "us-east-1";
+  if (/instance/.test(normalized)) return pick("instance_name", "instance_type") || "t3.micro";
+  if (/bucket/.test(normalized)) return pick("bucket_name") || `grid-prod-playwright-smoke-${gridRunId}`;
+  if (/repo|repository/.test(normalized)) return pick("repository_name", "repo_name", "repository", "repo") || "cnoe-io/ai-platform-engineering";
+  if (/namespace/.test(normalized)) return pick("namespace") || "grid-prod";
+  if (/environment|env/.test(normalized)) return pick("environment") || "prod";
+  if (/application|app/.test(normalized)) return pick("application", "app_name") || "grid";
+  if (/space|room|webex/.test(normalized)) return pick("space", "team_space", "webex_space", "room") || "SRE";
+
+  return pick("response") || `GRID prod Playwright default value for ${scenario.name} ${gridRunId}`;
+}
+
 async function selectHitlOption(field: Locator, value: string): Promise<boolean> {
   const selectedByValue = await field.selectOption(value).then(() => true).catch(() => false);
   if (selectedByValue) return true;
@@ -454,6 +620,36 @@ async function selectHitlOption(field: Locator, value: string): Promise<boolean>
   }
 
   return false;
+}
+
+async function selectFirstHitlOption(field: Locator): Promise<boolean> {
+  const firstValue = await field.evaluate((node) => {
+    const select = node as HTMLSelectElement;
+    const option = Array.from(select.options).find((candidate) => !candidate.disabled && candidate.value);
+    return option?.value || "";
+  });
+
+  if (!firstValue) return false;
+
+  await field.selectOption(firstValue);
+  return true;
+}
+
+function defaultHitlChatResponse(scenario: GridProdScenario, attempt: number): string {
+  const envResponse = process.env[scenarioHitlResponseEnvName(scenario)] || process.env.GRID_HITL_RESPONSE;
+  if (envResponse) return expandGridTemplates(envResponse);
+
+  const values = Object.entries(hitlFormValuesFor(scenario))
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, value]) => `${key}: ${value}`)
+    .join("\n");
+
+  return [
+    `Default response ${attempt} for ${scenario.name}.`,
+    "Use these values and continue executing the workflow:",
+    values,
+    "If any optional field is not listed, use the safest prod smoke-test default and continue.",
+  ].filter(Boolean).join("\n");
 }
 
 async function failOnVisibleChatError(page: Page) {
