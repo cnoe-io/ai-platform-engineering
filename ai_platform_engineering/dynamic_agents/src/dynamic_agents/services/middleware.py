@@ -15,11 +15,14 @@ construction and are handled with explicit builder functions.
 
 from __future__ import annotations
 
+import base64
 import logging
+from collections import OrderedDict
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from cnoe_agent_utils.llm_factory import resolve_bedrock_client
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain.agents.middleware.context_editing import (
     ClearToolUsesEdit,
@@ -32,6 +35,7 @@ from langchain.agents.middleware.pii import PIIMiddleware
 from langchain.agents.middleware.tool_call_limit import ToolCallLimitMiddleware
 from langchain.agents.middleware.tool_retry import ToolRetryMiddleware
 from langchain.agents.middleware.tool_selection import LLMToolSelectorMiddleware
+from langchain_aws.middleware.prompt_caching import BedrockPromptCachingMiddleware
 from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 from langgraph.errors import GraphBubbleUp
 
@@ -140,6 +144,110 @@ class ToolResultInvariantMiddleware(AgentMiddleware):
         """Ensure Bedrock receives one result for every prior tool call."""
         patched_messages = self._patch_messages(list(request.messages))
         return await handler(request.override(messages=patched_messages))
+
+
+class AttachmentRehydrationMiddleware(AgentMiddleware):
+    """Re-inflate attachment references into inline bytes before the model call.
+
+    The write path (``agent_runtime._build_user_content``) uploads attachment
+    bytes to the blob store and persists only a reference block
+    (``{"type": ..., "mime_type": ..., "source": {"store_key": "..."}}``) in the
+    checkpoint — bytes never enter conversation state. This middleware runs on
+    every model call (initial turn *and* every replay), fetches the bytes back
+    from the store, and rewrites each reference block into the inline base64
+    block shape the langchain_aws Bedrock adapter expects. It mutates only the
+    *outgoing request* via ``request.override(messages=...)`` — persisted state
+    is never touched (mirrors ``ToolResultInvariantMiddleware``).
+
+    A small in-process LRU keyed by the content-addressed store key avoids
+    refetching the same blob across replays within a process.
+
+    Prompt caching is handled separately by the native langchain caching
+    middlewares (see ``_build_prompt_cache_middleware``), which set
+    ``model_settings["cache_control"]`` rather than injecting cache markers into
+    message content — so cache markers never leak into the checkpointed state.
+    """
+
+    def __init__(
+        self,
+        store: Any,
+        *,
+        cache_max_entries: int = 32,
+    ) -> None:
+        super().__init__()
+        self._store = store
+        self._cache_max_entries = cache_max_entries
+        self._lru: "OrderedDict[str, bytes]" = OrderedDict()
+
+    def _fetch(self, key: str) -> bytes:
+        cached = self._lru.get(key)
+        if cached is not None:
+            self._lru.move_to_end(key)
+            return cached
+        data = self._store.get(key)
+        self._lru[key] = data
+        self._lru.move_to_end(key)
+        while len(self._lru) > self._cache_max_entries:
+            self._lru.popitem(last=False)
+        return data
+
+    def _rehydrate_block(self, block: Mapping[str, Any]) -> dict[str, Any]:
+        """Turn a reference block back into an inline base64 block.
+
+        Non-reference blocks (plain text, already-inline files) pass through
+        unchanged. A fetch failure leaves the reference block as-is and logs —
+        the model then sees a block it can't render rather than the whole turn
+        failing.
+        """
+        source = block.get("source")
+        if not (isinstance(source, Mapping) and source.get("store_key")):
+            return dict(block)
+        key = source["store_key"]
+        rebuilt = {k: v for k, v in block.items() if k != "source"}
+        try:
+            raw = self._fetch(key)
+            rebuilt["base64"] = base64.b64encode(raw).decode("ascii")
+        except Exception as exc:  # noqa: BLE001 — a bad blob shouldn't sink the turn
+            logger.warning(
+                "[attachment] Rehydration failed for store_key=%s: %s", key, exc
+            )
+            return dict(block)
+        return rebuilt
+
+    def _rehydrate_messages(self, messages: list[BaseMessage]) -> tuple[list[BaseMessage], bool]:
+        """Return messages with reference blocks re-inflated; flag if any changed."""
+        changed = False
+        out: list[BaseMessage] = []
+        for message in messages:
+            content = getattr(message, "content", None)
+            if not isinstance(content, list):
+                out.append(message)
+                continue
+            new_content: list[Any] = []
+            msg_changed = False
+            for block in content:
+                if isinstance(block, Mapping) and isinstance(block.get("source"), Mapping) \
+                        and block["source"].get("store_key"):
+                    new_content.append(self._rehydrate_block(block))
+                    msg_changed = True
+                else:
+                    new_content.append(block)
+            if msg_changed:
+                changed = True
+                out.append(message.model_copy(update={"content": new_content}))
+            else:
+                out.append(message)
+        return out, changed
+
+    async def awrap_model_call(
+        self,
+        request: ModelRequest,
+        handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
+    ) -> ModelResponse:
+        messages, changed = self._rehydrate_messages(list(request.messages))
+        if not changed:
+            return await handler(request)
+        return await handler(request.override(messages=messages))
 
 
 class InterruptAwareToolRetryMiddleware(ToolRetryMiddleware):
@@ -428,11 +536,43 @@ def get_middleware_definitions() -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 
 
+def _build_prompt_cache_middleware(model_id: str) -> AgentMiddleware | None:
+    """Return the native prompt-caching middleware for the resolved Bedrock client.
+
+    The Bedrock client adapter is selected by ``resolve_bedrock_client`` (the same
+    logic ``LLMFactory`` uses at instantiation time):
+
+    - ``anthropic`` -> ``ChatAnthropicBedrock``: return None. ``create_deep_agent``
+      already appends ``AnthropicPromptCachingMiddleware`` unconditionally to the
+      parent, every subagent, and the general-purpose subagent. Adding our own
+      would put two instances with the same ``.name`` in a ``create_agent`` call,
+      which raises ``AssertionError: Please remove duplicate middleware instances``
+      at graph-build time and breaks every turn. deepagents owns this path.
+    - ``converse`` -> ``ChatBedrockConverse``: use the langchain_aws caching
+      middleware. deepagents' Anthropic caching mw no-ops on Converse models
+      (``unsupported_model_behavior="ignore"``), so this is additive and its class
+      name does not collide with the injected Anthropic one.
+    - ``legacy`` -> ``ChatBedrock``: no native caching middleware exists; return
+      None (caching is silently unavailable for this client).
+
+    ``BedrockPromptCachingMiddleware`` sets ``model_settings["cache_control"]``
+    instead of mutating message content, so cache markers never enter the
+    checkpointed state.
+    """
+    resolved = resolve_bedrock_client(model_id, enable_cache=True)
+    if resolved == "converse":
+        return BedrockPromptCachingMiddleware()
+    return None
+
+
 def build_middleware(
     features: FeaturesConfig | None,
     session_id: str | None = None,
     agent_name: str = "unknown",
     model_id: str = "unknown",
+    model_provider: str = "unknown",
+    attachment_store: Any | None = None,
+    enable_prompt_cache: bool = False,
 ) -> list[AgentMiddleware]:
     """Build the middleware stack from an agent's features config.
 
@@ -501,6 +641,23 @@ def build_middleware(
 
         result.append(instance)
         logger.debug("Middleware '%s' added with params: %s", entry.type, params)
+
+    # Rehydrate attachment references into inline bytes just before the model
+    # call. Placed before ToolResultInvariant so the final pre-model messages
+    # carry both the repaired tool history and the re-inflated file bytes. Only
+    # added when a store is configured — otherwise attachments ride inline and
+    # there is nothing to rehydrate.
+    if attachment_store is not None:
+        result.append(AttachmentRehydrationMiddleware(attachment_store))
+
+    # Prompt caching: delegate to the native langchain caching middleware for the
+    # resolved Bedrock client. Gated on the Bedrock provider — OpenAI/Gemini cache
+    # server-side with no client-side breakpoint to insert, and the enable flag
+    # (AWS_BEDROCK_ENABLE_PROMPT_CACHE) is Bedrock-scoped by name.
+    if enable_prompt_cache and model_provider == "aws-bedrock":
+        cache_middleware = _build_prompt_cache_middleware(model_id)
+        if cache_middleware is not None:
+            result.append(cache_middleware)
 
     # Repair tool-call history after configurable middleware edits and before the model.
     result.append(ToolResultInvariantMiddleware())

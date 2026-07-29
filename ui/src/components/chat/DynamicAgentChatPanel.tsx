@@ -12,16 +12,17 @@ import { apiClient,APIClientError } from "@/lib/api-client";
 import { authErrorToastTitle,type AuthError } from "@/lib/auth-error";
 import { getConfig } from "@/lib/config";
 import { fetchEphemeralFileContent } from "@/lib/ephemeral-files";
+import { ACCEPT_ATTRIBUTE,fileToInputFile,type InputFile,validateFiles } from "@/lib/file-attachments";
 import { createSubagentResumeSeedEvents } from "@/lib/resume-subagent-context";
 import { createStreamAdapter,StreamError,type StreamCallbacks } from "@/lib/streaming";
 import { createStreamEvent,FILE_TOOL_NAMES,TODO_TOOL_NAME,type StreamEvent } from "@/lib/streaming/types";
 import { cn,deduplicateByKey } from "@/lib/utils";
 import { useChatStore } from "@/store/chat-store";
 import { useFeatureFlagStore } from "@/store/feature-flag-store";
-import { buildParticipants,ChatMessage as ChatMessageType,Conversation,TurnStatus } from "@/types/a2a";
+import { buildParticipants,ChatMessage as ChatMessageType,Conversation,type MessageAttachment,TurnStatus } from "@/types/a2a";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 import { AnimatePresence,motion } from "framer-motion";
-import { Activity,ArrowDown,ArrowLeft,Check,ChevronUp,Copy,Loader2,RotateCcw,Send,ShieldCheck,Sparkles,Square,User } from "lucide-react";
+import { Activity,ArrowDown,ArrowLeft,Check,ChevronUp,Copy,Loader2,Paperclip,RotateCcw,Send,ShieldCheck,Sparkles,Square,User } from "lucide-react";
 import { resolveUsableChatAgentId } from "@/lib/chat-agent-selection";
 import { AgentPicker } from "@/components/ui/agent-picker";
 import { signIn,useSession } from "next-auth/react";
@@ -33,11 +34,23 @@ import { DEFAULT_AGENTS } from "./CustomCallButtons";
 import { AgentTimeline,type SubagentLookupInfo } from "./DynamicAgentTimeline";
 import { Feedback,FeedbackButton } from "./FeedbackButton";
 import { MetadataInputForm,type InputField,type UserInputMetadata } from "./MetadataInputForm";
+import { AttachmentChips,type PendingAttachment } from "./AttachmentChips";
+import { MessageAttachments } from "./MessageAttachments";
 import { getFilteredCommands,SlashCommandMenu,type SlashCommand } from "./SlashCommandMenu";
 import { ToolApprovalCard } from "./ToolApprovalCard";
 import { useSlashCommands } from "./useSlashCommands";
 
 type ReadOnlyReason = 'admin_audit' | 'shared_readonly' | 'agent_deleted' | 'agent_disabled';
+
+/**
+ * A message waiting in the composer queue while a turn streams. Carries any
+ * multimodal attachments alongside the text so a queued turn sends its files
+ * too, not just the words.
+ */
+interface QueuedMessage {
+  text: string;
+  files: InputFile[];
+}
 
 interface ChatPanelProps {
   conversationId?: string; // MongoDB conversation UUID
@@ -103,7 +116,11 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
 
   const [input, setInput] = useState("");
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [queuedMessages, setQueuedMessages] = useState<string[]>([]);
+  const [queuedMessages, setQueuedMessages] = useState<QueuedMessage[]>([]);
+  // Files staged in the composer for the next turn (multimodal input).
+  const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isDraggingFiles, setIsDraggingFiles] = useState(false);
   const [showSlashMenu, setShowSlashMenu] = useState(false);
   const [slashFilter, setSlashFilter] = useState("");
   const [slashSelectedIndex, setSlashSelectedIndex] = useState(0);
@@ -979,8 +996,9 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
   }, [updateMessage, setConversationStreaming, agentName]);
 
   // Core submit function that accepts a message directly
-  const submitMessage = useCallback(async (messageToSend: string) => {
-    if (!messageToSend.trim() || isThisConversationStreaming) return;
+  const submitMessage = useCallback(async (messageToSend: string, filesToSend: InputFile[] = []) => {
+    // A turn is valid if it has text OR at least one attachment.
+    if ((!messageToSend.trim() && filesToSend.length === 0) || isThisConversationStreaming) return;
 
     // Create conversation if needed. This hits POST /api/chat/conversations
     // which is gated by the Web UI backend auth middleware, so we have to handle the
@@ -1021,14 +1039,24 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
     };
     clearStreamEvents(convId);
 
-    // Add user message - generate turnId for this request/response pair
+    // Add user message - generate turnId for this request/response pair.
+    // Retain the attachments on the rendered turn so the upload shows in the
+    // transcript (base64 size ≈ 3/4 of the string length, close enough for the
+    // size label). Persistence caps large images in saveMessagesToServer.
     const turnId = `turn-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    const attachments: MessageAttachment[] = filesToSend.map((f) => ({
+      mime_type: f.mime_type,
+      name: f.name,
+      data: f.data,
+      size: Math.floor((f.data.length * 3) / 4),
+    }));
     addMessage(convId, {
       role: "user",
       content: messageToSend,
       senderEmail: session?.user?.email ?? undefined,
       senderName: session?.user?.name ?? undefined,
       senderImage: session?.user?.image ?? undefined,
+      ...(attachments.length > 0 && { attachments }),
     }, turnId);
 
     // Add assistant message placeholder with same turnId
@@ -1061,7 +1089,13 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
       const callbacks = buildStreamCallbacks(convId, assistantMsgId, loopState, toolCallIdToName);
 
       await adapter.streamMessage(
-        { message: messageToSend, conversationId: convId, agentId, clientContext },
+        {
+          message: messageToSend,
+          conversationId: convId,
+          agentId,
+          clientContext,
+          ...(filesToSend.length > 0 && { files: filesToSend }),
+        },
         callbacks,
       );
 
@@ -1105,7 +1139,7 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
       setQueuedMessages(remaining);
       // Small delay to ensure previous message is fully processed
       setTimeout(() => {
-        submitMessage(firstMessage);
+        submitMessage(firstMessage.text, firstMessage.files);
       }, 300);
     }
   }, [isThisConversationStreaming, queuedMessages, submitMessage]);
@@ -1224,9 +1258,76 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
     }
   }, [handleSkillsCommand, handleHelpCommand, handleClearCommand]);
 
+  // Stage files onto the composer, validating type + size caps first and
+  // toasting anything rejected so the user knows why it didn't attach.
+  const addFiles = useCallback((incoming: File[]) => {
+    if (incoming.length === 0) return;
+    setAttachments((prev) => {
+      const { accepted, rejected } = validateFiles(
+        prev.map((a) => a.file),
+        incoming,
+      );
+      if (rejected.length > 0) {
+        const detail = rejected.map((r) => `${r.name}: ${r.reason}`).join("\n");
+        toast(
+          `${rejected.length} file${rejected.length > 1 ? "s" : ""} not attached\n${detail}`,
+          "error",
+          6000,
+        );
+      }
+      if (accepted.length === 0) return prev;
+      const staged = accepted.map((file) => ({
+        id: `att-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+        file,
+      }));
+      return [...prev, ...staged];
+    });
+  }, [toast]);
+
+  const removeAttachment = useCallback((id: string) => {
+    setAttachments((prev) => prev.filter((a) => a.id !== id));
+  }, []);
+
+  const handleFileInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) addFiles(Array.from(e.target.files));
+    // Reset so selecting the same file again re-triggers change.
+    e.target.value = "";
+  }, [addFiles]);
+
+  const handlePaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = Array.from(e.clipboardData.files);
+    if (files.length > 0) {
+      e.preventDefault();
+      addFiles(files);
+    }
+  }, [addFiles]);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDraggingFiles(false);
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length > 0) addFiles(files);
+  }, [addFiles]);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    if (Array.from(e.dataTransfer.types).includes("Files")) {
+      e.preventDefault();
+      setIsDraggingFiles(true);
+    }
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    // Only clear when leaving the composer entirely, not when moving between
+    // its children (relatedTarget stays inside the container in that case).
+    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+      setIsDraggingFiles(false);
+    }
+  }, []);
+
   // Wrapper for form submission that uses input state
   const handleSubmit = useCallback(async (forceSend = false) => {
-    if (!input.trim()) return;
+    // Allow a turn with text OR attachments (a file-only send is valid).
+    if (!input.trim() && attachments.length === 0) return;
 
     // Check for slash commands via the registry
     const trimmed = input.trim();
@@ -1242,14 +1343,21 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
       }
     }
 
+    // Encode staged attachments once, up front, so both the queue and the
+    // direct-send path carry the same InputFile[] shape the backend expects.
+    const encodedFiles: InputFile[] = attachments.length
+      ? await Promise.all(attachments.map((a) => fileToInputFile(a.file)))
+      : [];
+
     // If streaming and not force sending, queue the message (up to 3)
     if (isThisConversationStreaming && !forceSend) {
       const message = input.trim();
 
       // Add to queue if under limit
       if (queuedMessages.length < 3) {
-        setQueuedMessages(prev => [...prev, message]);
+        setQueuedMessages(prev => [...prev, { text: message, files: encodedFiles }]);
         setInput("");
+        setAttachments([]);
       } else {
         // Queue is full
         console.log("Queue is full (3/3). Send or cancel messages to queue more.");
@@ -1275,9 +1383,10 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
     }
 
     setInput("");
+    setAttachments([]);
 
-    await submitMessage(message);
-  }, [input, submitMessage, isThisConversationStreaming, queuedMessages, pendingUserInput, slashCommands, executeSlashCommand, handleStop]);
+    await submitMessage(message, encodedFiles);
+  }, [input, attachments, submitMessage, isThisConversationStreaming, queuedMessages, pendingUserInput, slashCommands, executeSlashCommand, handleStop]);
 
   // Auto-submit pending message from use case selection
   useEffect(() => {
@@ -1975,7 +2084,7 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
               <AnimatePresence mode="popLayout">
                 {queuedMessages.map((queuedMsg, index) => (
                   <motion.div
-                    key={`${index}-${queuedMsg.slice(0, 20)}`}
+                    key={`${index}-${queuedMsg.text.slice(0, 20)}`}
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -10 }}
@@ -1996,7 +2105,15 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
                           ×
                         </button>
                       </div>
-                      <p className="text-sm text-foreground/90 break-words">{queuedMsg}</p>
+                      {queuedMsg.text && (
+                        <p className="text-sm text-foreground/90 break-words">{queuedMsg.text}</p>
+                      )}
+                      {queuedMsg.files.length > 0 && (
+                        <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+                          <Paperclip className="h-3 w-3" />
+                          {queuedMsg.files.length} attachment{queuedMsg.files.length > 1 ? "s" : ""}
+                        </div>
+                      )}
                     </div>
                   </motion.div>
                 ))}
@@ -2019,46 +2136,83 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
               visible={showSlashMenu}
             />
 
-            <div className="relative flex items-center gap-3 bg-card rounded-xl border border-border p-3 transition-all duration-200">
-              <TextareaAutosize
-                ref={inputRef}
-                value={input}
-                onChange={handleInputChange}
-                onKeyDown={handleKeyDown}
-                placeholder={
-                  isThisConversationStreaming
-                    ? queuedMessages.length >= 3
-                      ? "Queue full (3/3). Send or cancel messages to queue more, or Cmd+Enter to force send..."
-                      : `Type to queue message (${queuedMessages.length}/3), or Cmd+Enter to force send...`
-                    : `Ask anything, or type / to see commands, skills, and agents...`
-                }
-                className="flex-1 bg-transparent resize-none outline-none px-3 py-2.5 text-sm"
-                minRows={1}
-                maxRows={10}
+            <div
+              className={cn(
+                "relative flex flex-col gap-2 bg-card rounded-xl border p-3 transition-all duration-200",
+                isDraggingFiles
+                  ? "border-primary ring-2 ring-primary/40"
+                  : "border-border",
+              )}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+            >
+              {/* Hidden native picker driven by the paperclip button. */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept={ACCEPT_ATTRIBUTE}
+                className="hidden"
+                onChange={handleFileInputChange}
               />
-            {/* Send/Stop button - toggles based on streaming state */}
-            {isThisConversationStreaming ? (
-              <Button
-                size="icon"
-                onClick={handleStop}
-                variant="destructive"
-                className="shrink-0"
-                title="Stop generating"
-              >
-                <Square className="h-4 w-4" />
-              </Button>
-            ) : (
-              <Button
-                size="icon"
-                onClick={() => handleSubmit(false)}
-                disabled={!input.trim()}
-                variant="default"
-                className="shrink-0"
-                title="Send message"
-              >
-                <Send className="h-4 w-4" />
-              </Button>
-            )}
+
+              {/* Staged attachment previews (above the input row). */}
+              <AttachmentChips attachments={attachments} onRemove={removeAttachment} />
+
+              <div className="flex items-center gap-3">
+                <TextareaAutosize
+                  ref={inputRef}
+                  value={input}
+                  onChange={handleInputChange}
+                  onKeyDown={handleKeyDown}
+                  onPaste={handlePaste}
+                  placeholder={
+                    isThisConversationStreaming
+                      ? queuedMessages.length >= 3
+                        ? "Queue full (3/3). Send or cancel messages to queue more, or Cmd+Enter to force send..."
+                        : `Type to queue message (${queuedMessages.length}/3), or Cmd+Enter to force send...`
+                      : `Ask anything, or type / to see commands, skills, and agents...`
+                  }
+                  className="flex-1 bg-transparent resize-none outline-none px-3 py-2.5 text-sm"
+                  minRows={1}
+                  maxRows={10}
+                />
+                {/* Attach files */}
+                <Button
+                  size="icon"
+                  onClick={() => fileInputRef.current?.click()}
+                  variant="ghost"
+                  className="shrink-0"
+                  title="Attach files"
+                  aria-label="Attach files"
+                >
+                  <Paperclip className="h-4 w-4" />
+                </Button>
+                {/* Send/Stop button - toggles based on streaming state */}
+                {isThisConversationStreaming ? (
+                  <Button
+                    size="icon"
+                    onClick={handleStop}
+                    variant="destructive"
+                    className="shrink-0"
+                    title="Stop generating"
+                  >
+                    <Square className="h-4 w-4" />
+                  </Button>
+                ) : (
+                  <Button
+                    size="icon"
+                    onClick={() => handleSubmit(false)}
+                    disabled={!input.trim() && attachments.length === 0}
+                    variant="default"
+                    className="shrink-0"
+                    title="Send message"
+                  >
+                    <Send className="h-4 w-4" />
+                  </Button>
+                )}
+              </div>
             </div>
           </div>
 
@@ -2346,13 +2500,20 @@ const ChatMessage = React.memo(function ChatMessage({
         {isUser ? (
           // ── User message bubble ──
           <>
-            <div
-              className="rounded-xl rounded-tr-sm relative overflow-hidden inline-block bg-primary text-primary-foreground px-4 py-3 max-w-full selection:bg-primary-foreground selection:text-primary"
-            >
-              <div className="overflow-hidden break-words text-left" style={{ overflowWrap: 'anywhere' }}>
-                <MarkdownRenderer content={message.content} variant="user" />
+            {message.attachments && message.attachments.length > 0 && (
+              <div className="mb-2 flex w-full justify-end">
+                <MessageAttachments attachments={message.attachments} align="end" />
               </div>
-            </div>
+            )}
+            {message.content.trim() && (
+              <div
+                className="rounded-xl rounded-tr-sm relative overflow-hidden inline-block bg-primary text-primary-foreground px-4 py-3 max-w-full selection:bg-primary-foreground selection:text-primary"
+              >
+                <div className="overflow-hidden break-words text-left" style={{ overflowWrap: 'anywhere' }}>
+                  <MarkdownRenderer content={message.content} variant="user" />
+                </div>
+              </div>
+            )}
 
             <motion.div
               initial={{ opacity: 0 }}
