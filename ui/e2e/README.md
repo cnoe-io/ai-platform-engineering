@@ -86,6 +86,9 @@ If `GRID_SSO_EMAIL` is set, the spec fills the Duo email step and clicks
 for input the script cannot safely automate, type it directly in the Playwright
 browser window; the test keeps waiting for GRID chat until `GRID_AUTH_TIMEOUT_MS`
 expires. The test saves the resulting session to `GRID_SAVE_STORAGE_STATE`.
+After the first successful login, reruns use `./e2e/.auth/grid-prod.json` so
+GRID should open directly without the full Cisco/Duo flow. Delete that file only
+when you intentionally want to force a fresh SSO login.
 
 You can also create a local storage-state file ahead of time:
 
