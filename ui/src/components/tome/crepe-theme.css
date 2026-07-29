@@ -77,3 +77,25 @@
 .milkdown-hide-comments [data-type="html"] {
   display: none;
 }
+
+/* Anchor links on rendered wiki headings (h1-h6): a hover-only "#" link icon
+   that copies the page URL with `#slug` and updates the URL bar. Standard
+   docs-site pattern (GitHub READMEs, Docusaurus). Wired only in readonly
+   mode — see CrepeEditor.tsx. */
+.tome-heading-anchor {
+  position: relative;
+}
+
+.tome-heading-anchor-link {
+  position: absolute;
+  left: -1.1em;
+  opacity: 0;
+  text-decoration: none;
+  color: var(--crepe-color-outline);
+  transition: opacity 120ms ease;
+}
+
+.tome-heading-anchor:hover .tome-heading-anchor-link,
+.tome-heading-anchor-link:focus-visible {
+  opacity: 1;
+}

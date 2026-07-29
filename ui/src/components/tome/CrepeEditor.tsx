@@ -11,6 +11,8 @@ import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 
 import { classifyCitationHref } from "@/lib/tome/citations";
 import { renderInlineMarkdown } from "@/components/shared/timeline/MarkdownRenderer";
+import { copyTextToClipboard } from "@/components/ui/copy-button";
+import { useToast } from "@/components/ui/toast";
 import {
   parseTomeHref,
   wikiRoute,
@@ -78,6 +80,7 @@ export const CrepeEditor = forwardRef<CrepeEditorHandle, Props>(function CrepeEd
   },
   ref,
 ) {
+  const { toast } = useToast();
   const hostRef = useRef<HTMLDivElement | null>(null);
   const crepeRef = useRef<Crepe | null>(null);
   const readyRef = useRef(false);
@@ -316,6 +319,87 @@ export const CrepeEditor = forwardRef<CrepeEditorHandle, Props>(function CrepeEd
     };
   }, []);
 
+  // Anchor links on headings (GitHub/Docusaurus-style): a hover-only link icon
+  // that copies the page URL with `#slug` and updates the URL bar, so a
+  // heading can be deep-linked directly. Only wired in readonly mode — while
+  // editing, heading text (and therefore its slug) is still in flux.
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host || !readonly) return;
+
+    const usedSlugs = new Set<string>();
+    const decorate = () => {
+      usedSlugs.clear();
+      const headings = host.querySelectorAll<HTMLHeadingElement>("h1, h2, h3, h4, h5, h6");
+      headings.forEach((heading) => {
+        const slug = uniqueHeadingSlug(heading.textContent || "", usedSlugs);
+        if (!slug) return;
+        heading.id = slug;
+        heading.classList.add("tome-heading-anchor");
+        if (heading.querySelector(".tome-heading-anchor-link")) return;
+        const link = document.createElement("a");
+        link.href = `#${slug}`;
+        link.className = "tome-heading-anchor-link";
+        link.setAttribute("aria-label", "Copy link to this heading");
+        link.textContent = "#";
+        heading.prepend(link);
+      });
+    };
+
+    const onClick = (e: MouseEvent) => {
+      const target = e.target;
+      if (!(target instanceof Element)) return;
+      const link = target.closest(".tome-heading-anchor-link");
+      if (!(link instanceof HTMLAnchorElement)) return;
+      e.preventDefault();
+      const slug = link.getAttribute("href")?.slice(1);
+      if (!slug) return;
+      window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#${slug}`);
+      void copyTextToClipboard(`${window.location.origin}${window.location.pathname}${window.location.search}#${slug}`).then(
+        (ok) => toast(ok ? "Link copied" : "Could not copy link", ok ? "success" : "error"),
+      );
+    };
+
+    decorate();
+    // Headings render asynchronously (Crepe/Milkdown mounts after `create()`
+    // resolves) and can change as content streams in — re-decorate on any
+    // subtree mutation rather than once at mount.
+    const observer = new MutationObserver(decorate);
+    observer.observe(host, { childList: true, subtree: true });
+    host.addEventListener("click", onClick);
+    return () => {
+      observer.disconnect();
+      host.removeEventListener("click", onClick);
+    };
+  }, [readonly, toast]);
+
+  // Deep-linking: scroll to the heading named by the URL hash once it exists.
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host || !readonly) return;
+    const hash = window.location.hash.slice(1);
+    if (!hash) return;
+    let cancelled = false;
+    const tryScroll = () => {
+      if (cancelled) return;
+      const el = host.querySelector(`#${CSS.escape(hash)}`);
+      if (el) {
+        el.scrollIntoView({ block: "start" });
+        return true;
+      }
+      return false;
+    };
+    if (tryScroll()) return;
+    const observer = new MutationObserver(() => {
+      if (tryScroll()) observer.disconnect();
+    });
+    observer.observe(host, { childList: true, subtree: true });
+    return () => {
+      cancelled = true;
+      observer.disconnect();
+    };
+  }, [readonly]);
+
   useImperativeHandle(
     ref,
     () => ({
@@ -337,6 +421,28 @@ export const CrepeEditor = forwardRef<CrepeEditorHandle, Props>(function CrepeEd
     />
   );
 });
+
+/**
+ * GitHub-style heading slug: lowercase, strip punctuation, spaces → hyphens.
+ * `usedSlugs` disambiguates repeats within one render pass (`foo`, `foo-1`,
+ * `foo-2`, ...) — mutated in place, same as GitHub/Docusaurus/remark-slug.
+ */
+function uniqueHeadingSlug(text: string, usedSlugs: Set<string>): string {
+  const base = text
+    .trim()
+    .toLowerCase()
+    .replace(/[^\w\s-]/g, "")
+    .replace(/\s+/g, "-");
+  if (!base) return "";
+  let slug = base;
+  let n = 1;
+  while (usedSlugs.has(slug)) {
+    slug = `${base}-${n}`;
+    n += 1;
+  }
+  usedSlugs.add(slug);
+  return slug;
+}
 
 /**
  * Undo two over-eager round-trip artifacts from Milkdown's remark serializer:
