@@ -85,7 +85,15 @@ export const GET = withErrorHandler(
       { bypassForOrgAdmin: true },
     );
 
-    return successResponse(source);
+    const canManage = await requireResourcePermission(
+      session,
+      { type: "ingestion_source", id: sourceId, action: "manage" },
+      { bypassForOrgAdmin: true },
+    )
+      .then(() => true)
+      .catch(() => false);
+
+    return successResponse({ ...source, _permissions: { can_manage: canManage } });
   },
 );
 

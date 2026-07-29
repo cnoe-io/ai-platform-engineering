@@ -12,6 +12,7 @@ ChevronLeft,
 ChevronRight,
 Database,
 GitFork,
+Plug,
 Search,
 Wrench,
 } from "lucide-react";
@@ -67,6 +68,14 @@ const navItems: Array<{
     icon: Wrench,
     description: "Configure MCP search tools",
   },
+  {
+    id: "ingestion-sources",
+    gateKey: "ingestion_sources",
+    label: "Ingestion Sources",
+    href: "/knowledge-bases/ingestion-sources",
+    icon: Plug,
+    description: "Manage where content is ingested from",
+  },
 ];
 
 export function KnowledgeSidebar({ collapsed, onCollapse, graphRagEnabled }: KnowledgeSidebarProps) {
@@ -75,6 +84,7 @@ export function KnowledgeSidebar({ collapsed, onCollapse, graphRagEnabled }: Kno
 
   const getActiveTab = () => {
     if (pathname?.includes("/mcp-tools")) return "mcp-tools";
+    if (pathname?.includes("/ingestion-sources")) return "ingestion-sources";
     if (pathname?.includes("/search")) return "search";
     if (pathname?.includes("/ingest")) return "ingest";
     if (pathname?.includes("/graph")) return "graph";

@@ -44,6 +44,7 @@ jest.mock("lucide-react", () => ({
   ChevronRight: (p: unknown) => <svg data-testid="icon-chev-right" {...p} />,
   BookOpen: (p: unknown) => <svg data-testid="icon-bookopen" {...p} />,
   Wrench: (p: unknown) => <svg data-testid="icon-wrench" {...p} />,
+  Plug: (p: unknown) => <svg data-testid="icon-plug" {...p} />,
   Lock: (p: unknown) => <svg data-testid="icon-lock" {...p} />,
   ShieldQuestion: (p: unknown) => <svg data-testid="icon-shieldq" {...p} />,
 }));
@@ -72,6 +73,7 @@ function setGates(gates: {
   data_sources?: boolean;
   graph?: boolean;
   mcp_tools?: boolean;
+  ingestion_sources?: boolean;
   has_any_kb?: boolean;
   kb_count?: number;
   can_ingest?: boolean;
@@ -85,6 +87,7 @@ function setGates(gates: {
       data_sources: gates.data_sources ?? false,
       graph: gates.graph ?? false,
       mcp_tools: gates.mcp_tools ?? false,
+      ingestion_sources: gates.ingestion_sources ?? false,
       has_any_kb: gates.has_any_kb ?? false,
       kb_count: gates.kb_count ?? 0,
       can_ingest: gates.can_ingest ?? false,
@@ -109,6 +112,7 @@ describe("<KnowledgeSidebar /> RBAC gates", () => {
       data_sources: true,
       graph: true,
       mcp_tools: true,
+      ingestion_sources: true,
       has_any_kb: true,
       kb_count: -1,
       orgAdminBypass: true,
@@ -119,6 +123,7 @@ describe("<KnowledgeSidebar /> RBAC gates", () => {
     expect(screen.getByTestId("kb-link-/knowledge-bases/ingest")).toBeInTheDocument();
     expect(screen.getByTestId("kb-link-/knowledge-bases/graph")).toBeInTheDocument();
     expect(screen.getByTestId("kb-link-/knowledge-bases/mcp-tools")).toBeInTheDocument();
+    expect(screen.getByTestId("kb-link-/knowledge-bases/ingestion-sources")).toBeInTheDocument();
     expect(screen.queryByTestId("kb-sidebar-no-access-banner")).not.toBeInTheDocument();
   });
 
@@ -128,6 +133,7 @@ describe("<KnowledgeSidebar /> RBAC gates", () => {
       data_sources: false,
       graph: false,
       mcp_tools: false,
+      ingestion_sources: false,
       has_any_kb: false,
       kb_count: 0,
       orgAdminBypass: false,
@@ -139,10 +145,12 @@ describe("<KnowledgeSidebar /> RBAC gates", () => {
     expect(screen.queryByTestId("kb-link-/knowledge-bases/ingest")).not.toBeInTheDocument();
     expect(screen.queryByTestId("kb-link-/knowledge-bases/graph")).not.toBeInTheDocument();
     expect(screen.queryByTestId("kb-link-/knowledge-bases/mcp-tools")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("kb-link-/knowledge-bases/ingestion-sources")).not.toBeInTheDocument();
     expect(screen.getByTestId("kb-tab-disabled-search")).toBeInTheDocument();
     expect(screen.getByTestId("kb-tab-disabled-ingest")).toBeInTheDocument();
     expect(screen.getByTestId("kb-tab-disabled-graph")).toBeInTheDocument();
     expect(screen.getByTestId("kb-tab-disabled-mcp-tools")).toBeInTheDocument();
+    expect(screen.getByTestId("kb-tab-disabled-ingestion-sources")).toBeInTheDocument();
   });
 
   it("team granted Search+Ingest with no KB assigned sees those tabs as links and NO share-request banner", () => {

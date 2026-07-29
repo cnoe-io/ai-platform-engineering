@@ -31,6 +31,7 @@ describe("useKbTabGates", () => {
       data_sources: true,
       graph: true,
       mcp_tools: true,
+      ingestion_sources: true,
       has_any_kb: true,
       kb_count: -1,
       can_ingest: true,
