@@ -2,6 +2,8 @@ import { defineConfig, devices } from "@playwright/test";
 
 const port = Number(process.env.PLAYWRIGHT_PORT || 3000);
 const baseURL = process.env.PLAYWRIGHT_BASE_URL || `http://127.0.0.1:${port}`;
+const browserChannel = process.env.PLAYWRIGHT_BROWSER_CHANNEL;
+const disableBrowserPrompts = process.env.PLAYWRIGHT_DISABLE_BROWSER_PROMPTS !== "false";
 
 export default defineConfig({
   testDir: "./e2e",
@@ -26,6 +28,7 @@ export default defineConfig({
     trace: "on-first-retry",
     screenshot: "only-on-failure",
     video: "retain-on-failure",
+    ...(disableBrowserPrompts ? { launchOptions: { args: ["--disable-notifications"] } } : {}),
   },
   webServer: process.env.PLAYWRIGHT_SKIP_WEBSERVER
     ? undefined
@@ -47,7 +50,10 @@ export default defineConfig({
   projects: [
     {
       name: "chromium",
-      use: { ...devices["Desktop Chrome"] },
+      use: {
+        ...devices["Desktop Chrome"],
+        ...(browserChannel ? { channel: browserChannel } : {}),
+      },
     },
   ],
 });
