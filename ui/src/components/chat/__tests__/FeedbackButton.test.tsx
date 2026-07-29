@@ -49,15 +49,12 @@ jest.mock("lucide-react", () => ({
 }));
 
 let mockReportProblemEnabled = false;
-let mockTicketEnabled = false;
 
 jest.mock("@/lib/config", () => ({
   getConfig: (key: string) => {
     switch (key) {
       case "reportProblemEnabled":
         return mockReportProblemEnabled;
-      case "ticketEnabled":
-        return mockTicketEnabled;
       default:
         return null;
     }
@@ -473,38 +470,27 @@ describe("FeedbackButton", () => {
   });
 
   // ==========================================================================
-  // Ticket integration tests
+  // Report-a-problem shortcut tests
   // ==========================================================================
 
-  describe("ticket integration (dislike + ticketEnabled)", () => {
+  describe("report-a-problem shortcut (reportProblemEnabled)", () => {
     beforeEach(() => {
       mockReportProblemEnabled = true;
-      mockTicketEnabled = true;
     });
 
     afterEach(() => {
       mockReportProblemEnabled = false;
-      mockTicketEnabled = false;
     });
 
-    it("shows 'Submit & Create Issue' button on dislike", () => {
+    it("does not show a combo ticket button in the feedback dialog on dislike", () => {
       render(
         <FeedbackButton
           messageId="msg-1"
           feedback={{ type: "dislike", reason: "Trust", showFeedbackOptions: true }}
         />
       );
-      expect(screen.getByText("Submit & Create Issue")).toBeInTheDocument();
-    });
-
-    it("does NOT show combo button on positive feedback", () => {
-      render(
-        <FeedbackButton
-          messageId="msg-1"
-          feedback={{ type: "like", reason: "Very Helpful", showFeedbackOptions: true }}
-        />
-      );
       expect(screen.queryByText(/Submit & Create/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Report Jira Issue/)).not.toBeInTheDocument();
     });
 
     it("shows report-a-problem shortcut button on dislike", () => {
@@ -529,40 +515,68 @@ describe("FeedbackButton", () => {
       expect(screen.getByTestId("icon-alert-triangle")).toBeInTheDocument();
     });
 
-    it("combo button submits feedback then opens report dialog", async () => {
+    it("shortcut button opens the report-problem dialog with no pending feedback to submit", async () => {
+      render(<FeedbackButton messageId="msg-1" />);
+
+      fireEvent.click(screen.getByTestId("icon-alert-triangle").closest("button")!);
+
+      await waitFor(() => {
+        expect(screen.getByTestId("report-problem-dialog")).toBeInTheDocument();
+      });
+      expect(mockSubmitFeedback).not.toHaveBeenCalled();
+    });
+
+    it("shortcut button submits a pending thumbs selection before opening the report dialog (parity with the old combo button)", async () => {
       const onFeedbackChange = jest.fn();
+      const onFeedbackSubmit = jest.fn();
       render(
         <FeedbackButton
           messageId="msg-1"
           feedback={{ type: "dislike", reason: "Trust", showFeedbackOptions: true }}
           onFeedbackChange={onFeedbackChange}
+          onFeedbackSubmit={onFeedbackSubmit}
         />
       );
 
-      fireEvent.click(screen.getByText("Submit & Create Issue"));
+      fireEvent.click(screen.getByTestId("icon-alert-triangle").closest("button")!);
 
       await waitFor(() => {
         expect(mockSubmitFeedback).toHaveBeenCalledWith(
-          expect.objectContaining({
-            feedbackType: "dislike",
-            reason: "Trust",
-          })
+          expect.objectContaining({ feedbackType: "dislike", reason: "Trust" })
         );
       });
+      expect(onFeedbackChange).toHaveBeenCalledWith(
+        expect.objectContaining({ submitted: true })
+      );
+      expect(onFeedbackSubmit).toHaveBeenCalled();
+      await waitFor(() => {
+        expect(screen.getByTestId("report-problem-dialog")).toBeInTheDocument();
+      });
+    });
+
+    it("shortcut button does not re-submit feedback that was already submitted", async () => {
+      render(
+        <FeedbackButton
+          messageId="msg-1"
+          feedback={{ type: "dislike", reason: "Trust", showFeedbackOptions: true, submitted: true }}
+        />
+      );
+
+      fireEvent.click(screen.getByTestId("icon-alert-triangle").closest("button")!);
 
       await waitFor(() => {
         expect(screen.getByTestId("report-problem-dialog")).toBeInTheDocument();
       });
+      expect(mockSubmitFeedback).not.toHaveBeenCalled();
     });
   });
 
   describe("when reportProblemEnabled is false", () => {
     beforeEach(() => {
       mockReportProblemEnabled = false;
-      mockTicketEnabled = false;
     });
 
-    it("does not show combo button", () => {
+    it("does not show a combo ticket button", () => {
       render(
         <FeedbackButton
           messageId="msg-1"

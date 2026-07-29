@@ -38,6 +38,7 @@ CAIPE + Keycloak stack:
 | `slack-bff-user-directory-live.spec.ts` | Live-stack Slack bot service-account regression for BFF user-directory lookup, federation metadata, validation guardrails, and IdP broker summary. |
 | `mcp-server-create-live.spec.ts` | Live-stack regression for MCP server create → OpenFGA tuple reconcile → BFF list visibility. |
 | `openfga-live.spec.ts` | Live-stack OpenFGA/CAS regression for decisions, grants, revokes, delegation, explain, raw tuple admin APIs, and guardrails. |
+| `report-problem-live.spec.ts` | Live-stack regression for the `/api/tickets/report` and `/api/tickets/jira` RBAC gate (PR #272): asserts a signed-in user is never denied via the legacy admin-only `admin_ui#manage` capability. Sends a body with no `contextUrl`, so it never reaches GitHub/Jira even if this stack carries real ticket-provider secrets. |
 | `resource-lifecycle-live.spec.ts` | Live-stack resource lifecycle matrix for agents, skills, workflows, workflow runs, teams, KB/data-source sharing, credentials, MCP custom headers, and AgentGateway tool-call tuples. |
 | `skills-catalog-auth.spec.ts` | Live-stack regression for the skills catalog API: catalog API key (`X-Caipe-Catalog-Key`) returns hub + default skills (not 0), local skills JWT (`/api/skills/token`) returns non-zero skills, unauthenticated returns 401. Requires `CAIPE_CATALOG_API_KEY`. |
 

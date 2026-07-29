@@ -1272,6 +1272,8 @@ describe('withAuth', () => {
       ['/api/settings/preferences', 'GET', 'can_manage_self'],
       ['/api/settings/preferences', 'PATCH', 'can_manage_self'],
       ['/api/feedback', 'POST', 'can_submit_feedback'],
+      ['/api/tickets/report', 'POST', 'can_submit_feedback'],
+      ['/api/tickets/jira', 'POST', 'can_submit_feedback'],
       ['/api/chat/conversations', 'GET', 'can_chat'],
       ['/api/dynamic-agents/models', 'GET', 'can_chat'],
       ['/api/dynamic-agents/available', 'GET', 'can_chat'],
@@ -1295,6 +1297,33 @@ describe('withAuth', () => {
       const relations = calls.map((c) => c[0]?.relation);
       expect(relations).toContain(expectedRelation);
       expect(relations).not.toContain('can_use');
+    });
+
+    // Regression (PR #272 review): the /api/tickets/* mapping must be exact
+    // paths, not a prefix match -- a prefix would silently grant member-level
+    // feedback#submit to any future route nested under /api/tickets (or a
+    // lookalike like /api/tickets-admin) instead of failing closed to the
+    // default admin_ui gate.
+    it.each([
+      ['/api/tickets-admin', 'POST'],
+      ['/api/tickets/report/other', 'POST'],
+      ['/api/ticketsystem', 'POST'],
+    ])('does NOT map %s %s to can_submit_feedback (falls through to admin default)', async (path, method) => {
+      viewerSession();
+      mockCheckOpenFgaTuple.mockResolvedValue({ allowed: true });
+      mockCheckOpenFgaTuple.mockClear();
+
+      const handler = jest.fn().mockResolvedValue('ok');
+      const req = new Request(`http://test.com${path}`, { method }) as unknown as NextRequest;
+
+      await expect(withAuth(req, handler)).resolves.toBe('ok');
+
+      const calls = mockCheckOpenFgaTuple.mock.calls as Array<[
+        { user: string; relation: string; object: string },
+      ]>;
+      const relations = calls.map((c) => c[0]?.relation);
+      expect(relations).not.toContain('can_submit_feedback');
+      expect(relations).toContain('can_manage');
     });
 
     // Regression (2026-06-04): skill authoring is a self-service member
