@@ -1001,7 +1001,10 @@ export function ProjectsHub() {
             <p className="max-w-lg text-muted-foreground">{hero.description}</p>
           </div>
           <div className="flex flex-col items-stretch gap-3 md:items-end">
-            <ProjectOnboardingWizard onComplete={() => void load()} />
+            <ProjectOnboardingWizard
+              onComplete={() => void load()}
+              initialOpen={searchParams.get("onboard") === "1"}
+            />
             <div className="flex flex-wrap gap-2 md:justify-end">
               {isTomeAdmin && (
                 <Link

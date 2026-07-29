@@ -3,6 +3,7 @@
 // assisted-by Cursor Composer
 
 import { useSession } from "next-auth/react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Boxes,
@@ -197,6 +198,8 @@ export function ProjectOnboardingWizard({
 }) {
   const { data: session } = useSession();
   const currentUserEmail = session?.user?.email ?? undefined;
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [open, setOpen] = useState(initialOpen);
   const [configSteps, setConfigSteps] = useState<OnboardingStepConfig[]>([]);
   // Which integrations the user has enabled (id → on), seeded from the config's
@@ -412,7 +415,13 @@ export function ProjectOnboardingWizard({
   const close = useCallback(() => {
     setOpen(false);
     reset();
-  }, [reset]);
+    if (searchParams.get("onboard") === "1") {
+      const params = new URLSearchParams(searchParams.toString());
+      params.delete("onboard");
+      const query = params.toString();
+      router.replace(query ? `/projects?${query}` : "/projects");
+    }
+  }, [reset, router, searchParams]);
 
   async function createProject() {
     setError(null);
