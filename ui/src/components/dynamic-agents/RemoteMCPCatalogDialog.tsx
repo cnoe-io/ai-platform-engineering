@@ -102,20 +102,12 @@ const REMOTE_MCP_PROVIDERS: ProviderEntry[] = [
   },
   {
     key: "aws",
-    name: "AWS",
-    description: "Query AWS resources, CloudWatch metrics, and infrastructure across accounts",
-    endpoint: "https://aws-mcp.us-east-1.api.aws/mcp",
+    name: "AWS Knowledge",
+    description: "Search AWS documentation and code samples. Public and read-only; no authentication required.",
+    endpoint: "https://knowledge-mcp.global.api.aws",
     logoSrc: "https://upload.wikimedia.org/wikipedia/commons/9/93/Amazon_Web_Services_Logo.svg",
     accentClass: "hover:border-orange-500/50 hover:bg-orange-500/5",
-    credential_sources: [
-      {
-        kind: "provider_connection",
-        name: "X-CAIPE-Provider-Token",
-        provider: "aws",
-        target: "header",
-      },
-    ],
-    note: "Requires AWS to allowlist your redirect URI before OAuth client registration",
+    credential_sources: [],
   },
   {
     key: "box",
@@ -336,7 +328,7 @@ function ProviderLogo({ provider }: { provider: ProviderEntry }) {
   switch (provider.name) {
     case "Amplitude": return <AmplitudeIcon />;
     case "Atlassian": return <AtlassianIcon />;
-    case "AWS": return <AWSIcon />;
+    case "AWS Knowledge": return <AWSIcon />;
     case "Figma": return <FigmaIcon />;
     case "GitHub Copilot": return <GitHubIcon />;
     case "Linear": return <LinearIcon />;

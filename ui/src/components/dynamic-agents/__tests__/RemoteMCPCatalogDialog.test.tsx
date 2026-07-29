@@ -69,6 +69,20 @@ describe("RemoteMCPCatalogDialog", () => {
     );
   });
 
+  it("pre-fills the public AWS Knowledge MCP endpoint without credentials", async () => {
+    const { onSelect } = renderCatalog();
+
+    fireEvent.click(await screen.findByText("AWS Knowledge", { exact: true }));
+
+    expect(onSelect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "AWS Knowledge",
+        endpoint: "https://knowledge-mcp.global.api.aws",
+        credential_sources: [],
+      }),
+    );
+  });
+
   it("filters built-in and custom providers by name, hostname, and description", async () => {
     renderCatalog();
     const search = await screen.findByRole("searchbox", { name: "Search MCP providers" });
