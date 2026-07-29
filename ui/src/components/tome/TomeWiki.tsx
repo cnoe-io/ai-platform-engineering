@@ -54,6 +54,7 @@ import { WikiSidebar } from "@/components/tome/WikiSidebar";
 import { WikiPageView } from "@/components/tome/WikiPageView";
 import type { GlossaryPreview } from "@/components/tome/CrepeEditor";
 import { parseTomeHref } from "@/lib/tome/tome-links";
+import { BetaBadge } from "@/components/tome/BetaBadge";
 import { StandupView } from "@/components/tome/StandupView";
 import { CriticalItemsBoard } from "@/components/tome/CriticalItemsBoard";
 import { IngestPanel } from "@/components/tome/IngestPanel";
@@ -1077,16 +1078,18 @@ export function TomeWiki({ slug }: { slug: string }) {
                     label="Standup"
                     active={navActive.standup}
                     onClick={() => navigate({ kind: "standup" })}
+                    beta
                     tipTitle="Standup"
-                    tipDescription="The project's report card: headline, blockers, and what's next. Rewritten by the agent on every ingest."
+                    tipDescription="The project's report card: headline, blockers, and what's next. Rewritten by the agent on every ingest. This feature is still in testing."
                   />
                   <NavItem
                     icon={<ListChecks className="h-4 w-4" />}
                     label="Issues"
                     active={navActive.criticalItems}
                     onClick={() => navigate({ kind: "criticalItems" })}
+                    beta
                     tipTitle="Issues and decisions"
-                    tipDescription="A generated board of tracked Issues and Decisions, filterable by priority and source project. Areas and BHAGs roll up their child projects plus items explicitly targeted through tome:// links."
+                    tipDescription="A generated board of tracked Issues and Decisions, filterable by priority and source project. Areas and BHAGs roll up their child projects plus items explicitly targeted through tome:// links. This feature is still in testing."
                   />
                 </div>
 
@@ -1528,6 +1531,7 @@ function NavItem({
   tipTitle,
   tipDescription,
   tag,
+  beta,
 }: {
   icon: React.ReactNode;
   label: string;
@@ -1537,6 +1541,8 @@ function NavItem({
   tipDescription?: React.ReactNode;
   /** Small trailing badge, e.g. "needs review". */
   tag?: string;
+  /** Renders a `BetaBadge` instead of `tag` — distinct styling, own tooltip. */
+  beta?: boolean;
 }) {
   const button = (
     <button
@@ -1549,6 +1555,7 @@ function NavItem({
     >
       {icon}
       <span className="flex-1 truncate">{label}</span>
+      {beta && <BetaBadge />}
       {tag && (
         <span className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
           {tag}

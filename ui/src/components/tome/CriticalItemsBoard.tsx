@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { AlertCircle, Gavel, Loader2, RefreshCw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { BetaBadge } from "@/components/tome/BetaBadge";
 import { PanelShell } from "@/components/tome/PanelHeader";
 import { TRACKED_ENTITY_PRIORITIES, type TrackedEntityPriority } from "@/lib/tome/schema";
 import { cn } from "@/lib/utils";
@@ -136,7 +137,10 @@ export function CriticalItemsBoard({ slug }: { slug: string }) {
           <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
             Generated report
           </p>
-          <h1 className="mt-1 text-2xl font-semibold">Issues</h1>
+          <h1 className="mt-1 flex items-center gap-2 text-2xl font-semibold">
+            Issues
+            <BetaBadge />
+          </h1>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
             Tracked issues and decisions from this wiki, its hierarchy, and cross-project{" "}
             <code>tome://</code> targets. Update a card&apos;s source page or use the Tome MCP

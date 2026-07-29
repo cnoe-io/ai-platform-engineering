@@ -4,6 +4,7 @@ import { AlertTriangle, ArrowRight, RefreshCw, Sparkles } from "lucide-react";
 
 import { MarkdownRenderer, renderInlineMarkdown } from "@/components/shared/timeline/MarkdownRenderer";
 import { Button } from "@/components/ui/button";
+import { BetaBadge } from "@/components/tome/BetaBadge";
 import { PanelShell } from "@/components/tome/PanelHeader";
 import { ViewOnlyTooltip } from "@/components/tome/ViewOnlyTooltip";
 import { parseStandup } from "@/lib/tome/standup";
@@ -69,8 +70,9 @@ export function StandupView({
   return (
     <PanelShell maxWidthClassName="max-w-3xl">
       <div className="space-y-2">
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+        <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
           The Standup
+          <BetaBadge />
         </span>
         {headline ? (
           <h1
