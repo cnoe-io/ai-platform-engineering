@@ -15,7 +15,19 @@ jest.mock("next/navigation", () => ({
 }));
 
 jest.mock("../OAuthConnectorAdminPanel", () => ({
-  OAuthConnectorAdminPanel: () => <div>Connected Apps content</div>,
+  OAuthConnectorAdminPanel: ({
+    initialProvider,
+    initialTenantId,
+  }: {
+    initialProvider?: string;
+    initialTenantId?: string;
+  }) => (
+    <div>
+      Connected Apps content
+      {initialProvider ? ` for ${initialProvider}` : ""}
+      {initialTenantId ? ` in ${initialTenantId}` : ""}
+    </div>
+  ),
 }));
 
 jest.mock("../AdminSecretsManager", () => ({
@@ -48,6 +60,30 @@ describe("AdminCredentialManagementPanel", () => {
     render(<AdminCredentialManagementPanel />);
 
     expect(screen.getByText("Secrets content")).toBeInTheDocument();
+  });
+
+  it("passes a deep-linked OAuth provider to the connector setup panel", () => {
+    searchParams = new URLSearchParams(
+      "tab=credentials&credentialsTab=oauth-providers&oauthProvider=airtable",
+    );
+
+    render(<AdminCredentialManagementPanel />);
+
+    expect(screen.getByText("Connected Apps content for airtable")).toBeInTheDocument();
+  });
+
+  it("passes a SharePoint tenant ID through the connector setup deep link", () => {
+    searchParams = new URLSearchParams(
+      "tab=credentials&credentialsTab=oauth-providers&oauthProvider=sharepoint&oauthTenantId=11111111-2222-3333-4444-555555555555",
+    );
+
+    render(<AdminCredentialManagementPanel />);
+
+    expect(
+      screen.getByText(
+        "Connected Apps content for sharepoint in 11111111-2222-3333-4444-555555555555",
+      ),
+    ).toBeInTheDocument();
   });
 
   it("falls back to secrets for legacy credential audit deep links", () => {

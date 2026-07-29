@@ -7,7 +7,7 @@ type ConfiguredConnector = Record<string, unknown>;
 const CONFIGURED_CONNECTORS_ENV = "CREDENTIAL_BOOTSTRAP_OAUTH_CONNECTORS_JSON";
 
 interface BootstrapProviderEnv {
-  provider: "amplitude" | "atlassian" | "figma" | "github" | "gitlab" | "linear" | "notion" | "pagerduty" | "webex";
+  provider: "amplitude" | "atlassian" | "github" | "gitlab" | "linear" | "notion" | "pagerduty" | "webex";
   clientIdEnv: string;
   clientSecretEnv?: string;
   redirectUriEnv: string;
@@ -53,12 +53,6 @@ const PROVIDER_ENV: BootstrapProviderEnv[] = [
     clientSecretEnv: "GITLAB_CLIENT_SECRET",
     redirectUriEnv: "GITLAB_REDIRECT_URI",
     scopesEnv: "GITLAB_SCOPES",
-  },
-  {
-    provider: "figma",
-    clientIdEnv: "FIGMA_CLIENT_ID",
-    clientSecretEnv: "FIGMA_CLIENT_SECRET",
-    redirectUriEnv: "FIGMA_REDIRECT_URI",
   },
   {
     provider: "linear",

@@ -370,6 +370,158 @@ describe("MCPServerEditor credential sources", () => {
     expect(screen.getByLabelText(/credential header/i)).toHaveValue("X-CAIPE-Provider-Token");
   });
 
+  it("prompts for a token secret when a catalog provider has no OAuth connector", async () => {
+    global.fetch = jest.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/mcp-servers/agentgateway/discover") {
+        return response({ targets: [] });
+      }
+      if (url === "/api/credentials/secrets" && init?.method === "POST") {
+        return response({
+          id: "secret-airtable-token",
+          name: "Airtable MCP token",
+          type: "bearer_token",
+          maskedPreview: "pat...1234",
+        });
+      }
+      if (
+        url === "/api/credentials/secrets" ||
+        url === "/api/credentials/connections" ||
+        url === "/api/credentials/oauth-connectors"
+      ) {
+        return response([]);
+      }
+      if (url === "/api/mcp-servers/credential-probe" && init?.method === "POST") {
+        return response({
+          ok: true,
+          status: 405,
+          credentialOrigins: [
+            {
+              name: "X-CAIPE-Provider-Token",
+              origin: "none",
+              provider: "airtable",
+            },
+          ],
+          missingCredentials: ["X-CAIPE-Provider-Token"],
+        });
+      }
+      return response({});
+    }) as jest.Mock;
+
+    const user = userEvent.setup();
+    render(
+      <MCPServerEditor
+        server={null}
+        initialValues={{
+          name: "Airtable",
+          endpoint: "https://mcp.airtable.com/mcp",
+          credential_sources: [
+            {
+              kind: "provider_connection",
+              target: "header",
+              name: "X-CAIPE-Provider-Token",
+              provider: "airtable",
+            },
+          ],
+        }}
+        onSave={jest.fn()}
+        onCancel={jest.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /test connection/i }));
+
+    const setupLink = await screen.findByRole("link", {
+      name: /configure airtable oauth/i,
+    });
+    expect(setupLink).toHaveAttribute(
+      "href",
+      "/admin?tab=credentials&credentialsTab=oauth-providers&oauthProvider=airtable",
+    );
+
+    await user.click(
+      await screen.findByRole("button", { name: /create airtable token secret/i }),
+    );
+    expect(
+      screen.getByRole("dialog", { name: /add airtable token/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText(/secret name/i)).toHaveValue("Airtable MCP token");
+    await user.type(screen.getByLabelText(/airtable personal access token/i), "pat-example");
+    await user.click(screen.getByRole("button", { name: /save and use secret/i }));
+
+    await waitFor(() =>
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/credentials/secrets",
+        expect.objectContaining({
+          method: "POST",
+          body: expect.stringContaining('"value":"pat-example"'),
+        }),
+      ),
+    );
+    expect(screen.getByLabelText(/credential kind/i)).toHaveValue("secret_ref");
+    expect(screen.getByLabelText(/^secret$/i)).toHaveValue("secret-airtable-token");
+  });
+
+  it("carries the SharePoint tenant ID into OAuth provider setup", async () => {
+    global.fetch = jest.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/mcp-servers/agentgateway/discover") {
+        return response({ targets: [] });
+      }
+      if (
+        url === "/api/credentials/secrets" ||
+        url === "/api/credentials/connections" ||
+        url === "/api/credentials/oauth-connectors"
+      ) {
+        return response([]);
+      }
+      if (url === "/api/mcp-servers/credential-probe" && init?.method === "POST") {
+        return response({
+          ok: true,
+          status: 401,
+          credentialOrigins: [
+            {
+              name: "X-CAIPE-Provider-Token",
+              origin: "none",
+              provider: "sharepoint",
+            },
+          ],
+          missingCredentials: ["X-CAIPE-Provider-Token"],
+        });
+      }
+      return response({});
+    }) as jest.Mock;
+
+    const user = userEvent.setup();
+    render(
+      <MCPServerEditor
+        server={null}
+        initialValues={{
+          name: "Microsoft SharePoint",
+          endpoint:
+            "https://agent365.svc.cloud.microsoft/agents/tenants/11111111-2222-3333-4444-555555555555/servers/mcp_SharePointRemoteServer",
+          credential_sources: [
+            {
+              kind: "provider_connection",
+              target: "header",
+              name: "X-CAIPE-Provider-Token",
+              provider: "sharepoint",
+            },
+          ],
+        }}
+        onSave={jest.fn()}
+        onCancel={jest.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /test connection/i }));
+
+    expect(
+      await screen.findByRole("link", { name: /configure microsoft sharepoint oauth/i }),
+    ).toHaveAttribute(
+      "href",
+      "/admin?tab=credentials&credentialsTab=oauth-providers&oauthProvider=sharepoint&oauthTenantId=11111111-2222-3333-4444-555555555555",
+    );
+  });
+
   it("sends an empty credential_sources array when all credentials are removed on edit", async () => {
     global.fetch = jest.fn(async (url: string, init?: RequestInit) => {
       if (url === "/api/mcp-servers/agentgateway/discover") {

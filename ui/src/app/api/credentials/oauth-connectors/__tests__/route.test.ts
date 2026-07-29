@@ -62,6 +62,7 @@ describe("/api/credentials/oauth-connectors", () => {
         id: "connector-1",
         name: "GitHub",
         provider: "github",
+        authType: "authorization_code",
         enabled: true,
         scopes: ["repo", "offline_access"],
       },

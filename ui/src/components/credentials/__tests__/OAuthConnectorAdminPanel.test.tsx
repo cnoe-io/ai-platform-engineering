@@ -101,6 +101,52 @@ describe("OAuthConnectorAdminPanel", () => {
     );
   });
 
+  it("shows the API validation message when a connector cannot be saved", async () => {
+    const user = userEvent.setup();
+    global.fetch = jest.fn(async (_url, init) => {
+      if (init?.method === "POST") {
+        return {
+          ok: false,
+          json: async () => ({
+            success: false,
+            error: "PFX certificate is not currently valid",
+            code: "INVALID_CERTIFICATE",
+          }),
+        } as Response;
+      }
+      return {
+        ok: true,
+        json: async () => ({ success: true, data: [] }),
+      } as Response;
+    }) as jest.Mock;
+
+    render(<OAuthConnectorAdminPanel />);
+
+    await screen.findByText("No OAuth connectors configured.");
+    await user.click(screen.getByRole("button", { name: /add oauth provider/i }));
+    await user.type(screen.getByLabelText(/display name/i), "Example");
+    await user.type(screen.getByLabelText(/^provider/i), "example");
+    await user.type(screen.getByLabelText(/client id/i), "example-client");
+    await user.type(screen.getByLabelText(/^client secret$/i), "example-secret");
+    await user.type(
+      screen.getByLabelText(/authorization url/i),
+      "https://idp.example.com/oauth/authorize",
+    );
+    await user.type(
+      screen.getByLabelText(/token url/i),
+      "https://idp.example.com/oauth/token",
+    );
+    await user.type(
+      screen.getByLabelText(/redirect uri/i),
+      "https://caipe.example.com/oauth/callback",
+    );
+    await user.click(screen.getByRole("button", { name: /save connector/i }));
+
+    expect(
+      await screen.findByText("PFX certificate is not currently valid"),
+    ).toBeInTheDocument();
+  });
+
   it("prefills GitLab.com connector defaults from the built-in provider template", async () => {
     const user = userEvent.setup();
     render(<OAuthConnectorAdminPanel />);
@@ -114,13 +160,12 @@ describe("OAuthConnectorAdminPanel", () => {
     expect(screen.getByLabelText(/authorization url/i)).toHaveValue("https://gitlab.com/oauth/authorize");
     expect(screen.getByLabelText(/token url/i)).toHaveValue("https://gitlab.com/oauth/token");
     expect(screen.getByLabelText(/scopes/i)).toHaveValue("api read_user");
+    expect(screen.getByLabelText(/redirect uri/i)).toHaveValue(
+      "http://localhost/api/credentials/oauth/gitlab/callback",
+    );
 
     await user.type(screen.getByLabelText(/client id/i), "gitlab-client");
     await user.type(screen.getByLabelText(/^client secret$/i), "gitlab-secret");
-    await user.type(
-      screen.getByLabelText(/redirect uri/i),
-      "https://caipe.example.com/api/credentials/oauth/gitlab/callback",
-    );
     await user.click(screen.getByRole("button", { name: /save connector/i }));
 
     await waitFor(() =>
@@ -144,6 +189,58 @@ describe("OAuthConnectorAdminPanel", () => {
         body: expect.stringContaining('"scopes":["api","read_user"]'),
       }),
     );
+  });
+
+  it("opens a deep-linked Airtable connector form with PKCE and callback defaults", async () => {
+    render(<OAuthConnectorAdminPanel initialProvider="airtable" />);
+
+    const dialog = await screen.findByRole("dialog", { name: /add oauth provider/i });
+    expect(dialog).toBeInTheDocument();
+    expect(screen.getByLabelText(/built-in template/i)).toHaveValue("airtable");
+    expect(screen.getByLabelText(/display name/i)).toHaveValue("Airtable");
+    expect(screen.getByLabelText(/^provider/i)).toHaveValue("airtable");
+    expect(screen.getByLabelText(/public client \(pkce/i)).toBeChecked();
+    expect(screen.queryByLabelText(/^client secret$/i)).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/redirect uri/i)).toHaveValue(
+      "http://localhost/api/credentials/oauth/airtable/callback",
+    );
+  });
+
+  it("builds a tenant-specific certificate SharePoint connector from its deep link", async () => {
+    render(
+      <OAuthConnectorAdminPanel
+        initialProvider="sharepoint"
+        initialTenantId="11111111-2222-3333-4444-555555555555"
+      />,
+    );
+
+    await screen.findByRole("dialog", { name: /add oauth provider/i });
+    expect(screen.getByLabelText(/built-in template/i)).toHaveValue("sharepoint");
+    expect(screen.getByLabelText(/microsoft entra tenant id/i)).toHaveValue(
+      "11111111-2222-3333-4444-555555555555",
+    );
+    expect(screen.queryByLabelText(/authorization url/i)).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/token url/i)).toHaveValue(
+      "https://login.microsoftonline.com/11111111-2222-3333-4444-555555555555/oauth2/v2.0/token",
+    );
+    expect(screen.getByLabelText(/^scopes$/i)).toHaveValue(
+      "https://agent365.svc.cloud.microsoft/agents/tenants/11111111-2222-3333-4444-555555555555/servers/mcp_SharePointRemoteServer/.default",
+    );
+    expect(screen.queryByLabelText(/public client \(pkce/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/^client secret$/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/redirect uri/i)).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/pfx certificate/i)).toBeRequired();
+    expect(screen.getByLabelText(/pfx password/i)).toBeRequired();
+    expect(screen.getByLabelText(/expected certificate thumbprint/i)).toBeRequired();
+  });
+
+  it("does not offer Figma as an OAuth template", async () => {
+    const user = userEvent.setup();
+    render(<OAuthConnectorAdminPanel />);
+
+    await screen.findByText("GitHub");
+    await user.click(screen.getByRole("button", { name: /add oauth provider/i }));
+    expect(screen.queryByRole("option", { name: /figma/i })).not.toBeInTheDocument();
   });
 
   it("lets admins enable disabled OAuth providers", async () => {

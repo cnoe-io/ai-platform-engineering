@@ -3,6 +3,7 @@ import { NextRequest } from "next/server";
 import {
 ApiError,
 getAuthFromBearerOrSession,
+successResponse,
 withErrorHandler,
 } from "@/lib/api-middleware";
 import { getProviderConnectionService } from "@/lib/credentials/oauth-service-factory";
@@ -20,6 +21,18 @@ function assertFeatureEnabled(): void {
   }
 }
 
+function requestedScopesFromRequest(request: NextRequest): string[] | undefined {
+  const requestUrl = new URL(request.url);
+  const scopesParam = requestUrl.searchParams.getAll("scope");
+  const scopesCsv = requestUrl.searchParams.get("scopes");
+  if (scopesCsv) {
+    scopesParam.push(...scopesCsv.split(/[\s,]+/));
+  }
+  return scopesParam.length > 0
+    ? scopesParam.map((scope) => scope.trim()).filter(Boolean)
+    : undefined;
+}
+
 export const GET = withErrorHandler(async (request: NextRequest, context?: { params: Promise<{ provider_key: string }> }) => {
   assertFeatureEnabled();
   const { provider_key: providerKey } = await context!.params;
@@ -33,15 +46,7 @@ export const GET = withErrorHandler(async (request: NextRequest, context?: { par
   // Optional per-user scope selection (advanced settings). Accept either a
   // single comma/space-delimited `?scopes=` or repeated `?scope=` params.
   // Absent ⇒ connector default (legacy behavior).
-  const scopesParam = requestUrl.searchParams.getAll("scope");
-  const scopesCsv = requestUrl.searchParams.get("scopes");
-  if (scopesCsv) {
-    scopesParam.push(...scopesCsv.split(/[\s,]+/));
-  }
-  const requestedScopes =
-    scopesParam.length > 0
-      ? scopesParam.map((scope) => scope.trim()).filter(Boolean)
-      : undefined;
+  const requestedScopes = requestedScopesFromRequest(request);
 
   const state = randomOAuthValue(24);
   const codeVerifier = randomOAuthValue(48);
@@ -70,4 +75,29 @@ export const GET = withErrorHandler(async (request: NextRequest, context?: { par
       "set-cookie": cookie,
     },
   });
+});
+
+export const POST = withErrorHandler(async (
+  request: NextRequest,
+  context?: { params: Promise<{ provider_key: string }> },
+) => {
+  assertFeatureEnabled();
+  const { provider_key: providerKey } = await context!.params;
+  const { session, user } = await getAuthFromBearerOrSession(request);
+  const ownerId = typeof session.sub === "string" ? session.sub : "";
+  if (!ownerId) {
+    throw new ApiError("Authenticated subject is required", 401, "UNAUTHORIZED");
+  }
+  const service = await getProviderConnectionService();
+  const connection = await service.connectClientCredentials({
+    providerKey,
+    owner: {
+      type: "user",
+      id: ownerId,
+      ...(user?.email ? { email: user.email } : {}),
+      ...(user?.name ? { name: user.name } : {}),
+    },
+    requestedScopes: requestedScopesFromRequest(request),
+  });
+  return successResponse(connection, 201);
 });

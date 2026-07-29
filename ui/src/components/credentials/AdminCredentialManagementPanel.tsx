@@ -16,6 +16,8 @@ export function AdminCredentialManagementPanel({ readOnly = false }: { readOnly?
   const router = useRouter();
   const searchParams = useSearchParams();
   const requestedTab = searchParams.get("credentialsTab");
+  const requestedOAuthProvider = searchParams.get("oauthProvider")?.trim() || undefined;
+  const requestedOAuthTenantId = searchParams.get("oauthTenantId")?.trim() || undefined;
   const linkedTab = requestedTab === "oauth-providers" ? requestedTab : "secrets";
   const [activeTab, setActiveTab] = React.useState(linkedTab);
 
@@ -51,7 +53,11 @@ export function AdminCredentialManagementPanel({ readOnly = false }: { readOnly?
           <AdminSecretsManager readOnly={readOnly} />
         </TabsContent>
         <TabsContent value="oauth-providers">
-          <OAuthConnectorAdminPanel readOnly={readOnly} />
+          <OAuthConnectorAdminPanel
+            readOnly={readOnly}
+            initialProvider={requestedOAuthProvider}
+            initialTenantId={requestedOAuthTenantId}
+          />
         </TabsContent>
       </Tabs>
     </section>

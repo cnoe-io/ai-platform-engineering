@@ -334,6 +334,72 @@ describe("ProviderConnections", () => {
     open.mockRestore();
   });
 
+  it("connects certificate providers with a server-side POST instead of a popup", async () => {
+    const user = userEvent.setup();
+    const open = jest.spyOn(window, "open").mockReturnValue(null);
+    let connected = false;
+    const fetchMock = jest.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/credentials/oauth-connectors") {
+        return response([
+          {
+            id: "sharepoint-connector",
+            name: "Microsoft SharePoint",
+            provider: "sharepoint",
+            authType: "client_certificate",
+            enabled: true,
+            scopes: ["https://resource.example.test/.default"],
+          },
+        ]);
+      }
+      if (
+        url === "/api/credentials/oauth/sharepoint/connect" &&
+        init?.method === "POST"
+      ) {
+        connected = true;
+        return response(
+          { id: "sharepoint-connection", provider: "sharepoint" },
+          true,
+          201,
+        );
+      }
+      if (url === "/api/credentials/connections") {
+        return response(
+          connected
+            ? [
+                {
+                  id: "sharepoint-connection",
+                  provider: "sharepoint",
+                  status: "connected",
+                },
+              ]
+            : [],
+        );
+      }
+      return response({}, false, 404);
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    render(<ProviderConnections />);
+
+    await user.click(
+      await screen.findByRole("link", { name: /connect microsoft sharepoint/i }),
+    );
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/credentials/oauth/sharepoint/connect",
+        { method: "POST" },
+      ),
+    );
+    expect(open).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(
+        screen.getByRole("link", { name: /reconnect microsoft sharepoint/i }),
+      ).toBeInTheDocument(),
+    );
+    open.mockRestore();
+  });
+
   it("checks a connected provider profile and reports the result", async () => {
     const fetchMock = jest.fn(async (url: string) => {
       if (url === "/api/credentials/oauth-connectors") {

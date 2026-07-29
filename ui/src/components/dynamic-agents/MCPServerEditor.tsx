@@ -20,6 +20,7 @@ import {
   SUPPRESS_PASSWORD_MANAGER_INPUT_PROPS,
   SUPPRESS_SECRET_LIKE_INPUT_PROPS,
 } from "@/lib/suppress-password-manager";
+import { BUILT_IN_OAUTH_CONNECTORS } from "@/lib/credentials/built-in-oauth-connectors";
 import { normalizeCustomProviderCredentialSource } from "@/lib/mcp-credential-scope";
 import type {
 MCPCredentialSource,
@@ -122,6 +123,15 @@ interface OAuthConnectorOption {
   provider: string;
 }
 
+interface ProviderTokenPrompt {
+  sourceIndex: number;
+  providerName: string;
+  secretName: string;
+  secretValue: string;
+  saving: boolean;
+  error: string | null;
+}
+
 async function fetchCredentialOptions<T>(url: string): Promise<T[]> {
   const response = await fetch(url);
   if (!response.ok) return [];
@@ -141,6 +151,23 @@ function deriveServerIdFromDisplayName(displayName: string): string {
 
 function secretOptionLabel(secret: SecretReferenceOption): string {
   return secret.name;
+}
+
+function oauthConfigurationHref(provider: string, endpoint: string): string {
+  const params = new URLSearchParams({
+    tab: "credentials",
+    credentialsTab: "oauth-providers",
+    oauthProvider: provider,
+  });
+  if (provider === "sharepoint") {
+    const match = endpoint.match(
+      /^https:\/\/agent365\.svc\.cloud\.microsoft\/agents\/tenants\/([0-9a-f-]+)\/servers\/mcp_SharePointRemoteServer\/?$/i,
+    );
+    if (match) {
+      params.set("oauthTenantId", match[1]);
+    }
+  }
+  return `/admin?${params.toString()}`;
 }
 
 function selectedSecretOption(
@@ -224,6 +251,8 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel, initialVal
     missingCredentials: string[];
   } | null>(null);
   const [credentialProbeLoading, setCredentialProbeLoading] = React.useState(false);
+  const [providerTokenPrompt, setProviderTokenPrompt] =
+    React.useState<ProviderTokenPrompt | null>(null);
 
   // Arg input state
   const [newArg, setNewArg] = React.useState("");
@@ -291,24 +320,30 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel, initialVal
     };
   }, []);
 
+  const loadCredentialOptions = React.useCallback(async () => {
+    const [secrets, connections, connectors] = await Promise.all([
+      fetchCredentialOptions<SecretReferenceOption>("/api/credentials/secrets").catch(() => []),
+      fetchCredentialOptions<ProviderConnectionOption>("/api/credentials/connections").catch(() => []),
+      fetchCredentialOptions<OAuthConnectorOption>("/api/credentials/oauth-connectors").catch(() => []),
+    ]);
+    setSecretOptions(secrets);
+    setProviderConnectionOptions(connections);
+    setOauthConnectorOptions(connectors);
+  }, []);
+
   React.useEffect(() => {
     let cancelled = false;
-    async function loadCredentialOptions() {
-      const [secrets, connections, connectors] = await Promise.all([
-        fetchCredentialOptions<SecretReferenceOption>("/api/credentials/secrets").catch(() => []),
-        fetchCredentialOptions<ProviderConnectionOption>("/api/credentials/connections").catch(() => []),
-        fetchCredentialOptions<OAuthConnectorOption>("/api/credentials/oauth-connectors").catch(() => []),
-      ]);
-      if (cancelled) return;
-      setSecretOptions(secrets);
-      setProviderConnectionOptions(connections);
-      setOauthConnectorOptions(connectors);
-    }
     void loadCredentialOptions();
+
+    const reloadOnFocus = () => {
+      if (!cancelled) void loadCredentialOptions();
+    };
+    window.addEventListener("focus", reloadOnFocus);
     return () => {
       cancelled = true;
+      window.removeEventListener("focus", reloadOnFocus);
     };
-  }, []);
+  }, [loadCredentialOptions]);
 
   const handleAddArg = () => {
     if (newArg.trim()) {
@@ -498,6 +533,80 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel, initialVal
     popup?.focus?.();
   };
 
+  const openProviderTokenPrompt = (
+    sourceIndex: number,
+    providerName: string,
+  ) => {
+    setProviderTokenPrompt({
+      sourceIndex,
+      providerName,
+      secretName: `${providerName} MCP token`,
+      secretValue: "",
+      saving: false,
+      error: null,
+    });
+  };
+
+  const handleCreateProviderTokenSecret = async () => {
+    if (!providerTokenPrompt || !providerTokenPrompt.secretName.trim() || !providerTokenPrompt.secretValue) {
+      return;
+    }
+    setProviderTokenPrompt((current) =>
+      current ? { ...current, saving: true, error: null } : current,
+    );
+
+    try {
+      const response = await fetch("/api/credentials/secrets", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: providerTokenPrompt.secretName.trim(),
+          type: "bearer_token",
+          value: providerTokenPrompt.secretValue,
+          description: `${providerTokenPrompt.providerName} credential for remote MCP access`,
+        }),
+      });
+      const payload = (await response.json()) as {
+        data?: SecretReferenceOption;
+        error?: string;
+      };
+      if (!response.ok || !payload.data?.id) {
+        throw new Error(payload.error || "Could not save token secret");
+      }
+
+      const createdSecret = payload.data;
+      setSecretOptions((current) =>
+        [...current.filter((secret) => secret.id !== createdSecret.id), createdSecret].sort(
+          (left, right) => left.name.localeCompare(right.name),
+        ),
+      );
+      setCredentialSources((current) =>
+        current.map((source, index) =>
+          index === providerTokenPrompt.sourceIndex
+            ? {
+                kind: "secret_ref",
+                target: source.target,
+                name: source.name,
+                secret_ref: createdSecret.id,
+              }
+            : source,
+        ),
+      );
+      setCredentialProbe(null);
+      setProviderTokenPrompt(null);
+    } catch (err) {
+      setProviderTokenPrompt((current) =>
+        current
+          ? {
+              ...current,
+              saving: false,
+              error: err instanceof Error ? err.message : "Could not save token secret",
+            }
+          : current,
+      );
+    }
+  };
+
   React.useEffect(() => {
     const handleOAuthMessage = (event: MessageEvent) => {
       if (event.origin !== window.location.origin) return;
@@ -622,6 +731,91 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel, initialVal
         </div>
       </CardHeader>
       <CardContent>
+        {providerTokenPrompt && (
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Add ${providerTokenPrompt.providerName} token`}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm"
+          >
+            <div className="w-full max-w-xl space-y-4 rounded-lg border border-border bg-card p-5 shadow-xl">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h2 className="text-lg font-medium">
+                    Add {providerTokenPrompt.providerName} token
+                  </h2>
+                  <p className="text-sm text-muted-foreground">
+                    Save a personal access token securely and attach it to this MCP server.
+                    The value is encrypted and hidden after saving.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setProviderTokenPrompt(null)}
+                  disabled={providerTokenPrompt.saving}
+                >
+                  Close
+                </Button>
+              </div>
+              <div className="space-y-4">
+                <Label className="space-y-1">
+                  <span>Secret name</span>
+                  <Input
+                    aria-label="Secret name"
+                    value={providerTokenPrompt.secretName}
+                    onChange={(event) =>
+                      setProviderTokenPrompt((current) =>
+                        current ? { ...current, secretName: event.target.value } : current,
+                      )
+                    }
+                    disabled={providerTokenPrompt.saving}
+                  />
+                </Label>
+                <Label className="space-y-1">
+                  <span>Personal access token</span>
+                  <Input
+                    aria-label={`${providerTokenPrompt.providerName} personal access token`}
+                    type="password"
+                    value={providerTokenPrompt.secretValue}
+                    onChange={(event) =>
+                      setProviderTokenPrompt((current) =>
+                        current ? { ...current, secretValue: event.target.value } : current,
+                      )
+                    }
+                    disabled={providerTokenPrompt.saving}
+                    {...SUPPRESS_SECRET_LIKE_INPUT_PROPS}
+                  />
+                </Label>
+              </div>
+              {providerTokenPrompt.error && (
+                <p className="text-sm text-destructive">{providerTokenPrompt.error}</p>
+              )}
+              <div className="flex justify-end gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setProviderTokenPrompt(null)}
+                  disabled={providerTokenPrompt.saving}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => void handleCreateProviderTokenSecret()}
+                  disabled={
+                    providerTokenPrompt.saving ||
+                    !providerTokenPrompt.secretName.trim() ||
+                    !providerTokenPrompt.secretValue
+                  }
+                >
+                  {providerTokenPrompt.saving ? "Saving..." : "Save and use secret"}
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
         <form onSubmit={handleSubmit} className="space-y-6" {...SUPPRESS_PASSWORD_MANAGER_FORM_PROPS}>
           <fieldset className={readOnly ? "opacity-70" : ""}>
           {/* Basic Info */}
@@ -1207,15 +1401,23 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel, initialVal
                 })()}
               </div>
               {credentialProbe && credentialProbe.missingCredentials.length > 0 && (() => {
-                const providerSources = credentialSources.filter(
-                  (s) => s.kind === "provider_connection" && s.provider,
-                );
-                const connectableProviders = providerSources.map((s) => ({
-                  provider: s.provider!,
+                const providerSources = credentialSources
+                  .map((source, sourceIndex) => ({ source, sourceIndex }))
+                  .filter(
+                    ({ source }) => source.kind === "provider_connection" && source.provider,
+                  );
+                const connectableProviders = providerSources.map(({ source, sourceIndex }) => ({
+                  sourceIndex,
+                  provider: source.provider!,
                   name:
-                    oauthConnectorOptions.find((c) => c.provider === s.provider)?.name ??
-                    s.provider!,
-                  hasConnector: oauthConnectorOptions.some((c) => c.provider === s.provider),
+                    oauthConnectorOptions.find((c) => c.provider === source.provider)?.name ??
+                    BUILT_IN_OAUTH_CONNECTORS.find(
+                      (connector) => connector.provider === source.provider,
+                    )?.name ??
+                    source.provider!,
+                  hasConnector: oauthConnectorOptions.some(
+                    (c) => c.provider === source.provider,
+                  ),
                 }));
                 return (
                   <div className="space-y-1.5">
@@ -1226,7 +1428,12 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel, initialVal
                           {credentialProbe.missingCredentials.join(", ")}
                         </span>
                       </p>
-                      {connectableProviders.map(({ provider, name, hasConnector }) =>
+                      {connectableProviders.map(({
+                        sourceIndex,
+                        provider,
+                        name,
+                        hasConnector,
+                      }) =>
                         hasConnector ? (
                           <Button
                             key={provider}
@@ -1238,17 +1445,29 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel, initialVal
                             Connect {name}
                           </Button>
                         ) : (
-                          <span key={provider} className="text-xs text-muted-foreground">
-                            —{" "}
+                          <span
+                            key={`${provider}-${sourceIndex}`}
+                            className="inline-flex items-center gap-2 text-xs text-muted-foreground"
+                          >
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() =>
+                                openProviderTokenPrompt(sourceIndex, name)
+                              }
+                            >
+                              Create {name} token secret
+                            </Button>
+                            <span>or</span>
                             <a
-                              href="/credentials"
+                              href={oauthConfigurationHref(provider, endpoint)}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="underline underline-offset-2 hover:text-foreground"
                             >
-                              set up {name} in Credentials
-                            </a>{" "}
-                            first, then reconnect here.
+                              configure {name} OAuth
+                            </a>
                           </span>
                         ),
                       )}

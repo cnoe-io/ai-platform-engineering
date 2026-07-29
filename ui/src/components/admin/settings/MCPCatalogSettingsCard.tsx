@@ -21,13 +21,15 @@ import React, { useEffect, useState } from "react";
 
 const BUILTIN_PROVIDERS = [
   { key: "amplitude", name: "Amplitude" },
+  { key: "airtable", name: "Airtable" },
   { key: "atlassian", name: "Atlassian" },
   { key: "aws", name: "AWS" },
-  { key: "figma", name: "Figma" },
+  { key: "box", name: "Box" },
   { key: "github", name: "GitHub Copilot" },
   { key: "linear", name: "Linear" },
   { key: "notion", name: "Notion" },
   { key: "pagerduty", name: "PagerDuty" },
+  { key: "sharepoint", name: "Microsoft SharePoint" },
   { key: "thousandeyes", name: "ThousandEyes" },
 ] as const;
 

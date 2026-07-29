@@ -104,6 +104,46 @@ describe("/api/admin/credentials/oauth-connectors", () => {
     expect(JSON.stringify(json)).not.toContain("client-secret");
   });
 
+  it("passes certificate OAuth material only to the encrypted connector service", async () => {
+    const { POST } = await import("../route");
+    mockCreateConnector.mockResolvedValue({
+      id: "sharepoint-connector",
+      provider: "sharepoint",
+      authType: "client_certificate",
+      certificateConfigured: true,
+      certificateThumbprint: "A".repeat(40),
+    });
+
+    const response = await POST(
+      request("POST", {
+        name: "Microsoft SharePoint",
+        provider: "sharepoint",
+        clientId: "application-id",
+        authType: "client_certificate",
+        certificatePfx: "base64-pfx",
+        certificatePassword: "pfx-password",
+        certificateThumbprint: "A".repeat(40),
+        authorizationUrl:
+          "https://login.microsoftonline.com/11111111-2222-3333-4444-555555555555/oauth2/v2.0/authorize",
+        tokenUrl:
+          "https://login.microsoftonline.com/11111111-2222-3333-4444-555555555555/oauth2/v2.0/token",
+        scopes: ["https://resource.example.test/.default"],
+        redirectUri: "https://caipe.example.com/api/credentials/oauth/sharepoint/callback",
+      }),
+    );
+
+    expect(mockCreateConnector).toHaveBeenCalledWith(
+      expect.objectContaining({
+        authType: "client_certificate",
+        certificatePfx: "base64-pfx",
+        certificatePassword: "pfx-password",
+      }),
+    );
+    const json = await response.json();
+    expect(JSON.stringify(json)).not.toContain("base64-pfx");
+    expect(JSON.stringify(json)).not.toContain("pfx-password");
+  });
+
   it("supports connector enable and test actions", async () => {
     const { PATCH } = await import("../[connector_id]/route");
     mockTestConnector.mockResolvedValue({ ok: true, connectorId: "connector-1" });

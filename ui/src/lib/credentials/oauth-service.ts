@@ -2,6 +2,11 @@ import { randomUUID } from "crypto";
 
 import { ApiError } from "@/lib/api-error";
 
+import {
+  createCertificateClientAssertion,
+  inspectCertificatePfx,
+  type CertificateInspection,
+} from "./certificate-oauth";
 import type { CredentialOwnerRef } from "./types";
 
 interface Collection<T extends object> {
@@ -26,6 +31,11 @@ export interface OAuthConnectorDocument {
   provider: string;
   clientId: string;
   clientSecretRef: string;
+  certificateRef?: string;
+  certificatePasswordRef?: string;
+  certificateThumbprint?: string;
+  certificateExpiresAt?: Date;
+  authType?: "authorization_code" | "client_certificate";
   authorizationUrl: string;
   tokenUrl: string;
   scopes: string[];
@@ -36,8 +46,12 @@ export interface OAuthConnectorDocument {
   updatedAt: Date;
 }
 
-export type OAuthConnectorMetadata = Omit<OAuthConnectorDocument, "clientSecretRef"> & {
+export type OAuthConnectorMetadata = Omit<
+  OAuthConnectorDocument,
+  "clientSecretRef" | "certificateRef" | "certificatePasswordRef"
+> & {
   clientSecretConfigured: boolean;
+  certificateConfigured: boolean;
 };
 
 export interface ProviderConnectionDocument {
@@ -92,6 +106,11 @@ export interface OAuthConnectorServiceOptions {
   payloadStore: PayloadStore;
   idGenerator: () => string;
   now?: () => Date;
+  inspectCertificate?: (input: {
+    pfxBase64: string;
+    password: string;
+    expectedThumbprint?: string;
+  }) => CertificateInspection;
 }
 
 export interface CreateConnectorInput {
@@ -99,6 +118,10 @@ export interface CreateConnectorInput {
   provider: string;
   clientId: string;
   clientSecret?: string;
+  authType?: "authorization_code" | "client_certificate";
+  certificatePfx?: string;
+  certificatePassword?: string;
+  certificateThumbprint?: string;
   authorizationUrl: string;
   tokenUrl: string;
   scopes: string[];
@@ -120,6 +143,7 @@ export interface ProviderConnectionServiceOptions {
   connectorsCollection: Collection<OAuthConnectorDocument>;
   payloadStore: Required<Pick<PayloadStore, "getSecret" | "putSecret">>;
   tokenClient: (tokenUrl: string, body: Record<string, string>) => Promise<TokenClientResponse>;
+  certificateAssertionFactory?: typeof createCertificateClientAssertion;
   idGenerator?: () => string;
   now?: () => Date;
 }
@@ -186,10 +210,18 @@ function toConnectorMetadata(doc: OAuthConnectorDocument): OAuthConnectorMetadat
     scopes: doc.scopes,
     redirectUri: doc.redirectUri,
     enabled: doc.enabled,
+    authType: doc.authType ?? "authorization_code",
     pkce: doc.pkce,
+    certificateThumbprint: doc.certificateThumbprint,
+    certificateExpiresAt: doc.certificateExpiresAt,
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
-    clientSecretConfigured: doc.pkce !== true,
+    clientSecretConfigured:
+      (doc.authType ?? "authorization_code") === "authorization_code" &&
+      doc.pkce !== true,
+    certificateConfigured:
+      doc.authType === "client_certificate" &&
+      Boolean(doc.certificateRef && doc.certificatePasswordRef),
   };
 }
 
@@ -274,40 +306,88 @@ function refreshTokenBody(input: {
   return body;
 }
 
+function certificateClientCredentialsTokenBody(input: {
+  clientId: string;
+  clientAssertion: string;
+  scopes: string[];
+}): Record<string, string> {
+  return {
+    grant_type: "client_credentials",
+    client_id: input.clientId,
+    scope: input.scopes.join(" "),
+    client_assertion_type:
+      "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
+    client_assertion: input.clientAssertion,
+  };
+}
+
 export class OAuthConnectorService {
   private readonly connectorsCollection: Collection<OAuthConnectorDocument>;
   private readonly payloadStore: PayloadStore;
   private readonly idGenerator: () => string;
   private readonly now: () => Date;
+  private readonly inspectCertificate: NonNullable<
+    OAuthConnectorServiceOptions["inspectCertificate"]
+  >;
 
   constructor(options: OAuthConnectorServiceOptions) {
     this.connectorsCollection = options.connectorsCollection;
     this.payloadStore = options.payloadStore;
     this.idGenerator = options.idGenerator;
     this.now = options.now ?? (() => new Date());
+    this.inspectCertificate = options.inspectCertificate ?? inspectCertificatePfx;
   }
 
   async createConnector(input: CreateConnectorInput): Promise<OAuthConnectorMetadata> {
     const id = this.idGenerator();
     const clientSecretRef = `oauth_connector:${id}:client_secret`;
+    const certificateRef = `oauth_connector:${id}:certificate_pfx`;
+    const certificatePasswordRef = `oauth_connector:${id}:certificate_password`;
     const now = this.now();
+    const authType = input.authType ?? "authorization_code";
+    const certificate =
+      authType === "client_certificate"
+        ? this.inspectCertificate({
+            pfxBase64: nonEmpty(input.certificatePfx ?? "", "certificatePfx"),
+            password: nonEmpty(input.certificatePassword ?? "", "certificatePassword"),
+            expectedThumbprint: input.certificateThumbprint,
+          })
+        : undefined;
     const doc: OAuthConnectorDocument = {
       id,
       name: nonEmpty(input.name, "name"),
       provider: nonEmpty(input.provider, "provider"),
       clientId: nonEmpty(input.clientId, "clientId"),
       clientSecretRef,
+      ...(certificate
+        ? {
+            authType: "client_certificate" as const,
+            certificateRef,
+            certificatePasswordRef,
+            certificateThumbprint: certificate.thumbprint,
+            certificateExpiresAt: certificate.expiresAt,
+          }
+        : {}),
       authorizationUrl: validateExternalHttpsUrl(input.authorizationUrl, "authorizationUrl"),
       tokenUrl: validateExternalHttpsUrl(input.tokenUrl, "tokenUrl"),
       scopes: input.scopes.map((scope) => scope.trim()).filter(Boolean),
       redirectUri: validateRedirectUri(input.redirectUri),
       enabled: true,
-      ...(input.pkce ? { pkce: true } : {}),
+      ...(authType === "authorization_code" && input.pkce ? { pkce: true } : {}),
       createdAt: now,
       updatedAt: now,
     };
 
-    if (!input.pkce) {
+    if (authType === "client_certificate") {
+      await this.payloadStore.putSecret({
+        secretRefId: certificateRef,
+        plaintext: nonEmpty(input.certificatePfx ?? "", "certificatePfx"),
+      });
+      await this.payloadStore.putSecret({
+        secretRefId: certificatePasswordRef,
+        plaintext: nonEmpty(input.certificatePassword ?? "", "certificatePassword"),
+      });
+    } else if (!input.pkce) {
       await this.payloadStore.putSecret({ secretRefId: clientSecretRef, plaintext: nonEmpty(input.clientSecret ?? "", "clientSecret") });
     }
     await this.connectorsCollection.insertOne(doc);
@@ -323,18 +403,50 @@ export class OAuthConnectorService {
     }
 
     const now = this.now();
+    const authType = input.authType ?? "authorization_code";
+    const certificate =
+      authType === "client_certificate"
+        ? this.inspectCertificate({
+            pfxBase64: nonEmpty(input.certificatePfx ?? "", "certificatePfx"),
+            password: nonEmpty(input.certificatePassword ?? "", "certificatePassword"),
+            expectedThumbprint: input.certificateThumbprint,
+          })
+        : undefined;
+    const certificateRef =
+      existing.certificateRef ?? `oauth_connector:${existing.id}:certificate_pfx`;
+    const certificatePasswordRef =
+      existing.certificatePasswordRef ??
+      `oauth_connector:${existing.id}:certificate_password`;
     const update: Partial<OAuthConnectorDocument> = {
       name: nonEmpty(input.name, "name"),
       clientId: nonEmpty(input.clientId, "clientId"),
+      authType,
       authorizationUrl: validateExternalHttpsUrl(input.authorizationUrl, "authorizationUrl"),
       tokenUrl: validateExternalHttpsUrl(input.tokenUrl, "tokenUrl"),
       scopes: input.scopes.map((scope) => scope.trim()).filter(Boolean),
       redirectUri: validateRedirectUri(input.redirectUri),
       enabled: true,
-      ...(input.pkce ? { pkce: true } : {}),
+      ...(authType === "authorization_code" && input.pkce ? { pkce: true } : {}),
+      ...(certificate
+        ? {
+            certificateRef,
+            certificatePasswordRef,
+            certificateThumbprint: certificate.thumbprint,
+            certificateExpiresAt: certificate.expiresAt,
+          }
+        : {}),
       updatedAt: now,
     };
-    if (!input.pkce) {
+    if (authType === "client_certificate") {
+      await this.payloadStore.putSecret({
+        secretRefId: certificateRef,
+        plaintext: nonEmpty(input.certificatePfx ?? "", "certificatePfx"),
+      });
+      await this.payloadStore.putSecret({
+        secretRefId: certificatePasswordRef,
+        plaintext: nonEmpty(input.certificatePassword ?? "", "certificatePassword"),
+      });
+    } else if (!input.pkce) {
       await this.payloadStore.putSecret({
         secretRefId: existing.clientSecretRef,
         plaintext: nonEmpty(input.clientSecret ?? "", "clientSecret"),
@@ -346,11 +458,16 @@ export class OAuthConnectorService {
     // PKCE connector back to confidential would leave pkce:true, and runtime
     // token exchange would send an empty client secret.
     const writeUpdate =
-      input.pkce || !existing.pkce
+      authType === "authorization_code" && input.pkce
         ? { $set: update }
         : { $set: update, $unset: { pkce: "" } };
     await this.connectorsCollection.updateOne?.({ id: existing.id }, writeUpdate);
-    return toConnectorMetadata({ ...existing, ...update, pkce: input.pkce ? true : undefined });
+    return toConnectorMetadata({
+      ...existing,
+      ...update,
+      pkce:
+        authType === "authorization_code" && input.pkce ? true : undefined,
+    });
   }
 
   async listConnectors(): Promise<OAuthConnectorMetadata[]> {
@@ -384,16 +501,90 @@ export class OAuthConnectorService {
       throw new ApiError("OAuth connector was not found", 404, "CREDENTIAL_NOT_FOUND");
     }
     const now = this.now();
+    const authType = input.authType ?? "authorization_code";
+    const hasCertificatePfx = Boolean(input.certificatePfx?.trim());
+    const hasCertificatePassword = Boolean(input.certificatePassword);
+    if (hasCertificatePfx !== hasCertificatePassword) {
+      throw new ApiError(
+        "PFX certificate and password must be provided together",
+        400,
+        "VALIDATION_ERROR",
+      );
+    }
+    const rotatingCertificate =
+      authType === "client_certificate" &&
+      hasCertificatePfx &&
+      hasCertificatePassword;
+    if (
+      authType === "client_certificate" &&
+      !rotatingCertificate &&
+      (
+        existing.authType !== "client_certificate" ||
+        !existing.certificateRef ||
+        !existing.certificatePasswordRef
+      )
+    ) {
+      throw new ApiError(
+        "PFX certificate and password are required for certificate OAuth",
+        400,
+        "VALIDATION_ERROR",
+      );
+    }
+    const certificate = rotatingCertificate
+      ? this.inspectCertificate({
+          pfxBase64: nonEmpty(input.certificatePfx ?? "", "certificatePfx"),
+          password: nonEmpty(input.certificatePassword ?? "", "certificatePassword"),
+          expectedThumbprint: input.certificateThumbprint,
+        })
+      : undefined;
+    if (
+      authType === "client_certificate" &&
+      !rotatingCertificate &&
+      input.certificateThumbprint?.trim() &&
+      input.certificateThumbprint.replace(/[^0-9a-f]/gi, "").toUpperCase() !==
+        existing.certificateThumbprint
+    ) {
+      throw new ApiError(
+        "Upload the PFX again to change or verify its thumbprint",
+        400,
+        "VALIDATION_ERROR",
+      );
+    }
+    const certificateRef =
+      existing.certificateRef ?? `oauth_connector:${existing.id}:certificate_pfx`;
+    const certificatePasswordRef =
+      existing.certificatePasswordRef ??
+      `oauth_connector:${existing.id}:certificate_password`;
     const update: Partial<OAuthConnectorDocument> = {
       name: nonEmpty(input.name, "name"),
       clientId: nonEmpty(input.clientId, "clientId"),
+      authType,
       authorizationUrl: validateExternalHttpsUrl(input.authorizationUrl, "authorizationUrl"),
       tokenUrl: validateExternalHttpsUrl(input.tokenUrl, "tokenUrl"),
       scopes: input.scopes.map((scope) => scope.trim()).filter(Boolean),
       redirectUri: validateRedirectUri(input.redirectUri),
       updatedAt: now,
+      ...(authType === "client_certificate"
+        ? {
+            certificateRef,
+            certificatePasswordRef,
+            certificateThumbprint:
+              certificate?.thumbprint ?? existing.certificateThumbprint,
+            certificateExpiresAt:
+              certificate?.expiresAt ?? existing.certificateExpiresAt,
+          }
+        : {}),
     };
-    if (input.pkce) {
+    if (authType === "client_certificate" && certificate) {
+      await this.payloadStore.putSecret({
+        secretRefId: certificateRef,
+        plaintext: nonEmpty(input.certificatePfx ?? "", "certificatePfx"),
+      });
+      await this.payloadStore.putSecret({
+        secretRefId: certificatePasswordRef,
+        plaintext: nonEmpty(input.certificatePassword ?? "", "certificatePassword"),
+      });
+    } else if (input.pkce) {
       update.pkce = true;
     } else if (input.clientSecret) {
       // Switching to (or staying) confidential: a new secret must be persisted.
@@ -401,11 +592,14 @@ export class OAuthConnectorService {
         secretRefId: existing.clientSecretRef,
         plaintext: nonEmpty(input.clientSecret, "clientSecret"),
       });
-    } else if (existing.pkce) {
+    } else if (
+      authType === "authorization_code" &&
+      (existing.pkce || existing.authType === "client_certificate")
+    ) {
       // Toggling an existing PKCE connector to confidential requires a secret;
       // without one the connector would be a confidential client with no secret.
       throw new ApiError(
-        "A client secret is required when disabling PKCE (public client) mode",
+        "A client secret is required when switching to confidential authorization-code mode",
         400,
         "VALIDATION_ERROR",
       );
@@ -413,11 +607,16 @@ export class OAuthConnectorService {
     // `$set: { pkce: undefined }` is a no-op in MongoDB, so a PKCE→confidential
     // switch must explicitly `$unset` the flag to clear it.
     const writeUpdate =
-      input.pkce || !existing.pkce
+      authType === "authorization_code" && input.pkce
         ? { $set: update }
         : { $set: update, $unset: { pkce: "" } };
     await this.connectorsCollection.updateOne?.({ id: existing.id }, writeUpdate);
-    return toConnectorMetadata({ ...existing, ...update, pkce: input.pkce ? true : undefined });
+    return toConnectorMetadata({
+      ...existing,
+      ...update,
+      pkce:
+        authType === "authorization_code" && input.pkce ? true : undefined,
+    });
   }
 
   async deleteConnector(connectorId: string): Promise<void> {
@@ -438,6 +637,9 @@ export class ProviderConnectionService {
   private readonly connectorsCollection: Collection<OAuthConnectorDocument>;
   private readonly payloadStore: Required<Pick<PayloadStore, "getSecret" | "putSecret">>;
   private readonly tokenClient: ProviderConnectionServiceOptions["tokenClient"];
+  private readonly certificateAssertionFactory: NonNullable<
+    ProviderConnectionServiceOptions["certificateAssertionFactory"]
+  >;
   private readonly idGenerator: () => string;
   private readonly now: () => Date;
 
@@ -446,6 +648,8 @@ export class ProviderConnectionService {
     this.connectorsCollection = options.connectorsCollection;
     this.payloadStore = options.payloadStore;
     this.tokenClient = options.tokenClient;
+    this.certificateAssertionFactory =
+      options.certificateAssertionFactory ?? createCertificateClientAssertion;
     this.idGenerator = options.idGenerator ?? randomUUID;
     this.now = options.now ?? (() => new Date());
   }
@@ -458,6 +662,106 @@ export class ProviderConnectionService {
     return connector;
   }
 
+  private async issueCertificateToken(
+    connector: OAuthConnectorDocument,
+    scopes: string[],
+  ): Promise<TokenClientResponse> {
+    if (
+      connector.authType !== "client_certificate" ||
+      !connector.certificateRef ||
+      !connector.certificatePasswordRef
+    ) {
+      throw new ApiError(
+        "Certificate OAuth is not configured for this connector",
+        400,
+        "CERTIFICATE_NOT_CONFIGURED",
+      );
+    }
+    const [pfxBase64, password] = await Promise.all([
+      this.payloadStore.getSecret(connector.certificateRef),
+      this.payloadStore.getSecret(connector.certificatePasswordRef),
+    ]);
+    const clientAssertion = await this.certificateAssertionFactory({
+      clientId: connector.clientId,
+      tokenUrl: connector.tokenUrl,
+      pfxBase64,
+      password,
+      now: this.now(),
+    });
+    return this.tokenClient(
+      connector.tokenUrl,
+      certificateClientCredentialsTokenBody({
+        clientId: connector.clientId,
+        clientAssertion,
+        scopes,
+      }),
+    );
+  }
+
+  async connectClientCredentials(input: {
+    providerKey: string;
+    owner: CredentialOwnerRef;
+    requestedScopes?: string[];
+  }): Promise<CompletedProviderConnection> {
+    const connector = await this.findEnabledConnector(
+      nonEmpty(input.providerKey, "providerKey"),
+    );
+    if (connector.authType !== "client_certificate") {
+      throw new ApiError(
+        "This connector requires the authorization-code flow",
+        400,
+        "UNSUPPORTED_OAUTH_FLOW",
+      );
+    }
+    const requestedScopes = boundScopes(connector.scopes, input.requestedScopes);
+    const token = await this.issueCertificateToken(connector, requestedScopes);
+    const id = this.idGenerator();
+    const accessTokenRef = `provider_connection:${id}:access_token`;
+    await this.payloadStore.putSecret({
+      secretRefId: accessTokenRef,
+      plaintext: nonEmpty(token.access_token, "access_token"),
+    });
+
+    const now = this.now();
+    const grantedScopes = token.scope
+      ? Array.from(
+          new Set(
+            token.scope
+              .split(/[\s,]+/)
+              .map((scope) => scope.trim())
+              .filter(Boolean),
+          ),
+        )
+      : undefined;
+    const doc: ProviderConnectionDocument = {
+      id,
+      connectorId: connector.id,
+      provider: connector.provider,
+      owner: input.owner,
+      status: "connected",
+      renewable: true,
+      accessTokenRef,
+      refreshTokenRef: "",
+      expiresAt: token.expires_in
+        ? new Date(now.getTime() + token.expires_in * 1000)
+        : undefined,
+      connectedAt: now,
+      updatedAt: now,
+      requestedScopes,
+      ...(grantedScopes ? { grantedScopes } : {}),
+    };
+    const supersededConnectionIds = await this.disableSupersededConnections(
+      input.owner,
+      connector.provider,
+      id,
+    );
+    await this.providerConnectionsCollection.insertOne(doc);
+    return {
+      ...toProviderConnectionMetadata(doc),
+      supersededConnectionIds,
+    };
+  }
+
   async startConnection(input: {
     providerKey: string;
     owner: CredentialOwnerRef;
@@ -466,6 +770,13 @@ export class ProviderConnectionService {
     requestedScopes?: string[];
   }): Promise<{ authorizationUrl: string; connectorId: string; requestedScopes: string[] }> {
     const connector = await this.findEnabledConnector(nonEmpty(input.providerKey, "providerKey"));
+    if (connector.authType === "client_certificate") {
+      throw new ApiError(
+        "Certificate connectors must be connected with a POST request",
+        405,
+        "UNSUPPORTED_OAUTH_FLOW",
+      );
+    }
     const requestedScopes = boundScopes(connector.scopes, input.requestedScopes);
     const url = new URL(connector.authorizationUrl);
     url.searchParams.set("response_type", "code");
@@ -829,6 +1140,46 @@ export class ProviderConnectionService {
       : await this.connectorsCollection.findOne({ id: connection.connectorId });
     if (!connector) {
       return reuseStoredToken();
+    }
+
+    if (connector.authType === "client_certificate") {
+      const expiresAt = connection.expiresAt
+        ? new Date(connection.expiresAt)
+        : undefined;
+      if (
+        storedAccessToken &&
+        (!expiresAt || expiresAt.getTime() > this.now().getTime() + 60_000)
+      ) {
+        return reuseStoredToken();
+      }
+      const scopes = boundScopes(
+        connector.scopes,
+        connection.requestedScopes,
+      );
+      const token = await this.issueCertificateToken(connector, scopes);
+      const now = this.now();
+      const nextExpiresAt = token.expires_in
+        ? new Date(now.getTime() + token.expires_in * 1000)
+        : undefined;
+      await this.payloadStore.putSecret({
+        secretRefId: connection.accessTokenRef,
+        plaintext: nonEmpty(token.access_token, "access_token"),
+      });
+      await this.providerConnectionsCollection.updateOne?.(
+        { id: connectionId },
+        {
+          $set: {
+            status: "connected",
+            renewable: true,
+            ...(nextExpiresAt ? { expiresAt: nextExpiresAt } : {}),
+            updatedAt: now,
+          },
+        },
+      );
+      return {
+        accessToken: token.access_token,
+        expiresIn: token.expires_in,
+      };
     }
 
     // No usable refresh token (e.g. GitHub never issued one): reuse the stored

@@ -9,8 +9,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import type { MCPCredentialSource } from "@/types/dynamic-agent";
-import { ArrowRight, Loader2, Plug, Plus } from "lucide-react";
+import { ArrowRight, Loader2, Plug, Plus, Search } from "lucide-react";
 import React, { useEffect, useState } from "react";
 
 export interface RemoteMCPTemplate {
@@ -33,6 +34,7 @@ interface ProviderEntry extends RemoteMCPTemplate {
   logoBg?: string;
   accentClass: string;
   note?: string;
+  requiresTenantId?: boolean;
 }
 
 interface CustomCatalogEntry {
@@ -67,6 +69,23 @@ const REMOTE_MCP_PROVIDERS: ProviderEntry[] = [
     ],
   },
   {
+    key: "airtable",
+    name: "Airtable",
+    description: "Read and update bases, tables, records, schemas, and comments",
+    endpoint: "https://mcp.airtable.com/mcp",
+    logoSrc: "/provider-logos/airtable.svg",
+    accentClass: "hover:border-cyan-500/50 hover:bg-cyan-500/5",
+    credential_sources: [
+      {
+        kind: "provider_connection",
+        name: "X-CAIPE-Provider-Token",
+        provider: "airtable",
+        target: "header",
+        fallback_env: "AIRTABLE_API_TOKEN",
+      },
+    ],
+  },
+  {
     key: "atlassian",
     name: "Atlassian",
     description: "Search Jira issues, Confluence pages, and project data",
@@ -84,37 +103,30 @@ const REMOTE_MCP_PROVIDERS: ProviderEntry[] = [
   },
   {
     key: "aws",
-    name: "AWS",
-    description: "Query AWS resources, CloudWatch metrics, and infrastructure across accounts",
-    endpoint: "https://aws-mcp.us-east-1.api.aws/mcp",
+    name: "AWS Knowledge",
+    description: "Search AWS documentation and code samples. Public and read-only; no authentication required.",
+    endpoint: "https://knowledge-mcp.global.api.aws",
     logoSrc: "https://upload.wikimedia.org/wikipedia/commons/9/93/Amazon_Web_Services_Logo.svg",
     accentClass: "hover:border-orange-500/50 hover:bg-orange-500/5",
-    credential_sources: [
-      {
-        kind: "provider_connection",
-        name: "X-CAIPE-Provider-Token",
-        provider: "aws",
-        target: "header",
-      },
-    ],
-    note: "Requires AWS to allowlist your redirect URI before OAuth client registration",
+    credential_sources: [],
   },
   {
-    key: "figma",
-    name: "Figma",
-    description: "Inspect design files, components, assets, and variable tokens",
-    endpoint: "https://www.figma.com/api/mcp",
-    logoSrc: "https://upload.wikimedia.org/wikipedia/commons/3/33/Figma-logo.svg",
-    accentClass: "hover:border-purple-500/50 hover:bg-purple-500/5",
+    key: "box",
+    name: "Box",
+    description: "Search, read, analyze, and manage enterprise content in Box",
+    endpoint: "https://mcp.box.com",
+    logoSrc: "/provider-logos/box.svg",
+    logoBg: "bg-white",
+    accentClass: "hover:border-blue-500/50 hover:bg-blue-500/5",
     credential_sources: [
       {
         kind: "provider_connection",
         name: "X-CAIPE-Provider-Token",
-        provider: "figma",
+        provider: "box",
         target: "header",
+        fallback_env: "BOX_ACCESS_TOKEN",
       },
     ],
-    note: "Early access — verify endpoint before use",
   },
   {
     key: "github",
@@ -182,6 +194,26 @@ const REMOTE_MCP_PROVIDERS: ProviderEntry[] = [
     ],
   },
   {
+    key: "sharepoint",
+    name: "Microsoft SharePoint",
+    description:
+      "Manage SharePoint sites, lists, document libraries, files, folders, and sharing",
+    endpoint:
+      "https://agent365.svc.cloud.microsoft/agents/tenants/{tenantId}/servers/mcp_SharePointRemoteServer",
+    logoSrc: "/provider-logos/sharepoint.svg",
+    accentClass: "hover:border-teal-500/50 hover:bg-teal-500/5",
+    note: "Preview — requires an Entra tenant ID and delegated user sign-in",
+    requiresTenantId: true,
+    credential_sources: [
+      {
+        kind: "provider_connection",
+        name: "X-CAIPE-Provider-Token",
+        provider: "sharepoint",
+        target: "header",
+      },
+    ],
+  },
+  {
     key: "thousandeyes",
     name: "ThousandEyes",
     description: "Query network intelligence, test results, alerts, and endpoint visibility",
@@ -213,19 +245,6 @@ function AtlassianIcon() {
   return (
     <svg aria-hidden="true" className="h-8 w-8" viewBox="0 0 32 32" fill="none">
       <path fill="#2684FF" d="M14.9 3.3c-.2-.3-.7-.3-.9.1L3.2 27c-.1.3.1.7.5.7H10c.3 0 .6-.2.7-.5l3.5-8.6 3.5 8.6c.1.3.4.5.7.5h6.4c.3 0 .6-.3.5-.7L15.7 3.4c-.2-.1-.6-.1-.8-.1z"/>
-    </svg>
-  );
-}
-
-function FigmaIcon() {
-  return (
-    <svg aria-hidden="true" className="h-8 w-8" viewBox="0 0 32 32" fill="none">
-      <rect x="4" y="4" width="12" height="12" rx="6" fill="#FF7262"/>
-      <rect x="4" y="16" width="12" height="12" rx="6" fill="#0ACF83"/>
-      <rect x="16" y="4" width="12" height="12" rx="6" fill="#F24E1E"/>
-      <circle cx="22" cy="22" r="6" fill="#1ABCFE"/>
-      <rect x="4" y="10" width="12" height="12" rx="0" fill="#A259FF"/>
-      <circle cx="10" cy="16" r="6" fill="#A259FF"/>
     </svg>
   );
 }
@@ -300,8 +319,7 @@ function ProviderLogo({ provider }: { provider: ProviderEntry }) {
   switch (provider.name) {
     case "Amplitude": return <AmplitudeIcon />;
     case "Atlassian": return <AtlassianIcon />;
-    case "AWS": return <AWSIcon />;
-    case "Figma": return <FigmaIcon />;
+    case "AWS Knowledge": return <AWSIcon />;
     case "GitHub Copilot": return <GitHubIcon />;
     case "Linear": return <LinearIcon />;
     case "Notion": return <NotionIcon />;
@@ -373,11 +391,19 @@ export function RemoteMCPCatalogDialog({
 }: RemoteMCPCatalogDialogProps) {
   const [catalogConfig, setCatalogConfig] = useState<CatalogConfig | null>(null);
   const [loadingConfig, setLoadingConfig] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [tenantProvider, setTenantProvider] = useState<ProviderEntry | null>(null);
+  const [tenantId, setTenantId] = useState("");
+  const [tenantIdError, setTenantIdError] = useState("");
 
   useEffect(() => {
     if (!open) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: mark loading before the platform-config fetch kicked off below
     setLoadingConfig(true);
+    setSearchQuery("");
+    setTenantProvider(null);
+    setTenantId("");
+    setTenantIdError("");
     fetch("/api/admin/platform-config")
       .then((r) => r.json())
       .catch(() => ({ success: false }))
@@ -395,12 +421,52 @@ export function RemoteMCPCatalogDialog({
     ? new Set(catalogConfig.enabled_providers)
     : null;
 
+  const safeHostname = (url: string) => {
+    try { return new URL(url).hostname; } catch { return url; }
+  };
+
   const visibleBuiltins = REMOTE_MCP_PROVIDERS.filter((p) => !enabledKeys || enabledKeys.has(p.key));
   const customEntries = catalogConfig?.custom_entries ?? [];
+  const normalizedQuery = searchQuery.trim().toLowerCase();
+  const matchesQuery = (entry: { name: string; description: string; endpoint: string }) => {
+    if (!normalizedQuery) return true;
+    return [entry.name, entry.description, safeHostname(entry.endpoint)]
+      .some((value) => value.toLowerCase().includes(normalizedQuery));
+  };
+  const filteredBuiltins = visibleBuiltins.filter(matchesQuery);
+  const filteredCustomEntries = customEntries.filter(matchesQuery);
+  const hasProviderResults = filteredBuiltins.length > 0 || filteredCustomEntries.length > 0;
 
   const selectBuiltin = (provider: ProviderEntry) => {
+    if (provider.requiresTenantId) {
+      setTenantProvider(provider);
+      setTenantId("");
+      setTenantIdError("");
+      return;
+    }
     onOpenChange(false);
     onSelect(provider);
+  };
+
+  const selectTenantProvider = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!tenantProvider) return;
+    const normalizedTenantId = tenantId.trim();
+    if (
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        normalizedTenantId,
+      )
+    ) {
+      setTenantIdError("Enter a valid Microsoft Entra tenant GUID.");
+      return;
+    }
+    onOpenChange(false);
+    onSelect({
+      name: tenantProvider.name,
+      description: tenantProvider.description,
+      endpoint: tenantProvider.endpoint.replace("{tenantId}", normalizedTenantId),
+      credential_sources: tenantProvider.credential_sources,
+    });
   };
 
   const selectCustom = (entry: CustomCatalogEntry) => {
@@ -420,13 +486,9 @@ export function RemoteMCPCatalogDialog({
     });
   };
 
-  const safeHostname = (url: string) => {
-    try { return new URL(url).hostname; } catch { return url; }
-  };
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+      <DialogContent className="max-w-2xl max-h-[80vh] overflow-hidden grid-rows-[auto_auto_minmax(0,1fr)]">
         <DialogHeader>
           <DialogTitle>Add MCP Server</DialogTitle>
           <DialogDescription>
@@ -434,56 +496,141 @@ export function RemoteMCPCatalogDialog({
           </DialogDescription>
         </DialogHeader>
 
+        <div className="relative">
+          <Search
+            aria-hidden="true"
+            className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+          />
+          <Input
+            aria-label="Search MCP providers"
+            className="pl-9"
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder="Search providers..."
+            type="search"
+            value={searchQuery}
+          />
+        </div>
+
         {loadingConfig ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
           </div>
         ) : (
-          <div className="grid grid-cols-2 gap-3 mt-1">
-            {visibleBuiltins.map((provider) => (
-              <ProviderTile
-                key={provider.key}
-                name={provider.name}
-                hostname={safeHostname(provider.endpoint)}
-                description={provider.description}
-                note={provider.note}
-                logo={<ProviderLogo provider={provider} />}
-                accentClass={provider.accentClass}
-                onClick={() => selectBuiltin(provider)}
-              />
-            ))}
-
-            {customEntries.map((entry) => (
-              <ProviderTile
-                key={entry.id}
-                name={entry.name}
-                hostname={safeHostname(entry.endpoint)}
-                description={entry.description}
-                logo={<CustomEntryLogo logoUrl={entry.logo_url} />}
-                accentClass="hover:border-primary/50 hover:bg-primary/5"
-                onClick={() => selectCustom(entry)}
-              />
-            ))}
-
-            {/* Blank form tile */}
-            <button
-              type="button"
-              onClick={() => { onOpenChange(false); onSelectCustom(); }}
-              className="group flex flex-col gap-3 rounded-lg border border-dashed bg-card p-4 text-left transition-colors duration-150 cursor-pointer hover:border-primary/50 hover:bg-primary/5"
-            >
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-md border bg-background">
-                  <Plus className="h-5 w-5 text-muted-foreground" />
+          <div data-testid="mcp-provider-results" className="min-h-0 overflow-y-auto pr-1">
+            {tenantProvider ? (
+              <form
+                className="space-y-4 rounded-lg border bg-card p-5"
+                onSubmit={selectTenantProvider}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-md border bg-background">
+                    <ProviderLogo provider={tenantProvider} />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold">{tenantProvider.name}</h3>
+                    <p className="text-xs text-muted-foreground">
+                      Create a tenant-specific Work IQ MCP endpoint.
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <div className="font-semibold text-sm">Custom</div>
-                  <div className="text-[10px] text-muted-foreground">Blank form</div>
+                <label className="block space-y-1.5 text-sm">
+                  <span>Microsoft Entra tenant ID</span>
+                  <Input
+                    aria-label="Microsoft Entra tenant ID"
+                    autoFocus
+                    onChange={(event) => {
+                      setTenantId(event.target.value);
+                      setTenantIdError("");
+                    }}
+                    placeholder="00000000-0000-4000-8000-000000000000"
+                    value={tenantId}
+                  />
+                </label>
+                {tenantIdError && (
+                  <p className="text-xs text-destructive" role="alert">
+                    {tenantIdError}
+                  </p>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  Find this GUID in Microsoft Entra admin center under Overview → Tenant ID.
+                </p>
+                <div className="flex justify-end gap-2">
+                  <button
+                    type="button"
+                    className="rounded-md border px-3 py-2 text-sm hover:bg-muted"
+                    onClick={() => {
+                      setTenantProvider(null);
+                      setTenantId("");
+                      setTenantIdError("");
+                    }}
+                  >
+                    Back
+                  </button>
+                  <button
+                    type="submit"
+                    className="rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground hover:bg-primary/90"
+                  >
+                    Add server
+                  </button>
                 </div>
-              </div>
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                Configure any MCP server manually — local process, internal service, or any remote endpoint.
-              </p>
-            </button>
+              </form>
+            ) : (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {filteredBuiltins.map((provider) => (
+                <ProviderTile
+                  key={provider.key}
+                  name={provider.name}
+                  hostname={safeHostname(provider.endpoint)}
+                  description={provider.description}
+                  note={provider.note}
+                  logo={<ProviderLogo provider={provider} />}
+                  accentClass={provider.accentClass}
+                  onClick={() => selectBuiltin(provider)}
+                />
+              ))}
+
+              {filteredCustomEntries.map((entry) => (
+                <ProviderTile
+                  key={entry.id}
+                  name={entry.name}
+                  hostname={safeHostname(entry.endpoint)}
+                  description={entry.description}
+                  logo={<CustomEntryLogo logoUrl={entry.logo_url} />}
+                  accentClass="hover:border-primary/50 hover:bg-primary/5"
+                  onClick={() => selectCustom(entry)}
+                />
+              ))}
+
+              {!hasProviderResults && (
+                <div className="col-span-full rounded-lg border border-dashed px-4 py-8 text-center">
+                  <p className="text-sm font-medium">No MCP providers found</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Try a different name, hostname, or capability.
+                  </p>
+                </div>
+              )}
+
+              {/* Blank form tile */}
+              <button
+                type="button"
+                onClick={() => { onOpenChange(false); onSelectCustom(); }}
+                className="group flex flex-col gap-3 rounded-lg border border-dashed bg-card p-4 text-left transition-colors duration-150 cursor-pointer hover:border-primary/50 hover:bg-primary/5"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-md border bg-background">
+                    <Plus className="h-5 w-5 text-muted-foreground" />
+                  </div>
+                  <div>
+                    <div className="font-semibold text-sm">Custom</div>
+                    <div className="text-[10px] text-muted-foreground">Blank form</div>
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Configure any MCP server manually — local process, internal service, or any remote endpoint.
+                </p>
+              </button>
+            </div>
+            )}
           </div>
         )}
       </DialogContent>
