@@ -672,10 +672,10 @@ class AgentRuntime:
     def _prompt_cache_enabled() -> bool:
         """Whether Bedrock prompt caching is on for this deployment.
 
-        Reads the same env flag ``cnoe_agent_utils.LLMFactory`` uses to select
-        ``ChatBedrockConverse``, so the rehydration middleware's cachePoint
-        insertion stays in lockstep with the LLM's Converse mode — we never emit
-        a cachePoint the underlying client won't honor.
+        Reads the Bedrock-scoped ``AWS_BEDROCK_ENABLE_PROMPT_CACHE`` flag. When
+        set, ``build_middleware`` attaches the native langchain caching
+        middleware matching the resolved Bedrock client (Anthropic or Converse);
+        see ``middleware._build_prompt_cache_middleware``.
         """
         return os.getenv("AWS_BEDROCK_ENABLE_PROMPT_CACHE", "").strip().lower() in {
             "1",
@@ -1063,6 +1063,7 @@ class AgentRuntime:
             self._session_id,
             agent_name=self.config.name,
             model_id=self.config.model.id,
+            model_provider=self.config.model.provider,
             attachment_store=self._get_attachment_store(),
             enable_prompt_cache=self._prompt_cache_enabled(),
         )
@@ -1368,6 +1369,7 @@ class AgentRuntime:
                     self._session_id,
                     agent_name=subagent_config.name,
                     model_id=subagent_config.model.id,
+                    model_provider=subagent_config.model.provider,
                     attachment_store=self._get_attachment_store(),
                     enable_prompt_cache=self._prompt_cache_enabled(),
                 ),

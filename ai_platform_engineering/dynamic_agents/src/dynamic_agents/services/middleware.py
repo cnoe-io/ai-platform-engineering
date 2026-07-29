@@ -22,6 +22,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from cnoe_agent_utils.llm_factory import resolve_bedrock_client
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain.agents.middleware.context_editing import (
     ClearToolUsesEdit,
@@ -34,6 +35,8 @@ from langchain.agents.middleware.pii import PIIMiddleware
 from langchain.agents.middleware.tool_call_limit import ToolCallLimitMiddleware
 from langchain.agents.middleware.tool_retry import ToolRetryMiddleware
 from langchain.agents.middleware.tool_selection import LLMToolSelectorMiddleware
+from langchain_anthropic.middleware.prompt_caching import AnthropicPromptCachingMiddleware
+from langchain_aws.middleware.prompt_caching import BedrockPromptCachingMiddleware
 from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 from langgraph.errors import GraphBubbleUp
 
@@ -160,23 +163,20 @@ class AttachmentRehydrationMiddleware(AgentMiddleware):
     A small in-process LRU keyed by the content-addressed store key avoids
     refetching the same blob across replays within a process.
 
-    When Bedrock prompt caching is enabled, a ``cachePoint`` marker is appended
-    after the last-but-one message so the large, stable historical prefix
-    (system + tools + completed turns and their now-inline file bytes) is cached
-    and only the newest turn is billed uncached. Bedrock allows up to 4 cache
-    points; we insert one, at the newest stable boundary.
+    Prompt caching is handled separately by the native langchain caching
+    middlewares (see ``_build_prompt_cache_middleware``), which set
+    ``model_settings["cache_control"]`` rather than injecting cache markers into
+    message content — so cache markers never leak into the checkpointed state.
     """
 
     def __init__(
         self,
         store: Any,
         *,
-        enable_cache_point: bool = False,
         cache_max_entries: int = 32,
     ) -> None:
         super().__init__()
         self._store = store
-        self._enable_cache_point = enable_cache_point
         self._cache_max_entries = cache_max_entries
         self._lru: "OrderedDict[str, bytes]" = OrderedDict()
 
@@ -240,40 +240,12 @@ class AttachmentRehydrationMiddleware(AgentMiddleware):
                 out.append(message)
         return out, changed
 
-    def _append_cache_point(self, messages: list[BaseMessage]) -> list[BaseMessage]:
-        """Mark the stable prefix for Bedrock prompt caching.
-
-        Appends a ``cachePoint`` content block to the last message of the stable
-        historical prefix (all but the newest message), so everything up to and
-        including that boundary is cached. No-op when there are fewer than two
-        messages (nothing stable to cache).
-        """
-        if len(messages) < 2:
-            return messages
-        boundary = len(messages) - 1  # cache everything before the newest turn
-        target = messages[boundary - 1]
-        content = getattr(target, "content", None)
-        blocks: list[Any] = list(content) if isinstance(content, list) else (
-            [{"type": "text", "text": content}] if isinstance(content, str) and content else []
-        )
-        if not blocks:
-            return messages
-        if any(isinstance(b, Mapping) and "cachePoint" in b for b in blocks):
-            return messages  # already marked
-        blocks.append({"cachePoint": {"type": "default"}})
-        patched = list(messages)
-        patched[boundary - 1] = target.model_copy(update={"content": blocks})
-        return patched
-
     async def awrap_model_call(
         self,
         request: ModelRequest,
         handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
     ) -> ModelResponse:
         messages, changed = self._rehydrate_messages(list(request.messages))
-        if self._enable_cache_point:
-            messages = self._append_cache_point(messages)
-            changed = True
         if not changed:
             return await handler(request)
         return await handler(request.override(messages=messages))
@@ -565,11 +537,37 @@ def get_middleware_definitions() -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 
 
+def _build_prompt_cache_middleware(model_id: str) -> AgentMiddleware | None:
+    """Return the native prompt-caching middleware for the resolved Bedrock client.
+
+    The Bedrock client adapter is selected by ``resolve_bedrock_client`` (the same
+    logic ``LLMFactory`` uses at instantiation time):
+
+    - ``anthropic`` -> ``ChatAnthropicBedrock``: use the langchain_anthropic
+      caching middleware. ``unsupported_model_behavior="warn"`` so an unrecognized
+      model id logs rather than raising and breaking the turn.
+    - ``converse`` -> ``ChatBedrockConverse``: use the langchain_aws caching
+      middleware.
+    - ``legacy`` -> ``ChatBedrock``: no native caching middleware exists; return
+      None (caching is silently unavailable for this client).
+
+    Both middlewares set ``model_settings["cache_control"]`` instead of mutating
+    message content, so cache markers never enter the checkpointed state.
+    """
+    resolved = resolve_bedrock_client(model_id, enable_cache=True)
+    if resolved == "anthropic":
+        return AnthropicPromptCachingMiddleware(unsupported_model_behavior="warn")
+    if resolved == "converse":
+        return BedrockPromptCachingMiddleware()
+    return None
+
+
 def build_middleware(
     features: FeaturesConfig | None,
     session_id: str | None = None,
     agent_name: str = "unknown",
     model_id: str = "unknown",
+    model_provider: str = "unknown",
     attachment_store: Any | None = None,
     enable_prompt_cache: bool = False,
 ) -> list[AgentMiddleware]:
@@ -641,18 +639,22 @@ def build_middleware(
         result.append(instance)
         logger.debug("Middleware '%s' added with params: %s", entry.type, params)
 
-    # Rehydrate attachment references into inline bytes (and mark the cache
-    # prefix) just before the model call. Placed before ToolResultInvariant so
-    # the final pre-model messages carry both the repaired tool history and the
-    # re-inflated file bytes. Only added when a store is configured — otherwise
-    # attachments ride inline and there is nothing to rehydrate.
+    # Rehydrate attachment references into inline bytes just before the model
+    # call. Placed before ToolResultInvariant so the final pre-model messages
+    # carry both the repaired tool history and the re-inflated file bytes. Only
+    # added when a store is configured — otherwise attachments ride inline and
+    # there is nothing to rehydrate.
     if attachment_store is not None:
-        result.append(
-            AttachmentRehydrationMiddleware(
-                attachment_store,
-                enable_cache_point=enable_prompt_cache,
-            )
-        )
+        result.append(AttachmentRehydrationMiddleware(attachment_store))
+
+    # Prompt caching: delegate to the native langchain caching middleware for the
+    # resolved Bedrock client. Gated on the Bedrock provider — OpenAI/Gemini cache
+    # server-side with no client-side breakpoint to insert, and the enable flag
+    # (AWS_BEDROCK_ENABLE_PROMPT_CACHE) is Bedrock-scoped by name.
+    if enable_prompt_cache and model_provider == "aws-bedrock":
+        cache_middleware = _build_prompt_cache_middleware(model_id)
+        if cache_middleware is not None:
+            result.append(cache_middleware)
 
     # Repair tool-call history after configurable middleware edits and before the model.
     result.append(ToolResultInvariantMiddleware())

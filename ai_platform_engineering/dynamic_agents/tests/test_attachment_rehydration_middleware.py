@@ -7,8 +7,8 @@ Two halves of the same invariant: **bytes never enter the checkpoint**.
 - Write path (``_build_user_content`` with a store): a surviving file's block
   carries a ``source: {"store_key": ...}`` reference and no inline base64.
 - Rehydration middleware: on the outgoing model call it re-inflates that
-  reference into an inline base64 block, optionally appends a ``cachePoint``
-  marker, and mutates only the request — the persisted message list is untouched.
+  reference into an inline base64 block and mutates only the request — the
+  persisted message list is untouched.
 """
 
 from __future__ import annotations
@@ -160,58 +160,57 @@ def test_plain_text_messages_pass_through_unchanged(tmp_path):
     assert rebuilt == messages
 
 
-# --- cachePoint insertion ----------------------------------------------------
+# --- prompt-cache middleware selection ---------------------------------------
 
 
-def test_cache_point_appended_to_stable_prefix(tmp_path):
-    store = LocalAttachmentStore(str(tmp_path))
-    mw = AttachmentRehydrationMiddleware(store, enable_cache_point=True)
+def test_prompt_cache_middleware_anthropic_client():
+    from langchain_anthropic.middleware.prompt_caching import (
+        AnthropicPromptCachingMiddleware,
+    )
 
-    messages = [
-        HumanMessage(content=[{"type": "text", "text": "turn 1"}]),
-        AIMessage(content=[{"type": "text", "text": "answer 1"}]),
-        HumanMessage(content=[{"type": "text", "text": "turn 2 (newest)"}]),
-    ]
-    patched = mw._append_cache_point(messages)
+    from dynamic_agents.services.middleware import _build_prompt_cache_middleware
 
-    # Marker lands on the last message of the stable prefix (index len-2),
-    # not the newest turn.
-    marked = patched[1].content
-    assert marked[-1] == {"cachePoint": {"type": "default"}}
-    assert patched[2].content == messages[2].content  # newest turn untouched
+    # An "anthropic" model id resolves to ChatAnthropicBedrock -> anthropic middleware.
+    mw = _build_prompt_cache_middleware("global.anthropic.claude-sonnet-4-5-20250929-v1:0")
+    assert isinstance(mw, AnthropicPromptCachingMiddleware)
 
 
-def test_cache_point_noop_with_fewer_than_two_messages(tmp_path):
-    store = LocalAttachmentStore(str(tmp_path))
-    mw = AttachmentRehydrationMiddleware(store, enable_cache_point=True)
-    messages = [HumanMessage(content=[{"type": "text", "text": "only one"}])]
-    assert mw._append_cache_point(messages) == messages
+def test_prompt_cache_middleware_converse_client():
+    from langchain_aws.middleware.prompt_caching import BedrockPromptCachingMiddleware
+
+    from dynamic_agents.services.middleware import _build_prompt_cache_middleware
+
+    # A non-anthropic model with caching on resolves to ChatBedrockConverse.
+    mw = _build_prompt_cache_middleware("us.amazon.nova-pro-v1:0")
+    assert isinstance(mw, BedrockPromptCachingMiddleware)
 
 
-def test_cache_point_not_duplicated(tmp_path):
-    store = LocalAttachmentStore(str(tmp_path))
-    mw = AttachmentRehydrationMiddleware(store, enable_cache_point=True)
-    messages = [
-        HumanMessage(content=[{"type": "text", "text": "a"}, {"cachePoint": {"type": "default"}}]),
-        HumanMessage(content=[{"type": "text", "text": "newest"}]),
-    ]
-    patched = mw._append_cache_point(messages)
-    markers = [b for b in patched[0].content if isinstance(b, dict) and "cachePoint" in b]
-    assert len(markers) == 1
+def test_prompt_cache_middleware_gated_off_for_non_bedrock_provider(tmp_path):
+    from dynamic_agents.services.middleware import build_middleware
+
+    # enable_prompt_cache is set but provider is not aws-bedrock -> no caching mw.
+    stack = build_middleware(
+        None,
+        model_id="global.anthropic.claude-sonnet-4-5-20250929-v1:0",
+        model_provider="anthropic-claude",
+        enable_prompt_cache=True,
+    )
+    names = [type(m).__name__ for m in stack]
+    assert "AnthropicPromptCachingMiddleware" not in names
+    assert "BedrockPromptCachingMiddleware" not in names
 
 
-def test_cache_point_promotes_string_content_to_blocks(tmp_path):
-    store = LocalAttachmentStore(str(tmp_path))
-    mw = AttachmentRehydrationMiddleware(store, enable_cache_point=True)
-    messages = [
-        HumanMessage(content="plain string prefix"),
-        HumanMessage(content="newest"),
-    ]
-    patched = mw._append_cache_point(messages)
-    blocks = patched[0].content
-    assert isinstance(blocks, list)
-    assert {"type": "text", "text": "plain string prefix"} in blocks
-    assert {"cachePoint": {"type": "default"}} in blocks
+def test_prompt_cache_middleware_attached_for_bedrock_provider(tmp_path):
+    from dynamic_agents.services.middleware import build_middleware
+
+    stack = build_middleware(
+        None,
+        model_id="global.anthropic.claude-sonnet-4-5-20250929-v1:0",
+        model_provider="aws-bedrock",
+        enable_prompt_cache=True,
+    )
+    names = [type(m).__name__ for m in stack]
+    assert "AnthropicPromptCachingMiddleware" in names
 
 
 # --- awrap_model_call integration -------------------------------------------
@@ -251,7 +250,7 @@ async def test_awrap_overrides_request_when_rehydrated(tmp_path):
 
 async def test_awrap_passes_request_through_when_no_change(tmp_path):
     store = LocalAttachmentStore(str(tmp_path))
-    mw = AttachmentRehydrationMiddleware(store)  # cache point disabled
+    mw = AttachmentRehydrationMiddleware(store)
 
     captured: dict[str, Any] = {}
 
@@ -262,6 +261,6 @@ async def test_awrap_passes_request_through_when_no_change(tmp_path):
     req = _FakeRequest([HumanMessage(content="no attachments here")])
     await mw.awrap_model_call(req, handler)  # type: ignore[arg-type]
 
-    # Nothing to rehydrate and no cache point -> original request, no override.
+    # Nothing to rehydrate -> original request passes through, no override.
     assert captured["req"] is req
     assert req.overridden_with is None

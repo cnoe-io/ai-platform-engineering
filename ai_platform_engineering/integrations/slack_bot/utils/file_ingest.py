@@ -157,13 +157,17 @@ def _inaccessible_notice(name: Optional[str], *, scope_hint: bool = False) -> st
     """User-facing string for a file that was attached but couldn't be read.
 
     ``scope_hint`` adds the likely cause (missing ``files:read`` scope) for the
-    HTML-login-page case, which is the most common and most actionable one.
+    HTML-login-page case, which is the most common and most actionable one, plus
+    a pointer to upload the file in the Forge UI instead — the reliable fallback
+    when Slack file access isn't available.
     """
     label = f"'{name}'" if name else "A file"
     if scope_hint:
         return (
             f"{label} was attached but couldn't be accessed — the Slack bot is "
-            f"likely missing the 'files:read' permission, so I can't read it."
+            f"likely missing the 'files:read' permission, so I can't read it. "
+            f"You can upload the file directly in the Forge UI instead, where "
+            f"file access works."
         )
     return f"{label} was attached but couldn't be accessed, so I can't read it."
 

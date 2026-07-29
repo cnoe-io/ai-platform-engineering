@@ -245,10 +245,12 @@ def test_html_login_page_by_content_type_is_skipped(monkeypatch):
     result = fi.download_slack_files(files, bot_token="t")
 
     assert result.files == []
-    # This is the files:read failure — the notice should hint at the scope.
+    # This is the files:read failure — the notice should hint at the scope and
+    # point the user to the Forge UI as the working fallback.
     assert len(result.notices) == 1
     assert "files:read" in result.notices[0]
     assert "x.png" in result.notices[0]
+    assert "Forge UI" in result.notices[0]
 
 
 def test_html_login_page_without_content_type_is_sniffed(monkeypatch):
