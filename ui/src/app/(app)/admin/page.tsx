@@ -26,6 +26,7 @@ import { AccessExplorerTab } from "@/components/admin/security/AccessExplorerTab
 import { RbacSelfCheckTab } from "@/components/admin/security/RbacSelfCheckTab";
 import { UnifiedAuditTab } from "@/components/admin/security/UnifiedAuditTab";
 import { ImportAgentsFromConfigCard } from "@/components/admin/settings/ImportAgentsFromConfigCard";
+import { ImportRagSourcesFromConfigCard } from "@/components/admin/settings/ImportRagSourcesFromConfigCard";
 import { MCPCatalogSettingsCard } from "@/components/admin/settings/MCPCatalogSettingsCard";
 import { PlatformSettingsTab } from "@/components/admin/settings/PlatformSettingsTab";
 import { ReleaseNotesSettingsTab } from "@/components/admin/settings/ReleaseNotesSettingsTab";
@@ -1861,6 +1862,10 @@ function AdminPage() {
               {tabGateValues.agents && (
                 <TabsContent value="agents" className="space-y-4">
                   <ImportAgentsFromConfigCard
+                    isAdmin={effectiveOrganizationAdmin}
+                    readOnly={isSimulationActive}
+                  />
+                  <ImportRagSourcesFromConfigCard
                     isAdmin={effectiveOrganizationAdmin}
                     readOnly={isSimulationActive}
                   />

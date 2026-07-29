@@ -623,7 +623,12 @@ const INGESTION_SOURCE_TYPES: readonly IngestionSourceType[] = [
  * absent, so the caller can skip the entry the same way `seedAgents` skips
  * entries missing `id`.
  */
-function extractRagSourceTypeFields(
+/**
+ * Exported so the `migrate-from-config` admin preview route can compute the
+ * same deterministic `source_id` for a raw YAML entry without duplicating
+ * the per-type identity-field switch.
+ */
+export function extractRagSourceTypeFields(
   sourceData: Record<string, unknown>,
 ): { identity: IngestionSourceIdentity; fields: Record<string, unknown> } | null {
   const sourceType = sourceData.source_type as IngestionSourceType | undefined;
@@ -763,28 +768,50 @@ async function seedRagSources(
   return count;
 }
 
+/** Why a source_id was skipped by {@link adoptConfigImportedRagSources}. */
+export type RagSourceAdoptSkipReason = "not_found" | "not_config_driven" | "already_adopted";
+
+export interface RagSourceAdoptSkip {
+  source_id: string;
+  reason: RagSourceAdoptSkipReason;
+}
+
 /**
  * Adopt a set of config-driven rag ingestion sources into the DB as the
- * source of truth. Mirrors `adoptConfigImportedAgents` exactly: only sources
- * currently `{config_driven: true, config_import_adopted: {$ne: true}}` are
- * eligible — already-adopted or DB-native sources are skipped so a re-run
- * (or an overlapping id list) can't silently reassign teams on sources
- * outside the batch the admin picked.
+ * source of truth. Mirrors `adoptConfigImportedAgents`'s eligibility guard
+ * (only sources currently `{config_driven: true, config_import_adopted:
+ * {$ne: true}}` are eligible, so a re-run or an overlapping id list can't
+ * silently reassign teams on sources outside the batch the admin picked),
+ * but reports *why* each id was skipped — the migrate-from-config admin
+ * preview needs to distinguish "already adopted" (fine, no-op) from "not
+ * found" / "not config-driven" (caller error) rather than lumping them
+ * together as `adoptConfigImportedAgents` does.
  */
 export async function adoptConfigImportedRagSources(
   sourceIds: string[],
   teamAssignment: { ownerTeamSlug: string | null; sharedTeamSlugs: string[] },
-): Promise<{ adopted: string[]; skipped: string[] }> {
+): Promise<{ adopted: string[]; skipped: RagSourceAdoptSkip[] }> {
   const collection = await getCollection<IngestionSourceConfig>("rag_ingestion_sources");
   const ownerTeamSlug = teamAssignment.ownerTeamSlug;
   const sharedTeamSlugs = teamAssignment.sharedTeamSlugs.filter((slug) => slug !== ownerTeamSlug);
   const adopted: string[] = [];
-  const skipped: string[] = [];
+  const skipped: RagSourceAdoptSkip[] = [];
 
   for (const sourceId of sourceIds) {
     const existing = await collection.findOne({ source_id: sourceId } as never);
-    if (!existing || existing.config_driven !== true || existing.config_import_adopted === true) {
-      skipped.push(sourceId);
+    if (!existing) {
+      skipped.push({ source_id: sourceId, reason: "not_found" });
+      continue;
+    }
+    // Adoption flips config_driven to false, so an already-adopted record
+    // also fails the config_driven check below — check config_import_adopted
+    // first so its skip reason takes precedence.
+    if (existing.config_import_adopted === true) {
+      skipped.push({ source_id: sourceId, reason: "already_adopted" });
+      continue;
+    }
+    if (existing.config_driven !== true) {
+      skipped.push({ source_id: sourceId, reason: "not_config_driven" });
       continue;
     }
 

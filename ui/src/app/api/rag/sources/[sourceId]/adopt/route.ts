@@ -63,7 +63,7 @@ export const POST = withErrorHandler(
       ownerTeamSlug,
       sharedTeamSlugs,
     });
-    if (skipped.includes(sourceId)) {
+    if (skipped.some((s) => s.source_id === sourceId)) {
       throw new ApiError(
         "Source is not eligible for adoption (already adopted or not config-driven)",
         409,
