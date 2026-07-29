@@ -26,6 +26,17 @@ from pymongo.errors import OperationFailure
 logger = logging.getLogger(__name__)
 
 
+def _coerce_namespace(namespace: Iterable[object]) -> list[str]:
+    """Coerce namespace components to plain strings before use in a Mongo query.
+
+    Callers ultimately source namespace components from external input (e.g.
+    request path/query params). Forcing each component to `str` before it
+    reaches a query dict prevents NoSQL operator injection ($ne, $where, ...)
+    if a component were ever an unvalidated dict instead of a string.
+    """
+    return [str(component) for component in namespace]
+
+
 class MongoDBGridFSStore(BaseStore):
     """BaseStore implementation backed by MongoDB GridFS.
 
@@ -71,7 +82,7 @@ class MongoDBGridFSStore(BaseStore):
         return await asyncio.to_thread(self.batch, ops)
 
     def _handle_get(self, op: GetOp) -> Item | None:
-        namespace = list(op.namespace)
+        namespace = _coerce_namespace(op.namespace)
         logger.debug(f"[gridfs] GET namespace={op.namespace} key={op.key}")
         doc = self._files_collection.find_one({"metadata.namespace": namespace, "metadata.key": op.key})
         if doc is None:
@@ -91,7 +102,7 @@ class MongoDBGridFSStore(BaseStore):
         )
 
     def _handle_put(self, op: PutOp) -> None:
-        namespace = list(op.namespace)
+        namespace = _coerce_namespace(op.namespace)
         # Delete existing file(s) with same namespace+key
         for doc in self._files_collection.find({"metadata.namespace": namespace, "metadata.key": op.key}):
             self._fs.delete(doc["_id"])
@@ -113,7 +124,7 @@ class MongoDBGridFSStore(BaseStore):
         logger.debug(f"[gridfs] PUT namespace={op.namespace} key={op.key} size={len(content)}")
 
     def _handle_search(self, op: SearchOp) -> list[SearchItem]:
-        namespace_prefix = list(op.namespace_prefix)
+        namespace_prefix = _coerce_namespace(op.namespace_prefix)
         logger.debug(f"[gridfs] SEARCH namespace_prefix={op.namespace_prefix} limit={op.limit} offset={op.offset}")
         prefix_len = len(namespace_prefix)
 
@@ -177,7 +188,7 @@ class MongoDBGridFSStore(BaseStore):
                 if cond.match_type == "prefix":
                     for i, component in enumerate(cond.path):
                         if component != "*":
-                            match_filters.append({f"metadata.namespace.{i}": component})
+                            match_filters.append({f"metadata.namespace.{i}": str(component)})
                 elif cond.match_type == "suffix":
                     # Suffix matching requires post-filtering
                     pass
@@ -208,7 +219,7 @@ class MongoDBGridFSStore(BaseStore):
 
     def delete_by_namespace(self, namespace: tuple[str, ...]) -> int:
         """Delete all files in a namespace. Returns count of deleted files."""
-        namespace_list = list(namespace)
+        namespace_list = _coerce_namespace(namespace)
         count = 0
         for doc in self._files_collection.find({"metadata.namespace": namespace_list}):
             self._fs.delete(doc["_id"])
@@ -217,7 +228,7 @@ class MongoDBGridFSStore(BaseStore):
 
     def delete_by_key_prefix(self, namespace: tuple[str, ...], prefix: str) -> int:
         """Delete all files in a namespace whose key starts with prefix."""
-        namespace_list = list(namespace)
+        namespace_list = _coerce_namespace(namespace)
         query = {
             "metadata.namespace": namespace_list,
             "metadata.key": {"$regex": f"^{re.escape(prefix)}"},
