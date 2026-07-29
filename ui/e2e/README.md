@@ -47,14 +47,45 @@ GRID_SSO_EMAIL="you@cisco.com" \
 GRID_SAVE_STORAGE_STATE="./e2e/.auth/grid-prod.json" \
 GRID_CHAT_URL="https://grid.outshift.io/chat" \
 GRID_SCENARIOS_PATH="./e2e/fixtures/grid-prod-scenarios.example.json" \
-npm run test:e2e:ui
+npm run test:e2e:grid:ui
+```
+
+The GRID UI script launches your installed Google Chrome app by default because
+macOS Local Network permissions are tied to the browser app bundle. If Duo says
+it needs local-network permission, enable **Google Chrome** under **System
+Settings > Privacy & Security > Local Network**. Depending on the macOS prompt,
+the entry can also appear as **Duo Desktop**.
+
+Live chat execution can pause for human approval or required fields. In
+Playwright UI mode, click **Approve** on any tool-approval card, then complete
+any **Input Required** form and click **Submit**. For the LLM key flow this may
+include fields such as **Key Type** and **Model**.
+
+The live spec dismisses nuisance popups by default, including browser
+`alert`/`confirm`/`prompt` dialogs, release/cookie/tour modals, and notification
+prompts. It does not dismiss SSO pages, tool approvals, or input-required forms.
+Set `GRID_DISMISS_POPUPS=false` when you need to inspect a popup manually.
+
+To let Playwright approve tool calls automatically after you run a scenario:
+
+```bash
+npm run test:e2e:grid:ui:approve
+```
+
+To also supply input-form values automatically:
+
+```bash
+GRID_HITL_FORM_VALUES_JSON='{"key_type":"individual","model":"gpt-4o-mini"}' \
+npm run test:e2e:grid:ui:approve
 ```
 
 When the GRID login page appears, the spec clicks **Sign in with SSO**. Complete
 Cisco/Duo login in the Playwright browser window and wait for GRID chat to load.
 If `GRID_SSO_EMAIL` is set, the spec fills the Duo email step and clicks
-**Next** before handing control back for password and MFA. The test saves the
-resulting session to `GRID_SAVE_STORAGE_STATE`.
+**Next** before handing control back for password and MFA. If the SSO page asks
+for input the script cannot safely automate, type it directly in the Playwright
+browser window; the test keeps waiting for GRID chat until `GRID_AUTH_TIMEOUT_MS`
+expires. The test saves the resulting session to `GRID_SAVE_STORAGE_STATE`.
 
 You can also create a local storage-state file ahead of time:
 

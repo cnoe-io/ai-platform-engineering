@@ -3,6 +3,7 @@ export interface GridProdScenario {
   area: "workflow" | "deployment-validation" | "integration";
   name: string;
   prompt: string;
+  livePrompt?: string;
   expectedResponse: string[];
   liveExpected?: string[];
 }
@@ -21,6 +22,11 @@ export const gridProdWorkflowScenarios: GridProdScenario[] = [
     area: "workflow",
     name: "Create LLM key",
     prompt: "Create a GRID prod LiteLLM key and validate gateway access",
+    livePrompt: [
+      "Execute skill: Create LLM Key",
+      "",
+      "Create a GRID prod LiteLLM key for deployment smoke testing and validate gateway access.",
+    ].join("\n"),
     expectedResponse: ["LiteLLM Key Validation", "Smoke test completed"],
     liveExpected: ["LiteLLM", "key"],
   },
