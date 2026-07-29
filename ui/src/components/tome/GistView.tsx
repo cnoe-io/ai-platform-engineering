@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ArrowLeft, Loader2, Trash2 } from "lucide-react";
+import { ArrowLeft, Link2, Loader2, Trash2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { CopyButton } from "@/components/ui/copy-button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { MarkdownRenderer } from "@/components/shared/timeline";
 import { TomeLoading } from "@/components/tome/TomeLoading";
@@ -85,7 +86,30 @@ export function GistView({
           <ArrowLeft className="h-4 w-4" />
           Gists
         </Button>
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-1">
+          {gist && (
+            <>
+              <CopyButton
+                value={() => `${window.location.origin}/projects/${slug}/tome/gists/${id}`}
+                label="Share"
+                copiedLabel="Link copied"
+                icon={Link2}
+                size="sm"
+                className="h-auto px-2 py-1 text-muted-foreground"
+              >
+                Share
+              </CopyButton>
+              <CopyButton
+                value={() => gist.body}
+                label="Copy page"
+                copiedLabel="Copied"
+                size="sm"
+                className="h-auto px-2 py-1 text-muted-foreground"
+              >
+                Copy page
+              </CopyButton>
+            </>
+          )}
           {gist && canEdit && (
             <Button
               variant="ghost"

@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { FileText, Loader2, Plus, Trash2, X } from "lucide-react";
+import { FileText, Link2, Loader2, Plus, Trash2, X } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { CopyButton } from "@/components/ui/copy-button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -200,17 +201,26 @@ export function GistsPanel({
                       </div>
                     )}
                   </div>
-                  {canEdit && (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 shrink-0 text-muted-foreground/60 hover:text-destructive"
-                      aria-label="Delete gist"
-                      onClick={() => void remove(gist)}
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
-                  )}
+                  <div className="flex shrink-0 items-center gap-0.5">
+                    <CopyButton
+                      value={() => `${window.location.origin}/projects/${slug}/tome/gists/${gist.id}`}
+                      label="Copy link to this gist"
+                      copiedLabel="Link copied"
+                      icon={Link2}
+                      className="h-7 w-7 text-muted-foreground/60"
+                    />
+                    {canEdit && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-muted-foreground/60 hover:text-destructive"
+                        aria-label="Delete gist"
+                        onClick={() => void remove(gist)}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                  </div>
                 </li>
               ))}
             </ul>
