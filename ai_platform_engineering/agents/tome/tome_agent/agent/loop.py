@@ -369,7 +369,15 @@ def build_agent_options(
         readable_projects=snapshot.readable_projects,
     )
     if agent_role == "viewer":
-        allowed = ["Read", "Glob", "Grep", *WEB_TOOLS, "mcp__tome__get_page_templates"]
+        allowed = [
+            "Read",
+            "Glob",
+            "Grep",
+            *WEB_TOOLS,
+            "mcp__tome__get_page_templates",
+            "mcp__tome__list_gists",
+            "mcp__tome__get_gist",
+        ]
     else:
         allowed = [*WIKI_TOOLS, *WEB_TOOLS]
         # Editors get the Bash-free tombstone tool for curating collections
@@ -383,6 +391,8 @@ def build_agent_options(
                 "mcp__tome__list_projects",
                 "mcp__tome__list_project_pages",
                 "mcp__tome__read_project_page",
+                "mcp__tome__list_gists",
+                "mcp__tome__get_gist",
             ]
         )
 

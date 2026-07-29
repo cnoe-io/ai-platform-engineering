@@ -187,6 +187,33 @@ async def delete_page(
         resp.raise_for_status()
 
 
+async def list_gists(project_id: str | None = None) -> list[dict[str, Any]]:
+    """List a project's gists (metadata only — no bodies) as `[{id, title,
+    author, created_at, tags}]`, newest first. Backs the chat agent's
+    `list_gists` tool so it can see what gists exist before fetching one."""
+    pid = project_id or _project_id()
+    url = f"{_backend_url()}/api/internal/projects/{pid}/gists"
+    async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
+        resp = await client.get(url, headers=_auth_headers())
+        resp.raise_for_status()
+        data = resp.json()
+        gists = data.get("gists") if isinstance(data, dict) else None
+        return gists if isinstance(gists, list) else []
+
+
+async def get_gist(gist_id: str, project_id: str | None = None) -> dict[str, Any] | None:
+    """Fetch one gist's full body by id, or None if it doesn't exist (or
+    belongs to a different project). Backs the chat agent's `get_gist` tool."""
+    pid = project_id or _project_id()
+    url = f"{_backend_url()}/api/internal/projects/{pid}/gists"
+    async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
+        resp = await client.get(url, headers=_auth_headers(), params={"id": gist_id})
+        resp.raise_for_status()
+        data = resp.json()
+        gist = data.get("gist") if isinstance(data, dict) else None
+        return gist if isinstance(gist, dict) else None
+
+
 async def append_log(run_id: UUID, line: str) -> None:
     """Best-effort log append. Failures are logged and swallowed — losing
     a log line is acceptable; failing the run is not."""

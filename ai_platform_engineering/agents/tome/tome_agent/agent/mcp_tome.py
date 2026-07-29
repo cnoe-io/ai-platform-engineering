@@ -23,6 +23,13 @@ Tools:
   all today, so this gives chat (and ingest, if it wants a second look) an
   on-demand way to answer "what does the current template look like" instead
   of only ever seeing a hardcoded page list. Read-only, no args.
+- `list_gists` / `get_gist`: read a project's gists — lightweight,
+  non-committal context chunks (a prompt, an agent memory, a snippet) that
+  stay out of the wiki/ingest/agent-context by default. Without these, gists
+  are invisible to chat entirely (they only surface via the Feed or MCP), so
+  a user referencing one in conversation ("check the deploy-notes gist") had
+  no way to actually be answered. Read-only, available to both editor and
+  viewer roles.
 
 Deletion is a TOMBSTONE, not an `rm`: the backend appends a deleted revision
 (reversible, history preserved) — no filesystem delete that could desync the
@@ -233,6 +240,44 @@ def build_tome_mcp(
             return _err(f"`{path}` does not exist in project `{slug}`.")
         return _ok({"project_slug": slug, "path": path, "markdown": pages[path]})
 
+    @tool(
+        "list_gists",
+        "List this project's gists — lightweight, non-committal context "
+        "chunks (a prompt, an agent memory, a snippet) that stay OUT of the "
+        "wiki and are never auto-loaded into your context. Returns metadata "
+        "only (`id`, `title`, `author`, `created_at`, `tags`), newest first — "
+        "use `get_gist` to read one's body. Use this when the user references "
+        "a gist by name/topic and you need to find its id.",
+        {},
+    )
+    async def list_gists(_args: dict) -> dict[str, Any]:
+        try:
+            gists = await http_client.list_gists(project_id)
+        except Exception as e:
+            log.warning("list_gists failed", exc_info=True)
+            return _err(f"could not list gists: {type(e).__name__}: {e}")
+        return _ok(gists)
+
+    @tool(
+        "get_gist",
+        "Read one gist's full body by `id` (from `list_gists`). Gists are "
+        "not part of the wiki — treat this as a one-off, user-scoped context "
+        "pull, not a source you cite the way you'd cite a wiki page.",
+        {"id": str},
+    )
+    async def get_gist(args: dict) -> dict[str, Any]:
+        gist_id = str(args.get("id") or "").strip()
+        if not gist_id:
+            return _err("`id` is required.")
+        try:
+            gist = await http_client.get_gist(gist_id, project_id)
+        except Exception as e:
+            log.warning("get_gist failed for %s", gist_id, exc_info=True)
+            return _err(f"could not read gist `{gist_id}`: {type(e).__name__}: {e}")
+        if not gist:
+            return _err(f"no gist with id `{gist_id}` in this project.")
+        return _ok(gist)
+
     return create_sdk_mcp_server(
         name="tome",
         version="0.1.0",
@@ -242,5 +287,7 @@ def build_tome_mcp(
             list_projects,
             list_project_pages,
             read_project_page,
+            list_gists,
+            get_gist,
         ],
     )
