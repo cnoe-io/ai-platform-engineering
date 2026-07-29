@@ -16,6 +16,7 @@ const mockRequireAgentPermission = jest.fn();
 const mockCanTransferResourceOwnership = jest.fn();
 const mockReconcileAgentRelationships = jest.fn();
 const mockDeleteAllAgentToolTuples = jest.fn();
+const mockCascadeDeleteAutonomousTasksForAgent = jest.fn();
 const mockAuthenticateRequest = jest.fn();
 const mockGetDynamicAgentsConfig = jest.fn();
 const mockProxyRequest = jest.fn();
@@ -96,6 +97,11 @@ jest.mock("@/lib/rbac/openfga-agent-tools", () => ({
   reconcileAgentRelationships: (...args: unknown[]) => mockReconcileAgentRelationships(...args),
 }));
 
+jest.mock("@/lib/dynamic-agents/autonomousTaskCascade", () => ({
+  cascadeDeleteAutonomousTasksForAgent: (...args: unknown[]) =>
+    mockCascadeDeleteAutonomousTasksForAgent(...args),
+}));
+
 jest.mock("@/lib/rbac/openfga", () => ({
   writeOpenFgaTuples: (...args: unknown[]) => mockWriteOpenFgaTuples(...args),
 }));
@@ -141,6 +147,7 @@ describe("dynamic agents RBAC routes", () => {
     mockCanTransferResourceOwnership.mockResolvedValue(true);
     mockReconcileAgentRelationships.mockResolvedValue(undefined);
     mockDeleteAllAgentToolTuples.mockResolvedValue(undefined);
+    mockCascadeDeleteAutonomousTasksForAgent.mockResolvedValue({ attempted: 0, deleted: 0 });
     mockWriteOpenFgaTuples.mockResolvedValue({ enabled: true, writes: 1, deletes: 0 });
     mockIsPlatformDefaultAgent.mockResolvedValue(false);
     mockGetPlatformDefaultAgentId.mockResolvedValue(null);
@@ -1210,8 +1217,37 @@ describe("dynamic agents RBAC routes", () => {
 
     expect(response.status).toBe(200);
     expect(mockRequireAgentPermission).toHaveBeenCalledWith(session, "agent-1", "delete");
+    // Autonomous-task cleanup must run, and must run before the agent doc /
+    // OpenFGA tuples are removed, so a cascade failure (next test) can
+    // safely abort with everything still intact.
+    expect(mockCascadeDeleteAutonomousTasksForAgent).toHaveBeenCalledWith("agent-1");
     expect(mockDeleteAllAgentToolTuples).toHaveBeenCalledWith("agent-1");
     expect(deleteOne).toHaveBeenCalledWith({ _id: "agent-1" });
+    const cascadeOrder = mockCascadeDeleteAutonomousTasksForAgent.mock.invocationCallOrder[0];
+    const tupleDeleteOrder = mockDeleteAllAgentToolTuples.mock.invocationCallOrder[0];
+    const docDeleteOrder = deleteOne.mock.invocationCallOrder[0];
+    expect(cascadeOrder).toBeLessThan(tupleDeleteOrder);
+    expect(cascadeOrder).toBeLessThan(docDeleteOrder);
+  });
+
+  it("aborts agent deletion when autonomous-task cascade cleanup fails", async () => {
+    const deleteOne = jest.fn();
+    mockGetCollection.mockResolvedValue({
+      findOne: jest.fn().mockResolvedValue({ _id: "agent-1", is_system: false, config_driven: false }),
+      deleteOne,
+    });
+    mockCascadeDeleteAutonomousTasksForAgent.mockRejectedValue(new Error("upstream down"));
+    const { DELETE } = await import("../route");
+
+    const response = await DELETE(request("/api/dynamic-agents?id=agent-1", { method: "DELETE" }));
+
+    expect(response.status).toBe(502);
+    expect(await response.json()).toMatchObject({
+      success: false,
+      code: "AUTONOMOUS_TASK_CASCADE_FAILED",
+    });
+    expect(mockDeleteAllAgentToolTuples).not.toHaveBeenCalled();
+    expect(deleteOne).not.toHaveBeenCalled();
   });
 
   // Platform-default agent invariant: an admin can pick an agent in
@@ -1383,6 +1419,7 @@ describe("dynamic agents RBAC routes", () => {
       code: "AGENT_IS_PLATFORM_DEFAULT",
     });
     expect(mockIsPlatformDefaultAgent).toHaveBeenCalledWith("agent-default");
+    expect(mockCascadeDeleteAutonomousTasksForAgent).not.toHaveBeenCalled();
     expect(mockDeleteAllAgentToolTuples).not.toHaveBeenCalled();
     expect(deleteOne).not.toHaveBeenCalled();
   });

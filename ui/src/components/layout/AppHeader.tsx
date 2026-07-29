@@ -13,6 +13,7 @@ PopoverTrigger,
 } from "@/components/ui/popover";
 import { UserMenu } from "@/components/user-menu";
 import { useAdminRole } from "@/hooks/use-admin-role";
+import { useAutonomousCapability } from "@/hooks/use-autonomous-capability";
 import { useAgentRuntimeHealth } from "@/hooks/use-agent-runtime-health";
 import { useKeycloakHealthSummary } from "@/hooks/use-keycloak-health-summary";
 import { useMigrationStatus } from "@/hooks/use-migration-status";
@@ -143,6 +144,7 @@ export function AppHeader() {
   const shouldReduceMotion = useReducedMotion();
   const { data: session } = useSession();
   const { isAdmin } = useAdminRole();
+  const { canUseAutonomous } = useAutonomousCapability();
   const { streamingConversations, unviewedConversations, inputRequiredConversations, conversations, activeConversationId } = useChatStore();
   const chatHref = React.useMemo(
     () => resolveChatNavigationPath({ conversations, activeConversationId }),
@@ -282,6 +284,7 @@ export function AppHeader() {
     if (pathname?.startsWith("/workflows")) return "workflows";
     if (pathname?.startsWith("/skills") || pathname?.startsWith("/use-cases")) return "skills";
     if (pathname?.startsWith("/dynamic-agents")) return "dynamic-agents";
+    if (pathname?.startsWith("/autonomous")) return "autonomous";
     if (pathname?.startsWith("/schedules")) return "schedules";
     if (pathname?.startsWith("/admin")) return "admin";
     return "home";
@@ -406,6 +409,14 @@ export function AppHeader() {
       Icon: Bot,
       activeTextClassName: "text-white",
       activeIndicatorClassName: "bg-violet-600 shadow-sm",
+    },
+    config.autonomousAgentsEnabled && canUseAutonomous && {
+      key: "autonomous",
+      href: "/autonomous",
+      label: "Autonomous",
+      Icon: Sparkles,
+      activeTextClassName: "text-white",
+      activeIndicatorClassName: "bg-fuchsia-600 shadow-sm",
     },
     storageMode === "mongodb" &&
       config.dynamicAgentsEnabled &&

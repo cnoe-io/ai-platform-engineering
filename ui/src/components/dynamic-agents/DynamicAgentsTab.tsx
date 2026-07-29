@@ -38,6 +38,8 @@ const DEFAULT_ROW_PERMISSIONS = {
   can_manage: false,
   can_write: false,
   can_discover: false,
+  can_schedule: false,
+  can_automate: false,
 } as const;
 
 function agentCanEdit(agent: DynamicAgentConfigWithPermissions | null | undefined): boolean {
@@ -242,6 +244,7 @@ export function DynamicAgentsTab({
       }));
     }
   };
+
 
   /**
    * Export agent configuration as YAML file.

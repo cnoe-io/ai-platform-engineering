@@ -10,15 +10,18 @@ ApiError,
 getAuthFromBearerOrSession,
 getPaginationParams,
 paginatedResponse,
+requireRbacPermission,
 successResponse,
 withErrorHandler,
 } from "@/lib/api-middleware";
+import { findUserRoleInTeam } from "@/lib/rbac/team-membership-store";
 import { getCollection } from "@/lib/mongodb";
 import {
 allowedToolsFromAgent,
 deleteAllAgentToolTuples,
 reconcileAgentRelationships,
 } from "@/lib/rbac/openfga-agent-tools";
+import { cascadeDeleteAutonomousTasksForAgent } from "@/lib/dynamic-agents/autonomousTaskCascade";
 import { filterAgentsByOwnershipScopeForSession } from "@/lib/rbac/agent-ownership-scope";
 import { caipeOrgKey } from "@/lib/rbac/organization";
 import { getPlatformDefaultAgentId,isPlatformDefaultAgent } from "@/lib/rbac/platform-default";
@@ -360,7 +363,7 @@ async function validateSubagentVisibility(
  * - search=<string>: Filter agents by name or description (case-insensitive)
  */
 export const GET = withErrorHandler(async (request: NextRequest) => {
-  const { session } = await getAuthFromBearerOrSession(request);
+  const { user, session } = await getAuthFromBearerOrSession(request);
 
     const collection =
       await getCollection<DynamicAgentConfig>(COLLECTION_NAME);
@@ -409,9 +412,46 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       session,
       pageItems.map((agent) => String(agent._id)),
     );
+
+    // can_automate — may the caller flip per-agent autonomous enablement?
+    // Platform admins or admins of the agent's owner team only. Deliberately
+    // narrower than can_manage: the team "Manage" grant extends can_manage to
+    // every member, but enabling autonomous for the whole team is a
+    // team-admin decision (mirrors the automation route's server-side gate).
+    let isPlatformAdmin = false;
+    try {
+      await requireRbacPermission(session, "admin_ui", "admin");
+      isPlatformAdmin = true;
+    } catch {
+      isPlatformAdmin = false;
+    }
+    const ownerSlugs = [
+      ...new Set(
+        pageItems
+          .map((agent) => agent.owner_team_slug)
+          .filter((slug): slug is string => typeof slug === "string" && slug.length > 0),
+      ),
+    ];
+    const adminOfTeams = new Set<string>();
+    if (!isPlatformAdmin && user?.email && ownerSlugs.length > 0) {
+      const roles = await Promise.all(
+        ownerSlugs.map(async (slug) =>
+          [slug, await findUserRoleInTeam(slug, { user_email: user.email })] as const,
+        ),
+      );
+      for (const [slug, role] of roles) {
+        if (role === "admin") adminOfTeams.add(slug);
+      }
+    }
+
     const items: DynamicAgentConfigWithPermissions[] = pageItems.map((agent) => ({
       ...(agent as DynamicAgentConfig),
-      permissions: agentRowPermissionsOrDefault(rows, String(agent._id)),
+      permissions: {
+        ...agentRowPermissionsOrDefault(rows, String(agent._id)),
+        can_automate:
+          isPlatformAdmin ||
+          (typeof agent.owner_team_slug === "string" && adminOfTeams.has(agent.owner_team_slug)),
+      },
     }));
 
     return paginatedResponse(
@@ -857,6 +897,24 @@ export const DELETE = withErrorHandler(async (request: NextRequest) => {
         PLATFORM_DEFAULT_DELETE_ERROR,
         409,
         "AGENT_IS_PLATFORM_DEFAULT",
+      );
+    }
+
+    // Autonomous tasks are owned by a separate service (autonomous-agents)
+    // keyed on this agent's id. Cascade-delete them BEFORE removing the
+    // agent doc / OpenFGA tuples, and abort on failure: agent ids are
+    // deterministic slugs of the name, so an orphaned task left behind here
+    // would silently reappear (and start firing again) under any future
+    // agent recreated with the same name. Fail-closed keeps the whole
+    // operation safely retryable — nothing below has run yet.
+    try {
+      await cascadeDeleteAutonomousTasksForAgent(id);
+    } catch (err) {
+      console.warn("[dynamic-agents] autonomous-task cascade delete failed:", err);
+      throw new ApiError(
+        "Failed to remove autonomous tasks for this agent. Deletion aborted; retry once the autonomous-agents service is reachable.",
+        502,
+        "AUTONOMOUS_TASK_CASCADE_FAILED",
       );
     }
 

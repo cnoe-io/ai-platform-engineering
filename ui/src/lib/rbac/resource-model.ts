@@ -66,7 +66,7 @@ export const UNIVERSAL_REBAC_RESOURCE_TYPES: readonly UniversalRebacResourceType
   },
   {
     type: "agent",
-    actions: ["discover", "read", "use", "write", "create", "manage", "audit"],
+    actions: ["discover", "read", "use", "write", "create", "manage", "audit", "schedule"],
     description: "Agent execution and configuration resource.",
   },
   {
