@@ -57,9 +57,16 @@ Settings > Privacy & Security > Local Network**. Depending on the macOS prompt,
 the entry can also appear as **Duo Desktop**.
 
 Live chat execution can pause for human approval or required fields. In
-Playwright UI mode, click **Approve** on any tool-approval card, then complete
-any **Input Required** form and click **Submit**. For the LLM key flow this may
-include fields such as **Key Type** and **Model**.
+Playwright UI mode, click **Approve** on any tool-approval card. The bundled
+GRID prod scenario fixture includes default values for common **Input Required**
+fields across SRE debug, LiteLLM key, AWS, S3, GitHub, deploy, Jira, Knowledge
+Base/RAG, ArgoCD, LLM Gateway, session persistence, graceful degradation, and
+Webex flows. Resource names include `{{run_id}}`, which resolves to a timestamp
+unless you set `GRID_TEST_RUN_ID`. When GRID shows **Waiting for user
+response**, the spec sends the scenario defaults back through the chat input by
+default. Set `GRID_AUTO_RESPOND_TO_USER_INPUT=false` to make those follow-up
+questions manual, or adjust `GRID_MAX_AUTO_USER_RESPONSES` when a workflow needs
+more than five follow-up replies.
 
 The live spec dismisses nuisance popups by default, including browser
 `alert`/`confirm`/`prompt` dialogs, release/cookie/tour modals, and notification
@@ -78,6 +85,17 @@ To also supply input-form values automatically:
 GRID_HITL_FORM_VALUES_JSON='{"key_type":"individual","model":"gpt-4o-mini"}' \
 npm run test:e2e:grid:ui:approve
 ```
+
+Use `GRID_HITL_FORM_VALUES_JSON` for global overrides, or set a per-scenario
+override named from the scenario id. For example:
+
+```bash
+GRID_CREATE_EC2_INSTANCE_HITL_FORM_VALUES_JSON='{"region":"us-west-2","instance_type":"t3.micro"}' \
+npm run test:e2e:grid:ui:approve
+```
+
+For plain chat follow-up answers, use `GRID_HITL_RESPONSE` globally or a
+per-scenario variable such as `GRID_CREATE_LLM_KEY_HITL_RESPONSE`.
 
 The `Create Jira ticket` scenario includes default input-required values:
 project key `SRE`, issue type `Task`, a GRID prod testing summary/description,
