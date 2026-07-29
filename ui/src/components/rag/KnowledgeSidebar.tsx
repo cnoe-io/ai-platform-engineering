@@ -5,7 +5,7 @@ import {
   type WorkspaceNavigationGroup,
 } from "@/components/layout/WorkspaceNavigation";
 import { useKbTabGates } from "@/hooks/use-kb-tab-gates";
-import { Database,GitFork,Search,Wrench } from "lucide-react";
+import { Database,GitFork,Plug,Search,Wrench } from "lucide-react";
 import { usePathname } from "next/navigation";
 
 interface KnowledgeSidebarProps {
@@ -49,11 +49,19 @@ export const KNOWLEDGE_NAV_ITEMS: Array<{
     icon: Wrench,
     description: "Configure MCP search tools",
   },
+  {
+    id: "ingestion-sources",
+    label: "Ingestion Sources",
+    href: "/knowledge-bases/ingestion-sources",
+    icon: Plug,
+    description: "Manage where content is ingested from",
+  },
 ];
 
 export function knowledgeTabForPath(pathname: string | null): string {
   if (!pathname?.startsWith("/knowledge-bases")) return "";
   if (pathname?.includes("/mcp-tools")) return "mcp-tools";
+  if (pathname?.includes("/ingestion-sources")) return "ingestion-sources";
   if (pathname?.includes("/ingest")) return "ingest";
   if (pathname?.includes("/graph")) return "graph";
   return "search";

@@ -236,7 +236,8 @@ export type KbTabKey =
   | "search"
   | "data_sources"
   | "graph"
-  | "mcp_tools";
+  | "mcp_tools"
+  | "ingestion_sources";
 
 /**
  * Per-tab visibility gates returned by GET /api/rbac/kb-tab-gates.
@@ -247,6 +248,11 @@ export interface KbTabGatesMap {
   data_sources: boolean;
   graph: boolean;
   mcp_tools: boolean;
+  /**
+   * Ingestion Sources management tab (spec PR2+3+4). True iff the caller has
+   * at least one readable `ingestion_source` OR holds `organization#can_ingest`.
+   */
+  ingestion_sources: boolean;
   /** True iff `kb_count > 0` OR the user is an org admin. */
   has_any_kb: boolean;
   /** Number of `knowledge_base:<id>` objects the user can `can_read`. -1 means "unknown / admin bypass". */

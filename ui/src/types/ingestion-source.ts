@@ -88,3 +88,8 @@ export type IngestionSourceConfig =
   | JiraProjectSource
   | WebUrlSource
   | WebexSpaceSource;
+
+/** Per-row OpenFGA decision returned by GET /api/rag/sources (+ [sourceId]). */
+export type IngestionSourceConfigWithPermissions = IngestionSourceConfig & {
+  _permissions: { can_manage: boolean };
+};

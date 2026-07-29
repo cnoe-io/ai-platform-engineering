@@ -10,6 +10,7 @@ const EMPTY_GATES: KbTabGatesMap = {
   data_sources: false,
   graph: false,
   mcp_tools: false,
+  ingestion_sources: false,
   has_any_kb: false,
   kb_count: 0,
   can_ingest: false,
@@ -21,6 +22,7 @@ const DEV_AUTH_GATES: KbTabGatesMap = {
   data_sources: true,
   graph: true,
   mcp_tools: true,
+  ingestion_sources: true,
   has_any_kb: true,
   kb_count: -1,
   can_ingest: true,
@@ -127,7 +129,11 @@ export function useKbTabGates(): KbTabGatesState {
       const [key, value] = entry;
       return (
         typeof value === "boolean" &&
-        (key === "search" || key === "data_sources" || key === "graph" || key === "mcp_tools") &&
+        (key === "search" ||
+          key === "data_sources" ||
+          key === "graph" ||
+          key === "mcp_tools" ||
+          key === "ingestion_sources") &&
         value === true
       );
     })

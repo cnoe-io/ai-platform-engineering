@@ -1,8 +1,10 @@
 import { authOptions,isBootstrapAdmin } from "@/lib/auth-config";
+import { getCollection } from "@/lib/mongodb";
 import { checkOpenFgaTuple } from "@/lib/rbac/openfga";
 import { organizationObjectId } from "@/lib/rbac/organization";
 import { filterResourcesByPermission } from "@/lib/rbac/resource-authz";
 import type { KbTabGatesMap } from "@/lib/rbac/types";
+import type { IngestionSourceConfig } from "@/types/ingestion-source";
 import { getServerSession } from "next-auth";
 import { NextResponse } from "next/server";
 
@@ -46,6 +48,7 @@ const EMPTY_GATES: KbTabGatesMap = {
   data_sources: false,
   graph: false,
   mcp_tools: false,
+  ingestion_sources: false,
   has_any_kb: false,
   kb_count: 0,
   can_ingest: false,
@@ -180,6 +183,34 @@ async function loadReadableKbCount(session: {
 }
 
 /**
+ * Count how many `rag_ingestion_sources` records the caller can `can_read`,
+ * analogous to {@link loadReadableKbCount} but reading Mongo directly (there
+ * is no RAG-server-side enumeration for pre-ingestion source configs). Drives
+ * the `ingestion_sources` tab visibility. Fails closed (zero) on any error.
+ */
+async function loadReadableIngestionSourceCount(session: {
+  sub?: string;
+  role?: string;
+  user?: { email?: string | null };
+}): Promise<number> {
+  try {
+    const collection = await getCollection<IngestionSourceConfig>("rag_ingestion_sources");
+    const candidates = await collection.find({}).project({ source_id: 1 }).toArray();
+    if (candidates.length === 0) return 0;
+
+    const readable = await filterResourcesByPermission(
+      session,
+      candidates,
+      { type: "ingestion_source", action: "read", id: (source) => source.source_id },
+      { bypassForOrgAdmin: false },
+    );
+    return readable.length;
+  } catch {
+    return 0;
+  }
+}
+
+/**
  * Explicit "data source author" capability check (spec 2026-06-03). Returns
  * true iff the caller holds `organization#can_ingest` — i.e. they are a member
  * of a team that an org admin opted in via the ingest capability toggle (or
@@ -244,6 +275,7 @@ export async function GET() {
       data_sources: true,
       graph: true,
       mcp_tools: true,
+      ingestion_sources: true,
       has_any_kb: true,
       kb_count: -1,
       can_ingest: true,
@@ -259,7 +291,7 @@ export async function GET() {
   // Read visibility (tabs) and the explicit author/search capabilities are
   // independent: the former enumerates readable KBs; the latter are single
   // org-capability checks. Run them concurrently.
-  const [readCount, canIngest, canSearch] = await Promise.all([
+  const [readCount, canIngest, canSearch, ingestionSourceCount] = await Promise.all([
     loadReadableKbCount({
       sub: session.sub,
       role: session.role,
@@ -269,9 +301,15 @@ export async function GET() {
     }),
     orgCanIngest({ sub: session.sub }),
     orgCanSearch({ sub: session.sub }),
+    loadReadableIngestionSourceCount({
+      sub: session.sub,
+      role: session.role,
+      user: session.user,
+    }),
   ]);
 
   const hasAnyKb = readCount > 0;
+  const hasAnyIngestionSource = ingestionSourceCount > 0;
   const gates: KbTabGatesMap = {
     // Search is gated by the explicit search capability ALONE — not by whether
     // the caller currently has a readable KB (spec
@@ -294,6 +332,9 @@ export async function GET() {
     // behaviour) AND for the explicit search capability. The RAG server still
     // returns an empty list when nothing matches, so this never over-exposes.
     mcp_tools: hasAnyKb || canSearch,
+    // Ingestion Sources lists existing readable sources AND authors new ones,
+    // same chicken-and-egg reasoning as `data_sources` above.
+    ingestion_sources: hasAnyIngestionSource || canIngest,
     has_any_kb: hasAnyKb,
     kb_count: readCount,
     // Explicit, team-granted "data source author" capability (decoupled from
