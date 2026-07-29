@@ -46,6 +46,7 @@ export interface TomeReadConfiguration {
 let catalogReconcile:
   | { expiresAt: number; promise: Promise<ProjectDocument[]> }
   | undefined;
+let warnedMissingParentRelation = false;
 
 function projectType(project: Pick<ProjectDocument, "type">): ProjectType {
   return project.type === "bhag" || project.type === "area" ? project.type : "project";
@@ -164,6 +165,23 @@ function tupleKey(tuple: OpenFgaTupleKey): string {
   return `${tuple.user}\n${tuple.relation}\n${tuple.object}`;
 }
 
+function isMissingDocumentParentRelation(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const status = (error as Error & { status?: unknown }).status;
+  return (
+    error.name === "OpenFgaWriteError" &&
+    status === 400 &&
+    /relation ['"]document#parent['"] not found/i.test(error.message)
+  );
+}
+
+async function writeRequiredTuples(writes: OpenFgaTupleKey[]): Promise<void> {
+  const result = await writeOpenFgaTuples({ writes, deletes: [] });
+  if (!result.enabled) {
+    throw new Error("OpenFGA is not configured");
+  }
+}
+
 /**
  * Reconcile the direct shared-team reader and structural parent links for one
  * Tome entity. Team readers and document parents on Tome document objects are
@@ -191,12 +209,30 @@ export async function reconcileTomeReadAccess(
   const writes = desired.filter((tuple) => !storedKeys.has(tupleKey(tuple)));
   const deletes = managedStored.filter((tuple) => !desiredKeys.has(tupleKey(tuple)));
 
-  const writeResult = await writeOpenFgaTuples({ writes, deletes: [] });
-  if (!writeResult.enabled) {
-    throw new Error("OpenFGA is not configured");
+  const readerWrites = writes.filter((tuple) => tuple.relation === TEAM_READER_RELATION);
+  const parentWrites = writes.filter((tuple) => tuple.relation === PARENT_RELATION);
+  await writeRequiredTuples(readerWrites);
+
+  let parentRelationAvailable = true;
+  try {
+    await writeRequiredTuples(parentWrites);
+  } catch (error) {
+    if (!isMissingDocumentParentRelation(error)) throw error;
+    parentRelationAvailable = false;
+    if (!warnedMissingParentRelation) {
+      console.warn(
+        "[tome-access] OpenFGA model is missing document#parent; " +
+          "direct team access remains available, but hierarchy inheritance requires rerunning openfga-init",
+      );
+      warnedMissingParentRelation = true;
+    }
   }
-  if (deletes.length > 0) {
-    await deleteExactOpenFgaTuples(deletes);
+
+  const safeDeletes = parentRelationAvailable
+    ? deletes
+    : deletes.filter((tuple) => tuple.relation !== PARENT_RELATION);
+  if (safeDeletes.length > 0) {
+    await deleteExactOpenFgaTuples(safeDeletes);
   }
 }
 
@@ -240,6 +276,7 @@ export async function ensureTomeReadAccessCatalog(): Promise<ProjectDocument[]> 
 
 export function resetTomeReadAccessCatalogCacheForTests(): void {
   catalogReconcile = undefined;
+  warnedMissingParentRelation = false;
 }
 
 async function checkRead(subject: string, project: ProjectDocument): Promise<boolean> {

@@ -125,13 +125,18 @@ describe("Tome read authorization", () => {
   it("writes the shared-team reader and structural parent tuples", async () => {
     await reconcileTomeReadAccess(child, [bhag, area, child]);
 
-    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
+    expect(mockWriteOpenFgaTuples).toHaveBeenNthCalledWith(1, {
       writes: [
         {
           user: "team:service-team#member",
           relation: "reader",
           object: "document:tome/project/service",
         },
+      ],
+      deletes: [],
+    });
+    expect(mockWriteOpenFgaTuples).toHaveBeenNthCalledWith(2, {
+      writes: [
         {
           user: "document:tome/area/platform",
           relation: "parent",
@@ -140,6 +145,52 @@ describe("Tome read authorization", () => {
       ],
       deletes: [],
     });
+  });
+
+  it("preserves direct team access while the deployed model lacks document#parent", async () => {
+    const staleModelError = Object.assign(
+      new Error(
+        "OpenFGA tuple write failed: 400 relation 'document#parent' not found",
+      ),
+      { name: "OpenFgaWriteError", status: 400 },
+    );
+    mockWriteOpenFgaTuples
+      .mockResolvedValueOnce({ enabled: true, writes: 1, deletes: 0 })
+      .mockRejectedValueOnce(staleModelError);
+    const warn = jest.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    await expect(
+      reconcileTomeReadAccess(child, [bhag, area, child]),
+    ).resolves.toBeUndefined();
+
+    expect(mockWriteOpenFgaTuples).toHaveBeenNthCalledWith(1, {
+      writes: [
+        {
+          user: "team:service-team#member",
+          relation: "reader",
+          object: "document:tome/project/service",
+        },
+      ],
+      deletes: [],
+    });
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("rerunning openfga-init"),
+    );
+    warn.mockRestore();
+  });
+
+  it("does not hide unrelated parent tuple write failures", async () => {
+    const writeError = Object.assign(
+      new Error("OpenFGA tuple write failed: 500 unavailable"),
+      { name: "OpenFgaWriteError", status: 500 },
+    );
+    mockWriteOpenFgaTuples
+      .mockResolvedValueOnce({ enabled: true, writes: 1, deletes: 0 })
+      .mockRejectedValueOnce(writeError);
+
+    await expect(
+      reconcileTomeReadAccess(child, [bhag, area, child]),
+    ).rejects.toThrow("500 unavailable");
   });
 
   it("removes stale managed team and parent grants", async () => {
