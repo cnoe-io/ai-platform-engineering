@@ -31,16 +31,29 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   const body = (await request.json()) as Record<string, unknown>;
   const service = await getOAuthConnectorService();
   const pkce = body.pkce === true || body.pkce === "true";
+  const authType =
+    body.authType === "client_certificate"
+      ? "client_certificate"
+      : "authorization_code";
   const connector = await service.createConnector({
     name: String(body.name ?? ""),
     provider: String(body.provider ?? ""),
     clientId: String(body.clientId ?? ""),
-    ...(pkce ? {} : { clientSecret: String(body.clientSecret ?? "") }),
+    authType,
+    ...(authType === "client_certificate"
+      ? {
+          certificatePfx: String(body.certificatePfx ?? ""),
+          certificatePassword: String(body.certificatePassword ?? ""),
+          certificateThumbprint: String(body.certificateThumbprint ?? ""),
+        }
+      : pkce
+        ? {}
+        : { clientSecret: String(body.clientSecret ?? "") }),
     authorizationUrl: String(body.authorizationUrl ?? ""),
     tokenUrl: String(body.tokenUrl ?? ""),
     scopes: Array.isArray(body.scopes) ? body.scopes.map(String) : [],
     redirectUri: String(body.redirectUri ?? ""),
-    pkce,
+    pkce: authType === "authorization_code" && pkce,
   });
 
   return successResponse(connector, 201);

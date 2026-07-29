@@ -34,7 +34,7 @@ describe("built-in OAuth connectors for remote MCP providers", () => {
     });
   });
 
-  it("defines SharePoint Work IQ as a tenant-scoped confidential web client", () => {
+  it("defines SharePoint Work IQ as a tenant-scoped certificate client", () => {
     expect(
       BUILT_IN_OAUTH_CONNECTORS.find((connector) => connector.provider === "sharepoint"),
     ).toEqual({
@@ -46,10 +46,8 @@ describe("built-in OAuth connectors for remote MCP providers", () => {
         "https://login.microsoftonline.com/{tenantId}/oauth2/v2.0/token",
       scopes: [
         "https://agent365.svc.cloud.microsoft/agents/tenants/{tenantId}/servers/mcp_SharePointRemoteServer/.default",
-        "openid",
-        "profile",
-        "offline_access",
       ],
+      authType: "client_certificate",
       tenantIdRequired: true,
     });
   });

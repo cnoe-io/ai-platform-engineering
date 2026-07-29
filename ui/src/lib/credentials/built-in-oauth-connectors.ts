@@ -4,6 +4,7 @@ export interface BuiltInOAuthConnectorDescriptor {
   authorizationUrl: string;
   tokenUrl: string;
   scopes: string[];
+  authType?: "authorization_code" | "client_certificate";
   pkce?: boolean;
   tenantIdRequired?: boolean;
 }
@@ -133,13 +134,10 @@ export const BUILT_IN_OAUTH_CONNECTORS: BuiltInOAuthConnectorDescriptor[] = [
       "https://login.microsoftonline.com/{tenantId}/oauth2/v2.0/token",
     scopes: [
       "https://agent365.svc.cloud.microsoft/agents/tenants/{tenantId}/servers/mcp_SharePointRemoteServer/.default",
-      "openid",
-      "profile",
-      "offline_access",
     ],
-    // CAIPE is a server-side web application, so use a confidential OAuth
-    // client with a Web redirect URI. The shared OAuth service still applies
-    // PKCE to the authorization-code exchange.
+    // Microsoft's Work IQ SharePoint connector uses a shareable certOauth
+    // connection backed by a PFX certificate and password.
+    authType: "client_certificate",
     tenantIdRequired: true,
   },
 ];

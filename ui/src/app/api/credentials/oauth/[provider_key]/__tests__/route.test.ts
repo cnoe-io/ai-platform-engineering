@@ -4,6 +4,7 @@
 
 const mockStartConnection = jest.fn();
 const mockCompleteConnection = jest.fn();
+const mockConnectClientCredentials = jest.fn();
 const mockGetProviderConnectionService = jest.fn();
 const mockGetAuthFromBearerOrSession = jest.fn();
 const mockFeatureConfig = jest.fn();
@@ -43,7 +44,32 @@ describe("/api/credentials/oauth/[provider_key]", () => {
     mockGetProviderConnectionService.mockResolvedValue({
       startConnection: mockStartConnection,
       completeConnection: mockCompleteConnection,
+      connectClientCredentials: mockConnectClientCredentials,
     });
+  });
+
+  it("connects certificate providers server-side without an authorization redirect", async () => {
+    mockConnectClientCredentials.mockResolvedValue({
+      id: "sharepoint-connection",
+      provider: "sharepoint",
+      status: "connected",
+    });
+    const { POST } = await import("../connect/route");
+    const response = await POST(
+      new Request(
+        "http://localhost/api/credentials/oauth/sharepoint/connect?scopes=https%3A%2F%2Fresource.example.test%2F.default",
+        { method: "POST" },
+      ) as never,
+      { params: Promise.resolve({ provider_key: "sharepoint" }) },
+    );
+
+    expect(mockConnectClientCredentials).toHaveBeenCalledWith({
+      providerKey: "sharepoint",
+      owner: { type: "user", id: "alice-sub" },
+      requestedScopes: ["https://resource.example.test/.default"],
+    });
+    expect(response.status).toBe(201);
+    expect(mockStartConnection).not.toHaveBeenCalled();
   });
 
   it("redirects to the provider authorization URL and sets the state cookie", async () => {

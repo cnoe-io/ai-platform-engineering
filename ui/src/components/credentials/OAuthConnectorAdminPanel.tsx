@@ -16,7 +16,11 @@ interface OAuthConnectorMetadata {
   scopes: string[];
   redirectUri: string;
   enabled?: boolean;
+  authType?: "authorization_code" | "client_certificate";
   clientSecretConfigured?: boolean;
+  certificateConfigured?: boolean;
+  certificateThumbprint?: string;
+  certificateExpiresAt?: string | Date;
   pkce?: boolean;
 }
 
@@ -26,6 +30,11 @@ interface OAuthConnectorForm {
   tenantId: string;
   clientId: string;
   clientSecret: string;
+  authType: "authorization_code" | "client_certificate";
+  certificatePfx: string;
+  certificateFileName: string;
+  certificatePassword: string;
+  certificateThumbprint: string;
   authorizationUrl: string;
   tokenUrl: string;
   scopes: string;
@@ -39,6 +48,11 @@ const EMPTY_CONNECTOR_FORM: OAuthConnectorForm = {
   tenantId: "",
   clientId: "",
   clientSecret: "",
+  authType: "authorization_code",
+  certificatePfx: "",
+  certificateFileName: "",
+  certificatePassword: "",
+  certificateThumbprint: "",
   authorizationUrl: "",
   tokenUrl: "",
   scopes: "",
@@ -80,6 +94,7 @@ function builtInConnectorForm(provider: string, tenantId = ""): OAuthConnectorFo
     tokenUrl: applyTenantId(descriptor.tokenUrl, tenantId),
     scopes: descriptor.scopes.map((scope) => applyTenantId(scope, tenantId)).join(" "),
     redirectUri: callbackUri(descriptor.provider),
+    authType: descriptor.authType ?? "authorization_code",
     pkce: descriptor.pkce === true,
   };
 }
@@ -145,6 +160,11 @@ export function OAuthConnectorAdminPanel({
         tenantId: tenantIdFromAuthorizationUrl(existing.provider, existing.authorizationUrl),
         clientId: existing.clientId,
         clientSecret: "",
+        authType: existing.authType ?? "authorization_code",
+        certificatePfx: "",
+        certificateFileName: "",
+        certificatePassword: "",
+        certificateThumbprint: existing.certificateThumbprint ?? "",
         authorizationUrl: existing.authorizationUrl,
         tokenUrl: existing.tokenUrl,
         scopes: existing.scopes.join(" "),
@@ -181,6 +201,36 @@ export function OAuthConnectorAdminPanel({
     }));
   };
 
+  const handleCertificateFile = async (
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      setForm((current) => ({
+        ...current,
+        certificatePfx: "",
+        certificateFileName: "",
+      }));
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      setError("PFX certificate must be smaller than 2 MiB");
+      event.target.value = "";
+      return;
+    }
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    let binary = "";
+    for (const byte of bytes) {
+      binary += String.fromCharCode(byte);
+    }
+    setForm((current) => ({
+      ...current,
+      certificatePfx: window.btoa(binary),
+      certificateFileName: file.name,
+    }));
+    setError(null);
+  };
+
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (readOnly) return;
@@ -189,6 +239,10 @@ export function OAuthConnectorAdminPanel({
       provider: form.provider,
       clientId: form.clientId,
       clientSecret: form.clientSecret,
+      authType: form.authType,
+      certificatePfx: form.certificatePfx,
+      certificatePassword: form.certificatePassword,
+      certificateThumbprint: form.certificateThumbprint,
       authorizationUrl: form.authorizationUrl,
       tokenUrl: form.tokenUrl,
       scopes: form.scopes
@@ -245,6 +299,11 @@ export function OAuthConnectorAdminPanel({
       tenantId: tenantIdFromAuthorizationUrl(connector.provider, connector.authorizationUrl),
       clientId: connector.clientId,
       clientSecret: "",
+      authType: connector.authType ?? "authorization_code",
+      certificatePfx: "",
+      certificateFileName: "",
+      certificatePassword: "",
+      certificateThumbprint: connector.certificateThumbprint ?? "",
       authorizationUrl: connector.authorizationUrl,
       tokenUrl: connector.tokenUrl,
       scopes: connector.scopes.join(" "),
@@ -370,6 +429,10 @@ export function OAuthConnectorAdminPanel({
                           setForm((current) => ({
                             ...template,
                             clientId: current.clientId,
+                            certificatePfx: current.certificatePfx,
+                            certificateFileName: current.certificateFileName,
+                            certificatePassword: current.certificatePassword,
+                            certificateThumbprint: current.certificateThumbprint,
                           }));
                         }}
                         pattern="[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
@@ -377,7 +440,7 @@ export function OAuthConnectorAdminPanel({
                         required
                       />
                       <p className="text-xs text-muted-foreground">
-                        Work IQ endpoints and delegated scopes are tenant-specific.
+                        Work IQ endpoints and application scopes are tenant-specific.
                       </p>
                     </label>
                   )}
@@ -385,24 +448,83 @@ export function OAuthConnectorAdminPanel({
                     <span>Client ID</span>
                     <input className="w-full rounded-md border border-input bg-background px-3 py-2" value={form.clientId} onChange={updateForm("clientId")} required />
                   </label>
-                  {!form.pkce && (
+                  {form.authType === "authorization_code" && !form.pkce && (
                     <label className="space-y-1 text-sm">
                       <span>Client secret</span>
                       <input className="w-full rounded-md border border-input bg-background px-3 py-2" value={form.clientSecret} onChange={updateForm("clientSecret")} required type="password" />
                     </label>
                   )}
-                  <label className="flex items-center gap-2 text-sm md:col-span-2">
-                    <input
-                      type="checkbox"
-                      checked={form.pkce}
-                      onChange={(e) => setForm((current) => ({ ...current, pkce: e.target.checked, clientSecret: "" }))}
-                    />
-                    <span>Public client (PKCE only — no client secret)</span>
-                  </label>
-                  <label className="space-y-1 text-sm">
-                    <span>Authorization URL</span>
-                    <input className="w-full rounded-md border border-input bg-background px-3 py-2" value={form.authorizationUrl} onChange={updateForm("authorizationUrl")} required />
-                  </label>
+                  {form.authType === "client_certificate" && (
+                    <div className="space-y-4 rounded-lg border border-border bg-muted/20 p-4 md:col-span-2">
+                      <div>
+                        <p className="text-sm font-medium">Certificate OAuth</p>
+                        <p className="text-xs text-muted-foreground">
+                          Upload a password-protected PFX containing the app certificate and
+                          private key. CAIPE encrypts both the PFX and password at rest.
+                        </p>
+                      </div>
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <label className="space-y-1 text-sm">
+                          <span>PFX certificate</span>
+                          <input
+                            className="block w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                            type="file"
+                            accept=".pfx,.p12,application/x-pkcs12"
+                            onChange={(event) => void handleCertificateFile(event)}
+                            required={!editingConnector?.certificateConfigured}
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            {form.certificateFileName ||
+                              (editingConnector?.certificateConfigured
+                                ? "A certificate is already stored; leave blank to keep it."
+                                : "Maximum size: 2 MiB")}
+                          </p>
+                        </label>
+                        <label className="space-y-1 text-sm">
+                          <span>PFX password</span>
+                          <input
+                            className="w-full rounded-md border border-input bg-background px-3 py-2"
+                            value={form.certificatePassword}
+                            onChange={updateForm("certificatePassword")}
+                            required={!editingConnector?.certificateConfigured || Boolean(form.certificatePfx)}
+                            type="password"
+                            autoComplete="new-password"
+                          />
+                        </label>
+                        <label className="space-y-1 text-sm md:col-span-2">
+                          <span>Expected certificate thumbprint</span>
+                          <input
+                            className="w-full rounded-md border border-input bg-background px-3 py-2 font-mono"
+                            value={form.certificateThumbprint}
+                            onChange={updateForm("certificateThumbprint")}
+                            placeholder="40-character SHA-1 thumbprint from Microsoft Entra"
+                            pattern="[0-9a-fA-F: ]{40,59}"
+                            required
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            CAIPE calculates the uploaded certificate thumbprint and rejects a
+                            mismatch before storing it.
+                          </p>
+                        </label>
+                      </div>
+                    </div>
+                  )}
+                  {form.authType === "authorization_code" && (
+                    <>
+                      <label className="flex items-center gap-2 text-sm md:col-span-2">
+                        <input
+                          type="checkbox"
+                          checked={form.pkce}
+                          onChange={(e) => setForm((current) => ({ ...current, pkce: e.target.checked, clientSecret: "" }))}
+                        />
+                        <span>Public client (PKCE only — no client secret)</span>
+                      </label>
+                      <label className="space-y-1 text-sm">
+                        <span>Authorization URL</span>
+                        <input className="w-full rounded-md border border-input bg-background px-3 py-2" value={form.authorizationUrl} onChange={updateForm("authorizationUrl")} required />
+                      </label>
+                    </>
+                  )}
                   <label className="space-y-1 text-sm">
                     <span>Token URL</span>
                     <input className="w-full rounded-md border border-input bg-background px-3 py-2" value={form.tokenUrl} onChange={updateForm("tokenUrl")} required />
@@ -411,10 +533,12 @@ export function OAuthConnectorAdminPanel({
                     <span>Scopes</span>
                     <input className="w-full rounded-md border border-input bg-background px-3 py-2" value={form.scopes} onChange={updateForm("scopes")} placeholder="offline_access read_user" />
                   </label>
-                  <label className="space-y-1 text-sm md:col-span-2">
-                    <span>Redirect URI</span>
-                    <input className="w-full rounded-md border border-input bg-background px-3 py-2" value={form.redirectUri} onChange={updateForm("redirectUri")} required />
-                  </label>
+                  {form.authType === "authorization_code" && (
+                    <label className="space-y-1 text-sm md:col-span-2">
+                      <span>Redirect URI</span>
+                      <input className="w-full rounded-md border border-input bg-background px-3 py-2" value={form.redirectUri} onChange={updateForm("redirectUri")} required />
+                    </label>
+                  )}
               </>
             </div>
             <SaveButton
@@ -422,8 +546,11 @@ export function OAuthConnectorAdminPanel({
               saving={false}
               ariaLabel="Save connector"
               disabled={
-                form.provider === "sharepoint" &&
-                !ENTRA_TENANT_ID_PATTERN.test(form.tenantId)
+                (form.provider === "sharepoint" &&
+                  !ENTRA_TENANT_ID_PATTERN.test(form.tenantId)) ||
+                (form.authType === "client_certificate" &&
+                  !editingConnector?.certificateConfigured &&
+                  (!form.certificatePfx || !form.certificatePassword))
               }
             />
           </form>
@@ -443,7 +570,15 @@ export function OAuthConnectorAdminPanel({
                   <p className="text-xs text-muted-foreground">{connector.provider} / {connector.clientId}</p>
                   <div className="mt-2 flex flex-wrap gap-2">
                     <span className="inline-block rounded bg-muted px-2 py-1 text-xs">
-                      {connector.pkce ? "public client (PKCE)" : connector.clientSecretConfigured ? "client secret configured" : "client secret missing"}
+                      {connector.authType === "client_certificate"
+                        ? connector.certificateConfigured
+                          ? "certificate configured"
+                          : "certificate missing"
+                        : connector.pkce
+                          ? "public client (PKCE)"
+                          : connector.clientSecretConfigured
+                            ? "client secret configured"
+                            : "client secret missing"}
                     </span>
                     <span className="inline-block rounded bg-muted px-2 py-1 text-xs">
                       {connector.enabled === false ? "disabled" : "enabled"}

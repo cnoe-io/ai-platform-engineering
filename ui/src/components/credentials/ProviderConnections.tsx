@@ -38,6 +38,7 @@ interface OAuthConnector {
   name: string;
   provider: string;
   enabled: boolean;
+  authType?: "authorization_code" | "client_certificate";
   scopes?: string[];
 }
 
@@ -326,12 +327,31 @@ export function ProviderConnections({
       if (options?.sendScopes && options.scopes && options.scopes.length > 0) {
         url += `?scopes=${encodeURIComponent(options.scopes.join(","))}`;
       }
+      if (connector.authType === "client_certificate") {
+        void (async () => {
+          try {
+            const response = await fetch(url, { method: "POST" });
+            if (!response.ok) {
+              throw new Error(`Could not connect ${connector.name}`);
+            }
+            await load();
+            setError(null);
+          } catch (err) {
+            setError(
+              err instanceof Error
+                ? err.message
+                : `Could not connect ${connector.name}`,
+            );
+          }
+        })();
+        return;
+      }
       const popup = window.open(url, `caipe-oauth-${connector.provider}`, oauthPopupFeatures());
       if (popup) {
         popup.focus?.();
       }
     },
-    [],
+    [load],
   );
 
   const connectionForConnector = React.useMemo(() => {

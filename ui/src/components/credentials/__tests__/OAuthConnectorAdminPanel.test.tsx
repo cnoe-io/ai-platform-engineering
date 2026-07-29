@@ -160,7 +160,7 @@ describe("OAuthConnectorAdminPanel", () => {
     );
   });
 
-  it("builds a tenant-specific confidential SharePoint connector from its deep link", async () => {
+  it("builds a tenant-specific certificate SharePoint connector from its deep link", async () => {
     render(
       <OAuthConnectorAdminPanel
         initialProvider="sharepoint"
@@ -173,20 +173,19 @@ describe("OAuthConnectorAdminPanel", () => {
     expect(screen.getByLabelText(/microsoft entra tenant id/i)).toHaveValue(
       "11111111-2222-3333-4444-555555555555",
     );
-    expect(screen.getByLabelText(/authorization url/i)).toHaveValue(
-      "https://login.microsoftonline.com/11111111-2222-3333-4444-555555555555/oauth2/v2.0/authorize",
-    );
+    expect(screen.queryByLabelText(/authorization url/i)).not.toBeInTheDocument();
     expect(screen.getByLabelText(/token url/i)).toHaveValue(
       "https://login.microsoftonline.com/11111111-2222-3333-4444-555555555555/oauth2/v2.0/token",
     );
     expect(screen.getByLabelText(/^scopes$/i)).toHaveValue(
-      "https://agent365.svc.cloud.microsoft/agents/tenants/11111111-2222-3333-4444-555555555555/servers/mcp_SharePointRemoteServer/.default openid profile offline_access",
+      "https://agent365.svc.cloud.microsoft/agents/tenants/11111111-2222-3333-4444-555555555555/servers/mcp_SharePointRemoteServer/.default",
     );
-    expect(screen.getByLabelText(/public client \(pkce/i)).not.toBeChecked();
-    expect(screen.getByLabelText(/^client secret$/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/redirect uri/i)).toHaveValue(
-      "http://localhost/api/credentials/oauth/sharepoint/callback",
-    );
+    expect(screen.queryByLabelText(/public client \(pkce/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/^client secret$/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/redirect uri/i)).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/pfx certificate/i)).toBeRequired();
+    expect(screen.getByLabelText(/pfx password/i)).toBeRequired();
+    expect(screen.getByLabelText(/expected certificate thumbprint/i)).toBeRequired();
   });
 
   it("does not offer Figma as an OAuth template", async () => {

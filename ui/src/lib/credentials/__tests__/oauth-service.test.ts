@@ -146,6 +146,60 @@ describe("OAuthConnectorService", () => {
     expect(payloadStore.putSecret).not.toHaveBeenCalled();
   });
 
+  it("stores a validated PFX and password as encrypted certificate OAuth payloads", async () => {
+    const connectors = new MemoryCollection<OAuthConnectorDocument>();
+    const payloadStore = { putSecret: mockPutSecret() };
+    const inspectCertificate = jest.fn(() => ({
+      thumbprint: "A".repeat(40),
+      thumbprintSha256: "B".repeat(64),
+      x5tS256: "sha256-thumbprint",
+      expiresAt: new Date("2027-05-21T00:00:00.000Z"),
+    }));
+    const service = new OAuthConnectorService({
+      connectorsCollection: connectors,
+      payloadStore,
+      idGenerator: () => "sharepoint-connector",
+      now: () => new Date("2026-05-21T00:00:00.000Z"),
+      inspectCertificate,
+    });
+
+    const connector = await service.createConnector({
+      name: "Microsoft SharePoint",
+      provider: "sharepoint",
+      clientId: "application-id",
+      authType: "client_certificate",
+      certificatePfx: "base64-pfx",
+      certificatePassword: "pfx-password",
+      certificateThumbprint: "A".repeat(40),
+      authorizationUrl:
+        "https://login.microsoftonline.com/11111111-2222-3333-4444-555555555555/oauth2/v2.0/authorize",
+      tokenUrl:
+        "https://login.microsoftonline.com/11111111-2222-3333-4444-555555555555/oauth2/v2.0/token",
+      scopes: ["https://resource.example.test/.default"],
+      redirectUri: "https://caipe.example.com/api/credentials/oauth/sharepoint/callback",
+    });
+
+    expect(connector).toMatchObject({
+      provider: "sharepoint",
+      authType: "client_certificate",
+      certificateConfigured: true,
+      certificateThumbprint: "A".repeat(40),
+      clientSecretConfigured: false,
+    });
+    expect(connector).not.toHaveProperty("certificateRef");
+    expect(connector).not.toHaveProperty("certificatePasswordRef");
+    expect(JSON.stringify(connectors.docs)).not.toContain("base64-pfx");
+    expect(JSON.stringify(connectors.docs)).not.toContain("pfx-password");
+    expect(payloadStore.putSecret).toHaveBeenCalledWith({
+      secretRefId: "oauth_connector:sharepoint-connector:certificate_pfx",
+      plaintext: "base64-pfx",
+    });
+    expect(payloadStore.putSecret).toHaveBeenCalledWith({
+      secretRefId: "oauth_connector:sharepoint-connector:certificate_password",
+      plaintext: "pfx-password",
+    });
+  });
+
   it("rejects non-https OAuth endpoints and localhost SSRF targets", async () => {
     const service = new OAuthConnectorService({
       connectorsCollection: new MemoryCollection<OAuthConnectorDocument>(),
@@ -530,6 +584,95 @@ describe("boundScopes", () => {
 });
 
 describe("ProviderConnectionService", () => {
+  it("connects and renews a certificate-backed provider with client credentials", async () => {
+    const providerConnections = new MemoryCollection<ProviderConnectionDocument>();
+    const connectors = new MemoryCollection<OAuthConnectorDocument>();
+    connectors.docs.push({
+      id: "sharepoint-connector",
+      name: "Microsoft SharePoint",
+      provider: "sharepoint",
+      clientId: "application-id",
+      clientSecretRef: "unused",
+      certificateRef: "oauth_connector:sharepoint-connector:certificate_pfx",
+      certificatePasswordRef:
+        "oauth_connector:sharepoint-connector:certificate_password",
+      certificateThumbprint: "A".repeat(40),
+      authType: "client_certificate",
+      authorizationUrl:
+        "https://login.microsoftonline.com/11111111-2222-3333-4444-555555555555/oauth2/v2.0/authorize",
+      tokenUrl:
+        "https://login.microsoftonline.com/11111111-2222-3333-4444-555555555555/oauth2/v2.0/token",
+      scopes: ["https://resource.example.test/.default"],
+      redirectUri: "https://caipe.example.com/api/credentials/oauth/sharepoint/callback",
+      enabled: true,
+      createdAt: new Date("2026-01-01T00:00:00Z"),
+      updatedAt: new Date("2026-01-01T00:00:00Z"),
+    });
+    const secrets = new Map([
+      ["oauth_connector:sharepoint-connector:certificate_pfx", "base64-pfx"],
+      [
+        "oauth_connector:sharepoint-connector:certificate_password",
+        "pfx-password",
+      ],
+    ]);
+    const payloadStore = {
+      getSecret: jest.fn(async (ref: string) => secrets.get(ref) ?? ""),
+      putSecret: jest.fn(async (input: { secretRefId: string; plaintext: string }) => {
+        secrets.set(input.secretRefId, input.plaintext);
+      }),
+    };
+    const tokenClient = mockTokenClient({
+      access_token: "sharepoint-access-token",
+      expires_in: 3600,
+    });
+    const certificateAssertionFactory = jest.fn(async () => "signed-assertion");
+    const now = new Date("2026-05-21T00:00:00.000Z");
+    const service = new ProviderConnectionService({
+      providerConnectionsCollection: providerConnections,
+      connectorsCollection: connectors,
+      payloadStore,
+      tokenClient,
+      certificateAssertionFactory,
+      idGenerator: () => "sharepoint-connection",
+      now: () => now,
+    });
+
+    const connection = await service.connectClientCredentials({
+      providerKey: "sharepoint",
+      owner: { type: "user", id: "test-user" },
+    });
+
+    expect(connection).toMatchObject({
+      id: "sharepoint-connection",
+      provider: "sharepoint",
+      renewable: true,
+      status: "connected",
+    });
+    expect(tokenClient).toHaveBeenCalledWith(
+      connectors.docs[0].tokenUrl,
+      {
+        grant_type: "client_credentials",
+        client_id: "application-id",
+        scope: "https://resource.example.test/.default",
+        client_assertion_type:
+          "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
+        client_assertion: "signed-assertion",
+      },
+    );
+    expect(JSON.stringify(providerConnections.docs)).not.toContain(
+      "sharepoint-access-token",
+    );
+
+    providerConnections.docs[0].expiresAt = new Date(now.getTime() - 1000);
+    const refreshed = await service.refreshConnection("sharepoint-connection");
+    expect(refreshed).toEqual({
+      accessToken: "sharepoint-access-token",
+      expiresIn: 3600,
+    });
+    expect(certificateAssertionFactory).toHaveBeenCalledTimes(2);
+    expect(tokenClient).toHaveBeenCalledTimes(2);
+  });
+
   it("refreshes provider tokens using connector metadata and stores rotated tokens encrypted", async () => {
     const providerConnections = new MemoryCollection<ProviderConnectionDocument>();
     providerConnections.docs.push({
