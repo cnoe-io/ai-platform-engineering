@@ -23,12 +23,11 @@ dependencies = [
     # does not need to install the entire shared package).
     # assisted-by Codex Codex-sonnet-4-6
     "pyjwt[crypto]==2.13.0",
-    # S3 attachment store (services/attachment_store.py). Present transitively
-    # today (via cnoe-agent-utils / langchain-aws) but declared explicitly so the
-    # S3 backend has a pinned, first-class dependency. Pinned to match the version
-    # cnoe-agent-utils requires (it hard-pins boto3==1.43.16), so the lock stays
-    # consistent and `uv lock --locked` passes.
-    "boto3==1.43.16",
+    # S3 attachment store (services/attachment_store.py) uses boto3. Declared as a
+    # first-class dependency but intentionally left unpinned: cnoe-agent-utils
+    # already hard-pins the exact boto3 version, so pinning here too just creates a
+    # second spot to keep in sync and re-breaks `uv lock --locked` whenever they bump.
+    "boto3",
 ]
 
 [project.optional-dependencies]

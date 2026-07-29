@@ -515,7 +515,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "beautifulsoup4", specifier = "==4.13.4" },
-    { name = "boto3", specifier = "==1.43.16" },
+    { name = "boto3" },
     { name = "cnoe-agent-utils", specifier = "==0.4.1" },
     { name = "deepagents", specifier = "==0.6.4" },
     { name = "fastapi", specifier = "==0.135.3" },
