@@ -98,7 +98,7 @@ interface SourceEventPayload {
 interface IngestEventPayload {
   run_id?: string;
   mode?: "ingest" | "bhag_rollup";
-  status?: "running" | "succeeded" | "failed";
+  status?: "running" | "succeeded" | "failed" | "awaiting_review";
 }
 
 /** "View" button label per asset type. Keyed off the typed `artifact`
@@ -134,6 +134,7 @@ const INGEST_ICON: Record<NonNullable<IngestEventPayload["status"]>, typeof Refr
   running: RefreshCw,
   succeeded: CircleCheck,
   failed: CircleX,
+  awaiting_review: CircleDot,
 };
 
 /** Compact relative time, e.g. "just now", "2h ago", "3d ago". */
@@ -749,7 +750,9 @@ function IngestEventRow({
       ? "text-destructive"
       : status === "succeeded"
         ? "text-emerald-500"
-        : "text-muted-foreground";
+        : status === "awaiting_review"
+          ? "text-amber-500"
+          : "text-muted-foreground";
   const sub = [payload.mode === "bhag_rollup" ? "Synthesize" : "Ingest", relativeTime(m.created_at)]
     .filter(Boolean)
     .join(" · ");
