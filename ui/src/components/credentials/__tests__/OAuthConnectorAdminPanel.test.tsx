@@ -114,13 +114,12 @@ describe("OAuthConnectorAdminPanel", () => {
     expect(screen.getByLabelText(/authorization url/i)).toHaveValue("https://gitlab.com/oauth/authorize");
     expect(screen.getByLabelText(/token url/i)).toHaveValue("https://gitlab.com/oauth/token");
     expect(screen.getByLabelText(/scopes/i)).toHaveValue("api read_user");
+    expect(screen.getByLabelText(/redirect uri/i)).toHaveValue(
+      "http://localhost/api/credentials/oauth/gitlab/callback",
+    );
 
     await user.type(screen.getByLabelText(/client id/i), "gitlab-client");
     await user.type(screen.getByLabelText(/^client secret$/i), "gitlab-secret");
-    await user.type(
-      screen.getByLabelText(/redirect uri/i),
-      "https://caipe.example.com/api/credentials/oauth/gitlab/callback",
-    );
     await user.click(screen.getByRole("button", { name: /save connector/i }));
 
     await waitFor(() =>
@@ -143,6 +142,21 @@ describe("OAuthConnectorAdminPanel", () => {
       expect.objectContaining({
         body: expect.stringContaining('"scopes":["api","read_user"]'),
       }),
+    );
+  });
+
+  it("opens a deep-linked Airtable connector form with PKCE and callback defaults", async () => {
+    render(<OAuthConnectorAdminPanel initialProvider="airtable" />);
+
+    const dialog = await screen.findByRole("dialog", { name: /add oauth provider/i });
+    expect(dialog).toBeInTheDocument();
+    expect(screen.getByLabelText(/built-in template/i)).toHaveValue("airtable");
+    expect(screen.getByLabelText(/display name/i)).toHaveValue("Airtable");
+    expect(screen.getByLabelText(/^provider/i)).toHaveValue("airtable");
+    expect(screen.getByLabelText(/public client \(pkce/i)).toBeChecked();
+    expect(screen.queryByLabelText(/^client secret$/i)).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/redirect uri/i)).toHaveValue(
+      "http://localhost/api/credentials/oauth/airtable/callback",
     );
   });
 

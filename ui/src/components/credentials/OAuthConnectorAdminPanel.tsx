@@ -20,27 +20,71 @@ interface OAuthConnectorMetadata {
   pkce?: boolean;
 }
 
+interface OAuthConnectorForm {
+  name: string;
+  provider: string;
+  clientId: string;
+  clientSecret: string;
+  authorizationUrl: string;
+  tokenUrl: string;
+  scopes: string;
+  redirectUri: string;
+  pkce: boolean;
+}
+
+const EMPTY_CONNECTOR_FORM: OAuthConnectorForm = {
+  name: "",
+  provider: "",
+  clientId: "",
+  clientSecret: "",
+  authorizationUrl: "",
+  tokenUrl: "",
+  scopes: "",
+  redirectUri: "",
+  pkce: false,
+};
+
+function callbackUri(provider: string): string {
+  if (typeof window === "undefined") return "";
+  return `${window.location.origin}/api/credentials/oauth/${encodeURIComponent(provider)}/callback`;
+}
+
+function builtInConnectorForm(provider: string): OAuthConnectorForm | null {
+  const descriptor = BUILT_IN_OAUTH_CONNECTORS.find(
+    (candidate) => candidate.provider === provider,
+  );
+  if (!descriptor) return null;
+  return {
+    ...EMPTY_CONNECTOR_FORM,
+    name: descriptor.name,
+    provider: descriptor.provider,
+    authorizationUrl: descriptor.authorizationUrl,
+    tokenUrl: descriptor.tokenUrl,
+    scopes: descriptor.scopes.join(" "),
+    redirectUri: callbackUri(descriptor.provider),
+    pkce: descriptor.pkce === true,
+  };
+}
+
 async function parseApiResponse<T>(response: Response): Promise<T> {
   const json = (await response.json()) as { data: T };
   return json.data;
 }
 
-export function OAuthConnectorAdminPanel({ readOnly = false }: { readOnly?: boolean }) {
+export function OAuthConnectorAdminPanel({
+  readOnly = false,
+  initialProvider,
+}: {
+  readOnly?: boolean;
+  initialProvider?: string;
+}) {
   const [connectors, setConnectors] = React.useState<OAuthConnectorMetadata[]>([]);
-  const [form, setForm] = React.useState({
-    name: "",
-    provider: "",
-    clientId: "",
-    clientSecret: "",
-    authorizationUrl: "",
-    tokenUrl: "",
-    scopes: "",
-    redirectUri: "",
-    pkce: false,
-  });
+  const [connectorsLoaded, setConnectorsLoaded] = React.useState(false);
+  const [form, setForm] = React.useState<OAuthConnectorForm>(EMPTY_CONNECTOR_FORM);
   const [createOpen, setCreateOpen] = React.useState(false);
   const [editingConnector, setEditingConnector] = React.useState<OAuthConnectorMetadata | null>(null);
   const [error, setError] = React.useState<string | null>(null);
+  const initialProviderHandled = React.useRef<string | null>(null);
 
   const loadConnectors = React.useCallback(async () => {
     setError(null);
@@ -52,6 +96,8 @@ export function OAuthConnectorAdminPanel({ readOnly = false }: { readOnly?: bool
       setConnectors(await parseApiResponse<OAuthConnectorMetadata[]>(response));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load OAuth connectors");
+    } finally {
+      setConnectorsLoaded(true);
     }
   }, []);
 
@@ -59,22 +105,53 @@ export function OAuthConnectorAdminPanel({ readOnly = false }: { readOnly?: bool
     void loadConnectors();
   }, [loadConnectors]);
 
+  React.useEffect(() => {
+    if (
+      !connectorsLoaded ||
+      !initialProvider ||
+      initialProviderHandled.current === initialProvider ||
+      readOnly
+    ) {
+      return;
+    }
+    initialProviderHandled.current = initialProvider;
+
+    const existing = connectors.find((connector) => connector.provider === initialProvider);
+    if (existing) {
+      setEditingConnector(existing);
+      setForm({
+        name: existing.name,
+        provider: existing.provider,
+        clientId: existing.clientId,
+        clientSecret: "",
+        authorizationUrl: existing.authorizationUrl,
+        tokenUrl: existing.tokenUrl,
+        scopes: existing.scopes.join(" "),
+        redirectUri: existing.redirectUri,
+        pkce: existing.pkce ?? false,
+      });
+      setCreateOpen(true);
+      return;
+    }
+
+    const template = builtInConnectorForm(initialProvider);
+    if (template) {
+      setEditingConnector(null);
+      setForm(template);
+      setCreateOpen(true);
+    }
+  }, [connectors, connectorsLoaded, initialProvider, readOnly]);
+
   const updateForm = (field: keyof typeof form) => (event: React.ChangeEvent<HTMLInputElement>) => {
     setForm((current) => ({ ...current, [field]: event.target.value }));
   };
 
   const applyBuiltInTemplate = (event: React.ChangeEvent<HTMLSelectElement>) => {
-    const descriptor = BUILT_IN_OAUTH_CONNECTORS.find(
-      (candidate) => candidate.provider === event.target.value,
-    );
-    if (!descriptor) return;
+    const template = builtInConnectorForm(event.target.value);
+    if (!template) return;
     setForm((current) => ({
-      ...current,
-      name: descriptor.name,
-      provider: descriptor.provider,
-      authorizationUrl: descriptor.authorizationUrl,
-      tokenUrl: descriptor.tokenUrl,
-      scopes: descriptor.scopes.join(" "),
+      ...template,
+      clientId: current.clientId,
     }));
   };
 
@@ -109,17 +186,7 @@ export function OAuthConnectorAdminPanel({ readOnly = false }: { readOnly?: bool
     } else {
       setConnectors((current) => [...current, connector].sort((a, b) => a.name.localeCompare(b.name)));
     }
-    setForm({
-      name: "",
-      provider: "",
-      clientId: "",
-      clientSecret: "",
-      authorizationUrl: "",
-      tokenUrl: "",
-      scopes: "",
-      redirectUri: "",
-      pkce: false,
-    });
+    setForm(EMPTY_CONNECTOR_FORM);
     setEditingConnector(null);
     setCreateOpen(false);
   };
@@ -218,7 +285,13 @@ export function OAuthConnectorAdminPanel({ readOnly = false }: { readOnly?: bool
                 <span>Built-in template</span>
                 <select
                   className="w-full rounded-md border border-input bg-background px-3 py-2"
-                  defaultValue=""
+                  value={
+                    BUILT_IN_OAUTH_CONNECTORS.some(
+                      (descriptor) => descriptor.provider === form.provider,
+                    )
+                      ? form.provider
+                      : ""
+                  }
                   onChange={applyBuiltInTemplate}
                 >
                   <option value="">Custom OAuth provider</option>

@@ -15,7 +15,12 @@ jest.mock("next/navigation", () => ({
 }));
 
 jest.mock("../OAuthConnectorAdminPanel", () => ({
-  OAuthConnectorAdminPanel: () => <div>Connected Apps content</div>,
+  OAuthConnectorAdminPanel: ({ initialProvider }: { initialProvider?: string }) => (
+    <div>
+      Connected Apps content
+      {initialProvider ? ` for ${initialProvider}` : ""}
+    </div>
+  ),
 }));
 
 jest.mock("../AdminSecretsManager", () => ({
@@ -48,6 +53,16 @@ describe("AdminCredentialManagementPanel", () => {
     render(<AdminCredentialManagementPanel />);
 
     expect(screen.getByText("Secrets content")).toBeInTheDocument();
+  });
+
+  it("passes a deep-linked OAuth provider to the connector setup panel", () => {
+    searchParams = new URLSearchParams(
+      "tab=credentials&credentialsTab=oauth-providers&oauthProvider=airtable",
+    );
+
+    render(<AdminCredentialManagementPanel />);
+
+    expect(screen.getByText("Connected Apps content for airtable")).toBeInTheDocument();
   });
 
   it("falls back to secrets for legacy credential audit deep links", () => {
