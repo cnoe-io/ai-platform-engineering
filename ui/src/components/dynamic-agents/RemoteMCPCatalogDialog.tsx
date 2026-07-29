@@ -34,6 +34,7 @@ interface ProviderEntry extends RemoteMCPTemplate {
   logoBg?: string;
   accentClass: string;
   note?: string;
+  requiresTenantId?: boolean;
 }
 
 interface CustomCatalogEntry {
@@ -188,6 +189,26 @@ const REMOTE_MCP_PROVIDERS: ProviderEntry[] = [
         kind: "provider_connection",
         name: "X-CAIPE-Provider-Token",
         provider: "pagerduty",
+        target: "header",
+      },
+    ],
+  },
+  {
+    key: "sharepoint",
+    name: "Microsoft SharePoint",
+    description:
+      "Manage SharePoint sites, lists, document libraries, files, folders, and sharing",
+    endpoint:
+      "https://agent365.svc.cloud.microsoft/agents/tenants/{tenantId}/servers/mcp_SharePointRemoteServer",
+    logoSrc: "/provider-logos/sharepoint.svg",
+    accentClass: "hover:border-teal-500/50 hover:bg-teal-500/5",
+    note: "Preview — requires an Entra tenant ID and delegated user sign-in",
+    requiresTenantId: true,
+    credential_sources: [
+      {
+        kind: "provider_connection",
+        name: "X-CAIPE-Provider-Token",
+        provider: "sharepoint",
         target: "header",
       },
     ],
@@ -371,12 +392,18 @@ export function RemoteMCPCatalogDialog({
   const [catalogConfig, setCatalogConfig] = useState<CatalogConfig | null>(null);
   const [loadingConfig, setLoadingConfig] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [tenantProvider, setTenantProvider] = useState<ProviderEntry | null>(null);
+  const [tenantId, setTenantId] = useState("");
+  const [tenantIdError, setTenantIdError] = useState("");
 
   useEffect(() => {
     if (!open) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: mark loading before the platform-config fetch kicked off below
     setLoadingConfig(true);
     setSearchQuery("");
+    setTenantProvider(null);
+    setTenantId("");
+    setTenantIdError("");
     fetch("/api/admin/platform-config")
       .then((r) => r.json())
       .catch(() => ({ success: false }))
@@ -411,8 +438,35 @@ export function RemoteMCPCatalogDialog({
   const hasProviderResults = filteredBuiltins.length > 0 || filteredCustomEntries.length > 0;
 
   const selectBuiltin = (provider: ProviderEntry) => {
+    if (provider.requiresTenantId) {
+      setTenantProvider(provider);
+      setTenantId("");
+      setTenantIdError("");
+      return;
+    }
     onOpenChange(false);
     onSelect(provider);
+  };
+
+  const selectTenantProvider = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!tenantProvider) return;
+    const normalizedTenantId = tenantId.trim();
+    if (
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        normalizedTenantId,
+      )
+    ) {
+      setTenantIdError("Enter a valid Microsoft Entra tenant GUID.");
+      return;
+    }
+    onOpenChange(false);
+    onSelect({
+      name: tenantProvider.name,
+      description: tenantProvider.description,
+      endpoint: tenantProvider.endpoint.replace("{tenantId}", normalizedTenantId),
+      credential_sources: tenantProvider.credential_sources,
+    });
   };
 
   const selectCustom = (entry: CustomCatalogEntry) => {
@@ -463,6 +517,64 @@ export function RemoteMCPCatalogDialog({
           </div>
         ) : (
           <div data-testid="mcp-provider-results" className="min-h-0 overflow-y-auto pr-1">
+            {tenantProvider ? (
+              <form
+                className="space-y-4 rounded-lg border bg-card p-5"
+                onSubmit={selectTenantProvider}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-md border bg-background">
+                    <ProviderLogo provider={tenantProvider} />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold">{tenantProvider.name}</h3>
+                    <p className="text-xs text-muted-foreground">
+                      Create a tenant-specific Work IQ MCP endpoint.
+                    </p>
+                  </div>
+                </div>
+                <label className="block space-y-1.5 text-sm">
+                  <span>Microsoft Entra tenant ID</span>
+                  <Input
+                    aria-label="Microsoft Entra tenant ID"
+                    autoFocus
+                    onChange={(event) => {
+                      setTenantId(event.target.value);
+                      setTenantIdError("");
+                    }}
+                    placeholder="00000000-0000-4000-8000-000000000000"
+                    value={tenantId}
+                  />
+                </label>
+                {tenantIdError && (
+                  <p className="text-xs text-destructive" role="alert">
+                    {tenantIdError}
+                  </p>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  Find this GUID in Microsoft Entra admin center under Overview → Tenant ID.
+                </p>
+                <div className="flex justify-end gap-2">
+                  <button
+                    type="button"
+                    className="rounded-md border px-3 py-2 text-sm hover:bg-muted"
+                    onClick={() => {
+                      setTenantProvider(null);
+                      setTenantId("");
+                      setTenantIdError("");
+                    }}
+                  >
+                    Back
+                  </button>
+                  <button
+                    type="submit"
+                    className="rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground hover:bg-primary/90"
+                  >
+                    Add server
+                  </button>
+                </div>
+              </form>
+            ) : (
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               {filteredBuiltins.map((provider) => (
                 <ProviderTile
@@ -518,6 +630,7 @@ export function RemoteMCPCatalogDialog({
                 </p>
               </button>
             </div>
+            )}
           </div>
         )}
       </DialogContent>

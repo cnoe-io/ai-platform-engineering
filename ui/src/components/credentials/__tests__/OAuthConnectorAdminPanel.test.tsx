@@ -160,6 +160,35 @@ describe("OAuthConnectorAdminPanel", () => {
     );
   });
 
+  it("builds a tenant-specific SharePoint PKCE connector from its deep link", async () => {
+    render(
+      <OAuthConnectorAdminPanel
+        initialProvider="sharepoint"
+        initialTenantId="11111111-2222-3333-4444-555555555555"
+      />,
+    );
+
+    await screen.findByRole("dialog", { name: /add oauth provider/i });
+    expect(screen.getByLabelText(/built-in template/i)).toHaveValue("sharepoint");
+    expect(screen.getByLabelText(/microsoft entra tenant id/i)).toHaveValue(
+      "11111111-2222-3333-4444-555555555555",
+    );
+    expect(screen.getByLabelText(/authorization url/i)).toHaveValue(
+      "https://login.microsoftonline.com/11111111-2222-3333-4444-555555555555/oauth2/v2.0/authorize",
+    );
+    expect(screen.getByLabelText(/token url/i)).toHaveValue(
+      "https://login.microsoftonline.com/11111111-2222-3333-4444-555555555555/oauth2/v2.0/token",
+    );
+    expect(screen.getByLabelText(/^scopes$/i)).toHaveValue(
+      "https://agent365.svc.cloud.microsoft/agents/tenants/11111111-2222-3333-4444-555555555555/servers/mcp_SharePointRemoteServer/.default openid profile offline_access",
+    );
+    expect(screen.getByLabelText(/public client \(pkce/i)).toBeChecked();
+    expect(screen.queryByLabelText(/^client secret$/i)).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/redirect uri/i)).toHaveValue(
+      "http://localhost/api/credentials/oauth/sharepoint/callback",
+    );
+  });
+
   it("does not offer Figma as an OAuth template", async () => {
     const user = userEvent.setup();
     render(<OAuthConnectorAdminPanel />);

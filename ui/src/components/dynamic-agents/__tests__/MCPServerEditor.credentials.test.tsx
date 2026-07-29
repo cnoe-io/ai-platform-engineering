@@ -461,6 +461,67 @@ describe("MCPServerEditor credential sources", () => {
     expect(screen.getByLabelText(/^secret$/i)).toHaveValue("secret-airtable-token");
   });
 
+  it("carries the SharePoint tenant ID into OAuth provider setup", async () => {
+    global.fetch = jest.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/mcp-servers/agentgateway/discover") {
+        return response({ targets: [] });
+      }
+      if (
+        url === "/api/credentials/secrets" ||
+        url === "/api/credentials/connections" ||
+        url === "/api/credentials/oauth-connectors"
+      ) {
+        return response([]);
+      }
+      if (url === "/api/mcp-servers/credential-probe" && init?.method === "POST") {
+        return response({
+          ok: true,
+          status: 401,
+          credentialOrigins: [
+            {
+              name: "X-CAIPE-Provider-Token",
+              origin: "none",
+              provider: "sharepoint",
+            },
+          ],
+          missingCredentials: ["X-CAIPE-Provider-Token"],
+        });
+      }
+      return response({});
+    }) as jest.Mock;
+
+    const user = userEvent.setup();
+    render(
+      <MCPServerEditor
+        server={null}
+        initialValues={{
+          name: "Microsoft SharePoint",
+          endpoint:
+            "https://agent365.svc.cloud.microsoft/agents/tenants/11111111-2222-3333-4444-555555555555/servers/mcp_SharePointRemoteServer",
+          credential_sources: [
+            {
+              kind: "provider_connection",
+              target: "header",
+              name: "X-CAIPE-Provider-Token",
+              provider: "sharepoint",
+            },
+          ],
+        }}
+        onSave={jest.fn()}
+        onCancel={jest.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /test connection/i }));
+
+    expect(
+      await screen.findByRole("link", { name: /configure microsoft sharepoint oauth/i }),
+    ).toHaveAttribute(
+      "href",
+      "/admin?tab=credentials&credentialsTab=oauth-providers&oauthProvider=sharepoint&oauthTenantId=11111111-2222-3333-4444-555555555555",
+    );
+  });
+
   it("sends an empty credential_sources array when all credentials are removed on edit", async () => {
     global.fetch = jest.fn(async (url: string, init?: RequestInit) => {
       if (url === "/api/mcp-servers/agentgateway/discover") {

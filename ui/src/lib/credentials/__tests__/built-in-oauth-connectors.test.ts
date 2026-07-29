@@ -34,6 +34,27 @@ describe("built-in OAuth connectors for remote MCP providers", () => {
     });
   });
 
+  it("defines SharePoint Work IQ as a tenant-scoped public PKCE client", () => {
+    expect(
+      BUILT_IN_OAUTH_CONNECTORS.find((connector) => connector.provider === "sharepoint"),
+    ).toEqual({
+      provider: "sharepoint",
+      name: "Microsoft SharePoint",
+      authorizationUrl:
+        "https://login.microsoftonline.com/{tenantId}/oauth2/v2.0/authorize",
+      tokenUrl:
+        "https://login.microsoftonline.com/{tenantId}/oauth2/v2.0/token",
+      scopes: [
+        "https://agent365.svc.cloud.microsoft/agents/tenants/{tenantId}/servers/mcp_SharePointRemoteServer/.default",
+        "openid",
+        "profile",
+        "offline_access",
+      ],
+      pkce: true,
+      tenantIdRequired: true,
+    });
+  });
+
   it("does not offer a Figma OAuth connector", () => {
     expect(
       BUILT_IN_OAUTH_CONNECTORS.some((connector) => connector.provider === "figma"),

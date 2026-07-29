@@ -29,6 +29,7 @@ const BUILTIN_PROVIDERS = [
   { key: "linear", name: "Linear" },
   { key: "notion", name: "Notion" },
   { key: "pagerduty", name: "PagerDuty" },
+  { key: "sharepoint", name: "Microsoft SharePoint" },
   { key: "thousandeyes", name: "ThousandEyes" },
 ] as const;
 

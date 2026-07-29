@@ -153,6 +153,23 @@ function secretOptionLabel(secret: SecretReferenceOption): string {
   return secret.name;
 }
 
+function oauthConfigurationHref(provider: string, endpoint: string): string {
+  const params = new URLSearchParams({
+    tab: "credentials",
+    credentialsTab: "oauth-providers",
+    oauthProvider: provider,
+  });
+  if (provider === "sharepoint") {
+    const match = endpoint.match(
+      /^https:\/\/agent365\.svc\.cloud\.microsoft\/agents\/tenants\/([0-9a-f-]+)\/servers\/mcp_SharePointRemoteServer\/?$/i,
+    );
+    if (match) {
+      params.set("oauthTenantId", match[1]);
+    }
+  }
+  return `/admin?${params.toString()}`;
+}
+
 function selectedSecretOption(
   source: MCPCredentialSource,
   secrets: SecretReferenceOption[],
@@ -1444,7 +1461,7 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel, initialVal
                             </Button>
                             <span>or</span>
                             <a
-                              href={`/admin?tab=credentials&credentialsTab=oauth-providers&oauthProvider=${encodeURIComponent(provider)}`}
+                              href={oauthConfigurationHref(provider, endpoint)}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="underline underline-offset-2 hover:text-foreground"

@@ -23,6 +23,7 @@ interface OAuthConnectorMetadata {
 interface OAuthConnectorForm {
   name: string;
   provider: string;
+  tenantId: string;
   clientId: string;
   clientSecret: string;
   authorizationUrl: string;
@@ -35,6 +36,7 @@ interface OAuthConnectorForm {
 const EMPTY_CONNECTOR_FORM: OAuthConnectorForm = {
   name: "",
   provider: "",
+  tenantId: "",
   clientId: "",
   clientSecret: "",
   authorizationUrl: "",
@@ -49,7 +51,22 @@ function callbackUri(provider: string): string {
   return `${window.location.origin}/api/credentials/oauth/${encodeURIComponent(provider)}/callback`;
 }
 
-function builtInConnectorForm(provider: string): OAuthConnectorForm | null {
+const ENTRA_TENANT_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function applyTenantId(value: string, tenantId: string): string {
+  return value.replaceAll("{tenantId}", tenantId || "{tenantId}");
+}
+
+function tenantIdFromAuthorizationUrl(provider: string, authorizationUrl: string): string {
+  if (provider !== "sharepoint") return "";
+  const match = authorizationUrl.match(
+    /^https:\/\/login\.microsoftonline\.com\/([^/]+)\/oauth2\/v2\.0\/authorize$/i,
+  );
+  return match && ENTRA_TENANT_ID_PATTERN.test(match[1]) ? match[1] : "";
+}
+
+function builtInConnectorForm(provider: string, tenantId = ""): OAuthConnectorForm | null {
   const descriptor = BUILT_IN_OAUTH_CONNECTORS.find(
     (candidate) => candidate.provider === provider,
   );
@@ -58,9 +75,10 @@ function builtInConnectorForm(provider: string): OAuthConnectorForm | null {
     ...EMPTY_CONNECTOR_FORM,
     name: descriptor.name,
     provider: descriptor.provider,
-    authorizationUrl: descriptor.authorizationUrl,
-    tokenUrl: descriptor.tokenUrl,
-    scopes: descriptor.scopes.join(" "),
+    tenantId,
+    authorizationUrl: applyTenantId(descriptor.authorizationUrl, tenantId),
+    tokenUrl: applyTenantId(descriptor.tokenUrl, tenantId),
+    scopes: descriptor.scopes.map((scope) => applyTenantId(scope, tenantId)).join(" "),
     redirectUri: callbackUri(descriptor.provider),
     pkce: descriptor.pkce === true,
   };
@@ -74,9 +92,11 @@ async function parseApiResponse<T>(response: Response): Promise<T> {
 export function OAuthConnectorAdminPanel({
   readOnly = false,
   initialProvider,
+  initialTenantId,
 }: {
   readOnly?: boolean;
   initialProvider?: string;
+  initialTenantId?: string;
 }) {
   const [connectors, setConnectors] = React.useState<OAuthConnectorMetadata[]>([]);
   const [connectorsLoaded, setConnectorsLoaded] = React.useState(false);
@@ -122,6 +142,7 @@ export function OAuthConnectorAdminPanel({
       setForm({
         name: existing.name,
         provider: existing.provider,
+        tenantId: tenantIdFromAuthorizationUrl(existing.provider, existing.authorizationUrl),
         clientId: existing.clientId,
         clientSecret: "",
         authorizationUrl: existing.authorizationUrl,
@@ -134,13 +155,13 @@ export function OAuthConnectorAdminPanel({
       return;
     }
 
-    const template = builtInConnectorForm(initialProvider);
+    const template = builtInConnectorForm(initialProvider, initialTenantId);
     if (template) {
       setEditingConnector(null);
       setForm(template);
       setCreateOpen(true);
     }
-  }, [connectors, connectorsLoaded, initialProvider, readOnly]);
+  }, [connectors, connectorsLoaded, initialProvider, initialTenantId, readOnly]);
 
   const updateForm = (field: keyof typeof form) => (event: React.ChangeEvent<HTMLInputElement>) => {
     setForm((current) => ({ ...current, [field]: event.target.value }));
@@ -164,11 +185,18 @@ export function OAuthConnectorAdminPanel({
     event.preventDefault();
     if (readOnly) return;
     const body = {
-      ...form,
+      name: form.name,
+      provider: form.provider,
+      clientId: form.clientId,
+      clientSecret: form.clientSecret,
+      authorizationUrl: form.authorizationUrl,
+      tokenUrl: form.tokenUrl,
       scopes: form.scopes
         .split(/[,\s]+/)
         .map((scope) => scope.trim())
         .filter(Boolean),
+      redirectUri: form.redirectUri,
+      pkce: form.pkce,
     };
     const url = editingConnector
       ? `/api/admin/credentials/oauth-connectors/${editingConnector.id}`
@@ -214,6 +242,7 @@ export function OAuthConnectorAdminPanel({
     setForm({
       name: connector.name,
       provider: connector.provider,
+      tenantId: tenantIdFromAuthorizationUrl(connector.provider, connector.authorizationUrl),
       clientId: connector.clientId,
       clientSecret: "",
       authorizationUrl: connector.authorizationUrl,
@@ -328,6 +357,30 @@ export function OAuthConnectorAdminPanel({
                     <span>Provider</span>
                     <input className="w-full rounded-md border border-input bg-background px-3 py-2" value={form.provider} onChange={updateForm("provider")} required />
                   </label>
+                  {form.provider === "sharepoint" && (
+                    <label className="space-y-1 text-sm md:col-span-2">
+                      <span>Microsoft Entra tenant ID</span>
+                      <input
+                        className="w-full rounded-md border border-input bg-background px-3 py-2"
+                        value={form.tenantId}
+                        onChange={(event) => {
+                          const tenantId = event.target.value.trim();
+                          const template = builtInConnectorForm("sharepoint", tenantId);
+                          if (!template) return;
+                          setForm((current) => ({
+                            ...template,
+                            clientId: current.clientId,
+                          }));
+                        }}
+                        pattern="[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+                        placeholder="00000000-0000-4000-8000-000000000000"
+                        required
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Work IQ endpoints and delegated scopes are tenant-specific.
+                      </p>
+                    </label>
+                  )}
                   <label className="space-y-1 text-sm">
                     <span>Client ID</span>
                     <input className="w-full rounded-md border border-input bg-background px-3 py-2" value={form.clientId} onChange={updateForm("clientId")} required />
@@ -364,7 +417,15 @@ export function OAuthConnectorAdminPanel({
                   </label>
               </>
             </div>
-            <SaveButton type="submit" saving={false} ariaLabel="Save connector" />
+            <SaveButton
+              type="submit"
+              saving={false}
+              ariaLabel="Save connector"
+              disabled={
+                form.provider === "sharepoint" &&
+                !ENTRA_TENANT_ID_PATTERN.test(form.tenantId)
+              }
+            />
           </form>
         </div>
       )}

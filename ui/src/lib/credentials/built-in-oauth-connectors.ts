@@ -1,10 +1,11 @@
 export interface BuiltInOAuthConnectorDescriptor {
-  provider: "airtable" | "amplitude" | "atlassian" | "box" | "github" | "gitlab" | "linear" | "notion" | "pagerduty" | "webex";
+  provider: "airtable" | "amplitude" | "atlassian" | "box" | "github" | "gitlab" | "linear" | "notion" | "pagerduty" | "sharepoint" | "webex";
   name: string;
   authorizationUrl: string;
   tokenUrl: string;
   scopes: string[];
   pkce?: boolean;
+  tenantIdRequired?: boolean;
 }
 
 export const BUILT_IN_OAUTH_CONNECTORS: BuiltInOAuthConnectorDescriptor[] = [
@@ -122,5 +123,23 @@ export const BUILT_IN_OAUTH_CONNECTORS: BuiltInOAuthConnectorDescriptor[] = [
     authorizationUrl: "https://api.notion.com/v1/oauth/authorize",
     tokenUrl: "https://api.notion.com/v1/oauth/token",
     scopes: [],
+  },
+  {
+    provider: "sharepoint",
+    name: "Microsoft SharePoint",
+    authorizationUrl:
+      "https://login.microsoftonline.com/{tenantId}/oauth2/v2.0/authorize",
+    tokenUrl:
+      "https://login.microsoftonline.com/{tenantId}/oauth2/v2.0/token",
+    scopes: [
+      "https://agent365.svc.cloud.microsoft/agents/tenants/{tenantId}/servers/mcp_SharePointRemoteServer/.default",
+      "openid",
+      "profile",
+      "offline_access",
+    ],
+    // Microsoft documents Work IQ MCP coding clients as public clients. Each
+    // tool invocation is user-scoped, so use delegated authorization + PKCE.
+    pkce: true,
+    tenantIdRequired: true,
   },
 ];

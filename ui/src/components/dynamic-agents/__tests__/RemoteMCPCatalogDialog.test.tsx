@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import React from "react";
 
 import {
@@ -82,6 +83,34 @@ describe("RemoteMCPCatalogDialog", () => {
     );
   });
 
+  it("builds a tenant-specific SharePoint Work IQ endpoint", async () => {
+    const user = userEvent.setup();
+    const { onSelect } = renderCatalog();
+
+    await user.click(await screen.findByText("Microsoft SharePoint", { exact: true }));
+    await user.type(
+      screen.getByLabelText("Microsoft Entra tenant ID"),
+      "11111111-2222-3333-4444-555555555555",
+    );
+    await user.click(screen.getByRole("button", { name: "Add server" }));
+
+    expect(onSelect).toHaveBeenCalledWith({
+      name: "Microsoft SharePoint",
+      description:
+        "Manage SharePoint sites, lists, document libraries, files, folders, and sharing",
+      endpoint:
+        "https://agent365.svc.cloud.microsoft/agents/tenants/11111111-2222-3333-4444-555555555555/servers/mcp_SharePointRemoteServer",
+      credential_sources: [
+        {
+          kind: "provider_connection",
+          name: "X-CAIPE-Provider-Token",
+          provider: "sharepoint",
+          target: "header",
+        },
+      ],
+    });
+  });
+
   it("filters built-in and custom providers by name, hostname, and description", async () => {
     renderCatalog();
     const search = await screen.findByRole("searchbox", { name: "Search MCP providers" });
@@ -120,13 +149,14 @@ describe("RemoteMCPCatalogDialog", () => {
     expect(results.contains(search)).toBe(false);
   });
 
-  it("renders Box and Airtable from local logo assets without offering Figma", async () => {
+  it("renders Box, Airtable, and SharePoint from local logo assets without offering Figma", async () => {
     renderCatalog();
     await screen.findByText("Box", { exact: true });
 
     for (const [name, src] of [
       ["Box", "/provider-logos/box.svg"],
       ["Airtable", "/provider-logos/airtable.svg"],
+      ["Microsoft SharePoint", "/provider-logos/sharepoint.svg"],
     ]) {
       const tile = screen.getByText(name, { exact: true }).closest("button");
       expect(tile).not.toBeNull();
