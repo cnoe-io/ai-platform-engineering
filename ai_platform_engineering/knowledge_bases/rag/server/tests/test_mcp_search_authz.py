@@ -72,7 +72,7 @@ async def test_resolve_returns_none_for_client_credentials_identity(monkeypatch:
 @pytest.mark.asyncio
 async def test_resolve_returns_none_for_unrestricted_wildcard(monkeypatch: pytest.MonkeyPatch):
     at = _make_tools()
-    monkeypatch.setattr(AgentTools, "_get_mcp_user_context", staticmethod(lambda: _user()))
+    monkeypatch.setattr(AgentTools, "_get_mcp_user_context", staticmethod(_user))
     monkeypatch.setattr(tools_module, "get_accessible_datasource_ids", AsyncMock(return_value=["*"]))
 
     assert await at._resolve_accessible_datasource_ids("read") is None
@@ -81,7 +81,7 @@ async def test_resolve_returns_none_for_unrestricted_wildcard(monkeypatch: pytes
 @pytest.mark.asyncio
 async def test_resolve_returns_accessible_list_for_scoped_user(monkeypatch: pytest.MonkeyPatch):
     at = _make_tools()
-    monkeypatch.setattr(AgentTools, "_get_mcp_user_context", staticmethod(lambda: _user()))
+    monkeypatch.setattr(AgentTools, "_get_mcp_user_context", staticmethod(_user))
     monkeypatch.setattr(tools_module, "get_accessible_datasource_ids", AsyncMock(return_value=["ds-a", "ds-b"]))
 
     assert await at._resolve_accessible_datasource_ids("read") == ["ds-a", "ds-b"]
@@ -90,7 +90,7 @@ async def test_resolve_returns_accessible_list_for_scoped_user(monkeypatch: pyte
 @pytest.mark.asyncio
 async def test_resolve_returns_empty_list_when_nothing_accessible(monkeypatch: pytest.MonkeyPatch):
     at = _make_tools()
-    monkeypatch.setattr(AgentTools, "_get_mcp_user_context", staticmethod(lambda: _user()))
+    monkeypatch.setattr(AgentTools, "_get_mcp_user_context", staticmethod(_user))
     monkeypatch.setattr(tools_module, "get_accessible_datasource_ids", AsyncMock(return_value=[]))
 
     assert await at._resolve_accessible_datasource_ids("read") == []
