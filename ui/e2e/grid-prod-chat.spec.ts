@@ -102,15 +102,98 @@ async function openGridChat(page: Page): Promise<Locator> {
 
 async function startFreshConversation(page: Page) {
   await dismissBlockingPopups(page);
+  const apiConversationId = await createFreshConversationViaApi(page);
+  if (apiConversationId) {
+    await page.goto(gridConversationUrl(apiConversationId), { waitUntil: "domcontentloaded" });
+    await expect(page).toHaveURL(new RegExp(`/chat/${escapeRegExp(apiConversationId)}(?:$|[/?#])`), { timeout: 15_000 });
+    await waitForChatInput(page);
+    return;
+  }
+
   const newChat = await newChatControl(page);
-  if (!(await isVisible(newChat))) return;
+  if (!(await isVisible(newChat))) {
+    throw new Error("Could not start a fresh GRID chat: no new-chat control was visible and API creation failed.");
+  }
 
   const beforeUrl = page.url();
   await newChat.click({ timeout: 10_000 });
-  await Promise.race([
-    page.waitForURL((url) => url.toString() !== beforeUrl, { timeout: 2_000 }).catch(() => undefined),
-    page.waitForTimeout(500),
-  ]);
+  await page.waitForURL((url) => url.toString() !== beforeUrl, { timeout: 15_000 });
+  await waitForChatInput(page);
+}
+
+async function createFreshConversationViaApi(page: Page): Promise<string | undefined> {
+  return page.evaluate(async () => {
+    type ApiEnvelope<T> = { success?: boolean; data?: T; error?: string };
+    type Agent = { _id?: string; id?: string; name?: string; enabled?: boolean };
+    type ConversationPayload = {
+      conversation?: { _id?: string; id?: string };
+      created?: boolean;
+      id?: string;
+    };
+
+    async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
+      const response = await fetch(url, {
+        cache: "no-store",
+        ...init,
+        headers: {
+          "content-type": "application/json",
+          ...(init?.headers ?? {}),
+        },
+      });
+      const text = await response.text();
+      const payload = text ? JSON.parse(text) : {};
+      if (!response.ok) {
+        throw new Error(`${url} returned ${response.status}: ${text}`);
+      }
+      return payload as T;
+    }
+
+    const [platformResult, agentsResult] = await Promise.allSettled([
+      fetchJson<ApiEnvelope<{ default_agent_id?: string }>>("/api/admin/platform-config"),
+      fetchJson<ApiEnvelope<Agent[]>>("/api/dynamic-agents/available"),
+    ]);
+
+    const defaultAgentId = platformResult.status === "fulfilled" && platformResult.value.success
+      ? platformResult.value.data?.default_agent_id
+      : undefined;
+    const agentsPayload = agentsResult.status === "fulfilled" ? agentsResult.value : undefined;
+    const agents = Array.isArray(agentsPayload)
+      ? agentsPayload
+      : agentsPayload?.success !== false
+        ? agentsPayload?.data ?? []
+        : [];
+    const enabledAgents = agents.filter((agent) => agent.enabled !== false);
+    const defaultAgent = enabledAgents.find((agent) => (agent._id || agent.id) === defaultAgentId);
+    const agentId = defaultAgent?._id || defaultAgent?.id || enabledAgents[0]?._id || enabledAgents[0]?.id || defaultAgentId;
+
+    if (!agentId) {
+      throw new Error("No available GRID chat agent was found for a fresh conversation.");
+    }
+
+    const response = await fetchJson<ApiEnvelope<ConversationPayload> | ConversationPayload>("/api/chat/conversations", {
+      method: "POST",
+      body: JSON.stringify({
+        title: "New Conversation",
+        client_type: "webui",
+        agent_id: agentId,
+      }),
+    });
+
+    const result = "data" in response && response.data ? response.data : response;
+    const conversationId = result.conversation?._id || result.conversation?.id || result.id;
+    if (!conversationId) {
+      throw new Error("GRID conversation creation succeeded without returning a conversation id.");
+    }
+    return conversationId;
+  }).catch(() => undefined);
+}
+
+function gridConversationUrl(conversationId: string) {
+  const url = new URL(gridChatUrl);
+  url.pathname = `/chat/${conversationId}`;
+  url.search = "";
+  url.hash = "";
+  return url.toString();
 }
 
 async function waitForChatInput(page: Page): Promise<Locator> {
@@ -572,7 +655,7 @@ function fallbackHitlValue(
   const pick = (...keys: string[]) => keys.map((key) => values[key]).find(Boolean);
 
   if (/email|username/.test(normalized)) return gridSsoEmail || "eti-sre-cicd.gen";
-  if (/model/.test(normalized)) return pick("model", "models") || "gpt-4o-mini";
+  if (/model/.test(normalized)) return pick("model", "models") || "azure/gpt-4o-mini";
   if (/key.*name|name.*key/.test(normalized)) return pick("key_name", "name") || `grid-prod-playwright-${gridRunId}`;
   if (/key.*type|type.*key/.test(normalized)) return pick("key_type", "type") || "individual";
   if (/duration|ttl|expiration|expiry/.test(normalized)) return pick("ttl", "duration", "ttl_hours") || "1 day";
@@ -646,7 +729,8 @@ function defaultHitlChatResponse(scenario: GridProdScenario, attempt: number): s
 
   return [
     `Default response ${attempt} for ${scenario.name}.`,
-    "Use these values and continue executing the workflow:",
+    "Start or continue the workflow/tool execution now. Do not answer with instructions only, and do not ask for confirmation unless a required approval card is shown.",
+    "Use these values:",
     values,
     "If any optional field is not listed, use the safest prod smoke-test default and continue.",
   ].filter(Boolean).join("\n");
@@ -759,10 +843,13 @@ async function signInControl(page: Page): Promise<Locator> {
 }
 
 async function newChatControl(page: Page): Promise<Locator> {
-  const button = page.getByRole("button", { name: /new chat|start a new chat|new conversation/i }).first();
+  const button = page.getByRole("button", { name: /new chat|start a new chat|new conversation|custom query/i }).first();
   if (await button.count()) return button;
 
-  return page.getByRole("link", { name: /new chat|start a new chat|new conversation/i }).first();
+  const titledButton = page.locator("button[title*='New' i], button[aria-label*='New' i]").first();
+  if (await titledButton.count()) return titledButton;
+
+  return page.getByRole("link", { name: /new chat|start a new chat|new conversation|custom query/i }).first();
 }
 
 async function ssoEmailInput(page: Page): Promise<Locator> {
