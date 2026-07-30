@@ -42,6 +42,14 @@ export function ProjectAssets({
       setSources({
         repos: Array.isArray(s.repos) ? s.repos : [],
         confluence_url: typeof s.confluence_url === "string" ? s.confluence_url : "",
+        confluence_page_scopes: Array.isArray(s.confluence_page_scopes)
+          ? s.confluence_page_scopes
+          : undefined,
+        confluence_page_scope:
+          s.confluence_page_scope &&
+          typeof s.confluence_page_scope === "object"
+            ? s.confluence_page_scope
+            : undefined,
         webex_rooms: Array.isArray(s.webex_rooms) ? s.webex_rooms : [],
       });
     } catch (e) {
@@ -72,6 +80,8 @@ export function ProjectAssets({
           sources: {
             repos,
             confluence_url: (draft.confluence_url ?? "").trim(),
+            confluence_page_scopes: draft.confluence_page_scopes ?? [],
+            confluence_page_scope: draft.confluence_page_scope ?? null,
             webex_rooms: draft.webex_rooms ?? [],
           },
         }),

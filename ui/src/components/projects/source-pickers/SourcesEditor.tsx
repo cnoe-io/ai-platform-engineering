@@ -22,7 +22,7 @@ import { SourcePicker, type SourceKind } from "./index";
 
 const LABELS: Record<SourceKind, string> = {
   github: "GitHub repos",
-  confluence: "Confluence space",
+  confluence: "Confluence source",
   webex: "Webex",
 };
 
@@ -105,6 +105,27 @@ export function SourcesEditor({
             source={kind}
             selected={valueFor(kind, value)}
             onChange={(next) => onChange(applyTo(kind, next, value))}
+            confluencePageScopes={
+              kind === "confluence"
+                ? value.confluence_page_scopes?.length
+                  ? value.confluence_page_scopes
+                  : value.confluence_page_scope
+                    ? [value.confluence_page_scope]
+                    : []
+                : undefined
+            }
+            onConfluencePageScopesChange={
+              kind === "confluence"
+                ? (scopes, sourceUrl) =>
+                    onChange({
+                      ...value,
+                      confluence_url:
+                        sourceUrl ?? value.confluence_url ?? "",
+                      confluence_page_scopes: scopes,
+                      confluence_page_scope: undefined,
+                    })
+                : undefined
+            }
           />
         ),
       )}

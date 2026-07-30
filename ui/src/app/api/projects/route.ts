@@ -17,11 +17,19 @@ import {
   deriveProjectSlug,
 } from "@/lib/projects/backstage-catalog";
 import { buildEmptyOnboardingState } from "@/lib/projects/onboarding-config";
+import {
+  normalizeConfluencePageScope,
+  normalizeConfluencePageScopes,
+} from "@/lib/projects/confluence-source";
 import { projectMatchesLabels, sanitizeLabels } from "@/lib/projects/labels";
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import { isTomeAdmin, type TomeAdminSession } from "@/lib/rbac/tome-admin";
 import { auditTome, tomeActorFromAuth } from "@/lib/tome/audit";
-import { listReadableTomeProjects, reconcileTomeReadAccess } from "@/lib/tome/access";
+import {
+  invalidateTomeReadAccessCatalogCache,
+  listReadableTomeProjects,
+  reconcileTomeReadAccess,
+} from "@/lib/tome/access";
 import {
   reconcileDataSteward,
   resolveDataSteward,
@@ -276,6 +284,12 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   const sources = {
     repos: cleanUrls(body.github_repos),
     confluence_url: body.confluence_url?.trim() || undefined,
+    confluence_page_scopes: normalizeConfluencePageScopes(
+      body.confluence_page_scopes,
+    ),
+    confluence_page_scope: normalizeConfluencePageScope(
+      body.confluence_page_scope,
+    ),
     component_urls: cleanUrls(body.component_urls),
     webex_rooms: cleanWebexRooms(body.webex_rooms),
   };
@@ -341,6 +355,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       dataSteward,
     );
     await reconcileTomeReadAccess(doc);
+    invalidateTomeReadAccessCatalogCache();
   } catch (error) {
     await projects.deleteOne({ _id: result.insertedId as unknown as string });
     await reconcileDataSteward(doc, null).catch(() => undefined);

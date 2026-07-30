@@ -277,7 +277,16 @@ def sources_to_items(snapshot_sources, *, kind: str) -> list[SourceItem]:
             SourceItem(
                 slug=s.slug,
                 display_name=s.name,
-                extra={"space_key": s.space_key, "base_url": s.base_url},
+                extra={
+                    "space_key": s.space_key,
+                    "base_url": s.base_url,
+                    "root_page_id": s.root_page_id,
+                    "root_page_title": s.root_page_title,
+                    "include_descendants": s.include_descendants,
+                    "page_scopes": [
+                        scope.model_dump() for scope in s.page_scopes
+                    ],
+                },
             )
             for s in snapshot_sources
         ]

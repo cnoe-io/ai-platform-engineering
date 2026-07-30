@@ -1080,7 +1080,7 @@ export function TomeWiki({ slug }: { slug: string }) {
                     onClick={() => navigate({ kind: "standup" })}
                     beta
                     tipTitle="Standup"
-                    tipDescription="The project's report card: headline, blockers, and what's next. Rewritten by the agent on every ingest. This feature is still in testing."
+                    tipDescription="The project's report card: headline, blockers, and what's next. Rewritten by the agent on every ingest. (This feature is still in testing.)"
                   />
                   <NavItem
                     icon={<ListChecks className="h-4 w-4" />}
@@ -1089,7 +1089,7 @@ export function TomeWiki({ slug }: { slug: string }) {
                     onClick={() => navigate({ kind: "criticalItems" })}
                     beta
                     tipTitle="Issues and decisions"
-                    tipDescription="A generated board of tracked Issues and Decisions, filterable by priority and source project. Areas and BHAGs roll up their child projects plus items explicitly targeted through tome:// links. This feature is still in testing."
+                    tipDescription="A generated board of tracked Issues and Decisions, filterable by priority and source project. Areas and BHAGs roll up their child projects plus items explicitly targeted through tome:// links. (This feature is still in testing.)"
                   />
                 </div>
 
@@ -1541,7 +1541,7 @@ function NavItem({
   tipDescription?: React.ReactNode;
   /** Small trailing badge, e.g. "needs review". */
   tag?: string;
-  /** Renders a `BetaBadge` instead of `tag` — distinct styling, own tooltip. */
+  /** Renders a presentational Beta badge; the row tooltip owns the explanation. */
   beta?: boolean;
 }) {
   const button = (
@@ -1555,7 +1555,7 @@ function NavItem({
     >
       {icon}
       <span className="flex-1 truncate">{label}</span>
-      {beta && <BetaBadge />}
+      {beta && <BetaBadge showTooltip={false} />}
       {tag && (
         <span className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
           {tag}

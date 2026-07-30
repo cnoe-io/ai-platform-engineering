@@ -111,81 +111,78 @@ function isPersonalSpaceKey(key: string): boolean {
   return key.startsWith("~");
 }
 
-// v2 returns up to 250 spaces per page; we follow its cursor across pages.
-const SPACE_PAGE_LIMIT = 250;
-const SPACE_MAX_PAGES = 20; // up to 5000 spaces
+// Initial browse should be useful and fast. Full-site coverage comes from the
+// server-side search path once the user types; do not block first paint while
+// walking thousands of spaces.
+const SPACE_INITIAL_LIMIT = 50;
 
-/** Enumerate all spaces for a site via the Confluence v2 spaces API.
+/** List one bounded page of spaces via the Confluence v2 spaces API.
  *
  * The v1 `/rest/api/space` endpoint is gone (HTTP 410), and CQL search caps at
- * ~100 results with no real pagination - so spaces past the first page (e.g.
- * `Cognitive`) were invisible. v2 paginates properly via `_links.next` cursors
- * and returns every space type (global, collaboration, knowledge_base, …),
- * which CQL relevance ranking did not. */
+ * a bounded result set. v2 is the supported browse API; CQL is merged below
+ * for recently active, viewable-but-not-joined spaces. */
 async function listSpacesV2(
   token: string,
   siteId: string,
   siteUrl: string,
   includePersonal: boolean,
+  favoritedBy?: string,
 ): Promise<SourceOption[]> {
   const headers = { Authorization: `Bearer ${token}`, Accept: "application/json" };
   const gateway = `https://api.atlassian.com/ex/confluence/${siteId}`;
+  const params = new URLSearchParams({ limit: String(SPACE_INITIAL_LIMIT) });
+  if (favoritedBy) params.set("favorited-by", favoritedBy);
   const out: SourceOption[] = [];
-  let path: string | null = `/wiki/api/v2/spaces?limit=${SPACE_PAGE_LIMIT}`;
-
-  for (let page = 0; page < SPACE_MAX_PAGES && path; page++) {
-    const res: Response = await fetch(`${gateway}${path}`, { headers });
-    if (!res.ok) break;
-    const body = (await res.json().catch(() => ({}))) as {
-      results?: Array<{ key?: string; name?: string; type?: string }>;
-      _links?: { next?: string };
-    };
-    for (const s of body.results ?? []) {
-      if (!s.key) continue;
-      if (!includePersonal && (s.type === "personal" || isPersonalSpaceKey(s.key))) continue;
-      out.push(spaceOption(siteUrl, s.key, s.name));
+  const res = await fetch(`${gateway}/wiki/api/v2/spaces?${params}`, { headers });
+  if (!res.ok) return out;
+  const body = (await res.json().catch(() => ({}))) as {
+    results?: Array<{ key?: string; name?: string; type?: string }>;
+  };
+  for (const space of body.results ?? []) {
+    if (!space.key) continue;
+    if (
+      !includePersonal &&
+      (space.type === "personal" || isPersonalSpaceKey(space.key))
+    ) {
+      continue;
     }
-    // `_links.next` is a relative path (e.g. /wiki/api/v2/spaces?cursor=…).
-    path = body._links?.next ?? null;
+    out.push(spaceOption(siteUrl, space.key, space.name));
   }
   return out;
 }
 
-/** List spaces for one Confluence site (v2 API, cursor-paginated), with a
- * CQL-search fallback for connections whose scopes don't permit v2 reads.
- * Personal spaces are excluded unless the caller is searching for one. */
+/** List spaces for one Confluence site, ranked by explicit and behavioral
+ * relevance: favorites, recently active spaces, then the v2 browse page. */
 async function spacesForSite(
   token: string,
   siteId: string,
   siteUrl: string,
   includePersonal: boolean,
+  accountId?: string,
 ): Promise<SourceOption[]> {
-  const v2 = await listSpacesV2(token, siteId, siteUrl, includePersonal);
-  if (v2.length > 0) return v2;
-
-  // Fallback: paginated CQL search (works under search:confluence).
   const headers = { Authorization: `Bearer ${token}`, Accept: "application/json" };
   const base = `https://api.atlassian.com/ex/confluence/${siteId}/wiki`;
   const byKey = new Map<string, SourceOption>();
-  for (let start = 0; start < 1000; start += 100) {
-    const res = await fetch(
-      `${base}/rest/api/search?cql=${encodeURIComponent("type=space")}&limit=100&start=${start}`,
-      { headers },
-    );
-    if (!res.ok) break;
-    const body = (await res.json().catch(() => ({}))) as {
-      results?: Array<{ title?: string; space?: { key?: string; name?: string } }>;
-    };
-    const results = body.results ?? [];
-    for (const r of results) {
-      const key = r.space?.key;
-      if (key && !byKey.has(key)) byKey.set(key, spaceOption(siteUrl, key, r.space?.name || r.title));
-    }
-    if (results.length < 100) break;
+  const recent = new Map<string, SourceOption>();
+  const [favorites, browse] = await Promise.all([
+    accountId
+      ? listSpacesV2(token, siteId, siteUrl, includePersonal, accountId)
+      : Promise.resolve([]),
+    listSpacesV2(token, siteId, siteUrl, includePersonal),
+    runSpaceCql(
+      base,
+      headers,
+      siteUrl,
+      "type=space order by lastmodified desc",
+      recent,
+    ),
+  ]);
+  for (const option of [...favorites, ...recent.values(), ...browse]) {
+    const key = option.value.split("/").pop() ?? option.value;
+    if (!includePersonal && isPersonalSpaceKey(key)) continue;
+    if (!byKey.has(key)) byKey.set(key, option);
   }
-  const all = [...byKey.values()];
-  if (includePersonal) return all;
-  return all.filter((o) => !isPersonalSpaceKey(o.value.split("/").pop() ?? ""));
+  return [...byKey.values()];
 }
 
 // Escape a user query for embedding in a CQL double-quoted string literal.
@@ -233,36 +230,79 @@ async function searchSpacesByQuery(
   // CQL and 400s the whole query, so we keep clauses separate and ignore any
   // that fail. Title-contains finds spaces by display name ("Collective
   // Intelligence"); exact-key finds them by key ("Cognitive").
-  await runSpaceCql(base, headers, siteUrl, `type=space and title~"${term}*"`, byKey);
-  await runSpaceCql(base, headers, siteUrl, `type=space and space.key="${term}"`, byKey);
+  await Promise.all([
+    runSpaceCql(
+      base,
+      headers,
+      siteUrl,
+      `type=space and title~"${term}*"`,
+      byKey,
+    ),
+    runSpaceCql(
+      base,
+      headers,
+      siteUrl,
+      `type=space and space.key="${term}"`,
+      byKey,
+    ),
+  ]);
   return [...byKey.values()];
 }
 
-async function atlassianSpaces(token: string, q: string): Promise<SourceOption[]> {
-  const resourcesRes = await fetch(
-    "https://api.atlassian.com/oauth/token/accessible-resources",
-    { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } },
-  );
-  if (!resourcesRes.ok) return [];
+async function atlassianSpaces(
+  token: string,
+  q: string,
+): Promise<{ options: SourceOption[]; connectedTo: string }> {
+  const headers = { Authorization: `Bearer ${token}`, Accept: "application/json" };
+  const [resourcesRes, identityRes] = await Promise.all([
+    fetch("https://api.atlassian.com/oauth/token/accessible-resources", {
+      headers,
+    }),
+    fetch("https://api.atlassian.com/me", { headers }),
+  ]);
+  if (!resourcesRes.ok) return { options: [], connectedTo: "" };
   const resources = (await resourcesRes.json().catch(() => [])) as Array<{
     id?: string;
     url?: string;
   }>;
+  const identity = identityRes.ok
+    ? ((await identityRes.json().catch(() => ({}))) as { account_id?: string })
+    : {};
   const query = q.trim();
   const byValue = new Map<string, SourceOption>();
-  // Bound to the first few sites to keep the call fast. A cloud often exposes
-  // the same Confluence site as multiple accessible-resources (e.g. one per
-  // product), so dedupe by value to avoid listing a space twice.
-  for (const site of resources.slice(0, 3)) {
+  const uniqueSites = new Map<string, { id: string; url: string }>();
+  for (const site of resources) {
     if (!site.id || !site.url) continue;
-    // With a query, search (finds viewable-but-not-joined spaces); without one,
-    // enumerate the user's spaces as the default browse list.
-    const found = query
-      ? await searchSpacesByQuery(token, site.id, site.url, query)
-      : await spacesForSite(token, site.id, site.url, false);
+    let origin: string;
+    try {
+      origin = new URL(site.url).origin;
+    } catch {
+      continue;
+    }
+    const key = `${site.id}:${origin}`;
+    if (!uniqueSites.has(key)) uniqueSites.set(key, { id: site.id, url: site.url });
+  }
+  const sites = [...uniqueSites.values()].slice(0, 3);
+  const foundBySite = await Promise.all(
+    sites.map((site) =>
+      query
+        ? searchSpacesByQuery(token, site.id, site.url, query)
+        : spacesForSite(
+            token,
+            site.id,
+            site.url,
+            false,
+            identity.account_id,
+          ),
+    ),
+  );
+  for (const found of foundBySite) {
     for (const o of found) if (!byValue.has(o.value)) byValue.set(o.value, o);
   }
-  return [...byValue.values()];
+  return {
+    options: [...byValue.values()],
+    connectedTo: (sites[0]?.url ?? "").replace(/^https?:\/\//, ""),
+  };
 }
 
 async function webexRooms(token: string, q: string): Promise<SourceOption[]> {
@@ -301,13 +341,7 @@ async function connectedTo(provider: string, token: string): Promise<string> {
       const u = (await r.json().catch(() => ({}))) as { displayName?: string; emails?: string[] };
       return u.displayName || u.emails?.[0] || "";
     }
-    // atlassian: first accessible Confluence site URL (e.g. cisco-eti.atlassian.net)
-    const r = await fetch("https://api.atlassian.com/oauth/token/accessible-resources", {
-      headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
-    });
-    if (!r.ok) return "";
-    const sites = (await r.json().catch(() => [])) as Array<{ url?: string }>;
-    return (sites[0]?.url ?? "").replace(/^https?:\/\//, "");
+    return "";
   } catch {
     return "";
   }
@@ -344,9 +378,17 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   }
 
   try {
+    if (provider === "atlassian") {
+      const result = await atlassianSpaces(token, q);
+      return successResponse({
+        connected: true,
+        options: result.options,
+        connectedTo: result.connectedTo,
+        manageUrl,
+      });
+    }
     let optionsFn: (token: string, q: string) => Promise<SourceOption[]>;
     if (provider === "github") optionsFn = githubRepos;
-    else if (provider === "atlassian") optionsFn = atlassianSpaces;
     else optionsFn = webexRooms;
 
     const [options, account] = await Promise.all([

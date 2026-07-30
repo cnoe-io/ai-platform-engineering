@@ -809,6 +809,20 @@ export class ProviderConnectionService {
       return { accessToken: storedAccessToken, expiresIn };
     };
 
+    // Avoid a provider round-trip on every resource-picker mount. Refresh only
+    // when the token is within five minutes of expiry; concurrent callers can
+    // safely reuse a token with a larger validity window.
+    const expiresAt = connection.expiresAt
+      ? new Date(connection.expiresAt).getTime()
+      : Number.NaN;
+    if (
+      storedAccessToken &&
+      Number.isFinite(expiresAt) &&
+      expiresAt - this.now().getTime() > 5 * 60 * 1000
+    ) {
+      return reuseStoredToken();
+    }
+
     // `connector` is intentionally null in two distinct cases, BOTH of which
     // reuse the stored access token rather than attempting an OAuth refresh:
     //

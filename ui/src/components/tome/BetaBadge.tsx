@@ -8,19 +8,25 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 
 export function BetaBadge({
   tooltip = "This feature is still in testing.",
+  showTooltip = true,
 }: {
   tooltip?: string;
+  showTooltip?: boolean;
 }) {
+  const badge = (
+    <Badge
+      variant="outline"
+      className="h-auto cursor-default gap-1 border-muted-foreground/30 bg-transparent px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-muted-foreground/60"
+    >
+      Beta
+    </Badge>
+  );
+
+  if (!showTooltip) return badge;
+
   return (
     <Tooltip>
-      <TooltipTrigger asChild>
-        <Badge
-          variant="outline"
-          className="h-auto cursor-default gap-1 border-muted-foreground/30 bg-transparent px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-muted-foreground/60"
-        >
-          Beta
-        </Badge>
-      </TooltipTrigger>
+      <TooltipTrigger asChild>{badge}</TooltipTrigger>
       <TooltipContent side="right" className="max-w-64 text-xs">
         {tooltip}
       </TooltipContent>

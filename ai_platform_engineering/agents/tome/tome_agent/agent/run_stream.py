@@ -26,6 +26,7 @@ from claude_agent_sdk import (
     TaskStartedMessage,
     TaskUpdatedMessage,
     TextBlock,
+    ToolResultBlock,
     ToolUseBlock,
     UserMessage,
 )
@@ -48,6 +49,78 @@ def stringify_tool_input(value: object) -> str:
         return json.dumps(value, separators=(", ", "="))[:300]
     except Exception:
         return str(value)[:300]
+
+
+def _tool_result_text(content: object) -> str:
+    """Normalize SDK tool-result content into text for small metadata reads."""
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return ""
+    parts: list[str] = []
+    for item in content:
+        if isinstance(item, dict):
+            text = item.get("text")
+        else:
+            text = getattr(item, "text", None)
+        if isinstance(text, str):
+            parts.append(text)
+    return "".join(parts)
+
+
+def confluence_tree_coverage(
+    tool_label: str,
+    content: object,
+) -> dict[str, object] | None:
+    """Extract reader-facing coverage from a complete-tree tool result."""
+    if not tool_label.endswith("confluence_get_page_tree"):
+        return None
+    text = _tool_result_text(content)
+    if not text:
+        return None
+    try:
+        payload = json.loads(text)
+    except (TypeError, ValueError):
+        return None
+    fields = payload.get("page_fields")
+    pages = payload.get("pages")
+    if not isinstance(fields, list) or not isinstance(pages, list):
+        return None
+    try:
+        id_index = fields.index("id")
+        title_index = fields.index("title")
+        body_index = fields.index("body")
+    except ValueError:
+        return None
+    root_id = str(payload.get("root_page_id") or "")
+    root_title = ""
+    pages_with_content = 0
+    for page in pages:
+        if not isinstance(page, list):
+            continue
+        if (
+            body_index < len(page)
+            and isinstance(page[body_index], str)
+            and page[body_index]
+        ):
+            pages_with_content += 1
+        if (
+            not root_title
+            and id_index < len(page)
+            and str(page[id_index] or "") == root_id
+            and title_index < len(page)
+        ):
+            root_title = str(page[title_index] or "")
+    if not root_title and pages and isinstance(pages[0], list):
+        first = pages[0]
+        if title_index < len(first):
+            root_title = str(first[title_index] or "")
+    return {
+        "root_title": root_title or root_id or "Confluence page tree",
+        "total_pages": len(pages),
+        "pages_with_content": pages_with_content,
+        "tree_truncated": payload.get("tree_truncated") is True,
+    }
 
 
 # Anthropic usage-block keys → the short keys we surface to the ingest pane.
@@ -179,16 +252,42 @@ async def consume_agent_query(
                         kind = getattr(block, "type", None) or (
                             block.get("type") if isinstance(block, dict) else None
                         )
-                        if kind == "tool_result":
+                        if isinstance(block, ToolResultBlock) or kind == "tool_result":
                             tool_id = getattr(block, "tool_use_id", None) or (
-                                block.get("tool_use_id") if isinstance(block, dict) else None
+                                block.get("tool_use_id")
+                                if isinstance(block, dict)
+                                else None
                             )
                             is_error = getattr(block, "is_error", False) or (
-                                block.get("is_error", False) if isinstance(block, dict) else False
+                                block.get("is_error", False)
+                                if isinstance(block, dict)
+                                else False
                             )
                             label = tool_call_names.get(tool_id or "", "?")
+                            content = getattr(block, "content", None) or (
+                                block.get("content")
+                                if isinstance(block, dict)
+                                else None
+                            )
+                            coverage = confluence_tree_coverage(label, content)
+                            if coverage and not is_error:
+                                limit_note = (
+                                    " · source limit reached"
+                                    if coverage["tree_truncated"]
+                                    else ""
+                                )
+                                yield emit_log(
+                                    "· Confluence "
+                                    f"{coverage['root_title']} · loaded "
+                                    f"{coverage['total_pages']} pages "
+                                    f"({coverage['pages_with_content']} with content)"
+                                    f"{limit_note}"
+                                )
+                                continue
                             if is_error:
-                                log.debug("tool result error: tool=%s id=%s", label, tool_id)
+                                log.debug(
+                                    "tool result error: tool=%s id=%s", label, tool_id
+                                )
                             yield IngestEventPayload(
                                 type="tool_result",
                                 data={
@@ -232,7 +331,10 @@ async def consume_agent_query(
                         yield emit_log("· agent session opened")
                 elif isinstance(message, ResultMessage):
                     result_seen = True
-                    if getattr(message, "is_error", False) and message.subtype != "success":
+                    if (
+                        getattr(message, "is_error", False)
+                        and message.subtype != "success"
+                    ):
                         log.warning(
                             "ResultMessage has is_error=True: subtype=%s errors=%s",
                             message.subtype,
@@ -263,4 +365,6 @@ async def consume_agent_query(
             )
         else:
             log.exception("agent stream failed")
-            yield IngestEventPayload(type="error", data={"message": f"{type(e).__name__}: {e}"})
+            yield IngestEventPayload(
+                type="error", data={"message": f"{type(e).__name__}: {e}"}
+            )

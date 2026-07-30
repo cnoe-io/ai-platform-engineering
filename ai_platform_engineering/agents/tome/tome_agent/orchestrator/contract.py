@@ -41,11 +41,21 @@ class WebexRoomSnapshot(BaseModel):
     room_id: str = ""
 
 
+class ConfluencePageScopeSnapshot(BaseModel):
+    page_id: str
+    page_title: str = ""
+    include_descendants: bool = True
+
+
 class ConfluenceSpaceSnapshot(BaseModel):
     slug: str
     name: str
     space_key: str
     base_url: str = ""
+    root_page_id: str = ""
+    root_page_title: str = ""
+    include_descendants: bool = True
+    page_scopes: list[ConfluencePageScopeSnapshot] = Field(default_factory=list)
 
 
 class ChildProjectSnapshot(BaseModel):

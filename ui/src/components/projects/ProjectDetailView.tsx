@@ -75,6 +75,8 @@ export function ProjectDetailView({ slug }: { slug: string }) {
     setEditSources({
       repos: project.sources?.repos ?? [],
       confluence_url: project.sources?.confluence_url ?? "",
+      confluence_page_scopes: project.sources?.confluence_page_scopes,
+      confluence_page_scope: project.sources?.confluence_page_scope,
     });
     setEditOpen(true);
   }
@@ -92,6 +94,10 @@ export function ProjectDetailView({ slug }: { slug: string }) {
           sources: {
             repos: (editSources.repos ?? []).map((r) => r.trim()).filter(Boolean),
             confluence_url: (editSources.confluence_url ?? "").trim(),
+            confluence_page_scopes:
+              editSources.confluence_page_scopes ?? [],
+            confluence_page_scope:
+              editSources.confluence_page_scope ?? null,
           },
         }),
       });

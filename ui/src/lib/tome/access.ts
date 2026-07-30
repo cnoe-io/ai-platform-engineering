@@ -285,8 +285,20 @@ export async function ensureTomeReadAccessCatalog(): Promise<ProjectDocument[]> 
   }
 }
 
-export function resetTomeReadAccessCatalogCacheForTests(): void {
+/**
+ * Drop the in-process catalog snapshot after a Tome entity mutation.
+ *
+ * The cache avoids repeatedly reconciling every document with OpenFGA, but it
+ * also contains the project rows used for discovery. Without invalidation, a
+ * newly created project can remain absent from `/api/projects` until the
+ * five-minute TTL expires even when OpenFGA already grants access.
+ */
+export function invalidateTomeReadAccessCatalogCache(): void {
   catalogReconcile = undefined;
+}
+
+export function resetTomeReadAccessCatalogCacheForTests(): void {
+  invalidateTomeReadAccessCatalogCache();
   warnedMissingParentRelation = false;
 }
 

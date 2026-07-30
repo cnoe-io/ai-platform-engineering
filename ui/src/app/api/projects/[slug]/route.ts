@@ -10,6 +10,10 @@ import {
   withErrorHandler,
 } from "@/lib/api-middleware";
 import { projectCatalogBundleYaml } from "@/lib/projects/backstage-catalog";
+import {
+  normalizeConfluencePageScope,
+  normalizeConfluencePageScopes,
+} from "@/lib/projects/confluence-source";
 import { runOnboardingDeletes, runOnboardingUpdates } from "@/lib/projects/onboarding-providers";
 import { canManageProjectsOrganization } from "@/lib/projects/project-admin";
 import { cleanLabelList } from "@/lib/projects/labels";
@@ -19,6 +23,7 @@ import { getRbacCollection } from "@/lib/rbac/mongo-collections";
 import { auditTome, tomeActorFromAuth, type TomeAuditActor } from "@/lib/tome/audit";
 import {
   getTomeReadConfiguration,
+  invalidateTomeReadAccessCatalogCache,
   reconcileTomeReadAccess,
   removeTomeReadAccess,
 } from "@/lib/tome/access";
@@ -209,6 +214,7 @@ export const DELETE = withErrorHandler(
       reconcileDataSteward(project, null),
     ]);
     await projects.deleteOne({ _id: project._id });
+    invalidateTomeReadAccessCatalogCache();
 
     auditTome({
       action: "tome.project.delete",
@@ -262,6 +268,8 @@ export const PATCH = withErrorHandler(
       sources?: {
         repos?: string[];
         confluence_url?: string;
+        confluence_page_scopes?: unknown;
+        confluence_page_scope?: unknown;
         webex_rooms?: Array<{ room_id?: string; name?: string; slug?: string }>;
       };
       /** Scoped user/team steward for this Project, Area, or BHAG. */
@@ -351,6 +359,24 @@ export const PATCH = withErrorHandler(
       if (typeof body.sources.confluence_url === "string") {
         $set["sources.confluence_url"] = body.sources.confluence_url.trim();
       }
+      if ("confluence_page_scopes" in body.sources) {
+        const pageScopes = normalizeConfluencePageScopes(
+          body.sources.confluence_page_scopes,
+        );
+        if (pageScopes.length) {
+          $set["sources.confluence_page_scopes"] = pageScopes;
+          $unset["sources.confluence_page_scope"] = "";
+        } else {
+          $unset["sources.confluence_page_scopes"] = "";
+        }
+      }
+      if ("confluence_page_scope" in body.sources) {
+        const pageScope = normalizeConfluencePageScope(
+          body.sources.confluence_page_scope,
+        );
+        if (pageScope) $set["sources.confluence_page_scope"] = pageScope;
+        else $unset["sources.confluence_page_scope"] = "";
+      }
       if (Array.isArray(body.sources.webex_rooms)) {
         $set["sources.webex_rooms"] = body.sources.webex_rooms
           .filter((r) => r && typeof r.room_id === "string" && r.room_id.trim())
@@ -396,6 +422,7 @@ export const PATCH = withErrorHandler(
         { _id: project._id },
         Object.keys($unset).length > 0 ? { $set, $unset } : { $set },
       );
+      invalidateTomeReadAccessCatalogCache();
     } catch (error) {
       if (accessChanged) {
         await reconcileTomeReadAccess(project).catch((rollbackError) => {

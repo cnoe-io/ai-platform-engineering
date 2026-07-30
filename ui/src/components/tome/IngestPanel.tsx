@@ -24,8 +24,14 @@ import { ChildProjectsPanel } from "@/components/tome/BhagProjectsPanel";
 import { PanelShell } from "@/components/tome/PanelHeader";
 import { ViewOnlyTooltip } from "@/components/tome/ViewOnlyTooltip";
 import { ProviderLogo } from "@/components/credentials/provider-logo";
+import {
+  normalizeConfluencePageScope,
+  normalizeConfluencePageScopes,
+  parseConfluenceUrl,
+} from "@/lib/projects/confluence-source";
 import { preflightState, type PreflightSourceResult } from "@/lib/tome/preflight";
 import { cn } from "@/lib/utils";
+import type { ConfluencePageScope } from "@/types/projects";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -54,6 +60,8 @@ interface WebexMeeting {
 interface ProjectSources {
   repos: string[];
   confluence_url: string;
+  confluence_page_scopes?: unknown;
+  confluence_page_scope?: unknown;
   // Stored shape is { room_id, name, slug }; tolerate older { id, title } too.
   webex_rooms: Array<{
     room_id?: string;
@@ -64,10 +72,16 @@ interface ProjectSources {
   }>;
 }
 
+interface SourceItem {
+  label: string;
+  detail?: string;
+  href?: string;
+}
+
 interface SourceRow {
   kind: "github" | "confluence" | "webex";
   label: string;
-  items: string[];
+  items: SourceItem[];
   connectorKey: string;
 }
 
@@ -102,17 +116,67 @@ function timeUntil(dateStr: string): string {
   return `in ${Math.floor(h / 24)}d`;
 }
 
-function sourcesFromProject(s: Partial<ProjectSources>): SourceRow[] {
+function confluencePageHref(
+  sourceUrl: string,
+  scope: ConfluencePageScope,
+): string | undefined {
+  const parsed = parseConfluenceUrl(sourceUrl);
+  if (!parsed) return undefined;
+  return `${parsed.base_url}/wiki/spaces/${encodeURIComponent(scope.space_key)}/pages/${encodeURIComponent(scope.page_id)}`;
+}
+
+function savedConfluenceScopes(s: Partial<ProjectSources>): ConfluencePageScope[] {
+  const scopes = normalizeConfluencePageScopes(s.confluence_page_scopes);
+  if (scopes.length > 0) return scopes;
+  const legacyScope = normalizeConfluencePageScope(s.confluence_page_scope);
+  return legacyScope ? [legacyScope] : [];
+}
+
+export function sourcesFromProject(s: Partial<ProjectSources>): SourceRow[] {
   const rows: SourceRow[] = [];
   const repos = Array.isArray(s.repos) ? s.repos.filter(Boolean) : [];
   if (repos.length > 0) {
-    rows.push({ kind: "github", label: "GitHub", items: repos, connectorKey: "github" });
+    rows.push({
+      kind: "github",
+      label: "GitHub",
+      items: repos.map((repo) => ({ label: repo })),
+      connectorKey: "github",
+    });
   }
   if (typeof s.confluence_url === "string" && s.confluence_url.trim()) {
+    const sourceUrl = s.confluence_url.trim();
+    const scopes = savedConfluenceScopes(s);
+    const parsed = parseConfluenceUrl(sourceUrl);
+    const spaceKey = scopes[0]?.space_key ?? parsed?.space_key;
     rows.push({
       kind: "confluence",
       label: "Confluence",
-      items: [s.confluence_url.trim()],
+      items:
+        scopes.length > 0
+          ? scopes.map((scope) => ({
+              label: scope.page_title,
+              detail: `Space ${scope.space_key} · ${
+                scope.include_descendants
+                  ? "This page and all subpages"
+                  : "This page only"
+              }`,
+              href: confluencePageHref(sourceUrl, scope),
+            }))
+          : parsed?.page_id
+            ? [
+                {
+                  label: `Page ${parsed.page_id}`,
+                  detail: `Space ${spaceKey ?? "unknown"} · This page and all subpages`,
+                  href: sourceUrl,
+                },
+              ]
+          : [
+              {
+                label: spaceKey ? `Entire ${spaceKey} space` : "Entire space",
+                detail: sourceUrl,
+                href: sourceUrl,
+              },
+            ],
       connectorKey: "atlassian",
     });
   }
@@ -124,7 +188,7 @@ function sourcesFromProject(s: Partial<ProjectSources>): SourceRow[] {
     rows.push({
       kind: "webex",
       label: "Webex",
-      items: roomLabels,
+      items: roomLabels.map((room) => ({ label: room })),
       connectorKey: "webex",
     });
   }
@@ -670,16 +734,49 @@ export function IngestPanel({
                           <ProviderLogo provider={row.connectorKey} className="h-3.5 w-3.5 shrink-0 object-contain" />
                           {row.label}
                         </p>
-                        <p className="truncate text-xs text-muted-foreground">
-                          {inaccessible.length > 0 ? (
-                            <>
-                              <span className="text-amber-500">{inaccessible.join(", ")}</span>
-                              {accessible.length > 0 ? `, ${accessible.join(", ")}` : ""}
-                            </>
-                          ) : (
-                            row.items.join(", ")
-                          )}
-                        </p>
+                        <ul className="mt-1 space-y-1">
+                          {row.items.map((item) => (
+                            <li
+                              key={`${item.label}:${item.detail ?? ""}`}
+                              className="flex min-w-0 items-start gap-1.5 text-xs"
+                            >
+                              <span
+                                aria-hidden="true"
+                                className="mt-[0.45rem] h-1 w-1 shrink-0 rounded-full bg-muted-foreground/60"
+                              />
+                              <span className="min-w-0">
+                                {item.href ? (
+                                  <a
+                                    href={item.href}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="inline-flex items-center gap-1 break-words text-foreground/90 hover:text-primary hover:underline"
+                                  >
+                                    {item.label}
+                                    <ExternalLink className="h-2.5 w-2.5 shrink-0" />
+                                  </a>
+                                ) : (
+                                  <span className="break-words text-foreground/90">
+                                    {item.label}
+                                  </span>
+                                )}
+                                {item.detail ? (
+                                  <span className="block break-words text-[11px] text-muted-foreground">
+                                    {item.detail}
+                                  </span>
+                                ) : null}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                        {inaccessible.length > 0 ? (
+                          <p className="mt-1 text-xs text-amber-500">
+                            No access to {inaccessible.join(", ")}
+                            {accessible.length > 0
+                              ? `; access confirmed for ${accessible.join(", ")}`
+                              : ""}
+                          </p>
+                        ) : null}
                       </div>
                       {(noToken || accessIssue) && (
                         <a

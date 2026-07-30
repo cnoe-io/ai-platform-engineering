@@ -9,13 +9,11 @@ import {
   Boxes,
   Check,
   CheckCircle2,
-  ChevronDown,
   FolderKanban,
   Layers,
   ListChecks,
   Loader2,
   Rocket,
-  Search,
   Shield,
   Target,
   type LucideIcon,
@@ -24,7 +22,6 @@ import {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -36,7 +33,10 @@ import { SourcePicker } from "@/components/projects/source-pickers";
 import { getConfig } from "@/lib/config";
 import { cn } from "@/lib/utils";
 import { toWebexRoomSource } from "@/lib/projects/webex-room";
-import type { ProjectDocument } from "@/types/projects";
+import type {
+  ConfluencePageScope,
+  ProjectDocument,
+} from "@/types/projects";
 
 const BLAST_RADIUS_OPTIONS = [
   { value: "small", label: "Small and reversible (2-way)", hint: "The team runs on its own" },
@@ -228,22 +228,11 @@ export function ProjectOnboardingWizard({
   const [blastRadius, setBlastRadius] = useState<"small" | "large" | "">("");
   const [optionality, setOptionality] = useState<string[]>([]);
   const [confluenceUrl, setConfluenceUrl] = useState("");
+  const [confluencePageScopes, setConfluencePageScopes] = useState<
+    ConfluencePageScope[]
+  >([]);
   // Encoded {room_id, name} blobs from the picker (see lib/projects/webex-room).
   const [webexRooms, setWebexRooms] = useState<string[]>([]);
-  // "Look up from Backstage" — pre-fill the create form from an existing System.
-  type BackstageResult = {
-    slug: string;
-    title: string;
-    description: string;
-    tags: string[];
-    repos: string[];
-  };
-  const [bsConfigured, setBsConfigured] = useState(false);
-  const [bsOpen, setBsOpen] = useState(false);
-  const [bsQuery, setBsQuery] = useState("");
-  const [bsResults, setBsResults] = useState<BackstageResult[]>([]);
-  const [bsLoading, setBsLoading] = useState(false);
-  const bsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [teams, setTeams] = useState<TeamPickerOption[]>([]);
   const [teamsLoading, setTeamsLoading] = useState(true);
   const [provisioning, setProvisioning] = useState(false);
@@ -274,46 +263,6 @@ export function ProjectOnboardingWizard({
   const isAccessPhase = phase.kind === "access";
   const isIntegrationsPhase = phase.kind === "integrations";
   const isReviewPhase = phase.kind === "review";
-
-  // Backstage lookup: debounced search of existing Systems.
-  const lookupBackstage = useCallback((q: string) => {
-    if (bsTimer.current) clearTimeout(bsTimer.current);
-    setBsLoading(true);
-    bsTimer.current = setTimeout(() => {
-      fetch(`/api/projects/backstage/lookup?q=${encodeURIComponent(q)}`)
-        .then((r) => (r.ok ? r.json() : null))
-        .then((b) => {
-          const d = b?.data ?? b;
-          setBsConfigured(Boolean(d?.configured));
-          setBsResults(Array.isArray(d?.results) ? d.results : []);
-        })
-        .catch(() => setBsResults([]))
-        .finally(() => setBsLoading(false));
-    }, 300);
-  }, []);
-
-  // Apply a chosen Backstage System to the create form. Picking a system always
-  // overwrites the prefilled fields so the user can switch selections and the
-  // form reflects the latest pick (fields stay hand-editable afterwards).
-  const applyBackstageResult = useCallback((r: BackstageResult) => {
-    setProjectName(r.title);
-    setDescription(r.description);
-    // Note: Backstage tags aren't mapped into the BHAG/Area hierarchy (they're
-    // free-form catalog tags, not necessarily existing BHAG/Area names) — the
-    // user picks the parent explicitly below. TODO: best-effort match a tag
-    // against an existing BHAG name and pre-select it.
-    setGithubReposRaw(r.repos.join(", "));
-    setBsOpen(false);
-  }, []);
-
-  useEffect(() => {
-    if (!open) return;
-    // Probe whether Backstage lookup is available (shows the button if so).
-    fetch("/api/projects/backstage/lookup")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((b) => setBsConfigured(Boolean((b?.data ?? b)?.configured)))
-      .catch(() => undefined);
-  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -361,7 +310,7 @@ export function ProjectOnboardingWizard({
         // Deployment-configured catchall (e.g. an everyone-gets-added team) —
         // pre-select it so most users never have to search ~100 teams. Only
         // applies if nothing's picked yet (functional update: doesn't clobber
-        // a Backstage-prefilled or otherwise already-chosen team).
+        // an already-chosen team).
         const defaultSlug = getConfig("defaultTeamSlug");
         if (defaultSlug && list.some((t) => (t.slug ?? t._id) === defaultSlug)) {
           setTeamId((prev) => prev || defaultSlug);
@@ -407,6 +356,7 @@ export function ProjectOnboardingWizard({
     setBlastRadius("");
     setOptionality([]);
     setConfluenceUrl("");
+    setConfluencePageScopes([]);
     setWebexRooms([]);
     setProvisioning(false);
     setError(null);
@@ -439,6 +389,9 @@ export function ProjectOnboardingWizard({
     const confluence_url = enabledSourceKinds.has("confluence")
       ? confluenceUrl.trim() || undefined
       : undefined;
+    const confluence_page_scopes = enabledSourceKinds.has("confluence")
+      ? confluencePageScopes
+      : [];
     const webex_rooms = enabledSourceKinds.has("webex")
       ? webexRooms.map(toWebexRoomSource)
       : [];
@@ -454,6 +407,7 @@ export function ProjectOnboardingWizard({
             : undefined,
       github_repos,
       confluence_url,
+      confluence_page_scopes,
       webex_rooms,
     };
 
@@ -706,77 +660,6 @@ export function ProjectOnboardingWizard({
 
               {phase.id === "create" ? (
                 <div className="space-y-6">
-                  {entityType === "project" && bsConfigured ? (
-                    <div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const next = !bsOpen;
-                          setBsOpen(next);
-                          if (next) lookupBackstage("");
-                        }}
-                        className="inline-flex items-center gap-2 rounded-xl border border-border/60 bg-muted/30 px-4 py-2.5 text-sm font-medium transition hover:border-primary/40 hover:bg-accent/40"
-                      >
-                        <FolderKanban className="h-4 w-4 text-muted-foreground" />
-                        Pick from Backstage
-                        <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", bsOpen && "rotate-180")} />
-                      </button>
-                      {bsOpen ? (
-                        <div className="mt-3 rounded-xl border border-border/60 bg-card/40 p-3">
-                          <p className="px-1 pb-2 text-xs text-muted-foreground">
-                            Select a Backstage system to pre-fill this project: name, description,
-                            initiatives, and repos (all still editable).
-                          </p>
-                          {/* Optional filter over the listed systems. */}
-                          <div className="relative">
-                            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                            <input
-                              value={bsQuery}
-                              autoFocus
-                              onChange={(e) => {
-                                setBsQuery(e.target.value);
-                                lookupBackstage(e.target.value);
-                              }}
-                              placeholder="Filter systems…"
-                              className="w-full rounded-lg border border-border/60 bg-muted/30 py-2 pl-9 pr-3 text-sm outline-none ring-primary/30 focus:border-primary focus:ring-2"
-                            />
-                          </div>
-                          <ul className="mt-2 max-h-56 divide-y divide-border/60 overflow-y-auto rounded-lg border border-border/60">
-                            {bsLoading && bsResults.length === 0 ? (
-                              <li className="flex items-center gap-2 px-3 py-3 text-xs text-muted-foreground">
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                                Loading Backstage systems…
-                              </li>
-                            ) : bsResults.length === 0 ? (
-                              <li className="px-3 py-3 text-xs text-muted-foreground">
-                                No Backstage systems found. Check BACKSTAGE_URL and BACKSTAGE_API_TOKEN.
-                              </li>
-                            ) : (
-                              bsResults.map((r) => (
-                                <li key={r.slug}>
-                                  <button
-                                    type="button"
-                                    onClick={() => applyBackstageResult(r)}
-                                    className="block w-full px-3 py-2.5 text-left transition hover:bg-accent/50"
-                                  >
-                                    <span className="flex items-center gap-2">
-                                      <span className="text-sm font-medium text-foreground">{r.title}</span>
-                                      <span className="text-xs text-muted-foreground">{r.slug}</span>
-                                    </span>
-                                    {r.description ? (
-                                      <span className="mt-0.5 line-clamp-2 block text-xs text-muted-foreground">
-                                        {r.description}
-                                      </span>
-                                    ) : null}
-                                  </button>
-                                </li>
-                              ))
-                            )}
-                          </ul>
-                        </div>
-                      ) : null}
-                    </div>
-                  ) : null}
                   <div className="space-y-4">
                     <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                       General
@@ -1117,6 +1000,20 @@ export function ProjectOnboardingWizard({
                                 else if (step.source === "webex")
                                   setWebexRooms(next);
                               }}
+                              confluencePageScopes={
+                                step.source === "confluence"
+                                  ? confluencePageScopes
+                                  : undefined
+                              }
+                              onConfluencePageScopesChange={
+                                step.source === "confluence"
+                                  ? (scopes, sourceUrl) => {
+                                      setConfluencePageScopes(scopes);
+                                      if (sourceUrl !== undefined)
+                                        setConfluenceUrl(sourceUrl);
+                                    }
+                                  : undefined
+                              }
                             />
                           </div>
                         ) : null}
@@ -1268,7 +1165,22 @@ export function ProjectOnboardingWizard({
                             <Row label={<SourceLabel provider="atlassian" name="Confluence" />}>
                               {confluenceUrl.trim() ? (
                                 <span className="space-y-1.5">
-                                  <span className="block text-xs text-muted-foreground">1 space</span>
+                                  <span className="block text-xs text-muted-foreground">
+                                    {confluencePageScopes.length
+                                      ? `${confluencePageScopes.length} page root${confluencePageScopes.length === 1 ? "" : "s"}`
+                                      : "1 space"}
+                                  </span>
+                                  {confluencePageScopes.map((scope) => (
+                                    <span
+                                      key={scope.page_id}
+                                      className="block text-xs font-medium"
+                                    >
+                                      {scope.page_title}
+                                      {scope.include_descendants
+                                        ? " and all subpages"
+                                        : ""}
+                                    </span>
+                                  ))}
                                   <span className="block break-all text-xs">
                                     {confluenceUrl.trim()}
                                   </span>

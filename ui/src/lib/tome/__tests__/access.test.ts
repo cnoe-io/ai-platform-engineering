@@ -1,5 +1,6 @@
 import {
   canReadTomeProject,
+  invalidateTomeReadAccessCatalogCache,
   listReadableTomeProjects,
   reconcileTomeReadAccess,
   resetTomeReadAccessCatalogCacheForTests,
@@ -283,6 +284,40 @@ describe("Tome read authorization", () => {
       relation: "can_read",
       type: "document",
     });
+  });
+
+  it("reloads the catalog after a Tome entity mutation invalidates the cache", async () => {
+    const newProject = project(
+      "new-service",
+      "project",
+      "New Service",
+      "service-team",
+    );
+    const toArray = jest
+      .fn()
+      .mockResolvedValueOnce([bhag, area, child])
+      .mockResolvedValueOnce([bhag, area, child, newProject]);
+    mockGetCollection.mockReturnValue({
+      find: jest.fn().mockReturnValue({ toArray }),
+    });
+    mockListOpenFgaObjects.mockResolvedValue({
+      objects: [
+        "document:tome/project/service",
+        "document:tome/project/new-service",
+      ],
+    });
+
+    await expect(listReadableTomeProjects("viewer-sub")).resolves.toEqual([
+      child,
+    ]);
+
+    invalidateTomeReadAccessCatalogCache();
+
+    await expect(listReadableTomeProjects("viewer-sub")).resolves.toEqual([
+      child,
+      newProject,
+    ]);
+    expect(toArray).toHaveBeenCalledTimes(2);
   });
 
   it("preserves the Tome admin catalog override without an OpenFGA list call", async () => {

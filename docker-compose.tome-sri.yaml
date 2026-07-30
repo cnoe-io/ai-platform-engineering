@@ -7,8 +7,10 @@
 # docker-compose.rbac.yaml for the prior generic-RBAC-demo version of this file.
 #
 # tome-agent / mycelium-backend run from docker-compose.tome.yaml's standalone
-# stack, bridged into this stack's default network (see deploy-to-tome-sri.sh)
-# so caipe-ui can reach them by container name instead of host.docker.internal.
+# stack. Always rebuild that agent with deploy/tome-sri-agent-rebuild.sh,
+# which restores its bridge into this stack's default network after Compose
+# recreates it, so caipe-ui can reach it by container name instead of
+# host.docker.internal.
 #
 # Usage (prod-parity UI — mirrors caipe-edge-testing / caipe-demo):
 #   COMPOSE_PROFILES="mcp-servers,caipe-ui-prod,rbac,..." \

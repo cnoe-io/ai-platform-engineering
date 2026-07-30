@@ -530,6 +530,47 @@ describe("boundScopes", () => {
 });
 
 describe("ProviderConnectionService", () => {
+  it("reuses a stored OAuth token that is safely outside the refresh window", async () => {
+    const providerConnections = new MemoryCollection<ProviderConnectionDocument>();
+    providerConnections.docs.push({
+      id: "conn-valid",
+      connectorId: "connector-1",
+      provider: "atlassian",
+      owner: { type: "user", id: "example-user" },
+      status: "connected",
+      refreshTokenRef: "provider_connection:conn-valid:refresh_token",
+      accessTokenRef: "provider_connection:conn-valid:access_token",
+      expiresAt: new Date("2026-05-21T01:00:00.000Z"),
+    });
+    const connectors = new MemoryCollection<OAuthConnectorDocument>();
+    const connectorLookup = jest.spyOn(connectors, "findOne");
+    const payloadStore = {
+      getSecret: jest.fn(async (ref: string) => `${ref}:value`),
+      putSecret: mockPutSecret(),
+    };
+    const tokenClient = mockTokenClient({
+      access_token: "should-not-be-used",
+      expires_in: 3600,
+    });
+    const service = new ProviderConnectionService({
+      providerConnectionsCollection: providerConnections,
+      connectorsCollection: connectors,
+      payloadStore,
+      tokenClient,
+      now: () => new Date("2026-05-21T00:00:00.000Z"),
+    });
+
+    const token = await service.refreshConnection("conn-valid");
+
+    expect(token).toEqual({
+      accessToken: "provider_connection:conn-valid:access_token:value",
+      expiresIn: 3600,
+    });
+    expect(connectorLookup).not.toHaveBeenCalled();
+    expect(tokenClient).not.toHaveBeenCalled();
+    expect(payloadStore.putSecret).not.toHaveBeenCalled();
+  });
+
   it("refreshes provider tokens using connector metadata and stores rotated tokens encrypted", async () => {
     const providerConnections = new MemoryCollection<ProviderConnectionDocument>();
     providerConnections.docs.push({

@@ -10,6 +10,7 @@ const mockGetTomeProjectPermissions = jest.fn();
 const mockRunOnboardingDeletes = jest.fn(async () => []);
 const mockRemoveTomeReadAccess = jest.fn(async () => undefined);
 const mockReconcileDataSteward = jest.fn(async () => undefined);
+const mockInvalidateTomeReadAccessCatalogCache = jest.fn();
 
 jest.mock("@/lib/api-middleware", () => {
   const actual = jest.requireActual("@/lib/api-middleware");
@@ -44,6 +45,8 @@ jest.mock("@/lib/tome/data-steward", () => ({
 
 jest.mock("@/lib/tome/access", () => ({
   getTomeReadConfiguration: jest.fn(),
+  invalidateTomeReadAccessCatalogCache: () =>
+    mockInvalidateTomeReadAccessCatalogCache(),
   reconcileTomeReadAccess: jest.fn(),
   removeTomeReadAccess: (...args: unknown[]) =>
     mockRemoveTomeReadAccess(...args),
@@ -115,6 +118,7 @@ describe("DELETE /api/projects/[slug] authorization", () => {
 
     expect(response.status).toBe(200);
     expect(mockDeleteOne).toHaveBeenCalledWith({ _id: "project-id" });
+    expect(mockInvalidateTomeReadAccessCatalogCache).toHaveBeenCalledTimes(1);
   });
 
   it("allows a Tome admin to delete a BHAG", async () => {

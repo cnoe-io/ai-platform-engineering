@@ -41,8 +41,8 @@ const github: SourceAdapter = {
 
 const confluence: SourceAdapter = {
   provider: "atlassian",
-  title: "Confluence space",
-  subtitle: "Single space, used as project context",
+  title: "Confluence source",
+  subtitle: "Add a space or page trees as project context",
   chipClass: "bg-[#2684FF]/10",
   multi: false,
   nounOne: "space",
@@ -53,24 +53,18 @@ const confluence: SourceAdapter = {
   emptyNone: "No spaces to show. Paste a URL below.",
   emptyNoMatch: "No spaces match. Paste a URL below.",
   notConnectedHowTo: (link) => (
-    <>Confluence not connected — link Atlassian in {link}, or paste a space URL below.</>
+    <>Confluence not connected — link Atlassian in {link}, or paste a space or page URL below.</>
   ),
-  notConnectedBare: "Paste a Confluence space URL below.",
+  notConnectedBare: "Paste a Confluence space or page URL below.",
   slowLoadHint: "Confluence can take a few seconds to list your spaces — still working…",
   selectedKeyOf: (v) => v,
   labelOf: (v) => v,
   encodeOnAdd: (o) => o.value,
   manualAdd: {
-    hint: "Know the space? Paste its URL directly.",
-    placeholder: "https://your.atlassian.net/wiki/spaces/PROJ",
+    hint: "Know the source? Paste a space or page URL.",
+    placeholder: "https://your.atlassian.net/wiki/spaces/PROJ/pages/123/Page",
     button: "Use",
   },
-  footer: (sel) =>
-    sel[0] ? (
-      <p className="truncate text-xs text-muted-foreground">
-        Selected: <span className="font-medium text-foreground">{sel[0]}</span>
-      </p>
-    ) : null,
 };
 
 const webex: SourceAdapter = {

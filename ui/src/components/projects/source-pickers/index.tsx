@@ -2,14 +2,20 @@
 
 import { SourceItemPicker } from "./SourceItemPicker";
 import { SOURCE_ADAPTERS } from "./adapters";
+import type { ConfluencePageScope } from "@/types/projects";
 
 /** The connectors a project can draw sources from (YAML `source:` values). */
 export type SourceKind = "github" | "confluence" | "webex";
 
 export interface SourcePickerProps {
-  /** Selected values (github: repo URLs/refs; confluence: a single space URL; webex: room IDs). */
+  /** Selected values (github: repo URLs/refs; confluence: one space/page URL; webex: room IDs). */
   selected: string[];
   onChange: (next: string[]) => void;
+  confluencePageScopes?: ConfluencePageScope[];
+  onConfluencePageScopesChange?: (
+    scopes: ConfluencePageScope[],
+    sourceUrl?: string,
+  ) => void;
 }
 
 /**
@@ -22,6 +28,8 @@ export function SourcePicker({
   source,
   selected,
   onChange,
+  confluencePageScopes,
+  onConfluencePageScopesChange,
 }: { source?: string } & SourcePickerProps) {
   const adapter = source ? SOURCE_ADAPTERS[source as SourceKind] : undefined;
   if (!adapter) {
@@ -31,5 +39,13 @@ export function SourcePicker({
       </div>
     );
   }
-  return <SourceItemPicker adapter={adapter} selected={selected} onChange={onChange} />;
+  return (
+    <SourceItemPicker
+      adapter={adapter}
+      selected={selected}
+      onChange={onChange}
+      confluencePageScopes={confluencePageScopes}
+      onConfluencePageScopesChange={onConfluencePageScopesChange}
+    />
+  );
 }

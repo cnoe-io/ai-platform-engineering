@@ -5,16 +5,18 @@ from pydantic import BaseModel, Field
 from tome_agent.agent import http_client
 from tome_agent.agent.connectors.base import Connector, SourceItem, format_pages
 from tome_agent.agent.mcp_confluence import build_confluence_mcp
-from tome_agent.reports.schema import PageSpec, frontmatter_example, CONFLUENCE_PAGE_FRONTMATTER
+from tome_agent.reports.schema import (
+    CONFLUENCE_PAGE_FRONTMATTER,
+    PageSpec,
+    frontmatter_example,
+)
 
 
 def _atlassian_cloud_id() -> str:
     """Resolve the active request's Atlassian cloud_id from forwarded
     credentials. Empty when no Atlassian connection is forwarded — the MCP
     surfaces that as a clean tool-result error."""
-    return (
-        http_client.get_active_credentials().get("atlassian", {}).get("cloud_id", "")
-    )
+    return http_client.get_active_credentials().get("atlassian", {}).get("cloud_id", "")
 
 
 class ConfluencePageItem(BaseModel):
@@ -41,16 +43,37 @@ class ConfluenceConnector(Connector[ConfluenceExtra]):
         return bool(token and _atlassian_cloud_id())
 
     def build_mcp(self, *, token: str, sources: list[SourceItem]) -> object:
-        site_url = next((s.extra.get("base_url", "") for s in sources if s.extra.get("base_url")), "")
+        site_url = next(
+            (s.extra.get("base_url", "") for s in sources if s.extra.get("base_url")),
+            "",
+        )
         # Scope the MCP to the project's attached spaces.
         allowed_space_keys = [
             s.extra.get("space_key", "") for s in sources if s.extra.get("space_key")
         ]
+        page_scoped_space_keys: list[str] = []
+        selected_root_page_ids: list[str] = []
+        for source in sources:
+            scopes = list(source.extra.get("page_scopes", []))
+            if not scopes and source.extra.get("root_page_id"):
+                scopes = [{"page_id": source.extra["root_page_id"]}]
+            if not scopes:
+                continue
+            space_key = source.extra.get("space_key", "")
+            if space_key:
+                page_scoped_space_keys.append(space_key)
+            selected_root_page_ids.extend(
+                str(scope.get("page_id", ""))
+                for scope in scopes
+                if scope.get("page_id")
+            )
         return build_confluence_mcp(
             token=token,
             cloud_id=_atlassian_cloud_id(),
             site_url=site_url,
             allowed_space_keys=allowed_space_keys,
+            page_scoped_space_keys=page_scoped_space_keys,
+            selected_root_page_ids=selected_root_page_ids,
         )
 
     @property
@@ -58,6 +81,7 @@ class ConfluenceConnector(Connector[ConfluenceExtra]):
         return [
             "mcp__confluence__confluence_list_spaces",
             "mcp__confluence__confluence_get_pages",
+            "mcp__confluence__confluence_get_page_tree",
             "mcp__confluence__confluence_get_page_content",
         ]
 
@@ -92,23 +116,66 @@ class ConfluenceConnector(Connector[ConfluenceExtra]):
                 f"confluence/{source.slug}", template
             )
             key = source.extra.get("space_key", "") or source.slug
+            page_scopes = source.extra.get("page_scopes", [])
+            if not page_scopes and source.extra.get("root_page_id", ""):
+                page_scopes = [
+                    {
+                        "page_id": source.extra["root_page_id"],
+                        "page_title": source.extra.get("root_page_title", ""),
+                        "include_descendants": source.extra.get(
+                            "include_descendants", True
+                        ),
+                    }
+                ]
+            scope_lines = []
+            for page_scope in page_scopes:
+                page_id = page_scope.get("page_id", "")
+                if not page_id:
+                    continue
+                page_title = page_scope.get("page_title", "")
+                title = f" ({page_title})" if page_title else ""
+                scope = (
+                    "this page and all descendants"
+                    if page_scope.get("include_descendants", True)
+                    else "this page only"
+                )
+                scope_lines.append(f"- page_id={page_id}{title}; read {scope}.")
+            scope_block = (
+                "\nSelected page roots:\n" + "\n".join(scope_lines)
+                if scope_lines
+                else ""
+            )
             blocks.append(
                 f"### Confluence space `{source.slug}` ({source.display_name}, key={key})\n"
-                + format_pages(expanded)
+                f"{scope_block}\n" + format_pages(expanded)
             )
         spaces_section = "\n\n".join(blocks)
 
         how_to = (
             "HOW TO READ EACH CONFLUENCE SPACE:\n"
-            "1. `confluence_get_pages(space_key=<KEY>)` returns pages "
+            "1. MANDATORY FOR SELECTED PAGE ROOTS: when a root includes "
+            "descendants, call `confluence_get_page_tree(page_id=<PAGE_ID>)` "
+            "exactly once. Its single compact result contains ALL pages in the "
+            "selected subtree. `page_fields` names the columns in every "
+            "`pages` row, including a bounded plain-text `body` excerpt. Use "
+            "EVERY returned row as source input; do not stop at page titles. "
+            "If a truncated excerpt needs deeper reading, call "
+            "`confluence_get_page_content(page_id=<RETURNED_PAGE_ID>)` only for "
+            "IDs returned by that tree. When a root is page-only, call "
+            "`confluence_get_page_content(page_id=<PAGE_ID>)` for that root. "
+            "NEVER call `confluence_get_pages` for a space with selected page "
+            "roots; generic listing is disabled so it cannot replace the saved "
+            "scope. Deduplicate overlapping roots and do not scan unrelated "
+            "pages in the space.\n"
+            "2. Without selected page roots, `confluence_get_pages(space_key=<KEY>)` returns pages "
             "most-recently-edited first with `last_modified`. Use recency to find "
             "what's *active* — not to structure the page. Skim titles; read "
             "deeply only the pages that carry the project's substance.\n"
-            "2. `confluence_get_page_content(page_id)` for the bodies that matter.\n"
-            "3. `confluence/<slug>/overview.md` — explain what this space IS and "
+            "3. `confluence_get_page_content(page_id)` for the bodies that matter.\n"
+            "4. `confluence/<slug>/overview.md` — explain what this source IS and "
             "what the team is currently working through in it, as prose. Not a "
             "page index.\n"
-            "4. `confluence/<slug>/activity.md` — an *interpreted* read of what "
+            "5. `confluence/<slug>/activity.md` — an *interpreted* read of what "
             "the recent activity adds up to (themes, decisions, open questions), "
             "citing the few pages that matter. NOT a dated list of every edit. If "
             "the space is quiet, one sentence saying so is the right content.\n"
@@ -122,7 +189,7 @@ class ConfluenceConnector(Connector[ConfluenceExtra]):
         pages = extra_data.pages if extra_data else []
         if pages:
             page_lines = "\n".join(
-                f"  - space: \"{p.space_key}\", page_id: \"{p.page_id}\", title: \"{p.title}\""
+                f'  - space: "{p.space_key}", page_id: "{p.page_id}", title: "{p.title}"'
                 for p in pages
             )
             pages_section = (
@@ -152,13 +219,17 @@ class ConfluenceConnector(Connector[ConfluenceExtra]):
             "content ingestion. Process them per the CONFLUENCE PAGES TO INGEST section."
         )
 
-    def log_lines(self, sources: list[SourceItem], extra_data: ConfluenceExtra | None = None) -> list[str]:
+    def log_lines(
+        self, sources: list[SourceItem], extra_data: ConfluenceExtra | None = None
+    ) -> list[str]:
         lines = []
         if sources:
             lines.append(f"· confluence spaces: {', '.join(s.slug for s in sources)}")
         pages = extra_data.pages if extra_data else []
         if pages:
-            lines.append(f"· confluence pages: {len(pages)} selected for content ingestion")
+            lines.append(
+                f"· confluence pages: {len(pages)} selected for content ingestion"
+            )
         return lines
 
     def deep_research_guidance(self, sources: list[SourceItem]) -> str:

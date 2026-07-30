@@ -87,3 +87,77 @@ describe.each(["bhag", "area"] as const)(
     });
   },
 );
+
+it("forwards a Confluence page-tree scope to the agent snapshot", () => {
+  const project = synthesizedProject("project");
+  project.sources = {
+    ...project.sources,
+    confluence_url:
+      "https://example.atlassian.net/wiki/spaces/EXAMPLE/pages/123/Overview",
+    confluence_page_scope: {
+      page_id: "123",
+      page_title: "Overview",
+      space_key: "EXAMPLE",
+      include_descendants: true,
+    },
+  };
+
+  expect(buildSnapshotFromProject(project).confluence_spaces).toEqual([
+    {
+      slug: "example",
+      name: "EXAMPLE",
+      space_key: "EXAMPLE",
+      base_url: "https://example.atlassian.net",
+      root_page_id: "123",
+      root_page_title: "Overview",
+      include_descendants: true,
+      page_scopes: [
+        {
+          page_id: "123",
+          page_title: "Overview",
+          include_descendants: true,
+        },
+      ],
+    },
+  ]);
+});
+
+it("forwards multiple Confluence page roots to one space snapshot", () => {
+  const project = synthesizedProject("project");
+  project.sources = {
+    ...project.sources,
+    confluence_url: "https://example.atlassian.net/wiki/spaces/EXAMPLE",
+    confluence_page_scopes: [
+      {
+        page_id: "123",
+        page_title: "Overview",
+        space_key: "EXAMPLE",
+        include_descendants: true,
+      },
+      {
+        page_id: "456",
+        page_title: "Runbook",
+        space_key: "EXAMPLE",
+        include_descendants: false,
+      },
+    ],
+  };
+
+  expect(buildSnapshotFromProject(project).confluence_spaces).toEqual([
+    expect.objectContaining({
+      slug: "example",
+      page_scopes: [
+        {
+          page_id: "123",
+          page_title: "Overview",
+          include_descendants: true,
+        },
+        {
+          page_id: "456",
+          page_title: "Runbook",
+          include_descendants: false,
+        },
+      ],
+    }),
+  ]);
+});

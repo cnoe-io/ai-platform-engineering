@@ -82,6 +82,14 @@ interface ConfluenceSpaceSnapshot {
   name: string;
   space_key: string;
   base_url: string;
+  root_page_id?: string;
+  root_page_title?: string;
+  include_descendants?: boolean;
+  page_scopes?: Array<{
+    page_id: string;
+    page_title: string;
+    include_descendants: boolean;
+  }>;
 }
 
 /** WebexRoomSnapshot — mirrors contract.WebexRoomSnapshot. */
@@ -189,12 +197,28 @@ function toConfluenceSpaceSnapshot(
     ? Item
     : never,
 ): ConfluenceSpaceSnapshot {
-  return {
+  const snapshot: ConfluenceSpaceSnapshot = {
     slug: s.slug,
     name: s.name,
     space_key: s.space_key,
     base_url: s.base_url ?? "",
   };
+  const pageScopes = s.page_scopes?.length
+    ? s.page_scopes
+    : s.page_scope
+      ? [s.page_scope]
+      : [];
+  if (pageScopes.length) {
+    snapshot.page_scopes = pageScopes.map((scope) => ({
+      page_id: scope.page_id,
+      page_title: scope.page_title,
+      include_descendants: scope.include_descendants,
+    }));
+    snapshot.root_page_id = pageScopes[0].page_id;
+    snapshot.root_page_title = pageScopes[0].page_title;
+    snapshot.include_descendants = pageScopes[0].include_descendants;
+  }
+  return snapshot;
 }
 
 /** Slugify a Confluence space key for use as a wiki folder name. */
@@ -214,7 +238,13 @@ function spaceSlug(key: string): string {
  * (`https://<site>/wiki/spaces/<KEY>/...`); the agent snapshot needs a typed
  * `{slug, name, space_key, base_url}`. Returns null if no space key is present.
  */
-function parseConfluenceSpaceUrl(url: string): ConfluenceSpaceSnapshot | null {
+function parseConfluenceSpaceUrl(
+  url: string,
+  pageScopes: NonNullable<ProjectDocument["sources"]>["confluence_page_scopes"] = [],
+  legacyPageScope?: NonNullable<
+    ProjectDocument["sources"]
+  >["confluence_page_scope"],
+): ConfluenceSpaceSnapshot | null {
   const trimmed = (url || "").trim();
   if (!trimmed) return null;
   const m = trimmed.match(/\/wiki\/spaces\/([^/?#]+)/i);
@@ -228,7 +258,41 @@ function parseConfluenceSpaceUrl(url: string): ConfluenceSpaceSnapshot | null {
   }
   // Display name is unknown at this layer (we only have the URL); the agent
   // resolves the real space name via the MCP. Use the key as a placeholder.
-  return { slug: spaceSlug(key), name: key, space_key: key, base_url: baseUrl };
+  const pageIdFromUrl =
+    trimmed.match(/\/wiki\/spaces\/[^/?#]+\/pages\/(\d+)(?:\/|$)/i)?.[1];
+  const normalizedScopes = pageScopes.length
+    ? pageScopes
+    : legacyPageScope
+      ? [legacyPageScope]
+      : pageIdFromUrl
+        ? [
+            {
+              page_id: pageIdFromUrl,
+              page_title: "",
+              space_key: key,
+              include_descendants: true,
+            },
+          ]
+        : [];
+  const firstScope = normalizedScopes[0];
+  return {
+    slug: spaceSlug(key),
+    name: key,
+    space_key: key,
+    base_url: baseUrl,
+    ...(normalizedScopes.length
+      ? {
+          page_scopes: normalizedScopes.map((scope) => ({
+            page_id: scope.page_id,
+            page_title: scope.page_title,
+            include_descendants: scope.include_descendants,
+          })),
+          root_page_id: firstScope.page_id,
+          root_page_title: firstScope.page_title,
+          include_descendants: firstScope.include_descendants,
+        }
+      : {}),
+  };
 }
 
 /**
@@ -241,7 +305,11 @@ function projectConfluenceSpaces(
 ): ConfluenceSpaceSnapshot[] {
   const typed = project.sources?.confluence_spaces ?? [];
   if (typed.length > 0) return typed.map(toConfluenceSpaceSnapshot);
-  const fromUrl = parseConfluenceSpaceUrl(project.sources?.confluence_url ?? "");
+  const fromUrl = parseConfluenceSpaceUrl(
+    project.sources?.confluence_url ?? "",
+    project.sources?.confluence_page_scopes,
+    project.sources?.confluence_page_scope,
+  );
   return fromUrl ? [fromUrl] : [];
 }
 

@@ -135,6 +135,20 @@ export interface ConfluenceSpaceSource {
   name: string;
   space_key: string;
   base_url?: string;
+  page_scopes?: ConfluencePageScope[];
+  /** @deprecated Singular compatibility field; prefer page_scopes. */
+  page_scope?: ConfluencePageScope;
+}
+
+/**
+ * Optional page-tree scope within an attached Confluence space. The space
+ * remains the authorization boundary; this narrows what the Tome agent reads.
+ */
+export interface ConfluencePageScope {
+  page_id: string;
+  page_title: string;
+  space_key: string;
+  include_descendants: boolean;
 }
 
 /**
@@ -153,7 +167,11 @@ export interface WebexRoomSource {
  */
 export interface ProjectSources {
   repos?: string[]; // GitHub repo URLs / owner/name
-  confluence_url?: string; // Confluence space URL (legacy free-form)
+  confluence_url?: string; // Confluence space or page URL (legacy free-form)
+  /** Selected page roots within the attached Confluence space. */
+  confluence_page_scopes?: ConfluencePageScope[];
+  /** @deprecated Singular compatibility field; prefer confluence_page_scopes. */
+  confluence_page_scope?: ConfluencePageScope;
   confluence_spaces?: ConfluenceSpaceSource[]; // typed Confluence spaces
   webex_rooms?: WebexRoomSource[]; // typed Webex rooms (slug+name+room_id)
   component_urls?: string[]; // arbitrary software/service URLs
@@ -225,6 +243,8 @@ export interface CreateProjectRequest {
   // Data sources the user shares at onboarding (forwarded to connected external apps).
   github_repos?: string[];
   confluence_url?: string;
+  confluence_page_scopes?: ConfluencePageScope[];
+  confluence_page_scope?: ConfluencePageScope;
   webex_rooms?: WebexRoomSource[];
   component_urls?: string[];
   /** User or team that can write Tome content and operate ingestion/review. */

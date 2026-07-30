@@ -35,7 +35,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { UserEmailPicker } from "@/components/ui/user-email-picker";
-import { SourcesEditor } from "@/components/projects/source-pickers/SourcesEditor";
+import { AutosavingSourcesEditor } from "@/components/projects/source-pickers/AutosavingSourcesEditor";
 import { useProjectSourceKinds } from "@/components/projects/source-pickers/useProjectSourceKinds";
 import { ChildProjectsPanel } from "@/components/tome/BhagProjectsPanel";
 import { PanelHeader } from "@/components/tome/PanelHeader";
@@ -383,6 +383,8 @@ export function ProjectSettingsPanel({
           ...sources,
           repos: (sources.repos ?? []).map((r) => r.trim()).filter(Boolean),
           confluence_url: (sources.confluence_url ?? "").trim(),
+          confluence_page_scopes: sources.confluence_page_scopes ?? [],
+          confluence_page_scope: sources.confluence_page_scope ?? null,
         },
         decision_blast_radius: blastRadius || null,
         optionality: optionality.length ? optionality : [],
@@ -924,7 +926,13 @@ export function ProjectSettingsPanel({
                       No source connectors are configured for this deployment.
                     </p>
                   ) : (
-                    <SourcesEditor kinds={sourceKinds} value={sources} onChange={setSources} />
+                    <AutosavingSourcesEditor
+                      slug={slug}
+                      kinds={sourceKinds}
+                      value={sources}
+                      onChange={setSources}
+                      onSaved={onSaved}
+                    />
                   )}
                 </Section>
               </TabsContent>
