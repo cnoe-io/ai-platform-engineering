@@ -36,6 +36,10 @@ npm run test:e2e:grid
 
 Use `GRID_SCENARIOS_PATH` for scenarios exported from the Confluence deployment testing page, or set `GRID_SCENARIOS_JSON` to an inline JSON array with the same shape.
 
+By default each GRID scenario creates a fresh chat conversation before sending
+the prompt. Set `GRID_REUSE_CONVERSATION=true` only when you intentionally want
+to continue the currently active chat.
+
 Live GRID tests need an authenticated GRID session. Playwright does not reuse
 your normal Chrome SSO cookies. In Playwright UI mode, you can let the spec
 open Cisco/Duo SSO for you:
