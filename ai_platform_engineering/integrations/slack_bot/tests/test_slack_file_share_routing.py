@@ -37,6 +37,10 @@ class _SlackFileResponse:
 class _Client:
     token = "xoxb-test-token"
 
+    def __init__(self) -> None:
+        # Deterministic fallback post lands here; tests assert on it.
+        self.chat_postMessage = MagicMock(return_value={"ok": True})
+
     def users_info(self, **_kwargs: object) -> dict[str, object]:
         return {
             "user": {
@@ -142,16 +146,17 @@ def _route_fixture(
         create_conversation,
     )
 
+    client = _Client()
     app_module._route_to_agent(
         event,
         say=MagicMock(),
-        client=_Client(),
+        client=client,
         channel_config=channel_config,
         agent_match=agent_match,
         is_bot=False,
         context={},
     )
-    return app_module, download, call_ai, create_conversation, log
+    return app_module, download, call_ai, create_conversation, log, client
 
 
 @pytest.mark.parametrize("subtype", [None, "file_share"])
@@ -160,7 +165,9 @@ def test_caption_continues_when_attachment_is_inaccessible(
     subtype: str | None,
 ) -> None:
     """A real missing-scope response must preserve text and invoke CAIPE."""
-    _, download, call_ai, create_conversation, log = _route_fixture(
+    from utils.file_ingest import SLACK_FILE_FALLBACK
+
+    _, download, call_ai, create_conversation, log, client = _route_fixture(
         monkeypatch,
         text="Please investigate this alert",
         subtype=subtype,
@@ -171,10 +178,17 @@ def test_caption_continues_when_attachment_is_inaccessible(
     download.assert_called_once()
     create_conversation.assert_called_once()
     call_ai.assert_called_once()
+    # The caption still reaches the agent, so text-only questions are answered.
     assert "Please investigate this alert" in call_ai.call_args.kwargs["message_text"]
-    assert "files:read" in call_ai.call_args.kwargs["message_text"]
+    # The model gets only a terse system note — NOT the verbose "files:read"
+    # scope copy, which now goes to the user via the fixed fallback post below.
+    assert "files:read" not in call_ai.call_args.kwargs["message_text"]
+    assert "could not be read" in call_ai.call_args.kwargs["message_text"]
     assert call_ai.call_args.kwargs["files"] == []
     assert call_ai.call_args.kwargs["overthink_config"].enabled is True
+    # The deterministic user-facing fallback is posted verbatim to the thread.
+    client.chat_postMessage.assert_called_once()
+    assert client.chat_postMessage.call_args.kwargs["text"] == SLACK_FILE_FALLBACK
     attachment_logs = [
         call
         for call in log.info.call_args_list
@@ -193,7 +207,7 @@ def test_file_only_message_routes_usable_attachment(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A real downloaded file must reach CAIPE when Slack supplies no text."""
-    _, download, call_ai, create_conversation, _ = _route_fixture(
+    _, download, call_ai, create_conversation, _, client = _route_fixture(
         monkeypatch,
         text="",
         subtype="file_share",
@@ -212,6 +226,8 @@ def test_file_only_message_routes_usable_attachment(
             "data": base64.b64encode(_PNG).decode("ascii"),
         }
     ]
+    # A readable file produces no notice, so no fallback is posted.
+    client.chat_postMessage.assert_not_called()
 
 
 def test_system_subtype_remains_ignored(

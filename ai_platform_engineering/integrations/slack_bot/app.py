@@ -35,7 +35,7 @@ from utils import slack_context
 from utils import slack_formatter
 from utils.hitl_handler import HITLCallbackHandler
 from utils.chat_envelope import augment_slack_client_context  # noqa: E402
-from utils.file_ingest import download_slack_files, IngestResult  # noqa: E402
+from utils.file_ingest import download_slack_files, IngestResult, SLACK_FILE_FALLBACK  # noqa: E402
 
 from sse_client import AgentAccessDeniedError, SSEClient, set_obo_token
 from utils.session_manager import SessionManager
@@ -72,17 +72,42 @@ def _msg_link(channel_id: str, ts: str) -> str:
 
 
 def _apply_attachment_notices(message_text: str, ingest: IngestResult) -> str:
-  """Append any 'file attached but inaccessible' notices to the agent message.
+  """Fold a terse, model-facing note about unreadable attachments into the turn.
 
-  Files that couldn't be downloaded (e.g. missing files:read scope) produce
-  notices; we fold them into the message so the agent can tell the user a file
-  was attached but unreadable instead of silently ignoring it. No notices ⇒
+  Files that couldn't be downloaded (e.g. missing files:read scope) are dropped
+  at ingest, so the model never sees them. Left unmentioned, the model would
+  answer as if no file were attached — a silent failure. This appends a short
+  system note so it knows a file was dropped.
+
+  The note is deliberately terse and instructs the model NOT to explain or
+  apologize for the missing file: the user is told separately, verbatim, via
+  ``post_file_fallback`` (``SLACK_FILE_FALLBACK``). Routing the user-facing copy
+  through the model instead produced a differently-worded paragraph every time;
+  keeping the two audiences separate makes the user message deterministic while
+  the model still answers whatever text accompanied the file. No notices ⇒
   message unchanged.
   """
   if not ingest.notices:
     return message_text
-  note = "\n\n".join(ingest.notices)
-  return f"{message_text}\n\n[Attachment note: {note}]" if message_text else f"[Attachment note: {note}]"
+  note = (
+    f"[System note: {len(ingest.notices)} attached file(s) could not be read and "
+    "were not included. The user has already been told this separately; do not "
+    "apologize for or explain the missing file — just answer any text below.]"
+  )
+  return f"{message_text}\n\n{note}" if message_text else note
+
+
+def post_file_fallback(client, channel_id: str, thread_ts: str, ingest: IngestResult) -> bool:
+  """Post the fixed unreadable-attachment message to the thread, verbatim.
+
+  Fires once when one or more attached files could not be read, so the user
+  always sees the same ``SLACK_FILE_FALLBACK`` copy regardless of what the model
+  does with the accompanying text. Returns True if a message was posted.
+  """
+  if not ingest.notices:
+    return False
+  client.chat_postMessage(channel=channel_id, thread_ts=thread_ts, text=SLACK_FILE_FALLBACK)
+  return True
 
 
 def _ingestion_lag_ms(event: dict) -> int | None:
@@ -1585,10 +1610,12 @@ def handle_mention(event, say, client, context=None):
 
     # Download any Slack attachments into base64 multimodal blocks so the model
     # can read them (client.token authenticates the private file URLs). Files
-    # that couldn't be accessed (e.g. missing files:read scope) surface as
-    # notices folded into the message so the agent can tell the user.
+    # that couldn't be accessed (e.g. missing files:read scope) are dropped; the
+    # user is told with a fixed message and the model gets a terse note so it
+    # answers the accompanying text without re-explaining the missing file.
     ingest = download_slack_files(event.get("files"), bot_token=client.token)
     input_files = ingest.files
+    post_file_fallback(client, channel_id, thread_ts, ingest)
     context_message = _apply_attachment_notices(context_message, ingest)
 
     result = _call_ai(
@@ -1798,10 +1825,12 @@ def _route_to_agent(event, say, client, channel_config, agent_match, is_bot, bot
       return
 
     # Download attachments only after the route is authorized. If Slack file
-    # access is unavailable (for example, no files:read scope), the ingest
-    # notice is appended to the original text and CAIPE still handles the turn.
+    # access is unavailable (for example, no files:read scope), the user is told
+    # with a fixed message and the model gets a terse note so CAIPE still
+    # handles any accompanying text.
     ingest = download_slack_files(raw_files, bot_token=client.token)
     input_files = ingest.files
+    post_file_fallback(client, channel_id, thread_ts, ingest)
     message_text = _apply_attachment_notices(message_text, ingest)
 
     if not message_text.strip() and not input_files:
@@ -2158,10 +2187,12 @@ def handle_dm_message(event, say, client, context=None):
 
     # Download any Slack attachments into base64 multimodal blocks so the model
     # can read them (client.token authenticates the private file URLs). Files
-    # that couldn't be accessed (e.g. missing files:read scope) surface as
-    # notices folded into the message so the agent can tell the user.
+    # that couldn't be accessed (e.g. missing files:read scope) are dropped; the
+    # user is told with a fixed message and the model gets a terse note so it
+    # answers the accompanying text without re-explaining the missing file.
     ingest = download_slack_files(event.get("files"), bot_token=client.token)
     input_files = ingest.files
+    post_file_fallback(client, dm_channel_id, thread_ts, ingest)
     context_message = _apply_attachment_notices(context_message, ingest)
 
     result = _call_ai(

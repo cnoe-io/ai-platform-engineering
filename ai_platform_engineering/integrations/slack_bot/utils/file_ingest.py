@@ -50,6 +50,18 @@ class IngestResult(NamedTuple):
     files: list[dict[str, Any]]
     notices: list[str]
 
+
+# Fixed, deterministic message posted to the Slack thread when one or more
+# attached files could not be read. Posted verbatim (not routed through the
+# model, which would paraphrase it differently every time), so users always
+# see the same fallback. The per-file ``notices`` above still ride into the
+# turn as a terse note so the model doesn't answer as if no file were attached,
+# but the *user-facing* copy is this constant.
+SLACK_FILE_FALLBACK = (
+    "I can't read files attached in Slack — please upload the file directly in "
+    "the Forge UI, where file reading works."
+)
+
 # Cap on a single file's raw (pre-base64) size. base64 inflates bytes ~33%, and
 # every attached file rides inline in one LLM request, so an unbounded upload
 # could blow the request size / cost. 20 MiB is comfortably above typical
