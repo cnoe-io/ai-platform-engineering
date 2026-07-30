@@ -77,7 +77,12 @@ from dynamic_agents.services.mcp_client import (
     resolve_mcp_connections_credential_refs,
     wrap_tools_with_error_handling,
 )
-from dynamic_agents.services.middleware import ToolResultInvariantMiddleware, build_middleware
+from dynamic_agents.services.middleware import (
+    TEXT_DOCUMENT_MIME_TYPES,
+    ToolResultInvariantMiddleware,
+    anthropic_text_document_block,
+    build_middleware,
+)
 from dynamic_agents.services.model_capabilities import (
     ModelCapabilities,
     get_model_capabilities,
@@ -269,6 +274,12 @@ _SUPPORTED_DOC_MIME_TYPES = frozenset(
         "text/markdown",
     }
 )
+# Document types only the Anthropic Messages API client can ingest. Bedrock
+# Converse has no document format for XML (``_mime_type_to_format`` raises), but
+# the Anthropic client accepts it as a *text* document source. So these are kept
+# only when the resolved client is ``anthropic`` (see ``_build_user_content``);
+# on Converse/legacy they're skipped as unsupported rather than breaking the turn.
+_ANTHROPIC_ONLY_DOC_MIME_TYPES = frozenset({"text/xml", "application/xml"})
 
 
 # Reasons a file was dropped from the user turn, in machine-readable form so
@@ -390,6 +401,25 @@ def _estimated_bytes(f: "InputFile") -> int:
     return n * 3 // 4
 
 
+def _inline_document_block(
+    block: dict[str, Any], f: "InputFile", needs_text_source: bool
+) -> dict[str, Any]:
+    """Attach inline file bytes to ``block`` in the shape the adapter expects.
+
+    For most files that's ``base64``. For text-family documents on the Anthropic
+    client (``needs_text_source``) it's a text source carrying the decoded UTF-8
+    text, because Anthropic rejects non-PDF base64 document sources.
+    """
+    if needs_text_source and f.data:
+        try:
+            text = base64.b64decode(f.data).decode("utf-8")
+        except (ValueError, UnicodeDecodeError):
+            text = base64.b64decode(f.data).decode("utf-8", errors="replace")
+        return anthropic_text_document_block(block, text)
+    block["base64"] = f.data
+    return block
+
+
 def _build_user_content(
     message: str,
     files: "list[InputFile] | None",
@@ -436,6 +466,11 @@ def _build_user_content(
         return message, []
 
     caps = capabilities or ModelCapabilities()  # permissive default
+    # The Anthropic Messages API client needs text-family docs as text sources
+    # (base64 doc sources there are PDF-only) and is the only client that can
+    # take XML at all. Resolve once; None model_id (unit tests) means "not
+    # anthropic", preserving the legacy inline-base64 shape.
+    is_anthropic = bool(model_id) and resolve_bedrock_client(model_id) == "anthropic"
     blocks: list[dict[str, Any]] = [{"type": "text", "text": message}]
     skipped: list[SkippedFile] = []
     kept_files = 0
@@ -468,6 +503,10 @@ def _build_user_content(
             block_type = "image"
         elif f.mime_type in _SUPPORTED_DOC_MIME_TYPES:
             block_type = "file"
+        elif is_anthropic and f.mime_type in _ANTHROPIC_ONLY_DOC_MIME_TYPES:
+            # XML: no Bedrock Converse document format exists, but the Anthropic
+            # client reads it as a text document source.
+            block_type = "file"
         else:
             logger.warning(
                 f"[stream] Skipping file with unsupported type '{f.mime_type}' "
@@ -488,13 +527,21 @@ def _build_user_content(
             continue
 
         block: dict[str, Any] = {"type": block_type, "mime_type": f.mime_type}
+        # Text-family documents on the Anthropic client can't ride as base64
+        # document sources (PDF-only there) — they need a text source carrying
+        # the decoded content. When a store is configured the shaping happens at
+        # rehydration (bytes stay out of the checkpoint); here we handle the
+        # inline paths (no store, or a store put that fell back to inline).
+        needs_text_source = (
+            is_anthropic and block_type == "file" and f.mime_type in TEXT_DOCUMENT_MIME_TYPES
+        )
         if store is not None and f.data:
             # Reference form: upload bytes once (content-addressed) and persist
-            # only the key. The rehydration middleware turns this back into an
-            # inline base64 block before the model call — bytes never enter the
-            # checkpoint. On any store failure, fall back to inline base64 so a
-            # storage hiccup degrades to today's behavior instead of dropping
-            # the file.
+            # only the key. The rehydration middleware turns this back into the
+            # right inline block (base64, or a text source for text docs on the
+            # Anthropic client) before the model call — bytes never enter the
+            # checkpoint. On any store failure, fall back to inline so a storage
+            # hiccup degrades to today's behavior instead of dropping the file.
             try:
                 raw = base64.b64decode(f.data)
                 key = store.put(raw, content_type=f.mime_type)
@@ -502,14 +549,15 @@ def _build_user_content(
             except Exception as exc:  # noqa: BLE001 — never fail the turn on storage
                 logger.warning(
                     f"[stream] Attachment store put failed for '{f.name!r}' "
-                    f"({f.mime_type}); falling back to inline base64: {exc}"
+                    f"({f.mime_type}); falling back to inline: {exc}"
                 )
-                block["base64"] = f.data
+                block = _inline_document_block(block, f, needs_text_source)
         elif f.data:
-            block["base64"] = f.data
+            block = _inline_document_block(block, f, needs_text_source)
         else:
             block["url"] = f.uri
         # Document blocks carry a filename; the adapter warns without one.
+        # (Text-source blocks keep it too — harmless and preserves provenance.)
         if block_type == "file" and f.name:
             block["name"] = f.name
         blocks.append(block)
