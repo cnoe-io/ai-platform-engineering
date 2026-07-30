@@ -263,10 +263,11 @@ export function ProjectSettingsPanel({
     return () => {
       cancelled = true;
     };
-    // Only re-resolve when the Area tag itself changes post-load, not on
-    // every keystroke elsewhere in the form.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectKind, slug]);
+    // Resolve after the saved Area has hydrated, and again if the user picks a
+    // different Area. Depending only on the slug ran this effect before the
+    // project request restored `selectedAreaName`, so saved hierarchy values
+    // appeared as "None" when the settings page was reopened.
+  }, [projectKind, selectedAreaName]);
 
   // Existing BHAGs, for the Parent BHAG picker (Area/Project). Areas tagged
   // to the currently-selected BHAG, for the Project's cascading Area picker.
