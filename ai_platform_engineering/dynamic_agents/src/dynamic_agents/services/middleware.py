@@ -50,6 +50,50 @@ from dynamic_agents.models import FeaturesConfig, MiddlewareEntry
 logger = logging.getLogger(__name__)
 
 
+# Text-family document MIME types. These are UTF-8 text, and on the
+# ``ChatAnthropicBedrock`` (Anthropic Messages API) client Bedrock rejects them
+# as base64 document sources — that source only accepts ``application/pdf``
+# (error: ``document.source.base64.media_type: Input should be
+# 'application/pdf'``). They must be sent as a *text* document source instead
+# (``source_type="text"`` with the decoded text and ``media_type="text/plain"``).
+# The Converse/legacy clients, by contrast, accept these as base64 documents, so
+# the text-source rewrite is gated on the resolved Anthropic client.
+#
+# Kept here (rather than beside ``_SUPPORTED_DOC_MIME_TYPES`` in agent_runtime)
+# so both the write path (agent_runtime imports this) and the rehydration path
+# (this module) share one definition without an import cycle.
+TEXT_DOCUMENT_MIME_TYPES = frozenset(
+    {
+        "text/plain",
+        "text/markdown",
+        "text/csv",
+        "text/html",
+        "text/xml",
+        "application/xml",
+    }
+)
+
+
+def anthropic_text_document_block(
+    block: dict[str, Any], decoded_text: str
+) -> dict[str, Any]:
+    """Rewrite a document ``block`` into an Anthropic text-source block.
+
+    Strips any inline ``base64``/reference ``source`` and carries the decoded
+    text under ``source_type="text"``. ``mime_type`` is forced to ``text/plain``
+    because Anthropic's text document source only accepts that media type — the
+    original type (e.g. ``text/xml``) is still fully visible to the model as the
+    text content, tags and all.
+    """
+    rebuilt = {
+        k: v for k, v in block.items() if k not in ("base64", "source", "url")
+    }
+    rebuilt["source_type"] = "text"
+    rebuilt["mime_type"] = "text/plain"
+    rebuilt["text"] = decoded_text
+    return rebuilt
+
+
 class ToolResultInvariantMiddleware(AgentMiddleware):
     """Patch tool calls that lost their results before each model request."""
 
@@ -172,12 +216,17 @@ class AttachmentRehydrationMiddleware(AgentMiddleware):
         self,
         store: Any,
         *,
+        model_id: str = "unknown",
         cache_max_entries: int = 32,
     ) -> None:
         super().__init__()
         self._store = store
         self._cache_max_entries = cache_max_entries
         self._lru: "OrderedDict[str, bytes]" = OrderedDict()
+        # Text-family documents must be shaped as text sources (not base64) on
+        # the Anthropic Messages API client. Resolve once — the client doesn't
+        # change over the agent's lifetime.
+        self._is_anthropic = resolve_bedrock_client(model_id) == "anthropic"
 
     def _fetch(self, key: str) -> bytes:
         cached = self._lru.get(key)
@@ -203,15 +252,25 @@ class AttachmentRehydrationMiddleware(AgentMiddleware):
         if not (isinstance(source, Mapping) and source.get("store_key")):
             return dict(block)
         key = source["store_key"]
-        rebuilt = {k: v for k, v in block.items() if k != "source"}
         try:
             raw = self._fetch(key)
-            rebuilt["base64"] = base64.b64encode(raw).decode("ascii")
         except Exception as exc:  # noqa: BLE001 — a bad blob shouldn't sink the turn
             logger.warning(
                 "[attachment] Rehydration failed for store_key=%s: %s", key, exc
             )
             return dict(block)
+        # Text-family documents on the Anthropic client must ride as a text
+        # source; base64 document sources there are PDF-only. Everything else
+        # (images, PDF, Office docs, and all docs on Converse/legacy) stays
+        # inline base64.
+        if self._is_anthropic and block.get("mime_type") in TEXT_DOCUMENT_MIME_TYPES:
+            try:
+                text = raw.decode("utf-8")
+            except UnicodeDecodeError:
+                text = raw.decode("utf-8", errors="replace")
+            return anthropic_text_document_block(dict(block), text)
+        rebuilt = {k: v for k, v in block.items() if k != "source"}
+        rebuilt["base64"] = base64.b64encode(raw).decode("ascii")
         return rebuilt
 
     def _rehydrate_messages(self, messages: list[BaseMessage]) -> tuple[list[BaseMessage], bool]:
@@ -648,7 +707,7 @@ def build_middleware(
     # added when a store is configured — otherwise attachments ride inline and
     # there is nothing to rehydrate.
     if attachment_store is not None:
-        result.append(AttachmentRehydrationMiddleware(attachment_store))
+        result.append(AttachmentRehydrationMiddleware(attachment_store, model_id=model_id))
 
     # Prompt caching: delegate to the native langchain caching middleware for the
     # resolved Bedrock client. Gated on the Bedrock provider — OpenAI/Gemini cache
