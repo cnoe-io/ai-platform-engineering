@@ -933,6 +933,37 @@ interface OpenFgaChunkResult {
   applied: { writes: OpenFgaTupleKey[]; deletes: OpenFgaTupleKey[] };
 }
 
+export interface OpenFgaErrorDetails {
+  code?: string;
+  message?: string;
+}
+
+const MAX_OPENFGA_ERROR_DETAIL_LENGTH = 4096;
+
+function boundedOpenFgaErrorField(value: unknown, limit: number): string | undefined {
+  return typeof value === "string" && value ? value.slice(0, limit) : undefined;
+}
+
+function parseOpenFgaErrorDetails(errorBody: string): OpenFgaErrorDetails | undefined {
+  try {
+    const parsed = JSON.parse(errorBody) as { code?: unknown; message?: unknown };
+    const details = {
+      code: boundedOpenFgaErrorField(parsed.code, 128),
+      message: boundedOpenFgaErrorField(
+        parsed.message,
+        MAX_OPENFGA_ERROR_DETAIL_LENGTH,
+      ),
+    };
+    return details.code || details.message ? details : undefined;
+  } catch {
+    const message = boundedOpenFgaErrorField(
+      errorBody,
+      MAX_OPENFGA_ERROR_DETAIL_LENGTH,
+    );
+    return message ? { message } : undefined;
+  }
+}
+
 /**
  * POST one chunk to OpenFGA's `Write` endpoint. Throws on non-2xx with a
  * shape that callers can detect by name (`OpenFgaWriteError`).
@@ -956,9 +987,11 @@ async function postOpenFgaWriteChunk(
   });
   if (!response.ok) {
     const errorBody = await response.text().catch(() => "");
+    const details = parseOpenFgaErrorDetails(errorBody);
     throw new OpenFgaWriteError(
       `OpenFGA tuple write failed: ${response.status} ${errorBody.slice(0, 200)}`,
       response.status,
+      details,
     );
   }
   return { applied: { writes: chunk.writes, deletes: chunk.deletes } };
@@ -972,10 +1005,17 @@ async function postOpenFgaWriteChunk(
  */
 export class OpenFgaWriteError extends Error {
   readonly status: number;
-  constructor(message: string, status: number) {
+  readonly details?: OpenFgaErrorDetails;
+
+  constructor(
+    message: string,
+    status: number,
+    details?: OpenFgaErrorDetails,
+  ) {
     super(message);
     this.name = "OpenFgaWriteError";
     this.status = status;
+    this.details = details;
   }
 }
 

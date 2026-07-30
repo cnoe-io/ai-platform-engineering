@@ -167,11 +167,22 @@ function tupleKey(tuple: OpenFgaTupleKey): string {
 
 function isMissingDocumentParentRelation(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
-  const status = (error as Error & { status?: unknown }).status;
+  const candidate = error as Error & {
+    status?: unknown;
+    details?: { code?: unknown; message?: unknown };
+  };
+  const detailsCode =
+    typeof candidate.details?.code === "string" ? candidate.details.code : "";
+  const detailsMessage =
+    typeof candidate.details?.message === "string" ? candidate.details.message : "";
+  const missingParentRelation =
+    /relation ['"]document#parent['"] not found/i;
   return (
     error.name === "OpenFgaWriteError" &&
-    status === 400 &&
-    /relation ['"]document#parent['"] not found/i.test(error.message)
+    candidate.status === 400 &&
+    (missingParentRelation.test(error.message) ||
+      (detailsCode === "validation_error" &&
+        missingParentRelation.test(detailsMessage)))
   );
 }
 

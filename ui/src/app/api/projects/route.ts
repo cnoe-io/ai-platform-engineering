@@ -344,6 +344,14 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   } catch (error) {
     await projects.deleteOne({ _id: result.insertedId as unknown as string });
     await reconcileDataSteward(doc, null).catch(() => undefined);
+    if (error instanceof Error && error.name === "OpenFgaWriteError") {
+      console.error("[tome-projects] OpenFGA access setup failed", error);
+      throw new ApiError(
+        "Project access setup is temporarily unavailable. A Tome administrator can repair the authorization model from Projects and retry.",
+        503,
+        "TOME_ACCESS_SETUP_FAILED",
+      );
+    }
     throw error;
   }
 

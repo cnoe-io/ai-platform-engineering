@@ -252,4 +252,45 @@ describe("writeOpenFgaTuples (chunked + self-compensating)", () => {
       consoleErrSpy.mockRestore();
     }
   });
+
+  it("retains structured validation details after the public error message is truncated", async () => {
+    const { OpenFgaWriteError, writeOpenFgaTuples } = await import("../openfga");
+    const longObject = `document:tome/project/example-${"x".repeat(220)}`;
+    const validationMessage =
+      `Invalid tuple '${longObject}#parent@document:tome/bhag/example-goal'. ` +
+      "Reason: relation 'document#parent' not found";
+    mockFetch(() =>
+      new Response(
+        JSON.stringify({
+          code: "validation_error",
+          message: validationMessage,
+        }),
+        {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    );
+
+    let thrown: unknown;
+    try {
+      await writeOpenFgaTuples(makeDiff(1, 0));
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(OpenFgaWriteError);
+    expect(thrown).toMatchObject({
+      name: "OpenFgaWriteError",
+      status: 400,
+      details: {
+        code: "validation_error",
+        message: validationMessage,
+      },
+    });
+    expect((thrown as Error).message).not.toContain("not found");
+    expect((thrown as Error).message.length).toBeLessThanOrEqual(
+      "OpenFGA tuple write failed: 400 ".length + 200,
+    );
+  });
 });

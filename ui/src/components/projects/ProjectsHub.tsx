@@ -27,6 +27,7 @@ import {
 import { ProjectOnboardingWizard } from "@/components/projects/ProjectOnboardingWizard";
 import { McpConnectDialog } from "@/components/tome/McpConnectDialog";
 import { OnboardingModal } from "@/components/tome/OnboardingModal";
+import { OpenFgaModelRepairBanner } from "@/components/tome/OpenFgaModelRepairBanner";
 import { TomeProductFeedback } from "@/components/tome/TomeProductFeedback";
 import { ProviderLogo } from "@/components/credentials/provider-logo";
 import { Button } from "@/components/ui/button";
@@ -1021,6 +1022,8 @@ export function ProjectsHub() {
           </div>
         </div>
       </section>
+
+      {isTomeAdmin && <OpenFgaModelRepairBanner />}
 
       <section className="space-y-6">
         <div className="flex flex-wrap items-center justify-between gap-3">

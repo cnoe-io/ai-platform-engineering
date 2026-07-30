@@ -208,9 +208,15 @@ test.describe("Tome data-steward controls (mocked)", () => {
   });
 
   test("non-admin hub hides BHAG and Area creation controls", async ({ page }) => {
+    let modelInspectionRequests = 0;
     const hubHandler: MockRouteHandler = async ({ route, path, method, url }) => {
       if (path === "/api/tome/admin" && method === "GET") {
         await fulfillJson(route, { isTomeAdmin: false });
+        return true;
+      }
+      if (path === "/api/tome/admin/openfga-model") {
+        modelInspectionRequests += 1;
+        await fulfillJson(route, { error: "Forbidden" }, 403);
         return true;
       }
       if (path === "/api/tome/preferences/bhag-order" && method === "GET") {
@@ -271,6 +277,288 @@ test.describe("Tome data-steward controls (mocked)", () => {
     await expect(page.getByText("Example Project", { exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Create BHAG wiki" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Create area wiki" })).toHaveCount(0);
+    await expect(
+      page.getByText("Inherited access model needs repair", { exact: true }),
+    ).toHaveCount(0);
+    expect(modelInspectionRequests).toBe(0);
+  });
+
+  test("Tome admin can repair inherited access from an empty Projects hub", async ({
+    page,
+  }) => {
+    let repairRequests = 0;
+    const hubRepairHandler: MockRouteHandler = async ({
+      route,
+      path,
+      method,
+    }) => {
+      if (path === "/api/tome/admin" && method === "GET") {
+        await fulfillJson(route, { isTomeAdmin: true });
+        return true;
+      }
+      if (path === "/api/tome/admin/openfga-model" && method === "GET") {
+        await fulfillJson(route, {
+          healthy: false,
+          activeModelId: "model-stale",
+        });
+        return true;
+      }
+      if (path === "/api/tome/admin/openfga-model" && method === "POST") {
+        repairRequests += 1;
+        await fulfillJson(route, {
+          healthy: true,
+          activeModelId: "model-repaired",
+          changed: true,
+        });
+        return true;
+      }
+      if (path === "/api/tome/preferences/bhag-order" && method === "GET") {
+        await fulfillJson(route, {
+          success: true,
+          data: { bhag_order: [] },
+        });
+        return true;
+      }
+      if (path === "/api/projects/onboarding-config" && method === "GET") {
+        await fulfillJson(route, {
+          success: true,
+          data: { config: {} },
+        });
+        return true;
+      }
+      if (path === "/api/projects" && method === "GET") {
+        await fulfillJson(route, {
+          success: true,
+          data: {
+            projects: [],
+            active_ingest_count: 0,
+          },
+        });
+        return true;
+      }
+      return false;
+    };
+
+    await installMockedRbacApp(page, {
+      isAdmin: true,
+      session: { email: "admin@example.test", name: "Example Admin" },
+      handlers: [hubRepairHandler],
+    });
+    await page.goto("/projects", { waitUntil: "domcontentloaded" });
+
+    await expect(page.getByText("No projects yet", { exact: true })).toBeVisible();
+    await expect(
+      page.getByText("Inherited access model needs repair", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByText(
+        "The active OpenFGA model is missing document parent inheritance.",
+        { exact: false },
+      ),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Repair model" }).click();
+    await expect(
+      page.getByText("Inherited access model repaired", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByText("You can retry project onboarding now.", { exact: true }),
+    ).toBeVisible();
+    expect(repairRequests).toBe(1);
+  });
+
+  test("long hierarchy project onboarding succeeds without exposing OpenFGA internals", async ({
+    page,
+  }) => {
+    const parentName =
+      "Example Strategic Goal With A Deliberately Long Neutral Name";
+    const projectName = `Example Project ${"Long Name ".repeat(15).trim()}`;
+    const projectSlug = projectName
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 63)
+      .replace(/-+$/g, "");
+    let createPayload: Record<string, unknown> | null = null;
+
+    const onboardingHandler: MockRouteHandler = async ({
+      route,
+      path,
+      method,
+      url,
+    }) => {
+      if (path === "/api/tome/admin" && method === "GET") {
+        await fulfillJson(route, { isTomeAdmin: false });
+        return true;
+      }
+      if (path === "/api/tome/preferences/bhag-order" && method === "GET") {
+        await fulfillJson(route, {
+          success: true,
+          data: { bhag_order: [] },
+        });
+        return true;
+      }
+      if (path === "/api/projects/onboarding-config" && method === "GET") {
+        await fulfillJson(route, {
+          success: true,
+          data: { config: { steps: [] } },
+        });
+        return true;
+      }
+      if (path === "/api/projects/backstage/lookup" && method === "GET") {
+        await fulfillJson(route, {
+          success: true,
+          data: { configured: false, results: [] },
+        });
+        return true;
+      }
+      if (path === "/api/dynamic-agents/teams" && method === "GET") {
+        await fulfillJson(route, {
+          success: true,
+          data: [
+            {
+              _id: "example-team-id",
+              slug: "example-team",
+              name: "Example Team",
+            },
+          ],
+        });
+        return true;
+      }
+      if (path === "/api/projects" && method === "GET") {
+        const type = url.searchParams.get("type");
+        await fulfillJson(route, {
+          success: true,
+          data: {
+            projects:
+              type === "bhag"
+                ? [
+                    {
+                      _id: "example-goal-id",
+                      type: "bhag",
+                      slug: "example-strategic-goal",
+                      name: parentName,
+                      title: parentName,
+                      labels: {},
+                    },
+                  ]
+                : [],
+            active_ingest_count: 0,
+          },
+        });
+        return true;
+      }
+      if (path === "/api/projects" && method === "POST") {
+        createPayload = route.request().postDataJSON() as Record<string, unknown>;
+        await fulfillJson(
+          route,
+          {
+            success: true,
+            data: {
+              project: {
+                _id: "example-project-id",
+                type: "project",
+                slug: projectSlug,
+                name: projectName,
+                title: projectName,
+                team_id: "example-team-id",
+                team_slug: "example-team",
+                team_name: "Example Team",
+                labels: { initiatives: [parentName] },
+                tags: [],
+                sources: {},
+              },
+            },
+          },
+          201,
+        );
+        return true;
+      }
+      if (path === `/api/projects/${projectSlug}` && method === "GET") {
+        await fulfillJson(route, {
+          success: true,
+          data: {
+            project: {
+              _id: "example-project-id",
+              type: "project",
+              slug: projectSlug,
+              name: projectName,
+              title: projectName,
+              description: "",
+              team_id: "example-team-id",
+              team_slug: "example-team",
+              team_name: "Example Team",
+              labels: { initiatives: [parentName] },
+              tags: [],
+              sources: {},
+            },
+            permissions: {
+              can_read: true,
+              can_edit: true,
+              can_manage_steward: false,
+            },
+          },
+        });
+        return true;
+      }
+      if (
+        path === `/api/tome/projects/${projectSlug}/pages` &&
+        method === "GET"
+      ) {
+        await fulfillJson(route, {
+          success: true,
+          data: {
+            slug: projectSlug,
+            tree: [],
+            pages: {},
+            canEdit: true,
+            canManageSteward: false,
+          },
+        });
+        return true;
+      }
+      return false;
+    };
+
+    await installMockedRbacApp(page, {
+      session: { email: "creator@example.test", name: "Example Creator" },
+      handlers: [onboardingHandler],
+    });
+    await page.goto("/projects?onboard=1", { waitUntil: "domcontentloaded" });
+
+    await expect(page.getByRole("heading", { name: "Type" })).toBeVisible();
+    await page.getByRole("button", { name: "Continue" }).click();
+    await page.getByLabel("Project name").fill(projectName);
+    await page.getByLabel("Parent BHAG").selectOption({ label: parentName });
+    await page.getByRole("button", { name: "Continue" }).click();
+    await expect(
+      page.getByRole("heading", { name: "SLT Configuration" }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Continue" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Access Control" }),
+    ).toBeVisible();
+    await page.getByRole("combobox", { name: "Shared directly with team" }).click();
+    await page.getByRole("option", { name: "Example Team" }).click();
+    await page.getByRole("button", { name: "Continue" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Review & Create" }),
+    ).toBeVisible();
+
+    const createRequest = page.waitForRequest(
+      (request) =>
+        request.method() === "POST" &&
+        new URL(request.url()).pathname === "/api/projects",
+    );
+    await page.getByRole("button", { name: "Create project" }).click();
+    await createRequest;
+
+    expect(createPayload).toMatchObject({
+      name: projectName,
+      team_id: "example-team",
+      initiatives: [parentName],
+    });
+    await expect(page.getByText(/OpenFGA tuple write failed/i)).toHaveCount(0);
+    await page.waitForURL(`**/projects/${projectSlug}/tome`);
   });
 
   test("data steward can start ingestion", async ({ page }) => {

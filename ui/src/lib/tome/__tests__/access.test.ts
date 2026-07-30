@@ -148,12 +148,27 @@ describe("Tome read authorization", () => {
   });
 
   it("preserves direct team access while the deployed model lacks document#parent", async () => {
+    const longObject = `document:tome/project/example-${"x".repeat(220)}`;
+    const detailsMessage =
+      `Invalid tuple '${longObject}#parent@document:tome/bhag/example-goal'. ` +
+      "Reason: relation 'document#parent' not found";
+    const truncatedMessage =
+      `OpenFGA tuple write failed: 400 ${JSON.stringify({
+        code: "validation_error",
+        message: detailsMessage,
+      }).slice(0, 200)}`;
     const staleModelError = Object.assign(
-      new Error(
-        "OpenFGA tuple write failed: 400 relation 'document#parent' not found",
-      ),
-      { name: "OpenFgaWriteError", status: 400 },
+      new Error(truncatedMessage),
+      {
+        name: "OpenFgaWriteError",
+        status: 400,
+        details: {
+          code: "validation_error",
+          message: detailsMessage,
+        },
+      },
     );
+    expect(staleModelError.message).not.toContain("not found");
     mockWriteOpenFgaTuples
       .mockResolvedValueOnce({ enabled: true, writes: 1, deletes: 0 })
       .mockRejectedValueOnce(staleModelError);
@@ -177,6 +192,27 @@ describe("Tome read authorization", () => {
       expect.stringContaining("rerunning openfga-init"),
     );
     warn.mockRestore();
+  });
+
+  it("does not hide a structured validation failure for another relation", async () => {
+    const validationError = Object.assign(
+      new Error("OpenFGA tuple write failed: 400 validation_error"),
+      {
+        name: "OpenFgaWriteError",
+        status: 400,
+        details: {
+          code: "validation_error",
+          message: "Reason: relation 'document#owner' not found",
+        },
+      },
+    );
+    mockWriteOpenFgaTuples
+      .mockResolvedValueOnce({ enabled: true, writes: 1, deletes: 0 })
+      .mockRejectedValueOnce(validationError);
+
+    await expect(
+      reconcileTomeReadAccess(child, [bhag, area, child]),
+    ).rejects.toBe(validationError);
   });
 
   it("does not hide unrelated parent tuple write failures", async () => {
