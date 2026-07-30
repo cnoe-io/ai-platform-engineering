@@ -60,6 +60,9 @@ from utils.slack_admin_api import start_slack_admin_api_server  # noqa: E402
 app = App(token=os.environ.get("SLACK_INTEGRATION_BOT_TOKEN", os.environ.get("SLACK_BOT_TOKEN", "")))
 APP_NAME = os.environ.get("SLACK_INTEGRATION_APP_NAME", os.environ.get("APP_NAME", "CAIPE"))
 _WORKSPACE_URL = os.environ.get("SLACK_WORKSPACE_URL", "").rstrip("/")
+_ROUTABLE_AMBIENT_MESSAGE_SUBTYPES = frozenset(
+  {None, "", "bot_message", "file_share"}
+)
 
 
 def _msg_link(channel_id: str, ts: str) -> str:
@@ -1740,7 +1743,13 @@ def _route_to_agent(event, say, client, channel_config, agent_match, is_bot, bot
     channel_id = event.get("channel")
     thread_ts = event.get("ts")
 
-    if event.get("subtype") and event.get("subtype") != "bot_message":
+    subtype = event.get("subtype")
+    if subtype not in _ROUTABLE_AMBIENT_MESSAGE_SUBTYPES:
+      logger.debug(
+        "[{}] Ignoring ambient Slack message subtype={}",
+        thread_ts,
+        subtype,
+      )
       return
 
     if not utils.verify_thread_exists(client, channel_id, thread_ts):
@@ -1754,13 +1763,27 @@ def _route_to_agent(event, say, client, channel_config, agent_match, is_bot, bot
       user_id = event.get("user")
     team_id = event.get("team")
     message_text = slack_context.extract_message_text(event)
+    raw_files = event.get("files") or []
+
+    if raw_files:
+      logger.info(
+        "[{}] Processing Slack message attachments files={} has_text={} subtype={}",
+        thread_ts,
+        len(raw_files),
+        bool(message_text.strip()),
+        subtype or "none",
+      )
 
     user_name, user_email = utils.get_message_author_info(event, client)
     sender_label = "bot" if is_bot else "user"
 
     logger.info(f"[{thread_ts}] Routing {sender_label} message to agent={agent_match.agent_id} - User: {user_name} ({user_id}), Channel: {channel_id}{_msg_link(channel_id, thread_ts)}")
 
-    if not message_text or not message_text.strip():
+    if not message_text.strip() and not raw_files:
+      logger.debug(
+        "[{}] Ignoring ambient Slack message with no text or files",
+        thread_ts,
+      )
       return
 
     agent_id = agent_match.agent_id
@@ -1771,6 +1794,20 @@ def _route_to_agent(event, say, client, channel_config, agent_match, is_bot, bot
         "Slack channel grant denied for ambient message channel={} agent={} — silently dropping",
         channel_id,
         agent_id,
+      )
+      return
+
+    # Download attachments only after the route is authorized. If Slack file
+    # access is unavailable (for example, no files:read scope), the ingest
+    # notice is appended to the original text and CAIPE still handles the turn.
+    ingest = download_slack_files(raw_files, bot_token=client.token)
+    input_files = ingest.files
+    message_text = _apply_attachment_notices(message_text, ingest)
+
+    if not message_text.strip() and not input_files:
+      logger.info(
+        "[{}] Ignoring Slack file message with no usable text or attachments",
+        thread_ts,
       )
       return
 
@@ -1847,14 +1884,6 @@ def _route_to_agent(event, say, client, channel_config, agent_match, is_bot, bot
     )
 
     esc_config = get_escalation_config(agent_match)
-
-    # Download any Slack attachments into base64 multimodal blocks so the model
-    # can read them (client.token authenticates the private file URLs). Files
-    # that couldn't be accessed (e.g. missing files:read scope) surface as
-    # notices folded into the message so the agent can tell the user.
-    ingest = download_slack_files(event.get("files"), bot_token=client.token)
-    input_files = ingest.files
-    message_text = _apply_attachment_notices(message_text, ingest)
 
     result = _call_ai(
       client=client,
