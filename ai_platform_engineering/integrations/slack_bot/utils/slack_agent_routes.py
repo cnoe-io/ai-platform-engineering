@@ -291,6 +291,30 @@ class SlackAgentRouteResolver:
                 matches.append(binding)
         return matches
 
+    def agent_binding_for(
+        self,
+        *,
+        workspace_id: str,
+        channel_id: str,
+        agent_id: str,
+    ) -> AgentBinding | None:
+        """Return the full ``AgentBinding`` for a DB-backed channel/agent route.
+
+        Lets callers that only have a ``channel_id``/``agent_id`` pair (button
+        and modal-submission handlers, which have no live message event to
+        match against) resolve the same ``execution_identity`` used by the
+        original dispatch, so retry/regenerate actions run under the route's
+        configured identity instead of defaulting to the clicking user.
+        """
+
+        if not agent_id:
+            return None
+        for route in self._cached_routes(workspace_id, channel_id):
+            if route.get("agent_id") != agent_id:
+                continue
+            return _route_to_agent_binding(route)
+        return None
+
     def escalation_for(
         self,
         *,
@@ -306,16 +330,12 @@ class SlackAgentRouteResolver:
         channels configured entirely through the admin UI.
         """
 
-        if not agent_id:
+        binding = self.agent_binding_for(
+            workspace_id=workspace_id, channel_id=channel_id, agent_id=agent_id
+        )
+        if binding is None:
             return None
-        for route in self._cached_routes(workspace_id, channel_id):
-            if route.get("agent_id") != agent_id:
-                continue
-            binding = _route_to_agent_binding(route)
-            if binding is None:
-                return None
-            return get_escalation_config(binding)
-        return None
+        return get_escalation_config(binding)
 
     def explain_no_route_match(
         self,

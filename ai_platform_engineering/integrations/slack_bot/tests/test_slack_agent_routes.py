@@ -431,3 +431,56 @@ def test_escalation_for_returns_none_when_no_escalation_configured() -> None:
     # Route exists but has no escalation block, and an unknown agent yields None.
     assert resolver.escalation_for(workspace_id="CAIPE", channel_id="C123", agent_id="ui-agent") is None
     assert resolver.escalation_for(workspace_id="CAIPE", channel_id="C123", agent_id="other") is None
+
+
+def test_agent_binding_for_returns_db_route_execution_identity() -> None:
+    collection = _Collection(
+        [
+            {
+                "workspace_id": "CAIPE",
+                "channel_id": "C123",
+                "agent_id": "ui-agent",
+                "enabled": True,
+                "priority": 1,
+                "status": "active",
+                "users": {"enabled": True, "listen": "all"},
+                "execution_identity": {
+                    "mode": "service_account",
+                    "service_account_sub": "svc-sub-123",
+                    "service_account_name": "svc-name",
+                },
+            },
+        ]
+    )
+    resolver = SlackAgentRouteResolver(
+        collection_factory=lambda: collection,
+        openfga_agent_ids_factory=lambda _workspace_id, _channel_id: ["ui-agent"],
+    )
+
+    binding = resolver.agent_binding_for(workspace_id="CAIPE", channel_id="C123", agent_id="ui-agent")
+
+    assert binding is not None
+    assert binding.execution_identity.mode == "service_account"
+    assert binding.execution_identity.service_account_sub == "svc-sub-123"
+
+
+def test_agent_binding_for_returns_none_when_no_match() -> None:
+    collection = _Collection(
+        [
+            {
+                "workspace_id": "CAIPE",
+                "channel_id": "C123",
+                "agent_id": "ui-agent",
+                "enabled": True,
+                "priority": 1,
+                "status": "active",
+                "users": {"enabled": True, "listen": "all"},
+            },
+        ]
+    )
+    resolver = SlackAgentRouteResolver(
+        collection_factory=lambda: collection,
+        openfga_agent_ids_factory=lambda _workspace_id, _channel_id: ["ui-agent"],
+    )
+
+    assert resolver.agent_binding_for(workspace_id="CAIPE", channel_id="C123", agent_id="other") is None
