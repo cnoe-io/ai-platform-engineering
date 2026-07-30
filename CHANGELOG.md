@@ -1,3 +1,11 @@
+## 0.5.64-dev.1 (2026-07-30)
+
+### Fix
+
+- **dynamic-agents**: send text-family documents as A (#2327)
+
+## 0.5.64 (2026-07-29)
+
 ## 0.5.63-dev.4 (2026-07-29)
 
 ### Feat
