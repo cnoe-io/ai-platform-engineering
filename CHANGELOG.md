@@ -1,3 +1,30 @@
+## 0.5.63-dev.4 (2026-07-29)
+
+### Feat
+
+- **ui**: allow chat title edit and open links in a new tab
+
+### Fix
+
+- **dynamic-agents**: pin boto3 to satisfy pinned-deps CI check
+- **ci**: skip PR version-bump auto-commit for Dependabot PRs (#2322)
+- **dynamic-agents**: coerce GridFS namespace components to str before Mongo queries (#2319)
+- **dynamic-agents**: don't double-add Anthropic prompt-caching middleware
+- **dynamic-agents**: use native prompt-caching middleware for Bedrock
+- **dynamic-agents**: declare boto3 without a version pin
+
+## 0.5.63-dev.2 (2026-07-28)
+
+## 0.5.63-dev.1 (2026-07-28)
+
+### Feat
+
+- **rag**: self-service RAG ingestion-source config store (PR1/7) (#2286)
+
+### Fix
+
+- **dynamic-agents**: pin boto3==1.43.16 to match cnoe-agent-utils
+
 ## 0.5.63 (2026-07-28)
 
 ### Fix
@@ -38,10 +65,20 @@
 
 ## 0.5.60-dev.4 (2026-07-23)
 
+### Feat
+
+- **docs**: include info on UI admin access to update scheduler ediotr agent
+- **helm**: change restrictedMcpServers default to none and update docs on how to restrict scheduler to admin only
+- **scheduler**: allow admin to modify default schedule editor agent in the ui
+- **dynamic-agents**: offload multimodal attachment bytes to object store
+
 ### Fix
 
 - **webex**: add per-user OAuth token support via X-CAIPE-Provider-Token
 - **confluence**: add OAuth Bearer auth for Atlassian 3LO tokens
+- fix scheduler ui tab acceess
+- **scheduler**: if admin only access do not make scheduler tab visible for normal users
+- **dynamic-agents**: thread files into _stream_impl so attachments reach the model
 
 ## 0.5.60-dev.3 (2026-07-23)
 
@@ -54,6 +91,7 @@
 ### Feat
 
 - **ui**: link feedback trends to daily feedback (#2283)
+- **dynamic-agents**: name model in skip warning, notify the model, and cap input attachments
 
 ## 0.5.60-dev.1 (2026-07-23)
 
@@ -104,17 +142,9 @@
 
 ## 0.5.58 (2026-07-22)
 
-### Feat
-
-- **docs**: include info on UI admin access to update scheduler ediotr agent
-- **helm**: change restrictedMcpServers default to none and update docs on how to restrict scheduler to admin only
-- **scheduler**: allow admin to modify default schedule editor agent in the ui
-
 ### Fix
 
 - **ci**: build remaining 11 CI image workflows natively per-arch (#2274)
-- fix scheduler ui tab acceess
-- **scheduler**: if admin only access do not make scheduler tab visible for normal users
 - **workflow**: do global check correctly
 - **ci**: build rag images natively per-arch instead of QEMU-emulated arm64 (#2272)
 
@@ -183,12 +213,15 @@
 
 - **auth**: OIDC_GROUP_INCLUDELIST and OIDC_GROUP_EXCLUDELIST for AD group sync filtering (#2237)
 - **ci**: link failed CIs and initiated gh user in the release draft to take action
+- **dynamic-agents**: declare per-model input capabilities and degrade cleanly
 
 ### Fix
 
 - **e2e**: drive the MCP tool picker as a combobox, not a <select>
 - **service-accounts**: let org admins manage service accounts outside their own team
 - **service-accounts**: org admins see all SAs; add search + pagination
+- **dev**: clear OIDC_AUDIENCE for dynamic-agents so OBO tokens validate
+- **slack**: reject Slack files:read login-page HTML before sending to model
 
 ### Refactor
 
@@ -201,6 +234,10 @@
 ### Feat
 
 - support multiple Webex bots and 1:1  (#2184)
+- **ui**: show uploaded attachments in the chat transcript
+- **ui**: attach files to chat messages as multimodal input
+- **slack-bot**: forward Slack attachments as multimodal chat input
+- **dynamic-agents**: support multimodal file+text chat input
 
 ## 0.5.54-dev.2 (2026-07-16)
 

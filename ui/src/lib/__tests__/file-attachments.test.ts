@@ -29,9 +29,6 @@ describe("MIME allowlist", () => {
     expect(isAcceptedMimeType("image/png")).toBe(true);
     expect(isAcceptedMimeType("application/pdf")).toBe(true);
     expect(isAcceptedMimeType("text/markdown")).toBe(true);
-    // XML: sent to Anthropic models as a text document source.
-    expect(isAcceptedMimeType("text/xml")).toBe(true);
-    expect(isAcceptedMimeType("application/xml")).toBe(true);
   });
 
   it("rejects types the backend would drop", () => {

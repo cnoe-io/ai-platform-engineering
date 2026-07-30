@@ -23,12 +23,7 @@ export const ACCEPTED_IMAGE_MIME_TYPES = [
   "image/webp",
 ] as const;
 
-/**
- * Document MIME types the backend maps to document blocks. Text-family docs
- * (txt/md/csv/html/xml) are sent to Anthropic models as text document sources;
- * xml is Anthropic-only (Bedrock Converse has no xml format), so a non-Anthropic
- * agent skips it server-side with a warning rather than erroring.
- */
+/** Document MIME types the backend maps to document blocks. */
 export const ACCEPTED_DOC_MIME_TYPES = [
   "application/pdf",
   "text/csv",
@@ -39,8 +34,6 @@ export const ACCEPTED_DOC_MIME_TYPES = [
   "text/html",
   "text/plain",
   "text/markdown",
-  "text/xml",
-  "application/xml",
 ] as const;
 
 /** Every MIME type the composer will accept before upload. */
