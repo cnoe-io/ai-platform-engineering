@@ -44,6 +44,7 @@ import remarkGfm from "remark-gfm";
 import { AgentAvatar } from "./AgentAvatar";
 import { AllowedToolsPicker } from "./AllowedToolsPicker";
 import { BuiltinToolsPicker } from "./BuiltinToolsPicker";
+import { DatasourcePicker } from "./DatasourcePicker";
 import { InterruptConfigPicker } from "./InterruptConfigPicker";
 import { MiddlewarePicker } from "./MiddlewarePicker";
 import { SkillsSelector } from "./SkillsSelector";
@@ -250,6 +251,9 @@ function AdvancedStep({
   setMiddlewareError,
   loading,
   visibility,
+  datasourceIds,
+  setDatasourceIds,
+  ownerTeamSlug,
 }: {
   agent: DynamicAgentConfig | null;
   subagents: SubAgentRef[];
@@ -265,6 +269,9 @@ function AdvancedStep({
   setMiddlewareError: (v: boolean) => void;
   loading: boolean;
   visibility: VisibilityType;
+  datasourceIds: string[];
+  setDatasourceIds: (v: string[]) => void;
+  ownerTeamSlug: string;
 }) {
   const interruptRuleCount = Object.values(interruptOn).reduce(
     (sum, tools) => sum + Object.keys(tools).length, 0
@@ -289,6 +296,20 @@ function AdvancedStep({
           onChange={setSubagents}
           disabled={loading}
           parentVisibility={visibility}
+        />
+      </CollapsibleSection>
+
+      <CollapsibleSection
+        title="Datasources"
+        description="Narrow this agent's search to specific RAG datasources"
+        badge={`${datasourceIds.length} datasource${datasourceIds.length !== 1 ? "s" : ""}`}
+        defaultExpanded={false}
+      >
+        <DatasourcePicker
+          ownerTeamSlug={ownerTeamSlug}
+          value={datasourceIds}
+          onChange={setDatasourceIds}
+          disabled={loading}
         />
       </CollapsibleSection>
 
@@ -405,6 +426,9 @@ export function DynamicAgentEditor({
   );
   const [skills, setSkills] = React.useState<string[]>(
     source?.skills || []
+  );
+  const [datasourceIds, setDatasourceIds] = React.useState<string[]>(
+    source?.datasource_ids || []
   );
   const [features, setFeatures] = React.useState<FeaturesConfig | undefined>(
     source?.features
@@ -716,6 +740,7 @@ export function DynamicAgentEditor({
       builtinTools,
       subagents,
       skills,
+      datasourceIds,
       features,
       modelId,
       modelProvider,
@@ -732,6 +757,7 @@ export function DynamicAgentEditor({
       builtinTools,
       subagents,
       skills,
+      datasourceIds,
       features,
       modelId,
       modelProvider,
@@ -1017,6 +1043,7 @@ export function DynamicAgentEditor({
           builtin_tools: builtinTools,
           subagents: subagents.length > 0 ? subagents : undefined,
           skills,
+          datasource_ids: datasourceIds.length > 0 ? datasourceIds : undefined,
           model: { id: modelId, provider: modelProvider },
           ui: uiConfig,
           features: features,
@@ -1065,6 +1092,7 @@ export function DynamicAgentEditor({
           builtin_tools: builtinTools,
           subagents: subagents.length > 0 ? subagents : undefined,
           skills,
+          datasource_ids: datasourceIds.length > 0 ? datasourceIds : undefined,
           model: { id: modelId, provider: modelProvider },
           ui: uiConfig,
           features: features,
@@ -1995,6 +2023,9 @@ export function DynamicAgentEditor({
               setMiddlewareError={setMiddlewareError}
               loading={loading || !!readOnly}
               visibility={visibility}
+              datasourceIds={datasourceIds}
+              setDatasourceIds={setDatasourceIds}
+              ownerTeamSlug={ownerTeamSlug}
             />
           )}
 

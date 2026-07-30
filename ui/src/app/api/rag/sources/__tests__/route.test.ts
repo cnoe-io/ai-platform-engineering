@@ -13,6 +13,8 @@ const mockGetCollection = jest.fn();
 const mockRequireResourcePermission = jest.fn();
 const mockFilterResourcesByPermission = jest.fn();
 const mockReconcileIngestionSourceRelationships = jest.fn();
+const mockReconcileKnowledgeBaseRelationships = jest.fn();
+const mockReconcileDataSourceRelationships = jest.fn();
 
 jest.mock("@/lib/api-middleware", () => {
   class ApiError extends Error {
@@ -61,6 +63,10 @@ jest.mock("@/lib/rbac/resource-authz", () => ({
 jest.mock("@/lib/rbac/openfga-owned-resources-reconcile", () => ({
   reconcileIngestionSourceRelationships: (...args: unknown[]) =>
     mockReconcileIngestionSourceRelationships(...args),
+  reconcileKnowledgeBaseRelationships: (...args: unknown[]) =>
+    mockReconcileKnowledgeBaseRelationships(...args),
+  reconcileDataSourceRelationships: (...args: unknown[]) =>
+    mockReconcileDataSourceRelationships(...args),
 }));
 
 jest.mock("@/lib/rbac/organization", () => ({
@@ -93,6 +99,8 @@ describe("POST /api/rag/sources", () => {
     mockGetAuthFromBearerOrSession.mockResolvedValue({ user, session });
     mockRequireResourcePermission.mockResolvedValue(undefined);
     mockReconcileIngestionSourceRelationships.mockResolvedValue({ enabled: true, writes: 1, deletes: 0 });
+    mockReconcileKnowledgeBaseRelationships.mockResolvedValue({ enabled: true, writes: 1, deletes: 0 });
+    mockReconcileDataSourceRelationships.mockResolvedValue({ enabled: true, writes: 1, deletes: 0 });
 
     sources = { findOne: jest.fn().mockResolvedValue(null), insertOne: jest.fn().mockResolvedValue({}) };
     teams = { findOne: jest.fn().mockResolvedValue({ _id: "team-id", slug: "platform" }) };
@@ -263,6 +271,34 @@ describe("POST /api/rag/sources", () => {
         sourceId: "slack-channel-C1234567890",
         ownerTeamSlug: "platform",
         globalUserAccess: false,
+      }),
+    );
+  });
+
+  // Query-time visibility grants (knowledge_base reader + data_source
+  // parent_kb) must be reconciled alongside management, or delegating a
+  // source's ownership_source grant returns zero RAG search results.
+  it("also reconciles knowledge_base and data_source tuples so the source is query-visible", async () => {
+    const { POST } = await import("../route");
+
+    await POST(
+      request("/api/rag/sources", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(postBody()),
+      }),
+    );
+
+    expect(mockReconcileKnowledgeBaseRelationships).toHaveBeenCalledWith(
+      expect.objectContaining({
+        knowledgeBaseId: "slack-channel-C1234567890",
+        ownerTeamSlug: "platform",
+      }),
+    );
+    expect(mockReconcileDataSourceRelationships).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dataSourceId: "slack-channel-C1234567890",
+        parentKnowledgeBaseId: "slack-channel-C1234567890",
       }),
     );
   });

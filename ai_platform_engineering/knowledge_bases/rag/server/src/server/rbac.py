@@ -432,11 +432,6 @@ def require_role(required_role: str):
 # OpenFGA-backed RAG authorization
 # ============================================================================
 
-# MongoDB URI for channel-to-team lookup data.
-RBAC_MONGODB_URI = os.getenv("RBAC_MONGODB_URI", "")
-RBAC_MONGODB_DATABASE = os.getenv("RBAC_MONGODB_DATABASE", "")
-RBAC_TEAM_SCOPE_ENABLED = os.getenv("RBAC_TEAM_SCOPE_ENABLED", "false").lower() in ("true", "1", "yes")
-
 
 def _openfga_http_url() -> Optional[str]:
   """Return the configured OpenFGA HTTP base URL, if enabled."""
@@ -568,7 +563,6 @@ async def authorize_search(user_context: UserContext) -> None:
 
   Authorization is the explicit org-level "search" capability:
 
-  - When team-scope ReBAC is OFF, this is a no-op (coarse role gates apply).
   - Unrestricted principals (client-credentials, CAIPE_UNSAFE_RBAC_BYPASS) and
     coarse-ADMIN service tokens are allowed (preserve automation/agents).
   - Org admins (`organization#can_manage`) are allowed.
@@ -577,8 +571,6 @@ async def authorize_search(user_context: UserContext) -> None:
 
   Fails CLOSED: 403 (capability missing) or 503 (PDP unavailable).
   """
-  if not RBAC_TEAM_SCOPE_ENABLED:
-    return
   if _has_unrestricted_kb_access(user_context):
     return
   if has_permission(user_context.role, Role.ADMIN):
@@ -793,100 +785,9 @@ def _strip_openfga_object_prefix(value: str, object_type: str) -> str:
   return value[len(prefix):] if value.startswith(prefix) else value
 
 
-async def _resolve_team_slug_from_channel(channel_id: str) -> Optional[str]:
-  """Derive a team slug from an originating collaboration channel.
-
-  Looks up the ``channel_team_mappings`` MongoDB collection by channel
-  identifier and returns the joined ``teams.slug``.
-
-  Returns ``None`` when:
-  - Mongo is not configured
-  - No active mapping exists for ``channel_id``
-  - The mapping points to a team that is missing or has no slug
-  - Mongo errors (we degrade rather than 503 — caller treats no-team as
-    "fall back to user grants only", which is safe for read-side queries)
-
-  This helper is intentionally minimal: identifier resolution lives in the
-  BFF; the RAG server only needs the slug.
-  """
-  if not channel_id or not RBAC_MONGODB_URI or not RBAC_MONGODB_DATABASE:
-    return None
-  try:
-    from motor.motor_asyncio import AsyncIOMotorClient
-
-    client: AsyncIOMotorClient = AsyncIOMotorClient(
-      RBAC_MONGODB_URI, serverSelectionTimeoutMS=5000
-    )
-    db = client[RBAC_MONGODB_DATABASE]
-    mapping = await db["channel_team_mappings"].find_one(
-      {"slack_channel_id": channel_id, "active": {"$ne": False}},
-    )
-    if not mapping:
-      return None
-    team_id = mapping.get("team_id")
-    if not team_id:
-      return None
-    team = await db["teams"].find_one({"_id": team_id})
-    if not team:
-      return None
-    slug = team.get("slug")
-    return slug.strip() if isinstance(slug, str) and slug.strip() else None
-  except Exception as exc:  # noqa: BLE001 — never break the request on Mongo glitches
-    logger.warning(
-      "Channel→team lookup failed (channel_id=%s): %s", channel_id, exc
-    )
-    return None
-
-
-async def derive_team_for_request(
-  request: Optional[Request],
-  user_context: Any,  # noqa: ARG001 — accepted for dependency call-site parity
-) -> Optional[str]:
-  """Resolve the optional team scope carried by the request.
-
-  Resolution order:
-
-  1. ``X-Team-Id`` request header — explicit team scope (used by Web UI BFF
-     and bot envelopes that have already resolved a team from a channel
-     mapping).
-  2. ``X-Channel-Id`` header → ``channel_team_mappings`` → ``teams.slug``.
-  3. ``None`` — caller interprets as "no team scope" (personal / DM).
-
-  ``"__personal__"`` in the header is normalized to ``None``; it is the
-  caller's explicit "DM / no team" signal.
-
-  ``request`` may be ``None`` (MCP tool path doesn't always have one);
-  in that case the function returns ``None``.
-  """
-  if request is None:
-    return None
-
-  header_team = request.headers.get("X-Team-Id") if request.headers else None
-  if isinstance(header_team, str) and header_team.strip():
-    stripped = header_team.strip()
-    return None if stripped == "__personal__" else stripped
-
-  channel_id = request.headers.get("X-Channel-Id") if request.headers else None
-  if isinstance(channel_id, str) and channel_id.strip():
-    try:
-      return await _resolve_team_slug_from_channel(channel_id.strip())
-    except Exception as exc:  # noqa: BLE001 — defense in depth
-      logger.warning(
-        "derive_team_for_request: channel resolver raised (channel_id=%s): %s",
-        channel_id,
-        exc,
-      )
-      return None
-
-  return None
-
-
 async def get_accessible_datasource_ids(
   user_context: UserContext,
   scope: str,
-  tenant_id: str,
-  team_id: Optional[str] = None,
-  request: Optional[Request] = None,
 ) -> List[str]:
   """
   Resolve datasource-component identifiers the caller may use for the given scope.
@@ -914,7 +815,7 @@ async def get_accessible_datasource_ids(
       ) from exc
     for obj in objects:
       ids.add(_strip_openfga_object_prefix(obj, "data_source"))
-  elif RBAC_TEAM_SCOPE_ENABLED and user_context.is_authenticated:
+  elif user_context.is_authenticated:
     raise HTTPException(
       status_code=503,
       detail="Authorization service is temporarily unavailable",
@@ -926,15 +827,11 @@ async def get_accessible_datasource_ids(
 
 
 async def check_datasource_access(
-  request: Request,
   user_context: UserContext,
   datasource_id: str,
   scope: str,
 ) -> None:
   """Raise ``HTTPException(403)`` if the user cannot use this datasource component for ``scope``."""
-  if not RBAC_TEAM_SCOPE_ENABLED:
-    return
-  tenant_id = request.headers.get("X-Tenant-Id") or "default"
   if _has_unrestricted_kb_access(user_context):
     return
   if _openfga_http_url() and user_context.is_authenticated:
@@ -966,8 +863,7 @@ async def check_datasource_access(
       detail="Authorization service is temporarily unavailable",
     )
 
-  team_id = await derive_team_for_request(request, user_context)
-  accessible = await get_accessible_datasource_ids(user_context, scope, tenant_id, team_id=team_id, request=request)
+  accessible = await get_accessible_datasource_ids(user_context, scope)
   if "*" in accessible:
     return
   if not accessible:
@@ -992,7 +888,6 @@ async def authorize_datasource_create(
   check. Authorization is the explicit org-level "data source author"
   capability plus owning-team membership:
 
-  - When team-scope ReBAC is OFF, this is a no-op (coarse role gates apply).
   - Unrestricted principals (client-credentials, CAIPE_UNSAFE_RBAC_BYPASS) and
     coarse-ADMIN service tokens are allowed (preserve automation).
   - Org admins (`organization#can_manage`) are allowed; ``owner_team_slug`` is
@@ -1003,8 +898,6 @@ async def authorize_datasource_create(
 
   Fails CLOSED: 403 (not authorized / missing owning team) or 503 (PDP down).
   """
-  if not RBAC_TEAM_SCOPE_ENABLED:
-    return
   if _has_unrestricted_kb_access(user_context):
     return
   if has_permission(user_context.role, Role.ADMIN):
@@ -1053,10 +946,10 @@ async def write_datasource_ownership(
   `owner` instead.
 
   Best-effort: logs and returns on failure rather than blocking the queued
-  ingestion (the create authorization already succeeded). No-op when team-scope
-  ReBAC or OpenFGA is not configured.
+  ingestion (the create authorization already succeeded). No-op when OpenFGA
+  is not configured.
   """
-  if not RBAC_TEAM_SCOPE_ENABLED or not _openfga_http_url():
+  if not _openfga_http_url():
     return
 
   kb_obj = f"knowledge_base:{datasource_id}"
@@ -1101,7 +994,7 @@ def require_kb_access(kb_id: str, scope: str):
     request: Request,
     user: UserContext = Depends(require_authenticated_user),
   ) -> UserContext:
-    await check_datasource_access(request, user, kb_id, scope)
+    await check_datasource_access(user, kb_id, scope)
     return user
 
   _dep.__name__ = f"require_kb_access_{kb_id}_{scope}"
@@ -1111,8 +1004,6 @@ def require_kb_access(kb_id: str, scope: str):
 async def inject_kb_filter(
   query_request: QueryRequest,
   user_context: UserContext,
-  tenant_id: str,
-  request: Request,
 ) -> bool:
   """
   Restrict vector search to accessible datasources by mutating ``query_request.filters``.
@@ -1121,9 +1012,9 @@ async def inject_kb_filter(
       True if the handler should return an empty result set without querying the vector DB.
   """
   # Hybrid ACL (per-doc acl_tags) — opt-in via RBAC_DOC_ACL_TAGS_ENABLED.
-  # Apply BEFORE the early-returns below so it still runs when team-scope
-  # is off but doc-ACL is on. The helper is itself a no-op for
-  # client-credentials principals, so this is safe.
+  # Apply BEFORE the datasource-scope filtering below so both layers stack.
+  # The helper is itself a no-op for client-credentials principals, so this
+  # is safe.
   try:
     from .doc_acl import apply_doc_acl_filter
 
@@ -1131,13 +1022,10 @@ async def inject_kb_filter(
   except Exception as exc:  # noqa: BLE001 — never break the query path on ACL bugs
     logger.warning("doc_acl: apply_doc_acl_filter failed (non-fatal): %s", exc)
 
-  if not RBAC_TEAM_SCOPE_ENABLED:
-    return False
   if user_context.email.startswith("client:"):
     return False
 
-  team_id = await derive_team_for_request(request, user_context)
-  accessible = await get_accessible_datasource_ids(user_context, "read", tenant_id, team_id=team_id, request=request)
+  accessible = await get_accessible_datasource_ids(user_context, "read")
   if "*" in accessible:
     return False
   if not accessible:

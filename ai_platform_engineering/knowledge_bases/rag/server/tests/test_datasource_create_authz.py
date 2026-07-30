@@ -30,8 +30,7 @@ def _user(subject: str | None = "alice-sub", role: str = Role.READONLY) -> UserC
 
 @pytest.fixture(autouse=True)
 def _team_scope_on(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Enable team-scope ReBAC and a configured PDP for every test here.
-    monkeypatch.setattr(rbac, "RBAC_TEAM_SCOPE_ENABLED", True, raising=False)
+    # Configure a PDP for every test here.
     monkeypatch.setenv("OPENFGA_HTTP", "http://openfga")
     monkeypatch.setenv("CAIPE_ORG_KEY", "caipe")
 
@@ -44,18 +43,6 @@ def _team_scope_on(monkeypatch: pytest.MonkeyPatch) -> None:
 # ---------------------------------------------------------------------------
 # authorize_datasource_create
 # ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_create_noop_when_team_scope_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(rbac, "RBAC_TEAM_SCOPE_ENABLED", False, raising=False)
-
-    async def _explode(*_a, **_k):  # pragma: no cover - must not run
-        raise AssertionError("must not hit the PDP when team-scope is off")
-
-    monkeypatch.setattr(rbac, "_openfga_check_org_admin", _explode, raising=False)
-    # No exception == allowed.
-    await rbac.authorize_datasource_create(None, _user(), "src_new", "team-a")
 
 
 @pytest.mark.asyncio
@@ -170,17 +157,6 @@ async def test_ownership_personal_writes_owner(monkeypatch: pytest.MonkeyPatch) 
     assert {"user": "knowledge_base:src_x", "relation": "parent_kb", "object": "data_source:src_x"} in captured
     # No team tuples for a personal source.
     assert not any(t["user"].startswith("team:") for t in captured)
-
-
-@pytest.mark.asyncio
-async def test_ownership_noop_when_team_scope_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(rbac, "RBAC_TEAM_SCOPE_ENABLED", False, raising=False)
-
-    async def _explode(_writes):  # pragma: no cover - must not run
-        raise AssertionError("must not write when team-scope is off")
-
-    monkeypatch.setattr(rbac, "_openfga_write_tuples", _explode, raising=False)
-    await rbac.write_datasource_ownership("src_x", "team-a", _user())
 
 
 @pytest.mark.asyncio

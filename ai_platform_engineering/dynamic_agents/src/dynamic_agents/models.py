@@ -541,6 +541,16 @@ class DynamicAgentConfigBase(BaseModel):
         default_factory=list,
         description="Skill document IDs from agent_skills collection",
     )
+    datasource_ids: list[str] | None = Field(
+        None,
+        description=(
+            "RAG datasource ids (== source_id == knowledge_base_id) this agent's "
+            "search tool is pinned to. Narrows, never widens: the runtime "
+            "intersects this list with the caller's RBAC-accessible datasources, "
+            "so None/empty means 'search everything the caller can see' rather "
+            "than 'search everything'."
+        ),
+    )
     builtin_tools: BuiltinToolsConfig | None = Field(
         None,
         description="Configuration for built-in tools (fetch_url, etc.)",

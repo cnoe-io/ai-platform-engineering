@@ -1529,7 +1529,6 @@ rag-stack:
       tag: ""
       pullPolicy: "IfNotPresent"
     env:
-      RBAC_TEAM_SCOPE_ENABLED: "true"
       OPENFGA_STORE_NAME: "caipe-openfga"
       CAIPE_UNSAFE_RBAC_BYPASS: "false"
 

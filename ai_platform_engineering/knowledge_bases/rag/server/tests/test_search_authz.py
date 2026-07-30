@@ -31,7 +31,6 @@ def _user(subject: str | None = "alice-sub", role: str = Role.READONLY) -> UserC
 
 @pytest.fixture(autouse=True)
 def _team_scope_on(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(rbac, "RBAC_TEAM_SCOPE_ENABLED", True, raising=False)
     monkeypatch.setenv("OPENFGA_HTTP", "http://openfga")
     monkeypatch.setenv("CAIPE_ORG_KEY", "caipe")
 
@@ -39,17 +38,6 @@ def _team_scope_on(monkeypatch: pytest.MonkeyPatch) -> None:
         return False
 
     monkeypatch.setattr(rbac, "_openfga_check_org_admin", _no_org_admin, raising=False)
-
-
-@pytest.mark.asyncio
-async def test_search_noop_when_team_scope_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(rbac, "RBAC_TEAM_SCOPE_ENABLED", False, raising=False)
-
-    async def _explode(*_a, **_k):  # pragma: no cover - must not run
-        raise AssertionError("must not hit the PDP when team-scope is off")
-
-    monkeypatch.setattr(rbac, "_openfga_check_org_admin", _explode, raising=False)
-    await rbac.authorize_search(_user())
 
 
 @pytest.mark.asyncio

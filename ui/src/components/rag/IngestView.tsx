@@ -1,6 +1,7 @@
 "use client";
 
 import { getErrorMessage } from "@/lib/error-utils";
+import { RagApiError } from "@/lib/rag-api";
 
 /**
  * IngestView - Data Sources Management
@@ -61,6 +62,9 @@ X
 import React,{ useCallback,useEffect,useEffectEvent,useMemo,useRef,useState } from 'react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import type { IngestionSourceConfigWithPermissions } from "@/types/ingestion-source";
+import { IngestionSourceCard } from './IngestionSourceCard';
+import { IngestionSourceForm } from './IngestionSourceForm';
 import { KbSharingPanel } from './KbSharingPanel';
 import type { DataSourceInfo,IngestionJob,IngestorInfo } from './Models';
 import type { ChunkInfo,DatasourceDocumentsResponse,DocumentInfo } from './api/index';
@@ -183,10 +187,17 @@ const ProgressBar = ({ progress, total, current }: { progress: number; total: nu
 }
 
 export default function IngestView() {
-  const { hasPermission } = useRagPermissions()
+  const { hasPermission, userInfo } = useRagPermissions()
   const canIngest = hasPermission(Permission.INGEST)
   const canDelete = hasPermission(Permission.DELETE)
+  const isOrgAdmin = userInfo?.role === "ADMIN"
   const { toast } = useToast()
+
+  // New/edit dialog for structured ingestion source config rows (config-only
+  // "pending" sources, e.g. Slack/Confluence/Jira/Webex, that don't go
+  // through the quick-ingest file/URL/Confluence flow below).
+  const [sourceDialogOpen, setSourceDialogOpen] = useState(false)
+  const [editingSourceConfig, setEditingSourceConfig] = useState<IngestionSourceConfigWithPermissions | null>(null)
 
   // Datasource whose Ownership & Sharing dialog is open (null = closed). The
   // dialog hosts the shared KbSharingPanel (owner team + transfer + sharing),
@@ -226,6 +237,13 @@ export default function IngestView() {
   const [ingestOwnerTeamSlug, setIngestOwnerTeamSlug] = useState('')
   const [availableTeams, setAvailableTeams] = useState<{ _id: string; slug: string; name: string }[]>([])
   const [ingestIsOrgAdmin, setIngestIsOrgAdmin] = useState(false)
+
+  // Ingestion source config rows (spec 2026-07-21-rag-source-config-db),
+  // keyed by source_id === datasource_id so the row loop below can join
+  // config (source of truth for identity/ownership) against Redis status.
+  const [ingestionSourceConfigs, setIngestionSourceConfigs] = useState<
+    Map<string, IngestionSourceConfigWithPermissions>
+  >(new Map())
 
   // DataSources state
   const [dataSources, setDataSources] = useState<DataSourceInfo[]>([])
@@ -330,6 +348,16 @@ export default function IngestView() {
       totalIngestors: ingestors.length
     }
   }, [dataSources, dataSourceJobs, ingestors])
+
+  // Config rows with no matching DataSourceInfo yet — not-yet-ingested
+  // structured sources (Slack/Confluence/Jira/Webex), shown as "pending"
+  // cards ahead of the ingested-datasource list.
+  const pendingSourceConfigs = useMemo(() => {
+    const ingestedIds = new Set(dataSources.map(ds => ds.datasource_id))
+    return Array.from(ingestionSourceConfigs.values())
+      .filter(source => !ingestedIds.has(source.source_id))
+      .sort((a, b) => b.updated_at.localeCompare(a.updated_at))
+  }, [ingestionSourceConfigs, dataSources])
 
   // Get unique source types from dataSources
   const sourceTypes = useMemo(() => {
@@ -610,6 +638,21 @@ export default function IngestView() {
     }
   }
 
+  const fetchIngestionSourceConfigs = async () => {
+    try {
+      const res = await fetch('/api/rag/sources')
+      if (!res.ok) return
+      const body = await res.json() as {
+        success?: boolean;
+        data?: { sources: IngestionSourceConfigWithPermissions[] };
+      }
+      const sources = body?.data?.sources ?? []
+      setIngestionSourceConfigs(new Map(sources.map(s => [s.source_id, s])))
+    } catch (error) {
+      console.error('Failed to fetch ingestion source configs', error)
+    }
+  }
+
   const fetchIngestors = async () => {
     const isRefresh = ingestors.length > 0
     if (isRefresh) {
@@ -630,10 +673,12 @@ export default function IngestView() {
 
   const fetchDataSourcesEvent = useEffectEvent(fetchDataSources)
   const fetchIngestorsEvent = useEffectEvent(fetchIngestors)
+  const fetchIngestionSourceConfigsEvent = useEffectEvent(fetchIngestionSourceConfigs)
 
   useEffect(() => {
     fetchDataSourcesEvent()
     fetchIngestorsEvent()
+    fetchIngestionSourceConfigsEvent()
     fetch('/api/rbac/ingest-teams')
       .then(r => r.ok ? r.json() : null)
       .then(d => {
@@ -978,6 +1023,88 @@ export default function IngestView() {
     } finally {
       setIsCleaningUp(false)
       setShowCleanupConfirm(null)
+    }
+  }
+
+  const handleSaveSourceConfig = async (payload: Record<string, unknown>) => {
+    const isEdit = Boolean(editingSourceConfig)
+    const url = isEdit
+      ? `/api/rag/sources/${encodeURIComponent(editingSourceConfig!.source_id)}`
+      : '/api/rag/sources'
+    const method = isEdit ? 'PATCH' : 'POST'
+    const res = await fetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      throw new RagApiError(res.status, res.statusText, body?.code, body?.error)
+    }
+    toast(isEdit ? 'Source updated.' : 'Source created.', 'success')
+    setSourceDialogOpen(false)
+    setEditingSourceConfig(null)
+    await fetchIngestionSourceConfigs()
+    await fetchDataSources()
+  }
+
+  const handleDeleteSourceConfig = async (source: IngestionSourceConfigWithPermissions) => {
+    try {
+      const res = await fetch(`/api/rag/sources/${encodeURIComponent(source.source_id)}`, {
+        method: 'DELETE',
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body?.error ?? `Failed to delete (${res.status})`)
+      }
+      toast(`Source "${source.name}" deleted.`, 'success')
+      await fetchIngestionSourceConfigs()
+    } catch (error) {
+      toast(getErrorMessage(error, 'Failed to delete source'), 'error')
+    }
+  }
+
+  const handleAdoptSourceConfig = async (source: IngestionSourceConfigWithPermissions) => {
+    try {
+      const res = await fetch(`/api/rag/sources/${encodeURIComponent(source.source_id)}/adopt`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ owner_team_slug: source.owner_team_slug }),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body?.error ?? `Failed to adopt (${res.status})`)
+      }
+      toast(`Source "${source.name}" adopted.`, 'success')
+      await fetchIngestionSourceConfigs()
+    } catch (error) {
+      toast(getErrorMessage(error, 'Failed to adopt source'), 'error')
+    }
+  }
+
+  const [migratingDsId, setMigratingDsId] = useState<string | null>(null)
+
+  // Adopts a legacy/unmigrated datasource (a DataSourceInfo with no
+  // rag_ingestion_sources config row) via the same bulk migrate-apply
+  // endpoint the admin Settings card uses, scoped to this one id.
+  const handleMigrateDataSource = async (datasourceId: string) => {
+    setMigratingDsId(datasourceId)
+    try {
+      const res = await fetch('/api/admin/rag/sources/migrate-from-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dry_run: false, source_ids: [datasourceId] }),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok || !body?.success) {
+        throw new Error(body?.error ?? `Failed to migrate (${res.status})`)
+      }
+      toast('Data source migrated into the database.', 'success')
+      await fetchIngestionSourceConfigs()
+    } catch (error) {
+      toast(getErrorMessage(error, 'Failed to migrate data source'), 'error')
+    } finally {
+      setMigratingDsId(null)
     }
   }
 
@@ -1658,8 +1785,43 @@ export default function IngestView() {
                   <RefreshCw className={cn("h-4 w-4", refreshingDataSources && "animate-spin")} />
                   {refreshingDataSources ? 'Refreshing...' : 'Refresh'}
                 </Button>
+                {canIngest && (
+                  <Button
+                    size="sm"
+                    className="gap-1.5"
+                    onClick={() => {
+                      setEditingSourceConfig(null)
+                      setSourceDialogOpen(true)
+                    }}
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    New Source
+                  </Button>
+                )}
               </div>
             </div>
+
+            {/* Pending sources — config rows with no DataSourceInfo yet */}
+            {pendingSourceConfigs.length > 0 && (
+              <div className="px-5 py-4 border-b border-border/50 space-y-2">
+                <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                  Pending ({pendingSourceConfigs.length})
+                </h4>
+                {pendingSourceConfigs.map(source => (
+                  <IngestionSourceCard
+                    key={source.source_id}
+                    source={source}
+                    isOrgAdmin={isOrgAdmin}
+                    onEdit={(s) => {
+                      setEditingSourceConfig(s)
+                      setSourceDialogOpen(true)
+                    }}
+                    onDelete={handleDeleteSourceConfig}
+                    onAdopt={handleAdoptSourceConfig}
+                  />
+                ))}
+              </div>
+            )}
 
             {/* Filter Pills */}
             {sourceTypes.length > 0 && (
@@ -1729,7 +1891,13 @@ export default function IngestView() {
                       const isConfluenceDatasource = ds.ingestor_id === CONFLUENCE_INGESTOR_ID
                       const isJiraDatasource = ds.ingestor_id === JIRA_INGESTOR_ID
                       const supportsReload = isWebloaderDatasource || isConfluenceDatasource
-                      const isConfigDriven = isJiraDatasource
+                      // Jira ingestion is env-driven and has no reload/delete affordance
+                      // regardless of whether a Mongo config row exists for it yet.
+                      const isJiraManaged = isJiraDatasource
+                      const sourceConfig = ingestionSourceConfigs.get(ds.datasource_id)
+                      // Helm-seeded config rows (`config_driven: true`) are immutable via
+                      // the API — distinct from isJiraManaged, which is purely env-driven.
+                      const isConfigDriven = isJiraManaged || Boolean(sourceConfig?.config_driven)
                       const icon = getIconForType(ds.source_type)
                       
                       // Get reload interval (first-class field or default)
@@ -1835,6 +2003,22 @@ export default function IngestView() {
                                 <Badge variant="secondary" className="text-[10px] shrink-0">
                                   {ds.source_type}
                                 </Badge>
+                                {!sourceConfig && !isJiraManaged && isOrgAdmin && (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-6 px-2 text-[10px] shrink-0"
+                                    disabled={migratingDsId === ds.datasource_id}
+                                    onClick={(e) => { e.stopPropagation(); void handleMigrateDataSource(ds.datasource_id); }}
+                                    title="Adopt into the database as a permanent, delegable source"
+                                  >
+                                    {migratingDsId === ds.datasource_id ? (
+                                      <Loader2 className="h-3 w-3 animate-spin" />
+                                    ) : (
+                                      'Migrate'
+                                    )}
+                                  </Button>
+                                )}
                               </div>
                               <div className="flex items-center gap-3 text-xs text-muted-foreground mt-0.5">
                                 {ds.name && (
@@ -2824,6 +3008,17 @@ export default function IngestView() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* New/edit dialog for structured ingestion source config rows. */}
+      <IngestionSourceForm
+        open={sourceDialogOpen}
+        onClose={() => {
+          setSourceDialogOpen(false)
+          setEditingSourceConfig(null)
+        }}
+        onSave={handleSaveSourceConfig}
+        initial={editingSourceConfig}
+      />
 
       {/* Cleanup Confirmation Dialog */}
       <AnimatePresence>

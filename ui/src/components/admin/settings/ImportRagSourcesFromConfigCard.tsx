@@ -1,19 +1,20 @@
 "use client";
 
 /**
- * Admin -> Settings -> General pane for adopting Helm/YAML-seeded RAG
- * ingestion sources into the DB as source of truth (spec
+ * Admin -> Settings -> General pane for adopting already-ingested RAG
+ * datasources into the DB as source of truth (spec
  * 2026-07-21-rag-source-config-db, US5) — mirrors
  * `ImportAgentsFromConfigCard.tsx`, adapted for `rag_ingestion_sources`
- * where the config has no explicit id (the preview derives each entry's
- * deterministic `source_id` server-side) and skips carry a `reason`.
+ * where the preview is sourced from the RAG server's `DataSourceInfo`
+ * records (the BFF cannot read ingestor-pod env vars) and skips carry a
+ * `reason`.
  *
- * Flow: open the popover -> preview (dry_run) lists every source_id derived
- * from the YAML seed file alongside its current Mongo adoption state ->
- * admin picks which of the still-importable ones to adopt plus an optional
- * owner team and shared teams -> apply calls the same endpoint with
- * dry_run:false, which sets config_import_adopted:true on exactly the
- * chosen ids and applies the team assignment ONLY to those ids (never
+ * Flow: open the popover -> preview (dry_run) lists every ingested
+ * datasource alongside whether it already has a config row -> admin picks
+ * which of the still-unmigrated ones to adopt plus an optional owner team
+ * and shared teams -> apply calls the same endpoint with dry_run:false,
+ * which creates a config row with config_import_adopted:true for exactly
+ * the chosen ids and applies the team assignment ONLY to those ids (never
  * retroactively to sources outside the batch).
  */
 
@@ -43,7 +44,7 @@ interface PreviewSource {
   already_adopted: boolean;
 }
 
-type SkipReason = "not_found" | "not_config_driven" | "already_adopted";
+type SkipReason = "not_found_in_redis" | "missing_identity_fields" | "already_in_db";
 
 interface AdoptSkip {
   source_id: string;
@@ -59,9 +60,9 @@ interface TeamOption {
 }
 
 const SKIP_REASON_LABEL: Record<SkipReason, string> = {
-  not_found: "not found",
-  not_config_driven: "not config-driven",
-  already_adopted: "already adopted",
+  not_found_in_redis: "not found",
+  missing_identity_fields: "missing required fields",
+  already_in_db: "already has a config row",
 };
 
 interface ImportRagSourcesFromConfigCardProps {
@@ -84,7 +85,7 @@ export function ImportRagSourcesFromConfigCard({
   const [sharedWithTeams, setSharedWithTeams] = useState<string[]>([]);
   const [result, setResult] = useState<{ adopted: string[]; skipped: AdoptSkip[] } | null>(null);
 
-  const importable = previewSources.filter((s) => s.in_db && !s.already_adopted);
+  const importable = previewSources.filter((s) => !s.in_db);
 
   useEffect(() => {
     if (!open) return;
@@ -106,11 +107,7 @@ export function ImportRagSourcesFromConfigCard({
         if (previewRes.success) {
           const sources = (previewRes.data?.sources ?? []) as PreviewSource[];
           setPreviewSources(sources);
-          setSelectedIds(
-            new Set(
-              sources.filter((s) => s.in_db && !s.already_adopted).map((s) => s.source_id),
-            ),
-          );
+          setSelectedIds(new Set(sources.filter((s) => !s.in_db).map((s) => s.source_id)));
         } else {
           setError(previewRes.error || "Failed to preview config");
         }
@@ -177,13 +174,13 @@ export function ImportRagSourcesFromConfigCard({
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          Import RAG Sources from Config
+          Migrate Ingested RAG Sources
           <AdminBadge />
         </CardTitle>
         <CardDescription>
-          Adopt Helm-seeded RAG ingestion sources into the database. Once adopted, a
-          source&apos;s config entry is ignored on every future restart — the database
-          becomes the source of truth for it.
+          Adopt already-ingested RAG datasources into the database as config rows. Once
+          adopted, a source is managed and delegated through the database — it becomes the
+          source of truth for it.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -198,17 +195,17 @@ export function ImportRagSourcesFromConfigCard({
           data-testid="import-rag-sources-from-config-button"
         >
           <FileUp className="h-4 w-4" />
-          Import from YAML
+          Migrate Sources
         </Button>
       </CardContent>
 
       <Dialog open={open} onOpenChange={(next) => !applying && setOpen(next)}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Import RAG sources from config</DialogTitle>
+            <DialogTitle>Migrate ingested RAG sources</DialogTitle>
             <DialogDescription>
-              Pick the config-driven ingestion sources to adopt and, optionally, a team to
-              own and share them with. This assignment applies only to the sources selected
+              Pick the already-ingested datasources to adopt and, optionally, a team to own
+              and share them with. This assignment applies only to the sources selected
               below.
             </DialogDescription>
           </DialogHeader>
@@ -249,7 +246,7 @@ export function ImportRagSourcesFromConfigCard({
 
               {previewSources.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
-                  No RAG sources found in the config file, or none are eligible for import.
+                  No ingested RAG datasources found, or none are eligible for migration.
                 </p>
               ) : (
                 <div
@@ -264,20 +261,21 @@ export function ImportRagSourcesFromConfigCard({
                       <input
                         type="checkbox"
                         checked={selectedIds.has(source.source_id)}
-                        disabled={!source.in_db || source.already_adopted}
+                        disabled={source.in_db}
                         onChange={() => toggleSelected(source.source_id)}
                         data-testid={`import-rag-source-checkbox-${source.source_id}`}
                       />
                       <span className="flex-1 truncate">{source.name}</span>
-                      {source.already_adopted && (
+                      {source.already_adopted ? (
                         <Badge variant="secondary" className="shrink-0">
                           Already adopted
                         </Badge>
-                      )}
-                      {!source.in_db && !source.already_adopted && (
-                        <Badge variant="outline" className="shrink-0">
-                          Not seeded yet
-                        </Badge>
+                      ) : (
+                        source.in_db && (
+                          <Badge variant="secondary" className="shrink-0">
+                            Has config row
+                          </Badge>
+                        )
                       )}
                     </label>
                   ))}

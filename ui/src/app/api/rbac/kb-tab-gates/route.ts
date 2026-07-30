@@ -48,7 +48,6 @@ const EMPTY_GATES: KbTabGatesMap = {
   data_sources: false,
   graph: false,
   mcp_tools: false,
-  ingestion_sources: false,
   has_any_kb: false,
   kb_count: 0,
   can_ingest: false,
@@ -185,8 +184,10 @@ async function loadReadableKbCount(session: {
 /**
  * Count how many `rag_ingestion_sources` records the caller can `can_read`,
  * analogous to {@link loadReadableKbCount} but reading Mongo directly (there
- * is no RAG-server-side enumeration for pre-ingestion source configs). Drives
- * the `ingestion_sources` tab visibility. Fails closed (zero) on any error.
+ * is no RAG-server-side enumeration for pre-ingestion source configs). Feeds
+ * into the merged `data_sources` tab visibility so a caller with a pending
+ * (not-yet-ingested) config row can still open the tab. Fails closed (zero)
+ * on any error.
  */
 async function loadReadableIngestionSourceCount(session: {
   sub?: string;
@@ -275,7 +276,6 @@ export async function GET() {
       data_sources: true,
       graph: true,
       mcp_tools: true,
-      ingestion_sources: true,
       has_any_kb: true,
       kb_count: -1,
       can_ingest: true,
@@ -322,19 +322,17 @@ export async function GET() {
     // strictly better UX than a greyed-out tab. Holding a tool share
     // (`can_call`) still does NOT imply search.
     search: canSearch,
-    // Data Sources lists existing readable KBs AND authors new ones. Unlock it
-    // when the caller can read something OR holds the explicit author
-    // capability — otherwise a team granted `can_ingest` with no KB yet assigned
-    // could never open the tab to create its first data source (chicken-and-egg).
-    data_sources: hasAnyKb || canIngest,
+    // Data Sources lists existing readable KBs and ingestion-source config
+    // rows, AND authors new ones. Unlock it when the caller can read
+    // something on either surface OR holds the explicit author capability —
+    // otherwise a team granted `can_ingest` with nothing yet assigned could
+    // never open the tab to create its first source (chicken-and-egg).
+    data_sources: hasAnyKb || hasAnyIngestionSource || canIngest,
     graph: hasAnyKb,
     // MCP Tools is the search-tool surface, so unlock it for readers (existing
     // behaviour) AND for the explicit search capability. The RAG server still
     // returns an empty list when nothing matches, so this never over-exposes.
     mcp_tools: hasAnyKb || canSearch,
-    // Ingestion Sources lists existing readable sources AND authors new ones,
-    // same chicken-and-egg reasoning as `data_sources` above.
-    ingestion_sources: hasAnyIngestionSource || canIngest,
     has_any_kb: hasAnyKb,
     kb_count: readCount,
     // Explicit, team-granted "data source author" capability (decoupled from

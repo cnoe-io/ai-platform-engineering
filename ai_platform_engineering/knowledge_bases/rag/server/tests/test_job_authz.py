@@ -4,7 +4,9 @@ The job endpoints previously only enforced the coarse READONLY/INGESTONLY/
 ADMIN role, letting any authenticated ingestor read or mutate jobs belonging
 to a datasource owned by a different team. Every endpoint below now resolves
 the job's ``datasource_id`` (already stored on ``JobInfo``) and calls
-``check_datasource_access(..., "ingest")`` before touching job state.
+``check_datasource_access`` before touching job state — viewing a job checks
+the ``"read"`` scope (seeing a datasource implies seeing its jobs); mutating
+a job (create/update/terminate/increment/add-errors) checks ``"ingest"``.
 
 ``POST /v1/jobs/batch`` is the one exception: it filters the requested
 datasource IDs down to the caller's accessible set instead of 403-ing,
@@ -97,10 +99,10 @@ def test_get_job_allowed_returns_job(client: TestClient, _wire, monkeypatch: pyt
     assert response.json()["job_id"] == "job-1"
 
 
-def test_get_job_checks_ingest_scope_for_jobs_datasource(client: TestClient, _wire, monkeypatch: pytest.MonkeyPatch):
+def test_get_job_checks_read_scope_for_jobs_datasource(client: TestClient, _wire, monkeypatch: pytest.MonkeyPatch):
     calls = []
 
-    async def _spy(request, user, datasource_id, scope):
+    async def _spy(user, datasource_id, scope):
         calls.append((datasource_id, scope))
 
     _wire.get_job.return_value = _job(datasource_id="primary-ds")
@@ -108,7 +110,7 @@ def test_get_job_checks_ingest_scope_for_jobs_datasource(client: TestClient, _wi
 
     client.get("/v1/job/job-1")
 
-    assert calls == [("primary-ds", "ingest")]
+    assert calls == [("primary-ds", "read")]
 
 
 def test_get_job_404_before_authz_when_missing(client: TestClient, _wire, monkeypatch: pytest.MonkeyPatch):
@@ -155,17 +157,10 @@ def test_get_jobs_by_datasource_allowed_returns_jobs(client: TestClient, _wire, 
 
 
 def test_jobs_batch_filters_out_inaccessible_datasources(client: TestClient, _wire, monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr(restapi, "RBAC_TEAM_SCOPE_ENABLED", True, raising=False)
-
     async def _accessible(*args, **kwargs):
         return ["primary-ds"]
 
     monkeypatch.setattr(restapi, "get_accessible_datasource_ids", _accessible, raising=False)
-
-    async def _team(*args, **kwargs):
-        return None
-
-    monkeypatch.setattr(restapi, "derive_team_for_request", _team, raising=False)
     _wire.get_jobs_batch.return_value = {"primary-ds": [_job()]}
 
     response = client.post("/v1/jobs/batch", json={"datasource_ids": ["primary-ds", "secondary-ds"]})
@@ -175,16 +170,6 @@ def test_jobs_batch_filters_out_inaccessible_datasources(client: TestClient, _wi
     _wire.get_jobs_batch.assert_awaited_once()
     _, kwargs = _wire.get_jobs_batch.call_args
     assert kwargs["datasource_ids"] == ["primary-ds"]
-
-
-def test_jobs_batch_unrestricted_when_team_scope_disabled(client: TestClient, _wire, monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr(restapi, "RBAC_TEAM_SCOPE_ENABLED", False, raising=False)
-    _wire.get_jobs_batch.return_value = {"primary-ds": [_job()], "secondary-ds": [_job(datasource_id="secondary-ds")]}
-
-    response = client.post("/v1/jobs/batch", json={"datasource_ids": ["primary-ds", "secondary-ds"]})
-
-    assert response.status_code == 200
-    assert response.json()["datasource_count"] == 2
 
 
 # ---------------------------------------------------------------------------

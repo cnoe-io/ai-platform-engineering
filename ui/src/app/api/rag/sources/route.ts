@@ -23,7 +23,11 @@ import {
 } from "@/lib/ingestion-source-id";
 import { getCollection } from "@/lib/mongodb";
 import { allowedSourceTypesForIngestorServiceAccount } from "@/lib/rbac/ingestor-service-accounts";
-import { reconcileIngestionSourceRelationships } from "@/lib/rbac/openfga-owned-resources-reconcile";
+import {
+  reconcileDataSourceRelationships,
+  reconcileIngestionSourceRelationships,
+  reconcileKnowledgeBaseRelationships,
+} from "@/lib/rbac/openfga-owned-resources-reconcile";
 import { caipeOrgKey } from "@/lib/rbac/organization";
 import {
   filterResourcesByPermission,
@@ -183,6 +187,84 @@ function extractSourceIdentity(
   }
 }
 
+interface CreateIngestionSourceInput {
+  sourceId: string;
+  fields: Record<string, unknown>;
+  name: string;
+  description: string;
+  ownerTeamSlug: string | null;
+  sharedWithTeams: string[];
+  creatorSubject: string | null;
+  ownerSubject: string | null;
+  defaultChunkSize?: number;
+  defaultChunkOverlap?: number;
+  reloadInterval?: number;
+  configDriven?: boolean;
+  configImportAdopted?: boolean;
+  visibility?: string;
+}
+
+/**
+ * Insert a new `IngestionSourceConfig` row and reconcile every OpenFGA grant
+ * it needs: `ingestion_source` (who can manage it) AND `knowledge_base` +
+ * `data_source` (who can see its results in RAG search) — `source_id ==
+ * datasource_id == knowledge_base_id` is the same id throughout. Skipping the
+ * latter two leaves a source manageable but invisible to search for its
+ * owning team. Shared by `POST /api/rag/sources` and the migrate-from-config
+ * adopt path.
+ */
+export async function createIngestionSource(
+  input: CreateIngestionSourceInput,
+): Promise<IngestionSourceConfig> {
+  const now = new Date().toISOString();
+  const doc = {
+    source_id: input.sourceId,
+    ...input.fields,
+    name: input.name,
+    description: input.description,
+    status: "pending",
+    default_chunk_size: input.defaultChunkSize ?? DEFAULT_CHUNK_SIZE,
+    default_chunk_overlap: input.defaultChunkOverlap ?? DEFAULT_CHUNK_OVERLAP,
+    reload_interval: input.reloadInterval ?? DEFAULT_RELOAD_INTERVAL,
+    config_driven: input.configDriven ?? false,
+    config_import_adopted: input.configImportAdopted ?? false,
+    visibility: input.visibility ?? "team",
+    creator_subject: input.creatorSubject ?? undefined,
+    owner_subject: input.ownerSubject ?? undefined,
+    owner_team_slug: input.ownerTeamSlug ?? undefined,
+    shared_with_teams: input.sharedWithTeams,
+    created_at: now,
+    updated_at: now,
+  } as unknown as IngestionSourceConfig;
+
+  await reconcileIngestionSourceRelationships({
+    sourceId: input.sourceId,
+    creatorSubject: doc.creator_subject,
+    ownerSubject: doc.owner_subject,
+    ownerTeamSlug: input.ownerTeamSlug,
+    nextSharedTeamSlugs: input.sharedWithTeams,
+    previousSharedTeamSlugs: [],
+    globalUserAccess: false,
+  });
+  await reconcileKnowledgeBaseRelationships({
+    knowledgeBaseId: input.sourceId,
+    creatorSubject: doc.creator_subject,
+    ownerSubject: doc.owner_subject,
+    ownerTeamSlug: input.ownerTeamSlug,
+    nextSharedTeamSlugs: input.sharedWithTeams,
+    previousSharedTeamSlugs: [],
+  });
+  await reconcileDataSourceRelationships({
+    dataSourceId: input.sourceId,
+    parentKnowledgeBaseId: input.sourceId,
+  });
+
+  const collection = await getCollection<IngestionSourceConfig>(COLLECTION_NAME);
+  await collection.insertOne(doc as never);
+
+  return doc;
+}
+
 // ═══════════════════════════════════════════════════════════════
 // GET — list sources
 // ═══════════════════════════════════════════════════════════════
@@ -304,38 +386,19 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     );
   }
 
-  const now = new Date().toISOString();
-  const doc = {
-    source_id: sourceId,
-    ...extracted.fields,
+  const doc = await createIngestionSource({
+    sourceId,
+    fields: extracted.fields,
     name,
     description: normalizeString(body.description) ?? "",
-    status: "pending",
-    default_chunk_size: (body.default_chunk_size as number) ?? DEFAULT_CHUNK_SIZE,
-    default_chunk_overlap: (body.default_chunk_overlap as number) ?? DEFAULT_CHUNK_OVERLAP,
-    reload_interval: (body.reload_interval as number) ?? DEFAULT_RELOAD_INTERVAL,
-    config_driven: false,
-    config_import_adopted: false,
-    visibility: "team",
-    creator_subject: normalizeString(session.sub) ?? undefined,
-    owner_subject: normalizeString(session.sub) ?? undefined,
-    owner_team_slug: ownerTeamSlug,
-    shared_with_teams: sharedWithTeams,
-    created_at: now,
-    updated_at: now,
-  } as unknown as IngestionSourceConfig;
-
-  await reconcileIngestionSourceRelationships({
-    sourceId,
-    creatorSubject: doc.creator_subject,
-    ownerSubject: doc.owner_subject,
     ownerTeamSlug,
-    nextSharedTeamSlugs: sharedWithTeams,
-    previousSharedTeamSlugs: [],
-    globalUserAccess: false,
+    sharedWithTeams,
+    creatorSubject: normalizeString(session.sub),
+    ownerSubject: normalizeString(session.sub),
+    defaultChunkSize: body.default_chunk_size as number | undefined,
+    defaultChunkOverlap: body.default_chunk_overlap as number | undefined,
+    reloadInterval: body.reload_interval as number | undefined,
   });
-
-  await collection.insertOne(doc as never);
 
   return successResponse(doc, 201);
 });
