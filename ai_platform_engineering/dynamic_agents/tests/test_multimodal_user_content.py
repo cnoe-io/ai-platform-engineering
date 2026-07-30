@@ -104,9 +104,14 @@ def test_anthropic_text_doc_sent_as_text_source_not_base64():
 
     assert isinstance(content, list)
     block = content[1]
-    assert block["source_type"] == "text"
+    # A v1-native ``text-plain`` block: langchain-anthropic renders it to a
+    # document/text source. A legacy ``source_type="text"`` block would instead
+    # be routed through langchain-core's v0->v1 converter, which reads the text
+    # from ``url`` and raises ``KeyError: 'url'`` here.
+    assert block["type"] == "text-plain"
     assert block["mime_type"] == "text/plain"
     assert block["text"] == "hello world"
+    assert "source_type" not in block
     assert "base64" not in block
     assert skipped == []
 
@@ -121,9 +126,10 @@ def test_anthropic_accepts_xml_as_text_source():
 
     assert isinstance(content, list)
     block = content[1]
-    assert block["source_type"] == "text"
+    assert block["type"] == "text-plain"
     assert block["mime_type"] == "text/plain"
     assert block["text"] == "<root><a/></root>"
+    assert "source_type" not in block
     assert skipped == []
 
 
@@ -136,6 +142,48 @@ def test_anthropic_pdf_still_rides_as_base64():
     assert block["base64"] == "cGRm"
     assert "source_type" not in block
     assert skipped == []
+
+
+def test_anthropic_text_block_survives_real_langchain_pipeline():
+    # Regression for the dev failure: a unit test asserting our block shape in
+    # isolation passed, but prod raised ``KeyError: 'url'``. The block we emit is
+    # first run through langchain-core's ``_normalize_messages`` (v0->v1) and then
+    # langchain-anthropic's ``_format_messages`` before it ever reaches Bedrock.
+    # Drive it through both real functions so the contract is verified end-to-end.
+    import importlib.util
+
+    import pytest
+
+    if (
+        importlib.util.find_spec("langchain_core.language_models._utils") is None
+        or importlib.util.find_spec("langchain_anthropic") is None
+    ):
+        pytest.skip("langchain-core/-anthropic not importable in this environment")
+
+    from langchain_anthropic.chat_models import _format_messages  # type: ignore
+    from langchain_core.language_models._utils import _normalize_messages
+    from langchain_core.messages import HumanMessage
+
+    data = base64.b64encode(b"hello world").decode()
+    files = [InputFile(mime_type="text/plain", data=data, name="notes.txt")]
+    content, _ = _build_user_content("read", files, model_id=_ANTHROPIC_MODEL)
+
+    normalized = _normalize_messages([HumanMessage(content=content)])
+    _system, formatted = _format_messages(normalized)
+
+    # The text doc lands as an Anthropic document/text source, not a base64 doc
+    # (which Bedrock rejects with "Input should be 'application/pdf'").
+    doc_blocks = [
+        b
+        for m in formatted
+        for b in (m["content"] if isinstance(m["content"], list) else [])
+        if isinstance(b, dict) and b.get("type") == "document"
+    ]
+    assert doc_blocks, f"no document block produced: {formatted}"
+    source = doc_blocks[0]["source"]
+    assert source["type"] == "text"
+    assert source["media_type"] == "text/plain"
+    assert source["data"] == "hello world"
 
 
 def test_converse_keeps_text_as_base64_and_skips_xml():

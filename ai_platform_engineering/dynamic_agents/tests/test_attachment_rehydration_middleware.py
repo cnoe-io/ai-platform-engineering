@@ -179,9 +179,13 @@ def test_rehydrate_text_doc_becomes_text_source_on_anthropic(tmp_path):
 
     assert changed
     block = rebuilt[0].content[1]
-    assert block["source_type"] == "text"
+    # v1-native text-plain block (renders to a document/text source). A legacy
+    # source_type="text" block would be routed through the v0->v1 converter,
+    # which reads the text from ``url`` and raises ``KeyError: 'url'``.
+    assert block["type"] == "text-plain"
     assert block["mime_type"] == "text/plain"
     assert block["text"] == "plain body"
+    assert "source_type" not in block
     assert "base64" not in block and "source" not in block
 
 
@@ -194,9 +198,10 @@ def test_rehydrate_xml_becomes_text_source_on_anthropic(tmp_path):
     rebuilt, _ = mw._rehydrate_messages([msg])
 
     block = rebuilt[0].content[1]
-    assert block["source_type"] == "text"
+    assert block["type"] == "text-plain"
     assert block["mime_type"] == "text/plain"
     assert block["text"] == "<root>x</root>"
+    assert "source_type" not in block
 
 
 def test_rehydrate_pdf_stays_base64_on_anthropic(tmp_path):
@@ -252,8 +257,9 @@ def test_write_then_rehydrate_roundtrip_text_doc_on_anthropic(tmp_path):
 
     assert changed
     block = rebuilt[0].content[1]
-    assert block["source_type"] == "text"
+    assert block["type"] == "text-plain"
     assert block["text"] == raw.decode()
+    assert "source_type" not in block
 
 
 # --- prompt-cache middleware selection ---------------------------------------

@@ -77,18 +77,30 @@ TEXT_DOCUMENT_MIME_TYPES = frozenset(
 def anthropic_text_document_block(
     block: dict[str, Any], decoded_text: str
 ) -> dict[str, Any]:
-    """Rewrite a document ``block`` into an Anthropic text-source block.
+    """Rewrite a document ``block`` into a LangChain v1 ``text-plain`` block.
 
-    Strips any inline ``base64``/reference ``source`` and carries the decoded
-    text under ``source_type="text"``. ``mime_type`` is forced to ``text/plain``
-    because Anthropic's text document source only accepts that media type — the
-    original type (e.g. ``text/xml``) is still fully visible to the model as the
-    text content, tags and all.
+    langchain-core normalizes message content to v1 content blocks before the
+    Anthropic adapter runs. The adapter renders a ``text-plain`` block into the
+    ``{"type": "document", "source": {"type": "text", ...}}`` shape the Anthropic
+    Messages API requires for text-family documents (a base64 document source is
+    PDF-only there).
+
+    Emitting the v1-native ``text-plain`` block directly is deliberate: a legacy
+    ``{"type": "file", "source_type": "text"}`` block would instead be routed
+    through langchain-core's v0->v1 converter, which reads the text content from
+    the ``url`` key (``KeyError: 'url'`` if it's carried anywhere else) and wraps
+    stray keys in ``extras``. ``text-plain`` bypasses that converter entirely.
+
+    ``mime_type`` is forced to ``text/plain`` because Anthropic's text document
+    source only accepts that media type — the original type (e.g. ``text/xml``)
+    is still fully visible to the model as the text content, tags and all.
     """
     rebuilt = {
-        k: v for k, v in block.items() if k not in ("base64", "source", "url")
+        k: v
+        for k, v in block.items()
+        if k not in ("base64", "source", "url", "source_type")
     }
-    rebuilt["source_type"] = "text"
+    rebuilt["type"] = "text-plain"
     rebuilt["mime_type"] = "text/plain"
     rebuilt["text"] = decoded_text
     return rebuilt
