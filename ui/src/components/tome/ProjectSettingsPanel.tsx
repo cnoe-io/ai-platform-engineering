@@ -205,23 +205,17 @@ export function ProjectSettingsPanel({
         setTeamSlug(project.team_slug ?? "");
         setInitialTeamSlug(project.team_slug ?? "");
 
+        // The project's own labels are the source of truth — read directly,
+        // no cross-entity resolution. A BHAG has no parent.
         const kind = project.type ?? "project";
         const initiatives = project.labels?.initiatives ?? [];
         const areas = project.labels?.areas ?? [];
-        if (kind === "area") {
-          setSelectedBhagName(initiatives[0] ?? null);
-          setSelectedAreaName("");
-        } else if (kind === "bhag") {
+        if (kind === "bhag") {
           setSelectedBhagName(null);
           setSelectedAreaName("");
-        } else if (areas[0]) {
-          // Project tagged to an Area: the BHAG dropdown should reflect that
-          // Area's own parent BHAG too — resolved in the effect below once we
-          // know the Area's name.
-          setSelectedAreaName(areas[0]);
         } else {
           setSelectedBhagName(initiatives[0] ?? null);
-          setSelectedAreaName("");
+          setSelectedAreaName(kind === "area" ? "" : areas[0] ?? "");
         }
 
         setFeedEnabled(project.sources_feed_enabled !== false);
@@ -245,11 +239,14 @@ export function ProjectSettingsPanel({
     };
   }, [slug]);
 
-  // A project already tagged to an Area: resolve that Area's own parent BHAG
-  // (via its `labels.initiatives`) so the Parent BHAG dropdown pre-selects
-  // correctly instead of showing "None" until the user touches it.
+  // A project tagged to an Area but not directly to a BHAG: fill in the
+  // Parent BHAG dropdown from that Area's own parent tag so it doesn't show
+  // "None" until the user touches it. This is a fill-in ONLY — it never
+  // overwrites a BHAG the project already tags directly, since an Area is
+  // not guaranteed to tag its own parent BHAG (a real, non-error state), and
+  // an empty/mismatched lookup here must not clear a correct selection.
   useEffect(() => {
-    if (projectKind !== "project" || !selectedAreaName) return;
+    if (projectKind !== "project" || !selectedAreaName || selectedBhagName) return;
     let cancelled = false;
     fetch("/api/projects?type=area")
       .then((res) => (res.ok ? res.json() : null))
@@ -257,16 +254,17 @@ export function ProjectSettingsPanel({
         if (cancelled) return;
         const list = (body?.data?.projects ?? []) as ProjectDocument[];
         const match = list.find((a) => normLabel(a.name ?? "") === normLabel(selectedAreaName));
-        setSelectedBhagName(match?.labels?.initiatives?.[0] ?? null);
+        const fallback = match?.labels?.initiatives?.[0];
+        if (fallback) setSelectedBhagName(fallback);
       })
       .catch(() => undefined);
     return () => {
       cancelled = true;
     };
-    // Resolve after the saved Area has hydrated, and again if the user picks a
-    // different Area. Depending only on the slug ran this effect before the
-    // project request restored `selectedAreaName`, so saved hierarchy values
-    // appeared as "None" when the settings page was reopened.
+    // Re-run once the saved Area hydrates (it starts empty) and again if the
+    // user picks a different Area; selectedBhagName is read but intentionally
+    // excluded so setting it inside this effect doesn't cause a re-fetch loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectKind, selectedAreaName]);
 
   // Existing BHAGs, for the Parent BHAG picker (Area/Project). Areas tagged
@@ -292,12 +290,27 @@ export function ProjectSettingsPanel({
       .then((body) => {
         if (cancelled) return;
         const list = (body?.data?.projects ?? []) as { name: string; slug: string }[];
-        setAreaOptions(list.map((a) => ({ name: a.name, slug: a.slug })));
+        const options = list.map((a) => ({ name: a.name, slug: a.slug }));
+        // The project's own Area tag may not appear here — an Area is not
+        // guaranteed to tag its parent BHAG back in its own labels (a real,
+        // non-error state). Always include the current selection as an
+        // option so the <select> doesn't silently show as unselected.
+        if (
+          selectedAreaName &&
+          !options.some((o) => normLabel(o.name) === normLabel(selectedAreaName))
+        ) {
+          options.push({ name: selectedAreaName, slug: normLabel(selectedAreaName) });
+        }
+        setAreaOptions(options);
       })
       .catch(() => !cancelled && setAreaOptions([]));
     return () => {
       cancelled = true;
     };
+    // selectedAreaName intentionally excluded — this only widens the option
+    // list to include whatever the load effect already selected; it must not
+    // re-fetch on every keystroke as the user picks a different Area.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedBhagName, projectKind]);
 
   // Read-only: Areas tagged to this BHAG (down-link list), shown above the
@@ -401,20 +414,17 @@ export function ProjectSettingsPanel({
       }
 
       // Hierarchy tagging, per type. A BHAG has no parent — send nothing.
+      // A project tags both its BHAG and Area directly — never rely on the
+      // Area's own tag to imply the BHAG. An Area isn't guaranteed to tag its
+      // parent BHAG in its own labels (a real, non-error state), so dropping
+      // `initiatives` here would leave the project's BHAG link
+      // undiscoverable whenever that's the case.
       if (projectKind === "area") {
         payload.initiatives = selectedBhagName ? [selectedBhagName] : [];
         payload.areas = [];
       } else if (projectKind === "project") {
-        if (selectedBhagName && selectedAreaName) {
-          payload.areas = [selectedAreaName];
-          payload.initiatives = [];
-        } else if (selectedBhagName && !selectedAreaName) {
-          payload.initiatives = [selectedBhagName];
-          payload.areas = [];
-        } else {
-          payload.initiatives = [];
-          payload.areas = [];
-        }
+        payload.initiatives = selectedBhagName ? [selectedBhagName] : [];
+        payload.areas = selectedBhagName && selectedAreaName ? [selectedAreaName] : [];
       }
 
       // Only send team_id when the team actually changed — avoids the
@@ -439,8 +449,8 @@ export function ProjectSettingsPanel({
       if (projectKind === "area") {
         setSelectedBhagName(initiatives[0] ?? null);
       } else if (projectKind === "project") {
+        setSelectedBhagName(initiatives[0] ?? null);
         setSelectedAreaName(areas[0] ?? "");
-        if (!areas[0]) setSelectedBhagName(initiatives[0] ?? null);
       }
       if (typeof project.data_steward === "object" && project.data_steward.type === "team") {
         setStewardType("team");

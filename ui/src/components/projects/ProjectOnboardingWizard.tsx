@@ -429,9 +429,13 @@ export function ProjectOnboardingWizard({
         decision_blast_radius: blastRadius || undefined,
         optionality: optionality.length ? optionality : undefined,
       };
-      // Cascading BHAG → Area tagging. Area implies the chain (don't also send
-      // initiatives); no BHAG at all leaves the project untagged.
+      // Tag both the BHAG and the Area directly on the project — never rely
+      // on the Area's own tag to imply the BHAG. An Area isn't guaranteed to
+      // tag its parent BHAG in its own labels (a real, non-error state), so
+      // dropping `initiatives` here would leave the project's BHAG link
+      // undiscoverable whenever that's the case.
       if (selectedBhagName && selectedAreaName) {
+        payload.initiatives = [selectedBhagName];
         payload.areas = [selectedAreaName];
       } else if (selectedBhagName && !selectedAreaName) {
         payload.initiatives = [selectedBhagName];

@@ -131,4 +131,85 @@ describe("ProjectSettingsPanel hierarchy hydration", () => {
       "/api/projects?type=area&initiative=Example%20BHAG",
     );
   });
+
+  it("keeps a project's own direct BHAG tag even when its tagged Area has no BHAG of its own", async () => {
+    (global.fetch as jest.Mock).mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+
+      if (url === "/api/projects/example-project") {
+        return jsonResponse({
+          data: {
+            project: {
+              type: "project",
+              slug: "example-project",
+              name: "Example Project",
+              title: "Example Project",
+              description: "Example description",
+              team_id: "example-team-id",
+              team_slug: "example-team",
+              team_name: "Example Team",
+              // Tagged directly to both a BHAG and an Area, independently —
+              // not an error state. The Area below is NOT itself tagged to
+              // this (or any) BHAG in its own labels.
+              labels: { areas: ["Untagged Area"], initiatives: ["Direct BHAG"] },
+              sources: { repos: [], confluence_url: "" },
+              data_steward: { type: "user", id: "test-user@example.com" },
+            },
+            permissions: { can_edit: true, can_manage_steward: true },
+          },
+        });
+      }
+
+      if (url === "/api/projects?type=bhag") {
+        return jsonResponse({
+          data: { projects: [{ type: "bhag", slug: "direct-bhag", name: "Direct BHAG" }] },
+        });
+      }
+
+      if (url === "/api/projects?type=area") {
+        return jsonResponse({
+          data: {
+            projects: [
+              {
+                type: "area",
+                slug: "untagged-area",
+                name: "Untagged Area",
+                labels: { initiatives: [] },
+              },
+            ],
+          },
+        });
+      }
+
+      if (url === "/api/projects?type=area&initiative=Direct%20BHAG") {
+        return jsonResponse({ data: { projects: [] } });
+      }
+
+      if (url === "/api/dynamic-agents/teams") {
+        return jsonResponse({
+          data: [{ _id: "example-team-id", slug: "example-team", name: "Example Team" }],
+        });
+      }
+
+      if (url === "/api/tome/projects/example-project/feed-status") {
+        return jsonResponse({ data: null });
+      }
+
+      return jsonResponse({});
+    });
+
+    render(<ProjectSettingsPanel slug="example-project" />);
+
+    expect(await screen.findByText("Project settings")).toBeInTheDocument();
+
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Organization" }), {
+      button: 0,
+      ctrlKey: false,
+    });
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue("Direct BHAG")).toBeInTheDocument();
+      expect(screen.getByDisplayValue("Untagged Area")).toBeInTheDocument();
+    });
+  });
 });

@@ -71,7 +71,12 @@ import { parseFrontmatter, SPEC_BY_PATH } from "@/lib/tome/schema";
 import { normLabel } from "@/lib/projects/labels";
 import { cn } from "@/lib/utils";
 import type { PageTreeNode } from "@/types/tome";
-import { dataStewardLabel, isSynthesizedType, type ProjectType } from "@/types/projects";
+import {
+  dataStewardLabel,
+  isSynthesizedType,
+  type ProjectDocument,
+  type ProjectType,
+} from "@/types/projects";
 
 interface PagesResponse {
   slug: string;
@@ -331,6 +336,27 @@ export function TomeWiki({ slug }: { slug: string }) {
     };
   }, [slug, load]);
 
+  // Applies a fresh project doc to every piece of state the breadcrumb,
+  // hierarchy chips, and sidebar down-links derive from. Shared by the
+  // initial load and the Settings panel's onSaved (its PATCH response
+  // already carries the fresh project — no need to refetch just to pick up
+  // a title/hierarchy change).
+  const applyProjectMeta = useCallback((p: Partial<ProjectDocument> | null | undefined) => {
+    if (!p) return;
+    if (typeof p.title === "string" && p.title) setProjectTitle(p.title);
+    setProjectName(p.name ?? p.title ?? "");
+    setProjectType(p.type ?? "project");
+    setInitiatives(Array.isArray(p.labels?.initiatives) ? p.labels.initiatives : []);
+    setAreaTags(Array.isArray(p.labels?.areas) ? p.labels.areas : []);
+    setProjectMeta({
+      description: typeof p.description === "string" ? p.description : null,
+      status: typeof p.status === "string" ? p.status : null,
+      teamName: typeof p.team_name === "string" ? p.team_name : null,
+      tags: Array.isArray(p.tags) ? p.tags.filter((t): t is string => typeof t === "string") : [],
+      dataSteward: dataStewardLabel(p.data_steward) || null,
+    });
+  }, []);
+
   // Project title (onboarding modal copy) + BHAG awareness (kind + the
   // initiatives this project is tagged with).
   useEffect(() => {
@@ -339,20 +365,7 @@ export function TomeWiki({ slug }: { slug: string }) {
       .then((res) => (res.ok ? res.json() : null))
       .then((body) => {
         if (cancelled) return;
-        const p = body?.data?.project;
-        if (!p) return;
-        if (typeof p.title === "string" && p.title) setProjectTitle(p.title);
-        setProjectName(p.name ?? p.title ?? "");
-        setProjectType((p.type as ProjectType) ?? "project");
-        setInitiatives(Array.isArray(p.labels?.initiatives) ? p.labels.initiatives : []);
-        setAreaTags(Array.isArray(p.labels?.areas) ? p.labels.areas : []);
-        setProjectMeta({
-          description: typeof p.description === "string" ? p.description : null,
-          status: typeof p.status === "string" ? p.status : null,
-          teamName: typeof p.team_name === "string" ? p.team_name : null,
-          tags: Array.isArray(p.tags) ? p.tags.filter((t: unknown) => typeof t === "string") : [],
-          dataSteward: dataStewardLabel(p.data_steward) || null,
-        });
+        applyProjectMeta(body?.data?.project);
       })
       .catch(() => undefined)
       .finally(() => {
@@ -361,7 +374,7 @@ export function TomeWiki({ slug }: { slug: string }) {
     return () => {
       cancelled = true;
     };
-  }, [slug]);
+  }, [slug, applyProjectMeta]);
 
   // Fetch every BHAG entity once (unconditionally, unless this page IS a
   // BHAG) — used both to resolve this project's direct BHAG tags below and,
@@ -472,9 +485,22 @@ export function TomeWiki({ slug }: { slug: string }) {
       .then((res) => (res.ok ? res.json() : null))
       .then((body) => {
         if (cancelled) return;
-        const kids = (body?.data?.projects ?? []) as { slug: string; title?: string; name?: string }[];
+        const kids = (body?.data?.projects ?? []) as {
+          slug: string;
+          title?: string;
+          name?: string;
+          labels?: { areas?: string[] };
+        }[];
+        // A BHAG's direct-child list must exclude projects also tagged to
+        // one of its child Areas — those already appear nested under that
+        // Area below (`childAreas`), mirroring ProjectsHub's `splitByArea`.
+        // An Area has no further nesting, so its own children pass through
+        // unfiltered.
+        const skipLevel = isArea
+          ? kids
+          : kids.filter((k) => (k.labels?.areas ?? []).length === 0);
         setChildProjects(
-          kids.map((k) => ({ slug: k.slug, title: k.title || k.name || k.slug })),
+          skipLevel.map((k) => ({ slug: k.slug, title: k.title || k.name || k.slug })),
         );
       })
       .catch(() => undefined);
@@ -1431,7 +1457,7 @@ export function TomeWiki({ slug }: { slug: string }) {
               </div>
             ) : view.kind === "settings" ? (
               <div className="min-w-0 flex-1">
-                <ProjectSettingsPanel slug={slug} />
+                <ProjectSettingsPanel slug={slug} onSaved={applyProjectMeta} />
               </div>
             ) : view.kind === "insights" ? (
               <div className="min-w-0 flex-1 overflow-auto">
