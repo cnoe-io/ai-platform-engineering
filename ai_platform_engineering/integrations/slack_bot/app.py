@@ -662,6 +662,30 @@ def _resolve_escalation(channel_config, agent_id: str | None = None, channel_id:
   return None
 
 
+def _resolve_agent_binding(channel_config, agent_id: str | None = None, channel_id: str | None = None):
+  """Return the ``AgentBinding`` for an agent_id, or None.
+
+  Mirrors ``_resolve_escalation``: static YAML config is checked first, then
+  the DB-backed route resolver. Button/modal handlers only have a
+  ``channel_id``/``agent_id`` pair (no live message event to re-match), so
+  this is how they recover the route's ``execution_identity`` to dispatch
+  retry/regenerate calls under the same identity as the original response.
+  """
+  if not agent_id:
+    return None
+  if channel_config:
+    for agent in channel_config.agents:
+      if agent.agent_id == agent_id:
+        return agent
+  if channel_id and slack_agent_route_mode() != "config":
+    return get_slack_agent_route_resolver().agent_binding_for(
+      workspace_id=slack_workspace_ref(),
+      channel_id=channel_id,
+      agent_id=agent_id,
+    )
+  return None
+
+
 def _get_agent_id_for_dm() -> str:
   """Resolve agent_id for DMs: dm_agent_id -> default_agent_id -> empty.
 
@@ -2447,7 +2471,6 @@ def handle_feedback_less_verbose(ack, body, client):
 @app.action("caipe_retry")
 def handle_caipe_retry(ack, body, client, context=None):
   ack()
-  _bind_obo_for_handler(context)
   try:
     user_id = body.get("user", {}).get("id")
     action = body.get("actions", [{}])[0]
@@ -2457,14 +2480,44 @@ def handle_caipe_retry(ack, body, client, context=None):
     message_ts = parts[2] if len(parts) > 2 else None
     agent_id = parts[3] if len(parts) > 3 else ""
     if not channel_id or not thread_ts:
+      _bind_obo_for_handler(context)
       return
 
     if not utils.is_configured_channel(channel_id):
+      _bind_obo_for_handler(context)
       return
 
     channel_config = config.channels[channel_id]
     if not agent_id:
       agent_id = channel_config.agents[0].agent_id if channel_config.agents else ""
+
+    # Same "Run As" resolution as the original dispatch (handle_mention /
+    # _route_to_agent): a retry must run under the route's configured
+    # execution_identity, not the identity of whoever clicked "Retry" —
+    # otherwise identity-gated MCP tools (e.g. GitLab) silently disappear.
+    if RBAC_ENABLED and context is not None:
+      agent_binding = _resolve_agent_binding(channel_config, agent_id=agent_id or None, channel_id=channel_id)
+      if agent_binding is not None:
+        try:
+          exec_id = agent_binding.execution_identity
+          should_proceed = apply_execution_identity(
+            run_as_mode=exec_id.mode,
+            sa_sub=exec_id.service_account_sub,
+            sa_name=exec_id.service_account_name,
+            agent_id=agent_id,
+            context=context,
+            event={"channel": channel_id, "user": user_id, "ts": thread_ts, "thread_ts": thread_ts},
+            client=client,
+            say=lambda **kwargs: client.chat_postMessage(channel=channel_id, **kwargs),
+            is_bot=False,
+            impersonate_fn=impersonate_service_account,
+          )
+          if not should_proceed:
+            return
+        except AttributeError:
+          pass
+    _bind_obo_for_handler(context)
+
     conversation_id = _resolve_conversation_id(thread_ts, channel_id, agent_id)
 
     submit_feedback_score(
@@ -2794,7 +2847,6 @@ def _regen_message_text(feedback_type: str, comment: str) -> str:
 @app.view("caipe_feedback_modal")
 def handle_feedback_modal_submission(ack, body, client, view, context=None):
   ack()
-  _bind_obo_for_handler(context)
   try:
     user_id = body.get("user", {}).get("id")
     team_id = body.get("team", {}).get("id")
@@ -2808,6 +2860,7 @@ def handle_feedback_modal_submission(ack, body, client, view, context=None):
     feedback_type = parts[4] if len(parts) > 4 else "other"
 
     if not channel_id or not thread_ts:
+      _bind_obo_for_handler(context)
       return
 
     values = view.get("state", {}).get("values", {})
@@ -2833,6 +2886,7 @@ def handle_feedback_modal_submission(ack, body, client, view, context=None):
     )
 
     if not regenerate:
+      _bind_obo_for_handler(context)
       client.chat_postEphemeral(
         channel=channel_id,
         user=user_id,
@@ -2845,6 +2899,34 @@ def handle_feedback_modal_submission(ack, body, client, view, context=None):
     # the regenerated response arriving in-thread is self-evident.
     channel_config = config.channels.get(channel_id)
     esc_config = _resolve_escalation(channel_config, agent_id=agent_id or None, channel_id=channel_id)
+
+    # Same "Run As" resolution as the original dispatch (handle_mention /
+    # _route_to_agent): a regenerate must run under the route's configured
+    # execution_identity, not the identity of whoever submitted the feedback
+    # modal — otherwise identity-gated MCP tools (e.g. GitLab) silently
+    # disappear from the regenerated response.
+    if RBAC_ENABLED and context is not None:
+      agent_binding = _resolve_agent_binding(channel_config, agent_id=agent_id or None, channel_id=channel_id)
+      if agent_binding is not None:
+        try:
+          exec_id = agent_binding.execution_identity
+          should_proceed = apply_execution_identity(
+            run_as_mode=exec_id.mode,
+            sa_sub=exec_id.service_account_sub,
+            sa_name=exec_id.service_account_name,
+            agent_id=agent_id,
+            context=context,
+            event={"channel": channel_id, "user": user_id, "ts": thread_ts, "thread_ts": thread_ts},
+            client=client,
+            say=lambda **kwargs: client.chat_postMessage(channel=channel_id, **kwargs),
+            is_bot=False,
+            impersonate_fn=impersonate_service_account,
+          )
+          if not should_proceed:
+            return
+        except AttributeError:
+          pass
+    _bind_obo_for_handler(context)
 
     _call_ai(
       client=client,
