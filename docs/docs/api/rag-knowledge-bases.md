@@ -189,7 +189,7 @@ Returns resolved identity baseline role and permission strings for UI gating.
 
 **Auth:** Bearer JWT — minimum role `ingestonly`. **Service:** RAG server.
 
-Creates or updates datasource metadata in Redis. When `RBAC_TEAM_SCOPE_ENABLED` is set, datasource access is checked for the `ingest` scope (`X-Tenant-Id`, `X-Team-Id`).
+Creates or updates datasource metadata in Redis. Datasource access is checked for the `ingest` scope (`X-Tenant-Id`, `X-Team-Id`).
 
 **Request body:**
 

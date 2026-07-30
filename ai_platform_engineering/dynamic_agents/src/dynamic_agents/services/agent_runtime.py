@@ -74,6 +74,7 @@ from dynamic_agents.services.mcp_client import (
     filter_tools_by_allowed,
     get_tools_with_resilience,
     mcp_credential_connect_warning,
+    pin_datasource_filters,
     resolve_mcp_connections_credential_refs,
     wrap_tools_with_error_handling,
 )
@@ -901,6 +902,14 @@ class AgentRuntime:
                 # 1b. Filter MCP tools by allowlist
                 tools, missing = filter_tools_by_allowed(all_tools, self.config.allowed_tools)
 
+                # 1c. Pin RAG search-style tools to the agent's configured datasources.
+                #     The server independently intersects with the caller's RBAC-accessible
+                #     datasources, so this only narrows — it never grants access on its own.
+                if self.config.datasource_ids:
+                    tools = pin_datasource_filters(
+                        tools, self.config.datasource_ids, agent_name=self.config.name
+                    )
+
                 # Only report missing tools for servers that connected successfully
                 # (tools from failed servers are expected to be missing)
                 if missing:
@@ -1488,6 +1497,10 @@ class AgentRuntime:
                     ]
                     logger.warning(f"Subagent '{subagent_config.name}': failed MCP servers: {'; '.join(error_parts)}")
                 mcp_tools, _ = filter_tools_by_allowed(all_tools, subagent_config.allowed_tools)
+                if subagent_config.datasource_ids:
+                    mcp_tools = pin_datasource_filters(
+                        mcp_tools, subagent_config.datasource_ids, agent_name=subagent_config.name
+                    )
                 tools.extend(mcp_tools)
 
         # 2. Add built-in tools based on subagent's config

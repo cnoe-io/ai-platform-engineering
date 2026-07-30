@@ -397,6 +397,14 @@ export interface DynamicAgentConfig {
   shared_with_teams?: string[];
   subagents: SubAgentRef[];  // Other dynamic agents that can be delegated to
   skills: string[];  // Skill document IDs from agent_skills collection
+  /**
+   * RAG datasource ids (== source_id == knowledge_base_id) this agent's
+   * search tool is pinned to. Narrows, never widens: the runtime intersects
+   * this list with the caller's RBAC-accessible datasources, so leaving it
+   * unset means "search everything the caller can see" rather than "search
+   * everything." Populated from the owning team's visible datasources.
+   */
+  datasource_ids?: string[];
   ui?: AgentUIConfig;  // UI configuration (gradient theme, etc.)
   features?: FeaturesConfig;  // Middleware and feature flags
   interrupt_on?: InterruptOn;  // Tools requiring human approval before execution
@@ -459,6 +467,7 @@ export interface DynamicAgentConfigCreate {
   owner_team_id?: string;
   subagents?: SubAgentRef[];
   skills?: string[];
+  datasource_ids?: string[];
   ui?: AgentUIConfig;
   features?: FeaturesConfig;
   interrupt_on?: InterruptOn;
@@ -481,6 +490,7 @@ export interface DynamicAgentConfigUpdate {
   shared_with_teams?: string[];
   subagents?: SubAgentRef[];
   skills?: string[];
+  datasource_ids?: string[];
   ui?: AgentUIConfig;
   features?: FeaturesConfig;
   interrupt_on?: InterruptOn;

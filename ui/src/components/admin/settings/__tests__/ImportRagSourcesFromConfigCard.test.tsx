@@ -73,28 +73,28 @@ describe("ImportRagSourcesFromConfigCard", () => {
 
   it("renders nothing for non-admins", () => {
     render(<ImportRagSourcesFromConfigCard isAdmin={false} />);
-    expect(screen.queryByText("Import RAG Sources from Config")).not.toBeInTheDocument();
+    expect(screen.queryByText("Migrate Ingested RAG Sources")).not.toBeInTheDocument();
   });
 
   it("shows the button and pane for admins", () => {
     render(<ImportRagSourcesFromConfigCard isAdmin />);
-    expect(screen.getByText("Import RAG Sources from Config")).toBeInTheDocument();
+    expect(screen.getByText("Migrate Ingested RAG Sources")).toBeInTheDocument();
     expect(screen.getByTestId("import-rag-sources-from-config-button")).toBeInTheDocument();
   });
 
-  it("previews sources and pre-selects importable (in_db, not-adopted) ones when the modal opens", async () => {
+  it("previews sources and pre-selects importable (not-yet-in-db) ones when the modal opens", async () => {
     render(<ImportRagSourcesFromConfigCard isAdmin />);
     fireEvent.click(screen.getByTestId("import-rag-sources-from-config-button"));
 
     await waitFor(() => {
-      expect(screen.getByTestId("import-rag-source-checkbox-slack-channel-C1")).toBeChecked();
+      expect(screen.getByTestId("import-rag-source-checkbox-slack-channel-C3")).toBeChecked();
     });
-    // Already-adopted and not-yet-seeded sources are disabled and unselected.
+    // Sources that already have a config row (adopted or not) are disabled and unselected.
+    expect(screen.getByTestId("import-rag-source-checkbox-slack-channel-C1")).toBeDisabled();
+    expect(screen.getByTestId("import-rag-source-checkbox-slack-channel-C1")).not.toBeChecked();
     expect(screen.getByTestId("import-rag-source-checkbox-slack-channel-C2")).toBeDisabled();
-    expect(screen.getByTestId("import-rag-source-checkbox-slack-channel-C2")).not.toBeChecked();
-    expect(screen.getByTestId("import-rag-source-checkbox-slack-channel-C3")).toBeDisabled();
     expect(screen.getByText("Already adopted")).toBeInTheDocument();
-    expect(screen.getByText("Not seeded yet")).toBeInTheDocument();
+    expect(screen.getByText("Has config row")).toBeInTheDocument();
   });
 
   it("applies the import with only the selected source ids and no team assignment by default", async () => {
@@ -102,7 +102,7 @@ describe("ImportRagSourcesFromConfigCard", () => {
     fireEvent.click(screen.getByTestId("import-rag-sources-from-config-button"));
 
     await waitFor(() => {
-      expect(screen.getByTestId("import-rag-source-checkbox-slack-channel-C1")).toBeChecked();
+      expect(screen.getByTestId("import-rag-source-checkbox-slack-channel-C3")).toBeChecked();
     });
 
     fireEvent.click(screen.getByTestId("import-rag-sources-apply-button"));
@@ -118,7 +118,7 @@ describe("ImportRagSourcesFromConfigCard", () => {
     });
     expect(applyCall).toBeDefined();
     const body = JSON.parse(String(applyCall![1].body));
-    expect(body.source_ids).toEqual(["slack-channel-C1"]);
+    expect(body.source_ids).toEqual(["slack-channel-C3"]);
     expect(body.owner_team_slug).toBeNull();
     expect(body.shared_with_teams).toEqual([]);
     expect(screen.getByText(/Adopted 1 source\./)).toBeInTheDocument();
@@ -129,10 +129,10 @@ describe("ImportRagSourcesFromConfigCard", () => {
     fireEvent.click(screen.getByTestId("import-rag-sources-from-config-button"));
 
     await waitFor(() => {
-      expect(screen.getByTestId("import-rag-source-checkbox-slack-channel-C1")).toBeChecked();
+      expect(screen.getByTestId("import-rag-source-checkbox-slack-channel-C3")).toBeChecked();
     });
 
-    fireEvent.click(screen.getByTestId("import-rag-source-checkbox-slack-channel-C1"));
+    fireEvent.click(screen.getByTestId("import-rag-source-checkbox-slack-channel-C3"));
     expect(screen.getByTestId("import-rag-sources-apply-button")).toBeDisabled();
   });
 
@@ -144,7 +144,7 @@ describe("ImportRagSourcesFromConfigCard", () => {
     fireEvent.click(screen.getByTestId("import-rag-sources-from-config-button"));
 
     await waitFor(() => {
-      expect(screen.getByTestId("import-rag-source-checkbox-slack-channel-C1")).toBeChecked();
+      expect(screen.getByTestId("import-rag-source-checkbox-slack-channel-C3")).toBeChecked();
     });
 
     fireEvent.click(screen.getByTestId("import-rag-sources-apply-button"));
@@ -164,7 +164,7 @@ describe("ImportRagSourcesFromConfigCard", () => {
           sources: PREVIEW_SOURCES,
           adopted: [],
           skipped: [
-            { source_id: "slack-channel-C1", reason: "already_adopted" },
+            { source_id: "slack-channel-C3", reason: "already_in_db" },
           ],
         },
       },
@@ -173,14 +173,14 @@ describe("ImportRagSourcesFromConfigCard", () => {
     fireEvent.click(screen.getByTestId("import-rag-sources-from-config-button"));
 
     await waitFor(() => {
-      expect(screen.getByTestId("import-rag-source-checkbox-slack-channel-C1")).toBeChecked();
+      expect(screen.getByTestId("import-rag-source-checkbox-slack-channel-C3")).toBeChecked();
     });
 
     fireEvent.click(screen.getByTestId("import-rag-sources-apply-button"));
 
     await waitFor(() => {
       expect(screen.getByTestId("import-rag-sources-result")).toHaveTextContent(
-        "slack-channel-C1: already adopted",
+        "slack-channel-C3: already has a config row",
       );
     });
   });
@@ -190,7 +190,7 @@ describe("ImportRagSourcesFromConfigCard", () => {
       source_id: `slack-channel-${i}`,
       name: `channel-${i}`,
       source_type: "slack_channel",
-      in_db: true,
+      in_db: false,
       already_adopted: false,
     }));
     mockFetch({ preview: { success: true, data: { sources: manySources } } });

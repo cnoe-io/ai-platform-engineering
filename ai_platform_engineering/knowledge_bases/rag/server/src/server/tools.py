@@ -14,7 +14,7 @@ from common.constants import KV_ONTOLOGY_VERSION_ID_KEY, PROP_DELIMITER, ONTOLOG
 from common.models.rag import valid_metadata_keys, MCPToolConfig, MCPBuiltinToolsConfig, ParallelSearch, StructuredEntity, StructuredEntityId
 import traceback
 from server.query_service import VectorDBQueryService
-from server.rbac import derive_team_for_request, get_accessible_datasource_ids, RBAC_TEAM_SCOPE_ENABLED
+from server.rbac import get_accessible_datasource_ids
 from fastmcp import FastMCP
 from common.utils import json_encode
 from server.snippet_utils import format_search_result
@@ -52,22 +52,17 @@ class AgentTools:
     """
     Resolve accessible datasource IDs for the current MCP request user.
 
-    Returns None when RBAC is inactive or the user has unrestricted access
-    (so the caller should skip filtering).  Returns a list of datasource IDs
-    when filtering is required; an empty list means nothing is accessible.
+    Returns None when the user has unrestricted access (so the caller should
+    skip filtering).  Returns a list of datasource IDs when filtering is
+    required; an empty list means nothing is accessible.
     """
-    if not RBAC_TEAM_SCOPE_ENABLED:
-      return None
     user = self._get_mcp_user_context()
     if user is None:
       return None
     if user.email.startswith("client:"):
       return None
 
-    team_id = await derive_team_for_request(None, user)
-    accessible = await get_accessible_datasource_ids(
-      user, scope, "default", team_id=team_id,
-    )
+    accessible = await get_accessible_datasource_ids(user, scope)
     if "*" in accessible:
       return None
     return accessible
@@ -179,6 +174,13 @@ class AgentTools:
     ) -> Any:
       logger.info(f"[{tool_id}] query={query!r}, limit={limit}, runtime_filters={runtime_filters}, thought={thought!r}")
 
+      # None means unrestricted (org admin / unscoped client); a list is the
+      # caller's accessible datasource ids, intersected below with any
+      # request- or config-narrowed `datasource_id` filter — never widened.
+      accessible = await self._resolve_accessible_datasource_ids("read")
+      if accessible is not None and not accessible:
+        return {ps.label: [] for ps in parallel_searches}
+
       async def _run_one(ps: ParallelSearch) -> List[Dict[str, Any]]:
         weights = [ps.semantic_weight, 1.0 - ps.semantic_weight]  # hybrid search
         q_filters: Dict[str, Any] = {}
@@ -187,6 +189,20 @@ class AgentTools:
         q_filters.update(ps.extra_filters)
         if ps.datasource_ids:
           q_filters["datasource_id"] = list(ps.datasource_ids)
+
+        if accessible is not None:
+          existing = q_filters.get("datasource_id")
+          if existing is None:
+            q_filters["datasource_id"] = accessible
+          elif isinstance(existing, str):
+            if existing not in accessible:
+              return []
+          else:
+            inter = [x for x in existing if x in accessible]
+            if not inter:
+              return []
+            q_filters["datasource_id"] = inter
+
         results = await self.vector_db_query_service.query(
           query=query,
           filters=q_filters or None,
@@ -268,10 +284,18 @@ class AgentTools:
     logger.info(f"Fetching document with ID: {document_id}, Thought: {thought}")
 
     try:
+      accessible = await self._resolve_accessible_datasource_ids("read")
+      if accessible is not None and not accessible:
+        return f"Error: Document with ID '{document_id}' not found in the knowledge base."
+
+      filters: Dict[str, Any] = {"document_id": document_id}
+      if accessible is not None:
+        filters["datasource_id"] = accessible
+
       # Query vector DB for the specific document
       results = await self.vector_db_query_service.query(
         query="",  # Empty query, we're filtering by ID
-        filters={"document_id": document_id},
+        filters=filters,
         limit=100,
         ranker="weighted",
         ranker_params={"weights": [1.0, 0.0]},
@@ -301,9 +325,14 @@ class AgentTools:
     result = {"datasources": [], "entity_types": []}
 
     try:
+      accessible = await self._resolve_accessible_datasource_ids("read")
+
       # Get datasources from metadata storage
       datasources_info = await self.metadata_storage.fetch_all_datasource_info()
-      result["datasources"] = [ds.datasource_id for ds in datasources_info]
+      if accessible is None:
+        result["datasources"] = [ds.datasource_id for ds in datasources_info]
+      else:
+        result["datasources"] = [ds.datasource_id for ds in datasources_info if ds.datasource_id in accessible]
 
       # Get entity types from ontology DB if available==
       if self.ontology_graphdb is not None:

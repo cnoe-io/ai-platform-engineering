@@ -1148,13 +1148,10 @@ services:
       - INGESTOR_OIDC_CLIENT_ID=${INGESTOR_OIDC_CLIENT_ID}
       # Client-credentials ingestors keep a service role; human access is OpenFGA-only.
       - RBAC_CLIENT_CREDENTIALS_ROLE=${RBAC_CLIENT_CREDENTIALS_ROLE:-ingestonly}
-      # 098 team-scoped KB / datasource checks (MongoDB same as UI)
-      - RBAC_TEAM_SCOPE_ENABLED=${RBAC_TEAM_SCOPE_ENABLED:-true}
+      # KB / datasource checks are OpenFGA-only (per-subject list_objects).
       - OPENFGA_HTTP=${OPENFGA_HTTP:-http://openfga:8080}
       - OPENFGA_STORE_NAME=${OPENFGA_STORE_NAME:-caipe-openfga}
       - CAIPE_UNSAFE_RBAC_BYPASS=${CAIPE_UNSAFE_RBAC_BYPASS:-false}
-      - RBAC_MONGODB_URI=${RBAC_MONGODB_URI:-mongodb://admin:changeme@caipe-mongodb:27017/caipe?authSource=admin}
-      - RBAC_MONGODB_DATABASE=${RBAC_MONGODB_DATABASE:-caipe}
     restart: unless-stopped
     env_file: [.env]
     depends_on:

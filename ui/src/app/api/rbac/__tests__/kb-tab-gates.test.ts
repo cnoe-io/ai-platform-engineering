@@ -120,7 +120,6 @@ describe("GET /api/rbac/kb-tab-gates", () => {
         data_sources: true,
         graph: true,
         mcp_tools: true,
-        ingestion_sources: true,
         has_any_kb: true,
         kb_count: -1,
         can_ingest: true,
@@ -173,7 +172,6 @@ describe("GET /api/rbac/kb-tab-gates", () => {
       data_sources: true,
       graph: true,
       mcp_tools: true,
-      ingestion_sources: true,
       has_any_kb: true,
       kb_count: 1,
       can_ingest: true,
@@ -239,7 +237,6 @@ describe("GET /api/rbac/kb-tab-gates", () => {
       data_sources: false,
       graph: false,
       mcp_tools: false,
-      ingestion_sources: false,
       has_any_kb: false,
       kb_count: 0,
       can_ingest: false,
@@ -359,7 +356,6 @@ describe("GET /api/rbac/kb-tab-gates", () => {
       data_sources: true,
       graph: false,
       mcp_tools: true,
-      ingestion_sources: true,
       has_any_kb: false,
       kb_count: 0,
       can_ingest: true,
@@ -420,11 +416,11 @@ describe("GET /api/rbac/kb-tab-gates", () => {
     const body = await res.json();
     expect(body.gates.has_any_kb).toBe(false);
     expect(body.gates.can_ingest).toBe(false);
-    expect(body.gates.ingestion_sources).toBe(false);
+    expect(body.gates.data_sources).toBe(false);
     expect(body.org_admin_bypass).toBe(false);
   });
 
-  it("ingestion_sources is true for a non-admin with a readable ingestion source", async () => {
+  it("data_sources is true for a non-admin with a readable ingestion source", async () => {
     (getServerSession as jest.Mock).mockResolvedValue({
       accessToken: "tok",
       sub: "reader-sub",
@@ -443,11 +439,11 @@ describe("GET /api/rbac/kb-tab-gates", () => {
 
     const res = await GET();
     const body = await res.json();
-    expect(body.gates.ingestion_sources).toBe(true);
+    expect(body.gates.data_sources).toBe(true);
     expect(body.gates.has_any_kb).toBe(false);
   });
 
-  it("ingestion_sources is true for a non-admin with can_ingest but zero readable sources", async () => {
+  it("data_sources is true for a non-admin with can_ingest but zero readable sources", async () => {
     (getServerSession as jest.Mock).mockResolvedValue({
       accessToken: "tok",
       sub: "author-sub",
@@ -458,10 +454,10 @@ describe("GET /api/rbac/kb-tab-gates", () => {
 
     const res = await GET();
     const body = await res.json();
-    expect(body.gates.ingestion_sources).toBe(true);
+    expect(body.gates.data_sources).toBe(true);
   });
 
-  it("ingestion_sources is false for a non-admin with no readable sources and no can_ingest", async () => {
+  it("data_sources is false for a non-admin with no readable sources and no can_ingest", async () => {
     (getServerSession as jest.Mock).mockResolvedValue({
       accessToken: "tok",
       sub: "nobody-sub",
@@ -472,6 +468,6 @@ describe("GET /api/rbac/kb-tab-gates", () => {
 
     const res = await GET();
     const body = await res.json();
-    expect(body.gates.ingestion_sources).toBe(false);
+    expect(body.gates.data_sources).toBe(false);
   });
 });

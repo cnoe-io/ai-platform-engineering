@@ -213,9 +213,9 @@ caipe-ui:
 Local dev: set the variable in root `.env` (documented in `.env.example` next to
 `AGENT_GATEWAY_URL`). Compose passes it to dynamic-agents and openfga-authz-bridge.
 
-### 5. Make RBAC Bypass and RAG Team Scope Explicit
+### 5. Make RBAC Bypass and RAG OpenFGA Settings Explicit
 
-The newest chart source makes the unsafe RBAC bypass and RAG OpenFGA settings explicit. Keep them explicit in `caipe/rbac`:
+The newest chart source makes the unsafe RBAC bypass and RAG OpenFGA settings explicit. Keep them explicit in `caipe/rbac`. RAG's team-scoped datasource/KB authorization is always on (not configurable) — only the OpenFGA connection and the bypass escape hatch are settings:
 
 ```yaml
 caipe-ui:
@@ -225,7 +225,6 @@ caipe-ui:
 rag-stack:
   rag-server:
     env:
-      RBAC_TEAM_SCOPE_ENABLED: "true"
       OPENFGA_HTTP: "http://a-caipe-rbac-argoapp-openfga:8080"
       OPENFGA_STORE_NAME: "caipe-openfga"
       CAIPE_UNSAFE_RBAC_BYPASS: "false"

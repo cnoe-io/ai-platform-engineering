@@ -1316,3 +1316,71 @@ def wrap_tools_with_error_handling(
 
     logger.info(f"[{agent_name}] Wrapped {len(wrapped)} tools with error handling")
     return wrapped
+
+
+def pin_datasource_filters(
+    tools: list[BaseTool],
+    datasource_ids: list[str] | None,
+    agent_name: str = "agent",
+) -> list[BaseTool]:
+    """Pin RAG search-style tools to a configured set of datasource ids.
+
+    Only tools whose schema accepts a ``filters`` argument are affected —
+    the RAG search tool contract (built-in ``search`` plus any custom search
+    tool with ``allow_runtime_filters=True``). This is the client-side half
+    of the agent<->datasource binding: the server independently intersects
+    with the caller's RBAC-accessible datasources (``server/tools.py``), so
+    the effective scope is always (this pin) ∩ (caller's RBAC access) —
+    narrows, never widens.
+
+    Narrows, never widens at this layer too: if the model supplies its own
+    ``filters["datasource_id"]``, it is intersected with ``datasource_ids``
+    rather than overridden, so the model cannot escape the pin by asking for
+    a different id.
+    """
+    if not datasource_ids:
+        return tools
+
+    pinned: list[BaseTool] = []
+    for tool in tools:
+        schema = _json_schema_dict(getattr(tool, "tool_call_schema", None))
+        properties = schema.get("properties") if isinstance(schema, dict) else None
+        original_coro = getattr(tool, "coroutine", None)
+        if not isinstance(properties, dict) or "filters" not in properties or original_coro is None:
+            pinned.append(tool)
+            continue
+
+        async def _pinned_coro(
+            *args: Any,
+            _orig: Any = original_coro,
+            _ids: list[str] = datasource_ids,
+            **kwargs: Any,
+        ) -> Any:
+            requested = kwargs.get("filters")
+            existing = requested.get("datasource_id") if isinstance(requested, dict) else None
+            if existing is None:
+                scoped: list[str] = list(_ids)
+            elif isinstance(existing, str):
+                scoped = [existing] if existing in _ids else []
+            else:
+                scoped = [x for x in existing if x in _ids]
+            merged = dict(requested) if isinstance(requested, dict) else {}
+            merged["datasource_id"] = scoped
+            kwargs["filters"] = merged
+            return await _orig(*args, **kwargs)
+
+        pinned.append(
+            StructuredTool(
+                name=tool.name,
+                description=tool.description or "",
+                args_schema=tool.args_schema,
+                coroutine=_pinned_coro,
+                response_format=getattr(tool, "response_format", "content"),
+                metadata=tool.metadata,
+            )
+        )
+        logger.info(
+            "[%s] Pinned tool '%s' to datasource_ids=%s", agent_name, tool.name, datasource_ids
+        )
+
+    return pinned
