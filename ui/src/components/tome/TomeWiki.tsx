@@ -1033,7 +1033,7 @@ export function TomeWiki({ slug }: { slug: string }) {
           <aside className="w-80 shrink-0 border-r">
             <ScrollArea className="h-full">
               <div className="flex flex-col p-3">
-                <div className="flex flex-col gap-0.5">
+                <div className="flex flex-col gap-1">
                   <NavItem
                     icon={<MessageSquare className="h-4 w-4" />}
                     label="Agent"
@@ -1093,12 +1093,12 @@ export function TomeWiki({ slug }: { slug: string }) {
                   />
                 </div>
 
-                <div className="mt-4 flex items-center justify-between gap-1 px-2 pb-1">
+                <div className="mt-6 flex items-center justify-between gap-1 px-2 pb-1.5">
                   <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                     Reports
                   </span>
                 </div>
-                <div className="flex flex-col gap-0.5">
+                <div className="flex flex-col gap-1">
                   <NavItem
                     icon={<Newspaper className="h-4 w-4" />}
                     label="Standup"
@@ -1119,7 +1119,7 @@ export function TomeWiki({ slug }: { slug: string }) {
                   />
                 </div>
 
-                <div className="mt-4 flex items-center justify-between gap-1 px-2 pb-1">
+                <div className="mt-6 flex items-center justify-between gap-1 px-2 pb-1.5">
                   <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                     Wiki
                   </span>
@@ -1274,7 +1274,7 @@ export function TomeWiki({ slug }: { slug: string }) {
                     roll-up reads these same children; this makes the
                     hierarchy navigable (#92). */}
                 {isSynthesized && (
-                  <div className="mt-4">
+                  <div className="mt-6">
                     <div className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                       {isBhag ? "Areas & Projects" : "Projects"}
                     </div>
@@ -1286,7 +1286,7 @@ export function TomeWiki({ slug }: { slug: string }) {
                       ) : (
                         <div className="flex flex-col gap-2">
                           {childAreas.length > 0 && (
-                            <div className="flex flex-col gap-0.5 pl-3">
+                            <div className="flex flex-col gap-1 pl-3">
                               {childAreas.map((area) => (
                                 <Link
                                   key={area.slug}
@@ -1309,7 +1309,7 @@ export function TomeWiki({ slug }: { slug: string }) {
                             </p>
                           )}
                           {childProjects.length > 0 && (
-                            <div className="flex flex-col gap-0.5">
+                            <div className="flex flex-col gap-1">
                               {childProjects.map((child) => (
                                 <Link
                                   key={child.slug}
@@ -1330,7 +1330,7 @@ export function TomeWiki({ slug }: { slug: string }) {
                         No projects tagged to this area yet.
                       </p>
                     ) : (
-                      <div className="flex flex-col gap-0.5">
+                      <div className="flex flex-col gap-1">
                         {childProjects.map((child) => (
                           <Link
                             key={child.slug}
@@ -1352,11 +1352,11 @@ export function TomeWiki({ slug }: { slug: string }) {
                     ordinary pages under this project's own `edges/` dir and
                     already show in the tree above. */}
                 {incomingEdges.length > 0 && (
-                  <div className="mt-4">
+                  <div className="mt-6">
                     <div className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                       Referenced by
                     </div>
-                    <div className="flex flex-col gap-0.5">
+                    <div className="flex flex-col gap-1">
                       {incomingEdges.map((e) => (
                         <Link
                           key={`${e.source_project_slug}:${e.path}`}

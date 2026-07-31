@@ -253,7 +253,7 @@ function RunLogPane({
               className={`truncate text-xs font-medium tabular-nums ${ctxColorClass}`}
               title={ctxTitle}
             >
-              · context: {Math.round(ctxPct)}%
+              · context window remaining: {Math.round(ctxPct)}%
             </span>
           )}
         </div>

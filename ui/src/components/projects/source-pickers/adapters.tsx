@@ -6,6 +6,23 @@ import type { SourceKind } from "./index";
 
 const stripGh = (v: string) => v.replace(/^https?:\/\/github\.com\//i, "");
 
+const NON_GITHUB_URL = /^https?:\/\/(?!(www\.)?github\.com)/i;
+
+const rejectNonGithubUrl = (input: string): string | null => {
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+  if (NON_GITHUB_URL.test(trimmed)) {
+    let host = "that link";
+    try {
+      host = new URL(trimmed).hostname;
+    } catch {
+      // leave the generic fallback
+    }
+    return `This looks like a ${host} link, not a GitHub repo. Use the Confluence or Webex connector instead.`;
+  }
+  return null;
+};
+
 /**
  * One declarative adapter per source connector. The shared `SourceItemPicker`
  * renders the chrome (status, search, selected-first list, manual add, footer);
@@ -35,6 +52,7 @@ const github: SourceAdapter = {
     placeholder: "org/name or repo URL",
     button: "Add",
     withIcon: true,
+    rejectReason: rejectNonGithubUrl,
   },
   footer: (sel) => <p className="text-xs text-muted-foreground">{sel.length} selected</p>,
 };

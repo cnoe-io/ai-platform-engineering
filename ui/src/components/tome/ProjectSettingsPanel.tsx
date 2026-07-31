@@ -570,7 +570,7 @@ export function ProjectSettingsPanel({
               </div>
 
               <TabsContent value="general" className="space-y-6 pt-6">
-                <Section title="General">
+                <div className="space-y-6">
                   <Field label="Title">
                     <input
                       type="text"
@@ -579,7 +579,10 @@ export function ProjectSettingsPanel({
                       className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
                     />
                   </Field>
-                  <Field label="Description">
+                  <Field
+                    label="Description"
+                    hint="Shows on this project's card in the projects list, and seeds the opening line of charter.md. It isn't kept in sync afterward: edit charter.md directly for anything after creation."
+                  >
                     <textarea
                       value={description}
                       onChange={(e) => setDescription(e.target.value)}
@@ -587,7 +590,7 @@ export function ProjectSettingsPanel({
                       className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
                     />
                   </Field>
-                </Section>
+                </div>
 
                 {/* Regular projects are steward/admin deletable. BHAGs and
                     Areas are hierarchy-admin-only and hide this surface from
@@ -644,7 +647,7 @@ export function ProjectSettingsPanel({
               </TabsContent>
 
               <TabsContent value="organization" className="space-y-6 pt-6">
-                <Section title="Organization">
+                <div className="space-y-6">
                   <Field
                     label="Shared directly with"
                     hint="Members of this team have direct view access. Access can also be inherited through the BHAG and Area hierarchy."
@@ -796,11 +799,11 @@ export function ProjectSettingsPanel({
                       )}
                     </>
                   )}
-                </Section>
+                </div>
               </TabsContent>
 
               <TabsContent value="slt" className="space-y-6 pt-6">
-                <Section title="SLT Configuration">
+                <div className="space-y-6">
                   <Field label="Decision Blast Radius" hint="How reversible are this project's key decisions?">
                     <div className="grid gap-2 sm:grid-cols-2">
                       {BLAST_RADIUS_OPTIONS.map((opt) => (
@@ -858,13 +861,13 @@ export function ProjectSettingsPanel({
                       })}
                     </div>
                   </Field>
-                </Section>
+                </div>
               </TabsContent>
 
               {/* BHAGs and Areas synthesize across their child projects. */}
               {isSynthesized && (
                 <TabsContent value="projects" className="space-y-6 pt-6">
-                  <Section title="Projects">
+                  <div className="space-y-6">
                     {projectKind === "bhag" && (
                       <div className="space-y-3">
                         <p className="text-xs text-muted-foreground">
@@ -905,14 +908,13 @@ export function ProjectSettingsPanel({
                       entityKind={projectKind === "area" ? "area" : "bhag"}
                       editable
                     />
-                  </Section>
+                  </div>
                 </TabsContent>
               )}
 
               <TabsContent value="sources" className="space-y-6 pt-6">
-                <Section
-                  title="Sources"
-                  action={
+                <div className="space-y-6">
+                  <div className="flex items-center justify-end">
                     <Link
                       href="/credentials"
                       className="inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
@@ -920,8 +922,7 @@ export function ProjectSettingsPanel({
                       Manage connections
                       <ExternalLink className="h-3 w-3" />
                     </Link>
-                  }
-                >
+                  </div>
                   {isSynthesized && (
                     <p className="mb-3 text-xs text-muted-foreground">
                       These sources enrich the synthesis alongside the tagged project wikis.
@@ -945,14 +946,14 @@ export function ProjectSettingsPanel({
                       onSaved={onSaved}
                     />
                   )}
-                </Section>
+                </div>
               </TabsContent>
 
               {/* Source activity feed: a consumer of the data steward's connection
                   (steward is assigned in Organization). Not for synthesized types. */}
               {!isSynthesized && (
                 <TabsContent value="feed" className="space-y-6 pt-6">
-                  <Section title="Source activity feed">
+                  <div className="space-y-6">
                     <p className="text-xs text-muted-foreground">
                       Surfaces this project&apos;s live GitHub activity (PRs, issues, releases)
                       in the Feed, read with the{" "}
@@ -975,7 +976,7 @@ export function ProjectSettingsPanel({
                       Activity is fetched with the steward&apos;s GitHub visibility and shown to
                       everyone with access to this project.
                     </p>
-                  </Section>
+                  </div>
                 </TabsContent>
               )}
             </Tabs>
@@ -1000,27 +1001,6 @@ export function ProjectSettingsPanel({
         </ViewOnlyTooltip>
       </div>
     </div>
-  );
-}
-
-/** A titled card section with a proper header (not label-sized). */
-function Section({
-  title,
-  action,
-  children,
-}: {
-  title: string;
-  action?: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  return (
-    <section>
-      <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-sm font-semibold">{title}</h2>
-        {action}
-      </div>
-      <div className="space-y-4">{children}</div>
-    </section>
   );
 }
 

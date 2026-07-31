@@ -423,11 +423,12 @@ function AreaSubGroup({
         {area ? (
           <Link
             href={`/projects/${area.slug}`}
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-sky-500/40 bg-sky-500/10 px-2.5 py-1 text-xs font-medium text-sky-600 transition hover:border-sky-500 hover:bg-sky-500/20 dark:text-sky-400"
+            title={`Open ${area.name} wiki`}
+            className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-lg border border-sky-500/40 bg-sky-500/10 px-2.5 py-1 text-xs font-medium text-sky-600 transition hover:border-sky-500 hover:bg-sky-500/20 dark:text-sky-400"
           >
-            <BookOpen className="h-3 w-3" />
-            Open wiki
-            <ArrowRight className="h-3 w-3" />
+            <BookOpen className="h-3 w-3 shrink-0" />
+            <span className="truncate">Open {area.name} wiki</span>
+            <ArrowRight className="h-3 w-3 shrink-0" />
           </Link>
         ) : onCreateArea ? (
           <button
@@ -605,11 +606,12 @@ function ProjectGroup({
           (bhag ? (
             <Link
               href={`/projects/${bhag.slug}`}
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary transition hover:border-primary hover:bg-primary/20"
+              title={`Open ${bhag.name} BHAG wiki`}
+              className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary transition hover:border-primary hover:bg-primary/20"
             >
-              <BookOpen className="h-3.5 w-3.5" />
-              Open {bhag.name} BHAG wiki
-              <ArrowRight className="h-3.5 w-3.5" />
+              <BookOpen className="h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">Open {bhag.name} BHAG wiki</span>
+              <ArrowRight className="h-3.5 w-3.5 shrink-0" />
             </Link>
           ) : onCreateBhag ? (
             <button

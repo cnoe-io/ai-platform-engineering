@@ -68,6 +68,8 @@ export interface SourceAdapter {
     hint: string;
     /** Normalize raw input → stored value (null/empty rejects). Defaults to trim. */
     parse?: (input: string) => string | null;
+    /** Reject input that looks meant for a different connector, with a message explaining why. */
+    rejectReason?: (input: string) => string | null;
   };
   /** Footer line; return null to omit. */
   footer?: (selected: string[]) => ReactNode;
@@ -78,18 +80,6 @@ interface Row {
   label: string;
   selected: boolean;
   onToggle: () => void;
-}
-
-function confluencePageUrl(
-  sourceUrl: string,
-  scope: ConfluencePageScope,
-): string {
-  try {
-    const source = new URL(sourceUrl);
-    return `${source.origin}/wiki/spaces/${encodeURIComponent(scope.space_key)}/pages/${encodeURIComponent(scope.page_id)}`;
-  } catch {
-    return sourceUrl;
-  }
 }
 
 export function SourceItemPicker({
@@ -112,6 +102,10 @@ export function SourceItemPicker({
     useSourceOptions(adapter.provider);
   const [query, setQuery] = useState("");
   const [manual, setManual] = useState("");
+  const [manualError, setManualError] = useState<string | null>(null);
+  // Once a Confluence space is picked, the search+list collapses into a
+  // compact "Connected to X · Change" row — "Change" re-expands it.
+  const [changingSpace, setChangingSpace] = useState(false);
 
   // A first load with no rows yet that runs past ~2.5s surfaces the adapter's
   // slow-load copy (Confluence in particular), so it reads as expected rather
@@ -146,6 +140,7 @@ export function SourceItemPicker({
     onChange(adapter.multi ? [...selected, value] : [value]);
     if (adapter.provider === "atlassian") {
       onConfluencePageScopesChange?.([], value);
+      setChangingSpace(false);
     }
   };
 
@@ -155,6 +150,7 @@ export function SourceItemPicker({
   ) => {
     onChange([value]);
     onConfluencePageScopesChange?.(scope ? [scope] : [], value);
+    setChangingSpace(false);
   };
 
   const selectConfluencePages = (
@@ -191,6 +187,12 @@ export function SourceItemPicker({
   }, [options, selected, selectedKeySet, adapter]);
 
   const addManual = () => {
+    const rejectReason = adapter.manualAdd?.rejectReason?.(manual) ?? null;
+    if (rejectReason) {
+      setManualError(rejectReason);
+      return;
+    }
+    setManualError(null);
     const parsed = adapter.manualAdd?.parse
       ? adapter.manualAdd.parse(manual)
       : manual.trim() || null;
@@ -274,9 +276,32 @@ export function SourceItemPicker({
           </p>
         )}
 
+        {/* Once a Confluence space is chosen, collapse the picker into a
+            compact row so the scope section below reads as the next step of
+            the same flow, not an unrelated block. */}
+        {adapter.provider === "atlassian" && selected[0] && !changingSpace ? (
+          <div className="flex items-center justify-between gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2 text-sm">
+            <span className="min-w-0 truncate">
+              Connected to{" "}
+              <span className="font-medium text-foreground">
+                {selectedConfluenceSpaceLabel ?? adapter.labelOf(selected[0])}
+              </span>
+            </span>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 shrink-0 px-2 text-xs"
+              onClick={() => setChangingSpace(true)}
+            >
+              Change
+            </Button>
+          </div>
+        ) : null}
+
         {/* Picker: search + list merged into one bounded control, so the two
             don't compete as separate peer boxes. */}
-        {(connected || loading) && (
+        {(connected || loading) &&
+          !(adapter.provider === "atlassian" && selected[0] && !changingSpace) && (
           <div className="overflow-hidden rounded-lg border border-border">
             <div className="flex items-center gap-2 border-b border-border bg-muted/50 px-3">
               <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -354,6 +379,7 @@ export function SourceItemPicker({
             sourceUrl={selected[0]}
             scopes={confluencePageScopes}
             onSelect={selectConfluencePages}
+            spaceLabel={selectedConfluenceSpaceLabel ?? adapter.labelOf(selected[0])}
           />
         ) : null}
 
@@ -371,7 +397,10 @@ export function SourceItemPicker({
             <div className="flex items-center gap-2">
               <input
                 value={manual}
-                onChange={(e) => setManual(e.target.value)}
+                onChange={(e) => {
+                  setManual(e.target.value);
+                  setManualError(null);
+                }}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
                     e.preventDefault();
@@ -379,80 +408,23 @@ export function SourceItemPicker({
                   }
                 }}
                 placeholder={adapter.manualAdd.placeholder}
-                className="flex-1 rounded-lg border border-border/60 bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/30"
+                className={cn(
+                  "flex-1 rounded-lg border bg-background px-3 py-2 text-sm outline-none focus:ring-2",
+                  manualError
+                    ? "border-red-500 focus:border-red-500 focus:ring-red-500/30"
+                    : "border-border/60 focus:border-primary focus:ring-primary/30",
+                )}
               />
               <Button size="sm" onClick={addManual} disabled={!manual.trim()}>
                 {adapter.manualAdd.withIcon && <Plus className="h-3.5 w-3.5" />}
                 {adapter.manualAdd.button}
               </Button>
             </div>
+            {manualError && <p className="mt-2 text-xs text-red-500">{manualError}</p>}
           </div>
         ) : null}
 
-        {adapter.provider === "atlassian" && selected[0] ? (
-          <div
-            data-testid="saved-confluence-scope"
-            className="overflow-hidden rounded-lg border border-border/60 bg-muted/20"
-          >
-            <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 border-b border-border/50 px-3 py-2">
-              <div>
-                <p className="text-xs font-medium text-foreground">
-                  Saved Confluence scope
-                </p>
-                <p className="text-[11px] text-muted-foreground">
-                  {confluencePageScopes.length
-                    ? `${confluencePageScopes.length} page root${confluencePageScopes.length === 1 ? "" : "s"} selected`
-                    : "Entire space selected"}
-                </p>
-              </div>
-              <a
-                href={selected[0]}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="max-w-full truncate text-xs font-medium text-primary hover:underline"
-                title={selected[0]}
-              >
-                {selectedConfluenceSpaceLabel ?? adapter.labelOf(selected[0])}
-              </a>
-            </div>
-            {confluencePageScopes.length ? (
-              <ul className="divide-y divide-border/40">
-                {confluencePageScopes.map((scope) => (
-                  <li
-                    key={scope.page_id}
-                    className="flex items-start gap-2 px-3 py-2"
-                  >
-                    <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded bg-primary/15 text-primary">
-                      <Check className="h-3 w-3" />
-                    </span>
-                    <div className="min-w-0">
-                      <a
-                        href={confluencePageUrl(selected[0], scope)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="block truncate text-xs font-medium text-foreground hover:underline"
-                        title={scope.page_title}
-                      >
-                        {scope.page_title}
-                      </a>
-                      <p className="text-[11px] text-muted-foreground">
-                        {scope.include_descendants
-                          ? "Page and all subpages"
-                          : "Page only"}
-                      </p>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="px-3 py-2 text-xs text-muted-foreground">
-                All accessible pages in this space are included.
-              </p>
-            )}
-          </div>
-        ) : (
-          adapter.footer?.(selected)
-        )}
+        {adapter.provider !== "atlassian" && adapter.footer?.(selected)}
       </div>
     </div>
   );

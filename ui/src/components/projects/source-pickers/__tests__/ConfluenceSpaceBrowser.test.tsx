@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 
@@ -121,7 +121,11 @@ describe("ConfluenceSpaceBrowser", () => {
     expect(screen.getByText("1 match")).toBeInTheDocument();
     expect(screen.getByText("Overview")).toBeInTheDocument();
     expect(screen.getByText("Architecture")).toBeInTheDocument();
-    expect(screen.queryByText("Runbooks")).not.toBeInTheDocument();
+    // Non-matching rows stay mounted and fade rather than unmount, so the
+    // tree's shape doesn't reset as the user types.
+    expect(
+      screen.getByText("Runbooks").closest("li")?.querySelector("div"),
+    ).toHaveClass("opacity-30");
 
     await user.click(screen.getByText("Architecture"));
 
@@ -133,6 +137,24 @@ describe("ConfluenceSpaceBrowser", () => {
         include_descendants: true,
       },
     ]);
+
+    await user.clear(
+      screen.getByLabelText("Search pages in this Confluence space"),
+    );
+    await user.type(
+      screen.getByLabelText("Search pages in this Confluence space"),
+      "zzz-no-match",
+    );
+
+    // Zero matches must NOT collapse the tree section entirely — it should
+    // fade all rows and show a "no matches" hint alongside them, not instead
+    // of them (a fieldset/legend layout bug previously made this whole
+    // section vanish).
+    const tree = screen.getByRole("tree");
+    expect(screen.getByText("No page titles match this search.")).toBeInTheDocument();
+    expect(within(tree).getByText("Overview")).toBeInTheDocument();
+    expect(within(tree).getByText("Architecture")).toBeInTheDocument();
+    expect(within(tree).getByText("Runbooks")).toBeInTheDocument();
 
     await user.click(screen.getByLabelText("Clear page search"));
     await user.click(screen.getByText("Runbooks"));
@@ -151,5 +173,37 @@ describe("ConfluenceSpaceBrowser", () => {
     expect(onSelect).toHaveBeenLastCalledWith(spaceUrl, [
       expect.objectContaining({ page_id: "100" }),
     ]);
+  });
+
+  it("states explicitly when the entire space is included, scoped to the space label", () => {
+    render(
+      <ConfluenceSpaceBrowser
+        sourceUrl={spaceUrl}
+        scopes={[]}
+        onSelect={jest.fn()}
+        spaceLabel="PLATFORM"
+      />,
+    );
+
+    expect(
+      screen.getByText("All accessible pages in PLATFORM are included."),
+    ).toBeInTheDocument();
+  });
+
+  it("attributes the scope choice to the connected space", () => {
+    render(
+      <ConfluenceSpaceBrowser
+        sourceUrl={spaceUrl}
+        scopes={[]}
+        onSelect={jest.fn()}
+        spaceLabel="PLATFORM"
+      />,
+    );
+
+    expect(
+      screen.getByText((_, node) =>
+        node?.textContent === "What should be included from PLATFORM?",
+      ),
+    ).toBeInTheDocument();
   });
 });

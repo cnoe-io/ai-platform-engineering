@@ -25,6 +25,9 @@ interface Props {
   sourceUrl: string;
   scopes: ConfluencePageScope[];
   onSelect: (url: string, scopes: ConfluencePageScope[]) => void;
+  /** Display name of the connected space, shown above the scope choice so
+   * this section visibly continues from the picker above it. */
+  spaceLabel?: string;
 }
 
 function responseError(body: unknown, status: number): string {
@@ -36,7 +39,7 @@ function responseError(body: unknown, status: number): string {
   return `Could not load pages (${status})`;
 }
 
-export function ConfluenceSpaceBrowser({ sourceUrl, scopes, onSelect }: Props) {
+export function ConfluenceSpaceBrowser({ sourceUrl, scopes, onSelect, spaceLabel }: Props) {
   const parsed = useMemo(() => parseConfluenceUrl(sourceUrl), [sourceUrl]);
   const selectedSpaceUrl = useMemo(() => {
     if (!parsed) return "";
@@ -321,10 +324,10 @@ export function ConfluenceSpaceBrowser({ sourceUrl, scopes, onSelect }: Props) {
   };
 
   const renderPage = (page: ConfluenceTreePage, depth: number) => {
-    if (visiblePageIds && !visiblePageIds.has(page.id)) return null;
-    const children = (childrenByParent.get(page.id) ?? []).filter(
-      (child) => !visiblePageIds || visiblePageIds.has(child.id),
-    );
+    // Non-matching pages stay mounted and fade rather than unmount, so the
+    // tree's shape doesn't jump around as the user types a search.
+    const isVisible = !visiblePageIds || visiblePageIds.has(page.id);
+    const children = childrenByParent.get(page.id) ?? [];
     const isExpanded = normalizedQuery
       ? children.length > 0
       : expanded.has(page.id);
@@ -347,8 +350,9 @@ export function ConfluenceSpaceBrowser({ sourceUrl, scopes, onSelect }: Props) {
       >
         <div
           className={cn(
-            "flex items-center gap-1 rounded-md py-0.5 pr-2",
+            "flex items-center gap-1 rounded-md py-0.5 pr-2 transition-opacity duration-150",
             (isSelected || isCovered) && "bg-primary/10",
+            !isVisible && "pointer-events-none opacity-30",
           )}
           style={{ paddingLeft: `${depth * 16 + 4}px` }}
         >
@@ -416,7 +420,7 @@ export function ConfluenceSpaceBrowser({ sourceUrl, scopes, onSelect }: Props) {
             <ExternalLink className="h-3 w-3" />
           </a>
         </div>
-        {children.length && isExpanded ? (
+        {children.length && (isExpanded || !normalizedQuery) ? (
           <ul role="group">
             {children.map((child) => renderPage(child, depth + 1))}
           </ul>
@@ -425,9 +429,7 @@ export function ConfluenceSpaceBrowser({ sourceUrl, scopes, onSelect }: Props) {
     );
   };
 
-  const roots = (childrenByParent.get("") ?? []).filter(
-    (page) => !visiblePageIds || visiblePageIds.has(page.id),
-  );
+  const roots = childrenByParent.get("") ?? [];
   const selectedPages = scopes
     .map((selection) => ({
       selection,
@@ -443,11 +445,18 @@ export function ConfluenceSpaceBrowser({ sourceUrl, scopes, onSelect }: Props) {
     );
 
   return (
-    <div className="overflow-hidden rounded-lg border border-border bg-background">
-      <fieldset className="space-y-2 p-3">
-        <legend className="mb-2 text-xs font-semibold">
-          What should be included?
-        </legend>
+    <div className="mt-2 overflow-hidden rounded-lg border border-border bg-background">
+      <div role="radiogroup" aria-label="What should be included?" className="space-y-2 p-3">
+        <p className="mb-2 text-xs font-semibold">
+          {spaceLabel ? (
+            <>
+              What should be included from{" "}
+              <span className="font-semibold text-primary">{spaceLabel}</span>?
+            </>
+          ) : (
+            "What should be included?"
+          )}
+        </p>
         <label className="flex cursor-pointer items-start gap-2 text-sm">
           <input
             type="radio"
@@ -481,7 +490,7 @@ export function ConfluenceSpaceBrowser({ sourceUrl, scopes, onSelect }: Props) {
             </span>
           </span>
         </label>
-      </fieldset>
+      </div>
 
       {mode === "page" ? (
         <div className="border-t border-border">
@@ -548,6 +557,13 @@ export function ConfluenceSpaceBrowser({ sourceUrl, scopes, onSelect }: Props) {
                       {subtreeError}
                     </p>
                   ) : null}
+                  {normalizedQuery && matchingPageIds.size === 0 ? (
+                    <p className="px-3 py-2 text-center text-xs text-muted-foreground">
+                      No page titles match this search.
+                    </p>
+                  ) : null}
+                  {/* Tree stays mounted (rows fade via renderPage) even with
+                      zero matches, so the search doesn't collapse the section. */}
                   <ul
                     role="tree"
                     aria-multiselectable="true"
@@ -566,6 +582,12 @@ export function ConfluenceSpaceBrowser({ sourceUrl, scopes, onSelect }: Props) {
             </>
           ) : null}
         </div>
+      ) : null}
+
+      {mode === "space" ? (
+        <p className="border-t border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+          All accessible pages in {spaceLabel ?? "this space"} are included.
+        </p>
       ) : null}
 
       {mode === "page" && selectedPages.length ? (
