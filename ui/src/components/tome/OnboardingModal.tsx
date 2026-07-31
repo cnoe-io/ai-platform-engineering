@@ -199,8 +199,8 @@ function WelcomeStep({ name }: { name: string }) {
       </h2>
       <div className="max-w-sm space-y-2 text-sm leading-relaxed text-muted-foreground">
         <p>
-          The agent curates the wiki from your sources, so your team and your
-          coding agents share one living source of truth about the project.
+          The agent drafts the wiki from your sources. Your team and your
+          coding agents shape it from there.
         </p>
         <p className="text-xs text-muted-foreground/80">
           Built for Tiny Teams with Tokens.
