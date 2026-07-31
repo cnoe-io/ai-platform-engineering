@@ -1,3 +1,11 @@
+## 0.5.65-dev.1 (2026-07-30)
+
+### Fix
+
+- **slack-bot**: route messages with file attachments (#2328)
+
+## 0.5.65 (2026-07-30)
+
 ## 0.5.64-dev.1 (2026-07-30)
 
 ### Fix
