@@ -97,23 +97,33 @@ def _template_change_note(
     return "\n".join(lines) + "\n\n"
 
 
-def _format_full_template(pages: list[dict[str, Any]]) -> str:
+def format_full_template(pages: list[dict[str, Any]]) -> str:
     """Render one scope's full template — path/kind/title AND seed body/
     guidance — as prompt text. Unlike `format_pages()` (path/kind/title only),
     this is what the agent actually needs to reproduce an admin's seed content
     verbatim on greenfield, or recognize it (e.g. the SOURCE HINT sourcing
-    guidance) on incremental runs without having to open every page first."""
+    guidance) on incremental runs without having to open every page first.
+
+    Each page is wrapped in a `<page>` tag so the model can tell where one
+    page's template/seed body ends and the next begins — this list is a flat
+    concatenation of every page's own markdown, and without an explicit
+    delimiter a long seed body (e.g. charter.md's multi-section template) can
+    read as bleeding into the next page's header rather than being its own
+    self-contained block."""
     blocks = []
     for spec in pages:
         if spec.get("enabled") is False:
             continue
         body = (spec.get("body") or "").strip()
-        header = f"- `{spec.get('path')}` ({spec.get('kind')}) — {spec.get('title')}"
+        header = f"`{spec.get('path')}` ({spec.get('kind')}) — {spec.get('title')}"
         if body:
-            blocks.append(f"{header}\n  Seed body:\n  ```\n  {body}\n  ```")
+            inner = f"{header}\nSeed body:\n```\n{body}\n```"
         else:
-            blocks.append(header)
-    return "\n".join(blocks)
+            inner = header
+        blocks.append(
+            f'<page path="{spec.get("path")}" kind="{spec.get("kind")}">\n{inner}\n</page>'
+        )
+    return "\n\n".join(blocks)
 
 
 def _build_system_prompt(
@@ -129,7 +139,7 @@ def _build_system_prompt(
     # already calls `set_template_overrides()` before this (stream_ingest),
     # so `full_template_snapshot()` reflects whatever that call fetched.
     full_templates = report_schema.full_template_snapshot()
-    top_level = _format_full_template(full_templates.get(report_schema.SCOPE_TOP_LEVEL, []))
+    top_level = format_full_template(full_templates.get(report_schema.SCOPE_TOP_LEVEL, []))
 
     connector_extras = connector_extras or {}
     connector_blocks: list[str] = []
@@ -229,9 +239,13 @@ never an absolute path, and never another project's directory.
 PROJECT CHARTER (seed context, may be empty):
 {snapshot.charter or "(empty)"}
 
-{steering_block}TOP-LEVEL PAGES (cross-cutting across all sources):
+{steering_block}TOP-LEVEL PAGES (cross-cutting across all sources). Each `<page>`
+below is one page's own template/seed body — treat them as separate,
+self-contained units, not one continuous document:
 
+<top_level_pages>
 {top_level}
+</top_level_pages>
 
 {connector_sections}
 

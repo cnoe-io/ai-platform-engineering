@@ -23,7 +23,7 @@ from uuid import UUID
 from tome_agent import prompts
 from tome_agent.agent import http_client
 from tome_agent.agent.connectors import REGISTRY
-from tome_agent.agent.ingestor import resolve_connector_extras
+from tome_agent.agent.ingestor import format_full_template, resolve_connector_extras
 from tome_agent.agent.loop import (
     build_agent_options,
     project_root,
@@ -51,10 +51,15 @@ def _build_synthesis_system_prompt(
 ) -> str:
     """System prompt for a BHAG or Area synthesis. The loop widens the read
     fence to the child dirs and combines those read-only wikis with direct
-    connector sources."""
-    from tome_agent.agent.connectors.base import format_pages
+    connector sources.
 
-    top_level = format_pages(report_schema.default_pages())
+    Uses the same `format_full_template()` as project-level ingest (not the
+    bare `format_pages()` path/kind/title list) so a BHAG/Area synthesis run
+    sees the actual charter/roadmap section structure and its per-field
+    "if not found, output TBD" guidance too, instead of guessing the
+    expected structure from whatever's already on disk."""
+    full_templates = report_schema.full_template_snapshot()
+    top_level = format_full_template(full_templates.get(report_schema.SCOPE_TOP_LEVEL, []))
     connector_extras = connector_extras or {}
     connector_blocks: list[str] = []
     citation_blocks: list[str] = []
@@ -175,9 +180,13 @@ def _build_synthesis_system_prompt(
 
 {children_block}
 
-TOP-LEVEL PAGES (cross-cutting):
+TOP-LEVEL PAGES (cross-cutting). Each `<page>` below is one page's own
+template/seed body — treat them as separate, self-contained units, not one
+continuous document:
 
+<top_level_pages>
 {top_level}
+</top_level_pages>
 
 DIRECTLY ATTACHED SOURCES:
 
