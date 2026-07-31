@@ -161,9 +161,8 @@ export function ProjectSettingsPanel({
   const [teamSlug, setTeamSlug] = useState("");
   const [initialTeamSlug, setInitialTeamSlug] = useState("");
 
-  // Hierarchy tagging (BHAG → Area → Project). Replaces free-text
-  // initiatives/areas tag inputs — a BHAG has no parent, an Area's parent is
-  // always a BHAG, and a Project cascades BHAG → Area.
+  // Hierarchy tagging (BHAG → Area → Project). A BHAG has no parent, an
+  // Area's parent is always a BHAG, and a Project cascades BHAG → Area.
   const [bhagOptions, setBhagOptions] = useState<{ name: string; slug: string }[]>([]);
   const [areaOptions, setAreaOptions] = useState<{ name: string; slug: string }[]>([]);
   const [selectedBhagName, setSelectedBhagName] = useState<string | null>(null);

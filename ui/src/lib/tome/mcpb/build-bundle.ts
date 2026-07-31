@@ -8,22 +8,14 @@ import { MCP_REMOTE_DEPENDENCIES } from "./mcp-remote-dependencies";
 
 const ICON_SOURCE_PATH = path.join(process.cwd(), "public", "tome-logo.png");
 
-// Deliberately not `require.resolve("<pkg>/package.json")`: some packages in
-// the closure (e.g. bundle-name) declare a restrictive "exports" map that
-// only exposes their main entry file, so resolving their package.json fails
-// even though the package is installed — and more importantly, Turbopack's
-// production build statically analyzes `require.resolve(...)` calls and
-// rewrites them to an internal bundled module reference (breaking at
-// runtime with "path argument must be of type string, received type
-// number") rather than leaving them as real filesystem lookups. Both
-// problems disappear by using plain, bundler-transparent `path.join` from
-// `process.cwd()` (matching how `.next/standalone`'s runner lays out
-// `node_modules` next to the running server — see
-// build/Dockerfile.caipe-ui's WORKDIR /app) instead of any module
-// resolution. This also naturally sweeps up any package's own nested
-// node_modules (see mcp-remote-dependencies.ts's doc comment on
-// version-conflict nesting), since addDirToZip recurses unconditionally
-// into subdirectories.
+// Not `require.resolve("<pkg>/package.json")`: some packages in the closure
+// (e.g. bundle-name) restrict their "exports" map to the main entry file, so
+// resolving package.json fails even though the package is installed.
+// Turbopack's production build also statically rewrites `require.resolve(...)`
+// calls to an internal bundled reference, breaking at runtime. Plain
+// `path.join(process.cwd(), "node_modules")` avoids both, matches
+// `.next/standalone`'s layout, and lets `addDirToZip` recurse into any
+// package's own nested node_modules (see mcp-remote-dependencies.ts).
 const NODE_MODULES_ROOT = path.join(process.cwd(), "node_modules");
 
 function resolvePackageDir(pkg: string): string {

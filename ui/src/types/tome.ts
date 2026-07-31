@@ -2,7 +2,6 @@
  * Shared TypeScript types for Tome — the native caipe-ui wiki app
  * (port of tiny-teams-with-tokens).
  *
- * Design notes (see ui/src/app/(app)/apps/tome/PORT_PLAN.md):
  *  - Tome does NOT own a project entity. It reuses CAIPE `ProjectDocument`
  *    (`@/types/projects`); every row here carries `project_id` (FK → CAIPE
  *    `projects._id`/`slug`).
@@ -39,7 +38,7 @@ export type TomeCollectionName =
   (typeof TOME_COLLECTIONS)[keyof typeof TOME_COLLECTIONS];
 
 // ---------------------------------------------------------------------------
-// Page kind / node kind (port of reports/schema.py)
+// Page kind / node kind
 // ---------------------------------------------------------------------------
 
 /** Page kinds, as declared in each page's YAML frontmatter `kind` field. */

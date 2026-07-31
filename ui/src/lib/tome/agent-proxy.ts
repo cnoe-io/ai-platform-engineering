@@ -30,9 +30,8 @@ export type ForwardedCredentials = Record<string, Record<string, string>>;
 /** Providers we recognize as "tome connectors" — matches MCP slugs on the agent. */
 type Provider = "github" | "atlassian" | "webex";
 
-/** All providers the agent understands. We always resolve all of them — the
- * credential store returns nothing for providers the user hasn't connected,
- * so subsetting by project sources is unnecessary gatekeeping. */
+/** All providers the agent understands; the credential store returns nothing
+ * for providers the user hasn't connected. */
 const ALL_PROVIDERS: Provider[] = ["github", "atlassian", "webex"];
 
 /** Extract the OIDC `sub` from a session for credential lookup; "" if unknown. */

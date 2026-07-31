@@ -1,7 +1,6 @@
 // GET /api/tome/projects/[slug]/engagement — this project's own chat
-// engagement + ingestion/consumption snapshot. Deliberately project-scoped
-// (never rolled up cross-project) per design: engagement stays local to the
-// project's own Tome page, unlike the org-wide admin consumption view.
+// engagement + ingestion/consumption snapshot, project-scoped only (never
+// rolled up cross-project, unlike the org-wide admin consumption view).
 //
 // Read-only + any project reader (same gating as chat/feed-status) — no
 // per-user detail is exposed, just aggregate counts.

@@ -87,13 +87,11 @@ export function ChildProjectsPanel({
   // Children are tagged with the parent's name as an initiative/area label;
   // the list API filters by that dimension (OR within it) and excludes BHAGs.
   //
-  // For a non-editable BHAG view (the synthesis preview), a direct-tag query
-  // alone undercounts: BHAG synthesis actually reads through its Areas too
-  // (mirrors `resolveBhagChildren` server-side), so a project that only tags
-  // an Area — never the BHAG directly — belongs in this list as well. The
-  // editable Settings view for a BHAG stays direct-tag-only on purpose: it's
-  // for adding/removing a project's *direct* (skip-level) tag, not editing
-  // through an Area.
+  // For a non-editable BHAG view (the synthesis preview), also include
+  // projects tagged only to one of the BHAG's Areas (mirrors
+  // `resolveBhagChildren` server-side). The editable Settings view for a
+  // BHAG stays direct-tag-only: it edits a project's direct tag, not its
+  // Area tags.
   const loadTagged = useCallback(async () => {
     setError(null);
     try {

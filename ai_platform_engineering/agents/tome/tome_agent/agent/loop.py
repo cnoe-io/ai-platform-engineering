@@ -36,14 +36,14 @@ WEB_TOOLS = ["WebFetch", "WebSearch"]
 
 def project_base() -> Path:
     """Base dir for per-project working copies inside the (multi-project)
-    container. `TTT_PROJECT_ROOT` is now the BASE, not a single project's dir."""
+    container. `TTT_PROJECT_ROOT` is the BASE, not a single project's dir."""
     return Path(os.environ.get("TTT_PROJECT_ROOT", "/project"))
 
 
 def project_root(project_id: str) -> Path:
     """This request's wiki working copy: `<base>/<project_id>`. Scoping the dir
-    to the request's project is what keeps one project's ingest from writing
-    into another's (the cause of the cfn→tome-smoke bug)."""
+    to the request's project keeps one project's ingest from writing into
+    another's."""
     return project_base() / project_id
 
 

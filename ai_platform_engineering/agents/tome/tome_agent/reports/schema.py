@@ -664,10 +664,8 @@ def default_hidden_paths() -> list[str]:
 
 
 # Pages the founding synthesizer is responsible for filling in on greenfield
-# (overview / team / architecture). These were the original
-# "stable" set; they're now kind=dynamic by default but the static path's
-# greenfield still routes them through the founding synthesizer because that
-# prompt knows how to derive identity content from raw deltas.
+# (overview / team / architecture): its prompt knows how to derive identity
+# content from raw deltas.
 FOUNDING_PATHS: tuple[str, ...] = (
     "overview.md",
     "team.md",

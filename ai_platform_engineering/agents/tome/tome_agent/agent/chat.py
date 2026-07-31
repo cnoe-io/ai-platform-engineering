@@ -251,11 +251,9 @@ async def stream_chat(
 
     # Resume failed before producing anything — almost always a lost/evicted
     # transcript ("No conversation found with session ID"; the SDK's on-disk
-    # session store isn't yet persisted across agent container recreates —
-    # #63). For compact this is the ONLY way a resume can fail before emitting
-    # anything (there's no fresh-session path to fall into), so report it as
-    # what it is instead of the raw ProcessError repr, which buries the real
-    # cause behind a generic "Check stderr output for details".
+    # session store isn't persisted across agent container recreates). For
+    # compact this is the only way a resume can fail before emitting anything,
+    # so report it as such instead of the raw ProcessError repr.
     if is_compact and sdk_session_id and not state["emitted"]:
         log.warning(
             "compact failed to resume session %s (%s) — likely an evicted transcript",

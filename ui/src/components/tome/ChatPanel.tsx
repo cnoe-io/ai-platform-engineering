@@ -267,10 +267,9 @@ export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }:
         onError: (message) => {
           erroredMessage = message;
         },
-        // Deliberately NOT wired to setContextUsage here: the post-compact
-        // snapshot only reflects the compacted transcript, not the wiki system
-        // prompt (rebuilt fresh on the next real turn) — showing it produces a
-        // misleading dip-then-jump. Let the next turn's own snapshot land instead.
+        // Not wired to setContextUsage: the post-compact snapshot reflects
+        // only the compacted transcript, not the wiki system prompt (rebuilt
+        // fresh on the next real turn) — the next turn's own snapshot lands instead.
         onCompact: (data) => {
           boundarySeen = true;
           preTokens = data.pre_tokens ?? null;

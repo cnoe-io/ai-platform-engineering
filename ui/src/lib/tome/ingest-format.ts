@@ -61,11 +61,10 @@ export function formatIngestEvent(ev: IngestEvent): string {
       // Empty = no line.
       return "";
     case "done": {
-      // Deliberately omits a token count: Bedrock-routed runs carry almost all
-      // real token volume in cache_creation/cache_read, which don't sum into a
-      // coherent running total (turns re-read overlapping cached prefixes as
-      // context grows) — see #108. Cost + the exact context-window percentage
-      // (shown live in the header) are the trustworthy signals here.
+      // Omits a token count: Bedrock-routed runs carry most real token volume
+      // in cache_creation/cache_read, which don't sum into a coherent running
+      // total (turns re-read overlapping cached prefixes as context grows).
+      // Cost + the live context-window percentage are the trustworthy signals.
       const cost =
         typeof d.cost_usd === "number" ? `$${d.cost_usd.toFixed(4)}` : "?";
       return `[${t}] ✓ agent finished (subtype=${String(d.subtype ?? "?")}, turns=${String(

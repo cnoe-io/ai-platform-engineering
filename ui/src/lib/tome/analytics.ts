@@ -1,17 +1,14 @@
 /**
  * Tome consumption + engagement analytics.
  *
- * Two distinct surfaces, deliberately kept separate:
+ * Two distinct surfaces:
  *  - "Consumption" (ingestion activity + wiki size) is cross-project and
  *    powers the org-wide TOME Admin analytics tab (`getOrgTomeConsumption`).
- *  - "Engagement" (who's chatting) is per-project only — it stays inside
- *    each project's own Tome page (`getProjectEngagement`), never rolled up
- *    org-wide, so no cross-project user activity list needs to exist.
+ *  - "Engagement" (who's chatting) is per-project only, inside each
+ *    project's own Tome page (`getProjectEngagement`); never rolled up org-wide.
  *
  * Wiki size is measured from `tome_page_revisions.markdown` (the `mongo`
- * PageStore backend inlines bodies there — see lib/tome/page-store.ts). If a
- * future `s3` backend externalizes bodies via `body_ref`, this undercounts;
- * revisit then.
+ * PageStore backend inlines bodies there — see lib/tome/page-store.ts).
  *
  * Server-only.
  */

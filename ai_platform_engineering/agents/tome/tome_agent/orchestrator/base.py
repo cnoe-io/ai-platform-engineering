@@ -11,9 +11,8 @@ how to:
 - expose a typed surface for backend code to drive lifecycle (ensure, status,
   stop, list, health, log tail).
 
-Idle eviction is intentionally absent today — the host platform we eventually
-integrate with will own that policy. Backend just calls `stop()` on project
-deletion or app shutdown.
+Idle eviction is the host platform's responsibility. Backend calls `stop()`
+on project deletion or app shutdown.
 
 Drivers are picked at startup by the `TTT_ORCHESTRATOR` env var. The
 backend never imports a driver directly; it always goes through this ABC.

@@ -329,10 +329,9 @@ export function EdgeGraphDialog({ slug }: { slug: string }) {
                   labelFont: "Inter, system-ui, sans-serif",
                   labelWeight: "600",
                   labelSize: 12,
-                  // Read per-node `labelColor` (set above) instead of one flat
-                  // color — a flat white-in-dark-mode color plus Sigma's
-                  // hover/select state (which draws a white pill behind the
-                  // label) made hovered labels invisible.
+                  // Per-node `labelColor` (set above): Sigma's hover/select
+                  // state draws a white pill behind the label, so a flat
+                  // white-in-dark-mode color makes hovered labels invisible.
                   labelColor: { attribute: "labelColor", color: labelDefault },
                   edgeLabelSize: 10,
                   edgeLabelColor: { color: labelDefault },

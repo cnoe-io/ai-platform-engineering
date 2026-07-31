@@ -1,6 +1,5 @@
 // Approve a draft ingest run: promotes its pages to "live". Editor-gated —
-// same capability as triggering the ingest itself (no reviewer-vs-author
-// separation of duties yet, see TOME #86).
+// same capability as triggering the ingest itself.
 
 import { NextRequest } from "next/server";
 

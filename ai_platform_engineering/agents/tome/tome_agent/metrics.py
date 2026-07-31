@@ -4,10 +4,7 @@ Mirrors the ``dynamic_agents.metrics`` convention (singleton collector class +
 a Starlette ``BaseHTTPMiddleware`` that serves ``/metrics`` and records HTTP
 duration), scaled down to what this single-process agent actually needs.
 
-Metric names use the ``tome_agent_`` prefix. The previous hand-rolled
-exposition used ``ttt_agent_*`` (the module's historical internal name);
-nothing scrapes those names today (no ServiceMonitor exists for tome-agent
-yet — see the OSS repo's metrics feature spec), so renaming is safe.
+Metric names use the ``tome_agent_`` prefix.
 """
 
 from __future__ import annotations
