@@ -256,3 +256,20 @@ export async function getUnlinkedServiceAccount(): Promise<ServiceAccount | null
   const collection = await getCollection<ServiceAccount>("service_accounts");
   return collection.findOne({ is_platform_unlinked: true, status: "active" });
 }
+
+/**
+ * Best-effort lookup of the unlinked SA's `sa_sub`, for callers (e.g. the
+ * dynamic-agents routes) that grant it access to globally-shared agents.
+ * Never throws — returns `null` when the SA isn't bootstrapped yet, MongoDB
+ * is unavailable, or the lookup otherwise fails, so callers can fail open
+ * (skip the grant) instead of blocking the caller's own request.
+ */
+export async function resolveUnlinkedServiceAccountSub(): Promise<string | null> {
+  try {
+    const sa = await getUnlinkedServiceAccount();
+    return sa?.sa_sub ?? null;
+  } catch (error) {
+    console.warn("[unlinked-service-account] failed to resolve sa_sub:", error);
+    return null;
+  }
+}

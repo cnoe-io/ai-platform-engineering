@@ -30,6 +30,7 @@ agentRowPermissionsOrDefault,
 resolveAgentListPermissions,
 } from "@/lib/rbac/resource-authz";
 import { resolveShareableOwnershipWrite } from "@/lib/rbac/shareable-resource";
+import { resolveUnlinkedServiceAccountSub } from "@/lib/rbac/unlinked-service-account";
 import type {
 DynamicAgentConfig,
 DynamicAgentConfigWithPermissions,
@@ -578,6 +579,11 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       updated_at: now.toISOString(),
     };
 
+    // Only resolve the unlinked SA sub when it's actually needed — avoids a
+    // Mongo lookup on every non-global agent create.
+    const unlinkedServiceAccountSub =
+      visibility === "global" ? await resolveUnlinkedServiceAccountSub() : null;
+
     await reconcileAgentRelationships({
       agentId,
       previousAllowedTools: {},
@@ -592,6 +598,9 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       // every member without waiting for the list-time repair in
       // available/route.ts. Fresh create has no previous state to revoke.
       globalUserAccess: visibility === "global",
+      // Also grant the unlinked SA `can_use` so callers with no linked user
+      // identity (Slack/Webex bots) are treated as "everyone" too.
+      unlinkedServiceAccountSub,
     });
 
     try {
@@ -774,6 +783,13 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     const finalAllowedTools = (updateData.allowed_tools ??
       agent.allowed_tools ??
       {}) as Record<string, string[]>;
+    // Resolve the unlinked SA sub whenever the wildcard grant is being
+    // written OR revoked — the delete path needs the exact sub too, so we
+    // can't skip resolution just because the agent is being demoted.
+    const unlinkedServiceAccountSub =
+      finalVisibility === "global" || currentVisibility === "global"
+        ? await resolveUnlinkedServiceAccountSub()
+        : null;
     await reconcileAgentRelationships({
       agentId: id,
       previousAllowedTools: allowedToolsFromAgent(agent),
@@ -792,6 +808,10 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
       // only an exact 'global' match counts as a previous wildcard grant.
       globalUserAccess: finalVisibility === "global",
       previousGlobalUserAccess: currentVisibility === "global",
+      // Keep the unlinked SA's grant in sync with the same promote/demote
+      // transition so callers with no linked user identity gain/lose
+      // access exactly when "everyone" does.
+      unlinkedServiceAccountSub,
     });
 
     const updated = await collection.findOneAndUpdate(
