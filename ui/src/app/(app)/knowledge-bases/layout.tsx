@@ -9,11 +9,10 @@ import {
   knowledgeTabForPath,
 } from "@/components/rag/KnowledgeSidebar";
 import { Button } from "@/components/ui/button";
-import { CAIPESpinner } from "@/components/ui/caipe-spinner";
 import { useRAGHealth } from "@/hooks/use-rag-health";
 import { config } from "@/lib/config";
 import { RefreshCw,WifiOff } from "lucide-react";
-import { usePathname } from "next/navigation";
+import { notFound,usePathname } from "next/navigation";
 import React from "react";
 
 function KnowledgeBasesHeader({
@@ -49,6 +48,7 @@ function KnowledgeBasesLayoutContent({
   const activeTab = knowledgeTabForPath(pathname);
   const activeItem = KNOWLEDGE_NAV_ITEMS.find((item) => item.id === activeTab)
     ?? KNOWLEDGE_NAV_ITEMS[0];
+  const graphAvailable = ragHealth === "connected" && graphRagEnabled;
   const pageDescriptions: Record<string,string> = {
     graph: "Explore entities and relationships across your knowledge sources.",
     ingest: "Ingest and manage the sources available to knowledge retrieval.",
@@ -86,13 +86,8 @@ function KnowledgeBasesLayoutContent({
     );
   }
 
-  // Loading state
-  if (ragHealth === "checking") {
-    return (
-      <div className="flex-1 flex flex-col items-center justify-center bg-background">
-        <CAIPESpinner size="lg" message="Connecting to RAG server..." />
-      </div>
-    );
+  if (activeTab === "graph" && ragHealth === "connected" && !graphRagEnabled) {
+    notFound();
   }
 
   // Connected workspaces share the same responsive rail and contextual header.
@@ -108,9 +103,9 @@ function KnowledgeBasesLayoutContent({
           title={activeItem.label}
         />
       )}
-      navigation={<KnowledgeSidebar graphRagEnabled={graphRagEnabled} />}
+      navigation={<KnowledgeSidebar graphRagEnabled={graphAvailable} />}
       navigationAreaKey="knowledge"
-      navigationVersion={`${activeTab}:${graphRagEnabled}`}
+      navigationVersion={`${activeTab}:${graphAvailable}`}
     >
       {children}
     </WorkspaceShell>

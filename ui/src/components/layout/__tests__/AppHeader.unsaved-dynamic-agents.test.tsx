@@ -14,25 +14,6 @@ jest.mock("next/navigation", () => ({
   usePathname: () => mockPathname,
 }));
 
-jest.mock("next/link", () => ({
-  __esModule: true,
-  default: ({
-    href,
-    children,
-    onClick,
-    className,
-  }: {
-    href: string;
-    children: React.ReactNode;
-    onClick?: (e: React.MouseEvent<HTMLAnchorElement>) => void;
-    className?: string;
-  }) => (
-    <a href={href} onClick={onClick} className={className} data-testid={`link-${href}`}>
-      {children}
-    </a>
-  ),
-}));
-
 jest.mock("@/store/unsaved-changes-store", () => ({
   useUnsavedChangesStore: jest.fn(),
 }));
@@ -57,10 +38,10 @@ describe("GuardedNavigationLink", () => {
       requestNavigation: mockRequestNavigation,
     });
 
-    const { getByTestId } = render(
+    const { getByRole } = render(
       <GuardedNavigationLink href="/chat">Chat</GuardedNavigationLink>,
     );
-    const link = getByTestId("link-/chat");
+    const link = getByRole("link", { name: "Chat" });
 
     const ev = new MouseEvent("click", { bubbles: true, cancelable: true });
     const preventSpy = jest.spyOn(ev, "preventDefault");
@@ -77,10 +58,10 @@ describe("GuardedNavigationLink", () => {
       requestNavigation: mockRequestNavigation,
     });
 
-    const { getByTestId } = render(
+    const { getByRole } = render(
       <GuardedNavigationLink href="/chat">Chat</GuardedNavigationLink>,
     );
-    fireEvent.click(getByTestId("link-/chat"));
+    fireEvent.click(getByRole("link", { name: "Chat" }));
 
     expect(mockRequestNavigation).not.toHaveBeenCalled();
   });
@@ -92,10 +73,10 @@ describe("GuardedNavigationLink", () => {
       requestNavigation: mockRequestNavigation,
     });
 
-    const { getByTestId } = render(
+    const { getByRole } = render(
       <GuardedNavigationLink href="/chat">Chat</GuardedNavigationLink>,
     );
-    fireEvent.click(getByTestId("link-/chat"));
+    fireEvent.click(getByRole("link", { name: "Chat" }));
 
     expect(mockRequestNavigation).not.toHaveBeenCalled();
   });
@@ -107,10 +88,10 @@ describe("GuardedNavigationLink", () => {
       requestNavigation: mockRequestNavigation,
     });
 
-    const { getByTestId } = render(
+    const { getByRole } = render(
       <GuardedNavigationLink href="/chat">Chat</GuardedNavigationLink>,
     );
-    const link = getByTestId("link-/chat");
+    const link = getByRole("link", { name: "Chat" });
 
     const ev = new MouseEvent("click", { bubbles: true, cancelable: true });
     const preventSpy = jest.spyOn(ev, "preventDefault");
@@ -127,10 +108,10 @@ describe("GuardedNavigationLink", () => {
       requestNavigation: mockRequestNavigation,
     });
 
-    const { getByTestId } = render(
+    const { getByRole } = render(
       <GuardedNavigationLink href="/dynamic-agents">Self</GuardedNavigationLink>
     );
-    fireEvent.click(getByTestId("link-/dynamic-agents"));
+    fireEvent.click(getByRole("link", { name: "Self" }));
 
     expect(mockRequestNavigation).not.toHaveBeenCalled();
   });

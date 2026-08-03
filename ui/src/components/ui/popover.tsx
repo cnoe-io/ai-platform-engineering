@@ -275,11 +275,23 @@ export function PopoverContent({
     const onChange = () => computeCoords();
     window.addEventListener("resize", onChange);
     window.addEventListener("scroll", onChange, true);
+
+    // Popover contents can grow after opening (for example, once permission-
+    // gated navigation finishes loading). Recompute from the final dimensions
+    // so every consumer gets the same viewport-aware placement without having
+    // to predict its content height or implement its own flyout logic.
+    const resizeObserver = typeof ResizeObserver === "undefined"
+      ? null
+      : new ResizeObserver(onChange);
+    if (contentRef.current) resizeObserver?.observe(contentRef.current);
+    if (triggerRef.current) resizeObserver?.observe(triggerRef.current);
+
     return () => {
       window.removeEventListener("resize", onChange);
       window.removeEventListener("scroll", onChange, true);
+      resizeObserver?.disconnect();
     };
-  }, [open, computeCoords]);
+  }, [open,computeCoords,triggerRef]);
 
   React.useEffect(() => {
     if (!open) return;

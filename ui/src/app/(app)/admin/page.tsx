@@ -56,6 +56,8 @@ import { AdminCredentialManagementPanel } from "@/components/credentials/AdminCr
 import { WorkspacePageHeader } from "@/components/layout/WorkspacePageHeader";
 import { WorkspaceShell } from "@/components/layout/WorkspaceShell";
 import { PlatformAccessSettings } from "@/components/settings/sections/PlatformAccessSettings";
+import { PlatformAnnouncementsSettings } from "@/components/settings/sections/PlatformAnnouncementsSettings";
+import { PlatformDefaultsSettings } from "@/components/settings/sections/PlatformDefaultsSettings";
 import { Button } from "@/components/ui/button";
 import { CAIPESpinner } from "@/components/ui/caipe-spinner";
 import { Card,CardContent,CardDescription,CardHeader,CardTitle } from "@/components/ui/card";
@@ -74,6 +76,7 @@ import { useAdminStatsSections } from "@/hooks/use-admin-stats-sections";
 import { useUrlFilterParams } from "@/hooks/use-url-filter-params";
 import { useAdminTabGates,type AdminTabGateSimulationTarget } from "@/hooks/useAdminTabGates";
 import { getConfig } from "@/lib/config";
+import { navigateDocument } from "@/lib/document-navigation";
 import { withAdminSimulationParams } from "@/lib/rbac/admin-simulation-query";
 import { cn } from "@/lib/utils";
 import type { SkillMetricsAdmin } from "@/types/agent-skill";
@@ -711,8 +714,8 @@ function AdminPage() {
     params.set('dateRange', 'custom');
     params.set('from', range.from);
     params.set('to', range.to);
-    router.push(`/admin/insights/feedback?${params.toString()}`, { scroll: false });
-  }, [router, searchParams]);
+    navigateDocument(`/admin/insights/feedback?${params.toString()}`);
+  }, [searchParams]);
 
   // Helper to sync shared filters to URL
   const updateSharedFilterUrl = (overrides: Record<string, string | null> = {}) => {
@@ -1638,6 +1641,18 @@ function AdminPage() {
                     This account has no Admin areas or connected Slack/Webex resources available.
                   </p>
                 </div>
+              )}
+
+              {tabGateValues.platform_settings && (
+                <TabsContent value="defaults" className="space-y-4">
+                  <PlatformDefaultsSettings readOnly={isSimulationActive} />
+                </TabsContent>
+              )}
+
+              {tabGateValues.platform_settings && (
+                <TabsContent value="announcements" className="space-y-4">
+                  <PlatformAnnouncementsSettings readOnly={isSimulationActive} />
+                </TabsContent>
               )}
 
               {tabGateValues.platform_settings && (

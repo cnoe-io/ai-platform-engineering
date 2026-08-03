@@ -11,10 +11,10 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 const mockCreateConversation = jest.fn();
 const mockSetPendingMessage = jest.fn();
-const mockRouterPush = jest.fn();
+const mockNavigateDocument = jest.fn();
 
-jest.mock("next/navigation", () => ({
-  useRouter: () => ({ push: mockRouterPush }),
+jest.mock("@/lib/document-navigation", () => ({
+  navigateDocument: (href: string) => mockNavigateDocument(href),
 }));
 
 jest.mock("@/components/auth-guard", () => ({
@@ -419,7 +419,7 @@ describe("SchedulesPage", () => {
     expect(mockSetPendingMessage).toHaveBeenCalledWith(
       expect.stringContaining("edit_agent_id: agent-schedule-editor")
     );
-    expect(mockRouterPush).toHaveBeenCalledWith("/chat/conversation-1");
+    expect(mockNavigateDocument).toHaveBeenCalledWith("/chat/conversation-1");
   });
 
   it("uses the MongoDB scheduler editor agent when no schedule-specific agent is set", async () => {
@@ -483,7 +483,7 @@ describe("SchedulesPage", () => {
       "/api/admin/platform-config",
       { cache: "no-store" },
     );
-    expect(mockRouterPush).toHaveBeenCalledWith("/chat/conversation-1");
+    expect(mockNavigateDocument).toHaveBeenCalledWith("/chat/conversation-1");
   });
 
   it("asks for confirmation before deleting a schedule", async () => {

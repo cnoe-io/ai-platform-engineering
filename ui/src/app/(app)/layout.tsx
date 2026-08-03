@@ -7,7 +7,6 @@ import {
 } from "@/components/layout/ApplicationNavigation";
 import { ApplicationNavigationProvider } from "@/components/layout/ApplicationNavigationContext";
 import { LiveStreamBanner } from "@/components/layout/LiveStreamBanner";
-import { SettingsDialogProvider } from "@/components/settings/SettingsDialogProvider";
 import { useUserInit } from "@/hooks/use-user-init";
 import React from "react";
 
@@ -20,20 +19,18 @@ export default function AppLayout({
   useUserInit();
   
   return (
-    <SettingsDialogProvider>
-      <ApplicationNavigationProvider>
-        <div className="flex h-screen bg-background noise-overlay">
-          <ApplicationNavigationRail />
-          <div className="flex min-w-0 flex-1 flex-col">
-            <AppHeader />
-            <LiveStreamBanner />
-            <div className="flex min-h-0 flex-1 flex-col">
-              {children}
-            </div>
+    <ApplicationNavigationProvider>
+      <div className="flex h-screen bg-background noise-overlay">
+        <ApplicationNavigationRail />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <AppHeader />
+          <LiveStreamBanner />
+          <div className="flex min-h-0 flex-1 flex-col">
+            {children}
           </div>
-          <ApplicationNavigationDrawer />
         </div>
-      </ApplicationNavigationProvider>
-    </SettingsDialogProvider>
+        <ApplicationNavigationDrawer />
+      </div>
+    </ApplicationNavigationProvider>
   );
 }

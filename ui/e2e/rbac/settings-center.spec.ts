@@ -211,84 +211,65 @@ async function switchThumbIsInsideTrack(toggle: Locator): Promise<boolean> {
 
 async function openSettings(
   page: Page,
-  section?: "Appearance" | "Chat & agents" | "Notifications" | "Defaults" | "Announcements",
+  section: "Appearance" | "Chat & agents" | "Notifications" = "Chat & agents",
 ): Promise<Locator> {
-  const settingsTrigger = page.getByRole("button",{
-    exact: true,
-    name: "Appearance settings",
-  });
-
-  // DOMContentLoaded can fire while React is still hydrating the server-rendered
-  // header. Waiting for the persisted theme label proves SettingsPanel's client
-  // effect has completed, so Playwright does not chase a trigger being replaced
-  // during hydration.
-  await expect(settingsTrigger).toContainText("Dark");
-  await settingsTrigger.click();
-  const dialog = page.getByRole("dialog",{ name: "Settings" });
-  await expect(dialog).toBeVisible();
-  const requestedSection = section ?? "Chat & agents";
-  if (requestedSection !== "Appearance") {
-    const routeId = {
-      "Announcements": "announcements",
-      "Chat & agents": "chat",
-      "Defaults": "defaults",
-      "Notifications": "notifications",
-    }[requestedSection];
-    const navigationButton = dialog.getByRole("button",{
-      exact: true,
-      name: requestedSection,
-    });
-    if (await navigationButton.isVisible()) {
-      await navigationButton.click();
-    } else {
-      await dialog.getByLabel("Settings section",{ exact: true }).selectOption(routeId);
-    }
-  }
-  return dialog;
+  const route = {
+    Appearance: "/settings/appearance",
+    "Chat & agents": "/settings/chat-and-agents",
+    Notifications: "/settings/notifications",
+  }[section];
+  await page.goto(route,{ waitUntil: "domcontentloaded" });
+  await expect(page).toHaveURL(route);
+  const main = page.getByRole("main");
+  await expect(main.getByRole("heading",{ level: 1,name: section })).toBeVisible();
+  return main;
 }
 
-test.describe("mocked Settings dialog browser regression",() => {
+test.describe("mocked routed Settings browser regression",() => {
   test.beforeEach(() => {
     test.skip(
       !mockedRbacEnabled(),
-      "Set RUN_RBAC_REGRESSION=1 to run the mocked Settings dialog regression.",
+      "Set RUN_RBAC_REGRESSION=1 to run the mocked routed Settings regression.",
     );
   });
 
-  test("opens in context at Chat & agents and returns to the same page",async ({ page }) => {
+  test("opens Appearance from the header without hydration errors or a duplicate dialog",async ({ page }) => {
     const state = createState();
     await installSettingsCenterMocks(page,state);
+    const renderingErrors: string[] = [];
+    page.on("console",(message) => {
+      if (message.type() === "error") renderingErrors.push(message.text());
+    });
+    page.on("pageerror",(error) => renderingErrors.push(error.message));
     await page.goto("/",{ waitUntil: "domcontentloaded" });
 
-    const dialog = await openSettings(page);
+    const shortcut = page.getByRole("link",{ exact: true,name: "Appearance settings" });
+    await expect(shortcut).toHaveAttribute("href","/settings/appearance");
+    await shortcut.click();
 
-    await expect(page).toHaveURL(/\/$/);
-    await expect(dialog.getByRole("heading",{ name: "Settings" })).toBeVisible();
-    await expect(dialog.getByRole("heading",{ level: 2,name: "Chat & agents" })).toBeVisible();
-    await expect(
-      dialog.getByRole("region",{ name: "Chat & agents" }).getByText("Personal",{ exact: true }),
-    ).toBeVisible();
-    await expect(dialog.getByRole("button",{ name: "Chat & agents" })).toHaveAttribute(
+    await expect(page).toHaveURL("/settings/appearance");
+    await expect(page.getByRole("heading",{ level: 1,name: "Appearance" })).toBeVisible();
+    const navigation = page.getByRole("navigation",{ name: "Settings sections" });
+    await expect(navigation.getByRole("link",{ name: "Appearance" })).toHaveAttribute(
       "aria-current",
       "page",
     );
-
-    await dialog.getByRole("button",{ name: "Close" }).click();
-    await expect(dialog).toBeHidden();
-    await expect(page).toHaveURL(/\/$/);
-    await expect(page.getByRole("link",{ name: "Home",exact: true })).toHaveAttribute(
-      "aria-current",
-      "page",
+    await expect(navigation.getByRole("link",{ name: "Chat & agents" })).toHaveAttribute(
+      "href",
+      "/settings/chat-and-agents",
     );
+    await expect(page.getByRole("dialog",{ name: "Settings" })).toHaveCount(0);
+    expect(
+      renderingErrors.filter((message) => /hydration|script tag while rendering/i.test(message)),
+    ).toEqual([]);
   });
 
   test("shows preference explanations on hover without a dead documentation link",async ({ page }) => {
     const state = createState();
     await installSettingsCenterMocks(page,state);
-    await page.goto("/",{ waitUntil: "domcontentloaded" });
-    const dialog = await openSettings(page);
+    const settings = await openSettings(page);
 
-    await dialog.getByRole("button",{ name: "More about Cross-Thread Memory" }).hover();
+    await settings.getByRole("button",{ name: "More about Cross-Thread Memory" }).hover();
 
     await expect(page.getByRole("tooltip")).toContainText(
       "the assistant extracts and recalls facts about you",
@@ -300,56 +281,59 @@ test.describe("mocked Settings dialog browser regression",() => {
     const state = createState();
     state.failNextSettingsPreferenceWrite = true;
     await installSettingsCenterMocks(page,state);
-    await page.goto("/",{ waitUntil: "domcontentloaded" });
-    let dialog = await openSettings(page,"Notifications");
+    let settings = await openSettings(page,"Notifications");
 
-    let toggle = dialog.getByRole("switch",{ name: "Notify me about new releases" });
+    let toggle = settings.getByRole("switch",{ name: "Notify me about new releases" });
     await expect.poll(() => switchThumbIsInsideTrack(toggle)).toBe(true);
     await toggle.click();
 
-    await expect(dialog.getByRole("alert")).toContainText("Preference service unavailable");
+    await expect(settings.getByRole("alert")).toContainText("Preference service unavailable");
     await expect(toggle).toHaveAttribute("aria-checked","true");
     await expect.poll(() => switchThumbIsInsideTrack(toggle)).toBe(true);
     await expect.poll(() => state.settingsPreferenceWrites).toEqual([
       { releaseNotesNotificationsEnabled: false },
     ]);
 
-    await dialog.getByRole("button",{ name: "Retry" }).click();
+    await settings.getByRole("button",{ name: "Retry" }).click();
     await expect(toggle).toHaveAttribute("aria-checked","false");
     await expect.poll(() => switchThumbIsInsideTrack(toggle)).toBe(true);
-    await expect(dialog.getByText("Saved",{ exact: true })).toBeVisible();
+    await expect(settings.getByText("Saved",{ exact: true })).toBeVisible();
 
     await page.reload({ waitUntil: "domcontentloaded" });
-    dialog = await openSettings(page,"Notifications");
-    toggle = dialog.getByRole("switch",{ name: "Notify me about new releases" });
+    settings = page.getByRole("main");
+    await expect(settings.getByRole("heading",{ level: 1,name: "Notifications" })).toBeVisible();
+    toggle = settings.getByRole("switch",{ name: "Notify me about new releases" });
     await expect(toggle).toHaveAttribute("aria-checked","false");
   });
 
   test("auto-saves each personal default-agent surface independently",async ({ page }) => {
     const state = createState();
     await installSettingsCenterMocks(page,state);
-    await page.goto("/",{ waitUntil: "domcontentloaded" });
-    const dialog = await openSettings(page);
+    const settings = await openSettings(page);
 
-    await dialog.getByRole("button",{ name: "Web default agent" }).click();
+    await settings.getByRole("button",{ name: "Web default agent" }).click();
     await page.getByRole("option",{ name: "Incident Response" }).click();
 
     await expect.poll(() => state.userPreferenceWrites).toEqual([
       { web_default_agent_id: "incident-response" },
     ]);
-    await expect(dialog.getByRole("button",{ name: "Web default agent" })).toContainText("Incident Response");
-    await expect(dialog.getByRole("button",{ name: "Slack default agent" })).toContainText("Use platform default");
-    await expect(dialog.getByRole("button",{ name: /^save$/i })).toHaveCount(0);
+    await expect(settings.getByRole("button",{ name: "Web default agent" })).toContainText("Incident Response");
+    await expect(settings.getByRole("button",{ name: "Slack default agent" })).toContainText("Use platform default");
+    await expect(settings.getByRole("button",{ name: /^save$/i })).toHaveCount(0);
   });
 
   test("requires consequence confirmation before changing a platform default",async ({ page }) => {
     const state = createState();
     await installSettingsCenterMocks(page,state,true);
-    await page.goto("/",{ waitUntil: "domcontentloaded" });
-    const settingsDialog = await openSettings(page,"Defaults");
+    await page.goto("/admin/configuration/defaults",{ waitUntil: "domcontentloaded" });
+    const defaults = page.getByRole("main");
 
-    await expect(settingsDialog.getByText("Platform · Admins")).toBeVisible();
-    await settingsDialog.getByRole("button",{ name: "Platform default agent for new chats" }).click();
+    await expect(defaults.getByRole("heading",{ level: 1,name: "Defaults" })).toBeVisible();
+    await expect(defaults.getByRole("link",{ name: "Platform configuration" })).toHaveAttribute(
+      "href",
+      "/admin/configuration/defaults",
+    );
+    await defaults.getByRole("button",{ name: "Platform default agent for new chats" }).click();
     await page.getByRole("option",{ name: "Incident Response" }).click();
 
     const confirmation = page.getByRole("dialog",{
@@ -364,21 +348,7 @@ test.describe("mocked Settings dialog browser regression",() => {
       acknowledge_public_access: true,
       default_agent_id: "incident-response",
     }]);
-    await expect(settingsDialog.getByText("Saved",{ exact: true })).toBeVisible();
-  });
-
-  test("uses the compact section chooser on a mobile viewport",async ({ page }) => {
-    const state = createState();
-    await page.setViewportSize({ height: 844,width: 390 });
-    await installSettingsCenterMocks(page,state,true);
-    await page.goto("/",{ waitUntil: "domcontentloaded" });
-    const dialog = await openSettings(page);
-
-    const sectionPicker = dialog.getByLabel("Settings section",{ exact: true });
-    await expect(sectionPicker).toBeVisible();
-    await sectionPicker.selectOption("notifications");
-    await expect(dialog.getByRole("heading",{ level: 2,name: "Notifications" })).toBeVisible();
-    await expect(page).toHaveURL(/\/$/);
+    await expect(defaults.getByText("Saved",{ exact: true })).toBeVisible();
   });
 
 });

@@ -94,9 +94,9 @@ describe('CapabilityCards', () => {
       expect(screen.getByTestId('capability-card-workflows')).toHaveAttribute('href', '/workflows')
     })
 
-    it('Knowledge Bases card links to /knowledge-bases', () => {
+    it('Knowledge Bases card links to the canonical Search page', () => {
       render(<CapabilityCards ragEnabled={true} />)
-      expect(screen.getByTestId('capability-card-knowledge-bases')).toHaveAttribute('href', '/knowledge-bases')
+      expect(screen.getByTestId('capability-card-knowledge-bases')).toHaveAttribute('href', '/knowledge-bases/search')
     })
 
     it('renders Chat card title and description', () => {

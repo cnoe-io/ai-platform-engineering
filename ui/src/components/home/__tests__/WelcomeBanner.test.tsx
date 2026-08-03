@@ -13,7 +13,7 @@
  */
 
 import React from 'react'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 
 // ============================================================================
 // Mocks
@@ -64,23 +64,12 @@ describe('WelcomeBanner', () => {
     expect(screen.getByTestId('welcome-banner')).toBeInTheDocument()
   })
 
-  it('tracks pointer movement anywhere in the viewport without snapping on blur', () => {
+  it('uses the breathing gradient without pointer-position overrides', () => {
     render(<WelcomeBanner userName="Test" />)
     const banner = screen.getByTestId('welcome-banner')
-    const originalWidth = window.innerWidth
-    const originalHeight = window.innerHeight
-    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 200 })
-    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 100 })
-
-    fireEvent(window,new MouseEvent('pointermove', { clientX: 150, clientY: 25 }))
-    expect(banner.style.getPropertyValue('--welcome-pointer-x')).toBe('75.0%')
-    expect(banner.style.getPropertyValue('--welcome-pointer-y')).toBe('25.0%')
-
-    fireEvent.blur(window)
-    expect(banner.style.getPropertyValue('--welcome-pointer-x')).toBe('75.0%')
-    expect(banner.style.getPropertyValue('--welcome-pointer-y')).toBe('25.0%')
-    Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth })
-    Object.defineProperty(window, 'innerHeight', { configurable: true, value: originalHeight })
+    expect(banner).toHaveClass('welcome-banner')
+    expect(banner.style.getPropertyValue('--welcome-pointer-x')).toBe('')
+    expect(banner.style.getPropertyValue('--welcome-pointer-y')).toBe('')
   })
 
   it('renders the sparkles icon', () => {

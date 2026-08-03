@@ -2,7 +2,6 @@
 
 import type { ChangelogRelease } from "@/app/api/changelog/route";
 import { Button } from "@/components/ui/button";
-import { useSettingsDialog } from "@/components/settings/SettingsDialogProvider";
 import {
   Dialog,
   DialogContent,
@@ -13,10 +12,10 @@ import {
 import { config } from "@/lib/config";
 import { cn } from "@/lib/utils";
 import { AnimatePresence,motion } from "framer-motion";
-import { ChevronDown,ChevronRight,ExternalLink,Info,Lightbulb,Loader2,LogIn,LogOut,Settings,Shield,Tag } from "lucide-react";
+import { ChevronDown,ChevronRight,ExternalLink,Info,Lightbulb,Loader2,LogIn,LogOut,Shield,Tag } from "lucide-react";
 import { signIn,signOut,useSession } from "next-auth/react";
 import Image from "next/image";
-import Link from "next/link";
+import { DocumentNavigationLink } from "@/components/layout/DocumentNavigationLink";
 import { useCallback,useEffect,useRef,useState } from "react";
 
 const CHANGELOG_URL = "https://github.com/cnoe-io/ai-platform-engineering/blob/main/CHANGELOG.md";
@@ -28,7 +27,6 @@ export function UserMenu(): React.ReactElement | null {
   const [releases,setReleases] = useState<ChangelogRelease[]>([]);
   const [changelogLoading,setChangelogLoading] = useState(false);
   const [changelogError,setChangelogError] = useState<string | null>(null);
-  const { openSettings } = useSettingsDialog();
   const changelogFetched = useRef(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -170,30 +168,16 @@ export function UserMenu(): React.ReactElement | null {
               </div>
             </div>
 
-            <div className="border-b border-border">
-              <button
-                className="flex w-full items-center justify-between px-4 py-2 text-xs font-medium transition-colors hover:bg-muted/50"
-                onClick={() => {
-                  setOpen(false);
-                  openSettings("chat");
-                }}
-                type="button"
-              >
-                <span className="flex items-center gap-2"><Settings className="h-3.5 w-3.5" />Settings</span>
-                <ChevronRight className="h-3.5 w-3.5" />
-              </button>
-            </div>
-
             {config.mongodbEnabled ? (
               <div className="border-b border-border">
-                <Link
+                <DocumentNavigationLink
                   className="flex w-full items-center justify-between px-4 py-2 text-xs font-medium transition-colors hover:bg-muted/50"
                   href="/insights"
                   onClick={() => setOpen(false)}
                 >
                   <span className="flex items-center gap-2"><Lightbulb className="h-3.5 w-3.5" />Personal Insights</span>
                   <ChevronRight className="h-3.5 w-3.5" />
-                </Link>
+                </DocumentNavigationLink>
               </div>
             ) : null}
 

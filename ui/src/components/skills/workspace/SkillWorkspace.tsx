@@ -59,6 +59,7 @@ TabsTrigger,
 } from "@/components/ui/tabs";
 import { useToast } from "@/components/ui/toast";
 import { getConfig } from "@/lib/config";
+import { navigateDocument } from "@/lib/document-navigation";
 import { cn } from "@/lib/utils";
 
 import { buildBlockingMessage,buildLastReview,useAiReview } from "@/components/ai-review";
@@ -328,8 +329,8 @@ export function SkillWorkspace({
       form.guardedClose();
       return;
     }
-    router.push(backHref);
-  }, [form, router, backHref, trackDirty]);
+    navigateDocument(backHref);
+  }, [form,backHref,trackDirty]);
 
   // Confirm + navigate. Prefer the pending external href (application-navigation click)
   // over `backHref` — when the user clicks "Chat" in the global header and
@@ -343,17 +344,11 @@ export function SkillWorkspace({
       : null;
     const target = externalHref || backHref;
     // External hrefs may belong to entirely different route trees, so we
-    // use `window.location.assign` for those (matches how `TaskBuilderCanvas`
-    // handles the same handshake) and stick with `router.push` for our own
-    // back-href.
-    if (externalHref) {
-      window.location.href = target;
-    } else {
-      router.push(target);
-    }
+    // Leaving the workspace is a document navigation whether the target came
+    // from application navigation or the workspace Back action.
+    navigateDocument(target);
   }, [
     form,
-    router,
     backHref,
     pendingNavigationHref,
     confirmNavigation,

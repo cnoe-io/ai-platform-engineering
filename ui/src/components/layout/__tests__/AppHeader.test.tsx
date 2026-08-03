@@ -21,6 +21,7 @@ import {
   render as testingRender,
   screen,
   fireEvent,
+  within,
   type RenderOptions,
   type RenderResult,
 } from '@testing-library/react'
@@ -53,6 +54,11 @@ jest.mock('next/navigation', () => ({
     refresh: jest.fn(),
     prefetch: jest.fn(),
   }),
+}))
+
+const mockNavigateDocument = jest.fn()
+jest.mock('@/lib/document-navigation', () => ({
+  navigateDocument: (href: string) => mockNavigateDocument(href),
 }))
 
 // Mock admin role hook
@@ -412,6 +418,23 @@ function render(
   }
 }
 
+function applicationNavigation(): HTMLElement {
+  return screen.getByRole('navigation', { name: 'Application navigation' })
+}
+
+function applicationLink(name: string): HTMLElement {
+  const navigation = within(applicationNavigation())
+  const link = navigation.queryByRole('link', { name, exact: true })
+    ?? navigation.getAllByRole('link')
+    .find((candidate) => candidate.textContent?.includes(name))
+  if (!link) throw new Error(`Application link not found: ${name}`)
+  return link
+}
+
+function applicationButton(name: string): HTMLElement {
+  return within(applicationNavigation()).getByRole('button', { name, exact: true })
+}
+
 // ============================================================================
 // Tests
 // ============================================================================
@@ -426,6 +449,7 @@ beforeEach(() => {
     isLoading: false,
   }
   mockRouterPush.mockReset()
+  mockNavigateDocument.mockReset()
   popoverOpenProps.length = 0
   lastPopoverState = { open: false }
 })
@@ -458,23 +482,24 @@ describe('AppHeader — application chrome', () => {
     it('does NOT show Personal Insights in the application rail even with MongoDB', () => {
       render(<AppHeader />)
       // Insights was moved to user menu — it should NOT be a tab
-      const navLinks = screen.queryAllByTestId(/^link-/)
-      const insightsLink = navLinks.find(el => el.getAttribute('href') === '/insights')
-      expect(insightsLink).toBeUndefined()
+      expect(
+        within(applicationNavigation()).queryByRole('link', { name: 'Personal Insights' }),
+      ).not.toBeInTheDocument()
     })
 
     it('does NOT show Personal Insights text in nav with authenticated user + mongodb', () => {
       render(<AppHeader />)
       // The text "Personal Insights" should NOT appear as a navigation tab
       // (UserMenu is mocked out, so it won't appear from there either)
-      expect(screen.queryByTestId('link-/insights')).not.toBeInTheDocument()
+      expect(
+        within(applicationNavigation()).queryByText('Personal Insights'),
+      ).not.toBeInTheDocument()
     })
   })
 
   describe('Home tab', () => {
     function getHomeNavPill() {
-      const homeLinks = screen.getAllByTestId('link-/')
-      return homeLinks.find(el => el.textContent?.includes('Home'))!
+      return applicationLink('Home')
     }
 
     it('shows Home tab', () => {
@@ -509,7 +534,7 @@ describe('AppHeader — application chrome', () => {
     it('always shows Skills and Chat tabs', () => {
       render(<AppHeader />)
       expect(screen.getByText('Skills')).toBeInTheDocument()
-      expect(screen.getByTestId('link-/chat')).toHaveTextContent('Chat')
+      expect(applicationLink('Chat')).toHaveTextContent('Chat')
     })
 
     it('keeps global destinations in the rail and discloses active section navigation', () => {
@@ -529,15 +554,15 @@ describe('AppHeader — application chrome', () => {
         screen.getByRole('navigation', { name: 'Application navigation' }),
       ).toBeInTheDocument()
       expect(screen.getByText('Home')).toBeInTheDocument()
-      expect(screen.getByTestId('link-/chat')).toHaveTextContent('Chat')
+      expect(applicationLink('Chat')).toHaveTextContent('Chat')
       expect(screen.getByText('Skills')).toBeInTheDocument()
-      expect(screen.getByTestId('link-/dynamic-agents')).toBeInTheDocument()
-      expect(screen.getByTestId('link-/admin')).toBeInTheDocument()
+      expect(applicationButton('Agents')).toBeInTheDocument()
+      const admin = applicationButton('Admin')
+      expect(admin).toHaveAttribute('aria-expanded', 'true')
       expect(screen.getByRole('navigation', { name: 'Admin sections' })).toBeInTheDocument()
-      const disclosure = screen.getByRole('button', { name: 'Hide Admin sections' })
-      fireEvent.click(disclosure)
+      fireEvent.click(admin)
       expect(screen.queryByRole('navigation', { name: 'Admin sections' })).not.toBeInTheDocument()
-      fireEvent.click(screen.getByRole('button', { name: 'Show Admin sections' }))
+      fireEvent.click(admin)
       expect(screen.getByRole('navigation', { name: 'Admin sections' })).toBeInTheDocument()
       expect(screen.getByRole('button', { name: /system status: healthy/i })).toHaveClass('w-8')
       expect(screen.getByText('Report a Problem')).toBeInTheDocument()
@@ -552,7 +577,7 @@ describe('AppHeader — application chrome', () => {
       render(<AppHeader />)
       fireEvent.click(screen.getByRole('button', { name: 'Collapse sidebar' }))
 
-      const chat = screen.getByTestId('link-/chat')
+      const chat = applicationLink('Chat')
       const knowledge = screen.getByRole('button', { name: 'Knowledge Bases' })
       const agents = screen.getByRole('button', { name: 'Agents' })
       const credentials = screen.getByRole('button', { name: 'Credentials' })
@@ -571,14 +596,14 @@ describe('AppHeader — application chrome', () => {
     it('shows Skills as active on /skills', () => {
       mockPathname = '/skills'
       render(<AppHeader />)
-      const link = screen.getByTestId('link-/skills')
+      const link = applicationLink('Skills')
       expect(link).toHaveAttribute('aria-current', 'page')
     })
 
     it('shows Chat as active on /chat', () => {
       mockPathname = '/chat'
       render(<AppHeader />)
-      const link = screen.getByTestId('link-/chat')
+      const link = applicationLink('Chat')
       expect(link).toHaveAttribute('aria-current', 'page')
     })
 
@@ -598,8 +623,7 @@ describe('AppHeader — application chrome', () => {
 
       render(<AppHeader />)
 
-      expect(screen.getByTestId('link-/dynamic-agents')).toBeInTheDocument()
-      expect(screen.getByTestId('link-/dynamic-agents')).toHaveTextContent('Agents')
+      expect(applicationButton('Agents')).toHaveTextContent('Agents')
     })
   })
 
@@ -621,21 +645,23 @@ describe('AppHeader — application chrome', () => {
       mockSession.status = 'unauthenticated'
       mockSession.data = null
       render(<AppHeader />)
-      expect(screen.queryByTestId('link-/admin')).not.toBeInTheDocument()
+      expect(
+        within(applicationNavigation()).queryByText('Admin'),
+      ).not.toBeInTheDocument()
     })
 
     it('Admin tab is clickable when MongoDB is configured (admin user)', () => {
       mockIsAdmin = true
       mockStorageMode = 'mongodb'
       render(<AppHeader />)
-      expect(screen.getByTestId('link-/admin')).toBeInTheDocument()
+      expect(applicationButton('Admin')).toBeInTheDocument()
     })
 
     it('Admin tab is clickable when MongoDB is configured (non-admin user)', () => {
       mockIsAdmin = false
       mockStorageMode = 'mongodb'
       render(<AppHeader />)
-      expect(screen.getByTestId('link-/admin')).toBeInTheDocument()
+      expect(applicationButton('Admin')).toBeInTheDocument()
     })
 
     it('Admin tab is disabled when MongoDB is not configured', () => {
@@ -643,7 +669,9 @@ describe('AppHeader — application chrome', () => {
       mockStorageMode = 'localStorage'
       render(<AppHeader />)
       expect(screen.getByText('Admin')).toBeInTheDocument()
-      expect(screen.queryByTestId('link-/admin')).not.toBeInTheDocument()
+      expect(
+        within(applicationNavigation()).getByRole('link', { name: 'Admin: unavailable' }),
+      ).toHaveAttribute('aria-disabled', 'true')
     })
 
     it('marks Admin as current on a nested Admin route for an admin user', () => {
@@ -651,8 +679,7 @@ describe('AppHeader — application chrome', () => {
       mockPathname = '/admin/security/ai-review'
       mockStorageMode = 'mongodb'
       render(<AppHeader />)
-      const link = screen.getByTestId('link-/admin')
-      expect(link).toHaveAttribute('aria-current', 'page')
+      expect(applicationButton('Admin')).toHaveAttribute('aria-current', 'page')
     })
 
     it('marks Admin as current on a nested Admin route for a read-only user', () => {
@@ -660,8 +687,7 @@ describe('AppHeader — application chrome', () => {
       mockPathname = '/admin/people/users'
       mockStorageMode = 'mongodb'
       render(<AppHeader />)
-      const link = screen.getByTestId('link-/admin')
-      expect(link).toHaveAttribute('aria-current', 'page')
+      expect(applicationButton('Admin')).toHaveAttribute('aria-current', 'page')
     })
   })
 
@@ -1026,7 +1052,7 @@ describe('AppHeader — Chat tab notification dots', () => {
 
     render(<AppHeader />)
 
-    const chatLink = screen.getByTestId('link-/chat')
+    const chatLink = applicationLink('Chat')
     const pingDot = chatLink.querySelector('.animate-ping')
     expect(pingDot).toBeInTheDocument()
     expect(pingDot?.className).toContain('bg-emerald-400')
@@ -1044,7 +1070,7 @@ describe('AppHeader — Chat tab notification dots', () => {
 
     render(<AppHeader />)
 
-    const chatLink = screen.getByTestId('link-/chat')
+    const chatLink = applicationLink('Chat')
     const badge = chatLink.querySelector('.bg-emerald-500')
     expect(badge?.textContent).toBe('2')
   })
@@ -1054,7 +1080,7 @@ describe('AppHeader — Chat tab notification dots', () => {
 
     render(<AppHeader />)
 
-    const chatLink = screen.getByTestId('link-/chat')
+    const chatLink = applicationLink('Chat')
     const blueBadge = chatLink.querySelector('.bg-blue-500')
     expect(blueBadge).toBeInTheDocument()
     expect(blueBadge?.textContent).toBe('1')
@@ -1065,7 +1091,7 @@ describe('AppHeader — Chat tab notification dots', () => {
 
     render(<AppHeader />)
 
-    const chatLink = screen.getByTestId('link-/chat')
+    const chatLink = applicationLink('Chat')
     const blueBadge = chatLink.querySelector('.bg-blue-500')
     expect(blueBadge?.textContent).toBe('3')
   })
@@ -1078,7 +1104,7 @@ describe('AppHeader — Chat tab notification dots', () => {
 
     render(<AppHeader />)
 
-    const chatLink = screen.getByTestId('link-/chat')
+    const chatLink = applicationLink('Chat')
     const greenBadge = chatLink.querySelector('.bg-emerald-500')
     const blueBadge = chatLink.querySelector('.bg-blue-500')
     expect(greenBadge).toBeInTheDocument()
@@ -1090,7 +1116,7 @@ describe('AppHeader — Chat tab notification dots', () => {
 
     render(<AppHeader />)
 
-    const chatLink = screen.getByTestId('link-/chat')
+    const chatLink = applicationLink('Chat')
     const amberBadge = chatLink.querySelector('.bg-amber-500')
     expect(amberBadge).toBeInTheDocument()
     expect(amberBadge?.textContent).toBe('1')
@@ -1101,7 +1127,7 @@ describe('AppHeader — Chat tab notification dots', () => {
 
     render(<AppHeader />)
 
-    const chatLink = screen.getByTestId('link-/chat')
+    const chatLink = applicationLink('Chat')
     const amberBadge = chatLink.querySelector('.bg-amber-500')
     expect(amberBadge?.textContent).toBe('2')
   })
@@ -1114,7 +1140,7 @@ describe('AppHeader — Chat tab notification dots', () => {
 
     render(<AppHeader />)
 
-    const chatLink = screen.getByTestId('link-/chat')
+    const chatLink = applicationLink('Chat')
     expect(chatLink.querySelector('.bg-emerald-500')).toBeInTheDocument()
     expect(chatLink.querySelector('.bg-amber-500')).not.toBeInTheDocument()
   })
@@ -1125,7 +1151,7 @@ describe('AppHeader — Chat tab notification dots', () => {
 
     render(<AppHeader />)
 
-    const chatLink = screen.getByTestId('link-/chat')
+    const chatLink = applicationLink('Chat')
     expect(chatLink.querySelector('.bg-amber-500')).toBeInTheDocument()
     expect(chatLink.querySelector('.bg-blue-500')).not.toBeInTheDocument()
   })
@@ -1133,7 +1159,7 @@ describe('AppHeader — Chat tab notification dots', () => {
   it('shows no notification badge when nothing is streaming, input-required, or unviewed', () => {
     render(<AppHeader />)
 
-    const chatLink = screen.getByTestId('link-/chat')
+    const chatLink = applicationLink('Chat')
     const greenBadge = chatLink.querySelector('.bg-emerald-500')
     const amberBadge = chatLink.querySelector('.bg-amber-500')
     const blueBadge = chatLink.querySelector('.bg-blue-500')
@@ -1166,7 +1192,7 @@ describe('AppHeader — Chat tab notification dots', () => {
   // <button> with an accessible "open ... tab to fix" name and a stable
   // data-testid. We deliberately do NOT render rows as anchors anymore —
   // see the comment on `alertsPopoverOpen` in AppHeader.tsx for why
-  // navigation is programmatic via router.push().
+  // navigation is a browser-native document load.
   function findAlertRow(label: string): HTMLElement | null {
     const rows = screen.queryAllByRole('button', { name: /open .* tab to fix/i })
     return rows.find((row) => (row.textContent ?? '').includes(label)) ?? null
@@ -1224,10 +1250,10 @@ describe('AppHeader — Chat tab notification dots', () => {
     expect(row).not.toBeNull()
     expect(row?.textContent ?? '').toContain('2')
     // Regression for "clicking the alert doesn't do anything": rows are
-    // <button>s that programmatically push the route. Verify that the
+    // <button>s that programmatically load the route. Verify that the
     // click handler actually fires and targets the migrations tab.
     fireEvent.click(row!)
-    expect(mockRouterPush).toHaveBeenCalledWith('/admin/security/migrations')
+    expect(mockNavigateDocument).toHaveBeenCalledWith('/admin/security/migrations')
   })
 
   it('shows the admin alerts pill for version-metadata bootstrap (amber-severity)', () => {
@@ -1256,7 +1282,7 @@ describe('AppHeader — Chat tab notification dots', () => {
     const row = findAlertRow('Version metadata needed')
     expect(row).not.toBeNull()
     fireEvent.click(row!)
-    expect(mockRouterPush).toHaveBeenCalledWith('/admin/security/migrations')
+    expect(mockNavigateDocument).toHaveBeenCalledWith('/admin/security/migrations')
   })
 
   it('renders one popover row per active admin alert source and picks worst severity for the trigger', () => {
@@ -1308,13 +1334,13 @@ describe('AppHeader — Chat tab notification dots', () => {
     expect(versionRow?.className ?? '').toMatch(/text-amber-500/)
 
     // Each row navigates independently — clicking the keycloak row
-    // must push the Keycloak tab and clicking the version row must
-    // push the Migrations tab (no cross-talk).
+    // must load the Keycloak tab and clicking the version row must
+    // load the Migrations tab (no cross-talk).
     fireEvent.click(keycloakRow!)
-    expect(mockRouterPush).toHaveBeenLastCalledWith('/admin/security/keycloak')
+    expect(mockNavigateDocument).toHaveBeenLastCalledWith('/admin/security/keycloak')
     fireEvent.click(versionRow!)
-    expect(mockRouterPush).toHaveBeenLastCalledWith('/admin/security/migrations')
-    expect(mockRouterPush).toHaveBeenCalledTimes(2)
+    expect(mockNavigateDocument).toHaveBeenLastCalledWith('/admin/security/migrations')
+    expect(mockNavigateDocument).toHaveBeenCalledTimes(2)
   })
 
   it('labels Keycloak admin authorization errors without calling the realm unreachable', () => {
@@ -1375,7 +1401,7 @@ describe('AppHeader — Chat tab notification dots', () => {
     expect(row).not.toBeNull()
     expect(row?.textContent ?? '').toContain('4')
     fireEvent.click(row!)
-    expect(mockRouterPush).toHaveBeenCalledWith('/admin/security/keycloak')
+    expect(mockNavigateDocument).toHaveBeenCalledWith('/admin/security/keycloak')
   })
 
   it('hides the admin alerts pill when no admin alert sources are active', () => {
@@ -1415,13 +1441,13 @@ describe('AppHeader — Chat tab notification dots', () => {
     expect(screen.queryAllByRole('button', { name: /open .* tab to fix/i })).toHaveLength(0)
   })
 
-  it('dismisses the alerts popover and pushes the route in a single click — regression for "clicking the alert doesn\'t do anything"', () => {
+  it('dismisses the alerts popover and loads the route in a single click — regression for "clicking the alert doesn\'t do anything"', () => {
     // Reproduces the bug where rows were anchored `<a>` elements inside
     // a popover whose own outside-click listener unmounted the `<a>`
     // before the browser dispatched the click event — leaving the
     // user staring at an unchanged page. The fix: rows are buttons,
     // navigation is programmatic, and we close the popover *after*
-    // pushing. This test pins both halves of that contract.
+    // starting it. This test pins both halves of that contract.
     mockIsAdmin = true
     mockKeycloakHealth = {
       isLoading: false,
@@ -1457,7 +1483,7 @@ describe('AppHeader — Chat tab notification dots', () => {
     expect(row).not.toBeNull()
     fireEvent.click(row!)
 
-    expect(mockRouterPush).toHaveBeenCalledWith('/admin/security/keycloak')
+    expect(mockNavigateDocument).toHaveBeenCalledWith('/admin/security/keycloak')
     // …AND AppHeader sets alertsPopoverOpen to false on the same
     // click, so the user lands on the destination tab without a
     // dangling floating layer.

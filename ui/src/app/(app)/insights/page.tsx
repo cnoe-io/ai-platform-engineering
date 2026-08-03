@@ -12,6 +12,7 @@ import { AuthGuard } from "@/components/auth-guard";
 import { CAIPESpinner } from "@/components/ui/caipe-spinner";
 import { Card,CardContent,CardDescription,CardHeader,CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { navigateDocument } from "@/lib/document-navigation";
 import { getStorageMode } from "@/lib/storage-config";
 import { cn } from "@/lib/utils";
 import type { SkillMetricsPersonal } from "@/types/agent-skill";
@@ -35,7 +36,6 @@ XCircle,
 Zap,
 } from "lucide-react";
 import { useSession } from "next-auth/react";
-import { useRouter } from "next/navigation";
 import React,{ useEffect,useState } from "react";
 
 // ─── Types ───────────────────────────────────────────────────────
@@ -122,7 +122,6 @@ function StatCard({
 // ─── Main Page ───────────────────────────────────────────────────
 function InsightsPage() {
   const { status } = useSession();
-  const router = useRouter();
   const [data, setData] = useState<InsightsData | null>(null);
   const [skillMetrics, setSkillMetrics] = useState<SkillMetricsPersonal | null>(null);
   const [loading, setLoading] = useState(true);
@@ -184,7 +183,7 @@ function InsightsPage() {
               Configure MongoDB to enable usage analytics and prompt history.
             </p>
             <button
-              onClick={() => router.push("/chat")}
+              onClick={() => navigateDocument("/chat")}
               className="mt-4 px-4 py-2 text-sm rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
             >
               Go to Chat
@@ -475,7 +474,7 @@ function InsightsPage() {
                   No skill runs yet. Run a skill from the skills page to see your usage here.
                 </p>
                 <button
-                  onClick={() => router.push("/skills")}
+                  onClick={() => navigateDocument("/skills")}
                   className="mt-2 px-4 py-1.5 text-xs rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
                 >
                   Browse skills

@@ -8,6 +8,7 @@ import {
   KeyRound,
   Layers,
   ListChecks,
+  Megaphone,
   MessageSquare,
   Plug,
   RefreshCw,
@@ -22,6 +23,7 @@ import {
 } from "lucide-react";
 
 export type AdminCategoryKey =
+  | "configuration"
   | "platform"
   | "people"
   | "integrations"
@@ -30,6 +32,8 @@ export type AdminCategoryKey =
   | "security";
 
 export type AdminDestinationId =
+  | "defaults"
+  | "announcements"
   | "agents"
   | "mcp"
   | "skills"
@@ -103,9 +107,32 @@ export const ADMIN_CATEGORIES: AdminCategoryDefinition[] = [
     ],
   },
   {
+    id: "configuration",
+    label: "Platform configuration",
+    icon: SlidersHorizontal,
+    destinations: [
+      {
+        id: "defaults",
+        href: "/admin/configuration/defaults",
+        label: "Defaults",
+        description: "Set fallback behavior for people who have not made a personal choice.",
+        icon: SlidersHorizontal,
+        gateKey: "platform_settings",
+      },
+      {
+        id: "announcements",
+        href: "/admin/configuration/announcements",
+        label: "Announcements",
+        description: "Control platform-wide release announcements.",
+        icon: Megaphone,
+        gateKey: "platform_settings",
+      },
+    ],
+  },
+  {
     id: "platform",
     label: "Resources",
-    icon: SlidersHorizontal,
+    icon: Layers,
     destinations: [
       {
         id: "agents",

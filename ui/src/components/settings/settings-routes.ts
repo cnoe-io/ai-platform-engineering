@@ -3,9 +3,7 @@ import {
   Bot,
   Code2,
   KeyRound,
-  Megaphone,
   Palette,
-  SlidersHorizontal,
   type LucideIcon,
 } from "lucide-react";
 
@@ -14,82 +12,70 @@ export type SettingsRouteId =
   | "chat"
   | "notifications"
   | "access"
-  | "developer"
-  | "defaults"
-  | "announcements";
+  | "developer";
 
 export interface SettingsRouteDefinition {
   description: string;
   icon: LucideIcon;
+  href: string;
   id: SettingsRouteId;
   label: string;
-  scope: "personal" | "platform";
+  segment: string;
 }
 
 export const PERSONAL_SETTINGS_ROUTES: SettingsRouteDefinition[] = [
   {
     id: "appearance",
+    href: "/settings/appearance",
+    segment: "appearance",
     label: "Appearance",
     description: "Theme, typography, and interface style.",
     icon: Palette,
-    scope: "personal",
   },
   {
     id: "chat",
+    href: "/settings/chat-and-agents",
+    segment: "chat-and-agents",
     label: "Chat & agents",
     description: "Default agents and conversation behavior.",
     icon: Bot,
-    scope: "personal",
   },
   {
     id: "notifications",
+    href: "/settings/notifications",
+    segment: "notifications",
     label: "Notifications",
     description: "Choose the updates you want to see.",
     icon: Bell,
-    scope: "personal",
   },
   {
     id: "access",
+    href: "/settings/account-and-access",
+    segment: "account-and-access",
     label: "Account & access",
     description: "Your role, teams, and linked identity.",
     icon: KeyRound,
-    scope: "personal",
   },
   {
     id: "developer",
+    href: "/settings/developer",
+    segment: "developer",
     label: "Developer",
     description: "Debug preferences and session diagnostics.",
     icon: Code2,
-    scope: "personal",
   },
 ];
 
-export const PLATFORM_SETTINGS_ROUTES: SettingsRouteDefinition[] = [
-  {
-    id: "defaults",
-    label: "Defaults",
-    description: "Set fallback behavior for people who have not made a personal choice.",
-    icon: SlidersHorizontal,
-    scope: "platform",
-  },
-  {
-    id: "announcements",
-    label: "Announcements",
-    description: "Control platform-wide release announcements.",
-    icon: Megaphone,
-    scope: "platform",
-  },
-];
-
-export const ALL_SETTINGS_ROUTES = [
-  ...PERSONAL_SETTINGS_ROUTES,
-  ...PLATFORM_SETTINGS_ROUTES,
-];
-
-export const DEFAULT_SETTINGS_ROUTE_ID: SettingsRouteId = "chat";
+export const DEFAULT_SETTINGS_ROUTE_ID: SettingsRouteId = "appearance";
 
 export function findSettingsRouteById(
   id: string | null | undefined,
 ): SettingsRouteDefinition | undefined {
-  return ALL_SETTINGS_ROUTES.find((route) => route.id === id);
+  return PERSONAL_SETTINGS_ROUTES.find((route) => route.id === id);
+}
+
+export function findSettingsRouteBySegment(
+  segment: string | null | undefined,
+): SettingsRouteDefinition | undefined {
+  return PERSONAL_SETTINGS_ROUTES.find((route) => route.segment === segment);
 }

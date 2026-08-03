@@ -8,9 +8,10 @@ import {
 } from "../admin-routes";
 
 describe("admin route registry", () => {
-  it("defines six task-oriented categories without a Settings category", () => {
+  it("defines scoped task-oriented categories without an ambiguous Settings category", () => {
     expect(ADMIN_CATEGORIES.map((category) => category.label)).toEqual([
       "Teams & Users",
+      "Platform configuration",
       "Resources",
       "Integrations",
       "Insights",
@@ -24,6 +25,8 @@ describe("admin route registry", () => {
     expect(findAdminDestinationByPath("/admin/platform/agents")?.id).toBe("agents");
     expect(findAdminDestinationByPath("/admin/platform/mcp-catalog")?.id).toBe("mcp");
     expect(findAdminDestinationByPath("/admin/security/ai-review/")?.id).toBe("ai-review");
+    expect(findAdminDestinationByPath("/admin/configuration/defaults")?.id).toBe("defaults");
+    expect(findAdminDestinationByPath("/admin/configuration/announcements")?.id).toBe("announcements");
     expect(findAdminDestinationByPath("/admin/platform/defaults")).toBeUndefined();
   });
 
