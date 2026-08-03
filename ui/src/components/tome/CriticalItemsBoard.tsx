@@ -59,7 +59,7 @@ export function CriticalItemsBoard({ slug }: { slug: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [priorityFilter, setPriorityFilter] = useState<Set<TrackedEntityPriority>>(
-    () => new Set(["critical"]),
+    () => new Set(TRACKED_ENTITY_PRIORITIES),
   );
   const [projectFilter, setProjectFilter] = useState<string>(PROJECT_FILTER_ALL);
   const [draggedId, setDraggedId] = useState<string | null>(null);
