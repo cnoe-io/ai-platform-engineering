@@ -44,7 +44,6 @@ Workflow,
 X,
 Zap,
 } from "lucide-react";
-import { useRouter } from "next/navigation";
 import React,{ useEffect,useMemo,useState } from "react";
 
 interface AgentBuilderGalleryProps {
@@ -133,7 +132,6 @@ export function AgentBuilderGallery({
     isFavorite,
     getFavoriteSkills
   } = useAgentSkillsStore();
-  const router = useRouter();
   const { createConversation, setPendingMessage } = useChatStore();
 
   const [searchQuery, setSearchQuery] = useState("");
@@ -228,7 +226,7 @@ export function AgentBuilderGallery({
       const skillId = activeFormConfig.id || activeFormConfig.name;
       setPendingMessage(`Execute skill: ${skillId}\n\nRead and follow the instructions in the SKILL.md file for the "${skillId}" skill.`);
       setActiveFormConfig(null);
-      router.push(`/chat/${conversationId}`);
+      window.location.assign(`/chat/${conversationId}`);
     } catch (error) {
       const message =
         error instanceof Error ? getErrorMessage(error, "") : "Failed to create a chat conversation";
@@ -308,7 +306,7 @@ export function AgentBuilderGallery({
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => router.push('/agent-builder/history')}
+                onClick={() => window.location.assign('/agent-builder/history')}
                 className="rounded-full text-xs gap-1"
               >
                 <History className="h-3 w-3" />

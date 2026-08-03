@@ -2,58 +2,42 @@
 
 import {
   PERSONAL_SETTINGS_ROUTES,
-  PLATFORM_SETTINGS_ROUTES,
   type SettingsRouteDefinition,
-  type SettingsRouteId,
 } from "@/components/settings/settings-routes";
 import {
-  WorkspaceSectionNavigation,
+  WorkspaceNavigationList,
   type WorkspaceNavigationGroup,
 } from "@/components/layout/WorkspaceNavigation";
-import { Shield,UserRound } from "lucide-react";
 
 interface SettingsNavigationProps {
-  activeRoute: SettingsRouteDefinition;
-  isAdmin: boolean;
-  onSelect: (routeId: SettingsRouteId) => void;
+  activeRoute?: SettingsRouteDefinition;
 }
+
+export const SETTINGS_NAVIGATION_GROUPS: WorkspaceNavigationGroup[] = [
+  {
+    id: "personal",
+    items: PERSONAL_SETTINGS_ROUTES.map((route) => ({
+      ...route,
+      href: route.href,
+    })),
+  },
+];
 
 export function SettingsNavigation({
   activeRoute,
-  isAdmin,
-  onSelect,
 }: SettingsNavigationProps): React.ReactElement {
-  const groups: WorkspaceNavigationGroup[] = [
-    {
-      id: "personal",
-      label: "Personal",
-      icon: UserRound,
-      items: PERSONAL_SETTINGS_ROUTES.map((route) => ({
-        ...route,
-        onSelect: () => onSelect(route.id),
-      })),
-    },
-    ...(isAdmin ? [{
-      id: "platform",
-      label: "Platform settings",
-      icon: Shield,
-      items: PLATFORM_SETTINGS_ROUTES.map((route) => ({
-        ...route,
-        onSelect: () => onSelect(route.id),
-      })),
-    }] : []),
-  ];
-
   return (
     <>
-      <WorkspaceSectionNavigation
-        activeItemId={activeRoute.id}
-        groups={groups}
-        navigationLabel="Settings sections"
-        pickerLabel="Settings section"
+      <WorkspaceNavigationList
+        activeItemId={activeRoute?.id ?? ""}
+        ariaLabel="Settings sections"
+        groups={SETTINGS_NAVIGATION_GROUPS}
       />
       <span className="sr-only">
-        {groups.reduce((count,group) => count + group.items.length,0)} settings sections available
+        {SETTINGS_NAVIGATION_GROUPS.reduce(
+          (count,group) => count + group.items.length,
+          0,
+        )} settings sections available
       </span>
     </>
   );

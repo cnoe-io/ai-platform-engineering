@@ -7,6 +7,7 @@ import { getClientConfigScript,getServerConfig } from "@/lib/config";
 import type { Metadata } from "next";
 import { IBM_Plex_Sans,Inter,JetBrains_Mono,Source_Sans_3 } from "next/font/google";
 import { headers } from "next/headers";
+import Script from "next/script";
 import "./globals.css";
 
 // Primary font: Inter - Used by OpenAI, clean and highly readable
@@ -89,10 +90,12 @@ export default async function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <head>
         {/* Inject client config synchronously before any JS runs */}
-        <script
+        <Script
           dangerouslySetInnerHTML={{
             __html: `window.__APP_CONFIG__=${configScript};`,
           }}
+          id="runtime-app-config"
+          strategy="beforeInteractive"
         />
       </head>
       <body

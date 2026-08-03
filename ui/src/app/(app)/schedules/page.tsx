@@ -10,7 +10,6 @@ import {
   type ReactNode,
 } from "react";
 import { formatDistance } from "date-fns";
-import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
   Bot,
@@ -46,6 +45,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { humanizeCron } from "@/lib/cron-humanize";
 import { getConfig } from "@/lib/config";
+import { navigateDocument } from "@/lib/document-navigation";
 import { resolveUsableChatAgentId } from "@/lib/chat-agent-selection";
 import { useChatStore } from "@/store/chat-store";
 
@@ -489,7 +489,6 @@ async function resolveConfiguredScheduleEditorAgentId(): Promise<string | null> 
 }
 
 export default function SchedulesPage() {
-  const router = useRouter();
   const createConversation = useChatStore((state) => state.createConversation);
   const setPendingMessage = useChatStore((state) => state.setPendingMessage);
   const [items, setItems] = useState<ScheduleItem[]>([]);
@@ -774,14 +773,14 @@ export default function SchedulesPage() {
             "Please fetch the schedule first, verify it belongs to me, then help me make the change safely.",
           ].join("\n")
         );
-        router.push(`/chat/${conversationId}`);
+        navigateDocument(`/chat/${conversationId}`);
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
       } finally {
         setChattingId(null);
       }
     },
-    [createConversation, router, setPendingMessage]
+    [createConversation, setPendingMessage]
   );
 
   const stats = useMemo(() => {

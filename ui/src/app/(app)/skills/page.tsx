@@ -6,17 +6,14 @@ import {
 SkillsGallery,
 } from "@/components/skills";
 import type { AgentSkill } from "@/types/agent-skill";
-import { useRouter } from "next/navigation";
 
 export default function SkillsPage() {
-  const router = useRouter();
-
   const handleEditConfig = (config: AgentSkill) => {
-    router.push(`/skills/workspace/${encodeURIComponent(config.id)}`);
+    window.location.assign(`/skills/workspace/${encodeURIComponent(config.id)}`);
   };
 
   const handleCreateNew = () => {
-    router.push("/skills/workspace/new");
+    window.location.assign("/skills/workspace/new");
   };
 
   // Note: the Skills Gallery / Skills Gateway segmented toggle

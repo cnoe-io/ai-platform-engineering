@@ -5,7 +5,6 @@ import {
   type WorkspaceNavigationGroup,
 } from "@/components/layout/WorkspaceNavigation";
 import { useKbTabGates } from "@/hooks/use-kb-tab-gates";
-import type { KbTabKey } from "@/lib/rbac/types";
 import { Database,GitFork,Search,Wrench } from "lucide-react";
 import { usePathname } from "next/navigation";
 
@@ -15,7 +14,6 @@ interface KnowledgeSidebarProps {
 
 export const KNOWLEDGE_NAV_ITEMS: Array<{
   id: string;
-  gateKey: KbTabKey;
   label: string;
   href: string;
   icon: typeof Search;
@@ -24,7 +22,6 @@ export const KNOWLEDGE_NAV_ITEMS: Array<{
 }> = [
   {
     id: "search",
-    gateKey: "search",
     label: "Search",
     href: "/knowledge-bases/search",
     icon: Search,
@@ -32,7 +29,6 @@ export const KNOWLEDGE_NAV_ITEMS: Array<{
   },
   {
     id: "ingest",
-    gateKey: "data_sources",
     label: "Data Sources",
     href: "/knowledge-bases/ingest",
     icon: Database,
@@ -40,7 +36,6 @@ export const KNOWLEDGE_NAV_ITEMS: Array<{
   },
   {
     id: "graph",
-    gateKey: "graph",
     label: "Graph",
     href: "/knowledge-bases/graph",
     icon: GitFork,
@@ -49,7 +44,6 @@ export const KNOWLEDGE_NAV_ITEMS: Array<{
   },
   {
     id: "mcp-tools",
-    gateKey: "mcp_tools",
     label: "MCP Tools",
     href: "/knowledge-bases/mcp-tools",
     icon: Wrench,
@@ -95,23 +89,12 @@ export function KnowledgeSidebar({
 
   const groups: WorkspaceNavigationGroup[] = [{
     id: "knowledge-base-sections",
-    items: KNOWLEDGE_NAV_ITEMS.map((item) => {
-      const graphDisabled = item.requiresGraphRag && !graphRagEnabled;
-      const rbacAllowed = !gatesLoading && gates[item.gateKey] === true;
-      const disabled = Boolean(graphDisabled || !rbacAllowed);
-      const disabledReason = graphDisabled
-        ? "Graph RAG is disabled in the RAG server config"
-        : gatesLoading
-          ? "Checking access…"
-          : "You don't have access to this knowledge base section";
-      return {
+    items: KNOWLEDGE_NAV_ITEMS
+      .filter((item) => !item.requiresGraphRag || graphRagEnabled)
+      .map((item) => ({
         ...item,
-        disabled,
-        disabledReason,
-        prefetch: true,
-        testId: disabled ? `kb-tab-disabled-${item.id}` : `kb-link-${item.href}`,
-      };
-    }),
+        testId: `kb-link-${item.href}`,
+      })),
   }];
 
   return (

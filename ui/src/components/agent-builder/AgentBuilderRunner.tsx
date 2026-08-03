@@ -40,7 +40,6 @@ Wrench,
 XCircle
 } from "lucide-react";
 import { useSession } from "next-auth/react";
-import { useRouter } from "next/navigation";
 import React,{ useCallback,useEffect,useMemo,useRef,useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -758,7 +757,6 @@ export function AgentBuilderRunner({
   const accessToken = ssoEnabled ? session?.accessToken : undefined;
 
   // Router for navigation
-  const router = useRouter();
 
   // Stream adapter ref
   const clientRef = useRef<StreamAdapter | null>(null);
@@ -1503,7 +1501,7 @@ export function AgentBuilderRunner({
           <Button 
             variant="ghost" 
             size="icon" 
-            onClick={() => router.push('/')}
+            onClick={() => window.location.assign('/')}
             title="Go to home page"
           >
             <LayoutGrid className="h-5 w-5" />
@@ -1512,7 +1510,7 @@ export function AgentBuilderRunner({
           <Button 
             variant="ghost" 
             size="icon" 
-            onClick={() => router.push('/agent-builder/history')} 
+            onClick={() => window.location.assign('/agent-builder/history')}
             title="View workflow history"
           >
             <ArrowLeft className="h-5 w-5" />

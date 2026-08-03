@@ -21,17 +21,12 @@ import { render, screen, fireEvent } from "@testing-library/react";
 
 const mockSignIn = jest.fn();
 const mockSignOut = jest.fn();
-const mockOpenSettings = jest.fn();
 let mockUseSession: jest.Mock;
 
 jest.mock("next-auth/react", () => ({
   useSession: () => mockUseSession(),
   signIn: (...args: unknown[]) => mockSignIn(...args),
   signOut: (...args: unknown[]) => mockSignOut(...args),
-}));
-
-jest.mock("@/components/settings/SettingsDialogProvider",() => ({
-  useSettingsDialog: () => ({ openSettings: mockOpenSettings }),
 }));
 
 let mockConfig: Record<string, unknown> = {
@@ -80,7 +75,6 @@ jest.mock("lucide-react", () => ({
   ChevronUp: () => <span data-testid="icon-chevron-up" />,
   ChevronRight: () => <span data-testid="icon-chevron-right" />,
   Shield: () => <span data-testid="icon-shield" />,
-  Settings: () => <span data-testid="icon-settings" />,
   Lightbulb: () => <span data-testid="icon-lightbulb" />,
   FileText: () => <span data-testid="icon-filetext" />,
   Tag: () => <span data-testid="icon-tag" />,
@@ -223,11 +217,9 @@ describe("UserMenu", () => {
     expect(screen.getByText("john@example.com")).toBeInTheDocument();
     expect(screen.getByText("User")).toBeInTheDocument();
     expect(screen.getByText("Authenticated via SSO")).toBeInTheDocument();
-    expect(screen.getByText("Settings")).toBeInTheDocument();
+    expect(screen.queryByText("Settings")).not.toBeInTheDocument();
     expect(screen.getByText("About")).toBeInTheDocument();
     expect(screen.getByText("Sign Out")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-    expect(mockOpenSettings).toHaveBeenCalledWith("chat");
   });
 
   it("shows Admin badge and Personal Insights when role is admin and mongodb is enabled", () => {

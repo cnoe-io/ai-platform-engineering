@@ -10,7 +10,8 @@ import {
   snapshotAppearanceInteractions,
 } from "@/lib/appearance-preferences";
 import { apiClient } from "@/lib/api-client";
-import { useSettingsDialog } from "@/components/settings/SettingsDialogProvider";
+import { GuardedNavigationLink } from "@/components/layout/GuardedNavigationLink";
+import { useHydrated } from "@/hooks/use-hydrated";
 import { Palette } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useEffect } from "react";
@@ -18,12 +19,12 @@ import { useEffect } from "react";
 /**
  * Header shortcut plus the global appearance hydrator.
  *
- * The controls themselves live in the shared Settings dialog so there is only
- * one canonical editing surface.
+ * The controls themselves live on the routed Appearance settings page so there
+ * is only one canonical editing surface.
  */
 export function SettingsPanel(): React.ReactElement {
   const { theme,setTheme } = useTheme();
-  const { openSettings } = useSettingsDialog();
+  const hydrated = useHydrated();
 
   useEffect(() => {
     let cancelled = false;
@@ -58,17 +59,16 @@ export function SettingsPanel(): React.ReactElement {
   const currentTheme = COLOR_THEMES.find((option) => option.id === theme);
 
   return (
-    <button
+    <GuardedNavigationLink
       aria-label="Appearance settings"
       className="flex h-8 items-center gap-1.5 rounded-md px-2 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-      onClick={() => openSettings("appearance")}
+      href="/settings/appearance"
       title="Appearance settings"
-      type="button"
     >
       <Palette className="h-3.5 w-3.5 shrink-0" />
       <span className="hidden whitespace-nowrap sm:block">
-        {currentTheme?.label ?? "Appearance"}
+        {hydrated ? currentTheme?.label ?? "Appearance" : "Appearance"}
       </span>
-    </button>
+    </GuardedNavigationLink>
   );
 }

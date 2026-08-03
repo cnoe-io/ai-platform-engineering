@@ -1,7 +1,7 @@
 "use client";
 
 import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
-import Link from "next/link";
+import { DocumentNavigationLink } from "@/components/layout/DocumentNavigationLink";
 import { usePathname } from "next/navigation";
 import React from "react";
 
@@ -53,7 +53,6 @@ export function GuardedNavigationLink({
   className,
   dataNavKey,
   onClick,
-  prefetch,
   title,
   "aria-current": ariaCurrent,
   "aria-label": ariaLabel,
@@ -71,17 +70,16 @@ export function GuardedNavigationLink({
   };
 
   return (
-    <Link
+    <DocumentNavigationLink
       aria-current={ariaCurrent}
       aria-label={ariaLabel}
       className={className}
       data-nav-key={dataNavKey}
       href={href}
       onClick={handleClick}
-      prefetch={prefetch}
       title={title}
     >
       {children}
-    </Link>
+    </DocumentNavigationLink>
   );
 }

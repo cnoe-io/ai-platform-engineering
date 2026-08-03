@@ -12,16 +12,15 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { useApplicationNavigation } from "@/components/layout/ApplicationNavigationContext";
+import { DocumentNavigationLink } from "@/components/layout/DocumentNavigationLink";
 import { useWorkspaceRail } from "@/components/layout/WorkspaceRailContext";
 import { cn } from "@/lib/utils";
 import {
   ChevronDown,
-  PanelLeftClose,
-  PanelLeftOpen,
+  ChevronLeft,
+  ChevronRight,
   type LucideIcon,
 } from "lucide-react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useEffect,useId,useRef,useState } from "react";
 
 export interface WorkspaceNavigationItem {
@@ -138,13 +137,13 @@ export function CollapsedNavigationFlyout({
                 : "group-hover:bg-background group-hover:text-foreground",
             )}
           >
-            <Icon className="h-4 w-4" />
+            <Icon className="h-3.5 w-3.5" />
           </span>
         </button>
       </PopoverTrigger>
       <PopoverContent
         align="start"
-        className="w-64 space-y-2 p-2 duration-0"
+        className="max-h-[calc(100dvh-1rem)] w-64 space-y-2 overflow-y-auto overscroll-contain p-2 duration-0"
         onBlurCapture={(event) => {
           if (!event.currentTarget.contains(event.relatedTarget)) scheduleClose();
         }}
@@ -195,18 +194,20 @@ function NavigationItem({
   );
   const contents = (
     <>
-      <span
-        aria-hidden="true"
-        className={cn(
-          "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors",
-          !item.disabled && active
-            ? "gradient-primary-br text-white shadow-sm"
-            : "bg-muted text-muted-foreground",
-          !item.disabled && !active && "group-hover:bg-background group-hover:text-foreground",
-        )}
-      >
-        <Icon className="h-4 w-4" />
-      </span>
+      {collapsed ? (
+        <span
+          aria-hidden="true"
+          className={cn(
+            "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors",
+            !item.disabled && active
+              ? "gradient-primary-br text-white shadow-sm"
+              : "bg-muted text-muted-foreground",
+            !item.disabled && !active && "group-hover:bg-background group-hover:text-foreground",
+          )}
+        >
+          <Icon className="h-3.5 w-3.5" />
+        </span>
+      ) : null}
       {!collapsed ? (
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm font-medium">{item.label}</span>
@@ -232,7 +233,7 @@ function NavigationItem({
       {contents}
     </span>
   ) : item.href ? (
-    <Link
+    <DocumentNavigationLink
       aria-current={active ? "page" : undefined}
       aria-label={collapsed ? item.label : undefined}
       className={itemClassName}
@@ -240,10 +241,9 @@ function NavigationItem({
       data-testid={item.testId}
       href={item.href}
       onClick={handleNavigate}
-      prefetch={item.prefetch}
     >
       {contents}
-    </Link>
+    </DocumentNavigationLink>
   ) : (
     <button
       aria-current={active ? "page" : undefined}
@@ -386,15 +386,6 @@ export function WorkspaceNavigationList({
                         }}
                         type="button"
                       >
-                        <span
-                          aria-hidden="true"
-                          className={cn(
-                            "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground transition-colors",
-                            active && "gradient-primary-br text-white shadow-sm",
-                          )}
-                        >
-                          <Icon className="h-4 w-4" />
-                        </span>
                         <span className="min-w-0 flex-1">
                           <span className="block truncate text-sm font-medium">{item.label}</span>
                           {density === "descriptive" && item.description ? (
@@ -455,7 +446,6 @@ export function WorkspaceSectionPicker({
   groups,
 }: WorkspaceSectionPickerProps): React.ReactElement {
   const id = useId();
-  const router = useRouter();
   const activeItem = navigationLeaves(groups.flatMap((group) => group.items))
     .find((item) => item.id === activeItemId);
   const itemValue = (item: WorkspaceNavigationItem): string => item.href ?? item.id;
@@ -476,7 +466,7 @@ export function WorkspaceSectionPicker({
           if (selectedItem?.onSelect) {
             selectedItem.onSelect();
           } else if (selectedItem?.href) {
-            router.push(selectedItem.href);
+            window.location.assign(selectedItem.href);
           }
         }}
         value={activeItem ? itemValue(activeItem) : ""}
@@ -505,36 +495,30 @@ export function WorkspaceSectionPicker({
 export function WorkspaceRailToggle(): React.ReactElement | null {
   const { collapsed,collapsible,toggle } = useWorkspaceRail();
   if (!collapsible) return null;
-  const Icon = collapsed ? PanelLeftOpen : PanelLeftClose;
+  const Icon = collapsed ? ChevronRight : ChevronLeft;
   const label = collapsed ? "Expand sidebar" : "Collapse sidebar";
   const control = (
     <button
       aria-label={label}
-      className={cn(
-        "flex min-h-11 w-full items-center gap-2 rounded-xl px-2 py-2 text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
-        collapsed ? "justify-center" : "justify-start",
-      )}
+      className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
       onClick={(event) => {
         toggle();
         if (event.detail > 0) event.currentTarget.blur();
       }}
       type="button"
     >
-      <span className="flex h-8 w-8 shrink-0 items-center justify-center">
-        <Icon aria-hidden="true" className="h-4 w-4" />
-      </span>
-      {!collapsed ? <span className="text-sm font-medium">Collapse sidebar</span> : null}
+      <Icon aria-hidden="true" className="h-4 w-4" />
     </button>
   );
 
-  return collapsed ? (
+  return (
     <TooltipProvider delayDuration={200}>
       <Tooltip>
         <TooltipTrigger asChild>{control}</TooltipTrigger>
         <TooltipContent side="right" sideOffset={8}>{label}</TooltipContent>
       </Tooltip>
     </TooltipProvider>
-  ) : control;
+  );
 }
 
 interface WorkspaceSectionNavigationProps {
@@ -545,10 +529,9 @@ interface WorkspaceSectionNavigationProps {
 }
 
 /**
- * Responsive section navigation for the Settings dialog.
+ * Responsive section navigation for dense settings and workspace pages.
  *
- * Routed workspaces register their navigation with the application rail;
- * Settings remains self-contained and uses a native compact picker.
+ * Routed workspaces register their navigation with the application rail.
  */
 export function WorkspaceSectionNavigation({
   activeItemId,
@@ -691,7 +674,7 @@ export function WorkspaceHierarchicalNavigationList({
                   !active && "group-hover:bg-background group-hover:text-foreground",
                 )}
               >
-                <CategoryIcon className="h-4 w-4" />
+                <CategoryIcon className="h-3.5 w-3.5" />
               </span>
               <span className="min-w-0 flex-1 truncate text-sm font-medium">
                 {category.label}

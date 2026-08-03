@@ -3,8 +3,8 @@
 // assisted-by Codex Codex-sonnet-4-6
 
 import { cn } from "@/lib/utils";
+import { DocumentNavigationLink } from "@/components/layout/DocumentNavigationLink";
 import { ArrowRight,Bot,Database,MessageSquare,Server,Workflow,Zap } from "lucide-react";
-import Link from "next/link";
 
 interface CapabilityCardsProps {
   ragEnabled: boolean;
@@ -66,7 +66,7 @@ const capabilities = [
     title: "Knowledge Bases",
     description: "Search trusted organizational knowledge and data sources.",
     icon: Database,
-    href: "/knowledge-bases",
+    href: "/knowledge-bases/search",
     color: "text-emerald-400",
     bgColor: "bg-emerald-500/10",
     borderColor: "hover:border-emerald-500/30",
@@ -86,7 +86,7 @@ export function CapabilityCards({ ragEnabled }: CapabilityCardsProps) {
       </h2>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {visibleCapabilities.map((cap) => (
-          <Link
+          <DocumentNavigationLink
             key={cap.id}
             href={cap.href}
             data-testid={`capability-card-${cap.id}`}
@@ -117,7 +117,7 @@ export function CapabilityCards({ ragEnabled }: CapabilityCardsProps) {
                 </p>
               </div>
             </div>
-          </Link>
+          </DocumentNavigationLink>
         ))}
       </div>
     </div>

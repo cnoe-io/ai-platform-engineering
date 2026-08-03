@@ -29,6 +29,7 @@ import { useRAGHealth } from "@/hooks/use-rag-health";
 import { useReleaseUpgradePrompt } from "@/hooks/use-release-upgrade-prompt";
 import { useVersion } from "@/hooks/use-version";
 import { config } from "@/lib/config";
+import { navigateDocument } from "@/lib/document-navigation";
 import { cn } from "@/lib/utils";
 import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
 import { AnimatePresence,motion } from "framer-motion";
@@ -40,7 +41,7 @@ FileText,
 Loader2,
 } from "lucide-react";
 import { useSession } from "next-auth/react";
-import { usePathname,useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import React from "react";
 
 export function AppHeader() {
@@ -68,7 +69,7 @@ export function AppHeader() {
     const href = confirmNavigation();
     if (href) {
       setUnsaved(false);
-      window.location.href = href;
+      navigateDocument(href);
     }
   }, [confirmNavigation, setUnsaved]);
 
@@ -78,14 +79,13 @@ export function AppHeader() {
 
   const [reportDialogOpen, setReportDialogOpen] = React.useState(false);
   // Controlled state for the admin alerts popover. Per-row clicks
-  // navigate programmatically via `router.push()` (not via an `<a>`
+  // navigate programmatically (not via an `<a>`
   // inside the popover) because the popover's own outside-click
   // listener tears down the floating layer before the browser's
   // synthetic click on a nested `<a>` can fire — the navigation
   // visibly does nothing in that race. Programmatic navigation + an
-  // explicit close-after-push is deterministic.
+  // explicit close after navigation starts is deterministic.
   const [alertsPopoverOpen, setAlertsPopoverOpen] = React.useState(false);
-  const router = useRouter();
 
   // Debug logging for admin tab
   React.useEffect(() => {
@@ -540,16 +540,16 @@ export function AppHeader() {
                   </div>
                   <ul className="space-y-0.5" role="list">
                     {adminAlerts.map((alert) => {
-                      const rowLabel = `${alert.label} (${alert.count}) — open ${alert.href.includes("tab=keycloak") ? "Keycloak" : "Migrations"} tab to fix`;
+                      const rowLabel = `${alert.label} (${alert.count}) — open ${alert.href.includes("/keycloak") ? "Keycloak" : "Migrations"} tab to fix`;
                       const handleAlertNavigate = () => {
                         // Honour the unsaved-changes guard the same way
                         // application navigation does — if the user has pending edits
                         // on the current page, defer navigation to the
-                        // discard dialog; otherwise push immediately.
+                        // discard dialog; otherwise navigate immediately.
                         if (hasUnsavedChanges) {
                           requestNavigation(alert.href);
                         } else {
-                          router.push(alert.href);
+                          navigateDocument(alert.href);
                         }
                         setAlertsPopoverOpen(false);
                       };

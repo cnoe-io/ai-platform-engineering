@@ -24,6 +24,7 @@ import { act, render, screen, waitFor, within, fireEvent } from '@testing-librar
 let mockIsAdmin = false;
 const pushMock = jest.fn();
 const replaceMock = jest.fn();
+const mockNavigateDocument = jest.fn();
 let currentSearchParams = new URLSearchParams();
 let currentPathname = '/admin';
 jest.mock('@/hooks/use-admin-role', () => ({
@@ -39,6 +40,10 @@ jest.mock('next/navigation', () => ({
   useSearchParams: () => currentSearchParams,
   useRouter: () => ({ push: pushMock, replace: replaceMock, back: jest.fn(), refresh: jest.fn() }),
   usePathname: () => currentPathname,
+}));
+
+jest.mock('@/lib/document-navigation', () => ({
+  navigateDocument: (href: string) => mockNavigateDocument(href),
 }));
 
 jest.mock('@/lib/config', () => ({
@@ -1731,7 +1736,7 @@ describe('Admin Dashboard Page', () => {
 
       fireEvent.click(await screen.findByRole('button', { name: 'View feedback for Jul 20' }));
 
-      const targetUrl = new URL(pushMock.mock.calls.at(-1)?.[0], 'http://localhost');
+      const targetUrl = new URL(mockNavigateDocument.mock.calls.at(-1)?.[0], 'http://localhost');
       expect(targetUrl.pathname).toBe('/admin/insights/feedback');
       expect(targetUrl.searchParams.get('dateRange')).toBe('custom');
       expect(targetUrl.searchParams.get('from')).toBe(

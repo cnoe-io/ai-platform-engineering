@@ -25,6 +25,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useAdminRole } from "@/hooks/use-admin-role";
+import { useHydrated } from "@/hooks/use-hydrated";
 import { config,getLogoFilterClass } from "@/lib/config";
 import { cn } from "@/lib/utils";
 import { resolveChatNavigationPath,useChatStore } from "@/store/chat-store";
@@ -38,7 +39,7 @@ import {
   Menu,
   MessageCircle,
   Shield,
-  Sparkles,
+  SlidersHorizontal,
   Workflow,
   Zap,
   type LucideIcon,
@@ -54,6 +55,7 @@ interface ApplicationNavigationItem {
   icon: LucideIcon;
   key: string;
   label: string;
+  utility?: boolean;
 }
 
 function activeAreaForPath(pathname: string | null): string | null {
@@ -68,6 +70,7 @@ function activeAreaForPath(pathname: string | null): string | null {
   if (pathname?.startsWith("/dynamic-agents")) return "dynamic-agents";
   if (pathname?.startsWith("/schedules")) return "schedules";
   if (pathname?.startsWith("/admin")) return "admin";
+  if (pathname?.startsWith("/settings")) return "settings";
   return null;
 }
 
@@ -116,6 +119,7 @@ function ApplicationNavigationContents({
 }): React.ReactElement {
   const contextualNavigationId = React.useId();
   const pathname = usePathname();
+  const hydrated = useHydrated();
   const { data: session } = useSession();
   const { isAdmin } = useAdminRole();
   const applicationNavigation = useApplicationNavigation();
@@ -127,8 +131,10 @@ function ApplicationNavigationContents({
     unviewedConversations,
   } = useChatStore();
   const chatHref = React.useMemo(
-    () => resolveChatNavigationPath({ conversations,activeConversationId }),
-    [activeConversationId,conversations],
+    () => hydrated
+      ? resolveChatNavigationPath({ conversations,activeConversationId })
+      : "/chat",
+    [activeConversationId,conversations,hydrated],
   );
   const storageMode = config.storageMode;
   const activeArea = activeAreaForPath(pathname);
@@ -206,15 +212,28 @@ function ApplicationNavigationContents({
       label: "Admin",
       icon: Shield,
       disabled: storageMode !== "mongodb",
+      utility: true,
+    },
+    {
+      key: "settings",
+      href: "/settings/appearance",
+      label: "Settings",
+      icon: SlidersHorizontal,
+      utility: true,
     },
   ].filter(Boolean) as ApplicationNavigationItem[];
+
+  const firstUtilityKey = items.find((item) => item.utility)?.key;
 
   const closeMobileNavigation = () =>
     applicationNavigation?.closeMobileNavigation();
 
   return (
     <TooltipProvider delayDuration={200}>
-      <nav aria-label="Application navigation" className="space-y-1">
+      <nav
+        aria-label="Application navigation"
+        className="flex min-h-full flex-col gap-1"
+      >
         {items.map((item) => {
           const Icon = item.icon;
           const active = activeArea === item.key;
@@ -245,7 +264,7 @@ function ApplicationNavigationContents({
                     : "bg-muted text-muted-foreground group-hover:bg-background group-hover:text-foreground",
                 )}
               >
-                <Icon aria-hidden="true" className="h-4 w-4" />
+                <Icon aria-hidden="true" className="h-3.5 w-3.5" />
                 {chatBadge}
               </span>
               {!collapsed ? (
@@ -264,36 +283,50 @@ function ApplicationNavigationContents({
               : active
                 ? "bg-muted/60 font-medium text-foreground"
                 : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
-            !collapsed && hasSectionNavigation && "pr-10",
           );
 
           if (collapsed && hasSectionNavigation) {
             return (
-              <CollapsedNavigationFlyout
-                active={active}
-                icon={Icon}
+              <div
+                className={cn(item.key === firstUtilityKey && "mt-auto pt-6")}
                 key={item.key}
-                label={item.label}
               >
-                {(close) => (
-                  <div
-                    onClick={(event) => {
-                      if (
-                        !(event.target as HTMLElement).closest(
-                          "[data-navigation-leaf='true']",
-                        )
-                      ) return;
-                      close();
-                      closeMobileNavigation();
-                    }}
-                  >
-                    {contextualNavigation}
-                  </div>
-                )}
-              </CollapsedNavigationFlyout>
+                <CollapsedNavigationFlyout
+                  active={active}
+                  icon={Icon}
+                  label={item.label}
+                >
+                  {(close) => (
+                    <div
+                      onClick={(event) => {
+                        if (
+                          !(event.target as HTMLElement).closest(
+                            "[data-navigation-leaf='true']",
+                          )
+                        ) return;
+                        close();
+                        closeMobileNavigation();
+                      }}
+                    >
+                      {contextualNavigation}
+                    </div>
+                  )}
+                </CollapsedNavigationFlyout>
+              </div>
             );
           }
 
+          const toggleContext = () => {
+            setExpandedAreaKeys((current) => {
+              const next = new Set(current);
+              if (next.has(item.key)) {
+                next.delete(item.key);
+              } else {
+                next.add(item.key);
+              }
+              return next;
+            });
+          };
           const control = item.disabled ? (
             <span
               aria-disabled="true"
@@ -304,6 +337,24 @@ function ApplicationNavigationContents({
             >
               {contents}
             </span>
+          ) : hasSectionNavigation && !collapsed ? (
+            <button
+              aria-controls={`${contextualNavigationId}-${item.key}`}
+              aria-current={active ? "page" : undefined}
+              aria-expanded={contextExpanded}
+              className={className}
+              onClick={toggleContext}
+              type="button"
+            >
+              {contents}
+              <ChevronDown
+                aria-hidden="true"
+                className={cn(
+                  "ml-auto h-4 w-4 shrink-0 transition-transform",
+                  contextExpanded && "rotate-180",
+                )}
+              />
+            </button>
           ) : (
             <GuardedNavigationLink
               aria-current={active ? "page" : undefined}
@@ -318,54 +369,30 @@ function ApplicationNavigationContents({
           );
 
           return (
-            <React.Fragment key={item.key}>
+            <div
+              className={cn(
+                "space-y-1",
+                item.key === firstUtilityKey && "mt-auto pt-6",
+              )}
+              key={item.key}
+            >
               {collapsed ? (
                 <Tooltip>
                   <TooltipTrigger asChild>{control}</TooltipTrigger>
                   <TooltipContent side="right" sideOffset={8}>
-                    {item.label}
+                    {item.key === "home" ? "Homepage" : item.label}
                   </TooltipContent>
                 </Tooltip>
-              ) : hasSectionNavigation ? (
-                <div className="relative">
-                  {control}
-                  <button
-                    aria-controls={`${contextualNavigationId}-${item.key}`}
-                    aria-expanded={contextExpanded}
-                    aria-label={`${contextExpanded ? "Hide" : "Show"} ${item.label} sections`}
-                    className="absolute right-1 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-muted-foreground outline-none transition-colors hover:bg-background hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-                    onClick={() => {
-                      setExpandedAreaKeys((current) => {
-                        const next = new Set(current);
-                        if (next.has(item.key)) {
-                          next.delete(item.key);
-                        } else {
-                          next.add(item.key);
-                        }
-                        return next;
-                      });
-                    }}
-                    type="button"
-                  >
-                    <ChevronDown
-                      aria-hidden="true"
-                      className={cn(
-                        "h-4 w-4 transition-transform",
-                        contextExpanded && "rotate-180",
-                      )}
-                    />
-                  </button>
-                </div>
               ) : control}
               {!collapsed && contextExpanded ? (
                 <div
-                  className="ml-1 border-l border-border/60 pl-2 pt-1"
+                  className="ml-3 border-l border-border/60 pb-3 pl-3 pt-2"
                   id={`${contextualNavigationId}-${item.key}`}
                 >
                   {contextualNavigation}
                 </div>
               ) : null}
-            </React.Fragment>
+            </div>
           );
         })}
       </nav>
@@ -379,44 +406,60 @@ function ApplicationBrand({
   collapsed: boolean;
 }): React.ReactElement {
   const applicationNavigation = useApplicationNavigation();
-  return (
+  const brand = (
     <GuardedNavigationLink
-      aria-label={collapsed ? `${config.appName} home` : undefined}
+      aria-label={`${config.appName} home`}
       className={cn(
-        "brand-link flex h-14 items-center px-3 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-        collapsed ? "justify-center" : "gap-2.5",
+        "brand-link relative flex h-20 w-full items-center outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+        collapsed
+          ? "justify-center px-2"
+          : "justify-start gap-2.5 px-4",
       )}
       href="/"
       onClick={applicationNavigation?.closeMobileNavigation}
     >
       <Image
-        alt={`${config.appName} Logo`}
-        className={cn("h-8 w-auto",getLogoFilterClass(config.logoStyle))}
-        height={32}
+        alt=""
+        aria-hidden="true"
+        className={cn("h-12 w-auto",getLogoFilterClass(config.logoStyle))}
+        height={48}
         src={config.logoUrl}
         unoptimized
-        width={32}
+        width={48}
       />
       {!collapsed ? (
         <>
           <span className="brand-lockup relative min-w-0">
-            <span className="brand-name gradient-text block truncate text-base font-bold">
-              {config.appName}
-            </span>
-            <Sparkles
+            <span
               aria-hidden="true"
-              className="brand-sparkle pointer-events-none absolute -right-2.5 -top-2 h-3.5 w-3.5"
-              strokeWidth={1.75}
-            />
+              className="brand-name truncate text-2xl font-bold"
+            >
+              {Array.from(config.appName).map((letter,index) => (
+                <span className="brand-letter" key={`${letter}-${index}`}>
+                  {letter === " " ? "\u00a0" : letter}
+                </span>
+              ))}
+            </span>
           </span>
           {config.envBadge ? (
-            <span className="ml-auto rounded border border-amber-500/30 bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-500">
+            <span className="absolute right-2 rounded border border-amber-500/30 bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-500">
               {config.envBadge}
             </span>
           ) : null}
         </>
       ) : null}
     </GuardedNavigationLink>
+  );
+
+  return (
+    <TooltipProvider delayDuration={1000}>
+      <Tooltip className="block w-full">
+        <TooltipTrigger asChild>
+          <span className="block w-full">{brand}</span>
+        </TooltipTrigger>
+        <TooltipContent side="right" sideOffset={8}>Homepage</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   );
 }
 
@@ -427,14 +470,19 @@ export function ApplicationNavigationRail(): React.ReactElement {
     <aside
       className={cn(
         "hidden h-screen shrink-0 flex-col border-r border-border/60 bg-background/70 backdrop-blur-xl xl:flex",
-        collapsed ? "w-[4.25rem]" : "w-60",
+        collapsed ? "w-[4.25rem]" : "w-64",
       )}
     >
       <ApplicationBrand collapsed={collapsed} />
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 py-4">
+      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-4 pt-2">
         <ApplicationNavigationContents collapsed={collapsed} />
       </div>
-      <div className="shrink-0 px-2 pb-3 pt-2">
+      <div
+        className={cn(
+          "flex shrink-0 pb-3 pt-2",
+          collapsed ? "justify-center px-2" : "px-4",
+        )}
+      >
         <WorkspaceRailToggle />
       </div>
     </aside>
@@ -482,19 +530,23 @@ export function ApplicationNavigationMenuButton(): React.ReactElement | null {
 
 export function MobileApplicationBrand(): React.ReactElement {
   return (
-    <div className="flex min-w-0 items-center gap-2 xl:hidden">
+    <GuardedNavigationLink
+      aria-label={`${config.appName} home`}
+      className="flex min-w-0 items-center gap-2 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring xl:hidden"
+      href="/"
+    >
       <Image
         alt=""
         aria-hidden="true"
-        className={cn("h-7 w-auto",getLogoFilterClass(config.logoStyle))}
-        height={28}
+        className={cn("h-9 w-auto",getLogoFilterClass(config.logoStyle))}
+        height={36}
         src={config.logoUrl}
         unoptimized
-        width={28}
+        width={36}
       />
-      <span className="gradient-text hidden truncate text-sm font-bold sm:inline">
+      <span className="gradient-text hidden truncate text-lg font-bold sm:inline">
         {config.appName}
       </span>
-    </div>
+    </GuardedNavigationLink>
   );
 }

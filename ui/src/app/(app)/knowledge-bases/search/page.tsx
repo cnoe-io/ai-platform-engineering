@@ -2,16 +2,13 @@
 
 import SearchView from "@/components/rag/SearchView";
 import { motion } from "framer-motion";
-import { useRouter } from "next/navigation";
 import { useCallback } from "react";
 
 function SearchPage() {
-  const router = useRouter();
-
   const handleExploreEntity = useCallback((entityType: string, primaryKey: string) => {
     // Navigate to graph view with query params
-    router.push(`/knowledge-bases/graph?entityType=${encodeURIComponent(entityType)}&primaryKey=${encodeURIComponent(primaryKey)}`);
-  }, [router]);
+    window.location.assign(`/knowledge-bases/graph?entityType=${encodeURIComponent(entityType)}&primaryKey=${encodeURIComponent(primaryKey)}`);
+  }, []);
 
   return (
     <div className="flex-1 flex flex-col min-h-0">

@@ -9,6 +9,12 @@ import {
 } from "@/components/dynamic-agents/navigation";
 import { WorkspaceNavigationList } from "@/components/layout/WorkspaceNavigation";
 import { KnowledgeSidebar } from "@/components/rag/KnowledgeSidebar";
+import { SettingsNavigation } from "@/components/settings/SettingsNavigation";
+import {
+  DEFAULT_SETTINGS_ROUTE_ID,
+  findSettingsRouteById,
+  findSettingsRouteBySegment,
+} from "@/components/settings/settings-routes";
 import { useAdminRole } from "@/hooks/use-admin-role";
 import { useRAGHealth } from "@/hooks/use-rag-health";
 import { useAdminTabGates } from "@/hooks/useAdminTabGates";
@@ -21,6 +27,7 @@ export const APPLICATION_SECTION_AREA_KEYS = new Set([
   "dynamic-agents",
   "credentials",
   "admin",
+  "settings",
 ]);
 
 function DynamicAgentsApplicationNavigation(): React.ReactElement {
@@ -48,8 +55,12 @@ function DynamicAgentsApplicationNavigation(): React.ReactElement {
 }
 
 function KnowledgeApplicationNavigation(): React.ReactElement {
-  const { graphRagEnabled } = useRAGHealth();
-  return <KnowledgeSidebar graphRagEnabled={graphRagEnabled} />;
+  const { graphRagEnabled,status } = useRAGHealth();
+  return (
+    <KnowledgeSidebar
+      graphRagEnabled={status === "connected" && graphRagEnabled}
+    />
+  );
 }
 
 function AdminApplicationNavigation(): React.ReactElement | null {
@@ -76,6 +87,17 @@ function AdminApplicationNavigation(): React.ReactElement | null {
   ) : null;
 }
 
+function SettingsApplicationNavigation(): React.ReactElement {
+  const pathname = usePathname();
+  const section = pathname?.split("/")[2];
+  const activeRoute = pathname?.startsWith("/settings/")
+    ? findSettingsRouteBySegment(section)
+      ?? findSettingsRouteById(DEFAULT_SETTINGS_ROUTE_ID)
+    : undefined;
+
+  return <SettingsNavigation activeRoute={activeRoute} />;
+}
+
 export function ApplicationSectionNavigation({
   areaKey,
 }: {
@@ -95,5 +117,6 @@ export function ApplicationSectionNavigation({
     );
   }
   if (areaKey === "admin") return <AdminApplicationNavigation />;
+  if (areaKey === "settings") return <SettingsApplicationNavigation />;
   return null;
 }

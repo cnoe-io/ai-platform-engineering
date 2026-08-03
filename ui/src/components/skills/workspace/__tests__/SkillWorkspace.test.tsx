@@ -14,8 +14,13 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 const pushMock = jest.fn();
+const mockNavigateDocument = jest.fn();
 jest.mock("next/navigation", () => ({
   useRouter: () => ({ push: pushMock, replace: pushMock }),
+}));
+
+jest.mock("@/lib/document-navigation", () => ({
+  navigateDocument: (href: string) => mockNavigateDocument(href),
 }));
 
 const mockToast = jest.fn();
@@ -138,6 +143,7 @@ const SAMPLE_SKILL: AgentSkill & {
 
 beforeEach(() => {
   pushMock.mockClear();
+  mockNavigateDocument.mockClear();
   mockToast.mockClear();
   mockSetUnsaved.mockClear();
   mockCancelNav.mockClear();
@@ -279,7 +285,7 @@ describe("SkillWorkspace — back navigation", () => {
   it("navigates immediately when not dirty", () => {
     render(<SkillWorkspace existingConfig={SAMPLE_SKILL} />);
     fireEvent.click(screen.getByRole("button", { name: /Back to Skills/i }));
-    expect(pushMock).toHaveBeenCalledWith("/skills");
+    expect(mockNavigateDocument).toHaveBeenCalledWith("/skills");
   });
 
   it("calls guardedClose when dirty (and does NOT navigate yet)", () => {
@@ -287,7 +293,7 @@ describe("SkillWorkspace — back navigation", () => {
     render(<SkillWorkspace existingConfig={SAMPLE_SKILL} />);
     fireEvent.click(screen.getByRole("button", { name: /Back to Skills/i }));
     expect(mockForm.guardedClose).toHaveBeenCalledTimes(1);
-    expect(pushMock).not.toHaveBeenCalled();
+    expect(mockNavigateDocument).not.toHaveBeenCalled();
   });
 
   it("renders the Discard dialog when form.showDiscardConfirm is true", () => {
@@ -303,7 +309,7 @@ describe("SkillWorkspace — back navigation", () => {
       screen.getByRole("button", { name: /Discard & leave/i }),
     );
     expect(mockForm.confirmDiscard).toHaveBeenCalledTimes(1);
-    expect(pushMock).toHaveBeenCalledWith("/skills");
+    expect(mockNavigateDocument).toHaveBeenCalledWith("/skills");
   });
 });
 
@@ -522,20 +528,13 @@ describe("SkillWorkspace — unsaved-changes guard", () => {
     mockStoreState.pendingNavigationHref = "/chat";
     resetForm({ isDirty: true, showDiscardConfirm: true });
 
-    // jsdom's `window.location.href` setter performs a real (mocked)
-    // navigation. We can't easily intercept that, so instead we just
-    // assert the upstream behaviour: confirmDiscard + confirmNavigation
-    // were invoked, and `router.push` was NOT used (since an external
-    // href takes precedence over the in-app backHref).
     render(<SkillWorkspace existingConfig={SAMPLE_SKILL} backHref="/skills" />);
     fireEvent.click(
       screen.getByTestId("skill-workspace-discard-confirm"),
     );
     expect(mockForm.confirmDiscard).toHaveBeenCalled();
     expect(mockConfirmNav).toHaveBeenCalled();
-    // External href (`/chat`) wins over backHref — we hand off to
-    // `window.location.href` rather than calling router.push.
-    expect(pushMock).not.toHaveBeenCalled();
+    expect(mockNavigateDocument).toHaveBeenCalledWith("/chat");
   });
 
   it("Discard & leave falls back to backHref when there's no pending external nav", () => {
@@ -544,7 +543,7 @@ describe("SkillWorkspace — unsaved-changes guard", () => {
     fireEvent.click(
       screen.getByTestId("skill-workspace-discard-confirm"),
     );
-    expect(pushMock).toHaveBeenCalledWith("/skills");
+    expect(mockNavigateDocument).toHaveBeenCalledWith("/skills");
     expect(mockConfirmNav).not.toHaveBeenCalled();
   });
 
