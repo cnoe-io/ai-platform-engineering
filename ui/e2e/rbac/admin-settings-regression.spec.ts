@@ -34,7 +34,7 @@ test.describe("mocked Admin workspace browser regression",() => {
     await expect(
       page
         .getByRole("navigation",{ name: "Application navigation" })
-        .getByRole("link",{ name: "Admin",exact: true }),
+        .getByRole("button",{ name: "Admin",exact: true }),
     ).toHaveAttribute(
       "aria-current",
       "page",
