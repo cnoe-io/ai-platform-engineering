@@ -14,6 +14,10 @@ import { renderInlineMarkdown } from "@/components/shared/timeline/MarkdownRende
 import { copyTextToClipboard } from "@/components/ui/copy-button";
 import { useToast } from "@/components/ui/toast";
 import {
+  imageFileToDataUrl,
+  renderTomeCodePreview,
+} from "@/lib/tome/editor-media";
+import {
   parseTomeHref,
   wikiRoute,
   type GlossaryPreview,
@@ -99,6 +103,24 @@ export const CrepeEditor = forwardRef<CrepeEditorHandle, Props>(function CrepeEd
     const crepe = new Crepe({
       root: hostRef.current,
       defaultValue: initialMarkdown,
+      featureConfigs: {
+        [Crepe.Feature.CodeMirror]: {
+          renderPreview: renderTomeCodePreview,
+          previewLoading: "Rendering Mermaid diagram…",
+        },
+        [Crepe.Feature.ImageBlock]: {
+          onUpload: async (file: File) => {
+            try {
+              return await imageFileToDataUrl(file);
+            } catch (error) {
+              const message =
+                error instanceof Error ? error.message : "The image could not be embedded.";
+              toast(message, "error");
+              throw error;
+            }
+          },
+        },
+      },
     });
     crepeRef.current = crepe;
     readyRef.current = false;

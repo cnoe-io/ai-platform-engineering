@@ -99,3 +99,20 @@
 .tome-heading-anchor-link:focus-visible {
   opacity: 1;
 }
+
+/* Mermaid is rendered through Crepe's code-block preview hook. Keep large
+   architecture diagrams within the wiki pane while allowing vertical growth. */
+.milkdown-code-block .preview svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin-inline: auto;
+}
+
+.tome-mermaid-error {
+  border: 1px solid var(--crepe-color-error);
+  border-radius: 0.375rem;
+  color: var(--crepe-color-error);
+  padding: 0.75rem;
+  white-space: pre-wrap;
+}
