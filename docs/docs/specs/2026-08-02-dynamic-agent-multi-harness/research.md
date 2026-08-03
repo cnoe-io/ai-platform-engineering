@@ -343,7 +343,144 @@ audit in [Agent SDK hooks](https://code.claude.com/docs/en/agent-sdk/hooks). Age
 Harness does not offer equivalent hooks, which reinforces the need for authorization
 at CAIPE and MCP enforcement boundaries.
 
-## R-9 — AgentCore requires an asynchronous control plane
+## R-9 — AgentCore is a first-class requested product path
+
+**Decision**: Treat [#2109](https://github.com/cnoe-io/ai-platform-engineering/issues/2109)
+as a high-priority implementation track, not a speculative deployment follow-up.
+
+The initial AgentCore outcome must let an operator:
+
+- Select AgentCore Harness when defining a dynamic agent.
+- Provision, update, promote, invoke, observe, and delete the managed resource from
+  CAIPE.
+- Connect approved MCP tools without losing CAIPE caller identity or policy controls.
+- Choose explicit memory behavior and retention.
+- Correlate a CAIPE conversation and audit event with its AWS session and trace.
+- See readiness, deployment failure, drift, quota, and invocation errors in CAIPE.
+
+This priority comes from the explicit public feature request. The research does not
+infer a request count that the public issue tracker does not provide.
+
+## R-10 — Managed Harness is the AgentCore MVP; Runtime stays a separate provider
+
+**Decision**: The first AgentCore option uses the managed, configuration-driven
+AgentCore Harness. Hosting arbitrary framework code directly on AgentCore Runtime is a
+separate execution-provider capability.
+
+AWS describes Harness as a managed Strands-powered agent loop backed by Runtime. It
+manages the execution environment, session isolation, memory, identity, networking,
+and observability from declarative model, instruction, tool, and skill configuration.
+Runtime supplies hosting but does not supply an agent loop.
+
+### MVP boundary
+
+| Included in the AgentCore MVP | Deferred or separately selectable |
+|---|---|
+| Create, update, version, promote, invoke, and delete Harness resources | Host DeepAgents or Claude Agent SDK code on Runtime |
+| Managed response streaming mapped to common CAIPE events | Bidirectional streaming or hook emulation |
+| Remote MCP or AgentCore Gateway tools | Arbitrary non-agent-loop graphs |
+| AgentCore Memory modes and CAIPE conversation binding | Automatic migration of existing LangGraph checkpoints |
+| IAM/OAuth ingress, delegated tool identity, and AgentOps correlation | Browser and Code Interpreter enabled without an explicit policy |
+
+The capability registry must expose Harness limitations. In particular, CAIPE must not
+advertise hooks, arbitrary framework choice, bidirectional streaming, or graph-shaped
+execution when the selected resource is managed Harness.
+
+Sources: [AgentCore Harness](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/harness.html),
+[Harness versus Runtime](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/harness-vs-runtime.html),
+and [AgentCore tools](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/harness-tools.html).
+
+## R-11 — Map CAIPE resources to immutable AgentCore versions and endpoints
+
+**Decision**: Store a durable AgentCore binding and promote immutable versions through
+named endpoints. Production traffic must not rely on the `DEFAULT` endpoint following
+the latest version automatically.
+
+| CAIPE concept | AgentCore representation |
+|---|---|
+| Dynamic agent | Harness resource ARN |
+| Saved configuration revision | Immutable Harness version |
+| Environment or release channel | Named endpoint pinned to a version |
+| Conversation | CAIPE conversation ID plus `runtimeSessionId` and optional actor ID |
+| Approved tool set | Remote MCP or Gateway tool configuration |
+| Managed memory selection | Memory resource/configuration stored in the binding |
+| AgentOps execution | AWS session, trace, span, endpoint, and version identifiers |
+| Credential reference | Identity provider/workload identity reference; never raw credentials |
+
+Every update creates or identifies an immutable version. Promotion moves a named
+endpoint only after validation. Rollback repoints the endpoint to the last known-good
+version without rewriting the CAIPE agent definition.
+
+AWS documents immutable Harness versions and `CREATING`, `CREATE_FAILED`, `READY`,
+`UPDATING`, and `UPDATE_FAILED` endpoint states in
+[Harness versioning and endpoints](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/harness-versioning.html).
+
+## R-12 — Preserve CAIPE caller identity through AgentCore
+
+**Decision**: CAIPE remains the authorization boundary. AgentCore provides workload
+identity and token exchange for downstream calls; it does not replace CAIPE/OpenFGA or
+MCP-server authorization.
+
+The implementation spike must validate two supported connection patterns:
+
+1. AgentCore invokes an approved CAIPE MCP endpoint with a delegated caller token or a
+   signed CAIPE execution context.
+2. AgentCore Gateway fronts approved tools and AgentCore Identity performs on-behalf-of
+   token exchange for the downstream audience.
+
+Select one pattern per deployment. Do not duplicate existing CAIPE/OpenFGA rules in
+AgentCore Policy during the MVP; a second policy plane requires its own ownership,
+consistency, and audit design.
+
+Required security behavior:
+
+- Choose IAM SigV4 or OAuth/JWT ingress when creating the resource; do not assume both
+  are simultaneously active on one Runtime resource.
+- Authorize the CAIPE user before the service invokes AgentCore.
+- Carry stable workload, actor, conversation, and request identifiers downstream.
+- Restrict the AWS execution role and resource policy to the selected account, region,
+  resources, and actions.
+- Use on-behalf-of exchange only for an allowed issuer, audience, scope, and tool.
+- Fail closed when token exchange, identity mapping, or policy context is unavailable.
+
+AgentCore Identity supports OAuth token exchange, including RFC 8693 and RFC 7523
+patterns. The spike must prove compatibility with the deployment's identity provider
+and the actual CAIPE MCP boundary before implementation is considered unblocked.
+
+Sources: [Runtime OAuth](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/runtime-oauth.html),
+[on-behalf-of token exchange](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/on-behalf-of-token-exchange.html),
+[IAM](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/security-iam.html),
+and [resource-based policies](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/resource-based-policies.html).
+
+## R-13 — Make AgentCore memory mode explicit
+
+**Decision**: An AgentCore agent must select one of three memory modes. CAIPE remains
+the canonical conversation and audit record in every mode.
+
+| Mode | Behavior | Required binding data |
+|---|---|---|
+| Disabled | No AgentCore Memory persistence | Session mapping only |
+| Managed | CAIPE provisions/configures AgentCore Memory | Memory ARN, actor scope, session mapping, retention policy |
+| Bring your own | Operator supplies an allowed existing memory resource | Validated resource reference, actor scope, session mapping, retention owner |
+
+AgentCore Harness enables memory by default, but CAIPE must never silently accept that
+default. The operator needs to see the selected mode and its retention/deletion
+consequences.
+
+Implementation requirements:
+
+- Use a tenant- and user-safe actor ID mapping; never reuse a global actor ID.
+- Keep `runtimeSessionId` separate from durable memory identity.
+- Define what deletion removes from CAIPE, Harness, and Memory.
+- Define retention, export, legal hold, and region behavior before managed long-term
+  memory is generally available.
+- Do not place secrets or unrestricted tool results into long-term memory.
+
+AWS distinguishes short-term raw events from long-term semantic, summary, preference,
+episodic, and custom strategies in
+[AgentCore Harness memory](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/harness-memory.html).
+
+## R-14 — AgentCore requires an asynchronous, idempotent control plane
 
 **Decision**: Treat AgentCore configuration changes as desired-state reconciliation,
 not synchronous CRUD that assumes the remote resource is immediately ready.
@@ -362,23 +499,53 @@ Required managed states include:
 
 The binding needs, at minimum:
 
-- CAIPE agent ID
-- AWS account/region reference
-- Harness/runtime resource identifier or ARN
-- Endpoint and immutable version
-- Desired configuration revision
-- Observed lifecycle state and reason
-- Last reconciliation time
+- CAIPE agent ID and desired configuration revision
+- AWS account and region reference
+- Harness/runtime ARN
+- Immutable version and named endpoint
+- Memory and identity references
+- Observed lifecycle state, reason, and last reconciliation time
 - Native session mapping per conversation
 
-Reconciliation must be idempotent. A network timeout after AWS accepts a create or
-update request cannot cause uncontrolled duplicate resources on retry.
+Reconciliation must be idempotent. A network timeout after AWS accepts a create,
+update, endpoint promotion, or delete request cannot create duplicate resources or
+lose the last known-good binding. Deletion must account for retained versions, named
+endpoints, memory resources, and externally owned dependencies.
 
-AWS documents immutable runtime versions, addressable endpoints, and asynchronous
-endpoint lifecycle states in
-[AgentCore Runtime](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/runtime-how-it-works.html).
+## R-15 — AgentCore needs explicit operational, cost, and quota gates
 
-## R-10 — Claude SDK versioning needs an explicit compatibility gate
+**Decision**: A managed AgentCore binding cannot become `ready` until deployment
+preflight validates region, IAM, networking, MCP reachability, identity exchange,
+service quotas, model access, and observability.
+
+### AgentOps mapping
+
+- Propagate CAIPE request, conversation, agent, tenant, endpoint, and version IDs.
+- Record AWS session, trace, and span IDs on normalized audit events.
+- Enable CloudWatch Transaction Search and OpenTelemetry/ADOT integration where
+  required for trace detail.
+- Export availability, latency, token/model usage, tool failures, throttling, session
+  saturation, and reconciliation errors without copying secrets or unrestricted tool
+  content.
+- Distinguish Harness, model, Memory, Gateway, and built-in-tool cost attribution.
+
+AWS states that Harness has no separate charge; the deployment pays for the underlying
+AgentCore capabilities and model use. CAIPE must still support budgets, usage tags,
+and per-agent cost correlation before broad enablement.
+
+### Limits to preflight
+
+AWS documents regional/account quotas and Runtime-backed Harness limits for active
+sessions, resource/version/endpoint counts, request rates, compute size, image size,
+and synchronous, streaming, and asynchronous execution duration. These values are
+deployment inputs, not constants in the CAIPE contract. Discover or configure them at
+deployment time and surface actionable failures before traffic is routed.
+
+Sources: [AgentCore quotas](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/bedrock-agentcore-limits.html),
+[observability](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/observability-get-started.html),
+and [telemetry model](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/observability-telemetry.html).
+
+## R-16 — Claude SDK versioning needs an explicit compatibility gate
 
 **Decision**: Pin a reviewed Claude Agent SDK version and test its native message
 contract. Do not depend on undocumented message shapes.
@@ -405,7 +572,7 @@ Minimum compatibility coverage:
 - Hook allow, deny, mutation, timeout, and failure behavior
 - MCP connection and credential propagation
 
-## R-11 — Roll out Claude before AgentCore
+## R-17 — Prove the local abstraction, then deliver AgentCore in gated increments
 
 **Decision**: Use the following delivery order.
 
@@ -426,13 +593,34 @@ Minimum compatibility coverage:
 - Add native SDK compatibility and common conformance tests.
 - Enable per-agent selection for DeepAgents and Claude.
 
-### Phase C — AgentCore Harness and Runtime provider
+### Phase C1 — AgentCore integration spike
 
-- Add AWS credentials, network, identity, and region configuration.
-- Implement desired-state reconciliation and managed bindings.
-- Map AgentCore invocation, sessions, streaming, memory, traces, and errors.
-- Add lifecycle UI and AgentOps correlation.
-- Enable AgentCore only after provisioning and deletion tests are idempotent.
+- Prove IAM/OAuth ingress and delegated caller identity with the deployment's identity
+  provider.
+- Prove remote MCP connectivity, DNS, TLS, egress, token exchange, and fail-closed
+  behavior.
+- Capture real Harness streaming events and map them to the common contract.
+- Validate Memory actor/session isolation and AgentOps trace correlation.
+- Confirm quotas, regions, model access, and expected cost attribution.
+
+### Phase C2 — AgentCore control plane
+
+- Implement desired-state reconciliation, bindings, immutable versions, named
+  endpoints, promotion, rollback, drift detection, and deletion.
+- Add lifecycle status and actionable failure details to the API and UI.
+
+### Phase C3 — AgentCore data plane
+
+- Implement Harness configuration and invocation adapters.
+- Map sessions, streaming, tools, memory, traces, errors, cancellation, and timeouts.
+- Add common conformance and golden-stream tests.
+
+### Phase C4 — AgentCore operational hardening
+
+- Add quota and model-access preflight, cost/usage attribution, dashboards, alerts,
+  audit correlation, and failure injection.
+- Enable AgentCore only after create, update, promotion, rollback, and deletion tests
+  are idempotent and identity/MCP tests fail closed.
 
 ### Phase D — Follow-up harnesses and execution combinations
 
@@ -445,7 +633,7 @@ Minimum compatibility coverage:
 abstraction, aligns with the Constitution's Rule of Three, and isolates adapter design
 from remote control-plane complexity.
 
-## R-12 — Estimated effort and staffing
+## R-18 — Estimated effort and staffing
 
 | Workstream | Estimated effort |
 |---|---:|
@@ -468,7 +656,17 @@ The largest uncertainty is AgentCore enterprise integration rather than SDK invo
 - AgentOps trace/log correlation
 - Cost attribution and quotas
 
-## R-13 — Issue structure
+### AgentCore estimate decomposition
+
+| AgentCore workstream | Estimated effort |
+|---|---:|
+| Security, networking, identity, and event-mapping spike | 1–2 engineer-weeks |
+| Harness adapter and streaming data plane | 2–3 engineer-weeks |
+| Reconciliation, versions, endpoints, promotion, and deletion | 2–3 engineer-weeks |
+| MCP identity, memory, AgentOps, quota, and failure hardening | 3–4 engineer-weeks |
+| **AgentCore total** | **8–12 engineer-weeks** |
+
+## R-19 — Issue structure
 
 **Decision**:
 
@@ -476,9 +674,10 @@ The largest uncertainty is AgentCore enterprise integration rather than SDK invo
 - Add a child issue for the common harness contract and DeepAgents wrapper.
 - Add a child issue for the Claude Agent SDK adapter.
 - Split [#2109](https://github.com/cnoe-io/ai-platform-engineering/issues/2109) into:
+  - AgentCore security, network, identity, Memory, and event-mapping spike
   - AgentCore Harness adapter
-  - AgentCore Runtime execution provider and reconciliation
-  - AgentCore identity, MCP networking, memory, and AgentOps integration
+  - AgentCore control plane, versions, endpoints, promotion, and deletion
+  - AgentCore MCP identity, AgentOps, quota, cost, and failure hardening
 
 This preserves the distinction already present in the issue intent: #2079 concerns
 agentic SDK choice, while #2109 concerns an optional AWS-managed backend.
@@ -493,7 +692,15 @@ agentic SDK choice, while #2109 concerns an optional AWS-managed backend.
 | Claude built-in tools bypass CAIPE boundaries | Unauthorized file or command execution | Isolated workspace, tool allowlist, hooks, sandboxing, and authorization outside the SDK |
 | AgentCore provisioning and CAIPE state diverge | Leaked or unusable AWS resources | Idempotent desired-state reconciliation and drift detection |
 | AgentCore session expiry is mistaken for durable memory | Lost conversation context | Explicit memory policy and CAIPE-owned conversation record |
+| AgentCore actor IDs are shared across users or tenants | Cross-user memory disclosure | Tenant-scoped actor mapping and isolation tests |
 | MCP servers are unreachable from AgentCore | Agent runs without required tools | Preflight networking/identity validation before marking the managed agent ready |
+| Ingress auth mode is chosen incorrectly | Invocation outage or weakened access boundary | Make IAM versus OAuth an immutable, validated deployment decision |
+| CAIPE and AgentCore Policy become competing policy planes | Inconsistent allow/deny outcomes | Keep CAIPE/OpenFGA and MCP enforcement canonical in MVP; design policy synchronization separately |
+| `DEFAULT` endpoint follows an unvalidated version | Production changes without promotion | Route production through named, pinned endpoints |
+| Per-invocation model overrides bypass policy or budgets | Compliance and cost exposure | Capability/model allowlist and normalized usage/cost audit |
+| Direct shell command APIs bypass the model loop | Unreviewed command execution | Separate permission, workspace confinement, audit, and default deny |
+| Trace or memory content captures secrets | Sensitive-data disclosure | Redaction, retention controls, scoped access, and content-minimizing telemetry |
+| AWS quotas or regional limits are exhausted | Provisioning or invocation failure | Deployment preflight, saturation metrics, capacity alerts, and documented quota requests |
 | Provider-specific events break clients | UI/protocol regressions | Normalize before encoding; common conformance and golden-stream tests |
 | SDK upgrades introduce unknown message types | Missing output or false completion | Pinned versions, compatibility fixtures, unknown-event metrics, terminal-event invariants |
 | Capability differences are hidden | Misconfigured or silently degraded agents | Capability registry and save-time validation in UI and API |
@@ -514,9 +721,27 @@ agentic SDK choice, while #2109 concerns an optional AWS-managed backend.
 
 ### AWS
 
+- [Amazon Bedrock AgentCore overview](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/)
+- [AgentCore Harness](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/harness.html)
+- [Get started with AgentCore Harness](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/harness-get-started.html)
 - [AgentCore Harness versus Runtime](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/harness-vs-runtime.html)
+- [AgentCore Harness tools](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/harness-tools.html)
+- [AgentCore Harness environment](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/harness-environment.html)
+- [AgentCore Harness models](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/harness-models.html)
+- [AgentCore Harness memory](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/harness-memory.html)
+- [AgentCore Harness versioning and endpoints](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/harness-versioning.html)
 - [How AgentCore Runtime works](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/runtime-how-it-works.html)
 - [AgentCore Runtime lifecycle settings](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/runtime-lifecycle-settings.html)
+- [AgentCore Runtime OAuth](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/runtime-oauth.html)
+- [AgentCore on-behalf-of token exchange](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/on-behalf-of-token-exchange.html)
+- [AgentCore Gateway](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/gateway.html)
+- [AgentCore Policy](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/policy.html)
+- [AgentCore IAM](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/security-iam.html)
+- [AgentCore resource-based policies](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/resource-based-policies.html)
+- [AgentCore observability](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/observability-get-started.html)
+- [AgentCore telemetry model](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/observability-telemetry.html)
+- [AgentCore quotas](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/bedrock-agentcore-limits.html)
+- [AgentCore release notes](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/release-notes.html)
 
-**Research date**: 2026-08-02. External product behavior must be revalidated during
+**Research date**: 2026-08-03. External product behavior must be revalidated during
 implementation because both Claude Agent SDK and AgentCore are actively evolving.
