@@ -140,6 +140,33 @@ test.describe("Tome editor media (mocked)", () => {
     await expect(preview).toBeVisible();
     await expect(preview).toHaveAttribute("aria-roledescription", "flowchart-v2");
     await expect(page.locator(".tome-mermaid-error")).toHaveCount(0);
+
+    const inlineBox = await preview.boundingBox();
+    await page.getByRole("button", { name: "Expand Mermaid diagram" }).click();
+
+    const lightbox = page.getByRole("dialog", { name: "Mermaid diagram" });
+    const expandedSvg = lightbox.locator(".tome-mermaid-lightbox-canvas svg");
+    await expect(lightbox).toBeVisible();
+    await expect(expandedSvg).toBeVisible();
+    await expect
+      .poll(async () => (await expandedSvg.boundingBox())?.width ?? 0)
+      .toBeGreaterThan(inlineBox?.width ?? 0);
+
+    const zoomReset = lightbox.getByRole("button", { name: "Reset Mermaid zoom" });
+    const expandedWidth = (await expandedSvg.boundingBox())?.width ?? 0;
+    await expect(zoomReset).toHaveText("100%");
+
+    await lightbox.getByRole("button", { name: "Zoom out Mermaid diagram" }).click();
+    await expect(zoomReset).toHaveText("75%");
+    await expect
+      .poll(async () => (await expandedSvg.boundingBox())?.width ?? 0)
+      .toBeLessThan(expandedWidth);
+
+    await lightbox.getByRole("button", { name: "Zoom in Mermaid diagram" }).click();
+    await expect(zoomReset).toHaveText("100%");
+
+    await page.keyboard.press("Escape");
+    await expect(lightbox).toBeHidden();
   });
 
   test("persists a pasted image through the page save and reload flow", async ({ page }) => {

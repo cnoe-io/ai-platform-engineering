@@ -7,11 +7,27 @@ import "@milkdown/crepe/theme/common/style.css";
 import "./crepe-theme.css";
 import { linkAttr } from "@milkdown/kit/preset/commonmark";
 import { replaceAll } from "@milkdown/utils";
-import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
+import { Minus, Plus } from "lucide-react";
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 
 import { classifyCitationHref } from "@/lib/tome/citations";
 import { renderInlineMarkdown } from "@/components/shared/timeline/MarkdownRenderer";
+import { Button } from "@/components/ui/button";
 import { copyTextToClipboard } from "@/components/ui/copy-button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toast";
 import {
   imageFileToDataUrl,
@@ -65,6 +81,10 @@ type Props = {
   hideHtmlComments?: boolean;
 };
 
+const MERMAID_ZOOM_MIN = 25;
+const MERMAID_ZOOM_MAX = 200;
+const MERMAID_ZOOM_STEP = 25;
+
 /**
  * Thin wrapper around Crepe. Mounts on the host div, exposes a ref handle
  * the parent can call to read the current markdown out (for save).
@@ -88,6 +108,11 @@ export const CrepeEditor = forwardRef<CrepeEditorHandle, Props>(function CrepeEd
   const hostRef = useRef<HTMLDivElement | null>(null);
   const crepeRef = useRef<Crepe | null>(null);
   const readyRef = useRef(false);
+  const [expandedMermaid, setExpandedMermaid] = useState<{
+    svg: string;
+    width: number;
+  } | null>(null);
+  const [mermaidZoom, setMermaidZoom] = useState(100);
   // Latest callbacks, read by the (mount-once) DOM handlers.
   const onNavigateRef = useRef(onNavigate);
   useEffect(() => {
@@ -198,6 +223,26 @@ export const CrepeEditor = forwardRef<CrepeEditorHandle, Props>(function CrepeEd
     if (!host) return;
     const onClick = (e: Event) => {
       const target = e.target as HTMLElement | null;
+      const expandButton = target?.closest?.("button.tome-mermaid-expand");
+      if (expandButton) {
+        const svg = expandButton
+          .closest(".tome-mermaid-preview")
+          ?.querySelector<SVGSVGElement>(".tome-mermaid-canvas svg");
+        if (!svg) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const viewBoxWidth = Number(svg.getAttribute("viewBox")?.split(/\s+/)[2]);
+        const renderedWidth = svg.getBoundingClientRect().width;
+        const width = Math.max(
+          Number.isFinite(viewBoxWidth) ? viewBoxWidth : 0,
+          renderedWidth,
+          1200,
+        );
+        // The SVG has already passed through Crepe's DOMPurify sanitizer.
+        setMermaidZoom(100);
+        setExpandedMermaid({ svg: svg.outerHTML, width });
+        return;
+      }
       const anchor = target?.closest?.("a") as HTMLAnchorElement | null;
       if (!anchor) return;
       const href = anchor.getAttribute("href");
@@ -437,10 +482,86 @@ export const CrepeEditor = forwardRef<CrepeEditorHandle, Props>(function CrepeEd
   );
 
   return (
-    <div
-      ref={hostRef}
-      className={hideHtmlComments ? "milkdown-host milkdown-hide-comments" : "milkdown-host"}
-    />
+    <>
+      <div
+        ref={hostRef}
+        className={hideHtmlComments ? "milkdown-host milkdown-hide-comments" : "milkdown-host"}
+      />
+      <Dialog
+        open={expandedMermaid !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setExpandedMermaid(null);
+            setMermaidZoom(100);
+          }
+        }}
+      >
+        <DialogContent className="tome-mermaid-lightbox">
+          <div className="tome-mermaid-lightbox-header">
+            <DialogHeader>
+              <DialogTitle>Mermaid diagram</DialogTitle>
+              <DialogDescription>
+                Zoom the diagram, then scroll to inspect it.
+              </DialogDescription>
+            </DialogHeader>
+            <div
+              className="tome-mermaid-zoom-controls"
+              role="group"
+              aria-label="Mermaid diagram zoom controls"
+            >
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                aria-label="Zoom out Mermaid diagram"
+                title="Zoom out"
+                disabled={mermaidZoom === MERMAID_ZOOM_MIN}
+                onClick={() =>
+                  setMermaidZoom((zoom) => Math.max(MERMAID_ZOOM_MIN, zoom - MERMAID_ZOOM_STEP))
+                }
+              >
+                <Minus aria-hidden="true" />
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="tome-mermaid-zoom-value"
+                aria-label="Reset Mermaid zoom"
+                title="Reset zoom"
+                onClick={() => setMermaidZoom(100)}
+              >
+                {mermaidZoom}%
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                aria-label="Zoom in Mermaid diagram"
+                title="Zoom in"
+                disabled={mermaidZoom === MERMAID_ZOOM_MAX}
+                onClick={() =>
+                  setMermaidZoom((zoom) => Math.min(MERMAID_ZOOM_MAX, zoom + MERMAID_ZOOM_STEP))
+                }
+              >
+                <Plus aria-hidden="true" />
+              </Button>
+            </div>
+          </div>
+          <div
+            className="tome-mermaid-lightbox-canvas"
+            style={
+              {
+                "--tome-mermaid-expanded-width": `${
+                  ((expandedMermaid?.width ?? 1200) * mermaidZoom) / 100
+                }px`,
+              } as CSSProperties
+            }
+            dangerouslySetInnerHTML={{ __html: expandedMermaid?.svg ?? "" }}
+          />
+        </DialogContent>
+      </Dialog>
+    </>
   );
 });
 

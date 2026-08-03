@@ -40,8 +40,17 @@ describe("TOME editor media", () => {
       "tome-mermaid-1",
       "flowchart LR; C-->D",
     );
-    expect(firstPreview).toHaveBeenCalledWith("<svg>diagram</svg>");
-    expect(secondPreview).toHaveBeenCalledWith("<svg>diagram</svg>");
+    for (const applyPreview of [firstPreview, secondPreview]) {
+      const markup = applyPreview.mock.calls[0]?.[0] as string;
+      const container = document.createElement("div");
+      container.innerHTML = markup;
+      expect(
+        container.querySelector("button.tome-mermaid-expand"),
+      ).toHaveAccessibleName("Expand Mermaid diagram");
+      expect(container.querySelector(".tome-mermaid-canvas svg")?.textContent).toBe(
+        "diagram",
+      );
+    }
   });
 
   it("leaves non-Mermaid code blocks unchanged", () => {

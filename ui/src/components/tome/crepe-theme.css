@@ -102,11 +102,107 @@
 
 /* Mermaid is rendered through Crepe's code-block preview hook. Keep large
    architecture diagrams within the wiki pane while allowing vertical growth. */
-.milkdown-code-block .preview svg {
+.tome-mermaid-preview {
+  position: relative;
+  padding-top: 2.75rem;
+}
+
+.tome-mermaid-expand {
+  position: absolute;
+  top: 0.375rem;
+  right: 0.375rem;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.375rem;
+  background: hsl(var(--background) / 0.92);
+  color: hsl(var(--foreground));
+  padding: 0.375rem 0.625rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1;
+  box-shadow: 0 1px 2px hsl(var(--background) / 0.3);
+  cursor: pointer;
+}
+
+.tome-mermaid-expand:hover {
+  background: hsl(var(--muted));
+}
+
+.tome-mermaid-expand:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+.tome-mermaid-canvas svg {
   display: block;
   max-width: 100%;
   height: auto;
   margin-inline: auto;
+}
+
+.tome-mermaid-lightbox {
+  display: flex;
+  width: calc(100vw - 2rem);
+  max-width: none;
+  height: calc(100vh - 2rem);
+  max-height: none;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1rem;
+}
+
+.tome-mermaid-lightbox-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-right: 2.5rem;
+}
+
+.tome-mermaid-zoom-controls {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.tome-mermaid-zoom-controls > button {
+  width: 2.25rem;
+  height: 2.25rem;
+}
+
+.tome-mermaid-zoom-controls .tome-mermaid-zoom-value {
+  width: 4rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.tome-mermaid-lightbox-canvas {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.5rem;
+  background: hsl(var(--background));
+  padding: 1.5rem;
+}
+
+.tome-mermaid-lightbox-canvas svg {
+  display: block;
+  width: var(--tome-mermaid-expanded-width);
+  max-width: none !important;
+  height: auto;
+  margin-inline: auto;
+}
+
+@media (max-width: 40rem) {
+  .tome-mermaid-lightbox-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
 }
 
 .tome-mermaid-error {

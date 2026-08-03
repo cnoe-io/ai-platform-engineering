@@ -3,6 +3,20 @@ const MAX_EMBEDDED_IMAGE_BYTES = 2 * 1024 * 1024;
 let mermaidInitialized = false;
 let mermaidRenderId = 0;
 
+function mermaidPreviewMarkup(svg: string): string {
+  return [
+    '<div class="tome-mermaid-preview">',
+    '<button type="button" class="tome-mermaid-expand" aria-label="Expand Mermaid diagram" title="Expand diagram">',
+    '<span aria-hidden="true">⛶</span>',
+    "<span>Expand</span>",
+    "</button>",
+    '<div class="tome-mermaid-canvas">',
+    svg,
+    "</div>",
+    "</div>",
+  ].join("");
+}
+
 /**
  * Render Mermaid fenced code blocks through Crepe's async preview hook.
  * Returning null leaves every other fenced language as a normal code block.
@@ -25,7 +39,7 @@ export function renderTomeCodePreview(
         mermaidInitialized = true;
       }
       const { svg } = await mermaid.render(renderId, content);
-      applyPreview(svg);
+      applyPreview(mermaidPreviewMarkup(svg));
     })
     .catch((error: unknown) => {
       const message = error instanceof Error ? error.message : "Invalid Mermaid diagram";
