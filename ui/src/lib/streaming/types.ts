@@ -75,6 +75,22 @@ export interface WarningEventData {
   message: string;
 }
 
+/** Memory update data from memory_update events */
+export interface MemoryUpdateEventData {
+  memory_ids: string[];
+  action?: string;
+}
+
+/** Memory injection data from memory_injected events */
+export interface MemoryInjectedEventData {
+  memory_ids: string[];
+}
+
+/** Context memory data from memory_context_used events */
+export interface MemoryContextUsedEventData {
+  memory_ids: string[];
+}
+
 /** Input required data from input_required events (HITL forms) */
 export interface InputRequiredEventData {
   /** Unique ID for this interrupt (used to resume) */
@@ -144,6 +160,9 @@ export type StreamEventType =
   | "content" // LLM token streaming
   | "tool_start" // Tool invocation started (task tool = subagent invocation)
   | "tool_end" // Tool invocation completed
+  | "memory_injected" // Memory records were injected into model context
+  | "memory_context_used" // Context memories were attached to a tool result
+  | "memory_update" // Durable memory changed
   | "input_required" // Agent requests user input via form (HITL)
   | "warning" // Warning event (e.g., missing tools) - rendered inline
   | "error"; // Error event - rendered inline
@@ -185,6 +204,15 @@ export interface StreamEvent {
 
   /** Input required data for input_required events (HITL forms) */
   inputRequiredData?: InputRequiredEventData;
+
+  /** Memory update data for memory_update events */
+  memoryUpdateData?: MemoryUpdateEventData;
+
+  /** Memory injection data for memory_injected events */
+  memoryInjectedData?: MemoryInjectedEventData;
+
+  /** Context memory data for memory_context_used events */
+  memoryContextUsedData?: MemoryContextUsedEventData;
 
   // ─── Content ─────────────────────────────────────────────────
   /** Content text for content events */
@@ -238,6 +266,9 @@ export interface StreamBackendData {
   agent?: string;
   // Warning events
   message?: string;
+  // Memory events
+  memory_ids?: string[];
+  action?: string;
   // Allow other fields
   [key: string]: unknown;
 }
@@ -325,6 +356,37 @@ export function createStreamEvent(
         ...base,
         warningData,
         displayContent: data.message,
+      };
+    }
+
+    case "memory_update": {
+      const memoryUpdateData: MemoryUpdateEventData = {
+        memory_ids: data.memory_ids ?? [],
+        ...(typeof data.action === "string" ? { action: data.action } : {}),
+      };
+      return {
+        ...base,
+        memoryUpdateData,
+      };
+    }
+
+    case "memory_injected": {
+      const memoryInjectedData: MemoryInjectedEventData = {
+        memory_ids: data.memory_ids ?? [],
+      };
+      return {
+        ...base,
+        memoryInjectedData,
+      };
+    }
+
+    case "memory_context_used": {
+      const memoryContextUsedData: MemoryContextUsedEventData = {
+        memory_ids: data.memory_ids ?? [],
+      };
+      return {
+        ...base,
+        memoryContextUsedData,
       };
     }
 

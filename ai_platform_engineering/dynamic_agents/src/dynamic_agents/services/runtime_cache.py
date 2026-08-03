@@ -178,6 +178,15 @@ class AgentRuntimeCache:
                 del self._cache[key]
                 prom_metrics.runtime_cache_evictions_total.labels(reason="config_change").inc()
                 self._update_metrics()
+            elif user and getattr(getattr(runtime, "_user", None), "email", None) != user.email:
+                logger.info(
+                    "Runtime cache invalidated due to user context change for agent %s",
+                    agent_config.id,
+                )
+                await runtime.cleanup()
+                del self._cache[key]
+                prom_metrics.runtime_cache_evictions_total.labels(reason="user_change").inc()
+                self._update_metrics()
             elif runtime.idle_seconds >= self._ttl:
                 logger.info(
                     "Runtime cache expired due to inactivity (%.0fs idle) for agent %s",

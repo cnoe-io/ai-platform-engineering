@@ -164,6 +164,7 @@ class ResumeStreamRequest(BaseModel):
     resume_data: str  # JSON string with type discriminator (form_input or tool_approval)
     protocol: str = Field("custom", pattern=r"^(custom|agui)$")
     trace_id: str | None = None
+    memory_enabled: bool = True
     config_override: dict | None = Field(
         None,
         description=(
@@ -206,6 +207,7 @@ async def _collect_invoke_response(
         request.trace_id,
         encoder,
         files=request.files,
+        memory_enabled=request.memory_enabled,
     ):
         pass
 
@@ -248,6 +250,7 @@ async def _generate_sse_events(
     mongo: MongoDBService | None = None,
     client_context: ClientContext | None = None,
     files: list[InputFile] | None = None,
+    memory_enabled: bool = True,
 ) -> AsyncGenerator[str, None]:
     """Generate SSE events from agent streaming.
 
@@ -274,7 +277,15 @@ async def _generate_sse_events(
         )
 
         # Stream response with trace_id for Langfuse tracing
-        async for frame in runtime.stream(message, session_id, user.email, trace_id, encoder, files=files):
+        async for frame in runtime.stream(
+            message,
+            session_id,
+            user.email,
+            trace_id,
+            encoder,
+            files=files,
+            memory_enabled=memory_enabled,
+        ):
             yield frame
 
     except RuntimeCapacityError as e:
@@ -373,6 +384,7 @@ async def chat_start_stream(
             mongo=mongo,
             client_context=request.client_context,
             files=request.files,
+            memory_enabled=request.memory_enabled,
         ),
         media_type="text/event-stream",
         headers={
@@ -392,6 +404,7 @@ async def _generate_resume_sse_events(
     encoder: StreamEncoder,
     trace_id: str | None = None,
     mongo: MongoDBService | None = None,
+    memory_enabled: bool = True,
 ) -> AsyncGenerator[str, None]:
     """Generate SSE events from agent resume streaming.
 
@@ -416,7 +429,14 @@ async def _generate_resume_sse_events(
         )
 
         # Resume streaming with form data
-        async for frame in runtime.resume(session_id, user.email, resume_data, trace_id, encoder):
+        async for frame in runtime.resume(
+            session_id,
+            user.email,
+            resume_data,
+            trace_id,
+            encoder,
+            memory_enabled=memory_enabled,
+        ):
             yield frame
 
     except RuntimeCapacityError as e:
@@ -485,6 +505,7 @@ async def chat_resume_stream(
             encoder=encoder,
             trace_id=request.trace_id,
             mongo=mongo,
+            memory_enabled=request.memory_enabled,
         ),
         media_type="text/event-stream",
         headers={
