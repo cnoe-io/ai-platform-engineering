@@ -11,6 +11,7 @@
 export {
   authenticateRequest,
   getDynamicAgentsConfig,
+  getDynamicAgentsInvokeProxyOptions,
   proxySSEStream,
   proxyJSONRequest,
   proxyRequest,

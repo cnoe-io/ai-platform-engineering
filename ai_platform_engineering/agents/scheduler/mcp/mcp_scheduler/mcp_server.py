@@ -26,6 +26,8 @@ from pydantic import BaseModel, Field, model_validator
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_HTTP_TIMEOUT_SECONDS = 300
+
 
 def _scheduler_url() -> str:
     url = os.environ.get("SCHEDULER_URL", "").rstrip("/")
@@ -168,6 +170,17 @@ class CreateScheduleArgs(BaseModel):
             ),
         ),
     ] = None
+    http_timeout_seconds: Annotated[
+        int,
+        Field(
+            default=DEFAULT_HTTP_TIMEOUT_SECONDS,
+            ge=1,
+            description=(
+                "Optional per-fire HTTP timeout in seconds for the scheduler runner's "
+                "chat invoke. Defaults to 300."
+            ),
+        ),
+    ] = DEFAULT_HTTP_TIMEOUT_SECONDS
 
 
 class ListSchedulesArgs(BaseModel):
@@ -219,6 +232,17 @@ class PatchScheduleArgs(BaseModel):
         default=None,
         description="Replacement display attributes JSON object.",
     )
+    http_timeout_seconds: Annotated[
+        int | None,
+        Field(
+            default=None,
+            ge=1,
+            description=(
+                "New per-fire HTTP timeout in seconds. Omit to leave unchanged; "
+                "set 300 to use the default."
+            ),
+        ),
+    ] = None
 
 
 class DeleteScheduleArgs(BaseModel):

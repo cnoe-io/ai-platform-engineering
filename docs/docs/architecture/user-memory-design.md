@@ -187,9 +187,8 @@ inferences.
 
 V1 decision:
 
-- Global memory requires explicit user confirmation.
-- Agent-scoped and context-scoped memory can be created by the agent without
-  a confirmation step.
+- Global, agent-scoped, and context-scoped memory can be created by the agent
+  without a separate confirmation step.
 - Agent-created non-global changes must be auditable in the UI.
 - The memory tool should return changed memory IDs so the chat UI can show a
   clickable "Memory updated" tag after the assistant response.

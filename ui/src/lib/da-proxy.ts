@@ -15,8 +15,32 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { timingSafeEqual } from "crypto";
+import { Agent, type Dispatcher } from "undici";
 import { getServerConfig } from "@/lib/config";
 import { getAuthenticatedUser, getAuthFromBearerOrSession } from "@/lib/api-middleware";
+
+const DEFAULT_DYNAMIC_AGENTS_INVOKE_TIMEOUT_SECONDS = 900;
+
+function getDynamicAgentsInvokeTimeoutMs(): number {
+  const raw = process.env.DYNAMIC_AGENTS_INVOKE_TIMEOUT_SECONDS;
+  if (!raw) return DEFAULT_DYNAMIC_AGENTS_INVOKE_TIMEOUT_SECONDS * 1000;
+
+  const parsed = Number(raw);
+  if (Number.isFinite(parsed) && parsed > 0) {
+    return Math.round(parsed * 1000);
+  }
+
+  console.warn(
+    `[dynamic-agents] Ignoring invalid DYNAMIC_AGENTS_INVOKE_TIMEOUT_SECONDS=${raw}; ` +
+      `using ${DEFAULT_DYNAMIC_AGENTS_INVOKE_TIMEOUT_SECONDS}s.`,
+  );
+  return DEFAULT_DYNAMIC_AGENTS_INVOKE_TIMEOUT_SECONDS * 1000;
+}
+
+const dynamicAgentsInvokeDispatcher = new Agent({
+  headersTimeout: getDynamicAgentsInvokeTimeoutMs(),
+  bodyTimeout: getDynamicAgentsInvokeTimeoutMs(),
+});
 
 // ═══════════════════════════════════════════════════════════════
 // Auth helper
@@ -319,9 +343,22 @@ export async function proxyJSONRequest(
   body: string,
   authResult: AuthResult,
   logPrefix: string,
+  options: ProxyRequestOptions = {},
 ): Promise<Response> {
-  return proxyRequest(backendUrl, "POST", authResult, logPrefix, body);
+  return proxyRequest(backendUrl, "POST", authResult, logPrefix, body, options);
 }
+
+export function getDynamicAgentsInvokeProxyOptions(): ProxyRequestOptions {
+  return { dispatcher: dynamicAgentsInvokeDispatcher };
+}
+
+interface ProxyRequestOptions {
+  dispatcher?: Dispatcher;
+}
+
+type FetchRequestInit = RequestInit & {
+  dispatcher?: Dispatcher;
+};
 
 /**
  * Proxy any HTTP method to the Dynamic Agents backend and return the
@@ -339,15 +376,19 @@ export async function proxyRequest(
   authResult: AuthResult,
   logPrefix: string,
   body?: string,
+  options: ProxyRequestOptions = {},
 ): Promise<Response> {
   const backendHeaders = buildBackendHeaders("application/json", authResult);
 
   try {
-    const backendResponse = await fetch(backendUrl, {
+    const requestInit: FetchRequestInit = {
       method,
       headers: backendHeaders,
       ...(body ? { body } : {}),
-    });
+      ...(options.dispatcher ? { dispatcher: options.dispatcher } : {}),
+    };
+
+    const backendResponse = await fetch(backendUrl, requestInit);
 
     if (!backendResponse.ok) {
       const errorText = await backendResponse.text().catch(() => "");

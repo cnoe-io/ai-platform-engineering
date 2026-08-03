@@ -13,11 +13,12 @@ import type { Conversation } from "@/types/mongodb";
 import {
   authenticateRequest,
   getDynamicAgentsConfig,
+  getDynamicAgentsInvokeProxyOptions,
   proxyJSONRequest,
 } from "../_helpers";
 
 export const runtime = "nodejs";
-export const maxDuration = 300; // 5 minutes — invoke runs the full agent loop
+export const maxDuration = 900; // 15 minutes — scheduled invokes can run the full agent loop
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -303,6 +304,7 @@ export async function POST(request: NextRequest): Promise<Response> {
       JSON.stringify(body),
       authResult,
       "[invoke]",
+      getDynamicAgentsInvokeProxyOptions(),
     );
 
     if (shouldPersistScheduledMessages) {
@@ -321,5 +323,6 @@ export async function POST(request: NextRequest): Promise<Response> {
     JSON.stringify(body),
     authResult,
     "[invoke]",
+    getDynamicAgentsInvokeProxyOptions(),
   );
 }

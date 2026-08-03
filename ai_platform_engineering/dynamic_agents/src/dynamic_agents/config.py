@@ -78,7 +78,7 @@ class Settings(BaseSettings):
     max_fs_ttl_seconds: int = 0
 
     # Runtime
-    agent_runtime_ttl_seconds: int = 60  # 60s inactivity TTL for agent runtimes
+    agent_runtime_ttl_seconds: int = 300  # 5m inactivity TTL for agent runtimes
     # Max concurrent cached runtimes. Each costs ~15-20MB (with shared clients).
     # Recommendation: (pod_memory_mb - 150) / 20, e.g. 512MB pod → 18 runtimes.
     agent_runtime_max_cache_size: int = 20
