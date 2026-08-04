@@ -26,7 +26,7 @@
  */
 
 import React, { useCallback, useEffect, useState } from "react";
-import { Bot, Loader2, Plus, Shield, X } from "lucide-react";
+import { Bot, Loader2, Lock, Plus, Shield, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -36,7 +36,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import type { ScopeRef } from "@/lib/service-account-scopes";
+import type { ScopeRef, UnlinkedScope } from "@/lib/service-account-scopes";
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
@@ -45,7 +45,7 @@ import type { ScopeRef } from "@/lib/service-account-scopes";
 interface UnlinkedSaData {
   id: string;
   name: string;
-  scopes: ScopeRef[];
+  scopes: UnlinkedScope[];
 }
 
 interface GrantableItem {
@@ -247,6 +247,7 @@ export function UnlinkedServiceAccountModal({
                       {sa.scopes.map((scope) => {
                         const isPending =
                           pendingRemove?.type === scope.type && pendingRemove?.ref === scope.ref;
+                        const isEveryone = scope.source === "everyone";
                         return (
                           <li
                             key={`${scope.type}:${scope.ref}`}
@@ -258,7 +259,16 @@ export function UnlinkedServiceAccountModal({
                                 {scope.type}/{scope.ref}
                               </code>
                             </span>
-                            {isAdmin && (
+                            {isEveryone ? (
+                              <span
+                                className="inline-flex shrink-0 items-center gap-1 rounded-full border border-input px-2 py-0.5 text-[11px] text-muted-foreground"
+                                data-testid={`scope-source-everyone-${scope.ref}`}
+                                title="Shared with Everyone. Managed by the agent's visibility — change the agent to revoke."
+                              >
+                                <Lock className="h-3 w-3" />
+                                Everyone
+                              </span>
+                            ) : isAdmin && (
                               isPending ? (
                                 <span className="inline-flex items-center gap-1.5">
                                   <span className="text-xs text-muted-foreground">Remove?</span>
