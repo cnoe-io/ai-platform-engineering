@@ -24,6 +24,7 @@ const mockIsPlatformDefaultAgent = jest.fn();
 const mockGetPlatformDefaultAgentId = jest.fn();
 const mockFilterAgentsByOwnershipScopeForSession = jest.fn();
 const mockResolveUnlinkedServiceAccountSub = jest.fn();
+const mockResolveUnlinkedServiceAccountGrantState = jest.fn();
 
 jest.mock("@/lib/api-middleware", () => {
   class ApiError extends Error {
@@ -113,6 +114,8 @@ jest.mock("@/lib/rbac/agent-ownership-scope", () => ({
 
 jest.mock("@/lib/rbac/unlinked-service-account", () => ({
   resolveUnlinkedServiceAccountSub: (...args: unknown[]) => mockResolveUnlinkedServiceAccountSub(...args),
+  resolveUnlinkedServiceAccountGrantState: (...args: unknown[]) =>
+    mockResolveUnlinkedServiceAccountGrantState(...args),
 }));
 
 jest.mock("@/lib/da-proxy", () => ({
@@ -151,6 +154,10 @@ describe("dynamic agents RBAC routes", () => {
     mockGetPlatformDefaultAgentId.mockResolvedValue(null);
     mockFilterAgentsByOwnershipScopeForSession.mockImplementation(async (_session, items) => items);
     mockResolveUnlinkedServiceAccountSub.mockResolvedValue("sa-unlinked-999");
+    mockResolveUnlinkedServiceAccountGrantState.mockResolvedValue({
+      sub: "sa-unlinked-999",
+      explicitAgentIds: new Set<string>(),
+    });
     mockAuthenticateRequest.mockResolvedValue({
       subject: "alice-sub",
       email: "alice@example.com",
@@ -1377,7 +1384,10 @@ describe("dynamic agents RBAC routes", () => {
   });
 
   it("promoting team → global passes a null unlinked SA sub when it isn't bootstrapped yet", async () => {
-    mockResolveUnlinkedServiceAccountSub.mockResolvedValue(null);
+    mockResolveUnlinkedServiceAccountGrantState.mockResolvedValue({
+      sub: null,
+      explicitAgentIds: new Set<string>(),
+    });
     const findOneAndUpdate = jest.fn().mockResolvedValue({ _id: "agent-2", visibility: "global" });
     mockGetCollection.mockResolvedValue({
       findOne: jest.fn().mockResolvedValue({
