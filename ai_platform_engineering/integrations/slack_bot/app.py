@@ -42,7 +42,13 @@ from utils.session_manager import SessionManager
 
 from utils.scoring import submit_feedback_score, regenerate_requested
 
-from utils.config_models import ChannelConfig, get_escalation_config  # noqa: E402
+from utils.config_models import (  # noqa: E402
+    ChannelConfig,
+    EscalationConfig,
+    ExecutionIdentity,
+    get_escalation_config,
+)
+from pydantic import ValidationError  # noqa: E402
 from utils.platform_settings import (  # noqa: E402
     resolve_default_agent_id,
     resolve_victorops_agent_id,
@@ -686,6 +692,164 @@ def _resolve_agent_binding(channel_config, agent_id: str | None = None, channel_
   return None
 
 
+def _resolve_dispatch_execution_identity(
+  conv_metadata: dict | None,
+  channel_config,
+  agent_id: str | None,
+  channel_id: str | None,
+) -> ExecutionIdentity | None:
+  """Recover the execution_identity actually applied at original dispatch time.
+
+  A channel can have multiple static ``AgentBinding`` entries that share the
+  same ``agent_id`` (e.g. one ``obo_user``, one ``service_account``,
+  distinguished by their ``users``/``bots`` sender-matching config) — so
+  re-deriving the binding from ``agent_id`` alone, as ``_resolve_agent_binding``
+  does, can pick the wrong one. ``_track_interaction`` persists the literal
+  ``ExecutionIdentity`` that was applied for this thread on every successful
+  dispatch, so prefer reading that back over re-matching. Only threads that
+  predate this fix (no ``dispatch_execution_identity`` key at all) fall back
+  to the ambiguous agent_id-only lookup.
+  """
+  if conv_metadata and "dispatch_execution_identity" in conv_metadata:
+    raw = conv_metadata["dispatch_execution_identity"]
+    if raw is None:
+      return None
+    try:
+      return ExecutionIdentity.model_validate(raw)
+    except ValidationError as exc:
+      logger.warning("Malformed dispatch_execution_identity in conversation metadata: {}", exc)
+  agent_binding = _resolve_agent_binding(channel_config, agent_id=agent_id, channel_id=channel_id)
+  return agent_binding.execution_identity if agent_binding else None
+
+
+def _resolve_dispatch_escalation(
+  conv_metadata: dict | None,
+  channel_config,
+  agent_id: str | None,
+  channel_id: str | None,
+) -> EscalationConfig | None:
+  """Recover the escalation config actually applied at original dispatch time.
+
+  Mirrors ``_resolve_dispatch_execution_identity`` for the same same-agent_id
+  ambiguity, applied to ``_resolve_escalation`` instead of
+  ``_resolve_agent_binding``.
+  """
+  if conv_metadata and "dispatch_escalation" in conv_metadata:
+    raw = conv_metadata["dispatch_escalation"]
+    if raw is None:
+      return None
+    try:
+      return EscalationConfig.model_validate(raw)
+    except ValidationError as exc:
+      logger.warning("Malformed dispatch_escalation in conversation metadata: {}", exc)
+  return _resolve_escalation(channel_config, agent_id=agent_id, channel_id=channel_id)
+
+
+def _apply_route_execution_identity(
+  exec_id: ExecutionIdentity,
+  *,
+  agent_id: str,
+  context: dict,
+  channel_id: str,
+  user_id: str,
+  thread_ts: str,
+  client,
+) -> bool:
+  """Apply a resolved route ``ExecutionIdentity`` and return proceed/abort.
+
+  Shared by every retry/regenerate action & view handler that dispatches
+  under a channel route's configured identity rather than the clicking
+  human's own token. Wraps the defensive ``AttributeError`` guard (kept for
+  parity with ``_route_to_agent`` even though a resolved ``ExecutionIdentity``
+  should always have these fields).
+  """
+  try:
+    return apply_execution_identity(
+      run_as_mode=exec_id.mode,
+      sa_sub=exec_id.service_account_sub,
+      sa_name=exec_id.service_account_name,
+      agent_id=agent_id,
+      context=context,
+      event={"channel": channel_id, "user": user_id, "ts": thread_ts, "thread_ts": thread_ts},
+      client=client,
+      say=lambda **kwargs: client.chat_postMessage(channel=channel_id, **kwargs),
+      is_bot=False,
+      impersonate_fn=impersonate_service_account,
+    )
+  except AttributeError:
+    return True
+
+
+def _resolve_conversation_and_apply_identity(
+  thread_ts: str,
+  channel_id: str,
+  agent_id: str,
+  channel_config,
+  context: dict | None,
+  user_id: str,
+  client,
+) -> tuple[str, dict[str, object]] | None:
+  """Resolve the conversation for a retry/regenerate action under the correct
+  route identity, handling the chicken-and-egg ordering problem this creates.
+
+  ``create_conversation()``'s ``agent#can_use`` permission check runs even
+  when the conversation already exists (the idempotency-key lookup happens
+  *after* the permission check server-side), so *some* execution identity
+  must already be bound before calling it. But the authoritative identity —
+  the one actually used at original dispatch time, needed to disambiguate
+  multiple static ``AgentBinding`` entries sharing this ``agent_id`` — is only
+  recoverable from the conversation's own metadata, which is exactly what
+  this call fetches.
+
+  Resolved in two passes: apply a provisional (possibly ambiguous,
+  agent_id-only) guess to authorize the lookup, then correct it from the
+  metadata just returned, before returning control to the caller. In the
+  common case (no ambiguity, or a DB-backed route where agent_id is already
+  unique) the two passes agree and only the first apply takes effect.
+
+  Returns ``(conversation_id, conv_metadata)`` on success, or ``None`` if
+  execution-identity application aborted (caller must return immediately
+  without calling ``_bind_obo_for_handler``).
+  """
+  original_obo_token = context.get("obo_token") if context else None
+  provisional = None
+  if RBAC_ENABLED and context is not None:
+    agent_binding = _resolve_agent_binding(channel_config, agent_id=agent_id or None, channel_id=channel_id)
+    provisional = agent_binding.execution_identity if agent_binding else None
+    if provisional is not None:
+      if not _apply_route_execution_identity(
+        provisional, agent_id=agent_id, context=context, channel_id=channel_id,
+        user_id=user_id, thread_ts=thread_ts, client=client,
+      ):
+        return None
+      # Bind now — create_conversation() below reads sse_client's ContextVar,
+      # not context["obo_token"] directly, so the mint above is invisible to
+      # it until bound.
+      _bind_obo_for_handler(context)
+
+  conversation_id, conv_metadata = _resolve_conversation_id(thread_ts, channel_id, agent_id)
+
+  if RBAC_ENABLED and context is not None:
+    exec_id = _resolve_dispatch_execution_identity(conv_metadata, channel_config, agent_id or None, channel_id)
+    if exec_id != provisional:
+      if exec_id is not None and exec_id.mode == "service_account":
+        if not _apply_route_execution_identity(
+          exec_id, agent_id=agent_id, context=context, channel_id=channel_id,
+          user_id=user_id, thread_ts=thread_ts, client=client,
+        ):
+          return None
+      else:
+        # The authoritative identity is obo_user (or unresolved) — undo any
+        # SA token the provisional guess minted, since apply_execution_identity's
+        # obo_user path is a no-op that trusts context["obo_token"] was never
+        # touched, which isn't true here.
+        context["obo_token"] = original_obo_token
+      # Caller calls _bind_obo_for_handler once more after this returns, which
+      # picks up whichever token context["obo_token"] holds now.
+
+  return conversation_id, conv_metadata
+
+
 def _get_agent_id_for_dm() -> str:
   """Resolve agent_id for DMs: dm_agent_id -> default_agent_id -> empty.
 
@@ -926,13 +1090,20 @@ def _register_slash_commands() -> None:
 _register_slash_commands()
 
 
-def _resolve_conversation_id(thread_ts: str, channel_id: str, agent_id: str = "", owner_id: str = "") -> str:
+def _resolve_conversation_id(
+  thread_ts: str, channel_id: str, agent_id: str = "", owner_id: str = ""
+) -> tuple[str, dict[str, object]]:
   """Resolve a Slack thread to its server-side conversation_id via idempotency_key lookup.
 
   Calls create_conversation with the thread_ts as idempotency_key. If the
   conversation already exists the server returns it (created=false); otherwise
   a new one is created. This ensures all handlers in a thread share the same
   conversation_id used by UI and LangGraph checkpoints.
+
+  Also returns the conversation's stored metadata so callers (retry/regenerate/
+  escalation button handlers) can recover the execution_identity/escalation
+  config actually used at original dispatch time — see
+  ``_resolve_dispatch_execution_identity`` / ``_resolve_dispatch_escalation``.
   """
   channel_config = config.channels.get(channel_id)
   channel_name = channel_config.name if channel_config else None
@@ -948,7 +1119,15 @@ def _resolve_conversation_id(thread_ts: str, channel_id: str, agent_id: str = ""
       **({"workspace_url": SLACK_WORKSPACE_URL} if SLACK_WORKSPACE_URL else {}),
     },
   )
-  return conv_result["conversation_id"]
+  return conv_result["conversation_id"], conv_result.get("metadata", {})
+
+
+# Sentinel distinguishing "caller did not participate in dispatch-metadata
+# persistence" (omit the key entirely — legacy threads predating this fix)
+# from "caller resolved this field and it is legitimately absent" (persist an
+# explicit `None`, e.g. an agent binding with no escalation configured). See
+# `_resolve_dispatch_identity` / `_resolve_dispatch_escalation` for the read side.
+_UNSET = object()
 
 
 def _track_interaction(
@@ -962,6 +1141,8 @@ def _track_interaction(
   response_time_ms: int | None = None,
   last_processed_ts: str | None = None,
   thread_owner_agent_id: str | None = None,
+  execution_identity=_UNSET,
+  escalation=_UNSET,
 ) -> None:
   """PATCH conversation metadata with interaction tracking fields.
 
@@ -969,6 +1150,16 @@ def _track_interaction(
   how long it took, and what kind of interaction it was.  Also updates
   ``last_processed_ts`` for delta context on follow-ups, and persists
   ``thread_owner_agent_id`` so thread ownership survives bot restarts.
+
+  ``execution_identity``/``escalation`` persist the route config actually
+  applied for this dispatch (``dispatch_execution_identity``/
+  ``dispatch_escalation``) so retry/regenerate/escalation button handlers can
+  recover them unambiguously later — see ``_resolve_dispatch_identity``. This
+  matters because a channel can have multiple static ``AgentBinding`` entries
+  sharing the same ``agent_id`` (e.g. one obo_user, one service_account,
+  distinguished by ``users``/``bots`` config), and those handlers only have
+  ``agent_id`` to go on, not the full sender/listen context ``_match_agents``
+  used originally.
   """
   metadata: dict[str, object] = {
     "interaction_type": interaction_type,
@@ -991,6 +1182,13 @@ def _track_interaction(
 
   if thread_owner_agent_id:
     metadata["thread_owner_agent_id"] = thread_owner_agent_id
+
+  if execution_identity is not _UNSET:
+    metadata["dispatch_execution_identity"] = (
+      execution_identity.model_dump() if execution_identity is not None else None
+    )
+  if escalation is not _UNSET:
+    metadata["dispatch_escalation"] = escalation.model_dump() if escalation is not None else None
 
   try:
     sse_client.update_conversation_metadata(conversation_id, metadata)
@@ -1682,6 +1880,8 @@ def handle_mention(event, say, client, context=None):
       response_time_ms=elapsed_ms,
       last_processed_ts=event.get("ts"),
       thread_owner_agent_id=agent_id,
+      execution_identity=agent_match.execution_identity if agent_match else None,
+      escalation=esc_config,
     )
 
     # Persist per-turn message rows for stats/linking — only on a genuine
@@ -1915,6 +2115,8 @@ def _route_to_agent(event, say, client, channel_config, agent_match, is_bot, bot
       user_name=user_name,
       response_time_ms=elapsed_ms,
       thread_owner_agent_id=agent_id,
+      execution_identity=agent_match.execution_identity,
+      escalation=esc_config,
     )
 
     # Persist per-turn message rows for stats/linking (successful turn only —
@@ -2408,7 +2610,7 @@ def handle_caipe_feedback(ack, body, client, context=None):
     is_positive = feedback_type == "positive"
 
     feedback_value = "thumbs_up" if is_positive else "thumbs_down"
-    conversation_id = _resolve_conversation_id(thread_ts, channel_id, agent_id)
+    conversation_id, conv_metadata = _resolve_conversation_id(thread_ts, channel_id, agent_id)
     submit_feedback_score(
       thread_ts=thread_ts,
       user_id=user_id,
@@ -2439,7 +2641,7 @@ def handle_caipe_feedback(ack, body, client, context=None):
 
       # Add "Get help" button if escalation is configured
       channel_config = config.channels.get(channel_id)
-      esc_config = _resolve_escalation(channel_config, agent_id=agent_id or None, channel_id=channel_id)
+      esc_config = _resolve_dispatch_escalation(conv_metadata, channel_config, agent_id or None, channel_id)
       if esc_config:
         action_elements.append({"type": "button", "text": {"type": "plain_text", "text": "\U0001f64b Get help"}, "action_id": "caipe_escalation_get_help", "value": action_value})
 
@@ -2491,34 +2693,21 @@ def handle_caipe_retry(ack, body, client, context=None):
     if not agent_id:
       agent_id = channel_config.agents[0].agent_id if channel_config.agents else ""
 
-    # Same "Run As" resolution as the original dispatch (handle_mention /
-    # _route_to_agent): a retry must run under the route's configured
-    # execution_identity, not the identity of whoever clicked "Retry" —
-    # otherwise identity-gated MCP tools (e.g. GitLab) silently disappear.
-    if RBAC_ENABLED and context is not None:
-      agent_binding = _resolve_agent_binding(channel_config, agent_id=agent_id or None, channel_id=channel_id)
-      if agent_binding is not None:
-        try:
-          exec_id = agent_binding.execution_identity
-          should_proceed = apply_execution_identity(
-            run_as_mode=exec_id.mode,
-            sa_sub=exec_id.service_account_sub,
-            sa_name=exec_id.service_account_name,
-            agent_id=agent_id,
-            context=context,
-            event={"channel": channel_id, "user": user_id, "ts": thread_ts, "thread_ts": thread_ts},
-            client=client,
-            say=lambda **kwargs: client.chat_postMessage(channel=channel_id, **kwargs),
-            is_bot=False,
-            impersonate_fn=impersonate_service_account,
-          )
-          if not should_proceed:
-            return
-        except AttributeError:
-          pass
+    # Resolving the conversation requires an execution identity to already be
+    # bound (create_conversation's agent#can_use check runs even for an
+    # existing conversation), but the authoritative identity for this thread
+    # — needed because a channel can have multiple static AgentBindings
+    # sharing an agent_id (e.g. one obo_user, one service_account) — is only
+    # recoverable from that same conversation's metadata. This resolves the
+    # conversation under a provisional identity, then corrects to the
+    # authoritative one before dispatch.
+    resolved = _resolve_conversation_and_apply_identity(
+      thread_ts, channel_id, agent_id, channel_config, context, user_id, client,
+    )
+    if resolved is None:
+      return
+    conversation_id, _ = resolved
     _bind_obo_for_handler(context)
-
-    conversation_id = _resolve_conversation_id(thread_ts, channel_id, agent_id)
 
     submit_feedback_score(
       thread_ts=thread_ts,
@@ -2599,10 +2788,14 @@ def handle_escalation_get_help(ack, body, client, context=None):
       return
 
     # Get escalation config for this channel. channel_config may be None for a
-    # channel configured entirely through the admin UI — _resolve_escalation
-    # falls back to the DB route resolver in that case.
+    # channel configured entirely through the admin UI — _resolve_dispatch_escalation
+    # falls back to the DB route resolver in that case. Resolve conversation_id
+    # first so we can prefer the escalation config persisted for this thread at
+    # original dispatch time over an ambiguous agent_id-only lookup (a channel
+    # can have multiple static AgentBindings sharing an agent_id).
+    conversation_id, conv_metadata = _resolve_conversation_id(thread_ts, channel_id, agent_id)
     channel_config = config.channels.get(channel_id)
-    esc_config = _resolve_escalation(channel_config, agent_id=agent_id or None, channel_id=channel_id)
+    esc_config = _resolve_dispatch_escalation(conv_metadata, channel_config, agent_id or None, channel_id)
     if not esc_config:
       return
 
@@ -2623,7 +2816,6 @@ def handle_escalation_get_help(ack, body, client, context=None):
     session_manager.set_escalated(thread_ts)
 
     # Track escalation in feedback
-    conversation_id = _resolve_conversation_id(thread_ts, channel_id, agent_id)
     submit_feedback_score(
       thread_ts=thread_ts,
       user_id=user_id,
@@ -2703,7 +2895,7 @@ def handle_delete_message(ack, body, client, context=None):
       logger.warning(f"[{thread_ts}] Unauthorized delete attempt by <@{user_id}>")
       return
 
-    conversation_id = _resolve_conversation_id(thread_ts, channel_id, agent_id)
+    conversation_id, _ = _resolve_conversation_id(thread_ts, channel_id, agent_id)
     submit_feedback_score(
       thread_ts=thread_ts,
       user_id=user_id,
@@ -2869,8 +3061,48 @@ def handle_feedback_modal_submission(ack, body, client, view, context=None):
     # Opt-in: feedback is always recorded; the bot only regenerates if the user
     # ticked the (off-by-default) "Attempt to regenerate" checkbox.
     regenerate = regenerate_requested(values)
+    channel_config = config.channels.get(channel_id)
 
-    conversation_id = _resolve_conversation_id(thread_ts, channel_id, agent_id)
+    if not regenerate:
+      # No route identity is needed just to record feedback — resolving the
+      # conversation under the clicking human's own (middleware-bound) token
+      # is fine here, unlike the regenerate path below.
+      conversation_id, _ = _resolve_conversation_id(thread_ts, channel_id, agent_id)
+      submit_feedback_score(
+        thread_ts=thread_ts,
+        user_id=user_id,
+        channel_id=channel_id,
+        feedback_value=feedback_type,
+        slack_client=client,
+        session_manager=session_manager,
+        config=config,
+        conversation_id=conversation_id,
+        comment=comment or None,
+        message_ts=message_ts,
+      )
+      _bind_obo_for_handler(context)
+      client.chat_postEphemeral(
+        channel=channel_id,
+        user=user_id,
+        thread_ts=thread_ts,
+        text="Got it! Your feedback was recorded.",
+      )
+      return
+
+    # Resolving the conversation requires an execution identity to already be
+    # bound (create_conversation's agent#can_use check runs even for an
+    # existing conversation), but the authoritative identity for this thread
+    # — needed because a channel can have multiple static AgentBindings
+    # sharing an agent_id (e.g. one obo_user, one service_account) — is only
+    # recoverable from that same conversation's metadata. This resolves the
+    # conversation under a provisional identity, then corrects to the
+    # authoritative one before dispatch.
+    resolved = _resolve_conversation_and_apply_identity(
+      thread_ts, channel_id, agent_id, channel_config, context, user_id, client,
+    )
+    if resolved is None:
+      return
+    conversation_id, conv_metadata = resolved
 
     submit_feedback_score(
       thread_ts=thread_ts,
@@ -2885,47 +3117,9 @@ def handle_feedback_modal_submission(ack, body, client, view, context=None):
       message_ts=message_ts,
     )
 
-    if not regenerate:
-      _bind_obo_for_handler(context)
-      client.chat_postEphemeral(
-        channel=channel_id,
-        user=user_id,
-        thread_ts=thread_ts,
-        text="Got it! Your feedback was recorded.",
-      )
-      return
-
     # No acknowledgment ephemeral here: the user explicitly ticked the box, and
     # the regenerated response arriving in-thread is self-evident.
-    channel_config = config.channels.get(channel_id)
-    esc_config = _resolve_escalation(channel_config, agent_id=agent_id or None, channel_id=channel_id)
-
-    # Same "Run As" resolution as the original dispatch (handle_mention /
-    # _route_to_agent): a regenerate must run under the route's configured
-    # execution_identity, not the identity of whoever submitted the feedback
-    # modal — otherwise identity-gated MCP tools (e.g. GitLab) silently
-    # disappear from the regenerated response.
-    if RBAC_ENABLED and context is not None:
-      agent_binding = _resolve_agent_binding(channel_config, agent_id=agent_id or None, channel_id=channel_id)
-      if agent_binding is not None:
-        try:
-          exec_id = agent_binding.execution_identity
-          should_proceed = apply_execution_identity(
-            run_as_mode=exec_id.mode,
-            sa_sub=exec_id.service_account_sub,
-            sa_name=exec_id.service_account_name,
-            agent_id=agent_id,
-            context=context,
-            event={"channel": channel_id, "user": user_id, "ts": thread_ts, "thread_ts": thread_ts},
-            client=client,
-            say=lambda **kwargs: client.chat_postMessage(channel=channel_id, **kwargs),
-            is_bot=False,
-            impersonate_fn=impersonate_service_account,
-          )
-          if not should_proceed:
-            return
-        except AttributeError:
-          pass
+    esc_config = _resolve_dispatch_escalation(conv_metadata, channel_config, agent_id or None, channel_id)
     _bind_obo_for_handler(context)
 
     _call_ai(

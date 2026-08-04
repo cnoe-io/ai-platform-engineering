@@ -76,7 +76,7 @@ def _load_slack_app(monkeypatch: pytest.MonkeyPatch, *, rbac_enabled: bool):
     app_module = importlib.import_module("app")
 
     monkeypatch.setattr(app_module, "submit_feedback_score", MagicMock(return_value=True))
-    monkeypatch.setattr(app_module, "_resolve_conversation_id", MagicMock(return_value="conv-123"))
+    monkeypatch.setattr(app_module, "_resolve_conversation_id", MagicMock(return_value=("conv-123", {})))
     monkeypatch.setattr(app_module, "_call_ai", MagicMock())
     return app_module
 
@@ -196,3 +196,124 @@ class TestFeedbackModalRegenAppliesExecutionIdentity:
         )
 
         assert context["obo_token"] == "minted-sa-token"
+
+
+class TestRetryResolvesAmbiguousBindingFromDispatchMetadata:
+    """A channel can have two static AgentBinding entries sharing the same
+    agent_id (e.g. one obo_user for humans, one service_account for a
+    webhook/bot sender). agent_id-only lookup always returns the first
+    match — the provisional guess used to authorize the conversation
+    lookup — but the persisted dispatch metadata for THIS thread may say
+    the OTHER binding actually ran. The final applied identity must be the
+    one from metadata, not the provisional guess."""
+
+    def test_retry_corrects_to_service_account_when_metadata_says_so(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        app_module = _load_slack_app(monkeypatch, rbac_enabled=True)
+        AgentBinding = importlib.import_module("utils.config_models").AgentBinding
+        ExecutionIdentity = importlib.import_module("utils.config_models").ExecutionIdentity
+        # obo_user binding sorts first — this is what the provisional,
+        # agent_id-only guess will pick.
+        obo_binding = AgentBinding(agent_id="agent-xyz")
+        sa_binding = AgentBinding(
+            agent_id="agent-xyz",
+            execution_identity=ExecutionIdentity(
+                mode="service_account",
+                service_account_sub="svc-sub-123",
+                service_account_name="svc-name",
+            ),
+        )
+        app_module.config.channels["C123"] = app_module.ChannelConfig(
+            name="C123", agents=[obo_binding, sa_binding]
+        )
+
+        # The conversation's persisted metadata says the service_account
+        # binding is the one that actually ran for this thread.
+        app_module._resolve_conversation_id.return_value = (
+            "conv-123",
+            {
+                "dispatch_execution_identity": {
+                    "mode": "service_account",
+                    "service_account_sub": "svc-sub-123",
+                    "service_account_name": "svc-name",
+                }
+            },
+        )
+
+        async def _fake_impersonate(sub: str):
+            assert sub == "svc-sub-123"
+            return MagicMock(access_token="minted-sa-token")
+
+        monkeypatch.setattr(app_module, "impersonate_service_account", _fake_impersonate)
+
+        client = _Client()
+        body = {
+            "user": {"id": "U555"},
+            "channel": {"id": "C123"},
+            "message": {"ts": "1700000000.000200", "thread_ts": "1700000000.000100"},
+            "actions": [
+                {
+                    "action_id": "caipe_retry",
+                    "value": "C123|1700000000.000100|1700000000.000200|agent-xyz",
+                }
+            ],
+        }
+        context: dict[str, object] = {"obo_token": "human-obo-token"}
+
+        app_module.handle_caipe_retry(ack=MagicMock(), body=body, client=client, context=context)
+
+        # Must end up minted for the SA route — not the provisional obo_user
+        # guess, and not the clicking human's own token either.
+        assert context["obo_token"] == "minted-sa-token"
+
+    def test_retry_corrects_to_obo_user_when_metadata_says_so(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Inverse ambiguity: the service_account binding sorts first (so the
+        provisional guess mints an SA token), but this thread's metadata says
+        the obo_user binding actually ran — the minted SA token must be
+        undone so the clicking human's own OBO token flows through."""
+        app_module = _load_slack_app(monkeypatch, rbac_enabled=True)
+        AgentBinding = importlib.import_module("utils.config_models").AgentBinding
+        ExecutionIdentity = importlib.import_module("utils.config_models").ExecutionIdentity
+        sa_binding = AgentBinding(
+            agent_id="agent-xyz",
+            execution_identity=ExecutionIdentity(
+                mode="service_account",
+                service_account_sub="svc-sub-123",
+                service_account_name="svc-name",
+            ),
+        )
+        obo_binding = AgentBinding(agent_id="agent-xyz")
+        app_module.config.channels["C123"] = app_module.ChannelConfig(
+            name="C123", agents=[sa_binding, obo_binding]
+        )
+
+        app_module._resolve_conversation_id.return_value = (
+            "conv-123",
+            {"dispatch_execution_identity": {"mode": "obo_user"}},
+        )
+
+        async def _fake_impersonate(sub: str):
+            return MagicMock(access_token="minted-sa-token")
+
+        monkeypatch.setattr(app_module, "impersonate_service_account", _fake_impersonate)
+
+        client = _Client()
+        body = {
+            "user": {"id": "U555"},
+            "channel": {"id": "C123"},
+            "message": {"ts": "1700000000.000200", "thread_ts": "1700000000.000100"},
+            "actions": [
+                {
+                    "action_id": "caipe_retry",
+                    "value": "C123|1700000000.000100|1700000000.000200|agent-xyz",
+                }
+            ],
+        }
+        context: dict[str, object] = {"obo_token": "human-obo-token"}
+
+        app_module.handle_caipe_retry(ack=MagicMock(), body=body, client=client, context=context)
+
+        assert context["obo_token"] == "human-obo-token"

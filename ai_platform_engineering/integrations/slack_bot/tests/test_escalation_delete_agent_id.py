@@ -102,7 +102,7 @@ class TestEscalationGetHelpPassesAgentId:
         monkeypatch.setattr(app_module, "_resolve_escalation", lambda *_a, **_k: esc_config)
         monkeypatch.setattr(app_module, "resolve_victorops_agent_id", lambda *_a, **_k: None)
 
-        resolve_conversation_id = MagicMock(return_value="conv-123")
+        resolve_conversation_id = MagicMock(return_value=("conv-123", {}))
         monkeypatch.setattr(app_module, "_resolve_conversation_id", resolve_conversation_id)
 
         client = _Client()
@@ -139,7 +139,7 @@ class TestEscalationGetHelpPassesAgentId:
             # already exists (idempotency lookup happens after validation).
             if not agent_id:
                 raise Exception("Failed to create conversation: HTTP 400 agent_id is required")
-            return "conv-123"
+            return "conv-123", {}
 
         monkeypatch.setattr(app_module, "_resolve_conversation_id", _fake_resolve_conversation_id)
         monkeypatch.setattr(app_module.sse_client, "update_conversation_metadata", MagicMock())
@@ -208,7 +208,7 @@ class TestDeleteMessagePassesAgentId:
     def test_delete_message_passes_agent_id_to_resolve_conversation_id(self, monkeypatch: pytest.MonkeyPatch) -> None:
         app_module = _load_slack_app(monkeypatch)
 
-        resolve_conversation_id = MagicMock(return_value="conv-123")
+        resolve_conversation_id = MagicMock(return_value=("conv-123", {}))
         monkeypatch.setattr(app_module, "_resolve_conversation_id", resolve_conversation_id)
 
         client = _Client()
@@ -231,7 +231,7 @@ class TestDeleteMessagePassesAgentId:
         (matching caipe_feedback/caipe_retry) rather than omitting the arg."""
         app_module = _load_slack_app(monkeypatch)
 
-        resolve_conversation_id = MagicMock(return_value="conv-123")
+        resolve_conversation_id = MagicMock(return_value=("conv-123", {}))
         monkeypatch.setattr(app_module, "_resolve_conversation_id", resolve_conversation_id)
 
         client = _Client()

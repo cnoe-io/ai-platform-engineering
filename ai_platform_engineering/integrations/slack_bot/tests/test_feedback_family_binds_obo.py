@@ -78,7 +78,7 @@ def _load_slack_app(monkeypatch: pytest.MonkeyPatch):
     app_module = importlib.import_module("app")
 
     monkeypatch.setattr(app_module, "submit_feedback_score", MagicMock(return_value=True))
-    monkeypatch.setattr(app_module, "_resolve_conversation_id", MagicMock(return_value="conv-123"))
+    monkeypatch.setattr(app_module, "_resolve_conversation_id", MagicMock(return_value=("conv-123", {})))
     return app_module
 
 
