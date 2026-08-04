@@ -121,12 +121,6 @@ class UserMemoryService:
         category = self._validate_category(category)
         value = self._validate_value(value)
 
-        if scope == "global" and source == "agent":
-            return {
-                "status": "confirmation_required",
-                "message": "Global memory requires explicit user confirmation. No memory was saved.",
-            }
-
         agent_id = current_agent_id if scope == "agent" else None
         if scope == "context":
             if not context_namespace or not context_type or not context_id:

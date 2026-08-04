@@ -72,6 +72,7 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
   const agentCustomTheme = agent?.ui?.custom_theme_config ?? null;
   const agentName = agent?.name;
   const agentSkills = agent?.skills;
+  const agentAllowsMemory = agent?.builtin_tools?.memory?.enabled === true;
   const { data: session } = useSession();
   const { toast } = useToast();
   const router = useRouter();
@@ -129,7 +130,7 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
   const [showSlashMenu, setShowSlashMenu] = useState(false);
   const [slashFilter, setSlashFilter] = useState("");
   const [slashSelectedIndex, setSlashSelectedIndex] = useState(0);
-  const [memoryEnabled, setMemoryEnabled] = useState(true);
+  const [memoryPreferenceEnabled, setMemoryPreferenceEnabled] = useState(true);
   const [memoryDialogOpen, setMemoryDialogOpen] = useState(false);
   const [memoryFocusIds, setMemoryFocusIds] = useState<string[]>([]);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -265,6 +266,8 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
 
   const conversation = getActiveConversation();
   const memoryToggleLocked = Boolean(conversation?.messages?.some((message) => message.role === "user"));
+  const memoryToggleDisabled = !agentAllowsMemory || memoryToggleLocked;
+  const memoryEnabled = agentAllowsMemory && memoryPreferenceEnabled;
 
   // Ref to track which conversations we've checked for HITL interrupt state
   const interruptCheckedRef = useRef<Set<string>>(new Set());
@@ -2253,10 +2256,10 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
                           <button
                             type="button"
                             aria-pressed={memoryEnabled}
-                            disabled={memoryToggleLocked}
+                            disabled={memoryToggleDisabled}
                             onClick={() => {
-                              if (memoryToggleLocked) return;
-                              setMemoryEnabled((enabled) => !enabled);
+                              if (memoryToggleDisabled) return;
+                              setMemoryPreferenceEnabled((enabled) => !enabled);
                             }}
                             className={cn(
                               "inline-flex h-9 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60",
@@ -2271,7 +2274,9 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
                         </span>
                       </TooltipTrigger>
                       <TooltipContent>
-                        {memoryToggleLocked
+                        {!agentAllowsMemory
+                          ? "Memory is disabled for this chat. This agent doesn't allow memory use. Please contact an administrator to enable it."
+                          : memoryToggleLocked
                           ? "Memory cannot be changed after the first message in this chat"
                           : memoryEnabled
                             ? "Memory is on for this chat"
@@ -2590,7 +2595,6 @@ function MemoryDialog({ open, onOpenChange, focusIds, agentId }: MemoryDialogPro
 
   const addMemory = async () => {
     if (!newValue.trim()) return;
-    if (newScope === "global" && !window.confirm("Save this memory for all agents?")) return;
     setSavingId("new");
     setError(null);
     try {

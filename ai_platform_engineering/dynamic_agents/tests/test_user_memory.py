@@ -27,8 +27,14 @@ def _agent_with_memory_enabled() -> DynamicAgentConfig:
     )
 
 
-def test_agent_cannot_save_global_memory_without_confirmation() -> None:
+def test_agent_can_save_global_memory_without_confirmation() -> None:
     service = UserMemoryService.__new__(UserMemoryService)
+
+    class FakeMemories:
+        def find_one_and_update(self, _filter_doc, update, **_kwargs):
+            return {"_id": "mem_global", **update["$set"]}
+
+    service._memories = FakeMemories()
 
     result = service.remember(
         owner_user_id="test-user@example.com",
@@ -39,7 +45,10 @@ def test_agent_cannot_save_global_memory_without_confirmation() -> None:
         source="agent",
     )
 
-    assert result["status"] == "confirmation_required"
+    assert result["status"] == "saved"
+    assert result["memory_ids"] == ["mem_global"]
+    assert result["memories"][0]["scope"] == "global"
+    assert result["memories"][0]["agent_id"] is None
 
 
 def test_context_memory_requires_complete_context_identity() -> None:

@@ -212,12 +212,9 @@ update_memory(memory_id, value?, category?, key?, enabled?)
 forget_memory(memory_id)
 ```
 
-Global memory created through the management UI requires browser confirmation.
-Agent-originated global writes return `confirmation_required`; agent and
-context writes are allowed and surfaced in the transcript.
-
-The browser confirmation is a UX guard, not a cryptographic or server-side
-approval token. See [Current Limitations](#current-limitations).
+Global, agent-scoped, and context-scoped memory can be created without a
+separate confirmation step. Agent-created changes are surfaced in the
+transcript.
 
 ## Prompt Formatting and Limits
 
@@ -237,7 +234,10 @@ retention are deployment responsibilities.
 
 ## UI Behavior
 
-- The Memory toggle appears beside the composer and defaults on.
+- The Memory toggle appears beside the composer and defaults on only when the
+  selected agent enables `builtin_tools.memory`.
+- For agents that do not enable memory, the toggle is off and disabled. Its
+  explanation directs the user to contact an administrator.
 - The toggle locks after the first user message so one conversation does not
   switch memory policy mid-thread.
 - The management dialog lists all enabled and disabled memories for the signed-in
@@ -294,11 +294,6 @@ These are current implementation facts, not security guarantees:
   owner identity from validated JWT claims before exposing it directly.
 - **SSO-disabled mode is not a multi-user boundary:** local development falls
   back to a shared anonymous identity when no session is present.
-- **Global confirmation is UI-only:** direct authenticated API calls can create
-  global records without a confirmation proof.
-- **Agent global mutation is broader than creation:** agent-created global
-  records are blocked, but `update_memory` and `forget_memory` currently enforce
-  owner ID rather than re-checking the target scope.
 - **Context is a relevance scope, not authorization:** explicit context
   coordinates can be supplied to memory tools. Authorization to the domain
   object must be enforced by its MCP/provider service.
@@ -320,7 +315,7 @@ ownership. Neither is required for private, owner-only memory. Do not overload
 Relevant automated coverage includes:
 
 - owner-bound memory service operations and scope validation;
-- global-write confirmation for agent-created records;
+- global, agent, and context writes created without a confirmation step;
 - layered global, agent, and context prompt construction;
 - initial injection tracking;
 - custom SSE and AG-UI memory events;
