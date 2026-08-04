@@ -209,6 +209,9 @@ charts/*/tmp/*
 !docs/screenshots/*.png
 *.jpg
 *.jpeg
+# Multimodal regression fixtures are real sample files the harness reads at test time.
+!tests/fixtures/multimodal/*.jpg
+!tests/fixtures/multimodal/*.jpeg
 
 # Keycloak realm config — local copy may contain org-specific IdP secrets.
 # Use deploy/keycloak/realm-config.example.json as the starting point.
