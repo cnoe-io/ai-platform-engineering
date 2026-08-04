@@ -51,6 +51,8 @@ class Settings(BaseSettings):
     # Collections
     dynamic_agents_collection: str = "dynamic_agents"
     mcp_servers_collection: str = "mcp_servers"
+    user_memories_collection: str = "user_memories"
+    user_memory_contexts_collection: str = "user_memory_contexts"
 
     # CORS
     cors_origins: list[str] = ["*"]
@@ -77,7 +79,7 @@ class Settings(BaseSettings):
     invoke_persist_history: bool = False
 
     # Runtime
-    agent_runtime_ttl_seconds: int = 60  # 60s inactivity TTL for agent runtimes
+    agent_runtime_ttl_seconds: int = 300  # 5m inactivity TTL for agent runtimes
     # Max concurrent cached runtimes. Each costs ~15-20MB (with shared clients).
     # Recommendation: (pod_memory_mb - 150) / 20, e.g. 512MB pod → 18 runtimes.
     agent_runtime_max_cache_size: int = 20

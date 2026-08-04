@@ -205,6 +205,7 @@ def create_schedule(
     "attributes": body.attributes,
     "cron": body.cron,
     "tz": body.tz,
+    "http_timeout_seconds": body.http_timeout_seconds,
     "enabled": True,
     "cronjob_name": cronjob_name,
     "version": 1,
@@ -213,7 +214,12 @@ def create_schedule(
   store.insert(doc)
 
   try:
-    k8s.create(schedule_id=schedule_id, cron=body.cron, tz=body.tz)
+    k8s.create(
+      schedule_id=schedule_id,
+      cron=body.cron,
+      tz=body.tz,
+      http_timeout_seconds=body.http_timeout_seconds,
+    )
   except Exception as e:
     # Roll back the Mongo doc if we couldn't create the CronJob.
     log.exception("CronJob create failed; rolling back schedule %s", schedule_id)
@@ -296,6 +302,8 @@ def patch_schedule(
     raise HTTPException(422, "title must be a non-empty string.")
   if "attributes" in patch and patch["attributes"] is None:
     raise HTTPException(422, "attributes must be a JSON object.")
+  if "http_timeout_seconds" in patch and patch["http_timeout_seconds"] is None:
+    raise HTTPException(422, "http_timeout_seconds must be an integer >= 1.")
   if "agent_id" in patch and patch["agent_id"] is not None:
     if not store.agent_exists(patch["agent_id"]):
       raise HTTPException(404, f"agent_id {patch['agent_id']!r} not found.")
@@ -310,6 +318,11 @@ def patch_schedule(
     cron=patch.get("cron"),
     tz=patch.get("tz"),
     suspend=suspend,
+    **(
+      {"http_timeout_seconds": patch["http_timeout_seconds"]}
+      if "http_timeout_seconds" in patch
+      else {}
+    ),
   )
 
   updated = store.patch(schedule_id, patch)

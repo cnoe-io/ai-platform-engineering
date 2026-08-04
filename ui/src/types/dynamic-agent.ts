@@ -206,6 +206,20 @@ export interface SleepToolConfig {
   max_seconds?: number;  // Maximum sleep duration in seconds (default: 300)
 }
 
+export interface MemoryContextProviderConfig {
+  server: string;
+  tool: string;
+  context_namespace: string;
+  context_type: string;
+  context_id_arg: string;
+  display_name_result_path?: string;
+}
+
+export interface MemoryToolConfig {
+  enabled: boolean;
+  context_providers?: MemoryContextProviderConfig[];
+}
+
 /**
  * Configuration for all built-in tools available to dynamic agents.
  * Each tool config is optional - if not present, tool uses defaults.
@@ -215,6 +229,7 @@ export interface BuiltinToolsConfig {
   current_datetime?: CurrentDatetimeToolConfig;
   user_info?: UserInfoToolConfig;
   sleep?: SleepToolConfig;
+  memory?: MemoryToolConfig;
   workflows?: string[] | null;  // Workflow config IDs the agent can trigger/monitor
   // Allow dynamic tool configs for future extensibility
   // Using Record type to avoid index signature conflicts with specific tool types

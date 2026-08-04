@@ -173,6 +173,9 @@ function serializeStreamEvent(event: StreamEvent): StoredStreamEvent {
     toolData: event.toolData,
     warningData: event.warningData,
     inputRequiredData: event.inputRequiredData,
+    memoryUpdateData: event.memoryUpdateData,
+    memoryInjectedData: event.memoryInjectedData,
+    memoryContextUsedData: event.memoryContextUsedData,
     // Content fields
     content: event.content,
     displayContent: event.displayContent,

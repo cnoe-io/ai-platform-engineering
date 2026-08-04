@@ -56,7 +56,7 @@ helm show values oci://ghcr.io/cnoe-io/charts/dynamic-agents --version 0.2.38
 | autoscaling.maxReplicas | int | `10` |  |
 | autoscaling.minReplicas | int | `1` |  |
 | autoscaling.targetCPUUtilizationPercentage | int | `80` |  |
-| config.AGENT_RUNTIME_TTL_SECONDS | string | `"3600"` |  |
+| config.AGENT_RUNTIME_TTL_SECONDS | string | `"300"` |  |
 | config.CORS_ORIGINS | string | `"[\"*\"]"` |  |
 | config.ENABLE_TRACING | string | `"false"` |  |
 | config.MONGODB_DATABASE | string | `"caipe"` |  |
@@ -109,4 +109,3 @@ helm show values oci://ghcr.io/cnoe-io/charts/dynamic-agents --version 0.2.38
 | tolerations | list | `[]` |  |
 | volumeMounts | list | `[]` |  |
 | volumes | list | `[]` |  |
-
