@@ -2472,7 +2472,7 @@ type MemoryDraft = {
 
 function scopeLabel(memory: UserMemory): string {
   if (memory.scope === "global") return "Global";
-  if (memory.scope === "agent") return "Agent";
+  if (memory.scope === "agent") return `Agent: ${memory.agent_id}`;
   return [memory.context_namespace, memory.context_type, memory.context_id].filter(Boolean).join(" / ");
 }
 
