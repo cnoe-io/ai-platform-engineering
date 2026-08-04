@@ -30,7 +30,10 @@ agentRowPermissionsOrDefault,
 resolveAgentListPermissions,
 } from "@/lib/rbac/resource-authz";
 import { resolveShareableOwnershipWrite } from "@/lib/rbac/shareable-resource";
-import { resolveUnlinkedServiceAccountSub } from "@/lib/rbac/unlinked-service-account";
+import {
+  resolveUnlinkedServiceAccountSub,
+  resolveUnlinkedServiceAccountGrantState,
+} from "@/lib/rbac/unlinked-service-account";
 import type {
 DynamicAgentConfig,
 DynamicAgentConfigWithPermissions,
@@ -783,13 +786,17 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     const finalAllowedTools = (updateData.allowed_tools ??
       agent.allowed_tools ??
       {}) as Record<string, string[]>;
-    // Resolve the unlinked SA sub whenever the wildcard grant is being
+    // Resolve the unlinked SA grant state whenever the wildcard grant is being
     // written OR revoked — the delete path needs the exact sub too, so we
     // can't skip resolution just because the agent is being demoted.
-    const unlinkedServiceAccountSub =
+    // `explicitAgentIds` lets a `global → team` demote preserve an explicit
+    // admin grant: the admin changed the agent's visibility, not the panel
+    // override, so the unlinked SA keeps `can_use` on an agent it was
+    // explicitly granted.
+    const { sub: unlinkedServiceAccountSub, explicitAgentIds } =
       finalVisibility === "global" || currentVisibility === "global"
-        ? await resolveUnlinkedServiceAccountSub()
-        : null;
+        ? await resolveUnlinkedServiceAccountGrantState()
+        : { sub: null, explicitAgentIds: new Set<string>() };
     await reconcileAgentRelationships({
       agentId: id,
       previousAllowedTools: allowedToolsFromAgent(agent),
@@ -812,6 +819,7 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
       // transition so callers with no linked user identity gain/lose
       // access exactly when "everyone" does.
       unlinkedServiceAccountSub,
+      unlinkedGrantIsExplicit: explicitAgentIds.has(id),
     });
 
     const updated = await collection.findOneAndUpdate(
