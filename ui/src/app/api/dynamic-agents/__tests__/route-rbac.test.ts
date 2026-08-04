@@ -23,6 +23,7 @@ const mockWriteOpenFgaTuples = jest.fn();
 const mockIsPlatformDefaultAgent = jest.fn();
 const mockGetPlatformDefaultAgentId = jest.fn();
 const mockFilterAgentsByOwnershipScopeForSession = jest.fn();
+const mockResolveUnlinkedServiceAccountSub = jest.fn();
 
 jest.mock("@/lib/api-middleware", () => {
   class ApiError extends Error {
@@ -110,6 +111,10 @@ jest.mock("@/lib/rbac/agent-ownership-scope", () => ({
     mockFilterAgentsByOwnershipScopeForSession(...args),
 }));
 
+jest.mock("@/lib/rbac/unlinked-service-account", () => ({
+  resolveUnlinkedServiceAccountSub: (...args: unknown[]) => mockResolveUnlinkedServiceAccountSub(...args),
+}));
+
 jest.mock("@/lib/da-proxy", () => ({
   authenticateRequest: (...args: unknown[]) => mockAuthenticateRequest(...args),
   getDynamicAgentsConfig: (...args: unknown[]) => mockGetDynamicAgentsConfig(...args),
@@ -145,6 +150,7 @@ describe("dynamic agents RBAC routes", () => {
     mockIsPlatformDefaultAgent.mockResolvedValue(false);
     mockGetPlatformDefaultAgentId.mockResolvedValue(null);
     mockFilterAgentsByOwnershipScopeForSession.mockImplementation(async (_session, items) => items);
+    mockResolveUnlinkedServiceAccountSub.mockResolvedValue("sa-unlinked-999");
     mockAuthenticateRequest.mockResolvedValue({
       subject: "alice-sub",
       email: "alice@example.com",
@@ -529,6 +535,40 @@ describe("dynamic agents RBAC routes", () => {
         owner_team_slug: "platform",
         owner_team_id: "team-id",
         owner_subject: "alice-sub",
+      }),
+    );
+  });
+
+  it("creating a global agent resolves and grants the unlinked SA sub", async () => {
+    const insertOne = jest.fn();
+    mockGetCollection.mockResolvedValue({
+      findOne: jest.fn().mockResolvedValue(null),
+      insertOne,
+    });
+    // `canManageOrganization` (route.ts) delegates to `requireResourcePermission`,
+    // which resolves successfully by default in beforeEach — i.e. this session
+    // is treated as a platform admin, allowed to create a global agent.
+    const { POST } = await import("../route");
+
+    const response = await POST(
+      request("/api/dynamic-agents", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: "Everyone Agent",
+          system_prompt: "Help everyone",
+          model: { id: "gpt-4.1", provider: "openai" },
+          visibility: "global",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    expect(mockResolveUnlinkedServiceAccountSub).toHaveBeenCalled();
+    expect(mockReconcileAgentRelationships).toHaveBeenCalledWith(
+      expect.objectContaining({
+        globalUserAccess: true,
+        unlinkedServiceAccountSub: "sa-unlinked-999",
       }),
     );
   });
@@ -1293,6 +1333,9 @@ describe("dynamic agents RBAC routes", () => {
         agentId: "agent-1",
         globalUserAccess: false,
         previousGlobalUserAccess: true,
+        // D4S-5378: the demote (delete) path needs the unlinked SA sub too,
+        // so its grant is revoked in lockstep with user:*.
+        unlinkedServiceAccountSub: "sa-unlinked-999",
       }),
     );
   });
@@ -1326,7 +1369,74 @@ describe("dynamic agents RBAC routes", () => {
         agentId: "agent-2",
         globalUserAccess: true,
         previousGlobalUserAccess: false,
+        // D4S-5378: promoting to global also grants the unlinked SA so
+        // Slack/Webex bot callers are treated as "everyone" immediately.
+        unlinkedServiceAccountSub: "sa-unlinked-999",
       }),
+    );
+  });
+
+  it("promoting team → global passes a null unlinked SA sub when it isn't bootstrapped yet", async () => {
+    mockResolveUnlinkedServiceAccountSub.mockResolvedValue(null);
+    const findOneAndUpdate = jest.fn().mockResolvedValue({ _id: "agent-2", visibility: "global" });
+    mockGetCollection.mockResolvedValue({
+      findOne: jest.fn().mockResolvedValue({
+        _id: "agent-2",
+        name: "Promote Me",
+        visibility: "team",
+        owner_team_slug: "team-a",
+        allowed_tools: {},
+      }),
+      findOneAndUpdate,
+    });
+    mockIsPlatformDefaultAgent.mockResolvedValue(false);
+    const { PUT } = await import("../route");
+
+    const response = await PUT(
+      request("/api/dynamic-agents?id=agent-2", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ visibility: "global" }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockReconcileAgentRelationships).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentId: "agent-2",
+        globalUserAccess: true,
+        unlinkedServiceAccountSub: null,
+      }),
+    );
+  });
+
+  it("does not resolve the unlinked SA sub when visibility stays team-scoped", async () => {
+    const findOneAndUpdate = jest.fn().mockResolvedValue({ _id: "agent-3", visibility: "team" });
+    mockGetCollection.mockResolvedValue({
+      findOne: jest.fn().mockResolvedValue({
+        _id: "agent-3",
+        name: "Team Agent",
+        visibility: "team",
+        owner_team_slug: "team-a",
+        allowed_tools: {},
+      }),
+      findOneAndUpdate,
+    });
+    mockIsPlatformDefaultAgent.mockResolvedValue(false);
+    const { PUT } = await import("../route");
+
+    const response = await PUT(
+      request("/api/dynamic-agents?id=agent-3", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "Team Agent Renamed" }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockResolveUnlinkedServiceAccountSub).not.toHaveBeenCalled();
+    expect(mockReconcileAgentRelationships).toHaveBeenCalledWith(
+      expect.objectContaining({ agentId: "agent-3", unlinkedServiceAccountSub: null }),
     );
   });
 

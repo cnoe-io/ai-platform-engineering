@@ -47,6 +47,11 @@ jest.mock("@/lib/service-accounts", () => ({
   updateScopesSnapshot: (...args: unknown[]) => mockUpdateScopesSnapshot(...args),
 }));
 
+const mockFindAgentVisibilities = jest.fn();
+jest.mock("@/lib/dynamic-agent-visibility", () => ({
+  findAgentVisibilities: (...args: unknown[]) => mockFindAgentVisibilities(...args),
+}));
+
 jest.mock("@/lib/rbac/organization", () => ({
   organizationObjectId: jest.fn().mockReturnValue("organization:caipe"),
 }));
@@ -95,6 +100,8 @@ beforeEach(() => {
   mockListOpenFgaObjects.mockResolvedValue({ objects: [] });
   mockGetBySub.mockResolvedValue({ sa_sub: SA_ID, scopes_snapshot: [] });
   mockUpdateScopesSnapshot.mockResolvedValue(true);
+  // Default: no agent is global.
+  mockFindAgentVisibilities.mockResolvedValue(new Map());
 });
 
 describe("POST .../[id]/scopes (add)", () => {
@@ -224,6 +231,66 @@ describe("DELETE .../[id]/scopes (remove)", () => {
     const res = await DELETE(scopeRequest({ type: "agent", ref: "incident-resolver" }), ctx());
     expect(res.status).toBe(404);
     expect(mockDeleteExactOpenFgaTuples).not.toHaveBeenCalled();
+  });
+
+  it("409 when removing an agent scope whose agent is global (owned by visibility)", async () => {
+    manageableWithHeld(new Set());
+    // The agent is currently shared with Everyone — its unlinked-SA grant is
+    // owned by the agent's visibility, not by an explicit panel scope, so the
+    // panel must refuse to remove it (removing it would silently revert).
+    mockFindAgentVisibilities.mockResolvedValue(new Map([["default", "global"]]));
+
+    const res = await DELETE(scopeRequest({ type: "agent", ref: "default" }), ctx());
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.success).toBe(false);
+    expect(body.error).toMatch(/everyone|global|visibility/i);
+    expect(mockDeleteExactOpenFgaTuples).not.toHaveBeenCalled();
+  });
+
+  it("still removes an agent scope when the agent is NOT global", async () => {
+    manageableWithHeld(new Set());
+    mockFindAgentVisibilities.mockResolvedValue(new Map([["incident-resolver", "team"]]));
+
+    const res = await DELETE(scopeRequest({ type: "agent", ref: "incident-resolver" }), ctx());
+    expect(res.status).toBe(200);
+    expect(mockDeleteExactOpenFgaTuples).toHaveBeenCalledWith([
+      { user: `service_account:${SA_ID}`, relation: "user", object: "agent:incident-resolver" },
+    ]);
+  });
+});
+
+describe("refreshSnapshot self-heal (global agents are visibility-owned)", () => {
+  it("drops agent entries whose agent is global from the rebuilt snapshot", async () => {
+    manageableWithHeld(new Set(["can_call tool:jira/search"]));
+    // The SA currently holds two agent grants in OpenFGA: one global
+    // (default, visibility-owned) and one explicit (incident-resolver).
+    mockListOpenFgaObjects.mockImplementation(
+      async (input: { relation: string; type: string }) => {
+        if (input.type === "agent") {
+          return { objects: ["agent:default", "agent:incident-resolver"] };
+        }
+        return { objects: ["tool:jira/search"] };
+      },
+    );
+    mockFindAgentVisibilities.mockResolvedValue(
+      new Map([
+        ["default", "global"],
+        ["incident-resolver", "team"],
+      ]),
+    );
+    mockGetBySub.mockResolvedValue({ sa_sub: SA_ID, scopes_snapshot: [] });
+
+    const res = await POST(scopeRequest({ type: "tool", ref: "jira/search" }), ctx());
+    expect(res.status).toBe(200);
+
+    // The rebuilt snapshot must NOT contain the global agent; it keeps the
+    // explicit agent and the tool.
+    const written = mockUpdateScopesSnapshot.mock.calls[0][1] as Array<{ type: string; ref: string }>;
+    const keys = written.map((s) => `${s.type}:${s.ref}`);
+    expect(keys).toContain("agent:incident-resolver");
+    expect(keys).toContain("tool:jira/search");
+    expect(keys).not.toContain("agent:default");
   });
 });
 

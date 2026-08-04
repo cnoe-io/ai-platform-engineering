@@ -18,6 +18,7 @@ import { BUILTIN_MCP_CREDENTIAL_SOURCES } from "@/lib/rbac/agentgateway-mcp-disc
 import { computeIngestionSourceId, type IngestionSourceIdentity } from "@/lib/ingestion-source-id";
 import { writeOpenFgaTuples, isOpenFgaReconciliationEnabled } from "@/lib/rbac/openfga";
 import { reconcileAgentRelationships } from "@/lib/rbac/openfga-agent-tools";
+import { resolveUnlinkedServiceAccountSub } from "@/lib/rbac/unlinked-service-account";
 import {
 reconcileConfigDrivenLlmModelRelationships,
 reconcileConfigDrivenMcpServerRelationships,
@@ -183,6 +184,7 @@ async function reconcileSeededAgentRelationships(input: {
   previousSharedTeamSlugs?: string[];
   globalUserAccess?: boolean;
   previousGlobalUserAccess?: boolean;
+  unlinkedServiceAccountSub?: string | null;
   logContext: string;
 }): Promise<void> {
   try {
@@ -199,6 +201,7 @@ async function reconcileSeededAgentRelationships(input: {
       previousSharedTeamSlugs: input.previousSharedTeamSlugs ?? [],
       globalUserAccess: input.globalUserAccess === true,
       previousGlobalUserAccess: input.previousGlobalUserAccess === true,
+      unlinkedServiceAccountSub: input.unlinkedServiceAccountSub ?? null,
       failClosed: false,
     });
   } catch (error) {
@@ -216,6 +219,9 @@ async function seedAgents(
 
   const collection =
     await getCollection<DynamicAgentConfig>("dynamic_agents");
+  // Resolve once per seed pass rather than per agent — the sub is the same
+  // for every agent seeded in this call.
+  const unlinkedServiceAccountSub = await resolveUnlinkedServiceAccountSub();
   let count = 0;
 
   for (const agentData of agents) {
@@ -301,6 +307,7 @@ async function seedAgents(
       previousSharedTeamSlugs: normalizeStringArray(existing?.shared_with_teams),
       globalUserAccess: doc.visibility === "global",
       previousGlobalUserAccess: existing?.visibility === "global",
+      unlinkedServiceAccountSub,
       logContext: "config seed",
     });
 
@@ -337,6 +344,7 @@ export async function adoptConfigImportedAgents(
   );
   const adopted: string[] = [];
   const skipped: string[] = [];
+  const unlinkedServiceAccountSub = await resolveUnlinkedServiceAccountSub();
 
   for (const agentId of agentIds) {
     const existing = await collection.findOne({ _id: agentId });
@@ -372,6 +380,7 @@ export async function adoptConfigImportedAgents(
       previousSharedTeamSlugs: normalizeStringArray(existing.shared_with_teams),
       globalUserAccess: nextVisibility === "global",
       previousGlobalUserAccess: existing.visibility === "global",
+      unlinkedServiceAccountSub,
       logContext: "config import adopt",
     });
 
@@ -1023,6 +1032,7 @@ export async function bootstrapDefaultDynamicAgentIfEmpty(): Promise<boolean> {
       previousSharedTeamSlugs: [],
       globalUserAccess: true,
       previousGlobalUserAccess: false,
+      unlinkedServiceAccountSub: await resolveUnlinkedServiceAccountSub(),
       logContext: "bootstrap insert",
     });
   } catch (err) {
@@ -1055,6 +1065,7 @@ export async function reconcileHelloWorldBootstrapAgent(): Promise<boolean> {
     await getCollection<DynamicAgentConfig>("dynamic_agents");
   const now = new Date().toISOString();
   const doc = buildHelloWorldAgentDoc(now);
+  const unlinkedServiceAccountSub = await resolveUnlinkedServiceAccountSub();
 
   const result = await collection.updateOne(
     {
@@ -1092,6 +1103,7 @@ export async function reconcileHelloWorldBootstrapAgent(): Promise<boolean> {
       previousSharedTeamSlugs: [],
       globalUserAccess: true,
       previousGlobalUserAccess: false,
+      unlinkedServiceAccountSub,
       logContext: "bootstrap revision update",
     });
     console.log(
@@ -1114,6 +1126,7 @@ export async function reconcileHelloWorldBootstrapAgent(): Promise<boolean> {
       previousSharedTeamSlugs: normalizeStringArray(existing.shared_with_teams),
       globalUserAccess: existing.visibility === "global",
       previousGlobalUserAccess: existing.visibility === "global",
+      unlinkedServiceAccountSub,
       logContext: "bootstrap self-heal",
     });
   }
@@ -1394,6 +1407,11 @@ export async function reconcileExistingAgentOpenFgaTuples(): Promise<number> {
     .toArray();
 
   const orgId = caipeOrgKey();
+  // Resolved once for the whole sweep. Also doubles as the backfill path
+  // for agents that were made global before this SA grant existed — the
+  // per-agent write below is unconditional on `isGlobal`, not gated on
+  // whether the agent changed, so a restart repairs any missing grant.
+  const unlinkedServiceAccountSub = await resolveUnlinkedServiceAccountSub();
   for (const agent of agents) {
     const agentId = String(agent._id ?? "").trim();
     if (!agentId) continue;
@@ -1415,6 +1433,7 @@ export async function reconcileExistingAgentOpenFgaTuples(): Promise<number> {
       // Sweep stale org-wide chat grants on team agents (including agents
       // demoted from global before reconcile carried delete flags).
       previousGlobalUserAccess: !isGlobal && !retainPlatformDefaultGrant,
+      unlinkedServiceAccountSub,
       failClosed: false,
     });
   }

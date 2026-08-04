@@ -79,6 +79,17 @@ export interface AgentToolTupleDiffInput {
    * everyone-can-use grant. Mirrors `previousOwnerTeamSlug`.
    */
   previousGlobalUserAccess?: boolean;
+  /**
+   * The platform unlinked service account's `sa_sub`, when known. When
+   * `globalUserAccess` is set, we also write
+   * `service_account:<sub> user agent:<id>` so callers with no linked user
+   * identity (Slack/Webex bots routed through the unlinked SA) are treated
+   * as "everyone" too — `user:*` only matches `user:`-typed subjects, never
+   * `service_account:` ones. Pass `null`/`undefined` to skip this grant
+   * (e.g. the unlinked SA isn't bootstrapped yet); the `user:*` grant is
+   * unaffected either way.
+   */
+  unlinkedServiceAccountSub?: string | null;
 }
 
 export interface ReconcileAgentToolTuplesInput extends AgentToolTupleDiffInput {
@@ -241,12 +252,26 @@ export function buildAgentRelationshipTupleDiff(input: AgentToolTupleDiffInput):
       relation: "user",
       object: `agent:${input.agentId}`,
     });
+    if (isValidOpenFgaId(input.unlinkedServiceAccountSub)) {
+      writes.push({
+        user: `service_account:${input.unlinkedServiceAccountSub}`,
+        relation: "user",
+        object: `agent:${input.agentId}`,
+      });
+    }
   } else if (input.previousGlobalUserAccess) {
     deletes.push({
       user: "user:*",
       relation: "user",
       object: `agent:${input.agentId}`,
     });
+    if (isValidOpenFgaId(input.unlinkedServiceAccountSub)) {
+      deletes.push({
+        user: `service_account:${input.unlinkedServiceAccountSub}`,
+        relation: "user",
+        object: `agent:${input.agentId}`,
+      });
+    }
   }
 
   for (const [serverId, tools] of next) {

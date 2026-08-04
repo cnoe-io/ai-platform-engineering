@@ -31,6 +31,27 @@ export interface ScopeRef {
 }
 
 /**
+ * A scope as surfaced by the Unlinked Access resolver, annotated with where the
+ * grant comes from:
+ *  - `"everyone"` — an agent shared with Everyone (global). Owned by the
+ *    agent's visibility, so it is read-only in the panel; changing it means
+ *    editing the agent.
+ *  - `"explicit"` — added directly to the unlinked SA via this panel; removable.
+ */
+export interface UnlinkedScope extends ScopeRef {
+  source: "everyone" | "explicit";
+}
+
+/**
+ * Strip the `type:` prefix from an OpenFGA object id (`agent:default` →
+ * `default`), yielding the scope `ref`. `listOpenFgaObjects` returns full
+ * object ids; scope refs and Mongo snapshots store the bare id.
+ */
+export function refFromObject(object: string): string {
+  return object.slice(object.indexOf(":") + 1);
+}
+
+/**
  * Validate a tool ref. A tool ref is just an OpenFGA-safe `tool:` object id —
  * the create route's job is to reject GENUINELY malformed input, NOT to mandate
  * a single `<server>/<tool>` convention (the tool namespace doesn't follow one).
