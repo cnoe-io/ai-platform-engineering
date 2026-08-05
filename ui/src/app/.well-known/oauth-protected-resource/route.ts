@@ -56,7 +56,15 @@ export function GET(request: NextRequest) {
       resource: `${origin}/api/tome/mcp`,
       authorization_servers: issuer ? [issuer] : [],
       bearer_methods_supported: ["header"],
-      scopes_supported: ["openid", "profile", "email"],
+      scopes_supported: [
+        "openid",
+        "profile",
+        "email",
+        "roles",
+        "groups",
+        "org",
+        "offline_access",
+      ],
     },
     {
       // Public discovery document; allow cross-origin reads and brief caching.

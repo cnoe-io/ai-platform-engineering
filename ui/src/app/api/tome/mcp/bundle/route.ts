@@ -1,11 +1,10 @@
 // GET /api/tome/mcp/bundle
 //
 // Downloads a Claude Desktop MCP Bundle (.mcpb) preconfigured to reach this
-// deployment's Tome MCP server via mcp-remote's OAuth/PKCE flow — no static
-// API token needed, unlike the Claude Code / Cursor tabs in the "Connect via
-// MCP" dialog. Session-gated like the rest of the Tome UI; the bundle itself
-// carries no secret (auth happens live via OAuth after install), but this
-// route is only ever reached from within the authenticated dialog anyway.
+// deployment's Tome MCP server via mcp-remote's discoverable OAuth/PKCE flow.
+// Session-gated like the rest of the Tome UI; the bundle itself carries no
+// secret or pre-registered client id (auth happens live after install), but
+// this route is only ever reached from within the authenticated dialog anyway.
 
 import { getServerSession } from "next-auth";
 import { NextResponse, type NextRequest } from "next/server";

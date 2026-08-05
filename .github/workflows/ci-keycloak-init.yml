@@ -213,10 +213,10 @@ jobs:
 
   reconcile-test:
     # End-to-end functional test of init-idp.sh against a real Keycloak 26.3.
-    # Catches regressions in the caipe-platform / caipe-ui client_secret
-    # reconciliation path that helm template + unit tests cannot see (JSON
-    # round-trip of the secret, idempotency, real Admin API response codes,
-    # security regression of the dev placeholder remaining accepted).
+    # Catches regressions in the caipe-platform / caipe-ui client_secret and
+    # public MCP DCR reconciliation paths that helm template + unit tests
+    # cannot see (JSON round-trip, idempotency, real Admin API responses,
+    # scope acceptance, and PKCE enforcement).
     #
     # Independent of build-and-push so forks without `packages: write` can
     # still run it on PRs.

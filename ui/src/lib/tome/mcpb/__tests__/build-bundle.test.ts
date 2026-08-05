@@ -22,9 +22,13 @@ describe("buildTomeMcpbBundle", () => {
     expect(manifest.manifest_version).toBe("0.3");
     expect(manifest.name).toBe("tome-mcp");
     expect(manifest.server.entry_point).toBe("node_modules/mcp-remote/dist/proxy.js");
-    expect(manifest.server.mcp_config.args).toEqual(
-      expect.arrayContaining(["http://localhost:3000/api/tome/mcp", "8085", "--allow-http"]),
-    );
+    expect(manifest.server.mcp_config.args).toEqual([
+      "${__dirname}/node_modules/mcp-remote/dist/proxy.js",
+      "http://localhost:3000/api/tome/mcp",
+      "--transport",
+      "http-only",
+      "--allow-http",
+    ]);
 
     const proxyEntry = zip.file("node_modules/mcp-remote/dist/proxy.js");
     expect(proxyEntry).not.toBeNull();

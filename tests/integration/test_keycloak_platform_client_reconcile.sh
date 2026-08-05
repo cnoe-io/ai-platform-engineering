@@ -20,6 +20,10 @@
 #      prove the platform client flow still works after rotation.
 #   6. Mints a client_credentials access token using the OLD placeholder
 #      to prove it is now rejected (invalid_client).
+#   7. Dynamically registers a public MCP client with the advertised scopes
+#      and confirms Keycloak stamps PKCE S256 on it.
+#   8. Exercises authorization with the advertised scopes and RFC 8707
+#      resource indicator, including rejection when PKCE is omitted.
 #
 # Requires: docker, curl, jq, python3. Uses one host port (default
 # 18080, override with KC_PORT=...).
@@ -319,9 +323,72 @@ else
   fail "unexpected response — expected invalid_client"
 fi
 
+# --- 7. Anonymous MCP DCR succeeds and stamps PKCE S256 -----------
+step "Step 7: anonymous MCP registration with advertised scopes"
+DCR_RESPONSE_FILE="$(mktemp)"
+DCR_STATUS="$(curl -sS -o "${DCR_RESPONSE_FILE}" -w '%{http_code}' \
+  -X POST "${KC_URL}/realms/${KC_REALM}/clients-registrations/openid-connect" \
+  -H "Content-Type: application/json" \
+  -d '{"redirect_uris":["http://localhost:18085/oauth/callback"],"token_endpoint_auth_method":"none","grant_types":["authorization_code","refresh_token"],"response_types":["code"],"client_name":"Example MCP Client","scope":"openid profile email roles groups org offline_access"}')"
+if [ "${DCR_STATUS}" = "201" ]; then
+  pass "anonymous DCR returned 201"
+else
+  cat "${DCR_RESPONSE_FILE}"
+  fail "anonymous DCR returned HTTP ${DCR_STATUS}, expected 201"
+fi
+
+DCR_CLIENT_ID="$(jq -r '.client_id // empty' "${DCR_RESPONSE_FILE}")"
+[ -n "${DCR_CLIENT_ID}" ] || fail "DCR response did not contain client_id"
+TOKEN="$(get_admin_token)"
+DCR_CLIENT_UUID="$(curl -sf -H "Authorization: Bearer ${TOKEN}" \
+  "${KC_URL}/admin/realms/${KC_REALM}/clients?clientId=${DCR_CLIENT_ID}" | jq -r '.[0].id // empty')"
+[ -n "${DCR_CLIENT_UUID}" ] || fail "dynamically registered client was not persisted"
+DCR_PKCE="$(curl -sf -H "Authorization: Bearer ${TOKEN}" \
+  "${KC_URL}/admin/realms/${KC_REALM}/clients/${DCR_CLIENT_UUID}" \
+  | jq -r '.attributes["pkce.code.challenge.method"] // empty')"
+if [ "${DCR_PKCE}" = "S256" ]; then
+  pass "dynamic public client requires PKCE S256"
+else
+  fail "dynamic public client PKCE method is '${DCR_PKCE}', expected S256"
+fi
+
+# --- 8. Advertised scopes authorize; missing PKCE is rejected -----
+step "Step 8: MCP authorization request with scopes, resource, and PKCE"
+AUTH_RESPONSE_FILE="$(mktemp)"
+AUTH_STATUS="$(curl -sS -o "${AUTH_RESPONSE_FILE}" -w '%{http_code}' --get \
+  "${KC_URL}/realms/${KC_REALM}/protocol/openid-connect/auth" \
+  --data-urlencode 'response_type=code' \
+  --data-urlencode "client_id=${DCR_CLIENT_ID}" \
+  --data-urlencode 'redirect_uri=http://localhost:18085/oauth/callback' \
+  --data-urlencode 'scope=openid profile email roles groups org offline_access' \
+  --data-urlencode 'state=mcp-dcr-test' \
+  --data-urlencode 'code_challenge=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' \
+  --data-urlencode 'code_challenge_method=S256' \
+  --data-urlencode 'resource=https://mcp.example.com/api/mcp')"
+if [ "${AUTH_STATUS}" = "200" ] && grep -q '<title>Sign in' "${AUTH_RESPONSE_FILE}"; then
+  pass "advertised scopes and resource indicator reached the login flow"
+else
+  fail "authorization request returned HTTP ${AUTH_STATUS} instead of the login flow"
+fi
+
+NO_PKCE_HEADERS="$(mktemp)"
+curl -sS -D "${NO_PKCE_HEADERS}" -o /dev/null --get \
+  "${KC_URL}/realms/${KC_REALM}/protocol/openid-connect/auth" \
+  --data-urlencode 'response_type=code' \
+  --data-urlencode "client_id=${DCR_CLIENT_ID}" \
+  --data-urlencode 'redirect_uri=http://localhost:18085/oauth/callback' \
+  --data-urlencode 'scope=openid profile email roles groups org offline_access' \
+  --data-urlencode 'state=mcp-dcr-no-pkce'
+if grep -qi '^location: .*error_description=Missing+parameter%3A+code_challenge_method' "${NO_PKCE_HEADERS}"; then
+  pass "authorization without PKCE is rejected"
+else
+  cat "${NO_PKCE_HEADERS}"
+  fail "authorization without PKCE was not rejected"
+fi
+
 # --- Done ----------------------------------------------------------
 echo
 echo "${GREEN}=============================================${RESET}"
-echo "${GREEN}  All 6 steps passed.${RESET}"
-echo "${GREEN}  caipe-platform reconcile is working end-to-end.${RESET}"
+echo "${GREEN}  All 8 steps passed.${RESET}"
+echo "${GREEN}  Platform-client and MCP DCR reconciliation work end-to-end.${RESET}"
 echo "${GREEN}=============================================${RESET}"

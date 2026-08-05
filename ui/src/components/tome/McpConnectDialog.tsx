@@ -17,24 +17,27 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { buildMcpRemoteOAuthArgs } from "@/lib/tome/mcpb/manifest";
 
 /**
- * "Connect via MCP" - surfaced from the Tome header. All three clients sign
- * in via OAuth/PKCE against the same public `caipe-cli` Keycloak client — no
- * API key needed anywhere in this dialog:
- *   - Claude Code: native `claude mcp login`.
- *   - Claude Desktop: an installable .mcpb bundle wrapping mcp-remote's own
- *     OAuth client (or, as a fallback, a manual claude_desktop_config.json
- *     entry running the same mcp-remote flow via npx).
- *   - Cursor: a static `auth` object (CLIENT_ID only, no secret — Cursor's
- *     own PKCE-client support) in .cursor/mcp.json.
+ * "Connect via MCP" - surfaced from the Tome header. Native remote-MCP
+ * clients only need the Streamable HTTP URL: they discover OAuth from the
+ * protected-resource metadata and dynamically register a public PKCE client.
+ * Claude Desktop still needs an MCP bridge because it does not accept a
+ * remote Streamable HTTP URL directly, but that bridge uses the same
+ * discovery and registration flow rather than a pre-registered client id.
  */
 
-// Native OAuth/PKCE — no API key needed. --client-id/--callback-port match
-// the Keycloak `caipe-cli` public client's already-registered redirect URIs
-// (see ui/src/lib/tome/mcpb/manifest.ts for the same client reused by the
-// Claude Desktop bundle below).
+function codexCommand(endpoint: string): string {
+  return [
+    `codex mcp add tome --url ${endpoint}`,
+    "",
+    "# Reauthenticate later with:",
+    "# codex mcp login tome",
+  ].join("\n");
+}
+
+// Native OAuth/PKCE — no API key or pre-registered client id needed.
 function claudeCodeCommand(endpoint: string): string {
   return [
-    "claude mcp add --scope user --transport http --client-id caipe-cli --callback-port 8085 tome \\",
+    "claude mcp add --scope user --transport http tome \\",
     `  ${endpoint}`,
     "claude mcp login tome",
   ].join("\n");
@@ -59,25 +62,14 @@ function claudeDesktopManualConfig(endpoint: string, allowHttp: boolean): string
   );
 }
 
-// Cursor's own OAuth support (https://cursor.com/docs/mcp#installing-mcp-servers):
-// a static `auth` object naming a pre-registered client, no dynamic client
-// registration. `caipe-cli` is a public PKCE client (no secret), which
-// Cursor's docs confirm the `auth` object supports (CLIENT_SECRET is
-// optional, "if the provider uses confidential clients"). Cursor Desktop
-// redirects via its own app URI scheme (cursor://anysphere.cursor-mcp/...),
-// not a localhost port — registered on `caipe-cli` alongside the 8085
-// already used by Claude Code/Desktop — see
-// charts/ai-platform-engineering/charts/keycloak/realm-config.json.
+// Cursor follows the same remote-MCP discovery flow from the URL. Omitting a
+// static auth object avoids coupling it to a pre-registered Keycloak client.
 function cursorConfig(endpoint: string): string {
   return JSON.stringify(
     {
       mcpServers: {
         tome: {
           url: endpoint,
-          auth: {
-            CLIENT_ID: "caipe-cli",
-            scopes: ["openid", "email", "profile"],
-          },
         },
       },
     },
@@ -105,8 +97,8 @@ export function McpConnectDialog({ initialOpen = false }: { initialOpen?: boolea
             Connect via MCP
           </DialogTitle>
           <DialogDescription>
-            Use these TOME projects from an MCP client (Claude Code, Claude Desktop, Cursor). All
-            three sign in via OAuth in your browser.
+            Use these TOME projects from an MCP client (Codex, Claude Code, Claude Desktop,
+            Cursor). All four sign in via OAuth in your browser.
           </DialogDescription>
         </DialogHeader>
 
@@ -114,12 +106,20 @@ export function McpConnectDialog({ initialOpen = false }: { initialOpen?: boolea
           {/* Client config */}
           <div className="min-w-0 space-y-1.5">
             <label className="text-sm font-medium">Client configuration</label>
-            <Tabs defaultValue="claude-code" className="min-w-0">
+            <Tabs defaultValue="codex" className="min-w-0">
               <TabsList>
+                <TabsTrigger value="codex">Codex</TabsTrigger>
                 <TabsTrigger value="claude-code">Claude Code</TabsTrigger>
                 <TabsTrigger value="claude">Claude Desktop</TabsTrigger>
                 <TabsTrigger value="cursor">Cursor</TabsTrigger>
               </TabsList>
+              <TabsContent value="codex" className="min-w-0 space-y-1.5">
+                <p className="text-xs text-muted-foreground">
+                  Run this native Streamable HTTP command. Codex discovers OAuth and registers
+                  itself from the server URL; no <code>npx</code> proxy or client ID is required.
+                </p>
+                <ConfigBlock text={codexCommand(endpoint)} />
+              </TabsContent>
               <TabsContent value="claude-code" className="min-w-0 space-y-1.5">
                 <p className="text-xs text-muted-foreground">
                   Run this once, then run <code>/mcp</code> to confirm <code>tome</code> is

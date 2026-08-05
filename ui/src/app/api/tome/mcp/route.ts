@@ -1259,7 +1259,8 @@ export async function POST(request: NextRequest) {
     if (!env && xfHost) {
       origin = `${request.headers.get("x-forwarded-proto") || "https"}://${xfHost}`;
     }
-    const resourceMetadata = `${origin}/.well-known/oauth-protected-resource`;
+    const resourceMetadata =
+      `${origin}/.well-known/oauth-protected-resource/api/tome/mcp`;
     return NextResponse.json(
       rpcError(null, -32001, "Unauthorized: authenticate, or provide a valid bearer token."),
       {
