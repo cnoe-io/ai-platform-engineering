@@ -27,17 +27,28 @@ Backstage) receive pre-correlated events without duplicating logic.
 """
 
 import logging
+import os
 from typing import Any
+
+from dynamic_agents.log_config import tool_result_display_limit_var
 
 logger = logging.getLogger(__name__)
 
 # Max chars of tool result content to send to the frontend.
 # Larger results are truncated with a "[...N chars]" suffix.
-TOOL_RESULT_DISPLAY_LIMIT = 2000
+# Set to -1 via environment variable to disable truncation completely.
+TOOL_RESULT_DISPLAY_LIMIT = int(os.getenv("TOOL_RESULT_DISPLAY_LIMIT", "2000"))
 
 
-def truncate_tool_result(content: str, limit: int = TOOL_RESULT_DISPLAY_LIMIT) -> str:
+def truncate_tool_result(content: str, limit: int | None = None) -> str:
     """Truncate tool result content for frontend display."""
+    if limit is None:
+        limit = tool_result_display_limit_var.get(None)
+    if limit is None:
+        limit = TOOL_RESULT_DISPLAY_LIMIT
+
+    if limit < 0:
+        return content
     if len(content) <= limit:
         return content
     remaining = len(content) - limit
@@ -60,6 +71,86 @@ class LangGraphStreamHelper:
         # _last_tool_start_pos marks where the last tool_start boundary is in the array.
         self._content_chunks: list[str] = []
         self._last_tool_start_pos: int = 0
+        self._usage_metadata: dict[str, int] = {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+        }
+
+    def record_usage(self, msg_chunk: Any) -> None:
+        """Safely extract token usage from an AIMessageChunk or response metadata.
+
+        LangChain exposes usage metadata internally via ``input_tokens`` and ``output_tokens``.
+        We normalize these into standard LLM API keys: ``prompt_tokens``, ``completion_tokens``,
+        and ``total_tokens``.
+        """
+        if not msg_chunk:
+            return
+
+        usage = getattr(msg_chunk, "usage_metadata", None)
+        if not usage and hasattr(msg_chunk, "response_metadata"):
+            resp_meta = getattr(msg_chunk, "response_metadata", {}) or {}
+            if isinstance(resp_meta, dict):
+                usage = resp_meta.get("token_usage") or resp_meta.get("usage")
+
+        if not usage:
+            return
+
+        # Extract prompt / input tokens
+        prompt_toks = 0
+        completion_toks = 0
+        total_toks = 0
+        if isinstance(usage, dict):
+            prompt_toks = (
+                usage["prompt_tokens"]
+                if "prompt_tokens" in usage and usage["prompt_tokens"] is not None
+                else usage.get("input_tokens", 0)
+            )
+            completion_toks = (
+                usage["completion_tokens"]
+                if "completion_tokens" in usage and usage["completion_tokens"] is not None
+                else usage.get("output_tokens", 0)
+            )
+            total_toks = usage.get("total_tokens") or 0
+        else:
+            pt = getattr(usage, "prompt_tokens", None)
+            it = getattr(usage, "input_tokens", None)
+            prompt_toks = pt if pt is not None else (it if it is not None else 0)
+
+            ct = getattr(usage, "completion_tokens", None)
+            ot = getattr(usage, "output_tokens", None)
+            completion_toks = ct if ct is not None else (ot if ot is not None else 0)
+
+            total_toks = getattr(usage, "total_tokens", 0) or 0
+
+        if not isinstance(prompt_toks, int):
+            prompt_toks = 0
+        if not isinstance(completion_toks, int):
+            completion_toks = 0
+        if not isinstance(total_toks, int) or total_toks == 0:
+            total_toks = prompt_toks + completion_toks
+
+        # Update running max/sum for stream events
+        # Note: Depending on provider, chunks may emit incremental or cumulative usage.
+        # If chunk total exceeds current accumulated total, treat as cumulative update;
+        # otherwise accumulate.
+        if total_toks >= self._usage_metadata["total_tokens"] and total_toks > 0:
+            self._usage_metadata["prompt_tokens"] = prompt_toks
+            self._usage_metadata["completion_tokens"] = completion_toks
+            self._usage_metadata["total_tokens"] = total_toks
+        elif prompt_toks > 0 or completion_toks > 0:
+            self._usage_metadata["prompt_tokens"] += prompt_toks
+            self._usage_metadata["completion_tokens"] += completion_toks
+            self._usage_metadata["total_tokens"] += prompt_toks + completion_toks
+
+    def get_total_usage(self) -> dict[str, int]:
+        """Return accumulated token usage dictionary using standard LLM API fields.
+
+        Returns empty dict if total_tokens is 0.
+        """
+        if self._usage_metadata["total_tokens"] <= 0:
+            return {}
+        return dict(self._usage_metadata)
 
     # ── Stateful methods ──────────────────────────────────
 

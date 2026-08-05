@@ -8,7 +8,7 @@ import dotenv
 
 dotenv.load_dotenv()  # Ensure .env is in os.environ before any boto3/httpx clients are created
 
-from dynamic_agents.log_config import setup_logging
+from dynamic_agents.log_config import setup_logging, tool_result_display_limit_var
 
 # Setup logging before other imports that trigger cnoe-agent-utils
 logger = setup_logging()
@@ -131,6 +131,20 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.middleware("http")
+    async def set_tool_result_display_limit(request: Request, call_next):
+        limit_val = request.headers.get("x-tool-result-display-limit") or request.query_params.get("tool_result_display_limit")
+        if limit_val is not None:
+            try:
+                token = tool_result_display_limit_var.set(int(limit_val))
+                try:
+                    return await call_next(request)
+                finally:
+                    tool_result_display_limit_var.reset(token)
+            except ValueError:
+                pass
+        return await call_next(request)
 
     # Prometheus HTTP metrics middleware (from main). Mounted BEFORE the
     # JWT auth middleware so failed-auth and CORS-preflight requests are

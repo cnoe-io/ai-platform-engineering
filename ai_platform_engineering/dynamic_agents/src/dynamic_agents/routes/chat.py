@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from dynamic_agents.auth.auth import get_user_context
 from dynamic_agents.auth.authz import require_agent_use_permission
 from dynamic_agents.config import get_settings
-from dynamic_agents.log_config import conversation_id_var
+from dynamic_agents.log_config import conversation_id_var, tool_result_display_limit_var
 from dynamic_agents.models import ChatRequest, ClientContext, DynamicAgentConfig, InputFile, UserContext
 from dynamic_agents.services.llm_clients import LLMConfigError
 from dynamic_agents.services.mongo import MongoDBService, get_mongo_service
@@ -335,6 +335,15 @@ async def chat_start_stream(
     # Set conversation context for logging
     conversation_id_var.set(request.conversation_id)
 
+    # Set request-scoped tool result display limit from client_context if specified
+    if request.client_context:
+        limit = getattr(request.client_context, "tool_result_display_limit", None)
+        if limit is not None:
+            try:
+                tool_result_display_limit_var.set(int(limit))
+            except (ValueError, TypeError):
+                pass
+
     await require_agent_use_permission(request.agent_id)
 
     # Get agent config after the runtime policy check passes.
@@ -359,7 +368,7 @@ async def chat_start_stream(
         f"trace_id={request.trace_id or 'auto'}"
     )
 
-    encoder = get_encoder(request.protocol)
+    encoder = get_encoder(request.protocol, include_usage=request.include_usage)
 
     return StreamingResponse(
         _generate_sse_events(

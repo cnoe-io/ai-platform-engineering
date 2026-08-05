@@ -611,6 +611,13 @@ class ClientContext(BaseModel):
     """
 
     source: str = Field(..., description="Client identifier, e.g. 'slack', 'webui'")
+    tool_result_display_limit: int | None = Field(
+        None,
+        description=(
+            "Max chars of tool result content to show in the frontend. "
+            "Set to -1 to disable truncation. Defaults to server-side env limit."
+        ),
+    )
 
     model_config = ConfigDict(extra="allow")
 
@@ -656,6 +663,10 @@ class ChatRequest(BaseModel):
             "interrupt_on, subagents, skills, features, backend. "
             "Ignored: ui, name, description, owner_id, visibility, enabled, is_system, config_driven."
         ),
+    )
+    include_usage: bool = Field(
+        True,
+        description="Whether to include token usage metadata in the done SSE stream event payload.",
     )
     workflow_config_id: str | None = Field(
         None,
