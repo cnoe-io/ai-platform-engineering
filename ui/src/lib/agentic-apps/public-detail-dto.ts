@@ -14,7 +14,7 @@ function primaryBlockedReason(reasons: AgenticAppBlockedReason[]): AgenticAppBlo
 }
 
 /**
- * End-user safe JSON for GET /api/agentic-apps/[appId]. Omits infrastructure (health probe URLs,
+ * End-user safe JSON for GET /api/agentic-apps. Omits infrastructure (health probe URLs,
  * upstream origins) and full access control matrices; exposes capability metadata only when launch is allowed.
  */
 export function buildPublicAgenticAppDetailPayload(input: {
@@ -62,6 +62,20 @@ export function buildPublicAgenticAppDetailPayload(input: {
   return {
     appId: input.installation.appId,
     packageId: input.installation.packageId,
+    displayName: manifest.displayName,
+    description: manifest.description,
+    surfaces: manifest.surfaces,
+    ...(manifest.assistant !== undefined
+      ? {
+          assistantEnabled: manifest.assistant.enabled ?? true,
+          ...(manifest.assistant.label !== undefined
+            ? { assistantLabel: manifest.assistant.label }
+            : {}),
+          ...(manifest.assistant.agentName !== undefined
+            ? { assistantAgentName: manifest.assistant.agentName }
+            : {}),
+        }
+      : {}),
     runtimeStatus: input.runtimeStatus,
     href: input.accessResult.href,
     canLaunch: input.accessResult.canLaunch,

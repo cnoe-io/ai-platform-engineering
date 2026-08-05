@@ -71,8 +71,20 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       packageId: manifest.id,
       href: manifest.runtime.mountPath,
       displayName: manifest.displayName,
+      description: manifest.description,
       canLaunch,
       surfaces: manifest.surfaces,
+      ...(manifest.assistant !== undefined
+        ? {
+            assistantEnabled: manifest.assistant.enabled ?? true,
+            ...(manifest.assistant.label !== undefined
+              ? { assistantLabel: manifest.assistant.label }
+              : {}),
+            ...(manifest.assistant.agentName !== undefined
+              ? { assistantAgentName: manifest.assistant.agentName }
+              : {}),
+          }
+        : {}),
       installation: { installed: true, enabled: true },
       package: {
         id: manifest.id,
