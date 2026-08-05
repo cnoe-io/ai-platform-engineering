@@ -163,5 +163,23 @@ def test_record_usage_none_chunk():
     assert helper.get_total_usage() == {}
 
 
+def test_record_usage_object_form_usage():
+    """Verify non-dict usage object (with prompt_tokens/completion_tokens attrs) is extracted correctly."""
 
+    @dataclass
+    class ObjectUsage:
+        prompt_tokens: int
+        completion_tokens: int
+        total_tokens: int
 
+    helper = LangGraphStreamHelper()
+    chunk = MockMessageChunk(
+        content="Object usage",
+        usage_metadata=ObjectUsage(prompt_tokens=40, completion_tokens=10, total_tokens=50),
+    )
+    helper.record_usage(chunk)
+    assert helper.get_total_usage() == {
+        "prompt_tokens": 40,
+        "completion_tokens": 10,
+        "total_tokens": 50,
+    }

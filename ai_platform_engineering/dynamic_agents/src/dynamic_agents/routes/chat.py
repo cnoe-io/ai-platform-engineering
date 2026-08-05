@@ -289,15 +289,11 @@ async def _generate_sse_events(
         # to fix. Anything else falls through to the generic message.
         cause = e.cause
         if isinstance(cause, LLMConfigError):
-            logger.warning(
-                f"Agent '{agent_config.name}' has no usable LLM config: {cause}"
-            )
+            logger.warning(f"Agent '{agent_config.name}' has no usable LLM config: {cause}")
             for frame in encoder.on_run_error(str(cause)):
                 yield frame
         else:
-            logger.exception(
-                f"Runtime init failed for agent '{agent_config.name}'"
-            )
+            logger.exception(f"Runtime init failed for agent '{agent_config.name}'")
             for frame in encoder.on_run_error(GENERIC_AGENT_ERROR):
                 yield frame
     except Exception:
@@ -342,7 +338,7 @@ async def chat_start_stream(
             try:
                 tool_result_display_limit_var.set(int(limit))
             except (ValueError, TypeError):
-                pass
+                logger.warning("Unexpected type for tool_result_display_limit in validated context: %r", limit)
 
     await require_agent_use_permission(request.agent_id)
 

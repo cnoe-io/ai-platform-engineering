@@ -24,9 +24,11 @@ def fatal_exit(message: str) -> None:
     os._exit(1)
 
 
+from collections.abc import Awaitable, Callable
+
 # ruff: noqa: E402
 # Imports must be after logging setup to ensure our format is used
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -133,8 +135,12 @@ def create_app() -> FastAPI:
     )
 
     @app.middleware("http")
-    async def set_tool_result_display_limit(request: Request, call_next):
-        limit_val = request.headers.get("x-tool-result-display-limit") or request.query_params.get("tool_result_display_limit")
+    async def set_tool_result_display_limit(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        limit_val = request.headers.get("x-tool-result-display-limit") or request.query_params.get(
+            "tool_result_display_limit"
+        )
         if limit_val is not None:
             try:
                 token = tool_result_display_limit_var.set(int(limit_val))
@@ -143,7 +149,7 @@ def create_app() -> FastAPI:
                 finally:
                     tool_result_display_limit_var.reset(token)
             except ValueError:
-                pass
+                logger.info("Ignored invalid tool_result_display_limit header/param: %r", limit_val)
         return await call_next(request)
 
     # Prometheus HTTP metrics middleware (from main). Mounted BEFORE the
