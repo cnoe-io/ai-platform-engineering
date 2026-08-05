@@ -34,10 +34,17 @@ from dynamic_agents.log_config import tool_result_display_limit_var
 
 logger = logging.getLogger(__name__)
 
-# Max chars of tool result content to send to the frontend.
-# Larger results are truncated with a "[...N chars]" suffix.
-# Set to -1 via environment variable to disable truncation completely.
-TOOL_RESULT_DISPLAY_LIMIT = int(os.getenv("TOOL_RESULT_DISPLAY_LIMIT", "2000"))
+
+def _get_default_limit() -> int:
+    val = os.getenv("TOOL_RESULT_DISPLAY_LIMIT", "2000")
+    try:
+        return int(val)
+    except ValueError:
+        logger.warning("Invalid TOOL_RESULT_DISPLAY_LIMIT env var %r, falling back to 2000.", val)
+        return 2000
+
+
+TOOL_RESULT_DISPLAY_LIMIT = _get_default_limit()
 
 
 def truncate_tool_result(content: str, limit: int | None = None) -> str:

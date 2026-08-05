@@ -117,7 +117,7 @@ def get_encoder(protocol: str = "custom", include_usage: bool = True) -> StreamE
     if protocol == "agui":
         from .agui_sse import AGUIStreamEncoder
 
-        return AGUIStreamEncoder()
+        return AGUIStreamEncoder(include_usage=include_usage)
     from .custom_sse import CustomStreamEncoder
 
     return CustomStreamEncoder(include_usage=include_usage)

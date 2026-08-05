@@ -143,13 +143,38 @@ def create_app() -> FastAPI:
         )
         if limit_val is not None:
             try:
-                token = tool_result_display_limit_var.set(int(limit_val))
-                try:
-                    return await call_next(request)
-                finally:
-                    tool_result_display_limit_var.reset(token)
+                limit_int = int(limit_val)
             except ValueError:
                 logger.info("Ignored invalid tool_result_display_limit header/param: %r", limit_val)
+                return await call_next(request)
+
+            token = tool_result_display_limit_var.set(limit_int)
+            try:
+                response = await call_next(request)
+            except Exception:
+                tool_result_display_limit_var.reset(token)
+                raise
+
+            if hasattr(response, "body_iterator") and response.body_iterator is not None:
+                original_iterator = response.body_iterator
+
+                async def stream_wrapper():
+                    try:
+                        if hasattr(original_iterator, "__aiter__"):
+                            async for chunk in original_iterator:
+                                yield chunk
+                        else:
+                            for chunk in original_iterator:
+                                yield chunk
+                    finally:
+                        tool_result_display_limit_var.reset(token)
+
+                response.body_iterator = stream_wrapper()
+                return response
+
+            tool_result_display_limit_var.reset(token)
+            return response
+
         return await call_next(request)
 
     # Prometheus HTTP metrics middleware (from main). Mounted BEFORE the
@@ -234,9 +259,7 @@ def create_app() -> FastAPI:
                     media_type=CONTENT_TYPE_LATEST,
                 )
         except ImportError:
-            logger.warning(
-                "prometheus_client not installed; /metrics endpoint disabled"
-            )
+            logger.warning("prometheus_client not installed; /metrics endpoint disabled")
 
     return app
 
