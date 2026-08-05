@@ -58,6 +58,14 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     const appId = requireAgenticResourceId(body.appId, "appId");
     const packageId = requireAgenticResourceId(body.packageId, "packageId");
     const [packages, installations] = await Promise.all([listAppPackages(), listAppInstallations()]);
+    const existingInstallation = installations.find((installation) => installation.appId === appId);
+    if (existingInstallation?.config_driven === true) {
+      throw new ApiError(
+        `installation "${appId}" is managed by deployment config`,
+        409,
+        "config_driven",
+      );
+    }
     const pkg = packages.find((p) => p.packageId === packageId);
     if (!pkg) {
       throw new ApiError("package not found", 404);

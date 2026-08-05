@@ -63,6 +63,14 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     const source = parseSource(body.source);
     const catalog = parseAgenticPackageCatalogInput(body.catalog);
     const existingPackages = await listAppPackages();
+    const existingPackage = existingPackages.find((pkg) => pkg.packageId === packageId);
+    if (existingPackage?.config_driven === true) {
+      throw new ApiError(
+        `package "${packageId}" is managed by deployment config`,
+        409,
+        "config_driven",
+      );
+    }
     const normalizedMountPath = normalizeAgenticAppMountPath(result.manifest.runtime.mountPath);
     const conflictingPackage = existingPackages.find((pkg) => {
       if (pkg.packageId === packageId) {

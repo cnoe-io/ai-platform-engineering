@@ -33,10 +33,62 @@ Open http://localhost:3000.
 | `RAG_SERVER_URL` | unset | Server-side RAG API URL |
 | `NEXTAUTH_SECRET` | unset | Required for authenticated deployments |
 | `SSO_ENABLED` | `false` | Enables OIDC-backed auth |
+| `AGENTIC_APPS_INSTALL_ENABLED` | `false` | Enables Agentic Apps user, admin, and proxy routes when set to `true` |
+| `AGENTIC_APPS_CONFIG_PATH` | unset | Optional path to a dedicated YAML file containing deploy-managed Agentic App packages and installations |
 
 Browser chat traffic goes through the BFF routes under
 `/api/v1/chat/stream/*`; the browser does not call the Dynamic Agents service
 directly.
+
+### Config-driven Agentic Apps
+
+Set `AGENTIC_APPS_CONFIG_PATH` when Agentic Apps should be registered from a
+small config file independently of the main `APP_CONFIG_PATH` file. The file is
+validated before any records are changed. Config-managed records are read-only
+through the admin APIs, are reapplied at startup, and are removed when omitted
+from the declared package or installation lists.
+
+```yaml
+agentic_apps:
+  packages:
+    - package_id: example-app
+      source: helm
+      manifest:
+        id: example-app
+        displayName: Example App
+        description: Example externally hosted app.
+        apiVersion: "1.0"
+        runtime:
+          kind: proxied-next-zone
+          mountPath: /apps/example-app
+          origin: ${EXAMPLE_APP_ORIGIN}
+          chrome: iframe
+        surfaces:
+          showInHub: true
+          showInTopNav: true
+        access:
+          requiredRoles: [user]
+          tokenScopes: [example-app:read]
+        health:
+          endpoint: /healthz
+  installations:
+    - app_id: example-app
+      package_id: example-app
+      installed: true
+      enabled: true
+      visible: true
+      runtime_mount_path: /apps/example-app
+      runtime_origin_override: ${EXAMPLE_APP_ORIGIN}
+      access_overrides:
+        requiredRoles: [user]
+      health_policy:
+        block_launch_when: [degraded, unreachable]
+```
+
+Each package needs either an inline `manifest` or a JSON `manifest_path`
+relative to this YAML file. The current proxy binds routes by app ID, so an
+installation mount must be `/apps/<app_id>`. Environment placeholders use the
+same `${VAR}` and `${VAR:-default}` expansion supported by the main seed config.
 
 ## Development Commands
 
