@@ -76,7 +76,7 @@ import { useAdminStatsSections } from "@/hooks/use-admin-stats-sections";
 import { useUrlFilterParams } from "@/hooks/use-url-filter-params";
 import { useAdminTabGates,type AdminTabGateSimulationTarget } from "@/hooks/useAdminTabGates";
 import { getConfig } from "@/lib/config";
-import { navigateDocument } from "@/lib/document-navigation";
+import { pushWithNavigationProgress } from "@/lib/navigation-progress";
 import { withAdminSimulationParams } from "@/lib/rbac/admin-simulation-query";
 import { cn } from "@/lib/utils";
 import type { SkillMetricsAdmin } from "@/types/agent-skill";
@@ -714,8 +714,8 @@ function AdminPage() {
     params.set('dateRange', 'custom');
     params.set('from', range.from);
     params.set('to', range.to);
-    navigateDocument(`/admin/insights/feedback?${params.toString()}`);
-  }, [searchParams]);
+    pushWithNavigationProgress(router,`/admin/insights/feedback?${params.toString()}`);
+  }, [router,searchParams]);
 
   // Helper to sync shared filters to URL
   const updateSharedFilterUrl = (overrides: Record<string, string | null> = {}) => {

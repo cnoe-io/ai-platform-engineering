@@ -1,6 +1,7 @@
 "use client";
 
 import { AuthGuard } from "@/components/auth-guard";
+import { NavigationProgressLink } from "@/components/layout/NavigationProgressLink";
 import { TrySkillsGateway } from "@/components/skills";
 import { cn } from "@/lib/utils";
 import { Waypoints } from "lucide-react";
@@ -10,13 +11,12 @@ export default function SkillsGatewayPage() {
     <AuthGuard>
       <div className="flex flex-col h-full overflow-hidden">
         <div className="shrink-0 border-b border-border px-6 pt-4 pb-2 flex gap-2">
-          <button
-            type="button"
-            onClick={() => window.location.assign("/skills")}
+          <NavigationProgressLink
+            href="/skills"
             className="px-3 py-1.5 text-sm rounded-md text-muted-foreground hover:bg-muted transition-colors"
           >
             Skills Gallery
-          </button>
+          </NavigationProgressLink>
           <button
             type="button"
             className={cn(

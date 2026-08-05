@@ -3,7 +3,7 @@
 // assisted-by Codex Codex-sonnet-4-6
 
 import { cn } from "@/lib/utils";
-import { DocumentNavigationLink } from "@/components/layout/DocumentNavigationLink";
+import { NavigationProgressLink } from "@/components/layout/NavigationProgressLink";
 import { ArrowRight,Bot,Database,MessageSquare,Server,Workflow,Zap } from "lucide-react";
 
 interface CapabilityCardsProps {
@@ -86,7 +86,7 @@ export function CapabilityCards({ ragEnabled }: CapabilityCardsProps) {
       </h2>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {visibleCapabilities.map((cap) => (
-          <DocumentNavigationLink
+          <NavigationProgressLink
             key={cap.id}
             href={cap.href}
             data-testid={`capability-card-${cap.id}`}
@@ -117,7 +117,7 @@ export function CapabilityCards({ ragEnabled }: CapabilityCardsProps) {
                 </p>
               </div>
             </div>
-          </DocumentNavigationLink>
+          </NavigationProgressLink>
         ))}
       </div>
     </div>

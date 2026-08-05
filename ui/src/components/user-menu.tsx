@@ -15,7 +15,7 @@ import { AnimatePresence,motion } from "framer-motion";
 import { ChevronDown,ChevronRight,ExternalLink,Info,Lightbulb,Loader2,LogIn,LogOut,Shield,Tag } from "lucide-react";
 import { signIn,signOut,useSession } from "next-auth/react";
 import Image from "next/image";
-import { DocumentNavigationLink } from "@/components/layout/DocumentNavigationLink";
+import { NavigationProgressLink } from "@/components/layout/NavigationProgressLink";
 import { useCallback,useEffect,useRef,useState } from "react";
 
 const CHANGELOG_URL = "https://github.com/cnoe-io/ai-platform-engineering/blob/main/CHANGELOG.md";
@@ -170,14 +170,14 @@ export function UserMenu(): React.ReactElement | null {
 
             {config.mongodbEnabled ? (
               <div className="border-b border-border">
-                <DocumentNavigationLink
+                <NavigationProgressLink
                   className="flex w-full items-center justify-between px-4 py-2 text-xs font-medium transition-colors hover:bg-muted/50"
                   href="/insights"
                   onClick={() => setOpen(false)}
                 >
                   <span className="flex items-center gap-2"><Lightbulb className="h-3.5 w-3.5" />Personal Insights</span>
                   <ChevronRight className="h-3.5 w-3.5" />
-                </DocumentNavigationLink>
+                </NavigationProgressLink>
               </div>
             ) : null}
 

@@ -56,11 +56,6 @@ jest.mock('next/navigation', () => ({
   }),
 }))
 
-const mockNavigateDocument = jest.fn()
-jest.mock('@/lib/document-navigation', () => ({
-  navigateDocument: (href: string) => mockNavigateDocument(href),
-}))
-
 // Mock admin role hook
 let mockIsAdmin = false
 let mockCanAccessDynamicAgents = false
@@ -449,7 +444,6 @@ beforeEach(() => {
     isLoading: false,
   }
   mockRouterPush.mockReset()
-  mockNavigateDocument.mockReset()
   popoverOpenProps.length = 0
   lastPopoverState = { open: false }
 })
@@ -1253,7 +1247,7 @@ describe('AppHeader — Chat tab notification dots', () => {
     // <button>s that programmatically load the route. Verify that the
     // click handler actually fires and targets the migrations tab.
     fireEvent.click(row!)
-    expect(mockNavigateDocument).toHaveBeenCalledWith('/admin/security/migrations')
+    expect(mockRouterPush).toHaveBeenCalledWith('/admin/security/migrations')
   })
 
   it('shows the admin alerts pill for version-metadata bootstrap (amber-severity)', () => {
@@ -1282,7 +1276,7 @@ describe('AppHeader — Chat tab notification dots', () => {
     const row = findAlertRow('Version metadata needed')
     expect(row).not.toBeNull()
     fireEvent.click(row!)
-    expect(mockNavigateDocument).toHaveBeenCalledWith('/admin/security/migrations')
+    expect(mockRouterPush).toHaveBeenCalledWith('/admin/security/migrations')
   })
 
   it('renders one popover row per active admin alert source and picks worst severity for the trigger', () => {
@@ -1337,10 +1331,10 @@ describe('AppHeader — Chat tab notification dots', () => {
     // must load the Keycloak tab and clicking the version row must
     // load the Migrations tab (no cross-talk).
     fireEvent.click(keycloakRow!)
-    expect(mockNavigateDocument).toHaveBeenLastCalledWith('/admin/security/keycloak')
+    expect(mockRouterPush).toHaveBeenLastCalledWith('/admin/security/keycloak')
     fireEvent.click(versionRow!)
-    expect(mockNavigateDocument).toHaveBeenLastCalledWith('/admin/security/migrations')
-    expect(mockNavigateDocument).toHaveBeenCalledTimes(2)
+    expect(mockRouterPush).toHaveBeenLastCalledWith('/admin/security/migrations')
+    expect(mockRouterPush).toHaveBeenCalledTimes(2)
   })
 
   it('labels Keycloak admin authorization errors without calling the realm unreachable', () => {
@@ -1401,7 +1395,7 @@ describe('AppHeader — Chat tab notification dots', () => {
     expect(row).not.toBeNull()
     expect(row?.textContent ?? '').toContain('4')
     fireEvent.click(row!)
-    expect(mockNavigateDocument).toHaveBeenCalledWith('/admin/security/keycloak')
+    expect(mockRouterPush).toHaveBeenCalledWith('/admin/security/keycloak')
   })
 
   it('hides the admin alerts pill when no admin alert sources are active', () => {
@@ -1483,7 +1477,7 @@ describe('AppHeader — Chat tab notification dots', () => {
     expect(row).not.toBeNull()
     fireEvent.click(row!)
 
-    expect(mockNavigateDocument).toHaveBeenCalledWith('/admin/security/keycloak')
+    expect(mockRouterPush).toHaveBeenCalledWith('/admin/security/keycloak')
     // …AND AppHeader sets alertsPopoverOpen to false on the same
     // click, so the user lands on the destination tab without a
     // dangling floating layer.

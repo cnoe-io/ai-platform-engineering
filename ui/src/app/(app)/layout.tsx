@@ -8,6 +8,8 @@ import {
 import { ApplicationNavigationProvider } from "@/components/layout/ApplicationNavigationContext";
 import { LiveStreamBanner } from "@/components/layout/LiveStreamBanner";
 import { useUserInit } from "@/hooks/use-user-init";
+import { finishNavigationProgress } from "@/lib/navigation-progress";
+import { usePathname } from "next/navigation";
 import React from "react";
 
 export default function AppLayout({
@@ -15,8 +17,14 @@ export default function AppLayout({
 }: {
   children: React.ReactNode;
 }) {
+  const pathname = usePathname();
+
   // Initialize user in MongoDB on first login
   useUserInit();
+
+  React.useEffect(() => {
+    finishNavigationProgress();
+  }, [pathname]);
   
   return (
     <ApplicationNavigationProvider>

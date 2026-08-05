@@ -8,6 +8,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { apiClient } from "@/lib/api-client";
 import { resolveUsableChatAgent } from "@/lib/chat-agent-selection";
 import { getConfig } from "@/lib/config";
+import { pushWithNavigationProgress } from "@/lib/navigation-progress";
 import { getMarkdownComponents } from "@/lib/markdown-components";
 import { createStreamAdapter,type StreamAdapter,type StreamCallbacks } from "@/lib/streaming";
 import type { InputFieldDefinition } from "@/lib/streaming/types";
@@ -40,6 +41,7 @@ Wrench,
 XCircle
 } from "lucide-react";
 import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
 import React,{ useCallback,useEffect,useMemo,useRef,useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -725,6 +727,7 @@ export function AgentBuilderRunner({
   config,
   onComplete,
 }: AgentBuilderRunnerProps) {
+  const router = useRouter();
   // Workflow state
   const [status, setStatus] = useState<
     "idle" | "running" | "completed" | "failed" | "cancelled"
@@ -1501,7 +1504,7 @@ export function AgentBuilderRunner({
           <Button 
             variant="ghost" 
             size="icon" 
-            onClick={() => window.location.assign('/')}
+            onClick={() => pushWithNavigationProgress(router,'/')}
             title="Go to home page"
           >
             <LayoutGrid className="h-5 w-5" />
@@ -1510,7 +1513,7 @@ export function AgentBuilderRunner({
           <Button 
             variant="ghost" 
             size="icon" 
-            onClick={() => window.location.assign('/agent-builder/history')}
+            onClick={() => pushWithNavigationProgress(router,'/agent-builder/history')}
             title="View workflow history"
           >
             <ArrowLeft className="h-5 w-5" />

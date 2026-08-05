@@ -1,7 +1,7 @@
 "use client";
 
 import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
-import { DocumentNavigationLink } from "@/components/layout/DocumentNavigationLink";
+import { NavigationProgressLink } from "@/components/layout/NavigationProgressLink";
 import { usePathname } from "next/navigation";
 import React from "react";
 
@@ -53,6 +53,7 @@ export function GuardedNavigationLink({
   className,
   dataNavKey,
   onClick,
+  prefetch,
   title,
   "aria-current": ariaCurrent,
   "aria-label": ariaLabel,
@@ -70,16 +71,17 @@ export function GuardedNavigationLink({
   };
 
   return (
-    <DocumentNavigationLink
+    <NavigationProgressLink
       aria-current={ariaCurrent}
       aria-label={ariaLabel}
       className={className}
       data-nav-key={dataNavKey}
       href={href}
       onClick={handleClick}
+      prefetch={prefetch}
       title={title}
     >
       {children}
-    </DocumentNavigationLink>
+    </NavigationProgressLink>
   );
 }

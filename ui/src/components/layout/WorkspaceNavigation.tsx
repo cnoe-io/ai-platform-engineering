@@ -12,8 +12,9 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { useApplicationNavigation } from "@/components/layout/ApplicationNavigationContext";
-import { DocumentNavigationLink } from "@/components/layout/DocumentNavigationLink";
+import { NavigationProgressLink } from "@/components/layout/NavigationProgressLink";
 import { useWorkspaceRail } from "@/components/layout/WorkspaceRailContext";
+import { pushWithNavigationProgress } from "@/lib/navigation-progress";
 import { cn } from "@/lib/utils";
 import {
   ChevronDown,
@@ -22,6 +23,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { useEffect,useId,useRef,useState } from "react";
+import { useRouter } from "next/navigation";
 
 export interface WorkspaceNavigationItem {
   children?: WorkspaceNavigationItem[];
@@ -233,7 +235,7 @@ function NavigationItem({
       {contents}
     </span>
   ) : item.href ? (
-    <DocumentNavigationLink
+    <NavigationProgressLink
       aria-current={active ? "page" : undefined}
       aria-label={collapsed ? item.label : undefined}
       className={itemClassName}
@@ -243,7 +245,7 @@ function NavigationItem({
       onClick={handleNavigate}
     >
       {contents}
-    </DocumentNavigationLink>
+    </NavigationProgressLink>
   ) : (
     <button
       aria-current={active ? "page" : undefined}
@@ -445,6 +447,7 @@ export function WorkspaceSectionPicker({
   className,
   groups,
 }: WorkspaceSectionPickerProps): React.ReactElement {
+  const router = useRouter();
   const id = useId();
   const activeItem = navigationLeaves(groups.flatMap((group) => group.items))
     .find((item) => item.id === activeItemId);
@@ -466,7 +469,7 @@ export function WorkspaceSectionPicker({
           if (selectedItem?.onSelect) {
             selectedItem.onSelect();
           } else if (selectedItem?.href) {
-            window.location.assign(selectedItem.href);
+            pushWithNavigationProgress(router,selectedItem.href);
           }
         }}
         value={activeItem ? itemValue(activeItem) : ""}

@@ -8,7 +8,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { apiClient } from "@/lib/api-client";
 import { resolveUsableChatAgent } from "@/lib/chat-agent-selection";
 import { getConfig } from "@/lib/config";
-import { navigateDocument } from "@/lib/document-navigation";
+import { pushWithNavigationProgress } from "@/lib/navigation-progress";
 import { getMarkdownComponents } from "@/lib/markdown-components";
 import { createStreamAdapter,type StreamAdapter,type StreamCallbacks } from "@/lib/streaming";
 import type { InputFieldDefinition } from "@/lib/streaming/types";
@@ -41,6 +41,7 @@ Wrench,
 XCircle
 } from "lucide-react";
 import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
 import React,{ useCallback,useEffect,useMemo,useRef,useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -758,6 +759,7 @@ export function SkillsRunner({
   const accessToken = ssoEnabled ? session?.accessToken : undefined;
 
   // Router for navigation
+  const router = useRouter();
 
   // Stream adapter ref
   const clientRef = useRef<StreamAdapter | null>(null);
@@ -1516,7 +1518,7 @@ export function SkillsRunner({
           <Button 
             variant="ghost" 
             size="icon" 
-            onClick={() => navigateDocument('/')}
+            onClick={() => pushWithNavigationProgress(router,'/')}
             title="Go to home page"
           >
             <LayoutGrid className="h-5 w-5" />
@@ -1525,7 +1527,7 @@ export function SkillsRunner({
           <Button 
             variant="ghost" 
             size="icon" 
-            onClick={() => navigateDocument('/skills')}
+            onClick={() => pushWithNavigationProgress(router,'/skills')}
             title="Back to Skills"
           >
             <ArrowLeft className="h-5 w-5" />

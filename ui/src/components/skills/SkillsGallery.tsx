@@ -27,7 +27,7 @@ import { useToast } from "@/components/ui/toast";
 import { useAdminRole } from "@/hooks/use-admin-role";
 import { resolveUsableChatAgentId } from "@/lib/chat-agent-selection";
 import { getConfig } from "@/lib/config";
-import { navigateDocument } from "@/lib/document-navigation";
+import { pushWithNavigationProgress } from "@/lib/navigation-progress";
 import { cn } from "@/lib/utils";
 import { useAgentSkillsStore } from "@/store/agent-skills-store";
 import { useChatStore } from "@/store/chat-store";
@@ -92,7 +92,7 @@ X,
 Zap,
 } from "lucide-react";
 import { useSession } from "next-auth/react";
-import { DocumentNavigationLink } from "@/components/layout/DocumentNavigationLink";
+import { NavigationProgressLink } from "@/components/layout/NavigationProgressLink";
 import { useRouter } from "next/navigation";
 import React,{ useCallback,useEffect,useMemo,useState } from "react";
 
@@ -809,7 +809,7 @@ export function SkillsGallery({
       const conversationId = await createConversation(await resolveUsableChatAgentId());
       setPendingMessage(message);
       setActiveFormConfig(null);
-      navigateDocument(`/chat/${conversationId}`);
+      pushWithNavigationProgress(router,`/chat/${conversationId}`);
     } catch (error) {
       const msg =
         error instanceof Error ? error.message : "Failed to create a chat conversation";
@@ -992,9 +992,9 @@ export function SkillsGallery({
                 </div>
                 <p className="text-sm text-muted-foreground leading-snug">
                   Catalog skills and templates — repo hubs in{" "}
-                  <DocumentNavigationLink href="/admin/platform/skill-hubs" className="text-primary hover:underline">
+                  <NavigationProgressLink href="/admin/platform/skill-hubs" className="text-primary hover:underline">
                     Admin
-                  </DocumentNavigationLink>
+                  </NavigationProgressLink>
                 </p>
               </div>
             </div>
@@ -1004,7 +1004,7 @@ export function SkillsGallery({
                 type="button"
                 size="sm"
                 variant="outline"
-                onClick={() => navigateDocument("/skills/scan-history")}
+                onClick={() => pushWithNavigationProgress(router,"/skills/scan-history")}
                 aria-label="Open skill scanner audit log"
                 title="Audit log of every skill scanner run"
                 className="gap-2 h-9 text-sm px-3 font-medium"
@@ -1021,7 +1021,7 @@ export function SkillsGallery({
               <Button
                 type="button"
                 size="sm"
-                onClick={() => navigateDocument("/skills/gateway")}
+                onClick={() => pushWithNavigationProgress(router,"/skills/gateway")}
                 aria-label="Open Skills Gateway — OpenAPI, auth, and agent integration"
                 title="Skills Gateway: OpenAPI, API keys, and coding-agent setup"
                 className={cn(
@@ -1575,9 +1575,9 @@ export function SkillsGallery({
               <Sparkles className="h-12 w-12 text-muted-foreground/50" />
               <p className="text-muted-foreground text-center max-w-md">
                 No skills match your search or filters. Try another source filter, or add repo-backed skills via{" "}
-                <DocumentNavigationLink href="/admin/platform/skill-hubs" className="text-primary font-medium hover:underline">
+                <NavigationProgressLink href="/admin/platform/skill-hubs" className="text-primary font-medium hover:underline">
                   Admin → Skill Hubs
-                </DocumentNavigationLink>
+                </NavigationProgressLink>
                 .
               </p>
             </div>

@@ -47,7 +47,6 @@ const mockGetFavoriteConfigs = jest.fn().mockReturnValue([]);
 const mockCreateConversation = jest.fn().mockReturnValue("conv-abc");
 const mockSetPendingMessage = jest.fn();
 const mockRouterPush = jest.fn();
-const mockNavigateDocument = jest.fn();
 
 let mockIsLoading = false;
 let mockError: string | null = null;
@@ -79,10 +78,6 @@ jest.mock("@/hooks/use-admin-role", () => ({
 
 jest.mock("next/navigation", () => ({
   useRouter: () => ({ push: mockRouterPush }),
-}));
-
-jest.mock("@/lib/document-navigation", () => ({
-  navigateDocument: (href: string) => mockNavigateDocument(href),
 }));
 
 jest.mock("next-auth/react", () => ({
@@ -678,7 +673,7 @@ describe("SkillsGallery — Try Skill", () => {
     expect(mockSetPendingMessage).toHaveBeenCalledWith(
       "Execute skill: qs-chat\n\nRead and follow the instructions in the SKILL.md file for the \"qs-chat\" skill."
     );
-    expect(mockNavigateDocument).toHaveBeenCalledWith("/chat/conv-abc");
+    expect(mockRouterPush).toHaveBeenCalledWith("/chat/conv-abc");
   });
 
   it("closes the modal after navigation", async () => {
@@ -767,7 +762,7 @@ describe("SkillsGallery — template variable parameters", () => {
     expect(mockSetPendingMessage).toHaveBeenCalledWith(
       "Execute skill: qs-vars\n\nRead and follow the instructions in the SKILL.md file for the \"qs-vars\" skill.\n\nParameters:\n- app_name: my-service\n- cluster: prod-us\n- replicas: 3"
     );
-    expect(mockNavigateDocument).toHaveBeenCalledWith("/chat/conv-abc");
+    expect(mockRouterPush).toHaveBeenCalledWith("/chat/conv-abc");
   });
 
   it("does not render Parameters section for skills without variables", async () => {
