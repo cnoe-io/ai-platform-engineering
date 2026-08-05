@@ -27,10 +27,10 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 // Mocks — must be before imports
 // ============================================================================
 
-const mockNavigateDocument = jest.fn()
+const mockRouterPush = jest.fn()
 
-jest.mock('@/lib/document-navigation', () => ({
-  navigateDocument: (href: string) => mockNavigateDocument(href),
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({ push: mockRouterPush }),
 }))
 
 const mockSession = {
@@ -259,7 +259,7 @@ describe('Insights Page', () => {
       render(<Insights />)
 
       fireEvent.click(screen.getByText('Go to Chat'))
-      expect(mockNavigateDocument).toHaveBeenCalledWith('/chat')
+      expect(mockRouterPush).toHaveBeenCalledWith('/chat')
     })
 
     it('renders normally when storageMode is mongodb', async () => {
@@ -542,7 +542,7 @@ describe('Insights Page', () => {
       })
 
       fireEvent.click(screen.getByText('Browse skills'))
-      expect(mockNavigateDocument).toHaveBeenCalledWith('/skills')
+      expect(mockRouterPush).toHaveBeenCalledWith('/skills')
     })
 
     it('uses singular "run" when count is 1', async () => {

@@ -92,6 +92,12 @@
 /* Dark mode via class or data-theme attribute */
 @variant dark (&:where(.dark, [data-theme]));
 
+/* Preserve Next.js client transitions while giving immediate route feedback. */
+html[data-navigation-pending="true"],
+html[data-navigation-pending="true"] * {
+  cursor: progress !important;
+}
+
 /* ========================================
    THEME SYSTEM - Multiple Dark & Light Themes
    ======================================== */

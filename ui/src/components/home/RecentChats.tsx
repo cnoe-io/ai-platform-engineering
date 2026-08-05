@@ -1,7 +1,7 @@
 "use client";
 
 import { MessageSquare,Plus } from "lucide-react";
-import { DocumentNavigationLink } from "@/components/layout/DocumentNavigationLink";
+import { NavigationProgressLink } from "@/components/layout/NavigationProgressLink";
 import { ConversationCard } from "./ConversationCard";
 
 interface RecentChatsProps {
@@ -30,14 +30,14 @@ export function RecentChats({
         <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
           Recent Chats
         </h2>
-        <DocumentNavigationLink
+        <NavigationProgressLink
           href="/chat"
           className="flex items-center gap-1 text-xs text-primary hover:text-primary/80 transition-colors"
           data-testid="new-chat-link"
         >
           <Plus className="h-3 w-3" />
           New Chat
-        </DocumentNavigationLink>
+        </NavigationProgressLink>
       </div>
 
       {loading ? (
@@ -61,12 +61,12 @@ export function RecentChats({
           <p className="text-sm text-muted-foreground mb-2">
             No conversations yet
           </p>
-          <DocumentNavigationLink
+          <NavigationProgressLink
             href="/chat"
             className="text-sm text-primary hover:underline"
           >
             Start a new chat
-          </DocumentNavigationLink>
+          </NavigationProgressLink>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">

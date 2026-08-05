@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils";
-import { DocumentNavigationLink } from "@/components/layout/DocumentNavigationLink";
+import { NavigationProgressLink } from "@/components/layout/NavigationProgressLink";
 import { ChevronRight } from "lucide-react";
 
 export interface WorkspaceBreadcrumbItem {
@@ -38,7 +38,7 @@ export function WorkspaceBreadcrumbs({
                 <ChevronRight aria-hidden="true" className="h-3.5 w-3.5 shrink-0 opacity-60" />
               ) : null}
               {item.href ? (
-                <DocumentNavigationLink
+                <NavigationProgressLink
                   aria-current={current ? "page" : undefined}
                   className={cn(
                     "truncate rounded-sm outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
@@ -48,7 +48,7 @@ export function WorkspaceBreadcrumbs({
                   onClick={item.onClick}
                 >
                   {item.label}
-                </DocumentNavigationLink>
+                </NavigationProgressLink>
               ) : (
                 <span
                   aria-current={current ? "page" : undefined}

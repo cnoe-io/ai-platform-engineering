@@ -18,10 +18,10 @@ import type { AgentSkill } from "@/types/agent-skill";
 // Mocks
 // ---------------------------------------------------------------------------
 
-const mockNavigateDocument = jest.fn();
+const mockRouterPush = jest.fn();
 
-jest.mock("@/lib/document-navigation", () => ({
-  navigateDocument: (href: string) => mockNavigateDocument(href),
+jest.mock("next/navigation", () => ({
+  useRouter: () => ({ push: mockRouterPush }),
 }));
 
 jest.mock("next-auth/react", () => ({
@@ -183,14 +183,14 @@ describe("SkillsRunner — rendering", () => {
     render(<SkillsRunner config={makeConfig()} />);
 
     fireEvent.click(screen.getByTitle("Go to home page"));
-    expect(mockNavigateDocument).toHaveBeenCalledWith("/");
+    expect(mockRouterPush).toHaveBeenCalledWith("/");
   });
 
   it("navigates to skills catalog when back button is clicked", () => {
     render(<SkillsRunner config={makeConfig()} />);
 
     fireEvent.click(screen.getByTitle("Back to Skills"));
-    expect(mockNavigateDocument).toHaveBeenCalledWith("/skills");
+    expect(mockRouterPush).toHaveBeenCalledWith("/skills");
   });
 
   it("renders Output and History tab buttons", () => {

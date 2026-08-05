@@ -45,9 +45,10 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { humanizeCron } from "@/lib/cron-humanize";
 import { getConfig } from "@/lib/config";
-import { navigateDocument } from "@/lib/document-navigation";
+import { pushWithNavigationProgress } from "@/lib/navigation-progress";
 import { resolveUsableChatAgentId } from "@/lib/chat-agent-selection";
 import { useChatStore } from "@/store/chat-store";
+import { useRouter } from "next/navigation";
 
 interface ScheduleRun {
   ts: string | null;
@@ -489,6 +490,7 @@ async function resolveConfiguredScheduleEditorAgentId(): Promise<string | null> 
 }
 
 export default function SchedulesPage() {
+  const router = useRouter();
   const createConversation = useChatStore((state) => state.createConversation);
   const setPendingMessage = useChatStore((state) => state.setPendingMessage);
   const [items, setItems] = useState<ScheduleItem[]>([]);
@@ -773,14 +775,14 @@ export default function SchedulesPage() {
             "Please fetch the schedule first, verify it belongs to me, then help me make the change safely.",
           ].join("\n")
         );
-        navigateDocument(`/chat/${conversationId}`);
+        pushWithNavigationProgress(router,`/chat/${conversationId}`);
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
       } finally {
         setChattingId(null);
       }
     },
-    [createConversation, setPendingMessage]
+    [createConversation, router, setPendingMessage]
   );
 
   const stats = useMemo(() => {

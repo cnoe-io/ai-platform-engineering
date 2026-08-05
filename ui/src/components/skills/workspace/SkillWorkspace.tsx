@@ -59,7 +59,7 @@ TabsTrigger,
 } from "@/components/ui/tabs";
 import { useToast } from "@/components/ui/toast";
 import { getConfig } from "@/lib/config";
-import { navigateDocument } from "@/lib/document-navigation";
+import { pushWithNavigationProgress } from "@/lib/navigation-progress";
 import { cn } from "@/lib/utils";
 
 import { buildBlockingMessage,buildLastReview,useAiReview } from "@/components/ai-review";
@@ -329,8 +329,8 @@ export function SkillWorkspace({
       form.guardedClose();
       return;
     }
-    navigateDocument(backHref);
-  }, [form,backHref,trackDirty]);
+    pushWithNavigationProgress(router,backHref);
+  }, [form,router,backHref,trackDirty]);
 
   // Confirm + navigate. Prefer the pending external href (application-navigation click)
   // over `backHref` — when the user clicks "Chat" in the global header and
@@ -343,12 +343,10 @@ export function SkillWorkspace({
       ? confirmNavigation()
       : null;
     const target = externalHref || backHref;
-    // External hrefs may belong to entirely different route trees, so we
-    // Leaving the workspace is a document navigation whether the target came
-    // from application navigation or the workspace Back action.
-    navigateDocument(target);
+    pushWithNavigationProgress(router,target);
   }, [
     form,
+    router,
     backHref,
     pendingNavigationHref,
     confirmNavigation,

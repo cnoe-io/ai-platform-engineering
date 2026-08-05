@@ -29,7 +29,7 @@ import { useRAGHealth } from "@/hooks/use-rag-health";
 import { useReleaseUpgradePrompt } from "@/hooks/use-release-upgrade-prompt";
 import { useVersion } from "@/hooks/use-version";
 import { config } from "@/lib/config";
-import { navigateDocument } from "@/lib/document-navigation";
+import { pushWithNavigationProgress } from "@/lib/navigation-progress";
 import { cn } from "@/lib/utils";
 import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
 import { AnimatePresence,motion } from "framer-motion";
@@ -41,11 +41,12 @@ FileText,
 Loader2,
 } from "lucide-react";
 import { useSession } from "next-auth/react";
-import { usePathname } from "next/navigation";
+import { usePathname,useRouter } from "next/navigation";
 import React from "react";
 
 export function AppHeader() {
   const pathname = usePathname();
+  const router = useRouter();
   const { data: session } = useSession();
   const { isAdmin } = useAdminRole();
   const {
@@ -69,9 +70,9 @@ export function AppHeader() {
     const href = confirmNavigation();
     if (href) {
       setUnsaved(false);
-      navigateDocument(href);
+      pushWithNavigationProgress(router,href);
     }
-  }, [confirmNavigation, setUnsaved]);
+  }, [confirmNavigation, router, setUnsaved]);
 
   const handleCancel = React.useCallback(() => {
     cancelNavigation();
@@ -549,7 +550,7 @@ export function AppHeader() {
                         if (hasUnsavedChanges) {
                           requestNavigation(alert.href);
                         } else {
-                          navigateDocument(alert.href);
+                          pushWithNavigationProgress(router,alert.href);
                         }
                         setAlertsPopoverOpen(false);
                       };

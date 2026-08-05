@@ -19,6 +19,7 @@ jest.mock("@/store/unsaved-changes-store", () => ({
 }));
 
 import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
+import { finishNavigationProgress } from "@/lib/navigation-progress";
 import { GuardedNavigationLink } from "../GuardedNavigationLink";
 
 // ============================================================================
@@ -29,6 +30,11 @@ describe("GuardedNavigationLink", () => {
   beforeEach(() => {
     mockRequestNavigation.mockReset();
     (useUnsavedChangesStore as unknown as jest.Mock).mockReset();
+    finishNavigationProgress();
+  });
+
+  afterEach(() => {
+    finishNavigationProgress();
   });
 
   it("on /dynamic-agents with unsaved changes: click is intercepted", () => {
@@ -49,6 +55,7 @@ describe("GuardedNavigationLink", () => {
 
     expect(preventSpy).toHaveBeenCalled();
     expect(mockRequestNavigation).toHaveBeenCalledWith("/chat");
+    expect(document.documentElement).not.toHaveAttribute("data-navigation-pending");
   });
 
   it("on /dynamic-agents with NO unsaved changes: click is NOT intercepted", () => {
@@ -64,6 +71,7 @@ describe("GuardedNavigationLink", () => {
     fireEvent.click(getByRole("link", { name: "Chat" }));
 
     expect(mockRequestNavigation).not.toHaveBeenCalled();
+    expect(document.documentElement).toHaveAttribute("data-navigation-pending","true");
   });
 
   it("on an unrelated path with unsaved changes: click is NOT intercepted", () => {

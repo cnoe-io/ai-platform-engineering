@@ -26,7 +26,7 @@ import { Activity,ArrowDown,ArrowLeft,Check,ChevronUp,Copy,Loader2,Paperclip,Rot
 import { resolveUsableChatAgentId } from "@/lib/chat-agent-selection";
 import { AgentPicker } from "@/components/ui/agent-picker";
 import { signIn,useSession } from "next-auth/react";
-import { DocumentNavigationLink } from "@/components/layout/DocumentNavigationLink";
+import { NavigationProgressLink } from "@/components/layout/NavigationProgressLink";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import React,{ useCallback,useEffect,useMemo,useRef,useState } from "react";
@@ -2022,13 +2022,13 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
               )}
             </div>
             {readOnlyReason === 'admin_audit' ? (
-            <DocumentNavigationLink
+            <NavigationProgressLink
               href="/admin/insights/feedback"
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-amber-600/20 text-amber-700 dark:text-amber-300 hover:bg-amber-600/30 transition-colors"
             >
               <ArrowLeft className="h-3 w-3" />
               Back to Feedback
-            </DocumentNavigationLink>
+            </NavigationProgressLink>
             ) : (readOnlyReason === 'agent_deleted' || readOnlyReason === 'agent_disabled') ? (
             <div className="flex items-center gap-2 flex-wrap">
               {showAgentPicker ? (
