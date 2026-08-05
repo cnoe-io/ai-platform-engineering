@@ -882,8 +882,9 @@ async def list_datasource_documents(
           filter=f"datasource_id == '{datasource_id}'",
           output_fields=["count(*)"],
         )
-        if res:
-          return int(res[0].get("count(*)", 0))
+        if not res:
+          return 0
+        return int(res[0].get("count(*)", 0))
       except Exception:
         logger.exception("Failed to query chunk count from Milvus")
       return None
@@ -898,8 +899,9 @@ async def list_datasource_documents(
           group_by_field="document_id",
           limit=MILVUS_MAX_GROUP_BY_LIMIT,
         )
-        if res:
-          return len(res)
+        if not res:
+          return 0
+        return len(res)
       except Exception:
         logger.exception("Failed to query unique document count from Milvus")
       return None
@@ -951,8 +953,14 @@ async def list_datasource_documents(
     # Convert to list and sort by document_id
     documents = sorted(documents_map.values(), key=lambda d: d.document_id)
 
-    actual_total_chunks = milvus_total_chunks if milvus_total_chunks is not None else sum(len(doc.chunks) for doc in documents)
-    actual_total_documents = milvus_total_docs if milvus_total_docs is not None else len(documents)
+    if milvus_total_chunks is None or milvus_total_docs is None:
+      raise HTTPException(
+        status_code=500,
+        detail="Failed to compute total_documents/total_chunks from Milvus",
+      )
+
+    actual_total_chunks = milvus_total_chunks
+    actual_total_documents = milvus_total_docs
 
     return DatasourceDocumentsResponse(
       datasource_id=datasource_id,

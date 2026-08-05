@@ -111,3 +111,24 @@ class TestVectorDBQueryService:
     results: List[QueryResult] = await query_service.query("", filters={"datasource_id": "ds1"})
 
     assert results == []
+
+  @pytest.mark.asyncio
+  async def test_scalar_path_invalid_datasource_id_raises_value_error(self, query_service: VectorDBQueryService) -> None:
+    """Unsafe datasource_id in filters raises ValueError during scalar query path."""
+    invalid_ids = ["ds1' OR '1'='1", "ds1; DROP TABLE docs;", "ds1 name", ""]
+    for ds_id in invalid_ids:
+      with pytest.raises(ValueError, match="Invalid datasource_id"):
+        await query_service.query("", filters={"datasource_id": ds_id})
+
+  @pytest.mark.asyncio
+  async def test_filter_string_values_are_escaped_against_injection(self, query_service: VectorDBQueryService, mock_milvus: MagicMock) -> None:
+    """Single quotes in metadata filter values are escaped before interpolation into the Milvus expression."""
+    mock_milvus.client.query.return_value = []
+
+    await query_service.query("", filters={"metadata.author": "admin' OR '1'=='1"})
+
+    _, kwargs = mock_milvus.client.query.call_args
+    filter_expr: str = kwargs["filter"]
+    # Confirm the injected payload is present but with single quotes escaped —
+    # the resulting expression must not break out of the string literal
+    assert "admin\\' OR \\'1\\'==\\'1" in filter_expr, f"Expected escaped injection payload in filter expression, got: {filter_expr!r}"

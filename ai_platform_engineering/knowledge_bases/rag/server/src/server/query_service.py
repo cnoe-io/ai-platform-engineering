@@ -1,4 +1,5 @@
 from typing import Any, Dict, List, Optional
+import asyncio
 import re
 from common.utils import get_logger
 from common.models.server import QueryResult
@@ -113,26 +114,38 @@ class VectorDBQueryService:
           prefixes = [v[:-1] for v in value if v.endswith("*")]
           parts = []
           if exact:
-            values_str = ", ".join([f'"{v}"' for v in exact])
+            # Escape double quotes in list values to prevent expression injection
+            safe_exact = [v.replace('"', '\\"') for v in exact]
+            values_str = ", ".join([f'"{v}"' for v in safe_exact])
             parts.append(f"{milvus_field} in [{values_str}]")
           for prefix in prefixes:
-            parts.append(f'{milvus_field} like "{prefix}%"')
+            # Escape double quotes in prefix patterns to prevent expression injection
+            safe_prefix = prefix.replace('"', '\\"')
+            parts.append(f'{milvus_field} like "{safe_prefix}%"')
           if len(parts) == 1:
             filter_expr_parts.append(parts[0])
           else:
             filter_expr_parts.append(f"({' or '.join(parts)})")
         else:
-          # For string values, use quotes
-          filter_expr_parts.append(f"{milvus_field} == '{value}'")
+          # Escape single quotes in string values to prevent expression injection
+          safe_value = value.replace("'", "\\'")
+          filter_expr_parts.append(f"{milvus_field} == '{safe_value}'")
       filter_expr = " AND ".join(filter_expr_parts)
     else:
       filter_expr = None  # No filters
+
+    # Validate datasource_id if present in filters
+    if filters and "datasource_id" in filters:
+      ds_id = filters.get("datasource_id")
+      if not isinstance(ds_id, str) or not re.fullmatch(r"[a-zA-Z0-9_-]{1,256}", ds_id):
+        raise ValueError("Invalid datasource_id")
 
     logger.info(f"Searching docs vector db with filters - {filter_expr}, query: {query!r}")
     try:
       if query == "" and filter_expr:
         # Perform a direct scalar query to bypass vector search constraints when query is empty
-        milvus_results = self.vector_db.client.query(
+        milvus_results = await asyncio.to_thread(
+          self.vector_db.client.query,
           collection_name=self.vector_db.collection_name,
           filter=filter_expr,
           limit=limit,
