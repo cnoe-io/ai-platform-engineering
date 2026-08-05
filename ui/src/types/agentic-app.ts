@@ -39,6 +39,8 @@ export interface AgenticAppPackageRecord {
   packageId: string;
   source: AgenticAppPackageSource;
   manifest: AgenticAppManifest;
+  /** Deployment-managed records are reconciled from seed config and read-only via admin APIs. */
+  config_driven?: boolean;
   importedAt?: string;
   importedBy?: string;
   catalog?: AgenticAppPackageCatalogMeta;
@@ -76,6 +78,8 @@ export interface AgenticAppInstallationRecord {
   enabled: boolean;
   visible?: boolean;
   packageId: string;
+  /** Deployment-managed records are reconciled from seed config and read-only via admin APIs. */
+  config_driven?: boolean;
   createdAt?: string;
   createdBy?: string;
   updatedAt?: string;

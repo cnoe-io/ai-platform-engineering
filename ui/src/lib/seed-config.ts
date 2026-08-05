@@ -13,6 +13,12 @@
  * Ported from DA services/seed_config.py — DA no longer seeds configs.
  */
 
+import {
+  AGENTIC_APP_ID_PATTERN,
+  validateAgenticAppManifest,
+} from "@/lib/agentic-apps/manifest-validation";
+import { isExecutableProxiedHttpOrigin } from "@/lib/agentic-apps/execution-gateway";
+import { normalizeAgenticAppMountPath } from "@/lib/agentic-apps/registry";
 import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
 import { BUILTIN_MCP_CREDENTIAL_SOURCES } from "@/lib/rbac/agentgateway-mcp-discovery";
 import { computeIngestionSourceId, type IngestionSourceIdentity } from "@/lib/ingestion-source-id";
@@ -46,7 +52,18 @@ StepEntry,
 WorkflowConfig,
 WorkflowConfigVisibility,
 } from "@/types/workflow-config";
+import type {
+AgenticAppAccessOverrides,
+AgenticAppHealthStatus,
+AgenticAppHealthPolicy,
+AgenticAppInstallationRecord,
+AgenticAppManifest,
+AgenticAppPackageCatalogMeta,
+AgenticAppPackageRecord,
+AgenticAppPackageSource,
+} from "@/types/agentic-app";
 import fs from "fs";
+import { dirname,isAbsolute,join } from "node:path";
 import yaml from "js-yaml";
 
 // Pattern to match ${VAR_NAME} or ${VAR_NAME:-default}
@@ -67,8 +84,65 @@ interface SeedConfig {
   models: SeedModel[];
   agents: Record<string, unknown>[];
   mcp_servers: Record<string, unknown>[];
+  agentic_apps?: SeedAgenticApps;
   workflow_configs: Record<string, unknown>[];
   rag_sources: Record<string, unknown>[];
+}
+
+export interface SeedAgenticApps {
+  packages: SeedAgenticAppPackage[];
+  installations: SeedAgenticAppInstallation[];
+}
+
+export interface SeedAgenticAppPackage {
+  package_id: string;
+  source?: AgenticAppPackageSource;
+  manifest?: Record<string, unknown>;
+  manifest_path?: string;
+  catalog?: AgenticAppPackageCatalogMeta;
+}
+
+export interface SeedAgenticAppInstallation {
+  app_id: string;
+  package_id: string;
+  installed?: boolean;
+  enabled?: boolean;
+  visible?: boolean;
+  runtime_mount_path?: string;
+  runtime_origin_override?: string;
+  access_overrides?: Record<string, unknown>;
+  health_policy?: {
+    block_launch_when?: AgenticAppHealthStatus[];
+  };
+}
+
+export interface AgenticAppsSeedSource {
+  config: SeedAgenticApps;
+  configPath: string;
+}
+
+export interface PreparedAgenticAppPackage {
+  packageId: string;
+  source: AgenticAppPackageSource;
+  manifest: AgenticAppManifest;
+  catalog: AgenticAppPackageCatalogMeta;
+}
+
+export interface PreparedAgenticAppInstallation {
+  appId: string;
+  packageId: string;
+  installed: boolean;
+  enabled: boolean;
+  visible: boolean;
+  runtimeMountPath: string;
+  runtimeOriginOverride?: string;
+  accessOverrides?: AgenticAppAccessOverrides;
+  healthPolicy?: AgenticAppHealthPolicy;
+}
+
+export interface PreparedAgenticAppsSeed {
+  packages: PreparedAgenticAppPackage[];
+  installations: PreparedAgenticAppInstallation[];
 }
 
 /** Shape of documents in the llm_models collection. */
@@ -150,6 +224,10 @@ export function loadSeedConfig(configPath: string): SeedConfig {
     string,
     unknown
   >[];
+  const agenticAppsRaw = parsed.agentic_apps;
+  const agentic_apps = agenticAppsRaw === undefined
+    ? undefined
+    : normalizeAgenticAppsConfig(expandEnvVars(agenticAppsRaw));
   const workflow_configs = expandEnvVars(parsed.workflow_configs ?? []) as Record<
     string,
     unknown
@@ -159,7 +237,63 @@ export function loadSeedConfig(configPath: string): SeedConfig {
     unknown
   >[];
 
-  return { models, agents, mcp_servers, workflow_configs, rag_sources };
+  return {
+    models,
+    agents,
+    mcp_servers,
+    ...(agentic_apps ? { agentic_apps } : {}),
+    workflow_configs,
+    rag_sources,
+  };
+}
+
+function normalizeAgenticAppsConfig(value: unknown): SeedAgenticApps {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("agentic_apps must be an object");
+  }
+  const raw = value as Record<string, unknown>;
+  const allowedKeys = new Set(["packages", "installations"]);
+  const unknownKey = Object.keys(raw).find((key) => !allowedKeys.has(key));
+  if (unknownKey) {
+    throw new Error(`agentic_apps has unknown key "${unknownKey}"`);
+  }
+  if (raw.packages !== undefined && !Array.isArray(raw.packages)) {
+    throw new Error("agentic_apps.packages must be an array");
+  }
+  if (raw.installations !== undefined && !Array.isArray(raw.installations)) {
+    throw new Error("agentic_apps.installations must be an array");
+  }
+  return {
+    packages: (raw.packages ?? []) as SeedAgenticAppPackage[],
+    installations: (raw.installations ?? []) as SeedAgenticAppInstallation[],
+  };
+}
+
+/**
+ * Resolve the Agentic Apps seed independently from the main app config.
+ *
+ * AGENTIC_APPS_CONFIG_PATH lets an existing chart mount a small, dedicated
+ * config file without replacing its generated APP_CONFIG_PATH file. When the
+ * override is unset, an inline `agentic_apps` block in the main config is used.
+ */
+export function resolveAgenticAppsSeedSource(
+  config: SeedConfig,
+  configPath: string,
+  overridePath = process.env.AGENTIC_APPS_CONFIG_PATH?.trim(),
+): AgenticAppsSeedSource | null {
+  if (!overridePath) {
+    return config.agentic_apps
+      ? { config: config.agentic_apps, configPath }
+      : null;
+  }
+
+  const overrideConfig = loadSeedConfig(overridePath);
+  if (!overrideConfig.agentic_apps) {
+    throw new Error(
+      `AGENTIC_APPS_CONFIG_PATH must contain an agentic_apps block: ${overridePath}`,
+    );
+  }
+  return { config: overrideConfig.agentic_apps, configPath: overridePath };
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -520,6 +654,537 @@ async function seedModels(models: SeedModel[]): Promise<number> {
 
   console.log(`[seed-config] Seeded ${count} models`);
   return count;
+}
+
+export async function seedAgenticApps(
+  agenticApps: SeedAgenticApps,
+  configPath: string,
+): Promise<{ packageCount: number; installationCount: number }> {
+  const prepared = prepareAgenticAppsSeed(agenticApps, configPath);
+  await validateAgenticAppsSeedAgainstStore(prepared);
+  return reconcilePreparedAgenticApps(prepared);
+}
+
+const AGENTIC_APP_PACKAGE_KEYS = new Set([
+  "package_id",
+  "source",
+  "manifest",
+  "manifest_path",
+  "catalog",
+]);
+const AGENTIC_APP_INSTALLATION_KEYS = new Set([
+  "app_id",
+  "package_id",
+  "installed",
+  "enabled",
+  "visible",
+  "runtime_mount_path",
+  "runtime_origin_override",
+  "access_overrides",
+  "health_policy",
+]);
+const AGENTIC_APP_ACCESS_OVERRIDE_KEYS = new Set([
+  "requiredRoles",
+  "requiredGroups",
+]);
+const AGENTIC_APP_HEALTH_POLICY_KEYS = new Set(["block_launch_when"]);
+const AGENTIC_APP_CATALOG_KEYS = new Set([
+  "categories",
+  "capabilities",
+  "icon",
+  "supportUrl",
+  "compatibility",
+]);
+const AGENTIC_APP_PACKAGE_SOURCES = new Set<AgenticAppPackageSource>([
+  "builtin",
+  "admin-import",
+  "helm",
+  "api",
+]);
+const AGENTIC_APP_HEALTH_BLOCK_STATES = new Set<AgenticAppHealthStatus>([
+  "unknown",
+  "degraded",
+  "unreachable",
+]);
+
+/**
+ * Convert declarative Agentic Apps YAML into a fully-validated reconciliation
+ * plan before any MongoDB write. Config errors are fatal to this seed pass:
+ * silently skipping one row can otherwise retain stale access policy or leave
+ * an installation pointing at a package that cleanup removes.
+ */
+export function prepareAgenticAppsSeed(
+  agenticApps: SeedAgenticApps,
+  configPath: string,
+): PreparedAgenticAppsSeed {
+  const errors: string[] = [];
+  const preparedPackages: PreparedAgenticAppPackage[] = [];
+  const packagesById = new Map<string, PreparedAgenticAppPackage>();
+
+  agenticApps.packages.forEach((value, index) => {
+    const path = `agentic_apps.packages[${index}]`;
+    if (!isPlainRecord(value)) {
+      errors.push(`${path} must be an object`);
+      return;
+    }
+    collectUnknownKeys(value, AGENTIC_APP_PACKAGE_KEYS, path, errors);
+
+    const packageId = value.package_id;
+    if (typeof packageId !== "string" || !AGENTIC_APP_ID_PATTERN.test(packageId)) {
+      errors.push(`${path}.package_id must match ${String(AGENTIC_APP_ID_PATTERN)}`);
+      return;
+    }
+    if (packagesById.has(packageId)) {
+      errors.push(`${path}.package_id duplicates "${packageId}"`);
+      return;
+    }
+
+    const configuredSource = value.source;
+    if (
+      configuredSource !== undefined &&
+      (typeof configuredSource !== "string" ||
+        !AGENTIC_APP_PACKAGE_SOURCES.has(configuredSource as AgenticAppPackageSource))
+    ) {
+      errors.push(`${path}.source is invalid`);
+      return;
+    }
+    if (value.manifest !== undefined && value.manifest_path !== undefined) {
+      errors.push(`${path} must declare only one of manifest or manifest_path`);
+      return;
+    }
+
+    let manifestInput: unknown;
+    try {
+      manifestInput = loadAgenticAppManifest(
+        value as unknown as SeedAgenticAppPackage,
+        configPath,
+      );
+    } catch (error) {
+      errors.push(
+        `${path} failed to load manifest: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return;
+    }
+    if (manifestInput === null) {
+      errors.push(`${path} must declare manifest or manifest_path`);
+      return;
+    }
+
+    const validation = validateAgenticAppManifest(manifestInput);
+    if (validation.ok === false) {
+      errors.push(`${path}.manifest is invalid: ${validation.errors.join("; ")}`);
+      return;
+    }
+    if (validation.manifest.id !== packageId) {
+      errors.push(`${path}.manifest.id must match package_id`);
+      return;
+    }
+
+    let catalog: AgenticAppPackageCatalogMeta;
+    try {
+      catalog = parseSeedAgenticAppCatalog(
+        value.catalog,
+        validation.manifest.catalog ?? {},
+        `${path}.catalog`,
+      );
+    } catch (error) {
+      errors.push(error instanceof Error ? error.message : String(error));
+      return;
+    }
+
+    const prepared: PreparedAgenticAppPackage = {
+      packageId,
+      source: (configuredSource as AgenticAppPackageSource | undefined) ?? "helm",
+      manifest: validation.manifest,
+      catalog,
+    };
+    preparedPackages.push(prepared);
+    packagesById.set(packageId, prepared);
+  });
+
+  const preparedInstallations: PreparedAgenticAppInstallation[] = [];
+  const seenAppIds = new Set<string>();
+  const activeMountOwners = new Map<string, string>();
+
+  agenticApps.installations.forEach((value, index) => {
+    const path = `agentic_apps.installations[${index}]`;
+    if (!isPlainRecord(value)) {
+      errors.push(`${path} must be an object`);
+      return;
+    }
+    collectUnknownKeys(value, AGENTIC_APP_INSTALLATION_KEYS, path, errors);
+
+    const appId = value.app_id;
+    const packageId = value.package_id;
+    if (typeof appId !== "string" || !AGENTIC_APP_ID_PATTERN.test(appId)) {
+      errors.push(`${path}.app_id must match ${String(AGENTIC_APP_ID_PATTERN)}`);
+      return;
+    }
+    if (typeof packageId !== "string" || !AGENTIC_APP_ID_PATTERN.test(packageId)) {
+      errors.push(`${path}.package_id must match ${String(AGENTIC_APP_ID_PATTERN)}`);
+      return;
+    }
+    if (seenAppIds.has(appId)) {
+      errors.push(`${path}.app_id duplicates "${appId}"`);
+      return;
+    }
+    seenAppIds.add(appId);
+
+    const pkg = packagesById.get(packageId);
+    if (!pkg) {
+      errors.push(`${path}.package_id references package "${packageId}" that is not configured`);
+      return;
+    }
+
+    let installed: boolean;
+    let enabled: boolean;
+    let visible: boolean;
+    try {
+      installed = parseOptionalSeedBoolean(value.installed, true, `${path}.installed`);
+      enabled = parseOptionalSeedBoolean(value.enabled, true, `${path}.enabled`);
+      visible = parseOptionalSeedBoolean(value.visible, true, `${path}.visible`);
+    } catch (error) {
+      errors.push(error instanceof Error ? error.message : String(error));
+      return;
+    }
+
+    const rawMountPath = value.runtime_mount_path ?? pkg.manifest.runtime.mountPath;
+    if (typeof rawMountPath !== "string") {
+      errors.push(`${path}.runtime_mount_path must be a string`);
+      return;
+    }
+    const mountPath = normalizeAgenticAppMountPath(rawMountPath);
+    const requiredMountPath = `/apps/${appId}`;
+    if (!mountPath || mountPath !== requiredMountPath) {
+      errors.push(
+        `${path}.runtime_mount_path must normalize to ${requiredMountPath}; ` +
+          "the proxy currently routes by app_id",
+      );
+      return;
+    }
+
+    let runtimeOriginOverride: string | undefined;
+    if (value.runtime_origin_override !== undefined) {
+      if (typeof value.runtime_origin_override !== "string") {
+        errors.push(`${path}.runtime_origin_override must be a string`);
+        return;
+      }
+      const trimmedOrigin = value.runtime_origin_override.trim().replace(/\/+$/, "");
+      if (trimmedOrigin) {
+        if (!isExecutableProxiedHttpOrigin(trimmedOrigin)) {
+          errors.push(`${path}.runtime_origin_override must be an absolute http(s) origin`);
+          return;
+        }
+        runtimeOriginOverride = trimmedOrigin;
+      }
+    }
+    const effectiveOrigin = runtimeOriginOverride ?? pkg.manifest.runtime.origin;
+    if (
+      installed &&
+      enabled &&
+      pkg.manifest.runtime.kind === "proxied-next-zone" &&
+      !isExecutableProxiedHttpOrigin(effectiveOrigin)
+    ) {
+      errors.push(`${path} must provide an executable http(s) runtime origin`);
+      return;
+    }
+
+    let accessOverrides: AgenticAppAccessOverrides | undefined;
+    let healthPolicy: AgenticAppHealthPolicy | undefined;
+    try {
+      accessOverrides = parseSeedAgenticAppAccessOverrides(
+        value.access_overrides,
+        `${path}.access_overrides`,
+      );
+      healthPolicy = parseSeedAgenticAppHealthPolicy(
+        value.health_policy,
+        `${path}.health_policy`,
+      );
+    } catch (error) {
+      errors.push(error instanceof Error ? error.message : String(error));
+      return;
+    }
+
+    if (installed) {
+      const existingOwner = activeMountOwners.get(mountPath);
+      if (existingOwner && existingOwner !== appId) {
+        errors.push(`${path}.runtime_mount_path conflicts with app "${existingOwner}"`);
+        return;
+      }
+      activeMountOwners.set(mountPath, appId);
+    }
+
+    preparedInstallations.push({
+      appId,
+      packageId,
+      installed,
+      enabled,
+      visible,
+      runtimeMountPath: mountPath,
+      ...(runtimeOriginOverride ? { runtimeOriginOverride } : {}),
+      ...(accessOverrides ? { accessOverrides } : {}),
+      ...(healthPolicy ? { healthPolicy } : {}),
+    });
+  });
+
+  if (errors.length > 0) {
+    throw new Error(`Invalid agentic_apps config:\n- ${errors.join("\n- ")}`);
+  }
+  return {
+    packages: preparedPackages,
+    installations: preparedInstallations,
+  };
+}
+
+function loadAgenticAppManifest(
+  packageData: SeedAgenticAppPackage,
+  configPath: string,
+): unknown | null {
+  if (packageData.manifest !== undefined) return packageData.manifest;
+  if (
+    typeof packageData.manifest_path !== "string" ||
+    !packageData.manifest_path.trim()
+  ) {
+    return null;
+  }
+  const manifestPath = isAbsolute(packageData.manifest_path)
+    ? packageData.manifest_path
+    : join(dirname(configPath), packageData.manifest_path);
+  return JSON.parse(fs.readFileSync(manifestPath, "utf-8")) as unknown;
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function collectUnknownKeys(
+  value: Record<string, unknown>,
+  allowedKeys: Set<string>,
+  path: string,
+  errors: string[],
+): void {
+  for (const key of Object.keys(value)) {
+    if (!allowedKeys.has(key)) errors.push(`${path} has unknown key "${key}"`);
+  }
+}
+
+function parseOptionalSeedBoolean(
+  value: unknown,
+  fallback: boolean,
+  path: string,
+): boolean {
+  if (value === undefined) return fallback;
+  if (typeof value !== "boolean") throw new Error(`${path} must be a boolean`);
+  return value;
+}
+
+function parseSeedAgenticAppAccessOverrides(
+  value: unknown,
+  path: string,
+): AgenticAppAccessOverrides | undefined {
+  if (value === undefined) return undefined;
+  if (!isPlainRecord(value)) throw new Error(`${path} must be an object`);
+  const errors: string[] = [];
+  collectUnknownKeys(value, AGENTIC_APP_ACCESS_OVERRIDE_KEYS, path, errors);
+  const parsed: AgenticAppAccessOverrides = {};
+  for (const key of ["requiredRoles", "requiredGroups"] as const) {
+    const raw = value[key];
+    if (raw === undefined) continue;
+    if (!Array.isArray(raw) || !raw.every((entry) => typeof entry === "string")) {
+      errors.push(`${path}.${key} must be an array of strings`);
+    } else {
+      parsed[key] = raw;
+    }
+  }
+  if (errors.length > 0) throw new Error(errors.join("; "));
+  return Object.keys(parsed).length > 0 ? parsed : undefined;
+}
+
+function parseSeedAgenticAppHealthPolicy(
+  value: unknown,
+  path: string,
+): AgenticAppHealthPolicy | undefined {
+  if (value === undefined) return undefined;
+  if (!isPlainRecord(value)) throw new Error(`${path} must be an object`);
+  const errors: string[] = [];
+  collectUnknownKeys(value, AGENTIC_APP_HEALTH_POLICY_KEYS, path, errors);
+  const rawStates = value.block_launch_when;
+  if (
+    rawStates !== undefined &&
+    (!Array.isArray(rawStates) ||
+      !rawStates.every(
+        (state) =>
+          typeof state === "string" &&
+          AGENTIC_APP_HEALTH_BLOCK_STATES.has(state as AgenticAppHealthStatus),
+      ))
+  ) {
+    errors.push(
+      `${path}.block_launch_when must include only unknown, degraded, or unreachable`,
+    );
+  }
+  if (errors.length > 0) throw new Error(errors.join("; "));
+  return Array.isArray(rawStates)
+    ? { blockLaunchWhen: rawStates as AgenticAppHealthStatus[] }
+    : undefined;
+}
+
+function parseSeedAgenticAppCatalog(
+  value: unknown,
+  fallback: AgenticAppPackageCatalogMeta,
+  path: string,
+): AgenticAppPackageCatalogMeta {
+  if (value === undefined) return fallback;
+  if (!isPlainRecord(value)) throw new Error(`${path} must be an object`);
+  const errors: string[] = [];
+  collectUnknownKeys(value, AGENTIC_APP_CATALOG_KEYS, path, errors);
+  const parsed: AgenticAppPackageCatalogMeta = {};
+  for (const key of ["categories", "capabilities"] as const) {
+    const raw = value[key];
+    if (raw === undefined) continue;
+    if (!Array.isArray(raw) || !raw.every((entry) => typeof entry === "string")) {
+      errors.push(`${path}.${key} must be an array of strings`);
+    } else {
+      parsed[key] = raw;
+    }
+  }
+  for (const key of ["icon", "supportUrl", "compatibility"] as const) {
+    const raw = value[key];
+    if (raw === undefined) continue;
+    if (typeof raw !== "string") errors.push(`${path}.${key} must be a string`);
+    else parsed[key] = raw;
+  }
+  if (errors.length > 0) throw new Error(errors.join("; "));
+  return parsed;
+}
+
+/** Ensure the prepared routes do not collide with admin-owned installations. */
+export async function validateAgenticAppsSeedAgainstStore(
+  prepared: PreparedAgenticAppsSeed,
+): Promise<void> {
+  const installationsCollection = await getCollection<AgenticAppInstallationRecord>(
+    "agentic_app_installations",
+  );
+  const packagesCollection = await getCollection<AgenticAppPackageRecord>(
+    "agentic_app_packages",
+  );
+  const [existingInstallations, existingPackages] = await Promise.all([
+    installationsCollection.find({}).toArray(),
+    packagesCollection.find({}).toArray(),
+  ]);
+  const packageManifestsById = new Map(
+    existingPackages.map((pkg) => [pkg.packageId, pkg.manifest]),
+  );
+  for (const pkg of prepared.packages) {
+    packageManifestsById.set(pkg.packageId, pkg.manifest);
+  }
+
+  for (const desired of prepared.installations) {
+    if (!desired.installed) continue;
+    const conflict = existingInstallations.find((existing) => {
+      if (
+        existing.appId === desired.appId ||
+        existing.installed === false ||
+        existing.config_driven === true
+      ) {
+        return false;
+      }
+      const manifest = packageManifestsById.get(existing.packageId);
+      const route = normalizeAgenticAppMountPath(
+        existing.routeOwnership?.normalizedMountPath ??
+          existing.runtimeMountPath ??
+          manifest?.runtime.mountPath ??
+          "",
+      );
+      return route === desired.runtimeMountPath;
+    });
+    if (conflict) {
+      throw new Error(
+        `Invalid agentic_apps config: route ${desired.runtimeMountPath} ` +
+          `is owned by admin-managed app "${conflict.appId}"`,
+      );
+    }
+  }
+}
+
+export async function reconcilePreparedAgenticApps(
+  prepared: PreparedAgenticAppsSeed,
+): Promise<{ packageCount: number; installationCount: number }> {
+  const packagesCollection = await getCollection<Record<string, unknown>>(
+    "agentic_app_packages",
+  );
+  const installationsCollection = await getCollection<Record<string, unknown>>(
+    "agentic_app_installations",
+  );
+
+  for (const pkg of prepared.packages) {
+    const now = new Date().toISOString();
+    await packagesCollection.updateOne(
+      { packageId: pkg.packageId } as never,
+      {
+        $set: {
+          packageId: pkg.packageId,
+          source: pkg.source,
+          manifest: pkg.manifest,
+          importedAt: now,
+          importedBy: "seed-config",
+          config_driven: true,
+          catalog: pkg.catalog,
+        },
+      },
+      { upsert: true },
+    );
+    console.log(`[seed-config] Seeded agentic app package: ${pkg.packageId}`);
+  }
+
+  for (const installation of prepared.installations) {
+    const now = new Date().toISOString();
+    const $set: Record<string, unknown> = {
+      appId: installation.appId,
+      packageId: installation.packageId,
+      installed: installation.installed,
+      enabled: installation.enabled,
+      visible: installation.visible,
+      runtimeMountPath: installation.runtimeMountPath,
+      routeOwnership: { normalizedMountPath: installation.runtimeMountPath },
+      config_driven: true,
+      updatedAt: now,
+      updatedBy: "seed-config",
+    };
+    if (installation.runtimeOriginOverride) {
+      $set.runtimeOriginOverride = installation.runtimeOriginOverride;
+    }
+    if (installation.accessOverrides) $set.accessOverrides = installation.accessOverrides;
+    if (installation.healthPolicy) $set.healthPolicy = installation.healthPolicy;
+
+    const $unset: Record<string, ""> = {};
+    if (!installation.runtimeOriginOverride) $unset.runtimeOriginOverride = "";
+    if (!installation.accessOverrides) $unset.accessOverrides = "";
+    if (!installation.healthPolicy) $unset.healthPolicy = "";
+
+    await installationsCollection.updateOne(
+      { appId: installation.appId } as never,
+      {
+        $set,
+        $setOnInsert: {
+          createdAt: now,
+          createdBy: "seed-config",
+          runtimeHealth: "unknown",
+        },
+        ...(Object.keys($unset).length > 0 ? { $unset } : {}),
+      },
+      { upsert: true },
+    );
+    console.log(`[seed-config] Seeded agentic app installation: ${installation.appId}`);
+  }
+
+  await cleanupStaleConfigDrivenAgenticApps(
+    new Set(prepared.packages.map((pkg) => pkg.packageId)),
+    new Set(prepared.installations.map((installation) => installation.appId)),
+  );
+  return {
+    packageCount: prepared.packages.length,
+    installationCount: prepared.installations.length,
+  };
 }
 
 async function seedWorkflowConfigs(
@@ -927,6 +1592,54 @@ export async function cleanupStaleConfigDriven(
     console.log(
       `[seed-config] Cleaned up stale config-driven entities: ` +
         `${agentsDeleted} agents, ${serversDeleted} servers, ${modelsDeleted} models, ${workflowsDeleted} workflows, ${ragSourcesDeleted} rag sources`,
+    );
+  }
+}
+
+export async function cleanupStaleConfigDrivenAgenticApps(
+  currentPackageIds: Set<string>,
+  currentAppIds: Set<string>,
+): Promise<void> {
+  const installationsCollection = await getCollection<Record<string, unknown>>(
+    "agentic_app_installations",
+  );
+  const staleInstallations = await installationsCollection
+    .find({ config_driven: true } as never)
+    .toArray();
+  let installationsDeleted = 0;
+  for (const installation of staleInstallations) {
+    const appId = installation.appId;
+    if (typeof appId === "string" && !currentAppIds.has(appId)) {
+      console.log(
+        `[seed-config] Removing stale config-driven agentic app installation: ${appId}`,
+      );
+      await installationsCollection.deleteOne({ appId } as never);
+      installationsDeleted++;
+    }
+  }
+
+  const packagesCollection = await getCollection<Record<string, unknown>>(
+    "agentic_app_packages",
+  );
+  const stalePackages = await packagesCollection
+    .find({ config_driven: true } as never)
+    .toArray();
+  let packagesDeleted = 0;
+  for (const pkg of stalePackages) {
+    const packageId = pkg.packageId;
+    if (typeof packageId === "string" && !currentPackageIds.has(packageId)) {
+      console.log(
+        `[seed-config] Removing stale config-driven agentic app package: ${packageId}`,
+      );
+      await packagesCollection.deleteOne({ packageId } as never);
+      packagesDeleted++;
+    }
+  }
+
+  if (installationsDeleted || packagesDeleted) {
+    console.log(
+      `[seed-config] Cleaned up stale config-driven agentic apps: ` +
+        `${packagesDeleted} packages, ${installationsDeleted} installations`,
     );
   }
 }
@@ -1449,13 +2162,30 @@ export async function applySeedConfig(): Promise<void> {
   } else {
     try {
       const config = loadSeedConfig(configPath);
+      const agenticAppsSeed = resolveAgenticAppsSeedSource(config, configPath);
+      const preparedAgenticAppsSeed = agenticAppsSeed
+        ? prepareAgenticAppsSeed(
+            agenticAppsSeed.config,
+            agenticAppsSeed.configPath,
+          )
+        : null;
+      if (preparedAgenticAppsSeed) {
+        // Validate collisions before seeding any category. A bad Agentic Apps
+        // declaration must not leave the overall config only partly applied.
+        await validateAgenticAppsSeedAgainstStore(preparedAgenticAppsSeed);
+      }
 
       console.log(
         `[seed-config] Found ${config.models.length} models, ` +
           `${config.mcp_servers.length} MCP servers, ` +
           `${config.agents.length} agents, ` +
           `${config.workflow_configs.length} workflow configs, ` +
-          `${config.rag_sources.length} rag sources in config`,
+          `${config.rag_sources.length} rag sources` +
+          (agenticAppsSeed
+            ? `, ${agenticAppsSeed.config.packages.length} agentic app packages, ` +
+              `${agenticAppsSeed.config.installations.length} agentic app installations`
+            : "") +
+          " in config",
       );
 
       // Extract current IDs for stale cleanup
@@ -1485,7 +2215,6 @@ export async function applySeedConfig(): Promise<void> {
           .filter((identity): identity is IngestionSourceIdentity => identity !== undefined)
           .map((identity) => computeIngestionSourceId(identity)),
       );
-
       // Seed entities
       const modelCount = await seedModels(config.models);
       const serverCount = await seedMCPServers(config.mcp_servers);
@@ -1499,6 +2228,9 @@ export async function applySeedConfig(): Promise<void> {
         );
       }
       const ragSourceCount = await seedRagSources(config.rag_sources);
+      const agenticAppCounts = preparedAgenticAppsSeed
+        ? await reconcilePreparedAgenticApps(preparedAgenticAppsSeed)
+        : { packageCount: 0, installationCount: 0 };
 
       // Cleanup stale config-driven entities
       await cleanupStaleConfigDriven(
@@ -1517,6 +2249,10 @@ export async function applySeedConfig(): Promise<void> {
         `[seed-config] Applied: ${modelCount} models, ` +
           `${serverCount} MCP servers, ${agentCount} agents, ${workflowCount} workflow configs, ` +
           `${ragSourceCount} rag sources` +
+          (agenticAppsSeed
+            ? `, ${agenticAppCounts.packageCount} agentic app packages, ` +
+              `${agenticAppCounts.installationCount} agentic app installations`
+            : "") +
           (credBackfillCount > 0
             ? `, ${credBackfillCount} MCP credential_sources backfilled`
             : ""),

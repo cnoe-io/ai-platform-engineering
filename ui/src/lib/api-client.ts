@@ -24,6 +24,7 @@ UserSettings,
 UserStats,
 } from '@/types/mongodb';
 import type { AuthFailureAction,AuthFailureReason } from "./auth-error";
+import type { AgenticAppManifest } from "@/types/agentic-app";
 
 /**
  * Thrown by {@link APIClient.request} for any non-OK response. Carries the
@@ -52,6 +53,7 @@ export interface AgenticAppListItem {
   description: string;
   href: string;
   canLaunch: boolean;
+  surfaces: AgenticAppManifest["surfaces"];
   blockedReasons?: string[];
   assistantEnabled?: boolean;
   assistantLabel?: string;
