@@ -883,7 +883,7 @@ def build_tree(pages: dict[str, str]) -> list[PageNode]:
             continue
         fm, _ = parse_frontmatter(md)
         spec = SPEC_BY_PATH.get(path)
-        title = str(fm.get("title") or (spec.title if spec else _path_to_title(path)))
+        title = str(fm.get("title") or (spec.title if spec else path_to_title(path)))
         raw_kind = fm.get("kind")
         kind: NodeKind = (
             cast(NodeKind, raw_kind)
@@ -914,7 +914,7 @@ def build_tree(pages: dict[str, str]) -> list[PageNode]:
             folder_order = 900 if dir_path in (GLOSSARY_DIR, EDGES_DIR) else 999
             folders[dir_path] = PageNode(
                 path=dir_path,
-                title=_path_to_title(dir_path),
+                title=path_to_title(dir_path),
                 kind="folder",
                 order=folder_order,
             )
@@ -962,6 +962,6 @@ def _depth_for_node(path: str) -> int:
     return path.count("/")
 
 
-def _path_to_title(path: str) -> str:
+def path_to_title(path: str) -> str:
     leaf = path.rsplit("/", 1)[-1].removesuffix(".md")
     return leaf.replace("-", " ").replace("_", " ").title()

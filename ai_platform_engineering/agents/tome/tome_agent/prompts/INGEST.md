@@ -25,6 +25,18 @@ when present it's pre-injected as `REPO MAINTAINER STEERING`; treat it as
 authoritative and follow its file links via `github_get_file`/`github_list_dir`
 to ground your writing in real code.
 
+Repos may also carry `.tome/pages/<name>.md` files: pre-written page content
+the maintainer wants mirrored **verbatim**, byte-for-byte, into that repo's
+own subtree (`repos/<slug>/<name>.md`) — no interpretation or synthesis. This
+copy happens directly, before you start; the system prompt's `VERBATIM MIRROR
+PAGES` section inlines the full body of each one (not just its path — the
+copy bypasses the disk workspace, so a `Read` of the path itself may return
+stale content this run). Never write, edit, or "improve" the mirror page
+itself; the source repo is its source of truth and it gets re-mirrored every
+ingest. But its content is real evidence — treat it like a README or
+CLAUDE.md and let it inform whatever else you write (top-level synthesis,
+other subtree pages), the same way `.tome/wiki.md` steering does.
+
 Link other wiki pages with `tome://`, same-project relative
 (`tome://architecture.md`); cross-project adds `@<project-slug>`
 (`tome://@atlas/glossary/mcp.md`) — only when you know the slug. External

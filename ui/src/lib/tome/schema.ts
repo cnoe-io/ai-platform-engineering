@@ -343,6 +343,25 @@ export function isEdge(fm: Record<string, FrontmatterValue>): boolean {
   return String(fm[FM_TYPE] ?? "").toLowerCase() === EDGE_TYPE;
 }
 
+// ---------------------------------------------------------------------------
+// Verbatim mirror pages — a per-repo `.tome/pages/<name>.md` file copied
+// byte-for-byte into `repos/<slug>/<name>.md` by the ingest agent, bypassing
+// LLM synthesis entirely (see #322). Still `kind: dynamic` (re-mirrored every
+// ingest, source repo wins on conflict) but flagged so the UI can distinguish
+// it from an agent-synthesized dynamic page. Keep in sync with
+// tome_agent/agent/ingestor.py (`_verbatim_page_frontmatter`).
+// ---------------------------------------------------------------------------
+
+export const FM_MIRROR = "mirror";
+export const FM_SOURCE_REPO = "source_repo";
+export const FM_SOURCE_PATH = "source_path";
+export const FM_SOURCE_SHA = "source_sha";
+
+/** True when a page's frontmatter marks it as a verbatim `.tome/pages/*.md` mirror. */
+export function isMirrorPage(fm: Record<string, FrontmatterValue>): boolean {
+  return fm[FM_MIRROR] === true || String(fm[FM_MIRROR] ?? "").toLowerCase() === "true";
+}
+
 /** Derive an edge filename slug from its label, e.g. an author-chosen short
  * description like "x-pivot-blocks-y-q3" (same slugging rule as glossary). */
 export function edgeSlug(label: string): string {

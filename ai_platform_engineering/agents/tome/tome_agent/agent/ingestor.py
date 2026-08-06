@@ -146,11 +146,13 @@ def _build_system_prompt(
     citation_guidance_blocks: list[str] = []
     deep_research_blocks: list[str] = []
     steering: list[tuple[str, str]] = []
+    verbatim: list[tuple[str, str, str, str]] = []
     for connector in REGISTRY:
         sources = sources_for_connector(snapshot, connector)
         extra = connector_extras.get(connector.slug)
         if isinstance(extra, GitHubExtra):
             steering.extend(extra.steering)
+            verbatim.extend(extra.verbatim_pages)
         connector_blocks.append(
             connector.system_prompt_block(sources, extra_data=extra)
         )
@@ -172,6 +174,32 @@ def _build_system_prompt(
             "context from the repo maintainer; follow any file paths it mentions "
             "via mcp__github__github_get_file / github_list_dir to ground your writing):\n\n"
             + "\n\n".join(sections)
+            + "\n\n"
+        )
+
+    mirror_block = ""
+    if verbatim:
+        # Inline the actual body, not just the path: the on-disk workspace is
+        # refreshed BEFORE this run's `.tome/pages/*.md` fetch, and this write
+        # goes straight to the backend (bypassing the disk mount entirely), so
+        # a Read of the path itself would return stale or missing content this
+        # run. Inlining guarantees the agent has it as source material even
+        # though it must never rewrite the page itself.
+        sections = "\n\n".join(
+            f"--- `repos/{slug}/{name}.md`, mirrored from `{slug}/.tome/pages/{name}.md` ---\n{body}"
+            for slug, name, body, _sha in verbatim
+        )
+        mirror_block = (
+            "VERBATIM MIRROR PAGES: already written directly from each repo's "
+            "`.tome/pages/*.md` files before this run started, byte-identical "
+            "copies with no synthesis. Do NOT write, edit, or overwrite these "
+            "pages themselves (they are re-mirrored from source every ingest, "
+            "so any change you make there would be silently discarded next "
+            "run anyway) — but DO treat their content below as authoritative "
+            "source material, same as a README or CLAUDE.md, when writing "
+            "every OTHER page (top-level synthesis, other subtree pages, "
+            "etc.):\n\n"
+            + sections
             + "\n\n"
         )
 
@@ -239,7 +267,7 @@ never an absolute path, and never another project's directory.
 PROJECT CHARTER (seed context, may be empty):
 {snapshot.charter or "(empty)"}
 
-{steering_block}TOP-LEVEL PAGES (cross-cutting across all sources). Each `<page>`
+{steering_block}{mirror_block}TOP-LEVEL PAGES (cross-cutting across all sources). Each `<page>`
 below is one page's own template/seed body — treat them as separate,
 self-contained units, not one continuous document:
 
@@ -258,6 +286,57 @@ self-contained units, not one continuous document:
         project_block += f"\n\n{deep_research_section}"
 
     return f"{prompts.load('INGEST')}\n\n---\n\n{project_block}"
+
+
+def _verbatim_page_frontmatter(name: str, slug: str, sha: str) -> str:
+    return (
+        "---\n"
+        f"title: {report_schema.path_to_title(name)}\n"
+        "kind: dynamic\n"
+        "mirror: true\n"
+        f"source_repo: {slug}\n"
+        f"source_path: .tome/pages/{name}.md\n"
+        f"source_sha: {sha}\n"
+        "---\n\n"
+    )
+
+
+async def write_verbatim_pages(
+    connector_extras: dict[str, Any],
+    *,
+    report_id: UUID,
+    project_id: str,
+) -> list[IngestEventPayload]:
+    """Direct, deterministic writes for `.tome/pages/*.md` mirrors — bypasses
+    the agent turn entirely (no LLM interpretation of the body), per #322.
+    Runs before the agent starts so the mirror block in the system prompt can
+    tell the agent these paths already exist and must be left alone."""
+    events: list[IngestEventPayload] = []
+    extra = connector_extras.get("github")
+    if not isinstance(extra, GitHubExtra) or not extra.verbatim_pages:
+        return events
+
+    for slug, name, body, sha in extra.verbatim_pages:
+        page_path = f"repos/{slug}/{name}.md"
+        try:
+            await http_client.write_page(
+                page_path=page_path,
+                body=_verbatim_page_frontmatter(name, slug, sha) + body,
+                message=f"verbatim mirror: {slug}/.tome/pages/{name}.md",
+                author="ttt-pipeline",
+                report_id=report_id,
+                project_id=project_id,
+            )
+        except Exception:
+            log.warning("verbatim page write failed for %s", page_path, exc_info=True)
+            continue
+        events.append(
+            IngestEventPayload(
+                type="page_written",
+                data={"path": page_path, "bytes": len(body), "ts": now_iso()},
+            )
+        )
+    return events
 
 
 async def resolve_connector_extras(
@@ -311,6 +390,11 @@ async def stream_ingest(
             log.warning("template-change diff skipped", exc_info=True)
 
     extras = await resolve_connector_extras(snapshot, connector_data)
+
+    for event in await write_verbatim_pages(
+        extras, report_id=report_id, project_id=snapshot.project_id
+    ):
+        yield event
 
     # `on_write` callback from the persist hook: emit a `page_written`
     # event the backend forwards to IngestRun.log.

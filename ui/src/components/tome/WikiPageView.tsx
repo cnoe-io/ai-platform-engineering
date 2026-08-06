@@ -18,13 +18,22 @@ import { TrackedEntityFields } from "@/components/tome/TrackedEntityFields";
 import { KindBadge } from "@/components/tome/KindBadge";
 import { ViewOnlyTooltip } from "@/components/tome/ViewOnlyTooltip";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { Badge } from "@/components/ui/badge";
+import {
   FM_RELATION,
   FM_SOURCE,
+  FM_SOURCE_PATH,
+  FM_SOURCE_REPO,
   FM_TARGET,
   FM_TERM,
   FM_TITLE,
   isEdge,
   isGlossaryTerm,
+  isMirrorPage,
   isTrackedEntity,
   parseFrontmatter,
   serializeFrontmatter,
@@ -114,6 +123,7 @@ export function WikiPageView({
   const isGlossary = useMemo(() => isGlossaryTerm(frontmatter), [frontmatter]);
   const isEdgeEntry = useMemo(() => isEdge(frontmatter), [frontmatter]);
   const isTrackedEntry = useMemo(() => isTrackedEntity(frontmatter), [frontmatter]);
+  const isMirror = useMemo(() => isMirrorPage(frontmatter), [frontmatter]);
 
   // Editable copy of the frontmatter for structured (glossary/edge) entries.
   // Kept in sync with the page's frontmatter whenever we're not mid-edit (page
@@ -305,7 +315,35 @@ export function WikiPageView({
               )}
             </Button>
           )}
-          {canEdit && !locked && <KindToggle currentKind={kind} onChange={handleChangeKind} />}
+          {isMirror && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Badge
+                  variant="outline"
+                  className="cursor-default text-[10px] font-medium uppercase tracking-wide border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-900/60 dark:bg-amber-900/30 dark:text-amber-300"
+                >
+                  mirror
+                </Badge>
+              </TooltipTrigger>
+              <TooltipContent
+                side="bottom"
+                className="flex w-64 flex-col gap-1 whitespace-normal text-[11px] font-normal normal-case leading-relaxed"
+              >
+                <span className="text-xs font-semibold">Verbatim mirror</span>
+                <span className="opacity-70">
+                  Copied byte-for-byte from{" "}
+                  <code>{String(frontmatter[FM_SOURCE_REPO] ?? "")}</code>
+                  {"'s "}
+                  <code>{String(frontmatter[FM_SOURCE_PATH] ?? "")}</code>. Re-mirrored
+                  every ingest: edits here don&apos;t stick unless the source file
+                  changes.
+                </span>
+              </TooltipContent>
+            </Tooltip>
+          )}
+          {canEdit && !locked && !isMirror && (
+            <KindToggle currentKind={kind} onChange={handleChangeKind} />
+          )}
           {isEditing ? (
             <>
               <Button
@@ -326,13 +364,15 @@ export function WikiPageView({
                 size="sm"
                 variant="outline"
                 onClick={() => setIsEditing(true)}
-                disabled={locked || !canEdit}
+                disabled={locked || !canEdit || isMirror}
                 title={
-                  canEdit && locked
-                    ? awaitingReview
-                      ? "A draft is awaiting review: approve or reject it before editing"
-                      : "Ingest in progress: the wiki is read-only"
-                    : undefined
+                  isMirror
+                    ? "Verbatim mirror of the source repo's .tome/pages file: edit it there instead, this copy is overwritten on every ingest"
+                    : canEdit && locked
+                      ? awaitingReview
+                        ? "A draft is awaiting review: approve or reject it before editing"
+                        : "Ingest in progress: the wiki is read-only"
+                      : undefined
                 }
               >
                 Edit

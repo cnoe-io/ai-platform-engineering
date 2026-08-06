@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
   ArrowRight,
+  ArrowUpRight,
   Check,
   FileText,
   FolderKanban,
@@ -138,6 +139,7 @@ function buildSteps(projectName?: string): Step[] {
     { node: <WelcomeStep name={name} /> },
     { node: <PagesStep /> },
     { node: <IngestStep /> },
+    { node: <TomeDirectoryStep /> },
     { node: <BhagStep /> },
     { node: <GlossaryStep /> },
     { node: <EdgesStep /> },
@@ -280,13 +282,56 @@ function IngestStep() {
         ones untouched.
       </StepHeader>
       <IngestDemo />
+    </div>
+  );
+}
+
+function TomeDirectoryStep() {
+  return (
+    <div className="space-y-4">
+      <StepHeader eyebrow=".tome/" title="Steer the agent, or skip it entirely">
+        A GitHub repo configured within a TOME can carry its own{" "}
+        <code className="rounded bg-muted px-1 py-0.5">.tome/</code> folder, picked up automatically
+        on the next ingest.
+      </StepHeader>
+      <Terminal>
+        <span className="text-sky-400">.tome/</span>
+        {"\n"}
+        <span className="text-sky-400">  pages/</span>
+        {"\n"}
+        <span className="text-zinc-200">    overview.md</span>
+        <span className="text-zinc-500">{"        # copied verbatim"}</span>
+        {"\n"}
+        <span className="text-zinc-200">  wiki.md</span>
+        <span className="text-zinc-500">{"             # steering notes"}</span>
+      </Terminal>
       <div className="rounded-lg border bg-muted/30 px-3 py-2.5 text-xs leading-relaxed text-muted-foreground">
-        <p className="mb-1 font-medium text-foreground">Steer the agent from your repo</p>
-        Drop a <code className="rounded bg-muted px-1 py-0.5">.tome/wiki.md</code> at a repo&apos;s root,
-        like an <code className="rounded bg-muted px-1 py-0.5">AGENTS.md</code> for the ingest agent:
-        notes it treats as authoritative about what the project is, which files are the real source of
-        truth, and what to emphasize. It&apos;s picked up automatically on the next ingest.
+        <p className="mb-1 font-medium text-foreground">
+          <code className="rounded bg-muted px-1 py-0.5">wiki.md</code>: steer the synthesis
+        </p>
+        An <code className="rounded bg-muted px-1 py-0.5">AGENTS.md</code> for the ingest agent:
+        authoritative notes on what to emphasize and what&apos;s the real source of truth.
       </div>
+      <div className="rounded-lg border bg-muted/30 px-3 py-2.5 text-xs leading-relaxed text-muted-foreground">
+        <p className="mb-1 font-medium text-foreground">
+          <code className="rounded bg-muted px-1 py-0.5">pages/&lt;name&gt;.md</code>: skip the
+          synthesis
+        </p>
+        Copied byte-for-byte into{" "}
+        <code className="rounded bg-muted px-1 py-0.5">repos/&lt;repo&gt;/&lt;name&gt;.md</code>, marked{" "}
+        <span className="font-medium text-foreground">mirror</span>. The repo always wins over a wiki
+        edit, but the agent still reads it as source material for everything else it writes.
+      </div>
+      <a
+        href="https://github.com/mycelium-io/mycelium/tree/main/.tome"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
+      >
+        See a real <code className="rounded bg-muted px-1 py-0.5 text-foreground">.tome/</code> folder
+        in mycelium
+        <ArrowUpRight className="h-3 w-3" />
+      </a>
     </div>
   );
 }

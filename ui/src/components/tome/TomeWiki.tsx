@@ -928,8 +928,6 @@ export function TomeWiki({ slug }: { slug: string }) {
           />
           <div className="ml-auto flex shrink-0 items-center gap-1">
             <TomeProductFeedback projectSlug={slug} pagePath={feedbackPagePath} />
-            <EdgeGraphDialog slug={slug} />
-            <McpConnectDialog />
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
@@ -944,6 +942,8 @@ export function TomeWiki({ slug }: { slug: string }) {
               </TooltipTrigger>
               <TooltipContent side="bottom">What is TOME?</TooltipContent>
             </Tooltip>
+            <EdgeGraphDialog slug={slug} />
+            <McpConnectDialog />
           </div>
         </header>
 

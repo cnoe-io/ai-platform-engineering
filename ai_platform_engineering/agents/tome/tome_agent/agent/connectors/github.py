@@ -4,14 +4,19 @@ from pydantic import BaseModel, Field
 
 from tome_agent.agent.connectors.base import Connector, SourceItem, format_pages
 from tome_agent.agent.mcp_github import build_github_mcp
-from tome_agent.agent.wiki_steering import fetch_steering
+from tome_agent.agent.verbatim_pages import fetch_verbatim_pages
+from tome_agent.agent.wiki_steering import _normalize_repo, fetch_steering
 from tome_agent.reports.schema import PageSpec
 
 
 class GitHubExtra(BaseModel):
     """GitHub's extra payload is connector-fetched (not user-supplied) — populated by
-    `extra_context()` from each repo's `.tome/wiki.md`."""
+    `extra_context()` from each repo's `.tome/wiki.md` and `.tome/pages/*.md`."""
     steering: list[tuple[str, str]] = Field(default_factory=list)
+    # (repo_slug, page_name, body, blob_sha) — one per `.tome/pages/<name>.md`
+    # file found; written verbatim into `repos/<repo_slug>/<page_name>.md`
+    # directly (bypassing the agent), before the agent turn starts.
+    verbatim_pages: list[tuple[str, str, str, str]] = Field(default_factory=list)
 
 
 class GitHubConnector(Connector[GitHubExtra]):
@@ -78,6 +83,9 @@ class GitHubConnector(Connector[GitHubExtra]):
         steering = extra_data.steering if extra_data else []
         for repo, body in steering:
             lines.append(f"· steering: loaded {repo}/.tome/wiki.md ({len(body)} chars)")
+        verbatim = extra_data.verbatim_pages if extra_data else []
+        for slug, name, body, _sha in verbatim:
+            lines.append(f"· mirror: {slug}/.tome/pages/{name}.md → repos/{slug}/{name}.md ({len(body)} chars)")
         return lines
 
     async def extra_context(
@@ -90,9 +98,20 @@ class GitHubConnector(Connector[GitHubExtra]):
         if not urls:
             return None
         steering = await fetch_steering(urls, token=github_token)
-        if not steering:
+        verbatim = await fetch_verbatim_pages(urls, token=github_token)
+        if not steering and not verbatim:
             return None
-        return GitHubExtra(steering=steering)
+
+        slug_by_repo = {
+            norm: s.slug
+            for s in sources
+            if (norm := _normalize_repo(s.extra.get("url", "")))
+        }
+        verbatim_pages = [
+            (slug_by_repo.get(page.repo, page.repo), page.name, page.body, page.sha)
+            for page in verbatim
+        ]
+        return GitHubExtra(steering=steering, verbatim_pages=verbatim_pages)
 
     def citation_urls(self, sources: list[SourceItem]) -> list[str]:
         return [s.extra.get("url", "") for s in sources if s.extra.get("url")]
