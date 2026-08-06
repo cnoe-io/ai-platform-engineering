@@ -300,7 +300,7 @@ async function installWebexConfigureApp(
 }
 
 async function gotoConfigureSpaces(page: Page) {
-  await page.goto("/admin?cat=integrations&tab=webex", {
+  await page.goto("/admin/integrations/webex", {
     waitUntil: "domcontentloaded",
   });
   await expect(

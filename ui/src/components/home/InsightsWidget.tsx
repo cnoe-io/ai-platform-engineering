@@ -6,7 +6,7 @@ Bot,
 MessageSquare,
 TrendingUp,
 } from "lucide-react";
-import Link from "next/link";
+import { NavigationProgressLink } from "@/components/layout/NavigationProgressLink";
 
 interface InsightsWidgetProps {
   stats: {
@@ -25,14 +25,14 @@ export function InsightsWidget({ stats, loading }: InsightsWidgetProps) {
         <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
           Your Insights
         </h3>
-        <Link
+        <NavigationProgressLink
           href="/insights"
           data-testid="view-all-insights"
           className="flex items-center gap-1 text-xs text-primary hover:text-primary/80 transition-colors"
         >
           View all
           <ArrowRight className="h-3 w-3" />
-        </Link>
+        </NavigationProgressLink>
       </div>
 
       {loading ? (

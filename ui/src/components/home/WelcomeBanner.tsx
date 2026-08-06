@@ -12,18 +12,21 @@ export function WelcomeBanner({ userName, onOpenPreferences }: WelcomeBannerProp
   const displayName = userName?.split(" ")[0] || userName;
 
   return (
-    <div data-testid="welcome-banner" className="relative overflow-hidden rounded-xl gradient-primary-br p-6">
+    <div
+      className="welcome-banner relative isolate overflow-hidden rounded-xl p-6"
+      data-testid="welcome-banner"
+    >
       <div className="relative z-10 flex items-start justify-between">
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <Sparkles className="h-5 w-5 text-white/80" />
+            <Sparkles className="welcome-banner-sparkle h-5 w-5 text-white/80" />
             <span className="text-sm font-medium text-white/80">{greeting}</span>
           </div>
           <h1 className="text-2xl font-bold text-white">
             {displayName ? `Welcome back, ${displayName}` : "Welcome to CAIPE"}
           </h1>
           <p className="text-sm text-white/70 mt-1">
-            Your AI-powered platform engineering assistant
+            What do you want to get done today?
           </p>
         </div>
         {onOpenPreferences && (

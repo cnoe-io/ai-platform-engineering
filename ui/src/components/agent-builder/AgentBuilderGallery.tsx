@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { CAIPESpinner } from "@/components/ui/caipe-spinner";
 import { Input } from "@/components/ui/input";
 import { resolveUsableChatAgentId } from "@/lib/chat-agent-selection";
+import { pushWithNavigationProgress } from "@/lib/navigation-progress";
 import { cn } from "@/lib/utils";
 import { useAgentSkillsStore } from "@/store/agent-skills-store";
 import { useChatStore } from "@/store/chat-store";
@@ -44,8 +45,8 @@ Workflow,
 X,
 Zap,
 } from "lucide-react";
-import { useRouter } from "next/navigation";
 import React,{ useEffect,useMemo,useState } from "react";
+import { useRouter } from "next/navigation";
 
 interface AgentBuilderGalleryProps {
   onEditConfig?: (config: AgentSkill) => void;
@@ -123,6 +124,7 @@ export function AgentBuilderGallery({
   onCreateNew,
   onImportYaml,
 }: AgentBuilderGalleryProps) {
+  const router = useRouter();
   const {
     configs,
     isLoading,
@@ -133,7 +135,6 @@ export function AgentBuilderGallery({
     isFavorite,
     getFavoriteSkills
   } = useAgentSkillsStore();
-  const router = useRouter();
   const { createConversation, setPendingMessage } = useChatStore();
 
   const [searchQuery, setSearchQuery] = useState("");
@@ -228,7 +229,7 @@ export function AgentBuilderGallery({
       const skillId = activeFormConfig.id || activeFormConfig.name;
       setPendingMessage(`Execute skill: ${skillId}\n\nRead and follow the instructions in the SKILL.md file for the "${skillId}" skill.`);
       setActiveFormConfig(null);
-      router.push(`/chat/${conversationId}`);
+      pushWithNavigationProgress(router,`/chat/${conversationId}`);
     } catch (error) {
       const message =
         error instanceof Error ? getErrorMessage(error, "") : "Failed to create a chat conversation";
@@ -308,7 +309,7 @@ export function AgentBuilderGallery({
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => router.push('/agent-builder/history')}
+                onClick={() => pushWithNavigationProgress(router,'/agent-builder/history')}
                 className="rounded-full text-xs gap-1"
               >
                 <History className="h-3 w-3" />
