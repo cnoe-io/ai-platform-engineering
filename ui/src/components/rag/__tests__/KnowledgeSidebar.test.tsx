@@ -17,12 +17,12 @@ jest.mock("lucide-react", () => ({
   Database: (p: unknown) => <svg data-testid="icon-database" {...p} />,
   Search: (p: unknown) => <svg data-testid="icon-search" {...p} />,
   GitFork: (p: unknown) => <svg data-testid="icon-gitfork" {...p} />,
+  Layers3: (p: unknown) => <svg data-testid="icon-layers" {...p} />,
   ChevronDown: (p: unknown) => <svg data-testid="icon-chev-down" {...p} />,
   PanelLeft: (p: unknown) => <svg data-testid="icon-panel-left" {...p} />,
   PanelLeftClose: (p: unknown) => <svg data-testid="icon-panel-left-close" {...p} />,
   PanelLeftOpen: (p: unknown) => <svg data-testid="icon-panel-left-open" {...p} />,
   Wrench: (p: unknown) => <svg data-testid="icon-wrench" {...p} />,
-  Plug: (p: unknown) => <svg data-testid="icon-plug" {...p} />,
   Lock: (p: unknown) => <svg data-testid="icon-lock" {...p} />,
   ShieldQuestion: (p: unknown) => <svg data-testid="icon-shieldq" {...p} />,
 }));
@@ -44,6 +44,7 @@ import { KnowledgeSidebar } from "../KnowledgeSidebar";
 
 function setGates(gates: {
   search?: boolean;
+  collections?: boolean;
   data_sources?: boolean;
   graph?: boolean;
   mcp_tools?: boolean;
@@ -57,6 +58,7 @@ function setGates(gates: {
   mockUseKbTabGates.mockReturnValue({
     gates: {
       search: gates.search ?? false,
+      collections: gates.collections ?? false,
       data_sources: gates.data_sources ?? false,
       graph: gates.graph ?? false,
       mcp_tools: gates.mcp_tools ?? false,
@@ -81,6 +83,7 @@ describe("<KnowledgeSidebar />", () => {
   it("renders every enabled destination for an org admin", () => {
     setGates({
       search: true,
+      collections: true,
       data_sources: true,
       graph: true,
       mcp_tools: true,
@@ -92,29 +95,37 @@ describe("<KnowledgeSidebar />", () => {
 
     expect(screen.getByTestId("kb-link-/knowledge-bases/search")).toBeInTheDocument();
     expect(screen.getByTestId("kb-link-/knowledge-bases/ingest")).toBeInTheDocument();
+    expect(screen.getByTestId("kb-link-/knowledge-bases/collections")).toBeInTheDocument();
     expect(screen.getByTestId("kb-link-/knowledge-bases/graph")).toBeInTheDocument();
     expect(screen.getByTestId("kb-link-/knowledge-bases/mcp-tools")).toBeInTheDocument();
     expect(screen.queryByTestId("kb-sidebar-no-access-banner")).not.toBeInTheDocument();
+
+    const links = screen.getAllByRole("link");
+    expect(links[1]).toHaveAttribute("href", "/knowledge-bases/ingest");
+    expect(links[2]).toHaveAttribute("href", "/knowledge-bases/collections");
   });
 
   it("keeps stable destinations available while explaining an empty grant set", () => {
     setGates({
-      search: false,
-      data_sources: false,
-      graph: false,
-      mcp_tools: false,
       has_any_kb: false,
       kb_count: 0,
       orgAdminBypass: false,
     });
     render(<KnowledgeSidebar graphRagEnabled={true} />);
 
-    expect(screen.getByTestId("kb-sidebar-no-access-banner")).toBeInTheDocument();
+    expect(screen.getByTestId("kb-sidebar-no-access-banner")).toHaveClass(
+      "bg-card",
+      "text-foreground",
+    );
+    expect(screen.getByTestId("kb-sidebar-no-access-banner")).toHaveTextContent(
+      "Ask an admin to grant your team permission to create data sources or search sources shared with your team.",
+    );
     expect(screen.getByTestId("kb-link-/knowledge-bases/search")).toHaveAttribute(
       "href",
       "/knowledge-bases/search",
     );
     expect(screen.getByTestId("kb-link-/knowledge-bases/ingest")).toBeInTheDocument();
+    expect(screen.getByTestId("kb-link-/knowledge-bases/collections")).toBeInTheDocument();
     expect(screen.getByTestId("kb-link-/knowledge-bases/graph")).toBeInTheDocument();
     expect(screen.getByTestId("kb-link-/knowledge-bases/mcp-tools")).toBeInTheDocument();
   });
@@ -122,52 +133,37 @@ describe("<KnowledgeSidebar />", () => {
   it("suppresses the share prompt when an explicit capability was granted", () => {
     setGates({
       search: true,
+      collections: true,
       data_sources: true,
-      graph: false,
       mcp_tools: true,
       has_any_kb: false,
-      kb_count: 0,
       can_ingest: true,
       can_search: true,
-      orgAdminBypass: false,
     });
     render(<KnowledgeSidebar graphRagEnabled={true} />);
 
     expect(screen.queryByTestId("kb-sidebar-no-access-banner")).not.toBeInTheDocument();
     expect(screen.getByTestId("kb-link-/knowledge-bases/search")).toBeInTheDocument();
     expect(screen.getByTestId("kb-link-/knowledge-bases/ingest")).toBeInTheDocument();
+    expect(screen.getByTestId("kb-link-/knowledge-bases/collections")).toBeInTheDocument();
     expect(screen.getByTestId("kb-link-/knowledge-bases/mcp-tools")).toBeInTheDocument();
     expect(screen.getByTestId("kb-link-/knowledge-bases/graph")).toBeInTheDocument();
   });
 
-  it("non-admin with at least one readable KB sees allowed tabs as links and no banner", () => {
-    setGates({
-      search: true,
-      data_sources: true,
-      graph: true,
-      mcp_tools: true,
-      has_any_kb: true,
-      kb_count: 2,
-      orgAdminBypass: false,
-    });
+  it("shows stable destinations when at least one knowledge base is readable", () => {
+    setGates({ has_any_kb: true, kb_count: 2 });
     render(<KnowledgeSidebar graphRagEnabled={true} />);
 
     expect(screen.queryByTestId("kb-sidebar-no-access-banner")).not.toBeInTheDocument();
     expect(screen.getByTestId("kb-link-/knowledge-bases/search")).toBeInTheDocument();
     expect(screen.getByTestId("kb-link-/knowledge-bases/ingest")).toBeInTheDocument();
+    expect(screen.getByTestId("kb-link-/knowledge-bases/collections")).toBeInTheDocument();
     expect(screen.getByTestId("kb-link-/knowledge-bases/graph")).toBeInTheDocument();
     expect(screen.getByTestId("kb-link-/knowledge-bases/mcp-tools")).toBeInTheDocument();
   });
 
   it("omits Graph when Graph RAG is unavailable", () => {
-    setGates({
-      search: true,
-      data_sources: true,
-      graph: true,
-      mcp_tools: true,
-      has_any_kb: true,
-      kb_count: 1,
-    });
+    setGates({ has_any_kb: true, kb_count: 1 });
     render(<KnowledgeSidebar graphRagEnabled={false} />);
 
     expect(screen.queryByTestId("kb-link-/knowledge-bases/graph")).not.toBeInTheDocument();
@@ -175,18 +171,12 @@ describe("<KnowledgeSidebar />", () => {
   });
 
   it("does not make the navigation flicker while access data loads", () => {
-    setGates({
-      search: true,
-      data_sources: true,
-      graph: true,
-      mcp_tools: true,
-      has_any_kb: true,
-      kb_count: 1,
-      loading: true,
-    });
+    setGates({ has_any_kb: true, kb_count: 1, loading: true });
     render(<KnowledgeSidebar graphRagEnabled={true} />);
+
     expect(screen.getByTestId("kb-link-/knowledge-bases/search")).toBeInTheDocument();
     expect(screen.getByTestId("kb-link-/knowledge-bases/ingest")).toBeInTheDocument();
+    expect(screen.getByTestId("kb-link-/knowledge-bases/collections")).toBeInTheDocument();
     expect(screen.queryByTestId("kb-sidebar-no-access-banner")).not.toBeInTheDocument();
   });
 

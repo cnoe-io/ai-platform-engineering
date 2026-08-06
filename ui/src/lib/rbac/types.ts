@@ -234,6 +234,7 @@ export type IntegrationPanelModesMap = Partial<
  */
 export type KbTabKey =
   | "search"
+  | "collections"
   | "data_sources"
   | "graph"
   | "mcp_tools";
@@ -244,6 +245,8 @@ export type KbTabKey =
  */
 export interface KbTabGatesMap {
   search: boolean;
+  /** Reusable RAG collections; available to readers and source authors. */
+  collections?: boolean;
   /**
    * Merged "Data Sources" tab (ingestion source config + post-ingestion
    * status live in one view). True iff the caller has a readable KB, a

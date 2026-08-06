@@ -39,8 +39,8 @@ import { AccessExplorerTab } from "@/components/admin/security/AccessExplorerTab
 import { RbacSelfCheckTab } from "@/components/admin/security/RbacSelfCheckTab";
 import { UnifiedAuditTab } from "@/components/admin/security/UnifiedAuditTab";
 import { ImportAgentsFromConfigCard } from "@/components/admin/settings/ImportAgentsFromConfigCard";
-import { ImportRagSourcesFromConfigCard } from "@/components/admin/settings/ImportRagSourcesFromConfigCard";
 import { MCPCatalogSettingsCard } from "@/components/admin/settings/MCPCatalogSettingsCard";
+import { RagSettingsTab } from "@/components/admin/settings/RagSettingsTab";
 import { CardPagination } from "@/components/admin/shared/CardPagination";
 import { DateRangeFilter,presetToRange,type DateRange,type DateRangePreset } from "@/components/admin/shared/DateRangeFilter";
 import { FeedbackTrendChart,type FeedbackTrendPoint } from "@/components/admin/shared/FeedbackTrendChart";
@@ -503,6 +503,7 @@ function AdminPage() {
       // Agents subtab (Import Agents from Config) is an admin-only action.
       agents: effectiveOrganizationAdmin,
       mcp: effectiveOrganizationAdmin,
+      rag: effectiveOrganizationAdmin,
       // Identity Sync tab: superadmin-only (reuses the identity_group_sync
       // OpenFGA surface) AND only when an IdP directory connector is enabled.
       identity_sync: Boolean(gates.identity_group_sync && getConfig('oktaSyncEnabled')),
@@ -1674,16 +1675,21 @@ function AdminPage() {
                     isAdmin={effectiveOrganizationAdmin}
                     readOnly={isSimulationActive}
                   />
-                  <ImportRagSourcesFromConfigCard
-                    isAdmin={effectiveOrganizationAdmin}
-                    readOnly={isSimulationActive}
-                  />
                 </TabsContent>
               )}
 
               {tabGateValues.mcp && (
                 <TabsContent value="mcp" className="space-y-4">
                   <MCPCatalogSettingsCard
+                    isAdmin={effectiveOrganizationAdmin}
+                    readOnly={isSimulationActive}
+                  />
+                </TabsContent>
+              )}
+
+              {tabGateValues.rag && (
+                <TabsContent value="rag" className="space-y-4">
+                  <RagSettingsTab
                     isAdmin={effectiveOrganizationAdmin}
                     readOnly={isSimulationActive}
                   />

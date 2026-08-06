@@ -117,6 +117,7 @@ describe("GET /api/rbac/kb-tab-gates", () => {
     expect(body).toEqual({
       gates: {
         search: true,
+        collections: true,
         data_sources: true,
         graph: true,
         mcp_tools: true,
@@ -169,6 +170,7 @@ describe("GET /api/rbac/kb-tab-gates", () => {
     expect(body.org_admin_bypass).toBe(false);
     expect(body.gates).toEqual({
       search: true,
+      collections: true,
       data_sources: true,
       graph: true,
       mcp_tools: true,
@@ -234,6 +236,7 @@ describe("GET /api/rbac/kb-tab-gates", () => {
 
     expect(body.gates).toEqual({
       search: false,
+      collections: false,
       data_sources: false,
       graph: false,
       mcp_tools: false,
@@ -244,7 +247,7 @@ describe("GET /api/rbac/kb-tab-gates", () => {
     });
   });
 
-  it("search requires the explicit can_search capability even with readable KBs", async () => {
+  it("search and graph require the explicit can_search capability even with readable KBs", async () => {
     (getServerSession as jest.Mock).mockResolvedValue({
       accessToken: "tok",
       sub: "viewer-sub",
@@ -263,6 +266,7 @@ describe("GET /api/rbac/kb-tab-gates", () => {
     const body = await res.json();
     expect(body.gates.has_any_kb).toBe(true);
     expect(body.gates.can_search).toBe(false);
+    expect(body.gates.graph).toBe(false);
     expect(body.gates.search).toBe(false);
     // Other read-driven tabs remain visible.
     expect(body.gates.data_sources).toBe(true);
@@ -353,6 +357,7 @@ describe("GET /api/rbac/kb-tab-gates", () => {
     const body = await res.json();
     expect(body.gates).toEqual({
       search: true,
+      collections: true,
       data_sources: true,
       graph: false,
       mcp_tools: true,

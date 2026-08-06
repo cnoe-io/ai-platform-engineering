@@ -333,6 +333,14 @@ async function createIndexes(db: Db) {
     safeCreateIndex(db, 'rag_ingestion_sources', { shared_with_teams: 1 }),
     safeCreateIndex(db, 'rag_ingestion_sources', { source_type: 1, status: 1 }),
     safeCreateIndex(db, 'rag_ingestion_sources', { config_driven: 1 }),
+
+    // First-class RAG collections. Datasource content remains in Milvus under
+    // datasource_id; this is control-plane membership and delegation only.
+    safeCreateIndex(db, 'rag_collections', { is_platform: 1 }),
+    safeCreateIndex(db, 'rag_collections', { owner_subject: 1, updated_at: -1 }),
+    safeCreateIndex(db, 'rag_collections', { maintainer_team_slugs: 1 }),
+    safeCreateIndex(db, 'rag_collections', { reader_team_slugs: 1 }),
+    safeCreateIndex(db, 'rag_collections', { source_ids: 1 }),
   ]);
 
   console.log('✅ MongoDB indexes ensured');

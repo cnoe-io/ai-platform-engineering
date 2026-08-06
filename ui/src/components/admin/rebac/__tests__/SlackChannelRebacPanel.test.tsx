@@ -1186,10 +1186,12 @@ it("organizes Slack admin into Configured / Onboard / Advanced tabs", async () =
   expect(
     screen.getByRole("button", { name: "Find channels" }),
   ).toBeInTheDocument();
-  // assisted-by Codex Codex-sonnet-4-6
   expect(
-    screen.getByRole("button", { name: "Slack channels setup details" }),
-  ).toBeInTheDocument();
+    screen.queryByRole("button", { name: "Slack channels setup details" }),
+  ).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole("button", { name: "Slack access details" }),
+  ).not.toBeInTheDocument();
   expect(
     screen.queryByText(
       /Members of the assigned team can update this Slack channel's bot routing/i,
@@ -1372,5 +1374,5 @@ it("opens a runtime sync modal with preview progress and apply results", async (
   );
   expect(await screen.findByText("Apply complete")).toBeInTheDocument();
   expect(screen.getByText("1 route upserted")).toBeInTheDocument();
-  expect(screen.getByText("1 OpenFGA tuple written")).toBeInTheDocument();
+  expect(screen.getByText("1 access grant written")).toBeInTheDocument();
 });

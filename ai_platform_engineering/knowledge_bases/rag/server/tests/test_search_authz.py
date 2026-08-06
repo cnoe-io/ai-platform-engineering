@@ -41,12 +41,14 @@ def _team_scope_on(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_search_allows_coarse_admin_without_pdp(monkeypatch: pytest.MonkeyPatch) -> None:
-    async def _explode(*_a, **_k):  # pragma: no cover - must not run
-        raise AssertionError("coarse ADMIN must not hit the PDP")
+async def test_search_does_not_trust_coarse_admin_role(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def _deny(*_a, **_k):
+        return False
 
-    monkeypatch.setattr(rbac, "_openfga_check_org_admin", _explode, raising=False)
-    await rbac.authorize_search(_user(role=Role.ADMIN))
+    monkeypatch.setattr(rbac, "_openfga_check_object", _deny, raising=False)
+    with pytest.raises(HTTPException) as exc:
+        await rbac.authorize_search(_user(role=Role.ADMIN))
+    assert exc.value.status_code == 403
 
 
 @pytest.mark.asyncio

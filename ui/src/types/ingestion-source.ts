@@ -8,6 +8,8 @@
  * full field-mapping rationale.
  */
 
+import type { RagCollectionMembershipLabel } from "@/types/rag-collection";
+
 export type IngestionSourceType =
   | "slack_channel"
   | "confluence_space"
@@ -15,7 +17,12 @@ export type IngestionSourceType =
   | "web_url"
   | "webex_space";
 
-export type IngestionSourceStatus = "pending" | "active" | "disabled" | "ingesting";
+export type IngestionSourceStatus =
+  | "pending"
+  | "active"
+  | "disabled"
+  | "ingesting"
+  | "failed";
 
 export type IngestionSourceVisibility = "team" | "global";
 
@@ -37,7 +44,31 @@ export interface IngestionSourceConfigBase {
   owner_subject?: string;
   owner_id?: string;
   owner_team_slug?: string;
+  /** Recovery hint for the independent Search & Ingest policy owner. */
+  search_owner_team_slug?: string;
+  /** Teams whose members may search and ingest this source's indexed data. */
+  search_with_teams?: string[];
+  /** Individual Keycloak subjects granted Search & Ingest access. */
+  search_with_users?: string[];
+  /** Response-only identity labels resolved by the BFF. */
+  owner_display_name?: string | null;
+  owner_email?: string | null;
+  creator_display_name?: string | null;
+  creator_email?: string | null;
+  search_user_display_names?: string[];
+  /** Read access inherited through maintained RAG collections. */
+  rag_collections?: RagCollectionMembershipLabel[];
+  /**
+   * Legacy management-sharing projection. New sources keep this empty: a
+   * source has one optional management owner team, while search access is
+   * represented independently by `search_with_teams`.
+   */
   shared_with_teams: string[];
+
+  /** Most recent on-demand ingestion job started for this config row. */
+  ingestion_job_id?: string;
+  /** Human-readable trigger failure retained so the UI can offer a retry. */
+  last_error?: string;
 
   created_at: string;
   updated_at: string;
@@ -54,6 +85,23 @@ export interface ConfluenceSpaceSource extends IngestionSourceConfigBase {
   source_type: "confluence_space";
   confluence_url: string;
   space_key: string;
+  /** Concrete page used to start the initial crawl for this space. */
+  start_page_url?: string;
+  /** Adopted legacy configuration selected the entire space (no root page). */
+  whole_space?: boolean;
+  get_child_pages?: boolean;
+  allowed_title_patterns?: string[];
+  denied_title_patterns?: string[];
+  /**
+   * Full legacy page selection retained during config migration. New sources
+   * normally contain one entry, while an adopted env-configured space may
+   * contain several roots or an empty array meaning "the whole space".
+   */
+  page_configs?: Array<{
+    page_id: string;
+    source?: string | null;
+    get_child_pages: boolean;
+  }>;
 }
 
 export interface JiraProjectSource extends IngestionSourceConfigBase {
@@ -70,16 +118,41 @@ export interface JiraProjectSource extends IngestionSourceConfigBase {
   source_slug: string;
   jql: string;
   include_comments?: boolean;
+  include_links?: boolean;
+  custom_fields?: Record<string, string>;
+}
+
+export type WebCrawlMode = "single" | "sitemap" | "recursive";
+
+export interface WebSourceSettings {
+  crawl_mode: WebCrawlMode;
+  max_depth?: number;
+  max_pages?: number;
+  render_javascript?: boolean;
+  wait_for_selector?: string | null;
+  page_load_timeout?: number;
+  follow_external_links?: boolean;
+  allowed_url_patterns?: string[] | null;
+  denied_url_patterns?: string[] | null;
+  download_delay?: number;
+  concurrent_requests?: number;
+  respect_robots_txt?: boolean;
+  chunk_size?: number;
+  chunk_overlap?: number;
+  user_agent?: string | null;
+  allow_non_public_urls?: boolean;
 }
 
 export interface WebUrlSource extends IngestionSourceConfigBase {
   source_type: "web_url";
   url: string;
+  settings?: WebSourceSettings;
 }
 
 export interface WebexSpaceSource extends IngestionSourceConfigBase {
   source_type: "webex_space";
   space_id: string;
+  include_bots?: boolean;
 }
 
 export type IngestionSourceConfig =

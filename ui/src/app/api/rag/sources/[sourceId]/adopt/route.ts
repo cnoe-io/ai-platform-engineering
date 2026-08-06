@@ -47,21 +47,29 @@ export const POST = withErrorHandler(
 
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
     const ownerTeamSlug = normalizeString(body.owner_team_slug);
-    const sharedTeamSlugs = Array.isArray(body.shared_with_teams)
-      ? body.shared_with_teams.filter((slug): slug is string => typeof slug === "string" && slug.trim().length > 0)
-      : [];
+    if (Object.prototype.hasOwnProperty.call(body, "shared_with_teams")) {
+      throw new ApiError(
+        "Management sharing is not supported; a source has one management team.",
+        400,
+        "MANAGEMENT_SHARING_NOT_SUPPORTED",
+      );
+    }
+    if (!ownerTeamSlug) {
+      throw new ApiError(
+        "owner_team_slug is required when adopting a config-driven source",
+        400,
+        "OWNER_TEAM_REQUIRED",
+      );
+    }
 
-    if (ownerTeamSlug) {
-      const teams = await getCollection<Team>("teams");
-      const team = await teams.findOne({ slug: ownerTeamSlug } as never);
-      if (!team) {
-        throw new ApiError(`Owning team "${ownerTeamSlug}" not found`, 404, "OWNER_TEAM_NOT_FOUND");
-      }
+    const teams = await getCollection<Team>("teams");
+    const team = await teams.findOne({ slug: ownerTeamSlug } as never);
+    if (!team) {
+      throw new ApiError(`Owning team "${ownerTeamSlug}" not found`, 404, "OWNER_TEAM_NOT_FOUND");
     }
 
     const { skipped } = await adoptConfigImportedRagSources([sourceId], {
       ownerTeamSlug,
-      sharedTeamSlugs,
     });
     if (skipped.some((s) => s.source_id === sourceId)) {
       throw new ApiError(

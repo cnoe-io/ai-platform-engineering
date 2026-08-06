@@ -801,6 +801,20 @@ function organizationRelationFor(resource: RbacResource, scope: RbacScope): stri
   if (resource === 'admin_ui') {
     return scope === 'view' || scope === 'audit.view' ? 'can_audit' : 'can_manage';
   }
+  if (resource === 'rag') {
+    // RAG has three independent organization-level gates. Keep the coarse
+    // route capability aligned with the operation; object-level source and
+    // collection checks are applied separately by the route handlers.
+    if (scope === 'query' || scope === 'invoke' || scope === 'kb.query') {
+      return 'can_search';
+    }
+    if (scope === 'ingest' || scope === 'create' || scope === 'kb.ingest') {
+      return 'can_ingest';
+    }
+    if (scope === 'view' || scope === 'read' || scope === 'use' || scope === 'tool.view') {
+      return 'can_use';
+    }
+  }
   if (resource === 'skill') {
     // Skills are a self-service member feature. Browsing/running AND authoring
     // (create/configure) plus minting the caller's own catalog API keys are
@@ -824,11 +838,11 @@ function organizationRelationFor(resource: RbacResource, scope: RbacScope): stri
 function resourceScopedTupleFor(
   resource: RbacResource,
   scope: RbacScope,
-  subject: string
+  principal: string,
 ): { user: string; relation: string; object: string } | null {
   if (resource === 'rag' && scope === 'admin') {
     return {
-      user: `user:${subject}`,
+      user: principal,
       relation: 'can_manage',
       object: 'admin_surface:rag_datasources',
     };
@@ -879,6 +893,7 @@ export async function requireRbacPermission(
     role?: string;
     user?: { email?: string };
     principalType?: SessionAuthSession['principalType'];
+    isServiceAccount?: boolean;
   },
   resource: RbacResource,
   scope: RbacScope,
@@ -886,6 +901,9 @@ export async function requireRbacPermission(
   const accessToken = session.accessToken;
   const email = session.user?.email;
   const subject = session.sub;
+  const principal = subject
+    ? `${session.isServiceAccount === true ? 'service_account' : 'user'}:${subject}`
+    : null;
 
   if (session.principalType === 'catalog_api_key' || session.principalType === 'skills_api_key') {
     throw new ApiError(
@@ -964,7 +982,9 @@ export async function requireRbacPermission(
     return;
   }
 
-  const resourceScopedTuple = subject ? resourceScopedTupleFor(resource, scope, subject) : null;
+  const resourceScopedTuple = principal
+    ? resourceScopedTupleFor(resource, scope, principal)
+    : null;
   if (resourceScopedTuple) {
     try {
       const result = await checkOpenFgaTuple(resourceScopedTuple);
@@ -1028,7 +1048,7 @@ export async function requireRbacPermission(
   const relation = organizationRelationFor(resource, scope);
   const object = organizationObjectId();
   const tuple = {
-    user: `user:${subject}`,
+    user: principal ?? 'user:unknown',
     relation,
     object,
   };

@@ -32,7 +32,7 @@ import { NextResponse } from "next/server";
  *        - `search`       = can_search
  *        - `data_sources` = has_any_kb OR can_ingest
  *        - `mcp_tools`    = has_any_kb OR can_search
- *        - `graph`        = has_any_kb
+ *        - `graph`        = has_any_kb AND can_search
  *      Server-side data paths re-check the same capabilities and scope results
  *      to readable datasources, so an enabled-but-empty tab never leaks data.
  *
@@ -45,6 +45,7 @@ import { NextResponse } from "next/server";
  */
 const EMPTY_GATES: KbTabGatesMap = {
   search: false,
+  collections: false,
   data_sources: false,
   graph: false,
   mcp_tools: false,
@@ -273,6 +274,7 @@ export async function GET() {
   if (await isOrgAdmin(session)) {
     const gates: KbTabGatesMap = {
       search: true,
+      collections: true,
       data_sources: true,
       graph: true,
       mcp_tools: true,
@@ -322,13 +324,18 @@ export async function GET() {
     // strictly better UX than a greyed-out tab. Holding a tool share
     // (`can_call`) still does NOT imply search.
     search: canSearch,
+    collections: hasAnyKb || hasAnyIngestionSource || canIngest || canSearch,
     // Data Sources lists existing readable KBs and ingestion-source config
     // rows, AND authors new ones. Unlock it when the caller can read
     // something on either surface OR holds the explicit author capability —
     // otherwise a team granted `can_ingest` with nothing yet assigned could
     // never open the tab to create its first source (chicken-and-egg).
     data_sources: hasAnyKb || hasAnyIngestionSource || canIngest,
-    graph: hasAnyKb,
+    // Every graph read endpoint is part of the RAG search data path and checks
+    // organization#can_search server-side. Match that gate here so a caller
+    // with datasource metadata access but no query grant does not land on a
+    // page whose requests are guaranteed to return 403.
+    graph: hasAnyKb && canSearch,
     // MCP Tools is the search-tool surface, so unlock it for readers (existing
     // behaviour) AND for the explicit search capability. The RAG server still
     // returns an empty list when nothing matches, so this never over-exposes.

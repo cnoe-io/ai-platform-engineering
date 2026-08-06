@@ -37,12 +37,43 @@ def test_no_datasource_ids_leaves_tools_untouched():
     assert result == [tool]
 
 
-def test_tool_without_filters_arg_is_untouched():
+def test_explicit_empty_datasource_ids_remove_only_rag_tools():
+    rag_tool = _search_tool()
+    other_tool = _search_tool(name="jira_search")
+
+    result = pin_datasource_filters(
+        [other_tool, rag_tool], [], agent_name="test-agent"
+    )
+
+    assert result == [other_tool]
+
+
+def test_non_rag_tool_without_filters_arg_is_untouched():
     schema = {"type": "object", "properties": {"query": {"type": "string"}}}
     tool = StructuredTool(
         name="fetch_document", description="Fetch a document.", args_schema=schema, coroutine=_search_coro
     )
     result = pin_datasource_filters([tool], ["kb-1"], agent_name="test-agent")
+    assert result == [tool]
+
+
+def test_rag_tool_without_filters_arg_is_removed():
+    schema = {"type": "object", "properties": {"query": {"type": "string"}}}
+    tool = StructuredTool(
+        name="knowledge-base_graph_raw_query_data",
+        description="Raw graph query.",
+        args_schema=schema,
+        coroutine=_search_coro,
+    )
+
+    assert pin_datasource_filters([tool], ["kb-1"], agent_name="test-agent") == []
+
+
+def test_non_rag_tool_with_filters_arg_is_not_wrapped():
+    tool = _search_tool(name="jira_search")
+
+    result = pin_datasource_filters([tool], ["kb-1"], agent_name="test-agent")
+
     assert result == [tool]
 
 
@@ -71,6 +102,53 @@ async def test_intersects_when_caller_requests_a_single_string_id():
     output = await pinned.coroutine(query="deploy process", filters={"datasource_id": "kb-9"})
 
     assert output["filters"]["datasource_id"] == []
+
+
+async def test_dynamic_provider_is_resolved_for_every_tool_call():
+    tool = _search_tool()
+    current = ["kb-1"]
+    pinned = pin_datasource_filters(
+        [tool],
+        [],
+        agent_name="test-agent",
+        datasource_ids_provider=lambda: list(current),
+    )[0]
+
+    first = await pinned.coroutine(query="deploy process")
+    current[:] = ["kb-2", "kb-3"]
+    second = await pinned.coroutine(
+        query="deploy process",
+        filters={"datasource_id": ["kb-1", "kb-3"]},
+    )
+
+    assert first["filters"]["datasource_id"] == ["kb-1"]
+    assert second["filters"]["datasource_id"] == ["kb-3"]
+
+
+async def test_empty_dynamic_collection_fails_closed_without_removing_non_rag_tools():
+    rag_tool = _search_tool()
+    other_tool = _search_tool(name="jira_search")
+    pinned = pin_datasource_filters(
+        [other_tool, rag_tool],
+        [],
+        agent_name="test-agent",
+        datasource_ids_provider=lambda: [],
+    )
+
+    assert pinned[0] is other_tool
+    output = await pinned[1].coroutine(query="deploy process")
+    assert output["filters"]["datasource_id"] == []
+
+
+async def test_wrapping_preserves_tool_metadata_and_tags():
+    tool = _search_tool()
+    tool.metadata = {"server_id": "knowledge-base"}
+    tool.tags = ["rag"]
+
+    pinned = pin_datasource_filters([tool], ["kb-1"], agent_name="test-agent")[0]
+
+    assert pinned.metadata == {"server_id": "knowledge-base"}
+    assert pinned.tags == ["rag"]
 
 
 def test_leaves_non_search_tools_in_the_same_order():

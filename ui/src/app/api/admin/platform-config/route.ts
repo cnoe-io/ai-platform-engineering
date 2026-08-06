@@ -24,6 +24,11 @@ createJsonResponseCacheStore,
 envTtlMs,
 withJsonResponseCache,
 } from '@/lib/server-response-cache';
+import {
+normalizeRagDefaultSearchTeamSlug,
+RAG_TEAM_SLUG_PATTERN,
+} from '@/lib/rag-settings';
+import { normalizeRagIngestorLimits } from '@/lib/rag-ingestor-limits';
 import { NextRequest,NextResponse } from 'next/server';
 
 const platformConfigCache = createJsonResponseCacheStore();
@@ -34,6 +39,12 @@ interface PlatformConfigDoc extends PlatformDefaultAgentDocument {
   release_notes?: unknown;
   discovery_cache_ttl_minutes?: unknown;
   remote_mcp_catalog?: unknown;
+  rag_default_search_team_slug?: unknown;
+  rag_ingestor_limits?: unknown;
+}
+
+interface TeamConfigDoc {
+  slug?: string;
 }
 
 export interface CustomMCPCatalogEntry {
@@ -187,6 +198,7 @@ async function getPlatformConfig(request: NextRequest) {
 
     const victoropsAgentId = normalizeVictoropsAgentId(doc?.slack_victorops_escalation_agent_id);
     const victoropsEnvFallback = process.env.SLACK_INTEGRATION_VICTOROPS_AGENT_ID || null;
+    const ragIngestorLimits = normalizeRagIngestorLimits(doc?.rag_ingestor_limits);
 
     return NextResponse.json({
       success: true,
@@ -204,6 +216,11 @@ async function getPlatformConfig(request: NextRequest) {
         // Default (no config saved yet) is "disable all" — operators opt in
         // per provider rather than every built-in showing up unconfigured.
         remote_mcp_catalog: normalizeRemoteMCPCatalog(doc?.remote_mcp_catalog, []),
+        rag_default_search_team_slug:
+          ragIngestorLimits.shared.max_search_teams > 0
+            ? normalizeRagDefaultSearchTeamSlug(doc?.rag_default_search_team_slug)
+            : null,
+        rag_ingestor_limits: ragIngestorLimits,
       },
     });
   });
@@ -284,6 +301,53 @@ export const PATCH = withErrorHandler(async (request: NextRequest) => {
       }
     }
 
+    if (Object.prototype.hasOwnProperty.call(body, 'rag_default_search_team_slug')) {
+      const rawTeamSlug = body.rag_default_search_team_slug;
+      if (
+        rawTeamSlug !== null &&
+        rawTeamSlug !== '' &&
+        (typeof rawTeamSlug !== 'string' || !RAG_TEAM_SLUG_PATTERN.test(rawTeamSlug.trim()))
+      ) {
+        throw new ApiError(
+          'rag_default_search_team_slug must be a valid team slug or null',
+          400,
+          'INVALID_RAG_DEFAULT_SEARCH_TEAM',
+        );
+      }
+      const teamSlug = normalizeRagDefaultSearchTeamSlug(rawTeamSlug);
+      if (teamSlug) {
+        const teams = await getCollection<TeamConfigDoc>('teams');
+        const existingTeam = await teams.findOne({ slug: teamSlug } as never);
+        if (!existingTeam) {
+          throw new ApiError(
+            'The selected default RAG search team does not exist',
+            404,
+            'RAG_DEFAULT_SEARCH_TEAM_NOT_FOUND',
+          );
+        }
+      }
+      update.rag_default_search_team_slug = teamSlug;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(body, 'rag_ingestor_limits')) {
+      try {
+        const nextLimits = normalizeRagIngestorLimits(
+          body.rag_ingestor_limits,
+          { strict: true },
+        );
+        update.rag_ingestor_limits = nextLimits;
+        if (nextLimits.shared.max_search_teams === 0) {
+          update.rag_default_search_team_slug = null;
+        }
+      } catch (error) {
+        throw new ApiError(
+          error instanceof Error ? error.message : 'rag_ingestor_limits is invalid',
+          400,
+          'INVALID_RAG_INGESTOR_LIMITS',
+        );
+      }
+    }
+
     const col = await getCollection<PlatformConfigDoc>('platform_config');
     const previousDoc = hasDefaultAgentUpdate
       ? await col.findOne({ _id: PLATFORM_CONFIG_ID } as never)
@@ -360,6 +424,12 @@ export const PATCH = withErrorHandler(async (request: NextRequest) => {
           : {}),
         ...(Object.prototype.hasOwnProperty.call(update, 'remote_mcp_catalog')
           ? { remote_mcp_catalog: update.remote_mcp_catalog }
+          : {}),
+        ...(Object.prototype.hasOwnProperty.call(update, 'rag_default_search_team_slug')
+          ? { rag_default_search_team_slug: update.rag_default_search_team_slug }
+          : {}),
+        ...(Object.prototype.hasOwnProperty.call(update, 'rag_ingestor_limits')
+          ? { rag_ingestor_limits: update.rag_ingestor_limits }
           : {}),
       },
     });

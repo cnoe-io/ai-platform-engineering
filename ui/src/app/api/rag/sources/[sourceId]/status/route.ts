@@ -31,6 +31,7 @@ const VALID_STATUSES: readonly IngestionSourceStatus[] = [
   "active",
   "disabled",
   "ingesting",
+  "failed",
 ];
 
 export const PATCH = withErrorHandler(

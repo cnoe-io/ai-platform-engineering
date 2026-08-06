@@ -163,18 +163,24 @@ class Client:
         logger.warning(f"Ingestor '{self.ingestor_name}': Discovery from issuer failed: {e}")
         discovery_attempts.append(f"Constructed from issuer ({constructed_url}): {e}")
 
-        # All attempts failed
-        error_msg = "All OIDC discovery attempts failed:\n" + "\n".join(f"  - {attempt}" for attempt in discovery_attempts)
+    # All attempts failed. Build this outside the issuer branch because a
+    # discovery-URL-only deployment is valid (and is the default Helm wiring).
+    error_msg = "All OIDC discovery attempts failed:\n" + "\n".join(
+      f"  - {attempt}" for attempt in discovery_attempts
+    )
     logger.error(f"Ingestor '{self.ingestor_name}': {error_msg}")
 
     # Try Keycloak-style fallback if we have an issuer
     if self.oidc_issuer:
       logger.warning(f"Ingestor '{self.ingestor_name}': Using Keycloak-style fallback endpoint")
       issuer = self.oidc_issuer.rstrip("/")
-      self._token_endpoint = f"{issuer}/protocol/openid-connect/token"
-      return self._token_endpoint
+      # Do not cache a guessed endpoint. A transient startup/DNS failure must
+      # allow the next initialize retry to run discovery again; otherwise the
+      # client can remain pinned to an unreachable browser-facing issuer such
+      # as localhost even after the in-network provider becomes available.
+      return f"{issuer}/protocol/openid-connect/token"
 
-    raise Exception(f"OIDC discovery failed and no issuer available for fallback. {error_msg}")
+    raise RuntimeError(f"OIDC discovery failed and no issuer available for fallback. {error_msg}")
 
   async def _fetch_discovery(self, discovery_url: str) -> str:
     """
@@ -831,17 +837,35 @@ class IngestorBuilder:
 
     # Create and initialize RAG client
     client = Client(self._name, self._type, self._description, self._metadata)
-    startup_task = None  # declared here so the finally block can always reference it
+    startup_task: asyncio.Task | None = None
+
+    async def ensure_startup_running() -> None:
+      if not startup_task or not startup_task.done():
+        return
+      try:
+        await startup_task
+      except asyncio.CancelledError:
+        raise RuntimeError("Ingestor startup task was cancelled unexpectedly") from None
+      raise RuntimeError("Ingestor startup task exited unexpectedly")
+
+    async def sleep_while_monitoring_startup(seconds: int) -> None:
+      if not startup_task:
+        await asyncio.sleep(seconds)
+        return
+      sleeper = asyncio.create_task(asyncio.sleep(seconds))
+      done, _ = await asyncio.wait(
+        {startup_task, sleeper},
+        return_when=asyncio.FIRST_COMPLETED,
+      )
+      if startup_task in done:
+        sleeper.cancel()
+        await asyncio.gather(sleeper, return_exceptions=True)
+        await ensure_startup_running()
 
     try:
       # Initialize client
       await client.initialize()
       logger.info(f"RAG client initialized: {self._name} ({self._type})")
-
-      # Optional initialization delay
-      if self._init_delay > 0:
-        logger.info(f"Waiting {self._init_delay} seconds before starting sync...")
-        await asyncio.sleep(self._init_delay)
 
       # Start optional startup function concurrently (e.g., server)
       if self._startup_function:
@@ -860,6 +884,14 @@ class IngestorBuilder:
           startup_task = asyncio.create_task(_run_sync_startup())
         logger.info("Startup function running concurrently")
 
+      # Delay only the periodic/env-driven synchronization. Long-lived
+      # startup services (including the shared on-demand command listener)
+      # start immediately so a UI-created source is ingested without waiting
+      # through SLACK/JIRA/WEBEX init delays.
+      if self._init_delay > 0:
+        logger.info(f"Waiting {self._init_delay} seconds before starting sync...")
+        await sleep_while_monitoring_startup(self._init_delay)
+
       if self._sync_interval <= 0:
         # Single run mode
         logger.info("Running single sync cycle...")
@@ -877,6 +909,7 @@ class IngestorBuilder:
       else:
         # Periodic mode with smart scheduling based on datasource timestamps
         while True:
+          await ensure_startup_running()
           # Calculate when next sync should happen based on datasource timestamps
           sleep_time, has_datasources = await self._calculate_next_sync_time(client)
 
@@ -892,13 +925,13 @@ class IngestorBuilder:
           if sleep_time > 0:
             # No datasources need syncing yet, sleep until next one is due
             logger.info(f"Sleeping for {sleep_time}s before next sync")
-            await asyncio.sleep(sleep_time)
+            await sleep_while_monitoring_startup(sleep_time)
           elif self._last_sync_time is not None:
             time_since_last_sync = int(time.time()) - self._last_sync_time
             if time_since_last_sync < MIN_LOOP_SLEEP:
               backoff = MIN_LOOP_SLEEP - time_since_last_sync
               logger.warning(f"Sync returned sleep_time=0 but last sync was only {time_since_last_sync}s ago, backing off {backoff}s to prevent tight loop")
-              await asyncio.sleep(backoff)
+              await sleep_while_monitoring_startup(backoff)
 
           # Now run the sync (either immediately if overdue, or after sleeping)
           logger.info("Running sync cycle...")

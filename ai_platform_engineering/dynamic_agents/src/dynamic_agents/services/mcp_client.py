@@ -1322,12 +1322,18 @@ def pin_datasource_filters(
     tools: list[BaseTool],
     datasource_ids: list[str] | None,
     agent_name: str = "agent",
+    rag_server_ids: set[str] | None = None,
+    datasource_ids_provider: Callable[[], list[str]] | None = None,
 ) -> list[BaseTool]:
     """Pin RAG search-style tools to a configured set of datasource ids.
 
-    Only tools whose schema accepts a ``filters`` argument are affected —
-    the RAG search tool contract (built-in ``search`` plus any custom search
-    tool with ``allow_runtime_filters=True``). This is the client-side half
+    Only tools belonging to a configured RAG MCP server are affected. RAG
+    tools whose schema accepts a ``filters`` argument are wrapped; RAG tools
+    without that argument are removed because they cannot enforce the agent's
+    source selection. Tools from every other MCP server remain untouched,
+    including tools that coincidentally expose a field named ``filters``.
+
+    This is the client-side half
     of the agent<->datasource binding: the server independently intersects
     with the caller's RBAC-accessible datasources (``server/tools.py``), so
     the effective scope is always (this pin) ∩ (caller's RBAC access) —
@@ -1338,49 +1344,85 @@ def pin_datasource_filters(
     rather than overridden, so the model cannot escape the pin by asking for
     a different id.
     """
-    if not datasource_ids:
+    # ``None`` is the backward-compatible legacy state: no agent-level pin.
+    # An explicit empty list means the editor selected no RAG sources and
+    # must therefore remove every RAG tool rather than widening to all of the
+    # caller's sources.
+    if datasource_ids is None and datasource_ids_provider is None:
         return tools
+
+    if rag_server_ids is None:
+        configured = os.getenv("RAG_MCP_SERVER_IDS", "knowledge-base")
+        rag_server_ids = {value.strip() for value in configured.split(",") if value.strip()}
 
     pinned: list[BaseTool] = []
     for tool in tools:
+        is_rag_tool = any(tool.name.startswith(f"{server_id}_") for server_id in rag_server_ids)
+        if not is_rag_tool:
+            pinned.append(tool)
+            continue
+
+        if not datasource_ids and datasource_ids_provider is None:
+            logger.info(
+                "[%s] Removed RAG tool '%s': the agent has no configured datasources",
+                agent_name,
+                tool.name,
+            )
+            continue
+
         schema = _json_schema_dict(getattr(tool, "tool_call_schema", None))
         properties = schema.get("properties") if isinstance(schema, dict) else None
         original_coro = getattr(tool, "coroutine", None)
         if not isinstance(properties, dict) or "filters" not in properties or original_coro is None:
-            pinned.append(tool)
+            logger.warning(
+                "[%s] Removed RAG tool '%s': it cannot enforce configured datasource_ids",
+                agent_name,
+                tool.name,
+            )
             continue
 
         async def _pinned_coro(
             *args: Any,
             _orig: Any = original_coro,
-            _ids: list[str] = datasource_ids,
+            _ids: list[str] = datasource_ids or [],
+            _ids_provider: Callable[[], list[str]] | None = datasource_ids_provider,
             **kwargs: Any,
         ) -> Any:
+            effective_ids = (
+                await asyncio.to_thread(_ids_provider)
+                if _ids_provider is not None
+                else _ids
+            )
             requested = kwargs.get("filters")
             existing = requested.get("datasource_id") if isinstance(requested, dict) else None
             if existing is None:
-                scoped: list[str] = list(_ids)
+                scoped: list[str] = list(effective_ids)
             elif isinstance(existing, str):
-                scoped = [existing] if existing in _ids else []
+                scoped = [existing] if existing in effective_ids else []
+            elif isinstance(existing, (list, tuple, set)):
+                scoped = [x for x in existing if x in effective_ids]
             else:
-                scoped = [x for x in existing if x in _ids]
+                scoped = []
             merged = dict(requested) if isinstance(requested, dict) else {}
             merged["datasource_id"] = scoped
             kwargs["filters"] = merged
             return await _orig(*args, **kwargs)
 
-        pinned.append(
-            StructuredTool(
-                name=tool.name,
-                description=tool.description or "",
-                args_schema=tool.args_schema,
-                coroutine=_pinned_coro,
-                response_format=getattr(tool, "response_format", "content"),
-                metadata=tool.metadata,
-            )
-        )
+        # Preserve the adapter-provided tool's tags, response behavior, error
+        # handlers, and any future BaseTool fields. Reconstructing a bare
+        # StructuredTool here silently discarded those attributes.
+        if hasattr(tool, "model_copy"):
+            pinned_tool = tool.model_copy(update={"coroutine": _pinned_coro})
+        else:  # pragma: no cover - compatibility with pre-Pydantic-v2 tools
+            pinned_tool = copy.copy(tool)
+            pinned_tool.coroutine = _pinned_coro
+        pinned.append(pinned_tool)
         logger.info(
-            "[%s] Pinned tool '%s' to datasource_ids=%s", agent_name, tool.name, datasource_ids
+            "[%s] Pinned tool '%s' to datasource_ids=%s%s",
+            agent_name,
+            tool.name,
+            datasource_ids,
+            " plus dynamic collections" if datasource_ids_provider else "",
         )
 
     return pinned

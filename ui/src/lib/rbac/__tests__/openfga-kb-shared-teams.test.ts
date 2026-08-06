@@ -1,8 +1,8 @@
 /**
  * Tests for `buildKnowledgeBaseRelationshipTupleDiff` shared-team handling.
  *
- * Mirrors the agent editor's shared-team semantics: adding a team writes
- * the reader+ingestor+manager set, removing a team emits matching deletes,
+ * Search-only teams receive reader+ingestor but never manager. Removing a
+ * team emits matching deletes,
  * the owner team is always treated as "wanted" so duplicating it in the
  * shared list is a no-op, and invalid slugs are silently dropped.
  */
@@ -30,7 +30,7 @@ describe("buildKnowledgeBaseRelationshipTupleDiff — shared teams", () => {
     expect(diff.deletes).toEqual([]);
   });
 
-  it("adds reader/ingestor/manager tuples for each shared team", () => {
+  it("adds reader/ingestor but never manager tuples for search-only teams", () => {
     const diff = buildKnowledgeBaseRelationshipTupleDiff({
       knowledgeBaseId: "kb-1",
       ownerTeamSlug: "platform",
@@ -43,16 +43,19 @@ describe("buildKnowledgeBaseRelationshipTupleDiff — shared teams", () => {
         { user: "team:platform#admin", relation: "manager", object: KB },
         { user: "team:data-eng#member", relation: "reader", object: KB },
         { user: "team:data-eng#member", relation: "ingestor", object: KB },
-        { user: "team:data-eng#admin", relation: "manager", object: KB },
         { user: "team:ml-ops#member", relation: "reader", object: KB },
         { user: "team:ml-ops#member", relation: "ingestor", object: KB },
-        { user: "team:ml-ops#admin", relation: "manager", object: KB },
       ]),
     );
+    expect(
+      diff.writes.some(
+        (tuple) => tuple.relation === "manager" && tuple.user !== "team:platform#admin",
+      ),
+    ).toBe(false);
     expect(diff.deletes).toEqual([]);
   });
 
-  it("deletes the reader/ingestor/manager set when a team is removed from the shared list", () => {
+  it("deletes the reader/ingestor set when a search team is removed", () => {
     const diff = buildKnowledgeBaseRelationshipTupleDiff({
       knowledgeBaseId: "kb-1",
       ownerTeamSlug: "platform",
@@ -63,18 +66,55 @@ describe("buildKnowledgeBaseRelationshipTupleDiff — shared teams", () => {
       expect.arrayContaining([
         { user: "team:data-eng#member", relation: "reader", object: KB },
         { user: "team:data-eng#member", relation: "ingestor", object: KB },
-        { user: "team:data-eng#admin", relation: "manager", object: KB },
       ]),
     );
     expect(diff.deletes).toEqual(
       expect.arrayContaining([
         { user: "team:ml-ops#member", relation: "reader", object: KB },
         { user: "team:ml-ops#member", relation: "ingestor", object: KB },
-        { user: "team:ml-ops#admin", relation: "manager", object: KB },
       ]),
     );
     // ml-ops grant is now revoked — no stale tuple is left dangling.
-    expect(diff.deletes).toHaveLength(3);
+    expect(diff.deletes).toHaveLength(2);
+  });
+
+  it("adds and revokes direct-user search grants without granting management", () => {
+    const diff = buildKnowledgeBaseRelationshipTupleDiff({
+      knowledgeBaseId: "kb-1",
+      ownerSubject: "owner-sub",
+      nextSharedUserSubjects: ["reader-sub", "owner-sub"],
+      previousSharedUserSubjects: ["former-reader-sub"],
+    });
+
+    expect(diff.writes).toEqual(expect.arrayContaining([
+      { user: "user:owner-sub", relation: "owner", object: KB },
+      { user: "user:reader-sub", relation: "reader", object: KB },
+      { user: "user:reader-sub", relation: "ingestor", object: KB },
+    ]));
+    expect(diff.writes).not.toContainEqual({
+      user: "user:reader-sub",
+      relation: "manager",
+      object: KB,
+    });
+    expect(diff.writes.filter((tuple) => tuple.user === "user:owner-sub")).toHaveLength(1);
+    expect(diff.deletes).toEqual(expect.arrayContaining([
+      { user: "user:former-reader-sub", relation: "reader", object: KB },
+      { user: "user:former-reader-sub", relation: "ingestor", object: KB },
+    ]));
+  });
+
+  it("can explicitly remove manager tuples left by the legacy search-sharing policy", () => {
+    const diff = buildKnowledgeBaseRelationshipTupleDiff({
+      knowledgeBaseId: "kb-1",
+      previousSharedTeamSlugs: ["data-eng"],
+      nextSharedTeamSlugs: ["data-eng"],
+      previousSharedTeamAdminsManage: true,
+    });
+    expect(diff.deletes).toContainEqual({
+      user: "team:data-eng#admin",
+      relation: "manager",
+      object: KB,
+    });
   });
 
   it("dedupes when the owner team is also listed in the shared array", () => {

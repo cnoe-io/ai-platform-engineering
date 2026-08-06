@@ -36,6 +36,7 @@ export type AdminDestinationId =
   | "announcements"
   | "agents"
   | "mcp"
+  | "rag"
   | "skills"
   | "service-accounts"
   | "credentials"
@@ -149,6 +150,14 @@ export const ADMIN_CATEGORIES: AdminCategoryDefinition[] = [
         description: "Manage the remote MCP providers available to users.",
         icon: Plug,
         gateKey: "mcp",
+      },
+      {
+        id: "rag",
+        href: "/admin/platform/rag",
+        label: "RAG",
+        description: "Configure knowledge base defaults, ingestion, and publication review.",
+        icon: Database,
+        gateKey: "rag",
       },
       {
         id: "skills",
