@@ -1,3 +1,15 @@
+## 0.5.67-dev.1-chart.1 (2026-08-06)
+
+### Feat
+
+- **helm**: resolve object storage from a shared global.storage.s3 block
+
+## 0.5.67-dev.1 (2026-08-06)
+
+### Fix
+
+- **ui**: preserve explicit unlinked-SA agent grants across visibility demotion
+
 ## 0.5.67 (2026-08-04)
 
 ### Fix
