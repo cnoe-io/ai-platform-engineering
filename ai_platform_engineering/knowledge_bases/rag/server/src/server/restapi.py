@@ -99,6 +99,22 @@ if logger.level == logging.DEBUG:  # enable langchain verbose logging
   set_langchain_verbose(True)
 
 # Read configuration from environment variables
+
+MILVUS_MAX_QUERY_LIMIT = 16384
+MILVUS_MAX_GROUP_BY_LIMIT = 16383
+_SAFE_ID_RE = re.compile(r"^[a-zA-Z0-9_\-]{1,256}$")
+
+
+def _validate_datasource_id(datasource_id: str) -> str:
+  """Validate and sanitize datasource_id to prevent injection vulnerabilities."""
+  if not _SAFE_ID_RE.match(datasource_id):
+    raise HTTPException(
+      status_code=400,
+      detail="Invalid datasource_id: must be alphanumeric, dashes, or underscores only",
+    )
+  return datasource_id
+
+
 clean_up_interval = int(os.getenv("CLEANUP_INTERVAL", 3 * 60 * 60))  # Default to 3 hours
 cleanup_enabled = os.getenv("CLEANUP_ENABLED", "true").lower() in ("true", "1", "yes")
 ontology_agent_client = httpx.AsyncClient(base_url=os.getenv("ONTOLOGY_AGENT_RESTAPI_ADDR", "http://localhost:8098"))
@@ -808,14 +824,14 @@ async def list_datasources(
       team_id = await derive_team_for_request(request, user)
       tenant_id = request.headers.get("X-Tenant-Id") or "default"
       accessible = await get_accessible_datasource_ids(
-        user, "read", tenant_id, team_id=team_id, request=request,
+        user,
+        "read",
+        tenant_id,
+        team_id=team_id,
+        request=request,
       )
       if "*" not in accessible:
-        datasources = [
-          ds for ds in datasources
-          if getattr(ds, "datasource_id", None) in accessible
-          or getattr(ds, "id", None) in accessible
-        ]
+        datasources = [ds for ds in datasources if getattr(ds, "datasource_id", None) in accessible or getattr(ds, "id", None) in accessible]
 
     return {"success": True, "datasources": datasources, "count": len(datasources)}
   except Exception as e:
@@ -832,26 +848,68 @@ async def list_datasource_documents(
   user: UserContext = Depends(require_role(Role.READONLY)),
 ):
   """List documents and chunks for a datasource with pagination (without content)."""
+  datasource_id = _validate_datasource_id(datasource_id)
+
   if not vector_db:
     raise HTTPException(status_code=500, detail="Server not initialized")
 
   await check_datasource_access(request, user, datasource_id, "read")
 
   # Validate Milvus constraint: offset + limit must be < 16384
-  if offset + limit >= 16384:
+  if offset + limit >= MILVUS_MAX_QUERY_LIMIT:
     raise HTTPException(
       status_code=400,
-      detail="offset + limit must be less than 16,384 (Milvus query limitation)",
+      detail=f"offset + limit must be less than {MILVUS_MAX_QUERY_LIMIT:,} (Milvus query limitation)",
     )
 
   try:
-    # Fetch limit + 1 to determine if more chunks exist
-    results = vector_db.client.query(
-      collection_name=default_collection_name_docs,
-      filter=f"datasource_id == '{datasource_id}'",
-      output_fields=["id", "document_id", "title", "chunk_index", "total_chunks", "fresh_until", "document_type", "document_ingested_at", "is_structured_entity", "source"],
-      offset=offset,
-      limit=limit + 1,
+    # Query chunks, total chunk count, and unique doc count concurrently via asyncio.to_thread
+    async def _fetch_chunks():
+      return await asyncio.to_thread(
+        vector_db.client.query,
+        collection_name=default_collection_name_docs,
+        filter=f"datasource_id == '{datasource_id}'",
+        output_fields=["id", "document_id", "title", "chunk_index", "total_chunks", "fresh_until", "document_type", "document_ingested_at", "is_structured_entity", "source"],
+        offset=offset,
+        limit=limit + 1,
+      )
+
+    async def _fetch_total_chunks():
+      try:
+        res = await asyncio.to_thread(
+          vector_db.client.query,
+          collection_name=default_collection_name_docs,
+          filter=f"datasource_id == '{datasource_id}'",
+          output_fields=["count(*)"],
+        )
+        if not res:
+          return 0
+        return int(res[0].get("count(*)", 0))
+      except Exception:
+        logger.exception("Failed to query chunk count from Milvus")
+      return None
+
+    async def _fetch_total_documents():
+      try:
+        res = await asyncio.to_thread(
+          vector_db.client.query,
+          collection_name=default_collection_name_docs,
+          filter=f"datasource_id == '{datasource_id}'",
+          output_fields=["document_id"],
+          group_by_field="document_id",
+          limit=MILVUS_MAX_GROUP_BY_LIMIT,
+        )
+        if not res:
+          return 0
+        return len(res)
+      except Exception:
+        logger.exception("Failed to query unique document count from Milvus")
+      return None
+
+    results, milvus_total_chunks, milvus_total_docs = await asyncio.gather(
+      _fetch_chunks(),
+      _fetch_total_chunks(),
+      _fetch_total_documents(),
     )
 
     # Determine if more chunks exist beyond this batch
@@ -894,13 +952,21 @@ async def list_datasource_documents(
 
     # Convert to list and sort by document_id
     documents = sorted(documents_map.values(), key=lambda d: d.document_id)
-    total_chunks = sum(len(doc.chunks) for doc in documents)
+
+    if milvus_total_chunks is None or milvus_total_docs is None:
+      raise HTTPException(
+        status_code=500,
+        detail="Failed to compute total_documents/total_chunks from Milvus",
+      )
+
+    actual_total_chunks = milvus_total_chunks
+    actual_total_documents = milvus_total_docs
 
     return DatasourceDocumentsResponse(
       datasource_id=datasource_id,
       documents=documents,
-      total_documents=len(documents),
-      total_chunks=total_chunks,
+      total_documents=actual_total_documents,
+      total_chunks=actual_total_chunks,
       offset=offset,
       limit=limit,
       has_more=has_more,
