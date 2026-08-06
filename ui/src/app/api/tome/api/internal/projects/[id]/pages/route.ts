@@ -8,6 +8,8 @@ import { ApiError, withErrorHandler } from "@/lib/api-middleware";
 import { requireAgentToken, resolveProject } from "@/lib/tome/internal-api";
 import { getPageStore } from "@/lib/tome/page-store";
 import { getTomeIngestRunsCollection } from "@/lib/tome/mongo-collections";
+import { checkOpenFgaTuple } from "@/lib/rbac/openfga";
+import { tomeDataObject } from "@/lib/tome/access";
 
 export const dynamic = "force-dynamic";
 
@@ -36,9 +38,35 @@ export const POST = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
     message?: string;
     author?: string;
     report_id?: string | null;
+    actor_sub?: string | null;
   };
   if (typeof body.path !== "string" || typeof body.body !== "string") {
     throw new ApiError("`path` and `body` are required", 400, "BAD_REQUEST");
+  }
+
+  // Chat-initiated writes (no report_id) carry actor_sub so we can enforce
+  // FGA can_write. Ingest writes are already gated (requireTomeEditor on the
+  // ingest dispatch route), so they skip this check.
+  if (!body.report_id) {
+    if (!body.actor_sub) {
+      throw new ApiError(
+        "Only a data steward may edit pages via the chat agent",
+        403,
+        "DATA_STEWARD_REQUIRED",
+      );
+    }
+    const result = await checkOpenFgaTuple({
+      user: `user:${body.actor_sub}`,
+      relation: "can_write",
+      object: tomeDataObject(project),
+    });
+    if (!result.allowed) {
+      throw new ApiError(
+        "Only a data steward may edit pages via the chat agent",
+        403,
+        "DATA_STEWARD_REQUIRED",
+      );
+    }
   }
 
   const status = await draftStatusForReport(body.report_id ?? undefined);

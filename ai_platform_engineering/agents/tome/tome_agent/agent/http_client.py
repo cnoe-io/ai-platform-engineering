@@ -99,6 +99,20 @@ def get_active_actor_email() -> str | None:
     return _active_actor_email.get()
 
 
+_active_actor_sub: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "tome_active_actor_sub", default=None
+)
+
+
+def set_active_actor_sub(sub: str | None) -> None:
+    """Scope this request's OIDC subject for FGA enforcement on write-page callbacks."""
+    _active_actor_sub.set(sub)
+
+
+def get_active_actor_sub() -> str | None:
+    return _active_actor_sub.get()
+
+
 def _project_id() -> str:
     # CAIPE project ids are Mongo ObjectId hex / slugs, not UUIDs. Treat as
     # an opaque string used only to build callback URLs.
@@ -155,6 +169,7 @@ async def write_page(
         message=message,
         author=author,
         report_id=report_id,
+        actor_sub=_active_actor_sub.get(),
     )
     async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
         resp = await client.post(
@@ -311,6 +326,7 @@ def write_page_sync(
         message=message,
         author=author,
         report_id=report_id,
+        actor_sub=_active_actor_sub.get(),
     )
     with httpx.Client(timeout=DEFAULT_TIMEOUT) as client:
         resp = client.post(

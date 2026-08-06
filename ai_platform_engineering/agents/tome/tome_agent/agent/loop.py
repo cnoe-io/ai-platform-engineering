@@ -20,6 +20,7 @@ from typing import Any
 from pathlib import Path
 from uuid import UUID
 
+import httpx
 from claude_agent_sdk import ClaudeAgentOptions, HookMatcher
 
 from tome_agent.agent import http_client
@@ -251,8 +252,43 @@ def make_persist_hook(
                         await res
                 except Exception:
                     log.exception("on_write callback raised; ignoring")
+        except httpx.HTTPStatusError as exc:
+            log.warning(
+                "agent persist rejected for %s: %s %s",
+                file_path,
+                exc.response.status_code,
+                exc.response.text[:500],
+            )
+            if exc.response.status_code == 403:
+                context = (
+                    f"Your edit to {rel} was NOT saved. The backend rejected it: "
+                    "only this project's data steward or a Tome admin may edit pages "
+                    "via chat. Tell the user their edit needs a data steward, or ask "
+                    "them to make the change themselves."
+                )
+            else:
+                context = (
+                    f"Your edit to {rel} was NOT saved — the backend rejected the "
+                    f"write ({exc.response.status_code}). Do not tell the user the "
+                    "page was updated."
+                )
+            return {
+                "hookSpecificOutput": {
+                    "hookEventName": "PostToolUse",
+                    "additionalContext": context,
+                }
+            }
         except Exception:
             log.exception("agent persist failed for %s", file_path)
+            return {
+                "hookSpecificOutput": {
+                    "hookEventName": "PostToolUse",
+                    "additionalContext": (
+                        f"Your edit to {rel} was NOT saved due to an internal error. "
+                        "Do not tell the user the page was updated."
+                    ),
+                }
+            }
         return {}
 
     return persist

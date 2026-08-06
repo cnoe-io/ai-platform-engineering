@@ -133,6 +133,9 @@ export interface AgentChatRequest {
   /** The chatting user's email, so a `feed_promote` call attributes to them
    * instead of a generic "tome" handle. */
   actor_email: string | null;
+  /** The chatting user's OIDC subject. Forwarded in write-page callbacks so
+   * the internal API can enforce FGA can_write on chat-initiated edits. */
+  actor_sub: string | null;
   /**
    * Per-request OAuth credentials forwarded from CAIPE's connection store. The
    * agent forwards each provider's `access_token` to the matching MCP. Empty
@@ -388,6 +391,7 @@ export async function buildChatRequest(
     stable_pages: stablePages,
     role: ctx.canEdit ? "editor" : "viewer",
     actor_email: ctx.user.email ?? null,
+    actor_sub: tomeSessionSubject(ctx.session),
     credentials,
   };
 }

@@ -127,6 +127,9 @@ class ChatRequest(BaseModel):
     """The chatting user's email. Used as the sender identity when the agent
     promotes a concern to the Feed (`feed_promote`), so the entry attributes
     to the actual person, not a generic "tome" handle."""
+    actor_sub: str | None = None
+    """The chatting user's OIDC subject (Keycloak sub). Forwarded in
+    write-page callbacks so the internal API can enforce FGA can_write."""
     credentials: dict[str, dict[str, str]] = Field(default_factory=dict)
     """Per-request OAuth credentials forwarded from the caller. Keyed by
     provider slug (`github`, `atlassian`, `webex`). Each value carries
@@ -168,6 +171,10 @@ class WritePageRequest(BaseModel):
     message: str
     author: str
     report_id: UUID | None = None
+    actor_sub: str | None = None
+    """OIDC subject of the human who triggered this write (chat sessions only).
+    The internal API checks FGA can_write for this subject when report_id is
+    absent, blocking writes from callers without data-steward access."""
 
 
 class AppendLogRequest(BaseModel):
