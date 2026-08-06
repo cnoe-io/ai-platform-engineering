@@ -27,7 +27,7 @@ from tome_agent.orchestrator.contract import IngestEventPayload, ProjectSnapshot
 log = logging.getLogger("tome_agent.agent.compact")
 
 COMPACTION_MODEL_DEFAULT = "claude-haiku-4-5"
-MAX_TURNS = 40
+MAX_TURNS = 100
 
 
 def _compaction_model() -> str:

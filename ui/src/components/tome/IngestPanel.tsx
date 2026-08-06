@@ -13,7 +13,9 @@ import {
   Search,
   Sprout,
   Square,
+  Video,
   XCircle,
+  Zap,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -378,6 +380,11 @@ export function IngestPanel({
   const [error, setError] = useState<string | null>(null);
   const [runsOpen, setRunsOpen] = useState(false);
 
+  // "What do you want to do?" — a single action selector replaces the old
+  // separate Run/Compact buttons + buried meeting-picker toggle. Each action
+  // shows only the controls relevant to it below.
+  const [action, setAction] = useState<"quick" | "full" | "meeting" | "compact">("full");
+
   // Sources + preflight access status
   const [sourceRows, setSourceRows] = useState<SourceRow[] | null>(null);
   const [preflight, setPreflight] = useState<PreflightSourceResult[] | null>(null);
@@ -474,6 +481,16 @@ export function IngestPanel({
     });
   }, [loadMeetings]);
 
+  // "Ingest meeting" is a single-purpose action — the picker is the whole
+  // point, so it's always expanded (no collapse chrome) rather than buried
+  // behind a toggle like it is under "Full ingest"'s optional add-context.
+  useEffect(() => {
+    if (action === "meeting") {
+      setMeetingsOpen(true);
+      void loadMeetings();
+    }
+  }, [action, loadMeetings]);
+
   const toggleMeeting = useCallback((id: string) => {
     setSelectedMeetings((prev) => {
       const next = new Set(prev);
@@ -538,6 +555,9 @@ export function IngestPanel({
     // BHAGs/Areas synthesize tagged children plus direct sources via
     // /synthesize; regular projects pull direct sources via /reingest.
     const endpoint = isSynthesized ? "synthesize" : "reingest";
+    // Quick edit only applies to the plain /reingest path — a targeted
+    // point-edit, not a roll-up synthesis.
+    const mode = !isSynthesized && action === "quick" ? "quick" : undefined;
     const payload = isSynthesized
       ? {
           seed: seed.trim() || undefined,
@@ -547,6 +567,7 @@ export function IngestPanel({
         }
       : {
           seed: seed.trim() || undefined,
+          mode,
           webexMeetings: selectedList.length > 0 ? selectedList : undefined,
           seedStablePages: isGreenfield ? seedPages : undefined,
         };
@@ -570,7 +591,7 @@ export function IngestPanel({
     } finally {
       setStarting(false);
     }
-  }, [slug, seed, meetings, selectedMeetings, loadRuns, onRunStarted, isGreenfield, seedPages, refreshChildren, isSynthesized]);
+  }, [slug, seed, action, meetings, selectedMeetings, loadRuns, onRunStarted, isGreenfield, seedPages, refreshChildren, isSynthesized]);
 
   // Compaction — an in-place editing pass (tighten prose, fix stale tome:// links).
   // Its own run through the shared lifecycle; shows in the same log + history.
@@ -620,344 +641,8 @@ export function IngestPanel({
         }
       >
 
-          {/* Synthesized entities also show the projects they roll up. */}
-          {isSynthesized && (
-            <div className="rounded-lg border">
-              <div className="flex items-center justify-between border-b px-4 py-2.5">
-                <span className="text-sm font-medium">
-                  Projects in this synthesis{bhagCount !== null ? ` (${bhagCount})` : ""}
-                </span>
-                <a
-                  href={`/projects/${slug}/tome/settings`}
-                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-                >
-                  Manage <ExternalLink className="h-3 w-3" />
-                </a>
-              </div>
-              <div className="px-4 py-3">
-                {projectName ? (
-                  <ChildProjectsPanel
-                    bhagName={projectName}
-                    entityKind={entityKind}
-                    preflight
-                    onCount={setBhagCount}
-                  />
-                ) : (
-                  <p className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading projects…
-                  </p>
-                )}
-              </div>
-              <label className="flex cursor-pointer items-start gap-2 border-t px-4 py-3">
-                <input
-                  type="checkbox"
-                  checked={refreshChildren}
-                  onChange={(e) => setRefreshChildren(e.target.checked)}
-                  className="mt-0.5"
-                />
-                <span className="text-sm">
-                  <span className="font-medium">Re-ingest child projects first</span>
-                  <span className="mt-0.5 block text-xs text-muted-foreground">
-                    Runs a fresh ingest of each project above before synthesizing, so
-                    the roll-up reflects their latest sources. Slower, uses your
-                    connected credentials, and runs a few at a time.
-                  </span>
-                </span>
-              </label>
-            </div>
-          )}
-
-          {/* Sources preflight */}
-          <div className="rounded-lg border">
-            <div className="flex items-center justify-between border-b px-4 py-2.5">
-              <span className="text-sm font-medium">
-                {isSynthesized ? "Attached sources" : "Project sources"}
-              </span>
-              <a
-                href={`/projects/${slug}/tome/settings`}
-                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-              >
-                Edit <ExternalLink className="h-3 w-3" />
-              </a>
-            </div>
-            <ul className="divide-y">
-              {preflightLoading ? (
-                <li className="flex items-center gap-2 px-4 py-3 text-sm text-muted-foreground">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Checking access…
-                </li>
-              ) : !sourceRows || sourceRows.length === 0 ? (
-                <li className="px-4 py-3 text-sm text-muted-foreground">
-                  No sources configured.{" "}
-                  <a href={`/projects/${slug}/tome/settings`} className="underline">
-                    Add sources →
-                  </a>
-                </li>
-              ) : (
-                sourceRows.map((row) => {
-                  const pf = preflight?.find((p) => p.provider === row.kind);
-                  const state = preflightState(pf);
-                  const inaccessible = pf?.inaccessible ?? [];
-                  const accessible = pf?.accessible ?? [];
-                  // green (all ok) / amber (connected, access issues) / red (no token)
-                  const noToken = state === "no_token";
-                  const allOk = state === "ok";
-                  const accessIssue = state === "access_issue";
-
-                  const tooltipText = noToken
-                    ? `${row.label} not connected: the agent will skip this source`
-                    : inaccessible.length > 0
-                      ? `Connected but no access to: ${inaccessible.join(", ")}`
-                      : pf
-                        ? `${row.label}: access confirmed for all sources`
-                        : `${row.label}: access not yet verified`;
-
-                  return (
-                    <li key={row.kind} className="flex items-start gap-3 px-4 py-3">
-                      <TooltipProvider delayDuration={100}>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            {allOk ? (
-                              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 cursor-default text-emerald-500" />
-                            ) : accessIssue ? (
-                              <XCircle className="mt-0.5 h-4 w-4 shrink-0 cursor-default text-amber-500" />
-                            ) : noToken ? (
-                              <XCircle className="mt-0.5 h-4 w-4 shrink-0 cursor-default text-destructive" />
-                            ) : (
-                              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 cursor-default text-muted-foreground" />
-                            )}
-                          </TooltipTrigger>
-                          <TooltipContent side="right" className="max-w-64 whitespace-normal">
-                            {tooltipText}
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                      <div className="min-w-0 flex-1">
-                        <p className="flex items-center gap-1.5 text-sm font-medium">
-                          <ProviderLogo provider={row.connectorKey} className="h-3.5 w-3.5 shrink-0 object-contain" />
-                          {row.label}
-                        </p>
-                        <ul className="mt-1 space-y-1">
-                          {row.items.map((item) => (
-                            <li
-                              key={`${item.label}:${item.detail ?? ""}`}
-                              className="flex min-w-0 items-start gap-1.5 text-xs"
-                            >
-                              <span
-                                aria-hidden="true"
-                                className="mt-[0.45rem] h-1 w-1 shrink-0 rounded-full bg-muted-foreground/60"
-                              />
-                              <span className="min-w-0">
-                                {item.href ? (
-                                  <a
-                                    href={item.href}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="inline-flex items-center gap-1 break-words text-foreground/90 hover:text-primary hover:underline"
-                                  >
-                                    {item.label}
-                                    <ExternalLink className="h-2.5 w-2.5 shrink-0" />
-                                  </a>
-                                ) : (
-                                  <span className="break-words text-foreground/90">
-                                    {item.label}
-                                  </span>
-                                )}
-                                {item.detail ? (
-                                  <span className="block break-words text-[11px] text-muted-foreground">
-                                    {item.detail}
-                                  </span>
-                                ) : null}
-                              </span>
-                            </li>
-                          ))}
-                        </ul>
-                        {inaccessible.length > 0 ? (
-                          <p className="mt-1 text-xs text-amber-500">
-                            No access to {inaccessible.join(", ")}
-                            {accessible.length > 0
-                              ? `; access confirmed for ${accessible.join(", ")}`
-                              : ""}
-                          </p>
-                        ) : null}
-                      </div>
-                      {(noToken || accessIssue) && (
-                        <a
-                          href="/credentials"
-                          className="shrink-0 text-xs text-primary hover:underline"
-                        >
-                          {noToken ? "Connect →" : "Fix access →"}
-                        </a>
-                      )}
-                    </li>
-                  );
-                })
-              )}
-            </ul>
-          </div>
-
-          {/* Add context */}
-          <div className="space-y-3">
-            <p className="text-sm font-medium">Add context for this run</p>
-
-            {/* Webex meeting picker — available to projects and synthesized entities. */}
-            <div className="rounded-lg border">
-              <button
-                type="button"
-                onClick={toggleMeetingsOpen}
-                className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm transition-colors hover:bg-muted"
-              >
-                {meetingsOpen ? (
-                  <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
-                ) : (
-                  <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-                )}
-                <span>Recorded Webex meetings</span>
-                {selectedMeetings.size > 0 && (
-                  <span className="ml-auto rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
-                    {selectedMeetings.size} selected
-                  </span>
-                )}
-              </button>
-
-              {meetingsOpen && (
-                <div className="border-t px-4 pb-3 pt-2">
-                  <p className="mb-2 text-xs text-muted-foreground">
-                    Select meetings to include. The agent will pull whatever is available
-                    (AI summary and/or transcript). Per-run only, not saved to the project.
-                    Webex only exposes meetings you hosted or that have a transcript you can
-                    access; meetings hosted by others may not appear.
-                  </p>
-                  {/* Filter — disabled until meetings load, like the source picker. */}
-                  <div className="relative mb-2">
-                    <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-                    <input
-                      type="text"
-                      placeholder="Filter meetings…"
-                      value={meetingFilter}
-                      onChange={(e) => setMeetingFilter(e.target.value)}
-                      disabled={meetingsLoading || !meetings || meetings.length === 0}
-                      className="w-full rounded-md border bg-background py-1.5 pl-8 pr-3 text-sm outline-none focus:ring-2 focus:ring-ring disabled:opacity-60"
-                    />
-                  </div>
-
-                  {/* Fixed-height scroll region so a long history doesn't blow out
-                      the panel. Skeleton rows while loading (source-picker style). */}
-                  <div className="h-52 overflow-y-auto rounded-md border">
-                    {meetingsLoading ? (
-                      <ul className="divide-y" aria-hidden>
-                        {Array.from({ length: 6 }).map((_, i) => (
-                          <li key={i} className="flex items-center gap-3 px-3 py-2.5">
-                            <span className="h-4 w-4 shrink-0 animate-pulse rounded bg-muted" />
-                            <span className="h-3 flex-1 animate-pulse rounded bg-muted" />
-                            <span className="h-3 w-16 shrink-0 animate-pulse rounded bg-muted" />
-                          </li>
-                        ))}
-                      </ul>
-                    ) : !meetings || meetings.length === 0 ? (
-                      <div className="flex h-full items-center justify-center px-6 text-center text-sm text-muted-foreground">
-                        No meetings found. Connect Webex in
-                        <a href="/credentials" className="mx-1 underline">
-                          /credentials
-                        </a>
-                        if you haven&apos;t.
-                      </div>
-                    ) : filteredMeetings.length === 0 ? (
-                      <div className="flex h-full items-center justify-center px-6 text-center text-sm text-muted-foreground">
-                        No meetings match &ldquo;{meetingFilter}&rdquo;.
-                      </div>
-                    ) : (
-                      <ul className="divide-y">
-                        {filteredMeetings.map((m) => (
-                          <li key={m.id}>
-                            <label className="flex cursor-pointer items-center gap-3 px-3 py-2 text-sm hover:bg-muted">
-                              <input
-                                type="checkbox"
-                                checked={selectedMeetings.has(m.id)}
-                                onChange={() => toggleMeeting(m.id)}
-                                disabled={!canEdit || starting}
-                                className="h-4 w-4 rounded border-input accent-primary"
-                              />
-                              <span className="flex-1 truncate font-medium">{m.title}</span>
-                              <span className="shrink-0 text-xs text-muted-foreground">
-                                {new Date(m.start).toLocaleDateString()}
-                              </span>
-                              <span className="flex shrink-0 items-center gap-1">
-                                <MeetingBadge
-                                  label="Summary"
-                                  available={m.hasSummary}
-                                  unavailableReason="No AI summary: meeting may still be processing"
-                                />
-                                <MeetingBadge
-                                  label="Transcript"
-                                  available={m.hasTranscript}
-                                  unavailableReason="No transcript: Webex Assistant wasn't enabled for this meeting"
-                                />
-                              </span>
-                            </label>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Seed instruction */}
-            <div>
-              <label className="mb-1 block text-sm">
-                Seed instruction{" "}
-                <span className="text-muted-foreground">(optional)</span>
-              </label>
-              <TextareaAutosize
-                value={seed}
-                onChange={(e) => setSeed(e.target.value)}
-                minRows={2}
-                maxRows={6}
-                placeholder={'A one-shot nudge for this run, e.g. "focus on the auth refactor"'}
-                disabled={!canEdit || starting}
-                className="w-full resize-none rounded-md border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring disabled:opacity-60"
-              />
-            </div>
-
-            {/* First ingest — stable-page seeding (greenfield only) */}
-            {isGreenfield && (
-              <div className="rounded-lg border border-emerald-800/30 bg-emerald-950/20 px-4 py-3">
-                <div className="flex items-start gap-3">
-                  <Sprout className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
-                  <div className="flex-1 space-y-2.5">
-                    <div>
-                      <p className="text-sm font-medium text-emerald-300">First ingest</p>
-                      <p className="mt-0.5 text-xs text-muted-foreground">
-                        No previous ingests for this project. The agent will build the wiki from
-                        scratch.
-                      </p>
-                    </div>
-                    <label className="flex cursor-pointer items-start gap-2.5">
-                      <input
-                        type="checkbox"
-                        checked={seedPages}
-                        onChange={(e) => setSeedPages(e.target.checked)}
-                        disabled={!canEdit || starting}
-                        className="mt-0.5 h-4 w-4 rounded border-input accent-primary"
-                      />
-                      <span className="text-sm">
-                        Let the agent draft the stable pages
-                        <span className="mt-0.5 block text-xs text-muted-foreground">
-                          By default Charter, Objectives, and Roadmap stay yours to write. Check this
-                          to let the agent take a best-effort first pass at them from your sources,
-                          clearly marked as a draft. Only safe if a human reviews and edits the
-                          result afterward. The agent can be wrong.
-                        </span>
-                      </span>
-                    </label>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Draft awaiting review */}
+          {/* Draft awaiting review — a blocking state, called out above the
+              card rather than folded into "what do you want to do". */}
           {reviewRun && (
             <div className="rounded-lg border border-amber-800/30 bg-amber-950/20 px-4 py-3">
               <div className="flex flex-wrap items-center gap-3">
@@ -998,69 +683,548 @@ export function IngestPanel({
             </div>
           )}
 
-          {/* Run bar */}
-          <div className="rounded-lg border px-4 py-3">
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-              <ViewOnlyTooltip viewOnly={!canEdit}>
-                <Button
-                  onClick={() => void start()}
-                  disabled={!canEdit || starting || compacting || inProgress || Boolean(reviewRun)}
-                  title={
-                    !canEdit
-                      ? undefined
-                      : reviewRun
-                        ? "Resolve the pending draft review before starting a new run"
-                        : inProgress
-                          ? `An ${isSynthesized ? "ingest and synthesis" : "ingest"} is already running`
-                          : isSynthesized
-                            ? `Ingest sources and synthesize ${entityKind === "area" ? "Area" : "BHAG"}`
-                            : "Run ingest"
-                  }
-                >
-                  {starting ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Play className="h-4 w-4" />
-                  )}
-                  {starting
-                    ? "Starting…"
-                    : isSynthesized
-                      ? "Ingest & synthesize"
-                      : "Run ingest"}
-                </Button>
-              </ViewOnlyTooltip>
-              <ViewOnlyTooltip viewOnly={!canEdit}>
-                <Button
-                  variant="outline"
-                  onClick={() => void compact()}
-                  disabled={
-                    !canEdit ||
-                    starting ||
-                    compacting ||
-                    inProgress ||
-                    isGreenfield ||
-                    Boolean(reviewRun)
-                  }
-                  title={
-                    !canEdit
-                      ? undefined
-                      : reviewRun
-                        ? "Resolve the pending draft review before starting a new run"
-                        : isGreenfield
+          {/* One card holds the whole "what do you want to do?" UX: action
+              tabs on top, contextual sections as flat dividers (no nested
+              boxes — the meeting/sources lists already scroll internally),
+              and the run bar as the card's footer. */}
+          <div className="overflow-hidden rounded-lg border">
+            {/* "What do you want to do?" — action selector. Not shown for BHAG/Area
+                synthesis, which has its own fixed ingest-and-synthesize flow. */}
+            {!isSynthesized && (
+              <TooltipProvider delayDuration={200}>
+                <div className="flex flex-wrap gap-1.5 border-b bg-muted/30 p-2">
+                  {(
+                    [
+                      {
+                        key: "full" as const,
+                        label: "Full ingest",
+                        icon: Sprout,
+                        disabled: false,
+                        title: "Re-run the agent over every attached source",
+                      },
+                      {
+                        key: "quick" as const,
+                        label: "Quick edit",
+                        icon: Zap,
+                        disabled: isGreenfield,
+                        title: isGreenfield
+                          ? "Run a full ingest first — there's nothing to point-edit yet"
+                          : "Make one targeted correction without re-scouring every source",
+                      },
+                      {
+                        key: "meeting" as const,
+                        label: "Ingest meeting",
+                        icon: Video,
+                        disabled: false,
+                        title: "Pull a recorded Webex meeting's summary/transcript into the wiki",
+                      },
+                      {
+                        key: "compact" as const,
+                        label: "Compact",
+                        icon: Scissors,
+                        disabled: isGreenfield,
+                        title: isGreenfield
                           ? "Run an ingest first — there's nothing to compact yet"
+                          : "Tighten the wiki's prose and fix stale links",
+                      },
+                    ] as const
+                  ).map((a) => (
+                    <Tooltip key={a.key}>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          onClick={() => setAction(a.key)}
+                          disabled={a.disabled}
+                          aria-pressed={action === a.key}
+                          className={cn(
+                            "flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors disabled:pointer-events-none disabled:opacity-40",
+                            action === a.key
+                              ? "bg-primary text-primary-foreground"
+                              : "text-muted-foreground hover:bg-background hover:text-foreground",
+                          )}
+                        >
+                          <a.icon className="h-3.5 w-3.5" />
+                          {a.label}
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom" className="text-xs">
+                        {a.title}
+                      </TooltipContent>
+                    </Tooltip>
+                  ))}
+                </div>
+              </TooltipProvider>
+            )}
+
+            <div className="divide-y">
+              {/* Synthesized entities also show the projects they roll up. */}
+              {isSynthesized && (
+                <div className="px-4 py-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium">
+                      Projects in this synthesis{bhagCount !== null ? ` (${bhagCount})` : ""}
+                    </span>
+                    <a
+                      href={`/projects/${slug}/tome/settings`}
+                      className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                    >
+                      Manage <ExternalLink className="h-3 w-3" />
+                    </a>
+                  </div>
+                  <div className="mt-2">
+                    {projectName ? (
+                      <ChildProjectsPanel
+                        bhagName={projectName}
+                        entityKind={entityKind}
+                        preflight
+                        onCount={setBhagCount}
+                      />
+                    ) : (
+                      <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading projects…
+                      </p>
+                    )}
+                  </div>
+                  <label className="mt-3 flex cursor-pointer items-start gap-2 border-t pt-3">
+                    <input
+                      type="checkbox"
+                      checked={refreshChildren}
+                      onChange={(e) => setRefreshChildren(e.target.checked)}
+                      className="mt-0.5"
+                    />
+                    <span className="text-sm">
+                      <span className="font-medium">Re-ingest child projects first</span>
+                      <span className="mt-0.5 block text-xs text-muted-foreground">
+                        Runs a fresh ingest of each project above before synthesizing, so
+                        the roll-up reflects their latest sources. Slower, uses your
+                        connected credentials, and runs a few at a time.
+                      </span>
+                    </span>
+                  </label>
+                </div>
+              )}
+
+              {/* Sources preflight — irrelevant to a point edit or a meeting-only run. */}
+              {(isSynthesized || action === "full") && (
+                <div className="px-4 py-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium">
+                      {isSynthesized ? "Attached sources" : "Project sources"}
+                    </span>
+                    <a
+                      href={`/projects/${slug}/tome/settings`}
+                      className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                    >
+                      Edit <ExternalLink className="h-3 w-3" />
+                    </a>
+                  </div>
+                  <ul className="mt-1 divide-y">
+                    {preflightLoading ? (
+                      <li className="flex items-center gap-2 py-3 text-sm text-muted-foreground">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" /> Checking access…
+                      </li>
+                    ) : !sourceRows || sourceRows.length === 0 ? (
+                      <li className="py-3 text-sm text-muted-foreground">
+                        No sources configured.{" "}
+                        <a href={`/projects/${slug}/tome/settings`} className="underline">
+                          Add sources →
+                        </a>
+                      </li>
+                    ) : (
+                      sourceRows.map((row) => {
+                        const pf = preflight?.find((p) => p.provider === row.kind);
+                        const state = preflightState(pf);
+                        const inaccessible = pf?.inaccessible ?? [];
+                        const accessible = pf?.accessible ?? [];
+                        // green (all ok) / amber (connected, access issues) / red (no token)
+                        const noToken = state === "no_token";
+                        const allOk = state === "ok";
+                        const accessIssue = state === "access_issue";
+
+                        const tooltipText = noToken
+                          ? `${row.label} not connected: the agent will skip this source`
+                          : inaccessible.length > 0
+                            ? `Connected but no access to: ${inaccessible.join(", ")}`
+                            : pf
+                              ? `${row.label}: access confirmed for all sources`
+                              : `${row.label}: access not yet verified`;
+
+                        return (
+                          <li key={row.kind} className="flex items-start gap-3 py-3">
+                            <TooltipProvider delayDuration={100}>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  {allOk ? (
+                                    <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 cursor-default text-emerald-500" />
+                                  ) : accessIssue ? (
+                                    <XCircle className="mt-0.5 h-4 w-4 shrink-0 cursor-default text-amber-500" />
+                                  ) : noToken ? (
+                                    <XCircle className="mt-0.5 h-4 w-4 shrink-0 cursor-default text-destructive" />
+                                  ) : (
+                                    <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 cursor-default text-muted-foreground" />
+                                  )}
+                                </TooltipTrigger>
+                                <TooltipContent side="right" className="max-w-64 whitespace-normal">
+                                  {tooltipText}
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                            <div className="min-w-0 flex-1">
+                              <p className="flex items-center gap-1.5 text-sm font-medium">
+                                <ProviderLogo provider={row.connectorKey} className="h-3.5 w-3.5 shrink-0 object-contain" />
+                                {row.label}
+                              </p>
+                              <ul className="mt-1 space-y-1">
+                                {row.items.map((item) => (
+                                  <li
+                                    key={`${item.label}:${item.detail ?? ""}`}
+                                    className="flex min-w-0 items-start gap-1.5 text-xs"
+                                  >
+                                    <span
+                                      aria-hidden="true"
+                                      className="mt-[0.45rem] h-1 w-1 shrink-0 rounded-full bg-muted-foreground/60"
+                                    />
+                                    <span className="min-w-0">
+                                      {item.href ? (
+                                        <a
+                                          href={item.href}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                          className="inline-flex items-center gap-1 break-words text-foreground/90 hover:text-primary hover:underline"
+                                        >
+                                          {item.label}
+                                          <ExternalLink className="h-2.5 w-2.5 shrink-0" />
+                                        </a>
+                                      ) : (
+                                        <span className="break-words text-foreground/90">
+                                          {item.label}
+                                        </span>
+                                      )}
+                                      {item.detail ? (
+                                        <span className="block break-words text-[11px] text-muted-foreground">
+                                          {item.detail}
+                                        </span>
+                                      ) : null}
+                                    </span>
+                                  </li>
+                                ))}
+                              </ul>
+                              {inaccessible.length > 0 ? (
+                                <p className="mt-1 text-xs text-amber-500">
+                                  No access to {inaccessible.join(", ")}
+                                  {accessible.length > 0
+                                    ? `; access confirmed for ${accessible.join(", ")}`
+                                    : ""}
+                                </p>
+                              ) : null}
+                            </div>
+                            {(noToken || accessIssue) && (
+                              <a
+                                href="/credentials"
+                                className="shrink-0 text-xs text-primary hover:underline"
+                              >
+                                {noToken ? "Connect →" : "Fix access →"}
+                              </a>
+                            )}
+                          </li>
+                        );
+                      })
+                    )}
+                  </ul>
+                </div>
+              )}
+
+              {/* Meeting picker — its own top-level action, or optional add-context
+                  alongside a full ingest. Hidden for quick edit / compact. */}
+              {(isSynthesized || action === "full" || action === "meeting") && (
+                <div className="px-4 py-3">
+                  {action === "meeting" ? (
+                    <div className="flex items-center gap-2 text-sm font-medium">
+                      <span>Recorded Webex meetings</span>
+                      {selectedMeetings.size > 0 && (
+                        <span className="ml-auto rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                          {selectedMeetings.size} selected
+                        </span>
+                      )}
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={toggleMeetingsOpen}
+                      className="flex w-full items-center gap-2 text-left text-sm"
+                    >
+                      {meetingsOpen ? (
+                        <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      ) : (
+                        <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      )}
+                      <span className="font-medium">Add context: recorded Webex meetings</span>
+                      {selectedMeetings.size > 0 && (
+                        <span className="ml-auto rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                          {selectedMeetings.size} selected
+                        </span>
+                      )}
+                    </button>
+                  )}
+
+                  {meetingsOpen && (
+                    <div className="mt-2">
+                      <p className="mb-2 text-xs text-muted-foreground">
+                        Select meetings to include. The agent will pull whatever is available
+                        (AI summary and/or transcript). Per-run only, not saved to the project.
+                        Webex only exposes meetings you hosted or that have a transcript you can
+                        access; meetings hosted by others may not appear.
+                      </p>
+                      {/* Filter — disabled until meetings load, like the source picker. */}
+                      <div className="relative mb-2">
+                        <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                        <input
+                          type="text"
+                          placeholder="Filter meetings…"
+                          value={meetingFilter}
+                          onChange={(e) => setMeetingFilter(e.target.value)}
+                          disabled={meetingsLoading || !meetings || meetings.length === 0}
+                          className="w-full rounded-md border bg-background py-1.5 pl-8 pr-3 text-sm outline-none focus:ring-2 focus:ring-ring disabled:opacity-60"
+                        />
+                      </div>
+
+                      {/* Fixed-height scroll region so a long history doesn't blow out
+                          the panel — this is the one nested border, functional (marks the
+                          scroll boundary), not decorative. Skeleton rows while loading. */}
+                      <div className="h-52 overflow-y-auto rounded-md border">
+                        {meetingsLoading ? (
+                          <ul className="divide-y" aria-hidden>
+                            {Array.from({ length: 6 }).map((_, i) => (
+                              <li key={i} className="flex items-center gap-3 px-3 py-2.5">
+                                <span className="h-4 w-4 shrink-0 animate-pulse rounded bg-muted" />
+                                <span className="h-3 flex-1 animate-pulse rounded bg-muted" />
+                                <span className="h-3 w-16 shrink-0 animate-pulse rounded bg-muted" />
+                              </li>
+                            ))}
+                          </ul>
+                        ) : !meetings || meetings.length === 0 ? (
+                          <div className="flex h-full items-center justify-center px-6 text-center text-sm text-muted-foreground">
+                            No meetings found. Connect Webex in
+                            <a href="/credentials" className="mx-1 underline">
+                              /credentials
+                            </a>
+                            if you haven&apos;t.
+                          </div>
+                        ) : filteredMeetings.length === 0 ? (
+                          <div className="flex h-full items-center justify-center px-6 text-center text-sm text-muted-foreground">
+                            No meetings match &ldquo;{meetingFilter}&rdquo;.
+                          </div>
+                        ) : (
+                          <ul className="divide-y">
+                            {filteredMeetings.map((m) => (
+                              <li key={m.id}>
+                                <label className="flex cursor-pointer items-center gap-3 px-3 py-2 text-sm hover:bg-muted">
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedMeetings.has(m.id)}
+                                    onChange={() => toggleMeeting(m.id)}
+                                    disabled={!canEdit || starting}
+                                    className="h-4 w-4 rounded border-input accent-primary"
+                                  />
+                                  <span className="flex-1 truncate font-medium">{m.title}</span>
+                                  <span className="shrink-0 text-xs text-muted-foreground">
+                                    {new Date(m.start).toLocaleDateString()}
+                                  </span>
+                                  <span className="flex shrink-0 items-center gap-1">
+                                    <MeetingBadge
+                                      label="Summary"
+                                      available={m.hasSummary}
+                                      unavailableReason="No AI summary: meeting may still be processing"
+                                    />
+                                    <MeetingBadge
+                                      label="Transcript"
+                                      available={m.hasTranscript}
+                                      unavailableReason="No transcript: Webex Assistant wasn't enabled for this meeting"
+                                    />
+                                  </span>
+                                </label>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Seed instruction — always shown; copy adapts to the selected action.
+                  Hidden for compact, which doesn't take one. */}
+              {action !== "compact" && (
+                <div className="px-4 py-3">
+                  <label className="mb-1 block text-sm">
+                    {action === "quick" ? "What needs to change" : "Seed instruction"}{" "}
+                    <span className="text-muted-foreground">
+                      {action === "quick" ? "" : "(optional)"}
+                    </span>
+                  </label>
+                  <TextareaAutosize
+                    value={seed}
+                    onChange={(e) => setSeed(e.target.value)}
+                    minRows={2}
+                    maxRows={6}
+                    placeholder={
+                      action === "quick"
+                        ? 'Describe the one correction to make, e.g. "the architecture page says we still use EC2 — we moved to k8s last quarter"'
+                        : action === "meeting"
+                          ? 'Optional steering for how the meeting should be folded in, e.g. "focus on the decisions, skip small talk"'
+                          : 'A one-shot nudge for this run, e.g. "focus on the auth refactor"'
+                    }
+                    disabled={!canEdit || starting}
+                    className="w-full resize-none rounded-md border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring disabled:opacity-60"
+                  />
+                </div>
+              )}
+
+              {/* First ingest — stable-page seeding (greenfield only) */}
+              {(isSynthesized || action === "full") && isGreenfield && (
+                <div className="bg-emerald-950/20 px-4 py-3">
+                  <div className="flex items-start gap-3">
+                    <Sprout className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
+                    <div className="flex-1 space-y-2.5">
+                      <div>
+                        <p className="text-sm font-medium text-emerald-300">First ingest</p>
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          No previous ingests for this project. The agent will build the wiki from
+                          scratch.
+                        </p>
+                      </div>
+                      <label className="flex cursor-pointer items-start gap-2.5">
+                        <input
+                          type="checkbox"
+                          checked={seedPages}
+                          onChange={(e) => setSeedPages(e.target.checked)}
+                          disabled={!canEdit || starting}
+                          className="mt-0.5 h-4 w-4 rounded border-input accent-primary"
+                        />
+                        <span className="text-sm">
+                          Let the agent draft the stable pages
+                          <span className="mt-0.5 block text-xs text-muted-foreground">
+                            By default Charter, Objectives, and Roadmap stay yours to write. Check this
+                            to let the agent take a best-effort first pass at them from your sources,
+                            clearly marked as a draft. Only safe if a human reviews and edits the
+                            result afterward. The agent can be wrong.
+                          </span>
+                        </span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Run bar — the card's footer, not another floating box. */}
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t bg-muted/30 px-4 py-3">
+              {isSynthesized ? (
+                <>
+                  <ViewOnlyTooltip viewOnly={!canEdit}>
+                    <Button
+                      onClick={() => void start()}
+                      disabled={!canEdit || starting || compacting || inProgress || Boolean(reviewRun)}
+                      title={
+                        !canEdit
+                          ? undefined
+                          : reviewRun
+                            ? "Resolve the pending draft review before starting a new run"
+                            : inProgress
+                              ? "An ingest and synthesis is already running"
+                              : `Ingest sources and synthesize ${entityKind === "area" ? "Area" : "BHAG"}`
+                      }
+                    >
+                      {starting ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Play className="h-4 w-4" />
+                      )}
+                      {starting ? "Starting…" : "Ingest & synthesize"}
+                    </Button>
+                  </ViewOnlyTooltip>
+                  <ViewOnlyTooltip viewOnly={!canEdit}>
+                    <Button
+                      variant="outline"
+                      onClick={() => void compact()}
+                      disabled={
+                        !canEdit || starting || compacting || inProgress || isGreenfield || Boolean(reviewRun)
+                      }
+                      title={
+                        !canEdit
+                          ? undefined
+                          : reviewRun
+                            ? "Resolve the pending draft review before starting a new run"
+                            : isGreenfield
+                              ? "Run an ingest first — there's nothing to compact yet"
+                              : inProgress
+                                ? "A run is already in progress"
+                                : "Tighten the wiki's prose and fix stale links"
+                      }
+                    >
+                      {compacting ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Scissors className="h-4 w-4" />
+                      )}
+                      {compacting ? "Compacting…" : "Compact"}
+                    </Button>
+                  </ViewOnlyTooltip>
+                </>
+              ) : (
+                <ViewOnlyTooltip viewOnly={!canEdit}>
+                  <Button
+                    onClick={() => void (action === "compact" ? compact() : start())}
+                    disabled={
+                      !canEdit ||
+                      starting ||
+                      compacting ||
+                      inProgress ||
+                      Boolean(reviewRun) ||
+                      (action === "meeting" && selectedMeetings.size === 0)
+                    }
+                    title={
+                      !canEdit
+                        ? undefined
+                        : reviewRun
+                          ? "Resolve the pending draft review before starting a new run"
                           : inProgress
                             ? "A run is already in progress"
-                            : "Tighten the wiki's prose and fix stale links"
-                  }
-                >
-                  {compacting ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Scissors className="h-4 w-4" />
-                  )}
-                  {compacting ? "Compacting…" : "Compact"}
-                </Button>
-              </ViewOnlyTooltip>
+                            : action === "meeting" && selectedMeetings.size === 0
+                              ? "Select at least one meeting"
+                              : action === "quick"
+                                ? "Make one targeted correction without re-scouring every source"
+                                : action === "compact"
+                                  ? "Tighten the wiki's prose and fix stale links"
+                                  : "Re-run the agent over every attached source"
+                    }
+                  >
+                    {starting || compacting ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : action === "compact" ? (
+                      <Scissors className="h-4 w-4" />
+                    ) : action === "quick" ? (
+                      <Zap className="h-4 w-4" />
+                    ) : action === "meeting" ? (
+                      <Video className="h-4 w-4" />
+                    ) : (
+                      <Play className="h-4 w-4" />
+                    )}
+                    {starting
+                      ? "Starting…"
+                      : compacting
+                        ? "Compacting…"
+                        : action === "quick"
+                          ? "Run quick edit"
+                          : action === "meeting"
+                            ? "Ingest meeting"
+                            : action === "compact"
+                              ? "Compact"
+                              : "Run ingest"}
+                  </Button>
+                </ViewOnlyTooltip>
+              )}
               {inProgress && (
                 <Button
                   variant="destructive"
@@ -1108,7 +1272,11 @@ export function IngestPanel({
                 )}
               </div>
             </div>
-            {error && <p className="mt-2 text-sm text-destructive">{error}</p>}
+            {error && (
+              <p className="border-t bg-destructive/10 px-4 py-2 text-sm text-destructive">
+                {error}
+              </p>
+            )}
           </div>
       </PanelShell>
 

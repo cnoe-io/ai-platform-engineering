@@ -211,6 +211,7 @@ async def ingest_endpoint(body: IngestRequest):
                     is_greenfield=body.is_greenfield,
                     seed_stable_pages=body.seed_stable_pages,
                     report_id=body.report_id,
+                    quick=body.mode == "quick" and not body.is_greenfield,
                 ):
                     yield _sse_format(event)
             success = True

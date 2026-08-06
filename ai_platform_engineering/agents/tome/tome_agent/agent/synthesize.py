@@ -36,7 +36,7 @@ from tome_agent.reports import schema as report_schema
 log = logging.getLogger("tome_agent.agent.synthesize")
 
 SYNTHESIS_MODEL_DEFAULT = "claude-haiku-4-5"
-MAX_TURNS = 60
+MAX_TURNS = 100
 
 
 def _synthesis_model() -> str:

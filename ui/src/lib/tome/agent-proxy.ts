@@ -157,6 +157,12 @@ export interface AgentIngestRequest {
   snapshot: ProjectSnapshot;
   is_greenfield: boolean;
   /**
+   * "quick" skips the breadth-first source sweep: the agent takes `seed` at
+   * face value and makes the targeted edit it describes. Default "full".
+   * Greenfield runs always use "full" regardless of what's sent here.
+   */
+  mode: "full" | "quick";
+  /**
    * Opt-in (default false), greenfield only. Authorizes the agent to write a
    * best-effort DRAFT into the stable pages (charter/objectives/roadmap).
    * When false, stable pages stay human-owned and untouched.
@@ -420,6 +426,7 @@ export function buildIngestRequest(
     reportId: string;
     seed: string | null;
     isGreenfield: boolean;
+    mode?: "full" | "quick";
     connectorData?: Record<string, unknown>;
     credentials?: ForwardedCredentials;
     seedStablePages?: boolean;
@@ -443,6 +450,7 @@ export function buildIngestRequest(
     connector_data: opts.connectorData ?? {},
     snapshot,
     is_greenfield: opts.isGreenfield,
+    mode: opts.isGreenfield ? "full" : (opts.mode ?? "full"),
     seed_stable_pages: opts.seedStablePages ?? false,
     credentials: opts.credentials ?? {},
   };

@@ -917,11 +917,12 @@ const TOOLS: ToolDef[] = [
   {
     name: "tome_reingest",
     description:
-      "Kick off a (re)ingest run for a project, rebuilding its wiki from the attached sources. `project_slug` is required; `seed` is an optional steering hint; `webex_meetings` is an optional array of `{id, title, start}` objects (from `tome_list_webex_meetings`) whose transcripts and AI summaries should be included in this run. By default the run's page changes land in a draft state pending human review (see `tome_get_ingest_log` for status `awaiting_review`, and `tome_approve_ingest_draft`/`tome_reject_ingest_draft` to resolve it) — pass `skip_review: true` to publish straight to live, bypassing review entirely. Returns the new run id.",
+      "Kick off a (re)ingest run for a project, rebuilding its wiki from the attached sources. `project_slug` is required; `seed` is an optional steering hint; `webex_meetings` is an optional array of `{id, title, start}` objects (from `tome_list_webex_meetings`) whose transcripts and AI summaries should be included in this run. `mode: \"quick\"` skips the full breadth-first source sweep — use it when `seed` describes one targeted correction (e.g. \"the architecture page is wrong about X, fix it\") rather than a general refresh; the agent takes the seed at face value and makes just that edit instead of re-scouring every source. Not available on the first ingest for a project (nothing to point-edit yet) — omit or pass `mode: \"full\"` for a normal reingest. By default the run's page changes land in a draft state pending human review (see `tome_get_ingest_log` for status `awaiting_review`, and `tome_approve_ingest_draft`/`tome_reject_ingest_draft` to resolve it) — pass `skip_review: true` to publish straight to live, bypassing review entirely. Returns the new run id.",
     inputSchema: schema(
       {
         project_slug: STR,
         seed: STR,
+        mode: { type: "string", enum: ["full", "quick"] },
         webex_meetings: {
           type: "array",
           items: {
@@ -939,6 +940,7 @@ const TOOLS: ToolDef[] = [
       const slug = encodeURIComponent(String(args.project_slug));
       const body: Record<string, unknown> = {};
       if (args.seed) body.seed = String(args.seed);
+      if (args.mode === "quick" || args.mode === "full") body.mode = args.mode;
       if (Array.isArray(args.webex_meetings) && args.webex_meetings.length > 0) {
         body.webexMeetings = args.webex_meetings;
       }

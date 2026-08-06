@@ -306,6 +306,7 @@ async function prepareRun(
     reportId,
     seed: dispatch.seed?.trim() || null,
     isGreenfield,
+    mode: dispatch.mode,
     connectorData,
     credentials,
     seedStablePages: isGreenfield && dispatch.seedStablePages === true,
@@ -342,6 +343,7 @@ export async function startIngestRun(
   ctx: TomeProjectContext,
   opts: {
     seed?: string | null;
+    mode?: "full" | "quick";
     webexMeetings?: { id: string; title: string; start: string }[];
     seedStablePages?: boolean;
     agentEndpoint?: string;
@@ -360,6 +362,7 @@ export async function startIngestRun(
     dispatch: {
       endpoint: opts.agentEndpoint ?? "/ingest",
       seed: opts.seed ?? null,
+      mode: opts.mode,
       seedStablePages: opts.seedStablePages,
       webexMeetings: opts.webexMeetings,
       skipReview: opts.skipReview,

@@ -153,6 +153,8 @@ export interface IngestDispatch {
   /** Agent endpoint: "/ingest" (source pull) or "/synthesize" (BHAG roll-up). */
   endpoint: string;
   seed?: string | null;
+  /** "quick" skips the breadth-first source sweep. Default "full". */
+  mode?: "full" | "quick";
   seedStablePages?: boolean;
   webexMeetings?: { id: string; title: string; start: string }[];
   /**

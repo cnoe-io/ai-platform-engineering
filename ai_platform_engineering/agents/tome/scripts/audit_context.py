@@ -119,16 +119,22 @@ def _tokens_est(text: str) -> int:
     return _chars(text) // _CHARS_PER_TOKEN
 
 
-def _connector_breakdown(snapshot: ProjectSnapshot) -> list[dict[str, object]]:
+def _connector_breakdown(
+    snapshot: ProjectSnapshot, quick: bool = False
+) -> list[dict[str, object]]:
     """Per-connector system_prompt_block / citation_guidance /
     deep_research_guidance sizes for this snapshot, mirroring exactly what
-    `_build_system_prompt` / `_build_synthesis_system_prompt` assemble."""
+    `_build_system_prompt` / `_build_synthesis_system_prompt` assemble.
+
+    `quick=True` mirrors ingestor.py's quick-mode branch, which omits
+    deep_research_guidance entirely — that's the whole point of quick mode,
+    so its accounting should reflect the omission, not just note it."""
     rows: list[dict[str, object]] = []
     for connector in REGISTRY:
         sources = sources_for_connector(snapshot, connector)
         block = connector.system_prompt_block(sources)
         citation = connector.citation_guidance(sources)
-        research = connector.deep_research_guidance(sources)
+        research = "" if quick else connector.deep_research_guidance(sources)
         rows.append(
             {
                 "source": f"connector:{connector.slug}",
@@ -136,6 +142,7 @@ def _connector_breakdown(snapshot: ProjectSnapshot) -> list[dict[str, object]]:
                 "detail": (
                     f"prompt_block={_chars(block)} citation={_chars(citation)} "
                     f"deep_research={_chars(research)}"
+                    + (" (omitted: quick mode)" if quick else "")
                 ),
             }
         )
@@ -261,16 +268,19 @@ def main() -> None:
     bhag_snapshot = _fixture_snapshot("bhag")
 
     ingest_prompt = _build_system_prompt(project_snapshot, is_greenfield=True, seed_stable_pages=True)
+    quick_prompt = _build_system_prompt(project_snapshot, is_greenfield=False, quick=True)
     synthesis_prompt = _build_synthesis_system_prompt(
         bhag_snapshot, is_greenfield=True, seed_stable_pages=True
     )
 
     ingest_rows = _base_doctrine_breakdown() + _connector_breakdown(project_snapshot)
+    quick_rows = _base_doctrine_breakdown() + _connector_breakdown(project_snapshot, quick=True)
     synthesis_rows = _base_doctrine_breakdown() + _connector_breakdown(bhag_snapshot)
     skills_rows = _skills_breakdown()
     claude_md_rows = _claude_md_breakdown()
 
     _print_table("Ingest system prompt (per-source)", ingest_rows)
+    _print_table("Quick-edit system prompt (per-source, deep-research omitted)", quick_rows)
     _print_table("BHAG/Area synthesis system prompt (per-source)", synthesis_rows)
     _print_table("Skills pulled in via skills=\"all\"", skills_rows)
     if claude_md_rows:
@@ -282,6 +292,7 @@ def main() -> None:
 
     totals = {
         "ingest_prompt_chars": _chars(ingest_prompt),
+        "quick_prompt_chars": _chars(quick_prompt),
         "synthesis_prompt_chars": _chars(synthesis_prompt),
         "skills_chars_total": sum(int(r["chars"]) for r in skills_rows),
         "skills_irrelevant_count": sum(
@@ -294,8 +305,10 @@ def main() -> None:
     for key, value in totals.items():
         print(f"  {key}: {value:,}")
 
-    warnings = _grounding_check(ingest_prompt, "ingest") + _grounding_check(
-        synthesis_prompt, "synthesis"
+    warnings = (
+        _grounding_check(ingest_prompt, "ingest")
+        + _grounding_check(quick_prompt, "quick")
+        + _grounding_check(synthesis_prompt, "synthesis")
     )
     if warnings:
         print("\n=== Grounding/anti-fabrication check ===")

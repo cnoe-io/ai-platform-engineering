@@ -35,7 +35,7 @@ from tome_agent.reports import schema as report_schema
 log = logging.getLogger("tome_agent.agent.ingestor")
 
 INGEST_MODEL_DEFAULT = "claude-haiku-4-5"
-MAX_TURNS = 60
+MAX_TURNS = 100
 
 
 def _ingest_model() -> str:
@@ -132,6 +132,7 @@ def _build_system_prompt(
     connector_extras: dict[str, Any] | None = None,
     seed_stable_pages: bool = False,
     template_note: str = "",
+    quick: bool = False,
 ) -> str:
     """Compose the ingest agent's system prompt by iterating REGISTRY."""
     # Forced, unconditional: the full template (path/kind/title + seed body/
@@ -159,9 +160,12 @@ def _build_system_prompt(
         citation = connector.citation_guidance(sources)
         if citation:
             citation_guidance_blocks.append(citation)
-        research = connector.deep_research_guidance(sources)
-        if research:
-            deep_research_blocks.append(research)
+        # Quick mode is the deliberate opt-out of the breadth-first sweep this
+        # guidance drives — omitting it is what keeps the run cheap.
+        if not quick:
+            research = connector.deep_research_guidance(sources)
+            if research:
+                deep_research_blocks.append(research)
 
     steering_block = ""
     if steering:
@@ -212,7 +216,19 @@ def _build_system_prompt(
     #     first-pass DRAFT — read each, then overwrite with sourced content,
     #     clearly framed as an agent draft for human review.
     stable_paths = ", ".join(f"`{p}`" for p in report_schema.default_stable_paths())
-    if not is_greenfield:
+    if quick and not is_greenfield:
+        mode_block = (
+            "MODE: QUICK EDIT. The team asked for one targeted correction, not a full "
+            "reingest — do NOT run the breadth-first source sweep. Take the seed "
+            "instruction below at face value: it names (or clearly implies) the specific "
+            "page(s) and change needed. Read only those page(s) plus whatever single "
+            "resource the seed explicitly references (a PR, a doc, a specific file) — "
+            "skip list_*/search connector calls and any deep-research tool use. Make the "
+            "edit, then stop. If the seed is too vague to point at a specific page, make "
+            "your best guess from the page titles/paths you already know rather than "
+            "widening into a source sweep to figure it out."
+        )
+    elif not is_greenfield:
         mode_block = (
             "MODE: INCREMENTAL. Apply the page-kind rules above against the existing pages. "
             "Read every page first; rewrite dynamic/report pages, preserve stable/hidden."

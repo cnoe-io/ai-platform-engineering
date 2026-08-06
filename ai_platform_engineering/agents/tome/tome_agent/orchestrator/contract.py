@@ -148,6 +148,11 @@ class IngestRequest(BaseModel):
     connector_data: dict[str, Any] = Field(default_factory=dict)
     snapshot: ProjectSnapshot
     is_greenfield: bool
+    mode: Literal["full", "quick"] = "full"
+    """"quick" skips the breadth-first source sweep and deep-research tool
+    budget: the agent takes `seed` at face value and makes the targeted edit
+    it describes, grounded by a few reads rather than a full research pass.
+    Greenfield runs always use "full" — there's nothing to point-edit yet."""
     seed_stable_pages: bool = False
     """Opt-in (default false), greenfield only. When true the agent writes a
     best-effort DRAFT into the stable pages (charter/objectives/roadmap),

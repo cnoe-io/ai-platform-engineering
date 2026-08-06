@@ -38,6 +38,7 @@ export const POST = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
 
   const body = (await request.json().catch(() => ({}))) as {
     seed?: string;
+    mode?: "full" | "quick";
     webexMeetings?: { id: string; title: string; start: string }[];
     seedStablePages?: boolean;
     skipReview?: boolean;
@@ -46,6 +47,7 @@ export const POST = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
   try {
     const { runId } = await startIngestRun(tctx, {
       seed: body.seed ?? null,
+      mode: body.mode,
       webexMeetings: body.webexMeetings,
       seedStablePages: body.seedStablePages,
       skipReview: body.skipReview,
@@ -54,7 +56,7 @@ export const POST = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
       action: "tome.ingest.trigger",
       actor: tomeActorFromAuth({ user: tctx.user, session: tctx.session }),
       projectSlug: slug,
-      metadata: { run_id: runId, seeded: Boolean(body.seed) },
+      metadata: { run_id: runId, seeded: Boolean(body.seed), mode: body.mode ?? "full" },
     });
     return successResponse({ runId });
   } catch (e) {
