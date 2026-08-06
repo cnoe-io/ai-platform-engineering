@@ -16,6 +16,16 @@ import {
 import { getPageStore } from "./page-store";
 import { getPageTemplate } from "./page-templates-store";
 
+/** Select only founding templates whose live page does not already exist. */
+export function missingPageTemplates(
+  templates: Record<string, string>,
+  existing: Record<string, string>,
+): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(templates).filter(([path]) => !(path in existing)),
+  );
+}
+
 /**
  * Build the initial `{path: markdown}` for a fresh project from the live
  * top-level template config (admin-editable; falls back to the hardcoded

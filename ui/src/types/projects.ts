@@ -161,12 +161,29 @@ export interface WebexRoomSource {
 }
 
 /**
+ * One attached GitHub repository. `id` is the durable identity returned by
+ * GitHub; names, URLs, and the default branch are canonical metadata refreshed
+ * before every Tome ingest because all three can change over the repository's
+ * lifetime.
+ */
+export interface GitHubRepositorySource {
+  id?: number;
+  node_id?: string;
+  full_name: string;
+  html_url: string;
+  default_branch?: string;
+}
+
+/**
  * User-supplied data sources for a project (collected at onboarding and
  * editable later). Forwarded to connected external apps so they can
  * ingest the repo/space/components.
  */
 export interface ProjectSources {
+  /** @deprecated Compatibility mirror of `github_repos[].html_url`. */
   repos?: string[]; // GitHub repo URLs / owner/name
+  /** GitHub repositories with stable identities and canonical metadata. */
+  github_repos?: GitHubRepositorySource[];
   confluence_url?: string; // Confluence space or page URL (legacy free-form)
   /** Selected page roots within the attached Confluence space. */
   confluence_page_scopes?: ConfluencePageScope[];

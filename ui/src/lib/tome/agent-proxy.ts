@@ -9,6 +9,10 @@
  */
 
 import { collectForwardedCredentials } from "@/lib/projects/onboarding-providers";
+import {
+  githubRepoSlug,
+  githubSourceFromValue,
+} from "@/lib/projects/github-repository";
 import { webexRoomSlug } from "@/lib/projects/webex-room";
 
 import { resolveAreaChildren, resolveBhagChildren } from "./bhag";
@@ -70,6 +74,7 @@ export async function resolveForwardedCredentials(
 
 /** RepoSnapshot — mirrors contract.RepoSnapshot. */
 interface RepoSnapshot {
+  repo_id?: number;
   slug: string;
   url: string;
   default_branch: string;
@@ -178,18 +183,19 @@ function projectWebexRooms(project: ProjectDocument): WebexRoomSnapshot[] {
   return (project.sources?.webex_rooms ?? []).map(toWebexRoomSnapshot);
 }
 
-/** Derive a short slug from a repo URL or `owner/name` string. */
-function repoSlug(repo: string): string {
-  const trimmed = repo.replace(/\.git$/, "").replace(/\/$/, "");
-  const parts = trimmed.split("/").filter(Boolean);
-  return parts[parts.length - 1] || trimmed;
-}
-
-function toRepoSnapshot(repo: string): RepoSnapshot {
-  const url = /^https?:\/\//.test(repo)
-    ? repo
-    : `https://github.com/${repo.replace(/^\/+/, "")}`;
-  return { slug: repoSlug(repo), url, default_branch: "main" };
+function toRepoSnapshot(
+  repo: NonNullable<ProjectDocument["sources"]>["github_repos"] extends
+    | (infer Item)[]
+    | undefined
+    ? Item
+    : never,
+): RepoSnapshot {
+  return {
+    ...(typeof repo.id === "number" ? { repo_id: repo.id } : {}),
+    slug: githubRepoSlug(repo),
+    url: repo.html_url,
+    default_branch: repo.default_branch || "main",
+  };
 }
 
 function toConfluenceSpaceSnapshot(
@@ -322,6 +328,9 @@ function projectConfluenceSpaces(
 export function buildSnapshotFromProject(
   project: ProjectDocument & { _id: string },
 ): ProjectSnapshot {
+  const repos = project.sources?.github_repos?.length
+    ? project.sources.github_repos
+    : (project.sources?.repos ?? []).map(githubSourceFromValue);
   return {
     project_id: project._id,
     slug: project.slug,
@@ -330,7 +339,7 @@ export function buildSnapshotFromProject(
     phase: null,
     cadence: null,
     project_type: project.type ?? "project",
-    repos: (project.sources?.repos ?? []).map(toRepoSnapshot),
+    repos: repos.map(toRepoSnapshot),
     webex_rooms: projectWebexRooms(project),
     confluence_spaces: projectConfluenceSpaces(project),
     child_projects: [],

@@ -24,6 +24,7 @@ import {
   resolveCredentialsForSub,
   sessionSub,
 } from "./agent-proxy";
+import { reconcileGitHubSourcesForIngest } from "./github-source-reconciliation";
 import {
   dispatchLine,
   formatIngestEvent,
@@ -32,7 +33,7 @@ import {
 } from "./ingest-format";
 import { parseFrontmatter } from "./schema";
 import { getStableSeedTemplates } from "./page-templates-store";
-import { injectCharterIntro } from "./seed";
+import { injectCharterIntro, missingPageTemplates } from "./seed";
 import { auditTome } from "./audit";
 import { isMyceliumConfigured, postEvent } from "./mycelium";
 import type { TomeProjectContext } from "./tome-api";
@@ -179,12 +180,23 @@ async function seedGreenfieldStablePages(
   reportId: string,
   runId: string,
 ): Promise<void> {
-  const seeds: Record<string, string> = await getStableSeedTemplates();
+  const templates: Record<string, string> = await getStableSeedTemplates();
+  const store = await getPageStore();
+  const existing = await store.listPages(project._id);
+  // A wiki can be seeded or edited before its first ingest report exists. A
+  // report-based "greenfield" signal must never overwrite those live pages.
+  const seeds = missingPageTemplates(templates, existing);
   const desc = (project.description ?? "").trim();
   if (desc && seeds["charter.md"]) {
     seeds["charter.md"] = injectCharterIntro(seeds["charter.md"], desc);
   }
-  const store = await getPageStore();
+  if (Object.keys(seeds).length === 0) {
+    await appendLog(
+      runId,
+      infoLine("preserved existing stable pages; no founding templates were written"),
+    );
+    return;
+  }
   await store.writePages(project._id, seeds, {
     message: "seed stable pages (founding templates)",
     author: "tome-ingest",
@@ -213,7 +225,7 @@ async function prepareRun(
   if (!run) throw new Error(`run ${runId} not found`);
   const projectId = run.project_id;
   const reportId = run.report_id ?? randomUUID();
-  const project = await loadProjectById(projectId);
+  let project = await loadProjectById(projectId);
   if (!project) throw new Error(`project ${projectId} not found`);
 
   const dispatch: IngestDispatch = run.dispatch ?? { endpoint: "/ingest" };
@@ -226,6 +238,25 @@ async function prepareRun(
 
   // The original request session is gone by now; re-resolve from the stored sub.
   const credentials = await resolveCredentialsForSub(run.triggered_by_sub ?? "");
+  const githubReconciliation = await reconcileGitHubSourcesForIngest(
+    project,
+    credentials,
+  );
+  project = githubReconciliation.project;
+  for (const rename of githubReconciliation.canonicalized) {
+    await appendLog(
+      runId,
+      infoLine(`GitHub source renamed: ${rename.from} → ${rename.to}`),
+    );
+  }
+  if (githubReconciliation.tombstonedPaths.length > 0) {
+    await appendLog(
+      runId,
+      infoLine(
+        `tombstoned ${githubReconciliation.tombstonedPaths.length} obsolete GitHub source page(s); revision history preserved`,
+      ),
+    );
+  }
 
   const meetings = dispatch.webexMeetings ?? [];
   const connectorData: Record<string, unknown> =

@@ -12,6 +12,7 @@ import {
   ExternalLink,
   Layers,
   Loader2,
+  RefreshCw,
   ShieldCheck,
   TriangleAlert,
 } from "lucide-react";
@@ -100,9 +101,11 @@ interface TomeRbacConfiguration {
 export function ProjectSettingsPanel({
   slug,
   onSaved,
+  onOpenIngest,
 }: {
   slug: string;
   onSaved?: (project: ProjectDocument) => void;
+  onOpenIngest?: () => void;
 }) {
   const router = useRouter();
   const { kinds: sourceKinds, loading: sourceKindsLoading } = useProjectSourceKinds();
@@ -937,13 +940,38 @@ export function ProjectSettingsPanel({
                       No source connectors are configured for this deployment.
                     </p>
                   ) : (
-                    <AutosavingSourcesEditor
-                      slug={slug}
-                      kinds={sourceKinds}
-                      value={sources}
-                      onChange={setSources}
-                      onSaved={onSaved}
-                    />
+                    <>
+                      <AutosavingSourcesEditor
+                        slug={slug}
+                        kinds={sourceKinds}
+                        value={sources}
+                        onChange={setSources}
+                        onSaved={onSaved}
+                      />
+                      {onOpenIngest && (
+                        <div className="flex flex-col gap-3 rounded-lg border border-primary/25 bg-primary/5 p-4 sm:flex-row sm:items-center sm:justify-between">
+                          <div>
+                            <p className="text-sm font-medium">
+                              Source changes apply on the next run
+                            </p>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              {isSynthesized
+                                ? `Ingest the attached sources, then synthesize them with this ${projectKind}'s tagged project wikis.`
+                                : "Ingest the attached sources to refresh this project's wiki."}
+                            </p>
+                          </div>
+                          <Button
+                            type="button"
+                            size="sm"
+                            onClick={onOpenIngest}
+                            className="shrink-0"
+                          >
+                            <RefreshCw className="h-3.5 w-3.5" />
+                            {isSynthesized ? "Ingest & synthesize" : "Run ingest"}
+                          </Button>
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               </TabsContent>

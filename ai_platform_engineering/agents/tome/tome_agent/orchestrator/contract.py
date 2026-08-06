@@ -30,6 +30,7 @@ from pydantic import BaseModel, Field
 
 
 class RepoSnapshot(BaseModel):
+    repo_id: int | None = None
     slug: str
     url: str
     default_branch: str = "main"

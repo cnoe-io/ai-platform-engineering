@@ -188,7 +188,7 @@ test.describe("Tome data-steward RBAC (live OpenFGA)", () => {
         { waitUntil: "domcontentloaded" },
       );
       await dismissTomeOnboarding(page);
-      const runLabel = project?.type === "project" ? "Run ingest" : "Synthesize";
+      const runLabel = project?.type === "project" ? "Run ingest" : "Ingest & synthesize";
       const runButton = page.getByRole("main").getByRole("button", {
         name: runLabel,
         exact: true,

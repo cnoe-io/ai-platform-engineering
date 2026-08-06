@@ -14,10 +14,12 @@ import {
 } from "@/lib/api-middleware";
 import { getProviderConnectionService } from "@/lib/credentials/oauth-service-factory";
 import { getCredentialFeatureConfig } from "@/lib/feature-flags/credentials";
+import type { GitHubRepositorySource } from "@/types/projects";
 
 interface SourceOption {
   value: string;
   label: string;
+  github_repo?: GitHubRepositorySource;
 }
 
 const GH_HEADERS = (token: string) => ({
@@ -26,16 +28,33 @@ const GH_HEADERS = (token: string) => ({
   "X-GitHub-Api-Version": "2022-11-28",
 });
 
+interface GitHubRepositoryResponse {
+  id?: number;
+  node_id?: string;
+  full_name?: string;
+  html_url?: string;
+  default_branch?: string;
+}
+
+function githubRepoOption(repo: GitHubRepositoryResponse): SourceOption | null {
+  if (!repo.full_name || !repo.html_url) return null;
+  const source: GitHubRepositorySource = {
+    ...(typeof repo.id === "number" ? { id: repo.id } : {}),
+    ...(repo.node_id ? { node_id: repo.node_id } : {}),
+    full_name: repo.full_name,
+    html_url: repo.html_url,
+    ...(repo.default_branch ? { default_branch: repo.default_branch } : {}),
+  };
+  return { value: repo.html_url, label: repo.full_name, github_repo: source };
+}
+
 async function githubFetchRepos(token: string, url: string): Promise<SourceOption[]> {
   const res = await fetch(url, { headers: GH_HEADERS(token) });
   if (!res.ok) return [];
-  const repos = (await res.json().catch(() => [])) as Array<{
-    full_name?: string;
-    html_url?: string;
-  }>;
+  const repos = (await res.json().catch(() => [])) as GitHubRepositoryResponse[];
   return repos
-    .filter((r) => r.full_name && r.html_url)
-    .map((r) => ({ value: r.html_url as string, label: r.full_name as string }));
+    .map(githubRepoOption)
+    .filter((option): option is SourceOption => option !== null);
 }
 
 async function githubSearchRepos(token: string, cql: string): Promise<SourceOption[]> {
@@ -49,11 +68,11 @@ async function githubSearchRepos(token: string, cql: string): Promise<SourceOpti
   );
   if (!res.ok) return [];
   const body = (await res.json().catch(() => ({}))) as {
-    items?: Array<{ full_name?: string; html_url?: string }>;
+    items?: GitHubRepositoryResponse[];
   };
   return (body.items ?? [])
-    .filter((r) => r.full_name && r.html_url)
-    .map((r) => ({ value: r.html_url as string, label: r.full_name as string }));
+    .map(githubRepoOption)
+    .filter((option): option is SourceOption => option !== null);
 }
 
 // Repo lookup is ORG-SCOPED (not a global GitHub search) and always uses the

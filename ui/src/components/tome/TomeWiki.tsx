@@ -798,11 +798,11 @@ export function TomeWiki({ slug }: { slug: string }) {
         ];
       }
       case "ingest":
-        return [{ label: "Ingest" }];
+        return [{ label: isSynthesized ? "Ingest & synthesize" : "Ingest" }];
       case "ingestRun":
         return [
           {
-            label: "Ingest",
+            label: isSynthesized ? "Ingest & synthesize" : "Ingest",
             onClick: () => navigate({ kind: "ingest" }),
           },
           { label: "Run" },
@@ -810,7 +810,7 @@ export function TomeWiki({ slug }: { slug: string }) {
       case "draftReview":
         return [
           {
-            label: "Ingest",
+            label: isSynthesized ? "Ingest & synthesize" : "Ingest",
             onClick: () => navigate({ kind: "ingest" }),
           },
           {
@@ -826,7 +826,7 @@ export function TomeWiki({ slug }: { slug: string }) {
         return exhaustive;
       }
     }
-  }, [view, data, navigate]);
+  }, [view, data, navigate, isSynthesized]);
 
   // Initiative tag (normalized) → its BHAG wiki entity, when one exists.
   const bhagByInitiative = useMemo(
@@ -1048,13 +1048,13 @@ export function TomeWiki({ slug }: { slug: string }) {
                         className={cn("h-4 w-4", locked && !awaitingReview && "animate-spin")}
                       />
                     }
-                    label={isSynthesized ? "Synthesize" : "Ingest"}
+                    label={isSynthesized ? "Ingest & synthesize" : "Ingest"}
                     active={navActive.ingest}
                     onClick={() => navigate({ kind: "ingest" })}
-                    tipTitle={isSynthesized ? "Synthesize" : "Ingest"}
+                    tipTitle={isSynthesized ? "Ingest & synthesize" : "Ingest"}
                     tipDescription={
                       isSynthesized
-                        ? `Synthesize this ${isArea ? "area" : "BHAG"}: the agent combines tagged project wikis with directly attached sources and writes the strategic view.`
+                        ? `Ingest this ${isArea ? "area's" : "BHAG's"} directly attached sources, then synthesize them with its tagged project wikis.`
                         : "Start an ingest run that (re)builds the wiki from the project's attached sources: GitHub repos, Confluence spaces, and Webex rooms."
                     }
                     tag={awaitingReview ? "needs review" : undefined}
@@ -1253,7 +1253,7 @@ export function TomeWiki({ slug }: { slug: string }) {
                         onClick={() => navigate({ kind: "ingest" })}
                         disabled={!canEdit}
                       >
-                        {isSynthesized ? "Synthesize" : "Run an ingest"}
+                        {isSynthesized ? "Ingest & synthesize" : "Run an ingest"}
                       </Button>
                     </ViewOnlyTooltip>
                   </div>
@@ -1457,7 +1457,11 @@ export function TomeWiki({ slug }: { slug: string }) {
               </div>
             ) : view.kind === "settings" ? (
               <div className="min-w-0 flex-1">
-                <ProjectSettingsPanel slug={slug} onSaved={applyProjectMeta} />
+                <ProjectSettingsPanel
+                  slug={slug}
+                  onSaved={applyProjectMeta}
+                  onOpenIngest={() => navigate({ kind: "ingest" })}
+                />
               </div>
             ) : view.kind === "insights" ? (
               <div className="min-w-0 flex-1 overflow-auto">

@@ -1,10 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { GitHubRepositorySource } from "@/types/projects";
 
 export interface SourceOption {
   value: string;
   label: string;
+  github_repo?: GitHubRepositorySource;
 }
 
 export interface SourceOptionsState {

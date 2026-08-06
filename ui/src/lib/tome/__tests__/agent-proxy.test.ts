@@ -161,3 +161,28 @@ it("forwards multiple Confluence page roots to one space snapshot", () => {
     }),
   ]);
 });
+
+it("forwards stable GitHub identity and canonical branch metadata", () => {
+  const project = synthesizedProject("project");
+  project.sources = {
+    ...project.sources,
+    github_repos: [
+      {
+        id: 42,
+        node_id: "repository-node",
+        full_name: "example/renamed-repository",
+        html_url: "https://github.com/example/renamed-repository",
+        default_branch: "trunk",
+      },
+    ],
+  };
+
+  expect(buildSnapshotFromProject(project).repos).toEqual([
+    {
+      repo_id: 42,
+      slug: "renamed-repository",
+      url: "https://github.com/example/renamed-repository",
+      default_branch: "trunk",
+    },
+  ]);
+});

@@ -1,6 +1,11 @@
 "use client";
 
 import { decodeWebexRoom, encodeWebexRoom } from "@/lib/projects/webex-room";
+import {
+  decodeGitHubPickerValue,
+  encodeGitHubPickerValue,
+  githubSourceKey,
+} from "@/lib/projects/github-repository";
 import type { SourceAdapter } from "./SourceItemPicker";
 import type { SourceKind } from "./index";
 
@@ -44,9 +49,14 @@ const github: SourceAdapter = {
     <>GitHub not connected — link it in {link} to browse your repos, or paste one below.</>
   ),
   notConnectedBare: "Type an org/name or paste a repo URL below.",
-  selectedKeyOf: (v) => v,
-  labelOf: stripGh,
-  encodeOnAdd: (o) => o.value,
+  selectedKeyOf: (v) => githubSourceKey(decodeGitHubPickerValue(v)),
+  optionKeyOf: (o) =>
+    githubSourceKey(o.github_repo ?? decodeGitHubPickerValue(o.value)),
+  labelOf: (v) => decodeGitHubPickerValue(v).full_name || stripGh(v),
+  encodeOnAdd: (o) =>
+    encodeGitHubPickerValue(
+      o.github_repo ?? decodeGitHubPickerValue(o.value),
+    ),
   manualAdd: {
     hint: "Know the repo? Paste it directly.",
     placeholder: "org/name or repo URL",

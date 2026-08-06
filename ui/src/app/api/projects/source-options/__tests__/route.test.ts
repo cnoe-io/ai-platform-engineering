@@ -153,3 +153,78 @@ describe("GET /api/projects/source-options for Atlassian", () => {
     expect(browseCalls).toBe(1);
   });
 });
+
+describe("GET /api/projects/source-options for GitHub", () => {
+  const originalFetch = global.fetch;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockGetAuthFromBearerOrSession.mockResolvedValue({
+      session: { sub: "example-user" },
+    });
+    mockListConnections.mockResolvedValue([
+      {
+        id: "github-connection",
+        provider: "github",
+        status: "connected",
+      },
+    ]);
+    mockRefreshConnection.mockResolvedValue({
+      accessToken: "github-token",
+      expiresIn: 3600,
+    });
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  it("retains stable repository identity and canonical metadata", async () => {
+    global.fetch = jest.fn(async (input: string | URL | Request) => {
+      const url = new URL(
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url,
+      );
+      if (url.pathname === "/user/repos") {
+        return jsonResponse([
+          {
+            id: 42,
+            node_id: "repository-node",
+            full_name: "example/repository",
+            html_url: "https://github.com/example/repository",
+            default_branch: "trunk",
+          },
+        ]);
+      }
+      if (url.pathname === "/user") {
+        return jsonResponse({ login: "example-user" });
+      }
+      return jsonResponse({}, 404);
+    }) as typeof fetch;
+
+    const response = await GET(
+      new NextRequest(
+        "http://example.test/api/projects/source-options?provider=github",
+      ),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.options).toEqual([
+      {
+        value: "https://github.com/example/repository",
+        label: "example/repository",
+        github_repo: {
+          id: 42,
+          node_id: "repository-node",
+          full_name: "example/repository",
+          html_url: "https://github.com/example/repository",
+          default_branch: "trunk",
+        },
+      },
+    ]);
+  });
+});

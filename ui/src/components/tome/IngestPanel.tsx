@@ -609,11 +609,13 @@ export function IngestPanel({
     <>
       <PanelShell
         title={
-          isSynthesized ? `Synthesize ${entityKind === "area" ? "Area" : "BHAG"}` : "Run ingest"
+          isSynthesized
+            ? `Ingest sources & synthesize ${entityKind === "area" ? "Area" : "BHAG"}`
+            : "Run ingest"
         }
         description={
           isSynthesized
-            ? `Synthesize this ${entityKind === "area" ? "area's" : "BHAG's"} wiki from tagged project wikis and its attached sources.`
+            ? `Refresh this ${entityKind === "area" ? "area's" : "BHAG's"} attached sources, then synthesize them with its tagged project wikis.`
             : "Re-run the agent over this project's sources to refresh the dynamic wiki."
         }
       >
@@ -1009,9 +1011,9 @@ export function IngestPanel({
                       : reviewRun
                         ? "Resolve the pending draft review before starting a new run"
                         : inProgress
-                          ? `A ${isSynthesized ? "synthesis" : "ingest"} is already running`
+                          ? `An ${isSynthesized ? "ingest and synthesis" : "ingest"} is already running`
                           : isSynthesized
-                            ? `Synthesize ${entityKind === "area" ? "Area" : "BHAG"}`
+                            ? `Ingest sources and synthesize ${entityKind === "area" ? "Area" : "BHAG"}`
                             : "Run ingest"
                   }
                 >
@@ -1020,7 +1022,11 @@ export function IngestPanel({
                   ) : (
                     <Play className="h-4 w-4" />
                   )}
-                  {starting ? "Starting…" : isSynthesized ? "Synthesize" : "Run ingest"}
+                  {starting
+                    ? "Starting…"
+                    : isSynthesized
+                      ? "Ingest & synthesize"
+                      : "Run ingest"}
                 </Button>
               </ViewOnlyTooltip>
               <ViewOnlyTooltip viewOnly={!canEdit}>

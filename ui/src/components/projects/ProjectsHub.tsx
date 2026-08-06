@@ -63,6 +63,16 @@ type EnrichedProject = ProjectDocument & {
   active_ingests?: ActiveIngestRun[];
 };
 
+/** `name` is the stable hierarchy key used by project labels. `title` is the
+ * editable display name, so visible hierarchy copy must prefer it without
+ * changing the key used to resolve relationships. */
+function hierarchyDisplayName(
+  project: EnrichedProject | null | undefined,
+  fallback: string,
+): string {
+  return project?.title?.trim() || project?.name?.trim() || fallback;
+}
+
 function elapsedLabel(since: string | Date | null | undefined): string {
   if (!since) return "just started";
   const ms = Date.now() - new Date(since).getTime();
@@ -400,6 +410,7 @@ function AreaSubGroup({
   creating?: boolean;
 }) {
   const [collapsed, setCollapsed] = useState(false);
+  const displayName = hierarchyDisplayName(area, label);
 
   return (
     <div className="ml-4 space-y-2 border-l-2 border-sky-500/20 pl-4 sm:ml-6 sm:pl-6">
@@ -415,7 +426,7 @@ function AreaSubGroup({
             <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
           )}
           <Layers className="h-3.5 w-3.5 shrink-0 text-sky-500" />
-          <span className="text-sm font-semibold text-sky-500">{label}</span>
+          <span className="text-sm font-semibold text-sky-500">{displayName}</span>
           <span className="text-xs text-muted-foreground/50">{items.length}</span>
           <span className="ml-1 h-px flex-grow bg-border/30" />
         </button>
@@ -423,11 +434,11 @@ function AreaSubGroup({
         {area ? (
           <Link
             href={`/projects/${area.slug}`}
-            title={`Open ${area.name} wiki`}
+            title={`Open ${displayName} wiki`}
             className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-lg border border-sky-500/40 bg-sky-500/10 px-2.5 py-1 text-xs font-medium text-sky-600 transition hover:border-sky-500 hover:bg-sky-500/20 dark:text-sky-400"
           >
             <BookOpen className="h-3 w-3 shrink-0" />
-            <span className="truncate">Open {area.name} wiki</span>
+            <span className="truncate">Open {displayName} wiki</span>
             <ArrowRight className="h-3 w-3 shrink-0" />
           </Link>
         ) : onCreateArea ? (
@@ -515,6 +526,11 @@ function ProjectGroup({
   const isUngrouped = label === "Ungrouped";
   const isBhagGroup = groupBy === "initiative" && !isUngrouped;
   const isAreaGroup = groupBy === "area" && !isUngrouped;
+  const displayLabel = isBhagGroup
+    ? hierarchyDisplayName(bhag, label)
+    : isAreaGroup
+      ? hierarchyDisplayName(area, label)
+      : label;
   // Nested Area sub-accordions live only under a BHAG group, so this group's
   // own `label` is their parent BHAG's name.
   const handleAreaCreate = useCallback(
@@ -569,7 +585,7 @@ function ProjectGroup({
             }}
             onDragEnd={onDragEnd}
             className="flex cursor-grab items-center gap-1 rounded-lg px-2 py-1.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground active:cursor-grabbing"
-            aria-label={`Drag to reorder BHAG ${label}`}
+            aria-label={`Drag to reorder BHAG ${displayLabel}`}
             title="Drag to reorder BHAG"
           >
             <GripVertical className="h-4 w-4" />
@@ -588,7 +604,7 @@ function ProjectGroup({
           )}
           {isBhagGroup && <Target className="h-4 w-4 shrink-0 text-primary" />}
           {isAreaGroup && <Layers className="h-4 w-4 shrink-0 text-sky-500" />}
-          <span className={labelClass}>{label}</span>
+          <span className={labelClass}>{displayLabel}</span>
           {/* Breadcrumb: show which BHAG this area belongs to */}
           {isAreaGroup && parentBhagName && (
             <span className="inline-flex items-center gap-1 rounded-full border border-primary/20 bg-primary/5 px-2 py-0.5 text-xs text-primary/70">
@@ -606,11 +622,13 @@ function ProjectGroup({
           (bhag ? (
             <Link
               href={`/projects/${bhag.slug}`}
-              title={`Open ${bhag.name} BHAG wiki`}
+              title={`Open ${hierarchyDisplayName(bhag, label)} BHAG wiki`}
               className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary transition hover:border-primary hover:bg-primary/20"
             >
               <BookOpen className="h-3.5 w-3.5 shrink-0" />
-              <span className="truncate">Open {bhag.name} BHAG wiki</span>
+              <span className="truncate">
+                Open {hierarchyDisplayName(bhag, label)} BHAG wiki
+              </span>
               <ArrowRight className="h-3.5 w-3.5 shrink-0" />
             </Link>
           ) : onCreateBhag ? (
@@ -633,7 +651,7 @@ function ProjectGroup({
               className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-1.5 text-xs font-medium text-sky-600 transition hover:border-sky-500 hover:bg-sky-500/20 dark:text-sky-400"
             >
               <BookOpen className="h-3.5 w-3.5" />
-              Open {area.name} wiki
+              Open {hierarchyDisplayName(area, label)} wiki
               <ArrowRight className="h-3.5 w-3.5" />
             </Link>
           ) : onCreateArea ? (
@@ -1121,7 +1139,13 @@ export function ProjectsHub() {
             <div className="space-y-8">
               {groups.map((g) => {
                 const areaEntity = groupBy === "area" ? areaByLabel.get(normLabel(g.label)) : null;
-                const parentBhagName = areaEntity?.labels?.initiatives?.[0] ?? null;
+                const parentBhagLabel = areaEntity?.labels?.initiatives?.[0] ?? null;
+                const parentBhagName = parentBhagLabel
+                  ? hierarchyDisplayName(
+                      bhagByLabel.get(normLabel(parentBhagLabel)),
+                      parentBhagLabel,
+                    )
+                  : null;
 
                 // Areas nested under a BHAG group come from two sources, merged:
                 // (1) promoted Area entities whose own labels.initiatives point

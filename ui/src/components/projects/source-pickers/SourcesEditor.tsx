@@ -9,6 +9,10 @@ import {
   toWebexRoomSource,
   webexRoomToPickerValue,
 } from "@/lib/projects/webex-room";
+import {
+  decodeGitHubPickerValue,
+  encodeGitHubPickerValue,
+} from "@/lib/projects/github-repository";
 import { SourcePicker, type SourceKind } from "./index";
 
 /**
@@ -35,7 +39,12 @@ const PROVIDER_FOR_KIND: Record<SourceKind, string> = {
 
 /** Canonical ProjectSources ↔ per-connector string[] (the picker contract). */
 function valueFor(kind: SourceKind, sources: ProjectSources): string[] {
-  if (kind === "github") return sources.repos ?? [];
+  if (kind === "github") {
+    if (sources.github_repos?.length) {
+      return sources.github_repos.map(encodeGitHubPickerValue);
+    }
+    return sources.repos ?? [];
+  }
   if (kind === "confluence")
     return sources.confluence_url ? [sources.confluence_url] : [];
   if (kind === "webex")
@@ -48,7 +57,14 @@ function applyTo(
   next: string[],
   sources: ProjectSources,
 ): ProjectSources {
-  if (kind === "github") return { ...sources, repos: next };
+  if (kind === "github") {
+    const githubRepos = next.map(decodeGitHubPickerValue);
+    return {
+      ...sources,
+      github_repos: githubRepos,
+      repos: githubRepos.map((repo) => repo.html_url),
+    };
+  }
   if (kind === "confluence")
     return { ...sources, confluence_url: next[0] ?? "" };
   if (kind === "webex")

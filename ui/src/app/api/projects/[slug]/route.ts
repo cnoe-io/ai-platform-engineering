@@ -15,6 +15,7 @@ import {
   normalizeConfluencePageScopes,
 } from "@/lib/projects/confluence-source";
 import { runOnboardingDeletes, runOnboardingUpdates } from "@/lib/projects/onboarding-providers";
+import { normalizeGitHubRepositorySource } from "@/lib/projects/github-repository";
 import { canManageProjectsOrganization } from "@/lib/projects/project-admin";
 import { cleanLabelList } from "@/lib/projects/labels";
 import { isBootstrapAdmin } from "@/lib/auth-config";
@@ -267,6 +268,7 @@ export const PATCH = withErrorHandler(
       team_id?: string;
       sources?: {
         repos?: string[];
+        github_repos?: unknown;
         confluence_url?: string;
         confluence_page_scopes?: unknown;
         confluence_page_scope?: unknown;
@@ -353,8 +355,17 @@ export const PATCH = withErrorHandler(
       else $unset["optionality"] = "";
     }
     if (body.sources) {
-      if (Array.isArray(body.sources.repos)) {
+      if (Array.isArray(body.sources.github_repos)) {
+        const githubRepos = body.sources.github_repos
+          .map(normalizeGitHubRepositorySource)
+          .filter((repo) => repo !== null);
+        $set["sources.github_repos"] = githubRepos;
+        $set["sources.repos"] = githubRepos.map((repo) => repo.html_url);
+      } else if (Array.isArray(body.sources.repos)) {
         $set["sources.repos"] = body.sources.repos.map((r) => r.trim()).filter(Boolean);
+        // A legacy-only selection cannot safely retain identity metadata from
+        // an older selection. The next ingest resolves and repopulates it.
+        $unset["sources.github_repos"] = "";
       }
       if (typeof body.sources.confluence_url === "string") {
         $set["sources.confluence_url"] = body.sources.confluence_url.trim();

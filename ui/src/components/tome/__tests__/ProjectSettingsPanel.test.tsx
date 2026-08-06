@@ -15,8 +15,13 @@ jest.mock("next/navigation", () => ({
   useRouter: () => ({ push: jest.fn() }),
 }));
 
+const mockUseProjectSourceKinds = jest.fn(() => ({
+  kinds: [] as Array<"github" | "confluence" | "webex">,
+  loading: false,
+}));
+
 jest.mock("@/components/projects/source-pickers/useProjectSourceKinds", () => ({
-  useProjectSourceKinds: () => ({ kinds: [], loading: false }),
+  useProjectSourceKinds: () => mockUseProjectSourceKinds(),
 }));
 
 const jsonResponse = (data: unknown, ok = true) =>
@@ -28,6 +33,7 @@ const jsonResponse = (data: unknown, ok = true) =>
 
 describe("ProjectSettingsPanel hierarchy hydration", () => {
   beforeEach(() => {
+    mockUseProjectSourceKinds.mockReturnValue({ kinds: [], loading: false });
     (global.fetch as jest.Mock).mockImplementation((input: RequestInfo | URL) => {
       const url = String(input);
 
@@ -211,5 +217,60 @@ describe("ProjectSettingsPanel hierarchy hydration", () => {
       expect(screen.getByDisplayValue("Direct BHAG")).toBeInTheDocument();
       expect(screen.getByDisplayValue("Untagged Area")).toBeInTheDocument();
     });
+  });
+
+  it("makes attached-source ingestion discoverable for an Area", async () => {
+    mockUseProjectSourceKinds.mockReturnValue({
+      kinds: ["github"],
+      loading: false,
+    });
+    const fallback = (global.fetch as jest.Mock).getMockImplementation();
+    (global.fetch as jest.Mock).mockImplementation(
+      (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === "/api/projects/example-project") {
+          return jsonResponse({
+            data: {
+              project: {
+                type: "area",
+                slug: "example-project",
+                name: "Example Area",
+                title: "Example Area",
+                description: "Example description",
+                team_id: "example-team-id",
+                team_slug: "example-team",
+                team_name: "Example Team",
+                labels: { areas: [], initiatives: [] },
+                sources: {
+                  repos: ["https://github.com/example/repository"],
+                },
+                data_steward: { type: "user", id: "test-user" },
+              },
+              permissions: { can_edit: true, can_manage_steward: true },
+            },
+          });
+        }
+        return fallback?.(input, init) ?? jsonResponse({});
+      },
+    );
+    const onOpenIngest = jest.fn();
+
+    render(
+      <ProjectSettingsPanel
+        slug="example-project"
+        onOpenIngest={onOpenIngest}
+      />,
+    );
+    expect(await screen.findByText("Area settings")).toBeInTheDocument();
+
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Sources" }), {
+      button: 0,
+      ctrlKey: false,
+    });
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Ingest & synthesize" }),
+    );
+
+    expect(onOpenIngest).toHaveBeenCalledTimes(1);
   });
 });
