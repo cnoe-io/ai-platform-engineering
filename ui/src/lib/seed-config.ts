@@ -18,7 +18,10 @@ import { BUILTIN_MCP_CREDENTIAL_SOURCES } from "@/lib/rbac/agentgateway-mcp-disc
 import { computeIngestionSourceId, type IngestionSourceIdentity } from "@/lib/ingestion-source-id";
 import { writeOpenFgaTuples, isOpenFgaReconciliationEnabled } from "@/lib/rbac/openfga";
 import { reconcileAgentRelationships } from "@/lib/rbac/openfga-agent-tools";
-import { resolveUnlinkedServiceAccountSub } from "@/lib/rbac/unlinked-service-account";
+import {
+  resolveUnlinkedServiceAccountSub,
+  resolveUnlinkedServiceAccountGrantState,
+} from "@/lib/rbac/unlinked-service-account";
 import {
 reconcileConfigDrivenLlmModelRelationships,
 reconcileConfigDrivenMcpServerRelationships,
@@ -1407,11 +1410,13 @@ export async function reconcileExistingAgentOpenFgaTuples(): Promise<number> {
     .toArray();
 
   const orgId = caipeOrgKey();
-  // Resolved once for the whole sweep. Also doubles as the backfill path
-  // for agents that were made global before this SA grant existed — the
-  // per-agent write below is unconditional on `isGlobal`, not gated on
-  // whether the agent changed, so a restart repairs any missing grant.
-  const unlinkedServiceAccountSub = await resolveUnlinkedServiceAccountSub();
+  // Resolved once for the whole sweep. `explicitAgentIds` records the agents an
+  // admin explicitly granted the unlinked SA via the Unlinked Access panel;
+  // those grants are owned by the admin, not by visibility, so the sweep must
+  // re-assert (self-heal) them rather than delete them. For global agents the
+  // sub also drives the everyone-can-use backfill.
+  const { sub: unlinkedServiceAccountSub, explicitAgentIds } =
+    await resolveUnlinkedServiceAccountGrantState();
   for (const agent of agents) {
     const agentId = String(agent._id ?? "").trim();
     if (!agentId) continue;
@@ -1434,6 +1439,10 @@ export async function reconcileExistingAgentOpenFgaTuples(): Promise<number> {
       // demoted from global before reconcile carried delete flags).
       previousGlobalUserAccess: !isGlobal && !retainPlatformDefaultGrant,
       unlinkedServiceAccountSub,
+      // An explicit admin grant survives the sweep: preserve the unlinked SA's
+      // `can_use` tuple for non-global agents the admin granted directly, and
+      // re-assert it if a prior visibility-driven delete removed it.
+      unlinkedGrantIsExplicit: explicitAgentIds.has(agentId),
       failClosed: false,
     });
   }
