@@ -19,6 +19,19 @@ global:
     enableGraphRag: true
     openfga:
       httpUrl: ""
+    # Shared client-credentials identity used by standalone RAG ingestors.
+    # The RAG server consumes the public validation fields; ingestor pods also
+    # consume the Secret reference. Configure these whenever the emergency
+    # RBAC bypass is disabled (the normal and recommended deployment mode).
+    ingestorOidc:
+      issuer: ""
+      discoveryUrl: ""
+      jwksUrl: ""
+      clientId: ""
+      scope: ""
+      clientSecretRef:
+        name: ""
+        key: "INGESTOR_OIDC_CLIENT_SECRET"
     ragServer:
       host: "rag-server"
       port: 9446
@@ -105,7 +118,9 @@ rag-server:
 
   # Web Ingestor sidecar configuration
   webIngestor:
-    enabled: true
+    # Deprecated compatibility path. Webloader now runs as its own Deployment
+    # through rag-ingestors, like every other on-demand ingestor.
+    enabled: false
     image:
       repository: "ghcr.io/cnoe-io/caipe-rag-ingestors"
       # tag defaults to .Chart.AppVersion when not specified
@@ -342,9 +357,8 @@ milvus:
       # minAvailable: 3  # Ensure at least 3 out of 4 pods are available (maintains quorum)
 
 # RAG Ingestors configuration
-# Disabled by default - configure ingestors as needed
 rag-ingestors:
-  enabled: false
+  enabled: true
 
   # Global configuration
   ragServerUrl: "http://rag-server:9446"
@@ -352,7 +366,26 @@ rag-ingestors:
   # List of ingestors to deploy
   # Each ingestor creates a separate deployment
   # See charts/rag-ingestors/values.yaml for detailed examples
-  ingestors: []
+  ingestors:
+    - name: webloader
+      type: webloader
+      syncInterval: 86400
+      initDelaySeconds: 0
+      logLevel: INFO
+      # Authentication defaults come from global.rag.ingestorOidc. Individual
+      # entries may still supply connector-specific values through env/envFrom.
+      env:
+        WEBLOADER_MAX_INGESTION_TASKS: "5"
+      envFrom: []
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+          ephemeral-storage: 256Mi
+        limits:
+          cpu: 500m
+          memory: 1Gi
+          ephemeral-storage: 1Gi
     # Example: Deploy AWS and K8s ingestors
     # - name: aws-prod
     #   type: aws

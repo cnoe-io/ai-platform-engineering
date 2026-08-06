@@ -1,9 +1,8 @@
 "use client";
 
-import { HelpCircle } from "lucide-react";
 import { useMemo } from "react";
 
-import { Tooltip,TooltipContent,TooltipTrigger } from "@/components/ui/tooltip";
+import { getConfig } from "@/lib/config";
 import type { AdminSimulationQueryTarget } from "@/lib/rbac/admin-simulation-query";
 import { withAdminSimulationParams } from "@/lib/rbac/admin-simulation-query";
 import type {
@@ -36,38 +35,6 @@ function formatSlackChannelName(value: unknown): string {
   const name = String(value ?? "").trim();
   if (!name) return "";
   return name.startsWith("#") ? name : `#${name}`;
-}
-
-// assisted-by Codex Codex-sonnet-4-6
-function SlackAccessNote() {
-  return (
-    <div className="flex max-w-4xl items-start gap-2 rounded-md border border-border/60 bg-background/50 px-3 py-2 text-sm text-muted-foreground">
-      <span>
-        Members of the assigned team can update this Slack channel&apos;s bot routing. Agents added here can answer in this channel.
-      </span>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            type="button"
-            aria-label="Slack access details"
-            className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            <HelpCircle className="h-4 w-4" aria-hidden="true" />
-          </button>
-        </TooltipTrigger>
-        <TooltipContent side="top" className="max-w-md whitespace-normal break-words text-xs">
-          <div className="space-y-2">
-            <p>
-              Team assignment controls who can manage this channel&apos;s integration. The channel and the assigned team must both be allowed to use an agent before the bot will call it.
-            </p>
-            <p>
-              Technical details: CAIPE records these access rules in the relationship store. Global or default agents may also be available outside this channel.
-            </p>
-          </div>
-        </TooltipContent>
-      </Tooltip>
-    </div>
-  );
 }
 
 const SLACK_ADAPTER: ConnectorAdminAdapter = {
@@ -159,7 +126,7 @@ const SLACK_ADAPTER: ConnectorAdminAdapter = {
 
   copy: {
     configuredTabTitle: "Configured channels",
-    configuredTabDescription: "Channels CAIPE already knows about. Click a channel to manage its agents and diagnostics.",
+    configuredTabDescription: "Configured Slack channels.",
     onboardTabTitle: "Onboard channels",
     onboardTabDescription: "Find Slack channels where the bot is installed and set them up.",
     advancedTabTitle: "Advanced",
@@ -192,10 +159,10 @@ const SLACK_ADAPTER: ConnectorAdminAdapter = {
   staticConfigLabel: ({ items, routes }) => `${items} channels / ${routes} routes`,
   routeCacheLabel: (count) => `${count} cached channel${count === 1 ? "" : "s"}`,
   syncDialogueTitle: (mode) => mode === "preview" ? "Slack Bot Config Sync Preview" : "Slack Bot Config Sync Apply",
-  syncDialogueDescription: "Preview reads the Slack bot's loaded static YAML config. Apply upserts matching MongoDB route metadata and channel-agent OpenFGA tuples without deleting UI-managed associations.",
+  syncDialogueDescription: "Preview reads the Slack bot's loaded static YAML config. Apply upserts matching route metadata and channel-agent access grants without deleting UI-managed associations.",
   syncSummaryItemsLabel: "Channels",
 
-  authzDisclaimer: <SlackAccessNote />,
+  authzDisclaimer: null,
 
   configuredDetailExtra: (ctx) => (
     <SlackConfiguredChannelDetail
@@ -330,15 +297,20 @@ export function SlackChannelRebacPanel({
   selfService?: boolean;
   simulationTarget?: AdminSimulationQueryTarget | null;
 }) {
+  const appName = getConfig("appName");
   const adapter = useMemo<ConnectorAdminAdapter>(
     () => ({
       ...SLACK_ADAPTER,
+      copy: {
+        ...SLACK_ADAPTER.copy,
+        configuredTabDescription: `Channels ${appName} already knows about. Click a channel to manage its integration.`,
+      },
       api: {
         ...SLACK_ADAPTER.api,
         list: withAdminSimulationParams(SLACK_ADAPTER.api.list, simulationTarget),
       },
     }),
-    [simulationTarget],
+    [appName, simulationTarget],
   );
   return (
     <ConnectorAdminPanel

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock
+
 import pytest
 from fastapi import HTTPException
 
@@ -14,16 +16,6 @@ def _user(subject: str = "alice-sub", role: str = Role.READONLY) -> UserContext:
     return UserContext(
         subject=subject,
         email="alice@example.com",
-        role=role,
-        is_authenticated=True,
-        groups=[],
-    )
-
-
-def _privileged_user(email: str, role: str = Role.ADMIN) -> UserContext:
-    return UserContext(
-        subject=None,
-        email=email,
         role=role,
         is_authenticated=True,
         groups=[],
@@ -185,36 +177,139 @@ async def test_kb_access_check_fails_closed_when_openfga_is_not_configured(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "user",
-    [
-        _privileged_user("client:rag-ingestor", Role.INGESTONLY),
-    ],
-)
-async def test_kb_access_check_preserves_client_credentials_unrestricted_access(
+async def test_source_policy_is_authoritative_for_datasource_management(
     monkeypatch: pytest.MonkeyPatch,
-    user: UserContext,
 ) -> None:
+    monkeypatch.setenv("OPENFGA_HTTP", "http://openfga")
+    monkeypatch.setattr(
+        rbac,
+        "_openfga_object_has_tuples",
+        AsyncMock(return_value=True),
+    )
+    source_check = AsyncMock(return_value=None)
+    datasource_check = AsyncMock(return_value=None)
+    monkeypatch.setattr(rbac, "check_ingestion_source_access", source_check)
+    monkeypatch.setattr(rbac, "check_datasource_access", datasource_check)
+
+    await rbac.check_datasource_management_access(_user(), "primary")
+
+    source_check.assert_awaited_once_with(_user(), "primary", "can_manage")
+    datasource_check.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_legacy_datasource_management_falls_back_when_source_policy_is_absent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENFGA_HTTP", "http://openfga")
+    monkeypatch.setattr(
+        rbac,
+        "_openfga_object_has_tuples",
+        AsyncMock(return_value=False),
+    )
+    source_check = AsyncMock(return_value=None)
+    datasource_check = AsyncMock(return_value=None)
+    monkeypatch.setattr(rbac, "check_ingestion_source_access", source_check)
+    monkeypatch.setattr(rbac, "check_datasource_access", datasource_check)
+
+    await rbac.check_datasource_management_access(_user(), "legacy")
+
+    source_check.assert_not_awaited()
+    datasource_check.assert_awaited_once_with(_user(), "legacy", "admin")
+
+
+@pytest.mark.asyncio
+async def test_source_policy_is_authoritative_for_connector_configuration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENFGA_HTTP", "http://openfga")
+    monkeypatch.setattr(
+        rbac,
+        "_openfga_object_has_tuples",
+        AsyncMock(return_value=True),
+    )
+    source_check = AsyncMock(return_value=None)
+    datasource_check = AsyncMock(return_value=None)
+    monkeypatch.setattr(rbac, "check_ingestion_source_access", source_check)
+    monkeypatch.setattr(rbac, "check_datasource_access", datasource_check)
+
+    await rbac.check_connector_configuration_access(_user(), "primary")
+
+    source_check.assert_awaited_once_with(_user(), "primary", "can_manage")
+    datasource_check.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_legacy_connector_configuration_keeps_ingest_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENFGA_HTTP", "http://openfga")
+    monkeypatch.setattr(
+        rbac,
+        "_openfga_object_has_tuples",
+        AsyncMock(return_value=False),
+    )
+    source_check = AsyncMock(return_value=None)
+    datasource_check = AsyncMock(return_value=None)
+    monkeypatch.setattr(rbac, "check_ingestion_source_access", source_check)
+    monkeypatch.setattr(rbac, "check_datasource_access", datasource_check)
+
+    await rbac.check_connector_configuration_access(_user(), "legacy")
+
+    source_check.assert_not_awaited()
+    datasource_check.assert_awaited_once_with(_user(), "legacy", "ingest")
+
+
+@pytest.mark.asyncio
+async def test_datasource_management_fails_closed_when_source_policy_lookup_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENFGA_HTTP", "http://openfga")
+    monkeypatch.setattr(
+        rbac,
+        "_openfga_object_has_tuples",
+        AsyncMock(side_effect=RuntimeError("unavailable")),
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        await rbac.check_datasource_management_access(_user(), "primary")
+
+    assert exc.value.status_code == 503
+
+
+@pytest.mark.asyncio
+async def test_client_credentials_require_explicit_openfga_access(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user = UserContext(
+        subject="ingestor-sub",
+        subject_type="service_account",
+        client_id="rag-ingestor",
+        email="client:rag-ingestor",
+        role=Role.INGESTONLY,
+        is_authenticated=True,
+    )
+    calls: list[tuple[str, str]] = []
+
     async def fake_check(user: UserContext, relation: str, object_id: str) -> bool:
-        raise AssertionError("unrestricted principals must not call OpenFGA check")
+        calls.append((relation, object_id))
+        return False
 
     monkeypatch.setenv("OPENFGA_HTTP", "http://openfga")
     monkeypatch.setattr(rbac, "_openfga_check_data_source", fake_check, raising=False)
 
-    await rbac.check_datasource_access(user, "kb-alpha", "admin")
+    with pytest.raises(HTTPException) as exc:
+        await rbac.check_datasource_access(user, "kb-alpha", "admin")
+
+    assert exc.value.status_code == 403
+    assert calls == [("can_manage", "kb-alpha")]
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "user",
-    [
-        _privileged_user("admin@example.com", Role.ADMIN),
-    ],
-)
 async def test_human_principals_must_pass_openfga(
     monkeypatch: pytest.MonkeyPatch,
-    user: UserContext,
 ) -> None:
+    user = _user(role=Role.ADMIN)
     calls: list[tuple[str, str, str]] = []
 
     async def fake_check(user: UserContext, relation: str, object_id: str) -> bool:
@@ -246,3 +341,17 @@ async def test_query_filter_is_constrained_to_openfga_readable_datasources(monke
 
     assert empty is False
     assert query.filters == {"datasource_id": "kb-alpha"}
+
+
+@pytest.mark.asyncio
+async def test_query_filter_rejects_unintersectable_datasource_shape(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_list_objects(user: UserContext, relation: str, object_type: str) -> list[str]:
+        return ["data_source:kb-alpha"]
+
+    monkeypatch.setenv("OPENFGA_HTTP", "http://openfga")
+    monkeypatch.setattr(rbac, "_openfga_list_objects", fake_list_objects, raising=False)
+    query = QueryRequest(query="deployments", filters={"datasource_id": True})
+
+    assert await rbac.inject_kb_filter(query, _user()) is True

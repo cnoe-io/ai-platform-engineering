@@ -341,7 +341,7 @@ export interface ConnectorAdminAdapter {
   // Rendered above the configured-items table when selfService=true or
   // on the Onboard tab. Slack and Webex have near-identical copy; each
   // adapter provides the exact JSX so the panel stays generic.
-  authzDisclaimer: ReactNode;
+  authzDisclaimer: ReactNode | null;
 
   // ── Diagnostics fixability ────────────────────────────────────────────
   diagnosticRouteIsFixable: (route: DiagnosticRoute) => boolean;

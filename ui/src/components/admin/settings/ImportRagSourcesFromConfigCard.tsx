@@ -11,18 +11,17 @@
  *
  * Flow: open the popover -> preview (dry_run) lists every ingested
  * datasource alongside whether it already has a config row -> admin picks
- * which of the still-unmigrated ones to adopt plus an optional owner team
- * and shared teams -> apply calls the same endpoint with dry_run:false,
- * which creates a config row with config_import_adopted:true for exactly
- * the chosen ids and applies the team assignment ONLY to those ids (never
- * retroactively to sources outside the batch).
+ * which of the still-unmigrated ones to adopt plus independent management
+ * and Search & Ingest teams -> apply calls the same endpoint with dry_run:false,
+ * which creates editable config rows for the chosen supported connectors and
+ * places every legacy-global datasource in Platform RAG. This preserves the
+ * old global corpus even for source types without a self-service form.
  */
 
 import { AlertTriangle, FileUp, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { AdminBadge } from "@/components/admin/shared/AdminBadge";
-import { TeamOwnershipFields } from "@/components/rbac/TeamOwnershipFields";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -34,7 +33,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { type TeamPickerOption } from "@/components/ui/team-picker";
+import { Label } from "@/components/ui/label";
+import { TeamPicker, type TeamPickerOption } from "@/components/ui/team-picker";
 
 interface PreviewSource {
   source_id: string;
@@ -42,6 +42,7 @@ interface PreviewSource {
   source_type: string;
   in_db: boolean;
   already_adopted: boolean;
+  importable: boolean;
 }
 
 type SkipReason = "not_found_in_redis" | "missing_identity_fields" | "already_in_db";
@@ -81,11 +82,15 @@ export function ImportRagSourcesFromConfigCard({
   const [previewSources, setPreviewSources] = useState<PreviewSource[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [availableTeams, setAvailableTeams] = useState<TeamOption[]>([]);
-  const [ownerTeamSlug, setOwnerTeamSlug] = useState("");
-  const [sharedWithTeams, setSharedWithTeams] = useState<string[]>([]);
-  const [result, setResult] = useState<{ adopted: string[]; skipped: AdoptSkip[] } | null>(null);
-
-  const importable = previewSources.filter((s) => !s.in_db);
+  const [managementTeamSlug, setManagementTeamSlug] = useState("");
+  const [searchTeamSlug, setSearchTeamSlug] = useState("");
+  const [platformSourceCount, setPlatformSourceCount] = useState(0);
+  const [result, setResult] = useState<{
+    adopted: string[];
+    skipped: AdoptSkip[];
+    platformSourceCount: number;
+    agentsUpdated: number;
+  } | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -95,24 +100,30 @@ export function ImportRagSourcesFromConfigCard({
     setResult(null);
     (async () => {
       try {
-        const [previewRes, teamsRes] = await Promise.all([
+        const [previewRes, teamsRes, platformConfigRes] = await Promise.all([
           fetch("/api/admin/rag/sources/migrate-from-config", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ dry_run: true }),
           }).then((r) => r.json()),
           fetch("/api/dynamic-agents/teams").then((r) => r.json()),
+          fetch("/api/admin/platform-config").then((r) => r.json()),
         ]);
         if (cancelled) return;
         if (previewRes.success) {
           const sources = (previewRes.data?.sources ?? []) as PreviewSource[];
+          setPlatformSourceCount(previewRes.data?.platform_collection?.source_count ?? 0);
           setPreviewSources(sources);
-          setSelectedIds(new Set(sources.filter((s) => !s.in_db).map((s) => s.source_id)));
+          setSelectedIds(new Set(sources.filter((s) => s.importable).map((s) => s.source_id)));
         } else {
           setError(previewRes.error || "Failed to preview config");
         }
         if (teamsRes.success && Array.isArray(teamsRes.data)) {
           setAvailableTeams(teamsRes.data);
+        }
+        const configuredSearchTeam = platformConfigRes?.data?.rag_default_search_team_slug;
+        if (typeof configuredSearchTeam === "string" && configuredSearchTeam.trim()) {
+          setSearchTeamSlug(configuredSearchTeam.trim());
         }
       } catch {
         if (!cancelled) setError("Network error loading preview");
@@ -145,8 +156,8 @@ export function ImportRagSourcesFromConfigCard({
         body: JSON.stringify({
           dry_run: false,
           source_ids: Array.from(selectedIds),
-          owner_team_slug: ownerTeamSlug || null,
-          shared_with_teams: sharedWithTeams,
+          management_team_slug: managementTeamSlug,
+          search_team_slug: searchTeamSlug,
         }),
       });
       const data = await res.json();
@@ -154,10 +165,17 @@ export function ImportRagSourcesFromConfigCard({
         setError(data.error || "Import failed");
         return;
       }
-      setResult({ adopted: data.data.adopted ?? [], skipped: data.data.skipped ?? [] });
+      setResult({
+        adopted: data.data.adopted ?? [],
+        skipped: data.data.skipped ?? [],
+        platformSourceCount: data.data.platform_collection?.source_count ?? 0,
+        agentsUpdated: data.data.platform_collection?.agents_updated ?? 0,
+      });
       setPreviewSources((prev) =>
         prev.map((s) =>
-          data.data.adopted?.includes(s.source_id) ? { ...s, already_adopted: true } : s,
+          data.data.adopted?.includes(s.source_id)
+            ? { ...s, in_db: true, already_adopted: true }
+            : s,
         ),
       );
       setSelectedIds(new Set());
@@ -178,9 +196,8 @@ export function ImportRagSourcesFromConfigCard({
           <AdminBadge />
         </CardTitle>
         <CardDescription>
-          Adopt already-ingested RAG datasources into the database as config rows. Once
-          adopted, a source is managed and delegated through the database — it becomes the
-          source of truth for it.
+          Move the current global corpus into Platform RAG and adopt supported connectors
+          into the database as editable source configuration.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -204,9 +221,8 @@ export function ImportRagSourcesFromConfigCard({
           <DialogHeader>
             <DialogTitle>Migrate ingested RAG sources</DialogTitle>
             <DialogDescription>
-              Pick the already-ingested datasources to adopt and, optionally, a team to own
-              and share them with. This assignment applies only to the sources selected
-              below.
+              Choose who maintains the legacy sources and who reads Platform RAG. Supported
+              connector types may also be selected for adoption into editable configuration.
             </DialogDescription>
           </DialogHeader>
 
@@ -231,7 +247,13 @@ export function ImportRagSourcesFromConfigCard({
                   className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-300"
                   data-testid="import-rag-sources-result"
                 >
-                  Adopted {result.adopted.length} source{result.adopted.length === 1 ? "" : "s"}.
+                  Platform RAG now contains {result.platformSourceCount} source{result.platformSourceCount === 1 ? "" : "s"}.
+                  {result.adopted.length > 0 && (
+                    <> Adopted {result.adopted.length} editable connector{result.adopted.length === 1 ? "" : "s"}.</>
+                  )}
+                  {result.agentsUpdated > 0 && (
+                    <> Updated {result.agentsUpdated} legacy agent{result.agentsUpdated === 1 ? "" : "s"}.</>
+                  )}
                   {result.skipped.length > 0 && (
                     <ul className="mt-1 list-disc pl-5">
                       {result.skipped.map((skip) => (
@@ -246,7 +268,8 @@ export function ImportRagSourcesFromConfigCard({
 
               {previewSources.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
-                  No ingested RAG datasources found, or none are eligible for migration.
+                  No supported connector configurations need adoption. You can still
+                  create or update Platform RAG and its delegated teams.
                 </p>
               ) : (
                 <div
@@ -261,7 +284,7 @@ export function ImportRagSourcesFromConfigCard({
                       <input
                         type="checkbox"
                         checked={selectedIds.has(source.source_id)}
-                        disabled={source.in_db}
+                        disabled={!source.importable}
                         onChange={() => toggleSelected(source.source_id)}
                         data-testid={`import-rag-source-checkbox-${source.source_id}`}
                       />
@@ -271,7 +294,7 @@ export function ImportRagSourcesFromConfigCard({
                           Already adopted
                         </Badge>
                       ) : (
-                        source.in_db && (
+                        source.in_db && !source.importable && (
                           <Badge variant="secondary" className="shrink-0">
                             Has config row
                           </Badge>
@@ -282,34 +305,62 @@ export function ImportRagSourcesFromConfigCard({
                 </div>
               )}
 
-              {importable.length > 0 && (
-                <TeamOwnershipFields
-                  ownerTeamSlug={ownerTeamSlug}
-                  sharedTeamSlugs={sharedWithTeams}
-                  isEditing={false}
-                  ownerRequired={false}
-                  resourceNoun="imported source batch"
-                  currentUserTeamSlugs={availableTeams
-                    .map((t) => t.slug)
-                    .filter((slug): slug is string => Boolean(slug))}
-                  onOwnerTeamChange={setOwnerTeamSlug}
-                  onSharedTeamsChange={setSharedWithTeams}
-                  availableTeams={availableTeams
-                    .filter((t): t is TeamOption & { slug: string } => Boolean(t.slug))
-                    .map<TeamPickerOption>((t) => ({ slug: t.slug, name: t.name, _id: t._id }))}
-                  ownerTeamOptions={availableTeams
-                    .filter((t): t is TeamOption & { slug: string } => Boolean(t.slug))
-                    .map<TeamPickerOption>((t) => ({
-                      slug: t.slug,
-                      name: t.user_role ? `${t.name} (${t.user_role})` : t.name,
-                      _id: t._id,
-                      disabled: t.can_own_agents === false,
-                    }))}
-                  ownerHelpText="Optional — leave unset to import without changing ownership on these sources."
-                  shareHelpText="Additional teams that can use the imported sources."
-                  disabled={applying}
-                />
-              )}
+              <p className="text-xs text-muted-foreground">
+                The preview found {platformSourceCount} legacy source{platformSourceCount === 1 ? "" : "s"}
+                {" "}for Platform RAG. Unsupported connector types are included in that collection even
+                though they do not appear in the editable-config checklist.
+              </p>
+
+              <div className="space-y-4 rounded-md border p-3">
+                  <div className="space-y-2">
+                    <Label htmlFor="migration-management-team">
+                      Management Team <span className="text-destructive">*</span>
+                    </Label>
+                    <TeamPicker
+                      id="migration-management-team"
+                      value={managementTeamSlug}
+                      onChange={setManagementTeamSlug}
+                      options={availableTeams
+                        .filter((t): t is TeamOption & { slug: string } => Boolean(t.slug))
+                        .map<TeamPickerOption>((t) => ({
+                          slug: t.slug,
+                          name: t.name,
+                          _id: t._id,
+                        }))}
+                      placeholder="Select who manages these sources"
+                      searchPlaceholder="Search teams..."
+                      disabled={applying}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Team admins maintain Platform RAG and supported source configuration.
+                      This does not grant the team search access by itself.
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="migration-search-team">
+                      Platform RAG Reader Team <span className="text-destructive">*</span>
+                    </Label>
+                    <TeamPicker
+                      id="migration-search-team"
+                      value={searchTeamSlug}
+                      onChange={setSearchTeamSlug}
+                      options={availableTeams
+                        .filter((t): t is TeamOption & { slug: string } => Boolean(t.slug))
+                        .map<TeamPickerOption>((t) => ({
+                          slug: t.slug,
+                          name: t.name,
+                          _id: t._id,
+                        }))}
+                      placeholder="Select who can search Platform RAG"
+                      searchPlaceholder="Search teams..."
+                      disabled={applying}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Members can query Platform RAG through search, API calls, and agents.
+                      Collection readership does not grant connector management or ingestion.
+                    </p>
+                  </div>
+              </div>
             </div>
           )}
 
@@ -320,13 +371,17 @@ export function ImportRagSourcesFromConfigCard({
             <Button
               type="button"
               onClick={handleApply}
-              disabled={loading || applying || selectedIds.size === 0}
+              disabled={
+                loading ||
+                applying ||
+                !managementTeamSlug ||
+                !searchTeamSlug
+              }
               className="gap-2"
               data-testid="import-rag-sources-apply-button"
             >
               {applying && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-              Import {selectedIds.size > 0 ? selectedIds.size : ""} source
-              {selectedIds.size === 1 ? "" : "s"}
+              Migrate to Platform RAG
             </Button>
           </DialogFooter>
         </DialogContent>

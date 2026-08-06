@@ -365,6 +365,34 @@ describe('requireRbacPermission organization ReBAC', () => {
     expect(mockCheckOpenFgaTuple).toHaveBeenCalledTimes(1);
   });
 
+  it.each([
+    ['view', 'can_use'],
+    ['query', 'can_search'],
+    ['invoke', 'can_search'],
+    ['kb.query', 'can_search'],
+    ['ingest', 'can_ingest'],
+    ['kb.ingest', 'can_ingest'],
+  ] as const)('maps RAG %s to organization#%s', async (scope, relation) => {
+    process.env.CAIPE_ORG_KEY = 'example-org';
+    mockCheckOpenFgaTuple.mockResolvedValue({ allowed: true });
+
+    await requireRbacPermission(
+      {
+        accessToken: 'token',
+        sub: 'test-user-subject',
+        user: { email: 'test-user@example.test' },
+      },
+      'rag',
+      scope,
+    );
+
+    expect(mockCheckOpenFgaTuple).toHaveBeenCalledWith({
+      user: 'user:test-user-subject',
+      relation,
+      object: 'organization:example-org',
+    });
+  });
+
   it('does not allow legacy realm role fallback when OpenFGA denies', async () => {
     mockCheckOpenFgaTuple.mockResolvedValue({ allowed: false });
 

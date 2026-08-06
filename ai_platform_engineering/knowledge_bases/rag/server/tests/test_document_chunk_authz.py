@@ -13,7 +13,7 @@ Redis / Neo4j connections) is not triggered.
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import HTTPException
@@ -58,6 +58,14 @@ def client() -> TestClient:
 def _wire(monkeypatch: pytest.MonkeyPatch):
     restapi.app.dependency_overrides[require_authenticated_user] = _user
     monkeypatch.setattr(restapi, "vector_db", MagicMock(), raising=False)
+    query_service = AsyncMock()
+
+    async def _build_filter_expression(filters: dict) -> str:
+        return " and ".join(f'{key} == "{value}"' for key, value in filters.items())
+
+    query_service.build_filter_expression.side_effect = _build_filter_expression
+    monkeypatch.setattr(restapi, "vector_db_query_service", query_service, raising=False)
+    monkeypatch.setattr(restapi, "authorize_search", AsyncMock(return_value=None))
     yield
     restapi.app.dependency_overrides.clear()
 

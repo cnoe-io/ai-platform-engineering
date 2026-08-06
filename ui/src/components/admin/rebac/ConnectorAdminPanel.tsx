@@ -911,7 +911,7 @@ export function ConnectorAdminPanel({
       setRuntimeSyncSummary(summary); setRuntimeSyncModalStatus("success");
       if (!dryRun) {
         toast(
-          `Config sync applied: upserted ${summary.routes_upserted} routes and wrote ${summary.openfga_tuples_written} OpenFGA tuples.`,
+          `Config sync applied: upserted ${summary.routes_upserted} routes and wrote ${summary.openfga_tuples_written} access grants.`,
           "success"
         );
       }
@@ -1337,21 +1337,23 @@ export function ConnectorAdminPanel({
       <h3 className="truncate text-base font-semibold tracking-tight">
         {viewTitle.onboard}
       </h3>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            type="button"
-            aria-label={`${adapter.connectorName} ${adapter.itemPlural} setup details`}
-            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            <HelpCircle className="h-4 w-4" aria-hidden="true" />
-          </button>
-        </TooltipTrigger>
-        <TooltipContent side="bottom" className="max-w-xl space-y-2 whitespace-normal text-xs">
-          <p>{viewDescription.onboard}</p>
-          <div className="space-y-2">{adapter.authzDisclaimer}</div>
-        </TooltipContent>
-      </Tooltip>
+      {adapter.authzDisclaimer && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              aria-label={`${adapter.connectorName} ${adapter.itemPlural} setup details`}
+              className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <HelpCircle className="h-4 w-4" aria-hidden="true" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" className="max-w-xl space-y-2 whitespace-normal text-xs">
+            <p>{viewDescription.onboard}</p>
+            <div className="space-y-2">{adapter.authzDisclaimer}</div>
+          </TooltipContent>
+        </Tooltip>
+      )}
     </div>
   ) : showSinglePanelSwitcher ? (
     // The tab switcher already labels the active view; suppress the wizard's
@@ -1423,7 +1425,7 @@ export function ConnectorAdminPanel({
         {!selfService && panelView === "migration" && adapter.migrationPanel?.render({ disabled })}
 
         {/* Auth disclaimer */}
-        {(selfService || (panelView === "onboard" && !showCompactOnboardingHeader)) && (
+        {adapter.authzDisclaimer && (selfService || (panelView === "onboard" && !showCompactOnboardingHeader)) && (
           <div className="space-y-2 rounded-md border p-3 text-sm text-muted-foreground">
             {adapter.authzDisclaimer}
           </div>
@@ -1520,7 +1522,7 @@ export function ConnectorAdminPanel({
                   <div className="rounded-md border p-3"><div className="text-xs text-muted-foreground">{adapter.syncSummaryItemsLabel}</div><div className="font-medium">{pluralize(runtimeSyncSummary.items_seen, adapter.itemSingular)} scanned</div></div>
                   <div className="rounded-md border p-3"><div className="text-xs text-muted-foreground">Planned routes</div><div className="font-medium">{pluralize(runtimeSyncSummary.routes_planned, "route")} planned</div></div>
                   <div className="rounded-md border p-3"><div className="text-xs text-muted-foreground">MongoDB route metadata</div><div className="font-medium">{pluralize(runtimeSyncSummary.routes_upserted, "route")} upserted</div></div>
-                  <div className="rounded-md border p-3"><div className="text-xs text-muted-foreground">OpenFGA tuples</div><div className="font-medium">{pluralize(runtimeSyncSummary.openfga_tuples_written, "OpenFGA tuple")} written</div></div>
+                  <div className="rounded-md border p-3"><div className="text-xs text-muted-foreground">Access grants</div><div className="font-medium">{pluralize(runtimeSyncSummary.openfga_tuples_written, "access grant")} written</div></div>
                 </div>
               )}
               {runtimeSyncSummary?.channels && runtimeSyncSummary.channels.length > 0 && (

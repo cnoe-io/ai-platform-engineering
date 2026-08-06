@@ -721,4 +721,93 @@ describe("admin platform-config route", () => {
 
     expect(getBody.data.remote_mcp_catalog.enabled_providers).toEqual(["amplitude", "linear"]);
   });
+
+  it("returns backwards-compatible RAG ingestor policy defaults when none are stored", async () => {
+    mockGetCollection.mockResolvedValue({
+      findOne: jest.fn().mockResolvedValue({ _id: "platform_settings" }),
+      updateOne: jest.fn(),
+    });
+    const { GET } = await import("../route");
+
+    const body = await (await GET(request("/api/admin/platform-config"))).json();
+
+    expect(body.data.rag_ingestor_limits).toMatchObject({
+      slack: { max_lookback_days: 365, allow_full_history: true },
+      web: { max_pages: 5000, allow_non_public_urls: true },
+      file: { max_file_size_mb: 10, max_total_upload_size_mb: 25 },
+    });
+  });
+
+  it("validates and persists a partial RAG ingestor policy as a complete policy", async () => {
+    const updateOne = jest.fn().mockResolvedValue({ acknowledged: true });
+    mockGetCollection.mockResolvedValue({
+      findOne: jest.fn().mockResolvedValue({ _id: "platform_settings" }),
+      updateOne,
+    });
+    const { PATCH } = await import("../route");
+
+    const response = await PATCH(
+      request("/api/admin/platform-config", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          rag_ingestor_limits: { slack: { max_lookback_days: 90 } },
+        }),
+      }),
+    );
+    const body = await response.json();
+
+    expect(body.data.rag_ingestor_limits.slack.max_lookback_days).toBe(90);
+    expect(body.data.rag_ingestor_limits.web.max_pages).toBe(5000);
+    expect(updateOne).toHaveBeenCalledWith(
+      { _id: "platform_settings" },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          rag_ingestor_limits: expect.objectContaining({
+            slack: expect.objectContaining({ max_lookback_days: 90 }),
+          }),
+        }),
+      }),
+      { upsert: true },
+    );
+  });
+
+  it("rejects invalid RAG ingestor policy limits", async () => {
+    const { PATCH } = await import("../route");
+
+    await expect(
+      PATCH(
+        request("/api/admin/platform-config", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            rag_ingestor_limits: { web: { max_concurrent_requests: 51 } },
+          }),
+        }),
+      ),
+    ).rejects.toMatchObject({ code: "INVALID_RAG_INGESTOR_LIMITS" });
+  });
+
+  it("clears the default search team when Search Access teams are disabled", async () => {
+    const updateOne = jest.fn().mockResolvedValue({ acknowledged: true });
+    mockGetCollection.mockResolvedValue({
+      findOne: jest.fn().mockResolvedValue({ _id: "platform_settings" }),
+      updateOne,
+    });
+    const { PATCH } = await import("../route");
+
+    const response = await PATCH(
+      request("/api/admin/platform-config", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          rag_ingestor_limits: { shared: { max_search_teams: 0 } },
+        }),
+      }),
+    );
+    const body = await response.json();
+
+    expect(body.data.rag_default_search_team_slug).toBeNull();
+    expect(updateOne.mock.calls[0][1].$set.rag_default_search_team_slug).toBeNull();
+  });
 });

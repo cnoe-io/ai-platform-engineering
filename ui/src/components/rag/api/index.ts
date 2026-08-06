@@ -188,11 +188,11 @@ export const ingestUrl = async (params: {
     get_child_pages?: boolean;
     settings?: ScrapySettings;
     reload_interval?: number;
-    // Owning team for the new data source (spec 2026-06-03). The server
-    // authorizes creation against the org `can_ingest` capability + membership
-    // of this team, and writes ownership tuples so the team's members get
-    // read/ingest on the new source. Required for non-org-admin authors.
+    // Optional management owner. Leaving it unset creates a personal source;
+    // selecting a team additionally requires membership in an author-enabled
+    // team. Search Access is independent below.
     owner_team_slug?: string;
+    search_team_slugs?: string[];
 }): Promise<{ datasource_id: string | null; job_id: string | null; message: string }> => {
     // Route to appropriate endpoint based on ingest_type
     if (params.ingest_type === 'confluence') {
@@ -200,7 +200,8 @@ export const ingestUrl = async (params: {
             url: params.url,
             description: params.description || '',
             get_child_pages: params.get_child_pages || false,
-            owner_team_slug: params.owner_team_slug || null
+            owner_team_slug: params.owner_team_slug || null,
+            search_team_slugs: params.search_team_slugs ?? [],
         });
     } else {
         // Web ingestion with ScrapySettings and optional reload_interval
@@ -209,7 +210,8 @@ export const ingestUrl = async (params: {
             description: params.description || '',
             settings: params.settings || { crawl_mode: 'single' },
             reload_interval: params.reload_interval,
-            owner_team_slug: params.owner_team_slug || null
+            owner_team_slug: params.owner_team_slug || null,
+            search_team_slugs: params.search_team_slugs ?? [],
         });
     }
 };
@@ -218,6 +220,7 @@ export const ingestLocalFile = async (params: {
     files: File[];
     description?: string;
     owner_team_slug?: string;
+    search_team_slugs?: string[];
     chunk_size?: number;
     chunk_overlap?: number;
 }): Promise<{ datasource_id: string | null; job_id: string | null; message: string }> => {
@@ -225,6 +228,7 @@ export const ingestLocalFile = async (params: {
     params.files.forEach((file) => form.append('file', file));
     if (params.description) form.append('description', params.description);
     if (params.owner_team_slug) form.append('owner_team_slug', params.owner_team_slug);
+    params.search_team_slugs?.forEach((slug) => form.append('search_team_slugs', slug));
     if (params.chunk_size !== undefined) form.append('chunk_size', String(params.chunk_size));
     if (params.chunk_overlap !== undefined) form.append('chunk_overlap', String(params.chunk_overlap));
     return apiPostForm('/v1/ingest/local-file', form);
@@ -234,9 +238,17 @@ export const reloadDataSource = async (datasourceId: string): Promise<{ datasour
     // Determine endpoint based on datasource ID pattern
     if (datasourceId.includes('src_confluence___')) {
         return apiPost('/v1/ingest/confluence/reload', { datasource_id: datasourceId });
-    } else {
-        return apiPost('/v1/ingest/webloader/reload', { datasource_id: datasourceId });
     }
+    if (datasourceId.startsWith('slack-channel-')) {
+        return apiPost('/v1/ingest/slack/reload', { datasource_id: datasourceId });
+    }
+    if (datasourceId.startsWith('jira-')) {
+        return apiPost('/v1/ingest/jira/reload', { datasource_id: datasourceId });
+    }
+    if (datasourceId.startsWith('webex-space-')) {
+        return apiPost('/v1/ingest/webex/reload', { datasource_id: datasourceId });
+    }
+    return apiPost('/v1/ingest/webloader/reload', { datasource_id: datasourceId });
 };
 
 // ============================================================================

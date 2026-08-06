@@ -25,6 +25,8 @@ const mockCollection = {
   deleteOne: jest.fn(),
 };
 const mockReconcileIngestionSourceRelationships = jest.fn();
+const mockReconcileKnowledgeBaseRelationships = jest.fn();
+const mockReconcileDataSourceRelationships = jest.fn();
 
 jest.mock("@/lib/mongodb", () => ({
   isMongoDBConfigured: true,
@@ -33,19 +35,20 @@ jest.mock("@/lib/mongodb", () => ({
 jest.mock("@/lib/rbac/openfga-owned-resources-reconcile", () => ({
   reconcileIngestionSourceRelationships: (...args: unknown[]) =>
     mockReconcileIngestionSourceRelationships(...args),
+  reconcileKnowledgeBaseRelationships: (...args: unknown[]) =>
+    mockReconcileKnowledgeBaseRelationships(...args),
+  reconcileDataSourceRelationships: (...args: unknown[]) =>
+    mockReconcileDataSourceRelationships(...args),
 }));
 
-import { adoptConfigImportedRagSources, cleanupStaleConfigDriven } from "../seed-config";
+import {
+  adoptConfigImportedRagSources,
+  cleanupStaleConfigDriven,
+  seedRagSources,
+} from "../seed-config";
 
-// `seedRagSources` itself is not exported — mirrors `seedAgents`' precedent
-// (see seed-config-import-adopt.test.ts's note on this gap). Its observable
-// contract is covered here through the two exported entry points that
-// implement it end-to-end: `cleanupStaleConfigDriven`'s stale-removal guard
-// (T052/T057) and `adoptConfigImportedRagSources`'s eligibility guard
-// (T054-T057), plus `applySeedConfig`'s boot-time wiring already verified by
-// direct code reading (T059) — `seed-config.ts`'s `applySeedConfig` calls
-// `seedRagSources(config.rag_sources)` and passes `currentRagSourceIds` into
-// `cleanupStaleConfigDriven` alongside the other four collections.
+// The seed helper is exported so the policy projection itself is testable;
+// applySeedConfig's startup wiring invokes the same function.
 
 describe("cleanupStaleConfigDriven — rag_ingestion_sources", () => {
   beforeEach(() => {
@@ -95,13 +98,99 @@ describe("cleanupStaleConfigDriven — rag_ingestion_sources", () => {
   });
 });
 
+describe("seedRagSources — independent management and search policy", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it("keeps one management owner while allowing that same team in Search Access", async () => {
+    mockCollection.findOne.mockResolvedValue({
+      source_id: "slack-channel-C1",
+      owner_team_slug: "primary",
+      shared_with_teams: ["legacy-manager"],
+      search_owner_team_slug: "legacy-search-owner",
+      search_with_teams: ["old-search"],
+      visibility: "team",
+      created_at: "2026-01-01T00:00:00.000Z",
+    });
+
+    await seedRagSources([
+      {
+        source_type: "slack_channel",
+        channel_id: "C1",
+        name: "Example channel",
+        owner_team: "primary",
+        shared_with_teams: ["ignored-management-share"],
+        search_with_teams: ["primary", "readers", "primary"],
+        visibility: "team",
+      },
+    ]);
+
+    expect(mockCollection.replaceOne).toHaveBeenCalledWith(
+      { source_id: "slack-channel-C1" },
+      expect.objectContaining({
+        owner_team_slug: "primary",
+        shared_with_teams: [],
+        search_with_teams: ["primary", "readers"],
+      }),
+      { upsert: true },
+    );
+    expect(mockReconcileIngestionSourceRelationships).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceId: "slack-channel-C1",
+        ownerTeamSlug: "primary",
+        nextSharedTeamSlugs: [],
+        previousSharedTeamSlugs: ["legacy-manager"],
+      }),
+    );
+    expect(mockReconcileKnowledgeBaseRelationships).toHaveBeenCalledWith(
+      expect.objectContaining({
+        knowledgeBaseId: "slack-channel-C1",
+        ownerTeamSlug: null,
+        previousOwnerTeamSlug: "legacy-search-owner",
+        nextSharedTeamSlugs: ["primary", "readers"],
+        previousSharedTeamSlugs: ["old-search"],
+        previousSharedTeamAdminsManage: true,
+      }),
+    );
+  });
+
+  it("preserves the stored search projection when config does not declare one", async () => {
+    mockCollection.findOne.mockResolvedValue({
+      source_id: "slack-channel-C1",
+      owner_team_slug: "primary",
+      shared_with_teams: [],
+      search_with_teams: ["readers"],
+      visibility: "team",
+      created_at: "2026-01-01T00:00:00.000Z",
+    });
+
+    await seedRagSources([
+      {
+        source_type: "slack_channel",
+        channel_id: "C1",
+        name: "Example channel",
+        owner_team: "primary",
+        visibility: "team",
+      },
+    ]);
+
+    expect(mockCollection.replaceOne).toHaveBeenCalledWith(
+      { source_id: "slack-channel-C1" },
+      expect.objectContaining({ search_with_teams: ["readers"] }),
+      { upsert: true },
+    );
+    expect(mockReconcileKnowledgeBaseRelationships).not.toHaveBeenCalled();
+  });
+});
+
 describe("adoptConfigImportedRagSources", () => {
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
   // T054
-  it("adopts an eligible config-driven source, flips config_driven/config_import_adopted, applies team assignment", async () => {
+  it("adopts an eligible config-driven source and changes only its management policy", async () => {
     mockCollection.findOne.mockResolvedValue({
       source_id: "slack-channel-C1",
       config_driven: true,
@@ -112,7 +201,6 @@ describe("adoptConfigImportedRagSources", () => {
 
     const result = await adoptConfigImportedRagSources(["slack-channel-C1"], {
       ownerTeamSlug: "platform",
-      sharedTeamSlugs: ["sre"],
     });
 
     expect(result).toEqual({ adopted: ["slack-channel-C1"], skipped: [] });
@@ -124,7 +212,7 @@ describe("adoptConfigImportedRagSources", () => {
           config_import_adopted: true,
           visibility: "team",
           owner_team_slug: "platform",
-          shared_with_teams: ["sre"],
+          shared_with_teams: [],
         }),
       },
     );
@@ -132,11 +220,16 @@ describe("adoptConfigImportedRagSources", () => {
       expect.objectContaining({
         sourceId: "slack-channel-C1",
         ownerTeamSlug: "platform",
-        nextSharedTeamSlugs: ["sre"],
+        nextSharedTeamSlugs: [],
         globalUserAccess: false,
         previousGlobalUserAccess: true,
       }),
     );
+    // Adoption assigns who may manage the connector. Search & Ingest is an
+    // independent policy selected by the migration flow (or changed later in
+    // its own sharing dialog), so adoption must not rewrite either query graph.
+    expect(mockReconcileKnowledgeBaseRelationships).not.toHaveBeenCalled();
+    expect(mockReconcileDataSourceRelationships).not.toHaveBeenCalled();
   });
 
   // T056
@@ -149,7 +242,6 @@ describe("adoptConfigImportedRagSources", () => {
 
     const result = await adoptConfigImportedRagSources(["slack-channel-C1"], {
       ownerTeamSlug: "platform",
-      sharedTeamSlugs: [],
     });
 
     expect(result).toEqual({
@@ -157,6 +249,8 @@ describe("adoptConfigImportedRagSources", () => {
       skipped: [{ source_id: "slack-channel-C1", reason: "already_adopted" }],
     });
     expect(mockReconcileIngestionSourceRelationships).not.toHaveBeenCalled();
+    expect(mockReconcileKnowledgeBaseRelationships).not.toHaveBeenCalled();
+    expect(mockReconcileDataSourceRelationships).not.toHaveBeenCalled();
   });
 
   // T056
@@ -169,7 +263,6 @@ describe("adoptConfigImportedRagSources", () => {
 
     const result = await adoptConfigImportedRagSources(["web-url-x"], {
       ownerTeamSlug: "platform",
-      sharedTeamSlugs: [],
     });
 
     expect(result).toEqual({
@@ -189,11 +282,9 @@ describe("adoptConfigImportedRagSources", () => {
 
     const first = await adoptConfigImportedRagSources(["slack-channel-C1"], {
       ownerTeamSlug: "platform",
-      sharedTeamSlugs: [],
     });
     const second = await adoptConfigImportedRagSources(["slack-channel-C1"], {
       ownerTeamSlug: "platform",
-      sharedTeamSlugs: [],
     });
 
     const expectedSkip = [{ source_id: "slack-channel-C1", reason: "already_adopted" }];
@@ -206,7 +297,6 @@ describe("adoptConfigImportedRagSources", () => {
 
     const result = await adoptConfigImportedRagSources(["does-not-exist"], {
       ownerTeamSlug: "platform",
-      sharedTeamSlugs: [],
     });
 
     expect(result).toEqual({

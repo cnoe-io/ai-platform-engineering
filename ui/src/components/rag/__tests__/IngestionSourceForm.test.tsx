@@ -6,20 +6,66 @@ import { render, screen, waitFor, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { IngestionSourceConfig } from "@/types/ingestion-source";
 
-// TeamOwnershipFields pulls in team pickers/popovers; stub to a minimal
-// control surface, mirroring KbSharingPanel.transfer.test.tsx's approach.
-jest.mock("@/components/rbac/TeamOwnershipFields", () => ({
-  TeamOwnershipFields: ({
-    ownerTeamSlug,
-    onOwnerTeamChange,
+// Keep the test focused on form semantics instead of picker popovers.
+jest.mock("@/components/ui/team-picker", () => ({
+  TeamPicker: ({
+    value,
+    onChange,
+    options,
   }: {
-    ownerTeamSlug: string;
-    onOwnerTeamChange: (slug: string) => void;
+    value: string;
+    onChange: (slug: string) => void;
+    options: Array<{ slug: string }>;
   }) => (
     <input
       data-testid="mock-owner-team"
-      value={ownerTeamSlug}
-      onChange={(e) => onOwnerTeamChange(e.target.value)}
+      data-options={options.map((option) => option.slug).join(",")}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+    />
+  ),
+  TeamMultiPicker: ({ selected, onChange }: {
+    selected: string[];
+    onChange: (slugs: string[]) => void;
+  }) => (
+    <input
+      data-testid="mock-search-teams"
+      value={selected.join(",")}
+      onChange={(e) => onChange(e.target.value.split(",").filter(Boolean))}
+    />
+  ),
+}));
+
+jest.mock("@/components/ui/access-subject-picker", () => ({
+  AccessSubjectPicker: ({
+    value,
+    onChange,
+    teams,
+  }: {
+    value: { kind: "user" | "team"; id: string } | null;
+    onChange: (next: { kind: "team"; id: string }) => void;
+    teams: Array<{ slug: string }>;
+  }) => (
+    <input
+      data-testid="mock-owner-team"
+      data-options={teams.map((team) => team.slug).join(",")}
+      value={value?.id ?? ""}
+      onChange={(event) => onChange({ kind: "team", id: event.target.value })}
+    />
+  ),
+  AccessSubjectMultiPicker: ({
+    selected,
+    onChange,
+  }: {
+    selected: Array<{ kind: "user" | "team"; id: string }>;
+    onChange: (next: Array<{ kind: "team"; id: string }>) => void;
+  }) => (
+    <input
+      data-testid="mock-search-teams"
+      value={selected.map((ref) => ref.id).join(",")}
+      onChange={(event) => onChange(
+        event.target.value.split(",").filter(Boolean).map((id) => ({ kind: "team", id })),
+      )}
     />
   ),
 }));
@@ -32,8 +78,19 @@ function jsonOk(body: unknown) {
 
 beforeEach(() => {
   global.fetch = jest.fn().mockImplementation(async (url: string) => {
+    if (url.includes("/api/rbac/ingest-teams")) {
+      return jsonOk({
+        teams: [{ _id: "t1", slug: "author-team", name: "Author Team" }],
+      });
+    }
     if (url.includes("/api/dynamic-agents/teams")) {
-      return jsonOk({ success: true, data: [{ _id: "t1", slug: "team-example", name: "Example Team" }] });
+      return jsonOk({
+        success: true,
+        data: [
+          { _id: "t1", slug: "team-example", name: "Example Team" },
+          { _id: "t2", slug: "membership-only", name: "Membership Only" },
+        ],
+      });
     }
     return jsonOk({});
   }) as unknown as typeof fetch;
@@ -44,7 +101,7 @@ afterEach(() => {
 });
 
 describe("<IngestionSourceForm /> — create", () => {
-  it("disables Create until name, identity fields, and owner team are filled", async () => {
+  it("allows a personal create once name and identity fields are filled", async () => {
     const user = userEvent.setup();
     const onSave = jest.fn().mockResolvedValue(undefined);
     render(<IngestionSourceForm open onClose={jest.fn()} onSave={onSave} initial={null} />);
@@ -56,10 +113,18 @@ describe("<IngestionSourceForm /> — create", () => {
     expect(createBtn).toBeDisabled();
 
     await user.type(screen.getByLabelText(/channel id/i), "C123");
-    expect(createBtn).toBeDisabled();
-
-    await user.type(screen.getByTestId("mock-owner-team"), "team-example");
     await waitFor(() => expect(createBtn).not.toBeDisabled());
+  });
+
+  it("offers only data-source-author teams as management owners on create", async () => {
+    render(<IngestionSourceForm open onClose={jest.fn()} onSave={jest.fn()} initial={null} />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("mock-owner-team")).toHaveAttribute(
+        "data-options",
+        "author-team",
+      ),
+    );
   });
 
   it("submits a slack_channel payload with identity fields and owner_team_slug on create", async () => {
@@ -95,6 +160,109 @@ describe("<IngestionSourceForm /> — create", () => {
     expect(screen.queryByLabelText(/channel id/i)).not.toBeInTheDocument();
     expect(screen.getByLabelText(/^url/i)).toBeInTheDocument();
   });
+
+  it("opens with a requested managed source type", () => {
+    render(
+      <IngestionSourceForm
+        open
+        onClose={jest.fn()}
+        onSave={jest.fn()}
+        initial={null}
+        defaultSourceType="jira_project"
+      />,
+    );
+
+    expect(screen.getByLabelText(/source type/i)).toHaveValue("jira_project");
+    expect(screen.getByLabelText(/project key/i)).toBeInTheDocument();
+  });
+
+  it("renders a requested source inline without opening a dialog", () => {
+    render(
+      <IngestionSourceForm
+        open
+        displayMode="inline"
+        onClose={jest.fn()}
+        onSave={jest.fn()}
+        initial={null}
+        defaultSourceType="confluence_space"
+      />,
+    );
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/source type/i)).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/space key/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /ingest source/i })).toBeInTheDocument();
+    expect(screen.getByText(/starts ingestion immediately/i)).toBeInTheDocument();
+  });
+
+  it("creates web sources with the existing sitemap crawl defaults", async () => {
+    const user = userEvent.setup();
+    const onSave = jest.fn().mockResolvedValue(undefined);
+    render(<IngestionSourceForm open onClose={jest.fn()} onSave={onSave} initial={null} />);
+
+    await user.selectOptions(screen.getByLabelText(/source type/i), "web_url");
+    await user.type(screen.getByLabelText(/^name/i), "Example documentation");
+    await user.type(screen.getByLabelText(/^url/i), "https://example.com/docs");
+    await user.click(screen.getByRole("button", { name: /create source/i }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source_type: "web_url",
+        url: "https://example.com/docs",
+        settings: expect.objectContaining({
+          crawl_mode: "sitemap",
+          max_pages: 2000,
+          follow_external_links: true,
+        }),
+      }),
+    );
+  });
+
+  it("starts new sources inside tighter platform limits", async () => {
+    global.fetch = jest.fn().mockImplementation(async (url: string) => {
+      if (url.includes("/api/rbac/ingest-teams")) {
+        return jsonOk({ teams: [] });
+      }
+      if (url.includes("/api/dynamic-agents/teams")) {
+        return jsonOk({ success: true, data: [] });
+      }
+      return jsonOk({
+        success: true,
+        data: {
+          rag_ingestor_limits: {
+            shared: {
+              max_chunk_size: 5_000,
+              max_chunk_overlap: 300,
+              max_reload_interval_seconds: 3_600,
+            },
+            web: {
+              max_pages: 100,
+              max_concurrent_requests: 5,
+              min_download_delay_seconds: 1,
+            },
+          },
+        },
+      });
+    }) as unknown as typeof fetch;
+
+    render(
+      <IngestionSourceForm
+        open
+        onClose={jest.fn()}
+        onSave={jest.fn()}
+        initial={null}
+        defaultSourceType="web_url"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/maximum pages/i)).toHaveValue(100);
+      expect(screen.getByLabelText(/chunk size/i)).toHaveValue(5_000);
+      expect(screen.getByLabelText(/chunk overlap/i)).toHaveValue(300);
+      expect(screen.getByLabelText(/reload interval/i)).toHaveValue(3_600);
+    });
+  });
 });
 
 describe("<IngestionSourceForm /> — edit", () => {
@@ -121,6 +289,17 @@ describe("<IngestionSourceForm /> — edit", () => {
     render(<IngestionSourceForm open onClose={jest.fn()} onSave={jest.fn()} initial={initial} />);
     expect(screen.getByLabelText(/source type/i)).toBeDisabled();
     expect(screen.getByLabelText(/channel id/i)).toBeDisabled();
+  });
+
+  it("offers membership teams for an existing source ownership transfer", async () => {
+    render(<IngestionSourceForm open onClose={jest.fn()} onSave={jest.fn()} initial={initial} />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("mock-owner-team")).toHaveAttribute(
+        "data-options",
+        "team-example,membership-only",
+      ),
+    );
   });
 
   it("never renders a visibility control", () => {

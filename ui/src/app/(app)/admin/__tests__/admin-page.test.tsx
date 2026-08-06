@@ -545,12 +545,14 @@ describe('Admin Dashboard Page', () => {
       });
     });
 
-    it('shows Read-Only badge', async () => {
+    it('does not label the self-service admin view as read-only', async () => {
       render(<AdminPage />);
 
       await waitFor(() => {
-        expect(screen.getByText('Read-Only')).toBeInTheDocument();
+        expect(screen.getByRole('heading', { name: 'Admin' })).toBeInTheDocument();
       });
+
+      expect(screen.queryByText('Read-Only')).not.toBeInTheDocument();
     });
 
     it('shows read-only description text', async () => {
@@ -854,6 +856,7 @@ describe('Admin Dashboard Page', () => {
         'General',
         'Agents',
         'MCP',
+        'RAG',
         'Skills',
         'Service Accounts',
         'AI Review',
@@ -1067,6 +1070,7 @@ describe('Admin Dashboard Page', () => {
         'General',
         'Agents',
         'MCP',
+        'RAG',
         'Skills',
         'Service Accounts',
         'AI Review',

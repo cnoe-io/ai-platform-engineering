@@ -7,13 +7,14 @@ import type { KbTabKey } from "@/lib/rbac/types";
 import { cn } from "@/lib/utils";
 import { motion } from "framer-motion";
 import {
-BookOpen,
-ChevronLeft,
-ChevronRight,
-Database,
-GitFork,
-Search,
-Wrench,
+  BookOpen,
+  ChevronLeft,
+  ChevronRight,
+  Database,
+  GitFork,
+  Layers3,
+  Search,
+  Wrench,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -51,6 +52,14 @@ const navItems: Array<{
     description: "Ingest and manage sources",
   },
   {
+    id: "collections",
+    gateKey: "collections",
+    label: "Collections",
+    href: "/knowledge-bases/collections",
+    icon: Layers3,
+    description: "Group and delegate RAG sources",
+  },
+  {
     id: "graph",
     gateKey: "graph",
     label: "Graph",
@@ -69,12 +78,17 @@ const navItems: Array<{
   },
 ];
 
-export function KnowledgeSidebar({ collapsed, onCollapse, graphRagEnabled }: KnowledgeSidebarProps) {
+export function KnowledgeSidebar({
+  collapsed,
+  onCollapse,
+  graphRagEnabled,
+}: KnowledgeSidebarProps) {
   const pathname = usePathname();
   const { gates, loading: gatesLoading, orgAdminBypass } = useKbTabGates();
 
   const getActiveTab = () => {
     if (pathname?.includes("/mcp-tools")) return "mcp-tools";
+    if (pathname?.includes("/collections")) return "collections";
     if (pathname?.includes("/search")) return "search";
     if (pathname?.includes("/ingest")) return "ingest";
     if (pathname?.includes("/graph")) return "graph";
@@ -86,7 +100,8 @@ export function KnowledgeSidebar({ collapsed, onCollapse, graphRagEnabled }: Kno
   // to do here. A team granted an explicit capability (search/ingest) with no KB
   // assigned yet now has enabled tabs, so the share-request banner would
   // contradict them — each tab's own empty state guides them instead.
-  const hasExplicitCapability = gates.can_ingest === true || gates.can_search === true;
+  const hasExplicitCapability =
+    gates.can_ingest === true || gates.can_search === true;
   const showNoKbBanner =
     !collapsed &&
     !gatesLoading &&
@@ -119,19 +134,22 @@ export function KnowledgeSidebar({ collapsed, onCollapse, graphRagEnabled }: Kno
 
       {/* Knowledge Base Info */}
       {!collapsed && (
-        <div 
+        <div
           className="mx-3 mb-4 relative overflow-hidden rounded-xl border border-primary/20 p-4"
           style={{
-            background: `linear-gradient(to bottom right, color-mix(in srgb, var(--gradient-from) 20%, transparent), color-mix(in srgb, var(--gradient-to) 15%, transparent), transparent)`
+            background: `linear-gradient(to bottom right, color-mix(in srgb, var(--gradient-from) 20%, transparent), color-mix(in srgb, var(--gradient-to) 15%, transparent), transparent)`,
           }}
         >
           <div className="relative">
             <div className="w-10 h-10 mb-3 rounded-xl gradient-primary-br flex items-center justify-center shadow-lg shadow-primary/30">
               <BookOpen className="h-5 w-5 text-white" />
             </div>
-            <p className="text-sm font-semibold gradient-text">Knowledge Bases</p>
+            <p className="text-sm font-semibold gradient-text">
+              Knowledge Bases
+            </p>
             <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
-              Manage your data sources, search content, and explore relationships.
+              Manage your data sources, search content, and explore
+              relationships.
             </p>
           </div>
         </div>
@@ -142,9 +160,10 @@ export function KnowledgeSidebar({ collapsed, onCollapse, graphRagEnabled }: Kno
           role="status"
           aria-live="polite"
           data-testid="kb-sidebar-no-access-banner"
-          className="mx-3 mb-3 rounded-md border border-amber-300/40 bg-amber-100/20 px-3 py-2 text-xs text-amber-900 dark:border-amber-400/30 dark:bg-amber-500/10 dark:text-amber-200"
+          className="mx-3 mb-3 rounded-md border border-amber-500/40 bg-card px-3 py-2 text-xs leading-relaxed text-foreground shadow-sm"
         >
-          You don&apos;t have access to any knowledge bases yet. Ask a team admin to share one
+          You don&apos;t have Knowledge Base access yet. Ask an admin to grant
+          your team permission to create data sources or search sources shared
           with your team.
         </div>
       )}
@@ -164,7 +183,9 @@ export function KnowledgeSidebar({ collapsed, onCollapse, graphRagEnabled }: Kno
             const graphDisabled = item.requiresGraphRag && !graphRagEnabled;
             // Fail-closed: while gates load OR if RBAC denies, the tab renders as
             // disabled-with-tooltip rather than a link the user could click and 403.
-            const rbacAllowed = gatesLoading ? false : gates[item.gateKey] === true;
+            const rbacAllowed = gatesLoading
+              ? false
+              : gates[item.gateKey] === true;
             const rbacDisabled = !rbacAllowed;
             const isDisabled = graphDisabled || rbacDisabled;
             const disabledTooltip = graphDisabled
@@ -180,13 +201,15 @@ export function KnowledgeSidebar({ collapsed, onCollapse, graphRagEnabled }: Kno
                   data-testid={`kb-tab-disabled-${item.id}`}
                   className={cn(
                     "flex items-center gap-3 p-2 rounded-lg cursor-not-allowed opacity-50",
-                    collapsed && "justify-center"
+                    collapsed && "justify-center",
                   )}
                   title={disabledTooltip}
                 >
-                  <div className={cn(
-                    "shrink-0 w-8 h-8 rounded-md flex items-center justify-center bg-muted"
-                  )}>
+                  <div
+                    className={cn(
+                      "shrink-0 w-8 h-8 rounded-md flex items-center justify-center bg-muted",
+                    )}
+                  >
                     <Icon className="h-4 w-4 text-muted-foreground" />
                   </div>
                   {!collapsed && (
@@ -213,28 +236,30 @@ export function KnowledgeSidebar({ collapsed, onCollapse, graphRagEnabled }: Kno
                   isActive
                     ? "bg-primary/10 border border-primary/30"
                     : "hover:bg-muted/50 border border-transparent",
-                  collapsed && "justify-center"
+                  collapsed && "justify-center",
                 )}
               >
-                <div className={cn(
-                  "shrink-0 w-8 h-8 rounded-md flex items-center justify-center",
-                  isActive
-                    ? "bg-primary/20"
-                    : "bg-muted"
-                )}>
-                  <Icon className={cn(
-                    "h-4 w-4",
-                    isActive
-                      ? "text-primary"
-                      : "text-muted-foreground"
-                  )} />
+                <div
+                  className={cn(
+                    "shrink-0 w-8 h-8 rounded-md flex items-center justify-center",
+                    isActive ? "bg-primary/20" : "bg-muted",
+                  )}
+                >
+                  <Icon
+                    className={cn(
+                      "h-4 w-4",
+                      isActive ? "text-primary" : "text-muted-foreground",
+                    )}
+                  />
                 </div>
                 {!collapsed && (
                   <div className="flex-1 min-w-0">
-                    <p className={cn(
-                      "text-sm font-medium",
-                      isActive ? "text-primary" : "text-foreground"
-                    )}>
+                    <p
+                      className={cn(
+                        "text-sm font-medium",
+                        isActive ? "text-primary" : "text-foreground",
+                      )}
+                    >
                       {item.label}
                     </p>
                     <p className="text-xs text-muted-foreground truncate">
@@ -249,19 +274,21 @@ export function KnowledgeSidebar({ collapsed, onCollapse, graphRagEnabled }: Kno
       </div>
 
       {/* Auth Status at bottom */}
-      <div className={cn(
-        "border-t border-border/50",
-        collapsed ? "p-2 flex justify-center" : "p-3"
-      )}>
+      <div
+        className={cn(
+          "border-t border-border/50",
+          collapsed ? "p-2 flex justify-center" : "p-3",
+        )}
+      >
         {!collapsed && (
           <div className="flex flex-col items-center gap-2">
-            <span className="text-[10px] text-muted-foreground uppercase tracking-wider">RAG Status</span>
+            <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
+              RAG Status
+            </span>
             <RagAuthIndicator />
           </div>
         )}
-        {collapsed && (
-          <RagAuthIndicator compact />
-        )}
+        {collapsed && <RagAuthIndicator compact />}
       </div>
     </motion.div>
   );

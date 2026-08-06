@@ -28,10 +28,14 @@ const mockCheckOpenFgaTuple = jest.fn();
 const mockWriteOpenFgaTuples = jest.fn();
 const mockDeleteExactOpenFgaTuples = jest.fn();
 const mockListOpenFgaObjects = jest.fn();
+jest.mock("@/lib/authz", () => ({
+  reconcileTupleDiff: (diff: { writes: unknown[]; deletes: unknown[] }) =>
+    diff.writes.length > 0
+      ? mockWriteOpenFgaTuples(diff)
+      : mockDeleteExactOpenFgaTuples(diff.deletes),
+}));
 jest.mock("@/lib/rbac/openfga", () => ({
   checkOpenFgaTuple: (...args: unknown[]) => mockCheckOpenFgaTuple(...args),
-  writeOpenFgaTuples: (...args: unknown[]) => mockWriteOpenFgaTuples(...args),
-  deleteExactOpenFgaTuples: (...args: unknown[]) => mockDeleteExactOpenFgaTuples(...args),
   listOpenFgaObjects: (...args: unknown[]) => mockListOpenFgaObjects(...args),
 }));
 
@@ -44,7 +48,8 @@ const mockGetBySub = jest.fn();
 const mockUpdateScopesSnapshot = jest.fn();
 jest.mock("@/lib/service-accounts", () => ({
   getBySub: (...args: unknown[]) => mockGetBySub(...args),
-  updateScopesSnapshot: (...args: unknown[]) => mockUpdateScopesSnapshot(...args),
+  updateScopesSnapshot: (...args: unknown[]) =>
+    mockUpdateScopesSnapshot(...args),
 }));
 
 const mockFindAgentVisibilities = jest.fn();
@@ -53,7 +58,7 @@ jest.mock("@/lib/dynamic-agent-visibility", () => ({
 }));
 
 jest.mock("@/lib/rbac/organization", () => ({
-  organizationObjectId: jest.fn().mockReturnValue("organization:caipe"),
+  organizationObjectId: jest.fn().mockReturnValue("organization:example-org"),
 }));
 
 import { POST, DELETE } from "../[id]/scopes/route";
@@ -80,7 +85,10 @@ function ctx() {
 function manageableWithHeld(held: Set<string>) {
   mockCheckOpenFgaTuple.mockImplementation(
     async (t: { relation: string; object: string }) => {
-      if (t.relation === "can_manage" && t.object.startsWith("service_account:")) {
+      if (
+        t.relation === "can_manage" &&
+        t.object.startsWith("service_account:")
+      ) {
         return { allowed: true };
       }
       if (t.relation === "can_manage" && t.object.startsWith("organization:")) {
@@ -94,8 +102,16 @@ function manageableWithHeld(held: Set<string>) {
 beforeEach(() => {
   jest.clearAllMocks();
   mockGetServerSession.mockResolvedValue(SESSION);
-  mockWriteOpenFgaTuples.mockResolvedValue({ enabled: true, writes: 1, deletes: 0 });
-  mockDeleteExactOpenFgaTuples.mockResolvedValue({ enabled: true, writes: 0, deletes: 1 });
+  mockWriteOpenFgaTuples.mockResolvedValue({
+    enabled: true,
+    writes: 1,
+    deletes: 0,
+  });
+  mockDeleteExactOpenFgaTuples.mockResolvedValue({
+    enabled: true,
+    writes: 0,
+    deletes: 1,
+  });
   // refreshSnapshot reads current tuples + the prior doc.
   mockListOpenFgaObjects.mockResolvedValue({ objects: [] });
   mockGetBySub.mockResolvedValue({ sa_sub: SA_ID, scopes_snapshot: [] });
@@ -108,7 +124,10 @@ describe("POST .../[id]/scopes (add)", () => {
   it("adds a held scope → 200, writes the base tuple, audits, no secret", async () => {
     manageableWithHeld(new Set(["can_call tool:jira/search"]));
 
-    const res = await POST(scopeRequest({ type: "tool", ref: "jira/search" }), ctx());
+    const res = await POST(
+      scopeRequest({ type: "tool", ref: "jira/search" }),
+      ctx(),
+    );
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.success).toBe(true);
@@ -117,7 +136,13 @@ describe("POST .../[id]/scopes (add)", () => {
 
     // Base relation `caller` for a tool (not can_*).
     expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
-      writes: [{ user: `service_account:${SA_ID}`, relation: "caller", object: "tool:jira/search" }],
+      writes: [
+        {
+          user: `service_account:${SA_ID}`,
+          relation: "caller",
+          object: "tool:jira/search",
+        },
+      ],
       deletes: [],
     });
     expect(mockUpdateScopesSnapshot).toHaveBeenCalledTimes(1);
@@ -129,21 +154,59 @@ describe("POST .../[id]/scopes (add)", () => {
   it("rejects an unheld scope → 403, nothing written (FR-015)", async () => {
     manageableWithHeld(new Set()); // manage ok, holds nothing
 
-    const res = await POST(scopeRequest({ type: "agent", ref: "incident-resolver" }), ctx());
+    const res = await POST(
+      scopeRequest({ type: "agent", ref: "incident-resolver" }),
+      ctx(),
+    );
     expect(res.status).toBe(403);
     const body = await res.json();
-    expect(body.data.rejected_scope).toEqual({ type: "agent", ref: "incident-resolver" });
+    expect(body.data.rejected_scope).toEqual({
+      type: "agent",
+      ref: "incident-resolver",
+    });
     expect(mockWriteOpenFgaTuples).not.toHaveBeenCalled();
     expect(mockUpdateScopesSnapshot).not.toHaveBeenCalled();
+  });
+
+  it("adds a held datasource and its implementation-level search baseline", async () => {
+    manageableWithHeld(new Set(["can_read data_source:source-a"]));
+
+    const res = await POST(
+      scopeRequest({ type: "datasource", ref: "source-a" }),
+      ctx(),
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
+      writes: [
+        {
+          user: `service_account:${SA_ID}`,
+          relation: "reader",
+          object: "data_source:source-a",
+        },
+        {
+          user: `service_account:${SA_ID}`,
+          relation: "searcher",
+          object: "organization:example-org",
+        },
+      ],
+      deletes: [],
+    });
   });
 
   it("allows a platform admin to add an unheld MCP tool scope to a managed service account", async () => {
     mockCheckOpenFgaTuple.mockImplementation(
       async (t: { relation: string; object: string }) => {
-        if (t.relation === "can_manage" && t.object === `service_account:${SA_ID}`) {
+        if (
+          t.relation === "can_manage" &&
+          t.object === `service_account:${SA_ID}`
+        ) {
           return { allowed: true };
         }
-        if (t.relation === "can_manage" && t.object === "organization:caipe") {
+        if (
+          t.relation === "can_manage" &&
+          t.object === "organization:example-org"
+        ) {
           return { allowed: true };
         }
         if (t.relation === "can_call" && t.object === "tool:jira/*") {
@@ -158,12 +221,21 @@ describe("POST .../[id]/scopes (add)", () => {
       scopes_snapshot: [],
     });
 
-    const res = await POST(scopeRequest({ type: "tool", ref: "jira/*" }), ctx());
+    const res = await POST(
+      scopeRequest({ type: "tool", ref: "jira/*" }),
+      ctx(),
+    );
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.data.added).toEqual({ type: "tool", ref: "jira/*" });
     expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
-      writes: [{ user: `service_account:${SA_ID}`, relation: "caller", object: "tool:jira/*" }],
+      writes: [
+        {
+          user: `service_account:${SA_ID}`,
+          relation: "caller",
+          object: "tool:jira/*",
+        },
+      ],
       deletes: [],
     });
   });
@@ -171,7 +243,10 @@ describe("POST .../[id]/scopes (add)", () => {
   it("404 for a non-manager (does not reveal existence)", async () => {
     mockCheckOpenFgaTuple.mockResolvedValue({ allowed: false });
 
-    const res = await POST(scopeRequest({ type: "tool", ref: "jira/search" }), ctx());
+    const res = await POST(
+      scopeRequest({ type: "tool", ref: "jira/search" }),
+      ctx(),
+    );
     expect(res.status).toBe(404);
     expect(mockWriteOpenFgaTuples).not.toHaveBeenCalled();
   });
@@ -181,7 +256,10 @@ describe("POST .../[id]/scopes (add)", () => {
     // A space is genuinely malformed (not OpenFGA-safe). NOTE: a bare
     // separator-less id like "no-slash" is NOT malformed — it's a valid
     // single-segment tool id (#43), so it would proceed to the can_call check.
-    const res = await POST(scopeRequest({ type: "tool", ref: "bad ref" }), ctx());
+    const res = await POST(
+      scopeRequest({ type: "tool", ref: "bad ref" }),
+      ctx(),
+    );
     expect(res.status).toBe(400);
     // can_manage not even checked when the body is malformed.
     expect(mockWriteOpenFgaTuples).not.toHaveBeenCalled();
@@ -189,7 +267,10 @@ describe("POST .../[id]/scopes (add)", () => {
 
   it("401 when unauthenticated", async () => {
     mockGetServerSession.mockResolvedValue(null);
-    const res = await POST(scopeRequest({ type: "tool", ref: "jira/search" }), ctx());
+    const res = await POST(
+      scopeRequest({ type: "tool", ref: "jira/search" }),
+      ctx(),
+    );
     expect(res.status).toBe(401);
   });
 });
@@ -199,13 +280,20 @@ describe("DELETE .../[id]/scopes (remove)", () => {
     // Editor can_manage but does NOT hold the tool — removal must still succeed.
     manageableWithHeld(new Set());
 
-    const res = await DELETE(scopeRequest({ type: "tool", ref: "jira/search" }), ctx());
+    const res = await DELETE(
+      scopeRequest({ type: "tool", ref: "jira/search" }),
+      ctx(),
+    );
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.data.removed).toEqual({ type: "tool", ref: "jira/search" });
 
     expect(mockDeleteExactOpenFgaTuples).toHaveBeenCalledWith([
-      { user: `service_account:${SA_ID}`, relation: "caller", object: "tool:jira/search" },
+      {
+        user: `service_account:${SA_ID}`,
+        relation: "caller",
+        object: "tool:jira/search",
+      },
     ]);
     // The editor's scope-holding was NOT checked — only can_manage.
     const checkedTuples = mockCheckOpenFgaTuple.mock.calls.map((c) => c[0]);
@@ -218,7 +306,7 @@ describe("DELETE .../[id]/scopes (remove)", () => {
       {
         user: "user:editor-sub",
         relation: "can_manage",
-        object: "organization:caipe",
+        object: "organization:example-org",
       },
     ]);
     expect(mockLogAudit).toHaveBeenCalledWith(
@@ -228,7 +316,10 @@ describe("DELETE .../[id]/scopes (remove)", () => {
 
   it("404 for a non-manager", async () => {
     mockCheckOpenFgaTuple.mockResolvedValue({ allowed: false });
-    const res = await DELETE(scopeRequest({ type: "agent", ref: "incident-resolver" }), ctx());
+    const res = await DELETE(
+      scopeRequest({ type: "agent", ref: "incident-resolver" }),
+      ctx(),
+    );
     expect(res.status).toBe(404);
     expect(mockDeleteExactOpenFgaTuples).not.toHaveBeenCalled();
   });
@@ -258,6 +349,55 @@ describe("DELETE .../[id]/scopes (remove)", () => {
       { user: `service_account:${SA_ID}`, relation: "user", object: "agent:incident-resolver" },
     ]);
   });
+
+  it("removing the last datasource also removes the hidden search baseline", async () => {
+    manageableWithHeld(new Set());
+    mockListOpenFgaObjects
+      .mockResolvedValueOnce({ objects: ["data_source:source-a"] })
+      .mockResolvedValue({ objects: [] });
+
+    const res = await DELETE(
+      scopeRequest({ type: "datasource", ref: "source-a" }),
+      ctx(),
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockDeleteExactOpenFgaTuples).toHaveBeenCalledWith([
+      {
+        user: `service_account:${SA_ID}`,
+        relation: "reader",
+        object: "data_source:source-a",
+      },
+      {
+        user: `service_account:${SA_ID}`,
+        relation: "searcher",
+        object: "organization:example-org",
+      },
+    ]);
+  });
+
+  it("retains the search baseline while another datasource remains", async () => {
+    manageableWithHeld(new Set());
+    mockListOpenFgaObjects
+      .mockResolvedValueOnce({
+        objects: ["data_source:source-a", "data_source:source-b"],
+      })
+      .mockResolvedValue({ objects: [] });
+
+    const res = await DELETE(
+      scopeRequest({ type: "datasource", ref: "source-a" }),
+      ctx(),
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockDeleteExactOpenFgaTuples).toHaveBeenCalledWith([
+      {
+        user: `service_account:${SA_ID}`,
+        relation: "reader",
+        object: "data_source:source-a",
+      },
+    ]);
+  });
 });
 
 describe("refreshSnapshot self-heal (global agents are visibility-owned)", () => {
@@ -270,7 +410,10 @@ describe("refreshSnapshot self-heal (global agents are visibility-owned)", () =>
         if (input.type === "agent") {
           return { objects: ["agent:default", "agent:incident-resolver"] };
         }
-        return { objects: ["tool:jira/search"] };
+        if (input.type === "tool") {
+          return { objects: ["tool:jira/search"] };
+        }
+        return { objects: ["data_source:source-a"] };
       },
     );
     mockFindAgentVisibilities.mockResolvedValue(
@@ -281,15 +424,22 @@ describe("refreshSnapshot self-heal (global agents are visibility-owned)", () =>
     );
     mockGetBySub.mockResolvedValue({ sa_sub: SA_ID, scopes_snapshot: [] });
 
-    const res = await POST(scopeRequest({ type: "tool", ref: "jira/search" }), ctx());
+    const res = await POST(
+      scopeRequest({ type: "tool", ref: "jira/search" }),
+      ctx(),
+    );
     expect(res.status).toBe(200);
 
-    // The rebuilt snapshot must NOT contain the global agent; it keeps the
-    // explicit agent and the tool.
-    const written = mockUpdateScopesSnapshot.mock.calls[0][1] as Array<{ type: string; ref: string }>;
+    // The rebuilt snapshot excludes the visibility-owned global agent while
+    // retaining explicit agents, tools, and datasource scopes.
+    const written = mockUpdateScopesSnapshot.mock.calls[0][1] as Array<{
+      type: string;
+      ref: string;
+    }>;
     const keys = written.map((s) => `${s.type}:${s.ref}`);
     expect(keys).toContain("agent:incident-resolver");
     expect(keys).toContain("tool:jira/search");
+    expect(keys).toContain("datasource:source-a");
     expect(keys).not.toContain("agent:default");
   });
 });
@@ -304,10 +454,16 @@ describe("org-admin bypass for the unlinked SA (TS-B1)", () => {
   function orgAdminNotInSuperAdmins() {
     mockCheckOpenFgaTuple.mockImplementation(
       async (t: { relation: string; object: string }) => {
-        if (t.relation === "can_manage" && t.object.startsWith("service_account:")) {
+        if (
+          t.relation === "can_manage" &&
+          t.object.startsWith("service_account:")
+        ) {
           return { allowed: false };
         }
-        if (t.relation === "can_manage" && t.object.startsWith("organization:")) {
+        if (
+          t.relation === "can_manage" &&
+          t.object.startsWith("organization:")
+        ) {
           return { allowed: true };
         }
         // scope-holding checks for can_call/can_use — grant everything
@@ -325,7 +481,10 @@ describe("org-admin bypass for the unlinked SA (TS-B1)", () => {
       scopes_snapshot: [],
     });
 
-    const res = await POST(scopeRequest({ type: "tool", ref: "jira/search" }), ctx());
+    const res = await POST(
+      scopeRequest({ type: "tool", ref: "jira/search" }),
+      ctx(),
+    );
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.success).toBe(true);
@@ -336,10 +495,16 @@ describe("org-admin bypass for the unlinked SA (TS-B1)", () => {
   it("POST: org-admin can add an unheld tool scope to the unlinked SA", async () => {
     mockCheckOpenFgaTuple.mockImplementation(
       async (t: { relation: string; object: string }) => {
-        if (t.relation === "can_manage" && t.object.startsWith("service_account:")) {
+        if (
+          t.relation === "can_manage" &&
+          t.object.startsWith("service_account:")
+        ) {
           return { allowed: false };
         }
-        if (t.relation === "can_manage" && t.object.startsWith("organization:")) {
+        if (
+          t.relation === "can_manage" &&
+          t.object.startsWith("organization:")
+        ) {
           return { allowed: true };
         }
         if (t.relation === "can_call" && t.object === "tool:jira/*") {
@@ -354,12 +519,21 @@ describe("org-admin bypass for the unlinked SA (TS-B1)", () => {
       scopes_snapshot: [],
     });
 
-    const res = await POST(scopeRequest({ type: "tool", ref: "jira/*" }), ctx());
+    const res = await POST(
+      scopeRequest({ type: "tool", ref: "jira/*" }),
+      ctx(),
+    );
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.data.added).toEqual({ type: "tool", ref: "jira/*" });
     expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
-      writes: [{ user: `service_account:${SA_ID}`, relation: "caller", object: "tool:jira/*" }],
+      writes: [
+        {
+          user: `service_account:${SA_ID}`,
+          relation: "caller",
+          object: "tool:jira/*",
+        },
+      ],
       deletes: [],
     });
   });
@@ -372,7 +546,10 @@ describe("org-admin bypass for the unlinked SA (TS-B1)", () => {
       scopes_snapshot: [],
     });
 
-    const res = await DELETE(scopeRequest({ type: "tool", ref: "jira/search" }), ctx());
+    const res = await DELETE(
+      scopeRequest({ type: "tool", ref: "jira/search" }),
+      ctx(),
+    );
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.success).toBe(true);
@@ -385,10 +562,16 @@ describe("org-admin bypass for the unlinked SA (TS-B1)", () => {
     // across all service accounts (mirrors the detail/rotate/credentials routes).
     mockCheckOpenFgaTuple.mockImplementation(
       async (t: { relation: string; object: string }) => {
-        if (t.relation === "can_manage" && t.object.startsWith("service_account:")) {
+        if (
+          t.relation === "can_manage" &&
+          t.object.startsWith("service_account:")
+        ) {
           return { allowed: false };
         }
-        if (t.relation === "can_manage" && t.object.startsWith("organization:")) {
+        if (
+          t.relation === "can_manage" &&
+          t.object.startsWith("organization:")
+        ) {
           return { allowed: true };
         }
         return { allowed: true };
@@ -401,7 +584,10 @@ describe("org-admin bypass for the unlinked SA (TS-B1)", () => {
       scopes_snapshot: [],
     });
 
-    const res = await POST(scopeRequest({ type: "tool", ref: "jira/search" }), ctx());
+    const res = await POST(
+      scopeRequest({ type: "tool", ref: "jira/search" }),
+      ctx(),
+    );
     expect(res.status).toBe(200);
     expect(mockWriteOpenFgaTuples).toHaveBeenCalled();
   });
@@ -415,7 +601,10 @@ describe("org-admin bypass for the unlinked SA (TS-B1)", () => {
       scopes_snapshot: [],
     });
 
-    const res = await POST(scopeRequest({ type: "tool", ref: "jira/search" }), ctx());
+    const res = await POST(
+      scopeRequest({ type: "tool", ref: "jira/search" }),
+      ctx(),
+    );
     expect(res.status).toBe(404);
     expect(mockWriteOpenFgaTuples).not.toHaveBeenCalled();
   });

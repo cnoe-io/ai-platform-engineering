@@ -13,8 +13,9 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { IngestionSourceConfigWithPermissions } from "@/types/ingestion-source";
-import { Globe, Loader2, Pencil, Trash2, Users } from "lucide-react";
+import { Loader2, Pencil, RotateCcw, Trash2 } from "lucide-react";
 import { useState } from "react";
+import { DatasourceAccessBadges } from "./DatasourceAccessBadges";
 
 const TYPE_LABELS: Record<string, string> = {
   slack_channel: "Slack Channel",
@@ -29,29 +30,8 @@ const STATUS_STYLES: Record<string, string> = {
   active: "bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/30",
   disabled: "bg-gray-500/10 text-gray-600 dark:text-gray-400 border-gray-500/30",
   ingesting: "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30",
+  failed: "bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/30",
 };
-
-function getVisibilityIcon(visibility: string) {
-  switch (visibility) {
-    case "global":
-      return <Globe className="h-3 w-3" />;
-    case "team":
-      return <Users className="h-3 w-3" />;
-    default:
-      return <Users className="h-3 w-3" />;
-  }
-}
-
-function getVisibilityColor(visibility: string) {
-  switch (visibility) {
-    case "global":
-      return "bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/30";
-    case "team":
-      return "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30";
-    default:
-      return "bg-gray-500/10 text-gray-600 dark:text-gray-400 border-gray-500/30";
-  }
-}
 
 function identityDetail(source: IngestionSourceConfigWithPermissions): string {
   switch (source.source_type) {
@@ -72,25 +52,22 @@ function identityDetail(source: IngestionSourceConfigWithPermissions): string {
 
 export interface IngestionSourceCardProps {
   source: IngestionSourceConfigWithPermissions;
-  isOrgAdmin: boolean;
   onEdit: (source: IngestionSourceConfigWithPermissions) => void;
   onDelete: (source: IngestionSourceConfigWithPermissions) => Promise<void>;
-  onAdopt: (source: IngestionSourceConfigWithPermissions) => Promise<void>;
+  onRetry?: (source: IngestionSourceConfigWithPermissions) => Promise<void>;
 }
 
 export function IngestionSourceCard({
   source,
-  isOrgAdmin,
   onEdit,
   onDelete,
-  onAdopt,
+  onRetry,
 }: IngestionSourceCardProps) {
   const [pendingDelete, setPendingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [adopting, setAdopting] = useState(false);
+  const [retrying, setRetrying] = useState(false);
 
   const canManage = source._permissions.can_manage;
-  const canAdopt = isOrgAdmin && source.config_driven && !source.config_import_adopted;
 
   const handleDelete = async () => {
     setDeleting(true);
@@ -102,12 +79,13 @@ export function IngestionSourceCard({
     }
   };
 
-  const handleAdopt = async () => {
-    setAdopting(true);
+  const handleRetry = async () => {
+    if (!onRetry) return;
+    setRetrying(true);
     try {
-      await onAdopt(source);
+      await onRetry(source);
     } finally {
-      setAdopting(false);
+      setRetrying(false);
     }
   };
 
@@ -126,13 +104,18 @@ export function IngestionSourceCard({
             >
               {source.status}
             </Badge>
-            <Badge
-              variant="outline"
-              className={`gap-1 text-xs shrink-0 ${getVisibilityColor(source.visibility)}`}
-            >
-              {getVisibilityIcon(source.visibility)}
-              {source.visibility}
-            </Badge>
+            <DatasourceAccessBadges
+              ownerTeamSlug={source.owner_team_slug}
+              ownerSubject={source.owner_subject}
+              ownerDisplayName={source.owner_display_name}
+              searchTeamSlugs={
+                source.search_with_teams
+                ?? (source.search_owner_team_slug ? [source.search_owner_team_slug] : [])
+              }
+              searchUserDisplayNames={source.search_user_display_names}
+              ragCollections={source.rag_collections}
+              detailsKnown
+            />
             {source.config_driven && (
               <Badge
                 variant="outline"
@@ -146,22 +129,32 @@ export function IngestionSourceCard({
           {source.description && (
             <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{source.description}</p>
           )}
+          {source.status === "failed" && source.last_error && (
+            <p className="text-xs text-destructive mt-1 line-clamp-2" title={source.last_error}>
+              {source.last_error}
+            </p>
+          )}
           <p className="text-xs text-muted-foreground font-mono mt-1 truncate">
             {identityDetail(source)}
           </p>
         </div>
 
         <div className="flex items-center gap-1 shrink-0">
-          {canAdopt && (
+          {canManage && onRetry && !source.config_driven && source.status === "failed" && (
             <Button
               variant="outline"
               size="sm"
-              className="h-7 px-2 text-xs"
-              onClick={() => void handleAdopt()}
-              disabled={adopting}
-              title="Adopt into the database as a permanent, team-owned source"
+              className="h-7 gap-1 px-2 text-xs"
+              onClick={() => void handleRetry()}
+              disabled={retrying}
+              title="Retry ingestion"
             >
-              {adopting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Adopt"}
+              {retrying ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RotateCcw className="h-3.5 w-3.5" />
+              )}
+              Retry
             </Button>
           )}
           {canManage && (

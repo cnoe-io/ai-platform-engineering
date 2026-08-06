@@ -1,11 +1,12 @@
 /**
  * Shared scope helpers for the Service Accounts BFF routes.
  *
- * A "scope" is an agent grant or a tool grant. These helpers centralize:
+ * A "scope" is an agent, tool, or RAG datasource grant. These helpers centralize:
  *  - boundary validation of a scope ref (constitution VII)
  *  - the OpenFGA tuple the EDITOR must hold to grant it (FR-006/008/015)
- *  - the BASE OpenFGA tuple written for the service account (writeOpenFgaTuples
- *    rejects materialized `can_*` relations — agent→`user`, tool→`caller`)
+ *  - the BASE OpenFGA tuple reconciled for the service account (the policy
+ *    writer rejects materialized `can_*` relations — agent→`user`,
+ *    tool→`caller`, datasource→`reader`)
  *
  * Spec: docs/docs/specs/2026-06-05-service-accounts/.
  */
@@ -14,6 +15,8 @@ import type { OpenFgaTupleKey } from "@/lib/rbac/openfga";
 
 /** OpenFGA-safe id segment (agent id, tool server, tool name). */
 export const ID_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+/** RAG datasource ids use the platform-wide OpenFGA object-id alphabet. */
+const DATASOURCE_ID = /^[A-Za-z0-9][A-Za-z0-9._~@|*+=,/-]{0,191}$/;
 
 /**
  * One segment of a tool ref. Either a bare `*`, or an OpenFGA-safe id
@@ -25,8 +28,8 @@ export const ID_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const TOOL_SEGMENT = /^(?:\*|[A-Za-z0-9][A-Za-z0-9._-]*\*?)$/;
 
 export interface ScopeRef {
-  type: "agent" | "tool";
-  /** agent id, or a tool object id — see {@link isValidToolRef}. */
+  type: "agent" | "tool" | "datasource";
+  /** Agent id, datasource id, or a tool object id — see {@link isValidToolRef}. */
   ref: string;
 }
 
@@ -100,14 +103,38 @@ export function parseScope(raw: unknown): { scope?: ScopeRef; error?: string } {
     if (!isValidToolRef(ref)) return { error: `malformed tool ref: ${ref}` };
     return { scope: { type: "tool", ref } };
   }
-  return { error: "scope.type must be 'agent' or 'tool'" };
+  if (obj.type === "datasource") {
+    if (!DATASOURCE_ID.test(ref))
+      return { error: `malformed datasource ref: ${ref}` };
+    return { scope: { type: "datasource", ref } };
+  }
+  return { error: "scope.type must be 'agent', 'tool', or 'datasource'" };
 }
 
 /** The (relation, object) an EDITOR must hold to grant this scope (FR-006/008/015). */
-export function scopeCheckTuple(scope: ScopeRef, editorSubject: string): OpenFgaTupleKey {
-  return scope.type === "agent"
-    ? { user: editorSubject, relation: "can_use", object: `agent:${scope.ref}` }
-    : { user: editorSubject, relation: "can_call", object: `tool:${scope.ref}` };
+export function scopeCheckTuple(
+  scope: ScopeRef,
+  editorSubject: string,
+): OpenFgaTupleKey {
+  if (scope.type === "agent") {
+    return {
+      user: editorSubject,
+      relation: "can_use",
+      object: `agent:${scope.ref}`,
+    };
+  }
+  if (scope.type === "datasource") {
+    return {
+      user: editorSubject,
+      relation: "can_read",
+      object: `data_source:${scope.ref}`,
+    };
+  }
+  return {
+    user: editorSubject,
+    relation: "can_call",
+    object: `tool:${scope.ref}`,
+  };
 }
 
 /**
@@ -116,8 +143,19 @@ export function scopeCheckTuple(scope: ScopeRef, editorSubject: string): OpenFga
  * relations, so agent grants write the `user` relation and tool grants write
  * `caller` (mirrors team-resource grant writes).
  */
-export function scopeWriteTuple(scope: ScopeRef, saSubject: string): OpenFgaTupleKey {
-  return scope.type === "agent"
-    ? { user: saSubject, relation: "user", object: `agent:${scope.ref}` }
-    : { user: saSubject, relation: "caller", object: `tool:${scope.ref}` };
+export function scopeWriteTuple(
+  scope: ScopeRef,
+  saSubject: string,
+): OpenFgaTupleKey {
+  if (scope.type === "agent") {
+    return { user: saSubject, relation: "user", object: `agent:${scope.ref}` };
+  }
+  if (scope.type === "datasource") {
+    return {
+      user: saSubject,
+      relation: "reader",
+      object: `data_source:${scope.ref}`,
+    };
+  }
+  return { user: saSubject, relation: "caller", object: `tool:${scope.ref}` };
 }

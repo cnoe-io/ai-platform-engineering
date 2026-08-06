@@ -24,6 +24,7 @@ function makeSource(
     config_import_adopted: false,
     visibility: "team",
     owner_team_slug: "team-example",
+    search_with_teams: ["reader-team"],
     shared_with_teams: [],
     created_at: "2026-01-01T00:00:00.000Z",
     updated_at: "2026-01-01T00:00:00.000Z",
@@ -37,26 +38,23 @@ describe("<IngestionSourceCard />", () => {
     render(
       <IngestionSourceCard
         source={makeSource()}
-        isOrgAdmin={false}
         onEdit={jest.fn()}
         onDelete={jest.fn()}
-        onAdopt={jest.fn()}
       />,
     );
     expect(screen.getByText("example-channel")).toBeInTheDocument();
     expect(screen.getByText("Slack Channel")).toBeInTheDocument();
     expect(screen.getByText("active")).toBeInTheDocument();
-    expect(screen.getByText("team")).toBeInTheDocument();
+    expect(screen.getByText("Owner: team-example")).toBeInTheDocument();
+    expect(screen.getByText("Search: reader-team")).toBeInTheDocument();
   });
 
   it("hides edit/delete controls when the caller cannot manage the source", () => {
     render(
       <IngestionSourceCard
         source={makeSource({ _permissions: { can_manage: false } })}
-        isOrgAdmin={false}
         onEdit={jest.fn()}
         onDelete={jest.fn()}
-        onAdopt={jest.fn()}
       />,
     );
     expect(screen.queryByTitle("Edit")).not.toBeInTheDocument();
@@ -67,10 +65,8 @@ describe("<IngestionSourceCard />", () => {
     render(
       <IngestionSourceCard
         source={makeSource()}
-        isOrgAdmin={false}
         onEdit={jest.fn()}
         onDelete={jest.fn()}
-        onAdopt={jest.fn()}
       />,
     );
     expect(screen.getByTitle("Edit")).toBeInTheDocument();
@@ -83,10 +79,8 @@ describe("<IngestionSourceCard />", () => {
     render(
       <IngestionSourceCard
         source={makeSource()}
-        isOrgAdmin={false}
         onEdit={jest.fn()}
         onDelete={onDelete}
-        onAdopt={jest.fn()}
       />,
     );
 
@@ -98,65 +92,12 @@ describe("<IngestionSourceCard />", () => {
     await waitFor(() => expect(onDelete).toHaveBeenCalledTimes(1));
   });
 
-  it("shows Adopt only for org admins viewing a config-driven, not-yet-adopted source", () => {
-    const { rerender } = render(
-      <IngestionSourceCard
-        source={makeSource({ config_driven: true, config_import_adopted: false })}
-        isOrgAdmin={false}
-        onEdit={jest.fn()}
-        onDelete={jest.fn()}
-        onAdopt={jest.fn()}
-      />,
-    );
-    expect(screen.queryByText("Adopt")).not.toBeInTheDocument();
-
-    rerender(
-      <IngestionSourceCard
-        source={makeSource({ config_driven: true, config_import_adopted: false })}
-        isOrgAdmin={true}
-        onEdit={jest.fn()}
-        onDelete={jest.fn()}
-        onAdopt={jest.fn()}
-      />,
-    );
-    expect(screen.getByText("Adopt")).toBeInTheDocument();
-
-    rerender(
-      <IngestionSourceCard
-        source={makeSource({ config_driven: true, config_import_adopted: true })}
-        isOrgAdmin={true}
-        onEdit={jest.fn()}
-        onDelete={jest.fn()}
-        onAdopt={jest.fn()}
-      />,
-    );
-    expect(screen.queryByText("Adopt")).not.toBeInTheDocument();
-  });
-
-  it("calls onAdopt when Adopt is clicked", async () => {
-    const user = userEvent.setup();
-    const onAdopt = jest.fn().mockResolvedValue(undefined);
-    render(
-      <IngestionSourceCard
-        source={makeSource({ config_driven: true, config_import_adopted: false })}
-        isOrgAdmin={true}
-        onEdit={jest.fn()}
-        onDelete={jest.fn()}
-        onAdopt={onAdopt}
-      />,
-    );
-    await user.click(screen.getByText("Adopt"));
-    await waitFor(() => expect(onAdopt).toHaveBeenCalledTimes(1));
-  });
-
   it("renders the config-driven badge", () => {
     render(
       <IngestionSourceCard
         source={makeSource({ config_driven: true })}
-        isOrgAdmin={false}
         onEdit={jest.fn()}
         onDelete={jest.fn()}
-        onAdopt={jest.fn()}
       />,
     );
     expect(screen.getByText("Config")).toBeInTheDocument();
