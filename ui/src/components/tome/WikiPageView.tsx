@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, Code, History, Loader2, X } from "lucide-react";
+import { ChevronDown, Code, Loader2, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -111,6 +111,23 @@ export function WikiPageView({
   const [renaming, setRenaming] = useState(false);
   const [pathDraft, setPathDraft] = useState(path);
   const editorRef = useRef<CrepeEditorHandle>(null);
+
+  // Last revision — fetched once per page, used for the "Updated X ago by Y" line.
+  const [lastRevision, setLastRevision] = useState<{
+    author: string;
+    created_at: string;
+  } | null>(null);
+  useEffect(() => {
+    setLastRevision(null);
+    let cancelled = false;
+    fetch(`/api/tome/projects/${slug}/history/${path}`)
+      .then((r) => r.json())
+      .then((j) => {
+        if (!cancelled) setLastRevision(j?.data?.revisions?.[0] ?? null);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [slug, path]);
 
   const { frontmatter, body, kind, title } = useMemo(() => {
     const [fm, b] = parseFrontmatter(markdown);
@@ -289,60 +306,63 @@ export function WikiPageView({
         )}
         <div className="min-w-0 flex-1">
           <h2 className="truncate text-base font-semibold leading-tight">{title}</h2>
-          {renaming ? (
-            <input
-              autoFocus
-              value={pathDraft}
-              onChange={(e) => setPathDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  void commitRename();
-                } else if (e.key === "Escape") {
-                  e.preventDefault();
-                  setRenaming(false);
-                }
-              }}
-              onBlur={() => setRenaming(false)}
-              className="block w-full max-w-md rounded border border-input bg-background px-1 py-0.5 font-mono text-[11px] text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-              aria-label="Rename page path (Enter to save, Esc to cancel)"
-            />
-          ) : onRename && canEdit && !locked ? (
-            <button
-              type="button"
-              onClick={startRename}
-              title="Rename page"
-              className="block max-w-full truncate font-mono text-[11px] text-muted-foreground hover:text-foreground hover:underline"
-            >
-              {path}
-            </button>
-          ) : (
-            <span className="block truncate font-mono text-[11px] text-muted-foreground">
-              {path}
-            </span>
-          )}
+          <div className="flex min-w-0 items-center gap-1.5">
+            {renaming ? (
+              <input
+                autoFocus
+                value={pathDraft}
+                onChange={(e) => setPathDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void commitRename();
+                  } else if (e.key === "Escape") {
+                    e.preventDefault();
+                    setRenaming(false);
+                  }
+                }}
+                onBlur={() => setRenaming(false)}
+                className="block w-full max-w-md rounded border border-input bg-background px-1 py-0.5 font-mono text-[11px] text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                aria-label="Rename page path (Enter to save, Esc to cancel)"
+              />
+            ) : onRename && canEdit && !locked ? (
+              <button
+                type="button"
+                onClick={startRename}
+                title="Rename page"
+                className="min-w-0 truncate font-mono text-[11px] text-muted-foreground hover:text-foreground hover:underline"
+              >
+                {path}
+              </button>
+            ) : (
+              <span className="min-w-0 truncate font-mono text-[11px] text-muted-foreground">
+                {path}
+              </span>
+            )}
+            {lastRevision && onOpenHistory && !isEditing && (
+              <>
+                <span className="shrink-0 text-[11px] text-muted-foreground/40">·</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setChangesSinceOpen(0);
+                    onOpenHistory();
+                  }}
+                  className="shrink-0 text-[11px] text-muted-foreground hover:text-foreground hover:underline"
+                  title="Open revision history"
+                >
+                  {changesSinceOpen > 0 && (
+                    <span className="mr-1 inline-block rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-medium leading-none text-white">
+                      {changesSinceOpen} new
+                    </span>
+                  )}
+                  Updated {relativeTime(lastRevision.created_at)} by {lastRevision.author}
+                </button>
+              </>
+            )}
+          </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          {onOpenHistory && !isEditing && (
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => {
-                setChangesSinceOpen(0);
-                onOpenHistory();
-              }}
-              title="Revision history & diffs"
-              className="relative"
-            >
-              <History className="h-4 w-4" />
-              History
-              {changesSinceOpen > 0 && (
-                <span className="ml-1 rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-medium leading-none text-white">
-                  {changesSinceOpen} change{changesSinceOpen === 1 ? "" : "s"} since open
-                </span>
-              )}
-            </Button>
-          )}
           {isMirror && (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -373,41 +393,50 @@ export function WikiPageView({
             <KindToggle currentKind={kind} onChange={handleChangeKind} />
           )}
           {isEditing ? (
-            <>
+            <div className="flex items-center divide-x divide-border rounded-md border border-border">
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button
-                    variant={rawMode ? "secondary" : "ghost"}
-                    size="sm"
+                  <button
+                    type="button"
                     onClick={handleToggleRawMode}
                     disabled={saving}
                     aria-pressed={rawMode}
+                    className={cn(
+                      "flex items-center gap-1 px-2.5 py-1 text-xs font-medium transition-colors first:rounded-l-md last:rounded-r-md",
+                      rawMode
+                        ? "bg-muted text-foreground"
+                        : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                    )}
                   >
-                    <Code className="h-4 w-4" />
+                    <Code className="h-3.5 w-3.5" />
                     {rawMode ? "Rich" : "Raw"}
-                  </Button>
+                  </button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom" className="text-xs">
                   {rawMode ? "Switch to rich editor" : "Edit raw markdown"}
                 </TooltipContent>
               </Tooltip>
-              <Button
-                variant="ghost"
-                size="sm"
+              <button
+                type="button"
                 onClick={handleCancel}
                 disabled={saving}
+                className="px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground first:rounded-l-md last:rounded-r-md"
               >
                 Cancel
-              </Button>
-              <Button size="sm" onClick={handleSave} disabled={saving}>
+              </button>
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={saving}
+                className="rounded-r-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-60"
+              >
                 {saving ? "Saving…" : "Save"}
-              </Button>
-            </>
+              </button>
+            </div>
           ) : (
             <ViewOnlyTooltip viewOnly={!canEdit}>
-              <Button
-                size="sm"
-                variant="outline"
+              <button
+                type="button"
                 onClick={() => setIsEditing(true)}
                 disabled={locked || !canEdit || isMirror}
                 title={
@@ -419,9 +448,10 @@ export function WikiPageView({
                         : "Ingest in progress: the wiki is read-only"
                       : undefined
                 }
+                className="rounded-md border border-border px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
               >
                 Edit
-              </Button>
+              </button>
             </ViewOnlyTooltip>
           )}
         </div>
@@ -519,6 +549,20 @@ export function WikiPageView({
   );
 }
 
+function relativeTime(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60_000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 30) return `${days}d ago`;
+  const months = Math.floor(days / 30);
+  if (months < 12) return `${months}mo ago`;
+  return `${Math.floor(months / 12)}y ago`;
+}
+
 /** Popover to flip the page kind among stable / dynamic / hidden. */
 function KindToggle({
   currentKind,
@@ -533,17 +577,16 @@ function KindToggle({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button
-          size="sm"
-          variant="outline"
-          className="capitalize"
+        <button
+          type="button"
+          className="flex items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs font-medium capitalize text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           title="Change page kind"
         >
           {currentKind}
           <ChevronDown
             className={cn("h-3 w-3 transition-transform", open && "rotate-180")}
           />
-        </Button>
+        </button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-56 p-2">
         <p className="mb-2 px-1 text-[11px] uppercase tracking-wider text-muted-foreground">
