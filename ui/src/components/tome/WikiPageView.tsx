@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, History, Loader2, X } from "lucide-react";
+import { ChevronDown, Code, History, Loader2, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -100,8 +100,13 @@ export function WikiPageView({
   canEdit = true,
 }: Props) {
   const [isEditing, setIsEditing] = useState(false);
+  const [rawMode, setRawMode] = useState(false);
+  const [rawDraft, setRawDraft] = useState("");
   const [saving, setSaving] = useState(false);
   const [editorEpoch, setEditorEpoch] = useState(0);
+  // The markdown body fed into CrepeEditor on mount; updated when switching
+  // back from raw mode so unsaved raw edits survive the remount.
+  const [richInitialBody, setRichInitialBody] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [pathDraft, setPathDraft] = useState(path);
@@ -136,6 +141,7 @@ export function WikiPageView({
   // Switching pages resets edit state.
   useEffect(() => {
     setIsEditing(false);
+    setRawMode(false);
     setError(null);
     setRenaming(false);
   }, [path]);
@@ -178,6 +184,13 @@ export function WikiPageView({
     }
   }, [pathDraft, path, onRename]);
 
+  // Seed richInitialBody when an edit session starts so it's available for
+  // raw→rich mode transitions without depending on the editorRef being ready.
+  useEffect(() => {
+    if (isEditing) setRichInitialBody(body);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isEditing]);
+
   // External change (agent edit) while not editing → remount to show it live.
   useEffect(() => {
     if (!isEditing) setEditorEpoch((n) => n + 1);
@@ -188,24 +201,23 @@ export function WikiPageView({
   useEffect(() => {
     if (locked && isEditing) {
       setIsEditing(false);
+      setRawMode(false);
       setEditorEpoch((n) => n + 1);
     }
   }, [locked, isEditing]);
 
   const handleSave = useCallback(async () => {
-    if (!editorRef.current) return;
+    if (!rawMode && !editorRef.current) return;
     setSaving(true);
     setError(null);
     try {
       let fmToWrite = frontmatter;
       if (isGlossary) {
         fmToWrite = { ...fmDraft };
-        // Keep the sidebar title in sync with the term.
         const term = String(fmToWrite[FM_TERM] ?? "").trim();
         if (term) fmToWrite[FM_TITLE] = term;
       } else if (isEdgeEntry) {
         fmToWrite = { ...fmDraft };
-        // Keep the sidebar title in sync with the relationship.
         const relation = String(fmToWrite[FM_RELATION] ?? "").trim();
         const source = String(fmToWrite[FM_SOURCE] ?? "").trim();
         const target = String(fmToWrite[FM_TARGET] ?? "").trim();
@@ -215,21 +227,37 @@ export function WikiPageView({
       } else if (isTrackedEntry) {
         fmToWrite = { ...fmDraft };
       }
-      const md = serializeFrontmatter(fmToWrite, editorRef.current.getMarkdown());
+      const bodyContent = rawMode ? rawDraft : editorRef.current!.getMarkdown();
+      const md = serializeFrontmatter(fmToWrite, bodyContent);
       await onWrite(path, md, `edit ${path}`);
       setIsEditing(false);
+      setRawMode(false);
       setEditorEpoch((n) => n + 1);
     } catch (e) {
       setError(String((e as Error)?.message ?? e));
     } finally {
       setSaving(false);
     }
-  }, [frontmatter, isGlossary, isEdgeEntry, isTrackedEntry, fmDraft, onWrite, path]);
+  }, [rawMode, rawDraft, frontmatter, isGlossary, isEdgeEntry, isTrackedEntry, fmDraft, onWrite, path]);
 
   const handleCancel = useCallback(() => {
     setIsEditing(false);
+    setRawMode(false);
     setEditorEpoch((n) => n + 1);
   }, []);
+
+  const handleToggleRawMode = useCallback(() => {
+    if (!rawMode) {
+      // Crepe → raw: snapshot the current rich content into the textarea.
+      const current = editorRef.current?.getMarkdown() ?? richInitialBody;
+      setRawDraft(current);
+    } else {
+      // Raw → Crepe: feed the textarea content into a fresh editor instance.
+      setRichInitialBody(rawDraft);
+      setEditorEpoch((n) => n + 1);
+    }
+    setRawMode((v) => !v);
+  }, [rawMode, rawDraft, richInitialBody]);
 
   const handleChangeKind = useCallback(
     async (newKind: PageKind) => {
@@ -346,6 +374,23 @@ export function WikiPageView({
           )}
           {isEditing ? (
             <>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant={rawMode ? "secondary" : "ghost"}
+                    size="sm"
+                    onClick={handleToggleRawMode}
+                    disabled={saving}
+                    aria-pressed={rawMode}
+                  >
+                    <Code className="h-4 w-4" />
+                    {rawMode ? "Rich" : "Raw"}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="text-xs">
+                  {rawMode ? "Switch to rich editor" : "Edit raw markdown"}
+                </TooltipContent>
+              </Tooltip>
               <Button
                 variant="ghost"
                 size="sm"
@@ -448,15 +493,27 @@ export function WikiPageView({
             "ring-2 ring-inset ring-amber-400/70 dark:ring-amber-700/60",
         )}
       >
-        <CrepeEditor
-          key={`${slug}-${path}-${editorEpoch}`}
-          ref={editorRef}
-          initialMarkdown={body}
-          readonly={!isEditing}
-          onNavigate={onNavigate}
-          glossaryPreview={glossaryPreview}
-          hideHtmlComments
-        />
+        {isEditing && rawMode ? (
+          <div className="milkdown-host h-full">
+            <textarea
+              className="raw-markdown-editor"
+              value={rawDraft}
+              onChange={(e) => setRawDraft(e.target.value)}
+              spellCheck={false}
+              aria-label="Raw markdown editor"
+            />
+          </div>
+        ) : (
+          <CrepeEditor
+            key={`${slug}-${path}-${editorEpoch}`}
+            ref={editorRef}
+            initialMarkdown={isEditing ? richInitialBody : body}
+            readonly={!isEditing}
+            onNavigate={onNavigate}
+            glossaryPreview={glossaryPreview}
+            hideHtmlComments
+          />
+        )}
       </ScrollArea>
     </div>
   );

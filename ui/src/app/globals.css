@@ -1181,3 +1181,33 @@ pre code.hljs {
 .tome-glossary-card-unresolved .tome-glossary-card-term {
   color: hsl(38 92% 45%);
 }
+
+/* Raw markdown editor — matches the ProseMirror container geometry and the
+   milkdown-host CSS variable palette so it reads as part of the same editor. */
+.raw-markdown-editor {
+  display: block;
+  width: 100%;
+  /* Fill at least the visible scroll area — Radix viewport uses display:table
+     internally so height:100% doesn't propagate; min-height on the viewport
+     height is the reliable fallback. */
+  min-height: calc(100vh - 10rem);
+  padding: 2rem 2.5rem 6rem;
+  background: transparent;
+  color: hsl(var(--foreground));
+  font-family: var(--crepe-font-code,
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace);
+  font-size: 0.8125rem;
+  line-height: 1.7;
+  resize: none;
+  border: none;
+  outline: none;
+  /* Subtle left rule to hint "code mode" without shouting. */
+  border-left: 2px solid hsl(var(--border));
+  caret-color: hsl(var(--primary));
+  box-sizing: border-box;
+}
+.raw-markdown-editor::selection {
+  background: hsl(var(--accent));
+  color: hsl(var(--accent-foreground));
+}
