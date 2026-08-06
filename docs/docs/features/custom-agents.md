@@ -6,7 +6,7 @@ sidebar_position: 1
 
 Build your own team-owned agents with custom system prompts, model selection, tool access, skills, subagents, and workflows. Use the no-code Agent Builder UI for day-to-day authoring, or bootstrap config-driven agents with the CAIPE UI chart.
 
-**Quick links**: [Helm Chart Docs](../installation/helm-charts/ai-platform-engineering/dynamic-agents-chart) · [Developer Guide](../development/creating-an-agent)
+**Quick links**: [Helm Chart Docs](../installation/helm-charts/ai-platform-engineering/dynamic-agents-chart) · [Developer Guide](../development/creating-an-agent) · [User Memory](user-memory)
 
 ---
 
@@ -16,7 +16,8 @@ Dynamic Agents is the chat runtime and agent-builder service.
 
 - Each custom agent gets its own system prompt, model, tool access, and persona
 - MCP tool support: connect registered MCP servers over `stdio` or streamable `http`
-- Built-in tools include URL fetch, current datetime, user info, wait, and approved workflow execution
+- Built-in tools include URL fetch, current datetime, user info, wait, optional
+  [User Memory](user-memory), and approved workflow execution
 - REST + SSE API for browser, bot, workflow, and service callers
 - Deploy via Helm: `oci://ghcr.io/cnoe-io/charts/dynamic-agents`
 

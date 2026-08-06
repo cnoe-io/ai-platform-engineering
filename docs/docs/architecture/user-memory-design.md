@@ -1,7 +1,10 @@
 # User Memory
 
 - **Status:** Implemented in CAIPE UI and Dynamic Agents
-- **Last verified:** 2026-08-03
+- **Last verified:** 2026-08-05
+
+For an operator and user-oriented introduction, see the
+[User Memory feature guide](../features/user-memory).
 
 This page describes the current implementation. It separates authentication,
 agent RBAC, and memory ownership because they are different enforcement layers.
