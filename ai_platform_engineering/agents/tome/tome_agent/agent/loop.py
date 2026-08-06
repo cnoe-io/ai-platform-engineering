@@ -133,8 +133,33 @@ def make_constrain_writes_hook(project_dir: Path):
     return constrain
 
 
+READ_SANDBOX_OVERRIDE_MARKER = "/__TOME_AGENT_OVERRIDE_BLOCK_1__"
+"""Prefix an agent can put on a Read/Glob/Grep path to force it through the
+sandbox despite being outside the wiki dir (e.g. recovering a large MCP
+response the SDK externalized to a tool-results file it can't otherwise
+reach, see #295). Not a real env var — Read/Glob/Grep tool schemas are fixed
+by the SDK, so there's no separate field to carry an override flag; the
+marker rides on the one string field these tools do take, the same way a
+shell command can be prefixed with `VAR=1 &&`. Deliberately narrow: only
+widens the READ sandbox, never the separate Write/Edit/Bash restrictions
+(Bash stays banned outright — see `make_deny_unsafe_tools_hook` for why).
+
+MUST start with `/`: the model/CLI resolves a relative-looking file_path
+against cwd before our hook ever sees it (confirmed in production — a
+non-`/`-prefixed marker arrived at the hook already rejoined onto the
+project dir, e.g. `/project/<id>/TOME_AGENT_OVERRIDE_BLOCK=1::/etc/hostname`,
+which silently passed the sandbox check as a bogus in-tree path and 404'd
+on the real Read instead of ever exercising the override). Keeping the
+marker itself absolute means `{MARKER}{real_absolute_path}` is still one
+valid absolute string end to end, so it survives untouched until our hook
+strips it."""
+
+
 def make_constrain_reads_hook(project_dir: Path, extra_dirs: list[Path] | None = None):
-    """PreToolUse hook denying file-reading tools outside `project_dir`.
+    """PreToolUse hook denying file-reading tools outside `project_dir`,
+    with a two-step override: the first attempt is denied with instructions
+    on how to force it through (`READ_SANDBOX_OVERRIDE_MARKER`); every
+    override actually exercised is logged loudly, never silent.
 
     The write hook confines Edit/Write; this confines Read/Glob/Grep so the
     agent cannot read arbitrary host files. Critical when the agent runs
@@ -166,11 +191,30 @@ def make_constrain_reads_hook(project_dir: Path, extra_dirs: list[Path] | None =
         if tool_name not in READ_TOOLS:
             return {}
         tool_input = input_data.get("tool_input") or {}
-        target = tool_input.get("file_path") or tool_input.get("path")
+        key = "file_path" if "file_path" in tool_input else "path"
+        target = tool_input.get(key)
         if not target:
             # Glob/Grep with no path → search root defaults to cwd. Allowed.
             return {}
-        if not _within_allowed(str(target)):
+        target = str(target)
+
+        if target.startswith(READ_SANDBOX_OVERRIDE_MARKER):
+            real_target = target[len(READ_SANDBOX_OVERRIDE_MARKER):]
+            log.warning(
+                "READ SANDBOX OVERRIDE exercised: %s on %r (outside %s)",
+                tool_name,
+                real_target,
+                allowed_roots[0],
+            )
+            return {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "allow",
+                    "updatedInput": {**tool_input, key: real_target},
+                }
+            }
+
+        if not _within_allowed(target):
             log.warning("denied %s outside allowed dirs: %s", tool_name, target)
             extra_hint = (
                 " You may also read the child project wikis listed in your prompt."
@@ -188,6 +232,12 @@ def make_constrain_reads_hook(project_dir: Path, extra_dirs: list[Path] | None =
                         "`repos/<slug>/status.md`). Source data (repos, Confluence, "
                         "Webex) comes from the MCP tools, not the local filesystem."
                         + extra_hint
+                        + " If you are certain you need this exact path anyway (e.g. "
+                        "recovering a large MCP response that got truncated to a "
+                        "tool-results file), retry with the path prefixed by "
+                        f"`{READ_SANDBOX_OVERRIDE_MARKER}` — e.g. "
+                        f"`{READ_SANDBOX_OVERRIDE_MARKER}{target}`. This will be "
+                        "allowed, but is logged and should be rare."
                     ),
                 }
             }
