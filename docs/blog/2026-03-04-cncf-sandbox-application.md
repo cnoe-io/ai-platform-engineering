@@ -49,7 +49,7 @@ https://github.com/cnoe-io/ai-platform-engineering
 
 ### Additional repos in scope of the application
 
-- https://github.com/cnoe-io/agent-chat-cli — CLI client for A2A agent interaction
+- https://github.com/cnoe-io/ai-platform-engineering/tree/main/cli — CAIPE CLI (dedicated TypeScript/Bun terminal client for A2A/AG-UI agent interaction)
 - https://github.com/cnoe-io/openapi-mcp-codegen — OpenAPI-to-MCP server code generator
 - https://github.com/cnoe-io/cnoe-agent-utils — Shared Python utilities for CAIPE agents
 - https://github.com/cnoe-io/community-plugins/tree/agent-forge-upstream-docker/workspaces/agent-forge — Agent Forge Backstage plugin (upstream contribution to [backstage/community-plugins](https://github.com/backstage/community-plugins/blob/main/workspaces/agent-forge/plugins/agent-forge/README.md), published as [@caipe/plugin-agent-forge](https://www.npmjs.com/package/@caipe/plugin-agent-forge) on npm)

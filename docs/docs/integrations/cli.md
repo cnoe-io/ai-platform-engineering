@@ -4,14 +4,9 @@ sidebar_position: 4
 
 # CAIPE CLI
 
-:::caution Refactor in Progress
-The CLI is under active development. Track progress in [PR #1184](https://github.com/cnoe-io/ai-platform-engineering/pull/1184). Commands, flags, and installation paths may change before the final merge.
-:::
-
-
 AI-assisted coding, workflows, and platform engineering from the terminal.
 
-CAIPE CLI is a TypeScript/Bun CLI that connects to a CAIPE server via the A2A or AG-UI streaming protocol. It provides an interactive chat REPL, headless mode for CI/CD pipelines, skill management, and secure credential storage.
+CAIPE CLI is a TypeScript/Bun program in the [`cli/`](https://github.com/cnoe-io/ai-platform-engineering/tree/main/cli) directory. It connects to a CAIPE server via AG-UI streaming on the UI BFF, with OAuth PKCE login, an Ink chat REPL, headless mode, skills, and session history.
 
 ## Installation
 
@@ -29,9 +24,13 @@ Installs the correct binary for your platform (macOS/Linux, arm64/x64) to `/usr/
 
 ### npm
 
+After a release is published to npm (tag `caipe/v*.*.*` on GitHub):
+
 ```bash
-npm install -g caipe
+npm install -g caipe@1.0.0
 ```
+
+Use a **pinned version** in automation. If `npm install` returns 404, the release publish step has not completed yet — use the curl installer or a GitHub Release binary instead.
 
 ### Build from source
 
@@ -46,15 +45,26 @@ npm run compile   # produces dist/caipe (Bun single-file binary)
 ## Quick Start
 
 ```bash
-# 1. Point to your CAIPE server
+# 1. Point to your CAIPE server (BFF / UI)
 caipe config set server.url https://your-caipe-server.example.com
 
 # 2. Authenticate (opens browser for OAuth)
 caipe auth login
 
-# 3. Start chatting
-caipe
+# 3. List agents you are allowed to use, then chat
+caipe agents list
+caipe chat --agent '<agent-id>'
 ```
+
+### Grid preview (split BFF and IdP)
+
+```bash
+caipe config set server.url https://grid.preview.outshift.io
+caipe config set auth.url https://idp.grid.preview.outshift.io/realms/caipe
+caipe auth login
+```
+
+Set `auth.url` **after** `server.url` when the IdP is on a different host than the UI.
 
 ## Commands
 
@@ -74,6 +84,14 @@ caipe
 | `caipe skills update [name]` | Check and update installed skills |
 | `caipe agents list` | List available server agents |
 | `caipe agents info <name>` | Show agent capabilities |
+| `caipe doctor` | Check auth, BFF health, and agent access |
+| `caipe init` | Create project or global memory template |
+| `caipe sessions list` | List saved chat sessions |
+| `caipe sessions resume <id>` | Resume a saved session |
+| `caipe mcp list` | List OAuth MCP connectors (BFF) |
+| `caipe mcp connect <provider>` | Open browser to connect a provider |
+| `caipe diff` | Git diff summary in current repo |
+| `caipe local` | Local model mode (`ANTHROPIC_API_KEY`) |
 | `caipe memory` | Manage persistent context files |
 | `caipe commit` | DCO-compliant commit with AI attribution |
 
@@ -92,7 +110,7 @@ caipe
 The chat REPL provides:
 
 - **Streaming responses** via A2A or AG-UI Server-Sent Events
-- **Slash commands** — type `/` for a picker: `/clear`, `/compact`, `/login`, `/skills`, `/agents`, `/help`, `/exit`
+- **Slash commands** — type `/` for a picker: `/clear`, `/compact`, `/delegate`, `/sessions`, `/login`, `/skills`, `/agents`, `/help`, `/exit`
 - **Readline keybindings** — `Ctrl+A/E`, `Ctrl+B/F`, `Alt+B/F`, `Ctrl+U/K/W`, `Ctrl+D`
 - **Input history** — `Up/Down` or `Ctrl+P/N`
 - **Shell pipes** — `!command` runs a shell command and injects output
@@ -122,10 +140,13 @@ Settings are stored in `~/.config/caipe/settings.json`.
 
 | Key | Description | Example |
 |-----|-------------|---------|
-| `server.url` | CAIPE server base URL | `https://caipe.example.com` |
-| `auth.url` | OAuth authorization endpoint (auto-discovered if not set) | `https://auth.example.com` |
+| `server.url` | CAIPE BFF / UI base URL | `https://caipe.example.com` |
+| `auth.url` | OAuth base URL (required when IdP is separate) | `https://idp.example.com/realms/caipe` |
 | `auth.apiKey` | Static API key (alternative to OAuth) | `sk-...` |
 | `auth.credential-storage` | Credential backend: `encrypted-file` or `keychain` | `encrypted-file` |
+| `chat.default-agent` | Default dynamic agent id | `my-agent` |
+| `chat.plain-markdown` | Disable terminal markdown rendering | `true` |
+| `chat.tool-approval` | Tool notice mode: `auto`, `prompt`, `deny` | `prompt` |
 
 ## Source
 
