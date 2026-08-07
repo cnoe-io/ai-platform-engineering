@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { useKbTabGates } from "@/hooks/use-kb-tab-gates";
 import type { KbTabKey } from "@/lib/rbac/types";
 import { cn } from "@/lib/utils";
+import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
 import { motion } from "framer-motion";
 import {
   BookOpen,
@@ -85,6 +86,7 @@ export function KnowledgeSidebar({
 }: KnowledgeSidebarProps) {
   const pathname = usePathname();
   const { gates, loading: gatesLoading, orgAdminBypass } = useKbTabGates();
+  const { hasUnsavedChanges, requestNavigation } = useUnsavedChangesStore();
 
   const getActiveTab = () => {
     if (pathname?.includes("/mcp-tools")) return "mcp-tools";
@@ -231,6 +233,16 @@ export function KnowledgeSidebar({
                 key={item.id}
                 href={item.href}
                 prefetch={true}
+                onClick={(event) => {
+                  if (
+                    pathname?.startsWith("/knowledge-bases/collections") &&
+                    hasUnsavedChanges &&
+                    item.href !== pathname
+                  ) {
+                    event.preventDefault();
+                    requestNavigation(item.href);
+                  }
+                }}
                 className={cn(
                   "flex items-center gap-3 p-2 rounded-lg transition-all",
                   isActive

@@ -67,6 +67,7 @@ const EDITOR_ROUTES_WITH_OWN_DISCARD_DIALOG = [
   "/workflows",
   "/skills/workspace",
   "/dynamic-agents",
+  "/knowledge-bases/collections",
 ];
 
 /**

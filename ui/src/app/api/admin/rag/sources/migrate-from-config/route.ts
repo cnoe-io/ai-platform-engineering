@@ -16,10 +16,9 @@
  * deliberately excluded, even when their connector does not use a Mongo
  * config row (for example local-file uploads).
  *
- * Apply requires two independent choices: the team that manages the source
- * configuration and the team that reads the resulting Platform RAG. The
- * migration also grants the reader team the organization search capability.
- * No deployment-specific team name or public wildcard is assumed.
+ * Apply always imports into Platform RAG. Its current Owner and Search policy
+ * remains authoritative, while supported source configurations become
+ * editable in the UI.
  */
 
 import { NextRequest } from "next/server";
@@ -32,9 +31,11 @@ import {
   successResponse,
   withErrorHandler,
 } from "@/lib/api-middleware";
-import { reconcileTupleDiff } from "@/lib/authz";
 import { getCollection } from "@/lib/mongodb";
-import { ensurePlatformRagCollection } from "@/lib/rag-collections.server";
+import {
+  bootstrapPlatformRagCollection,
+  replaceCollectionSources,
+} from "@/lib/rag-collections.server";
 import { adoptConfigImportedRagSources } from "@/lib/seed-config";
 import {
   deleteAllDataSourceRelationshipTuples,
@@ -44,14 +45,14 @@ import {
   reconcileIngestionSourceRelationships,
   reconcileKnowledgeBaseRelationships,
 } from "@/lib/rbac/openfga-owned-resources-reconcile";
-import { caipeOrgKey, organizationObjectId } from "@/lib/rbac/organization";
+import { caipeOrgKey } from "@/lib/rbac/organization";
+import { SUPER_ADMINS_TEAM_SLUG } from "@/lib/rbac/reserved-teams";
 import { requireResourcePermission } from "@/lib/rbac/resource-authz";
 import type {
   IngestionSourceConfig,
   IngestionSourceType,
   WebSourceSettings,
 } from "@/types/ingestion-source";
-import type { Team } from "@/types/teams";
 import { PLATFORM_RAG_COLLECTION_ID } from "@/types/rag-collection";
 
 const OPENFGA_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._~@|*+=,/-]{0,191}$/;
@@ -722,62 +723,15 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     ? parseSourceIds(body.source_ids)
     : preview.filter((s) => s.importable).map((s) => s.source_id);
 
-  // Temporary aliases keep API clients from the earlier local iteration
-  // working, but both policies are now explicit and required.
-  const managementTeamSlug = normalizeString(
-    body.management_team_slug ?? body.owner_team_slug,
-  );
-  const searchTeamSlug = normalizeString(body.search_team_slug);
-
-  if (!managementTeamSlug || !searchTeamSlug) {
-    throw new ApiError(
-      "Owner team and Search team are required",
-      400,
-      "MIGRATION_TEAMS_REQUIRED",
-    );
-  }
-  if (
-    !OPENFGA_ID_PATTERN.test(managementTeamSlug) ||
-    !OPENFGA_ID_PATTERN.test(searchTeamSlug)
-  ) {
-    throw new ApiError(
-      "Migration team slugs are invalid",
-      400,
-      "INVALID_TEAM_SLUGS",
-    );
-  }
-
-  const teams = await getCollection<Team>("teams");
-  const requiredTeamSlugs = Array.from(
-    new Set([managementTeamSlug, searchTeamSlug]),
-  );
-  const selectedTeams = await teams
-    .find({ slug: { $in: requiredTeamSlugs } } as never)
-    .project({ slug: 1 })
-    .toArray();
-  const selectedSlugs = new Set(
-    selectedTeams.map((team) => team.slug).filter(Boolean),
-  );
-  if (!selectedSlugs.has(managementTeamSlug)) {
-    throw new ApiError(
-      `Owner team "${managementTeamSlug}" not found`,
-      404,
-      "MANAGEMENT_TEAM_NOT_FOUND",
-    );
-  }
-  if (!selectedSlugs.has(searchTeamSlug)) {
-    throw new ApiError(
-      `Search team "${searchTeamSlug}" not found`,
-      404,
-      "SEARCH_TEAM_NOT_FOUND",
-    );
-  }
+  const currentPlatform = await bootstrapPlatformRagCollection();
+  const managementTeamSlug =
+    currentPlatform.maintainer_team_slugs[0] ?? SUPER_ADMINS_TEAM_SLUG;
   const adopted: string[] = [];
   const skipped: MigrateSkip[] = [];
 
   // First establish source-level management for every legacy-global source,
   // including connector types that do not yet have a self-service form. The
-  // selected search team is applied once to Platform RAG below, not copied to
+  // Search access comes from Platform RAG below rather than being copied to
   // every datasource.
   for (const datasource of unmanagedSources) {
     const sourceId = datasource.datasource_id;
@@ -871,32 +825,14 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     );
   }
 
-  const platform = await ensurePlatformRagCollection({
-    actorSubject,
-    maintainerTeamSlugs: [managementTeamSlug],
-    readerTeamSlugs: [searchTeamSlug],
-    sourceIds: platformSources.map((source) => source.datasource_id),
-    mergeSourceIds: true,
-  });
-  // The chosen audience needs both halves of query authorization: collection
-  // Search membership narrows which sources it can query, while organization#searcher
-  // enables the search data path itself. Keep the latter out of the UI as an
-  // implementation detail of the migration's single "search team" choice.
-  await reconcileTupleDiff(
-    {
-      writes: [
-        {
-          user: `team:${searchTeamSlug}#member`,
-          relation: "searcher",
-          object: organizationObjectId(),
-        },
-      ],
-      deletes: [],
-    },
-    {
-      caller: { type: "user", id: actorSubject },
-      source: "rag_platform_migration_search_capability",
-    },
+  const platform = await replaceCollectionSources(
+    PLATFORM_RAG_COLLECTION_ID,
+    Array.from(
+      new Set([
+        ...(currentPlatform.source_ids ?? []),
+        ...platformSources.map((source) => source.datasource_id),
+      ]),
+    ),
   );
   const agentsUpdated = await attachLegacyAgentsToPlatformRag();
 

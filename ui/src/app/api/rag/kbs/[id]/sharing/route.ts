@@ -927,7 +927,6 @@ export async function PUT(
       previousPersonalOwner !== appliedPersonalOwner;
     let accessMetadataPersisted = false;
     let policyWriteStarted = false;
-    let localSourcePersisted = false;
     let result!: Awaited<
       ReturnType<typeof reconcileKnowledgeBaseRelationships>
     >;
@@ -1018,7 +1017,6 @@ export async function PUT(
         );
         if (!localUpdated)
           throw new Error("Datasource config disappeared while saving access");
-        localSourcePersisted = true;
       }
     } catch (error) {
       // The datasource metadata is written first so the old owner remains
@@ -1096,36 +1094,6 @@ export async function PUT(
             rollbackError,
           );
         }
-      }
-      if (localSourcePersisted && localSource) {
-        const restoreSet: Record<string, unknown> = {
-          search_with_teams: localSource.search_with_teams ?? [],
-          search_with_users: localSource.search_with_users ?? [],
-          updated_at: localSource.updated_at,
-        };
-        if (localSource.owner_team_slug)
-          restoreSet.owner_team_slug = localSource.owner_team_slug;
-        if (localSource.owner_subject)
-          restoreSet.owner_subject = localSource.owner_subject;
-        const restoreUnset: Record<string, string> = {};
-        if (!localSource.owner_team_slug) restoreUnset.owner_team_slug = "";
-        if (!localSource.owner_subject) restoreUnset.owner_subject = "";
-        await sourceCollection
-          .updateOne(
-            { source_id: id } as never,
-            {
-              $set: restoreSet,
-              ...(Object.keys(restoreUnset).length > 0
-                ? { $unset: restoreUnset }
-                : {}),
-            } as never,
-          )
-          .catch((rollbackError) => {
-            console.error(
-              `[rag/kbs/${id}/sharing] failed to restore local source access`,
-              rollbackError,
-            );
-          });
       }
       throw error;
     }

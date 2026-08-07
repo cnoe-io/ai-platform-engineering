@@ -74,18 +74,43 @@ jest.mock("framer-motion", () => {
 });
 
 import { RagCollectionsView } from "../RagCollectionsView";
+import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
 
 function jsonResponse(body: unknown): Response {
   return { ok: true, json: async () => body } as Response;
 }
 
 describe("RagCollectionsView", () => {
+  let createdCollection = false;
+
   beforeEach(() => {
     jest.clearAllMocks();
+    createdCollection = false;
     mockSearchParams = new URLSearchParams("collection=primary-collection");
+    useUnsavedChangesStore.setState({
+      hasUnsavedChanges: false,
+      pendingNavigationHref: null,
+      pendingDeferredAction: null,
+    });
     global.fetch = jest.fn(
       async (url: RequestInfo | URL, init?: RequestInit) => {
         const href = String(url);
+        if (href === "/api/rag/collections" && init?.method === "POST") {
+          createdCollection = true;
+          return jsonResponse({
+            success: true,
+            data: { _id: "new-collection" },
+          });
+        }
+        if (
+          href === "/api/rag/collections/new-collection" &&
+          init?.method === "PATCH"
+        ) {
+          return jsonResponse({
+            success: true,
+            data: { _id: "new-collection" },
+          });
+        }
         if (
           href === "/api/rag/collections/primary-collection" &&
           init?.method === "DELETE"
@@ -136,6 +161,30 @@ describe("RagCollectionsView", () => {
                     can_delegate: false,
                   },
                 },
+                ...(createdCollection
+                  ? [
+                      {
+                        _id: "new-collection",
+                        name: "New collection",
+                        description: "New description",
+                        is_platform: false,
+                        source_ids: ["web-docs"],
+                        owner_subject: "owner-subject",
+                        maintainer_team_slugs: [],
+                        reader_team_slugs: [],
+                        global_read: false,
+                        created_by: "owner-subject",
+                        created_at: "2026-08-07T00:00:00.000Z",
+                        updated_at: "2026-08-07T00:00:00.000Z",
+                        _permissions: {
+                          can_read: true,
+                          can_publish: true,
+                          can_manage: true,
+                          can_delegate: false,
+                        },
+                      },
+                    ]
+                  : []),
               ],
             },
           });
@@ -215,17 +264,86 @@ describe("RagCollectionsView", () => {
     );
   });
 
-  it("describes collection creation in terms of Owner and Search teams", async () => {
+  it("opens new collection as a full inline editor", async () => {
     render(<RagCollectionsView />);
 
     fireEvent.click(
       await screen.findByRole("button", { name: "New Collection" }),
     );
+    expect(screen.getByText("New collection")).toBeInTheDocument();
+    expect(screen.getByText("Datasources")).toBeInTheDocument();
+    expect(screen.getByText("Team access")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(mockReplace).toHaveBeenCalledWith(
+      "/knowledge-bases/collections?new=1",
+      { scroll: false },
+    );
+  });
+
+  it("restores the new collection editor from its deep link", async () => {
+    mockSearchParams = new URLSearchParams("new=1");
+
+    render(<RagCollectionsView />);
+
+    expect(await screen.findByText("New collection")).toBeInTheDocument();
+    expect(screen.queryByText("Collection settings")).not.toBeInTheDocument();
+  });
+
+  it("creates a collection with its selected datasources in one save flow", async () => {
+    render(<RagCollectionsView />);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "New Collection" }),
+    );
+    fireEvent.change(screen.getByLabelText("Name"), {
+      target: { value: "New collection" },
+    });
+    fireEvent.change(screen.getByLabelText("Description"), {
+      target: { value: "New description" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Web docs/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Create collection" }));
+
+    await waitFor(() => {
+      const calls = (global.fetch as jest.Mock).mock.calls;
+      expect(
+        calls.some(
+          ([url, init]) =>
+            url === "/api/rag/collections" && init?.method === "POST",
+        ),
+      ).toBe(true);
+      const updateCall = calls.find(
+        ([url, init]) =>
+          url === "/api/rag/collections/new-collection" &&
+          init?.method === "PATCH",
+      );
+      expect(JSON.parse(String(updateCall?.[1]?.body))).toEqual(
+        expect.objectContaining({ source_ids: ["web-docs"] }),
+      );
+    });
+  });
+
+  it("asks before discarding an unsaved collection draft", async () => {
+    render(<RagCollectionsView />);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "New Collection" }),
+    );
+    fireEvent.change(screen.getByLabelText("Name"), {
+      target: { value: "Unsaved collection" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: /Primary collection/i }),
+    );
+
     expect(
-      screen.getByText(
-        "Create a private collection from datasources you can manage. You can later request Search access for other teams; administrators can delegate Owner teams.",
-      ),
+      await screen.findByText("Unsaved collection changes"),
     ).toBeInTheDocument();
+    expect(screen.getByText("New collection")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Discard changes" }));
+
+    expect(await screen.findByText("Collection settings")).toBeInTheDocument();
   });
 
   it("confirms that deleting a collection leaves its data unchanged", async () => {
@@ -256,7 +374,7 @@ describe("RagCollectionsView", () => {
       screen.queryByText(/wholesale stale-chunk replacement/i),
     ).not.toBeInTheDocument();
 
-    const selected = screen.getByTestId(
+    const selected = await screen.findByTestId(
       "knowledge-card-datasource-slack-channel-C00000000",
     );
     expect(selected).toHaveTextContent("Slack: #primary");

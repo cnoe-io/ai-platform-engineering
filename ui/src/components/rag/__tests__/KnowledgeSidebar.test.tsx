@@ -14,18 +14,24 @@
  */
 
 import React from "react";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 
 jest.mock("next/link", () => {
   return React.forwardRef<
     HTMLAnchorElement,
-    { children: React.ReactNode; href: string; className?: string }
-  >(function MockLink({ children, href, className }, ref) {
+    {
+      children: React.ReactNode;
+      href: string;
+      className?: string;
+      onClick?: React.MouseEventHandler<HTMLAnchorElement>;
+    }
+  >(function MockLink({ children, href, className, onClick }, ref) {
     return (
       <a
         ref={ref}
         href={href}
         className={className}
+        onClick={onClick}
         data-testid={`kb-link-${href}`}
       >
         {children}
@@ -34,8 +40,9 @@ jest.mock("next/link", () => {
   });
 });
 
+let mockPathname = "/knowledge-bases/search";
 jest.mock("next/navigation", () => ({
-  usePathname: () => "/knowledge-bases/search",
+  usePathname: () => mockPathname,
 }));
 
 jest.mock("framer-motion", () => ({
@@ -78,6 +85,7 @@ jest.mock("@/hooks/use-kb-tab-gates", () => ({
 }));
 
 import { KnowledgeSidebar } from "../KnowledgeSidebar";
+import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
 
 function setGates(gates: {
   search?: boolean;
@@ -115,6 +123,38 @@ function setGates(gates: {
 describe("<KnowledgeSidebar /> RBAC gates", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockPathname = "/knowledge-bases/search";
+    useUnsavedChangesStore.setState({
+      hasUnsavedChanges: false,
+      pendingNavigationHref: null,
+      pendingDeferredAction: null,
+    });
+  });
+
+  it("guards sidebar navigation while a collection has unsaved changes", () => {
+    mockPathname = "/knowledge-bases/collections";
+    useUnsavedChangesStore.getState().setUnsaved(true);
+    setGates({
+      search: true,
+      collections: true,
+      data_sources: true,
+      graph: true,
+      mcp_tools: true,
+      has_any_kb: true,
+    });
+    render(
+      <KnowledgeSidebar
+        collapsed={false}
+        onCollapse={() => {}}
+        graphRagEnabled={true}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("kb-link-/knowledge-bases/search"));
+
+    expect(
+      useUnsavedChangesStore.getState().pendingNavigationHref,
+    ).toBe("/knowledge-bases/search");
   });
 
   it("org admin sees every tab as a link and no empty-state banner", () => {

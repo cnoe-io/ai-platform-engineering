@@ -75,7 +75,8 @@ function GuardedLink({
   const shouldGuardNavigation =
     hasUnsavedChanges &&
     (pathname?.startsWith("/task-builder") ||
-      pathname?.startsWith("/dynamic-agents"));
+      pathname?.startsWith("/dynamic-agents") ||
+      pathname?.startsWith("/knowledge-bases/collections"));
 
   const handleClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
     if (shouldGuardNavigation && href !== pathname) {
@@ -130,6 +131,19 @@ describe("AppHeader GuardedLink predicate (extended for /dynamic-agents)", () =>
     fireEvent.click(getByTestId("link-/chat"));
 
     expect(mockRequestNavigation).not.toHaveBeenCalled();
+  });
+
+  it("on collection editing with unsaved changes: click is intercepted", () => {
+    mockPathname = "/knowledge-bases/collections";
+    (useUnsavedChangesStore as unknown as jest.Mock).mockReturnValue({
+      hasUnsavedChanges: true,
+      requestNavigation: mockRequestNavigation,
+    });
+
+    const { getByTestId } = render(<GuardedLink href="/chat">Chat</GuardedLink>);
+    fireEvent.click(getByTestId("link-/chat"));
+
+    expect(mockRequestNavigation).toHaveBeenCalledWith("/chat");
   });
 
   it("on an unrelated path with unsaved changes: click is NOT intercepted", () => {

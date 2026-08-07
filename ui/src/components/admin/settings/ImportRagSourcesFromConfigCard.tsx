@@ -10,9 +10,9 @@
  * `reason`.
  *
  * Flow: the preview lists sources originating in environment configuration,
- * including disabled rows for prior imports. The admin selects new imports
- * plus independent Owner and Search teams. Applying creates editable settings
- * where supported and preserves the existing shared corpus in Platform RAG.
+ * including disabled rows for prior imports. Applying creates editable
+ * settings where supported and adds the sources to Platform RAG without
+ * changing that collection's Owner or Search access.
  */
 
 import { AlertTriangle, FileUp, Loader2 } from "lucide-react";
@@ -35,8 +35,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
-import { TeamPicker, type TeamPickerOption } from "@/components/ui/team-picker";
 
 interface PreviewSource {
   source_id: string;
@@ -55,14 +53,6 @@ type SkipReason =
 interface AdoptSkip {
   source_id: string;
   reason: SkipReason;
-}
-
-interface TeamOption {
-  _id: string;
-  name: string;
-  slug?: string;
-  user_role?: string | null;
-  can_own_agents?: boolean;
 }
 
 const SKIP_REASON_LABEL: Record<SkipReason, string> = {
@@ -86,9 +76,6 @@ export function ImportRagSourcesFromConfigCard({
   const [error, setError] = useState<string | null>(null);
   const [previewSources, setPreviewSources] = useState<PreviewSource[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [availableTeams, setAvailableTeams] = useState<TeamOption[]>([]);
-  const [managementTeamSlug, setManagementTeamSlug] = useState("");
-  const [searchTeamSlug, setSearchTeamSlug] = useState("");
   const [platformSourceCount, setPlatformSourceCount] = useState(0);
   const [result, setResult] = useState<{
     adopted: string[];
@@ -105,15 +92,14 @@ export function ImportRagSourcesFromConfigCard({
     setResult(null);
     (async () => {
       try {
-        const [previewRes, teamsRes, platformConfigRes] = await Promise.all([
-          fetch("/api/admin/rag/sources/migrate-from-config", {
+        const previewRes = await fetch(
+          "/api/admin/rag/sources/migrate-from-config",
+          {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ dry_run: true }),
-          }).then((r) => r.json()),
-          fetch("/api/dynamic-agents/teams").then((r) => r.json()),
-          fetch("/api/admin/platform-config").then((r) => r.json()),
-        ]);
+          },
+        ).then((response) => response.json());
         if (cancelled) return;
         if (previewRes.success) {
           const sources = (
@@ -133,17 +119,6 @@ export function ImportRagSourcesFromConfigCard({
             previewRes.error ||
               "Could not load sources from environment configuration",
           );
-        }
-        if (teamsRes.success && Array.isArray(teamsRes.data)) {
-          setAvailableTeams(teamsRes.data);
-        }
-        const configuredSearchTeam =
-          platformConfigRes?.data?.rag_default_search_team_slug;
-        if (
-          typeof configuredSearchTeam === "string" &&
-          configuredSearchTeam.trim()
-        ) {
-          setSearchTeamSlug(configuredSearchTeam.trim());
         }
       } catch {
         if (!cancelled) setError("Could not load the source preview");
@@ -176,8 +151,6 @@ export function ImportRagSourcesFromConfigCard({
         body: JSON.stringify({
           dry_run: false,
           source_ids: Array.from(selectedIds),
-          management_team_slug: managementTeamSlug,
-          search_team_slug: searchTeamSlug,
         }),
       });
       const data = await res.json();
@@ -240,15 +213,15 @@ export function ImportRagSourcesFromConfigCard({
       </CardContent>
 
       <Dialog open={open} onOpenChange={(next) => !applying && setOpen(next)}>
-        <DialogContent className="flex max-h-[85vh] w-[calc(100vw-2rem)] min-w-0 flex-col overflow-visible sm:max-w-[720px]">
+        <DialogContent className="flex max-h-[85vh] w-[calc(100vw-2rem)] min-w-0 flex-col overflow-visible sm:max-w-[600px]">
           <DialogHeader>
             <DialogTitle>Migrate ingested RAG sources</DialogTitle>
             <DialogDescription>
               <span className="block">
-                Choose who owns imported sources and who can search Platform RAG.
+                Import sources from environment configuration into Platform RAG.
               </span>
               <span className="mt-1 block">
-                After import, supported sources can be managed from this page.
+                Platform RAG keeps its current Owner and Search access.
               </span>
             </DialogDescription>
           </DialogHeader>
@@ -345,69 +318,12 @@ export function ImportRagSourcesFromConfigCard({
                   automatically, even when they are not listed above.
                 </p>
 
-                <div className="space-y-4 rounded-md border p-3">
-                  <div className="space-y-2">
-                    <div>
-                      <Label htmlFor="migration-management-team">
-                        Owner team <span className="text-destructive">*</span>
-                      </Label>
-                    </div>
-                    <div className="max-w-sm">
-                      <TeamPicker
-                        id="migration-management-team"
-                        value={managementTeamSlug}
-                        onChange={setManagementTeamSlug}
-                        options={availableTeams
-                          .filter((t): t is TeamOption & { slug: string } =>
-                            Boolean(t.slug),
-                          )
-                          .map<TeamPickerOption>((t) => ({
-                            slug: t.slug,
-                            name: t.name,
-                            _id: t._id,
-                          }))}
-                        placeholder="Select the Owner team"
-                        searchPlaceholder="Search teams..."
-                        disabled={applying}
-                      />
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      Members can add sources to Platform RAG. Team admins can
-                      manage the collection and its settings. Owner access does
-                      not grant Search access.
-                    </p>
-                  </div>
-                  <div className="space-y-2">
-                    <div>
-                      <Label htmlFor="migration-search-team">
-                        Platform RAG Search team{" "}
-                        <span className="text-destructive">*</span>
-                      </Label>
-                    </div>
-                    <div className="max-w-sm">
-                      <TeamPicker
-                        id="migration-search-team"
-                        value={searchTeamSlug}
-                        onChange={setSearchTeamSlug}
-                        options={availableTeams
-                          .filter((t): t is TeamOption & { slug: string } =>
-                            Boolean(t.slug),
-                          )
-                          .map<TeamPickerOption>((t) => ({
-                            slug: t.slug,
-                            name: t.name,
-                            _id: t._id,
-                          }))}
-                        placeholder="Select who can search Platform RAG"
-                        searchPlaceholder="Search teams..."
-                        disabled={applying}
-                      />
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      Members can query Platform RAG through Search, API calls,
-                      and agents. Search access does not grant Owner access.
-                    </p>
-                  </div>
+                <div className="rounded-md border p-3">
+                  <p className="text-sm font-medium">Destination: Platform RAG</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Imported sources use Platform RAG&apos;s Owner and Search
+                    access while they remain in the collection.
+                  </p>
                 </div>
               </div>
             )}
@@ -425,9 +341,7 @@ export function ImportRagSourcesFromConfigCard({
             <Button
               type="button"
               onClick={handleApply}
-              disabled={
-                loading || applying || !managementTeamSlug || !searchTeamSlug
-              }
+              disabled={loading || applying}
               className="gap-2"
               data-testid="import-rag-sources-apply-button"
             >

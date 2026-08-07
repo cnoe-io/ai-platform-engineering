@@ -15,9 +15,9 @@ const mockDeleteAllKnowledgeBaseRelationshipTuples = jest.fn();
 const mockReconcileDataSourceRelationships = jest.fn();
 const mockReconcileIngestionSourceRelationships = jest.fn();
 const mockReconcileKnowledgeBaseRelationships = jest.fn();
-const mockEnsurePlatformRagCollection = jest.fn();
+const mockBootstrapPlatformRagCollection = jest.fn();
+const mockReplaceCollectionSources = jest.fn();
 const mockAdoptConfigImportedRagSources = jest.fn();
-const mockWriteOpenFgaTuples = jest.fn();
 const mockUpdateLegacyAgents = jest.fn();
 
 jest.mock("@/lib/api-middleware", () => {
@@ -52,13 +52,11 @@ jest.mock("@/lib/mongodb", () => ({
   getCollection: (...args: unknown[]) => mockGetCollection(...args),
 }));
 
-jest.mock("@/lib/authz", () => ({
-  reconcileTupleDiff: (diff: unknown) => mockWriteOpenFgaTuples(diff),
-}));
-
 jest.mock("@/lib/rag-collections.server", () => ({
-  ensurePlatformRagCollection: (...args: unknown[]) =>
-    mockEnsurePlatformRagCollection(...args),
+  bootstrapPlatformRagCollection: (...args: unknown[]) =>
+    mockBootstrapPlatformRagCollection(...args),
+  replaceCollectionSources: (...args: unknown[]) =>
+    mockReplaceCollectionSources(...args),
 }));
 
 jest.mock("@/lib/seed-config", () => ({
@@ -136,7 +134,6 @@ function mockFetchDatasources(datasources: unknown[]) {
 
 function mockCollections(
   existingSources: Array<Record<string, unknown>> = [],
-  teamSlugs = ["manage-team", "search-team", "shared-team"],
 ) {
   mockGetCollection.mockImplementation(async (name: string) => {
     if (name === "rag_ingestion_sources") {
@@ -144,16 +141,6 @@ function mockCollections(
         find: jest.fn().mockReturnValue({
           project: jest.fn().mockReturnThis(),
           toArray: jest.fn().mockResolvedValue(existingSources),
-        }),
-      };
-    }
-    if (name === "teams") {
-      return {
-        find: jest.fn().mockReturnValue({
-          project: jest.fn().mockReturnThis(),
-          toArray: jest
-            .fn()
-            .mockResolvedValue(teamSlugs.map((slug) => ({ slug }))),
         }),
       };
     }
@@ -165,11 +152,6 @@ function mockCollections(
     throw new Error(`unexpected collection ${name}`);
   });
 }
-
-const migrationTeams = {
-  management_team_slug: "manage-team",
-  search_team_slug: "search-team",
-};
 
 describe("POST /api/admin/rag/sources/migrate-from-config", () => {
   const originalFetch = global.fetch;
@@ -199,13 +181,18 @@ describe("POST /api/admin/rag/sources/migrate-from-config", () => {
       adopted: [],
       skipped: [],
     });
-    mockEnsurePlatformRagCollection.mockImplementation(
-      async (input: { sourceIds?: string[] }) => ({
+    mockBootstrapPlatformRagCollection.mockResolvedValue({
+      _id: "platform-rag",
+      source_ids: [],
+      maintainer_team_slugs: ["manage-team"],
+      reader_team_slugs: ["search-team"],
+    });
+    mockReplaceCollectionSources.mockImplementation(
+      async (_id: string, sourceIds: string[]) => ({
         _id: "platform-rag",
-        source_ids: input.sourceIds ?? [],
+        source_ids: sourceIds,
       }),
     );
-    mockWriteOpenFgaTuples.mockResolvedValue({ enabled: true });
     mockUpdateLegacyAgents.mockResolvedValue({ modifiedCount: 2 });
     mockCollections();
     global.fetch = jest.fn();
@@ -333,7 +320,7 @@ describe("POST /api/admin/rag/sources/migrate-from-config", () => {
 
     const { POST } = await import("../route");
     const response = await POST(
-      postRequest({ dry_run: false, source_ids: [], ...migrationTeams }),
+      postRequest({ dry_run: false, source_ids: [] }),
     );
 
     expect(response.status).toBe(200);
@@ -346,8 +333,9 @@ describe("POST /api/admin/rag/sources/migrate-from-config", () => {
     expect(mockReconcileKnowledgeBaseRelationships).not.toHaveBeenCalled();
     expect(mockReconcileIngestionSourceRelationships).not.toHaveBeenCalled();
     expect(mockCreateIngestionSource).not.toHaveBeenCalled();
-    expect(mockEnsurePlatformRagCollection).toHaveBeenCalledWith(
-      expect.objectContaining({ sourceIds: [] }),
+    expect(mockReplaceCollectionSources).toHaveBeenCalledWith(
+      "platform-rag",
+      [],
     );
   });
 
@@ -419,7 +407,6 @@ describe("POST /api/admin/rag/sources/migrate-from-config", () => {
       postRequest({
         dry_run: false,
         source_ids: ["slack-channel-C1"],
-        ...migrationTeams,
       }),
     );
     const body = await response.json();
@@ -445,7 +432,7 @@ describe("POST /api/admin/rag/sources/migrate-from-config", () => {
 
     const { POST } = await import("../route");
     const response = await POST(
-      postRequest({ dry_run: false, source_ids: [], ...migrationTeams }),
+      postRequest({ dry_run: false, source_ids: [] }),
     );
 
     expect(response.status).toBe(200);
@@ -462,8 +449,9 @@ describe("POST /api/admin/rag/sources/migrate-from-config", () => {
         nextSharedTeamSlugs: [],
       }),
     );
-    expect(mockEnsurePlatformRagCollection).toHaveBeenCalledWith(
-      expect.objectContaining({ sourceIds: ["legacy-source"] }),
+    expect(mockReplaceCollectionSources).toHaveBeenCalledWith(
+      "platform-rag",
+      ["legacy-source"],
     );
   });
 
@@ -482,7 +470,7 @@ describe("POST /api/admin/rag/sources/migrate-from-config", () => {
 
     const { POST } = await import("../route");
     const response = await POST(
-      postRequest({ dry_run: false, source_ids: [], ...migrationTeams }),
+      postRequest({ dry_run: false, source_ids: [] }),
     );
 
     expect(response.status).toBe(200);
@@ -494,8 +482,9 @@ describe("POST /api/admin/rag/sources/migrate-from-config", () => {
     expect(mockReconcileDataSourceRelationships).not.toHaveBeenCalled();
     expect(mockReconcileKnowledgeBaseRelationships).not.toHaveBeenCalled();
     expect(mockReconcileIngestionSourceRelationships).not.toHaveBeenCalled();
-    expect(mockEnsurePlatformRagCollection).toHaveBeenCalledWith(
-      expect.objectContaining({ sourceIds: ["legacy-source"] }),
+    expect(mockReplaceCollectionSources).toHaveBeenCalledWith(
+      "platform-rag",
+      ["legacy-source"],
     );
   });
 
@@ -521,7 +510,6 @@ describe("POST /api/admin/rag/sources/migrate-from-config", () => {
       postRequest({
         dry_run: false,
         source_ids: ["slack-channel-C1"],
-        ...migrationTeams,
         management_shared_with_teams: ["shared-team"],
       }),
     );
@@ -545,23 +533,11 @@ describe("POST /api/admin/rag/sources/migrate-from-config", () => {
         configImportAdopted: true,
       }),
     );
-    expect(mockEnsurePlatformRagCollection).toHaveBeenCalledWith({
-      actorSubject: "admin-sub",
-      maintainerTeamSlugs: ["manage-team"],
-      readerTeamSlugs: ["search-team"],
-      sourceIds: ["slack-channel-C1"],
-      mergeSourceIds: true,
-    });
-    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
-      writes: [
-        {
-          user: "team:search-team#member",
-          relation: "searcher",
-          object: "organization:example-org",
-        },
-      ],
-      deletes: [],
-    });
+    expect(mockBootstrapPlatformRagCollection).toHaveBeenCalledTimes(1);
+    expect(mockReplaceCollectionSources).toHaveBeenCalledWith(
+      "platform-rag",
+      ["slack-channel-C1"],
+    );
     expect(mockUpdateLegacyAgents).toHaveBeenCalledWith(
       {
         "allowed_tools.knowledge-base": { $exists: true, $ne: false },
@@ -654,7 +630,7 @@ describe("POST /api/admin/rag/sources/migrate-from-config", () => {
 
     const { POST } = await import("../route");
     const response = await POST(
-      postRequest({ dry_run: false, ...migrationTeams }),
+      postRequest({ dry_run: false }),
     );
     const body = await response.json();
 
@@ -729,7 +705,6 @@ describe("POST /api/admin/rag/sources/migrate-from-config", () => {
           "src_web___example_com_docs",
           "src_confluence___example_atlassian_net__DOCS",
         ],
-        ...migrationTeams,
       }),
     );
 
@@ -799,7 +774,6 @@ describe("POST /api/admin/rag/sources/migrate-from-config", () => {
       postRequest({
         dry_run: false,
         source_ids: ["src_confluence___example_atlassian_net__DOCS"],
-        ...migrationTeams,
       }),
     );
 
@@ -827,7 +801,6 @@ describe("POST /api/admin/rag/sources/migrate-from-config", () => {
       postRequest({
         dry_run: false,
         source_ids: ["slack-channel-C1"],
-        ...migrationTeams,
       }),
     );
     const body = await response.json();
@@ -848,7 +821,6 @@ describe("POST /api/admin/rag/sources/migrate-from-config", () => {
       postRequest({
         dry_run: false,
         source_ids: ["ghost-source"],
-        ...migrationTeams,
       }),
     );
     const body = await response.json();
@@ -859,23 +831,40 @@ describe("POST /api/admin/rag/sources/migrate-from-config", () => {
     ]);
   });
 
-  it("returns 404 when the requested management team does not exist", async () => {
-    mockFetchDatasources([]);
-    mockCollections([], ["search-team"]);
+  it("uses Platform RAG's current Owner without migration team inputs", async () => {
+    mockFetchDatasources([
+      redisDs({
+        datasource_id: "legacy-source",
+        source_type: "example_connector",
+        metadata: {},
+      }),
+    ]);
+    mockCollections();
+    mockBootstrapPlatformRagCollection.mockResolvedValue({
+      _id: "platform-rag",
+      source_ids: ["existing-source"],
+      maintainer_team_slugs: ["platform-owners"],
+      reader_team_slugs: ["organization-readers"],
+    });
 
     const { POST } = await import("../route");
     const response = await POST(
       postRequest({
         dry_run: false,
         source_ids: [],
-        management_team_slug: "missing-team",
-        search_team_slug: "search-team",
       }),
     );
-    const body = await response.json();
 
-    expect(response.status).toBe(404);
-    expect(body.code).toBe("MANAGEMENT_TEAM_NOT_FOUND");
-    expect(mockCreateIngestionSource).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    expect(mockReconcileIngestionSourceRelationships).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceId: "legacy-source",
+        ownerTeamSlug: "platform-owners",
+      }),
+    );
+    expect(mockReplaceCollectionSources).toHaveBeenCalledWith(
+      "platform-rag",
+      ["existing-source", "legacy-source"],
+    );
   });
 });

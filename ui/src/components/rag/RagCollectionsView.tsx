@@ -23,6 +23,7 @@ import {
   type KnowledgeCardItem,
   type KnowledgeDragCandidate,
 } from "@/components/rag/KnowledgeCardSelector";
+import { UnsavedChangesDialog } from "@/components/shared/UnsavedChangesDialog";
 import { BuiltInResourceHint } from "@/components/ui/built-in-resource-hint";
 import { Button } from "@/components/ui/button";
 import {
@@ -32,14 +33,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -49,6 +42,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
+import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
 import type { RagCollectionWithPermissions } from "@/types/rag-collection";
 
 interface DatasourceOption {
@@ -67,6 +61,39 @@ interface TeamRow {
   name?: string;
 }
 
+interface CollectionDraftSnapshot {
+  name: string;
+  description: string;
+  sourceIds: string[];
+  maintainerTeamSlugs: string[];
+  readerTeamSlugs: string[];
+}
+
+interface CollectionMutationResponse {
+  success?: boolean;
+  error?: string;
+  data?: {
+    _id?: unknown;
+    _publication_request?: unknown;
+  };
+}
+
+function collectionDraftSnapshot(input: {
+  name?: string;
+  description?: string;
+  sourceIds?: readonly string[];
+  maintainerTeamSlugs?: readonly string[];
+  readerTeamSlugs?: readonly string[];
+}): CollectionDraftSnapshot {
+  return {
+    name: input.name ?? "",
+    description: input.description ?? "",
+    sourceIds: [...(input.sourceIds ?? [])].sort(),
+    maintainerTeamSlugs: [...(input.maintainerTeamSlugs ?? [])].sort(),
+    readerTeamSlugs: [...(input.readerTeamSlugs ?? [])].sort(),
+  };
+}
+
 /** Manage reusable RAG collections without moving or duplicating indexed data. */
 export function RagCollectionsView() {
   const router = useRouter();
@@ -79,31 +106,101 @@ export function RagCollectionsView() {
   const [teams, setTeams] = React.useState<TeamRow[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
-  const [createOpen, setCreateOpen] = React.useState(false);
-  const [createName, setCreateName] = React.useState("");
-  const [createDescription, setCreateDescription] = React.useState("");
+  const [isCreating, setIsCreating] = React.useState(
+    searchParams.get("new") === "1",
+  );
   const [sourceSearch, setSourceSearch] = React.useState("");
   const [dragCandidate, setDragCandidate] =
     React.useState<KnowledgeDragCandidate | null>(null);
   const [selectedId, setSelectedId] = React.useState<string | null>(
-    searchParams.get("collection"),
+    searchParams.get("new") === "1"
+      ? null
+      : searchParams.get("collection"),
   );
   const [draftName, setDraftName] = React.useState("");
   const [draftDescription, setDraftDescription] = React.useState("");
   const [draftSources, setDraftSources] = React.useState<string[]>([]);
   const [draftMaintainers, setDraftMaintainers] = React.useState<string[]>([]);
   const [draftReaders, setDraftReaders] = React.useState<string[]>([]);
+  const [draftKey, setDraftKey] = React.useState<string | null>(
+    searchParams.get("new") === "1" ? "new" : null,
+  );
 
-  const selected = collections.find((item) => item._id === selectedId) ?? null;
+  const selected = isCreating
+    ? null
+    : (collections.find((item) => item._id === selectedId) ?? null);
   // User-created collections retain their personal owner as a reader even
   // after team delegation, so additions must not elevate that owner's access.
-  const selectedHasPersonalOwner = Boolean(selected?.owner_subject);
+  const selectedHasPersonalOwner = isCreating || Boolean(selected?.owner_subject);
+  const canManageDraft = isCreating || selected?._permissions.can_manage === true;
+  const canPublishDraft =
+    isCreating || selected?._permissions.can_publish === true;
+  const canDelegateDraft = isCreating
+    ? collections.some((item) => item._permissions.can_delegate)
+    : selected?._permissions.can_delegate === true;
+  const currentDraft = collectionDraftSnapshot({
+    name: draftName,
+    description: draftDescription,
+    sourceIds: draftSources,
+    maintainerTeamSlugs: draftMaintainers,
+    readerTeamSlugs: draftReaders,
+  });
+  const savedDraft = collectionDraftSnapshot(
+    selected
+      ? {
+          name: selected.name,
+          description: selected.description,
+          sourceIds: selected.source_ids,
+          maintainerTeamSlugs: selected.maintainer_team_slugs,
+          readerTeamSlugs: selected.reader_team_slugs,
+        }
+      : {},
+  );
+  const dirty = Boolean(
+    (isCreating || selected) &&
+      (isCreating ? draftKey === "new" : draftKey === selected?._id) &&
+      (canManageDraft || canPublishDraft) &&
+      JSON.stringify(currentDraft) !== JSON.stringify(savedDraft),
+  );
+  const {
+    setUnsaved,
+    pendingNavigationHref,
+    pendingDeferredAction,
+    requestDeferredAction,
+    cancelNavigation,
+    confirmNavigation,
+    confirmDeferredAction,
+  } = useUnsavedChangesStore();
+
+  React.useEffect(() => {
+    setUnsaved(dirty);
+  }, [dirty, setUnsaved]);
+
+  React.useEffect(() => {
+    return () => setUnsaved(false);
+  }, [setUnsaved]);
+
+  React.useEffect(() => {
+    const handleBeforeUnload = (event: BeforeUnloadEvent): void => {
+      if (!dirty) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [dirty]);
 
   const replaceCollectionUrl = React.useCallback(
-    (id: string | null): void => {
+    (id: string | null, creating = false): void => {
       const params = new URLSearchParams(searchParams.toString());
-      if (id) params.set("collection", id);
-      else params.delete("collection");
+      if (id) {
+        params.set("collection", id);
+        params.delete("new");
+      } else {
+        params.delete("collection");
+        if (creating) params.set("new", "1");
+        else params.delete("new");
+      }
       const query = params.toString();
       router.replace(
         `/knowledge-bases/collections${query ? `?${query}` : ""}`,
@@ -173,101 +270,194 @@ export function RagCollectionsView() {
       requestedId &&
       !collections.some((collection) => collection._id === requestedId)
     ) {
-      replaceCollectionUrl(null);
+      replaceCollectionUrl(null, isCreating);
     }
-  }, [collections, loading, replaceCollectionUrl, searchParams]);
+  }, [collections, isCreating, loading, replaceCollectionUrl, searchParams]);
 
   React.useEffect(() => {
-    if (!selected) return;
+    if (!selected || isCreating) return;
     setDraftName(selected.name);
     setDraftDescription(selected.description ?? "");
     setDraftSources(selected.source_ids ?? []);
     setDraftMaintainers(selected.maintainer_team_slugs ?? []);
     setDraftReaders(selected.reader_team_slugs ?? []);
-  }, [selected]);
+    setDraftKey(selected._id);
+  }, [isCreating, selected]);
 
-  function selectCollection(id: string): void {
+  function openCollection(id: string): void {
+    setIsCreating(false);
+    setDraftKey(null);
     setSelectedId(id);
     replaceCollectionUrl(id);
   }
 
-  async function createCollection(): Promise<void> {
-    if (!createName.trim()) return;
-    setSaving(true);
-    try {
-      const response = await fetch("/api/rag/collections", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: createName.trim(),
-          description: createDescription.trim() || undefined,
-        }),
-      });
-      const result = await response.json();
-      if (!response.ok || !result?.success) {
-        throw new Error(result?.error || "Could not create knowledge base");
-      }
-      setCreateOpen(false);
-      setCreateName("");
-      setCreateDescription("");
-      await load();
-      selectCollection(result.data._id);
-      toast("Knowledge base created", "success");
-    } catch (error) {
-      toast(
-        error instanceof Error
-          ? error.message
-          : "Could not create knowledge base",
-        "error",
-      );
-    } finally {
-      setSaving(false);
+  function beginCreate(): void {
+    setIsCreating(true);
+    setSelectedId(null);
+    setDraftName("");
+    setDraftDescription("");
+    setDraftSources([]);
+    setDraftMaintainers([]);
+    setDraftReaders([]);
+    setDraftKey("new");
+    setSourceSearch("");
+    replaceCollectionUrl(null, true);
+  }
+
+  function closeEditor(): void {
+    setIsCreating(false);
+    setSelectedId(null);
+    setDraftName("");
+    setDraftDescription("");
+    setDraftSources([]);
+    setDraftMaintainers([]);
+    setDraftReaders([]);
+    setDraftKey(null);
+    setSourceSearch("");
+    replaceCollectionUrl(null);
+  }
+
+  function runGuarded(action: () => void): void {
+    if (!dirty) {
+      action();
+      return;
     }
+    setUnsaved(true);
+    requestDeferredAction(action);
+  }
+
+  function cancelDiscard(): void {
+    cancelNavigation();
+  }
+
+  function confirmDiscard(): void {
+    if (pendingDeferredAction) {
+      confirmDeferredAction();
+      return;
+    }
+    const href = confirmNavigation();
+    if (href) window.location.href = href;
   }
 
   async function saveCollection(): Promise<void> {
-    if (!selected) return;
+    if (!selected && !isCreating) return;
     setSaving(true);
+    let createdId: string | null = null;
     try {
-      const body: Record<string, unknown> = { source_ids: draftSources };
-      if (selected._permissions.can_manage) {
-        body.name = draftName;
-        body.description = draftDescription;
-      }
-      if (selected._permissions.can_delegate) {
-        body.maintainer_team_slugs = draftMaintainers;
-      }
-      if (selected._permissions.can_manage) {
-        body.reader_team_slugs = draftReaders;
-      }
-      const response = await fetch(
-        `/api/rag/collections/${encodeURIComponent(selected._id)}`,
-        {
-          method: "PATCH",
+      let result: CollectionMutationResponse;
+      if (isCreating) {
+        const createResponse = await fetch("/api/rag/collections", {
+          method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        },
-      );
-      const result = await response.json();
-      if (!response.ok || !result?.success) {
-        throw new Error(result?.error || "Could not update knowledge base");
+          body: JSON.stringify({
+            name: draftName.trim(),
+            description: draftDescription.trim() || undefined,
+          }),
+        });
+        result = await createResponse.json();
+        if (
+          !createResponse.ok ||
+          !result?.success ||
+          typeof result.data?._id !== "string"
+        ) {
+          throw new Error(result?.error || "Could not create knowledge base");
+        }
+        createdId = result.data._id;
+
+        const hasAdditionalSettings =
+          draftSources.length > 0 ||
+          draftReaders.length > 0 ||
+          (canDelegateDraft && draftMaintainers.length > 0);
+        if (hasAdditionalSettings) {
+          const updateBody: Record<string, unknown> = {
+            source_ids: draftSources,
+            reader_team_slugs: draftReaders,
+          };
+          if (canDelegateDraft) {
+            updateBody.maintainer_team_slugs = draftMaintainers;
+          }
+          const updateResponse = await fetch(
+            `/api/rag/collections/${encodeURIComponent(createdId)}`,
+            {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(updateBody),
+            },
+          );
+          result = await updateResponse.json();
+          if (!updateResponse.ok || !result?.success) {
+            throw new Error(
+              result?.error || "Could not save all collection settings",
+            );
+          }
+        }
+      } else {
+        const body: Record<string, unknown> = {};
+        if (canPublishDraft) body.source_ids = draftSources;
+        if (canManageDraft) {
+          body.name = draftName;
+          body.description = draftDescription;
+          body.reader_team_slugs = draftReaders;
+        }
+        if (canDelegateDraft) {
+          body.maintainer_team_slugs = draftMaintainers;
+        }
+        const response = await fetch(
+          `/api/rag/collections/${encodeURIComponent(selected!._id)}`,
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          },
+        );
+        result = await response.json();
+        if (!response.ok || !result?.success) {
+          throw new Error(result?.error || "Could not update knowledge base");
+        }
       }
+
+      const savedId = createdId ?? selected!._id;
+      const wasCreating = isCreating;
+      setUnsaved(false);
+      setIsCreating(false);
+      setDraftKey(null);
       await load();
+      openCollection(savedId);
       const pending = result.data?._publication_request;
       toast(
         pending
-          ? "Collection change submitted for approval."
-          : "Knowledge base updated",
+          ? wasCreating
+            ? "Collection created. Sharing changes are waiting for approval."
+            : "Collection change submitted for approval."
+          : wasCreating
+            ? "Knowledge base created"
+            : "Knowledge base updated",
         pending ? "warning" : "success",
         pending ? 7000 : undefined,
       );
     } catch (error) {
-      toast(
-        error instanceof Error
-          ? error.message
-          : "Could not update knowledge base",
-        "error",
-      );
+      if (createdId) {
+        setUnsaved(false);
+        setIsCreating(false);
+        setDraftKey(null);
+        await load();
+        openCollection(createdId);
+        toast(
+          `Collection created, but some settings were not saved: ${
+            error instanceof Error ? error.message : "Unknown error"
+          }`,
+          "error",
+        );
+      } else {
+        toast(
+          error instanceof Error
+            ? error.message
+            : isCreating
+              ? "Could not create knowledge base"
+              : "Could not update knowledge base",
+          "error",
+        );
+      }
     } finally {
       setSaving(false);
     }
@@ -294,6 +484,8 @@ export function RagCollectionsView() {
       if (!response.ok || !result?.success) {
         throw new Error(result?.error || "Could not delete knowledge base");
       }
+      setUnsaved(false);
+      setDraftKey(null);
       setSelectedId(null);
       replaceCollectionUrl(null);
       await load();
@@ -354,7 +546,7 @@ export function RagCollectionsView() {
 
   function addDatasourceToDraft(datasourceId: string): void {
     if (
-      !selected?._permissions.can_publish ||
+      !canPublishDraft ||
       saving ||
       draftSources.includes(datasourceId) ||
       !canAddDatasource(datasourceById.get(datasourceId))
@@ -383,7 +575,7 @@ export function RagCollectionsView() {
             membership centrally.
           </p>
         </div>
-        <Button onClick={() => setCreateOpen(true)} className="gap-2">
+        <Button onClick={() => runGuarded(beginCreate)} className="gap-2">
           <Plus className="h-4 w-4" />
           New Collection
         </Button>
@@ -395,7 +587,10 @@ export function RagCollectionsView() {
             <button
               type="button"
               key={collection._id}
-              onClick={() => selectCollection(collection._id)}
+              onClick={() => {
+                if (!isCreating && selectedId === collection._id) return;
+                runGuarded(() => openCollection(collection._id));
+              }}
               className={cn(
                 "w-full rounded-xl border p-4 text-left transition-colors hover:border-primary/40 hover:bg-primary/[0.03]",
                 selectedId === collection._id &&
@@ -445,17 +640,18 @@ export function RagCollectionsView() {
         </div>
 
         <div className="overflow-y-auto p-6">
-          {selected ? (
-            <div className="mx-auto max-w-4xl space-y-5">
+          {selected || isCreating ? (
+            <div className="mx-auto max-w-4xl animate-in space-y-5 fade-in slide-in-from-right-2 duration-200">
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <Layers3 className="h-5 w-5 text-primary" />
-                    Collection settings
+                    {isCreating ? "New collection" : "Collection settings"}
                   </CardTitle>
                   <CardDescription>
-                    Collections group datasources so they can be assigned and
-                    managed together.
+                    {isCreating
+                      ? "Create a personal collection. Add datasources and Search access before saving if you want."
+                      : "Collections group datasources so they can be assigned and managed together."}
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="grid gap-4 sm:grid-cols-2">
@@ -465,7 +661,7 @@ export function RagCollectionsView() {
                       id="collection-name"
                       value={draftName}
                       onChange={(event) => setDraftName(event.target.value)}
-                      disabled={!selected._permissions.can_manage || saving}
+                      disabled={!canManageDraft || saving}
                     />
                   </div>
                   <div className="space-y-2 sm:col-span-2">
@@ -476,7 +672,7 @@ export function RagCollectionsView() {
                       onChange={(event) =>
                         setDraftDescription(event.target.value)
                       }
-                      disabled={!selected._permissions.can_manage || saving}
+                      disabled={!canManageDraft || saving}
                     />
                   </div>
                 </CardContent>
@@ -502,7 +698,7 @@ export function RagCollectionsView() {
                         current.filter((id) => id !== card.id),
                       )
                     }
-                    disabled={!selected._permissions.can_publish || saving}
+                    disabled={!canPublishDraft || saving}
                     dragCandidate={dragCandidate}
                     onDropCandidate={(candidate) => {
                       if (candidate.kind === "datasource") {
@@ -528,7 +724,7 @@ export function RagCollectionsView() {
                       const canManage = datasource?.can_manage === true;
                       const canAdd = canAddDatasource(datasource);
                       const disabled =
-                        !selected._permissions.can_publish || saving || !canAdd;
+                        !canPublishDraft || saving || !canAdd;
                       return (
                         <DatasourceOptionRow
                           key={datasource.datasource_id}
@@ -569,7 +765,7 @@ export function RagCollectionsView() {
                 </CardContent>
               </Card>
 
-              {selected._permissions.can_manage && (
+              {canManageDraft && (
                 <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
@@ -584,7 +780,7 @@ export function RagCollectionsView() {
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="grid gap-4 sm:grid-cols-2">
-                    {selected._permissions.can_delegate && (
+                    {canDelegateDraft && (
                       <div className="space-y-2">
                         <Label>Owner teams</Label>
                         <TeamMultiPicker
@@ -612,7 +808,17 @@ export function RagCollectionsView() {
 
               <div className="flex items-center justify-between">
                 <div>
-                  {!selected.is_platform &&
+                  {isCreating ? (
+                    <Button
+                      variant="ghost"
+                      onClick={() => runGuarded(closeEditor)}
+                      disabled={saving}
+                    >
+                      Cancel
+                    </Button>
+                  ) : (
+                    selected &&
+                    !selected.is_platform &&
                     selected._permissions.can_manage && (
                       <Button
                         variant="ghost"
@@ -622,21 +828,21 @@ export function RagCollectionsView() {
                       >
                         <Trash2 className="h-4 w-4" /> Delete collection
                       </Button>
-                    )}
+                    )
+                  )}
                 </div>
-                {(selected._permissions.can_publish ||
-                  selected._permissions.can_manage) && (
+                {(canPublishDraft || canManageDraft) && (
                   <Button
                     className="gap-2"
                     onClick={saveCollection}
-                    disabled={saving || !draftName.trim()}
+                    disabled={saving || !dirty || !draftName.trim()}
                   >
                     {saving ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
                     ) : (
                       <Save className="h-4 w-4" />
                     )}
-                    Save collection
+                    {isCreating ? "Create collection" : "Save collection"}
                   </Button>
                 )}
               </div>
@@ -649,52 +855,16 @@ export function RagCollectionsView() {
         </div>
       </div>
 
-      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Create a RAG collection</DialogTitle>
-            <DialogDescription>
-              Create a private collection from datasources you can manage. You
-              can later request Search access for other teams; administrators
-              can delegate Owner teams.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="new-collection-name">Name</Label>
-              <Input
-                id="new-collection-name"
-                value={createName}
-                onChange={(event) => setCreateName(event.target.value)}
-                autoFocus
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="new-collection-description">Description</Label>
-              <Textarea
-                id="new-collection-description"
-                value={createDescription}
-                onChange={(event) => setCreateDescription(event.target.value)}
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setCreateOpen(false)}
-              disabled={saving}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={createCollection}
-              disabled={saving || !createName.trim()}
-            >
-              Create collection
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <UnsavedChangesDialog
+        open={
+          dirty && Boolean(pendingNavigationHref || pendingDeferredAction)
+        }
+        onCancel={cancelDiscard}
+        onDiscard={confirmDiscard}
+        title="Unsaved collection changes"
+        description="Save this collection or discard your changes before leaving."
+        discardLabel="Discard changes"
+      />
     </div>
   );
 }
