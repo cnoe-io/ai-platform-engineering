@@ -380,6 +380,7 @@ async def stream_ingest(
     is_greenfield: bool,
     report_id: UUID,
     seed_stable_pages: bool = False,
+    quick: bool = False,
 ) -> AsyncIterator[IngestEventPayload]:
     """Run an ingest as a Claude Agent SDK loop. Yields IngestEvents the
     agent's HTTP handler writes to the SSE response."""
@@ -430,6 +431,7 @@ async def stream_ingest(
             extras,
             seed_stable_pages=seed_stable_pages,
             template_note=template_note,
+            quick=quick,
         ),
         model=_ingest_model(),
         max_turns=MAX_TURNS,
