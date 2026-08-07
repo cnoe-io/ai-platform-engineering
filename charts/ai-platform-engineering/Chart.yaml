@@ -96,6 +96,14 @@ dependencies:
         parent: global.enabledSubAgents.pagerduty
   - name: mcp-server
     version: 0.5.68 # Do NOT bump this. It will be updated automatically using the PR or release workflow
+    alias: mcp-sharepoint
+    tags:
+      - mcp-sharepoint
+    import-values:
+      - child: agentExports.data
+        parent: global.enabledSubAgents.sharepoint
+  - name: mcp-server
+    version: 0.5.68 # Do NOT bump this. It will be updated automatically using the PR or release workflow
     alias: mcp-slack
     tags:
       - mcp-slack

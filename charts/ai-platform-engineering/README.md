@@ -22,7 +22,7 @@ helm template caipe charts/ai-platform-engineering \
 ## MCP Servers
 
 Each MCP server is configured with an alias such as `mcp-argocd`,
-`mcp-github`, or `mcp-netutils`.
+`mcp-github`, `mcp-netutils`, or `mcp-sharepoint`.
 
 Enable servers with tags:
 
