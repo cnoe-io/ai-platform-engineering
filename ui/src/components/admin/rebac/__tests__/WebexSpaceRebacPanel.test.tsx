@@ -180,6 +180,9 @@ function setupFetchMock() {
         },
       });
     }
+    if (url === "/api/admin/webex/spaces/onboard" && init?.method === "POST") {
+      return response({ data: { onboarded: true } });
+    }
     if (url === "/api/admin/webex/spaces/defaults" && init?.method === "PUT") {
       const body = JSON.parse(String(init.body ?? "{}"));
       return response({
@@ -476,7 +479,7 @@ it("seeds configured Webex spaces on the onboard tab before discovery", async ()
   render(<WebexSpaceRebacPanel />);
 
   expect(await screen.findByText("Platform Alerts")).toBeInTheDocument();
-  expect(screen.getByText("Configured")).toBeInTheDocument();
+  expect(screen.getByText("Configured by Platform Engineering")).toBeInTheDocument();
   expect(
     fetchMock.mock.calls.some(([url]) =>
       String(url).startsWith("/api/admin/webex/available-spaces"),
@@ -532,7 +535,7 @@ it("filters configured Webex spaces locally before live discovery runs", async (
   ).toBe(false);
 });
 
-it("discovers Webex bot spaces, auto-selects new ones, and POSTs per-space defaults on apply", async () => {
+it("discovers Webex bot spaces, auto-selects new ones, and submits verified onboarding", async () => {
   render(<WebexSpaceRebacPanel />);
 
   await clickFindSpaces();
@@ -557,26 +560,29 @@ it("discovers Webex bot spaces, auto-selects new ones, and POSTs per-space defau
 
   await waitFor(() =>
     expect(fetchMock).toHaveBeenCalledWith(
-      "/api/admin/webex/spaces/defaults",
+      "/api/admin/webex/spaces/onboard",
       expect.objectContaining({
         method: "POST",
         body: JSON.stringify({
+          bot_id: "primary",
+          space_id: "space-new-123",
+          space_name: "Incident War Room",
           team_slug: "platform-engineering",
           agent_id: "incident-agent",
-          create_routes: true,
-          manual_spaces: [{ id: "space-new-123", name: "Incident War Room", bot_id: "primary" }],
+          listen: "mention",
+          create_route: true,
         }),
       }),
     ),
   );
   await waitFor(() =>
     expect(mockToast).toHaveBeenCalledWith(
-      expect.stringContaining("Discovered Webex spaces applied"),
+      expect.stringContaining("Onboarded 1 Webex space"),
       "success",
     ),
   );
   expect(screen.queryByText("Ready to set up")).not.toBeInTheDocument();
-  expect(screen.getAllByText("Configured").length).toBeGreaterThan(0);
+  expect(screen.getAllByText(/^Configured/).length).toBeGreaterThan(0);
 });
 
 it("uses all-spaces bot defaults for new spaces and preserves saved overrides", async () => {
@@ -726,12 +732,18 @@ it("hides direct Webex rooms from space discovery", async () => {
   await waitFor(() => {
     const postCall = fetchMock.mock.calls.find(
       ([url, init]) =>
-        url === "/api/admin/webex/spaces/defaults" && init?.method === "POST",
+        url === "/api/admin/webex/spaces/onboard" && init?.method === "POST",
     );
     expect(postCall).toBeTruthy();
-    expect(
-      JSON.parse(String(postCall?.[1]?.body ?? "{}")).manual_spaces,
-    ).toEqual([{ id: "space-new-123", name: "Incident War Room", bot_id: "primary" }]);
+    const body = JSON.parse(String(postCall?.[1]?.body ?? "{}"));
+    expect(body).toEqual(expect.objectContaining({
+      bot_id: "primary",
+      space_id: "space-new-123",
+      space_name: "Incident War Room",
+      team_slug: "platform-engineering",
+      agent_id: "incident-agent",
+    }));
+    expect(body).not.toHaveProperty("member_count");
   });
 });
 

@@ -4,6 +4,7 @@ import {
   ingestTypeConfigs,
   isIngestTypeAvailable,
   isIngestorOnline,
+  supportsScheduledReload,
 } from "../typeConfig";
 
 afterEach(() => {
@@ -68,5 +69,12 @@ describe("RAG ingest source availability", () => {
   it("reuses the File ingest icon for local file datasources", () => {
     expect(getIconForType("local_file")).toBe(ingestTypeConfigs.file.icon);
     expect(getIconForType("local-file")).toBe(ingestTypeConfigs.file.icon);
+  });
+
+  it("does not show a scheduled refresh for uploaded files", () => {
+    expect(supportsScheduledReload("local_file")).toBe(false);
+    expect(supportsScheduledReload("local-file")).toBe(false);
+    expect(supportsScheduledReload("web")).toBe(true);
+    expect(supportsScheduledReload("slack")).toBe(true);
   });
 });

@@ -49,7 +49,7 @@ export const POST = withErrorHandler(
     const ownerTeamSlug = normalizeString(body.owner_team_slug);
     if (Object.prototype.hasOwnProperty.call(body, "shared_with_teams")) {
       throw new ApiError(
-        "Management sharing is not supported; a source has one management team.",
+        "A datasource has one Owner team. Add other teams under Search.",
         400,
         "MANAGEMENT_SHARING_NOT_SUPPORTED",
       );
@@ -65,7 +65,7 @@ export const POST = withErrorHandler(
     const teams = await getCollection<Team>("teams");
     const team = await teams.findOne({ slug: ownerTeamSlug } as never);
     if (!team) {
-      throw new ApiError(`Owning team "${ownerTeamSlug}" not found`, 404, "OWNER_TEAM_NOT_FOUND");
+      throw new ApiError(`Owner team "${ownerTeamSlug}" not found`, 404, "OWNER_TEAM_NOT_FOUND");
     }
 
     const { skipped } = await adoptConfigImportedRagSources([sourceId], {

@@ -367,20 +367,17 @@ describe("admin platform-config route", () => {
   });
 
   // ---------------------------------------------------------------------
-  // discovery_cache_ttl_minutes
+  // Connector discovery cache TTLs
   //
-  // This field controls how long the Slack channel and Webex space
-  // discovery routes cache their snapshot. It's set in this PATCH and
-  // surfaced in the GET so the Admin → Platform Settings tab can render
-  // it. The route owns validation; callers (including the UI helper)
-  // must NOT be able to wedge the picker by sending a junk value.
+  // Slack and Webex keep independent snapshots and settings.
   // ---------------------------------------------------------------------
 
-  it("returns discovery_cache_ttl_minutes from Mongo (used by Admin → Platform Settings)", async () => {
+  it("returns separate Slack and Webex TTLs from Mongo", async () => {
     mockGetCollection.mockResolvedValue({
       findOne: jest.fn().mockResolvedValue({
         _id: "platform_settings",
-        discovery_cache_ttl_minutes: 90,
+        slack_discovery_cache_ttl_minutes: 30,
+        webex_discovery_cache_ttl_minutes: 90,
       }),
       updateOne: jest.fn(),
     });
@@ -388,10 +385,11 @@ describe("admin platform-config route", () => {
 
     const body = await (await GET(request("/api/admin/platform-config"))).json();
 
-    expect(body.data.discovery_cache_ttl_minutes).toBe(90);
+    expect(body.data.slack_discovery_cache_ttl_minutes).toBe(30);
+    expect(body.data.webex_discovery_cache_ttl_minutes).toBe(90);
   });
 
-  it("defaults discovery_cache_ttl_minutes to 60 when nothing is configured", async () => {
+  it("defaults each connector TTL to 60 when nothing is configured", async () => {
     mockGetCollection.mockResolvedValue({
       findOne: jest.fn().mockResolvedValue(null),
       updateOne: jest.fn(),
@@ -400,10 +398,14 @@ describe("admin platform-config route", () => {
 
     const body = await (await GET(request("/api/admin/platform-config"))).json();
 
-    expect(body.data.discovery_cache_ttl_minutes).toBe(60);
+    expect(body.data.slack_discovery_cache_ttl_minutes).toBe(60);
+    expect(body.data.webex_discovery_cache_ttl_minutes).toBe(60);
   });
 
-  it("persists discovery_cache_ttl_minutes on PATCH and echoes it back", async () => {
+  it.each([
+    "slack_discovery_cache_ttl_minutes",
+    "webex_discovery_cache_ttl_minutes",
+  ] as const)("persists %s without changing the other connector", async (field) => {
     const updateOne = jest.fn().mockResolvedValue({ acknowledged: true });
     mockGetCollection.mockResolvedValue({
       findOne: jest.fn().mockResolvedValue({ _id: "platform_settings" }),
@@ -415,17 +417,17 @@ describe("admin platform-config route", () => {
       request("/api/admin/platform-config", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ discovery_cache_ttl_minutes: 30 }),
+        body: JSON.stringify({ [field]: 30 }),
       }),
     );
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(body.data.discovery_cache_ttl_minutes).toBe(30);
+    expect(body.data[field]).toBe(30);
     expect(updateOne).toHaveBeenCalledWith(
       { _id: "platform_settings" },
       expect.objectContaining({
-        $set: expect.objectContaining({ discovery_cache_ttl_minutes: 30 }),
+        $set: expect.objectContaining({ [field]: 30 }),
       }),
       { upsert: true },
     );
@@ -443,15 +445,15 @@ describe("admin platform-config route", () => {
       request("/api/admin/platform-config", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ discovery_cache_ttl_minutes: 0 }),
+        body: JSON.stringify({ slack_discovery_cache_ttl_minutes: 0 }),
       }),
     );
 
     expect(response.status).toBe(200);
-    expect((await response.json()).data.discovery_cache_ttl_minutes).toBe(0);
+    expect((await response.json()).data.slack_discovery_cache_ttl_minutes).toBe(0);
   });
 
-  it("rejects negative or non-integer discovery_cache_ttl_minutes with a 400", async () => {
+  it("rejects invalid connector TTLs with a 400", async () => {
     const { PATCH } = await import("../route");
 
     for (const bad of [-1, 7.5, "ten", 100_000] as unknown[]) {
@@ -460,14 +462,14 @@ describe("admin platform-config route", () => {
           request("/api/admin/platform-config", {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ discovery_cache_ttl_minutes: bad }),
+            body: JSON.stringify({ webex_discovery_cache_ttl_minutes: bad }),
           }),
         ),
-      ).rejects.toThrow(/discovery_cache_ttl_minutes/);
+      ).rejects.toThrow(/webex_discovery_cache_ttl_minutes/);
     }
   });
 
-  it("allows clearing discovery_cache_ttl_minutes (null falls back to the helper default)", async () => {
+  it("allows clearing one connector TTL", async () => {
     const updateOne = jest.fn().mockResolvedValue({ acknowledged: true });
     mockGetCollection.mockResolvedValue({
       findOne: jest.fn().mockResolvedValue({ _id: "platform_settings" }),
@@ -479,7 +481,7 @@ describe("admin platform-config route", () => {
       request("/api/admin/platform-config", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ discovery_cache_ttl_minutes: null }),
+        body: JSON.stringify({ webex_discovery_cache_ttl_minutes: null }),
       }),
     );
 
@@ -487,7 +489,7 @@ describe("admin platform-config route", () => {
     expect(updateOne).toHaveBeenCalledWith(
       { _id: "platform_settings" },
       expect.objectContaining({
-        $set: expect.objectContaining({ discovery_cache_ttl_minutes: null }),
+        $set: expect.objectContaining({ webex_discovery_cache_ttl_minutes: null }),
       }),
       { upsert: true },
     );

@@ -1,7 +1,7 @@
 /**
  * Tests for `buildKnowledgeBaseRelationshipTupleDiff` shared-team handling.
  *
- * Search-only teams receive reader+ingestor but never manager. Removing a
+ * Search-only teams receive reader but never ingestor or manager. Removing a
  * team emits matching deletes,
  * the owner team is always treated as "wanted" so duplicating it in the
  * shared list is a no-op, and invalid slugs are silently dropped.
@@ -24,13 +24,14 @@ describe("buildKnowledgeBaseRelationshipTupleDiff — shared teams", () => {
     expect(diff.writes).toEqual([
       { user: "user:alice-sub", relation: "owner", object: KB },
       { user: "team:platform#member", relation: "reader", object: KB },
-      { user: "team:platform#member", relation: "ingestor", object: KB },
       { user: "team:platform#admin", relation: "manager", object: KB },
     ]);
-    expect(diff.deletes).toEqual([]);
+    expect(diff.deletes).toEqual([
+      { user: "team:platform#member", relation: "ingestor", object: KB },
+    ]);
   });
 
-  it("adds reader/ingestor but never manager tuples for search-only teams", () => {
+  it("adds reader but never ingestor or manager tuples for search-only teams", () => {
     const diff = buildKnowledgeBaseRelationshipTupleDiff({
       knowledgeBaseId: "kb-1",
       ownerTeamSlug: "platform",
@@ -39,12 +40,9 @@ describe("buildKnowledgeBaseRelationshipTupleDiff — shared teams", () => {
     expect(diff.writes).toEqual(
       expect.arrayContaining([
         { user: "team:platform#member", relation: "reader", object: KB },
-        { user: "team:platform#member", relation: "ingestor", object: KB },
         { user: "team:platform#admin", relation: "manager", object: KB },
         { user: "team:data-eng#member", relation: "reader", object: KB },
-        { user: "team:data-eng#member", relation: "ingestor", object: KB },
         { user: "team:ml-ops#member", relation: "reader", object: KB },
-        { user: "team:ml-ops#member", relation: "ingestor", object: KB },
       ]),
     );
     expect(
@@ -52,10 +50,15 @@ describe("buildKnowledgeBaseRelationshipTupleDiff — shared teams", () => {
         (tuple) => tuple.relation === "manager" && tuple.user !== "team:platform#admin",
       ),
     ).toBe(false);
-    expect(diff.deletes).toEqual([]);
+    expect(diff.writes.some((tuple) => tuple.relation === "ingestor")).toBe(false);
+    expect(diff.deletes).toEqual(expect.arrayContaining([
+      { user: "team:platform#member", relation: "ingestor", object: KB },
+      { user: "team:data-eng#member", relation: "ingestor", object: KB },
+      { user: "team:ml-ops#member", relation: "ingestor", object: KB },
+    ]));
   });
 
-  it("deletes the reader/ingestor set when a search team is removed", () => {
+  it("deletes reader and any stale ingestor tuple when a search team is removed", () => {
     const diff = buildKnowledgeBaseRelationshipTupleDiff({
       knowledgeBaseId: "kb-1",
       ownerTeamSlug: "platform",
@@ -65,7 +68,6 @@ describe("buildKnowledgeBaseRelationshipTupleDiff — shared teams", () => {
     expect(diff.writes).toEqual(
       expect.arrayContaining([
         { user: "team:data-eng#member", relation: "reader", object: KB },
-        { user: "team:data-eng#member", relation: "ingestor", object: KB },
       ]),
     );
     expect(diff.deletes).toEqual(
@@ -74,8 +76,13 @@ describe("buildKnowledgeBaseRelationshipTupleDiff — shared teams", () => {
         { user: "team:ml-ops#member", relation: "ingestor", object: KB },
       ]),
     );
-    // ml-ops grant is now revoked — no stale tuple is left dangling.
-    expect(diff.deletes).toHaveLength(2);
+    // Cleanup also removes stale development-era ingestor tuples from every
+    // represented Search audience, including the still-selected team.
+    expect(diff.deletes).toContainEqual({
+      user: "team:data-eng#member",
+      relation: "ingestor",
+      object: KB,
+    });
   });
 
   it("adds and revokes direct-user search grants without granting management", () => {
@@ -89,7 +96,6 @@ describe("buildKnowledgeBaseRelationshipTupleDiff — shared teams", () => {
     expect(diff.writes).toEqual(expect.arrayContaining([
       { user: "user:owner-sub", relation: "owner", object: KB },
       { user: "user:reader-sub", relation: "reader", object: KB },
-      { user: "user:reader-sub", relation: "ingestor", object: KB },
     ]));
     expect(diff.writes).not.toContainEqual({
       user: "user:reader-sub",
@@ -101,6 +107,11 @@ describe("buildKnowledgeBaseRelationshipTupleDiff — shared teams", () => {
       { user: "user:former-reader-sub", relation: "reader", object: KB },
       { user: "user:former-reader-sub", relation: "ingestor", object: KB },
     ]));
+    expect(diff.deletes).toContainEqual({
+      user: "user:reader-sub",
+      relation: "ingestor",
+      object: KB,
+    });
   });
 
   it("can explicitly remove manager tuples left by the legacy search-sharing policy", () => {
@@ -128,8 +139,12 @@ describe("buildKnowledgeBaseRelationshipTupleDiff — shared teams", () => {
         tuple.object === KB &&
         (tuple.user === "team:platform#member" || tuple.user === "team:platform#admin"),
     );
-    expect(ownerWrites).toHaveLength(3);
-    expect(diff.deletes).toEqual([]);
+    expect(ownerWrites).toHaveLength(2);
+    expect(diff.deletes).toContainEqual({
+      user: "team:platform#member",
+      relation: "ingestor",
+      object: KB,
+    });
   });
 
   it("treats removed owner team as a delete when previousOwnerTeamSlug supplied", () => {
@@ -141,17 +156,19 @@ describe("buildKnowledgeBaseRelationshipTupleDiff — shared teams", () => {
     expect(diff.writes).toEqual(
       expect.arrayContaining([
         { user: "team:data-eng#member", relation: "reader", object: KB },
-        { user: "team:data-eng#member", relation: "ingestor", object: KB },
         { user: "team:data-eng#admin", relation: "manager", object: KB },
       ]),
     );
     expect(diff.deletes).toEqual(
       expect.arrayContaining([
         { user: "team:platform#member", relation: "reader", object: KB },
-        { user: "team:platform#member", relation: "ingestor", object: KB },
         { user: "team:platform#admin", relation: "manager", object: KB },
       ]),
     );
+    expect(diff.deletes).toEqual(expect.arrayContaining([
+      { user: "team:data-eng#member", relation: "ingestor", object: KB },
+      { user: "team:platform#member", relation: "ingestor", object: KB },
+    ]));
   });
 
   it("silently drops invalid slugs in next/previous shared lists", () => {
@@ -164,10 +181,12 @@ describe("buildKnowledgeBaseRelationshipTupleDiff — shared teams", () => {
     expect(diff.writes).toEqual(
       expect.arrayContaining([
         { user: "team:good-team#member", relation: "reader", object: KB },
-        { user: "team:good-team#member", relation: "ingestor", object: KB },
       ]),
     );
-    expect(diff.deletes).toEqual([]);
+    expect(diff.deletes).toEqual(expect.arrayContaining([
+      { user: "team:platform#member", relation: "ingestor", object: KB },
+      { user: "team:good-team#member", relation: "ingestor", object: KB },
+    ]));
   });
 
   it("idempotent across repeated reconcile calls with the same input", () => {
@@ -180,7 +199,10 @@ describe("buildKnowledgeBaseRelationshipTupleDiff — shared teams", () => {
     const a = buildKnowledgeBaseRelationshipTupleDiff(input);
     const b = buildKnowledgeBaseRelationshipTupleDiff(input);
     expect(a).toEqual(b);
-    expect(a.deletes).toEqual([]);
+    expect(a.deletes).toEqual(expect.arrayContaining([
+      { user: "team:platform#member", relation: "ingestor", object: KB },
+      { user: "team:data-eng#member", relation: "ingestor", object: KB },
+    ]));
   });
 });
 

@@ -3,7 +3,8 @@
 Mirrors the webloader ingestor pattern:
 - Redis listener handles on-demand page ingestion
 - Periodic reload refreshes all configured spaces
-- Each Confluence space is a datasource, pages are like URLs within a sitemap
+- UI sources use one root page per datasource; legacy config can still model a
+  whole space as one datasource
 """
 
 import os
@@ -204,10 +205,15 @@ async def process_page_ingestion(
     space_key = confluence_match.group(1)
     page_id = confluence_match.group(2)
 
-    # Generate space-level datasource ID
-    datasource_id = generate_datasource_id(CONFLUENCE_URL, space_key)
+    # UI-created sources are page-scoped. The explicit ID keeps retrying an
+    # existing legacy space-level source compatible after page-scoped IDs were
+    # introduced.
+    datasource_id = (
+      ingest_request.preprovisioned_datasource_id
+      or generate_datasource_id(CONFLUENCE_URL, space_key, page_id)
+    )
 
-    # Fetch space-level datasource
+    # Fetch the exact page-scoped or legacy space-level datasource.
     datasources = await client.list_datasources(ingestor_id=client.ingestor_id)
     datasource_info = next((ds for ds in datasources if ds.datasource_id == datasource_id), None)
 
@@ -312,7 +318,10 @@ async def preview_page_ingestion(
   space_key = confluence_match.group(1)
   page_id = confluence_match.group(2)
   datasource_info = DataSourceInfo(
-    datasource_id=generate_datasource_id(CONFLUENCE_URL, space_key),
+    datasource_id=(
+      ingest_request.preprovisioned_datasource_id
+      or generate_datasource_id(CONFLUENCE_URL, space_key, page_id)
+    ),
     ingestor_id=client.ingestor_id or "",
     source_type="confluence",
     last_updated=None,

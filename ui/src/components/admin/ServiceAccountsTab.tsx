@@ -783,7 +783,7 @@ function CreateServiceAccountDialog({
                 portalled={false}
               />
               <p className="text-xs text-muted-foreground">
-                The service account receives the same read access you currently
+                The service account receives the same Search access you currently
                 hold. It can use those sources through direct RAG calls or
                 assigned agents.
               </p>

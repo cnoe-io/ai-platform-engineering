@@ -9,6 +9,7 @@
  */
 
 import type { RagCollectionMembershipLabel } from "@/types/rag-collection";
+import type { PendingPublicationRequestView } from "@/types/publication-approval";
 
 export type IngestionSourceType =
   | "slack_channel"
@@ -44,11 +45,11 @@ export interface IngestionSourceConfigBase {
   owner_subject?: string;
   owner_id?: string;
   owner_team_slug?: string;
-  /** Recovery hint for the independent Search & Ingest policy owner. */
+  /** Recovery hint for the independent Search policy owner. */
   search_owner_team_slug?: string;
-  /** Teams whose members may search and ingest this source's indexed data. */
+  /** Teams whose members may search this source's indexed data. */
   search_with_teams?: string[];
-  /** Individual Keycloak subjects granted Search & Ingest access. */
+  /** Individual Keycloak subjects granted Search access. */
   search_with_users?: string[];
   /** Response-only identity labels resolved by the BFF. */
   owner_display_name?: string | null;
@@ -56,11 +57,13 @@ export interface IngestionSourceConfigBase {
   creator_display_name?: string | null;
   creator_email?: string | null;
   search_user_display_names?: string[];
-  /** Read access inherited through maintained RAG collections. */
+  /** Search access inherited through RAG collections. */
   rag_collections?: RagCollectionMembershipLabel[];
+  /** Active publication request created by the current user, when present. */
+  _publication_request?: PendingPublicationRequestView;
   /**
    * Legacy management-sharing projection. New sources keep this empty: a
-   * source has one optional management owner team, while search access is
+   * source has one optional Owner team, while Search access is
    * represented independently by `search_with_teams`.
    */
   shared_with_teams: string[];

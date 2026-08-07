@@ -241,6 +241,16 @@ function normalizeAgentDoc(
     delete doc.model_id;
     delete doc.model_provider;
   }
+  // A configured knowledge hand is always represented by two arrays. Older
+  // rows could store the unselected half as null, which the editor must not
+  // send back as an invalid value.
+  if (
+    Array.isArray(doc.datasource_ids) ||
+    Array.isArray(doc.rag_collection_ids)
+  ) {
+    if (!Array.isArray(doc.datasource_ids)) doc.datasource_ids = [];
+    if (!Array.isArray(doc.rag_collection_ids)) doc.rag_collection_ids = [];
+  }
   return doc;
 }
 
@@ -386,7 +396,7 @@ async function validateDatasourceSelection(
   const denied = needsCallerGrant.filter((id) => !callerGranted.has(id));
   if (denied.length > 0) {
     throw new ApiError(
-      `Neither you nor the owner team have Search Access to: ${denied.join(", ")}`,
+      `Neither you nor the Owner team has Search access to: ${denied.join(", ")}`,
       403,
       "DATASOURCE_NOT_ACCESSIBLE",
     );
@@ -807,6 +817,10 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       ragCollectionIds = platformDefault;
     }
   }
+  if (datasourceIds !== undefined || ragCollectionIds !== undefined) {
+    datasourceIds ??= [];
+    ragCollectionIds ??= [];
+  }
   await validateDatasourceSelection(datasourceIds, ownerTeamSlug, session);
   await validateRagCollectionSelection(ragCollectionIds, session);
 
@@ -1109,6 +1123,12 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
       updateData.rag_collection_ids = platformDefault;
       appliedPlatformDefault = true;
     }
+  }
+  if (datasourceSelectionChanged || collectionSelectionChanged) {
+    finalDatasourceIds ??= [];
+    finalCollectionIds ??= [];
+    updateData.datasource_ids = finalDatasourceIds;
+    updateData.rag_collection_ids = finalCollectionIds;
   }
   if (
     datasourceSelectionChanged ||

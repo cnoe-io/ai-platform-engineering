@@ -13,6 +13,11 @@ const mockManageableDatasourceIdsForCollectionPublishing = jest.fn();
 const mockReconcileTupleDiff = jest.fn();
 const mockRemoveRagCollectionFromAgentPins = jest.fn();
 const mockBatchCheckOpenFgaTuples = jest.fn();
+const mockRecordAutoApprovedPublication = jest.fn();
+const mockInvalidatePublicationRequests = jest.fn();
+const mockCreatePublicationRequest = jest.fn();
+const mockRagCollectionSourceDependencyRevisions = jest.fn();
+let mockPublicationSettings: Record<string, unknown>;
 
 jest.mock("@/lib/api-middleware", () => {
   const actual = jest.requireActual("@/lib/api-middleware");
@@ -53,6 +58,39 @@ jest.mock("@/lib/rbac/openfga", () => ({
     mockBatchCheckOpenFgaTuples(...args),
 }));
 
+jest.mock("@/lib/publication-approval.server", () => {
+  const actual = jest.requireActual("@/lib/publication-approval.server");
+  return {
+    ...actual,
+    listPublicationActorTeamSlugs: jest.fn(async () => []),
+    recordAutoApprovedPublication: (...args: unknown[]) =>
+      mockRecordAutoApprovedPublication(...args),
+    createPublicationRequest: (...args: unknown[]) =>
+      mockCreatePublicationRequest(...args),
+    invalidatePublicationRequests: (...args: unknown[]) =>
+      mockInvalidatePublicationRequests(...args),
+  };
+});
+
+jest.mock("@/lib/publication-approval-settings", () => {
+  const actual = jest.requireActual("@/lib/publication-approval-settings");
+  return {
+    ...actual,
+    getPublicationApprovalSettings: jest.fn(async () => mockPublicationSettings),
+  };
+});
+
+jest.mock("@/lib/rag-collection-publication-approval.server", () => {
+  const actual = jest.requireActual(
+    "@/lib/rag-collection-publication-approval.server",
+  );
+  return {
+    ...actual,
+    ragCollectionSourceDependencyRevisions: (...args: unknown[]) =>
+      mockRagCollectionSourceDependencyRevisions(...args),
+  };
+});
+
 jest.mock("@/lib/rbac/resource-authz", () => ({
   requireResourcePermission: (...args: unknown[]) =>
     mockRequireResourcePermission(...args),
@@ -69,6 +107,12 @@ jest.mock("@/lib/rbac/platform-admin", () => ({
 jest.mock("@/lib/rag-collections.server", () => ({
   RAG_COLLECTIONS_COLLECTION: "rag_collections",
   RAG_COLLECTION_ID_PATTERN: /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/,
+  ragCollectionSetFields: (value: Record<string, unknown>) =>
+    Object.fromEntries(
+      Object.entries(value).filter(
+        ([key, fieldValue]) => key !== "_id" && fieldValue !== undefined,
+      ),
+    ),
   collectionMembershipTuple: (collectionId: string, sourceId: string) => ({
     user: `rag_collection:${collectionId}`,
     relation: "parent_collection",
@@ -87,6 +131,26 @@ jest.mock("@/lib/rag-collections.server", () => ({
     mockReplaceCollectionSources(...args),
   manageableDatasourceIdsForCollectionPublishing: (...args: unknown[]) =>
     mockManageableDatasourceIdsForCollectionPublishing(...args),
+  ensureRagCollectionReaderTeamsCanSearch: (
+    readerTeamSlugs: string[],
+    actorSubject: string,
+  ) =>
+    readerTeamSlugs.length === 0
+      ? Promise.resolve()
+      : mockReconcileTupleDiff(
+          {
+            writes: readerTeamSlugs.map((slug) => ({
+              user: `team:${slug}#member`,
+              relation: "searcher",
+              object: "organization:example-org",
+            })),
+            deletes: [],
+          },
+          {
+            caller: { type: "user", id: actorSubject },
+            source: "rag_collection_reader_search_capability",
+          },
+        ),
   removeRagCollectionFromAgentPins: (...args: unknown[]) =>
     mockRemoveRagCollectionFromAgentPins(...args),
 }));
@@ -130,6 +194,13 @@ function context(id = "primary") {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  const { DEFAULT_PUBLICATION_APPROVAL_SETTINGS } = jest.requireActual(
+    "@/lib/publication-approval-settings",
+  );
+  mockPublicationSettings = {
+    ...DEFAULT_PUBLICATION_APPROVAL_SETTINGS,
+    require_rag_publication_approval: false,
+  };
   mockGetAuthFromBearerOrSession.mockResolvedValue({
     user: { email: "editor@example.com" },
     session: { sub: "editor-sub", user: { email: "editor@example.com" } },
@@ -149,6 +220,16 @@ beforeEach(() => {
   );
   mockReconcileTupleDiff.mockResolvedValue(undefined);
   mockRemoveRagCollectionFromAgentPins.mockResolvedValue(2);
+  mockRecordAutoApprovedPublication.mockResolvedValue(undefined);
+  mockInvalidatePublicationRequests.mockResolvedValue(0);
+  mockCreatePublicationRequest.mockResolvedValue({
+    _id: "request-primary",
+    status: "pending",
+  });
+  mockRagCollectionSourceDependencyRevisions.mockResolvedValue({
+    "source-a": "revision-a",
+    "source-b": "revision-b",
+  });
   mockBatchCheckOpenFgaTuples.mockImplementation(async (tuples: unknown[]) =>
     tuples.map(() => true),
   );
@@ -308,9 +389,9 @@ describe("PATCH /api/rag/collections/[id]", () => {
     expect(mockReplaceCollectionSources).toHaveBeenCalledWith("primary", []);
   });
 
-  it("reserves reader and maintainer delegation for organization admins", async () => {
+  it("reserves Owner delegation for organization admins", async () => {
     const response = await PATCH(
-      request("PATCH", { reader_team_slugs: ["readers"] }),
+      request("PATCH", { maintainer_team_slugs: ["readers"] }),
       context(),
     );
 
@@ -342,6 +423,132 @@ describe("PATCH /api/rag/collections/[id]", () => {
         caller: { type: "user", id: "editor-sub" },
         source: "rag_collection_reader_search_capability",
       },
+    );
+  });
+
+  it("snapshots every proposed datasource revision before requesting shared publication", async () => {
+    const { DEFAULT_PUBLICATION_APPROVAL_SETTINGS } = jest.requireActual(
+      "@/lib/publication-approval-settings",
+    );
+    mockPublicationSettings = {
+      ...DEFAULT_PUBLICATION_APPROVAL_SETTINGS,
+      require_rag_publication_approval: true,
+    };
+    const sharedCollection = {
+      ...personalCollection,
+      reader_team_slugs: ["search-team"],
+    };
+    mockGetCollection.mockImplementation(async (name: string) => {
+      if (name === "rag_collections") {
+        return {
+          findOne: jest.fn().mockResolvedValue(sharedCollection),
+          updateOne: jest
+            .fn()
+            .mockResolvedValue({ matchedCount: 1, modifiedCount: 1 }),
+          replaceOne: jest.fn().mockResolvedValue({ modifiedCount: 1 }),
+        };
+      }
+      if (name === "rag_ingestion_sources") {
+        return {
+          find: jest.fn().mockReturnValue({
+            project: jest.fn().mockReturnThis(),
+            toArray: jest
+              .fn()
+              .mockResolvedValue([
+                { source_id: "source-a" },
+                { source_id: "source-b" },
+              ]),
+          }),
+        };
+      }
+      throw new Error(`unexpected collection ${name}`);
+    });
+    mockFilterResourcesByPermission.mockResolvedValueOnce([{ id: "primary" }]);
+
+    const response = await PATCH(
+      request("PATCH", { source_ids: ["source-a", "source-b"] }),
+      context(),
+    );
+
+    expect(response.status).toBe(202);
+    expect(mockRagCollectionSourceDependencyRevisions).toHaveBeenCalledWith([
+      "source-a",
+      "source-b",
+    ]);
+    expect(mockCreatePublicationRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestedState: expect.objectContaining({
+          source_dependency_revisions: {
+            "source-a": "revision-a",
+            "source-b": "revision-b",
+          },
+        }),
+      }),
+    );
+  });
+
+  it("keeps company-wide collection Search active while removal waits for approval", async () => {
+    const { DEFAULT_PUBLICATION_APPROVAL_SETTINGS } = jest.requireActual(
+      "@/lib/publication-approval-settings",
+    );
+    mockPublicationSettings = {
+      ...DEFAULT_PUBLICATION_APPROVAL_SETTINGS,
+      require_rag_publication_approval: true,
+    };
+    const companyWideCollection = {
+      ...personalCollection,
+      reader_team_slugs: ["everyone", "project-team"],
+    };
+    mockGetCollection.mockImplementation(async (name: string) => {
+      if (name === "rag_collections") {
+        return {
+          findOne: jest.fn().mockResolvedValue(companyWideCollection),
+          updateOne: jest
+            .fn()
+            .mockResolvedValue({ matchedCount: 1, modifiedCount: 1 }),
+          replaceOne: jest.fn().mockResolvedValue({ modifiedCount: 1 }),
+        };
+      }
+      if (name === "rag_ingestion_sources") {
+        return {
+          find: jest.fn().mockReturnValue({
+            project: jest.fn().mockReturnThis(),
+            toArray: jest.fn().mockResolvedValue([{ source_id: "source-a" }]),
+          }),
+        };
+      }
+      if (name === "teams") {
+        return {
+          find: jest.fn().mockReturnValue({
+            project: jest.fn().mockReturnThis(),
+            toArray: jest.fn().mockResolvedValue([
+              { slug: "owner-team" },
+              { slug: "project-team" },
+            ]),
+          }),
+        };
+      }
+      throw new Error(`unexpected collection ${name}`);
+    });
+
+    const response = await PATCH(
+      request("PATCH", { reader_team_slugs: ["project-team"] }),
+      context(),
+    );
+
+    expect(response.status).toBe(202);
+    expect(mockCreatePublicationRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestedState: expect.objectContaining({
+          reader_team_slugs: ["project-team"],
+        }),
+        effectiveState: expect.objectContaining({
+          reader_team_slugs: ["everyone", "project-team"],
+        }),
+        riskFacts: expect.objectContaining({
+          removed_team_slugs: ["everyone"],
+        }),
+      }),
     );
   });
 
@@ -393,6 +600,11 @@ describe("DELETE /api/rag/collections/[id]", () => {
     expect(body.data).toEqual({ deleted: "primary", agents_updated: 2 });
     expect(mockRemoveRagCollectionFromAgentPins).toHaveBeenCalledWith(
       "primary",
+    );
+    expect(mockInvalidatePublicationRequests).toHaveBeenCalledWith(
+      { kind: "rag_collection", id: "primary", label: "Primary knowledge" },
+      expect.objectContaining({ subject: "editor-sub" }),
+      expect.stringContaining("deleted before this proposal was approved"),
     );
     expect(mockReconcileTupleDiff).toHaveBeenCalledWith(
       {

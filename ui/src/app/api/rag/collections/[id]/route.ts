@@ -8,18 +8,30 @@ import {
 } from "@/lib/api-middleware";
 import { reconcileTupleDiff } from "@/lib/authz";
 import { getCollection } from "@/lib/mongodb";
+import {
+  createPublicationRequest,
+  invalidatePublicationRequests,
+  publicationActorFromSession,
+  recordAutoApprovedPublication,
+} from "@/lib/publication-approval.server";
+import {
+  applyRagCollectionPublicationState,
+  prepareRagCollectionPublication,
+  ragCollectionPublicationState,
+  ragCollectionSourceDependencyRevisions,
+} from "@/lib/rag-collection-publication-approval.server";
 import { batchCheckOpenFgaTuples } from "@/lib/rbac/openfga";
 import {
   collectionMembershipTuple,
   collectionRelationshipTuples,
   manageableDatasourceIdsForCollectionPublishing,
+  ragCollectionSetFields,
   RAG_COLLECTION_ID_PATTERN,
   RAG_COLLECTIONS_COLLECTION,
   removeRagCollectionFromAgentPins,
   reconcileCollectionRelationships,
   replaceCollectionSources,
 } from "@/lib/rag-collections.server";
-import { organizationObjectId } from "@/lib/rbac/organization";
 import { hasOrganizationAdmin } from "@/lib/rbac/platform-admin";
 import {
   filterResourcesByPermission,
@@ -196,32 +208,6 @@ async function requireExistingDatasources(
   }
 }
 
-async function ensureReaderTeamsCanSearch(
-  readerTeamSlugs: readonly string[],
-  actorSubject: string,
-): Promise<void> {
-  if (readerTeamSlugs.length === 0) return;
-  // Collection readership is useless without the coarse organization search
-  // gate. Add that feature capability when an admin delegates readership.
-  // Removal is deliberately additive-only: the same team may retain search
-  // through another collection or an explicit Team capability assignment,
-  // while datasource relationships remain the actual content boundary.
-  await reconcileTupleDiff(
-    {
-      writes: readerTeamSlugs.map((slug) => ({
-        user: `team:${slug}#member`,
-        relation: "searcher",
-        object: organizationObjectId(),
-      })),
-      deletes: [],
-    },
-    {
-      caller: { type: "user", id: actorSubject },
-      source: "rag_collection_reader_search_capability",
-    },
-  );
-}
-
 async function requireManage(
   session: Parameters<typeof requireResourcePermission>[0],
   id: string,
@@ -272,11 +258,14 @@ export const PATCH = withErrorHandler(
     }
     const body = raw as Record<string, unknown>;
     const hasSources = Object.prototype.hasOwnProperty.call(body, "source_ids");
-    const hasDelegation = [
+    const hasOwnerChange = Object.prototype.hasOwnProperty.call(
+      body,
       "maintainer_team_slugs",
-      "reader_team_slugs",
-      "global_read",
-    ].some((field) => Object.prototype.hasOwnProperty.call(body, field));
+    );
+    const hasSearchChange = ["reader_team_slugs", "global_read"].some(
+      (field) => Object.prototype.hasOwnProperty.call(body, field),
+    );
+    const hasDelegation = hasOwnerChange || hasSearchChange;
     const hasMetadata = ["name", "description"].some((field) =>
       Object.prototype.hasOwnProperty.call(body, field),
     );
@@ -284,9 +273,9 @@ export const PATCH = withErrorHandler(
       return successResponse(previous);
 
     if (hasMetadata || hasDelegation) await requireManage(session, id);
-    if (hasDelegation && !(await hasOrganizationAdmin(session))) {
+    if (hasOwnerChange && !(await hasOrganizationAdmin(session))) {
       throw new ApiError(
-        "Only an organization administrator can delegate collection audiences or maintainers",
+        "Only an organization administrator can change collection Owner teams",
         403,
         "COLLECTION_DELEGATION_FORBIDDEN",
       );
@@ -313,7 +302,7 @@ export const PATCH = withErrorHandler(
       nextReaderTeamSlugs.length > MAX_COLLECTION_TEAMS
     ) {
       throw new ApiError(
-        `A knowledge base may have at most ${MAX_COLLECTION_TEAMS} maintainer teams and ${MAX_COLLECTION_TEAMS} reader teams`,
+        `A knowledge base may have at most ${MAX_COLLECTION_TEAMS} Owner teams and ${MAX_COLLECTION_TEAMS} Search teams`,
         400,
         "TOO_MANY_COLLECTION_TEAMS",
       );
@@ -348,7 +337,7 @@ export const PATCH = withErrorHandler(
       );
       if (canPublish.length === 0) {
         throw new ApiError(
-          "You cannot publish sources to this knowledge base",
+          "You cannot add datasources to this knowledge base",
           403,
           "COLLECTION_PUBLISH_FORBIDDEN",
         );
@@ -378,7 +367,7 @@ export const PATCH = withErrorHandler(
       );
       if (denied.length > 0) {
         throw new ApiError(
-          `You must manage a datasource before publishing it: ${denied.join(", ")}`,
+          `You must be able to manage a datasource before adding it: ${denied.join(", ")}`,
           403,
           "DATASOURCE_PUBLISH_FORBIDDEN",
         );
@@ -386,7 +375,7 @@ export const PATCH = withErrorHandler(
 
       // A personal owner is an explicit collection reader, even after teams
       // are delegated. Validate against that owner rather than the editor so
-      // an administrator or maintainer cannot turn source-management access
+      // an administrator or Owner cannot turn source-management access
       // into content access for somebody else through collection membership.
       if (previous.owner_subject && additions.length > 0) {
         const ownerReadDecisions = await batchCheckOpenFgaTuples(
@@ -433,7 +422,7 @@ export const PATCH = withErrorHandler(
         "INVALID_DESCRIPTION",
       );
     }
-    const next: RagCollection = {
+    const requestedNext: RagCollection = {
       ...previous,
       name: nextName,
       description: nextDescription,
@@ -442,44 +431,123 @@ export const PATCH = withErrorHandler(
       ...(Object.prototype.hasOwnProperty.call(body, "global_read")
         ? { global_read: body.global_read === true }
         : {}),
-      source_ids: previous.source_ids ?? [],
+      source_ids: sourceIds,
       updated_at: now,
+    };
+    const ownershipChanged =
+      JSON.stringify([...(previous.maintainer_team_slugs ?? [])].sort()) !==
+      JSON.stringify([...nextMaintainerTeamSlugs].sort());
+    const hasPublicationChange = hasSources || hasSearchChange || ownershipChanged;
+    const publication = hasPublicationChange
+      ? await prepareRagCollectionPublication({
+          session,
+          collection: requestedNext,
+          currentState: ragCollectionPublicationState(previous),
+          requestedState: ragCollectionPublicationState(requestedNext),
+        })
+      : null;
+    if (publication) {
+      await invalidatePublicationRequests(
+        publication.resource,
+        publication.actor,
+        "A newer knowledge-base change replaced this publication proposal.",
+      );
+    }
+    const effectiveState = publication
+      ? publication.plan.effective_state as unknown as ReturnType<
+          typeof ragCollectionPublicationState
+        >
+      : ragCollectionPublicationState(previous);
+    const baseNext: RagCollection = {
+      ...requestedNext,
+      maintainer_team_slugs: effectiveState.maintainer_team_slugs,
+      reader_team_slugs: previous.reader_team_slugs ?? [],
+      global_read: previous.global_read === true,
+      source_ids: previous.source_ids ?? [],
     };
     const collection = await getCollection<RagCollection>(
       RAG_COLLECTIONS_COLLECTION,
     );
-    await reconcileCollectionRelationships(previous, next);
+    let lastApplied = baseNext;
+    await reconcileCollectionRelationships(previous, baseNext);
     try {
       const metadataUpdate = await collection.updateOne({ _id: id } as never, {
-        $set: next,
+        $set: ragCollectionSetFields(baseNext),
       });
       if (metadataUpdate.matchedCount !== 1) {
         throw new Error("RAG collection disappeared while updating settings");
       }
-      if (hasDelegation) {
-        const actorSubject = normalizeString(session.sub);
-        if (!actorSubject) {
-          throw new ApiError(
-            "A stable user subject is required",
-            401,
-            "NO_SUBJECT",
-          );
-        }
-        await ensureReaderTeamsCanSearch(nextReaderTeamSlugs, actorSubject);
+
+      if (!publication) return successResponse(baseNext);
+      const updated = await applyRagCollectionPublicationState({
+        previous: baseNext,
+        nextState: effectiveState,
+        actorSubject: publication.actor.subject,
+      });
+      lastApplied = updated;
+
+      let publicationRequest: Awaited<ReturnType<typeof createPublicationRequest>> | null = null;
+      if (publication.plan.requires_approval) {
+        const requestedSourceIds = publication.requestedState.source_ids;
+        const sourceDependencyRevisions =
+          await ragCollectionSourceDependencyRevisions(requestedSourceIds);
+        publicationRequest = await createPublicationRequest({
+          resource: publication.resource,
+          resourceRevision: publication.resourceRevision,
+          requestedState: {
+            ...publication.requestedState,
+            source_dependency_revisions: sourceDependencyRevisions,
+          } as unknown as Record<string, unknown>,
+          effectiveState: publication.plan.effective_state,
+          riskFacts: publication.plan.risk_facts,
+          requester: publication.actor,
+          requesterTeamSlugs: publication.requesterTeamSlugs,
+          approverTeamSlugs: publication.plan.approver_team_slugs,
+          approverUserSubjects: publication.plan.approver_user_subjects,
+        });
+      } else {
+        await recordAutoApprovedPublication({
+          resource: publication.resource,
+          resourceRevision: publication.resourceRevision,
+          requestedState: publication.requestedState as unknown as Record<string, unknown>,
+          effectiveState: publication.requestedState as unknown as Record<string, unknown>,
+          riskFacts: publication.plan.risk_facts,
+          requester: publication.actor,
+          requesterTeamSlugs: publication.requesterTeamSlugs,
+          approverTeamSlugs: publication.plan.approver_team_slugs,
+          approverUserSubjects: publication.plan.approver_user_subjects,
+        });
       }
-      const updated = hasSources
-        ? await replaceCollectionSources(id, sourceIds)
-        : next;
-      return successResponse(updated);
+      return successResponse(
+        {
+          ...updated,
+          ...(publicationRequest
+            ? {
+                _publication_request: {
+                  id: publicationRequest._id,
+                  status: publicationRequest.status,
+                  reason: publication.plan.reason,
+                },
+              }
+            : {}),
+        },
+        publicationRequest ? 202 : 200,
+      );
     } catch (error) {
       // Keep Mongo and OpenFGA on the previous effective state if either the
       // metadata update or membership projection fails. Membership replacement
       // performs its own tuple rollback; this restores the surrounding document
       // and delegation relationships for combined edits.
+      if (
+        JSON.stringify([...(lastApplied.source_ids ?? [])].sort()) !==
+        JSON.stringify([...(previous.source_ids ?? [])].sort())
+      ) {
+        await replaceCollectionSources(id, previous.source_ids ?? []).catch(() => {});
+      }
       await collection
         .replaceOne({ _id: id } as never, previous)
         .catch(() => {});
-      await reconcileCollectionRelationships(next, previous).catch(() => {});
+      await reconcileCollectionRelationships(lastApplied, previous).catch(() => {});
       throw error;
     }
   },
@@ -500,6 +568,11 @@ export const DELETE = withErrorHandler(
       );
     }
     await requireManage(session, id);
+    await invalidatePublicationRequests(
+      { kind: "rag_collection", id, label: doc.name },
+      publicationActorFromSession(session),
+      "The knowledge base was deleted before this proposal was approved.",
+    );
     const deletedTuples = [
       ...(doc.source_ids ?? []).map((sourceId) =>
         collectionMembershipTuple(doc._id, sourceId),

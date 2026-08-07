@@ -20,11 +20,11 @@ Vector DB + Graph DB
 
 ### Ingest (`/knowledge-bases/ingest`)
 
-- **Source managers**: Update, retry, transfer, and delete ingestion-source configuration
-- **Search & Ingest members**: Query and ingest content for shared datasources
-- A source has one management owner (a person or team)
-- Search & Ingest access is an independent list of people and teams
-- Source managers may administer the Search & Ingest grants without receiving content access themselves
+- **Owners**: Update, reload, transfer, and delete ingestion-source configuration
+- **Search members**: Query content from shared datasources
+- A source has one Owner (a person or team)
+- Search access is an independent list of people and teams
+- Owners may administer Search grants without automatically granting a team content access
 - Deep-link state:
   - `ingest=file|web|slack|confluence|jira|webex` selects the creation form
   - repeated `type`, `owner`, and `access` parameters filter visible sources
@@ -33,21 +33,21 @@ Vector DB + Graph DB
 ### Search (`/knowledge-bases/search`)
 
 - Requires the organization search capability
-- Results are restricted to datasources the caller can read
+- Results are restricted to datasources for which the caller has Search access
 - Search URLs encode `q`, `tool`, `limit`, and `filter.<key>` values so another user can rerun the same search through their own RBAC-filtered tool and datasource access
 
 ### Collections (`/knowledge-bases/collections`)
 
 - Groups stable datasource IDs without copying chunks or changing Milvus storage
 - Supports personal collections and admin-delegated collections, including the removable default `Platform RAG`
-- Keeps read, publish, and management grants independent
+- Keeps Search, collection membership, and Owner grants independent
 - Expands collection membership live for agents, so adding or removing a source propagates without editing each agent
 - Uses `collection=<id>` in the URL for shareable, RBAC-filtered deep links
 - Preserves datasource reload behavior: each reload replaces that datasource's indexed content and removes stale pages
 
 ### Agent and service-account RAG scope
 
-- Direct Search/API calls use every datasource the caller can read
+- Direct Search/API calls use every datasource for which the caller has Search access
 - Agents use direct datasource cards plus collection cards, intersected with the invoking caller's current datasource access
 - Explicitly selecting no cards disables that agent's RAG tools
 - Service accounts may be granted individual datasources through the existing agent/tool scope editor; creators can grant only resources they can access
@@ -55,7 +55,7 @@ Vector DB + Graph DB
 
 ### Graph (`/knowledge-bases/graph`)
 
-- The data graph is restricted to datasources the caller can read
+- The data graph is restricted to datasources for which the caller has Search access
 - The deployment-wide ontology requires unrestricted datasource access
 - Ontology mutations require organization-admin access
 
@@ -85,7 +85,7 @@ Type-safe client library for all RAG operations. Automatically includes session 
 Main UI for source creation, ingestion status, ownership, sharing, retry, and deletion. Server authorization remains authoritative; UI visibility is not a security boundary.
 
 ### RagCollectionsView (`src/components/rag/RagCollectionsView.tsx`)
-Collection membership and delegation UI. Publishing a source requires source-management access; personal collection publishing additionally requires source-read access.
+Collection membership and delegation UI. Adding a datasource requires Owner access; adding it to a personal collection also requires Search access.
 
 ## Development
 
@@ -105,4 +105,4 @@ npm run dev
 
 - **403 Forbidden**: The caller lacks the required organization capability or resource relationship.
 - **401 Unauthorized**: Session expired. Re-authenticate via `/api/auth/signin`.
-- **Unexpected access**: Inspect the source's management and Search & Ingest team assignments separately.
+- **Unexpected access**: Inspect the source's Owner and Search assignments separately.

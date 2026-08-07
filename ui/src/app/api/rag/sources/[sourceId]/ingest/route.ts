@@ -150,25 +150,13 @@ export const POST = withErrorHandler(
       );
     }
 
-    try {
-      await requireResourcePermission(
-        session,
-        { type: "data_source", id: sourceId, action: "ingest" },
-        { bypassForOrgAdmin: true },
-      );
-    } catch (error) {
-      if (!(error instanceof ApiError) || error.statusCode !== 403) {
-        throw error;
-      }
-      // Search Access deliberately includes ingestion without source-config
-      // management. A source manager may also run the stored configuration,
-      // so either independent grant can start/retry ingestion.
-      await requireResourcePermission(
-        session,
-        { type: "ingestion_source", id: sourceId, action: "manage" },
-        { bypassForOrgAdmin: true },
-      );
-    }
+    // Search is query-only. Starting or retrying the stored connector is a
+    // source lifecycle action and therefore requires Owner authority.
+    await requireResourcePermission(
+      session,
+      { type: "ingestion_source", id: sourceId, action: "manage" },
+      { bypassForOrgAdmin: true },
+    );
 
     const ingestorLimits = await getRagIngestorLimits();
     enforceRagIngestorLimits(

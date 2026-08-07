@@ -193,7 +193,7 @@ def test_ontology_agent_status_denies_bounded_callers(
 
     _restrict_to(monkeypatch, ["primary-ds"])
     monkeypatch.setattr(restapi, "require_authenticated_user", _authenticated)
-    monkeypatch.setattr(restapi, "get_auth_manager", lambda: object())
+    monkeypatch.setattr(restapi, "get_auth_manager", object)
     monkeypatch.setattr(restapi, "graph_rag_enabled", True)
     upstream = AsyncMock()
     monkeypatch.setattr(restapi, "ontology_agent_client", upstream)

@@ -135,7 +135,8 @@ export const UNIVERSAL_REBAC_RESOURCE_TYPES: readonly UniversalRebacResourceType
         "administer",
         "audit",
       ],
-      description: "Knowledge base query, ingestion, and administration scope.",
+      description:
+        "Knowledge base Search and trusted connector-transport scope.",
     },
     {
       type: "data_source",

@@ -22,6 +22,7 @@ import { WebexSpaceRebacPanel } from "@/components/admin/rebac/WebexSpaceRebacPa
 import { AuditLogsTab } from "@/components/admin/security/AuditLogsTab";
 import { KeycloakMigrationHealthPanel } from "@/components/admin/security/KeycloakMigrationHealthPanel";
 import { MigrationTab } from "@/components/admin/security/MigrationTab";
+import { PublicationApprovalQueue } from "@/components/admin/security/PublicationApprovalQueue";
 import { AccessExplorerTab } from "@/components/admin/security/AccessExplorerTab";
 import { RbacSelfCheckTab } from "@/components/admin/security/RbacSelfCheckTab";
 import { UnifiedAuditTab } from "@/components/admin/security/UnifiedAuditTab";
@@ -193,7 +194,7 @@ interface SimulationTeamOption {
   description?: string;
 }
 
-const VALID_TABS = ['users', 'teams', 'identity-sync', 'stats', 'skills', 'feedback', 'metrics', 'health', 'cas-insights', 'credentials', 'audit-logs', 'action-audit', 'access-explorer', 'rbac-self-check', 'keycloak', 'migrations', 'ai-review', 'settings', 'agents', 'mcp', 'rag', 'release-notes', 'slack', 'webex', 'rag-access', 'service-accounts'] as const;
+const VALID_TABS = ['users', 'teams', 'identity-sync', 'stats', 'skills', 'feedback', 'metrics', 'health', 'cas-insights', 'credentials', 'audit-logs', 'action-audit', 'access-explorer', 'rbac-self-check', 'keycloak', 'migrations', 'approvals', 'ai-review', 'settings', 'agents', 'mcp', 'rag', 'release-notes', 'slack', 'webex', 'rag-access', 'service-accounts'] as const;
 const VALID_OPENFGA_SUBTABS = ['builder', 'explorer', 'graph', 'tuples', 'access', 'baseline', 'diagnostics'] as const;
 const MOVED_ADMIN_TAB_MAP = {
   insights: 'stats',
@@ -280,6 +281,7 @@ const CATEGORIES: Category[] = [
     icon: Shield,
     tabs: [
       { value: 'action-audit', label: 'RBAC Audit', icon: Shield, gateKey: 'action_audit' },
+      { value: 'approvals', label: 'Approvals', icon: ShieldCheck, gateKey: 'approvals' },
       { value: 'access-explorer', label: 'Access Explorer', icon: Shield, gateKey: 'openfga' },
       { value: 'rbac-self-check', label: 'Self Check', icon: ListChecks, gateKey: 'openfga' },
       { value: 'audit-logs', label: 'Chat Audit', icon: FileText, gateKey: 'audit_logs' },
@@ -3307,6 +3309,12 @@ function AdminPage() {
                 </TabsContent>
               )}
 
+              {tabGateValues.approvals && (
+                <TabsContent value="approvals" className="space-y-4">
+                  <PublicationApprovalQueue readOnly={isSimulationActive} />
+                </TabsContent>
+              )}
+
               {tabGateValues.openfga && (
                 <TabsContent value="access-explorer" className="space-y-4">
                   <AccessExplorerTab isAdmin={canMutateAdminData} />
@@ -3349,6 +3357,7 @@ function AdminPage() {
         team={selectedTeam}
         mode={teamDialogMode}
         open={teamDetailsOpen}
+        canManageOrganization={canMutateAdminData}
         onOpenChange={setTeamDetailsOpen}
         onTeamUpdated={() => refreshAfterTeamMutation()}
         onTeamMutated={(updatedTeam) => {

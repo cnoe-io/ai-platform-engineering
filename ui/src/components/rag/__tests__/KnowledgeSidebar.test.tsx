@@ -8,7 +8,7 @@
  * - Non-admins with at least one readable KB see the allowed tabs as
  *   Links, the empty-state banner is suppressed, and graph still respects
  *   the `graphRagEnabled` prop.
- * - Non-admins granted an explicit capability (search/ingest) but no KB see
+ * - Non-admins granted an explicit capability (Search/create) but no KB see
  *   those capability tabs as Links and the share-request banner suppressed.
  * - While the hook is loading, all tabs are disabled (fail-closed).
  */
@@ -209,7 +209,7 @@ describe("<KnowledgeSidebar /> RBAC gates", () => {
     expect(screen.getByTestId("kb-tab-disabled-mcp-tools")).toBeInTheDocument();
   });
 
-  it("team granted Search+Ingest with no KB assigned sees those tabs as links and NO share-request banner", () => {
+  it("team granted Search and datasource creation with no KB assigned sees those tabs as links and no share-request banner", () => {
     // Regression guard for the screenshot-2 scenario: the org admin enabled both
     // capabilities for the team but assigned no KB. The capability-driven tabs
     // must be clickable links (not greyed out), and the "ask an admin to share a

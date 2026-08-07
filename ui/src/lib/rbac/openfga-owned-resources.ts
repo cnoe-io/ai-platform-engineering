@@ -133,8 +133,8 @@ export interface IngestionSourceRelationshipInput extends OwnedResourceInput {
 export interface KnowledgeBaseRelationshipInput extends OwnedResourceInput {
   knowledgeBaseId: string;
   /**
-   * Desired set of team slugs that should have read+ingest, but not manage,
-   * on this KB in addition to the owner. Invalid slugs are
+   * Desired set of team slugs that should have read-only Search access on
+   * this KB in addition to the owner. Invalid slugs are
    * silently dropped; duplicates are deduped. When omitted, only the owner
    * team is granted.
    */
@@ -147,7 +147,7 @@ export interface KnowledgeBaseRelationshipInput extends OwnedResourceInput {
    * a dangling tuple.
    */
   previousSharedTeamSlugs?: readonly string[] | null;
-  /** Desired direct-user Search & Ingest grants (Keycloak subjects). */
+  /** Desired direct-user Search grants (Keycloak subjects). */
   nextSharedUserSubjects?: readonly string[] | null;
   /** Previously persisted direct-user grants, used to emit revocations. */
   previousSharedUserSubjects?: readonly string[] | null;
@@ -554,10 +554,11 @@ export function buildKnowledgeBaseRelationshipTupleDiff(
   if (!isValidOpenFgaId(input.knowledgeBaseId)) {
     throw new Error(`Invalid OpenFGA knowledge base id: ${input.knowledgeBaseId}`);
   }
-  // Thin adapter over the shared core (FR-003): a KB member gets
-  // `reader` + `ingestor`; the diff order (owner-subject → reader →
-  // ingestor → manager) is preserved by `buildShareableResourceTupleDiff`.
-  return buildShareableResourceTupleDiff({
+  // Search audiences are query-only. `ingestor` remains in the model for
+  // trusted ingestion identities and legacy transports, but sharing a data
+  // source never grants it. Owner lifecycle authority comes from the
+  // independent ingestion_source graph.
+  const diff = buildShareableResourceTupleDiff({
     objectType: "knowledge_base",
     objectId: input.knowledgeBaseId,
     creatorSubject: input.creatorSubject,
@@ -573,8 +574,40 @@ export function buildKnowledgeBaseRelationshipTupleDiff(
     previousSharedUserSubjects: input.previousSharedUserSubjects,
     sharedTeamAdminsManage: false,
     previousSharedTeamAdminsManage: input.previousSharedTeamAdminsManage,
-    extraMemberRelations: ["ingestor"],
   });
+
+  // During development this branch briefly projected Search as
+  // reader+ingestor. Reconciliation is also our local-data cleanup path: any
+  // audience represented by the persisted desired/previous policy loses that
+  // stale direct ingestor tuple. OpenFGA filters no-op deletes, so this remains
+  // safe and idempotent for fresh installations and is not a migration.
+  const staleTeamSlugs = normalizeTeamSlugs([
+    ...(input.nextSharedTeamSlugs ?? []),
+    ...(input.previousSharedTeamSlugs ?? []),
+    ...(input.ownerTeamSlug ? [input.ownerTeamSlug] : []),
+    ...(input.previousOwnerTeamSlug ? [input.previousOwnerTeamSlug] : []),
+  ]);
+  const staleUserSubjects = normalizeTeamSlugs([
+    ...(input.nextSharedUserSubjects ?? []),
+    ...(input.previousSharedUserSubjects ?? []),
+  ]);
+  const object = `knowledge_base:${input.knowledgeBaseId}`;
+  return {
+    writes: diff.writes,
+    deletes: uniqueTuples([
+      ...diff.deletes,
+      ...staleTeamSlugs.map((slug) => ({
+        user: `team:${slug}#member`,
+        relation: "ingestor",
+        object,
+      })),
+      ...staleUserSubjects.map((subject) => ({
+        user: `user:${subject}`,
+        relation: "ingestor",
+        object,
+      })),
+    ]),
+  };
 }
 
 /**

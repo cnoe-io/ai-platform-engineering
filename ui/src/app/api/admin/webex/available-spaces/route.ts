@@ -3,12 +3,12 @@ import { NextRequest } from "next/server";
 import {
   ApiError,
   getAuthFromBearerOrSession,
-  requireRbacPermission,
   successResponse,
   withErrorHandler,
 } from "@/lib/api-middleware";
 import { callWebexBotAdmin } from "@/lib/webex-bot-admin";
 import { getDiscoveryCacheTtlMs } from "@/lib/rbac/discovery-cache-config";
+import { requireResourcePermission } from "@/lib/rbac/resource-authz";
 
 interface WebexBotOption {
   id: string;
@@ -47,7 +47,11 @@ function applyCursor(spaces: NormalizedSpace[], cursor: string | undefined): Nor
 
 export const GET = withErrorHandler(async (request: NextRequest) => {
   const { user, session } = await getAuthFromBearerOrSession(request);
-  await requireRbacPermission(session, "admin_ui", "view");
+  await requireResourcePermission(
+    session,
+    { type: "admin_surface", id: "webex", action: "read" },
+    { bypassForOrgAdmin: true },
+  );
 
   const params = request.nextUrl.searchParams;
   const requestedBotId = params.get("bot_id")?.trim();
@@ -68,7 +72,9 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   const limit = Number.isFinite(parsedLimit) && parsedLimit > 0
     ? Math.min(parsedLimit, MAX_UI_LIMIT)
     : DEFAULT_UI_LIMIT;
-  const cacheTtlSeconds = Math.floor((await getDiscoveryCacheTtlMs()) / 1000);
+  const cacheTtlSeconds = Math.floor(
+    (await getDiscoveryCacheTtlMs("webex")) / 1000,
+  );
 
   const snapshots = await Promise.all(
     bots.map((bot) => callWebexBotAdmin<RuntimeSpacesResponse>(

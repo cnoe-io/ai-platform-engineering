@@ -22,6 +22,12 @@ const mockEnforceRagIngestorLimits = jest.fn();
 const mockResolveUserIdentitiesBySubject = jest.fn();
 const mockRemoveDatasourceFromRagCollections = jest.fn();
 const mockRemoveDatasourceFromAgentPins = jest.fn();
+const mockDatasourceCollectionAudience = jest.fn();
+const mockGetPublicationApprovalSettings = jest.fn();
+const mockCreatePublicationRequest = jest.fn();
+const mockRecordAutoApprovedPublication = jest.fn();
+const mockInvalidatePublicationRequests = jest.fn();
+const mockInvalidatePublicationRequestsReferencingDatasource = jest.fn();
 
 jest.mock("@/lib/api-middleware", () => {
   class ApiError extends Error {
@@ -72,6 +78,31 @@ jest.mock("@/lib/mongodb", () => ({
   isMongoDBConfigured: true,
 }));
 
+jest.mock("@/lib/publication-approval.server", () => {
+  const actual = jest.requireActual("@/lib/publication-approval.server");
+  return {
+    ...actual,
+    listPublicationActorTeamSlugs: jest.fn(async () => []),
+    createPublicationRequest: (...args: unknown[]) =>
+      mockCreatePublicationRequest(...args),
+    recordAutoApprovedPublication: (...args: unknown[]) =>
+      mockRecordAutoApprovedPublication(...args),
+    invalidatePublicationRequests: (...args: unknown[]) =>
+      mockInvalidatePublicationRequests(...args),
+    invalidatePublicationRequestsReferencingDatasource: (...args: unknown[]) =>
+      mockInvalidatePublicationRequestsReferencingDatasource(...args),
+  };
+});
+
+jest.mock("@/lib/publication-approval-settings", () => {
+  const actual = jest.requireActual("@/lib/publication-approval-settings");
+  return {
+    ...actual,
+    getPublicationApprovalSettings: (...args: unknown[]) =>
+      mockGetPublicationApprovalSettings(...args),
+  };
+});
+
 jest.mock("@/lib/rbac/resource-authz", () => ({
   requireResourcePermission: (...args: unknown[]) =>
     mockRequireResourcePermission(...args),
@@ -102,6 +133,8 @@ jest.mock("@/lib/rag-ingestor-limits.server", () => ({
 }));
 
 jest.mock("@/lib/rag-collections.server", () => ({
+  datasourceCollectionAudience: (...args: unknown[]) =>
+    mockDatasourceCollectionAudience(...args),
   removeDatasourceFromRagCollections: (...args: unknown[]) =>
     mockRemoveDatasourceFromRagCollections(...args),
   removeDatasourceFromAgentPins: (...args: unknown[]) =>
@@ -170,7 +203,7 @@ describe("PATCH /api/rag/sources/[sourceId]", () => {
 
   let teams: { findOne: jest.Mock };
 
-  beforeEach(() => {
+beforeEach(() => {
     jest.clearAllMocks();
     mockGetAuthFromBearerOrSession.mockResolvedValue({ user, session });
     mockRequireResourcePermission.mockResolvedValue(undefined);
@@ -207,6 +240,42 @@ describe("PATCH /api/rag/sources/[sourceId]", () => {
           ]),
         ),
     );
+    mockRecordAutoApprovedPublication.mockResolvedValue(undefined);
+    const publicationSettings = jest.requireActual(
+      "@/lib/publication-approval-settings",
+    );
+    mockGetPublicationApprovalSettings.mockResolvedValue({
+      ...publicationSettings.DEFAULT_PUBLICATION_APPROVAL_SETTINGS,
+      require_rag_publication_approval: false,
+    });
+    mockCreatePublicationRequest.mockImplementation(
+      async (input: Record<string, unknown>) => ({
+      _id: "request-primary",
+      adapter_version: 1,
+      authorization_policy_id:
+        "publication.rag_datasource.0123456789abcdef01234567.request-primary",
+      resource: input.resource,
+      resource_revision: input.resourceRevision,
+      requested_state: input.requestedState,
+      effective_state: input.effectiveState,
+      risk_facts: input.riskFacts,
+      requester: input.requester,
+      requester_team_slugs: input.requesterTeamSlugs,
+      approver_team_slugs: input.approverTeamSlugs,
+      status: "pending",
+      history: [],
+      created_at: "2026-01-01T00:00:00.000Z",
+      updated_at: "2026-01-01T00:00:00.000Z",
+      }),
+    );
+    mockInvalidatePublicationRequests.mockResolvedValue(0);
+    mockInvalidatePublicationRequestsReferencingDatasource.mockResolvedValue(0);
+    mockDatasourceCollectionAudience.mockResolvedValue({
+      collectionIds: [],
+      readerTeamSlugs: [],
+      hasExternalPrincipal: false,
+      organizationWide: false,
+    });
     global.fetch = jest.fn().mockResolvedValue({ ok: true, status: 200 });
     sources = {
       findOne: jest.fn().mockResolvedValue({ ...baseSource }),
@@ -397,6 +466,88 @@ describe("PATCH /api/rag/sources/[sourceId]", () => {
     expect(body.code).toBe("RAG_INGESTOR_LIMIT_EXCEEDED");
   });
 
+  it("includes the latest successful document count in a publication request", async () => {
+    const publicationSettings = jest.requireActual(
+      "@/lib/publication-approval-settings",
+    );
+    mockGetPublicationApprovalSettings.mockResolvedValue({
+      ...publicationSettings.DEFAULT_PUBLICATION_APPROVAL_SETTINGS,
+      require_rag_publication_approval: true,
+    });
+    (global.fetch as jest.Mock).mockImplementation(async (url: string) => {
+      if (url.includes("/v1/jobs/batch")) {
+        return new Response(JSON.stringify({
+          jobs: {
+            "slack-channel-C1": [{
+              status: "completed",
+              created_at: 100,
+              document_count: 17,
+              chunk_count: 42,
+            }],
+          },
+        }), { status: 200 });
+      }
+      return { ok: true, status: 200 };
+    });
+    const { PATCH } = await import("../route");
+
+    const response = await PATCH(
+      request("PATCH", { search_team_slugs: ["everyone"] }),
+      params(),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockCreatePublicationRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        riskFacts: expect.objectContaining({ estimated_items: 17 }),
+      }),
+    );
+  });
+
+  it("keeps company-wide Search active while its removal waits for approval", async () => {
+    const publicationSettings = jest.requireActual(
+      "@/lib/publication-approval-settings",
+    );
+    mockGetPublicationApprovalSettings.mockResolvedValue({
+      ...publicationSettings.DEFAULT_PUBLICATION_APPROVAL_SETTINGS,
+      require_rag_publication_approval: true,
+    });
+    sources.findOne.mockResolvedValue({
+      ...baseSource,
+      search_with_teams: ["everyone", "project-team"],
+    });
+    const { PATCH } = await import("../route");
+
+    const response = await PATCH(
+      request("PATCH", { search_team_slugs: ["project-team"] }),
+      params(),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data).toMatchObject({
+      search_with_teams: ["everyone", "project-team"],
+      _publication_request: {
+        id: "request-primary",
+        status: "pending",
+      },
+    });
+    expect(mockCreatePublicationRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestedState: expect.objectContaining({
+          search_team_slugs: ["project-team"],
+        }),
+        effectiveState: expect.objectContaining({
+          search_team_slugs: ["everyone", "project-team"],
+        }),
+        riskFacts: expect.objectContaining({
+          removed_team_slugs: ["everyone"],
+        }),
+      }),
+    );
+    expect(mockReconcileKnowledgeBaseRelationships).not.toHaveBeenCalled();
+  });
+
   // A pure metadata edit (no shared_with_teams / owner_team_slug change)
   // must not trigger any OpenFGA round-trip.
   it("does not reconcile any OpenFGA type when only metadata fields change", async () => {
@@ -459,7 +610,7 @@ describe("PATCH /api/rag/sources/[sourceId]", () => {
   // Ownership transfer (US3): owner_team_slug differs from the stored value,
   // the caller can manage the current owner team (or is an org admin), and
   // is already a member of the destination — no confirmation required.
-  it("transfers management ownership without changing Search & Ingest ownership", async () => {
+  it("transfers ownership without changing Search access", async () => {
     mockCanTransferResourceOwnership.mockResolvedValue(true);
     const { PATCH } = await import("../route");
 
@@ -485,6 +636,58 @@ describe("PATCH /api/rag/sources/[sourceId]", () => {
       expect.objectContaining({
         method: "PATCH",
         body: JSON.stringify({ owner_team_slug: "sre", owner_subject: null }),
+      }),
+    );
+  });
+
+  it("keeps the current Owner effective while a broadly published transfer waits for approval", async () => {
+    const publicationSettings = jest.requireActual(
+      "@/lib/publication-approval-settings",
+    );
+    mockGetPublicationApprovalSettings.mockResolvedValue({
+      ...publicationSettings.DEFAULT_PUBLICATION_APPROVAL_SETTINGS,
+      require_rag_publication_approval: true,
+    });
+    mockCanTransferResourceOwnership.mockResolvedValue(true);
+    sources.findOne.mockResolvedValue({
+      ...baseSource,
+      search_with_teams: ["everyone"],
+    });
+    const { PATCH } = await import("../route");
+
+    const response = await PATCH(
+      request("PATCH", { owner_team_slug: "sre" }),
+      params(),
+    );
+    const json = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(json.data).toMatchObject({
+      owner_team_slug: "platform",
+      _publication_request: {
+        id: "request-primary",
+        status: "pending",
+      },
+    });
+    expect(mockReconcileIngestionSourceRelationships).not.toHaveBeenCalled();
+    expect(sources.findOneAndUpdate).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        $set: expect.not.objectContaining({ owner_team_slug: "sre" }),
+      }),
+      expect.anything(),
+    );
+    expect(mockCreatePublicationRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestedState: expect.objectContaining({
+          owner_update: {
+            owner_team_slug: "sre",
+            owner_subject: null,
+          },
+        }),
+        effectiveState: expect.objectContaining({
+          search_team_slugs: ["everyone"],
+        }),
       }),
     );
   });
@@ -661,17 +864,16 @@ describe("PATCH /api/rag/sources/[sourceId]", () => {
     );
 
     expect(response.status).toBe(500);
-    expect(global.fetch).toHaveBeenCalledTimes(2);
-    expect(
-      JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body),
-    ).toEqual({
-      description: "Updated description",
-    });
-    expect(
-      JSON.parse((global.fetch as jest.Mock).mock.calls[1][1].body),
-    ).toEqual({
-      description: "",
-    });
+    const configBodies = (global.fetch as jest.Mock).mock.calls
+      .filter(([url]) =>
+        String(url).includes("/v1/datasource/slack-channel-C1") &&
+        !String(url).includes("/owner-team"),
+      )
+      .map(([, init]) => JSON.parse(String(init.body)));
+    expect(configBodies).toEqual([
+      { description: "Updated description" },
+      { description: "" },
+    ]);
   });
 
   it("restores RAG metadata and the old policy when policy reconciliation fails", async () => {
@@ -693,7 +895,10 @@ describe("PATCH /api/rag/sources/[sourceId]", () => {
     expect(sources.findOneAndUpdate).not.toHaveBeenCalled();
     expect(mockReconcileIngestionSourceRelationships).toHaveBeenCalledTimes(2);
     const configBodies = (global.fetch as jest.Mock).mock.calls
-      .filter(([url]) => !String(url).includes("/owner-team"))
+      .filter(([url]) =>
+        String(url).includes("/v1/datasource/slack-channel-C1") &&
+        !String(url).includes("/owner-team"),
+      )
       .map(([, init]) => JSON.parse(String(init.body)));
     expect(configBodies).toEqual([
       { description: "Updated description" },
@@ -761,6 +966,8 @@ describe("DELETE /api/rag/sources/[sourceId]", () => {
     });
     mockRemoveDatasourceFromRagCollections.mockResolvedValue([]);
     mockRemoveDatasourceFromAgentPins.mockResolvedValue(0);
+    mockInvalidatePublicationRequests.mockResolvedValue(0);
+    mockInvalidatePublicationRequestsReferencingDatasource.mockResolvedValue(0);
     global.fetch = jest.fn().mockResolvedValue({ ok: true, status: 200 });
     sources = {
       findOne: jest.fn().mockResolvedValue({ ...baseSource }),
@@ -823,6 +1030,21 @@ describe("DELETE /api/rag/sources/[sourceId]", () => {
     ).toBeLessThan(sources.deleteOne.mock.invocationCallOrder[0]);
     expect(mockDeleteAllKnowledgeBaseRelationshipTuples).not.toHaveBeenCalled();
     expect(mockDeleteAllDataSourceRelationshipTuples).not.toHaveBeenCalled();
+    expect(mockInvalidatePublicationRequests).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "rag_datasource",
+        id: "slack-channel-C1",
+      }),
+      expect.objectContaining({ subject: "alice-sub" }),
+      expect.stringContaining("deleted before this proposal was approved"),
+    );
+    expect(
+      mockInvalidatePublicationRequestsReferencingDatasource,
+    ).toHaveBeenCalledWith(
+      "slack-channel-C1",
+      expect.objectContaining({ subject: "alice-sub" }),
+      expect.stringContaining("referenced by this collection proposal"),
+    );
   });
 
   // Deleting a source must also revoke the knowledge_base/data_source

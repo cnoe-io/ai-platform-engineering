@@ -729,7 +729,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
 
   if (!managementTeamSlug || !searchTeamSlug) {
     throw new ApiError(
-      "management_team_slug and search_team_slug are required",
+      "Owner team and Search team are required",
       400,
       "MIGRATION_TEAMS_REQUIRED",
     );
@@ -758,14 +758,14 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   );
   if (!selectedSlugs.has(managementTeamSlug)) {
     throw new ApiError(
-      `Management team "${managementTeamSlug}" not found`,
+      `Owner team "${managementTeamSlug}" not found`,
       404,
       "MANAGEMENT_TEAM_NOT_FOUND",
     );
   }
   if (!selectedSlugs.has(searchTeamSlug)) {
     throw new ApiError(
-      `Search & Ingest team "${searchTeamSlug}" not found`,
+      `Search team "${searchTeamSlug}" not found`,
       404,
       "SEARCH_TEAM_NOT_FOUND",
     );
@@ -877,7 +877,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     mergeSourceIds: true,
   });
   // The chosen audience needs both halves of query authorization: collection
-  // readership narrows which sources it can read, while organization#searcher
+  // Search membership narrows which sources it can query, while organization#searcher
   // enables the search data path itself. Keep the latter out of the UI as an
   // implementation detail of the migration's single "search team" choice.
   await reconcileTupleDiff(

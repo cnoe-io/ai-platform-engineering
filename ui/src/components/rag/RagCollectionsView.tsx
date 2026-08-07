@@ -236,6 +236,8 @@ export function RagCollectionsView() {
       }
       if (selected._permissions.can_delegate) {
         body.maintainer_team_slugs = draftMaintainers;
+      }
+      if (selected._permissions.can_manage) {
         body.reader_team_slugs = draftReaders;
       }
       const response = await fetch(
@@ -251,7 +253,14 @@ export function RagCollectionsView() {
         throw new Error(result?.error || "Could not update knowledge base");
       }
       await load();
-      toast("Knowledge base updated", "success");
+      const pending = result.data?._publication_request;
+      toast(
+        pending
+          ? "Collection change submitted for approval."
+          : "Knowledge base updated",
+        pending ? "warning" : "success",
+        pending ? 7000 : undefined,
+      );
     } catch (error) {
       toast(
         error instanceof Error
@@ -370,7 +379,7 @@ export function RagCollectionsView() {
         <div>
           <h1 className="text-xl font-semibold">RAG Collections</h1>
           <p className="text-sm text-muted-foreground">
-            Group indexed datasources once, attach them to agents, and maintain
+            Group indexed datasources once, attach them to agents, and update
             membership centrally.
           </p>
         </div>
@@ -406,14 +415,17 @@ export function RagCollectionsView() {
                   </div>
                   <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
                     {collection.description ||
-                      "A maintained set of RAG datasources"}
+                      "A collection of RAG datasources"}
                   </p>
                   <div className="mt-3 flex gap-3 text-xs text-muted-foreground">
                     <span className="flex items-center gap-1">
                       <Database className="h-3.5 w-3.5" />{" "}
                       {collection.source_ids.length}
                     </span>
-                    <span className="flex items-center gap-1">
+                    <span
+                      className="flex items-center gap-1"
+                      title={`${collection.reader_team_slugs.length} Search team${collection.reader_team_slugs.length === 1 ? "" : "s"}`}
+                    >
                       <Users className="h-3.5 w-3.5" />{" "}
                       {collection.reader_team_slugs.length}
                     </span>
@@ -424,7 +436,7 @@ export function RagCollectionsView() {
           ))}
           {collections.length === 0 && (
             <div className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
-              Create a personal collection, then add datasources you manage.
+              Create a personal collection, then add datasources you can manage.
             </div>
           )}
         </div>
@@ -473,10 +485,10 @@ export function RagCollectionsView() {
                     <Database className="h-5 w-5 text-cyan-500" /> Datasources
                   </CardTitle>
                   <CardDescription>
-                    Adding requires management access to the datasource.
-                    Personally owned collections also require existing search
-                    access, so membership never creates access the owner did not
-                    already have. Removing a source never deletes indexed data.
+                    You can add datasources you own or are allowed to manage.
+                    Personal collections also require existing Search access, so
+                    membership never creates access you did not already have.
+                    Removing a datasource never deletes indexed data.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
@@ -524,7 +536,7 @@ export function RagCollectionsView() {
                           title={
                             !canAdd
                               ? !canManage
-                                ? "You must manage this datasource before publishing it"
+                                ? "You must be able to manage this datasource before adding it"
                                 : "A personal collection can only include datasources you can already search"
                               : undefined
                           }
@@ -554,38 +566,40 @@ export function RagCollectionsView() {
                 </CardContent>
               </Card>
 
-              {selected._permissions.can_delegate && (
+              {selected._permissions.can_manage && (
                 <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
                       <ShieldCheck className="h-5 w-5 text-emerald-500" />{" "}
-                      Delegation
+                      Team access
                     </CardTitle>
                     <CardDescription>
-                      Maintainers can publish sources; their team admins can
-                      manage settings. Reader teams receive member-datasource
-                      access and the platform search capability, so they can
-                      query through search, API, and agents.
+                      Members of Owner teams can add datasources, and their team
+                      admins can manage collection settings. Members of Search
+                      teams can query every datasource in the collection through
+                      Search, APIs, and agents.
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="grid gap-4 sm:grid-cols-2">
+                    {selected._permissions.can_delegate && (
+                      <div className="space-y-2">
+                        <Label>Owner teams</Label>
+                        <TeamMultiPicker
+                          options={teamOptions}
+                          selected={draftMaintainers}
+                          onChange={setDraftMaintainers}
+                          placeholder="Select Owner teams..."
+                          portalled={false}
+                        />
+                      </div>
+                    )}
                     <div className="space-y-2">
-                      <Label>Maintainer teams</Label>
-                      <TeamMultiPicker
-                        options={teamOptions}
-                        selected={draftMaintainers}
-                        onChange={setDraftMaintainers}
-                        placeholder="Select maintainers..."
-                        portalled={false}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Reader teams</Label>
+                      <Label>Search teams</Label>
                       <TeamMultiPicker
                         options={teamOptions}
                         selected={draftReaders}
                         onChange={setDraftReaders}
-                        placeholder="Select readers..."
+                        placeholder="Select Search teams..."
                         portalled={false}
                       />
                     </div>
@@ -637,9 +651,9 @@ export function RagCollectionsView() {
           <DialogHeader>
             <DialogTitle>Create a RAG collection</DialogTitle>
             <DialogDescription>
-              Create a private collection from datasources you manage. An
-              administrator can later give teams permission to manage the
-              collection or search its content.
+              Create a private collection from datasources you can manage. You
+              can later request Search access for other teams; administrators
+              can delegate Owner teams.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">

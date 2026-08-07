@@ -165,6 +165,93 @@ describe("RAG org-admin bypass", () => {
     );
   });
 
+  it("lets an Owner update datasource configuration without a coarse RAG admin grant", async () => {
+    const nextAuth = await import("next-auth");
+    jest.mocked(nextAuth.getServerSession).mockResolvedValue({
+      sub: "owner-sub",
+      role: "user",
+      org: "caipe",
+      accessToken: "owner-token",
+      user: { email: "owner@example.com" },
+    } as unknown);
+    const { ApiError } = await import("@/lib/api-middleware");
+    mockRequireResourcePermission
+      .mockRejectedValueOnce(new ApiError("not a Search manager", 403))
+      .mockResolvedValueOnce(undefined);
+    (global.fetch as jest.Mock).mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ datasource_id: "source-a", changed: true }),
+    } as Response);
+
+    const body = JSON.stringify({ name: "Updated source" });
+    const { PATCH } = await import("@/app/api/rag/[...path]/route");
+    const response = await PATCH(
+      ragRequest("/api/rag/v1/datasource/source-a", {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json",
+          "content-length": String(body.length),
+        },
+        body,
+      }),
+      { params: Promise.resolve({ path: ["v1", "datasource", "source-a"] }) },
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockRequireRbacPermission).toHaveBeenCalledWith(
+      expect.objectContaining({ sub: "owner-sub" }),
+      "rag",
+      "view",
+    );
+    expect(mockRequireResourcePermission).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ sub: "owner-sub" }),
+      { type: "data_source", id: "source-a", action: "admin" },
+      { bypassForOrgAdmin: true },
+    );
+    expect(mockRequireResourcePermission).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ sub: "owner-sub" }),
+      { type: "ingestion_source", id: "source-a", action: "manage" },
+      { bypassForOrgAdmin: true },
+    );
+  });
+
+  it("lets the RAG server authorize job termination against its datasource Owner", async () => {
+    const nextAuth = await import("next-auth");
+    jest.mocked(nextAuth.getServerSession).mockResolvedValue({
+      sub: "owner-sub",
+      role: "user",
+      org: "caipe",
+      accessToken: "owner-token",
+      user: { email: "owner@example.com" },
+    } as unknown);
+    (global.fetch as jest.Mock).mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ message: "Job terminated" }),
+    } as Response);
+
+    const { POST } = await import("@/app/api/rag/[...path]/route");
+    const response = await POST(
+      ragRequest("/api/rag/v1/job/job-a/terminate", { method: "POST" }),
+      {
+        params: Promise.resolve({
+          path: ["v1", "job", "job-a", "terminate"],
+        }),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockRequireRbacPermission).toHaveBeenCalledWith(
+      expect.objectContaining({ sub: "owner-sub" }),
+      "rag",
+      "view",
+    );
+    expect(mockRequireResourcePermission).not.toHaveBeenCalled();
+  });
+
   it("constrainSearchBody short-circuits when org-admin tuple is allowed", async () => {
     const nextAuth = await import("next-auth");
     jest.mocked(nextAuth.getServerSession).mockResolvedValue({

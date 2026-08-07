@@ -9,7 +9,6 @@ import time
 import hashlib
 import traceback
 from typing import Dict, List, Any, Tuple, Optional
-from urllib.parse import urlparse
 import aiohttp
 from aiohttp_retry import RetryClient, ExponentialRetry
 from aiohttp import ClientTimeout
@@ -18,7 +17,11 @@ from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from common.job_manager import JobManager, JobStatus
 from common.models.rag import DataSourceInfo, DocumentMetadata
-from common.utils import get_logger, get_fresh_until
+from common.utils import (
+  generate_confluence_datasource_id,
+  get_fresh_until,
+  get_logger,
+)
 
 logger = get_logger(__name__)
 
@@ -27,7 +30,11 @@ CONFLUENCE_BATCH_SIZE = 100  # Documents per batch
 CONFLUENCE_API_PAGE_LIMIT = 100  # Pages per API call for pagination
 
 
-def generate_datasource_id(confluence_url: str, space_key: str) -> str:
+def generate_datasource_id(
+  confluence_url: str,
+  space_key: str,
+  page_id: Optional[str] = None,
+) -> str:
   """Generate datasource ID for a Confluence space or page.
 
   Format: src_confluence___{domain_normalized}__{space_key}[__{page_id}]
@@ -35,12 +42,12 @@ def generate_datasource_id(confluence_url: str, space_key: str) -> str:
   Args:
       confluence_url: Base URL of the Confluence instance
       space_key: Confluence space key
+      page_id: Root page ID for a page-scoped datasource. Omit for a legacy
+          whole-space datasource.
   Returns:
       Datasource ID string
   """
-  domain = urlparse(confluence_url).netloc.replace(".", "_").replace("-", "_")
-
-  return f"src_confluence___{domain}__{space_key}"
+  return generate_confluence_datasource_id(confluence_url, space_key, page_id)
 
 
 class ConfluenceLoader:

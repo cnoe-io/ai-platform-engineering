@@ -535,8 +535,10 @@ async def process_channel_ingestion(
     try:
       if job_id:
         await job_manager.add_error_msg(job_id, error_msg)
-    except Exception:
-      pass
+    except Exception as status_error:
+      logger.warning(
+        f"Failed to record the Slack ingestion error for job {job_id}: {status_error}"
+      )
 
     raise
 

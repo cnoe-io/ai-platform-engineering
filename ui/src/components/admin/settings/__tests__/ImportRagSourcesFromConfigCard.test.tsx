@@ -77,9 +77,9 @@ function mockFetch({
 }
 
 function selectMigrationTeams() {
-  fireEvent.click(screen.getByRole("combobox", { name: /Management Team/i }));
+  fireEvent.click(screen.getByRole("combobox", { name: /Owner team/i }));
   fireEvent.click(screen.getByRole("option", { name: /Platform/i }));
-  fireEvent.click(screen.getByRole("combobox", { name: /Platform RAG Reader Team/i }));
+  fireEvent.click(screen.getByRole("combobox", { name: /Platform RAG Search team/i }));
   fireEvent.click(screen.getByRole("option", { name: /SRE/i }));
 }
 
@@ -98,6 +98,7 @@ describe("ImportRagSourcesFromConfigCard", () => {
     render(<ImportRagSourcesFromConfigCard isAdmin />);
     expect(screen.getByText("Migrate Ingested RAG Sources")).toBeInTheDocument();
     expect(screen.getByTestId("import-rag-sources-from-config-button")).toBeInTheDocument();
+    expect(screen.queryByText("Admin")).not.toBeInTheDocument();
   });
 
   it("previews sources and pre-selects importable (not-yet-in-db) ones when the modal opens", async () => {
@@ -115,7 +116,7 @@ describe("ImportRagSourcesFromConfigCard", () => {
     expect(screen.getByText("Has config row")).toBeInTheDocument();
   });
 
-  it("applies only the selected source ids with independent management and search teams", async () => {
+  it("applies only the selected source ids with independent Owner and Search teams", async () => {
     render(<ImportRagSourcesFromConfigCard isAdmin />);
     fireEvent.click(screen.getByTestId("import-rag-sources-from-config-button"));
 

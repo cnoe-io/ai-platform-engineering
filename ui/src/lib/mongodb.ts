@@ -214,6 +214,9 @@ async function createIndexes(db: Db) {
     safeCreateIndex(db, 'users', { 'metadata.sso_id': 1 }),
     safeCreateIndex(db, 'users', { last_login: -1 }),
 
+    // Teams are resolved by slug throughout RBAC and connector discovery.
+    safeCreateIndex(db, 'teams', { slug: 1 }),
+
     // Conversations collection
     safeCreateIndex(db, 'conversations', { owner_id: 1 }),
     safeCreateIndex(db, 'conversations', { created_at: -1 }),
@@ -323,6 +326,7 @@ async function createIndexes(db: Db) {
     safeCreateIndex(db, 'channel_team_mappings', { slack_channel_id: 1 }, { unique: true }),
     safeCreateIndex(db, 'slack_channel_agent_routes', { workspace_id: 1, channel_id: 1, agent_id: 1 }, { unique: true }),
     safeCreateIndex(db, 'slack_channel_agent_routes', { workspace_id: 1, channel_id: 1, status: 1 }),
+    safeCreateIndex(db, 'slack_channel_agent_routes', { channel_id: 1, status: 1, priority: 1 }),
     safeCreateIndex(db, 'slack_link_nonces', { nonce: 1 }, { unique: true }),
     safeCreateIndex(db, 'slack_link_nonces', { created_at: 1 }, { expireAfterSeconds: 600 }),
     safeCreateIndex(db, 'slack_user_metrics', { slack_user_id: 1 }, { unique: true }),
@@ -341,6 +345,15 @@ async function createIndexes(db: Db) {
     safeCreateIndex(db, 'rag_collections', { maintainer_team_slugs: 1 }),
     safeCreateIndex(db, 'rag_collections', { reader_team_slugs: 1 }),
     safeCreateIndex(db, 'rag_collections', { source_ids: 1 }),
+
+    // Reusable publication approval workflow. Requested state remains
+    // separate from effective state until a domain adapter applies approval.
+    safeCreateIndex(db, 'publication_requests', { status: 1, created_at: -1 }),
+    safeCreateIndex(db, 'publication_requests', { 'resource.kind': 1, 'resource.id': 1, status: 1 }),
+    safeCreateIndex(db, 'publication_requests', { 'requested_state.source_ids': 1, status: 1 }),
+    safeCreateIndex(db, 'publication_requests', { approver_team_slugs: 1, status: 1 }),
+    safeCreateIndex(db, 'publication_requests', { approver_user_subjects: 1, status: 1 }),
+    safeCreateIndex(db, 'publication_requests', { 'requester.subject': 1, created_at: -1 }),
   ]);
 
   console.log('✅ MongoDB indexes ensured');

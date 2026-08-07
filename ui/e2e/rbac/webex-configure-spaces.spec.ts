@@ -151,7 +151,7 @@ function webexConfigureHandler(state: WebexConfigureState): MockRouteHandler {
       await fulfillJson(route, {
         success: true,
         data: {
-          discovery_cache_ttl_minutes: state.ttl,
+          webex_discovery_cache_ttl_minutes: state.ttl,
           release_notes: { enabled: false },
         },
       });
@@ -162,13 +162,13 @@ function webexConfigureHandler(state: WebexConfigureState): MockRouteHandler {
       const body = await postJson(route);
       state.platformConfigPatches.push(body);
       const nextTtl = Number(
-        (body as { discovery_cache_ttl_minutes?: unknown } | null)
-          ?.discovery_cache_ttl_minutes,
+        (body as { webex_discovery_cache_ttl_minutes?: unknown } | null)
+          ?.webex_discovery_cache_ttl_minutes,
       );
       if (Number.isFinite(nextTtl)) state.ttl = nextTtl;
       await fulfillJson(route, {
         success: true,
-        data: { discovery_cache_ttl_minutes: state.ttl },
+        data: { webex_discovery_cache_ttl_minutes: state.ttl },
       });
       return true;
     }
@@ -340,7 +340,7 @@ test.describe("mocked Webex Configure spaces UI", () => {
     await page.getByTestId("discovery-cache-ttl-save-webex").click();
     await expect(page.getByText("Saved")).toBeVisible();
     expect(state.platformConfigPatches).toContainEqual({
-      discovery_cache_ttl_minutes: 30,
+      webex_discovery_cache_ttl_minutes: 30,
     });
 
     await page.getByTestId("discovery-cache-refresh-webex").click();

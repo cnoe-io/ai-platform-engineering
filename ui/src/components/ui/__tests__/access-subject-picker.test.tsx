@@ -25,12 +25,12 @@ describe("AccessSubjectMultiPicker", () => {
         implicitSelectionLabel="Access included through personal ownership"
         onChange={onChange}
         placeholder="Only the personal owner can search — add others"
-        ariaLabel="Search and ingest access"
+        ariaLabel="Search access"
       />,
     );
 
     await user.click(
-      screen.getByRole("combobox", { name: "Search and ingest access" }),
+      screen.getByRole("combobox", { name: "Search access" }),
     );
 
     const owner = screen.getByRole("option", { name: /Test User/i });

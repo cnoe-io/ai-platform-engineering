@@ -24,6 +24,17 @@ import {
 } from "@/lib/rbac/resource-authz";
 import { getCollection } from "@/lib/mongodb";
 import {
+  computeLocalFileDatasourceId,
+  localUploadFilename,
+} from "@/lib/local-file-datasource-id";
+import {
+  createPublicationRequest,
+  invalidatePublicationRequests,
+  publicationResourceRevision,
+  recordAutoApprovedPublication,
+  type RagPublicationState,
+} from "@/lib/publication-approval.server";
+import {
   enforceRagFileUploadLimits,
   enforceRagIngestorLimits,
   getRagIngestorLimits,
@@ -33,6 +44,7 @@ import {
   removeDatasourceFromRagCollections,
   visibleRagCollectionsByDatasource,
 } from "@/lib/rag-collections.server";
+import { prepareRagPublication } from "@/lib/rag-publication-approval.server";
 import { resolveShareableOwnershipWrite } from "@/lib/rbac/shareable-resource";
 import { resolveUserIdentitiesBySubject } from "@/lib/rbac/user-identity-directory";
 import type { RbacScope } from "@/lib/rbac/types";
@@ -40,6 +52,7 @@ import type {
   IngestionSourceConfig,
   IngestionSourceType,
 } from "@/types/ingestion-source";
+import type { PublicationRequestDocument } from "@/types/publication-approval";
 import { NextRequest, NextResponse } from "next/server";
 
 /**
@@ -104,8 +117,8 @@ function scopeForRagProxyMethod(
   if (method === "POST" && path.startsWith("v1/ingest/")) {
     if (path.endsWith("/reload-all")) return "admin";
     if (path.endsWith("/reload")) {
-      // Existing-source reload is authorized by data_source#can_ingest OR
-      // ingestion_source#can_manage below and again in the RAG server.
+      // Existing-source reload is an Owner lifecycle action. The object-level
+      // ingestion_source#can_manage check below and the RAG server enforce it.
       return "view";
     }
     return "ingest";
@@ -115,7 +128,20 @@ function scopeForRagProxyMethod(
     if (path === "v1/datasource") return "ingest";
     if (path === "v1/jobs/batch") return "view";
     if (/^v1\/datasource\/[^/]+\/cleanup$/.test(path)) return "view";
+    if (/^v1\/job\/[^/]+\/terminate$/.test(path)) {
+      // The RAG server resolves the job's datasource and requires Owner access.
+      return "view";
+    }
     if (path === "v1/mcp/custom-tools") return "view";
+  }
+
+  if (
+    (method === "PATCH" && /^v1\/datasource\/[^/]+$/.test(path)) ||
+    (method === "DELETE" && path === "v1/datasource")
+  ) {
+    // Datasource lifecycle mutations are authorized below against the
+    // independent ingestion_source Owner graph.
+    return "view";
   }
 
   if (
@@ -142,6 +168,13 @@ function actionForRagRequest(
       ? "read"
       : "discover";
   if (method === "POST") {
+    if (
+      path.endsWith("/reload") ||
+      /^v1\/datasource\/[^/]+\/cleanup$/.test(path) ||
+      /^v1\/job\/[^/]+\/terminate$/.test(path)
+    ) {
+      return "admin";
+    }
     if (
       path.includes("ingest") ||
       path.includes("upload") ||
@@ -190,6 +223,14 @@ function extractKnowledgeBaseId(
       if (typeof bodyValue === "string" && bodyValue.trim())
         return bodyValue.trim();
     }
+  }
+
+  if (
+    pathSegments[0]?.toLowerCase() === "v1" &&
+    pathSegments[1]?.toLowerCase() === "datasource" &&
+    pathSegments[2]
+  ) {
+    return pathSegments[2];
   }
 
   const marker = pathSegments.findIndex((segment) =>
@@ -336,6 +377,342 @@ function normalizeSlugList(raw: unknown): string[] {
     out.push(trimmed);
   }
   return out;
+}
+
+async function localFileDatasourceId(form: FormData): Promise<string> {
+  const files = form
+    .getAll("file")
+    .filter((value): value is File => value instanceof File);
+  if (files.length === 0) {
+    throw new ApiError(
+      "At least one file is required",
+      400,
+      "INVALID_FILE_UPLOAD",
+    );
+  }
+  return computeLocalFileDatasourceId(files);
+}
+
+function multipartIdList(
+  form: FormData,
+  field: string,
+  maximum: number,
+): string[] {
+  const values = form.getAll(field);
+  if (values.length > maximum) {
+    throw new ApiError(
+      `${field} cannot contain more than ${maximum} values`,
+      400,
+      "INVALID_FILE_UPLOAD",
+    );
+  }
+  const result: string[] = [];
+  const seen = new Set<string>();
+  for (const value of values) {
+    const candidate = typeof value === "string" ? value.trim() : "";
+    if (!candidate || !TEAM_SLUG_PATTERN.test(candidate)) {
+      throw new ApiError(
+        `${field} contains an invalid identifier`,
+        400,
+        "INVALID_FILE_UPLOAD",
+      );
+    }
+    if (!seen.has(candidate)) {
+      seen.add(candidate);
+      result.push(candidate);
+    }
+  }
+  return result;
+}
+
+interface LocalFilePublicationContext {
+  sourceId: string;
+  publication: Awaited<ReturnType<typeof prepareRagPublication>>;
+  publicationRequest: PublicationRequestDocument | null;
+}
+
+async function localFileDatasourceExists(
+  accessToken: string | undefined,
+  sourceId: string,
+  ownerTeamSlug: string | null,
+): Promise<boolean> {
+  if (!accessToken) {
+    throw new ApiError(
+      "A Keycloak access token is required to upload files",
+      401,
+      "NO_TOKEN",
+    );
+  }
+  const target = new URL(
+    `${getRagServerUrl()}/v1/datasource/${encodeURIComponent(sourceId)}/exists`,
+  );
+  if (ownerTeamSlug) target.searchParams.set("owner_team_slug", ownerTeamSlug);
+  let response: Response;
+  try {
+    response = await fetch(target, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+  } catch {
+    throw new ApiError(
+      "Unable to verify whether this file set already exists",
+      503,
+      "COLLISION_CHECK_UNAVAILABLE",
+    );
+  }
+  if (!response.ok) {
+    throw new ApiError(
+      "Unable to verify whether this file set already exists",
+      503,
+      "COLLISION_CHECK_UNAVAILABLE",
+    );
+  }
+  const payload = (await response.json().catch(() => null)) as {
+    exists?: boolean;
+  } | null;
+  return payload?.exists === true;
+}
+
+async function rollbackLocalFilePublication(
+  context: LocalFilePublicationContext,
+): Promise<void> {
+  await Promise.allSettled([
+    deleteAllIngestionSourceRelationshipTuples(context.sourceId),
+    deleteAllKnowledgeBaseRelationshipTuples(context.sourceId),
+    deleteAllDataSourceRelationshipTuples(context.sourceId),
+  ]);
+  if (context.publicationRequest) {
+    await invalidatePublicationRequests(
+      context.publication.resource,
+      context.publication.actor,
+      "The file upload failed before the datasource was created.",
+    ).catch((error) => {
+      console.error(
+        "[RAG Proxy] Failed to invalidate file publication request",
+        error,
+      );
+    });
+  }
+}
+
+async function prepareLocalFilePublication(
+  form: FormData,
+  session: AuthorizedRagContext["session"],
+  maximumSearchTeams: number,
+): Promise<LocalFilePublicationContext> {
+  const sourceId = await localFileDatasourceId(form);
+  const ownerTeamSlug = normalizeString(form.get("owner_team_slug"));
+  const requestedSearchTeamSlugs = multipartIdList(
+    form,
+    "search_team_slugs",
+    maximumSearchTeams,
+  );
+  const requestedSearchUserSubjects = multipartIdList(
+    form,
+    "search_user_subjects",
+    50,
+  );
+  const [searchTeams, searchUsers] = await Promise.all([
+    requestedSearchTeamSlugs.length > 0
+      ? getCollection<{ slug: string }>("teams").then((teams) =>
+          teams
+            .find({ slug: { $in: requestedSearchTeamSlugs } } as never)
+            .project({ _id: 0, slug: 1 })
+            .toArray(),
+        )
+      : [],
+    resolveUserIdentitiesBySubject(requestedSearchUserSubjects),
+  ]);
+  const existingSearchTeams = new Set(searchTeams.map((team) => team.slug));
+  if (requestedSearchTeamSlugs.some((slug) => !existingSearchTeams.has(slug))) {
+    throw new ApiError(
+      "One or more Search teams do not exist",
+      404,
+      "SEARCH_TEAM_NOT_FOUND",
+    );
+  }
+  if (
+    requestedSearchUserSubjects.some((userSubject) => !searchUsers.has(userSubject))
+  ) {
+    throw new ApiError(
+      "One or more Search users do not exist",
+      404,
+      "SEARCH_USER_NOT_FOUND",
+    );
+  }
+  const subject = normalizeString(session.sub);
+  if (!subject) {
+    throw new ApiError(
+      "A stable user subject is required for datasource ownership",
+      401,
+      "NO_SUBJECT",
+    );
+  }
+  const authzSession: ResourceAuthzSession = {
+    sub: subject,
+    role: session.role,
+    user: session.user,
+    isServiceAccount: session.isServiceAccount,
+  };
+  if (ownerTeamSlug && !(await canUseTeam(authzSession, ownerTeamSlug))) {
+    throw new ApiError(
+      "You must belong to the Owner team to assign it",
+      403,
+      "OWNER_TEAM_FORBIDDEN",
+    );
+  }
+  if (
+    await localFileDatasourceExists(
+      session.accessToken,
+      sourceId,
+      ownerTeamSlug,
+    )
+  ) {
+    throw new ApiError(
+      "This file set is already ingested. Delete the existing datasource before uploading it again.",
+      409,
+      "SOURCE_ALREADY_EXISTS",
+    );
+  }
+
+  const files = form
+    .getAll("file")
+    .filter((value): value is File => value instanceof File);
+  const firstName = localUploadFilename(files[0]?.name ?? "uploaded-file");
+  const sourceName =
+    files.length === 1 ? firstName : `${firstName} + ${files.length - 1} files`;
+  const draftSource = {
+    source_id: sourceId,
+    source_type: "local_file",
+    name: sourceName,
+    description: normalizeString(form.get("description")) ?? "",
+    status: "pending",
+    default_chunk_size: Number(form.get("chunk_size") ?? 10000),
+    default_chunk_overlap: Number(form.get("chunk_overlap") ?? 2000),
+    reload_interval: 0,
+    config_driven: false,
+    config_import_adopted: false,
+    visibility: "team",
+    creator_subject: subject,
+    owner_subject: ownerTeamSlug ? undefined : subject,
+    owner_team_slug: ownerTeamSlug ?? undefined,
+    search_with_teams: [],
+    search_with_users: [],
+    shared_with_teams: [],
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  } as unknown as IngestionSourceConfig;
+  const publication = await prepareRagPublication({
+    session,
+    source: draftSource,
+    currentSearchTeamSlugs: [],
+    currentSearchUserSubjects: [],
+    requestedSearchTeamSlugs,
+    requestedSearchUserSubjects,
+  });
+  const effectiveSearch = publication.plan
+    .effective_state as unknown as RagPublicationState;
+  let policyStarted = false;
+  try {
+    policyStarted = true;
+    await reconcileIngestionSourceRelationships({
+      sourceId,
+      creatorSubject: subject,
+      ownerSubject: ownerTeamSlug ? null : subject,
+      ownerTeamSlug,
+      nextSharedTeamSlugs: [],
+      previousSharedTeamSlugs: [],
+    });
+    await reconcileKnowledgeBaseRelationships({
+      knowledgeBaseId: sourceId,
+      creatorSubject: subject,
+      ownerSubject: ownerTeamSlug ? null : subject,
+      ownerTeamSlug: null,
+      nextSharedTeamSlugs: effectiveSearch.search_team_slugs,
+      previousSharedTeamSlugs: [],
+      nextSharedUserSubjects: effectiveSearch.search_user_subjects,
+      previousSharedUserSubjects: [],
+    });
+    await reconcileDataSourceRelationships({
+      dataSourceId: sourceId,
+      creatorSubject: subject,
+      parentKnowledgeBaseId: sourceId,
+    });
+  } catch (error) {
+    if (policyStarted) {
+      await Promise.allSettled([
+        deleteAllIngestionSourceRelationshipTuples(sourceId),
+        deleteAllKnowledgeBaseRelationshipTuples(sourceId),
+        deleteAllDataSourceRelationshipTuples(sourceId),
+      ]);
+    }
+    throw error;
+  }
+
+  form.delete("search_team_slugs");
+  form.delete("search_user_subjects");
+  for (const slug of effectiveSearch.search_team_slugs) {
+    form.append("search_team_slugs", slug);
+  }
+  for (const userSubject of effectiveSearch.search_user_subjects) {
+    form.append("search_user_subjects", userSubject);
+  }
+  form.set("ownership_preprovisioned", "true");
+  form.set("preprovisioned_datasource_id", sourceId);
+
+  const resourceRevision = publicationResourceRevision({
+    source_id: sourceId,
+    owner_team_slug: ownerTeamSlug,
+    owner_subject: ownerTeamSlug ? null : subject,
+    creator_subject: subject,
+    search_team_slugs: effectiveSearch.search_team_slugs,
+    search_user_subjects: effectiveSearch.search_user_subjects,
+  });
+  let publicationRequest: PublicationRequestDocument | null = null;
+  try {
+    if (publication.plan.requires_approval) {
+      publicationRequest = await createPublicationRequest({
+        resource: publication.resource,
+        resourceRevision,
+        requestedState: publication.requestedState as unknown as Record<
+          string,
+          unknown
+        >,
+        effectiveState: effectiveSearch as unknown as Record<string, unknown>,
+        riskFacts: publication.plan.risk_facts,
+        requester: publication.actor,
+        requesterTeamSlugs: publication.requesterTeamSlugs,
+        approverTeamSlugs: publication.plan.approver_team_slugs,
+        approverUserSubjects: publication.plan.approver_user_subjects,
+      });
+    } else if (
+      publication.plan.risk_facts.added_team_slugs?.length ||
+      publication.plan.risk_facts.added_user_subjects?.length
+    ) {
+      await recordAutoApprovedPublication({
+        resource: publication.resource,
+        resourceRevision,
+        requestedState: publication.requestedState as unknown as Record<
+          string,
+          unknown
+        >,
+        effectiveState: effectiveSearch as unknown as Record<string, unknown>,
+        riskFacts: publication.plan.risk_facts,
+        requester: publication.actor,
+        requesterTeamSlugs: publication.requesterTeamSlugs,
+        approverTeamSlugs: publication.plan.approver_team_slugs,
+        approverUserSubjects: publication.plan.approver_user_subjects,
+      });
+    }
+  } catch (error) {
+    await Promise.allSettled([
+      deleteAllIngestionSourceRelationshipTuples(sourceId),
+      deleteAllKnowledgeBaseRelationshipTuples(sourceId),
+      deleteAllDataSourceRelationshipTuples(sourceId),
+    ]);
+    throw error;
+  }
+
+  return { sourceId, publication, publicationRequest };
 }
 
 /** Boolean membership check (`team:<slug>#can_use` or `#can_manage`) for owner writes. */
@@ -734,10 +1111,10 @@ async function getAuthorizedRagContext(
       ) {
         throw error;
       }
-      // Lifecycle/configuration authority is independent from indexed-data
-      // access. Source managers may reload, edit, or delete without receiving
-      // data_source read/ingest grants. The RAG server repeats the same
-      // operation-specific check and remains authoritative.
+      // Owner authority is independent from indexed-data access. Owners may
+      // reload, edit, or delete without receiving team Search grants. The RAG
+      // server repeats the same operation-specific check and remains
+      // authoritative.
       await requireResourcePermission(
         authzSession,
         { type: "ingestion_source", id: kbId, action: "manage" },
@@ -1369,6 +1746,7 @@ export async function POST(
     // own role check).
     let body: unknown = undefined;
     let multipartBody: FormData | undefined;
+    let localFilePublication: LocalFilePublicationContext | null = null;
     const contentLength = request.headers.get("content-length");
     const hasBody = contentLength === null || parseInt(contentLength) > 0;
     if (hasBody && !isMultipart) {
@@ -1401,7 +1779,13 @@ export async function POST(
     if (isMultipart) {
       multipartBody = await request.formData();
       if (targetPath === "v1/ingest/local-file") {
-        enforceRagFileUploadLimits(multipartBody, await getRagIngestorLimits());
+        const limits = await getRagIngestorLimits();
+        enforceRagFileUploadLimits(multipartBody, limits);
+        localFilePublication = await prepareLocalFilePublication(
+          multipartBody,
+          session,
+          limits.shared.max_search_teams,
+        );
       }
     } else {
       await enforceIngestRequestLimits(targetPath, body);
@@ -1452,7 +1836,15 @@ export async function POST(
       fetchOptions.body = JSON.stringify(body);
     }
 
-    const response = await fetch(targetUrl, fetchOptions);
+    let response: Response;
+    try {
+      response = await fetch(targetUrl, fetchOptions);
+    } catch (error) {
+      if (localFilePublication) {
+        await rollbackLocalFilePublication(localFilePublication);
+      }
+      throw error;
+    }
 
     if (response.status === 204) {
       if (pendingMcpToolOwnership) {
@@ -1462,6 +1854,29 @@ export async function POST(
     }
 
     const data = await response.json();
+    if (!response.ok && localFilePublication) {
+      await rollbackLocalFilePublication(localFilePublication);
+    }
+    if (response.ok && localFilePublication) {
+      if (
+        !isRecord(data) ||
+        normalizeString(data.datasource_id) !== localFilePublication.sourceId
+      ) {
+        await rollbackLocalFilePublication(localFilePublication);
+        throw new ApiError(
+          "The RAG server returned an unexpected datasource id for this file set",
+          502,
+          "INGEST_DATASOURCE_ID_MISMATCH",
+        );
+      }
+      if (localFilePublication.publicationRequest) {
+        data._publication_request = {
+          id: localFilePublication.publicationRequest._id,
+          status: localFilePublication.publicationRequest.status,
+          reason: localFilePublication.publication.plan.reason,
+        };
+      }
+    }
     if (response.ok && pendingKnowledgeBaseOwnership) {
       // Source management and indexed-data access are independent. A personal
       // creator owns both graphs; a selected team owns only the source config.

@@ -4,8 +4,8 @@ Covers ``authorize_datasource_create`` and ``write_datasource_ownership``
 (spec 2026-06-03-explicit-ingest-capability). Creating a NEW data source is the
 explicit org-level ``can_ingest`` capability plus optional owning-team
 membership — NOT per-KB ingest. Source management and indexed-data search are
-projected independently: an owner team manages the source, while Search Access
-teams read/ingest the resulting knowledge base.
+projected independently: an owner team manages the source, while Search teams
+can query the resulting knowledge base.
 
 assisted-by Cursor claude-opus-4.8
 """
@@ -233,11 +233,11 @@ async def test_search_teams_receive_query_access_without_management(
         "relation": "reader",
         "object": kb_object,
     } in captured
-    assert {
-        "user": "team:search-team#member",
-        "relation": "ingestor",
-        "object": kb_object,
-    } in captured
+    assert not any(
+        item["user"] == "team:search-team#member"
+        and item["relation"] == "ingestor"
+        for item in captured
+    )
     assert not any(
         item["user"].startswith("team:search-team#")
         and item["relation"] == "manager"
@@ -268,11 +268,10 @@ async def test_search_users_receive_query_access_without_management(
         "relation": "reader",
         "object": kb_object,
     } in captured
-    assert {
-        "user": "user:reader-sub",
-        "relation": "ingestor",
-        "object": kb_object,
-    } in captured
+    assert not any(
+        item["user"] == "user:reader-sub" and item["relation"] == "ingestor"
+        for item in captured
+    )
     assert not any(
         item["user"] == "user:reader-sub" and item["relation"] == "manager"
         for item in captured
@@ -301,11 +300,12 @@ async def test_owner_team_may_also_receive_explicit_search_access(
         "relation": "reader",
         "object": "knowledge_base:src_x",
     } in captured
-    assert {
-        "user": "team:owner-team#member",
-        "relation": "ingestor",
-        "object": "knowledge_base:src_x",
-    } in captured
+    assert not any(
+        item["user"] == "team:owner-team#member"
+        and item["relation"] == "ingestor"
+        and item["object"] == "knowledge_base:src_x"
+        for item in captured
+    )
     assert {
         "user": "team:owner-team#admin",
         "relation": "manager",
@@ -320,19 +320,52 @@ async def test_owner_team_may_also_receive_explicit_search_access(
 
 
 @pytest.mark.asyncio
-async def test_direct_connector_create_projects_explicit_search_teams(
+async def test_direct_human_create_cannot_bypass_search_publication(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     write = AsyncMock(return_value=None)
     monkeypatch.setattr(restapi, "write_datasource_ownership", write)
     user = _user(subject="alice-sub")
 
+    with pytest.raises(HTTPException) as exc:
+        await restapi.provision_legacy_datasource_ownership(
+            "src_x",
+            "owner-team",
+            ["owner-team", "readers"],
+            ["reader-sub"],
+            user,
+            False,
+            None,
+        )
+
+    assert exc.value.status_code == 403
+    assert "publication workflow" in str(exc.value.detail)
+    write.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_trusted_ingestor_create_can_project_preconfigured_search(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    write = AsyncMock(return_value=None)
+    monkeypatch.setattr(restapi, "write_datasource_ownership", write)
+    monkeypatch.setattr(restapi, "is_trusted_ingestor_service", lambda _user: True)
+    service = UserContext(
+        subject="ingestor-sub",
+        subject_type="service_account",
+        client_id="example-ingestor",
+        email="example-ingestor@example.com",
+        role=Role.READONLY,
+        is_authenticated=True,
+        groups=[],
+    )
+
     await restapi.provision_legacy_datasource_ownership(
         "src_x",
         "owner-team",
         ["owner-team", "readers"],
         ["reader-sub"],
-        user,
+        service,
         False,
         None,
     )
@@ -340,7 +373,7 @@ async def test_direct_connector_create_projects_explicit_search_teams(
     write.assert_awaited_once_with(
         "src_x",
         "owner-team",
-        user,
+        service,
         shared_team_slugs=["owner-team", "readers"],
         shared_user_subjects=["reader-sub"],
     )

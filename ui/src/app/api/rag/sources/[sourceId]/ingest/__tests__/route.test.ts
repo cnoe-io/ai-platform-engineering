@@ -3,7 +3,6 @@
  */
 
 import { NextRequest } from "next/server";
-import { ApiError } from "@/lib/api-middleware";
 
 const mockGetAuthFromBearerOrSession = jest.fn();
 const mockGetCollection = jest.fn();
@@ -156,9 +155,9 @@ describe("POST /api/rag/sources/[sourceId]/ingest", () => {
     expect(mockRequireResourcePermission).toHaveBeenCalledWith(
       session,
       {
-        type: "data_source",
+        type: "ingestion_source",
         id: "jira-example-primary",
-        action: "ingest",
+        action: "manage",
       },
       { bypassForOrgAdmin: true },
     );
@@ -173,10 +172,7 @@ describe("POST /api/rag/sources/[sourceId]/ingest", () => {
     );
   });
 
-  it("allows a source manager to reload without Search Access", async () => {
-    mockRequireResourcePermission
-      .mockRejectedValueOnce(new ApiError("search access denied", 403))
-      .mockResolvedValueOnce(undefined);
+  it("allows an Owner to reload without Search access", async () => {
     (global.fetch as jest.Mock)
       .mockResolvedValueOnce({
         ok: true,
@@ -199,8 +195,7 @@ describe("POST /api/rag/sources/[sourceId]/ingest", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(mockRequireResourcePermission).toHaveBeenNthCalledWith(
-      2,
+    expect(mockRequireResourcePermission).toHaveBeenCalledWith(
       session,
       {
         type: "ingestion_source",
@@ -209,6 +204,24 @@ describe("POST /api/rag/sources/[sourceId]/ingest", () => {
       },
       { bypassForOrgAdmin: true },
     );
+  });
+
+  it("does not let a Search-only user reload", async () => {
+    mockRequireResourcePermission.mockRejectedValueOnce(
+      Object.assign(new Error("owner access denied"), { statusCode: 403 }),
+    );
+
+    const { POST } = await import("../route");
+    const response = await POST(
+      new NextRequest("http://localhost/api/rag/sources/jira-example-primary/ingest", {
+        method: "POST",
+      }),
+      params("jira-example-primary"),
+    );
+
+    expect(response.status).toBe(403);
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(mockTriggerIngestion).not.toHaveBeenCalled();
   });
 
   it("replays initial creation only when no RAG datasource exists", async () => {

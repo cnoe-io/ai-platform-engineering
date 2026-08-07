@@ -72,7 +72,20 @@ jest.mock("@/lib/rbac/openfga-owned-resources-reconcile", () => ({
 const mockReadOpenFgaTuples = jest.fn();
 jest.mock("@/lib/rbac/openfga", () => ({
   readOpenFgaTuples: (...args: unknown[]) => mockReadOpenFgaTuples(...args),
+  listOpenFgaObjects: jest.fn().mockResolvedValue({ objects: [] }),
+  checkOpenFgaTuple: jest.fn().mockResolvedValue({ allowed: false }),
 }));
+
+jest.mock("@/lib/publication-approval-settings", () => {
+  const actual = jest.requireActual("@/lib/publication-approval-settings");
+  return {
+    ...actual,
+    getPublicationApprovalSettings: jest.fn(async () => ({
+      ...actual.DEFAULT_PUBLICATION_APPROVAL_SETTINGS,
+      require_rag_publication_approval: false,
+    })),
+  };
+});
 
 const mockResolveUserIdentitiesBySubject = jest.fn();
 jest.mock("@/lib/rbac/user-identity-directory", () => ({
@@ -113,6 +126,9 @@ describe("/api/rag/kbs/[id]/sharing", () => {
       mockExistingTeamSlugs.add(slug);
     }
     mockGetCollection.mockResolvedValue({
+      findOne: jest.fn().mockResolvedValue(null),
+      insertOne: jest.fn().mockResolvedValue({ acknowledged: true }),
+      updateMany: jest.fn().mockResolvedValue({ modifiedCount: 0 }),
       find: (filter: { slug?: { $in?: string[] } }) => ({
         // RAG collection badge lookup consumes the cursor directly. This
         // sharing suite has no collection fixtures, so it returns no labels.
@@ -284,7 +300,7 @@ describe("/api/rag/kbs/[id]/sharing", () => {
       fetchSpy.mockRestore();
     });
 
-    it("lets an independent source reader inspect Search & Ingest sharing", async () => {
+    it("lets an independent source reader inspect Search sharing", async () => {
       const ApiErrorClass = jest.requireMock("@/lib/api-middleware").ApiError;
       mockRequireResourcePermission.mockImplementation(
         async (_session: unknown, target: { type: string }) => {
@@ -396,7 +412,7 @@ describe("/api/rag/kbs/[id]/sharing", () => {
       fetchSpy.mockRestore();
     });
 
-    it("reconciles direct-user Search & Ingest grants without granting source management", async () => {
+    it("reconciles direct-user Search grants without granting source management", async () => {
       const fetchSpy = jest
         .spyOn(global, "fetch")
         .mockImplementation((url: string | URL) => {
@@ -553,7 +569,7 @@ describe("/api/rag/kbs/[id]/sharing", () => {
       );
     });
 
-    it("lets an independent source manager update Search & Ingest sharing", async () => {
+    it("lets an independent source manager update Search sharing", async () => {
       const ApiErrorClass = jest.requireMock("@/lib/api-middleware").ApiError;
       mockRequireResourcePermission.mockImplementation(
         async (_session: unknown, target: { type: string }) => {

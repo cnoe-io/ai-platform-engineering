@@ -97,7 +97,7 @@ export function KnowledgeSidebar({
 
   const activeTab = getActiveTab();
   // Only nudge "ask an admin to share a KB" when the user genuinely has nothing
-  // to do here. A team granted an explicit capability (search/ingest) with no KB
+  // to do here. A team granted an explicit authoring or Search capability with no KB
   // assigned yet now has enabled tabs, so the share-request banner would
   // contradict them — each tab's own empty state guides them instead.
   const hasExplicitCapability =
