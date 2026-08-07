@@ -61,6 +61,10 @@ import { PlatformAccessSettings } from "@/components/settings/sections/PlatformA
 import { PlatformAnnouncementsSettings } from "@/components/settings/sections/PlatformAnnouncementsSettings";
 import { PlatformDefaultsSettings } from "@/components/settings/sections/PlatformDefaultsSettings";
 import { Button } from "@/components/ui/button";
+import {
+  BuiltInResourceHint,
+  builtInTeamHelpText,
+} from "@/components/ui/built-in-resource-hint";
 import { CAIPESpinner } from "@/components/ui/caipe-spinner";
 import { Card,CardContent,CardDescription,CardHeader,CardTitle } from "@/components/ui/card";
 import {
@@ -1843,6 +1847,7 @@ function AdminPage() {
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {gridTeams.map((team) => {
+                      const builtInHelp = builtInTeamHelpText(team.slug);
                       return (
                       <Card key={team._id} className={cn(team.status === 'archived' && "opacity-60")}>
                         <CardHeader>
@@ -1850,6 +1855,9 @@ function AdminPage() {
                             <div>
                               <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                                 <CardTitle className="text-lg min-w-0 break-words">{team.name}</CardTitle>
+                                {builtInHelp && (
+                                  <BuiltInResourceHint text={builtInHelp} />
+                                )}
                                 {team.status === 'archived' && <ArchivedBadge />}
                                 {(team.idp_source_types?.length ?? 0) > 0 && (
                                   <IdpSyncedBadge sourceTypes={team.idp_source_types!} />

@@ -17,7 +17,7 @@ jest.mock("@/lib/api-middleware", () => {
     successResponse: (data: unknown, status = 200) =>
       Response.json({ success: true, data }, { status }),
     withErrorHandler:
-      <T>(handler: (request: NextRequest) => Promise<Response>) =>
+      (handler: (request: NextRequest) => Promise<Response>) =>
       async (request: NextRequest) => {
         try {
           return await handler(request);

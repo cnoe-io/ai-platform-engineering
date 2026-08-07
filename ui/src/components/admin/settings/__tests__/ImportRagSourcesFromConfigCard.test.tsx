@@ -101,19 +101,19 @@ describe("ImportRagSourcesFromConfigCard", () => {
     expect(screen.queryByText("Admin")).not.toBeInTheDocument();
   });
 
-  it("previews sources and pre-selects importable (not-yet-in-db) ones when the modal opens", async () => {
+  it("shows only environment-config sources and pre-selects new imports", async () => {
     render(<ImportRagSourcesFromConfigCard isAdmin />);
     fireEvent.click(screen.getByTestId("import-rag-sources-from-config-button"));
 
     await waitFor(() => {
       expect(screen.getByTestId("import-rag-source-checkbox-slack-channel-C3")).toBeChecked();
     });
-    // Sources that already have a config row (adopted or not) are disabled and unselected.
-    expect(screen.getByTestId("import-rag-source-checkbox-slack-channel-C1")).toBeDisabled();
-    expect(screen.getByTestId("import-rag-source-checkbox-slack-channel-C1")).not.toBeChecked();
+    expect(
+      screen.queryByTestId("import-rag-source-checkbox-slack-channel-C1"),
+    ).not.toBeInTheDocument();
     expect(screen.getByTestId("import-rag-source-checkbox-slack-channel-C2")).toBeDisabled();
-    expect(screen.getByText("Already adopted")).toBeInTheDocument();
-    expect(screen.getByText("Has config row")).toBeInTheDocument();
+    expect(screen.getByText("Already imported")).toBeInTheDocument();
+    expect(screen.queryByText("Has config row")).not.toBeInTheDocument();
   });
 
   it("applies only the selected source ids with independent Owner and Search teams", async () => {
@@ -142,7 +142,7 @@ describe("ImportRagSourcesFromConfigCard", () => {
     expect(body.management_team_slug).toBe("platform");
     expect(body.search_team_slug).toBe("sre");
     expect(screen.getByTestId("import-rag-sources-result")).toHaveTextContent(
-      "Adopted 1 editable connector.",
+      "Imported 1 source.",
     );
   });
 
@@ -204,7 +204,7 @@ describe("ImportRagSourcesFromConfigCard", () => {
 
     await waitFor(() => {
       expect(screen.getByTestId("import-rag-sources-result")).toHaveTextContent(
-        "slack-channel-C3: already has a config row",
+        "slack-channel-C3: already imported",
       );
     });
   });

@@ -1737,6 +1737,17 @@ export async function reconcileExistingAgentOpenFgaTuples(): Promise<number> {
  * Also cleans up config-driven entities that have been removed from config.
  */
 export async function applySeedConfig(): Promise<void> {
+  if (isMongoDBConfigured) {
+    try {
+      const { bootstrapPlatformRagCollection } = await import(
+        "@/lib/rag-collections.server"
+      );
+      await bootstrapPlatformRagCollection();
+    } catch (err) {
+      console.error("[seed-config] Platform RAG bootstrap threw:", err);
+    }
+  }
+
   const configPath = process.env.APP_CONFIG_PATH;
   if (!configPath) {
     console.log("[seed-config] APP_CONFIG_PATH not set, skipping seed");

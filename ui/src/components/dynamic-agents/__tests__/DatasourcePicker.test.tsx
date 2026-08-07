@@ -35,6 +35,19 @@ jest.mock("framer-motion", () => {
       onDragEnd: _onDragEnd,
       ...domProps
     } = props;
+    void [
+      _whileDrag,
+      _initial,
+      _animate,
+      _exit,
+      _transition,
+      _layout,
+      _drag,
+      _dragMomentum,
+      _dragSnapToOrigin,
+      _onDragStart,
+      _onDragEnd,
+    ];
     return (
       <div ref={ref} data-hover-y={whileHover?.y} {...domProps}>
         {children}

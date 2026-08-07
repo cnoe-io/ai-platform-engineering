@@ -23,7 +23,7 @@ import {
   type KnowledgeCardItem,
   type KnowledgeDragCandidate,
 } from "@/components/rag/KnowledgeCardSelector";
-import { Badge } from "@/components/ui/badge";
+import { BuiltInResourceHint } from "@/components/ui/built-in-resource-hint";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -410,7 +410,10 @@ export function RagCollectionsView() {
                   <div className="flex items-center gap-2">
                     <p className="truncate font-medium">{collection.name}</p>
                     {collection.is_platform && (
-                      <Badge variant="secondary">Default</Badge>
+                      <BuiltInResourceHint
+                        text="Built-in collection for shared organization knowledge."
+                        focusable={false}
+                      />
                     )}
                   </div>
                   <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">

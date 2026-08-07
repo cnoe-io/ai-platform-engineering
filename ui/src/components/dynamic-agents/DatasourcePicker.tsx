@@ -21,7 +21,6 @@ import {
 } from "@/components/rag/KnowledgeCardSelector";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { cn } from "@/lib/utils";
 
 interface AvailableDatasource {
   datasource_id: string;

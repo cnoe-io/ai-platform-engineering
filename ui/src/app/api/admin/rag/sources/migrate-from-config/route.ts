@@ -613,7 +613,9 @@ async function previewSourcesFromRedis(session: {
 
     const sourceType = SOURCE_TYPE_MAP[ds.source_type];
     if (!sourceType) continue;
-    if (!existing && !isMigrationCandidate) continue;
+    // Sources created in the UI already have editable settings and are not
+    // part of this one-time environment-config import.
+    if (!isMigrationCandidate) continue;
 
     preview.push({
       source_id: ds.datasource_id,

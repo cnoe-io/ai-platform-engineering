@@ -1013,6 +1013,7 @@ describe('Admin Dashboard Page', () => {
         'Access before sign-in',
         'AI Review',
         'RBAC Audit',
+        'Approvals',
         'Access Explorer',
         'Self Check',
         'Chat Audit',
@@ -1143,6 +1144,44 @@ describe('Admin Dashboard Page', () => {
       });
 
       confirmSpy.mockRestore();
+    });
+
+    it('marks the Everyone and Super Admins teams as built in', async () => {
+      currentSearchParams = new URLSearchParams('cat=people&tab=teams');
+      setupFetchMock({
+        teams: {
+          success: true,
+          data: {
+            teams: [
+              {
+                _id: 'team-everyone',
+                name: 'Everyone',
+                slug: 'everyone',
+                owner_id: 'admin@example.com',
+                member_count: 2,
+              },
+              {
+                _id: 'team-super-admins',
+                name: 'Super Admins',
+                slug: 'super-admins',
+                owner_id: 'admin@example.com',
+                member_count: 1,
+              },
+            ],
+          },
+        },
+      });
+
+      render(<AdminPage />);
+
+      expect(
+        await screen.findByLabelText(
+          'Built-in team for organization-wide access.',
+        ),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByLabelText('Built-in team for platform administrators.'),
+      ).toBeInTheDocument();
     });
 
     // The team card was decluttered to four high-signal chips (Members,

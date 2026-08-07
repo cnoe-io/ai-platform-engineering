@@ -6,6 +6,10 @@ import {
   type OpenFgaTupleKey,
 } from "@/lib/rbac/openfga";
 import { organizationObjectId } from "@/lib/rbac/organization";
+import {
+  EVERYONE_TEAM_SLUG,
+  SUPER_ADMINS_TEAM_SLUG,
+} from "@/lib/rbac/reserved-teams";
 import type {
   RagCollection,
   RagCollectionMembershipLabel,
@@ -18,6 +22,7 @@ import {
 
 export const RAG_COLLECTIONS_COLLECTION = "rag_collections";
 export const RAG_COLLECTION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+const PLATFORM_RAG_BOOTSTRAP_SUBJECT = "platform";
 
 /** Build a Mongo `$set` document without the immutable `_id` field. */
 export function ragCollectionSetFields(
@@ -143,6 +148,47 @@ export async function ensureRagCollectionReaderTeamsCanSearch(
       source: "rag_collection_reader_search_capability",
     },
   );
+}
+
+/** Create the built-in collection once and repair its current access projection. */
+export async function bootstrapPlatformRagCollection(): Promise<RagCollection> {
+  const collection = await getCollection<RagCollection>(
+    RAG_COLLECTIONS_COLLECTION,
+  );
+  const now = new Date().toISOString();
+  const initial: RagCollection = {
+    _id: PLATFORM_RAG_COLLECTION_ID,
+    name: "Platform RAG",
+    description: "Shared organization knowledge available to agents by default.",
+    is_platform: true,
+    source_ids: [],
+    owner_subject: undefined,
+    maintainer_team_slugs: [SUPER_ADMINS_TEAM_SLUG],
+    reader_team_slugs: [EVERYONE_TEAM_SLUG],
+    global_read: false,
+    created_by: PLATFORM_RAG_BOOTSTRAP_SUBJECT,
+    created_at: now,
+    updated_at: now,
+  };
+
+  await collection.updateOne(
+    { _id: PLATFORM_RAG_COLLECTION_ID } as never,
+    { $setOnInsert: ragCollectionSetFields(initial) },
+    { upsert: true },
+  );
+  const stored = await collection.findOne({
+    _id: PLATFORM_RAG_COLLECTION_ID,
+  } as never);
+  if (!stored) {
+    throw new Error("Platform RAG was not available after bootstrap");
+  }
+
+  await reconcileCollectionRelationships(null, stored);
+  await ensureRagCollectionReaderTeamsCanSearch(
+    stored.reader_team_slugs,
+    PLATFORM_RAG_BOOTSTRAP_SUBJECT,
+  );
+  return stored;
 }
 
 export async function replaceCollectionSources(

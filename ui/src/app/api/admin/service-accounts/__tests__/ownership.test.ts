@@ -39,6 +39,19 @@ jest.mock("@/lib/rbac/openfga", () => ({
   deleteExactOpenFgaTuples: (...args: unknown[]) => mockDeleteExactOpenFgaTuples(...args),
 }));
 
+jest.mock("@/lib/authz", () => ({
+  reconcileTupleDiff: jest.fn(
+    async (diff: { writes?: unknown[]; deletes?: unknown[] }) => {
+      if (diff.writes?.length) {
+        await mockWriteOpenFgaTuples(diff);
+      }
+      if (diff.deletes?.length) {
+        await mockDeleteExactOpenFgaTuples(diff.deletes);
+      }
+    },
+  ),
+}));
+
 jest.mock("@/lib/rbac/keycloak-admin", () => ({
   createServiceAccountClient: jest.fn(),
   deleteServiceAccountClient: jest.fn(),

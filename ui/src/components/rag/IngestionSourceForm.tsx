@@ -703,8 +703,10 @@ export function IngestionSourceForm({
           }));
         }
       })
-      .catch(() => {});
-  }, [open, initial, pendingPublicationRequest, defaultSourceType]);
+      .catch((error: unknown) => {
+        console.error("[IngestionSourceForm] Failed to load access options:", error);
+      });
+  }, [open, initial, pendingPublicationRequest, defaultSourceType, isEdit]);
 
   const canSave =
     values.name.trim().length > 0 &&

@@ -89,6 +89,15 @@ jest.mock('@/hooks/use-kb-tab-gates', () => ({
   }),
 }))
 
+let mockPublicationApprovals = {
+  pending_count: 0,
+  can_approve: false,
+  can_manage_settings: false,
+}
+jest.mock('@/hooks/use-publication-approval-summary', () => ({
+  usePublicationApprovalSummary: () => mockPublicationApprovals,
+}))
+
 // Mock chat store
 let mockStreamingConversations = new Map<string, unknown>()
 let mockUnviewedConversations = new Set<string>()
@@ -435,6 +444,11 @@ function applicationButton(name: string): HTMLElement {
 // ============================================================================
 
 beforeEach(() => {
+  mockPublicationApprovals = {
+    pending_count: 0,
+    can_approve: false,
+    can_manage_settings: false,
+  }
   mockMigrationStatus = {
     status: null,
     isLoading: false,
@@ -1182,12 +1196,12 @@ describe('AppHeader — Chat tab notification dots', () => {
   const triggerSelector = 'header-admin-alerts-trigger'
 
   // Helper: scan the popover panel for an alert row. Each row is a
-  // <button> with an accessible "open ... tab to fix" name and a stable
+  // <button> with an accessible "open the related page" name and a stable
   // data-testid. We deliberately do NOT render rows as anchors anymore —
   // see the comment on `alertsPopoverOpen` in AppHeader.tsx for why
   // navigation is a browser-native document load.
   function findAlertRow(label: string): HTMLElement | null {
-    const rows = screen.queryAllByRole('button', { name: /open .* tab to fix/i })
+    const rows = screen.queryAllByRole('button', { name: /open the related page/i })
     return rows.find((row) => (row.textContent ?? '').includes(label)) ?? null
   }
 
@@ -1207,6 +1221,22 @@ describe('AppHeader — Chat tab notification dots', () => {
 
     expect(screen.getByRole('button', { name: /system status: healthy/i })).toBeInTheDocument()
     expect(screen.queryByTestId(triggerSelector)).not.toBeInTheDocument()
+  })
+
+  it('shows publication approvals to a delegated reviewer', () => {
+    mockIsAdmin = false
+    mockPublicationApprovals = {
+      pending_count: 2,
+      can_approve: true,
+      can_manage_settings: false,
+    }
+
+    render(<AppHeader />)
+
+    const row = findAlertRow('Publication approvals pending')
+    expect(row).not.toBeNull()
+    fireEvent.click(row!)
+    expect(mockRouterPush).toHaveBeenCalledWith('/admin?cat=security&tab=approvals')
   })
 
   it('shows the admin alerts pill for blocking migrations with red styling and a row that deep-links to the Migrations tab', () => {

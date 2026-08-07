@@ -46,6 +46,18 @@ jest.mock("framer-motion", () => {
       onDragEnd: _onDragEnd,
       ...domProps
     } = props;
+    void [
+      _whileDrag,
+      _initial,
+      _animate,
+      _exit,
+      _transition,
+      _layout,
+      _drag,
+      _dragMomentum,
+      _dragSnapToOrigin,
+      _onDragEnd,
+    ];
     return (
       <div ref={ref} data-hover-y={whileHover?.y} {...domProps}>
         {children}
@@ -105,6 +117,25 @@ describe("RagCollectionsView", () => {
                     can_delegate: false,
                   },
                 },
+                {
+                  _id: "platform-rag",
+                  name: "Platform RAG",
+                  description: "Shared organization knowledge",
+                  is_platform: true,
+                  source_ids: [],
+                  maintainer_team_slugs: ["super-admins"],
+                  reader_team_slugs: ["everyone"],
+                  global_read: false,
+                  created_by: "platform",
+                  created_at: "2026-08-06T00:00:00.000Z",
+                  updated_at: "2026-08-06T00:00:00.000Z",
+                  _permissions: {
+                    can_read: true,
+                    can_publish: false,
+                    can_manage: false,
+                    can_delegate: false,
+                  },
+                },
               ],
             },
           });
@@ -149,6 +180,16 @@ describe("RagCollectionsView", () => {
         throw new Error(`Unexpected fetch: ${href}`);
       },
     );
+  });
+
+  it("marks Platform RAG as a built-in collection", async () => {
+    render(<RagCollectionsView />);
+
+    expect(
+      await screen.findByLabelText(
+        "Built-in collection for shared organization knowledge.",
+      ),
+    ).toBeInTheDocument();
   });
 
   it("keeps the detail pane closed until a collection is selected", async () => {
