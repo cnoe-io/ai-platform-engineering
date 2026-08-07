@@ -62,10 +62,17 @@ PARENT_HELM_ARGS = (
 )
 
 RAG_SUBCHART_HELM_ARGS = (
+  "--set",
+  "global.vpa.enabled=false",
+  "--set",
+  "global.image.tag=",
+)
+
+RAG_INGESTOR_HELM_ARGS = (
     "--set",
-    "global.vpa.enabled=false",
+    "ingestors[0].name=image-channel-test",
     "--set",
-    "global.image.tag=",
+    "ingestors[0].type=web",
 )
 
 
@@ -121,9 +128,14 @@ def rendered_images(manifest: str) -> set[str]:
 def render_rag_subcharts(rag_chart: Path, *extra_args: str) -> set[str]:
     images: set[str] = set()
     for subchart in ("rag-server", "rag-ingestors", "agent-ontology"):
+        helm_args = RAG_SUBCHART_HELM_ARGS
+        if subchart == "rag-ingestors":
+            # The ingestor chart is intentionally opt-in. Render one inert
+            # instance so image-channel validation covers its image too.
+            helm_args += RAG_INGESTOR_HELM_ARGS
         manifest = render_chart(
             rag_chart / "charts" / subchart,
-            RAG_SUBCHART_HELM_ARGS,
+            helm_args,
             *extra_args,
         )
         images.update(rendered_images(manifest))

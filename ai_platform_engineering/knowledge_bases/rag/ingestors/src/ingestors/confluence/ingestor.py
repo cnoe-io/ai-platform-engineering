@@ -675,9 +675,23 @@ if __name__ == "__main__":
     configured_spaces = (
       parse_confluence_spaces_json(CONFLUENCE_SPACES) if CONFLUENCE_SPACES else {}
     )
-    IngestorBuilder().name(CONFLUENCE_INGESTOR_NAME).type(CONFLUENCE_INGESTOR_TYPE).description(f"Confluence wiki page ingestor for {CONFLUENCE_URL}").metadata({"confluence_url": CONFLUENCE_URL, "reload_interval": RELOAD_INTERVAL, "spaces": configured_spaces}).sync_with_fn(periodic_reload).with_startup(redis_listener).every(
-      RELOAD_INTERVAL
-    ).run()
+    (
+      IngestorBuilder()
+      .name(CONFLUENCE_INGESTOR_NAME)
+      .type(CONFLUENCE_INGESTOR_TYPE)
+      .description(f"Confluence wiki page ingestor for {CONFLUENCE_URL}")
+      .metadata(
+        {
+          "confluence_url": CONFLUENCE_URL,
+          "reload_interval": RELOAD_INTERVAL,
+          "spaces": configured_spaces,
+        }
+      )
+      .sync_with_fn(periodic_reload)
+      .with_startup(redis_listener)
+      .every(RELOAD_INTERVAL)
+      .run()
+    )
 
   except KeyboardInterrupt:
     logger.info("Confluence ingestor interrupted by user")

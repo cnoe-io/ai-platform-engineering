@@ -243,7 +243,7 @@ describe("POST /api/admin/rag/sources/migrate-from-config", () => {
     });
   });
 
-  it("dry_run: true returns a preview annotated with in_db/already_adopted, without adopting anything", async () => {
+  it("dry_run: true excludes existing UI-managed sources", async () => {
     mockFetchDatasources([
       redisDs({ datasource_id: "slack-channel-C1", name: "eng-general" }),
       redisDs({
@@ -262,14 +262,6 @@ describe("POST /api/admin/rag/sources/migrate-from-config", () => {
 
     expect(response.status).toBe(200);
     expect(body.data.sources).toEqual([
-      {
-        source_id: "slack-channel-C1",
-        name: "eng-general",
-        source_type: "slack_channel",
-        in_db: true,
-        already_adopted: false,
-        importable: false,
-      },
       {
         source_id: "slack-channel-C2",
         name: "eng-random",
@@ -382,6 +374,30 @@ describe("POST /api/admin/rag/sources/migrate-from-config", () => {
       }),
     ]);
     expect(body.data.platform_collection.source_count).toBe(1);
+  });
+
+  it("keeps previously imported environment sources visible but disabled", async () => {
+    mockFetchDatasources([redisDs()]);
+    mockCollections([
+      {
+        source_id: "slack-channel-C1",
+        config_driven: false,
+        config_import_adopted: true,
+      },
+    ]);
+
+    const { POST } = await import("../route");
+    const response = await POST(postRequest({ dry_run: true }));
+    const body = await response.json();
+
+    expect(body.data.sources).toEqual([
+      expect.objectContaining({
+        source_id: "slack-channel-C1",
+        in_db: true,
+        already_adopted: true,
+        importable: false,
+      }),
+    ]);
   });
 
   it("adopts an existing config-driven row without inserting a duplicate", async () => {

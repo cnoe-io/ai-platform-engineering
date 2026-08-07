@@ -2058,6 +2058,10 @@ export async function DELETE(
         // and allow the same DELETE to retry tuple cleanup on the upstream 404;
         // silently leaving grants would let a later source with the same
         // deterministic id inherit stale access.
+        console.error(
+          `[RAG Proxy] Failed to clean up access policy for deleted datasource ${deletedDatasourceId}:`,
+          error,
+        );
         throw new ApiError(
           "The datasource was deleted, but its access policy could not be cleaned up. Retry the delete.",
           503,

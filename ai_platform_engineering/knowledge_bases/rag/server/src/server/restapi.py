@@ -55,7 +55,14 @@ from common.models.server import (
   QueryResult,
   ScrapySettings,
 )
-from common.models.rag import DataSourceInfo, IngestorInfo, StructuredEntity, StructuredEntityId, valid_metadata_keys, valid_metadata_keys_with_types, MCPToolConfig, MCPBuiltinToolsConfig
+from common.models.rag import (
+  DataSourceInfo,
+  IngestorInfo,
+  MCPBuiltinToolsConfig,
+  MCPToolConfig,
+  StructuredEntity,
+  StructuredEntityId,
+)
 from common.models.graph import Relation
 from common.models.rbac import Role, UserContext, UserInfoResponse
 from contextvars import ContextVar

@@ -9,13 +9,10 @@
  * records (the BFF cannot read ingestor-pod env vars) and skips carry a
  * `reason`.
  *
- * Flow: open the popover -> preview (dry_run) lists every ingested
- * datasource alongside whether it already has a config row -> admin picks
- * which of the still-unmigrated ones to adopt plus independent Owner and
- * Search teams -> apply calls the same endpoint with dry_run:false,
- * which creates editable config rows for the chosen supported connectors and
- * places every legacy-global datasource in Platform RAG. This preserves the
- * old global corpus even for source types without a self-service form.
+ * Flow: the preview lists sources originating in environment configuration,
+ * including disabled rows for prior imports. The admin selects new imports
+ * plus independent Owner and Search teams. Applying creates editable settings
+ * where supported and preserves the existing shared corpus in Platform RAG.
  */
 
 import { AlertTriangle, FileUp, Loader2 } from "lucide-react";
@@ -70,8 +67,8 @@ interface TeamOption {
 
 const SKIP_REASON_LABEL: Record<SkipReason, string> = {
   not_found_in_redis: "not found",
-  missing_identity_fields: "missing required fields",
-  already_in_db: "already has a config row",
+  missing_identity_fields: "missing required settings",
+  already_in_db: "already imported",
 };
 
 interface ImportRagSourcesFromConfigCardProps {
@@ -119,7 +116,9 @@ export function ImportRagSourcesFromConfigCard({
         ]);
         if (cancelled) return;
         if (previewRes.success) {
-          const sources = (previewRes.data?.sources ?? []) as PreviewSource[];
+          const sources = (
+            (previewRes.data?.sources ?? []) as PreviewSource[]
+          ).filter((source) => source.importable || source.already_adopted);
           setPlatformSourceCount(
             previewRes.data?.platform_collection?.source_count ?? 0,
           );
@@ -130,7 +129,10 @@ export function ImportRagSourcesFromConfigCard({
             ),
           );
         } else {
-          setError(previewRes.error || "Failed to preview config");
+          setError(
+            previewRes.error ||
+              "Could not load sources from environment configuration",
+          );
         }
         if (teamsRes.success && Array.isArray(teamsRes.data)) {
           setAvailableTeams(teamsRes.data);
@@ -144,7 +146,7 @@ export function ImportRagSourcesFromConfigCard({
           setSearchTeamSlug(configuredSearchTeam.trim());
         }
       } catch {
-        if (!cancelled) setError("Network error loading preview");
+        if (!cancelled) setError("Could not load the source preview");
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -192,13 +194,18 @@ export function ImportRagSourcesFromConfigCard({
       setPreviewSources((prev) =>
         prev.map((s) =>
           data.data.adopted?.includes(s.source_id)
-            ? { ...s, in_db: true, already_adopted: true }
+            ? {
+                ...s,
+                in_db: true,
+                already_adopted: true,
+                importable: false,
+              }
             : s,
         ),
       );
       setSelectedIds(new Set());
     } catch {
-      setError("Network error applying import");
+      setError("Could not import the selected sources");
     } finally {
       setApplying(false);
     }
@@ -213,7 +220,7 @@ export function ImportRagSourcesFromConfigCard({
           Migrate Ingested RAG Sources
         </CardTitle>
         <CardDescription>
-          Move existing datasources into Platform RAG so they can be managed here.
+          Import sources from environment configuration into Platform RAG.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -233,173 +240,180 @@ export function ImportRagSourcesFromConfigCard({
       </CardContent>
 
       <Dialog open={open} onOpenChange={(next) => !applying && setOpen(next)}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="flex max-h-[85vh] w-[calc(100vw-2rem)] min-w-0 flex-col overflow-visible sm:max-w-[720px]">
           <DialogHeader>
             <DialogTitle>Migrate ingested RAG sources</DialogTitle>
             <DialogDescription>
-              Choose the Owner team for legacy sources and the Search team for
-              Platform RAG. Supported connector types can also be adopted into
-              editable configuration.
+              <span className="block">
+                Choose who owns imported sources and who can search Platform RAG.
+              </span>
+              <span className="mt-1 block">
+                After import, supported sources can be managed from this page.
+              </span>
             </DialogDescription>
           </DialogHeader>
 
-          {loading ? (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {error && (
-                <div
-                  className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive"
-                  data-testid="import-rag-sources-error"
-                >
-                  <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
-                  {error}
-                </div>
-              )}
+          <div className="min-h-0 min-w-0 overflow-x-hidden overflow-y-auto pr-1">
+            {loading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : (
+              <div className="min-w-0 space-y-4">
+                {error && (
+                  <div
+                    className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive"
+                    data-testid="import-rag-sources-error"
+                  >
+                    <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                    {error}
+                  </div>
+                )}
 
-              {result && (
-                <div
-                  className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-300"
-                  data-testid="import-rag-sources-result"
-                >
-                  Platform RAG now contains {result.platformSourceCount} source
-                  {result.platformSourceCount === 1 ? "" : "s"}.
-                  {result.adopted.length > 0 && (
-                    <>
-                      {" "}
-                      Adopted {result.adopted.length} editable connector
-                      {result.adopted.length === 1 ? "" : "s"}.
-                    </>
-                  )}
-                  {result.agentsUpdated > 0 && (
-                    <>
-                      {" "}
-                      Updated {result.agentsUpdated} legacy agent
-                      {result.agentsUpdated === 1 ? "" : "s"}.
-                    </>
-                  )}
-                  {result.skipped.length > 0 && (
-                    <ul className="mt-1 list-disc pl-5">
-                      {result.skipped.map((skip) => (
-                        <li key={skip.source_id}>
-                          {skip.source_id}: {SKIP_REASON_LABEL[skip.reason]}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              )}
+                {result && (
+                  <div
+                    className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-300"
+                    data-testid="import-rag-sources-result"
+                  >
+                    Platform RAG now contains {result.platformSourceCount} source
+                    {result.platformSourceCount === 1 ? "" : "s"}.
+                    {result.adopted.length > 0 && (
+                      <>
+                        {" "}
+                        Imported {result.adopted.length} source
+                        {result.adopted.length === 1 ? "" : "s"}.
+                      </>
+                    )}
+                    {result.agentsUpdated > 0 && (
+                      <>
+                        {" "}
+                        Updated {result.agentsUpdated} existing agent
+                        {result.agentsUpdated === 1 ? "" : "s"}.
+                      </>
+                    )}
+                    {result.skipped.length > 0 && (
+                      <ul className="mt-1 list-disc pl-5">
+                        {result.skipped.map((skip) => (
+                          <li key={skip.source_id}>
+                            {skip.source_id}: {SKIP_REASON_LABEL[skip.reason]}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
 
-              {previewSources.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  No supported connector configurations need adoption. You can
-                  still create or update Platform RAG and its delegated teams.
-                </p>
-              ) : (
-                <div
-                  className="max-h-56 space-y-1 overflow-y-auto rounded-md border p-2"
-                  data-testid="import-rag-sources-checklist"
-                >
-                  {previewSources.map((source) => (
-                    <label
-                      key={source.source_id}
-                      className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted/50"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={selectedIds.has(source.source_id)}
-                        disabled={!source.importable}
-                        onChange={() => toggleSelected(source.source_id)}
-                        data-testid={`import-rag-source-checkbox-${source.source_id}`}
-                      />
-                      <span className="flex-1 truncate">{source.name}</span>
-                      {source.already_adopted ? (
-                        <Badge variant="secondary" className="shrink-0">
-                          Already adopted
-                        </Badge>
-                      ) : (
-                        source.in_db &&
-                        !source.importable && (
+                {previewSources.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No sources from environment configuration are available to
+                    import. You can still update Platform RAG access below.
+                  </p>
+                ) : (
+                  <div
+                    className="max-h-56 space-y-1 overflow-y-auto rounded-md border p-2"
+                    data-testid="import-rag-sources-checklist"
+                  >
+                    {previewSources.map((source) => (
+                      <label
+                        key={source.source_id}
+                        className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted/50"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(source.source_id)}
+                          disabled={!source.importable}
+                          onChange={() => toggleSelected(source.source_id)}
+                          data-testid={`import-rag-source-checkbox-${source.source_id}`}
+                        />
+                        <span className="min-w-0 flex-1 truncate">
+                          {source.name}
+                        </span>
+                        {source.already_adopted ? (
                           <Badge variant="secondary" className="shrink-0">
-                            Has config row
+                            Already imported
                           </Badge>
-                        )
-                      )}
-                    </label>
-                  ))}
-                </div>
-              )}
+                        ) : null}
+                      </label>
+                    ))}
+                  </div>
+                )}
 
-              <p className="text-xs text-muted-foreground">
-                The preview found {platformSourceCount} legacy source
-                {platformSourceCount === 1 ? "" : "s"} for Platform RAG.
-                Unsupported connector types are included in that collection even
-                though they do not appear in the editable-config checklist.
-              </p>
+                <p className="min-w-0 break-words text-xs text-muted-foreground">
+                  Platform RAG will include {platformSourceCount} source
+                  {platformSourceCount === 1 ? "" : "s"} from environment
+                  configuration. Other configured sources are included
+                  automatically, even when they are not listed above.
+                </p>
 
-              <div className="space-y-4 rounded-md border p-3">
-                <div className="space-y-2">
-                  <Label htmlFor="migration-management-team">
-                    Owner team <span className="text-destructive">*</span>
-                  </Label>
-                  <TeamPicker
-                    id="migration-management-team"
-                    value={managementTeamSlug}
-                    onChange={setManagementTeamSlug}
-                    options={availableTeams
-                      .filter((t): t is TeamOption & { slug: string } =>
-                        Boolean(t.slug),
-                      )
-                      .map<TeamPickerOption>((t) => ({
-                        slug: t.slug,
-                        name: t.name,
-                        _id: t._id,
-                      }))}
-                    placeholder="Select the Owner team"
-                    searchPlaceholder="Search teams..."
-                    disabled={applying}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Members can add datasources to Platform RAG, and team admins
-                    can manage the collection and supported datasource
-                    configuration. Ownership does not grant Search access.
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="migration-search-team">
-                    Platform RAG Search team{" "}
-                    <span className="text-destructive">*</span>
-                  </Label>
-                  <TeamPicker
-                    id="migration-search-team"
-                    value={searchTeamSlug}
-                    onChange={setSearchTeamSlug}
-                    options={availableTeams
-                      .filter((t): t is TeamOption & { slug: string } =>
-                        Boolean(t.slug),
-                      )
-                      .map<TeamPickerOption>((t) => ({
-                        slug: t.slug,
-                        name: t.name,
-                        _id: t._id,
-                      }))}
-                    placeholder="Select who can search Platform RAG"
-                    searchPlaceholder="Search teams..."
-                    disabled={applying}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Members can query Platform RAG through search, API calls,
-                    and agents. Search does not grant Owner permissions for the
-                    collection, its datasources, or connector settings.
-                  </p>
+                <div className="space-y-4 rounded-md border p-3">
+                  <div className="space-y-2">
+                    <div>
+                      <Label htmlFor="migration-management-team">
+                        Owner team <span className="text-destructive">*</span>
+                      </Label>
+                    </div>
+                    <div className="max-w-sm">
+                      <TeamPicker
+                        id="migration-management-team"
+                        value={managementTeamSlug}
+                        onChange={setManagementTeamSlug}
+                        options={availableTeams
+                          .filter((t): t is TeamOption & { slug: string } =>
+                            Boolean(t.slug),
+                          )
+                          .map<TeamPickerOption>((t) => ({
+                            slug: t.slug,
+                            name: t.name,
+                            _id: t._id,
+                          }))}
+                        placeholder="Select the Owner team"
+                        searchPlaceholder="Search teams..."
+                        disabled={applying}
+                      />
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Members can add sources to Platform RAG. Team admins can
+                      manage the collection and its settings. Owner access does
+                      not grant Search access.
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <div>
+                      <Label htmlFor="migration-search-team">
+                        Platform RAG Search team{" "}
+                        <span className="text-destructive">*</span>
+                      </Label>
+                    </div>
+                    <div className="max-w-sm">
+                      <TeamPicker
+                        id="migration-search-team"
+                        value={searchTeamSlug}
+                        onChange={setSearchTeamSlug}
+                        options={availableTeams
+                          .filter((t): t is TeamOption & { slug: string } =>
+                            Boolean(t.slug),
+                          )
+                          .map<TeamPickerOption>((t) => ({
+                            slug: t.slug,
+                            name: t.name,
+                            _id: t._id,
+                          }))}
+                        placeholder="Select who can search Platform RAG"
+                        searchPlaceholder="Search teams..."
+                        disabled={applying}
+                      />
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Members can query Platform RAG through Search, API calls,
+                      and agents. Search access does not grant Owner access.
+                    </p>
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
 
-          <DialogFooter>
+          <DialogFooter className="min-w-0 flex-wrap gap-2 sm:space-x-0">
             <Button
               type="button"
               variant="outline"

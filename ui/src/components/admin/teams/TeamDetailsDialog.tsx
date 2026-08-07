@@ -7,6 +7,10 @@ import { SaveButton } from "@/components/admin/shared/SaveButton";
 import { SearchCapabilityToggle } from "@/components/admin/shared/SearchCapabilityToggle";
 import { TeamKbAssignmentPanel } from "@/components/admin/teams/TeamKbAssignmentPanel";
 import { Badge } from "@/components/ui/badge";
+import {
+  BuiltInResourceHint,
+  builtInTeamHelpText,
+} from "@/components/ui/built-in-resource-hint";
 import { Button } from "@/components/ui/button";
 import {
 Dialog,
@@ -865,6 +869,7 @@ export function TeamDetailsDialog({
   if (!currentTeam) return null;
 
   const canManageTeam = currentTeam.can_manage === true;
+  const builtInHelp = builtInTeamHelpText(currentTeam.slug);
   const createdByLabel =
     currentTeam.created_by === "bootstrap" ? "System" : currentTeam.owner_id;
 
@@ -879,6 +884,9 @@ export function TeamDetailsDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             {isEditing ? "Edit Team" : currentTeam.name}
+            {!isEditing && builtInHelp && (
+              <BuiltInResourceHint text={builtInHelp} />
+            )}
           </DialogTitle>
           <DialogDescription>
             {isEditing

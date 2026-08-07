@@ -806,7 +806,7 @@ describe('RAG RBAC Integration', () => {
       );
     });
 
-    it('requires data_source ingest for existing datasource writes from request body', async () => {
+    it('requires Owner access for existing datasource writes from request body', async () => {
       const { POST } = await import('@/app/api/rag/[...path]/route');
       const body = { datasource_id: 'kb-beta', reload: true };
 
@@ -825,7 +825,7 @@ describe('RAG RBAC Integration', () => {
       expect(response.status).toBe(200);
       expect(mockRequireResourcePermission).toHaveBeenCalledWith(
         expect.objectContaining({ sub: 'alice-sub' }),
-        { type: 'data_source', id: 'kb-beta', action: 'ingest' },
+        { type: 'data_source', id: 'kb-beta', action: 'admin' },
         { bypassForOrgAdmin: true },
       );
       expect(global.fetch).toHaveBeenCalledWith(
@@ -837,7 +837,7 @@ describe('RAG RBAC Integration', () => {
       );
     });
 
-    it('requires OpenFGA data-source ingest access for admin re-ingest requests', async () => {
+    it('denies reload when neither datasource nor source-management access is granted', async () => {
       const nextAuth = await import('next-auth');
       const { ApiError } = await import('@/lib/api-middleware');
       jest.mocked(nextAuth.getServerSession).mockResolvedValue({
@@ -848,7 +848,7 @@ describe('RAG RBAC Integration', () => {
         user: { email: 'admin@example.com' },
       } as unknown);
       mockRequireResourcePermission.mockImplementation(async () => {
-        throw new ApiError('no ingest', 403, 'data_source#ingest');
+        throw new ApiError('no manage access', 403, 'ingestion_source#manage');
       });
       const { POST } = await import('@/app/api/rag/[...path]/route');
       const body = { datasource_id: 'kb-reload' };
@@ -866,9 +866,16 @@ describe('RAG RBAC Integration', () => {
       );
 
       expect(response.status).toBe(403);
-      expect(mockRequireResourcePermission).toHaveBeenCalledWith(
+      expect(mockRequireResourcePermission).toHaveBeenNthCalledWith(
+        1,
         expect.objectContaining({ sub: 'admin-sub', role: 'admin' }),
-        { type: 'data_source', id: 'kb-reload', action: 'ingest' },
+        { type: 'data_source', id: 'kb-reload', action: 'admin' },
+        { bypassForOrgAdmin: true },
+      );
+      expect(mockRequireResourcePermission).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({ sub: 'admin-sub', role: 'admin' }),
+        { type: 'ingestion_source', id: 'kb-reload', action: 'manage' },
         { bypassForOrgAdmin: true },
       );
       expect(global.fetch).not.toHaveBeenCalledWith(
