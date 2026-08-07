@@ -154,6 +154,7 @@ jobs:
           - mcp-litellm
           - mcp-netutils
           - mcp-pagerduty
+          - mcp-sharepoint
           - mcp-splunk
           - mcp-victorops
           - mcp-webex
