@@ -8,7 +8,7 @@ import dotenv
 
 dotenv.load_dotenv()  # Ensure .env is in os.environ before any boto3/httpx clients are created
 
-from dynamic_agents.log_config import setup_logging
+from dynamic_agents.log_config import setup_logging, tool_result_display_limit_var
 
 # Setup logging before other imports that trigger cnoe-agent-utils
 logger = setup_logging()
@@ -24,9 +24,11 @@ def fatal_exit(message: str) -> None:
     os._exit(1)
 
 
+from collections.abc import Awaitable, Callable
+
 # ruff: noqa: E402
 # Imports must be after logging setup to ensure our format is used
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -132,6 +134,49 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    @app.middleware("http")
+    async def set_tool_result_display_limit(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        limit_val = request.headers.get("x-tool-result-display-limit") or request.query_params.get(
+            "tool_result_display_limit"
+        )
+        if limit_val is not None:
+            try:
+                limit_int = int(limit_val)
+            except ValueError:
+                logger.info("Ignored invalid tool_result_display_limit header/param: %r", limit_val)
+                return await call_next(request)
+
+            token = tool_result_display_limit_var.set(limit_int)
+            try:
+                response = await call_next(request)
+            except Exception:
+                tool_result_display_limit_var.reset(token)
+                raise
+
+            if hasattr(response, "body_iterator") and response.body_iterator is not None:
+                original_iterator = response.body_iterator
+
+                async def stream_wrapper():
+                    try:
+                        if hasattr(original_iterator, "__aiter__"):
+                            async for chunk in original_iterator:
+                                yield chunk
+                        else:
+                            for chunk in original_iterator:
+                                yield chunk
+                    finally:
+                        tool_result_display_limit_var.reset(token)
+
+                response.body_iterator = stream_wrapper()
+                return response
+
+            tool_result_display_limit_var.reset(token)
+            return response
+
+        return await call_next(request)
+
     # Prometheus HTTP metrics middleware (from main). Mounted BEFORE the
     # JWT auth middleware so failed-auth and CORS-preflight requests are
     # still observable.
@@ -205,7 +250,6 @@ def create_app() -> FastAPI:
     if serve_metrics_on_main_port:
         try:
             from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
-            from starlette.responses import Response
 
             @app.get("/metrics", include_in_schema=False)
             async def metrics() -> Response:
@@ -214,9 +258,7 @@ def create_app() -> FastAPI:
                     media_type=CONTENT_TYPE_LATEST,
                 )
         except ImportError:
-            logger.warning(
-                "prometheus_client not installed; /metrics endpoint disabled"
-            )
+            logger.warning("prometheus_client not installed; /metrics endpoint disabled")
 
     return app
 

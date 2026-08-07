@@ -83,8 +83,9 @@ class AGUIStreamEncoder(StreamEncoder):
       attribution when concurrent subagent events interleave.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, include_usage: bool = True) -> None:
         self._helper = LangGraphStreamHelper()
+        self.include_usage = include_usage
         self._active_message_ids: dict[str, str | None] = {}
         self._last_emitted_namespace: tuple[str, ...] = ()
         self._run_id: str = ""
@@ -139,18 +140,18 @@ class AGUIStreamEncoder(StreamEncoder):
         return frames
 
     def on_run_finish(self, run_id: str, thread_id: str) -> list[str]:
-        return [
-            _sse_frame(
-                "RUN_FINISHED",
-                {
-                    "type": "RUN_FINISHED",
-                    "runId": run_id,
-                    "threadId": thread_id,
-                    "outcome": "success",
-                    "timestamp": _ts(),
-                },
-            )
-        ]
+        data: dict[str, Any] = {
+            "type": "RUN_FINISHED",
+            "runId": run_id,
+            "threadId": thread_id,
+            "outcome": "success",
+            "timestamp": _ts(),
+        }
+        if self.include_usage:
+            usage = self._helper.get_total_usage()
+            if usage:
+                data["usage"] = usage
+        return [_sse_frame("RUN_FINISHED", data)]
 
     def on_run_error(self, message: str, code: str | None = None) -> list[str]:
         data: dict[str, Any] = {

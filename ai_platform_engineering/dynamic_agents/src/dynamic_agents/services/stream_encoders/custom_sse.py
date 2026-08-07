@@ -63,8 +63,9 @@ class CustomStreamEncoder(StreamEncoder):
     ``chat.py``.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, include_usage: bool = True) -> None:
         self._helper = LangGraphStreamHelper()
+        self.include_usage = include_usage
 
     # ── Core lifecycle ────────────────────────────────────
 
@@ -90,7 +91,9 @@ class CustomStreamEncoder(StreamEncoder):
         return []  # No state to flush in custom format
 
     def on_run_finish(self, run_id: str, thread_id: str) -> list[str]:
-        return [_sse_frame("done", {})]
+        usage = self._helper.get_total_usage() if self.include_usage else {}
+        payload = {"usage_metadata": usage} if usage else {}
+        return [_sse_frame("done", payload)]
 
     def on_run_error(self, message: str, code: str | None = None) -> list[str]:
         return [_sse_frame("error", {"error": message})]
@@ -152,6 +155,9 @@ class CustomStreamEncoder(StreamEncoder):
             return []
 
         msg_chunk, metadata = data
+
+        # Record token usage metadata from message chunk if present
+        self._helper.record_usage(msg_chunk)
 
         if LangGraphStreamHelper.is_summarization_chunk(msg_chunk, metadata):
             return []
