@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 import { RagSettingsTab } from "../RagSettingsTab";
 
@@ -105,5 +105,37 @@ describe("RagSettingsTab", () => {
     expect(
       screen.queryByRole("link", { name: /Manage RAG Collections/i }),
     ).not.toBeInTheDocument();
+  });
+
+  it("keeps shared settings open and groups each option with its connector", async () => {
+    render(<RagSettingsTab isAdmin />);
+
+    await screen.findByText("RAG Defaults");
+    const sharedHeading = screen.getByRole("heading", { name: "Shared" });
+    expect(sharedHeading.closest("details")).toBeNull();
+    expect(screen.queryByText("Allowed connector features")).not.toBeInTheDocument();
+
+    const slackSection = screen.getByText("Slack", { selector: "summary" })
+      .closest("details");
+    expect(slackSection).not.toBeNull();
+    expect(
+      within(slackSection as HTMLElement).getByLabelText(
+        "Allow full channel history",
+      ),
+    ).toBeInTheDocument();
+
+    const webexSection = screen.getByText("Webex", { selector: "summary" })
+      .closest("details");
+    expect(webexSection).not.toBeNull();
+    expect(
+      within(webexSection as HTMLElement).getByLabelText("Allow bot messages"),
+    ).toBeInTheDocument();
+  });
+
+  it("shows one Admin badge for the whole RAG page", async () => {
+    render(<RagSettingsTab isAdmin />);
+
+    await screen.findByText("RAG Defaults");
+    expect(screen.getAllByText("Admin")).toHaveLength(1);
   });
 });

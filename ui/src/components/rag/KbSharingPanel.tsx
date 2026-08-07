@@ -14,6 +14,11 @@ import { useToast } from "@/components/ui/toast";
 import { AlertTriangle, Layers3, UserRound } from "lucide-react";
 import React from "react";
 import type { RagCollectionMembershipLabel } from "@/types/rag-collection";
+import type {
+  PendingPublicationRequestView,
+  PublicationRequestDocument,
+} from "@/types/publication-approval";
+import { PendingPublicationRequestNotice } from "./PendingPublicationRequestNotice";
 
 interface KbSharingPanelProps {
   knowledgeBaseId: string;
@@ -36,6 +41,7 @@ interface SharingResponse {
   creator?: SharingIdentity | null;
   search_access?: SharingIdentity[];
   rag_collections?: RagCollectionMembershipLabel[];
+  publication_request?: PendingPublicationRequestView;
 }
 
 interface TeamRow {
@@ -72,6 +78,26 @@ function fallbackSearchAccess(data: SharingResponse): AccessSubjectRef[] {
   ];
 }
 
+function requestedSearchAccess(
+  request: PendingPublicationRequestView | undefined,
+): AccessSubjectRef[] | null {
+  if (!request) return null;
+  const teamSlugs = Array.isArray(request.requested_state.search_team_slugs)
+    ? request.requested_state.search_team_slugs.filter(
+        (value): value is string => typeof value === "string" && Boolean(value.trim()),
+      )
+    : [];
+  const userSubjects = Array.isArray(request.requested_state.search_user_subjects)
+    ? request.requested_state.search_user_subjects.filter(
+        (value): value is string => typeof value === "string" && Boolean(value.trim()),
+      )
+    : [];
+  return [
+    ...teamSlugs.map((id) => ({ kind: "team" as const, id })),
+    ...userSubjects.map((id) => ({ kind: "user" as const, id })),
+  ];
+}
+
 function userOptions(data: SharingResponse): AccessSubjectOption[] {
   const candidates = [data.owner, data.creator, ...(data.search_access ?? [])];
   const bySubject = new Map<string, AccessSubjectOption>();
@@ -95,7 +121,7 @@ function subjectLabel(
   return user?.name || user?.email || "the selected person";
 }
 
-/** Manage management ownership separately from who may search/ingest a KB. */
+/** Manage ownership separately from who may search a KB. */
 export function KbSharingPanel({ knowledgeBaseId, onSaved, onCancel }: KbSharingPanelProps) {
   const { toast } = useToast();
   const [availableTeams, setAvailableTeams] = React.useState<TeamRow[]>([]);
@@ -106,6 +132,7 @@ export function KbSharingPanel({ knowledgeBaseId, onSaved, onCancel }: KbSharing
   const [originalSearchAccess, setOriginalSearchAccess] = React.useState<AccessSubjectRef[]>([]);
   const [creator, setCreator] = React.useState<SharingIdentity | null>(null);
   const [ragCollections, setRagCollections] = React.useState<RagCollectionMembershipLabel[]>([]);
+  const [pendingRequest, setPendingRequest] = React.useState<PendingPublicationRequestView | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -123,7 +150,8 @@ export function KbSharingPanel({ knowledgeBaseId, onSaved, onCancel }: KbSharing
 
   const applySharing = React.useCallback((data: SharingResponse) => {
     const nextOwner = fallbackOwner(data);
-    const nextSearch = fallbackSearchAccess(data);
+    const nextSearch = requestedSearchAccess(data.publication_request) ??
+      fallbackSearchAccess(data);
     setOwner(nextOwner);
     setOriginalOwner(nextOwner);
     setSearchAccess(nextSearch);
@@ -131,6 +159,7 @@ export function KbSharingPanel({ knowledgeBaseId, onSaved, onCancel }: KbSharing
     setKnownUsers(userOptions(data));
     setCreator(data.creator ?? null);
     setRagCollections(data.rag_collections ?? []);
+    setPendingRequest(data.publication_request ?? null);
     setTransferNeedsServerConfirm(false);
   }, []);
 
@@ -138,11 +167,33 @@ export function KbSharingPanel({ knowledgeBaseId, onSaved, onCancel }: KbSharing
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(
-        `/api/rag/kbs/${encodeURIComponent(knowledgeBaseId)}/sharing`,
-      );
+      const [response, pendingResponse] = await Promise.all([
+        fetch(`/api/rag/kbs/${encodeURIComponent(knowledgeBaseId)}/sharing`),
+        fetch(
+          `/api/publication-requests?mine=true&status=pending,applying&kind=rag_datasource&resource_id=${encodeURIComponent(knowledgeBaseId)}&limit=1`,
+        ),
+      ]);
       if (!response.ok) throw new Error(`Failed to load access (${response.status})`);
-      applySharing((await response.json()) as SharingResponse);
+      const sharing = (await response.json()) as SharingResponse;
+      if (pendingResponse.ok) {
+        const body = await pendingResponse.json() as {
+          data?: { requests?: PublicationRequestDocument[] };
+          requests?: PublicationRequestDocument[];
+        };
+        const document = (body.data?.requests ?? body.requests ?? [])[0];
+        if (document && (document.status === "pending" || document.status === "applying")) {
+          sharing.publication_request = {
+            id: document._id,
+            status: document.status,
+            requested_state: document.requested_state,
+            effective_state: document.effective_state,
+            risk_facts: document.risk_facts,
+            requester: document.requester,
+            created_at: document.created_at,
+          };
+        }
+      }
+      applySharing(sharing);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Failed to load access");
     } finally {
@@ -202,8 +253,22 @@ export function KbSharingPanel({ knowledgeBaseId, onSaved, onCancel }: KbSharing
         }
         throw new Error(detail?.error ?? `Failed to save access (${response.status})`);
       }
-      applySharing((await response.json()) as SharingResponse);
-      toast(ownerChanged ? "Datasource ownership and access updated." : "Datasource access updated.", "success");
+      const saved = (await response.json()) as SharingResponse;
+      applySharing(saved);
+      if (saved.publication_request) {
+        toast(
+          "Search access request submitted for approval.",
+          "info",
+          6000,
+        );
+      } else {
+        toast(
+          ownerChanged
+            ? "Datasource Owner and Search access updated."
+            : "Datasource Search access updated.",
+          "success",
+        );
+      }
       await onSaved?.();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Failed to save access");
@@ -228,9 +293,9 @@ export function KbSharingPanel({ knowledgeBaseId, onSaved, onCancel }: KbSharing
     <div className="space-y-5">
       <section className="space-y-2">
         <div>
-          <Label htmlFor="datasource-owner">Management owner</Label>
+          <Label htmlFor="datasource-owner">Owner</Label>
           <p className="mt-1 text-xs text-muted-foreground">
-            One person or team manages settings, reloads, transfers, and deletion.
+            The Owner manages settings, reloads, transfers, and deletion.
           </p>
         </div>
         <AccessSubjectPicker
@@ -242,7 +307,7 @@ export function KbSharingPanel({ knowledgeBaseId, onSaved, onCancel }: KbSharing
           disabled={loading || saving}
           placeholder={loading ? "Loading owner..." : "Select a person or team"}
           searchPlaceholder="Search people or teams..."
-          ariaLabel="Management owner"
+          ariaLabel="Owner"
         />
         {creatorLabel && (
           <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -257,9 +322,12 @@ export function KbSharingPanel({ knowledgeBaseId, onSaved, onCancel }: KbSharing
 
       <section className="space-y-2 border-t border-border/60 pt-4">
         <div>
-          <Label>Search &amp; ingest access</Label>
+          <Label>Search</Label>
           <p className="mt-1 text-xs text-muted-foreground">
-            Selected people and teams can query this data, including through agents, and ingest into it. A personal owner always has access; a team management owner does not unless it is selected below.
+            Search access lets selected people and teams query this datasource
+            through Search, APIs, and agents. It does not let them reload or
+            manage it. A personal Owner always has Search access; a team Owner
+            must be added below.
           </p>
         </div>
         <AccessSubjectMultiPicker
@@ -270,26 +338,39 @@ export function KbSharingPanel({ knowledgeBaseId, onSaved, onCancel }: KbSharing
           teams={teams}
           knownUsers={knownUsers}
           implicitSelections={owner?.kind === "user" ? [owner] : []}
-          implicitSelectionLabel="Access included through personal ownership"
+          implicitSelectionLabel="Included through ownership"
           disabled={loading || saving}
           placeholder={owner?.kind === "user"
-            ? "Only the personal owner can search — add others"
+            ? "Only the Owner can search — add others"
             : "No search access — add people or teams"}
           searchPlaceholder="Search people or teams..."
-          ariaLabel="Search and ingest access"
+          ariaLabel="Search"
           maxSelections={100}
           maxSelectionsByKind={{ team: 50, user: 50 }}
         />
+        {pendingRequest && (
+          <PendingPublicationRequestNotice
+            request={pendingRequest}
+            teams={teams}
+            knownUsers={knownUsers}
+            onWithdrawn={async () => {
+              await fetchSharing();
+              await onSaved?.();
+            }}
+          />
+        )}
       </section>
 
       {ragCollections.length > 0 && (
         <section className="space-y-2 rounded-lg border border-primary/20 bg-primary/5 p-3">
           <div className="flex items-center gap-2 text-sm font-medium">
             <Layers3 className="h-4 w-4 text-primary" />
-            Inherited collection access
+            Search from collections
           </div>
           <p className="text-xs text-muted-foreground">
-            These maintained collections also grant search access. Change their audience or remove this datasource from the collection to revoke it here.
+            These collections also grant Search access. Change a collection&apos;s
+            Search teams or remove this datasource from the collection to revoke
+            that access.
           </p>
           <div className="flex flex-wrap gap-2">
             {ragCollections.map((collection) => (
@@ -308,7 +389,8 @@ export function KbSharingPanel({ knowledgeBaseId, onSaved, onCancel }: KbSharing
         <div className="flex gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-foreground">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
           <p>
-            Ownership will move to {subjectLabel(owner, teams, knownUsers)}. You may lose access after saving unless you also have Search Access.
+            Ownership will move to {subjectLabel(owner, teams, knownUsers)}. You
+            may lose access after saving unless you also have Search access.
           </p>
         </div>
       )}

@@ -225,7 +225,7 @@ describe("adoptConfigImportedRagSources", () => {
         previousGlobalUserAccess: true,
       }),
     );
-    // Adoption assigns who may manage the connector. Search & Ingest is an
+    // Adoption assigns who may manage the connector. Search is an
     // independent policy selected by the migration flow (or changed later in
     // its own sharing dialog), so adoption must not rewrite either query graph.
     expect(mockReconcileKnowledgeBaseRelationships).not.toHaveBeenCalled();

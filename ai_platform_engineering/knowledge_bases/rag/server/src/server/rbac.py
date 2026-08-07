@@ -15,6 +15,7 @@ This module provides:
 
 import os
 import re
+import hashlib
 from typing import List, Dict, Any, Optional
 from fastapi import Depends, HTTPException, Request
 from jwt.exceptions import PyJWTError as JWTError
@@ -581,6 +582,48 @@ async def _openfga_check_org_admin(user_context: UserContext) -> bool:
   return await _openfga_check_object(user_context, "can_manage", "organization", _caipe_org_key())
 
 
+def _publication_policy_prefix(resource_kind: str, resource_id: str) -> str:
+  """Return the request-policy prefix bound to one resource.
+
+  The UI creates a short-lived ``policy#approver`` tuple only while an
+  approval adapter is applying a decision. Binding that policy id to a hash
+  of the datasource prevents it from being replayed against another source.
+  """
+  resource_hash = hashlib.sha256(resource_id.encode("utf-8")).hexdigest()[:24]
+  return f"publication.{resource_kind}.{resource_hash}."
+
+
+async def check_publication_request_apply_access(
+  user_context: UserContext,
+  authorization_policy_id: Optional[str],
+  resource_kind: str,
+  resource_id: str,
+) -> None:
+  """Authorize a narrowly scoped, in-progress publication adapter call.
+
+  Normal source owners and organization admins never need this path. The BFF
+  issues the request-scoped OpenFGA tuple only after atomically moving a
+  pending request to ``applying`` and removes it before completing or retrying
+  the request.
+  """
+  policy_id = authorization_policy_id.strip() if authorization_policy_id else ""
+  expected_prefix = _publication_policy_prefix(resource_kind, resource_id)
+  if (
+    not policy_id.startswith(expected_prefix)
+    or not OPENFGA_ID_PATTERN.fullmatch(policy_id)
+  ):
+    raise HTTPException(status_code=403, detail="A valid publication approval is required")
+  if not _openfga_http_url() or not _openfga_user(user_context):
+    raise HTTPException(status_code=503, detail="Authorization service is temporarily unavailable")
+  try:
+    if await _openfga_check_object(user_context, "can_approve", "policy", policy_id):
+      return
+  except Exception as exc:  # noqa: BLE001 - fail closed on PDP errors
+    logger.warning("OpenFGA publication request check failed: %s", exc)
+    raise HTTPException(status_code=503, detail="Authorization service is temporarily unavailable") from exc
+  raise HTTPException(status_code=403, detail="A valid publication approval is required")
+
+
 async def authorize_org_admin(user_context: UserContext) -> None:
   """Require the OpenFGA organization-management grant.
 
@@ -660,8 +703,8 @@ async def authorize_search(user_context: UserContext) -> None:
 # (`organization#can_ingest`), granted to teams only and only by org admins.
 # This is intentionally separate from per-knowledge_base `ingestor` (which only
 # means "push into KB X"). Creation is authorized iff the caller is a member of
-# an opted-in owning team (or an OpenFGA org admin), and on success the server
-# writes ownership tuples so the owning team immediately gets read/ingest.
+# an opted-in owning team (or an OpenFGA org admin). On success the server
+# writes source-management ownership independently from any Search audience.
 # assisted-by Cursor claude-opus-4.8
 
 
@@ -1074,10 +1117,9 @@ async def check_connector_configuration_access(
 ) -> None:
   """Authorize connector requests that can replace stored source settings.
 
-  Search & Ingest users may run the dedicated reload endpoint, which reuses
-  stored configuration, but cannot submit a new JQL/channel/crawl request for
-  a self-service source. Legacy datasources without an ingestion_source policy
-  retain their historical data_source#can_ingest behavior.
+  Only the source Owner may replace stored connector settings. Legacy
+  datasources without an ingestion_source policy retain their historical
+  data_source#can_ingest fallback.
   """
   await _check_authoritative_ingestion_source_access(
     user_context,
@@ -1214,7 +1256,7 @@ async def write_datasource_ownership(
   manage it, but the team receives no implicit knowledge-base access. A
   personal source is owned by the author in both graphs, so only that user can
   view/manage the configuration and query it. Optional Search Access teams
-  receive knowledge-base read+ingest, but never source or KB management.
+  receive knowledge-base read access, but never ingestion or management.
 
   This projection is required for a direct/legacy create. Callers invoke it
   before persisting datasource metadata or creating an ingestion job, so a
@@ -1280,13 +1322,11 @@ async def write_datasource_ownership(
 
   for team_slug in normalized_shared:
     writes.append({"user": f"team:{team_slug}#member", "relation": "reader", "object": kb_obj})
-    writes.append({"user": f"team:{team_slug}#member", "relation": "ingestor", "object": kb_obj})
   for subject in normalized_users:
-    # Personal owners already receive read+ingest through ``owner``.
+    # Personal owners already receive read through ``owner``.
     if author == f"user:{subject}" and not normalized_owner:
       continue
     writes.append({"user": f"user:{subject}", "relation": "reader", "object": kb_obj})
-    writes.append({"user": f"user:{subject}", "relation": "ingestor", "object": kb_obj})
 
   try:
     await _openfga_write_tuples(writes)

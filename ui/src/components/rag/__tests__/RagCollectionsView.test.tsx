@@ -174,7 +174,7 @@ describe("RagCollectionsView", () => {
     );
   });
 
-  it("describes collection creation in terms of management and search access", async () => {
+  it("describes collection creation in terms of Owner and Search teams", async () => {
     render(<RagCollectionsView />);
 
     fireEvent.click(
@@ -182,7 +182,7 @@ describe("RagCollectionsView", () => {
     );
     expect(
       screen.getByText(
-        "Create a private collection from datasources you manage. An administrator can later give teams permission to manage the collection or search its content.",
+        "Create a private collection from datasources you can manage. You can later request Search access for other teams; administrators can delegate Owner teams.",
       ),
     ).toBeInTheDocument();
   });

@@ -85,13 +85,13 @@ class IngestionTuning(BaseModel):
   search_team_slugs: List[str] = Field(
     default_factory=list,
     description=(
-      "Teams explicitly granted Search & Ingest access to a newly-created "
+      "Teams explicitly granted Search access to a newly-created "
       "datasource. This is independent from source management ownership."
     ),
   )
   search_user_subjects: List[str] = Field(
     default_factory=list,
-    description="Individual user subjects granted Search & Ingest access to the new datasource.",
+    description="Individual user subjects granted Search access to the new datasource.",
   )
   ownership_preprovisioned: bool = Field(
     False,
@@ -146,13 +146,13 @@ class UrlIngestRequest(BaseModel):
   search_team_slugs: List[str] = Field(
     default_factory=list,
     description=(
-      "Teams explicitly granted Search & Ingest access to a newly-created "
+      "Teams explicitly granted Search access to a newly-created "
       "datasource. This is independent from source management ownership."
     ),
   )
   search_user_subjects: List[str] = Field(
     default_factory=list,
-    description="Individual user subjects granted Search & Ingest access to the new datasource.",
+    description="Individual user subjects granted Search access to the new datasource.",
   )
   ownership_preprovisioned: bool = Field(
     False,
@@ -188,6 +188,7 @@ class WebIngestorCommand(str, Enum):
 
 class ConfluenceIngestRequest(IngestionTuning):
   url: str = Field(..., description="Confluence page URL (e.g., 'https://domain.atlassian.net/wiki/spaces/SPACE/pages/PAGE_ID/Title')")
+  name: Optional[str] = Field(None, max_length=120, description="Human-readable name for this data source")
   description: str = Field("", description="Description for this data source")
   get_child_pages: bool = Field(False, description="Whether to ingest direct child pages of this page")
   allowed_title_patterns: Optional[List[str]] = Field(None, description="Regex patterns for page titles to include (whitelist). If set, only pages whose title matches at least one pattern are ingested.")
@@ -195,6 +196,13 @@ class ConfluenceIngestRequest(IngestionTuning):
   # Optional management owner for a new Confluence datasource. None creates a
   # personal source; ignored when appending pages to an existing datasource.
   owner_team_slug: Optional[str] = Field(None, description="Slug of the team that will manage this new data source. None creates a personal source.")
+  preprovisioned_datasource_id: Optional[str] = Field(
+    None,
+    description=(
+      "Datasource ID already provisioned by the application. Supports existing "
+      "legacy space-level sources while new page sources use a page-specific ID."
+    ),
+  )
 
 
 class ConfluenceReloadRequest(BaseModel):

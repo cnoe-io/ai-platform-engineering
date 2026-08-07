@@ -29,6 +29,10 @@ const mockDeleteAllKnowledgeBaseRelationshipTuples = jest.fn();
 const mockGetRagDefaultSearchTeamSlug = jest.fn();
 const mockGetRagIngestorLimits = jest.fn();
 const mockEnforceRagIngestorLimits = jest.fn();
+const mockCreatePublicationRequest = jest.fn();
+const mockRecordAutoApprovedPublication = jest.fn();
+const mockPrepareRagPublication = jest.fn();
+const mockRagPublicationRevision = jest.fn();
 
 jest.mock("@/lib/api-middleware", () => {
   class ApiError extends Error {
@@ -109,6 +113,20 @@ jest.mock("@/lib/rag-ingestor-limits.server", () => ({
     mockEnforceRagIngestorLimits(...args),
 }));
 
+jest.mock("@/lib/publication-approval.server", () => ({
+  createPublicationRequest: (...args: unknown[]) =>
+    mockCreatePublicationRequest(...args),
+  recordAutoApprovedPublication: (...args: unknown[]) =>
+    mockRecordAutoApprovedPublication(...args),
+}));
+
+jest.mock("@/lib/rag-publication-approval.server", () => ({
+  prepareRagPublication: (...args: unknown[]) =>
+    mockPrepareRagPublication(...args),
+  ragPublicationRevision: (...args: unknown[]) =>
+    mockRagPublicationRevision(...args),
+}));
+
 function request(path: string, init?: RequestInit): NextRequest {
   return new NextRequest(new URL(path, "http://localhost:3000"), init);
 }
@@ -138,7 +156,8 @@ function mockDatasourceExists(exists = false) {
     } else if (payload && requestUrl.endsWith("/v1/ingest/confluence/page")) {
       const pageUrl = String(payload.url);
       const spaceKey = pageUrl.match(/\/spaces\/([^/]+)/)?.[1] ?? "";
-      datasourceId = confluenceSpaceSourceId(pageUrl, spaceKey);
+      const pageId = pageUrl.match(/\/pages\/(\d+)/)?.[1];
+      datasourceId = confluenceSpaceSourceId(pageUrl, spaceKey, pageId);
     } else if (payload && requestUrl.endsWith("/v1/ingest/jira/project")) {
       datasourceId = jiraProjectSourceId(
         String(payload.project_key),
@@ -189,6 +208,46 @@ describe("POST /api/rag/sources", () => {
     mockGetRagDefaultSearchTeamSlug.mockResolvedValue(null);
     mockGetRagIngestorLimits.mockResolvedValue({
       shared: { max_search_teams: 50 },
+    });
+    mockPrepareRagPublication.mockImplementation(async (input: {
+      source: { source_id: string; name?: string };
+      requestedSearchTeamSlugs: string[];
+      requestedSearchUserSubjects: string[];
+    }) => {
+      const requestedState = {
+        search_team_slugs: input.requestedSearchTeamSlugs,
+        search_user_subjects: input.requestedSearchUserSubjects,
+      };
+      return {
+        actor: { subject: "alice-sub", email: "alice@example.com" },
+        requesterTeamSlugs: ["platform"],
+        requestedState,
+        plan: {
+          requires_approval: false,
+          reason: "Published immediately within the configured policy.",
+          effective_state: requestedState,
+          risk_facts: {
+            organization_wide: false,
+            target_team_slugs: [],
+            added_team_slugs: input.requestedSearchTeamSlugs,
+            added_user_subjects: input.requestedSearchUserSubjects,
+            reasons: [],
+          },
+          approver_team_slugs: [],
+        },
+        resource: {
+          kind: "rag_datasource",
+          id: input.source.source_id,
+          label: input.source.name ?? input.source.source_id,
+        },
+        resourceRevision: "revision-before-create",
+      };
+    });
+    mockRagPublicationRevision.mockReturnValue("revision-after-create");
+    mockRecordAutoApprovedPublication.mockResolvedValue({ status: "approved" });
+    mockCreatePublicationRequest.mockResolvedValue({
+      _id: "request-primary",
+      status: "pending",
     });
     global.fetch = jest.fn();
     mockDatasourceExists(false);
@@ -476,7 +535,7 @@ describe("POST /api/rag/sources", () => {
         space_key: "ENG",
         start_page_url: "https://example.com/wiki/spaces/ENG/pages/123/start",
       }),
-      "src_confluence___example_com__ENG",
+      "src_confluence___example_com__ENG__123",
     ],
     [
       postBody({ source_type: "jira_project", channel_id: undefined, project_key: "SDPL", source_slug: "eng-board", jql: "project = SDPL" }),
@@ -508,6 +567,42 @@ describe("POST /api/rag/sources", () => {
     } else {
       expect(json.data.source_id).toMatch(/^src_https___example_com_docs_[a-f0-9]{12}$/);
     }
+  });
+
+  it("accepts one Confluence page URL and derives the stored base URL", async () => {
+    const { POST } = await import("../route");
+
+    const response = await POST(
+      request("/api/rag/sources", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          postBody({
+            source_type: "confluence_space",
+            channel_id: undefined,
+            url: "https://example.com/wiki/spaces/ENG/pages/123/start",
+            space_key: "ENG",
+          }),
+        ),
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    expect(sources.insertOne).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source_id: "src_confluence___example_com__ENG__123",
+        confluence_url: "https://example.com/wiki",
+        start_page_url: "https://example.com/wiki/spaces/ENG/pages/123/start",
+      }),
+    );
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/v1/ingest/confluence/page"),
+      expect.objectContaining({
+        body: expect.stringContaining(
+          '"preprovisioned_datasource_id":"src_confluence___example_com__ENG__123"',
+        ),
+      }),
+    );
   });
 
   // T028
@@ -577,6 +672,82 @@ describe("POST /api/rag/sources", () => {
         dataSourceId: "slack-channel-C1234567890",
         parentKnowledgeBaseId: "slack-channel-C1234567890",
       }),
+    );
+  });
+
+  it("starts ingestion immediately while broader Search waits for approval", async () => {
+    mockPrepareRagPublication.mockResolvedValueOnce({
+      actor: { subject: "alice-sub", email: "alice@example.com" },
+      requesterTeamSlugs: ["platform"],
+      requestedState: {
+        search_team_slugs: ["everyone"],
+        search_user_subjects: [],
+      },
+      plan: {
+        requires_approval: true,
+        reason: "Approval required: new organization-wide audience.",
+        effective_state: {
+          search_team_slugs: [],
+          search_user_subjects: [],
+        },
+        risk_facts: {
+          organization_wide: true,
+          target_team_slugs: ["everyone"],
+          added_team_slugs: ["everyone"],
+          added_user_subjects: [],
+          reasons: ["new organization-wide audience"],
+        },
+        approver_team_slugs: ["knowledge-approvers"],
+      },
+      resource: {
+        kind: "rag_datasource",
+        id: "slack-channel-C1234567890",
+        label: "eng-general",
+      },
+      resourceRevision: "revision-effective",
+    });
+    const { POST } = await import("../route");
+
+    const response = await POST(
+      request("/api/rag/sources", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(postBody({ search_team_slugs: ["everyone"] })),
+      }),
+    );
+    const json = await response.json();
+
+    expect(response.status).toBe(201);
+    expect(json.data).toMatchObject({
+      status: "ingesting",
+      ingestion_job_id: "job-1",
+      search_with_teams: [],
+      _publication_request: {
+        id: "request-primary",
+        status: "pending",
+      },
+    });
+    expect(sources.insertOne).toHaveBeenCalledWith(
+      expect.objectContaining({ search_with_teams: [] }),
+    );
+    expect(mockCreatePublicationRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestedState: expect.objectContaining({
+          search_team_slugs: ["everyone"],
+        }),
+        effectiveState: expect.objectContaining({
+          search_team_slugs: [],
+        }),
+      }),
+    );
+    const ingestCall = (global.fetch as jest.Mock).mock.calls.find(
+      ([url, init]) =>
+        String(url).endsWith("/v1/ingest/slack/channel") &&
+        (init as RequestInit | undefined)?.method === "POST",
+    );
+    expect(ingestCall).toBeTruthy();
+    expect(JSON.parse(String(ingestCall?.[1]?.body))).toEqual(
+      expect.objectContaining({ search_team_slugs: [] }),
     );
   });
 

@@ -152,6 +152,20 @@ export interface DiscoveredItem {
   id: string;
   name: string;
   secondary: string;
+  /** True when this item is already owned, even if the viewer cannot manage it. */
+  configured?: boolean;
+  /** Friendly Owner-team label for an already configured item. */
+  configuredBy?: string;
+  /** Saved Owner-team slug for a configured item outside the viewer's list. */
+  configuredTeamSlug?: string;
+  /** Saved agent id for a configured item outside the viewer's list. */
+  configuredAgentId?: string;
+  /** Friendly saved-agent label for a configured item. */
+  configuredAgentName?: string;
+  /** Provider workspace identifier when discovery spans multiple workspaces. */
+  workspaceId?: string;
+  /** Provider-reported audience size used by publication thresholds. */
+  memberCount?: number;
   teamRequired?: boolean;
   selectable?: boolean;
   botId?: string;
@@ -305,12 +319,18 @@ export interface ConnectorAdminAdapter {
       teamRequired?: boolean;
       selectable?: boolean;
       botId?: string;
+      workspaceId?: string;
+      memberCount?: number;
     }>;
     defaultTeamSlug: string;
     defaultAgentId: string;
     createDefaultRoutes: boolean;
     fetchFn: (url: string, init: RequestInit) => Promise<Response>;
-  }) => Promise<{ toastMessage: string }>;
+  }) => Promise<{
+    toastMessage: string;
+    appliedItemIds?: string[];
+    pendingItemIds?: string[];
+  }>;
 
   // ── Configured detail extras ──────────────────────────────────────────
   // Provider-specific controls rendered under shared diagnostics.

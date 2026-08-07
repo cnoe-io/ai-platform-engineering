@@ -1,10 +1,10 @@
 """Tests for per-datasource RBAC on the job family of endpoints.
 
-Job reads and user-initiated termination resolve the job's datasource and
-accept either the independent indexed-content grant or source-management
-grant. Internal progress/status mutation is narrower: only the configured,
-assigned ingestor service may create or update worker jobs. Human Search &
-Ingest access must never permit forging progress, errors, or terminal state.
+Job reads accept either the independent indexed-content grant or source read
+grant. User-initiated termination requires source-management authority.
+Internal progress/status mutation is narrower: only the configured, assigned
+ingestor service may create or update worker jobs. Human Search access must
+never permit lifecycle changes or forging progress, errors, or terminal state.
 
 ``POST /v1/jobs/batch`` is the one exception: it filters the requested
 datasource IDs down to the caller's accessible set instead of 403-ing,
@@ -263,7 +263,7 @@ def test_update_job_allowed_updates_job(client: TestClient, _wire, monkeypatch: 
 def test_terminate_job_denied_returns_403(client: TestClient, _wire, monkeypatch: pytest.MonkeyPatch):
     restapi.app.dependency_overrides[require_authenticated_user] = lambda: _user(role=Role.ADMIN)
     _wire.get_job.return_value = _job(datasource_id="secondary-ds")
-    monkeypatch.setattr(restapi, "check_datasource_or_source_access", _deny(), raising=False)
+    monkeypatch.setattr(restapi, "check_datasource_management_access", _deny(), raising=False)
 
     response = client.post("/v1/job/job-1/terminate")
 
@@ -274,7 +274,7 @@ def test_terminate_job_denied_returns_403(client: TestClient, _wire, monkeypatch
 def test_terminate_job_allowed_terminates(client: TestClient, _wire, monkeypatch: pytest.MonkeyPatch):
     restapi.app.dependency_overrides[require_authenticated_user] = lambda: _user(role=Role.ADMIN)
     _wire.get_job.return_value = _job()
-    monkeypatch.setattr(restapi, "check_datasource_or_source_access", _allow(), raising=False)
+    monkeypatch.setattr(restapi, "check_datasource_management_access", _allow(), raising=False)
     _wire.terminate_job.return_value = True
 
     response = client.post("/v1/job/job-1/terminate")

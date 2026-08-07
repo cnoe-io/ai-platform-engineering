@@ -30,13 +30,27 @@ import {
 } from "@/lib/api-middleware";
 import { getCollection } from "@/lib/mongodb";
 import {
+  createPublicationRequest,
+  invalidatePublicationRequests,
+  invalidatePublicationRequestsReferencingDatasource,
+  publicationActorFromSession,
+  recordAutoApprovedPublication,
+  type RagPublicationState,
+} from "@/lib/publication-approval.server";
+import {
   enforceRagIngestorLimits,
   getRagIngestorLimits,
 } from "@/lib/rag-ingestor-limits.server";
 import {
+  datasourceCollectionAudience,
   removeDatasourceFromAgentPins,
   removeDatasourceFromRagCollections,
 } from "@/lib/rag-collections.server";
+import {
+  changedApprovalGatedSourceUpdate,
+  prepareRagPublication,
+  ragPublicationRevision,
+} from "@/lib/rag-publication-approval.server";
 import {
   deleteAllDataSourceRelationshipTuples,
   deleteAllIngestionSourceRelationshipTuples,
@@ -504,10 +518,15 @@ function previousRagDatasourceConfig(
   const sourceRecord = source as unknown as Record<string, unknown>;
   return Object.fromEntries(
     Object.keys(updateData)
-      .filter(
-        (key) => RAG_SYNC_FIELDS.has(key) && sourceRecord[key] !== undefined,
-      )
-      .map((key) => [key, sourceRecord[key]]),
+      .filter((key) => RAG_SYNC_FIELDS.has(key))
+      .map((key) => [
+        key,
+        sourceRecord[key] === undefined
+          ? key === "description"
+            ? ""
+            : null
+          : sourceRecord[key],
+      ]),
   );
 }
 
@@ -612,7 +631,7 @@ export const PATCH = withErrorHandler(
     }
     if (Object.prototype.hasOwnProperty.call(body, "shared_with_teams")) {
       throw new ApiError(
-        "Management sharing is not supported. Select one Owner Team and use search_team_slugs for Search Access.",
+        "A datasource has one Owner. Add other people or teams under Search.",
         400,
         "MANAGEMENT_SHARING_NOT_SUPPORTED",
       );
@@ -771,7 +790,7 @@ export const PATCH = withErrorHandler(
       });
       if (!canTransfer) {
         throw new ApiError(
-          "Only a current source manager or organization admin can transfer this source.",
+          "Only the current Owner or an organization admin can transfer this source.",
           403,
           "TRANSFER_FORBIDDEN",
         );
@@ -820,6 +839,76 @@ export const PATCH = withErrorHandler(
       updateData.owner_subject = nextOwnerSubject;
     }
 
+    const gatedSourceUpdate = changedApprovalGatedSourceUpdate(source, updateData);
+    const materialChange = ownerChanged || Object.keys(gatedSourceUpdate).length > 0;
+    const collectionAudience = materialChange
+      ? await datasourceCollectionAudience(sourceId, {
+          ownerTeamSlug: previousOwnerTeamSlug,
+          ownerSubject: previousOwnerSubject,
+        })
+      : {
+          collectionIds: [],
+          readerTeamSlugs: [],
+          hasExternalPrincipal: false,
+          organizationWide: false,
+        };
+    const publicationSource = {
+      ...source,
+      ...gatedSourceUpdate,
+    } as IngestionSourceConfig;
+    const publication = await prepareRagPublication({
+      session,
+      source: publicationSource,
+      currentSearchTeamSlugs: previousSearchTeamSlugs,
+      currentSearchUserSubjects: previousSearchUserSubjects,
+      requestedSearchTeamSlugs: nextSearchTeamSlugs,
+      requestedSearchUserSubjects: nextSearchUserSubjects,
+      sourceUpdate: Object.keys(gatedSourceUpdate).length > 0 ? gatedSourceUpdate : undefined,
+      ownerUpdate: ownerChanged
+        ? {
+            owner_team_slug: nextOwnerTeamSlug,
+            owner_subject: nextOwnerSubject,
+          }
+        : undefined,
+      materialChange,
+      externalAudienceTeamSlugs: collectionAudience.readerTeamSlugs,
+      externalBroadAudience: collectionAudience.hasExternalPrincipal,
+      externalOrganizationWide: collectionAudience.organizationWide,
+    });
+    await invalidatePublicationRequests(
+      publication.resource,
+      publication.actor,
+      "A newer datasource change replaced this publication proposal.",
+    );
+    const effectiveSearch = publication.plan.effective_state as unknown as RagPublicationState;
+    const effectiveSearchTeamSlugs = effectiveSearch.search_team_slugs;
+    const effectiveSearchUserSubjects = effectiveSearch.search_user_subjects;
+    if (publication.plan.requires_approval) {
+      // Keep the currently published source configuration active until the
+      // approver adapter applies the requested material change.
+      for (const field of Object.keys(gatedSourceUpdate)) delete updateData[field];
+    }
+    const ownerChangeDeferred = publication.plan.requires_approval && ownerChanged;
+    if (ownerChangeDeferred) {
+      delete updateData.owner_team_slug;
+      delete updateData.owner_subject;
+    }
+    const appliedOwnerTeamSlug = ownerChangeDeferred
+      ? previousOwnerTeamSlug
+      : nextOwnerTeamSlug;
+    const appliedOwnerSubject = ownerChangeDeferred
+      ? previousOwnerSubject
+      : nextOwnerSubject;
+    const ownerChangeApplied =
+      appliedOwnerTeamSlug !== previousOwnerTeamSlug ||
+      appliedOwnerSubject !== previousOwnerSubject;
+    if (searchTeamsWereRequested) {
+      updateData.search_with_teams = effectiveSearchTeamSlugs;
+    }
+    if (searchUsersWereRequested) {
+      updateData.search_with_users = effectiveSearchUserSubjects;
+    }
+
     const nextSharedTeamSlugs: string[] = [];
     if (previousSharedTeamSlugs.length > 0) {
       updateData.shared_with_teams = [];
@@ -831,10 +920,10 @@ export const PATCH = withErrorHandler(
       await getCollection<IngestionSourceConfig>(COLLECTION_NAME);
     const mongoUpdate: Record<string, unknown> = { $set: updateData };
     const unsetFields: Record<string, string> = {};
-    if (ownerChanged && nextOwnerTeamSlug && source.owner_subject) {
+    if (ownerChangeApplied && appliedOwnerTeamSlug && source.owner_subject) {
       unsetFields.owner_subject = "";
     }
-    if (ownerChanged && nextOwnerSubject && source.owner_team_slug) {
+    if (ownerChangeApplied && appliedOwnerSubject && source.owner_team_slug) {
       unsetFields.owner_team_slug = "";
     }
     if (searchTeamsWereRequested && source.search_owner_team_slug) {
@@ -848,14 +937,14 @@ export const PATCH = withErrorHandler(
       RAG_SYNC_FIELDS.has(key),
     );
     const managementPolicyChanged =
-      ownerChanged || previousSharedTeamSlugs.length > 0;
+      ownerChangeApplied || previousSharedTeamSlugs.length > 0;
     const previousPersonalSearchOwner = previousOwnerSubject;
-    const nextPersonalSearchOwner = nextOwnerSubject;
+    const nextPersonalSearchOwner = appliedOwnerSubject;
     const personalSearchOwnershipChanged =
       previousPersonalSearchOwner !== nextPersonalSearchOwner;
     const searchPolicyChanged =
-      searchTeamsWereRequested ||
-      searchUsersWereRequested ||
+      effectiveSearchTeamSlugs.join("\u0000") !== previousSearchTeamSlugs.join("\u0000") ||
+      effectiveSearchUserSubjects.join("\u0000") !== previousSearchUserSubjects.join("\u0000") ||
       personalSearchOwnershipChanged;
     let ragAccessPolicySynced = false;
     let managementPolicyWriteStarted = false;
@@ -867,24 +956,24 @@ export const PATCH = withErrorHandler(
       // Persist access metadata while the caller still has the old management
       // grant. The policy transfer below can deliberately remove that grant.
       if (
-        ownerChanged ||
+        ownerChangeApplied ||
         searchTeamsWereRequested ||
         searchUsersWereRequested
       ) {
         ragAccessPolicySynced = await syncRagDatasourceAccessPolicy(
           sourceId,
           {
-            ...(ownerChanged
+            ...(ownerChangeApplied
               ? {
-                  ownerTeamSlug: nextOwnerTeamSlug,
-                  ownerSubject: nextOwnerSubject,
+                  ownerTeamSlug: appliedOwnerTeamSlug,
+                  ownerSubject: appliedOwnerSubject,
                 }
               : {}),
             ...(searchTeamsWereRequested
-              ? { searchWithTeams: nextSearchTeamSlugs }
+              ? { searchWithTeams: effectiveSearchTeamSlugs }
               : {}),
             ...(searchUsersWereRequested
-              ? { searchWithUsers: nextSearchUserSubjects }
+              ? { searchWithUsers: effectiveSearchUserSubjects }
               : {}),
           },
           session.accessToken,
@@ -895,7 +984,7 @@ export const PATCH = withErrorHandler(
       // also revokes the implicit personal query owner below.
       if (managementPolicyChanged) {
         managementPolicyWriteStarted = true;
-        const previousOwnerForRevoke = ownerChanged
+        const previousOwnerForRevoke = ownerChangeApplied
           ? previousOwnerTeamSlug
           : undefined;
         await reconcileIngestionSourceRelationships({
@@ -903,9 +992,9 @@ export const PATCH = withErrorHandler(
           creatorSubject: source.creator_subject,
           // A personal source is owned by its creator. An explicit transfer
           // ends that grant; creator provenance alone never carries authority.
-          ownerSubject: nextOwnerSubject,
-          previousOwnerSubject: ownerChanged ? previousOwnerSubject : undefined,
-          ownerTeamSlug: nextOwnerTeamSlug,
+          ownerSubject: appliedOwnerSubject,
+          previousOwnerSubject: ownerChangeApplied ? previousOwnerSubject : undefined,
+          ownerTeamSlug: appliedOwnerTeamSlug,
           previousOwnerTeamSlug: previousOwnerForRevoke,
           nextSharedTeamSlugs,
           previousSharedTeamSlugs,
@@ -925,9 +1014,9 @@ export const PATCH = withErrorHandler(
             : undefined,
           ownerTeamSlug: null,
           previousOwnerTeamSlug: source.search_owner_team_slug,
-          nextSharedTeamSlugs: nextSearchTeamSlugs,
+          nextSharedTeamSlugs: effectiveSearchTeamSlugs,
           previousSharedTeamSlugs: previousSearchTeamSlugs,
-          nextSharedUserSubjects: nextSearchUserSubjects.filter(
+          nextSharedUserSubjects: effectiveSearchUserSubjects.filter(
             (subject) => subject !== nextPersonalSearchOwner,
           ),
           previousSharedUserSubjects: previousSearchUserSubjects,
@@ -961,8 +1050,11 @@ export const PATCH = withErrorHandler(
             sourceId,
             creatorSubject: source.creator_subject,
             ownerSubject: previousOwnerSubject,
+            previousOwnerSubject: ownerChangeApplied
+              ? appliedOwnerSubject
+              : undefined,
             ownerTeamSlug: previousOwnerTeamSlug,
-            previousOwnerTeamSlug: ownerChanged ? nextOwnerTeamSlug : undefined,
+            previousOwnerTeamSlug: ownerChangeApplied ? appliedOwnerTeamSlug : undefined,
             nextSharedTeamSlugs: previousSharedTeamSlugs,
             previousSharedTeamSlugs: nextSharedTeamSlugs,
             globalUserAccess: source.visibility === "global",
@@ -986,9 +1078,9 @@ export const PATCH = withErrorHandler(
               : undefined,
             ownerTeamSlug: source.search_owner_team_slug,
             nextSharedTeamSlugs: previousSearchTeamSlugs,
-            previousSharedTeamSlugs: nextSearchTeamSlugs,
+            previousSharedTeamSlugs: effectiveSearchTeamSlugs,
             nextSharedUserSubjects: previousSearchUserSubjects,
-            previousSharedUserSubjects: nextSearchUserSubjects,
+            previousSharedUserSubjects: effectiveSearchUserSubjects,
           });
           await reconcileDataSourceRelationships({
             dataSourceId: sourceId,
@@ -1020,7 +1112,7 @@ export const PATCH = withErrorHandler(
           await syncRagDatasourceAccessPolicy(
             sourceId,
             {
-              ...(ownerChanged
+              ...(ownerChangeApplied
                 ? {
                     ownerTeamSlug: previousOwnerTeamSlug,
                     ownerSubject: previousOwnerSubject,
@@ -1050,7 +1142,51 @@ export const PATCH = withErrorHandler(
       );
     }
 
-    return successResponse(updated);
+    let publicationRequest: Awaited<ReturnType<typeof createPublicationRequest>> | null = null;
+    if (publication.plan.requires_approval) {
+      publicationRequest = await createPublicationRequest({
+        resource: publication.resource,
+        resourceRevision: ragPublicationRevision(updated, effectiveSearch),
+        requestedState: publication.requestedState as unknown as Record<string, unknown>,
+        effectiveState: effectiveSearch as unknown as Record<string, unknown>,
+        riskFacts: publication.plan.risk_facts,
+        requester: publication.actor,
+        requesterTeamSlugs: publication.requesterTeamSlugs,
+        approverTeamSlugs: publication.plan.approver_team_slugs,
+        approverUserSubjects: publication.plan.approver_user_subjects,
+      });
+    } else if (
+      searchTeamsWereRequested ||
+      searchUsersWereRequested ||
+      publication.plan.risk_facts.added_team_slugs?.length ||
+      publication.plan.risk_facts.added_user_subjects?.length ||
+      publication.plan.risk_facts.material_change
+    ) {
+      await recordAutoApprovedPublication({
+        resource: publication.resource,
+        resourceRevision: ragPublicationRevision(updated, effectiveSearch),
+        requestedState: publication.requestedState as unknown as Record<string, unknown>,
+        effectiveState: effectiveSearch as unknown as Record<string, unknown>,
+        riskFacts: publication.plan.risk_facts,
+        requester: publication.actor,
+        requesterTeamSlugs: publication.requesterTeamSlugs,
+        approverTeamSlugs: publication.plan.approver_team_slugs,
+        approverUserSubjects: publication.plan.approver_user_subjects,
+      });
+    }
+
+    return successResponse({
+      ...updated,
+      ...(publicationRequest
+        ? {
+            _publication_request: {
+              id: publicationRequest._id,
+              status: publicationRequest.status,
+              reason: publication.plan.reason,
+            },
+          }
+        : {}),
+    });
   },
 );
 
@@ -1083,6 +1219,22 @@ export const DELETE = withErrorHandler(
         "FORBIDDEN_MANAGE",
       );
     });
+
+    const publicationActor = publicationActorFromSession(session);
+    await invalidatePublicationRequests(
+      {
+        kind: "rag_datasource",
+        id: sourceId,
+        label: source.name || sourceId,
+      },
+      publicationActor,
+      "The datasource was deleted before this proposal was approved.",
+    );
+    await invalidatePublicationRequestsReferencingDatasource(
+      sourceId,
+      publicationActor,
+      "A datasource referenced by this collection proposal was deleted.",
+    );
 
     const searchParams = new URL(request.url).searchParams;
     const purgeData = searchParams.get("purge_data") === "true";

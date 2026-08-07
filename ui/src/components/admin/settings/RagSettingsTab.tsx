@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { ImportRagSourcesFromConfigCard } from "@/components/admin/settings/ImportRagSourcesFromConfigCard";
 import { RagIngestorLimitsEditor } from "@/components/admin/settings/RagIngestorLimitsEditor";
+import { AdminBadge } from "@/components/admin/shared/AdminBadge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -200,6 +201,10 @@ export function RagSettingsTab({
 
   return (
     <div className="space-y-4">
+      <div className="flex items-center gap-2">
+        <h2 className="text-lg font-semibold">RAG settings</h2>
+        <AdminBadge />
+      </div>
       {error && (
         <p role="alert" className="text-sm text-destructive">
           {error}
@@ -212,15 +217,14 @@ export function RagSettingsTab({
             RAG Defaults
           </CardTitle>
           <CardDescription>
-            Choose the search team preselected when a user creates a data
-            source. Users can clear the selection before ingestion to keep a
-            source personal.
+            Choose who gets Search access by default. Users can remove the
+            default to keep a datasource personal.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="rag-default-search-team">
-              Default Search Access
+            <Label htmlFor="rag-default-search-team" className="block">
+              Default Search team
             </Label>
             <TeamPicker
               id="rag-default-search-team"
@@ -244,9 +248,7 @@ export function RagSettingsTab({
               }
             />
             <p className="text-xs text-muted-foreground">
-              This grants no management rights. It only preselects a team whose
-              members may query the new source through RAG and agents. The
-              source creator can remove the default before saving.
+              Members can search new datasources without becoming Owners.
             </p>
           </div>
 
@@ -290,9 +292,7 @@ export function RagSettingsTab({
             Ingestor Policies
           </CardTitle>
           <CardDescription>
-            Govern self-service source creation, previews, edits, and reloads.
-            These limits can narrow the deployment&apos;s hard safety ceilings
-            but cannot raise them.
+            Set limits for datasources created by users.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

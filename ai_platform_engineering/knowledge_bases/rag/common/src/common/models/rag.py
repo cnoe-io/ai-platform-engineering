@@ -207,11 +207,11 @@ class DataSourceInfo(OwnedResourceMixin, BaseModel):
   reload_interval: int = Field(default=DEFAULT_RELOAD_INTERVAL, description="Reload interval in seconds. Used to calculate fresh_until and next reload time.")
   search_with_teams: List[str] = Field(
     default_factory=list,
-    description="Teams explicitly granted Search & Ingest access, independent from the management owner team.",
+    description="Teams explicitly granted Search access, independent from the management owner team.",
   )
   search_with_users: List[str] = Field(
     default_factory=list,
-    description="User subjects explicitly granted Search & Ingest access, independent from the management owner.",
+    description="User subjects explicitly granted Search access, independent from the management owner.",
   )
   metadata: Optional[Dict[str, Any]] = Field(None, description="Additional metadata")
 

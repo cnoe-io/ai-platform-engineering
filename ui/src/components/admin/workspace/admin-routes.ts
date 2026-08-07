@@ -52,6 +52,7 @@ export type AdminDestinationId =
   | "access-before-sign-in"
   | "ai-review"
   | "action-audit"
+  | "approvals"
   | "access-explorer"
   | "rbac-self-check"
   | "audit-logs"
@@ -284,6 +285,15 @@ export const ADMIN_CATEGORIES: AdminCategoryDefinition[] = [
         description: "Review authorization mutations and administrative actions.",
         icon: Shield,
         gateKey: "action_audit",
+        subgroup: "Authorization",
+      },
+      {
+        id: "approvals",
+        href: "/admin/security/approvals",
+        label: "Approvals",
+        description: "Review publication requests and your request history.",
+        icon: ShieldCheck,
+        gateKey: "approvals",
         subgroup: "Authorization",
       },
       {

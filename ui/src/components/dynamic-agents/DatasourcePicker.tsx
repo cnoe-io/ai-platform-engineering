@@ -267,8 +267,8 @@ export function DatasourcePicker({
         <h3 className="text-base font-semibold">Agent knowledge</h3>
         <p className="mt-1 text-sm text-muted-foreground">
           Collections are the easiest way to keep an agent current as their
-          maintainers add or remove sources. Add individual datasources when you
-          need a precise pin. Every query still respects the caller&apos;s
+          Owners add or remove datasources. Add individual datasources when you
+          need a precise pin. Every query still respects the caller&apos;s Search
           access.
         </p>
       </div>

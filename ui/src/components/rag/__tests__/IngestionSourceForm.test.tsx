@@ -6,6 +6,10 @@ import { render, screen, waitFor, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { IngestionSourceConfig } from "@/types/ingestion-source";
 
+jest.mock("@/components/ui/toast", () => ({
+  useToast: () => ({ toast: jest.fn() }),
+}));
+
 // Keep the test focused on form semantics instead of picker popovers.
 jest.mock("@/components/ui/team-picker", () => ({
   TeamPicker: ({
@@ -116,7 +120,7 @@ describe("<IngestionSourceForm /> — create", () => {
     await waitFor(() => expect(createBtn).not.toBeDisabled());
   });
 
-  it("offers only data-source-author teams as management owners on create", async () => {
+  it("offers only data-source-author teams as Owners on create", async () => {
     render(<IngestionSourceForm open onClose={jest.fn()} onSave={jest.fn()} initial={null} />);
 
     await waitFor(() =>
@@ -191,8 +195,46 @@ describe("<IngestionSourceForm /> — create", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/source type/i)).not.toBeInTheDocument();
     expect(screen.getByLabelText(/space key/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^url/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/starting page url/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/confluence url/i)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /ingest source/i })).toBeInTheDocument();
     expect(screen.getByText(/starts ingestion immediately/i)).toBeInTheDocument();
+  });
+
+  it("derives the Confluence base URL and page ID from one page URL", async () => {
+    const user = userEvent.setup();
+    const onSave = jest.fn().mockResolvedValue(undefined);
+    render(
+      <IngestionSourceForm
+        open
+        displayMode="inline"
+        onClose={jest.fn()}
+        onSave={onSave}
+        initial={null}
+        defaultSourceType="confluence_space"
+      />,
+    );
+
+    await user.type(screen.getByLabelText(/^name/i), "Example pages");
+    await user.type(
+      screen.getByLabelText(/^url/i),
+      "https://example.atlassian.net/wiki/spaces/ENG/pages/123/Overview",
+    );
+    await user.type(screen.getByLabelText(/space key/i), "ENG");
+    await user.click(screen.getByRole("button", { name: /ingest source/i }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source_type: "confluence_space",
+        url: "https://example.atlassian.net/wiki/spaces/ENG/pages/123/Overview",
+        confluence_url: "https://example.atlassian.net/wiki",
+        space_key: "ENG",
+        start_page_url:
+          "https://example.atlassian.net/wiki/spaces/ENG/pages/123/Overview",
+      }),
+    );
   });
 
   it("creates web sources with the existing sitemap crawl defaults", async () => {
@@ -320,5 +362,47 @@ describe("<IngestionSourceForm /> — edit", () => {
     expect(payload).not.toHaveProperty("source_type");
     expect(payload).not.toHaveProperty("channel_id");
     expect(payload).not.toHaveProperty("source_id");
+  });
+
+  it("keeps requested Search access selected while approval is pending", async () => {
+    const user = userEvent.setup();
+    const onSave = jest.fn().mockResolvedValue(undefined);
+    render(
+      <IngestionSourceForm
+        open
+        onClose={jest.fn()}
+        onSave={onSave}
+        initial={initial}
+        pendingPublicationRequest={{
+          id: "request-primary",
+          status: "pending",
+          requested_state: {
+            search_team_slugs: ["everyone"],
+            search_user_subjects: [],
+          },
+          effective_state: {
+            search_team_slugs: [],
+            search_user_subjects: [],
+          },
+          risk_facts: {
+            organization_wide: true,
+            target_team_slugs: ["everyone"],
+            added_team_slugs: ["everyone"],
+            reasons: ["new organization-wide audience"],
+          },
+          requester: { subject: "test-user" },
+          created_at: "2026-01-01T00:00:00.000Z",
+        }}
+      />,
+    );
+
+    expect(screen.getByTestId("mock-search-teams")).toHaveValue("everyone");
+    expect(screen.getByText("Waiting for approval")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /save changes/i }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({ search_team_slugs: ["everyone"] }),
+    );
   });
 });

@@ -36,6 +36,7 @@ TeamPicker,
 type TeamPickerOption,
 } from "@/components/ui/team-picker";
 import { RagApiError } from "@/lib/rag-api";
+import { parseConfluencePageUrl } from "@/lib/confluence-url";
 import {
 DEFAULT_RAG_INGESTOR_LIMITS,
 normalizeRagIngestorLimits,
@@ -47,8 +48,11 @@ IngestionSourceConfig,
 IngestionSourceType,
 WebCrawlMode,
 } from "@/types/ingestion-source";
+import type { PendingPublicationRequestView } from "@/types/publication-approval";
 import { Eye, Loader2 } from "lucide-react";
 import { useEffect,useState } from "react";
+import { DatasourceAccessFields } from "./DatasourceAccessFields";
+import { PendingPublicationRequestNotice } from "./PendingPublicationRequestNotice";
 
 const DEFAULT_CHUNK_SIZE = 10000;
 const DEFAULT_CHUNK_OVERLAP = 2000;
@@ -56,7 +60,7 @@ const DEFAULT_RELOAD_INTERVAL = 86400;
 
 const SOURCE_TYPE_OPTIONS: Array<{ value: IngestionSourceType; label: string }> = [
   { value: "slack_channel", label: "Slack Channel" },
-  { value: "confluence_space", label: "Confluence Space" },
+  { value: "confluence_space", label: "Confluence" },
   { value: "jira_project", label: "Jira Project" },
   { value: "web_url", label: "Web URL" },
   { value: "webex_space", label: "Webex Space" },
@@ -339,6 +343,25 @@ function valuesFromSource(source: IngestionSourceConfig): IngestionSourceFormVal
   };
 }
 
+function valuesFromSourceWithPendingSearch(
+  source: IngestionSourceConfig,
+  request?: PendingPublicationRequestView | null,
+): IngestionSourceFormValues {
+  const values = valuesFromSource(source);
+  if (!request) return values;
+  if (Array.isArray(request.requested_state.search_team_slugs)) {
+    values.search_team_slugs = request.requested_state.search_team_slugs.filter(
+      (value): value is string => typeof value === "string" && Boolean(value.trim()),
+    );
+  }
+  if (Array.isArray(request.requested_state.search_user_subjects)) {
+    values.search_user_subjects = request.requested_state.search_user_subjects.filter(
+      (value): value is string => typeof value === "string" && Boolean(value.trim()),
+    );
+  }
+  return values;
+}
+
 /**
  * Payload sent to POST/PATCH — only fields relevant to the action + type.
  * `owner_team_slug`/`confirm_not_member` are added separately by the caller
@@ -401,7 +424,10 @@ function buildPayload(values: IngestionSourceFormValues, isEdit: boolean): Recor
       create.include_bots = values.include_bots;
       break;
     case "confluence_space":
-      create.confluence_url = values.confluence_url.trim();
+      create.url = values.start_page_url.trim();
+      create.confluence_url =
+        parseConfluencePageUrl(values.start_page_url)?.baseUrl ??
+        values.confluence_url.trim();
       create.space_key = values.space_key.trim();
       create.start_page_url = values.start_page_url.trim();
       create.get_child_pages = values.get_child_pages;
@@ -479,10 +505,10 @@ function identityFieldsValid(values: IngestionSourceFormValues): boolean {
     case "slack_channel":
       return values.channel_id.trim().length > 0;
     case "confluence_space":
-      return (
-        values.confluence_url.trim().length > 0 &&
-        values.space_key.trim().length > 0 &&
-        values.start_page_url.trim().length > 0
+      return Boolean(
+        values.space_key.trim() &&
+          parseConfluencePageUrl(values.start_page_url)?.spaceKey ===
+            values.space_key.trim(),
       );
     case "jira_project":
       return values.project_key.trim().length > 0 && values.source_slug.trim().length > 0;
@@ -520,6 +546,7 @@ const PREVIEW_PATHS: Partial<Record<IngestionSourceType, string>> = {
 function buildPreviewPayload(
   values: IngestionSourceFormValues,
   isEdit: boolean,
+  sourceId?: string,
 ): Record<string, unknown> {
   const common = {
     description: values.description.trim(),
@@ -542,7 +569,11 @@ function buildPreviewPayload(
     case "confluence_space":
       return {
         ...common,
+        name: values.name.trim(),
         url: values.start_page_url.trim(),
+        ...(isEdit && sourceId
+          ? { preprovisioned_datasource_id: sourceId }
+          : {}),
         get_child_pages: values.get_child_pages,
         allowed_title_patterns: lineList(values.allowed_title_patterns),
         denied_title_patterns: lineList(values.denied_title_patterns),
@@ -568,6 +599,8 @@ export interface IngestionSourceFormProps {
   onClose: () => void;
   onSave: (payload: Record<string, unknown>) => Promise<void>;
   initial?: IngestionSourceConfig | null;
+  pendingPublicationRequest?: PendingPublicationRequestView | null;
+  onPublicationRequestWithdrawn?: () => void | Promise<void>;
   defaultSourceType?: IngestionSourceType;
   displayMode?: "dialog" | "inline";
 }
@@ -577,12 +610,16 @@ export function IngestionSourceForm({
   onClose,
   onSave,
   initial,
+  pendingPublicationRequest,
+  onPublicationRequestWithdrawn,
   defaultSourceType,
   displayMode = "dialog",
 }: IngestionSourceFormProps) {
   const isEdit = Boolean(initial);
   const [values, setValues] = useState<IngestionSourceFormValues>(
-    initial ? valuesFromSource(initial) : emptyValues(defaultSourceType),
+    initial
+      ? valuesFromSourceWithPendingSearch(initial, pendingPublicationRequest)
+      : emptyValues(defaultSourceType),
   );
   const [availableOwnerTeams, setAvailableOwnerTeams] = useState<TeamRow[]>([]);
   const [availableSearchTeams, setAvailableSearchTeams] = useState<TeamRow[]>([]);
@@ -603,7 +640,9 @@ export function IngestionSourceForm({
 
   useEffect(() => {
     if (!open) return;
-    setValues(initial ? valuesFromSource(initial) : emptyValues(defaultSourceType));
+    setValues(initial
+      ? valuesFromSourceWithPendingSearch(initial, pendingPublicationRequest)
+      : emptyValues(defaultSourceType));
     setSaving(false);
     setPreviewing(false);
     setPreviewResult(null);
@@ -665,7 +704,7 @@ export function IngestionSourceForm({
         }
       })
       .catch(() => {});
-  }, [open, initial, defaultSourceType]);
+  }, [open, initial, pendingPublicationRequest, defaultSourceType]);
 
   const canSave =
     values.name.trim().length > 0 &&
@@ -739,7 +778,9 @@ export function IngestionSourceForm({
       const response = await fetch(path, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(buildPreviewPayload(values, isEdit)),
+        body: JSON.stringify(
+          buildPreviewPayload(values, isEdit, initial?.source_id),
+        ),
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) {
@@ -937,16 +978,27 @@ export function IngestionSourceForm({
           {values.source_type === "confluence_space" && (
             <>
               <div className="space-y-1.5">
-                <Label htmlFor="confluence-url">
-                  Confluence URL {!isEdit && <span className="text-destructive">*</span>}
+                <Label htmlFor="start-page-url">
+                  URL {!isEdit && <span className="text-destructive">*</span>}
                 </Label>
                 <Input
-                  id="confluence-url"
-                  value={values.confluence_url}
-                  onChange={(e) => setValues((v) => ({ ...v, confluence_url: e.target.value }))}
+                  id="start-page-url"
+                  value={values.start_page_url}
+                  onChange={(e) => {
+                    const startPageUrl = e.target.value;
+                    const parsed = parseConfluencePageUrl(startPageUrl);
+                    setValues((current) => ({
+                      ...current,
+                      start_page_url: startPageUrl,
+                      confluence_url: parsed?.baseUrl ?? "",
+                    }));
+                  }}
                   disabled={isEdit}
-                  placeholder="https://example.atlassian.net/wiki"
+                  placeholder="https://example.atlassian.net/wiki/spaces/ENG/pages/123/Overview"
                 />
+                <p className="text-xs text-muted-foreground">
+                  Paste the page URL. Its page ID is detected automatically.
+                </p>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="space-key">
@@ -959,22 +1011,6 @@ export function IngestionSourceForm({
                   disabled={isEdit}
                   placeholder="e.g. ENG"
                 />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="start-page-url">
-                  Starting Page URL {!isEdit && <span className="text-destructive">*</span>}
-                </Label>
-                <Input
-                  id="start-page-url"
-                  value={values.start_page_url}
-                  onChange={(e) => setValues((v) => ({ ...v, start_page_url: e.target.value }))}
-                  disabled={isEdit}
-                  placeholder="https://example.atlassian.net/wiki/spaces/ENG/pages/123/Overview"
-                />
-                <p className="text-xs text-muted-foreground">
-                  Initial ingestion starts at this page. The space URL and key remain the
-                  stable source identity.
-                </p>
               </div>
               <BoolToggle
                 label="Include child pages"
@@ -1404,53 +1440,55 @@ export function IngestionSourceForm({
             </div>
           )}
 
-          {/* Chunking / reload settings */}
-          <div className="grid grid-cols-3 gap-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="chunk-size">Chunk Size</Label>
-              <Input
-                id="chunk-size"
-                type="number"
-                min={100}
-                max={ingestorLimits.shared.max_chunk_size}
-                value={values.default_chunk_size}
-                onChange={(e) =>
-                  setValues((v) => ({ ...v, default_chunk_size: Number(e.target.value) }))
-                }
-              />
+          <details className="rounded-lg border border-border/60 p-4">
+            <summary className="cursor-pointer text-sm font-medium">
+              Advanced settings
+            </summary>
+            <div className="mt-4 grid gap-3 sm:grid-cols-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="chunk-size">Chunk Size</Label>
+                <Input
+                  id="chunk-size"
+                  type="number"
+                  min={100}
+                  max={ingestorLimits.shared.max_chunk_size}
+                  value={values.default_chunk_size}
+                  onChange={(e) =>
+                    setValues((v) => ({ ...v, default_chunk_size: Number(e.target.value) }))
+                  }
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="chunk-overlap">Chunk Overlap</Label>
+                <Input
+                  id="chunk-overlap"
+                  type="number"
+                  min={0}
+                  max={ingestorLimits.shared.max_chunk_overlap}
+                  value={values.default_chunk_overlap}
+                  onChange={(e) =>
+                    setValues((v) => ({ ...v, default_chunk_overlap: Number(e.target.value) }))
+                  }
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="reload-interval">Reload Interval (s)</Label>
+                <Input
+                  id="reload-interval"
+                  type="number"
+                  min={ingestorLimits.shared.min_reload_interval_seconds}
+                  max={ingestorLimits.shared.max_reload_interval_seconds}
+                  value={values.reload_interval}
+                  onChange={(e) =>
+                    setValues((v) => ({ ...v, reload_interval: Number(e.target.value) }))
+                  }
+                />
+              </div>
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="chunk-overlap">Chunk Overlap</Label>
-              <Input
-                id="chunk-overlap"
-                type="number"
-                min={0}
-                max={ingestorLimits.shared.max_chunk_overlap}
-                value={values.default_chunk_overlap}
-                onChange={(e) =>
-                  setValues((v) => ({ ...v, default_chunk_overlap: Number(e.target.value) }))
-                }
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="reload-interval">Reload Interval (s)</Label>
-              <Input
-                id="reload-interval"
-                type="number"
-                min={ingestorLimits.shared.min_reload_interval_seconds}
-                max={ingestorLimits.shared.max_reload_interval_seconds}
-                value={values.reload_interval}
-                onChange={(e) =>
-                  setValues((v) => ({ ...v, reload_interval: Number(e.target.value) }))
-                }
-              />
-            </div>
-          </div>
+          </details>
 
-          <div className="space-y-4 rounded-lg border border-border/60 p-4">
-            <div className="space-y-2">
-              <Label htmlFor="source-owner">Management owner</Label>
-              {isEdit ? (
+          <DatasourceAccessFields
+            ownerControl={isEdit ? (
                 <AccessSubjectPicker
                   id="source-owner"
                   value={ownerAccessRef}
@@ -1460,7 +1498,7 @@ export function IngestionSourceForm({
                   disabled={saving}
                   placeholder="Select a person or team"
                   searchPlaceholder="Search people or teams..."
-                  ariaLabel="Management owner"
+                  ariaLabel="Owner"
                 />
               ) : (
                 <TeamPicker
@@ -1469,32 +1507,32 @@ export function IngestionSourceForm({
                   onChange={handleOwnerTeamChange}
                   options={ownerTeamOptions}
                   disabled={saving}
-                  placeholder="None (Personal to you)"
+                  placeholder="You (personal)"
                   searchPlaceholder="Search teams..."
                   emptyLabel="No teams match"
                 />
               )}
-              <p className="text-xs text-muted-foreground">
-                One person or team manages settings, reloads, transfers, and deletion.
-                A personal owner always retains search access. Team search access is selected below.
-              </p>
-              {initial?.creator_subject && (
+            ownerDescription={
+              <>
+                The Owner manages settings, reloads, transfers, and deletion. A
+                personal Owner always has Search access; a team Owner must be
+                added under Search.
+              </>
+            }
+            ownerDetails={initial?.creator_subject ? (
                 <p className="text-xs text-muted-foreground" data-testid="creator-subject">
                   Created by {initial.creator_display_name || initial.creator_email || "Unknown user"}
                   {initial.creator_email && initial.creator_email !== initial.creator_display_name
                     ? ` (${initial.creator_email})`
                     : ""}.
                 </p>
-              )}
-            </div>
-
-            <div className="space-y-2 border-t border-border/60 pt-4">
-              <Label>Search Access</Label>
+              ) : undefined}
+            searchControl={
               <AccessSubjectMultiPicker
                 teams={searchTeamOptions}
                 knownUsers={knownAccessUsers}
                 implicitSelections={ownerAccessRef?.kind === "user" ? [ownerAccessRef] : []}
-                implicitSelectionLabel="Access included through personal ownership"
+                implicitSelectionLabel="Included through ownership"
                 selected={searchAccessRefs.filter((ref) =>
                   ownerAccessRef?.kind !== "user" ||
                   ref.kind !== ownerAccessRef.kind ||
@@ -1510,18 +1548,28 @@ export function IngestionSourceForm({
                 placeholder={ownerAccessRef?.kind === "team"
                   ? "No search access — add people or teams"
                   : isEdit
-                    ? "Only the personal owner can search — add others"
+                    ? "Only the Owner can search — add others"
                     : "Only you can search — add others"}
                 searchPlaceholder="Search people or teams..."
                 emptyLabel="No people or teams match"
               />
-              <p className="text-xs text-muted-foreground">
-                Selected people and teams can search and ingest this source, including
-                through agents. This does not grant source-management access. A team
-                management owner does not receive search access unless selected here.
-              </p>
-            </div>
-          </div>
+            }
+            searchDescription={
+              <>
+                Search access lets selected people and teams query this datasource
+                through Search, APIs, and agents. It does not let them reload or
+                manage it.
+              </>
+            }
+            searchDetails={pendingPublicationRequest ? (
+              <PendingPublicationRequestNotice
+                request={pendingPublicationRequest}
+                teams={searchTeamOptions}
+                knownUsers={knownAccessUsers}
+                onWithdrawn={onPublicationRequestWithdrawn}
+              />
+            ) : undefined}
+          />
         </div>
 
         {error && (

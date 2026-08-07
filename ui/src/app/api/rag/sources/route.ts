@@ -22,12 +22,22 @@ import {
   type IngestionSourceIdentity,
 } from "@/lib/ingestion-source-id";
 import { getCollection } from "@/lib/mongodb";
+import { parseConfluencePageUrl } from "@/lib/confluence-url";
+import {
+  createPublicationRequest,
+  recordAutoApprovedPublication,
+  type RagPublicationState,
+} from "@/lib/publication-approval.server";
 import { getRagDefaultSearchTeamSlug } from "@/lib/rag-settings";
 import {
   enforceRagIngestorLimits,
   getRagIngestorLimits,
 } from "@/lib/rag-ingestor-limits.server";
 import { visibleRagCollectionsByDatasource } from "@/lib/rag-collections.server";
+import {
+  prepareRagPublication,
+  ragPublicationRevision,
+} from "@/lib/rag-publication-approval.server";
 import { allowedSourceTypesForIngestorServiceAccount } from "@/lib/rbac/ingestor-service-accounts";
 import { checkOpenFgaTuple } from "@/lib/rbac/openfga";
 import {
@@ -108,7 +118,9 @@ function buildIngestTriggerPayload(
       }
       return {
         ...common,
+        name: doc.name,
         url: doc.start_page_url,
+        preprovisioned_datasource_id: doc.source_id,
         get_child_pages: doc.get_child_pages ?? false,
         allowed_title_patterns: doc.allowed_title_patterns,
         denied_title_patterns: doc.denied_title_patterns,
@@ -231,6 +243,7 @@ const SOURCE_SPECIFIC_INPUT_FIELDS = new Set([
 const ALLOWED_SOURCE_SPECIFIC_INPUT_FIELDS: Record<IngestionSourceType, Set<string>> = {
   slack_channel: new Set(["channel_id", "lookback_days", "include_bots"]),
   confluence_space: new Set([
+    "url",
     "confluence_url",
     "space_key",
     "start_page_url",
@@ -610,25 +623,32 @@ function extractSourceIdentity(
       };
     }
     case "confluence_space": {
-      const confluenceUrl = normalizeString(body.confluence_url);
       const spaceKey = normalizeString(body.space_key);
-      const startPageUrl = normalizeString(body.start_page_url);
-      if (!confluenceUrl || !spaceKey || !startPageUrl) return null;
-      let base: URL;
-      let start: URL;
-      try {
-        base = new URL(confluenceUrl);
-        start = new URL(startPageUrl);
-      } catch {
-        return null;
+      const startPageUrl =
+        normalizeString(body.url) ?? normalizeString(body.start_page_url);
+      const parsed = startPageUrl
+        ? parseConfluencePageUrl(startPageUrl)
+        : null;
+      if (!spaceKey || !parsed || parsed.spaceKey !== spaceKey) return null;
+      const suppliedBaseUrl = normalizeString(body.confluence_url);
+      if (suppliedBaseUrl) {
+        try {
+          const normalizedSuppliedBase = new URL(suppliedBaseUrl)
+            .toString()
+            .replace(/\/$/, "");
+          if (normalizedSuppliedBase !== parsed.baseUrl) return null;
+        } catch {
+          return null;
+        }
       }
-      if (!["http:", "https:"].includes(base.protocol) || !["http:", "https:"].includes(start.protocol)) {
-        return null;
-      }
-      const pageMatch = /^\/(?:wiki\/)?spaces\/([^/]+)\/pages\/\d+(?:\/|$)/.exec(start.pathname);
-      if (base.origin !== start.origin || pageMatch?.[1] !== spaceKey) return null;
+      const confluenceUrl = parsed.baseUrl;
       return {
-        identity: { source_type: "confluence_space", confluence_url: confluenceUrl, space_key: spaceKey },
+        identity: {
+          source_type: "confluence_space",
+          confluence_url: confluenceUrl,
+          space_key: spaceKey,
+          page_id: parsed.pageId,
+        },
         fields: {
           source_type: sourceType,
           confluence_url: confluenceUrl,
@@ -703,9 +723,9 @@ interface CreateIngestionSourceInput {
   searchWithUsers?: string[];
   creatorSubject: string | null;
   ownerSubject: string | null;
-  /** Initial Search & Ingest owner. Independent from source management. */
+  /** Initial Search owner. Independent from source management. */
   searchOwnerTeamSlug?: string | null;
-  /** Initial Search & Ingest shares. Independent from source management. */
+  /** Initial Search shares. Independent from source management. */
   searchSharedWithTeams?: string[];
   /** Personal owner of the searchable KB (normally the source creator). */
   searchOwnerSubject?: string | null;
@@ -896,10 +916,15 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     }),
   );
 
-  const collectionLabels = await visibleRagCollectionsByDatasource(
-    session,
-    sourcesWithPermissions.map((source) => source.source_id),
-  ).catch(() => new Map());
+  // Ingestor service accounts are identity-scoped transports, not interactive
+  // collection readers. Their forced source-type allow-list is the complete
+  // authorization boundary, so do not perform (or expose) collection lookups.
+  const collectionLabels = ingestorAllowedTypes
+    ? new Map<string, string[]>()
+    : await visibleRagCollectionsByDatasource(
+        session,
+        sourcesWithPermissions.map((source) => source.source_id),
+      ).catch(() => new Map());
   return successResponse({
     sources: sourcesWithPermissions.map((source) => ({
       ...source,
@@ -1152,6 +1177,36 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   }
 
   const creatorSubject = normalizeString(session.sub);
+  const draftSource = {
+    source_id: sourceId,
+    ...extracted.fields,
+    name,
+    description: normalizeString(body.description) ?? "",
+    status: "pending",
+    default_chunk_size: defaultChunkSize,
+    default_chunk_overlap: defaultChunkOverlap,
+    reload_interval: reloadInterval,
+    config_driven: false,
+    config_import_adopted: false,
+    visibility: "team",
+    creator_subject: creatorSubject ?? undefined,
+    owner_subject: ownerTeamSlug ? undefined : creatorSubject ?? undefined,
+    owner_team_slug: ownerTeamSlug ?? undefined,
+    search_with_teams: [],
+    search_with_users: [],
+    shared_with_teams: [],
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  } as unknown as IngestionSourceConfig;
+  const publication = await prepareRagPublication({
+    session,
+    source: draftSource,
+    currentSearchTeamSlugs: [],
+    currentSearchUserSubjects: [],
+    requestedSearchTeamSlugs: searchTeamSlugs,
+    requestedSearchUserSubjects: searchUserSubjects,
+  });
+  const effectiveSearch = publication.plan.effective_state as unknown as RagPublicationState;
   const doc = await createIngestionSource({
     sourceId,
     fields: extracted.fields,
@@ -1161,8 +1216,8 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     // Management is intentionally singular: personal owner OR one owner
     // team. Search grants are the independent multi-team control below.
     sharedWithTeams: [],
-    searchWithTeams: searchTeamSlugs,
-    searchWithUsers: searchUserSubjects,
+    searchWithTeams: effectiveSearch.search_team_slugs,
+    searchWithUsers: effectiveSearch.search_user_subjects,
     creatorSubject,
     ownerSubject: ownerTeamSlug ? null : creatorSubject,
     // A personal source implicitly belongs to its creator in the query graph.
@@ -1171,11 +1226,41 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     searchOwnerSubject: ownerTeamSlug ? null : creatorSubject,
     searchOwnerTeamSlug: null,
     recordedSearchOwnerTeamSlug: null,
-    searchSharedWithTeams: searchTeamSlugs,
+    searchSharedWithTeams: effectiveSearch.search_team_slugs,
     defaultChunkSize,
     defaultChunkOverlap,
     reloadInterval,
   });
+
+  let publicationRequest: Awaited<ReturnType<typeof createPublicationRequest>> | null = null;
+  if (publication.plan.requires_approval) {
+    publicationRequest = await createPublicationRequest({
+      resource: publication.resource,
+      resourceRevision: ragPublicationRevision(doc, effectiveSearch),
+      requestedState: publication.requestedState as unknown as Record<string, unknown>,
+      effectiveState: effectiveSearch as unknown as Record<string, unknown>,
+      riskFacts: publication.plan.risk_facts,
+      requester: publication.actor,
+      requesterTeamSlugs: publication.requesterTeamSlugs,
+      approverTeamSlugs: publication.plan.approver_team_slugs,
+      approverUserSubjects: publication.plan.approver_user_subjects,
+    });
+  } else if (
+    publication.plan.risk_facts.added_team_slugs?.length ||
+    publication.plan.risk_facts.added_user_subjects?.length
+  ) {
+    await recordAutoApprovedPublication({
+      resource: publication.resource,
+      resourceRevision: ragPublicationRevision(doc, effectiveSearch),
+      requestedState: publication.requestedState as unknown as Record<string, unknown>,
+      effectiveState: effectiveSearch as unknown as Record<string, unknown>,
+      riskFacts: publication.plan.risk_facts,
+      requester: publication.actor,
+      requesterTeamSlugs: publication.requesterTeamSlugs,
+      approverTeamSlugs: publication.plan.approver_team_slugs,
+      approverUserSubjects: publication.plan.approver_user_subjects,
+    });
+  }
 
   // Start ingestion immediately through the same RAG endpoint used by the
   // legacy UI. Retain an explicit failure state so the row remains visible
@@ -1192,7 +1277,19 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       { source_id: sourceId } as never,
       { $set: statusUpdate, $unset: { last_error: "" } } as never,
     );
-    return successResponse({ ...doc, ...statusUpdate }, 201);
+    return successResponse({
+      ...doc,
+      ...statusUpdate,
+      ...(publicationRequest
+        ? {
+            _publication_request: {
+              id: publicationRequest._id,
+              status: publicationRequest.status,
+              reason: publication.plan.reason,
+            },
+          }
+        : {}),
+    }, 201);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to start ingestion";
     const failureUpdate = {
@@ -1205,6 +1302,18 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       { $set: failureUpdate } as never,
     );
     console.error(`[rag/sources] Failed to trigger ingestion for ${sourceId}:`, error);
-    return successResponse({ ...doc, ...failureUpdate }, 201);
+    return successResponse({
+      ...doc,
+      ...failureUpdate,
+      ...(publicationRequest
+        ? {
+            _publication_request: {
+              id: publicationRequest._id,
+              status: publicationRequest.status,
+              reason: publication.plan.reason,
+            },
+          }
+        : {}),
+    }, 201);
   }
 });

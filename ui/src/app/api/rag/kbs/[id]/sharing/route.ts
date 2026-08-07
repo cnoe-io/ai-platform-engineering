@@ -1,8 +1,8 @@
 /**
  * Knowledge Base Search Access route for legacy/direct data sources.
  *
- * GET /api/rag/kbs/[id]/sharing — returns the canonical people/team Search &
- * Ingest grants plus the singular person/team management owner. Policy comes
+ * GET /api/rag/kbs/[id]/sharing — returns the canonical people/team Search
+ * grants plus the singular person/team Owner. Policy comes
  * from OpenFGA; names and email addresses are directory projections only.
  *
  * PUT /api/rag/kbs/[id]/sharing — accepts structured `owner` and
@@ -15,13 +15,24 @@
  * policy. Search-only users cannot read this configuration.
  */
 
-import {
-  ApiError,
-  handleApiError,
-} from "@/lib/api-middleware";
+import { ApiError, handleApiError } from "@/lib/api-middleware";
 import { authOptions } from "@/lib/auth-config";
 import { getCollection } from "@/lib/mongodb";
-import { visibleRagCollectionsByDatasource } from "@/lib/rag-collections.server";
+import {
+  createPublicationRequest,
+  invalidatePublicationRequests,
+  publicationResourceRevision,
+  recordAutoApprovedPublication,
+  type RagPublicationState,
+} from "@/lib/publication-approval.server";
+import {
+  datasourceCollectionAudience,
+  visibleRagCollectionsByDatasource,
+} from "@/lib/rag-collections.server";
+import {
+  prepareRagPublication,
+  ragPublicationRevision,
+} from "@/lib/rag-publication-approval.server";
 import { readOpenFgaTuples } from "@/lib/rbac/openfga";
 import {
   reconcileDataSourceRelationships,
@@ -38,6 +49,7 @@ import {
   type ResolvedUserIdentity,
 } from "@/lib/rbac/user-identity-directory";
 import type { Team } from "@/types/teams";
+import type { IngestionSourceConfig } from "@/types/ingestion-source";
 import { getServerSession } from "next-auth";
 import { NextRequest, NextResponse } from "next/server";
 
@@ -79,17 +91,29 @@ function isValidId(value: unknown): value is string {
 
 function parseTeamSlugs(raw: unknown): string[] {
   if (!Array.isArray(raw)) {
-    throw new ApiError("team_slugs must be an array of team slugs", 400, "INVALID_TEAM_SLUGS");
+    throw new ApiError(
+      "team_slugs must be an array of team slugs",
+      400,
+      "INVALID_TEAM_SLUGS",
+    );
   }
   const seen = new Set<string>();
   const out: string[] = [];
   for (const candidate of raw) {
     if (typeof candidate !== "string") {
-      throw new ApiError("team_slugs must contain only valid team slugs", 400, "INVALID_TEAM_SLUGS");
+      throw new ApiError(
+        "team_slugs must contain only valid team slugs",
+        400,
+        "INVALID_TEAM_SLUGS",
+      );
     }
     const trimmed = candidate.trim();
     if (!trimmed || !isValidId(trimmed)) {
-      throw new ApiError("team_slugs must contain only valid team slugs", 400, "INVALID_TEAM_SLUGS");
+      throw new ApiError(
+        "team_slugs must contain only valid team slugs",
+        400,
+        "INVALID_TEAM_SLUGS",
+      );
     }
     if (seen.has(trimmed)) continue;
     seen.add(trimmed);
@@ -158,7 +182,8 @@ async function requireExistingUsers(
   const identities = await resolveUserIdentitiesBySubject(userSubjects);
   if (
     userSubjects.some(
-      (subject) => subject !== currentSessionSubject && !identities.has(subject),
+      (subject) =>
+        subject !== currentSessionSubject && !identities.has(subject),
     )
   ) {
     throw new ApiError("One or more users do not exist", 404, "USER_NOT_FOUND");
@@ -241,7 +266,11 @@ async function loadOwnerFromConfig(
   };
   if (!session.accessToken) {
     if (options.required) {
-      throw new ApiError("A Keycloak access token is required for KB sharing.", 401, "NOT_SIGNED_IN");
+      throw new ApiError(
+        "A Keycloak access token is required for KB sharing.",
+        401,
+        "NOT_SIGNED_IN",
+      );
     }
     return empty;
   }
@@ -271,7 +300,9 @@ async function loadOwnerFromConfig(
     if (options.required) {
       throw new ApiError(
         `Failed to load datasource configuration (${response.status}).`,
-        response.status === 401 || response.status === 403 ? response.status : 502,
+        response.status === 401 || response.status === 403
+          ? response.status
+          : 502,
         "RAG_CONFIG_LOAD_FAILED",
       );
     }
@@ -283,7 +314,11 @@ async function loadOwnerFromConfig(
     data = await response.json();
   } catch {
     if (options.required) {
-      throw new ApiError("The datasource configuration response was invalid.", 502, "RAG_CONFIG_INVALID");
+      throw new ApiError(
+        "The datasource configuration response was invalid.",
+        502,
+        "RAG_CONFIG_INVALID",
+      );
     }
     return empty;
   }
@@ -293,18 +328,27 @@ async function loadOwnerFromConfig(
     !Array.isArray((data as { datasources?: unknown }).datasources)
   ) {
     if (options.required) {
-      throw new ApiError("The datasource configuration response was invalid.", 502, "RAG_CONFIG_INVALID");
+      throw new ApiError(
+        "The datasource configuration response was invalid.",
+        502,
+        "RAG_CONFIG_INVALID",
+      );
     }
     return empty;
   }
-  const list = (data as { datasources: Array<Record<string, unknown>> }).datasources;
+  const list = (data as { datasources: Array<Record<string, unknown>> })
+    .datasources;
   const match = list.find((ds) => {
     const id = ds.datasource_id ?? ds.id;
     return typeof id === "string" && id === kbId;
   });
   if (!match) {
     if (options.required) {
-      throw new ApiError("Datasource configuration not found", 404, "DATASOURCE_CONFIG_NOT_FOUND");
+      throw new ApiError(
+        "Datasource configuration not found",
+        404,
+        "DATASOURCE_CONFIG_NOT_FOUND",
+      );
     }
     return empty;
   }
@@ -401,11 +445,21 @@ function userSharingIdentity(identity: ResolvedUserIdentity): SharingIdentity {
 
 async function resolveSharingUsers(
   subjects: string[],
-  session: { sub?: unknown; user?: { email?: string | null; name?: string | null } },
+  session: {
+    sub?: unknown;
+    user?: { email?: string | null; name?: string | null };
+  },
 ): Promise<Map<string, ResolvedUserIdentity>> {
-  const resolved = await resolveUserIdentitiesBySubject(subjects).catch(() => new Map());
-  const sessionSubject = typeof session.sub === "string" ? session.sub.trim() : "";
-  if (sessionSubject && subjects.includes(sessionSubject) && !resolved.has(sessionSubject)) {
+  const resolved = await resolveUserIdentitiesBySubject(subjects).catch(
+    () => new Map(),
+  );
+  const sessionSubject =
+    typeof session.sub === "string" ? session.sub.trim() : "";
+  if (
+    sessionSubject &&
+    subjects.includes(sessionSubject) &&
+    !resolved.has(sessionSubject)
+  ) {
     const email = session.user?.email?.trim() || null;
     const name = session.user?.name?.trim() || null;
     resolved.set(sessionSubject, {
@@ -422,7 +476,9 @@ function identityForSubject(
   subject: string,
   identities: Map<string, ResolvedUserIdentity>,
 ): SharingIdentity {
-  return userSharingIdentity(identities.get(subject) ?? unresolvedUserIdentity(subject));
+  return userSharingIdentity(
+    identities.get(subject) ?? unresolvedUserIdentity(subject),
+  );
 }
 
 export async function GET(
@@ -432,7 +488,11 @@ export async function GET(
   try {
     const { id } = await params;
     if (!isValidId(id)) {
-      throw new ApiError(`Invalid knowledge base id: ${id}`, 400, "INVALID_KB_ID");
+      throw new ApiError(
+        `Invalid knowledge base id: ${id}`,
+        400,
+        "INVALID_KB_ID",
+      );
     }
 
     const session = await getServerSession(authOptions);
@@ -440,7 +500,11 @@ export async function GET(
       throw new ApiError("Unauthorized", 401);
     }
     if (!session.accessToken) {
-      throw new ApiError("A Keycloak access token is required for KB sharing.", 401, "NOT_SIGNED_IN");
+      throw new ApiError(
+        "A Keycloak access token is required for KB sharing.",
+        401,
+        "NOT_SIGNED_IN",
+      );
     }
 
     await requireSharingAccess(
@@ -451,22 +515,29 @@ export async function GET(
 
     const [sharedAccess, owner] = await Promise.all([
       loadSharedAccess(id),
-      loadOwnerFromConfig(id, { accessToken: session.accessToken, org: session.org }),
+      loadOwnerFromConfig(id, {
+        accessToken: session.accessToken,
+        org: session.org,
+      }),
     ]);
     const ownerSubject = owner.ownerTeamSlug
       ? null
-      : owner.ownerSubject
-        ?? owner.creatorSubject
-        ?? (typeof session.sub === "string" ? session.sub.trim() || null : null);
+      : (owner.ownerSubject ??
+        owner.creatorSubject ??
+        (typeof session.sub === "string" ? session.sub.trim() || null : null));
     const identitySubjects = Array.from(
       new Set(
-        [ownerSubject, owner.creatorSubject, ...sharedAccess.userSubjects].filter(
-          (subject): subject is string => Boolean(subject),
-        ),
+        [
+          ownerSubject,
+          owner.creatorSubject,
+          ...sharedAccess.userSubjects,
+        ].filter((subject): subject is string => Boolean(subject)),
       ),
     );
     const identities = await resolveSharingUsers(identitySubjects, session);
-    const collectionLabels = await visibleRagCollectionsByDatasource(session, [id]);
+    const collectionLabels = await visibleRagCollectionsByDatasource(session, [
+      id,
+    ]);
     const ownerIdentity: SharingIdentity | null = owner.ownerTeamSlug
       ? { kind: "team", id: owner.ownerTeamSlug, name: owner.ownerTeamSlug }
       : ownerSubject
@@ -516,7 +587,11 @@ export async function PUT(
   try {
     const { id } = await params;
     if (!isValidId(id)) {
-      throw new ApiError(`Invalid knowledge base id: ${id}`, 400, "INVALID_KB_ID");
+      throw new ApiError(
+        `Invalid knowledge base id: ${id}`,
+        400,
+        "INVALID_KB_ID",
+      );
     }
 
     const session = await getServerSession(authOptions);
@@ -524,7 +599,11 @@ export async function PUT(
       throw new ApiError("Unauthorized", 401);
     }
     if (!session.accessToken) {
-      throw new ApiError("A Keycloak access token is required for KB sharing.", 401, "NOT_SIGNED_IN");
+      throw new ApiError(
+        "A Keycloak access token is required for KB sharing.",
+        401,
+        "NOT_SIGNED_IN",
+      );
     }
 
     const sharingManagerResource = await requireSharingAccess(
@@ -558,17 +637,32 @@ export async function PUT(
     let requestedUserSubjects: string[] | undefined;
     if (Object.prototype.hasOwnProperty.call(typedBody, "search_access")) {
       if (!Array.isArray(typedBody.search_access)) {
-        throw new ApiError("search_access must be an array", 400, "INVALID_SEARCH_ACCESS");
+        throw new ApiError(
+          "search_access must be an array",
+          400,
+          "INVALID_SEARCH_ACCESS",
+        );
       }
       const teams: string[] = [];
       const users: string[] = [];
       for (const raw of typedBody.search_access) {
         if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-          throw new ApiError("search_access entries must identify a person or team", 400, "INVALID_SEARCH_ACCESS");
+          throw new ApiError(
+            "search_access entries must identify a person or team",
+            400,
+            "INVALID_SEARCH_ACCESS",
+          );
         }
         const ref = raw as { kind?: unknown; id?: unknown };
-        if ((ref.kind !== "team" && ref.kind !== "user") || !isValidId(ref.id)) {
-          throw new ApiError("search_access entries must identify a valid person or team", 400, "INVALID_SEARCH_ACCESS");
+        if (
+          (ref.kind !== "team" && ref.kind !== "user") ||
+          !isValidId(ref.id)
+        ) {
+          throw new ApiError(
+            "search_access entries must identify a valid person or team",
+            400,
+            "INVALID_SEARCH_ACCESS",
+          );
         }
         (ref.kind === "team" ? teams : users).push(ref.id.trim());
       }
@@ -576,28 +670,58 @@ export async function PUT(
       requestedUserSubjects = parseUserSubjects(users);
     } else {
       requestedSlugs = parseTeamSlugs(typedBody.team_slugs);
-      requestedUserSubjects = Object.prototype.hasOwnProperty.call(typedBody, "user_subjects")
+      requestedUserSubjects = Object.prototype.hasOwnProperty.call(
+        typedBody,
+        "user_subjects",
+      )
         ? parseUserSubjects(typedBody.user_subjects)
         : undefined;
     }
 
     let requestedOwnerTeam: string | null | undefined;
     let requestedOwnerSubject: string | null | undefined;
-    const ownerWasRequested = Object.prototype.hasOwnProperty.call(typedBody, "owner");
+    const ownerWasRequested = Object.prototype.hasOwnProperty.call(
+      typedBody,
+      "owner",
+    );
     if (ownerWasRequested) {
-      if (!typedBody.owner || typeof typedBody.owner !== "object" || Array.isArray(typedBody.owner)) {
-        throw new ApiError("owner must identify a person or team", 400, "INVALID_OWNER");
+      if (
+        !typedBody.owner ||
+        typeof typedBody.owner !== "object" ||
+        Array.isArray(typedBody.owner)
+      ) {
+        throw new ApiError(
+          "owner must identify a person or team",
+          400,
+          "INVALID_OWNER",
+        );
       }
       const owner = typedBody.owner as { kind?: unknown; id?: unknown };
-      if ((owner.kind !== "team" && owner.kind !== "user") || !isValidId(owner.id)) {
-        throw new ApiError("owner must identify a valid person or team", 400, "INVALID_OWNER");
+      if (
+        (owner.kind !== "team" && owner.kind !== "user") ||
+        !isValidId(owner.id)
+      ) {
+        throw new ApiError(
+          "owner must identify a valid person or team",
+          400,
+          "INVALID_OWNER",
+        );
       }
       if (owner.kind === "team") requestedOwnerTeam = owner.id.trim();
       else requestedOwnerSubject = owner.id.trim();
-    } else if (Object.prototype.hasOwnProperty.call(typedBody, "owner_team_slug")) {
+    } else if (
+      Object.prototype.hasOwnProperty.call(typedBody, "owner_team_slug")
+    ) {
       // Backward compatibility for clients that predate person/team refs.
-      if (typeof typedBody.owner_team_slug !== "string" || !isValidId(typedBody.owner_team_slug)) {
-        throw new ApiError("owner_team_slug must be a valid team slug", 400, "INVALID_OWNER_TEAM");
+      if (
+        typeof typedBody.owner_team_slug !== "string" ||
+        !isValidId(typedBody.owner_team_slug)
+      ) {
+        throw new ApiError(
+          "owner_team_slug must be a valid team slug",
+          400,
+          "INVALID_OWNER_TEAM",
+        );
       }
       requestedOwnerTeam = typedBody.owner_team_slug.trim();
     }
@@ -605,17 +729,24 @@ export async function PUT(
       Object.prototype.hasOwnProperty.call(typedBody, "confirm_not_member") &&
       typeof typedBody.confirm_not_member !== "boolean"
     ) {
-      throw new ApiError("confirm_not_member must be a boolean", 400, "INVALID_CONFIRMATION");
+      throw new ApiError(
+        "confirm_not_member must be a boolean",
+        400,
+        "INVALID_CONFIRMATION",
+      );
     }
     const confirmedNotMember = typedBody.confirm_not_member === true;
     await requireExistingTeams([
       ...requestedSlugs,
       ...(requestedOwnerTeam ? [requestedOwnerTeam] : []),
     ]);
-    await requireExistingUsers([
-      ...(requestedUserSubjects ?? []),
-      ...(requestedOwnerSubject ? [requestedOwnerSubject] : []),
-    ], typeof session.sub === "string" ? session.sub : undefined);
+    await requireExistingUsers(
+      [
+        ...(requestedUserSubjects ?? []),
+        ...(requestedOwnerSubject ? [requestedOwnerSubject] : []),
+      ],
+      typeof session.sub === "string" ? session.sub : undefined,
+    );
     const [previousAccess, snapshot] = await Promise.all([
       loadSharedAccess(id),
       loadOwnerFromConfig(
@@ -629,37 +760,45 @@ export async function PUT(
     // creator provenance. Their first access-policy save adopts them as a
     // personal source for the authorized caller instead of leaving a
     // permanently ownerless row.
-    const sessionSubject = typeof session.sub === "string"
-      ? session.sub.trim() || null
-      : null;
+    const sessionSubject =
+      typeof session.sub === "string" ? session.sub.trim() || null : null;
     const previousPersonalOwner = snapshot.ownerTeamSlug
       ? null
-      : snapshot.ownerSubject ?? snapshot.creatorSubject;
+      : (snapshot.ownerSubject ?? snapshot.creatorSubject);
     const effectivePreviousPersonalOwner = snapshot.ownerTeamSlug
       ? null
-      : previousPersonalOwner ?? sessionSubject;
-    const nextOwnerTeam = ownerWasRequested || requestedOwnerTeam !== undefined
-      ? requestedOwnerTeam ?? null
-      : snapshot.ownerTeamSlug;
+      : (previousPersonalOwner ?? sessionSubject);
+    const nextOwnerTeam =
+      ownerWasRequested || requestedOwnerTeam !== undefined
+        ? (requestedOwnerTeam ?? null)
+        : snapshot.ownerTeamSlug;
     const nextPersonalOwner = ownerWasRequested
-      ? requestedOwnerSubject ?? null
+      ? (requestedOwnerSubject ?? null)
       : requestedOwnerTeam !== undefined
         ? null
         : effectivePreviousPersonalOwner;
     if (!nextOwnerTeam && !nextPersonalOwner) {
-      throw new ApiError("Select a person or team to own this data source", 400, "INVALID_OWNER");
+      throw new ApiError(
+        "Select a person or team to own this data source",
+        400,
+        "INVALID_OWNER",
+      );
     }
+    const ownerSelectionWasRequested =
+      ownerWasRequested || requestedOwnerTeam !== undefined;
     const ownerChanged =
-      nextOwnerTeam !== snapshot.ownerTeamSlug ||
-      nextPersonalOwner !== previousPersonalOwner;
-    const personalOwnerChanged = previousPersonalOwner !== nextPersonalOwner;
+      ownerSelectionWasRequested &&
+      (nextOwnerTeam !== snapshot.ownerTeamSlug ||
+        nextPersonalOwner !== effectivePreviousPersonalOwner);
     // A legacy team-only client did not know about user_subjects. Preserve
     // direct grants unless the client explicitly supplies either the modern
     // search_access array or the legacy user_subjects field.
-    const nextSearchUserSubjects = (requestedUserSubjects ?? previousAccess.userSubjects).filter(
-      (subject) => subject !== nextPersonalOwner,
+    const nextSearchUserSubjects = (
+      requestedUserSubjects ?? previousAccess.userSubjects
+    ).filter((subject) => subject !== nextPersonalOwner);
+    const hadPersistedOwner = Boolean(
+      snapshot.ownerTeamSlug || previousPersonalOwner,
     );
-    const hadPersistedOwner = Boolean(snapshot.ownerTeamSlug || previousPersonalOwner);
     if (ownerChanged && hadPersistedOwner) {
       const canTransfer = await canTransferResourceOwnership(
         { sub: session.sub, role: session.role, user: session.user },
@@ -667,7 +806,7 @@ export async function PUT(
       );
       if (!canTransfer) {
         throw new ApiError(
-          "Only a current source manager or organization admin can transfer this data source.",
+          "Only the current Owner or an organization admin can transfer this datasource.",
           403,
           "TRANSFER_FORBIDDEN",
         );
@@ -677,7 +816,10 @@ export async function PUT(
       const canUseDestination = await requireResourcePermission(
         { sub: session.sub, role: session.role, user: session.user },
         { type: "team", id: nextOwnerTeam, action: "use" },
-      ).then(() => true, () => false);
+      ).then(
+        () => true,
+        () => false,
+      );
       if (!canUseDestination) {
         throw new ApiError(
           "You are not a member of the destination team. Confirm the transfer to proceed.",
@@ -699,21 +841,115 @@ export async function PUT(
       );
     }
     const creatorSubject = snapshot.creatorSubject ?? sessionSubject;
+    const sourceCollection = await getCollection<IngestionSourceConfig>(
+      "rag_ingestion_sources",
+    );
+    const localSource = await sourceCollection.findOne({
+      source_id: id,
+    } as never);
+    const publicationSource = {
+      ...(localSource ?? {
+        source_id: id,
+        source_type: "web_url",
+        name: id,
+        status: "active",
+        default_chunk_size: 1000,
+        default_chunk_overlap: 100,
+        reload_interval: 3600,
+        config_driven: false,
+        config_import_adopted: false,
+        visibility: "team",
+        shared_with_teams: [],
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }),
+      creator_subject: creatorSubject ?? undefined,
+      owner_team_slug: snapshot.ownerTeamSlug ?? undefined,
+      owner_subject: effectivePreviousPersonalOwner ?? undefined,
+    } as IngestionSourceConfig;
+    if (snapshot.ownerTeamSlug) {
+      delete (publicationSource as unknown as Record<string, unknown>)
+        .owner_subject;
+    } else {
+      delete (publicationSource as unknown as Record<string, unknown>)
+        .owner_team_slug;
+    }
+    const collectionAudience = ownerChanged
+      ? await datasourceCollectionAudience(id, {
+          ownerTeamSlug: snapshot.ownerTeamSlug,
+          ownerSubject: effectivePreviousPersonalOwner,
+        })
+      : {
+          collectionIds: [],
+          readerTeamSlugs: [],
+          hasExternalPrincipal: false,
+          organizationWide: false,
+        };
+    const publication = await prepareRagPublication({
+      session,
+      source: publicationSource,
+      currentSearchTeamSlugs: previousAccess.teamSlugs,
+      currentSearchUserSubjects: previousAccess.userSubjects,
+      requestedSearchTeamSlugs: requestedSlugs,
+      requestedSearchUserSubjects: nextSearchUserSubjects,
+      ownerUpdate: ownerChanged
+        ? {
+            owner_team_slug: nextOwnerTeam,
+            owner_subject: nextPersonalOwner,
+          }
+        : undefined,
+      materialChange: ownerChanged,
+      externalAudienceTeamSlugs: collectionAudience.readerTeamSlugs,
+      externalBroadAudience: collectionAudience.hasExternalPrincipal,
+      externalOrganizationWide: collectionAudience.organizationWide,
+    });
+    await invalidatePublicationRequests(
+      publication.resource,
+      publication.actor,
+      "A newer datasource access change replaced this publication proposal.",
+    );
+    const effectiveSearch = publication.plan
+      .effective_state as unknown as RagPublicationState;
+    const effectiveSearchTeamSlugs = effectiveSearch.search_team_slugs;
+    const effectiveSearchUserSubjects = effectiveSearch.search_user_subjects;
+    const ownerChangeDeferred =
+      publication.plan.requires_approval && ownerChanged;
+    const appliedOwnerTeam = ownerChangeDeferred
+      ? snapshot.ownerTeamSlug
+      : nextOwnerTeam;
+    const appliedPersonalOwner = ownerChangeDeferred
+      ? effectivePreviousPersonalOwner
+      : nextPersonalOwner;
+    const appliedOwnerMetadataChanged =
+      appliedOwnerTeam !== snapshot.ownerTeamSlug ||
+      appliedPersonalOwner !== previousPersonalOwner;
+    const appliedPersonalOwnerChanged =
+      previousPersonalOwner !== appliedPersonalOwner;
     let accessMetadataPersisted = false;
     let policyWriteStarted = false;
-    let result!: Awaited<ReturnType<typeof reconcileKnowledgeBaseRelationships>>;
-    let sourceResult!: Awaited<ReturnType<typeof reconcileIngestionSourceRelationships>>;
-    let dataSourceResult!: Awaited<ReturnType<typeof reconcileDataSourceRelationships>>;
+    let localSourcePersisted = false;
+    let result!: Awaited<
+      ReturnType<typeof reconcileKnowledgeBaseRelationships>
+    >;
+    let sourceResult!: Awaited<
+      ReturnType<typeof reconcileIngestionSourceRelationships>
+    >;
+    let dataSourceResult!: Awaited<
+      ReturnType<typeof reconcileDataSourceRelationships>
+    >;
 
     try {
       await persistAccessPolicyToConfig(
         id,
         {
-          ...(ownerChanged
-            ? { ownerTeamSlug: nextOwnerTeam, ownerSubject: nextPersonalOwner }
+          ...(appliedOwnerMetadataChanged
+            ? {
+                ownerTeamSlug: appliedOwnerTeam,
+                ownerSubject: appliedPersonalOwner,
+              }
             : {}),
-          searchTeamSlugs: requestedSlugs,
-          searchUserSubjects: nextSearchUserSubjects,
+          searchTeamSlugs: effectiveSearchTeamSlugs,
+          searchUserSubjects: effectiveSearchUserSubjects,
         },
         {
           accessToken: session.accessToken,
@@ -725,12 +961,12 @@ export async function PUT(
       policyWriteStarted = true;
       sourceResult = await reconcileIngestionSourceRelationships({
         sourceId: id,
-        ownerSubject: nextPersonalOwner,
-        previousOwnerSubject: personalOwnerChanged
+        ownerSubject: appliedPersonalOwner,
+        previousOwnerSubject: appliedPersonalOwnerChanged
           ? previousPersonalOwner
           : undefined,
-        ownerTeamSlug: nextOwnerTeam,
-        previousOwnerTeamSlug: ownerChanged
+        ownerTeamSlug: appliedOwnerTeam,
+        previousOwnerTeamSlug: appliedOwnerMetadataChanged
           ? snapshot.ownerTeamSlug
           : undefined,
         nextSharedTeamSlugs: [],
@@ -739,17 +975,17 @@ export async function PUT(
       });
       result = await reconcileKnowledgeBaseRelationships({
         knowledgeBaseId: id,
-        ownerSubject: nextPersonalOwner,
-        previousOwnerSubject: personalOwnerChanged
+        ownerSubject: appliedPersonalOwner,
+        previousOwnerSubject: appliedPersonalOwnerChanged
           ? previousPersonalOwner
           : undefined,
         // Owner Team is management-only. Supplying the old owner as the
         // previous KB owner removes the coupled legacy query grant on save.
         ownerTeamSlug: null,
         previousOwnerTeamSlug: snapshot.ownerTeamSlug,
-        nextSharedTeamSlugs: requestedSlugs,
+        nextSharedTeamSlugs: effectiveSearchTeamSlugs,
         previousSharedTeamSlugs: previousAccess.teamSlugs,
-        nextSharedUserSubjects: nextSearchUserSubjects,
+        nextSharedUserSubjects: effectiveSearchUserSubjects,
         previousSharedUserSubjects: previousAccess.userSubjects,
         // This legacy/direct panel previously granted managers to shared-team
         // admins. Remove those stale tuples on the next save.
@@ -760,6 +996,30 @@ export async function PUT(
         dataSourceId: id,
         parentKnowledgeBaseId: id,
       });
+      if (localSource) {
+        const localSet: Record<string, unknown> = {
+          search_with_teams: effectiveSearchTeamSlugs,
+          search_with_users: effectiveSearchUserSubjects,
+          updated_at: new Date().toISOString(),
+        };
+        if (appliedOwnerTeam) localSet.owner_team_slug = appliedOwnerTeam;
+        if (appliedPersonalOwner) localSet.owner_subject = appliedPersonalOwner;
+        const mongoUpdate: Record<string, unknown> = {
+          $set: localSet,
+        };
+        const unset: Record<string, string> = { search_owner_team_slug: "" };
+        if (appliedOwnerTeam) unset.owner_subject = "";
+        else unset.owner_team_slug = "";
+        mongoUpdate.$unset = unset;
+        const localUpdated = await sourceCollection.findOneAndUpdate(
+          { source_id: id } as never,
+          mongoUpdate as never,
+          { returnDocument: "after" },
+        );
+        if (!localUpdated)
+          throw new Error("Datasource config disappeared while saving access");
+        localSourcePersisted = true;
+      }
     } catch (error) {
       // The datasource metadata is written first so the old owner remains
       // authorized if the policy write fails. Restore the exact old policy
@@ -771,12 +1031,12 @@ export async function PUT(
           await reconcileIngestionSourceRelationships({
             sourceId: id,
             ownerSubject: previousPersonalOwner,
-            previousOwnerSubject: personalOwnerChanged
-              ? nextPersonalOwner
+            previousOwnerSubject: appliedPersonalOwnerChanged
+              ? appliedPersonalOwner
               : undefined,
             ownerTeamSlug: snapshot.ownerTeamSlug,
-            previousOwnerTeamSlug: ownerChanged
-              ? nextOwnerTeam
+            previousOwnerTeamSlug: appliedOwnerMetadataChanged
+              ? appliedOwnerTeam
               : undefined,
             nextSharedTeamSlugs: [],
             previousSharedTeamSlugs: [],
@@ -785,18 +1045,18 @@ export async function PUT(
           await reconcileKnowledgeBaseRelationships({
             knowledgeBaseId: id,
             ownerSubject: previousPersonalOwner,
-            previousOwnerSubject: personalOwnerChanged
-              ? nextPersonalOwner
+            previousOwnerSubject: appliedPersonalOwnerChanged
+              ? appliedPersonalOwner
               : undefined,
             // Restore the prior query set without re-coupling management. If
             // the old management owner had query access it is already present
             // in previousSlugs and is restored as a search-only team.
             ownerTeamSlug: null,
-            previousOwnerTeamSlug: nextOwnerTeam,
+            previousOwnerTeamSlug: appliedOwnerTeam,
             nextSharedTeamSlugs: previousAccess.teamSlugs,
-            previousSharedTeamSlugs: requestedSlugs,
+            previousSharedTeamSlugs: effectiveSearchTeamSlugs,
             nextSharedUserSubjects: previousAccess.userSubjects,
-            previousSharedUserSubjects: nextSearchUserSubjects,
+            previousSharedUserSubjects: effectiveSearchUserSubjects,
             previousSharedTeamAdminsManage: false,
             creatorSubject: snapshot.creatorSubject,
           });
@@ -805,7 +1065,10 @@ export async function PUT(
             parentKnowledgeBaseId: id,
           });
         } catch (rollbackError) {
-          console.error(`[rag/kbs/${id}/sharing] failed to restore Search & Ingest policy`, rollbackError);
+          console.error(
+            `[rag/kbs/${id}/sharing] failed to restore Search policy`,
+            rollbackError,
+          );
         }
       }
       if (accessMetadataPersisted) {
@@ -813,8 +1076,12 @@ export async function PUT(
           await persistAccessPolicyToConfig(
             id,
             {
-              ...(ownerChanged ? { ownerTeamSlug: snapshot.ownerTeamSlug } : {}),
-              ...(ownerChanged ? { ownerSubject: previousPersonalOwner } : {}),
+              ...(appliedOwnerMetadataChanged
+                ? { ownerTeamSlug: snapshot.ownerTeamSlug }
+                : {}),
+              ...(appliedOwnerMetadataChanged
+                ? { ownerSubject: previousPersonalOwner }
+                : {}),
               searchTeamSlugs: previousAccess.teamSlugs,
               searchUserSubjects: snapshot.searchUserSubjects,
             },
@@ -824,44 +1091,147 @@ export async function PUT(
             },
           );
         } catch (rollbackError) {
-          console.error(`[rag/kbs/${id}/sharing] failed to restore datasource access metadata`, rollbackError);
+          console.error(
+            `[rag/kbs/${id}/sharing] failed to restore datasource access metadata`,
+            rollbackError,
+          );
         }
+      }
+      if (localSourcePersisted && localSource) {
+        const restoreSet: Record<string, unknown> = {
+          search_with_teams: localSource.search_with_teams ?? [],
+          search_with_users: localSource.search_with_users ?? [],
+          updated_at: localSource.updated_at,
+        };
+        if (localSource.owner_team_slug)
+          restoreSet.owner_team_slug = localSource.owner_team_slug;
+        if (localSource.owner_subject)
+          restoreSet.owner_subject = localSource.owner_subject;
+        const restoreUnset: Record<string, string> = {};
+        if (!localSource.owner_team_slug) restoreUnset.owner_team_slug = "";
+        if (!localSource.owner_subject) restoreUnset.owner_subject = "";
+        await sourceCollection
+          .updateOne(
+            { source_id: id } as never,
+            {
+              $set: restoreSet,
+              ...(Object.keys(restoreUnset).length > 0
+                ? { $unset: restoreUnset }
+                : {}),
+            } as never,
+          )
+          .catch((rollbackError) => {
+            console.error(
+              `[rag/kbs/${id}/sharing] failed to restore local source access`,
+              rollbackError,
+            );
+          });
       }
       throw error;
     }
 
+    const currentLocalSource = localSource
+      ? await sourceCollection.findOne({ source_id: id } as never)
+      : null;
+    const resourceRevision = currentLocalSource
+      ? ragPublicationRevision(currentLocalSource, effectiveSearch)
+      : publicationResourceRevision({
+          source_id: id,
+          owner_team_slug: appliedOwnerTeam,
+          owner_subject: appliedPersonalOwner,
+          creator_subject: creatorSubject,
+          ...effectiveSearch,
+        });
+    let publicationRequest: Awaited<
+      ReturnType<typeof createPublicationRequest>
+    > | null = null;
+    if (publication.plan.requires_approval) {
+      publicationRequest = await createPublicationRequest({
+        resource: publication.resource,
+        resourceRevision,
+        requestedState: publication.requestedState as unknown as Record<
+          string,
+          unknown
+        >,
+        effectiveState: effectiveSearch as unknown as Record<string, unknown>,
+        riskFacts: publication.plan.risk_facts,
+        requester: publication.actor,
+        requesterTeamSlugs: publication.requesterTeamSlugs,
+        approverTeamSlugs: publication.plan.approver_team_slugs,
+        approverUserSubjects: publication.plan.approver_user_subjects,
+      });
+    } else {
+      await recordAutoApprovedPublication({
+        resource: publication.resource,
+        resourceRevision,
+        requestedState: publication.requestedState as unknown as Record<
+          string,
+          unknown
+        >,
+        effectiveState: effectiveSearch as unknown as Record<string, unknown>,
+        riskFacts: publication.plan.risk_facts,
+        requester: publication.actor,
+        requesterTeamSlugs: publication.requesterTeamSlugs,
+        approverTeamSlugs: publication.plan.approver_team_slugs,
+        approverUserSubjects: publication.plan.approver_user_subjects,
+      });
+    }
+
     const identitySubjects = Array.from(
       new Set(
-        [nextPersonalOwner, creatorSubject, ...nextSearchUserSubjects].filter(
-          (subject): subject is string => Boolean(subject),
-        ),
+        [
+          appliedPersonalOwner,
+          creatorSubject,
+          ...nextSearchUserSubjects,
+        ].filter((subject): subject is string => Boolean(subject)),
       ),
     );
     const identities = await resolveSharingUsers(identitySubjects, session);
-    const collectionLabels = await visibleRagCollectionsByDatasource(session, [id]);
+    const collectionLabels = await visibleRagCollectionsByDatasource(session, [
+      id,
+    ]);
     return NextResponse.json({
       knowledge_base_id: id,
-      owner_team_slug: nextOwnerTeam,
-      owner_subject: nextPersonalOwner,
-      shared_team_slugs: requestedSlugs,
-      shared_user_subjects: nextSearchUserSubjects,
+      owner_team_slug: appliedOwnerTeam,
+      owner_subject: appliedPersonalOwner,
+      shared_team_slugs: effectiveSearchTeamSlugs,
+      shared_user_subjects: effectiveSearchUserSubjects,
       creator_subject: creatorSubject,
-      owner: nextOwnerTeam
-        ? { kind: "team", id: nextOwnerTeam, name: nextOwnerTeam }
-        : nextPersonalOwner
-          ? identityForSubject(nextPersonalOwner, identities)
+      owner: appliedOwnerTeam
+        ? { kind: "team", id: appliedOwnerTeam, name: appliedOwnerTeam }
+        : appliedPersonalOwner
+          ? identityForSubject(appliedPersonalOwner, identities)
           : null,
       creator: creatorSubject
         ? identityForSubject(creatorSubject, identities)
         : null,
       search_access: [
-        ...requestedSlugs.map((slug) => ({ kind: "team" as const, id: slug, name: slug })),
-        ...nextSearchUserSubjects.map((subject) => identityForSubject(subject, identities)),
+        ...effectiveSearchTeamSlugs.map((slug) => ({
+          kind: "team" as const,
+          id: slug,
+          name: slug,
+        })),
+        ...effectiveSearchUserSubjects.map((subject) =>
+          identityForSubject(subject, identities),
+        ),
       ],
       rag_collections: collectionLabels.get(id) ?? [],
       source_reconcile: sourceResult,
       reconcile: result,
       data_source_reconcile: dataSourceResult,
+      ...(publicationRequest
+        ? {
+            publication_request: {
+              id: publicationRequest._id,
+              status: publicationRequest.status,
+              requested_state: publicationRequest.requested_state,
+              effective_state: publicationRequest.effective_state,
+              risk_facts: publicationRequest.risk_facts,
+              requester: publicationRequest.requester,
+              created_at: publicationRequest.created_at,
+            },
+          }
+        : {}),
     });
   } catch (error) {
     if (error instanceof ApiError) return handleApiError(error);

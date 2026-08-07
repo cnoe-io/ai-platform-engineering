@@ -19,6 +19,7 @@ import {
   computeIngestionSourceId,
   type IngestionSourceIdentity,
 } from "@/lib/ingestion-source-id";
+import { parseConfluencePageUrl } from "@/lib/confluence-url";
 import {
   writeOpenFgaTuples,
   isOpenFgaReconciliationEnabled,
@@ -752,12 +753,22 @@ export function extractRagSourceTypeFields(
       const confluenceUrl = sourceData.confluence_url as string | undefined;
       const spaceKey = sourceData.space_key as string | undefined;
       const startPageUrl = sourceData.start_page_url as string | undefined;
-      if (!confluenceUrl || !spaceKey || !startPageUrl) return null;
+      const parsedPage = startPageUrl
+        ? parseConfluencePageUrl(startPageUrl)
+        : null;
+      if (
+        !confluenceUrl ||
+        !spaceKey ||
+        !startPageUrl ||
+        !parsedPage ||
+        parsedPage.spaceKey !== spaceKey
+      ) return null;
       return {
         identity: {
           source_type: "confluence_space",
           confluence_url: confluenceUrl,
           space_key: spaceKey,
+          page_id: parsedPage.pageId,
         },
         fields: {
           source_type: sourceType,
@@ -928,7 +939,7 @@ export async function seedRagSources(
         ownerTeamSlug: null,
         // The prior alias modeled this team as a KB owner. Treat it as the
         // previous owner once so its stale manager tuple is removed while its
-        // explicit reader+ingestor grant remains in the desired shared set.
+        // explicit Search grant remains in the desired reader set.
         previousOwnerTeamSlug:
           existing?.search_owner_team_slug ?? legacySearchOwnerTeamSlug,
         nextSharedTeamSlugs: searchTeamSlugs,
@@ -1009,7 +1020,7 @@ export async function adoptConfigImportedRagSources(
     const now = new Date().toISOString();
 
     // Adoption changes source-management policy only. Query ownership stays
-    // intact and remains editable through Search & Ingest Access.
+    // intact and remains editable through Search access.
     const previousOwnerTeamSlug = existing.owner_team_slug ?? null;
     const previousSharedTeamSlugs = normalizeStringArray(
       existing.shared_with_teams,

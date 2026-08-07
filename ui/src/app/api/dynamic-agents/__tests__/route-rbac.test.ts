@@ -133,7 +133,8 @@ jest.mock("@/lib/rbac/agent-ownership-scope", () => ({
 }));
 
 jest.mock("@/lib/rbac/unlinked-service-account", () => ({
-  resolveUnlinkedServiceAccountSub: (...args: unknown[]) => mockResolveUnlinkedServiceAccountSub(...args),
+  resolveUnlinkedServiceAccountSub: (...args: unknown[]) =>
+    mockResolveUnlinkedServiceAccountSub(...args),
   resolveUnlinkedServiceAccountGrantState: (...args: unknown[]) =>
     mockResolveUnlinkedServiceAccountGrantState(...args),
 }));
@@ -922,6 +923,47 @@ describe("dynamic agents RBAC routes", () => {
     expect(mockGetCollection).not.toHaveBeenCalledWith("rag_collections");
   });
 
+  it("stores both knowledge selections as arrays when one is provided", async () => {
+    const insertOne = jest.fn();
+    mockGetCollection.mockImplementation(async (name: string) => {
+      if (name === "teams") {
+        return {
+          findOne: jest
+            .fn()
+            .mockResolvedValue({ _id: "primary-id", slug: "primary" }),
+        };
+      }
+      if (name === "dynamic_agents") {
+        return {
+          findOne: jest.fn().mockResolvedValue(null),
+          insertOne,
+        };
+      }
+      throw new Error(`unexpected collection ${name}`);
+    });
+
+    const { POST } = await import("../route");
+    const response = await POST(
+      request("/api/dynamic-agents", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: "Empty Knowledge Helper",
+          system_prompt: "Use only selected knowledge.",
+          model: { id: "example-model", provider: "example-provider" },
+          owner_team_slug: "primary",
+          allowed_tools: { "knowledge-base": true },
+          datasource_ids: [],
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    expect(insertOne).toHaveBeenCalledWith(
+      expect.objectContaining({ datasource_ids: [], rag_collection_ids: [] }),
+    );
+  });
+
   it.each(["datasource_ids", "rag_collection_ids"])(
     "rejects null %s instead of creating a legacy-unrestricted agent",
     async (field) => {
@@ -1023,6 +1065,63 @@ describe("dynamic agents RBAC routes", () => {
         $set: expect.objectContaining({
           datasource_ids: [],
           rag_collection_ids: ["platform-rag"],
+        }),
+      }),
+      expect.any(Object),
+    );
+  });
+
+  it("clears a datasource when its stored collection selection is null", async () => {
+    const existingAgent = {
+      _id: "agent-existing",
+      name: "Existing agent",
+      owner_team_slug: "primary",
+      owner_subject: "alice-sub",
+      shared_with_teams: [],
+      allowed_tools: { "knowledge-base": true },
+      visibility: "team",
+      datasource_ids: ["source-a"],
+      rag_collection_ids: null,
+    };
+    const findOneAndUpdate = jest.fn().mockResolvedValue({
+      ...existingAgent,
+      datasource_ids: [],
+      rag_collection_ids: [],
+    });
+    mockGetCollection.mockImplementation(async (name: string) => {
+      if (name === "dynamic_agents") {
+        return {
+          findOne: jest.fn().mockResolvedValue(existingAgent),
+          findOneAndUpdate,
+        };
+      }
+      if (name === "teams") {
+        return {
+          find: jest.fn().mockReturnValue({
+            project: jest.fn().mockReturnThis(),
+            toArray: jest.fn().mockResolvedValue([]),
+          }),
+        };
+      }
+      throw new Error(`unexpected collection ${name}`);
+    });
+
+    const { PUT } = await import("../route");
+    const response = await PUT(
+      request("/api/dynamic-agents?id=agent-existing", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ datasource_ids: [] }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(findOneAndUpdate).toHaveBeenCalledWith(
+      { _id: "agent-existing" },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          datasource_ids: [],
+          rag_collection_ids: [],
         }),
       }),
       expect.any(Object),
@@ -1249,12 +1348,10 @@ describe("dynamic agents RBAC routes", () => {
       if (name === "dynamic_agents") return dynamicAgents;
       if (name === "teams")
         return {
-          find: jest
-            .fn()
-            .mockReturnValue({
-              project: jest.fn().mockReturnThis(),
-              toArray: jest.fn().mockResolvedValue([]),
-            }),
+          find: jest.fn().mockReturnValue({
+            project: jest.fn().mockReturnThis(),
+            toArray: jest.fn().mockResolvedValue([]),
+          }),
           findOne: jest.fn(),
         };
       throw new Error(`unexpected collection ${name}`);
@@ -1609,13 +1706,11 @@ describe("dynamic agents RBAC routes", () => {
       .fn()
       .mockResolvedValue({ _id: "agent-1", name: "Renamed" });
     mockGetCollection.mockResolvedValue({
-      findOne: jest
-        .fn()
-        .mockResolvedValue({
-          _id: "agent-1",
-          name: "Original",
-          allowed_tools: {},
-        }),
+      findOne: jest.fn().mockResolvedValue({
+        _id: "agent-1",
+        name: "Original",
+        allowed_tools: {},
+      }),
       findOneAndUpdate,
     });
     const { PUT } = await import("../route");
@@ -1686,13 +1781,11 @@ describe("dynamic agents RBAC routes", () => {
   it("requires agent delete access before deleting an agent document", async () => {
     const deleteOne = jest.fn();
     mockGetCollection.mockResolvedValue({
-      findOne: jest
-        .fn()
-        .mockResolvedValue({
-          _id: "agent-1",
-          is_system: false,
-          config_driven: false,
-        }),
+      findOne: jest.fn().mockResolvedValue({
+        _id: "agent-1",
+        is_system: false,
+        config_driven: false,
+      }),
       deleteOne,
     });
     const { DELETE } = await import("../route");
@@ -1842,7 +1935,9 @@ describe("dynamic agents RBAC routes", () => {
       sub: null,
       explicitAgentIds: new Set<string>(),
     });
-    const findOneAndUpdate = jest.fn().mockResolvedValue({ _id: "agent-2", visibility: "global" });
+    const findOneAndUpdate = jest
+      .fn()
+      .mockResolvedValue({ _id: "agent-2", visibility: "global" });
     mockGetCollection.mockResolvedValue({
       findOne: jest.fn().mockResolvedValue({
         _id: "agent-2",
@@ -1875,7 +1970,9 @@ describe("dynamic agents RBAC routes", () => {
   });
 
   it("does not resolve the unlinked SA sub when visibility stays team-scoped", async () => {
-    const findOneAndUpdate = jest.fn().mockResolvedValue({ _id: "agent-3", visibility: "team" });
+    const findOneAndUpdate = jest
+      .fn()
+      .mockResolvedValue({ _id: "agent-3", visibility: "team" });
     mockGetCollection.mockResolvedValue({
       findOne: jest.fn().mockResolvedValue({
         _id: "agent-3",
@@ -1900,7 +1997,10 @@ describe("dynamic agents RBAC routes", () => {
     expect(response.status).toBe(200);
     expect(mockResolveUnlinkedServiceAccountSub).not.toHaveBeenCalled();
     expect(mockReconcileAgentRelationships).toHaveBeenCalledWith(
-      expect.objectContaining({ agentId: "agent-3", unlinkedServiceAccountSub: null }),
+      expect.objectContaining({
+        agentId: "agent-3",
+        unlinkedServiceAccountSub: null,
+      }),
     );
   });
 

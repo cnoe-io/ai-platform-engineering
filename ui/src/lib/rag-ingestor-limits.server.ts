@@ -90,7 +90,7 @@ function enforceSharedLimits(
       : null;
   if (searchTeams && searchTeams.length > limits.shared.max_search_teams) {
     limitError(
-      `Search Access cannot include more than ${limits.shared.max_search_teams} teams.`,
+      `Search cannot include more than ${limits.shared.max_search_teams} teams.`,
     );
   }
 }

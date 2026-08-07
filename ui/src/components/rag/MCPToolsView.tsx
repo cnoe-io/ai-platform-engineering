@@ -698,13 +698,12 @@ function ToolFormDialog({ open, onClose, onSave, initial, isEdit }: ToolFormDial
             }}
             shareHelpText={
               <>
-                Teams you share with can invoke this tool. Each selected team
-                gets <code>can_call</code> on the tool in OpenFGA.
+                Teams you share with can invoke this tool.
               </>
             }
             renderGrantDetail={(slug) => (
               <>
-                members of <code>team:{slug}</code> can call this tool.
+                Members of <strong>{slug}</strong> can invoke this tool.
               </>
             )}
           />
@@ -738,9 +737,8 @@ function ToolFormDialog({ open, onClose, onSave, initial, isEdit }: ToolFormDial
                 Share with the whole organization
               </Label>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Every organization member gets <code>can_call</code> on this tool
-                (grants <code>organization#member</code> reader/user/caller in OpenFGA).
-                Useful for shared knowledge-base search tools.
+                Every organization member can invoke this tool. This is useful
+                for shared knowledge-base search tools.
               </p>
             </div>
           </div>

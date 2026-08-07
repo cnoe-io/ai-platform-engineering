@@ -16,10 +16,11 @@ import type { IngestionSourceConfigWithPermissions } from "@/types/ingestion-sou
 import { Loader2, Pencil, RotateCcw, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { DatasourceAccessBadges } from "./DatasourceAccessBadges";
+import type { PendingPublicationRequestView } from "@/types/publication-approval";
 
 const TYPE_LABELS: Record<string, string> = {
   slack_channel: "Slack Channel",
-  confluence_space: "Confluence Space",
+  confluence_space: "Confluence",
   jira_project: "Jira Project",
   web_url: "Web URL",
   webex_space: "Webex Space",
@@ -55,6 +56,7 @@ export interface IngestionSourceCardProps {
   onEdit: (source: IngestionSourceConfigWithPermissions) => void;
   onDelete: (source: IngestionSourceConfigWithPermissions) => Promise<void>;
   onRetry?: (source: IngestionSourceConfigWithPermissions) => Promise<void>;
+  pendingPublicationRequest?: PendingPublicationRequestView | null;
 }
 
 export function IngestionSourceCard({
@@ -62,6 +64,7 @@ export function IngestionSourceCard({
   onEdit,
   onDelete,
   onRetry,
+  pendingPublicationRequest,
 }: IngestionSourceCardProps) {
   const [pendingDelete, setPendingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -114,6 +117,7 @@ export function IngestionSourceCard({
               }
               searchUserDisplayNames={source.search_user_display_names}
               ragCollections={source.rag_collections}
+              pendingPublicationRequest={pendingPublicationRequest}
               detailsKnown
             />
             {source.config_driven && (

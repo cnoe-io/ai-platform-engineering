@@ -25,6 +25,7 @@ import { useAgentRuntimeHealth } from "@/hooks/use-agent-runtime-health";
 import { useKeycloakHealthSummary } from "@/hooks/use-keycloak-health-summary";
 import { useMigrationStatus } from "@/hooks/use-migration-status";
 import { usePlatformHealthProbes } from "@/hooks/use-platform-health-probes";
+import { usePublicationApprovalSummary } from "@/hooks/use-publication-approval-summary";
 import { useRAGHealth } from "@/hooks/use-rag-health";
 import { useReleaseUpgradePrompt } from "@/hooks/use-release-upgrade-prompt";
 import { useVersion } from "@/hooks/use-version";
@@ -49,6 +50,7 @@ export function AppHeader() {
   const router = useRouter();
   const { data: session } = useSession();
   const { isAdmin } = useAdminRole();
+  const publicationApprovals = usePublicationApprovalSummary();
   const {
     hasUnsavedChanges,
     pendingNavigationHref,
@@ -215,7 +217,7 @@ export function AppHeader() {
           href: "/admin/security/keycloak",
         }
       : null;
-  const adminAlerts: AdminAlertSource[] = isAdmin
+  const adminOnlyAlerts: AdminAlertSource[] = isAdmin
     ? ([
         keycloakStatusAlert,
         migrationStatus.status?.is_blocking
@@ -256,6 +258,21 @@ export function AppHeader() {
           : null,
       ].filter(Boolean) as AdminAlertSource[])
     : [];
+  const adminAlerts: AdminAlertSource[] = [
+    ...(publicationApprovals.can_approve &&
+    publicationApprovals.pending_count > 0
+      ? [
+          {
+            id: "publication_approvals",
+            label: "Publication approvals pending",
+            count: publicationApprovals.pending_count,
+            severity: "amber" as const,
+            href: "/admin/security/approvals",
+          },
+        ]
+      : []),
+    ...adminOnlyAlerts,
+  ];
   return (
     <>
     <header className="relative z-50 flex h-14 shrink-0 items-center justify-between gap-2 bg-card/50 px-3 backdrop-blur-xl sm:px-4">
@@ -503,7 +520,7 @@ export function AppHeader() {
             const breakdown = adminAlerts
               .map((a) => `${a.label}: ${a.count}`)
               .join(" · ");
-            const triggerLabel = `${totalCount} admin alert${totalCount === 1 ? "" : "s"} — ${breakdown}. Click to see the list and choose which one to fix.`;
+            const triggerLabel = `${totalCount} alert${totalCount === 1 ? "" : "s"} — ${breakdown}. Click to see the list.`;
             return (
               <Popover open={alertsPopoverOpen} onOpenChange={setAlertsPopoverOpen}>
                 <PopoverTrigger asChild>
@@ -533,15 +550,15 @@ export function AppHeader() {
                 >
                   <div className="px-2 py-1.5 border-b mb-1">
                     <p className="text-xs font-semibold text-foreground">
-                      Admin alerts ({totalCount})
+                      Alerts ({totalCount})
                     </p>
                     <p className="text-[11px] text-muted-foreground">
-                      Choose an alert to open its admin tab.
+                      Choose an alert to open the related page.
                     </p>
                   </div>
                   <ul className="space-y-0.5" role="list">
                     {adminAlerts.map((alert) => {
-                      const rowLabel = `${alert.label} (${alert.count}) — open ${alert.href.includes("/keycloak") ? "Keycloak" : "Migrations"} tab to fix`;
+                      const rowLabel = `${alert.label} (${alert.count}) — open the related page`;
                       const handleAlertNavigate = () => {
                         // Honour the unsaved-changes guard the same way
                         // application navigation does — if the user has pending edits

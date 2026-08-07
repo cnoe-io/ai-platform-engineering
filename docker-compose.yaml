@@ -1344,6 +1344,7 @@ services:
       JWT_ISSUER: ${BRIDGE_JWT_ISSUER:-http://localhost:7080/realms/caipe}
       JWT_AUDIENCES: ${BRIDGE_JWT_AUDIENCES:-caipe-platform,agentgateway}
       CAIPE_AGENT_CONTEXT_HMAC_SECRET: ${CAIPE_AGENT_CONTEXT_HMAC_SECRET:-}
+      CAIPE_ORG_KEY: ${CAIPE_ORG_KEY:-caipe}
       # Caller-keyed tool-authorization rollout flag (FR-012c). Default-off so
       # prod/compose without the var keeps legacy agent-only tool enforcement;
       # set CAIPE_CALLER_TOOL_CHECK_ENABLED=true (in .env) to enforce the dual

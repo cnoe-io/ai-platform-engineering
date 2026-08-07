@@ -211,6 +211,7 @@ export type AdminTabKey =
   | "action_audit"
   | "openfga"
   | "migrations"
+  | "approvals"
   | "service_accounts";
 
 /** Per-tab visibility gates returned by GET /api/rbac/admin-tab-gates */

@@ -96,6 +96,17 @@ export const isIngestorOnline = (
   typeof ingestor.last_seen === "number" &&
   ingestor.last_seen >= nowSeconds - INGESTOR_HEARTBEAT_MAX_AGE_SECONDS;
 
+const SCHEDULED_RELOAD_SOURCE_TYPES = new Set([
+  "web",
+  "confluence",
+  "slack",
+  "jira",
+  "webex",
+]);
+
+export const supportsScheduledReload = (sourceType: string): boolean =>
+  SCHEDULED_RELOAD_SOURCE_TYPES.has(sourceType.toLowerCase());
+
 // Helper function to check if an ingest type is available based on ingestors
 export const isIngestTypeAvailable = (
   ingestType: string,

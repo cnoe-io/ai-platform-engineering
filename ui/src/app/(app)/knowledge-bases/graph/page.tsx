@@ -28,7 +28,7 @@ function GraphInfoBanner({
         : "Only entities from knowledge bases you can read are shown. The deployment-wide ontology is limited to organization admins because it does not yet carry source-level provenance."}{" "}
       {!ontologyAvailable && kbCount >= 0 ? (
         <span className="text-xs text-amber-800/80 dark:text-amber-300/70">
-          (you have read access to {kbCount} knowledge {kbCount === 1 ? "base" : "bases"})
+          (you have Search access to {kbCount} knowledge {kbCount === 1 ? "base" : "bases"})
         </span>
       ) : null}
     </div>

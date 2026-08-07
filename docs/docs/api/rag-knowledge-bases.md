@@ -69,17 +69,21 @@ copy chunks or create another Milvus collection. Datasource ingestion,
 scheduled reload, and stale-chunk replacement continue to operate on the
 original `datasource_id`.
 
-Collection authorization is intentionally split:
+Collection authorization is intentionally split into the same two concepts the
+UI uses everywhere: **Owner** and **Search**. The API and OpenFGA model retain
+the internal relation names for compatibility:
 
-- `reader` can query member datasources.
-- `publisher` can add or remove member datasources.
-- `manager` can edit collection settings.
-- Publishing requires management access to every newly-added datasource.
-- Publishing or managing does not imply query access.
-- A new personal collection writes a separate reader grant for its owner. It
-  may include only datasources that owner can already manage and query.
-- Only organization admins can delegate maintainer teams, reader teams, or
-  global readership.
+- Search (`reader`) can query member datasources. It never permits ingestion,
+  reloads, or configuration changes.
+- Owner members (`publisher`) can add or remove member datasources.
+- Owner admins (`manager`) can edit collection settings.
+- Adding a datasource requires Owner access to that datasource.
+- Owner access does not imply Search access.
+- A new personal collection gives its owner a separate Search grant. It may
+  include only datasources that owner can already manage and query.
+- Only organization admins can delegate Owner teams. Collection Owners can
+  propose Search teams or global Search; publication policy decides whether
+  the change is immediate or remains pending for an approver.
 
 ### GET `/api/rag/collections`
 
@@ -119,20 +123,24 @@ Creates a personal collection. Service-account callers are rejected.
 ### GET|PATCH|DELETE `/api/rag/collections/{collectionId}`
 
 - `GET` requires collection discovery access.
-- `PATCH source_ids` requires collection publish access and source-management
+- `PATCH source_ids` requires collection membership access and datasource Owner
   access for additions.
 - `PATCH name|description` requires collection management.
-- `PATCH maintainer_team_slugs|reader_team_slugs|global_read` requires
-  organization administration.
-- Adding a reader team also grants that team the coarse organization search
-  capability. Removing a reader does not revoke a capability that may still be
+- `PATCH maintainer_team_slugs` requires organization administration.
+- `PATCH reader_team_slugs|global_read` requires collection management. New
+  audiences and company-wide audience removals go through the
+  publication-approval policy. Current company-wide Search remains active
+  while removal is pending.
+- Adding a Search team also grants that team the coarse organization search
+  capability. Removing Search does not revoke a capability that may still be
   used by another collection; datasource relationships remain authoritative.
 - `DELETE` requires collection management, preserves indexed data, and removes
   stale agent references. `platform-rag` cannot be deleted.
 
 ### Agent and service-account behavior
 
-- Direct Search/API calls use every datasource the caller can currently read.
+- Direct Search/API calls use every datasource for which the caller has Search
+  access.
 - An agent stores optional `datasource_ids` and `rag_collection_ids`.
 - Collection membership is expanded from MongoDB at each RAG tool call, then
   unioned with direct datasource pins.
@@ -140,9 +148,9 @@ Creates a personal collection. Service-account callers are rejected.
   datasource access. Agent configuration can narrow access; it never grants it.
 - Explicit empty arrays disable the agent's RAG tools. Missing fields are a
   temporary legacy state used only before migration.
-- Service accounts receive explicit `data_source#reader` scopes in the existing
-  service-account editor. There is no separate query scope. Calls still require
-  an assigned agent/tool as applicable.
+- Service accounts receive explicit datasource Search scopes in the existing
+  service-account editor (`data_source#reader` internally). Search is
+  query-only; calls still require an assigned agent/tool as applicable.
 
 ### Legacy global-RAG migration
 
@@ -151,15 +159,78 @@ Admin → Settings → RAG migrates the current global corpus into `platform-rag
 - Every unscoped datasource from the legacy global corpus becomes a Platform
   RAG member. New personal/team-scoped direct sources are excluded, including
   source types such as local-file uploads that do not have a Mongo config row.
-- One selected team manages legacy source configuration.
-- One selected team reads Platform RAG and receives the organization search
-  capability.
+- One selected team becomes Owner of the legacy source configuration.
+- One selected team receives Platform RAG Search access and the organization
+  search capability.
 - Existing RAG-enabled agents with no explicit pins are attached to Platform
   RAG. Existing explicit empty selections remain opt-outs.
 - Supported connector settings are adopted into MongoDB; unsupported legacy
   connectors remain usable and managed through their existing ingestors.
 - The migration is retry-safe and does not replace later datasource grants or
   publish newly created scoped sources.
+
+---
+
+## Publication approvals
+
+The UI Backend API uses one durable approval workflow for broader RAG Search
+publication and self-service Slack or Webex onboarding.
+
+- Creating and ingesting a personal or Owner-team datasource remains immediate.
+- Search grants already in effect remain active while an expansion is pending.
+- Ordinary Search revocations take effect immediately. Removing a configured
+  company-wide audience requires approval, and its existing access remains
+  active until approval.
+- Removing a datasource from a company-wide collection follows the same rule.
+- Adding a person or team outside the Owner scope creates a pending request.
+- Material datasource changes require renewed approval while broad Search is
+  active. These include ownership, source identity, URL/domain, crawl scope,
+  and large estimated-size changes.
+- Slack channels and Webex spaces remain unavailable until their onboarding
+  request is approved and applied.
+- Each request stores requested and effective state, the resource revision,
+  risk facts, status, and append-only decision history, including the approver.
+- Approval application uses a short-lived OpenFGA capability bound to the exact
+  request and resource. A stale resource revision fails closed instead of
+  applying an obsolete decision.
+
+Approvers use **Admin → Security & Policy → Approvals**. RAG, Slack, and Webex
+have separate reviewer lists. Trusted publishers, company-wide audiences,
+self-approval, and team-specific reviewers apply only to RAG.
+
+### GET `/api/publication-requests`
+
+Lists requests visible to the caller. Delegated approvers see requests for
+their assigned target teams; organization admins see all requests.
+
+Optional query parameters:
+
+- `status`: comma-separated request statuses
+- `kind`: comma-separated resource kinds
+- `mine=true`: requests submitted by the caller
+- `limit`: bounded result count
+
+### POST `/api/publication-requests/{id}/approve`
+
+Atomically claims a pending request, verifies the live resource revision, and
+invokes the matching RAG, Slack, or Webex adapter. Organization-wide
+self-approval is denied by default.
+
+### POST `/api/publication-requests/{id}/reject`
+
+Rejects a pending request without changing its effective state. An optional
+JSON `note` is recorded in the audit history.
+
+### GET|PATCH `/api/publication-requests/settings`
+
+Reads or updates approval policy. Organization-administrator access is
+required.
+
+### GET `/api/publication-requests/summary`
+
+Returns the caller's pending count and whether they can approve requests or
+manage approval settings. The application header uses this endpoint for its
+approval alert.
 
 ---
 
@@ -289,12 +360,16 @@ Returns resolved identity baseline role and permission strings for UI gating.
 RAG uses two independent resource graphs for each source ID:
 
 - `ingestion_source` controls who can read and manage connector configuration.
-- `data_source` / `knowledge_base` controls who can search indexed content and request ingestion.
+- `data_source` / `knowledge_base` controls who can search indexed content.
 
-Granting a person or team **Search & Ingest** access does not let them change
+Trusted ingestion transports may hold a separate legacy `ingestor` grant.
+Selecting **Search** in the product writes only the `reader` relationship; it
+never grants ingestion, reload, or configuration access.
+
+Granting a person or team **Search** access does not let them change
 the URL, channel, query, crawl options, ownership, or deletion lifecycle.
 Source management does not implicitly make a team-owned source searchable, but
-source managers may administer which people and teams receive Search & Ingest
+Owners may administer which people and teams receive Search
 access. A personal owner retains access through the KB owner relation. Search
 also requires the organization-level search capability.
 
@@ -365,7 +440,7 @@ grant kind. Enforcement remains in OpenFGA.
 
 ### DELETE `/v1/datasource`
 
-**Auth:** Same source-management policy as the narrow PATCH endpoint. **Service:** RAG server.
+**Auth:** Same datasource Owner policy as the narrow PATCH endpoint. **Service:** RAG server.
 
 **Query parameters:**
 
@@ -384,9 +459,9 @@ grant kind. Enforcement remains in OpenFGA.
 **Auth:** Bearer JWT. **Service:** RAG server.
 
 Returns the union of sources visible through content access and source-config
-access. Content-only readers receive catalog/status fields but not connector
-configuration. Each row includes `_permissions` flags for content read/ingest,
-query management, and source-config read/management.
+access. Search-only callers receive catalog/status fields but not connector
+configuration. Each row includes `_permissions` flags for content Search,
+trusted-ingestor operations, and source-config read/management.
 
 **Query parameters:**
 
@@ -606,7 +681,7 @@ empty description and `{}` metadata.
 
 ### POST `/v1/job/{job_id}/terminate`
 
-**Auth:** Bearer JWT + either content-ingest or source-management access. **Service:** RAG server.
+**Auth:** Bearer JWT + datasource Owner access, or the trusted ingestor assigned to the datasource. **Service:** RAG server.
 
 **Response `200`:**
 
@@ -780,7 +855,7 @@ Bulk document ingestion into Milvus (and graph when enabled). Requires an existi
 
 ### POST `/v1/ingest/webloader/url`
 
-**Auth:** New source: organization author capability + selected owner-team membership. Existing source: source-management access. **Service:** RAG server.
+**Auth:** New source: organization author capability + selected Owner-team membership. Existing source: datasource Owner access. **Service:** RAG server.
 
 Queues a new URL crawl on the webloader Redis queue; creates datasource and pending job.
 
@@ -817,7 +892,7 @@ Queues a new URL crawl on the webloader Redis queue; creates datasource and pend
 
 ### POST `/v1/ingest/webloader/reload`
 
-**Auth:** Bearer JWT + either content-ingest or source-management access. Stored connector configuration is reused. **Service:** RAG server.
+**Auth:** Bearer JWT + datasource Owner access. Stored connector configuration is reused. **Service:** RAG server.
 
 **Request body:**
 
@@ -858,14 +933,15 @@ Queues a new URL crawl on the webloader Redis queue; creates datasource and pend
 
 ### POST `/v1/ingest/confluence/page`
 
-**Auth:** New source: organization author capability + selected owner-team membership. Existing source: source-management access. **Service:** RAG server.
+**Auth:** New source: organization author capability + selected Owner-team membership. Existing source: datasource Owner access. **Service:** RAG server.
 
 **Request body:**
 
 ```json
 {
-  "url": "https://company.atlassian.net/wiki/spaces/ENG/pages/123456789/Runbook",
-  "description": "Engineering space",
+  "url": "https://example.atlassian.net/wiki/spaces/ENG/pages/123456789/Runbook",
+  "name": "Engineering runbooks",
+  "description": "Runbooks rooted at the selected page",
   "get_child_pages": true,
   "allowed_title_patterns": ["^Runbook.*"],
   "denied_title_patterns": ["Draft"]
@@ -876,25 +952,25 @@ Queues a new URL crawl on the webloader Redis queue; creates datasource and pend
 
 ```json
 {
-  "datasource_id": "src_confluence___company_atlassian_net__ENG",
+  "datasource_id": "src_confluence___example_atlassian_net__ENG__123456789",
   "job_id": "new-uuid",
   "message": "Confluence page ingestion request queued"
 }
 ```
 
-**Errors:** `400` invalid URL format or wrong Confluence host vs `CONFLUENCE_URL`; `400` if another job pending for that space datasource.
+**Errors:** `400` invalid URL format or wrong Confluence host vs `CONFLUENCE_URL`; `400` if another job is pending for that page-rooted datasource.
 
 ---
 
 ### POST `/v1/ingest/confluence/reload`
 
-**Auth:** Bearer JWT + either content-ingest or source-management access. Stored connector configuration is reused. **Service:** RAG server.
+**Auth:** Bearer JWT + datasource Owner access. Stored connector configuration is reused. **Service:** RAG server.
 
 **Request body:**
 
 ```json
 {
-  "datasource_id": "src_confluence___company_atlassian_net__ENG"
+  "datasource_id": "src_confluence___example_atlassian_net__ENG__123456789"
 }
 ```
 
@@ -918,7 +994,7 @@ Queues a new URL crawl on the webloader Redis queue; creates datasource and pend
 
 ## Graph explore (entity & ontology)
 
-Requires `ENABLE_GRAPH_RAG=true`, Neo4j, a Bearer JWT, and the organization search capability. Data-graph responses are limited to datasources the caller can read. Entities without datasource provenance and relations whose endpoints are not both readable are omitted.
+Requires `ENABLE_GRAPH_RAG=true`, Neo4j, a Bearer JWT, and the organization search capability. Data-graph responses are limited to datasources for which the caller has Search access. Entities without datasource provenance and relations whose endpoints are not both searchable are omitted.
 
 The ontology graph is deployment-global and does not yet carry datasource provenance. Its routes, including ontology-agent status, therefore require unrestricted datasource access. Bounded callers can use only the source-scoped data graph.
 

@@ -140,7 +140,7 @@ describe("KbSharingPanel — Confirm Transfer recovery", () => {
     });
 
     await waitFor(() => expect(mockToast).toHaveBeenCalledWith(
-      "Datasource ownership and access updated.",
+      "Datasource Owner and Search access updated.",
       "success",
     ));
   });

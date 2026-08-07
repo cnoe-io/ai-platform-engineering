@@ -48,6 +48,7 @@ const ALL_TABS: AdminTabKey[] = [
   "action_audit",
   "openfga",
   "migrations",
+  "approvals",
   "service_accounts",
 ];
 
@@ -424,6 +425,20 @@ async function getAdminTabGates(request?: NextRequest) {
 
     for (const tab of ALL_TABS) {
       if (tab === "credentials" || tab === "service_accounts") continue;
+      if (tab === "approvals") {
+        if (!isAdmin) {
+          batchEntries.push({
+            tab,
+            purpose: "primary",
+            tuple: {
+              user: currentUser,
+              relation: "can_approve",
+              object: "policy:publication",
+            },
+          });
+        }
+        continue;
+      }
       if (tab === "dynamic_agent_conversations") {
         if (!isAdmin) {
           batchEntries.push({
@@ -501,6 +516,10 @@ async function getAdminTabGates(request?: NextRequest) {
         }
         continue;
       }
+      if (tab === "approvals") {
+        gates[tab] = isAdmin || (primaryAllowed.get(tab) ?? false);
+        continue;
+      }
       if (tab === "dynamic_agent_conversations") {
         gates[tab] = isAdmin || (primaryAllowed.get(tab) ?? false);
         continue;
@@ -540,6 +559,18 @@ async function getAdminTabGates(request?: NextRequest) {
       } else {
         allowed = isAdmin || (actor ? await hasDynamicAgentConversationsRead(actor) : false);
       }
+    } else if (tab === "approvals") {
+      allowed = simulatedUser
+        ? simulatedOrganizationAdmin || await checkTupleAllowed({
+            user: simulatedUser,
+            relation: "can_approve",
+            object: "policy:publication",
+          })
+        : isAdmin || Boolean(actor && await checkTupleAllowed({
+            user: actor,
+            relation: "can_approve",
+            object: "policy:publication",
+          }));
     } else if (tab === "service_accounts" && simulatedUser) {
       allowed = simulatedOrganizationAdmin || await isMemberOfAnyTeam(simulatedUser);
     } else {

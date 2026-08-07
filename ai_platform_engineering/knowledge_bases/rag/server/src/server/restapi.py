@@ -74,6 +74,7 @@ from server.rbac import (
   write_datasource_ownership,
   check_datasource_access,
   check_datasource_management_access,
+  check_publication_request_apply_access,
   check_connector_configuration_access,
   check_datasource_or_source_access,
   check_ingestion_source_access,
@@ -689,7 +690,7 @@ async def queue_datasource_reload(
   datasource = await metadata_storage.get_datasource_info(datasource_id)
   if not datasource:
     raise HTTPException(status_code=404, detail="Datasource not found")
-  await check_datasource_or_source_access(user, datasource_id, "ingest")
+  await check_datasource_management_access(user, datasource_id)
   ingestor_id = await resolve_datasource_ingestor(datasource, ingestor_type)
   job_id = await create_reload_job(datasource_id, resource_label)
   await enqueue_ingestor_request(
@@ -766,8 +767,9 @@ async def authorize_source_ingestion(
   A DB-backed source is preprovisioned before its first ingestion. At that
   point an ordinary member of the selected owner team may be the creator even
   though only team admins receive ``ingestion_source#can_manage``. Requiring
-  both ``can_read`` on that exact source and the normal create capability lets
-  the creator perform the initial ingest without granting ongoing management.
+  both configuration visibility on that exact source and the normal create
+  capability lets the creator perform the initial ingest without granting
+  ongoing Owner access.
   Existing datasources continue through the normal connector/config gate.
   """
   if existing_datasource is not None:
@@ -790,12 +792,23 @@ async def provision_legacy_datasource_ownership(
 ) -> None:
   """Project policy for direct creates before any local state is persisted.
 
-  UI-created sources reconcile the independent source-management and
-  Search & Ingest graphs before calling RAG, so they must not be coupled here.
+  UI-created sources reconcile the independent Owner and Search
+  graphs before calling RAG, so they must not be coupled here.
   Legacy/direct callers still need the server to establish the initial KB and
   datasource ownership atomically enough to fail closed on a PDP outage.
   """
   if existing_datasource is None and not ownership_preprovisioned:
+    if (
+      (search_team_slugs or search_user_subjects)
+      and not is_trusted_ingestor_service(user)
+    ):
+      raise HTTPException(
+        status_code=403,
+        detail=(
+          "Search publication for additional people or teams must be requested "
+          "through the platform publication workflow"
+        ),
+      )
     await write_datasource_ownership(
       datasource_id,
       owner_team_slug,
@@ -806,14 +819,17 @@ async def provision_legacy_datasource_ownership(
 
 
 async def authorize_job_access(user: UserContext, datasource_id: str, *, write: bool) -> None:
-  """Authorize job metadata without granting source managers indexed-data access."""
+  """Authorize job metadata without granting Owners indexed-data access."""
   if is_trusted_ingestor_service(user):
+    return
+  if write:
+    await check_datasource_management_access(user, datasource_id)
     return
   await check_datasource_or_source_access(
     user,
     datasource_id,
-    "ingest" if write else "read",
-    source_relation="can_manage" if write else "can_read",
+    "read",
+    source_relation="can_read",
   )
 
 
@@ -824,9 +840,9 @@ async def authorize_ingestor_job_transport(
 ) -> None:
   """Require the assigned first-party ingestor for internal job mutation.
 
-  Search & Ingest and source-management grants may start, retry, inspect, or
-  terminate lifecycle work through their dedicated endpoints. They do not
-  authorize forging worker progress, errors, totals, or terminal status.
+  Owners may start, retry, inspect, or terminate lifecycle work through their
+  dedicated endpoints. Search users may inspect readable job metadata only.
+  Neither grant authorizes forging worker progress, errors, totals, or status.
   """
   if not is_trusted_ingestor_service(user):
     raise HTTPException(
@@ -1033,10 +1049,9 @@ async def upsert_datasource(
       datasource_info.search_with_users = existing.search_with_users
   else:
     # This endpoint replaces the entire DataSourceInfo record, including its
-    # connector assignment and source metadata. Per-datasource ingest access
-    # permits pushing/reloading content, but must not also permit reconfiguring
-    # the source. Human callers use the narrow PATCH endpoint; the only normal
-    # non-ingestor caller here is the org-admin migration flow.
+    # connector assignment and source metadata. Only trusted connector workers
+    # may replace this record. Human callers use the narrow PATCH endpoint; the
+    # only normal non-ingestor caller here is the org-admin migration flow.
     await authorize_org_admin(user)
   await metadata_storage.store_datasource_info(datasource_info)
 
@@ -1108,29 +1123,77 @@ class DatasourceOwnerTeamUpdateRequest(BaseModel):
   search_with_users: Optional[List[str]] = Field(None, max_length=50)
 
 
-@app.patch("/v1/datasource/{datasource_id}/owner-team", status_code=status.HTTP_200_OK)
-async def update_datasource_owner_team(
+@app.get("/v1/datasource/{datasource_id}/publication-state")
+async def get_datasource_publication_state(
   datasource_id: str,
-  body: DatasourceOwnerTeamUpdateRequest,
+  request: Request,
   user: UserContext = Depends(require_authenticated_user),
-):
-  """Persist the management owner and/or independent Search Access teams.
+) -> Dict[str, Optional[str]]:
+  """Return the ownership fields needed to validate an approved publication.
 
-  A query-policy admin (legacy compatibility) or the independent source
-  manager may mirror these fields after reconciling OpenFGA. This endpoint
-  changes metadata only; enforcement remains in the independent
-  ``ingestion_source`` and ``knowledge_base`` graphs. Full datasource
-  replacement remains restricted to org admins and trusted ingestors.
+  Owners may read this narrow projection directly. A delegated
+  publication approver may read it only while applying the request-scoped
+  capability for this exact datasource. The endpoint intentionally omits
+  connector credentials and source configuration.
   """
   if not metadata_storage:
     raise HTTPException(status_code=500, detail="Server not initialized")
 
   try:
-    await check_datasource_access(user, datasource_id, "admin")
-  except HTTPException as exc:
-    if exc.status_code != status.HTTP_403_FORBIDDEN:
-      raise
     await check_datasource_management_access(user, datasource_id)
+  except HTTPException as source_manager_error:
+    if source_manager_error.status_code != status.HTTP_403_FORBIDDEN:
+      raise
+    await check_publication_request_apply_access(
+      user,
+      request.headers.get("X-Publication-Authorization-Id"),
+      "rag_datasource",
+      datasource_id,
+    )
+
+  existing = await metadata_storage.get_datasource_info(datasource_id)
+  if not existing:
+    raise HTTPException(status_code=404, detail="Datasource not found")
+  return {
+    "datasource_id": datasource_id,
+    "owner_team_slug": existing.owner_team_slug,
+    "owner_subject": existing.owner_subject,
+    "creator_subject": existing.creator_subject,
+  }
+
+
+@app.patch("/v1/datasource/{datasource_id}/owner-team", status_code=status.HTTP_200_OK)
+async def update_datasource_owner_team(
+  datasource_id: str,
+  body: DatasourceOwnerTeamUpdateRequest,
+  request: Request,
+  user: UserContext = Depends(require_authenticated_user),
+):
+  """Persist the Owner and/or independent Search teams.
+
+  The independent Owner may mirror these fields after reconciling
+  OpenFGA. Legacy datasources remain supported through the management helper's
+  fallback only when no ``ingestion_source`` policy exists. This endpoint
+  changes metadata only; enforcement remains in the independent policy graphs.
+  """
+  if not metadata_storage:
+    raise HTTPException(status_code=500, detail="Server not initialized")
+
+  try:
+    await check_datasource_management_access(user, datasource_id)
+  except HTTPException as source_manager_error:
+    if source_manager_error.status_code != status.HTTP_403_FORBIDDEN:
+      raise
+    # A publication request may include an ownership transfer that was held
+    # back with a material broad-publication change. The request-scoped
+    # capability is bound to this exact datasource and exists only while the
+    # BFF is atomically applying the approved state.
+    await check_publication_request_apply_access(
+      user,
+      request.headers.get("X-Publication-Authorization-Id"),
+      "rag_datasource",
+      datasource_id,
+    )
   existing = await metadata_storage.get_datasource_info(datasource_id)
   if not existing:
     raise HTTPException(status_code=404, detail="Datasource not found")
@@ -1235,7 +1298,17 @@ async def rename_datasource(
   if not metadata_storage:
     raise HTTPException(status_code=500, detail="Server not initialized")
 
-  await check_datasource_management_access(user, datasource_id)
+  try:
+    await check_datasource_management_access(user, datasource_id)
+  except HTTPException as source_manager_error:
+    if source_manager_error.status_code != status.HTTP_403_FORBIDDEN:
+      raise
+    await check_publication_request_apply_access(
+      user,
+      request.headers.get("X-Publication-Authorization-Id"),
+      "rag_datasource",
+      datasource_id,
+    )
 
   existing = await metadata_storage.get_datasource_info(datasource_id)
   if not existing:
@@ -1285,22 +1358,26 @@ async def rename_datasource(
       setattr(existing, field_name, changes[field_name])
 
   metadata = dict(existing.metadata or {})
-  if "lookback_days" in changes:
-    metadata["lookback_days"] = changes["lookback_days"]
-  if "include_bots" in changes:
-    metadata["include_bots"] = changes["include_bots"]
+  for field_name in (
+    "lookback_days",
+    "include_bots",
+    "include_comments",
+    "include_links",
+    "custom_fields",
+    "allowed_title_patterns",
+    "denied_title_patterns",
+  ):
+    if field_name not in changes:
+      continue
+    if changes[field_name] is None:
+      metadata.pop(field_name, None)
+    else:
+      metadata[field_name] = changes[field_name]
   if "jql" in changes:
-    metadata["jql"] = str(changes["jql"]).strip()
-  if "include_comments" in changes:
-    metadata["include_comments"] = changes["include_comments"]
-  if "include_links" in changes:
-    metadata["include_links"] = changes["include_links"]
-  if "custom_fields" in changes:
-    metadata["custom_fields"] = changes["custom_fields"]
-  if "allowed_title_patterns" in changes:
-    metadata["allowed_title_patterns"] = changes["allowed_title_patterns"]
-  if "denied_title_patterns" in changes:
-    metadata["denied_title_patterns"] = changes["denied_title_patterns"]
+    if changes["jql"] is None:
+      metadata.pop("jql", None)
+    else:
+      metadata["jql"] = str(changes["jql"]).strip()
   if existing.source_type == "slack" and "name" in changes:
     metadata["channel_name"] = changes["name"]
   elif existing.source_type == "webex" and "name" in changes:
@@ -1329,7 +1406,10 @@ async def rename_datasource(
     elif existing.source_type == "confluence":
       for field_name in ("default_chunk_size", "default_chunk_overlap"):
         if field_name in changes:
-          nested[field_name] = changes[field_name]
+          if changes[field_name] is None:
+            nested.pop(field_name, None)
+          else:
+            nested[field_name] = changes[field_name]
       for field_name in (
         "get_child_pages",
         "allowed_title_patterns",
@@ -1345,7 +1425,10 @@ async def rename_datasource(
           page_configs = [dict(item) for item in metadata["page_configs"]]
           for page_config in page_configs:
             if str(page_config.get("page_id")) == page_id:
-              page_config["get_child_pages"] = changes["get_child_pages"]
+              if changes["get_child_pages"] is None:
+                page_config.pop("get_child_pages", None)
+              else:
+                page_config["get_child_pages"] = changes["get_child_pages"]
           metadata["page_configs"] = page_configs
     metadata[nested_key] = nested
   existing.metadata = metadata
@@ -1554,7 +1637,7 @@ async def list_datasources(
         # not also reveal the independent ingestion-source configuration (URL,
         # channel/space ids, JQL, refresh/chunk settings, creator subject, or
         # worker assignment). Query managers retain only the ownership fields
-        # needed by the Search & Ingest sharing flow.
+        # needed by the Search sharing flow.
         datasource_payload = {
           key: datasource_payload[key]
           for key in (
@@ -2170,6 +2253,8 @@ async def ingest_local_file(
   owner_team_slug: Optional[str] = Form(None),
   search_team_slugs: List[str] = Form(default=[]),
   search_user_subjects: List[str] = Form(default=[]),
+  ownership_preprovisioned: bool = Form(False),
+  preprovisioned_datasource_id: Optional[str] = Form(None),
   chunk_size: int = Form(10000),
   chunk_overlap: int = Form(2000),
   user: UserContext = Depends(require_authenticated_user),
@@ -2201,18 +2286,31 @@ async def ingest_local_file(
   _validate_local_file_batch([(filename, content) for _, filename, content, _, _ in uploads])
   total_bytes = sum(len(content) for _, _, content, _, _ in uploads)
   datasource_id = _local_files_datasource_id([(filename, content) for _, filename, content, _, _ in uploads])
-  await authorize_datasource_create(request, user, datasource_id, owner_team_slug)
-
+  if ownership_preprovisioned and preprovisioned_datasource_id != datasource_id:
+    raise HTTPException(
+      status_code=400,
+      detail="Preprovisioned datasource id does not match the uploaded file set",
+    )
   existing_datasource = await metadata_storage.get_datasource_info(datasource_id)
+  await authorize_source_ingestion(
+    request,
+    user,
+    datasource_id,
+    owner_team_slug,
+    ownership_preprovisioned,
+    existing_datasource,
+  )
   if existing_datasource:
     raise HTTPException(status_code=400, detail="File set already ingested, please delete existing datasource before re-ingesting")
 
-  await write_datasource_ownership(
+  await provision_legacy_datasource_ownership(
     datasource_id,
     owner_team_slug,
+    search_team_slugs,
+    search_user_subjects,
     user,
-    shared_team_slugs=search_team_slugs,
-    shared_user_subjects=search_user_subjects,
+    ownership_preprovisioned,
+    existing_datasource,
   )
 
   job_id = str(uuid.uuid4())
@@ -2365,6 +2463,46 @@ async def preview_url_ingestion(
   )
 
 
+def resolve_confluence_datasource_id(
+  confluence_request: ConfluenceIngestRequest,
+  space_key: str,
+  page_id: str,
+) -> str:
+  """Resolve page-scoped identity while accepting an existing legacy ID."""
+  page_datasource_id = utils.generate_confluence_datasource_id(
+    confluence_request.url,
+    space_key,
+    page_id,
+  )
+  supplied_id = (confluence_request.preprovisioned_datasource_id or "").strip()
+  if not supplied_id:
+    return page_datasource_id
+  if not confluence_request.ownership_preprovisioned:
+    raise HTTPException(
+      status_code=400,
+      detail="preprovisioned_datasource_id requires preprovisioned ownership",
+    )
+  legacy_space_id = utils.generate_confluence_datasource_id(
+    confluence_request.url,
+    space_key,
+  )
+  if supplied_id not in {page_datasource_id, legacy_space_id}:
+    raise HTTPException(
+      status_code=400,
+      detail="Preprovisioned datasource ID does not match the Confluence page",
+    )
+  return supplied_id
+
+
+def confluence_scope_description(
+  confluence_request: ConfluenceIngestRequest,
+) -> str:
+  """Describe the concrete URL scope represented by a Confluence source."""
+  if confluence_request.get_child_pages:
+    return f"Confluence page and child pages starting at {confluence_request.url}"
+  return f"Confluence page {confluence_request.url}"
+
+
 @app.post("/v1/ingest/confluence/preview")
 async def preview_confluence_ingestion(
   confluence_request: ConfluenceIngestRequest,
@@ -2387,8 +2525,12 @@ async def preview_confluence_ingestion(
         detail=f"URL must be from configured Confluence instance: {configured.scheme}://{configured.netloc}",
       )
   space_key = confluence_match.group(1)
-  domain = urlparse(confluence_request.url).netloc.replace(".", "_").replace("-", "_")
-  datasource_id = f"src_confluence___{domain}__{space_key}"
+  page_id = confluence_match.group(2)
+  datasource_id = resolve_confluence_datasource_id(
+    confluence_request,
+    space_key,
+    page_id,
+  )
   existing_datasource = (
     await metadata_storage.get_datasource_info(datasource_id)
     if metadata_storage
@@ -2611,16 +2753,20 @@ async def ingest_confluence_page(
     if submitted_parsed.scheme != configured_parsed.scheme or submitted_parsed.netloc != configured_parsed.netloc:
       raise HTTPException(status_code=400, detail=f"URL must be from configured Confluence instance: {configured_parsed.scheme}://{configured_parsed.netloc}")
 
-  # Generate space-level datasource ID
-  domain = urlparse(confluence_request.url).netloc.replace(".", "_").replace("-", "_")
-  datasource_id = f"src_confluence___{domain}__{space_key}"
+  # Page-scoped identity allows multiple independent roots in one Confluence
+  # space. Existing BFF records may explicitly retain the legacy space ID.
+  datasource_id = resolve_confluence_datasource_id(
+    confluence_request,
+    space_key,
+    page_id,
+  )
 
   # Build page config for this ingestion
   page_config = {"page_id": page_id, "source": confluence_request.url, "get_child_pages": confluence_request.get_child_pages}
 
   # Check if the datasource already exists. Replacing or extending stored
-  # connector configuration requires source management; a dedicated reload
-  # reuses that configuration and separately permits the Search & Ingest team.
+  # connector configuration requires Owner access; a dedicated reload reuses
+  # that configuration and therefore also requires Owner access.
   # Creating a new space uses the org author capability + owning-team gate.
   existing_datasource = await metadata_storage.get_datasource_info(datasource_id)
   await authorize_source_ingestion(
@@ -2670,6 +2816,14 @@ async def ingest_confluence_page(
       logger.info(f"Added page {page_id} to {datasource_id}")
 
     existing_datasource.metadata["page_configs"] = page_configs
+    configured_name = (confluence_request.name or "").strip()
+    if configured_name:
+      existing_datasource.name = configured_name
+    configured_description = confluence_request.description.strip()
+    if configured_description:
+      existing_datasource.description = configured_description
+    elif not existing_datasource.description or existing_datasource.description == f"Confluence space {space_key}":
+      existing_datasource.description = confluence_scope_description(confluence_request)
     # Update title filter patterns if provided
     if confluence_request.allowed_title_patterns is not None:
       existing_datasource.metadata["allowed_title_patterns"] = confluence_request.allowed_title_patterns
@@ -2680,13 +2834,13 @@ async def ingest_confluence_page(
   else:
     # Create new datasource
     if not confluence_request.description:
-      confluence_request.description = f"Confluence space {space_key}"
+      confluence_request.description = confluence_scope_description(confluence_request)
 
     confluence_url_base = confluence_request.url.split("/wiki/")[0] + "/wiki" if "/wiki/" in confluence_request.url else confluence_request.url
 
     datasource_info = DataSourceInfo(
       datasource_id=datasource_id,
-      name=utils.derive_friendly_name(source_type="confluence", space_key=space_key, url=confluence_url_base),
+      name=(confluence_request.name or "").strip() or utils.derive_friendly_name(source_type="confluence", space_key=space_key, url=confluence_url_base),
       ingestor_id=live_ingestor_id,
       description=confluence_request.description,
       source_type="confluence",
@@ -2707,6 +2861,8 @@ async def ingest_confluence_page(
         "confluence_ingest_request": confluence_request.model_dump(),
         "space_key": space_key,
         "page_configs": [page_config],
+        "root_page_id": page_id,
+        "root_page_url": confluence_request.url,
         "confluence_url": confluence_url_base,
         "config_managed": confluence_request.config_managed,
         **({"allowed_title_patterns": confluence_request.allowed_title_patterns} if confluence_request.allowed_title_patterns else {}),
@@ -3225,7 +3381,7 @@ async def _get_accessible_datasource_ids_for_request(user: UserContext, scope: s
 
 
 async def _require_unrestricted_ontology_access(user: UserContext) -> None:
-  """Allow global ontology reads only when the caller can read every source.
+  """Allow global ontology reads only when the caller can search every source.
 
   Ontology nodes and relations do not carry datasource provenance, so there is
   no safe way to filter the global ontology for a caller with a bounded source

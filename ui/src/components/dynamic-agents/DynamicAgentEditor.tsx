@@ -107,6 +107,13 @@ function hasRagToolAccess(
   return selection !== undefined && selection !== false;
 }
 
+function normalizeKnowledgeIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(
+    (item): item is string => typeof item === "string" && Boolean(item.trim()),
+  );
+}
+
 // Visibility picker — `private` was retired on 2026-05-22 (see
 // `docs/docs/changes/2026-05-22-remove-private-agents.md` and the
 // `VisibilityType` definition in `@/types/dynamic-agent`). Every dynamic
@@ -448,12 +455,12 @@ export function DynamicAgentEditor({
     source?.subagents || [],
   );
   const [skills, setSkills] = React.useState<string[]>(source?.skills || []);
-  const [datasourceIds, setDatasourceIds] = React.useState<
-    string[] | undefined
-  >(source?.datasource_ids);
-  const [ragCollectionIds, setRagCollectionIds] = React.useState<
-    string[] | undefined
-  >(source?.rag_collection_ids);
+  const [datasourceIds, setDatasourceIds] = React.useState<string[]>(() =>
+    normalizeKnowledgeIds(source?.datasource_ids),
+  );
+  const [ragCollectionIds, setRagCollectionIds] = React.useState<string[]>(() =>
+    normalizeKnowledgeIds(source?.rag_collection_ids),
+  );
   const [features, setFeatures] = React.useState<FeaturesConfig | undefined>(
     source?.features,
   );
@@ -2307,9 +2314,9 @@ export function DynamicAgentEditor({
                 >
                   <DatasourcePicker
                     ownerTeamSlug={ownerTeamSlug}
-                    value={datasourceIds ?? []}
+                    value={datasourceIds}
                     onChange={setDatasourceIds}
-                    collectionValue={ragCollectionIds ?? []}
+                    collectionValue={ragCollectionIds}
                     onCollectionChange={setRagCollectionIds}
                     // A new RAG-enabled agent starts with Platform RAG only
                     // after migration has actually created that collection.

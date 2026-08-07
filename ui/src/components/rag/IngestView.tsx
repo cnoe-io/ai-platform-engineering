@@ -70,7 +70,6 @@ import {
   StopCircle,
   Trash2,
   Upload,
-  Users,
   X,
 } from "lucide-react";
 import React, {
@@ -84,7 +83,12 @@ import React, {
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 import type { IngestionSourceConfigWithPermissions } from "@/types/ingestion-source";
+import type {
+  PendingPublicationRequestView,
+  PublicationRequestDocument,
+} from "@/types/publication-approval";
 import { DatasourceAccessBadges } from "./DatasourceAccessBadges";
+import { DatasourceAccessFields } from "./DatasourceAccessFields";
 import {
   dataSourceFilterProjection,
   datasourceTypeLabel,
@@ -120,7 +124,6 @@ import {
   reloadDataSource,
   renameDataSource,
   terminateJob,
-  WEBLOADER_INGESTOR_ID,
 } from "./api/index";
 import {
   getIconForType,
@@ -128,6 +131,7 @@ import {
   ingestTypeConfigs,
   isIngestTypeAvailable,
   isIngestorOnline,
+  supportsScheduledReload,
 } from "./typeConfig";
 
 // Helper component to render icon (either emoji or SVG image)
@@ -426,6 +430,9 @@ export default function IngestView() {
   const [ingestionSourceConfigs, setIngestionSourceConfigs] = useState<
     Map<string, IngestionSourceConfigWithPermissions>
   >(new Map());
+  const [pendingPublicationRequests, setPendingPublicationRequests] = useState<
+    Map<string, PendingPublicationRequestView>
+  >(new Map());
 
   // DataSources state
   const [dataSources, setDataSources] = useState<DataSourceInfo[]>([]);
@@ -528,9 +535,9 @@ export default function IngestView() {
   const [renameDraft, setRenameDraft] = useState<string>("");
   const [renameSaving, setRenameSaving] = useState(false);
 
-  const beginRename = useCallback((ds: DataSourceInfo) => {
+  const beginRename = useCallback((ds: DataSourceInfo, displayName?: string) => {
     setRenamingDsId(ds.datasource_id);
-    setRenameDraft(ds.name || "");
+    setRenameDraft(displayName || ds.name || "");
   }, []);
 
   const cancelRename = useCallback(() => {
@@ -1018,6 +1025,39 @@ export default function IngestView() {
     }
   };
 
+  const fetchPendingPublicationRequests = async () => {
+    try {
+      const response = await fetch(
+        "/api/publication-requests?mine=true&status=pending,applying&kind=rag_datasource&limit=500",
+      );
+      if (!response.ok) return;
+      const body = await response.json() as {
+        data?: { requests?: PublicationRequestDocument[] };
+        requests?: PublicationRequestDocument[];
+      };
+      const requests = body.data?.requests ?? body.requests ?? [];
+      const next = new Map<string, PendingPublicationRequestView>();
+      for (const request of requests) {
+        if (
+          next.has(request.resource.id) ||
+          (request.status !== "pending" && request.status !== "applying")
+        ) continue;
+        next.set(request.resource.id, {
+          id: request._id,
+          status: request.status,
+          requested_state: request.requested_state,
+          effective_state: request.effective_state,
+          risk_facts: request.risk_facts,
+          requester: request.requester,
+          created_at: request.created_at,
+        });
+      }
+      setPendingPublicationRequests(next);
+    } catch (error) {
+      console.error("Failed to fetch pending publication requests", error);
+    }
+  };
+
   const fetchIngestors = async () => {
     const isRefresh = ingestors.length > 0;
     if (isRefresh) {
@@ -1041,11 +1081,15 @@ export default function IngestView() {
   const fetchIngestionSourceConfigsEvent = useEffectEvent(
     fetchIngestionSourceConfigs,
   );
+  const fetchPendingPublicationRequestsEvent = useEffectEvent(
+    fetchPendingPublicationRequests,
+  );
 
   useEffect(() => {
     fetchDataSourcesEvent();
     fetchIngestorsEvent();
     fetchIngestionSourceConfigsEvent();
+    fetchPendingPublicationRequestsEvent();
     Promise.all([
       fetch("/api/rbac/ingest-teams").then((r) => (r.ok ? r.json() : null)),
       fetch("/api/dynamic-agents/teams").then((r) => (r.ok ? r.json() : null)),
@@ -1313,7 +1357,7 @@ export default function IngestView() {
     if (ingestType === "file" && selectedFiles.length === 0) return;
     if (ingestType !== "file" && !url) return;
     if (ingestOwnerTeamMissing) {
-      toast("Select an owning team for this data source", "error");
+      toast("Select an Owner team for this datasource", "error");
       return;
     }
 
@@ -1365,11 +1409,23 @@ export default function IngestView() {
                 ingestType === "web" ? reloadInterval : undefined,
             });
       const { datasource_id } = response;
-      await fetchDataSources();
+      await Promise.all([
+        fetchDataSources(),
+        fetchPendingPublicationRequests(),
+      ]);
       if (datasource_id) {
         await fetchJobsForDataSource(datasource_id);
         // Ownership tuples for the owning team are written server-side during
         // ingest (spec 2026-06-03) — no client-side admin kb-assignment call.
+      }
+      if ("_publication_request" in response && response._publication_request) {
+        toast(
+          "Files ingested. Broader Search access is pending approval.",
+          "info",
+          6000,
+        );
+      } else {
+        toast("Files ingested.", "success");
       }
       setUrl("");
       setSelectedFiles([]);
@@ -1480,12 +1536,28 @@ export default function IngestView() {
       );
     }
     const responseBody = (await res.json().catch(() => ({}))) as {
-      data?: { status?: string; last_error?: string };
+      data?: {
+        status?: string;
+        last_error?: string;
+        _publication_request?: {
+          id: string;
+          status: "pending";
+          reason?: string;
+        };
+      };
     };
     if (!isEdit && responseBody.data?.status === "failed") {
       toast(
         `Source saved, but ingestion failed to start: ${responseBody.data.last_error || "unknown error"}`,
         "error",
+      );
+    } else if (responseBody.data?._publication_request) {
+      toast(
+        isEdit
+          ? "Change request submitted for approval."
+          : "Source created. Broader Search access is waiting for approval.",
+        "info",
+        6000,
       );
     } else {
       toast(
@@ -1495,8 +1567,11 @@ export default function IngestView() {
     }
     setSourceDialogOpen(false);
     setEditingSourceConfig(null);
-    await fetchIngestionSourceConfigs();
-    await fetchDataSources();
+    await Promise.all([
+      fetchIngestionSourceConfigs(),
+      fetchDataSources(),
+      fetchPendingPublicationRequests(),
+    ]);
   };
 
   const handleDeleteSourceConfig = async (
@@ -1780,71 +1855,6 @@ export default function IngestView() {
                       </div>
                     )}
 
-                    <div className="mt-4 space-y-4 rounded-lg border border-border/60 p-4">
-                      <div className="flex items-center gap-2">
-                        <Users className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                        <span className="shrink-0 text-sm text-muted-foreground">
-                          Owner Team{ingestOwnerTeamRequired ? " *" : ""}:
-                        </span>
-                        <div className="w-64 max-w-full">
-                          <TeamPicker
-                            value={ingestOwnerTeamSlug}
-                            onChange={setIngestOwnerTeamSlug}
-                            options={availableTeams.map((t) => ({
-                              slug: t.slug,
-                              name: t.name,
-                              _id: t._id,
-                            }))}
-                            ariaLabel="Owning team"
-                            ariaInvalid={ingestOwnerTeamMissing}
-                            placeholder={
-                              ingestOwnerTeamRequired
-                                ? "Select a team…"
-                                : "None (personal)"
-                            }
-                            searchPlaceholder="Search your teams..."
-                            emptyLabel={
-                              availableTeams.length === 0
-                                ? "No teams available"
-                                : "No teams match"
-                            }
-                            disabled={availableTeams.length === 0}
-                          />
-                        </div>
-                      </div>
-                      <p className="ml-6 text-xs text-muted-foreground">
-                        Leave this empty for a personal source that only you can
-                        view, manage, and query. You can transfer it to a team
-                        later.
-                      </p>
-                      <div className="space-y-2 border-t border-border/60 pt-4">
-                        <span className="text-sm text-muted-foreground">
-                          Search Access:
-                        </span>
-                        <TeamMultiPicker
-                          options={availableSearchTeams.map((team) => ({
-                            slug: team.slug,
-                            name: team.name,
-                            _id: team._id,
-                          }))}
-                          selected={ingestSearchTeamSlugs}
-                          onChange={setIngestSearchTeamSlugs}
-                          disabled={
-                            ingestorLimits.shared.max_search_teams === 0
-                          }
-                          maxSelections={ingestorLimits.shared.max_search_teams}
-                          placeholder="Personal only — add teams to share search access"
-                          searchPlaceholder="Search teams..."
-                          emptyLabel="No teams match"
-                        />
-                        <p className="text-xs text-muted-foreground">
-                          Selected teams can query the uploaded files, including
-                          through agents. This does not grant source-management
-                          access.
-                        </p>
-                      </div>
-                    </div>
-
                     {/* Quick options - Crawl Mode for web */}
                     {ingestType === "web" && (
                       <div className="flex items-center gap-4 mt-2 ml-1">
@@ -1909,7 +1919,7 @@ export default function IngestView() {
                     </div>
                   </div>
 
-                  {/* Advanced Options - Animated Collapsible */}
+                  {/* Advanced settings - Animated Collapsible */}
                   <div>
                     <button
                       onClick={() =>
@@ -1918,7 +1928,7 @@ export default function IngestView() {
                       className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
                     >
                       <Settings className="h-4 w-4" />
-                      <span>Advanced Options</span>
+                      <span>Advanced settings</span>
                       <motion.div
                         animate={{ rotate: showAdvancedOptions ? 180 : 0 }}
                         transition={{ duration: 0.2 }}
@@ -2359,6 +2369,64 @@ export default function IngestView() {
                       )}
                     </AnimatePresence>
                   </div>
+                  <DatasourceAccessFields
+                    className="mt-4"
+                    ownerControl={
+                      <TeamPicker
+                        value={ingestOwnerTeamSlug}
+                        onChange={setIngestOwnerTeamSlug}
+                        options={availableTeams.map((team) => ({
+                          slug: team.slug,
+                          name: team.name,
+                          _id: team._id,
+                        }))}
+                        ariaLabel="Owner"
+                        ariaInvalid={ingestOwnerTeamMissing}
+                        placeholder={
+                          ingestOwnerTeamRequired
+                            ? "Select a team…"
+                            : "You (personal)"
+                        }
+                        searchPlaceholder="Search your teams..."
+                        emptyLabel={
+                          availableTeams.length === 0
+                            ? "No teams available"
+                            : "No teams match"
+                        }
+                        disabled={availableTeams.length === 0}
+                      />
+                    }
+                    ownerDescription={
+                      <>
+                        Leave this set to you for a personal datasource. You can
+                        transfer it to a team later.
+                      </>
+                    }
+                    searchControl={
+                      <TeamMultiPicker
+                        options={availableSearchTeams.map((team) => ({
+                          slug: team.slug,
+                          name: team.name,
+                          _id: team._id,
+                        }))}
+                        selected={ingestSearchTeamSlugs}
+                        onChange={setIngestSearchTeamSlugs}
+                        disabled={
+                          ingestorLimits.shared.max_search_teams === 0
+                        }
+                        maxSelections={ingestorLimits.shared.max_search_teams}
+                        placeholder="Only you can search — add teams"
+                        searchPlaceholder="Search teams..."
+                        emptyLabel="No teams match"
+                      />
+                    }
+                    searchDescription={
+                      <>
+                        Selected teams can search these files. They cannot
+                        manage the datasource.
+                      </>
+                    }
+                  />
                   <div className="mt-4 flex justify-end border-t border-border/50 pt-4">
                     <Button
                       onClick={handleIngest}
@@ -2371,7 +2439,7 @@ export default function IngestView() {
                         !hasPermission(Permission.INGEST)
                           ? "Insufficient permissions to ingest data"
                           : ingestOwnerTeamMissing
-                            ? "Select an owning team for this data source"
+                            ? "Select an Owner team for this datasource"
                             : selectedFiles.length > 1
                               ? `Ingest ${selectedFiles.length} files`
                               : "Ingest this file"
@@ -2422,7 +2490,10 @@ export default function IngestView() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => fetchDataSources(true)}
+                  onClick={() => void Promise.all([
+                    fetchDataSources(true),
+                    fetchPendingPublicationRequests(),
+                  ])}
                   disabled={loadingDataSources || refreshingDataSources}
                   className="gap-2"
                 >
@@ -2541,6 +2612,7 @@ export default function IngestView() {
                     }}
                     onDelete={handleDeleteSourceConfig}
                     onRetry={handleRetrySourceConfig}
+                    pendingPublicationRequest={pendingPublicationRequests.get(source.source_id)}
                   />
                 ))}
               </div>
@@ -2592,6 +2664,21 @@ export default function IngestView() {
                       const sourceConfig = ingestionSourceConfigs.get(
                         ds.datasource_id,
                       );
+                      const displayName =
+                        sourceConfig?.name?.trim() || ds.name || "";
+                      const configuredDescription =
+                        sourceConfig?.description?.trim() || "";
+                      const confluenceScopeDescription =
+                        sourceConfig?.source_type === "confluence_space" &&
+                        sourceConfig.start_page_url
+                          ? sourceConfig.get_child_pages
+                            ? `Confluence page and child pages starting at ${sourceConfig.start_page_url}`
+                            : `Confluence page ${sourceConfig.start_page_url}`
+                          : "";
+                      const displayDescription =
+                        configuredDescription ||
+                        confluenceScopeDescription ||
+                        ds.description;
                       const rowPermissions = ds._permissions;
                       const sourcePolicyStateKnown =
                         ds.has_source_config !== undefined ||
@@ -2600,12 +2687,6 @@ export default function IngestView() {
                         ds.has_source_config ?? Boolean(sourceConfig);
                       const canReadContent =
                         rowPermissions?.can_read_content ?? true;
-                      const canRunLifecycle = Boolean(
-                        rowPermissions
-                          ? rowPermissions.can_ingest ||
-                              rowPermissions.can_manage_source
-                          : canIngest || sourceConfig?._permissions.can_manage,
-                      );
                       const canManageDatasource = Boolean(
                         rowPermissions
                           ? hasSourceManagementPolicy || !sourcePolicyStateKnown
@@ -2613,8 +2694,9 @@ export default function IngestView() {
                             : rowPermissions.can_manage_query
                           : canDelete || sourceConfig?._permissions.can_manage,
                       );
+                      const canRunLifecycle = canManageDatasource;
                       // Query-policy admins and independent source managers may
-                      // administer who receives Search & Ingest access. This
+                      // administer who receives Search access. This
                       // does not make a source manager a content reader.
                       const canManageQueryAccess = rowPermissions
                         ? rowPermissions.can_manage_query ||
@@ -2643,13 +2725,9 @@ export default function IngestView() {
                         ].some((key) =>
                           Object.prototype.hasOwnProperty.call(ds, key),
                         );
-                      const supportsReload = [
-                        "web",
-                        "confluence",
-                        "slack",
-                        "jira",
-                        "webex",
-                      ].includes(ds.source_type);
+                      const supportsReload = supportsScheduledReload(
+                        ds.source_type,
+                      );
                       // Helm-seeded config rows (`config_driven: true`) are immutable via
                       // the source-management API until they are adopted.
                       const isConfigDriven = Boolean(
@@ -2661,6 +2739,7 @@ export default function IngestView() {
                       const dsReloadInterval =
                         ds.reload_interval ?? DEFAULT_RELOAD_INTERVAL;
                       const hasReloadInterval =
+                        supportsReload &&
                         ds.reload_interval !== undefined &&
                         ds.reload_interval !== null;
                       const isOverdue = isRefreshOverdue(
@@ -2765,12 +2844,12 @@ export default function IngestView() {
                                     <span
                                       className="font-medium text-sm truncate max-w-md"
                                       title={
-                                        ds.name
-                                          ? `${ds.name}\n${ds.datasource_id}`
+                                        displayName
+                                          ? `${displayName}\n${ds.datasource_id}`
                                           : ds.datasource_id
                                       }
                                     >
-                                      {ds.name ||
+                                      {displayName ||
                                         (ds.datasource_id.length > 60
                                           ? `${ds.datasource_id.substring(0, 60)}\u2026`
                                           : ds.datasource_id)}
@@ -2782,7 +2861,7 @@ export default function IngestView() {
                                         className="h-6 w-6 p-0 opacity-50 hover:opacity-100 shrink-0"
                                         onClick={(e) => {
                                           e.stopPropagation();
-                                          beginRename(ds);
+                                          beginRename(ds, displayName);
                                         }}
                                         title="Rename data source"
                                       >
@@ -2830,12 +2909,13 @@ export default function IngestView() {
                                     sourceConfig?.rag_collections ??
                                     ds.rag_collections
                                   }
+                                  pendingPublicationRequest={pendingPublicationRequests.get(ds.datasource_id)}
                                   detailsKnown={accessDetailsKnown}
                                   canReadContent={canReadContent}
                                 />
                               </div>
                               <div className="flex items-center gap-3 text-xs text-muted-foreground mt-0.5">
-                                {ds.name && (
+                                {displayName && (
                                   <>
                                     <span
                                       className="font-mono text-[10px] truncate max-w-[18rem]"
@@ -3032,13 +3112,13 @@ export default function IngestView() {
                                     </div>
                                   )}
 
-                                  {ds.description && (
+                                  {displayDescription && (
                                     <div>
                                       <p className="text-xs font-medium text-muted-foreground mb-1">
                                         Description
                                       </p>
                                       <p className="text-sm text-foreground bg-muted/50 p-3 rounded-lg">
-                                        {ds.description}
+                                        {displayDescription}
                                       </p>
                                     </div>
                                   )}
@@ -3441,7 +3521,7 @@ export default function IngestView() {
                                     </div>
                                   )}
 
-                                  {/* Indexed content is governed by Search & Ingest,
+                                  {/* Indexed content is governed by Search,
                                       never by source-management grants. */}
                                   {canReadContent && (
                                     <div className="border-t border-border/50 pt-4">
@@ -4110,8 +4190,6 @@ export default function IngestView() {
                           const isExpanded = expandedIngestors.has(
                             ingestor.ingestor_id,
                           );
-                          const isDefaultWebloader =
-                            ingestor.ingestor_id === WEBLOADER_INGESTOR_ID;
                           const icon = getIconForType(ingestor.ingestor_type);
                           const isOnline = isIngestorOnline(ingestor);
 
@@ -4153,20 +4231,6 @@ export default function IngestView() {
                                     <span className="font-medium text-sm">
                                       {ingestor.ingestor_name}
                                     </span>
-                                    <Badge
-                                      variant="secondary"
-                                      className="text-[10px]"
-                                    >
-                                      {ingestor.ingestor_type}
-                                    </Badge>
-                                    {isDefaultWebloader && (
-                                      <Badge
-                                        variant="outline"
-                                        className="text-[10px]"
-                                      >
-                                        Default
-                                      </Badge>
-                                    )}
                                     <Badge
                                       variant="outline"
                                       title={
@@ -4426,7 +4490,7 @@ export default function IngestView() {
 
       {/* Legacy/direct datasources (for example local file uploads) do not
           have an ingestion-source config row, so this dialog manages both the
-          singular owner and independent Search & Ingest grants. */}
+          singular owner and independent Search grants. */}
       <Dialog
         open={Boolean(sharingDatasource)}
         onOpenChange={(open) => !open && setSharingDatasource(null)}
@@ -4450,7 +4514,10 @@ export default function IngestView() {
             {sharingDatasource && (
               <KbSharingPanel
                 knowledgeBaseId={sharingDatasource.datasource_id}
-                onSaved={() => fetchDataSources()}
+                onSaved={() => Promise.all([
+                  fetchDataSources(),
+                  fetchPendingPublicationRequests(),
+                ]).then(() => undefined)}
                 onCancel={() => setSharingDatasource(null)}
               />
             )}
@@ -4467,6 +4534,12 @@ export default function IngestView() {
         }}
         onSave={handleSaveSourceConfig}
         initial={editingSourceConfig}
+        pendingPublicationRequest={editingSourceConfig
+          ? pendingPublicationRequests.get(editingSourceConfig.source_id)
+          : null}
+        onPublicationRequestWithdrawn={async () => {
+          await fetchPendingPublicationRequests();
+        }}
       />
 
       {/* Cleanup Confirmation Dialog */}

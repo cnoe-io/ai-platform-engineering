@@ -1,6 +1,11 @@
 import { getCollection } from "@/lib/mongodb";
 import { reconcileTupleDiff } from "@/lib/authz";
-import { checkOpenFgaTuple, type OpenFgaTupleKey } from "@/lib/rbac/openfga";
+import {
+  checkOpenFgaTuple,
+  readOpenFgaTuples,
+  type OpenFgaTupleKey,
+} from "@/lib/rbac/openfga";
+import { organizationObjectId } from "@/lib/rbac/organization";
 import type {
   RagCollection,
   RagCollectionMembershipLabel,
@@ -13,6 +18,17 @@ import {
 
 export const RAG_COLLECTIONS_COLLECTION = "rag_collections";
 export const RAG_COLLECTION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+
+/** Build a Mongo `$set` document without the immutable `_id` field. */
+export function ragCollectionSetFields(
+  value: RagCollection,
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(value).filter(
+      ([key, fieldValue]) => key !== "_id" && fieldValue !== undefined,
+    ),
+  );
+}
 
 function unique(values: readonly string[]): string[] {
   return Array.from(
@@ -101,6 +117,30 @@ export async function reconcileCollectionRelationships(
     },
     {
       source: "rag_collection_relationships",
+    },
+  );
+}
+
+/** Ensure a collection Search team also has the coarse RAG feature gate. */
+export async function ensureRagCollectionReaderTeamsCanSearch(
+  readerTeamSlugs: readonly string[],
+  actorSubject: string,
+): Promise<void> {
+  if (readerTeamSlugs.length === 0) return;
+  // Additive by design: another collection or an explicit team capability may
+  // still require this coarse gate after a reader is removed here.
+  await reconcileTupleDiff(
+    {
+      writes: unique(readerTeamSlugs).map((slug) => ({
+        user: `team:${slug}#member`,
+        relation: "searcher",
+        object: organizationObjectId(),
+      })),
+      deletes: [],
+    },
+    {
+      caller: { type: "user", id: actorSubject },
+      source: "rag_collection_reader_search_capability",
     },
   );
 }
@@ -194,7 +234,10 @@ export async function ensurePlatformRagCollection(input: {
   try {
     await collection.updateOne(
       { _id: PLATFORM_RAG_COLLECTION_ID } as never,
-      { $set: persisted },
+      {
+        $set: ragCollectionSetFields(persisted),
+        $unset: { owner_subject: "" },
+      },
       { upsert: true },
     );
   } catch (error) {
@@ -240,6 +283,78 @@ export async function canPublishCollection(
       object: `rag_collection:${collectionId}`,
     })
   ).allowed;
+}
+
+export interface DatasourceCollectionAudience {
+  collectionIds: string[];
+  readerTeamSlugs: string[];
+  hasExternalPrincipal: boolean;
+  organizationWide: boolean;
+}
+
+/**
+ * Resolve direct collection readers that currently inherit Search for a source.
+ *
+ * This reads the live OpenFGA projection rather than trusting Mongo labels, so
+ * direct people, service accounts, chat surfaces, and typed wildcards are not
+ * missed when a material source change is evaluated for publication review.
+ */
+export async function datasourceCollectionAudience(
+  datasourceId: string,
+  owner: { ownerTeamSlug?: string | null; ownerSubject?: string | null },
+): Promise<DatasourceCollectionAudience> {
+  const collection = await getCollection<RagCollection>(
+    RAG_COLLECTIONS_COLLECTION,
+  );
+  const rows = await collection
+    .find({ source_ids: datasourceId } as never)
+    .project({ _id: 1 })
+    .toArray();
+  const collectionIds = rows.map((row) => String(row._id));
+  const readerTeamSlugs = new Set<string>();
+  let hasExternalPrincipal = false;
+  let organizationWide = false;
+
+  for (const collectionId of collectionIds) {
+    let continuationToken: string | undefined;
+    do {
+      const page = await readOpenFgaTuples({
+        tuple: {
+          relation: "reader",
+          object: `rag_collection:${collectionId}`,
+        },
+        continuationToken,
+      });
+      for (const tuple of page.tuples) {
+        const principal = tuple.key.user;
+        if (principal === "user:*") {
+          organizationWide = true;
+          hasExternalPrincipal = true;
+          continue;
+        }
+        const team = /^team:([^#]+)#(?:member|admin)$/.exec(principal)?.[1];
+        if (team) {
+          readerTeamSlugs.add(team);
+          continue;
+        }
+        if (
+          owner.ownerSubject &&
+          principal === `user:${owner.ownerSubject}`
+        ) {
+          continue;
+        }
+        hasExternalPrincipal = true;
+      }
+      continuationToken = page.continuationToken;
+    } while (continuationToken);
+  }
+
+  return {
+    collectionIds,
+    readerTeamSlugs: [...readerTeamSlugs].sort(),
+    hasExternalPrincipal,
+    organizationWide,
+  };
 }
 
 /**

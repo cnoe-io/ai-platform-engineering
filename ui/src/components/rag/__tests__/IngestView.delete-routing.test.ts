@@ -42,13 +42,13 @@ describe("IngestView delete routing", () => {
     expect(handlerMatch![0]).toContain("fetchIngestionSourceConfigs()");
   });
 
-  it("does not let Search & Ingest administration imply source management", () => {
+  it("does not let Search administration imply source management", () => {
     expect(source).toContain(
       "hasSourceManagementPolicy || !sourcePolicyStateKnown",
     );
     expect(source).toContain("? rowPermissions.can_manage_source");
     expect(source).toContain(": rowPermissions.can_manage_query");
-    // Source managers may also administer the independent Search & Ingest
+    // Source managers may also administer the independent Search
     // sharing policy. The OR belongs only to that sharing control; mutation
     // of the source itself continues to use canManageDatasource above.
     expect(source).toContain("const canManageQueryAccess = rowPermissions");

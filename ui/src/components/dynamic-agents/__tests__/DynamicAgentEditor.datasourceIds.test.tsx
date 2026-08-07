@@ -209,6 +209,8 @@ const agent = {
   subagents: [],
   skills: [],
   datasource_ids: ["ds-1", "ds-2"],
+  // Reproduces rows created with a datasource but no collection selection.
+  rag_collection_ids: null as unknown as string[],
   ui: { gradient_theme: "default" as const },
   enabled: true,
   owner_id: "user-1",
@@ -247,7 +249,6 @@ describe("DynamicAgentEditor — clearing the datasource picker", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: /Clear Datasources/i }));
-    fireEvent.click(screen.getByRole("button", { name: /Clear Collections/i }));
     expect(screen.getByTestId("datasource-picker-value")).toHaveTextContent("");
 
     const saveButton = screen.getByRole("button", { name: /Save Changes/i });
