@@ -33,21 +33,14 @@ const PREVIEW_SOURCES = [
   },
 ];
 
-const TEAMS = [
-  { _id: "t1", name: "Platform", slug: "platform", user_role: "admin", can_own_agents: true },
-  { _id: "t2", name: "SRE", slug: "sre", user_role: "admin", can_own_agents: true },
-];
-
 function mockFetch({
   preview = { success: true, data: { sources: PREVIEW_SOURCES } },
-  teams = { success: true, data: TEAMS },
   apply = {
     success: true,
     data: { sources: PREVIEW_SOURCES, adopted: ["slack-channel-C1"], skipped: [] },
   },
 }: {
   preview?: object;
-  teams?: object;
   apply?: object;
 } = {}) {
   global.fetch = jest.fn((url: RequestInfo | URL, init?: RequestInit) => {
@@ -59,28 +52,8 @@ function mockFetch({
         json: () => Promise.resolve(payload),
       } as Response);
     }
-    if (href.includes("/api/dynamic-agents/teams")) {
-      return Promise.resolve({
-        json: () => Promise.resolve(teams),
-      } as Response);
-    }
-    if (href.includes("/api/admin/platform-config")) {
-      return Promise.resolve({
-        json: () => Promise.resolve({
-          success: true,
-          data: { rag_default_search_team_slug: null },
-        }),
-      } as Response);
-    }
     return Promise.reject(new Error(`Unexpected fetch: ${href}`));
   });
-}
-
-function selectMigrationTeams() {
-  fireEvent.click(screen.getByRole("combobox", { name: /Owner team/i }));
-  fireEvent.click(screen.getByRole("option", { name: /Platform/i }));
-  fireEvent.click(screen.getByRole("combobox", { name: /Platform RAG Search team/i }));
-  fireEvent.click(screen.getByRole("option", { name: /SRE/i }));
 }
 
 describe("ImportRagSourcesFromConfigCard", () => {
@@ -114,9 +87,11 @@ describe("ImportRagSourcesFromConfigCard", () => {
     expect(screen.getByTestId("import-rag-source-checkbox-slack-channel-C2")).toBeDisabled();
     expect(screen.getByText("Already imported")).toBeInTheDocument();
     expect(screen.queryByText("Has config row")).not.toBeInTheDocument();
+    expect(screen.getByText("Destination: Platform RAG")).toBeInTheDocument();
+    expect(screen.getByRole("dialog")).toHaveClass("sm:max-w-[600px]");
   });
 
-  it("applies only the selected source ids with independent Owner and Search teams", async () => {
+  it("applies only the selected source ids to Platform RAG", async () => {
     render(<ImportRagSourcesFromConfigCard isAdmin />);
     fireEvent.click(screen.getByTestId("import-rag-sources-from-config-button"));
 
@@ -124,7 +99,6 @@ describe("ImportRagSourcesFromConfigCard", () => {
       expect(screen.getByTestId("import-rag-source-checkbox-slack-channel-C3")).toBeChecked();
     });
 
-    selectMigrationTeams();
     fireEvent.click(screen.getByTestId("import-rag-sources-apply-button"));
 
     await waitFor(() => {
@@ -139,8 +113,8 @@ describe("ImportRagSourcesFromConfigCard", () => {
     expect(applyCall).toBeDefined();
     const body = JSON.parse(String(applyCall![1].body));
     expect(body.source_ids).toEqual(["slack-channel-C3"]);
-    expect(body.management_team_slug).toBe("platform");
-    expect(body.search_team_slug).toBe("sre");
+    expect(body).not.toHaveProperty("management_team_slug");
+    expect(body).not.toHaveProperty("search_team_slug");
     expect(screen.getByTestId("import-rag-sources-result")).toHaveTextContent(
       "Imported 1 source.",
     );
@@ -155,7 +129,15 @@ describe("ImportRagSourcesFromConfigCard", () => {
     });
 
     fireEvent.click(screen.getByTestId("import-rag-source-checkbox-slack-channel-C3"));
-    expect(screen.getByTestId("import-rag-sources-apply-button")).toBeDisabled();
+    fireEvent.click(screen.getByTestId("import-rag-sources-apply-button"));
+
+    await waitFor(() => {
+      const applyCall = (global.fetch as jest.Mock).mock.calls.find(([, init]) => {
+        if (!init?.body) return false;
+        return JSON.parse(String(init.body)).dry_run === false;
+      });
+      expect(JSON.parse(String(applyCall?.[1]?.body)).source_ids).toEqual([]);
+    });
   });
 
   it("surfaces an error banner when the apply call fails", async () => {
@@ -169,7 +151,6 @@ describe("ImportRagSourcesFromConfigCard", () => {
       expect(screen.getByTestId("import-rag-source-checkbox-slack-channel-C3")).toBeChecked();
     });
 
-    selectMigrationTeams();
     fireEvent.click(screen.getByTestId("import-rag-sources-apply-button"));
 
     await waitFor(() => {
@@ -199,7 +180,6 @@ describe("ImportRagSourcesFromConfigCard", () => {
       expect(screen.getByTestId("import-rag-source-checkbox-slack-channel-C3")).toBeChecked();
     });
 
-    selectMigrationTeams();
     fireEvent.click(screen.getByTestId("import-rag-sources-apply-button"));
 
     await waitFor(() => {

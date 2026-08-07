@@ -41,6 +41,7 @@ jest.mock("@/hooks/use-kb-tab-gates", () => ({
 }));
 
 import { KnowledgeSidebar } from "../KnowledgeSidebar";
+import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
 
 function setGates(gates: {
   search?: boolean;
@@ -78,6 +79,38 @@ function setGates(gates: {
 describe("<KnowledgeSidebar />", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockPathname = "/knowledge-bases/search";
+    useUnsavedChangesStore.setState({
+      hasUnsavedChanges: false,
+      pendingNavigationHref: null,
+      pendingDeferredAction: null,
+    });
+  });
+
+  it("guards sidebar navigation while a collection has unsaved changes", () => {
+    mockPathname = "/knowledge-bases/collections";
+    useUnsavedChangesStore.getState().setUnsaved(true);
+    setGates({
+      search: true,
+      collections: true,
+      data_sources: true,
+      graph: true,
+      mcp_tools: true,
+      has_any_kb: true,
+    });
+    render(
+      <KnowledgeSidebar
+        collapsed={false}
+        onCollapse={() => {}}
+        graphRagEnabled={true}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("kb-link-/knowledge-bases/search"));
+
+    expect(
+      useUnsavedChangesStore.getState().pendingNavigationHref,
+    ).toBe("/knowledge-bases/search");
   });
 
   it("renders every enabled destination for an org admin", () => {

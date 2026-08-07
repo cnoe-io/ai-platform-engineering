@@ -12,7 +12,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { useApplicationNavigation } from "@/components/layout/ApplicationNavigationContext";
-import { NavigationProgressLink } from "@/components/layout/NavigationProgressLink";
+import { GuardedNavigationLink } from "@/components/layout/GuardedNavigationLink";
 import { useWorkspaceRail } from "@/components/layout/WorkspaceRailContext";
 import { pushWithNavigationProgress } from "@/lib/navigation-progress";
 import { cn } from "@/lib/utils";
@@ -235,7 +235,7 @@ function NavigationItem({
       {contents}
     </span>
   ) : item.href ? (
-    <NavigationProgressLink
+    <GuardedNavigationLink
       aria-current={active ? "page" : undefined}
       aria-label={collapsed ? item.label : undefined}
       className={itemClassName}
@@ -243,9 +243,10 @@ function NavigationItem({
       data-testid={item.testId}
       href={item.href}
       onClick={handleNavigate}
+      prefetch={item.prefetch}
     >
       {contents}
-    </NavigationProgressLink>
+    </GuardedNavigationLink>
   ) : (
     <button
       aria-current={active ? "page" : undefined}
