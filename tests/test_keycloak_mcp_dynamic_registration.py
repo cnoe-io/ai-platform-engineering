@@ -3,8 +3,13 @@
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 from pathlib import Path
 from typing import Any
+
+import pytest
+import yaml
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -18,6 +23,7 @@ INIT_SCRIPTS = (
   CHART_KEYCLOAK / "scripts" / "init-token-exchange.sh",
 )
 MCP_DCR_HELPER = CHART_KEYCLOAK / "scripts" / "mcp-dcr.sh"
+OPENID_CONFIGURATION_OVERRIDE = CHART_KEYCLOAK / "openid-configuration-override.json"
 MCP_SCOPES = {
   "basic",
   "openid",
@@ -32,6 +38,26 @@ MCP_SCOPES = {
 
 def _load_realm(path: Path) -> dict[str, Any]:
   return json.loads(path.read_text())
+
+
+def _render_keycloak_chart() -> list[dict[str, Any]]:
+  if shutil.which("helm") is None:
+    pytest.fail("helm is required for keycloak chart tests")
+
+  rendered = subprocess.run(
+    [
+      "helm",
+      "template",
+      "test",
+      str(CHART_KEYCLOAK),
+      "--set",
+      "admin.secretRef=example-admin",
+    ],
+    check=True,
+    text=True,
+    capture_output=True,
+  ).stdout
+  return [document for document in yaml.safe_load_all(rendered) if document]
 
 
 def test_realm_allows_anonymous_dcr_for_the_mcp_scope_set() -> None:
@@ -104,3 +130,52 @@ def test_mcp_dcr_helper_is_packaged_for_helm_and_compose() -> None:
     compose = (REPO_ROOT / name).read_text()
     mount = "./charts/ai-platform-engineering/charts/keycloak/scripts/mcp-dcr.sh:/scripts/mcp-dcr.sh:ro"
     assert compose.count(mount) == 2
+
+
+def test_keycloak_advertises_codex_compatible_authorization_response_metadata() -> None:
+  override = json.loads(OPENID_CONFIGURATION_OVERRIDE.read_text())
+  assert override == {"authorization_response_iss_parameter_supported": False}
+
+  documents = _render_keycloak_chart()
+  config_map = next(
+    document
+    for document in documents
+    if document.get("kind") == "ConfigMap"
+    and document["metadata"]["name"] == "test-keycloak-openid-configuration"
+  )
+  assert json.loads(config_map["data"]["openid-configuration-override.json"]) == override
+
+  deployment = next(document for document in documents if document.get("kind") == "Deployment")
+  pod_spec = deployment["spec"]["template"]["spec"]
+  container = pod_spec["containers"][0]
+  option = (
+    "--spi-well-known--openid-configuration--openid-configuration-override="
+    "/opt/keycloak/conf/openid-configuration-override.json"
+  )
+  assert option in container["args"]
+  assert {
+    "name": "openid-configuration",
+    "mountPath": "/opt/keycloak/conf/openid-configuration-override.json",
+    "subPath": "openid-configuration-override.json",
+    "readOnly": True,
+  } in container["volumeMounts"]
+  assert {
+    "name": "openid-configuration",
+    "configMap": {"name": "test-keycloak-openid-configuration"},
+  } in pod_spec["volumes"]
+  annotations = deployment["spec"]["template"]["metadata"]["annotations"]
+  assert len(annotations["checksum/keycloak-openid-configuration"]) == 64
+
+  mount = (
+    "./charts/ai-platform-engineering/charts/keycloak/"
+    "openid-configuration-override.json:"
+    "/opt/keycloak/conf/openid-configuration-override.json:ro"
+  )
+  for name in ("docker-compose.yaml", "docker-compose.dev.yaml", "docker-compose.tome.yaml"):
+    compose = (REPO_ROOT / name).read_text()
+    assert option in compose
+    assert compose.count(mount) == 1
+
+  preview_compose = (REPO_ROOT / "docker-compose.tome-sri.yaml").read_text()
+  assert option in preview_compose
+  assert preview_compose.count(mount) == 1

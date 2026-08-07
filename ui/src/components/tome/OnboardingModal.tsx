@@ -783,16 +783,14 @@ function McpStep() {
       </StepHeader>
       <Terminal>
         <span className="text-muted-foreground/70">$ </span>
-        <span className="text-emerald-400">claude</span> mcp add tome <span className="text-muted-foreground/60">\</span>
+        <span className="text-emerald-400">claude</span> mcp add --scope user --transport http tome <span className="text-muted-foreground/60">\</span>
         {"\n"}
-        {"    "}--transport http <span className="text-amber-300">https://&hellip;/api/tome/mcp</span> <span className="text-muted-foreground/60">\</span>
-        {"\n"}
-        {"    "}--header <span className="text-sky-400">&quot;Authorization: Bearer $TOME_KEY&quot;</span>
+        {"    "}<span className="text-amber-300">https://&hellip;/api/tome/mcp</span>
         <Cursor />
       </Terminal>
       <p className="text-sm leading-relaxed text-muted-foreground">
-        Your agent gets tools to list projects, read pages, and post to Activity.
-        Grab your key and the exact command from{" "}
+        Your agent gets tools to list projects, read pages, and post to Activity. It discovers
+        OAuth from TOME and opens your browser to sign in. Copy the exact native command from{" "}
         <span className="font-medium text-foreground">Connect via MCP</span> in the TOME header.
       </p>
     </div>

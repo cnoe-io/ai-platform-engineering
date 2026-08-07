@@ -110,8 +110,12 @@ services:
     - --https-port
     - '7443'
     - --features=token-exchange,admin-fine-grained-authz:v1
+    # Keep Keycloak emitting RFC 9207 `iss`, but advertise it as unsupported
+    # until Codex preserves the parameter through its loopback callback relay.
+    - --spi-well-known--openid-configuration--openid-configuration-override=/opt/keycloak/conf/openid-configuration-override.json
     volumes:
     - ./charts/ai-platform-engineering/charts/keycloak/realm-config.json:/opt/keycloak/data/import/realm-config.json:ro
+    - ./charts/ai-platform-engineering/charts/keycloak/openid-configuration-override.json:/opt/keycloak/conf/openid-configuration-override.json:ro
     - ./deploy/keycloak/themes/caipe:/opt/keycloak/themes/caipe:ro
     ports:
     - 127.0.0.1:17080:7080

@@ -37,6 +37,7 @@ services:
     environment:
       - NEXTAUTH_URL=https://tome-sri.dev.outshift.io
       - OIDC_ISSUER=https://tome-sri.dev.outshift.io/realms/caipe
+      - TOME_MCP_OAUTH_ISSUER=https://tome-sri.dev.outshift.io/realms/caipe
       - CONFLUENCE_REDIRECT_URI=https://tome-sri.dev.outshift.io/api/credentials/oauth/atlassian/callback
       - INTERNAL_BASE_URL=http://localhost:3000
       - TOME_ENABLED=${TOME_ENABLED:-true}
@@ -55,6 +56,11 @@ services:
       - KC_PROXY_HEADERS=xforwarded
       - KC_HOSTNAME_STRICT=false
       - KC_HOSTNAME_BACKCHANNEL_DYNAMIC=true
+    # Keep this environment overlay self-contained while the preview host may
+    # run an older generated base Compose file during branch validation.
+    command: ["start-dev", "--import-realm", "--http-port", "7080", "--https-port", "7443", "--features=token-exchange,admin-fine-grained-authz:v1", "--spi-well-known--openid-configuration--openid-configuration-override=/opt/keycloak/conf/openid-configuration-override.json"]
+    volumes:
+      - ./charts/ai-platform-engineering/charts/keycloak/openid-configuration-override.json:/opt/keycloak/conf/openid-configuration-override.json:ro
 
   # langfuse-web also maps 3000:3000 — remap to 3001 to avoid collision with
   # caipe-ui. `ports` is a merge-by-union list in Compose, so a plain override
