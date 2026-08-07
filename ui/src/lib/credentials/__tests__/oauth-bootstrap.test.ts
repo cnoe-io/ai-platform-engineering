@@ -44,7 +44,7 @@ describe("OAuth connector env bootstrap", () => {
     });
 
     expect(inputs.map((input) => input.provider)).toEqual(["github", "atlassian", "webex", "pagerduty", "gitlab"]);
-    expect(inputs[0].scopes).toEqual(["repo", "read:user"]);
+    expect(inputs[0].scopes).toEqual(["repo", "read:user", "read:project"]);
     expect(inputs[0].scopes).not.toContain("offline_access");
     expect(inputs[1]).toMatchObject({
       name: "Atlassian Cloud",

@@ -5,7 +5,6 @@ import { useTheme } from "next-themes";
 import ReactDiffViewer, { DiffMethod } from "react-diff-viewer-continued";
 import { CheckCircle2, Loader2, XCircle } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 
@@ -105,31 +104,32 @@ export function DraftReviewView({
         </div>
         {reviewable && canEdit && (
           <div className="flex items-center gap-2">
-            <Button
-              size="sm"
-              onClick={() => void resolve("approve")}
-              disabled={resolving !== null}
-            >
-              {resolving === "approve" ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <CheckCircle2 className="h-4 w-4" />
-              )}
-              Approve
-            </Button>
-            <Button
-              size="sm"
-              variant="destructive"
+            <button
+              type="button"
               onClick={() => void resolve("reject")}
               disabled={resolving !== null}
+              className="flex items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors hover:border-destructive/50 hover:bg-destructive/10 hover:text-destructive disabled:pointer-events-none disabled:opacity-50"
             >
               {resolving === "reject" ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
               ) : (
-                <XCircle className="h-4 w-4" />
+                <XCircle className="h-3.5 w-3.5" />
               )}
               Reject
-            </Button>
+            </button>
+            <button
+              type="button"
+              onClick={() => void resolve("approve")}
+              disabled={resolving !== null}
+              className="flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-60"
+            >
+              {resolving === "approve" ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <CheckCircle2 className="h-3.5 w-3.5" />
+              )}
+              Approve
+            </button>
           </div>
         )}
         {reviewable && !canEdit && (

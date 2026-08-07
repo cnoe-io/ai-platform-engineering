@@ -47,6 +47,10 @@ class GitHubConnector(Connector[GitHubExtra]):
             "mcp__github__github_get_file",
             "mcp__github__github_list_dir",
             "mcp__github__github_get_readme",
+            "mcp__github__github_list_milestones",
+            "mcp__github__github_get_milestone",
+            "mcp__github__github_list_projects",
+            "mcp__github__github_list_project_items",
         ]
 
     def page_template(self) -> tuple[PageSpec, ...]:
@@ -121,6 +125,16 @@ class GitHubConnector(Connector[GitHubExtra]):
             return ""
         repo_names = ", ".join(f"`{s.slug}`" for s in sources)
         return (
+            "GITHUB REQUIRED CHECK — before writing or rewriting any roadmap-, status-, or "
+            f"standup-shaped page for {repo_names}, ALWAYS call `github_list_milestones` and "
+            "`github_list_projects` first, even if you already have enough PR/issue context to "
+            "write something plausible. Milestone due dates and board status/priority fields are "
+            "ground truth for \"what's next\" and \"what's blocked\" — inferring those from issue "
+            "titles and comments when the real data is one tool call away produces a page that "
+            "reads fine but is wrong. `github_list_projects` returns [] if the repo has no linked "
+            "board; that's a normal result, not an error, and not a reason to skip the check. If "
+            "`github_list_projects` returns any boards, follow up with `github_list_project_items` "
+            "on the relevant one(s).\n\n"
             f"GITHUB DEEP RESEARCH: When you find a signal in {repo_names}:\n"
             "1. Large or contested PRs → `github_get_pr` to read the diff and review thread\n"
             "2. Referenced design/architecture issues → `github_get_issue` for the full decision thread\n"

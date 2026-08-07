@@ -16,6 +16,10 @@ Tools returned by `build_github_mcp(repos, token)`:
   github_get_file(repo, path, ref)       — raw file contents
   github_list_dir(repo, path, ref)       — directory listing
   github_get_readme(repo, ref)           — repo README (any variant)
+  github_list_milestones(repo, state)    — due dates, open/closed issue counts
+  github_get_milestone(repo, number)
+  github_list_projects(repo)             — Projects v2 boards linked to the repo (GraphQL)
+  github_list_project_items(repo, project_number) — board items + status/custom fields (GraphQL)
 """
 
 from __future__ import annotations
@@ -94,6 +98,24 @@ def build_github_mcp(repos: list[str], token: str = ""):
                 if resp.status_code != 429 or attempt == 2:
                     resp.raise_for_status()
                     return resp.json()
+                wait = int(resp.headers.get("Retry-After", "5"))
+                await asyncio.sleep(min(wait, 60))
+
+    async def _graphql(query: str, variables: dict[str, Any]) -> Any:
+        """Projects v2 has no REST endpoint — GraphQL is the only path."""
+        async with httpx.AsyncClient(timeout=20.0, headers=_headers()) as client:
+            for attempt in range(3):
+                resp = await client.post(
+                    f"{API}/graphql", json={"query": query, "variables": variables}
+                )
+                if resp.status_code != 429 or attempt == 2:
+                    resp.raise_for_status()
+                    body = resp.json()
+                    if body.get("errors"):
+                        raise RuntimeError(
+                            "; ".join(e.get("message", "") for e in body["errors"])
+                        )
+                    return body.get("data")
                 wait = int(resp.headers.get("Retry-After", "5"))
                 await asyncio.sleep(min(wait, 60))
 
@@ -387,6 +409,131 @@ def build_github_mcp(repos: list[str], token: str = ""):
         except httpx.HTTPStatusError as e:
             return _err(f"HTTP {e.response.status_code}: {e.response.text[:200]}")
 
+    @tool(
+        "github_list_milestones",
+        "List milestones on a repo — due dates, open/closed issue counts, descriptions. `state` open|closed|all.",
+        {"repo": str, "state": str},
+    )
+    async def list_milestones(args: dict) -> dict[str, Any]:
+        repo = _normalize_repo(args["repo"], allowed)
+        if not repo:
+            return _err(f"repo {args['repo']!r} not in this project's allowlist")
+        try:
+            data = await _get(
+                f"/repos/{repo}/milestones",
+                {"state": args.get("state", "all"), "per_page": DEFAULT_PER_PAGE},
+            )
+        except httpx.HTTPStatusError as e:
+            return _err(f"HTTP {e.response.status_code}: {e.response.text[:200]}")
+        out = [_summarize_milestone(m) for m in data]
+        return _ok(out)
+
+    @tool(
+        "github_get_milestone",
+        "Get a single milestone with its full description.",
+        {"repo": str, "number": int},
+    )
+    async def get_milestone(args: dict) -> dict[str, Any]:
+        repo = _normalize_repo(args["repo"], allowed)
+        if not repo:
+            return _err(f"repo {args['repo']!r} not in this project's allowlist")
+        try:
+            m = await _get(f"/repos/{repo}/milestones/{args['number']}")
+        except httpx.HTTPStatusError as e:
+            return _err(f"HTTP {e.response.status_code}: {e.response.text[:200]}")
+        out = _summarize_milestone(m)
+        out["description"] = (m.get("description") or "").strip()
+        return _ok(out)
+
+    @tool(
+        "github_list_projects",
+        "List GitHub Projects (v2) boards linked to a repo — the actual planning surface, not just issues that happen to be on one. Use `github_list_project_items` with the returned `number` to read a board's items.",
+        {"repo": str},
+    )
+    async def list_projects(args: dict) -> dict[str, Any]:
+        repo = _normalize_repo(args["repo"], allowed)
+        if not repo:
+            return _err(f"repo {args['repo']!r} not in this project's allowlist")
+        owner, name = repo.split("/", 1)
+        query = """
+        query($owner: String!, $name: String!) {
+          repository(owner: $owner, name: $name) {
+            projectsV2(first: 20) {
+              nodes { number title url shortDescription closed }
+            }
+          }
+        }
+        """
+        try:
+            data = await _graphql(query, {"owner": owner, "name": name})
+        except (httpx.HTTPStatusError, RuntimeError) as e:
+            return _err(f"GraphQL error: {e}")
+        nodes = ((data or {}).get("repository") or {}).get("projectsV2", {}).get("nodes", [])
+        return _ok(nodes)
+
+    @tool(
+        "github_list_project_items",
+        "List items on a repo-linked Projects (v2) board — status/column, custom fields (priority, etc.), and the linked issue/PR. Get `project_number` from `github_list_projects`.",
+        {"repo": str, "project_number": int},
+    )
+    async def list_project_items(args: dict) -> dict[str, Any]:
+        repo = _normalize_repo(args["repo"], allowed)
+        if not repo:
+            return _err(f"repo {args['repo']!r} not in this project's allowlist")
+        owner, name = repo.split("/", 1)
+        query = """
+        query($owner: String!, $name: String!, $number: Int!) {
+          repository(owner: $owner, name: $name) {
+            projectV2(number: $number) {
+              title
+              items(first: 100) {
+                nodes {
+                  fieldValues(first: 10) {
+                    nodes {
+                      ... on ProjectV2ItemFieldSingleSelectValue {
+                        name
+                        field { ... on ProjectV2FieldCommon { name } }
+                      }
+                      ... on ProjectV2ItemFieldTextValue {
+                        text
+                        field { ... on ProjectV2FieldCommon { name } }
+                      }
+                      ... on ProjectV2ItemFieldDateValue {
+                        date
+                        field { ... on ProjectV2FieldCommon { name } }
+                      }
+                    }
+                  }
+                  content {
+                    ... on Issue { number title state url }
+                    ... on PullRequest { number title state url }
+                    ... on DraftIssue { title }
+                  }
+                }
+              }
+            }
+          }
+        }
+        """
+        try:
+            data = await _graphql(
+                query, {"owner": owner, "name": name, "number": args["project_number"]}
+            )
+        except (httpx.HTTPStatusError, RuntimeError) as e:
+            return _err(f"GraphQL error: {e}")
+        project = ((data or {}).get("repository") or {}).get("projectV2")
+        if not project:
+            return _err(f"project #{args['project_number']} not found on {repo}")
+        items = []
+        for node in project.get("items", {}).get("nodes", []):
+            fields = {
+                fv["field"]["name"]: fv.get("name") or fv.get("text") or fv.get("date")
+                for fv in node.get("fieldValues", {}).get("nodes", [])
+                if fv.get("field")
+            }
+            items.append({"content": node.get("content"), "fields": fields})
+        return _ok({"title": project.get("title"), "items": items})
+
     return create_sdk_mcp_server(
         name="github",
         version="0.1.0",
@@ -402,6 +549,10 @@ def build_github_mcp(repos: list[str], token: str = ""):
             get_file,
             list_dir,
             get_readme,
+            list_milestones,
+            get_milestone,
+            list_projects,
+            list_project_items,
         ],
     )
 
@@ -416,4 +567,16 @@ def _summarize_issue(it: dict[str, Any]) -> dict[str, Any]:
         "assignees": [(u.get("login") or "") for u in (it.get("assignees") or [])],
         "updated_at": (it.get("updated_at") or "")[:10],
         "url": it.get("html_url"),
+    }
+
+
+def _summarize_milestone(m: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "number": m.get("number"),
+        "title": m.get("title"),
+        "state": m.get("state"),
+        "due_on": m.get("due_on"),
+        "open_issues": m.get("open_issues"),
+        "closed_issues": m.get("closed_issues"),
+        "url": m.get("html_url"),
     }

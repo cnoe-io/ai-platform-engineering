@@ -212,6 +212,24 @@ One concise sentence.
 - One milestone or next step per bullet.
 ```
 
+**Write for a non-insider, not a commit log.** The reader is leadership, a new
+team member, or an adjacent team — someone who was not in the room for any of
+the underlying work. Lead every bullet and the headline with **what happened
+and why it matters**, in plain language. PR numbers, internal codenames, tier/
+protocol/system jargon, and file/module names are supporting detail at most —
+never the subject of a sentence, never the first thing a bullet says. If a
+bullet needs a PR number to make sense without it, rewrite the bullet instead
+of adding the number.
+
+- Bad: "PR #18 + #19 (interactive-engine): tier-2 FastAPI service complete,
+  spec-driven, 90% coverage."
+- Good: "The service that lets other teams query our data programmatically is
+  done and tested."
+
+If you genuinely cannot compress a workstream into a plain-language sentence,
+that is a sign the underlying work needs to be named more plainly elsewhere in
+the wiki (e.g. `glossary.md`), not a license to drop jargon into the Standup.
+
 ## What success looks like
 
 You are not responsible for inventing new content, but rather for accurately
@@ -277,6 +295,19 @@ full source; a partial read that *feels* sufficient is how invented
 specifics slip in. Runs routinely end with over half the context budget
 unused — that's headroom for verification, not something to save by
 reading less.
+
+**Depth floor:** a `list_*` call is a table of contents, not research. After
+skimming, pick the most significant items each `list_*` surfaced — the
+largest PRs, the milestones nearest their due date, the longest threads —
+and read at least the top 3-5 of them in full with the matching `get_*`
+tool before writing anything that touches them. If a list comes back with
+fewer than 3-5 items, read all of them.
+
+If you're attached to several independent sources (multiple repos, a repo
+plus Confluence plus Webex), a subagent (via Task) per source can research
+in parallel instead of working through each one serially — same depth
+floor applies to each. Only reach for this when sources are genuinely
+independent; don't split up research on a single source.
 
 **3. Think about the diff — conceptually.** What actually changed about
 your understanding of this project? Most activity is noise — ignore it. A
