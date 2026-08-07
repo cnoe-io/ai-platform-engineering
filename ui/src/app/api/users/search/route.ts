@@ -7,27 +7,42 @@ withAuth,
 withErrorHandler,
 } from '@/lib/api-middleware';
 import { getCollection } from '@/lib/mongodb';
-import type { User,UserPublicInfo } from '@/types/mongodb';
+import {
+shareableUserIdentityFilter,
+type ShareableUserDocument,
+} from '@/lib/rbac/shareable-users';
+import type { UserPublicInfo } from '@/types/mongodb';
 import { NextRequest } from 'next/server';
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
 // GET /api/users/search
 export const GET = withErrorHandler(async (request: NextRequest) => {
   return withAuth(request, async (req) => {
     const url = new URL(req.url);
-    const query = url.searchParams.get('q');
+    const query = url.searchParams.get('q')?.trim();
 
     if (!query || query.length < 2) {
       throw new ApiError('Search query must be at least 2 characters', 400);
     }
 
-    const users = await getCollection<User>('users');
+    const users = await getCollection<ShareableUserDocument>('users');
+    const escapedQuery = escapeRegex(query);
 
-    // Search by email or name (case insensitive)
+    // Only return users with a stable Keycloak subject. Conversation access is
+    // enforced by OpenFGA, so an unlinked Mongo profile is not shareable.
     const results = await users
       .find({
-        $or: [
-          { email: { $regex: query, $options: 'i' } },
-          { name: { $regex: query, $options: 'i' } },
+        $and: [
+          {
+            $or: [
+              { email: { $regex: escapedQuery, $options: 'i' } },
+              { name: { $regex: escapedQuery, $options: 'i' } },
+            ],
+          },
+          shareableUserIdentityFilter(),
         ],
       })
       .limit(10)
