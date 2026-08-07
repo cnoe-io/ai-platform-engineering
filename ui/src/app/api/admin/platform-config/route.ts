@@ -24,6 +24,11 @@ createJsonResponseCacheStore,
 envTtlMs,
 withJsonResponseCache,
 } from '@/lib/server-response-cache';
+import {
+normalizeRagDefaultSearchTeamSlug,
+RAG_TEAM_SLUG_PATTERN,
+} from '@/lib/rag-settings';
+import { normalizeRagIngestorLimits } from '@/lib/rag-ingestor-limits';
 import { NextRequest,NextResponse } from 'next/server';
 
 const platformConfigCache = createJsonResponseCacheStore();
@@ -32,8 +37,15 @@ interface PlatformConfigDoc extends PlatformDefaultAgentDocument {
   schedule_editor_agent_id?: unknown;
   slack_victorops_escalation_agent_id?: unknown;
   release_notes?: unknown;
-  discovery_cache_ttl_minutes?: unknown;
+  slack_discovery_cache_ttl_minutes?: unknown;
+  webex_discovery_cache_ttl_minutes?: unknown;
   remote_mcp_catalog?: unknown;
+  rag_default_search_team_slug?: unknown;
+  rag_ingestor_limits?: unknown;
+}
+
+interface TeamConfigDoc {
+  slug?: string;
 }
 
 export interface CustomMCPCatalogEntry {
@@ -180,13 +192,18 @@ async function getPlatformConfig(request: NextRequest) {
       doc?.schedule_editor_agent_id,
     );
     const scheduleEditorEnvFallback = process.env.SCHEDULE_EDITOR_AGENT_ID?.trim() || null;
-    const discoveryTtlMinutes =
-      normalizeDiscoveryCacheTtlMinutes(doc?.discovery_cache_ttl_minutes) ??
-      normalizeDiscoveryCacheTtlMinutes(process.env.DISCOVERY_CACHE_TTL_MINUTES) ??
+    const slackDiscoveryTtlMinutes =
+      normalizeDiscoveryCacheTtlMinutes(doc?.slack_discovery_cache_ttl_minutes) ??
+      normalizeDiscoveryCacheTtlMinutes(process.env.SLACK_DISCOVERY_CACHE_TTL_MINUTES) ??
+      DEFAULT_DISCOVERY_CACHE_TTL_MINUTES;
+    const webexDiscoveryTtlMinutes =
+      normalizeDiscoveryCacheTtlMinutes(doc?.webex_discovery_cache_ttl_minutes) ??
+      normalizeDiscoveryCacheTtlMinutes(process.env.WEBEX_DISCOVERY_CACHE_TTL_MINUTES) ??
       DEFAULT_DISCOVERY_CACHE_TTL_MINUTES;
 
     const victoropsAgentId = normalizeVictoropsAgentId(doc?.slack_victorops_escalation_agent_id);
     const victoropsEnvFallback = process.env.SLACK_INTEGRATION_VICTOROPS_AGENT_ID || null;
+    const ragIngestorLimits = normalizeRagIngestorLimits(doc?.rag_ingestor_limits);
 
     return NextResponse.json({
       success: true,
@@ -200,10 +217,16 @@ async function getPlatformConfig(request: NextRequest) {
         slack_victorops_escalation_agent_id: victoropsAgentId ?? victoropsEnvFallback,
         slack_victorops_escalation_agent_source: victoropsAgentId ? 'db' : (victoropsEnvFallback ? 'env' : 'fallback'),
         release_notes: normalizeReleaseNotesConfig(doc?.release_notes),
-        discovery_cache_ttl_minutes: discoveryTtlMinutes,
+        slack_discovery_cache_ttl_minutes: slackDiscoveryTtlMinutes,
+        webex_discovery_cache_ttl_minutes: webexDiscoveryTtlMinutes,
         // Default (no config saved yet) is "disable all" — operators opt in
         // per provider rather than every built-in showing up unconfigured.
         remote_mcp_catalog: normalizeRemoteMCPCatalog(doc?.remote_mcp_catalog, []),
+        rag_default_search_team_slug:
+          ragIngestorLimits.shared.max_search_teams > 0
+            ? normalizeRagDefaultSearchTeamSlug(doc?.rag_default_search_team_slug)
+            : null,
+        rag_ingestor_limits: ragIngestorLimits,
       },
     });
   });
@@ -254,33 +277,81 @@ export const PATCH = withErrorHandler(async (request: NextRequest) => {
       update.release_notes = normalizeReleaseNotesConfig(body.release_notes);
     }
 
-    // Slack/Webex discovery cache TTL. Accept an integer minute count.
-    // `null` clears the override (= "use the default 60 min"); otherwise
-    // we strictly require an integer in [MIN, MAX] so a fat-fingered
-    // PATCH can't silently disable caching for everyone.
+    // Slack and Webex discovery caches are configured independently.
     if (Object.prototype.hasOwnProperty.call(body, 'remote_mcp_catalog')) {
       update.remote_mcp_catalog = normalizeRemoteMCPCatalog(body.remote_mcp_catalog);
     }
 
-    if (Object.prototype.hasOwnProperty.call(body, 'discovery_cache_ttl_minutes')) {
-      const raw = body.discovery_cache_ttl_minutes;
+    for (const field of [
+      'slack_discovery_cache_ttl_minutes',
+      'webex_discovery_cache_ttl_minutes',
+    ] as const) {
+      if (!Object.prototype.hasOwnProperty.call(body, field)) continue;
+      const raw = body[field];
       if (raw === null) {
-        update.discovery_cache_ttl_minutes = null;
-      } else {
-        const asNumber = typeof raw === 'number' ? raw : Number(raw);
-        if (
-          !Number.isFinite(asNumber) ||
-          !Number.isInteger(asNumber) ||
-          asNumber < MIN_DISCOVERY_CACHE_TTL_MINUTES ||
-          asNumber > MAX_DISCOVERY_CACHE_TTL_MINUTES
-        ) {
+        update[field] = null;
+        continue;
+      }
+      const asNumber = typeof raw === 'number' ? raw : Number(raw);
+      if (
+        !Number.isFinite(asNumber) ||
+        !Number.isInteger(asNumber) ||
+        asNumber < MIN_DISCOVERY_CACHE_TTL_MINUTES ||
+        asNumber > MAX_DISCOVERY_CACHE_TTL_MINUTES
+      ) {
+        throw new ApiError(
+          `${field} must be an integer between ${MIN_DISCOVERY_CACHE_TTL_MINUTES} and ${MAX_DISCOVERY_CACHE_TTL_MINUTES}`,
+          400,
+          'INVALID_DISCOVERY_CACHE_TTL',
+        );
+      }
+      update[field] = asNumber;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(body, 'rag_default_search_team_slug')) {
+      const rawTeamSlug = body.rag_default_search_team_slug;
+      if (
+        rawTeamSlug !== null &&
+        rawTeamSlug !== '' &&
+        (typeof rawTeamSlug !== 'string' || !RAG_TEAM_SLUG_PATTERN.test(rawTeamSlug.trim()))
+      ) {
+        throw new ApiError(
+          'rag_default_search_team_slug must be a valid team slug or null',
+          400,
+          'INVALID_RAG_DEFAULT_SEARCH_TEAM',
+        );
+      }
+      const teamSlug = normalizeRagDefaultSearchTeamSlug(rawTeamSlug);
+      if (teamSlug) {
+        const teams = await getCollection<TeamConfigDoc>('teams');
+        const existingTeam = await teams.findOne({ slug: teamSlug } as never);
+        if (!existingTeam) {
           throw new ApiError(
-            `discovery_cache_ttl_minutes must be an integer between ${MIN_DISCOVERY_CACHE_TTL_MINUTES} and ${MAX_DISCOVERY_CACHE_TTL_MINUTES}`,
-            400,
-            'INVALID_DISCOVERY_CACHE_TTL',
+            'The selected default RAG search team does not exist',
+            404,
+            'RAG_DEFAULT_SEARCH_TEAM_NOT_FOUND',
           );
         }
-        update.discovery_cache_ttl_minutes = asNumber;
+      }
+      update.rag_default_search_team_slug = teamSlug;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(body, 'rag_ingestor_limits')) {
+      try {
+        const nextLimits = normalizeRagIngestorLimits(
+          body.rag_ingestor_limits,
+          { strict: true },
+        );
+        update.rag_ingestor_limits = nextLimits;
+        if (nextLimits.shared.max_search_teams === 0) {
+          update.rag_default_search_team_slug = null;
+        }
+      } catch (error) {
+        throw new ApiError(
+          error instanceof Error ? error.message : 'rag_ingestor_limits is invalid',
+          400,
+          'INVALID_RAG_INGESTOR_LIMITS',
+        );
       }
     }
 
@@ -355,11 +426,20 @@ export const PATCH = withErrorHandler(async (request: NextRequest) => {
           ? { slack_victorops_escalation_agent_id: update.slack_victorops_escalation_agent_id }
           : {}),
         ...(update.release_notes ? { release_notes: update.release_notes } : {}),
-        ...(Object.prototype.hasOwnProperty.call(update, 'discovery_cache_ttl_minutes')
-          ? { discovery_cache_ttl_minutes: update.discovery_cache_ttl_minutes }
+        ...(Object.prototype.hasOwnProperty.call(update, 'slack_discovery_cache_ttl_minutes')
+          ? { slack_discovery_cache_ttl_minutes: update.slack_discovery_cache_ttl_minutes }
+          : {}),
+        ...(Object.prototype.hasOwnProperty.call(update, 'webex_discovery_cache_ttl_minutes')
+          ? { webex_discovery_cache_ttl_minutes: update.webex_discovery_cache_ttl_minutes }
           : {}),
         ...(Object.prototype.hasOwnProperty.call(update, 'remote_mcp_catalog')
           ? { remote_mcp_catalog: update.remote_mcp_catalog }
+          : {}),
+        ...(Object.prototype.hasOwnProperty.call(update, 'rag_default_search_team_slug')
+          ? { rag_default_search_team_slug: update.rag_default_search_team_slug }
+          : {}),
+        ...(Object.prototype.hasOwnProperty.call(update, 'rag_ingestor_limits')
+          ? { rag_ingestor_limits: update.rag_ingestor_limits }
           : {}),
       },
     });

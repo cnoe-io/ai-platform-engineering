@@ -170,6 +170,23 @@ def generate_datasource_id_from_url(url: str) -> str:
   return f"src_{clean_url}_{source_hash}"
 
 
+def generate_confluence_datasource_id(
+  confluence_url: str,
+  space_key: str,
+  page_id: Optional[str] = None,
+) -> str:
+  """Generate a stable ID for a Confluence space or page-rooted source.
+
+  Legacy environment configuration models an entire space as one datasource
+  and therefore omits ``page_id``. UI-created sources are rooted at a page;
+  including that immutable page ID lets one space contain multiple independent
+  datasources without changing scheduled reload or stale-chunk replacement.
+  """
+  domain = urlparse(confluence_url).netloc.replace(".", "_").replace("-", "_")
+  datasource_id = f"src_confluence___{domain}__{space_key}"
+  return f"{datasource_id}__{page_id}" if page_id else datasource_id
+
+
 def derive_friendly_name_from_url(url: str, max_length: int = 64) -> str:
   """Derive a short, human-readable display label for a URL-based datasource.
 

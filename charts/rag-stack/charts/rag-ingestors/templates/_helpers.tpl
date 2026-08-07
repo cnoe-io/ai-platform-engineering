@@ -74,6 +74,17 @@ Get RAG Server URL with per-ingestor override support
 {{- end }}
 {{- end }}
 
+{{/* Build the shared RAG Redis URL from global.rag.redis. */}}
+{{- define "rag-ingestors.redisUrl" -}}
+{{- $global := .Values.global | default dict -}}
+{{- $rag := $global.rag | default dict -}}
+{{- $redis := $rag.redis | default dict -}}
+{{- $host := $redis.host | default "rag-redis" -}}
+{{- $port := $redis.port | default 6379 -}}
+{{- $db := $redis.db | default 0 -}}
+{{- printf "redis://%s:%v/%v" $host $port $db -}}
+{{- end -}}
+
 {{- define "rag-ingestors.appVersion" -}}
 {{- .Values.global.image.tag | default .Chart.AppVersion -}}
 {{- end -}}
@@ -111,4 +122,3 @@ Explicit non-CAIPE repositories are left unchanged.
 {{- $repository -}}
 {{- end -}}
 {{- end -}}
-

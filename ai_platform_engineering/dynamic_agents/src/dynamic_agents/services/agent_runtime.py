@@ -15,7 +15,7 @@ import logging
 import os
 import re
 import time
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, NamedTuple
@@ -74,6 +74,7 @@ from dynamic_agents.services.mcp_client import (
     filter_tools_by_allowed,
     get_tools_with_resilience,
     mcp_credential_connect_warning,
+    pin_datasource_filters,
     resolve_mcp_connections_credential_refs,
     wrap_tools_with_error_handling,
 )
@@ -622,6 +623,7 @@ class AgentRuntime:
                 config.name,
             )
         self._session_id = session_id
+
         self._graph = None
         # Attachment blob store, built lazily on first use (see
         # ``attachment_store``). Shared between the write path (upload bytes,
@@ -716,6 +718,25 @@ class AgentRuntime:
         )
         # Cancellation flag for graceful stream termination
         self._cancelled: bool = False
+
+    def _rag_datasource_provider(
+        self,
+        config: DynamicAgentConfig,
+    ) -> Callable[[], list[str]] | None:
+        """Return a fail-closed live collection-membership resolver."""
+        if not config.rag_collection_ids:
+            return None
+        if not self._mongo_service:
+            logger.warning(
+                "Agent '%s' has RAG collections but no MongoDB service; "
+                "only explicit datasource pins will be available",
+                config.name,
+            )
+            return lambda: list(config.datasource_ids or [])
+        return lambda: self._mongo_service.resolve_rag_datasource_ids(
+            config.rag_collection_ids or [],
+            config.datasource_ids,
+        )
 
     @staticmethod
     def _prompt_cache_enabled() -> bool:
@@ -900,6 +921,21 @@ class AgentRuntime:
 
                 # 1b. Filter MCP tools by allowlist
                 tools, missing = filter_tools_by_allowed(all_tools, self.config.allowed_tools)
+
+                # 1c. Pin RAG search-style tools to the agent's configured datasources.
+                #     The server independently intersects with the caller's RBAC-accessible
+                #     datasources, so this only narrows — it never grants access on its own.
+                datasource_provider = self._rag_datasource_provider(self.config)
+                static_datasource_ids = self.config.datasource_ids
+                if static_datasource_ids is None and self.config.rag_collection_ids is not None:
+                    static_datasource_ids = []
+                if static_datasource_ids is not None or datasource_provider is not None:
+                    tools = pin_datasource_filters(
+                        tools,
+                        static_datasource_ids,
+                        agent_name=self.config.name,
+                        datasource_ids_provider=datasource_provider,
+                    )
 
                 # Only report missing tools for servers that connected successfully
                 # (tools from failed servers are expected to be missing)
@@ -1488,6 +1524,17 @@ class AgentRuntime:
                     ]
                     logger.warning(f"Subagent '{subagent_config.name}': failed MCP servers: {'; '.join(error_parts)}")
                 mcp_tools, _ = filter_tools_by_allowed(all_tools, subagent_config.allowed_tools)
+                datasource_provider = self._rag_datasource_provider(subagent_config)
+                static_datasource_ids = subagent_config.datasource_ids
+                if static_datasource_ids is None and subagent_config.rag_collection_ids is not None:
+                    static_datasource_ids = []
+                if static_datasource_ids is not None or datasource_provider is not None:
+                    mcp_tools = pin_datasource_filters(
+                        mcp_tools,
+                        static_datasource_ids,
+                        agent_name=subagent_config.name,
+                        datasource_ids_provider=datasource_provider,
+                    )
                 tools.extend(mcp_tools)
 
         # 2. Add built-in tools based on subagent's config

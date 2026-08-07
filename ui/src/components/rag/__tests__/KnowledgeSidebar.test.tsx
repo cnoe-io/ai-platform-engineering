@@ -8,32 +8,47 @@
  * - Non-admins with at least one readable KB see the allowed tabs as
  *   Links, the empty-state banner is suppressed, and graph still respects
  *   the `graphRagEnabled` prop.
- * - Non-admins granted an explicit capability (search/ingest) but no KB see
+ * - Non-admins granted an explicit capability (Search/create) but no KB see
  *   those capability tabs as Links and the share-request banner suppressed.
  * - While the hook is loading, all tabs are disabled (fail-closed).
  */
 
 import React from "react";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 
 jest.mock("next/link", () => {
-  return React.forwardRef<HTMLAnchorElement, { children: React.ReactNode; href: string; className?: string }>(
-    function MockLink({ children, href, className }, ref) {
-      return (
-        <a ref={ref} href={href} className={className} data-testid={`kb-link-${href}`}>
-          {children}
-        </a>
-      );
-    },
-  );
+  return React.forwardRef<
+    HTMLAnchorElement,
+    {
+      children: React.ReactNode;
+      href: string;
+      className?: string;
+      onClick?: React.MouseEventHandler<HTMLAnchorElement>;
+    }
+  >(function MockLink({ children, href, className, onClick }, ref) {
+    return (
+      <a
+        ref={ref}
+        href={href}
+        className={className}
+        onClick={onClick}
+        data-testid={`kb-link-${href}`}
+      >
+        {children}
+      </a>
+    );
+  });
 });
 
+let mockPathname = "/knowledge-bases/search";
 jest.mock("next/navigation", () => ({
-  usePathname: () => "/knowledge-bases/search",
+  usePathname: () => mockPathname,
 }));
 
 jest.mock("framer-motion", () => ({
-  motion: { div: ({ children, ...rest }: unknown) => <div {...rest}>{children}</div> },
+  motion: {
+    div: ({ children, ...rest }: unknown) => <div {...rest}>{children}</div>,
+  },
 }));
 
 jest.mock("lucide-react", () => ({
@@ -44,6 +59,8 @@ jest.mock("lucide-react", () => ({
   ChevronRight: (p: unknown) => <svg data-testid="icon-chev-right" {...p} />,
   BookOpen: (p: unknown) => <svg data-testid="icon-bookopen" {...p} />,
   Wrench: (p: unknown) => <svg data-testid="icon-wrench" {...p} />,
+  Layers3: (p: unknown) => <svg data-testid="icon-layers" {...p} />,
+  Plug: (p: unknown) => <svg data-testid="icon-plug" {...p} />,
   Lock: (p: unknown) => <svg data-testid="icon-lock" {...p} />,
   ShieldQuestion: (p: unknown) => <svg data-testid="icon-shieldq" {...p} />,
 }));
@@ -53,7 +70,9 @@ jest.mock("@/lib/utils", () => ({
 }));
 
 jest.mock("@/components/ui/button", () => ({
-  Button: ({ children, ...rest }: unknown) => <button {...rest}>{children}</button>,
+  Button: ({ children, ...rest }: unknown) => (
+    <button {...rest}>{children}</button>
+  ),
 }));
 
 jest.mock("@/components/rag/RagAuthBanner", () => ({
@@ -66,9 +85,11 @@ jest.mock("@/hooks/use-kb-tab-gates", () => ({
 }));
 
 import { KnowledgeSidebar } from "../KnowledgeSidebar";
+import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
 
 function setGates(gates: {
   search?: boolean;
+  collections?: boolean;
   data_sources?: boolean;
   graph?: boolean;
   mcp_tools?: boolean;
@@ -82,6 +103,7 @@ function setGates(gates: {
   mockUseKbTabGates.mockReturnValue({
     gates: {
       search: gates.search ?? false,
+      collections: gates.collections ?? false,
       data_sources: gates.data_sources ?? false,
       graph: gates.graph ?? false,
       mcp_tools: gates.mcp_tools ?? false,
@@ -101,11 +123,44 @@ function setGates(gates: {
 describe("<KnowledgeSidebar /> RBAC gates", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockPathname = "/knowledge-bases/search";
+    useUnsavedChangesStore.setState({
+      hasUnsavedChanges: false,
+      pendingNavigationHref: null,
+      pendingDeferredAction: null,
+    });
+  });
+
+  it("guards sidebar navigation while a collection has unsaved changes", () => {
+    mockPathname = "/knowledge-bases/collections";
+    useUnsavedChangesStore.getState().setUnsaved(true);
+    setGates({
+      search: true,
+      collections: true,
+      data_sources: true,
+      graph: true,
+      mcp_tools: true,
+      has_any_kb: true,
+    });
+    render(
+      <KnowledgeSidebar
+        collapsed={false}
+        onCollapse={() => {}}
+        graphRagEnabled={true}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("kb-link-/knowledge-bases/search"));
+
+    expect(
+      useUnsavedChangesStore.getState().pendingNavigationHref,
+    ).toBe("/knowledge-bases/search");
   });
 
   it("org admin sees every tab as a link and no empty-state banner", () => {
     setGates({
       search: true,
+      collections: true,
       data_sources: true,
       graph: true,
       mcp_tools: true,
@@ -113,13 +168,36 @@ describe("<KnowledgeSidebar /> RBAC gates", () => {
       kb_count: -1,
       orgAdminBypass: true,
     });
-    render(<KnowledgeSidebar collapsed={false} onCollapse={() => {}} graphRagEnabled={true} />);
+    render(
+      <KnowledgeSidebar
+        collapsed={false}
+        onCollapse={() => {}}
+        graphRagEnabled={true}
+      />,
+    );
 
-    expect(screen.getByTestId("kb-link-/knowledge-bases/search")).toBeInTheDocument();
-    expect(screen.getByTestId("kb-link-/knowledge-bases/ingest")).toBeInTheDocument();
-    expect(screen.getByTestId("kb-link-/knowledge-bases/graph")).toBeInTheDocument();
-    expect(screen.getByTestId("kb-link-/knowledge-bases/mcp-tools")).toBeInTheDocument();
-    expect(screen.queryByTestId("kb-sidebar-no-access-banner")).not.toBeInTheDocument();
+    expect(
+      screen.getByTestId("kb-link-/knowledge-bases/search"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("kb-link-/knowledge-bases/collections"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("kb-link-/knowledge-bases/ingest"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("kb-link-/knowledge-bases/graph"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("kb-link-/knowledge-bases/mcp-tools"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("kb-sidebar-no-access-banner"),
+    ).not.toBeInTheDocument();
+
+    const links = screen.getAllByRole("link");
+    expect(links[1]).toHaveAttribute("href", "/knowledge-bases/ingest");
+    expect(links[2]).toHaveAttribute("href", "/knowledge-bases/collections");
   });
 
   it("non-admin with zero readable KBs sees disabled tabs and the empty-state banner", () => {
@@ -132,26 +210,53 @@ describe("<KnowledgeSidebar /> RBAC gates", () => {
       kb_count: 0,
       orgAdminBypass: false,
     });
-    render(<KnowledgeSidebar collapsed={false} onCollapse={() => {}} graphRagEnabled={true} />);
+    render(
+      <KnowledgeSidebar
+        collapsed={false}
+        onCollapse={() => {}}
+        graphRagEnabled={true}
+      />,
+    );
 
-    expect(screen.getByTestId("kb-sidebar-no-access-banner")).toBeInTheDocument();
-    expect(screen.queryByTestId("kb-link-/knowledge-bases/search")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("kb-link-/knowledge-bases/ingest")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("kb-link-/knowledge-bases/graph")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("kb-link-/knowledge-bases/mcp-tools")).not.toBeInTheDocument();
+    expect(screen.getByTestId("kb-sidebar-no-access-banner")).toHaveClass(
+      "bg-card",
+      "text-foreground",
+    );
+    expect(screen.getByTestId("kb-sidebar-no-access-banner")).toHaveTextContent(
+      "Ask an admin to grant your team permission to create data sources or search sources shared with your team.",
+    );
+    expect(
+      screen.queryByTestId("kb-link-/knowledge-bases/search"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("kb-link-/knowledge-bases/collections"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("kb-link-/knowledge-bases/ingest"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("kb-link-/knowledge-bases/graph"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("kb-link-/knowledge-bases/mcp-tools"),
+    ).not.toBeInTheDocument();
     expect(screen.getByTestId("kb-tab-disabled-search")).toBeInTheDocument();
+    expect(
+      screen.getByTestId("kb-tab-disabled-collections"),
+    ).toBeInTheDocument();
     expect(screen.getByTestId("kb-tab-disabled-ingest")).toBeInTheDocument();
     expect(screen.getByTestId("kb-tab-disabled-graph")).toBeInTheDocument();
     expect(screen.getByTestId("kb-tab-disabled-mcp-tools")).toBeInTheDocument();
   });
 
-  it("team granted Search+Ingest with no KB assigned sees those tabs as links and NO share-request banner", () => {
+  it("team granted Search and datasource creation with no KB assigned sees those tabs as links and no share-request banner", () => {
     // Regression guard for the screenshot-2 scenario: the org admin enabled both
     // capabilities for the team but assigned no KB. The capability-driven tabs
     // must be clickable links (not greyed out), and the "ask an admin to share a
     // KB" banner must be suppressed because it would contradict them.
     setGates({
       search: true,
+      collections: true,
       data_sources: true,
       graph: false,
       mcp_tools: true,
@@ -161,12 +266,29 @@ describe("<KnowledgeSidebar /> RBAC gates", () => {
       can_search: true,
       orgAdminBypass: false,
     });
-    render(<KnowledgeSidebar collapsed={false} onCollapse={() => {}} graphRagEnabled={true} />);
+    render(
+      <KnowledgeSidebar
+        collapsed={false}
+        onCollapse={() => {}}
+        graphRagEnabled={true}
+      />,
+    );
 
-    expect(screen.queryByTestId("kb-sidebar-no-access-banner")).not.toBeInTheDocument();
-    expect(screen.getByTestId("kb-link-/knowledge-bases/search")).toBeInTheDocument();
-    expect(screen.getByTestId("kb-link-/knowledge-bases/ingest")).toBeInTheDocument();
-    expect(screen.getByTestId("kb-link-/knowledge-bases/mcp-tools")).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("kb-sidebar-no-access-banner"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByTestId("kb-link-/knowledge-bases/search"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("kb-link-/knowledge-bases/collections"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("kb-link-/knowledge-bases/ingest"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("kb-link-/knowledge-bases/mcp-tools"),
+    ).toBeInTheDocument();
     // Graph stays disabled — it is purely read-driven and there is no readable KB.
     expect(screen.getByTestId("kb-tab-disabled-graph")).toBeInTheDocument();
   });
@@ -181,13 +303,29 @@ describe("<KnowledgeSidebar /> RBAC gates", () => {
       kb_count: 2,
       orgAdminBypass: false,
     });
-    render(<KnowledgeSidebar collapsed={false} onCollapse={() => {}} graphRagEnabled={true} />);
+    render(
+      <KnowledgeSidebar
+        collapsed={false}
+        onCollapse={() => {}}
+        graphRagEnabled={true}
+      />,
+    );
 
-    expect(screen.queryByTestId("kb-sidebar-no-access-banner")).not.toBeInTheDocument();
-    expect(screen.getByTestId("kb-link-/knowledge-bases/search")).toBeInTheDocument();
-    expect(screen.getByTestId("kb-link-/knowledge-bases/ingest")).toBeInTheDocument();
-    expect(screen.getByTestId("kb-link-/knowledge-bases/graph")).toBeInTheDocument();
-    expect(screen.getByTestId("kb-link-/knowledge-bases/mcp-tools")).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("kb-sidebar-no-access-banner"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByTestId("kb-link-/knowledge-bases/search"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("kb-link-/knowledge-bases/ingest"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("kb-link-/knowledge-bases/graph"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("kb-link-/knowledge-bases/mcp-tools"),
+    ).toBeInTheDocument();
   });
 
   it("graphRagEnabled=false disables Graph even when RBAC allows it", () => {
@@ -199,10 +337,18 @@ describe("<KnowledgeSidebar /> RBAC gates", () => {
       has_any_kb: true,
       kb_count: 1,
     });
-    render(<KnowledgeSidebar collapsed={false} onCollapse={() => {}} graphRagEnabled={false} />);
+    render(
+      <KnowledgeSidebar
+        collapsed={false}
+        onCollapse={() => {}}
+        graphRagEnabled={false}
+      />,
+    );
 
     expect(screen.getByTestId("kb-tab-disabled-graph")).toBeInTheDocument();
-    expect(screen.queryByTestId("kb-link-/knowledge-bases/graph")).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("kb-link-/knowledge-bases/graph"),
+    ).not.toBeInTheDocument();
   });
 
   it("fails closed while gates are loading", () => {
@@ -215,14 +361,30 @@ describe("<KnowledgeSidebar /> RBAC gates", () => {
       kb_count: 1,
       loading: true,
     });
-    render(<KnowledgeSidebar collapsed={false} onCollapse={() => {}} graphRagEnabled={true} />);
-    expect(screen.queryByTestId("kb-link-/knowledge-bases/search")).not.toBeInTheDocument();
+    render(
+      <KnowledgeSidebar
+        collapsed={false}
+        onCollapse={() => {}}
+        graphRagEnabled={true}
+      />,
+    );
+    expect(
+      screen.queryByTestId("kb-link-/knowledge-bases/search"),
+    ).not.toBeInTheDocument();
     expect(screen.getByTestId("kb-tab-disabled-search")).toBeInTheDocument();
   });
 
   it("collapsed sidebar suppresses the empty-state banner", () => {
     setGates({ has_any_kb: false });
-    render(<KnowledgeSidebar collapsed={true} onCollapse={() => {}} graphRagEnabled={true} />);
-    expect(screen.queryByTestId("kb-sidebar-no-access-banner")).not.toBeInTheDocument();
+    render(
+      <KnowledgeSidebar
+        collapsed={true}
+        onCollapse={() => {}}
+        graphRagEnabled={true}
+      />,
+    );
+    expect(
+      screen.queryByTestId("kb-sidebar-no-access-banner"),
+    ).not.toBeInTheDocument();
   });
 });

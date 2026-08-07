@@ -2,12 +2,8 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth-config";
-import {
-  checkOpenFgaTuple,
-  deleteExactOpenFgaTuples,
-  listOpenFgaObjects,
-  writeOpenFgaTuples,
-} from "@/lib/rbac/openfga";
+import { reconcileTupleDiff } from "@/lib/authz";
+import { checkOpenFgaTuple, listOpenFgaObjects } from "@/lib/rbac/openfga";
 import { logOpenFgaRebacAuditEvent } from "@/lib/rbac/audit";
 import { getBySub, updateScopesSnapshot } from "@/lib/service-accounts";
 import { findAgentVisibilities } from "@/lib/dynamic-agent-visibility";
@@ -20,6 +16,7 @@ import {
 } from "@/lib/service-account-scopes";
 import type { ServiceAccountScope } from "@/types/mongodb";
 import { hasOrganizationAdmin as isPlatformAdmin } from "@/lib/rbac/platform-admin";
+import { organizationObjectId } from "@/lib/rbac/organization";
 
 /**
  * Scope management for a service account (US3).
@@ -51,7 +48,10 @@ interface ResolvedActor {
 
 /** 401 helper. */
 function unauthorized() {
-  return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+  return NextResponse.json(
+    { success: false, error: "Unauthorized" },
+    { status: 401 },
+  );
 }
 
 /**
@@ -140,13 +140,19 @@ async function refreshSnapshot(
   addedByForNew: { sub: string; at: Date },
 ): Promise<void> {
   const subject = `service_account:${saSub}`;
-  const [agentObjects, toolObjects] = await Promise.all([
+  const [agentObjects, toolObjects, datasourceObjects] = await Promise.all([
     listOpenFgaObjects({ user: subject, relation: "can_use", type: "agent" }),
     listOpenFgaObjects({ user: subject, relation: "can_call", type: "tool" }),
+    listOpenFgaObjects({
+      user: subject,
+      relation: "can_read",
+      type: "data_source",
+    }),
   ]);
 
   const agentIds = agentObjects.objects.map(refFromObject);
   const toolIds = toolObjects.objects.map(refFromObject);
+  const datasourceIds = datasourceObjects.objects.map(refFromObject);
 
   // Global (Everyone-shared) agents grant the unlinked SA `can_use` via the
   // agent's visibility, not via an explicit panel scope. Keep those out of the
@@ -160,7 +166,10 @@ async function refreshSnapshot(
   const prior = (await getBySub(saSub))?.scopes_snapshot ?? [];
   const priorByKey = new Map(prior.map((s) => [`${s.type}:${s.ref}`, s]));
 
-  const build = (type: "agent" | "tool", refs: string[]): ServiceAccountScope[] =>
+  const build = (
+    type: "agent" | "tool" | "datasource",
+    refs: string[],
+  ): ServiceAccountScope[] =>
     refs.map(
       (ref) =>
         priorByKey.get(`${type}:${ref}`) ?? {
@@ -171,7 +180,11 @@ async function refreshSnapshot(
         },
     );
 
-  const snapshot = [...build("agent", explicitAgentIds), ...build("tool", toolIds)];
+  const snapshot = [
+    ...build("agent", explicitAgentIds),
+    ...build("tool", toolIds),
+    ...build("datasource", datasourceIds),
+  ];
   await updateScopesSnapshot(saSub, snapshot);
 }
 
@@ -187,7 +200,9 @@ export async function POST(request: Request, context: RouteContext) {
     // often is not materialized as per-tool can_call tuples, but the picker now
     // exposes the full platform MCP catalog for them.
     if (!bypassHeldScopeCheck) {
-      const held = await checkOpenFgaTuple(scopeCheckTuple(scope, `user:${actor.callerSub}`));
+      const held = await checkOpenFgaTuple(
+        scopeCheckTuple(scope, `user:${actor.callerSub}`),
+      );
       if (!held.allowed) {
         return NextResponse.json(
           {
@@ -201,7 +216,27 @@ export async function POST(request: Request, context: RouteContext) {
     }
 
     const saSubject = `service_account:${id}`;
-    await writeOpenFgaTuples({ writes: [scopeWriteTuple(scope, saSubject)], deletes: [] });
+    await reconcileTupleDiff(
+      {
+        writes: [
+          scopeWriteTuple(scope, saSubject),
+          ...(scope.type === "datasource"
+            ? [
+                {
+                  user: saSubject,
+                  relation: "searcher",
+                  object: organizationObjectId(),
+                },
+              ]
+            : []),
+        ],
+        deletes: [],
+      },
+      {
+        caller: { type: "user", id: actor.callerSub },
+        source: "service_account_scope_add",
+      },
+    );
     await refreshSnapshot(id, { sub: actor.callerSub, at: new Date() });
 
     logOpenFgaRebacAuditEvent({
@@ -251,7 +286,31 @@ export async function DELETE(request: Request, context: RouteContext) {
   // need NOT hold the scope. No scope-holding check here, by design.
   try {
     const saSubject = `service_account:${id}`;
-    await deleteExactOpenFgaTuples([scopeWriteTuple(scope, saSubject)]);
+    const deletes = [scopeWriteTuple(scope, saSubject)];
+    if (scope.type === "datasource") {
+      const currentDatasources = await listOpenFgaObjects({
+        user: saSubject,
+        relation: "can_read",
+        type: "data_source",
+      });
+      const remaining = currentDatasources.objects
+        .map((object) => object.replace(/^data_source:/, ""))
+        .filter((ref) => ref !== scope.ref);
+      if (remaining.length === 0) {
+        deletes.push({
+          user: saSubject,
+          relation: "searcher",
+          object: organizationObjectId(),
+        });
+      }
+    }
+    await reconcileTupleDiff(
+      { writes: [], deletes },
+      {
+        caller: { type: "user", id: actor.callerSub },
+        source: "service_account_scope_remove",
+      },
+    );
     await refreshSnapshot(id, { sub: actor.callerSub, at: new Date() });
 
     logOpenFgaRebacAuditEvent({

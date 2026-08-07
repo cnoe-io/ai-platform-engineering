@@ -16,11 +16,17 @@ import { getMCPTools } from '@/lib/rag-api';
 import { formatFreshUntil } from '@/lib/utils';
 import { AnimatePresence,motion } from 'framer-motion';
 import { AlertCircle,ArrowRight,ChevronDown,ChevronUp,Database,ExternalLink,FileText,Hash,Search,Wrench,X } from 'lucide-react';
-import { useEffect,useMemo,useState } from 'react';
+import { usePathname,useRouter,useSearchParams } from 'next/navigation';
+import { useCallback,useEffect,useMemo,useRef,useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { MCPToolSchema } from './api';
 import { getDataSources,getHealthStatus,getMCPToolSchemas,invokeMCPTool } from './api';
+import {
+    parseSearchViewState,
+    serializeSearchViewState,
+    type SearchViewState,
+} from './search-view-state';
 
 // Fast animation transition
 const fastTransition = { duration: 0.1 };
@@ -251,18 +257,31 @@ function ResultSection({
 }
 
 export default function SearchView({ onExploreEntity, onNavigateToDataSources }: SearchViewProps) {
+    const router = useRouter();
+    const pathname = usePathname();
+    const searchParams = useSearchParams();
+    const searchParamsSignature = searchParams.toString();
+    const initialUrlState = useMemo(
+        () => parseSearchViewState(searchParams),
+        // The initial value is intentionally captured once. Later URL changes
+        // are applied by the deep-link effect after tool discovery completes.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [],
+    );
+
     // Query state
-    const [query, setQuery] = useState('');
-    const [limit, setLimit] = useState(10);
-    const [filters, setFilters] = useState<Record<string, string | boolean>>({});
+    const [query, setQuery] = useState(initialUrlState.query);
+    const [limit, setLimit] = useState(initialUrlState.limit);
+    const [filters, setFilters] = useState<Record<string, string | boolean>>(initialUrlState.filters);
     const [parsedResults, setParsedResults] = useState<ParsedResults | null>(null);
     const [loadingQuery, setLoadingQuery] = useState(false);
     const [lastQuery, setLastQuery] = useState('');
 
     // MCP Tool selection
     const [availableTools, setAvailableTools] = useState<MCPToolSchema[]>([]);
-    const [selectedTool, setSelectedTool] = useState<string>('search');
+    const [selectedTool, setSelectedTool] = useState<string>(initialUrlState.tool);
     const [loadingTools, setLoadingTools] = useState(false);
+    const lastExecutedDeepLink = useRef<string | null>(null);
 
     // Filter configuration
     const [validFilterKeys, setValidFilterKeys] = useState<string[]>([]);
@@ -397,26 +416,28 @@ export default function SearchView({ onExploreEntity, onNavigateToDataSources }:
         });
     };
 
-    const handleQuery = async () => {
-        if (!query) return;
+    const executeSearch = useCallback(async (state: SearchViewState) => {
+        if (!state.query.trim()) return;
         setLoadingQuery(true);
         setParsedResults(null);
         try {
             // Build MCP tool arguments matching the tool's schema
             const mcpArgs: Record<string, unknown> = {
-                query: query,
-                limit: limit,
+                query: state.query.trim(),
+                limit: state.limit,
             };
 
             // Add filters if the tool supports them
-            if (toolSupportsFilters) {
-                const combinedFilters: Record<string, string | boolean> = { ...filters };
+            const schema = availableTools.find((tool) => tool.name === state.tool);
+            const supportsFilters = schema?.parameters?.properties?.filters !== undefined;
+            if (supportsFilters) {
+                const combinedFilters: Record<string, string | boolean> = { ...state.filters };
                 if (Object.keys(combinedFilters).length > 0) {
                     mcpArgs.filters = combinedFilters;
                 }
             }
 
-            const response = await invokeMCPTool(selectedTool, mcpArgs);
+            const response = await invokeMCPTool(state.tool, mcpArgs);
             
             if (!response.success) {
                 throw new Error(response.error || 'Search failed');
@@ -432,20 +453,83 @@ export default function SearchView({ onExploreEntity, onNavigateToDataSources }:
             } else {
                 setParsedResults({});
             }
-            setLastQuery(query);
+            setLastQuery(state.query.trim());
         } catch (e: unknown) {
             const errorMessage = e instanceof Error ? e.message : 'unknown error';
             alert(`Query failed: ${errorMessage}`);
         } finally {
             setLoadingQuery(false);
         }
-    };
+    }, [availableTools]);
 
-    const clearResults = () => {
+    const handleQuery = useCallback(async () => {
+        const nextState: SearchViewState = {
+            query: query.trim(),
+            tool: selectedTool,
+            limit,
+            filters,
+        };
+        if (!nextState.query) return;
+        const params = serializeSearchViewState(nextState).toString();
+        lastExecutedDeepLink.current = params;
+        router.push(`${pathname}${params ? `?${params}` : ''}`, { scroll: false });
+        await executeSearch(nextState);
+    }, [executeSearch, filters, limit, pathname, query, router, selectedTool]);
+
+    // A shared URL is a request to repeat the search, not a cache of somebody
+    // else's result set. Tool discovery is RBAC-filtered and the invocation is
+    // still authorized server-side, so a URL cannot grant access to a tool or
+    // datasource the recipient cannot use.
+    useEffect(() => {
+        const requested = parseSearchViewState(new URLSearchParams(searchParamsSignature));
+        setQuery(requested.query);
+        setLimit(requested.limit);
+        setFilters(requested.filters);
+
+        if (!requested.query.trim()) {
+            setSelectedTool(requested.tool);
+            setParsedResults(null);
+            setLastQuery('');
+            lastExecutedDeepLink.current = null;
+            return;
+        }
+        if (loadingTools || availableTools.length === 0) return;
+
+        const permittedTool = availableTools.some((tool) => tool.name === requested.tool)
+            ? requested.tool
+            : availableTools[0].name;
+        const effective = { ...requested, tool: permittedTool };
+        setSelectedTool(permittedTool);
+        const effectiveParams = serializeSearchViewState(effective).toString();
+        if (lastExecutedDeepLink.current === effectiveParams) return;
+
+        lastExecutedDeepLink.current = effectiveParams;
+        if (effectiveParams !== searchParamsSignature) {
+            router.replace(`${pathname}?${effectiveParams}`, { scroll: false });
+        }
+        void executeSearch(effective);
+    }, [
+        availableTools,
+        executeSearch,
+        loadingTools,
+        pathname,
+        router,
+        searchParamsSignature,
+    ]);
+
+    const clearResults = useCallback(() => {
+        const cleared = serializeSearchViewState({
+            query: '',
+            tool: selectedTool,
+            limit,
+            filters,
+        }).toString();
+        lastExecutedDeepLink.current = null;
+        router.replace(`${pathname}${cleared ? `?${cleared}` : ''}`, { scroll: false });
         setParsedResults(null);
         setLastQuery('');
         setQuery('');
-    };
+    }, [filters, limit, pathname, router, selectedTool]);
 
     const hasResults = parsedResults !== null;
 

@@ -45,10 +45,14 @@ export interface ConnectorOnboardingRow {
   id: string;
   name: string;
   secondary: string;
+  workspaceId?: string;
+  memberCount?: number;
   selected: boolean;
   teamSlug: string;
   agentId: string;
   isExisting: boolean;
+  configuredBy?: string;
+  configuredAgentName?: string;
   teamRequired?: boolean;
   selectable?: boolean;
   importLabel: string;
@@ -155,11 +159,16 @@ function readinessFor(row: ConnectorOnboardingRow): {
   state: ReadinessState;
   label: string;
 } {
+  if (row.isExisting) {
+    return {
+      state: "ready",
+      label: row.configuredBy
+        ? `Configured by ${row.configuredBy}`
+        : "Configured",
+    };
+  }
   if (!rowIsSelectable(row)) {
     return { state: "skipped", label: "Personal DM" };
-  }
-  if (row.isExisting) {
-    return { state: "ready", label: "Configured" };
   }
   if (!row.selected) {
     return { state: "skipped", label: "Not selected" };
@@ -256,6 +265,7 @@ export function ConnectorOnboardingWizard({
   const selectedRows = rows.filter(
     (row) => row.selected && rowIsSelectable(row),
   );
+  const hasSelectableRows = rows.some(rowIsSelectable);
   const blockedRows = selectedRows.filter(
     (row) => readinessFor(row).state === "blocked",
   );
@@ -472,7 +482,7 @@ export function ConnectorOnboardingWizard({
                   variant="outline"
                   size="sm"
                   onClick={onSelectAll}
-                  disabled={loading || rows.length === 0}
+                  disabled={loading || !hasSelectableRows}
                 >
                   Select all
                 </Button>
@@ -574,6 +584,33 @@ export function ConnectorOnboardingWizard({
                   ) : (
                     visibleRows.map((row) => {
                       const readiness = readinessFor(row);
+                      const teamOptions = teams.some(
+                        (team) => team.value === row.teamSlug,
+                      )
+                        ? teams
+                        : row.teamSlug
+                          ? [
+                              ...teams,
+                              {
+                                value: row.teamSlug,
+                                label: row.configuredBy || row.teamSlug,
+                              },
+                            ]
+                          : teams;
+                      const agentOptions = agents.some(
+                        (agent) => agent.value === row.agentId,
+                      )
+                        ? agents
+                        : row.agentId
+                          ? [
+                              ...agents,
+                              {
+                                value: row.agentId,
+                                label:
+                                  row.configuredAgentName || row.agentId,
+                              },
+                            ]
+                          : agents;
                       return (
                         <div
                           key={row.id}
@@ -641,7 +678,7 @@ export function ConnectorOnboardingWizard({
                               disabled={loading || !rowIsSelectable(row)}
                               placeholder="Select team"
                               searchPlaceholder="Search teams..."
-                              options={teams.map<TeamPickerOption>((team) => ({
+                              options={teamOptions.map<TeamPickerOption>((team) => ({
                                 slug: team.value,
                                 name: team.label,
                               }))}
@@ -654,7 +691,7 @@ export function ConnectorOnboardingWizard({
                               Personal DM
                             </Badge>
                           )}
-                          {rowIsSelectable(row) ? (
+                          {rowIsSelectable(row) || row.isExisting ? (
                             <AgentPicker
                               ariaLabel={row.agentLabel}
                               triggerClassName="h-9 text-sm"
@@ -666,9 +703,11 @@ export function ConnectorOnboardingWizard({
                                 })
                               }
                               disabled={loading || !rowIsSelectable(row)}
-                              placeholder="Select agent"
+                              placeholder={
+                                row.isExisting ? "Configured" : "Select agent"
+                              }
                               searchPlaceholder="Search agents..."
-                              options={agents.map<AgentPickerOption>(
+                              options={agentOptions.map<AgentPickerOption>(
                                 (agent) => ({
                                   value: agent.value,
                                   label: agent.label,

@@ -839,7 +839,7 @@ export function UserMenu() {
                                       ? "bg-orange-500/10 text-orange-600 dark:text-orange-400"
                                       : "bg-blue-500/10 text-blue-600 dark:text-blue-400"
                                   )}>
-                                    {type === "kb_admin" ? "admin" : "reader"}
+                                    {type === "kb_admin" ? "Owner" : "Search"}
                                   </span>
                                 </div>
                               );

@@ -50,7 +50,8 @@ envFrom: []
 
 # Web Ingestor configuration (runs as sidecar container)
 webIngestor:
-  enabled: true
+  # Deprecated: deploy webloader with the rag-ingestors chart instead.
+  enabled: false
   image:
     repository: "ghcr.io/cnoe-io/caipe-rag-ingestors"
     # tag defaults to .Chart.AppVersion when not specified

@@ -66,6 +66,7 @@ const platformTeam = {
   agent_count: 1,
   tool_count: 1,
   tool_wildcard: false,
+  can_manage: true,
 };
 
 const visibilityTeam = {
@@ -81,6 +82,7 @@ const visibilityTeam = {
   kb_count: 3,
   tool_count: 2,
   tool_wildcard: false,
+  can_manage: true,
 };
 
 const wildcardTeam = {
@@ -96,6 +98,7 @@ const wildcardTeam = {
   kb_count: 0,
   tool_count: 0,
   tool_wildcard: true,
+  can_manage: true,
 };
 
 type TeamResourcePutBody = {
@@ -1419,7 +1422,7 @@ test.describe("mocked MCP OpenFGA tuple browser regression", () => {
     await page.goto("/knowledge-bases/ingest", { waitUntil: "domcontentloaded" });
     await expect(page.getByRole("heading", { name: "Data Sources", level: 1 })).toBeVisible();
 
-    await page.getByRole("button", { name: "File" }).click();
+    await page.getByTitle("Upload files").click();
     const fileInput = page.locator('input[type="file"]');
     await fileInput.setInputFiles([
       {

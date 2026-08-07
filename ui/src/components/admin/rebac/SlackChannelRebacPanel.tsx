@@ -1,9 +1,8 @@
 "use client";
 
-import { HelpCircle } from "lucide-react";
 import { useMemo } from "react";
 
-import { Tooltip,TooltipContent,TooltipTrigger } from "@/components/ui/tooltip";
+import { getConfig } from "@/lib/config";
 import type { AdminSimulationQueryTarget } from "@/lib/rbac/admin-simulation-query";
 import { withAdminSimulationParams } from "@/lib/rbac/admin-simulation-query";
 import type {
@@ -36,38 +35,6 @@ function formatSlackChannelName(value: unknown): string {
   const name = String(value ?? "").trim();
   if (!name) return "";
   return name.startsWith("#") ? name : `#${name}`;
-}
-
-// assisted-by Codex Codex-sonnet-4-6
-function SlackAccessNote() {
-  return (
-    <div className="flex max-w-4xl items-start gap-2 rounded-md border border-border/60 bg-background/50 px-3 py-2 text-sm text-muted-foreground">
-      <span>
-        Members of the assigned team can update this Slack channel&apos;s bot routing. Agents added here can answer in this channel.
-      </span>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            type="button"
-            aria-label="Slack access details"
-            className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            <HelpCircle className="h-4 w-4" aria-hidden="true" />
-          </button>
-        </TooltipTrigger>
-        <TooltipContent side="top" className="max-w-md whitespace-normal break-words text-xs">
-          <div className="space-y-2">
-            <p>
-              Team assignment controls who can manage this channel&apos;s integration. The channel and the assigned team must both be allowed to use an agent before the bot will call it.
-            </p>
-            <p>
-              Technical details: CAIPE records these access rules in the relationship store. Global or default agents may also be available outside this channel.
-            </p>
-          </div>
-        </TooltipContent>
-      </Tooltip>
-    </div>
-  );
 }
 
 const SLACK_ADAPTER: ConnectorAdminAdapter = {
@@ -123,6 +90,26 @@ const SLACK_ADAPTER: ConnectorAdminAdapter = {
         .map((ch) => ({
           id: String(ch.id ?? ""),
           name: formatSlackChannelName(ch.name ?? ch.id),
+          configured: ch.configured === true,
+          configuredBy:
+            typeof ch.configured_team_name === "string"
+              ? ch.configured_team_name
+              : typeof ch.configured_team_slug === "string"
+                ? ch.configured_team_slug
+                : undefined,
+          configuredTeamSlug:
+            typeof ch.configured_team_slug === "string"
+              ? ch.configured_team_slug
+              : undefined,
+          configuredAgentId:
+            typeof ch.configured_agent_id === "string"
+              ? ch.configured_agent_id
+              : undefined,
+          configuredAgentName:
+            typeof ch.configured_agent_name === "string"
+              ? ch.configured_agent_name
+              : undefined,
+          memberCount: typeof ch.num_members === "number" ? ch.num_members : undefined,
           secondary: [
             String(ch.id ?? ""),
             typeof ch.num_members === "number" ? pluralize(ch.num_members, "member") : "",
@@ -159,7 +146,7 @@ const SLACK_ADAPTER: ConnectorAdminAdapter = {
 
   copy: {
     configuredTabTitle: "Configured channels",
-    configuredTabDescription: "Channels CAIPE already knows about. Click a channel to manage its agents and diagnostics.",
+    configuredTabDescription: "Configured Slack channels.",
     onboardTabTitle: "Onboard channels",
     onboardTabDescription: "Find Slack channels where the bot is installed and set them up.",
     advancedTabTitle: "Advanced",
@@ -173,8 +160,8 @@ const SLACK_ADAPTER: ConnectorAdminAdapter = {
     discoveryLoadingLabel: "Finding channels…",
     discoveryEmptyLabel: "No bot-member channels were discovered.",
     discoveryDiscoveredLabel: "bot-member channel",
-    selfServiceTitle: "My Slack Channel Settings",
-    selfServiceDescription: "Manage Slack bot routing for channels shared with your team.",
+    selfServiceTitle: "Slack channels",
+    selfServiceDescription: "Manage existing Slack integrations or request onboarding for a channel your team uses.",
   },
   ariaLabels: {
     tablist: "Slack admin views",
@@ -192,10 +179,10 @@ const SLACK_ADAPTER: ConnectorAdminAdapter = {
   staticConfigLabel: ({ items, routes }) => `${items} channels / ${routes} routes`,
   routeCacheLabel: (count) => `${count} cached channel${count === 1 ? "" : "s"}`,
   syncDialogueTitle: (mode) => mode === "preview" ? "Slack Bot Config Sync Preview" : "Slack Bot Config Sync Apply",
-  syncDialogueDescription: "Preview reads the Slack bot's loaded static YAML config. Apply upserts matching MongoDB route metadata and channel-agent OpenFGA tuples without deleting UI-managed associations.",
+  syncDialogueDescription: "Preview reads the Slack bot's loaded static YAML config. Apply upserts matching route metadata and channel-agent access grants without deleting UI-managed associations.",
   syncSummaryItemsLabel: "Channels",
 
-  authzDisclaimer: <SlackAccessNote />,
+  authzDisclaimer: null,
 
   configuredDetailExtra: (ctx) => (
     <SlackConfiguredChannelDetail
@@ -282,7 +269,9 @@ const SLACK_ADAPTER: ConnectorAdminAdapter = {
     // Only set up rows that are fully configured (team + agent). Blocked
     // rows that happen to be selected are skipped rather than sent with
     // empty team/agent, so one unconfigured channel can't strand the batch.
-    const selectedImports = rows.filter((r) => r.selected && r.teamSlug && r.agentId);
+    const selectedImports = rows.filter(
+      (r) => r.selectable !== false && r.selected && r.teamSlug && r.agentId,
+    );
     if (selectedImports.length === 0 && (!defaultTeamSlug || !defaultAgentId)) {
       const missing: string[] = [];
       if (!defaultTeamSlug) missing.push("Preselected Team");
@@ -299,17 +288,37 @@ const SLACK_ADAPTER: ConnectorAdminAdapter = {
         agent_id: fallbackAgentId,
         create_routes: createDefaultRoutes,
         ...(selectedImports.length > 0 ? {
-          channel_defaults: selectedImports.map((ch) => ({ id: ch.id, name: ch.name, team_slug: ch.teamSlug, agent_id: ch.agentId })),
+          channel_defaults: selectedImports.map((ch) => ({
+            id: ch.id,
+            name: ch.name,
+            workspace_id: ch.workspaceId,
+            member_count: ch.memberCount,
+            team_slug: ch.teamSlug,
+            agent_id: ch.agentId,
+          })),
         } : {}),
       }),
     });
     if (!res.ok) throw new Error(await res.text());
-    const data = apiData<{ summary: Record<string, number> }>(await res.json());
+    const data = apiData<{
+      summary: Record<string, number>;
+      publication_requests?: Array<{ item_id?: string }>;
+      applied?: Array<{ item_id?: string }>;
+    }>(await res.json());
     const s = data.summary;
+    const pendingItemIds = (data.publication_requests ?? [])
+      .map((item) => item.item_id ?? "")
+      .filter(Boolean);
+    const appliedItemIds = (data.applied ?? [])
+      .map((item) => item.item_id ?? "")
+      .filter(Boolean);
     return {
-      toastMessage: selectedImports.length > 0
-        ? `Discovered defaults applied: onboarded ${s.channels_onboarded ?? 0} channels, assigned ${s.channels_assigned_team} channels, ensured ${s.channel_grants_ensured} channel grants, ensured ${s.routes_ensured} routes, preserved ${s.routes_preserved ?? 0} existing routes.`
+      toastMessage: pendingItemIds.length > 0
+        ? `${pendingItemIds.length} Slack channel${pendingItemIds.length === 1 ? " is" : "s are"} waiting for publication approval${appliedItemIds.length > 0 ? `; ${appliedItemIds.length} onboarded immediately` : ""}.`
+        : selectedImports.length > 0
+          ? `Discovered defaults applied: onboarded ${s.channels_onboarded ?? s.onboarded ?? 0} channels, assigned ${s.channels_assigned_team ?? 0} channels, ensured ${s.channel_grants_ensured ?? 0} channel grants, ensured ${s.routes_ensured ?? 0} routes, preserved ${s.routes_preserved ?? 0} existing routes.`
         : `Slack channel association defaults applied: assigned ${s.channels_assigned_team} channels, ensured ${s.channel_grants_ensured} channel grants, ensured ${s.routes_ensured} routes.`,
+      ...(data.publication_requests ? { pendingItemIds, appliedItemIds } : {}),
     };
   },
 
@@ -330,15 +339,20 @@ export function SlackChannelRebacPanel({
   selfService?: boolean;
   simulationTarget?: AdminSimulationQueryTarget | null;
 }) {
+  const appName = getConfig("appName");
   const adapter = useMemo<ConnectorAdminAdapter>(
     () => ({
       ...SLACK_ADAPTER,
+      copy: {
+        ...SLACK_ADAPTER.copy,
+        configuredTabDescription: `Channels ${appName} already knows about. Click a channel to manage its integration.`,
+      },
       api: {
         ...SLACK_ADAPTER.api,
         list: withAdminSimulationParams(SLACK_ADAPTER.api.list, simulationTarget),
       },
     }),
-    [simulationTarget],
+    [appName, simulationTarget],
   );
   return (
     <ConnectorAdminPanel

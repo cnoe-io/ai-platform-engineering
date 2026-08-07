@@ -151,12 +151,13 @@ describe("DELETE .../[id] (revoke)", () => {
       expect.arrayContaining([
         { user: "team:team-sre#member", relation: "owner_team", object: `service_account:${SA_ID}` },
         { user: `service_account:${SA_ID}`, relation: "caller", object: "mcp_gateway:list" },
+        { user: `service_account:${SA_ID}`, relation: "searcher", object: "organization:caipe" },
         { user: `service_account:${SA_ID}`, relation: "user", object: "agent:incident-resolver" },
         { user: `service_account:${SA_ID}`, relation: "caller", object: "tool:jira/search" },
         { user: `service_account:${SA_ID}`, relation: "caller", object: "tool:jira/*" },
       ]),
     );
-    expect(deleted).toHaveLength(5);
+    expect(deleted).toHaveLength(6);
 
     // Doc marked revoked (retained — frees name for reuse, FR-018a).
     expect(mockUpdateStatus).toHaveBeenCalledWith(SA_ID, "revoked");

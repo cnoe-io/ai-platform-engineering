@@ -31,7 +31,7 @@ OPENAI_API_KEY=<token>
 The checked-in example starts the default OSS stack:
 
 ```bash
-COMPOSE_PROFILES=mcp-servers,caipe-ui-prod,rbac,dynamic-agents,rag,caipe-mongodb
+COMPOSE_PROFILES=mcp-servers,caipe-ui-prod,rbac,dynamic-agents,rag,caipe-mongodb,web_ingestor
 ```
 
 `mcp-servers` starts the packaged MCP server containers. Add credentials only
@@ -121,7 +121,7 @@ AUTHZ_SERVICE_URL=http://caipe-ui:3000
 Then recreate the services that consume those settings:
 
 ```bash
-COMPOSE_PROFILES="mcp-servers,caipe-ui-prod,rbac,dynamic-agents,rag,caipe-mongodb" \
+COMPOSE_PROFILES="mcp-servers,caipe-ui-prod,rbac,dynamic-agents,rag,caipe-mongodb,web_ingestor" \
 docker compose --env-file .env -f docker-compose.yaml up -d --force-recreate caipe-ui dynamic-agents keycloak-init
 ```
 
