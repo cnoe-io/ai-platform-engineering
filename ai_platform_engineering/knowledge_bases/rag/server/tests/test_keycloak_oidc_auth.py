@@ -108,3 +108,44 @@ class TestRebacFirstUserAuth:
         assert not hasattr(user, "kb_permissions")
         assert not hasattr(user, "realm_roles")
         assert auth_manager.fetch_userinfo_called is False
+
+
+class TestOIDCVerifySSL:
+    def test_default_verify_ssl_is_true(self, monkeypatch):
+        monkeypatch.delenv("OIDC_VERIFY_SSL", raising=False)
+        provider = OIDCProvider(
+            issuer="http://localhost:7080/realms/caipe",
+            audience="caipe-platform",
+            name="ui",
+        )
+        assert provider.verify_ssl is True
+
+    @pytest.mark.parametrize("env_val", ["true", "1", "yes", "TRUE", "  Yes  "])
+    def test_verify_ssl_true_parsing(self, monkeypatch, env_val):
+        monkeypatch.setenv("OIDC_VERIFY_SSL", env_val)
+        provider = OIDCProvider(
+            issuer="http://localhost:7080/realms/caipe",
+            audience="caipe-platform",
+            name="ui",
+        )
+        assert provider.verify_ssl is True
+
+    @pytest.mark.parametrize("env_val", ["false", "0", "no", "FALSE", "  No  "])
+    def test_verify_ssl_false_parsing(self, monkeypatch, env_val):
+        monkeypatch.setenv("OIDC_VERIFY_SSL", env_val)
+        provider = OIDCProvider(
+            issuer="http://localhost:7080/realms/caipe",
+            audience="caipe-platform",
+            name="ui",
+        )
+        assert provider.verify_ssl is False
+
+    def test_verify_ssl_invalid_parsing_raises_value_error(self, monkeypatch):
+        monkeypatch.setenv("OIDC_VERIFY_SSL", "invalid_value")
+        with pytest.raises(ValueError) as excinfo:
+            OIDCProvider(
+                issuer="http://localhost:7080/realms/caipe",
+                audience="caipe-platform",
+                name="ui",
+            )
+        assert "OIDC_VERIFY_SSL must be one of" in str(excinfo.value)
