@@ -362,6 +362,12 @@ oauthConnectors: []
   #     - "meeting:schedules_read"
   #     - "meeting:transcripts_read"
   #   redirectUri: "https://caipe.example.com/api/credentials/oauth/webex_secondary/callback"
+  # - provider: "example-mcp"
+  #   name: "Example MCP"
+  #   # Anonymous DCR: GRID discovers the OAuth endpoints and registers a PKCE client.
+  #   mcpUrl: "https://mcp.example.com/api/mcp"
+  #   # scopes and redirectUri are optional.
+  #   scopes: ["openid", "offline_access"]
 
 # Declarative encrypted secrets to upsert into the credential store at UI
 # startup. `id` is stable and can be referenced by an MCP server's

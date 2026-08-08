@@ -899,6 +899,13 @@ caipe-ui:
     #     - "meeting:transcripts_read"
     #   # Defaults to ${NEXTAUTH_URL}/api/credentials/oauth/<provider>/callback.
     #   redirectUri: "https://caipe.example.com/api/credentials/oauth/webex_secondary/callback"
+    # - provider: "example-mcp"
+    #   name: "Example MCP"
+    #   # Discover OAuth metadata and perform anonymous public-client DCR.
+    #   # clientId, clientSecretEnv, authorizationUrl, tokenUrl, and pkce are omitted.
+    #   mcpUrl: "https://mcp.example.com/api/mcp"
+    #   # scopes and redirectUri are optional; discovery/NEXTAUTH_URL supply defaults.
+    #   scopes: ["openid", "offline_access"]
 
   # ── Okta directory sync (Identity Sync admin tab) ──────────────────────────
   # Structured config modeled after the Backstage Okta entity provider. The

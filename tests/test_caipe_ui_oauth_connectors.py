@@ -93,3 +93,45 @@ def test_rejects_inline_oauth_client_secrets() -> None:
     assert result.returncode != 0
     assert ".clientSecret is not allowed" in result.stderr
 
+
+def test_renders_mcp_dynamic_registration_connector() -> None:
+    connector = {
+        "provider": "example-mcp",
+        "name": "Example MCP",
+        "mcpUrl": "https://mcp.example.com/api/mcp",
+        "scopes": ["openid", "profile", "offline_access"],
+        "redirectUri": (
+            "https://grid.example.com/api/credentials/oauth/example-mcp/callback"
+        ),
+    }
+    result = _render({"oauthConnectors": [connector]})
+
+    assert result.returncode == 0, result.stderr
+    documents = _documents(result.stdout)
+    config_map = next(
+        document
+        for document in documents
+        if document["kind"] == "ConfigMap"
+        and document["metadata"]["name"].endswith("-caipe-ui-config")
+    )
+    assert json.loads(
+        config_map["data"]["CREDENTIAL_BOOTSTRAP_OAUTH_CONNECTORS_JSON"]
+    ) == [connector]
+
+
+def test_rejects_static_client_fields_with_mcp_dynamic_registration() -> None:
+    result = _render(
+        {
+            "oauthConnectors": [
+                {
+                    "provider": "example-mcp",
+                    "name": "Example MCP",
+                    "mcpUrl": "https://mcp.example.com/api/mcp",
+                    "clientIdEnv": "EXAMPLE_MCP_CLIENT_ID",
+                }
+            ]
+        }
+    )
+
+    assert result.returncode != 0
+    assert ".clientIdEnv is not allowed when mcpUrl is used" in result.stderr
