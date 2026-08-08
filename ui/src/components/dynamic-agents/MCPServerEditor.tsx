@@ -1190,16 +1190,15 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel, initialVal
                 {credentialProbe && (() => {
                   const hasMissing = credentialProbe.missingCredentials.length > 0;
                   const fullyOk = credentialProbe.ok && !hasMissing;
-                  const reachableButAuth = credentialProbe.ok && hasMissing;
                   const colorClass = fullyOk
                     ? "text-green-600 dark:text-green-400"
-                    : reachableButAuth
+                    : hasMissing
                       ? "text-yellow-600 dark:text-yellow-400"
                       : "text-destructive";
                   const label = fullyOk
                     ? `Connected (HTTP ${credentialProbe.status})`
-                    : reachableButAuth
-                      ? `Reachable (HTTP ${credentialProbe.status}) — credentials not resolved`
+                    : hasMissing
+                      ? "Credentials not resolved"
                       : credentialProbe.error
                         ? credentialProbe.error
                         : `Failed (HTTP ${credentialProbe.status})`;

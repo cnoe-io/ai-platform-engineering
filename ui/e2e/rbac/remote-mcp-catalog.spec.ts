@@ -186,11 +186,11 @@ test.describe("MCP server credential probe (Test Connection)", () => {
     await page.getByRole("button", { name: "Add Credential" }).click();
     await page.getByRole("button", { name: /Test Connection/i }).click();
 
-    // "Reachable but credentials not resolved" copy appears. Exact text — a
+    // Missing credentials are reported without implying endpoint reachability. Exact text — a
     // loose /credential/i regex also matches the "Add Credential" button and
     // "Credentials" section heading.
     await expect(
-      page.getByText("Reachable (HTTP 200) — credentials not resolved"),
+      page.getByText("Credentials not resolved"),
     ).toBeVisible({ timeout: 10_000 });
   });
 });

@@ -659,6 +659,47 @@ def apply_agentgateway_logging(config: dict[str, Any]) -> None:
     logging_config.setdefault("format", "json")
 
 
+def apply_agentgateway_jwt_auth_overrides(config: dict[str, Any]) -> None:
+    """Apply explicitly configured JWT auth values to every reconciled config.
+
+    AgentGateway's admin endpoint returns the current live config.  Reusing that
+    config as the next reconciliation baseline is intentional, but it also means
+    deployment-specific issuer/JWKS changes would otherwise only affect the
+    minimal first-start fallback.  Pin only values whose environment variables
+    are explicitly present so existing deployments retain their baseline.
+    """
+
+    issuer = os.getenv("AGENTGATEWAY_JWT_ISSUER")
+    jwks_url = os.getenv("AGENTGATEWAY_JWKS_URL")
+    audiences_value = os.getenv("AGENTGATEWAY_JWT_AUDIENCES")
+    if issuer is None and jwks_url is None and audiences_value is None:
+        return
+
+    listener = _first_http_listener(config)
+    policies = listener.setdefault("policies", {})
+    if not isinstance(policies, dict):
+        policies = {}
+        listener["policies"] = policies
+    jwt_auth = policies.setdefault("jwtAuth", {})
+    if not isinstance(jwt_auth, dict):
+        jwt_auth = {}
+        policies["jwtAuth"] = jwt_auth
+
+    jwt_auth.setdefault("mode", "strict")
+    if issuer is not None:
+        jwt_auth["issuer"] = issuer.strip()
+    if jwks_url is not None:
+        jwks = jwt_auth.setdefault("jwks", {})
+        if not isinstance(jwks, dict):
+            jwks = {}
+            jwt_auth["jwks"] = jwks
+        jwks["url"] = jwks_url.strip()
+    if audiences_value is not None:
+        jwt_auth["audiences"] = [
+            audience.strip() for audience in audiences_value.split(",") if audience.strip()
+        ]
+
+
 def write_config_atomically(path: Path, config: dict[str, Any]) -> bool:
     """Write config as JSON/YAML-compatible content; return true when changed."""
 
@@ -835,6 +876,7 @@ def reconcile_once(
         raise
     builtin_routes = load_builtin_mcp_routes(bootstrap_path)
     rendered = merge_agentgateway_mcp_routes(baseline, targets, builtin_routes=builtin_routes)
+    apply_agentgateway_jwt_auth_overrides(rendered)
     apply_agentgateway_logging(rendered)
     changed = write_config_atomically(config_path, rendered)
     result = {
