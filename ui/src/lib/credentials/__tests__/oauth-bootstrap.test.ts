@@ -1,6 +1,10 @@
 import { describe, expect, it, jest } from "@jest/globals";
 
-import { buildOAuthConnectorBootstrapInputs, bootstrapOAuthConnectorsFromEnv } from "../oauth-bootstrap";
+import {
+  buildMcpDcrConnectorBootstrapInputs,
+  buildOAuthConnectorBootstrapInputs,
+  bootstrapOAuthConnectorsFromEnv,
+} from "../oauth-bootstrap";
 import type { CreateConnectorInput, OAuthConnectorMetadata, OAuthConnectorService } from "../oauth-service";
 
 type UpsertConnector = OAuthConnectorService["upsertConnector"];
@@ -192,6 +196,66 @@ describe("OAuth connector env bootstrap", () => {
         redirectUri: "https://caipe.example.com/custom/callback",
       },
     ]);
+  });
+
+  it("builds an MCP DCR connector without a client ID or OAuth endpoint configuration", () => {
+    const env = {
+      NEXTAUTH_URL: "https://caipe.example.com",
+      CREDENTIAL_BOOTSTRAP_OAUTH_CONNECTORS_JSON: JSON.stringify([
+        {
+          provider: "example-mcp",
+          name: "Example MCP",
+          mcpUrl: "https://mcp.example.com/api/mcp",
+          scopes: ["openid", "offline_access"],
+        },
+      ]),
+    };
+
+    expect(buildOAuthConnectorBootstrapInputs(env)).toEqual([]);
+    expect(buildMcpDcrConnectorBootstrapInputs(env)).toEqual([
+      {
+        provider: "example-mcp",
+        name: "Example MCP",
+        mcpUrl: "https://mcp.example.com/api/mcp",
+        scopes: ["openid", "offline_access"],
+        redirectUri: "https://caipe.example.com/api/credentials/oauth/example-mcp/callback",
+      },
+    ]);
+  });
+
+  it("treats an existing deployment-managed MCP DCR connector as idempotently applied", async () => {
+    const existing = connectorMetadata({
+      provider: "example-mcp",
+      name: "Example MCP",
+      clientId: "generated-client",
+      pkce: true,
+    });
+    const service = {
+      upsertConnector: jest.fn<UpsertConnector>(),
+      listConnectors: jest.fn(async () => [existing]),
+      createConnector: jest.fn(async () => existing),
+    };
+    const fetchImpl = jest.fn<typeof fetch>();
+
+    await expect(
+      bootstrapOAuthConnectorsFromEnv({
+        env: {
+          NEXTAUTH_URL: "https://caipe.example.com",
+          CREDENTIAL_BOOTSTRAP_OAUTH_CONNECTORS_JSON: JSON.stringify([
+            {
+              provider: "example-mcp",
+              name: "Example MCP",
+              mcpUrl: "https://mcp.example.com/api/mcp",
+            },
+          ]),
+        },
+        service,
+        fetchImpl,
+      }),
+    ).resolves.toBe(1);
+
+    expect(service.createConnector).not.toHaveBeenCalled();
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
   it("lets deploy-configured connectors override legacy bootstrap for the same provider", () => {

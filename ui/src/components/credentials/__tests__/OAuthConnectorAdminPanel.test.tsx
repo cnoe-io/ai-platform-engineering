@@ -101,6 +101,38 @@ describe("OAuthConnectorAdminPanel", () => {
     );
   });
 
+  it("registers a remote MCP provider through discovery and DCR", async () => {
+    const user = userEvent.setup();
+    render(<OAuthConnectorAdminPanel />);
+
+    await screen.findByText("GitHub");
+    await user.click(screen.getByRole("button", { name: /add mcp provider/i }));
+    await user.type(screen.getByLabelText(/display name/i), "Example MCP");
+    await user.type(screen.getByLabelText(/^provider/i), "example-mcp");
+    await user.type(
+      screen.getByLabelText(/mcp server url/i),
+      "https://mcp.example.com/api/mcp",
+    );
+    await user.type(screen.getByLabelText(/scopes/i), "openid profile offline_access");
+    await user.click(screen.getByRole("button", { name: /discover and register/i }));
+
+    await waitFor(() =>
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/admin/credentials/oauth-connectors/dcr",
+        expect.objectContaining({
+          method: "POST",
+          body: expect.stringContaining('"mcpUrl":"https://mcp.example.com/api/mcp"'),
+        }),
+      ),
+    );
+    expect(global.fetch).toHaveBeenCalledWith(
+      "/api/admin/credentials/oauth-connectors/dcr",
+      expect.objectContaining({
+        body: expect.stringContaining('"scopes":["openid","profile","offline_access"]'),
+      }),
+    );
+  });
+
   it("prefills GitLab.com connector defaults from the built-in provider template", async () => {
     const user = userEvent.setup();
     render(<OAuthConnectorAdminPanel />);

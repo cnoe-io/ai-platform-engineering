@@ -1,4 +1,8 @@
 import { BUILT_IN_OAUTH_CONNECTORS } from "./built-in-oauth-connectors";
+import {
+  registerMcpDcrConnector,
+  type RegisterMcpDcrConnectorInput,
+} from "./mcp-dcr";
 import type { CreateConnectorInput, OAuthConnectorService } from "./oauth-service";
 
 type Env = Record<string, string | undefined>;
@@ -191,7 +195,7 @@ function configuredScopes(connector: ConfiguredConnector, index: number): string
   });
 }
 
-function buildConfiguredOAuthConnectorBootstrapInputs(env: Env): CreateConnectorInput[] {
+function configuredConnectorArray(env: Env): ConfiguredConnector[] {
   const serialized = value(env, CONFIGURED_CONNECTORS_ENV);
   if (!serialized) {
     return [];
@@ -218,6 +222,16 @@ function buildConfiguredOAuthConnectorBootstrapInputs(env: Env): CreateConnector
       throw new Error(`OAuth connector provider ${provider} is configured more than once`);
     }
     providers.add(provider);
+    return connector;
+  });
+}
+
+function buildConfiguredOAuthConnectorBootstrapInputs(env: Env): CreateConnectorInput[] {
+  return configuredConnectorArray(env).flatMap((connector, index) => {
+    if (configuredString(connector, "mcpUrl", index)) {
+      return [];
+    }
+    const provider = configuredString(connector, "provider", index, { required: true })!;
 
     const pkceValue = connector.pkce;
     if (pkceValue !== undefined && typeof pkceValue !== "boolean") {
@@ -240,7 +254,7 @@ function buildConfiguredOAuthConnectorBootstrapInputs(env: Env): CreateConnector
 
     const redirectUri = configuredString(connector, "redirectUri", index)
       ?? canonicalProviderCallback(provider, env);
-    return {
+    return [{
       name: configuredString(connector, "name", index, { required: true })!,
       provider,
       clientId: configuredEnvValue(connector, "clientId", "clientIdEnv", env, index),
@@ -250,7 +264,43 @@ function buildConfiguredOAuthConnectorBootstrapInputs(env: Env): CreateConnector
       scopes: configuredScopes(connector, index),
       redirectUri: normalizeRedirectUri(provider, redirectUri, env),
       ...(pkce ? { pkce: true } : {}),
-    };
+    }];
+  });
+}
+
+export function buildMcpDcrConnectorBootstrapInputs(
+  env: Env = process.env,
+): RegisterMcpDcrConnectorInput[] {
+  return configuredConnectorArray(env).flatMap((connector, index) => {
+    const mcpUrl = configuredString(connector, "mcpUrl", index);
+    if (!mcpUrl) return [];
+    for (const incompatible of [
+      "clientId",
+      "clientIdEnv",
+      "clientSecretEnv",
+      "authorizationUrl",
+      "tokenUrl",
+      "pkce",
+    ]) {
+      if (connector[incompatible] !== undefined) {
+        throw new Error(
+          `OAuth connector at index ${index} must not set ${incompatible} when mcpUrl is used`,
+        );
+      }
+    }
+    const provider = configuredString(connector, "provider", index, { required: true })!;
+    const scopes = connector.scopes === undefined
+      ? undefined
+      : configuredScopes(connector, index);
+    return [{
+      name: configuredString(connector, "name", index, { required: true })!,
+      provider,
+      mcpUrl,
+      redirectUri:
+        configuredString(connector, "redirectUri", index) ??
+        canonicalProviderCallback(provider, env),
+      ...(scopes ? { scopes } : {}),
+    }];
   });
 }
 
@@ -280,7 +330,11 @@ export function buildOAuthConnectorBootstrapInputs(env: Env = process.env): Crea
     });
   }
   const configuredInputs = buildConfiguredOAuthConnectorBootstrapInputs(env);
-  const configuredProviders = new Set(configuredInputs.map((input) => input.provider));
+  const configuredProviders = new Set(
+    configuredConnectorArray(env).map((connector, index) =>
+      configuredString(connector, "provider", index, { required: true })!,
+    ),
+  );
   return [
     ...legacyInputs.filter((input) => !configuredProviders.has(input.provider)),
     ...configuredInputs,
@@ -289,7 +343,9 @@ export function buildOAuthConnectorBootstrapInputs(env: Env = process.env): Crea
 
 export async function bootstrapOAuthConnectorsFromEnv(options?: {
   env?: Env;
-  service?: Pick<OAuthConnectorService, "upsertConnector">;
+  service?: Pick<OAuthConnectorService, "upsertConnector"> &
+    Partial<Pick<OAuthConnectorService, "createConnector" | "listConnectors">>;
+  fetchImpl?: typeof fetch;
 }): Promise<number> {
   const env = options?.env ?? process.env;
   const hasConfiguredConnectors = Boolean(value(env, CONFIGURED_CONNECTORS_ENV));
@@ -297,7 +353,8 @@ export async function bootstrapOAuthConnectorsFromEnv(options?: {
     return 0;
   }
   const inputs = buildOAuthConnectorBootstrapInputs(env);
-  if (inputs.length === 0) {
+  const dcrInputs = buildMcpDcrConnectorBootstrapInputs(env);
+  if (inputs.length === 0 && dcrInputs.length === 0) {
     return 0;
   }
   const service = options?.service ?? await (async () => {
@@ -312,6 +369,30 @@ export async function bootstrapOAuthConnectorsFromEnv(options?: {
     } catch (err) {
       const message = err instanceof Error ? err.message : "unknown error";
       console.error(`[credentials] Skipped OAuth connector bootstrap for ${input.provider}: ${message}`);
+    }
+  }
+  if (dcrInputs.length > 0 && (!service.listConnectors || !service.createConnector)) {
+    throw new Error("MCP DCR bootstrap requires connector list and create support");
+  }
+  for (const input of dcrInputs) {
+    try {
+      const existing = (await service.listConnectors!()).find(
+        (connector) => connector.provider === input.provider,
+      );
+      if (!existing) {
+        await registerMcpDcrConnector({
+          input,
+          connectorService: {
+            listConnectors: service.listConnectors!,
+            createConnector: service.createConnector!,
+          },
+          fetchImpl: options?.fetchImpl,
+        });
+      }
+      applied++;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "unknown error";
+      console.error(`[credentials] Skipped MCP DCR connector bootstrap for ${input.provider}: ${message}`);
     }
   }
   if (applied > 0) {
