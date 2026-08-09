@@ -30,13 +30,24 @@ export interface OAuthConnectorDocument {
   tokenUrl: string;
   scopes: string[];
   redirectUri: string;
+  /** RFC 8707 resource indicator used by MCP OAuth providers. */
+  resource?: string;
+  /** How the OAuth client was provisioned. */
+  source?: "manual" | "mcp_dcr";
+  /** RFC 7591/7592 metadata retained for DCR lifecycle management. */
+  registrationEndpoint?: string;
+  registrationClientUri?: string;
+  registrationAccessTokenRef?: string;
   enabled: boolean;
   pkce?: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
 
-export type OAuthConnectorMetadata = Omit<OAuthConnectorDocument, "clientSecretRef"> & {
+export type OAuthConnectorMetadata = Omit<
+  OAuthConnectorDocument,
+  "clientSecretRef" | "registrationAccessTokenRef"
+> & {
   clientSecretConfigured: boolean;
 };
 
@@ -104,6 +115,11 @@ export interface CreateConnectorInput {
   scopes: string[];
   redirectUri: string;
   pkce?: boolean;
+  resource?: string;
+  source?: "manual" | "mcp_dcr";
+  registrationEndpoint?: string;
+  registrationClientUri?: string;
+  registrationAccessToken?: string;
 }
 
 export interface TokenClientResponse {
@@ -185,6 +201,10 @@ function toConnectorMetadata(doc: OAuthConnectorDocument): OAuthConnectorMetadat
     tokenUrl: doc.tokenUrl,
     scopes: doc.scopes,
     redirectUri: doc.redirectUri,
+    ...(doc.resource ? { resource: doc.resource } : {}),
+    ...(doc.source ? { source: doc.source } : {}),
+    ...(doc.registrationEndpoint ? { registrationEndpoint: doc.registrationEndpoint } : {}),
+    ...(doc.registrationClientUri ? { registrationClientUri: doc.registrationClientUri } : {}),
     enabled: doc.enabled,
     pkce: doc.pkce,
     createdAt: doc.createdAt,
@@ -240,6 +260,7 @@ function authorizationCodeTokenBody(input: {
   codeVerifier: string;
   redirectUri: string;
   pkce?: boolean;
+  resource?: string;
 }): Record<string, string> {
   const body: Record<string, string> = {
     grant_type: "authorization_code",
@@ -252,6 +273,9 @@ function authorizationCodeTokenBody(input: {
   if (!omitSecret) {
     body.client_secret = input.clientSecret;
   }
+  if (input.resource) {
+    body.resource = input.resource;
+  }
   return body;
 }
 
@@ -261,6 +285,7 @@ function refreshTokenBody(input: {
   clientSecret: string;
   refreshToken: string;
   pkce?: boolean;
+  resource?: string;
 }): Record<string, string> {
   const body: Record<string, string> = {
     grant_type: "refresh_token",
@@ -270,6 +295,9 @@ function refreshTokenBody(input: {
   const omitSecret = input.pkce === true || input.provider.toLowerCase() === "pagerduty";
   if (!omitSecret) {
     body.client_secret = input.clientSecret;
+  }
+  if (input.resource) {
+    body.resource = input.resource;
   }
   return body;
 }
@@ -290,6 +318,7 @@ export class OAuthConnectorService {
   async createConnector(input: CreateConnectorInput): Promise<OAuthConnectorMetadata> {
     const id = this.idGenerator();
     const clientSecretRef = `oauth_connector:${id}:client_secret`;
+    const registrationAccessTokenRef = `oauth_connector:${id}:registration_access_token`;
     const now = this.now();
     const doc: OAuthConnectorDocument = {
       id,
@@ -301,6 +330,27 @@ export class OAuthConnectorService {
       tokenUrl: validateExternalHttpsUrl(input.tokenUrl, "tokenUrl"),
       scopes: input.scopes.map((scope) => scope.trim()).filter(Boolean),
       redirectUri: validateRedirectUri(input.redirectUri),
+      ...(input.resource
+        ? { resource: validateExternalHttpsUrl(input.resource, "resource") }
+        : {}),
+      ...(input.source ? { source: input.source } : { source: "manual" as const }),
+      ...(input.registrationEndpoint
+        ? {
+            registrationEndpoint: validateExternalHttpsUrl(
+              input.registrationEndpoint,
+              "registrationEndpoint",
+            ),
+          }
+        : {}),
+      ...(input.registrationClientUri
+        ? {
+            registrationClientUri: validateExternalHttpsUrl(
+              input.registrationClientUri,
+              "registrationClientUri",
+            ),
+          }
+        : {}),
+      ...(input.registrationAccessToken ? { registrationAccessTokenRef } : {}),
       enabled: true,
       ...(input.pkce ? { pkce: true } : {}),
       createdAt: now,
@@ -309,6 +359,12 @@ export class OAuthConnectorService {
 
     if (!input.pkce) {
       await this.payloadStore.putSecret({ secretRefId: clientSecretRef, plaintext: nonEmpty(input.clientSecret ?? "", "clientSecret") });
+    }
+    if (input.registrationAccessToken) {
+      await this.payloadStore.putSecret({
+        secretRefId: registrationAccessTokenRef,
+        plaintext: nonEmpty(input.registrationAccessToken, "registrationAccessToken"),
+      });
     }
     await this.connectorsCollection.insertOne(doc);
     return toConnectorMetadata(doc);
@@ -330,6 +386,26 @@ export class OAuthConnectorService {
       tokenUrl: validateExternalHttpsUrl(input.tokenUrl, "tokenUrl"),
       scopes: input.scopes.map((scope) => scope.trim()).filter(Boolean),
       redirectUri: validateRedirectUri(input.redirectUri),
+      ...(input.resource
+        ? { resource: validateExternalHttpsUrl(input.resource, "resource") }
+        : {}),
+      ...(input.source ? { source: input.source } : {}),
+      ...(input.registrationEndpoint
+        ? {
+            registrationEndpoint: validateExternalHttpsUrl(
+              input.registrationEndpoint,
+              "registrationEndpoint",
+            ),
+          }
+        : {}),
+      ...(input.registrationClientUri
+        ? {
+            registrationClientUri: validateExternalHttpsUrl(
+              input.registrationClientUri,
+              "registrationClientUri",
+            ),
+          }
+        : {}),
       enabled: true,
       ...(input.pkce ? { pkce: true } : {}),
       updatedAt: now,
@@ -339,6 +415,16 @@ export class OAuthConnectorService {
         secretRefId: existing.clientSecretRef,
         plaintext: nonEmpty(input.clientSecret ?? "", "clientSecret"),
       });
+    }
+    if (input.registrationAccessToken) {
+      const registrationAccessTokenRef =
+        existing.registrationAccessTokenRef ??
+        `oauth_connector:${existing.id}:registration_access_token`;
+      await this.payloadStore.putSecret({
+        secretRefId: registrationAccessTokenRef,
+        plaintext: nonEmpty(input.registrationAccessToken, "registrationAccessToken"),
+      });
+      update.registrationAccessTokenRef = registrationAccessTokenRef;
     }
     // `$set: { pkce: undefined }` is a no-op in MongoDB, so a PKCE→confidential
     // switch must explicitly `$unset` the flag to clear it (mirrors
@@ -475,6 +561,9 @@ export class ProviderConnectionService {
     url.searchParams.set("state", nonEmpty(input.state, "state"));
     url.searchParams.set("code_challenge", nonEmpty(input.codeChallenge, "codeChallenge"));
     url.searchParams.set("code_challenge_method", "S256");
+    if (connector.resource) {
+      url.searchParams.set("resource", connector.resource);
+    }
     return { authorizationUrl: url.toString(), connectorId: connector.id, requestedScopes };
   }
 
@@ -616,6 +705,7 @@ export class ProviderConnectionService {
         codeVerifier: input.codeVerifier,
         redirectUri: connector.redirectUri,
         pkce: connector.pkce,
+        resource: connector.resource,
       }),
     );
 
@@ -862,6 +952,7 @@ export class ProviderConnectionService {
           clientSecret,
           refreshToken,
           pkce: connector.pkce,
+          resource: connector.resource,
         }),
       );
     } catch (error) {

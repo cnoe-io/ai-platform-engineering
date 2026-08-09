@@ -18,6 +18,8 @@ interface OAuthConnectorMetadata {
   enabled?: boolean;
   clientSecretConfigured?: boolean;
   pkce?: boolean;
+  source?: "manual" | "mcp_dcr";
+  resource?: string;
 }
 
 async function parseApiResponse<T>(response: Response): Promise<T> {
@@ -37,7 +39,9 @@ export function OAuthConnectorAdminPanel({ readOnly = false }: { readOnly?: bool
     scopes: "",
     redirectUri: "",
     pkce: false,
+    mcpUrl: "",
   });
+  const [registrationMode, setRegistrationMode] = React.useState<"manual" | "mcp_dcr">("manual");
   const [createOpen, setCreateOpen] = React.useState(false);
   const [editingConnector, setEditingConnector] = React.useState<OAuthConnectorMetadata | null>(null);
   const [error, setError] = React.useState<string | null>(null);
@@ -90,7 +94,9 @@ export function OAuthConnectorAdminPanel({ readOnly = false }: { readOnly?: bool
     };
     const url = editingConnector
       ? `/api/admin/credentials/oauth-connectors/${editingConnector.id}`
-      : "/api/admin/credentials/oauth-connectors";
+      : registrationMode === "mcp_dcr"
+        ? "/api/admin/credentials/oauth-connectors/dcr"
+        : "/api/admin/credentials/oauth-connectors";
     const method = editingConnector ? "PUT" : "POST";
     const response = await fetch(url, {
       method,
@@ -119,7 +125,9 @@ export function OAuthConnectorAdminPanel({ readOnly = false }: { readOnly?: bool
       scopes: "",
       redirectUri: "",
       pkce: false,
+      mcpUrl: "",
     });
+    setRegistrationMode("manual");
     setEditingConnector(null);
     setCreateOpen(false);
   };
@@ -137,7 +145,9 @@ export function OAuthConnectorAdminPanel({ readOnly = false }: { readOnly?: bool
       scopes: connector.scopes.join(" "),
       redirectUri: connector.redirectUri,
       pkce: connector.pkce ?? false,
+      mcpUrl: connector.resource ?? "",
     });
+    setRegistrationMode("manual");
     setCreateOpen(true);
   };
 
@@ -182,9 +192,29 @@ export function OAuthConnectorAdminPanel({ readOnly = false }: { readOnly?: bool
             credential payloads and are never shown here.
           </p>
         </div>
-        <Button type="button" onClick={() => setCreateOpen(true)} disabled={readOnly}>
-          Add OAuth Provider
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => {
+              setRegistrationMode("mcp_dcr");
+              setCreateOpen(true);
+            }}
+            disabled={readOnly}
+          >
+            Add MCP Provider
+          </Button>
+          <Button
+            type="button"
+            onClick={() => {
+              setRegistrationMode("manual");
+              setCreateOpen(true);
+            }}
+            disabled={readOnly}
+          >
+            Add OAuth Provider
+          </Button>
+        </div>
       </div>
 
       {createOpen && (
@@ -200,9 +230,17 @@ export function OAuthConnectorAdminPanel({ readOnly = false }: { readOnly?: bool
           >
             <div className="flex items-start justify-between gap-4">
               <div>
-                <h2 className="text-lg font-medium">{editingConnector ? "Edit OAuth Provider" : "Add OAuth Provider"}</h2>
+                <h2 className="text-lg font-medium">
+                  {editingConnector
+                    ? "Edit OAuth Provider"
+                    : registrationMode === "mcp_dcr"
+                      ? "Add MCP OAuth Provider"
+                      : "Add OAuth Provider"}
+                </h2>
                 <p className="text-sm text-muted-foreground">
-                  Configure a standard authorization-code connector for user connections.
+                  {registrationMode === "mcp_dcr" && !editingConnector
+                    ? "Discover authorization metadata from a remote MCP server and register GRID as a public PKCE client."
+                    : "Configure a standard authorization-code connector for user connections."}
                 </p>
               </div>
               <button
@@ -214,6 +252,7 @@ export function OAuthConnectorAdminPanel({ readOnly = false }: { readOnly?: bool
               </button>
             </div>
             <div className="grid gap-4 md:grid-cols-2">
+              {registrationMode === "manual" || editingConnector ? (
               <label className="space-y-1 text-sm md:col-span-2">
                 <span>Built-in template</span>
                 <select
@@ -229,6 +268,7 @@ export function OAuthConnectorAdminPanel({ readOnly = false }: { readOnly?: bool
                   ))}
                 </select>
               </label>
+              ) : null}
               <label className="space-y-1 text-sm">
                 <span>Display name</span>
                 <input className="w-full rounded-md border border-input bg-background px-3 py-2" value={form.name} onChange={updateForm("name")} required />
@@ -237,6 +277,39 @@ export function OAuthConnectorAdminPanel({ readOnly = false }: { readOnly?: bool
                 <span>Provider</span>
                 <input className="w-full rounded-md border border-input bg-background px-3 py-2" value={form.provider} onChange={updateForm("provider")} required />
               </label>
+              {registrationMode === "mcp_dcr" && !editingConnector ? (
+                <>
+                  <label className="space-y-1 text-sm md:col-span-2">
+                    <span>MCP server URL</span>
+                    <input
+                      className="w-full rounded-md border border-input bg-background px-3 py-2 font-mono"
+                      value={form.mcpUrl}
+                      onChange={updateForm("mcpUrl")}
+                      placeholder="https://example.com/api/mcp"
+                      required
+                    />
+                  </label>
+                  <label className="space-y-1 text-sm md:col-span-2">
+                    <span>Scopes (optional)</span>
+                    <input
+                      className="w-full rounded-md border border-input bg-background px-3 py-2"
+                      value={form.scopes}
+                      onChange={updateForm("scopes")}
+                      placeholder="Leave empty to use discovered scopes"
+                    />
+                  </label>
+                  <label className="space-y-1 text-sm md:col-span-2">
+                    <span>Redirect URI (optional)</span>
+                    <input
+                      className="w-full rounded-md border border-input bg-background px-3 py-2 font-mono"
+                      value={form.redirectUri}
+                      onChange={updateForm("redirectUri")}
+                      placeholder="Defaults to this GRID instance's provider callback"
+                    />
+                  </label>
+                </>
+              ) : (
+              <>
               <label className="space-y-1 text-sm">
                 <span>Client ID</span>
                 <input className="w-full rounded-md border border-input bg-background px-3 py-2" value={form.clientId} onChange={updateForm("clientId")} required />
@@ -271,8 +344,18 @@ export function OAuthConnectorAdminPanel({ readOnly = false }: { readOnly?: bool
                 <span>Redirect URI</span>
                 <input className="w-full rounded-md border border-input bg-background px-3 py-2" value={form.redirectUri} onChange={updateForm("redirectUri")} required />
               </label>
+              </>
+              )}
             </div>
-            <SaveButton type="submit" saving={false} ariaLabel="Save connector" />
+            <SaveButton
+              type="submit"
+              saving={false}
+              ariaLabel={
+                registrationMode === "mcp_dcr" && !editingConnector
+                  ? "Discover and register MCP provider"
+                  : "Save connector"
+              }
+            />
           </form>
         </div>
       )}
@@ -292,6 +375,11 @@ export function OAuthConnectorAdminPanel({ readOnly = false }: { readOnly?: bool
                     <span className="inline-block rounded bg-muted px-2 py-1 text-xs">
                       {connector.pkce ? "public client (PKCE)" : connector.clientSecretConfigured ? "client secret configured" : "client secret missing"}
                     </span>
+                    {connector.source === "mcp_dcr" ? (
+                      <span className="inline-block rounded bg-muted px-2 py-1 text-xs">
+                        MCP dynamic registration
+                      </span>
+                    ) : null}
                     <span className="inline-block rounded bg-muted px-2 py-1 text-xs">
                       {connector.enabled === false ? "disabled" : "enabled"}
                     </span>

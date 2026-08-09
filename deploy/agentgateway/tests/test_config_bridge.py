@@ -913,6 +913,43 @@ def test_apply_agentgateway_logging_honors_env(monkeypatch) -> None:
     assert config["config"]["logging"]["level"] == "warn"
 
 
+def test_apply_agentgateway_jwt_auth_overrides_preserves_baseline_without_env(
+    monkeypatch,
+) -> None:
+    monkeypatch.delenv("AGENTGATEWAY_JWT_ISSUER", raising=False)
+    monkeypatch.delenv("AGENTGATEWAY_JWKS_URL", raising=False)
+    monkeypatch.delenv("AGENTGATEWAY_JWT_AUDIENCES", raising=False)
+    config = _baseline_config()
+
+    bridge.apply_agentgateway_jwt_auth_overrides(config)
+
+    jwt_auth = config["binds"][0]["listeners"][0]["policies"]["jwtAuth"]
+    assert jwt_auth["issuer"] == "http://localhost:7080/realms/caipe"
+    assert jwt_auth["audiences"] == ["caipe-platform", "agentgateway"]
+
+
+def test_apply_agentgateway_jwt_auth_overrides_honors_explicit_env(monkeypatch) -> None:
+    monkeypatch.setenv("AGENTGATEWAY_JWT_ISSUER", "https://example.test/realms/primary")
+    monkeypatch.setenv(
+        "AGENTGATEWAY_JWKS_URL",
+        "http://identity:7080/realms/primary/protocol/openid-connect/certs",
+    )
+    monkeypatch.setenv("AGENTGATEWAY_JWT_AUDIENCES", "primary-api, agentgateway")
+    config = _baseline_config()
+
+    bridge.apply_agentgateway_jwt_auth_overrides(config)
+
+    jwt_auth = config["binds"][0]["listeners"][0]["policies"]["jwtAuth"]
+    assert jwt_auth == {
+        "mode": "strict",
+        "issuer": "https://example.test/realms/primary",
+        "audiences": ["primary-api", "agentgateway"],
+        "jwks": {
+            "url": "http://identity:7080/realms/primary/protocol/openid-connect/certs"
+        },
+    }
+
+
 def test_reconcile_once_enforces_logging_level(tmp_path: Path, monkeypatch) -> None:
     config_path = tmp_path / "generated" / "config.yaml"
     config_path.parent.mkdir()
@@ -929,3 +966,33 @@ def test_reconcile_once_enforces_logging_level(tmp_path: Path, monkeypatch) -> N
 
     rendered = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     assert rendered["config"]["logging"]["level"] == "info"
+
+
+def test_reconcile_once_enforces_configured_jwt_issuer(tmp_path: Path, monkeypatch) -> None:
+    config_path = tmp_path / "generated" / "config.yaml"
+    config_path.parent.mkdir()
+    config_path.write_text("binds: []\n", encoding="utf-8")
+    monkeypatch.setenv("AGENTGATEWAY_JWT_ISSUER", "https://example.test/realms/primary")
+    monkeypatch.setenv(
+        "AGENTGATEWAY_JWKS_URL",
+        "http://identity:7080/realms/primary/protocol/openid-connect/certs",
+    )
+    monkeypatch.setattr(bridge, "_load_targets", lambda: [])
+    monkeypatch.setattr(
+        bridge,
+        "fetch_agentgateway_config",
+        lambda _admin_config_url: _baseline_config(),
+    )
+
+    bridge.reconcile_once(
+        config_path=config_path,
+        admin_config_url="http://agentgateway:15000/config",
+    )
+
+    rendered = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    jwt_auth = rendered["binds"][0]["listeners"][0]["policies"]["jwtAuth"]
+    assert jwt_auth["issuer"] == "https://example.test/realms/primary"
+    assert (
+        jwt_auth["jwks"]["url"]
+        == "http://identity:7080/realms/primary/protocol/openid-connect/certs"
+    )

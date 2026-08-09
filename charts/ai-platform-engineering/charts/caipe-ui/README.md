@@ -47,6 +47,27 @@ UI startup. Declarative entries override legacy fixed-provider environment
 bootstrap entries. Removing an entry does not delete or disable the connector
 already stored in MongoDB.
 
+Remote MCP servers that advertise OAuth and anonymous dynamic client
+registration can omit all client credentials and endpoints. GRID follows the
+MCP authorization challenge, RFC 9728 protected-resource metadata, and the
+authorization server metadata, then registers a public PKCE client. The
+generated client ID and registration access token are stored in the encrypted
+credential store, not in Helm values or Vault:
+
+```yaml
+caipe-ui:
+  oauthConnectors:
+    - provider: example-mcp
+      name: Example MCP
+      mcpUrl: https://mcp.example.com/api/mcp
+      # Optional. Defaults to the scopes advertised by the protected resource.
+      scopes:
+        - openid
+        - offline_access
+      # Optional. Defaults to ${NEXTAUTH_URL}/api/credentials/oauth/example-mcp/callback.
+      redirectUri: https://caipe.example.com/api/credentials/oauth/example-mcp/callback
+```
+
 ## Declarative credential secrets
 
 Use `credentialSecretRefs` to provision stable secret IDs for config-driven MCP
