@@ -106,16 +106,16 @@ export function resolveTomeParentsFromCatalog(
 
   for (const candidate of catalog) {
     if (candidate.slug === project.slug) continue;
-    const candidateName = normLabel(candidate.name || candidate.title || "");
+    const candidateSlug = normLabel(candidate.slug);
     if (
       candidate.type === "bhag" &&
-      labels.bhags.has(candidateName)
+      labels.bhags.has(candidateSlug)
     ) {
       parents.push(candidate);
     } else if (
       projectType(project) === "project" &&
       candidate.type === "area" &&
-      labels.areas.has(candidateName)
+      labels.areas.has(candidateSlug)
     ) {
       parents.push(candidate);
     }
