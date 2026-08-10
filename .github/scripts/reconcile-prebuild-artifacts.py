@@ -59,7 +59,8 @@ def env(name: str) -> str:
 
 
 REPO = env("GITHUB_REPOSITORY")
-TOKEN = env("GITHUB_TOKEN")
+ACTIONS_TOKEN = env("GITHUB_TOKEN")
+COMMENT_TOKEN = env("GITHUB_COMMENT_TOKEN")
 PR_NUMBER = env("PR_NUMBER")
 HEAD_SHA = env("HEAD_SHA")
 MARKER = f"<!-- prebuild-artifacts pr={PR_NUMBER} sha={HEAD_SHA} -->"
@@ -71,12 +72,13 @@ def api(
     path_or_url: str,
     payload: dict[str, Any] | None = None,
     binary: bool = False,
+    token: str = ACTIONS_TOKEN,
 ) -> Any:
     url = path_or_url if path_or_url.startswith("http") else f"{API_ROOT}{path_or_url}"
     data = json.dumps(payload).encode("utf-8") if payload is not None else None
     headers = {
         "Accept": "application/vnd.github+json",
-        "Authorization": f"Bearer {TOKEN}",
+        "Authorization": f"Bearer {token}",
         "X-GitHub-Api-Version": "2022-11-28",
         "User-Agent": USER_AGENT,
     }
@@ -106,7 +108,7 @@ def download_artifact_archive(artifact_id: Any) -> bytes:
         url,
         headers={
             "Accept": "application/vnd.github+json",
-            "Authorization": f"Bearer {TOKEN}",
+            "Authorization": f"Bearer {ACTIONS_TOKEN}",
             "X-GitHub-Api-Version": "2022-11-28",
             "User-Agent": USER_AGENT,
         },
@@ -469,6 +471,7 @@ def list_issue_comments() -> list[dict[str, Any]]:
         data = api(
             "GET",
             f"/repos/{REPO}/issues/{PR_NUMBER}/comments?per_page=100&page={page}",
+            token=COMMENT_TOKEN,
         )
         comments.extend(data)
         if len(data) < 100:
@@ -496,6 +499,7 @@ def reconcile_comment(body: str) -> None:
                     "PATCH",
                     f"/repos/{REPO}/issues/comments/{target['id']}",
                     {"body": body},
+                    token=COMMENT_TOKEN,
                 )
                 print(f"Updated managed prebuild comment {target['id']}.")
             else:
@@ -509,7 +513,11 @@ def reconcile_comment(body: str) -> None:
 
         for duplicate in managed[1:]:
             try:
-                api("DELETE", f"/repos/{REPO}/issues/comments/{duplicate['id']}")
+                api(
+                    "DELETE",
+                    f"/repos/{REPO}/issues/comments/{duplicate['id']}",
+                    token=COMMENT_TOKEN,
+                )
                 print(f"Deleted duplicate managed prebuild comment {duplicate['id']}.")
             except ApiError as error:
                 if error.status != 404:
@@ -520,12 +528,17 @@ def reconcile_comment(body: str) -> None:
         "POST",
         f"/repos/{REPO}/issues/{PR_NUMBER}/comments",
         {"body": body},
+        token=COMMENT_TOKEN,
     )
     print(f"Created managed prebuild comment {created['id']}.")
 
 
 def current_pr_head_sha() -> str:
-    pull = api("GET", f"/repos/{REPO}/pulls/{PR_NUMBER}")
+    pull = api(
+        "GET",
+        f"/repos/{REPO}/pulls/{PR_NUMBER}",
+        token=COMMENT_TOKEN,
+    )
     return str(pull.get("head", {}).get("sha", ""))
 
 
@@ -567,6 +580,7 @@ def archive_older_comments() -> None:
             "PATCH",
             f"/repos/{REPO}/issues/comments/{comment['id']}",
             {"body": body},
+            token=COMMENT_TOKEN,
         )
         print(f"Archived older prebuild artifact comment {comment['id']}.")
 
