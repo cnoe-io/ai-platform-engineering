@@ -1,0 +1,452 @@
+/* ═══════════════════════════════════════════════════════════════
+   StreamingMarkdown — styles for marked + morphdom rendering.
+   
+   These replace the React component overrides that were in 
+   assistantMarkdownComponents and thinkingMarkdownComponents.
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ─── Streaming cursor — blinking caret at end of content ────── */
+
+@keyframes md-cursor-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+.streaming-markdown.md-streaming > :last-child::after {
+  content: "▍";
+  display: inline;
+  color: hsl(var(--primary) / 0.7);
+  animation: md-cursor-blink 1s step-end infinite;
+  margin-left: 1px;
+  font-weight: 400;
+}
+
+/* ─── Streaming fade-in animation for new block elements ─────── */
+
+@keyframes md-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.streaming-markdown .md-stream-in {
+  animation: md-fade-in 200ms ease-out both;
+}
+
+/* ─── Final variant (full prose) ────────────────────────────── */
+
+.streaming-markdown.md-final {
+  max-width: none;
+  color: hsl(var(--foreground));
+}
+
+.streaming-markdown.md-final h1 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: hsl(var(--foreground));
+  margin-bottom: 0.75rem;
+  margin-top: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid hsl(var(--border) / 0.5);
+}
+
+.streaming-markdown.md-final h1:first-child {
+  margin-top: 0;
+}
+
+.streaming-markdown.md-final h2 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: hsl(var(--foreground));
+  margin-bottom: 0.5rem;
+  margin-top: 1rem;
+}
+
+.streaming-markdown.md-final h2:first-child {
+  margin-top: 0;
+}
+
+.streaming-markdown.md-final h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  color: hsl(var(--foreground));
+  margin-bottom: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.streaming-markdown.md-final h3:first-child {
+  margin-top: 0;
+}
+
+.streaming-markdown.md-final p {
+  font-size: 0.875rem;
+  line-height: 1.625;
+  color: hsl(var(--foreground) / 0.9);
+  margin-bottom: 0.5rem;
+}
+
+.streaming-markdown.md-final p:last-child {
+  margin-bottom: 0;
+}
+
+.streaming-markdown.md-final ul {
+  list-style-type: disc;
+  list-style-position: outside;
+  margin-left: 1.5rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.875rem;
+  color: hsl(var(--foreground) / 0.9);
+}
+
+.streaming-markdown.md-final ul li {
+  margin-bottom: 0.25rem;
+  line-height: 1.625;
+}
+
+.streaming-markdown.md-final ol {
+  list-style-type: decimal;
+  list-style-position: outside;
+  margin-left: 1.5rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.875rem;
+  color: hsl(var(--foreground) / 0.9);
+}
+
+.streaming-markdown.md-final ol li {
+  margin-bottom: 0.25rem;
+  line-height: 1.625;
+}
+
+.streaming-markdown.md-final strong {
+  font-weight: 600;
+  color: hsl(var(--foreground));
+}
+
+.streaming-markdown.md-final em {
+  font-style: italic;
+  color: hsl(var(--foreground) / 0.9);
+}
+
+.streaming-markdown.md-final blockquote {
+  border-left: 4px solid hsl(var(--primary) / 0.5);
+  padding-left: 1rem;
+  margin-top: 0.75rem;
+  margin-bottom: 0.75rem;
+  font-style: italic;
+  color: hsl(var(--muted-foreground));
+}
+
+.streaming-markdown.md-final hr {
+  margin-top: 1.5rem;
+  margin-bottom: 1.5rem;
+  border-color: hsl(var(--border) / 0.5);
+}
+
+/* Links */
+.streaming-markdown.md-final .md-link {
+  color: hsl(var(--primary));
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-color: hsl(var(--primary) / 0.5);
+  transition: color 150ms, text-decoration-color 150ms;
+}
+
+.streaming-markdown.md-final .md-link:hover {
+  color: hsl(var(--primary) / 0.8);
+  text-decoration-color: hsl(var(--primary));
+}
+
+/* Inline code */
+.streaming-markdown.md-final :not(pre) > code {
+  background: hsl(var(--muted) / 0.8);
+  color: hsl(var(--primary));
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.25rem;
+  font-size: 13px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  word-break: break-all;
+}
+
+/* Tables */
+.streaming-markdown.md-final table {
+  width: 100%;
+  font-size: 0.875rem;
+  margin-top: 0.75rem;
+  margin-bottom: 0.75rem;
+  border-collapse: collapse;
+}
+
+.streaming-markdown.md-final thead {
+  background: hsl(var(--muted) / 0.5);
+}
+
+.streaming-markdown.md-final th {
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  font-weight: 600;
+  color: hsl(var(--foreground));
+  border-bottom: 1px solid hsl(var(--border) / 0.5);
+  word-break: break-word;
+}
+
+.streaming-markdown.md-final td {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid hsl(var(--border) / 0.3);
+  color: hsl(var(--foreground) / 0.9);
+  word-break: break-word;
+  vertical-align: top;
+}
+
+.streaming-markdown.md-final tr:hover {
+  background: hsl(var(--muted) / 0.3);
+  transition: background 150ms;
+}
+
+/* ─── Thinking variant (muted, compact) ─────────────────────── */
+
+.streaming-markdown.md-thinking {
+  max-width: none;
+}
+
+.streaming-markdown.md-thinking p {
+  font-size: 0.875rem;
+  line-height: 1.625;
+  color: hsl(var(--muted-foreground) / 0.8);
+  margin-bottom: 0.375rem;
+}
+
+.streaming-markdown.md-thinking p:last-child {
+  margin-bottom: 0;
+}
+
+.streaming-markdown.md-thinking strong {
+  font-weight: 600;
+  color: hsl(var(--foreground) / 0.8);
+}
+
+.streaming-markdown.md-thinking em {
+  font-style: italic;
+}
+
+.streaming-markdown.md-thinking :not(pre) > code {
+  background: hsl(var(--muted) / 0.5);
+  color: hsl(var(--foreground) / 0.7);
+  padding: 0.125rem 0.25rem;
+  border-radius: 0.25rem;
+  font-size: 12px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+
+.streaming-markdown.md-thinking a {
+  color: hsl(var(--primary) / 0.8);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.streaming-markdown.md-thinking ul {
+  list-style-type: disc;
+  list-style-position: outside;
+  margin-left: 1.5rem;
+  margin-bottom: 0.375rem;
+  font-size: 0.875rem;
+  color: hsl(var(--muted-foreground) / 0.8);
+}
+
+.streaming-markdown.md-thinking ul li {
+  line-height: 1.625;
+  margin-bottom: 0.125rem;
+}
+
+.streaming-markdown.md-thinking ol {
+  list-style-type: decimal;
+  list-style-position: outside;
+  margin-left: 1.5rem;
+  margin-bottom: 0.375rem;
+  font-size: 0.875rem;
+  color: hsl(var(--muted-foreground) / 0.8);
+}
+
+.streaming-markdown.md-thinking ol li {
+  line-height: 1.625;
+  margin-bottom: 0.125rem;
+}
+
+.streaming-markdown.md-thinking pre {
+  background: hsl(var(--muted) / 0.3);
+  border-radius: 0.25rem;
+  padding: 0.375rem 0.5rem;
+  font-size: 0.75rem;
+  overflow-x: auto;
+  margin-top: 0.375rem;
+  margin-bottom: 0.375rem;
+}
+
+/* ─── Code blocks (shared across variants) ──────────────────── */
+
+.md-code-block {
+  margin-top: 1rem;
+  margin-bottom: 1rem;
+  border-radius: 0.5rem;
+  overflow: hidden;
+  border: 1px solid hsl(var(--border) / 0.3);
+  background: #1e1e2e;
+}
+
+.md-code-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid hsl(var(--border) / 0.2);
+  background: #181825;
+}
+
+.md-code-lang {
+  font-size: 0.75rem;
+  color: #71717a;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.md-copy-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  color: #71717a;
+  background: transparent;
+  border: none;
+  border-radius: 0.25rem;
+  cursor: pointer;
+  transition: color 150ms;
+}
+
+.md-copy-btn:hover {
+  color: #d4d4d8;
+}
+
+.md-copy-btn svg {
+  width: 0.875rem;
+  height: 0.875rem;
+}
+
+.md-copy-btn .md-check-icon {
+  display: none;
+}
+
+.md-copy-btn .md-copy-icon {
+  display: block;
+}
+
+.md-copy-btn.copied .md-check-icon {
+  display: block;
+  color: #4ade80;
+}
+
+.md-copy-btn.copied .md-copy-icon {
+  display: none;
+}
+
+/* Shiki pre blocks inside code block wrapper */
+.md-code-block pre {
+  margin: 0;
+  border-radius: 0;
+  padding: 1rem 1.25rem;
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-x: auto;
+  background: transparent !important;
+}
+
+.md-code-block pre code {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Standalone pre blocks (not wrapped — e.g. in thinking variant) */
+.streaming-markdown.md-final > pre:not(.md-code-block pre) {
+  background: #1e1e2e;
+  border-radius: 0.5rem;
+  padding: 1rem 1.25rem;
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-x: auto;
+  margin-top: 1rem;
+  margin-bottom: 1rem;
+  border: 1px solid hsl(var(--border) / 0.3);
+}
+
+/* ─── User variant (inherits parent colors, compact) ─────────── */
+
+.streaming-markdown.md-user {
+  max-width: none;
+  color: inherit;
+}
+
+.streaming-markdown.md-user p {
+  font-size: 0.875rem;
+  line-height: 1.625;
+  margin-bottom: 0.375rem;
+}
+
+.streaming-markdown.md-user p:last-child {
+  margin-bottom: 0;
+}
+
+.streaming-markdown.md-user ul {
+  list-style-type: disc;
+  list-style-position: outside;
+  margin-left: 1.5rem;
+  margin-bottom: 0.375rem;
+  font-size: 0.875rem;
+  opacity: 0.9;
+}
+
+.streaming-markdown.md-user ul li {
+  line-height: 1.625;
+  margin-bottom: 0.125rem;
+}
+
+.streaming-markdown.md-user ol {
+  list-style-type: decimal;
+  list-style-position: outside;
+  margin-left: 1.5rem;
+  margin-bottom: 0.375rem;
+  font-size: 0.875rem;
+  opacity: 0.9;
+}
+
+.streaming-markdown.md-user ol li {
+  line-height: 1.625;
+  margin-bottom: 0.125rem;
+}
+
+.streaming-markdown.md-user strong {
+  font-weight: 600;
+}
+
+.streaming-markdown.md-user em {
+  font-style: italic;
+}
+
+.streaming-markdown.md-user :not(pre) > code {
+  background: rgba(0, 0, 0, 0.2);
+  padding: 0.125rem 0.25rem;
+  border-radius: 0.25rem;
+  font-size: 0.75rem;
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+
+.streaming-markdown.md-user a {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  opacity: 0.9;
+}
