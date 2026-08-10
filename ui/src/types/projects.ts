@@ -199,7 +199,8 @@ export interface ProjectDocument {
   /** Project kind. Absent on legacy docs — treat absent as "project". */
   type?: ProjectType;
   slug: string;
-  name: string;
+  /** @deprecated Legacy field; use `title` for display and `slug` for identity. */
+  name?: string;
   title: string;
   description: string;
   team_id: string;

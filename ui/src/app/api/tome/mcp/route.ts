@@ -288,8 +288,7 @@ const TOOLS: ToolDef[] = [
         return toolText(`"${b.slug ?? args.bhag_slug}" is not a BHAG (type=${b.type ?? "project"}).`, true);
       }
       const displayName = b.title ?? b.name ?? "";
-      const lookupName = b.name ?? b.title ?? "";
-      const encodedName = encodeURIComponent(lookupName);
+      const encodedName = encodeURIComponent(b.slug);
       const [areaData, skipData] = await Promise.all([
         ensureOk(
           await fwd("GET", `/api/projects?type=area&initiative=${encodedName}`),
@@ -334,15 +333,13 @@ const TOOLS: ToolDef[] = [
       if ((b.type ?? "project") !== "bhag") {
         return toolText(`"${b.slug ?? args.bhag_slug}" is not a BHAG (type=${b.type ?? "project"}).`, true);
       }
-      const lookupName = b.name ?? b.title ?? "";
-      const encodedName = encodeURIComponent(lookupName);
       const [areaData, skipData] = await Promise.all([
         ensureOk(
-          await fwd("GET", `/api/projects?type=area&initiative=${encodedName}`),
+          await fwd("GET", `/api/projects?type=area&initiative=${encodeURIComponent(b.slug)}`),
           "list area children",
         ),
         ensureOk(
-          await fwd("GET", `/api/projects?initiative=${encodedName}`),
+          await fwd("GET", `/api/projects?initiative=${encodeURIComponent(b.slug)}`),
           "list skip-level projects",
         ),
       ]);
@@ -366,7 +363,7 @@ const TOOLS: ToolDef[] = [
       for (const area of areas) {
         // Fetch Area's own pages and its child projects
         const areaChildData = ensureOk(
-          await fwd("GET", `/api/projects?area=${encodeURIComponent(area.name ?? area.title ?? "")}`),
+          await fwd("GET", `/api/projects?area=${encodeURIComponent(area.slug)}`),
           "list area projects",
         );
         const areaProjects = (areaChildData?.projects ?? []) as any[];
@@ -435,9 +432,8 @@ const TOOLS: ToolDef[] = [
       if (a.type !== "area") {
         return toolText(`"${a.slug ?? args.area_slug}" is not an Area (type=${a.type ?? "project"}).`, true);
       }
-      const lookupName = a.name ?? a.title ?? "";
       const childData = ensureOk(
-        await fwd("GET", `/api/projects?area=${encodeURIComponent(lookupName)}`),
+        await fwd("GET", `/api/projects?area=${encodeURIComponent(a.slug)}`),
         "list area child projects",
       );
       const children = (childData?.projects ?? []).map((c: any) => ({
@@ -466,9 +462,8 @@ const TOOLS: ToolDef[] = [
       if (a.type !== "area") {
         return toolText(`"${a.slug ?? args.area_slug}" is not an Area (type=${a.type ?? "project"}).`, true);
       }
-      const lookupName = a.name ?? a.title ?? "";
       const childData = ensureOk(
-        await fwd("GET", `/api/projects?area=${encodeURIComponent(lookupName)}`),
+        await fwd("GET", `/api/projects?area=${encodeURIComponent(a.slug)}`),
         "list area child projects",
       );
       const children = (childData?.projects ?? []) as any[];

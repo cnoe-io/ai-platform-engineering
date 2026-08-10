@@ -394,8 +394,8 @@ export async function buildChatRequest(
   if (isSynthesizedType(ctx.project.type)) {
     snapshot.child_projects = (
       ctx.project.type === "area"
-        ? await resolveAreaChildren(ctx.project.name)
-        : await resolveBhagChildren(ctx.project.name)
+        ? await resolveAreaChildren(ctx.project.slug)
+        : await resolveBhagChildren(ctx.project.slug)
     ).filter((project) => readableSlugs.has(project.slug));
   }
   return {

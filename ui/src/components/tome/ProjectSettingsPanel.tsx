@@ -42,7 +42,6 @@ import { ChildProjectsPanel } from "@/components/tome/BhagProjectsPanel";
 import { PanelHeader } from "@/components/tome/PanelHeader";
 import { TomeLoading } from "@/components/tome/TomeLoading";
 import { ViewOnlyTooltip } from "@/components/tome/ViewOnlyTooltip";
-import { normLabel } from "@/lib/projects/labels";
 import type { ProjectDocument, ProjectSources, ProjectType } from "@/types/projects";
 import { dataStewardUserEmail, isSynthesizedType } from "@/types/projects";
 
@@ -168,8 +167,8 @@ export function ProjectSettingsPanel({
   // Area's parent is always a BHAG, and a Project cascades BHAG → Area.
   const [bhagOptions, setBhagOptions] = useState<{ name: string; slug: string }[]>([]);
   const [areaOptions, setAreaOptions] = useState<{ name: string; slug: string }[]>([]);
-  const [selectedBhagName, setSelectedBhagName] = useState<string | null>(null);
-  const [selectedAreaName, setSelectedAreaName] = useState<string>("");
+  const [selectedBhagSlug, setSelectedBhagSlug] = useState<string | null>(null);
+  const [selectedAreaSlug, setSelectedAreaSlug] = useState<string>("");
   // Read-only: entities tagged to *this* BHAG/Area (down-links).
   const [areasUnderBhag, setAreasUnderBhag] = useState<{ slug: string; name: string }[]>([]);
 
@@ -213,11 +212,11 @@ export function ProjectSettingsPanel({
         const initiatives = project.labels?.initiatives ?? [];
         const areas = project.labels?.areas ?? [];
         if (kind === "bhag") {
-          setSelectedBhagName(null);
-          setSelectedAreaName("");
+          setSelectedBhagSlug(null);
+          setSelectedAreaSlug("");
         } else {
-          setSelectedBhagName(initiatives[0] ?? null);
-          setSelectedAreaName(kind === "area" ? "" : areas[0] ?? "");
+          setSelectedBhagSlug(initiatives[0] ?? null);
+          setSelectedAreaSlug(kind === "area" ? "" : areas[0] ?? "");
         }
 
         setFeedEnabled(project.sources_feed_enabled !== false);
@@ -248,26 +247,26 @@ export function ProjectSettingsPanel({
   // not guaranteed to tag its own parent BHAG (a real, non-error state), and
   // an empty/mismatched lookup here must not clear a correct selection.
   useEffect(() => {
-    if (projectKind !== "project" || !selectedAreaName || selectedBhagName) return;
+    if (projectKind !== "project" || !selectedAreaSlug || selectedBhagSlug) return;
     let cancelled = false;
     fetch("/api/projects?type=area")
       .then((res) => (res.ok ? res.json() : null))
       .then((body) => {
         if (cancelled) return;
         const list = (body?.data?.projects ?? []) as ProjectDocument[];
-        const match = list.find((a) => normLabel(a.name ?? "") === normLabel(selectedAreaName));
+        const match = list.find((a) => a.slug === selectedAreaSlug);
         const fallback = match?.labels?.initiatives?.[0];
-        if (fallback) setSelectedBhagName(fallback);
+        if (fallback) setSelectedBhagSlug(fallback);
       })
       .catch(() => undefined);
     return () => {
       cancelled = true;
     };
     // Re-run once the saved Area hydrates (it starts empty) and again if the
-    // user picks a different Area; selectedBhagName is read but intentionally
+    // user picks a different Area; selectedBhagSlug is read but intentionally
     // excluded so setting it inside this effect doesn't cause a re-fetch loop.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectKind, selectedAreaName]);
+  }, [projectKind, selectedAreaSlug]);
 
   // Existing BHAGs, for the Parent BHAG picker (Area/Project). Areas tagged
   // to the currently-selected BHAG, for the Project's cascading Area picker.
@@ -275,33 +274,29 @@ export function ProjectSettingsPanel({
     fetch("/api/projects?type=bhag")
       .then((res) => (res.ok ? res.json() : null))
       .then((body) => {
-        const list = (body?.data?.projects ?? []) as { name: string; slug: string }[];
-        setBhagOptions(list.map((b) => ({ name: b.name, slug: b.slug })));
+        const list = (body?.data?.projects ?? []) as { title?: string; name?: string; slug: string }[];
+        setBhagOptions(list.map((b) => ({ name: b.title ?? b.name ?? b.slug, slug: b.slug })));
       })
       .catch(() => setBhagOptions([]));
   }, []);
 
   useEffect(() => {
-    if (!selectedBhagName || projectKind !== "project") {
+    if (!selectedBhagSlug || projectKind !== "project") {
       setAreaOptions([]);
       return;
     }
     let cancelled = false;
-    fetch(`/api/projects?type=area&initiative=${encodeURIComponent(selectedBhagName)}`)
+    fetch(`/api/projects?type=area&initiative=${encodeURIComponent(selectedBhagSlug)}`)
       .then((res) => (res.ok ? res.json() : null))
       .then((body) => {
         if (cancelled) return;
-        const list = (body?.data?.projects ?? []) as { name: string; slug: string }[];
-        const options = list.map((a) => ({ name: a.name, slug: a.slug }));
+        const list = (body?.data?.projects ?? []) as { title?: string; name?: string; slug: string }[];
+        const options = list.map((a) => ({ name: a.title ?? a.name ?? a.slug, slug: a.slug }));
         // The project's own Area tag may not appear here — an Area is not
         // guaranteed to tag its parent BHAG back in its own labels (a real,
-        // non-error state). Always include the current selection as an
-        // option so the <select> doesn't silently show as unselected.
-        if (
-          selectedAreaName &&
-          !options.some((o) => normLabel(o.name) === normLabel(selectedAreaName))
-        ) {
-          options.push({ name: selectedAreaName, slug: normLabel(selectedAreaName) });
+        // non-error state). Always include the current selection as an option.
+        if (selectedAreaSlug && !options.some((o) => o.slug === selectedAreaSlug)) {
+          options.push({ name: selectedAreaSlug, slug: selectedAreaSlug });
         }
         setAreaOptions(options);
       })
@@ -309,32 +304,30 @@ export function ProjectSettingsPanel({
     return () => {
       cancelled = true;
     };
-    // selectedAreaName intentionally excluded — this only widens the option
-    // list to include whatever the load effect already selected; it must not
-    // re-fetch on every keystroke as the user picks a different Area.
+    // selectedAreaSlug intentionally excluded — see comment above.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedBhagName, projectKind]);
+  }, [selectedBhagSlug, projectKind]);
 
   // Read-only: Areas tagged to this BHAG (down-link list), shown above the
   // existing `ChildProjectsPanel` (skip-level projects).
   useEffect(() => {
-    if (projectKind !== "bhag" || !projectName) {
+    if (projectKind !== "bhag") {
       setAreasUnderBhag([]);
       return;
     }
     let cancelled = false;
-    fetch(`/api/projects?type=area&initiative=${encodeURIComponent(projectName)}`)
+    fetch(`/api/projects?type=area&initiative=${encodeURIComponent(slug)}`)
       .then((res) => (res.ok ? res.json() : null))
       .then((body) => {
         if (cancelled) return;
-        const list = (body?.data?.projects ?? []) as { name: string; slug: string }[];
-        setAreasUnderBhag(list.map((a) => ({ slug: a.slug, name: a.name })));
+        const list = (body?.data?.projects ?? []) as { title?: string; name?: string; slug: string }[];
+        setAreasUnderBhag(list.map((a) => ({ slug: a.slug, name: a.title ?? a.name ?? a.slug })));
       })
       .catch(() => !cancelled && setAreasUnderBhag([]));
     return () => {
       cancelled = true;
     };
-  }, [projectKind, projectName]);
+  }, [projectKind, slug]);
 
   // Load assignable teams.
   useEffect(() => {
@@ -422,11 +415,11 @@ export function ProjectSettingsPanel({
       // `initiatives` here would leave the project's BHAG link
       // undiscoverable whenever that's the case.
       if (projectKind === "area") {
-        payload.initiatives = selectedBhagName ? [selectedBhagName] : [];
+        payload.initiatives = selectedBhagSlug ? [selectedBhagSlug] : [];
         payload.areas = [];
       } else if (projectKind === "project") {
-        payload.initiatives = selectedBhagName ? [selectedBhagName] : [];
-        payload.areas = selectedBhagName && selectedAreaName ? [selectedAreaName] : [];
+        payload.initiatives = selectedBhagSlug ? [selectedBhagSlug] : [];
+        payload.areas = selectedBhagSlug && selectedAreaSlug ? [selectedAreaSlug] : [];
       }
 
       // Only send team_id when the team actually changed — avoids the
@@ -449,10 +442,10 @@ export function ProjectSettingsPanel({
       const initiatives = project.labels?.initiatives ?? [];
       const areas = project.labels?.areas ?? [];
       if (projectKind === "area") {
-        setSelectedBhagName(initiatives[0] ?? null);
+        setSelectedBhagSlug(initiatives[0] ?? null);
       } else if (projectKind === "project") {
-        setSelectedBhagName(initiatives[0] ?? null);
-        setSelectedAreaName(areas[0] ?? "");
+        setSelectedBhagSlug(initiatives[0] ?? null);
+        setSelectedAreaSlug(areas[0] ?? "");
       }
       if (typeof project.data_steward === "object" && project.data_steward.type === "team") {
         setStewardType("team");
@@ -480,8 +473,8 @@ export function ProjectSettingsPanel({
     description,
     projectKind,
     isSynthesized,
-    selectedBhagName,
-    selectedAreaName,
+    selectedBhagSlug,
+    selectedAreaSlug,
     sources,
     stewardEmail,
     stewardType,
@@ -746,15 +739,15 @@ export function ProjectSettingsPanel({
                   {projectKind === "area" && (
                     <Field label="Parent BHAG">
                       <select
-                        value={selectedBhagName ?? ""}
-                        onChange={(e) => setSelectedBhagName(e.target.value || null)}
+                        value={selectedBhagSlug ?? ""}
+                        onChange={(e) => setSelectedBhagSlug(e.target.value || null)}
                         className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
                       >
                         <option value="" disabled>
                           Select the BHAG this area belongs to…
                         </option>
                         {bhagOptions.map((b) => (
-                          <option key={b.slug} value={b.name}>
+                          <option key={b.slug} value={b.slug}>
                             {b.name}
                           </option>
                         ))}
@@ -765,34 +758,34 @@ export function ProjectSettingsPanel({
                     <>
                       <Field label="Parent BHAG" hint="Optional. Ladders this project up to a strategic goal.">
                         <select
-                          value={selectedBhagName ?? ""}
+                          value={selectedBhagSlug ?? ""}
                           onChange={(e) => {
-                            setSelectedBhagName(e.target.value || null);
-                            setSelectedAreaName("");
+                            setSelectedBhagSlug(e.target.value || null);
+                            setSelectedAreaSlug("");
                           }}
                           className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
                         >
                           <option value="">None</option>
                           {bhagOptions.map((b) => (
-                            <option key={b.slug} value={b.name}>
+                            <option key={b.slug} value={b.slug}>
                               {b.name}
                             </option>
                           ))}
                         </select>
                       </Field>
-                      {selectedBhagName && (
+                      {selectedBhagSlug && (
                         <Field
                           label="Parent Area"
-                          hint={`Optional. Groups this project under a mid-tier area of ${selectedBhagName}.`}
+                          hint={`Optional. Groups this project under a mid-tier area of ${bhagOptions.find((b) => b.slug === selectedBhagSlug)?.name ?? selectedBhagSlug}.`}
                         >
                           <select
-                            value={selectedAreaName}
-                            onChange={(e) => setSelectedAreaName(e.target.value)}
+                            value={selectedAreaSlug}
+                            onChange={(e) => setSelectedAreaSlug(e.target.value)}
                             className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
                           >
                             <option value="">No area — tag this BHAG directly</option>
                             {areaOptions.map((a) => (
-                              <option key={a.slug} value={a.name}>
+                              <option key={a.slug} value={a.slug}>
                                 {a.name}
                               </option>
                             ))}
@@ -906,7 +899,8 @@ export function ProjectSettingsPanel({
                       </div>
                     )}
                     <ChildProjectsPanel
-                      bhagName={projectName}
+                      bhagSlug={slug}
+                      bhagLabel={projectName}
                       entityKind={projectKind === "area" ? "area" : "bhag"}
                       editable
                     />
