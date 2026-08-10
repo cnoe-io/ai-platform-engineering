@@ -153,6 +153,7 @@ class AgentRuntimeCache:
         session_id: str,
         user: UserContext | None = None,
         client_context: ClientContext | None = None,
+        memory_namespace: str | None = None,
     ) -> "AgentRuntime":
         """Get an existing runtime or create a new one.
 
@@ -178,7 +179,10 @@ class AgentRuntimeCache:
                 del self._cache[key]
                 prom_metrics.runtime_cache_evictions_total.labels(reason="config_change").inc()
                 self._update_metrics()
-            elif user and getattr(getattr(runtime, "_user", None), "email", None) != user.email:
+            elif user and (
+                getattr(getattr(runtime, "_user", None), "sub", None) != user.sub
+                or getattr(getattr(runtime, "_user", None), "email", None) != user.email
+            ):
                 logger.info(
                     "Runtime cache invalidated due to user context change for agent %s",
                     agent_config.id,
@@ -186,6 +190,15 @@ class AgentRuntimeCache:
                 await runtime.cleanup()
                 del self._cache[key]
                 prom_metrics.runtime_cache_evictions_total.labels(reason="user_change").inc()
+                self._update_metrics()
+            elif getattr(runtime, "_memory_namespace", None) != memory_namespace:
+                logger.info(
+                    "Runtime cache invalidated due to immutable memory namespace change for agent %s",
+                    agent_config.id,
+                )
+                await runtime.cleanup()
+                del self._cache[key]
+                prom_metrics.runtime_cache_evictions_total.labels(reason="memory_namespace_change").inc()
                 self._update_metrics()
             elif runtime.idle_seconds >= self._ttl:
                 logger.info(
@@ -213,7 +226,15 @@ class AgentRuntimeCache:
         self._update_metrics()
 
         try:
-            runtime = await self._create_runtime(key, agent_config, mcp_servers, session_id, user, client_context)
+            runtime = await self._create_runtime(
+                key,
+                agent_config,
+                mcp_servers,
+                session_id,
+                user,
+                client_context,
+                memory_namespace,
+            )
             self._cache[key] = runtime
             self._update_metrics()
             fut.set_result(runtime)
@@ -241,6 +262,7 @@ class AgentRuntimeCache:
         *,
         user: "UserContext | None" = None,
         client_context: "ClientContext | None" = None,
+        memory_namespace: str | None = None,
     ):
         """Async context manager: create a throwaway runtime, cleaned up on exit. Not cached.
 
@@ -254,6 +276,7 @@ class AgentRuntimeCache:
             client_context=client_context,
             session_id=session_id,
             ephemeral=True,
+            memory_namespace=memory_namespace,
         )
         try:
             await runtime.initialize()
@@ -277,6 +300,7 @@ class AgentRuntimeCache:
         *,
         user: "UserContext | None" = None,
         client_context: "ClientContext | None" = None,
+        memory_namespace: str | None = None,
     ):
         """Create a non-cached Mongo-backed runtime and clean it up on exit.
 
@@ -291,6 +315,7 @@ class AgentRuntimeCache:
             user=user,
             client_context=client_context,
             session_id=session_id,
+            memory_namespace=memory_namespace,
         )
         try:
             await runtime.initialize()
@@ -319,6 +344,7 @@ class AgentRuntimeCache:
         session_id: str,
         user: UserContext | None,
         client_context: ClientContext | None,
+        memory_namespace: str | None,
     ) -> "AgentRuntime":
         """Create and initialize a new runtime. Called under single-flight guard."""
 
@@ -341,6 +367,7 @@ class AgentRuntimeCache:
             client_context=client_context,
             session_id=session_id,
             mongo_client=self._shared_mongo_client,
+            memory_namespace=memory_namespace,
         )
         try:
             await runtime.initialize()

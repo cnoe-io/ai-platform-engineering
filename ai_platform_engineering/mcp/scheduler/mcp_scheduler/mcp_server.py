@@ -107,6 +107,16 @@ class CreateScheduleArgs(BaseModel):
     str,
     Field(description=("Dynamic agent _id to fire (e.g. 'agent-weekly-report'). Must already exist in dynamic_agents.")),
   ]
+  memory_namespace: Annotated[
+    str | None,
+    Field(
+      default=None,
+      description=(
+        "Optional memory working-context key. When the current chat is scoped, "
+        "use that same key so scheduled runs mount the same namespace memory."
+      ),
+    ),
+  ] = None
   title: Annotated[
     str,
     Field(description=("Human-readable job title shown in schedule UIs. Choose it at schedule creation time, e.g. 'Weekly status report'.")),
@@ -162,6 +172,10 @@ class ScheduleIdArgs(BaseModel):
 class PatchScheduleArgs(BaseModel):
   schedule_id: Annotated[str, Field(description="The schedule to patch.")]
   agent_id: Annotated[str | None, Field(default=None, description="New Dynamic Agent id.")] = None
+  memory_namespace: Annotated[
+    str | None,
+    Field(default=None, description="New memory working-context key."),
+  ] = None
   edit_agent_id: Annotated[str | None, Field(default=None, description="New schedule editor agent id.")] = None
   enabled: Annotated[bool | None, Field(default=None, description="Toggle on/off.")] = None
   cron: Annotated[str | None, Field(default=None, description="New cron expression.")] = None

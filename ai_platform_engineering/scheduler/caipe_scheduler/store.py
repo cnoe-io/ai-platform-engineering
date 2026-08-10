@@ -104,6 +104,7 @@ class ScheduleStore:
     now = datetime.now(timezone.utc)
     versioned_fields = {
       "agent_id",
+      "memory_namespace",
       "edit_agent_id",
       "title",
       "message_template",
@@ -125,6 +126,7 @@ class ScheduleStore:
         "changed_fields": changed_fields,
         "title": existing.get("title"),
         "agent_id": existing.get("agent_id"),
+        "memory_namespace": existing.get("memory_namespace"),
         "edit_agent_id": existing.get("edit_agent_id"),
         "message_template": existing.get("message_template"),
         "attributes": existing.get("attributes") or {},

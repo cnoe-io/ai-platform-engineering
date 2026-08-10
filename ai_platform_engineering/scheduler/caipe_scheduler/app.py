@@ -16,6 +16,7 @@ Endpoints:
 from __future__ import annotations
 
 import logging
+import re
 import secrets
 import uuid
 from collections.abc import AsyncIterator
@@ -23,6 +24,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
+import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.responses import JSONResponse
 from caipe_scheduler.auth import CallerIdentity, authenticate_caller
@@ -105,6 +107,47 @@ def get_owned_schedule(
   return schedule
 
 
+def validate_memory_namespace(
+  agent_id: str,
+  memory_namespace: str | None,
+  caller: CallerIdentity,
+  settings: Settings,
+) -> None:
+  """Fail closed unless Dynamic Agents confirms the caller can see the key."""
+  if memory_namespace is None:
+    return
+  if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", memory_namespace):
+    raise HTTPException(422, "memory_namespace must be a valid lowercase namespace key.")
+  url = (
+    f"{settings.caipe_api_url.rstrip('/')}/api/dynamic-agents/"
+    f"{agent_id}/memory-namespaces"
+  )
+  try:
+    response = httpx.get(
+      url,
+      headers={"Authorization": f"Bearer {caller.token}"},
+      timeout=10.0,
+    )
+  except httpx.HTTPError as exc:
+    raise HTTPException(503, "Memory namespace validation is unavailable.") from exc
+  if response.status_code >= 400:
+    raise HTTPException(503, "Memory namespace validation is unavailable.")
+  try:
+    payload = response.json()
+  except ValueError as exc:
+    raise HTTPException(503, "Memory namespace validation is unavailable.") from exc
+  data = payload.get("data") if isinstance(payload, dict) else None
+  items = data.get("items", []) if isinstance(data, dict) else []
+  allow_custom = bool(data.get("allow_custom")) if isinstance(data, dict) else False
+  available = {
+    str(item.get("key"))
+    for item in items
+    if isinstance(item, dict) and item.get("key") is not None
+  }
+  if memory_namespace not in available and not allow_custom:
+    raise HTTPException(422, "memory_namespace is not available for this agent.")
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
   global _dispatcher
@@ -184,6 +227,7 @@ def create_schedule(
     raise HTTPException(404, f"agent_id {body.agent_id!r} not found.")
   if body.edit_agent_id and not store.agent_exists(body.edit_agent_id):
     raise HTTPException(404, f"edit_agent_id {body.edit_agent_id!r} not found.")
+  validate_memory_namespace(body.agent_id, body.memory_namespace, caller, settings)
 
   if store.count_for_owner(caller.sub, caller.email) >= settings.max_schedules_per_owner:
     raise HTTPException(
@@ -199,6 +243,7 @@ def create_schedule(
     "owner_sub": caller.sub,
     "owner_user_id": caller.email,
     "agent_id": body.agent_id,
+    "memory_namespace": body.memory_namespace,
     "edit_agent_id": body.edit_agent_id,
     "title": body.title,
     "message_template": body.message_template,
@@ -310,6 +355,16 @@ def patch_schedule(
   if "edit_agent_id" in patch and patch["edit_agent_id"] is not None:
     if not store.agent_exists(patch["edit_agent_id"]):
       raise HTTPException(404, f"edit_agent_id {patch['edit_agent_id']!r} not found.")
+  if "memory_namespace" in patch:
+    target_agent_id = str(patch.get("agent_id") or existing.get("agent_id") or "")
+    validate_memory_namespace(target_agent_id, patch["memory_namespace"], caller, settings)
+  elif "agent_id" in patch and existing.get("memory_namespace"):
+    validate_memory_namespace(
+      str(patch["agent_id"]),
+      str(existing["memory_namespace"]),
+      caller,
+      settings,
+    )
 
   cronjob_name = existing.get("cronjob_name") or cronjob_name_for(schedule_id)
   suspend = not patch["enabled"] if "enabled" in patch and patch["enabled"] is not None else None

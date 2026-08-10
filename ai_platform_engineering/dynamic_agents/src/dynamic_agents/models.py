@@ -46,6 +46,7 @@ class UserContext(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     email: str
+    sub: str | None = None
     name: str | None = None
     groups: list[str] = []
     is_admin: bool = False
@@ -350,36 +351,42 @@ class SelfIdentityToolConfig(BaseModel):
     enabled: bool = Field(True, description="Whether the tool is enabled")
 
 
-class MemoryContextProviderConfig(BaseModel):
-    """Tool call that establishes a context-scoped memory target.
+class MemoryNamespaceConfig(BaseModel):
+    """A statically configured memory working context."""
 
-    For example, a successful ``catalog_get_item(item_id=...)`` call can map
-    to ``catalog/item/<item_id>`` memory.
-    """
+    key: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]{0,63}$")
+    label: str = Field(min_length=1)
 
-    server: str = Field(..., description="MCP server id, such as catalog")
-    tool: str = Field(..., description="Tool name without server prefix, such as get_item")
-    context_namespace: str = Field(..., description="Memory namespace, such as catalog")
-    context_type: str = Field(..., description="Context object type, such as item")
-    context_id_arg: str = Field(..., description="Tool argument that contains the context id")
-    context_id_result_path: str | None = Field(
-        None,
-        description="Optional dotted path in the tool result used as a fallback context id",
-    )
-    display_name_result_path: str | None = Field(
-        None,
-        description="Optional dotted path in the tool result used as a friendly display name",
-    )
+
+class MemoryNamespaceSourceConfig(BaseModel):
+    """An MCP tool whose result supplies available memory namespaces."""
+
+    server: str = Field(min_length=1)
+    tool: str = Field(min_length=1)
+    args: dict[str, Any] = Field(default_factory=dict)
+    key_path: str = Field(min_length=1)
+    label_path: str = Field(min_length=1)
+
+
+class NamespaceScopedToolsConfig(BaseModel):
+    """Tools whose namespace argument is bound by the trusted runtime."""
+
+    server: str = Field(min_length=1)
+    tools: list[str] = Field(default_factory=list, min_length=1)
+    bind_arg: str = Field(min_length=1)
+    require_namespace: bool = True
 
 
 class MemoryToolConfig(BaseModel):
-    """Configuration for the memory built-in tool group."""
+    """Configuration for deepagents-backed user memory."""
 
-    enabled: bool = Field(False, description="Whether memory tools and injection are enabled")
-    context_providers: list[MemoryContextProviderConfig] = Field(
-        default_factory=list,
-        description="Configured tool calls that activate context-scoped memory",
-    )
+    enabled: bool = Field(False, description="Whether memory files and injection are enabled")
+    namespaces: list[MemoryNamespaceConfig] = Field(default_factory=list)
+    namespace_source: MemoryNamespaceSourceConfig | None = None
+    allow_custom: bool = False
+    namespace_scoped_tools: list[NamespaceScopedToolsConfig] = Field(default_factory=list)
+    # Accepted and ignored for one release so existing agent documents load.
+    context_providers: list[dict[str, Any]] = Field(default_factory=list, exclude=True)
 
 
 class BuiltinToolsConfig(BaseModel):
@@ -685,6 +692,10 @@ class ChatRequest(BaseModel):
     trace_id: str | None = Field(None, description="Optional trace ID for Langfuse tracing")
     client_context: ClientContext | None = Field(None, description="Opaque client context for system prompt rendering")
     memory_enabled: bool = Field(True, description="Whether memory retrieval/tools are enabled for this run")
+    memory_namespace: str | None = Field(
+        None,
+        description="Immutable memory working context selected when the conversation is created",
+    )
     config_override: dict | None = Field(
         None,
         description=(

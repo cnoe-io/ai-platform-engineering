@@ -206,18 +206,32 @@ export interface SleepToolConfig {
   max_seconds?: number;  // Maximum sleep duration in seconds (default: 300)
 }
 
-export interface MemoryContextProviderConfig {
+export interface MemoryNamespaceConfig {
+  key: string;
+  label: string;
+}
+
+export interface MemoryNamespaceSourceConfig {
   server: string;
   tool: string;
-  context_namespace: string;
-  context_type: string;
-  context_id_arg: string;
-  display_name_result_path?: string;
+  args?: Record<string, unknown>;
+  key_path: string;
+  label_path: string;
+}
+
+export interface NamespaceScopedToolsConfig {
+  server: string;
+  tools: string[];
+  bind_arg: string;
+  require_namespace: boolean;
 }
 
 export interface MemoryToolConfig {
   enabled: boolean;
-  context_providers?: MemoryContextProviderConfig[];
+  namespaces?: MemoryNamespaceConfig[];
+  namespace_source?: MemoryNamespaceSourceConfig;
+  allow_custom?: boolean;
+  namespace_scoped_tools?: NamespaceScopedToolsConfig[];
 }
 
 /**

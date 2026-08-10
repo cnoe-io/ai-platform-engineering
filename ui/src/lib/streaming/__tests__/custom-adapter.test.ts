@@ -39,7 +39,6 @@ function callbacks(): Required<StreamCallbacks> {
     onToolApprovalRequired: jest.fn(),
     onWarning: jest.fn(),
     onMemoryInjected: jest.fn(),
-    onMemoryContextUsed: jest.fn(),
     onMemoryUpdate: jest.fn(),
     onDone: jest.fn(),
     onError: jest.fn(),
@@ -91,6 +90,7 @@ describe("CustomStreamAdapter", () => {
         agentId: "agent-1",
         clientContext: { activeTeam: "platform" },
         memoryEnabled: false,
+        memoryNamespace: "pod-a",
       },
       cb,
     );
@@ -110,6 +110,7 @@ describe("CustomStreamAdapter", () => {
           agent_id: "agent-1",
           protocol: "custom",
           memory_enabled: false,
+          memory_namespace: "pod-a",
           client_context: { activeTeam: "platform" },
         }),
       }),
@@ -130,8 +131,8 @@ describe("CustomStreamAdapter", () => {
       "ok",
     );
     expect(cb.onWarning).toHaveBeenCalledWith("careful", ["agent"]);
-    expect(cb.onMemoryInjected).toHaveBeenCalledWith(["mem-1"], []);
-    expect(cb.onMemoryContextUsed).toHaveBeenCalledWith(["mem-2"], []);
+    expect(cb.onMemoryInjected).toHaveBeenNthCalledWith(1, ["mem-1"], []);
+    expect(cb.onMemoryInjected).toHaveBeenNthCalledWith(2, ["mem-2"], []);
     expect(cb.onMemoryUpdate).toHaveBeenCalledWith(["mem-3"], "remember", []);
     expect(cb.onDone).toHaveBeenCalledTimes(1);
     expect(cb.onRawEvent).toHaveBeenCalledWith({

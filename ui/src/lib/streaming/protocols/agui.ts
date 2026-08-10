@@ -283,7 +283,8 @@ function handleCustom(
       return false;
 
     case CUSTOM_MEMORY_CONTEXT_USED:
-      callbacks.onMemoryContextUsed?.(
+      // Backward compatibility for persisted legacy streams.
+      callbacks.onMemoryInjected?.(
         stringArray(value?.memory_ids),
         namespaceArray(value?.namespace, state.currentNamespace),
       );

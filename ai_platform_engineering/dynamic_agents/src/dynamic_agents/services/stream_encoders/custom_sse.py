@@ -49,25 +49,6 @@ def _sse_frame(event_type: str, data: dict[str, Any]) -> str:
     return f"event: {event_type}\n{sse_data}\n\n"
 
 
-def _memory_update_payload(content: Any, namespace: tuple[str, ...]) -> dict[str, Any] | None:
-    if not isinstance(content, str):
-        return None
-    try:
-        payload = json.loads(content)
-    except json.JSONDecodeError:
-        return None
-    if not isinstance(payload, dict) or payload.get("memory_event") != "updated":
-        return None
-    memory_ids = payload.get("memory_ids")
-    if not isinstance(memory_ids, list) or not memory_ids:
-        return None
-    return {
-        "memory_ids": [str(memory_id) for memory_id in memory_ids],
-        "action": payload.get("action"),
-        "namespace": list(namespace),
-    }
-
-
 # ═══════════════════════════════════════════════════════════════
 # CustomStreamEncoder
 # ═══════════════════════════════════════════════════════════════
@@ -122,10 +103,15 @@ class CustomStreamEncoder(StreamEncoder):
             return []
         return [_sse_frame("memory_injected", {"memory_ids": memory_ids, "namespace": []})]
 
-    def on_memory_context_used(self, memory_ids: list[str]) -> list[str]:
+    def on_memory_update(self, memory_ids: list[str], action: str) -> list[str]:
         if not memory_ids:
             return []
-        return [_sse_frame("memory_context_used", {"memory_ids": memory_ids, "namespace": []})]
+        return [
+            _sse_frame(
+                "memory_update",
+                {"memory_ids": memory_ids, "action": action, "namespace": []},
+            )
+        ]
 
     def on_input_required(
         self,
@@ -301,10 +287,6 @@ class CustomStreamEncoder(StreamEncoder):
                         error = content
 
                     logger.debug(f"[sse:tool_end] id={tool_call_id[:8]}... ns={namespace} error={bool(error)}")
-                    memory_update = _memory_update_payload(content, namespace)
-                    if memory_update:
-                        results.append(_sse_frame("memory_update", memory_update))
-
                     tool_end_data: dict[str, Any] = {
                         "tool_call_id": tool_call_id,
                         "namespace": list(namespace),

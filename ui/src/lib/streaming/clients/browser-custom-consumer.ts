@@ -79,6 +79,7 @@ export class CustomStreamAdapter implements StreamAdapter {
       agent_id: params.agentId,
       protocol: "custom",
       memory_enabled: params.memoryEnabled ?? true,
+      memory_namespace: params.memoryNamespace,
       ...(params.clientContext && { client_context: params.clientContext }),
       ...(params.files?.length && { files: params.files }),
     });
@@ -94,6 +95,7 @@ export class CustomStreamAdapter implements StreamAdapter {
       resume_data: params.resumeData,
       protocol: "custom",
       memory_enabled: params.memoryEnabled ?? true,
+      memory_namespace: params.memoryNamespace,
       ...(params.clientContext && { client_context: params.clientContext }),
     });
 
@@ -227,7 +229,9 @@ export class CustomStreamAdapter implements StreamAdapter {
 
         case "memory_context_used": {
           const parsed = JSON.parse(data);
-          callbacks.onMemoryContextUsed?.(
+          // Backward compatibility for persisted legacy streams: old context
+          // injection events render as ordinary memory injection badges.
+          callbacks.onMemoryInjected?.(
             parsed.memory_ids ?? [],
             parsed.namespace ?? [],
           );

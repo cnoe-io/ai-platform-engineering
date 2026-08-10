@@ -100,9 +100,9 @@ const FEATURES = [
     to: '/docs/features/user-memory',
     items: [
       'Persistent, owner-isolated memory across conversations',
-      'Global, agent, and domain-context scopes',
+      'Global, agent, and immutable working-context scopes',
       'Per-chat enablement with an agent capability gate',
-      'Agent tools for remember, recall, update, list, and forget',
+      'Markdown memory maintained with standard filesystem tools',
       'Manage Memory UI with auditable transcript badges',
     ],
   },

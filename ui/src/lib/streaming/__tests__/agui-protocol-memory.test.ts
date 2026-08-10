@@ -13,7 +13,6 @@ describe("AG-UI protocol memory events", () => {
     const state = createAGUIProtocolState();
     const callbacks: StreamCallbacks = {
       onMemoryInjected: jest.fn(),
-      onMemoryContextUsed: jest.fn(),
       onMemoryUpdate: jest.fn(),
     };
 
@@ -43,7 +42,7 @@ describe("AG-UI protocol memory events", () => {
         callbacks,
       ),
     ).toBe(false);
-    expect(callbacks.onMemoryContextUsed).toHaveBeenCalledWith(["ctx-1"], ["subagent"]);
+    expect(callbacks.onMemoryInjected).toHaveBeenNthCalledWith(2, ["ctx-1"], ["subagent"]);
 
     expect(
       processAGUIEvent(

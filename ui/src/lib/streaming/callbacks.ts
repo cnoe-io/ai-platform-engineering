@@ -60,6 +60,8 @@ export interface StreamParams {
   files?: Array<{ mime_type: string; data: string; name: string }>;
   /** Whether memory should be injected and memory tools enabled for this chat run */
   memoryEnabled?: boolean;
+  /** Immutable memory working context selected when the conversation was created */
+  memoryNamespace?: string;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -118,10 +120,7 @@ export interface StreamCallbacks {
   /** Memory records were injected into model context for this chat run */
   onMemoryInjected?(memoryIds: string[], namespace?: string[]): void;
 
-  /** Context memories were attached to a context-provider tool result */
-  onMemoryContextUsed?(memoryIds: string[], namespace?: string[]): void;
-
-  /** Durable memory was changed by a memory tool call */
+  /** Durable memory was changed by a memory file edit */
   onMemoryUpdate?(memoryIds: string[], action?: string, namespace?: string[]): void;
 
   /** Stream completed successfully */

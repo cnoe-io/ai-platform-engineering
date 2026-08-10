@@ -46,6 +46,7 @@ export interface ToolStartEventData {
  *  When error is set, the UI renders the tool as failed with the error message. */
 export interface ToolEndEventData {
   tool_call_id: string;
+  completed_tool_name?: string;
   error?: string;
   result?: string;
   args?: Record<string, unknown>;
@@ -83,11 +84,6 @@ export interface MemoryUpdateEventData {
 
 /** Memory injection data from memory_injected events */
 export interface MemoryInjectedEventData {
-  memory_ids: string[];
-}
-
-/** Context memory data from memory_context_used events */
-export interface MemoryContextUsedEventData {
   memory_ids: string[];
 }
 
@@ -161,7 +157,6 @@ export type StreamEventType =
   | "tool_start" // Tool invocation started (task tool = subagent invocation)
   | "tool_end" // Tool invocation completed
   | "memory_injected" // Memory records were injected into model context
-  | "memory_context_used" // Context memories were attached to a tool result
   | "memory_update" // Durable memory changed
   | "input_required" // Agent requests user input via form (HITL)
   | "warning" // Warning event (e.g., missing tools) - rendered inline
@@ -210,9 +205,6 @@ export interface StreamEvent {
 
   /** Memory injection data for memory_injected events */
   memoryInjectedData?: MemoryInjectedEventData;
-
-  /** Context memory data for memory_context_used events */
-  memoryContextUsedData?: MemoryContextUsedEventData;
 
   // ─── Content ─────────────────────────────────────────────────
   /** Content text for content events */
@@ -381,12 +373,15 @@ export function createStreamEvent(
     }
 
     case "memory_context_used": {
-      const memoryContextUsedData: MemoryContextUsedEventData = {
+      // Legacy transcripts keep this event name. Normalize it into the current
+      // memory-injected shape so no legacy UI surface survives.
+      const memoryInjectedData: MemoryInjectedEventData = {
         memory_ids: data.memory_ids ?? [],
       };
       return {
         ...base,
-        memoryContextUsedData,
+        type: "memory_injected",
+        memoryInjectedData,
       };
     }
 

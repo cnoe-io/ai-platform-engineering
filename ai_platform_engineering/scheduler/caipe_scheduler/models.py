@@ -41,6 +41,7 @@ class ScheduleVersion(BaseModel):
   changed_fields: list[str] = Field(default_factory=list)
   title: str | None = None
   agent_id: str
+  memory_namespace: str | None = None
   edit_agent_id: str | None = None
   message_template: str
   attributes: dict[str, Any] = Field(default_factory=dict)
@@ -86,6 +87,10 @@ class ScheduleCreate(BaseModel):
   agent_id: str = Field(
     ...,
     description="Dynamic agent _id (e.g. 'agent-weekly-report'). Must exist in dynamic_agents collection.",
+  )
+  memory_namespace: str | None = Field(
+    default=None,
+    description="Optional immutable memory working-context key for each scheduled chat run.",
   )
   title: str = Field(
     ...,
@@ -134,6 +139,16 @@ class ScheduleCreate(BaseModel):
       raise ValueError("edit_agent_id must be a non-empty string")
     return value
 
+  @field_validator("memory_namespace")
+  @classmethod
+  def memory_namespace_must_not_be_blank(cls, value: str | None) -> str | None:
+    if value is None:
+      return value
+    value = value.strip()
+    if not value:
+      raise ValueError("memory_namespace must be a non-empty string")
+    return value
+
 
 class SchedulePatch(BaseModel):
   """Body of PATCH /v1/schedules/{id}. All fields optional."""
@@ -141,6 +156,7 @@ class SchedulePatch(BaseModel):
   model_config = ConfigDict(extra="forbid")
 
   agent_id: str | None = None
+  memory_namespace: str | None = None
   edit_agent_id: str | None = None
   enabled: bool | None = None
   cron: str | None = None
@@ -170,6 +186,16 @@ class SchedulePatch(BaseModel):
       raise ValueError("edit_agent_id must be a non-empty string")
     return value
 
+  @field_validator("memory_namespace")
+  @classmethod
+  def patch_memory_namespace_must_not_be_blank(cls, value: str | None) -> str | None:
+    if value is None:
+      return value
+    value = value.strip()
+    if not value:
+      raise ValueError("memory_namespace must be a non-empty string")
+    return value
+
 
 class Schedule(BaseModel):
   """Full schedule doc as stored in Mongo + returned by API."""
@@ -180,6 +206,7 @@ class Schedule(BaseModel):
   owner_sub: str | None = None
   owner_user_id: str
   agent_id: str
+  memory_namespace: str | None = None
   edit_agent_id: str | None = None
   title: str | None = None
   message_template: str

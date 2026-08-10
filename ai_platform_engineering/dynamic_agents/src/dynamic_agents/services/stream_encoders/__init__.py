@@ -70,8 +70,8 @@ class StreamEncoder(ABC):
         """Memory records were injected into the model context for this turn."""
 
     @abstractmethod
-    def on_memory_context_used(self, memory_ids: list[str]) -> list[str]:
-        """Context memories were attached to a context-provider tool result."""
+    def on_memory_update(self, memory_ids: list[str], action: str) -> list[str]:
+        """The agent created, updated, or deleted memory records."""
 
     @abstractmethod
     def on_input_required(

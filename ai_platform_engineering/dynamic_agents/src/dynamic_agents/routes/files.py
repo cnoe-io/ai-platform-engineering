@@ -58,6 +58,30 @@ def _get_db(mongo: MongoDBService) -> Database:
     return mongo._db
 
 
+def _require_namespace_owner(
+    namespace: tuple[str, str, str],
+    user: UserContext,
+    db: Database,
+) -> None:
+    """Require ownership of the conversation encoded in namespace[1]."""
+
+    conversation = db["conversations"].find_one(
+        {"_id": namespace[1]},
+        {"owner_id": 1, "owner_subject": 1},
+    )
+    if conversation is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    owner_subject = str(conversation.get("owner_subject") or "").strip()
+    if owner_subject:
+        authorized = bool(user.sub and owner_subject == user.sub)
+    else:
+        # Compatibility for conversations created before owner_subject was
+        # persisted. Never let mutable email override a subject mismatch.
+        authorized = str(conversation.get("owner_id") or "").casefold() == user.email.casefold()
+    if not authorized:
+        raise HTTPException(status_code=403, detail="Only the conversation owner can access its files")
+
+
 # --- Response models ---
 
 
@@ -98,6 +122,7 @@ async def list_files(
     """List files in a GridFS namespace."""
     namespace = _parse_namespace(fs_namespace)
     db = _get_db(mongo)
+    _require_namespace_owner(namespace, user, db)
 
     store = _get_gridfs_store(db)
     items = store.search(namespace, limit=1000)
@@ -120,6 +145,7 @@ async def get_file_content(
     """Get content of a single file from GridFS."""
     namespace = _parse_namespace(fs_namespace)
     db = _get_db(mongo)
+    _require_namespace_owner(namespace, user, db)
 
     store = _get_gridfs_store(db)
     item = store.get(namespace, path)
@@ -148,6 +174,7 @@ async def put_file_content(
 
     namespace = (body.fs_namespace[0], body.fs_namespace[1], body.fs_namespace[2])
     db = _get_db(mongo)
+    _require_namespace_owner(namespace, user, db)
 
     store = _get_gridfs_store(db)
     store.put(namespace, body.path, {"content": body.content})
@@ -169,6 +196,7 @@ async def delete_file_content(
     """Delete a file from GridFS."""
     namespace = _parse_namespace(fs_namespace)
     db = _get_db(mongo)
+    _require_namespace_owner(namespace, user, db)
 
     store = _get_gridfs_store(db)
     item = store.get(namespace, path)
@@ -194,6 +222,7 @@ async def delete_namespace(
     """Delete all files in a GridFS namespace."""
     namespace = _parse_namespace(fs_namespace)
     db = _get_db(mongo)
+    _require_namespace_owner(namespace, user, db)
 
     store = _get_gridfs_store(db)
     count = store.delete_by_namespace(namespace)

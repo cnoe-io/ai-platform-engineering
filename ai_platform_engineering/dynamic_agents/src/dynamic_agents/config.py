@@ -51,9 +51,6 @@ class Settings(BaseSettings):
     # Collections
     dynamic_agents_collection: str = "dynamic_agents"
     mcp_servers_collection: str = "mcp_servers"
-    user_memories_collection: str = "user_memories"
-    user_memory_contexts_collection: str = "user_memory_contexts"
-
     # CORS
     cors_origins: list[str] = ["*"]
 
@@ -63,6 +60,9 @@ class Settings(BaseSettings):
 
     # GridFS store (for agent file storage outside checkpoints)
     gridfs_bucket_name: str = "agent_files"
+    # User memory is isolated in a dedicated, non-expiring bucket.
+    memory_gridfs_bucket_name: str = "agent_memory"
+    memory_max_file_chars: int = 8000
 
     # Runtime backend: "store" = GridFS-backed filesystem, "state" = in-checkpoint
     default_runtime_backend: str = "store"
