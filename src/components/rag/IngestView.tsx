@@ -1,0 +1,3297 @@
+﻿"use client";
+
+/**
+ * IngestView - Data Sources Management
+ *
+ * Redesigned with:
+ * - shadcn/ui components (Button, Input, Badge)
+ * - Framer Motion animations
+ * - Modern styling consistent with SearchView and UseCasesGallery
+ * - Information-dense layout with metrics placeholders
+ */
+
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+Dialog,
+DialogContent,
+DialogDescription,
+DialogHeader,
+DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { TeamPicker } from "@/components/ui/team-picker";
+import { useToast } from "@/components/ui/toast";
+import { Permission,useRagPermissions } from '@/hooks/useRagPermissions';
+import { cn,DEFAULT_RELOAD_INTERVAL,formatFreshUntil,formatNextReload,formatRelativeTime,isRefreshOverdue } from "@/lib/utils";
+import { AnimatePresence,motion } from 'framer-motion';
+import {
+Activity,
+AlertCircle,
+ArrowRight,
+Check,
+CheckCircle2,
+ChevronDown,
+ChevronRight,
+Clock,
+Database,
+Eraser,
+FileText,
+HelpCircle,
+Info,
+Layers,
+Link as LinkIcon,
+Loader2,
+Pencil,
+Plus,
+RefreshCw,
+RotateCcw,
+Search,
+Server,
+Settings,
+StopCircle,
+Trash2,
+Users,
+X
+} from 'lucide-react';
+import React,{ useCallback,useEffect,useMemo,useRef,useState } from 'react';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import { KbSharingPanel } from './KbSharingPanel';
+import type { DataSourceInfo,IngestionJob,IngestorInfo } from './Models';
+import type { ChunkInfo,DatasourceDocumentsResponse,DocumentInfo } from './api/index';
+import {
+cleanupDataSource,
+CONFLUENCE_INGESTOR_ID,
+deleteDataSource,
+deleteIngestor,
+getChunkContent,
+getDatasourceDocuments,
+getDataSources,
+getIngestors,
+getJobsBatch,
+getJobsByDataSource,
+getJobStatus,
+ingestBenchmarkCorpus,
+ingestLocalFile,
+ingestUrl,
+JIRA_INGESTOR_ID,
+reloadDataSource,
+renameDataSource,
+terminateJob,
+WEBLOADER_INGESTOR_ID
+} from './api/index';
+import { getIconForType,ingestTypeConfigs,isIngestTypeAvailable } from './typeConfig';
+
+// Animation variants
+const fadeIn = {
+  initial: { opacity: 0 },
+  animate: { opacity: 1 },
+  exit: { opacity: 0 }
+}
+
+const expandCollapse = {
+  initial: { height: 0, opacity: 0 },
+  animate: { height: "auto", opacity: 1 },
+  exit: { height: 0, opacity: 0 }
+}
+
+const staggerContainer = {
+  animate: {
+    transition: {
+      staggerChildren: 0.05
+    }
+  }
+}
+
+const slideUp = {
+  initial: { opacity: 0, y: 10 },
+  animate: { opacity: 1, y: 0 },
+  exit: { opacity: 0, y: -10 }
+}
+
+// Helper component to render icon (either emoji or SVG image)
+const IconRenderer = ({ icon, className = "w-5 h-5" }: { icon: string; className?: string }) => {
+  const isEmoji = !icon.startsWith('/')
+  
+  if (isEmoji) {
+    return <span className="text-lg">{icon}</span>
+  }
+  
+  return (
+    <img 
+      src={icon} 
+      alt="" 
+      className={className}
+      style={{ display: 'inline-block' }}
+    />
+  )
+}
+
+// Status badge component with consistent styling
+const StatusBadge = ({ status }: { status: string }) => {
+  const getStatusConfig = (status: string) => {
+    switch (status) {
+      case 'completed':
+        return { 
+          className: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
+          icon: <CheckCircle2 className="h-3 w-3" />
+        }
+      case 'failed':
+      case 'terminated':
+        return { 
+          className: 'bg-destructive/20 text-destructive border-destructive/30',
+          icon: <AlertCircle className="h-3 w-3" />
+        }
+      case 'completed_with_errors':
+        return { 
+          className: 'bg-orange-500/20 text-orange-400 border-orange-500/30',
+          icon: <AlertCircle className="h-3 w-3" />
+        }
+      case 'in_progress':
+        return { 
+          className: 'bg-primary/20 text-primary border-primary/30',
+          icon: <Loader2 className="h-3 w-3 animate-spin" />
+        }
+      case 'pending':
+        return { 
+          className: 'bg-muted text-muted-foreground border-border',
+          icon: <Clock className="h-3 w-3" />
+        }
+      default:
+        return { 
+          className: 'bg-muted text-muted-foreground border-border',
+          icon: null
+        }
+    }
+  }
+
+  const config = getStatusConfig(status)
+  const formatStatus = (status: string): string => {
+    return status
+      .split('_')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ')
+  }
+
+  return (
+    <span className={cn(
+      "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border",
+      config.className
+    )}>
+      {config.icon}
+      {formatStatus(status)}
+    </span>
+  )
+}
+
+// Progress bar component with gradient
+const ProgressBar = ({ progress, total, current }: { progress: number; total: number; current: number }) => {
+  return (
+    <div className="flex items-center gap-2 mt-2">
+      <div className="flex-1 bg-muted rounded-full h-2 overflow-hidden">
+        <motion.div 
+          className="h-full rounded-full gradient-primary-br"
+          initial={{ width: 0 }}
+          animate={{ width: `${Math.max(0, Math.min(100, progress))}%` }}
+          transition={{ duration: 0.3 }}
+        />
+      </div>
+      <span className="text-xs font-medium text-muted-foreground whitespace-nowrap tabular-nums">
+        {current}/{total} ({Math.round(progress)}%)
+      </span>
+    </div>
+  )
+}
+
+export default function IngestView() {
+  const { hasPermission } = useRagPermissions()
+  const canIngest = hasPermission(Permission.INGEST)
+  const canDelete = hasPermission(Permission.DELETE)
+  const { toast } = useToast()
+
+  // Datasource whose Ownership & Sharing dialog is open (null = closed). The
+  // dialog hosts the shared KbSharingPanel (owner team + transfer + sharing),
+  // replacing the retired per-team read/ingest/admin popover.
+  const [sharingDatasource, setSharingDatasource] = useState<DataSourceInfo | null>(null)
+
+  // Ingestion state
+  const [url, setUrl] = useState('')
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([])
+  // Benchmark Corpus (JSONL) ingest â€” client-side files + preview. Each selected
+  // .jsonl file is ingested into its own datasource.
+  const [corpusFiles, setCorpusFiles] = useState<File[]>([])
+  const [corpusPreview, setCorpusPreview] = useState<string[]>([])
+  const corpusInputRef = useRef<HTMLInputElement | null>(null)
+  const [ingestType, setIngestType] = useState<string>('web')
+  const [description, setDescription] = useState('')
+  const [includeSubPages, setIncludeSubPages] = useState(false)
+  const [showAdvancedOptions, setShowAdvancedOptions] = useState(false)
+  
+  // Scrapy settings state (for web ingest type)
+  const [crawlMode, setCrawlMode] = useState<'single' | 'sitemap' | 'recursive'>('sitemap')
+  const [maxDepth, setMaxDepth] = useState(2)
+  const [maxPages, setMaxPages] = useState(2000)
+  const [renderJavascript, setRenderJavascript] = useState(false)
+  const [waitForSelector, setWaitForSelector] = useState('')
+  const [downloadDelay, setDownloadDelay] = useState(0.05)
+  const [concurrentRequests, setConcurrentRequests] = useState(30)
+  const [respectRobotsTxt, setRespectRobotsTxt] = useState(true)
+  const [followExternalLinks, setFollowExternalLinks] = useState(true)  // Default true since crawlMode defaults to sitemap
+  const [allowedUrlPatterns, setAllowedUrlPatterns] = useState('')
+  const [deniedUrlPatterns, setDeniedUrlPatterns] = useState('')
+  const [chunkSize, setChunkSize] = useState(10000)
+  const [chunkOverlap, setChunkOverlap] = useState(2000)
+  const [reloadInterval, setReloadInterval] = useState<number>(86400) // Default to 24 hours
+  const [isCustomReloadInterval, setIsCustomReloadInterval] = useState(false)
+
+  // Owning-team state for new ingestions (spec 2026-06-03). The owning team is
+  // required for non-org-admin authors; org admins may leave it unset to create
+  // a personal/admin-owned source. Populated from /api/rbac/ingest-teams, which
+  // returns only the teams the caller may author for.
+  const [ingestOwnerTeamSlug, setIngestOwnerTeamSlug] = useState('')
+  const [availableTeams, setAvailableTeams] = useState<{ _id: string; slug: string; name: string }[]>([])
+  const [ingestIsOrgAdmin, setIngestIsOrgAdmin] = useState(false)
+
+  // DataSources state
+  const [dataSources, setDataSources] = useState<DataSourceInfo[]>([])
+  const [loadingDataSources, setLoadingDataSources] = useState(true)
+  const [refreshingDataSources, setRefreshingDataSources] = useState(false)
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
+  const [dataSourceJobs, setDataSourceJobs] = useState<Record<string, IngestionJob[]>>({})
+  const [expandedJobs, setExpandedJobs] = useState<Set<string>>(new Set())
+  const [selectedSourceType, setSelectedSourceType] = useState<string>('all')
+  const [searchQuery, setSearchQuery] = useState('')
+
+  // Ingestors state
+  const [ingestors, setIngestors] = useState<IngestorInfo[]>([])
+  const [loadingIngestors, setLoadingIngestors] = useState(false)
+  const [refreshingIngestors, setRefreshingIngestors] = useState(false)
+  const [expandedIngestors, setExpandedIngestors] = useState<Set<string>>(new Set())
+  const [showIngestors, setShowIngestors] = useState(false)
+  const [showHelp, setShowHelp] = useState(false)
+
+  // Confirmation dialogs state
+  const [showDeleteDataSourceConfirm, setShowDeleteDataSourceConfirm] = useState<string | null>(null)
+  const [showDeleteIngestorConfirm, setShowDeleteIngestorConfirm] = useState<string | null>(null)
+  const [showReIngestConfirm, setShowReIngestConfirm] = useState<string | null>(null)
+  const [showCleanupConfirm, setShowCleanupConfirm] = useState<string | null>(null)
+  const [isDeletingDataSource, setIsDeletingDataSource] = useState(false)
+  const [isReIngesting, setIsReIngesting] = useState(false)
+  const [isCleaningUp, setIsCleaningUp] = useState(false)
+  const [reIngestError, setReIngestError] = useState<string | null>(null)
+
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1)
+  const itemsPerPage = 10
+
+  // Jobs section state (per datasource - collapsible)
+  const [expandedJobsSections, setExpandedJobsSections] = useState<Set<string>>(new Set())
+
+  // Documents state (per datasource)
+  const [expandedDocumentsSections, setExpandedDocumentsSections] = useState<Set<string>>(new Set())
+  const [datasourceDocuments, setDatasourceDocuments] = useState<Record<string, DatasourceDocumentsResponse>>({})
+  const [loadingDocuments, setLoadingDocuments] = useState<Set<string>>(new Set())
+  const [expandedDocuments, setExpandedDocuments] = useState<Set<string>>(new Set())
+  const [expandedChunks, setExpandedChunks] = useState<Set<string>>(new Set())
+  const [chunkContents, setChunkContents] = useState<Record<string, string>>({})
+  const [loadingChunkContent, setLoadingChunkContent] = useState<Set<string>>(new Set())
+  
+  // Pagination state for documents (per datasource)
+  const [documentsPagination, setDocumentsPagination] = useState<Record<string, {
+    offset: number;
+    hasMore: boolean;
+  }>>({})
+
+  // Inline-rename state for data source display names (datasource_id is immutable)
+  const [renamingDsId, setRenamingDsId] = useState<string | null>(null)
+  const [renameDraft, setRenameDraft] = useState<string>("")
+  const [renameSaving, setRenameSaving] = useState(false)
+
+  const beginRename = useCallback((ds: DataSourceInfo) => {
+    setRenamingDsId(ds.datasource_id)
+    setRenameDraft(ds.name || "")
+  }, [])
+
+  const cancelRename = useCallback(() => {
+    setRenamingDsId(null)
+    setRenameDraft("")
+    setRenameSaving(false)
+  }, [])
+
+  const commitRename = useCallback(async (datasourceId: string) => {
+    const trimmed = renameDraft.trim()
+    if (!trimmed) {
+      cancelRename()
+      return
+    }
+    setRenameSaving(true)
+    try {
+      const res = await renameDataSource(datasourceId, trimmed)
+      setDataSources(prev => prev.map(d => d.datasource_id === datasourceId ? { ...d, name: res.name } : d))
+      cancelRename()
+    } catch (err) {
+      console.error("Failed to rename data source", err)
+      setRenameSaving(false)
+    }
+  }, [renameDraft, cancelRename])
+
+  // Metadata modal state
+  const [metadataModal, setMetadataModal] = useState<{
+    isOpen: boolean;
+    type: 'document' | 'chunk';
+    title: string;
+    id: string;
+    metadata: Record<string, unknown>;
+  } | null>(null)
+
+  // Calculate stats
+  const stats = useMemo(() => {
+    const activeJobs = Object.values(dataSourceJobs).flat().filter(
+      job => job.status === 'in_progress' || job.status === 'pending'
+    ).length
+    return {
+      totalDataSources: dataSources.length,
+      activeJobs,
+      totalIngestors: ingestors.length
+    }
+  }, [dataSources, dataSourceJobs, ingestors])
+
+  // Get unique source types from dataSources
+  const sourceTypes = useMemo(() => {
+    const types = new Set(dataSources.map(ds => ds.source_type))
+    return Array.from(types).sort()
+  }, [dataSources])
+
+  // Filter and sort dataSources by selected type and search query
+  const filteredDataSources = useMemo(() => {
+    let filtered = dataSources
+
+    // Filter by source type
+    if (selectedSourceType !== 'all') {
+      filtered = filtered.filter(ds => ds.source_type === selectedSourceType)
+    }
+
+    // Filter by search query
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase().trim()
+      filtered = filtered.filter(ds =>
+        (ds.name?.toLowerCase().includes(query) ?? false) ||
+        ds.datasource_id.toLowerCase().includes(query) ||
+        ds.source_type.toLowerCase().includes(query) ||
+        ds.description?.toLowerCase().includes(query) ||
+        ds.ingestor_id.toLowerCase().includes(query)
+      )
+    }
+
+    return [...filtered].sort((a, b) => {
+      const typeComparison = a.source_type.localeCompare(b.source_type)
+      if (typeComparison !== 0) return typeComparison
+      return b.last_updated - a.last_updated
+    })
+  }, [dataSources, selectedSourceType, searchQuery])
+
+  // Calculate pagination
+  const totalPages = Math.ceil(filteredDataSources.length / itemsPerPage)
+  const paginatedDataSources = useMemo(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage
+    const endIndex = startIndex + itemsPerPage
+    return filteredDataSources.slice(startIndex, endIndex)
+  }, [filteredDataSources, currentPage, itemsPerPage])
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [selectedSourceType, searchQuery])
+
+  useEffect(() => {
+    if (ingestType !== 'confluence') {
+      setIncludeSubPages(false)
+    }
+  }, [ingestType])
+
+  useEffect(() => {
+    fetchDataSources()
+    fetchIngestors()
+    fetch('/api/rbac/ingest-teams')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        setAvailableTeams(d?.teams ?? [])
+        setIngestIsOrgAdmin(Boolean(d?.org_admin))
+      })
+      .catch(() => {})
+  }, [])
+
+  // Effect to auto-select first available ingest type when ingestors load
+  useEffect(() => {
+    if (ingestors.length > 0) {
+      const isCurrentTypeAvailable = isIngestTypeAvailable(ingestType, ingestors)
+      
+      if (!isCurrentTypeAvailable) {
+        const availableType = Object.keys(ingestTypeConfigs).find(type =>
+          isIngestTypeAvailable(type, ingestors)
+        )
+        if (availableType) {
+          setIngestType(availableType)
+        }
+      }
+    }
+  }, [ingestors, ingestType])
+
+  // Track previously seen datasource IDs to avoid refetching jobs on refresh
+  const previousDataSourceIds = useRef<Set<string>>(new Set())
+
+  useEffect(() => {
+    const fetchJobsForNewDataSources = async () => {
+      const currentIds = new Set(dataSources.map(ds => ds.datasource_id))
+      const newDataSources = dataSources.filter(ds => !previousDataSourceIds.current.has(ds.datasource_id))
+      
+      previousDataSourceIds.current = currentIds
+      
+      if (newDataSources.length === 0) return
+      
+      // Use bulk API instead of per-datasource fetches to reduce server load
+      // Batch in chunks of 100 (server limit)
+      const datasourceIds = newDataSources.map(ds => ds.datasource_id)
+      const BATCH_SIZE = 100
+      const chunks: string[][] = []
+      for (let i = 0; i < datasourceIds.length; i += BATCH_SIZE) {
+        chunks.push(datasourceIds.slice(i, i + BATCH_SIZE))
+      }
+      
+      // Fetch all chunks in parallel
+      try {
+        const results = await Promise.all(chunks.map(chunk => getJobsBatch(chunk)))
+        
+        setDataSourceJobs(prev => {
+          const updated = { ...prev }
+          for (const result of results) {
+            for (const [datasourceId, fetchedJobs] of Object.entries(result.jobs)) {
+              // Sort by created_at descending (newest first)
+              const sortedJobs = [...fetchedJobs].sort((a, b) => b.created_at - a.created_at)
+              updated[datasourceId] = sortedJobs
+            }
+          }
+          return updated
+        })
+      } catch (error) {
+        console.error('Failed to batch fetch jobs for new datasources:', error)
+      }
+    }
+    if (dataSources.length > 0) {
+      fetchJobsForNewDataSources()
+    }
+  }, [dataSources])
+
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      // Find all datasources that have active jobs (in_progress or pending)
+      const datasourcesWithActiveJobs = Object.entries(dataSourceJobs)
+        .filter(([_, jobs]) => 
+          jobs.some(job => job.status === 'in_progress' || job.status === 'pending')
+        )
+        .map(([datasourceId]) => datasourceId)
+
+      if (datasourcesWithActiveJobs.length === 0) {
+        return
+      }
+
+      try {
+        // Batch fetch ALL jobs for datasources with active jobs (no status filter)
+        // This allows us to see when jobs transition from in_progress to completed
+        const result = await getJobsBatch(datasourcesWithActiveJobs)
+        
+        // Update state with the fetched jobs
+        setDataSourceJobs(prev => {
+          const updated = { ...prev }
+          for (const datasourceId of datasourcesWithActiveJobs) {
+            const fetchedJobs = result.jobs[datasourceId] || []
+            if (fetchedJobs.length > 0) {
+              // Sort by created_at descending (newest first)
+              const sortedJobs = [...fetchedJobs].sort((a, b) => b.created_at - a.created_at)
+              updated[datasourceId] = sortedJobs
+            }
+          }
+          return updated
+        })
+      } catch (error) {
+        console.error('Error batch polling job statuses:', error)
+      }
+    }, 2000)
+
+    return () => clearInterval(interval)
+  }, [dataSourceJobs])
+
+  // Helper to clear documents state for a datasource (collapse and purge cached data)
+  const clearDocumentsState = useCallback((datasourceId?: string) => {
+    if (datasourceId) {
+      // Clear specific datasource
+      setExpandedDocumentsSections(prev => {
+        const next = new Set(prev)
+        next.delete(datasourceId)
+        return next
+      })
+      setDatasourceDocuments(prev => {
+        const { [datasourceId]: _, ...rest } = prev
+        return rest
+      })
+      setDocumentsPagination(prev => {
+        const { [datasourceId]: _, ...rest } = prev
+        return rest
+      })
+      // Clear expanded documents/chunks for this datasource
+      setExpandedDocuments(prev => {
+        const next = new Set(prev)
+        for (const id of prev) {
+          if (id.startsWith(datasourceId)) next.delete(id)
+        }
+        return next
+      })
+      setExpandedChunks(prev => {
+        const next = new Set(prev)
+        for (const id of prev) {
+          if (id.startsWith(datasourceId)) next.delete(id)
+        }
+        return next
+      })
+      setChunkContents(prev => {
+        const filtered: Record<string, string> = {}
+        for (const [id, content] of Object.entries(prev)) {
+          if (!id.startsWith(datasourceId)) filtered[id] = content
+        }
+        return filtered
+      })
+    } else {
+      // Clear all documents state
+      setExpandedDocumentsSections(new Set())
+      setDatasourceDocuments({})
+      setDocumentsPagination({})
+      setExpandedDocuments(new Set())
+      setExpandedChunks(new Set())
+      setChunkContents({})
+    }
+  }, [])
+
+  const fetchJobsForDataSource = async (datasourceId: string) => {
+    try {
+      const jobs = await getJobsByDataSource(datasourceId)
+      // Sort by created_at (Unix timestamp in seconds) - newest first
+      const sortedJobs = jobs.sort((a, b) => b.created_at - a.created_at)
+      setDataSourceJobs(prev => ({ ...prev, [datasourceId]: sortedJobs }))
+      // Clear documents state since data may have changed
+      clearDocumentsState(datasourceId)
+    } catch (error) {
+      console.error(`Failed to fetch jobs for datasource ${datasourceId}:`, error)
+    }
+  }
+
+  const pollJob = async (datasourceId: string, jobId: string) => {
+    try {
+      const job = await getJobStatus(jobId)
+      setDataSourceJobs(prev => {
+        const jobs = prev[datasourceId] || []
+        const updatedJobs = jobs.map(j => j.job_id === jobId ? job : j)
+        return { ...prev, [datasourceId]: updatedJobs }
+      })
+    } catch (error) {
+      console.error(`Error polling job status for ${jobId}:`, error)
+    }
+  }
+
+  const fetchDataSources = async (alsoRefreshJobs = false) => {
+    const isRefresh = dataSources.length > 0
+    if (isRefresh) {
+      setRefreshingDataSources(true)
+      // Clear all documents state on refresh since data may have changed
+      clearDocumentsState()
+    } else {
+      setLoadingDataSources(true)
+    }
+    try {
+      const response = await getDataSources()
+      const datasources = response.datasources
+      setDataSources(datasources)
+      
+      // Optionally refresh jobs for all datasources (on manual refresh)
+      // Batch in chunks of 100 (server limit)
+      if (alsoRefreshJobs && datasources.length > 0) {
+        try {
+          const datasourceIds = datasources.map(ds => ds.datasource_id)
+          const BATCH_SIZE = 100
+          const chunks: string[][] = []
+          for (let i = 0; i < datasourceIds.length; i += BATCH_SIZE) {
+            chunks.push(datasourceIds.slice(i, i + BATCH_SIZE))
+          }
+          
+          const results = await Promise.all(chunks.map(chunk => getJobsBatch(chunk)))
+          
+          setDataSourceJobs(prev => {
+            const updated = { ...prev }
+            for (const result of results) {
+              for (const [datasourceId, fetchedJobs] of Object.entries(result.jobs)) {
+                const sortedJobs = [...fetchedJobs].sort((a, b) => b.created_at - a.created_at)
+                updated[datasourceId] = sortedJobs
+              }
+            }
+            return updated
+          })
+        } catch (error) {
+          console.error('Failed to batch refresh jobs:', error)
+        }
+      }
+    } catch (error) {
+      console.error('Failed to fetch data sources', error)
+    } finally {
+      setLoadingDataSources(false)
+      setRefreshingDataSources(false)
+    }
+  }
+
+  const fetchIngestors = async () => {
+    const isRefresh = ingestors.length > 0
+    if (isRefresh) {
+      setRefreshingIngestors(true)
+    } else {
+      setLoadingIngestors(true)
+    }
+    try {
+      const ingestorList = await getIngestors()
+      setIngestors(ingestorList)
+    } catch (error) {
+      console.error('Failed to fetch ingestors', error)
+    } finally {
+      setLoadingIngestors(false)
+      setRefreshingIngestors(false)
+    }
+  }
+
+  const toggleRow = (datasourceId: string) => {
+    setExpandedRows(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(datasourceId)) {
+        newSet.delete(datasourceId)
+      } else {
+        newSet.add(datasourceId)
+      }
+      return newSet
+    })
+  }
+
+  const toggleJob = (jobId: string) => {
+    setExpandedJobs(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(jobId)) {
+        newSet.delete(jobId)
+      } else {
+        newSet.add(jobId)
+      }
+      return newSet
+    })
+  }
+
+  const toggleIngestor = (ingestorId: string) => {
+    setExpandedIngestors(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(ingestorId)) {
+        newSet.delete(ingestorId)
+      } else {
+        newSet.add(ingestorId)
+      }
+      return newSet
+    })
+  }
+
+  // Jobs section toggle (per datasource)
+  const toggleJobsSection = (datasourceId: string) => {
+    setExpandedJobsSections(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(datasourceId)) {
+        newSet.delete(datasourceId)
+      } else {
+        newSet.add(datasourceId)
+      }
+      return newSet
+    })
+  }
+
+  // Documents section toggle and fetch
+  const toggleDocumentsSection = async (datasourceId: string) => {
+    const isExpanding = !expandedDocumentsSections.has(datasourceId)
+    
+    setExpandedDocumentsSections(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(datasourceId)) {
+        newSet.delete(datasourceId)
+      } else {
+        newSet.add(datasourceId)
+      }
+      return newSet
+    })
+
+    // Fetch first page if expanding and not already loaded
+    if (isExpanding && !datasourceDocuments[datasourceId]) {
+      await fetchDocumentsPage(datasourceId, 0)
+    }
+  }
+
+  const fetchDocumentsPage = async (datasourceId: string, offset: number) => {
+    setLoadingDocuments(prev => new Set(prev).add(datasourceId))
+    
+    try {
+      const response = await getDatasourceDocuments(datasourceId, offset, 100)
+      
+      if (offset === 0) {
+        // First page - replace
+        setDatasourceDocuments(prev => ({ ...prev, [datasourceId]: response }))
+      } else {
+        // Subsequent pages - merge documents
+        setDatasourceDocuments(prev => {
+          const existing = prev[datasourceId]
+          if (!existing) return prev
+          
+          // Merge documents by document_id
+          const mergedDocsMap = new Map<string, DocumentInfo>()
+          
+          // Add existing documents
+          existing.documents.forEach(doc => {
+            mergedDocsMap.set(doc.document_id, { ...doc, chunks: [...doc.chunks] })
+          })
+          
+          // Merge new documents
+          response.documents.forEach(doc => {
+            if (mergedDocsMap.has(doc.document_id)) {
+              // Append chunks to existing document
+              mergedDocsMap.get(doc.document_id)!.chunks.push(...doc.chunks)
+            } else {
+              // Add new document
+              mergedDocsMap.set(doc.document_id, { ...doc })
+            }
+          })
+          
+          return {
+            ...prev,
+            [datasourceId]: {
+              ...response,
+              documents: Array.from(mergedDocsMap.values()),
+              total_documents: mergedDocsMap.size,
+              total_chunks: existing.total_chunks + response.total_chunks,
+            }
+          }
+        })
+      }
+      
+      // Update pagination state
+      setDocumentsPagination(prev => ({
+        ...prev,
+        [datasourceId]: {
+          offset: offset + response.total_chunks,
+          hasMore: response.has_more,
+        }
+      }))
+      
+    } catch (error) {
+      console.error(`Failed to fetch documents for ${datasourceId}:`, error)
+    } finally {
+      setLoadingDocuments(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(datasourceId)
+        return newSet
+      })
+    }
+  }
+
+  const toggleDocument = (documentId: string) => {
+    setExpandedDocuments(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(documentId)) {
+        newSet.delete(documentId)
+      } else {
+        newSet.add(documentId)
+      }
+      return newSet
+    })
+  }
+
+  const toggleChunk = (chunkId: string) => {
+    setExpandedChunks(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(chunkId)) {
+        newSet.delete(chunkId)
+        // Purge content from memory when collapsing to avoid MBs of data in state
+        setChunkContents(prevContents => {
+          const { [chunkId]: _, ...rest } = prevContents
+          return rest
+        })
+      } else {
+        newSet.add(chunkId)
+      }
+      return newSet
+    })
+  }
+
+  const fetchChunkContent = async (chunkId: string) => {
+    if (chunkContents[chunkId] || loadingChunkContent.has(chunkId)) return
+
+    setLoadingChunkContent(prev => new Set(prev).add(chunkId))
+    try {
+      const response = await getChunkContent(chunkId)
+      setChunkContents(prev => ({ ...prev, [chunkId]: response.text_content }))
+    } catch (error) {
+      console.error(`Failed to fetch chunk content for ${chunkId}:`, error)
+    } finally {
+      setLoadingChunkContent(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(chunkId)
+        return newSet
+      })
+    }
+  }
+
+  // Open metadata modal for document or chunk
+  const openDocumentMetadata = (doc: DocumentInfo, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setMetadataModal({
+      isOpen: true,
+      type: 'document',
+      title: doc.title,
+      id: doc.document_id,
+      metadata: {
+        document_id: doc.document_id,
+        title: doc.title,
+        total_chunks: doc.chunks.length,
+      }
+    })
+  }
+
+  const openChunkMetadata = (chunk: ChunkInfo, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setMetadataModal({
+      isOpen: true,
+      type: 'chunk',
+      title: `Chunk ${chunk.chunk_index + 1}/${chunk.total_chunks}`,
+      id: chunk.id,
+      metadata: {
+        id: chunk.id,
+        chunk_index: chunk.chunk_index,
+        total_chunks: chunk.total_chunks,
+        ...chunk.metadata
+      }
+    })
+  }
+
+  // Non-org-admins MUST choose an owning team for a new data source; org admins
+  // may leave it unset (personal/admin-owned). See spec 2026-06-03.
+  const ingestOwnerTeamRequired = !ingestIsOrgAdmin
+  const ingestOwnerTeamMissing = ingestOwnerTeamRequired && !ingestOwnerTeamSlug
+
+  // Read a selected .jsonl benchmark corpus file and show a small preview of the
+  // first few rows. Client-side only for now â€” real ingest wiring is a follow-up.
+  const handleCorpusFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? [])
+    setCorpusFiles(files)
+    setCorpusPreview([])
+    if (files.length === 0) return
+    try {
+      // Preview the first file's first few lines.
+      const text = await files[0].text()
+      const lines = text.split('\n').filter(line => line.trim()).slice(0, 5)
+      setCorpusPreview(lines)
+    } catch (err) {
+      console.error('Failed to read corpus file', err)
+    }
+  }
+
+  // Clear the selected benchmark corpus files + preview. Also reset the hidden
+  // native input's value so re-selecting the same file fires onChange again.
+  const handleCorpusClear = () => {
+    setCorpusFiles([])
+    setCorpusPreview([])
+    if (corpusInputRef.current) corpusInputRef.current.value = ''
+  }
+
+  const handleIngest = async () => {
+    // Benchmark Corpus: parse the uploaded .jsonl (one JSON document per line)
+    // and ingest each line as its own document, preserving document_id so
+    // retrieval eval lines up with the golden set's expected_doc_ids.
+    if (ingestType === 'dataset') {
+      if (corpusFiles.length === 0) {
+        toast('Choose one or more .jsonl corpus files first', 'error')
+        return
+      }
+      try {
+        let totalDocs = 0
+        const ingestedSources: string[] = []
+        for (const file of corpusFiles) {
+          const text = await file.text()
+          const lines = text.split('\n').map(l => l.trim()).filter(Boolean)
+          if (lines.length === 0) {
+            toast(`Skipping "${file.name}" - file is empty`, 'info')
+            continue
+          }
+          let rows
+          try {
+            rows = lines.map(line => JSON.parse(line))
+          } catch (parseErr: any) {
+            toast(`Malformed JSONL in "${file.name}" - each line must be a JSON object: ${parseErr?.message || parseErr}`, 'error')
+            return
+          }
+          // Derive a stable datasource id/name from this file's stem.
+          const stem = file.name.replace(/\.[^.]+$/, '')
+          const safeStem = stem.replace(/[^a-zA-Z0-9_-]+/g, '_').replace(/^_+|_+$/g, '') || 'corpus'
+          const datasourceId = `benchmark_${safeStem}`.slice(0, 96)
+          const datasourceName = `Benchmark Corpus: ${stem}`
+
+          toast(`Ingesting ${rows.length} documents from "${file.name}"...`, 'info')
+          const result = await ingestBenchmarkCorpus(rows, datasourceId, datasourceName, {
+            description: description || undefined,
+            owner_team_slug: ingestOwnerTeamSlug || undefined,
+          })
+          totalDocs += result.count
+          ingestedSources.push(datasourceName)
+        }
+        await fetchDataSources()
+        if (ingestedSources.length > 0) {
+          toast(`Ingested ${totalDocs} documents across ${ingestedSources.length} datasource${ingestedSources.length === 1 ? '' : 's'}`, 'success')
+          handleCorpusClear()
+          setDescription('')
+        }
+      } catch (error: any) {
+        console.error('Benchmark corpus ingest failed:', error)
+        toast(`Ingestion failed: ${error?.message || 'unknown error'}`, 'error')
+      }
+      return
+    }
+    if (ingestType === 'file' && selectedFiles.length === 0) return
+    if (ingestType !== 'file' && !url) return
+    if (ingestOwnerTeamMissing) {
+      toast('Select an owning team for this data source', 'error')
+      return
+    }
+
+    try {
+      const response = ingestType === 'file'
+        ? await ingestLocalFile({
+            files: selectedFiles,
+            description,
+            owner_team_slug: ingestOwnerTeamSlug || undefined,
+            chunk_size: chunkSize,
+            chunk_overlap: chunkOverlap,
+          })
+        : await ingestUrl({
+            url,
+            description: description,
+            ingest_type: ingestType,
+            get_child_pages: ingestType === 'confluence' ? includeSubPages : undefined,
+            owner_team_slug: ingestOwnerTeamSlug || undefined,
+            // ScrapySettings for web ingest type
+            settings: ingestType === 'web' ? {
+              crawl_mode: crawlMode,
+              max_depth: maxDepth,
+              max_pages: maxPages,
+              render_javascript: renderJavascript,
+              wait_for_selector: waitForSelector || null,
+              download_delay: downloadDelay,
+              concurrent_requests: concurrentRequests,
+              respect_robots_txt: respectRobotsTxt,
+              follow_external_links: followExternalLinks,
+              allowed_url_patterns: allowedUrlPatterns ? allowedUrlPatterns.split('\n').filter(p => p.trim()) : null,
+              denied_url_patterns: deniedUrlPatterns ? deniedUrlPatterns.split('\n').filter(p => p.trim()) : null,
+              chunk_size: chunkSize,
+              chunk_overlap: chunkOverlap,
+            } : undefined,
+            // Per-datasource reload interval (null = use global default)
+            reload_interval: ingestType === 'web' ? reloadInterval : undefined,
+          })
+      const { datasource_id, job_id, message } = response
+      await fetchDataSources()
+      if (datasource_id) {
+        await fetchJobsForDataSource(datasource_id)
+        // Ownership tuples for the owning team are written server-side during
+        // ingest (spec 2026-06-03) â€” no client-side admin kb-assignment call.
+      }
+      setUrl('')
+      setSelectedFiles([])
+      setDescription('')
+      setIngestOwnerTeamSlug('')
+    } catch (error: any) {
+      console.error('Error ingesting data:', error)
+      toast(`Ingestion failed: ${error?.message || 'unknown error'}`, 'error')
+    }
+  }
+
+  const handleDeleteDataSource = async (datasourceId: string) => {
+    setIsDeletingDataSource(true)
+    try {
+      await deleteDataSource(datasourceId)
+      fetchDataSources()
+    } catch (error: any) {
+      console.error('Error deleting data source:', error)
+      toast(`Failed to delete data source: ${error?.message || 'unknown error'}`, 'error')
+    } finally {
+      setIsDeletingDataSource(false)
+      setShowDeleteDataSourceConfirm(null)
+    }
+  }
+
+  const handleDeleteIngestor = async (ingestorId: string) => {
+    try {
+      await deleteIngestor(ingestorId)
+      fetchIngestors()
+      toast('Ingestor deleted successfully', 'success')
+    } catch (error: any) {
+      console.error('Error deleting ingestor:', error)
+      toast(`Failed to delete ingestor: ${error?.message || 'unknown error'}`, 'error')
+    }
+    setShowDeleteIngestorConfirm(null)
+  }
+
+  const handleReloadDataSource = async (datasourceId: string) => {
+    setIsReIngesting(true)
+    setReIngestError(null)
+    try {
+      await reloadDataSource(datasourceId)
+      await fetchDataSources()
+      await fetchJobsForDataSource(datasourceId)
+    } catch (error: any) {
+      console.error('Error re-ingesting data source:', error)
+      setReIngestError(error?.message || 'unknown error')
+    } finally {
+      setIsReIngesting(false)
+      setShowReIngestConfirm(null)
+    }
+  }
+
+  const handleCleanupDataSource = async (datasourceId: string) => {
+    setIsCleaningUp(true)
+    try {
+      const result = await cleanupDataSource(datasourceId)
+      // Clear documents state since cleanup may have removed chunks
+      clearDocumentsState(datasourceId)
+      toast(result.message, 'success')
+    } catch (error: any) {
+      console.error('Error cleaning up data source:', error)
+      toast(`Cleanup failed: ${error?.message || 'unknown error'}`, 'error')
+    } finally {
+      setIsCleaningUp(false)
+      setShowCleanupConfirm(null)
+    }
+  }
+
+  const handleTerminateJob = async (datasourceId: string, jobId: string) => {
+    try {
+      await terminateJob(jobId)
+      await pollJob(datasourceId, jobId)
+      toast('Job termination requested...', 'info')
+    } catch (error: any) {
+      console.error('Error terminating job:', error)
+      toast(`Termination failed: ${error?.message || 'unknown error'}`, 'error')
+    }
+  }
+
+  return (
+    <div className="h-full flex flex-col bg-background overflow-hidden">
+      {/* Compact Header with Gradient and Stats */}
+      <div className="relative overflow-hidden border-b border-border shrink-0">
+        {/* Gradient Background */}
+        <div 
+          className="absolute inset-0" 
+          style={{
+            background: `linear-gradient(to bottom right, color-mix(in srgb, var(--gradient-from) 15%, transparent) 0%, color-mix(in srgb, var(--gradient-to) 8%, transparent) 50%, transparent 100%)`
+          }}
+        />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-primary/5 via-transparent to-transparent" />
+
+        <div className="relative px-6 py-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg gradient-primary-br shadow-md shadow-primary/20">
+                <Database className="h-5 w-5 text-white" />
+              </div>
+              <div>
+                <h1 className="text-lg font-bold gradient-text">Data Sources</h1>
+                <p className="text-muted-foreground text-xs">
+                  Ingest and manage your knowledge base sources
+                </p>
+              </div>
+            </div>
+
+            {/* Stats Row */}
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-card/50 border border-border/50">
+                <FileText className="h-4 w-4 text-primary" />
+                <span className="text-sm font-medium">{stats.totalDataSources}</span>
+                <span className="text-xs text-muted-foreground">Sources</span>
+              </div>
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-card/50 border border-border/50">
+                <Activity className={cn("h-4 w-4", stats.activeJobs > 0 ? "text-primary animate-pulse" : "text-muted-foreground")} />
+                <span className="text-sm font-medium">{stats.activeJobs}</span>
+                <span className="text-xs text-muted-foreground">Active</span>
+              </div>
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-card/50 border border-border/50">
+                <Server className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm font-medium">{stats.totalIngestors}</span>
+                <span className="text-xs text-muted-foreground">Ingestors</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Scrollable Content */}
+      <ScrollArea className="flex-1">
+        <div className="p-6 space-y-6">
+          {/* Ingest Section â€” hidden for users without INGEST permission */}
+          {canIngest && (
+          <motion.section 
+            className="bg-card rounded-xl shadow-sm border border-border p-5"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3 }}
+          >
+            <div className="flex items-center gap-2 mb-4">
+              <Plus className="h-5 w-5 text-primary" />
+              <h3 className="text-base font-semibold text-foreground">Ingest</h3>
+            </div>
+
+            {/* Ingest Type Selection - Pill Style */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-muted-foreground mb-2">
+                Source Type
+              </label>
+              <div className="flex gap-2 flex-wrap">
+                {Object.entries(ingestTypeConfigs).map(([type, config]) => {
+                  const isAvailable = isIngestTypeAvailable(type, ingestors)
+                  return (
+                    <Button
+                      key={type}
+                      onClick={() => isAvailable && setIngestType(type)}
+                      disabled={!isAvailable}
+                      variant={ingestType === type ? "default" : "outline"}
+                      size="sm"
+                      className={cn(
+                        "rounded-full transition-all",
+                        ingestType === type && "shadow-sm",
+                        !isAvailable && "opacity-50 cursor-not-allowed"
+                      )}
+                      title={!isAvailable ? `No ${config.requiredIngestorType} ingestor available` : `Ingest as ${config.label}`}
+                    >
+                      {config.icon && (
+                        <span className="mr-1">
+                          <IconRenderer icon={config.icon} className="w-3.5 h-3.5" />
+                        </span>
+                      )}
+                      {config.label}
+                    </Button>
+                  )
+                })}
+              </div>
+              {ingestors.length === 0 && !loadingIngestors && (
+                <p className="text-xs text-orange-400 mt-2 flex items-center gap-1">
+                  <AlertCircle className="h-3 w-3" />
+                  No ingestors detected. Please ensure ingestor services are running.
+                </p>
+              )}
+            </div>
+
+            {/* Source Input */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-muted-foreground mb-2">
+                {ingestType === 'file' ? 'Files' : ingestType === 'dataset' ? 'Benchmark dataset file (.jsonl)' : 'URL'}
+              </label>
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  {ingestType === 'file' ? (
+                    <>
+                      <FileText className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        type="file"
+                        accept=".md,.markdown,.pdf,.txt,text/markdown,text/plain,application/pdf"
+                        multiple
+                        onChange={(e) => setSelectedFiles(Array.from(e.target.files ?? []))}
+                        className="pl-10"
+                      />
+                      {selectedFiles.length > 0 && (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {selectedFiles.length === 1
+                            ? selectedFiles[0].name
+                            : `${selectedFiles.length} files selected: ${selectedFiles.map((file) => file.name).join(', ')}`}
+                        </p>
+                      )}
+                    </>
+                  ) : ingestType === 'dataset' ? (
+                    <>
+                      {/* Icon stays fixed on the left; the transparent native input
+                          overlays the styled display so clicking opens the picker
+                          while the selected file name shows in place. */}
+                      <FileText className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                      <div className="flex h-10 w-full items-center rounded-md border border-input bg-background pl-10 pr-3 text-sm">
+                        <span className={`truncate ${corpusFiles.length > 0 ? 'text-foreground' : 'text-muted-foreground'}`}>
+                          {corpusFiles.length === 0
+                            ? 'Choose .jsonl file(s)…'
+                            : corpusFiles.length === 1
+                              ? corpusFiles[0].name
+                              : `${corpusFiles.length} files selected`}
+                        </span>
+                      </div>
+                      <input
+                        ref={corpusInputRef}
+                        type="file"
+                        accept=".jsonl,.json,.csv,.txt,application/jsonl,application/json,text/csv,text/plain"
+                        multiple
+                        onChange={handleCorpusFileChange}
+                        className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                        aria-label="Benchmark corpus files"
+                      />
+                    </>
+                  ) : (
+                    <>
+                      <LinkIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        type="url"
+                        placeholder="https://docs.example.com"
+                        value={url}
+                        onChange={(e) => setUrl(e.target.value)}
+                        className="pl-10"
+                        onKeyDown={(e) => e.key === 'Enter' && handleIngest()}
+                      />
+                    </>
+                  )}
+                </div>
+                <Button
+                  onClick={handleIngest}
+                  disabled={
+                    (ingestType === 'file'
+                      ? selectedFiles.length === 0
+                      : ingestType === 'dataset'
+                        ? corpusFiles.length === 0
+                        : !url) ||
+                    !hasPermission(Permission.INGEST) ||
+                    ingestOwnerTeamMissing
+                  }
+                  title={
+                    !hasPermission(Permission.INGEST)
+                      ? 'Insufficient permissions to ingest data'
+                      : ingestOwnerTeamMissing
+                        ? 'Select an owning team for this data source'
+                        : ingestType === 'file'
+                          ? selectedFiles.length > 1
+                            ? `Ingest ${selectedFiles.length} files`
+                            : 'Ingest this file'
+                      : 'Ingest this URL'
+                  }
+                >
+                  Ingest
+                </Button>
+                {ingestType === 'dataset' && (
+                  <Button
+                    variant="outline"
+                    onClick={handleCorpusClear}
+                    disabled={corpusFiles.length === 0}
+                    title="Clear selected files"
+                  >
+                    Clear
+                  </Button>
+                )}
+              </div>
+
+              {/* Benchmark Corpus: format hint + JSONL preview (UI scaffolding) */}
+              {ingestType === 'dataset' && (
+                <p className="mt-2 ml-1 text-xs text-muted-foreground">
+                  Accepts a normalized <code>.jsonl</code> corpus (one document per line).
+                  {' '}For <code>.parquet</code> datasets (e.g. EnterpriseRAG-Bench), convert to JSONL first.
+                </p>
+              )}
+              {ingestType === 'dataset' && corpusPreview.length > 0 && (
+                <div className="mt-3">
+                  <p className="text-xs text-muted-foreground mb-1">
+                    Preview (first {corpusPreview.length} row{corpusPreview.length === 1 ? '' : 's'}):
+                  </p>
+                  <div className="rounded-lg border border-border/50 bg-muted/30 max-h-48 overflow-auto">
+                    <SyntaxHighlighter
+                      language="json"
+                      style={vscDarkPlus}
+                      customStyle={{ margin: 0, background: 'transparent', fontSize: '0.7rem' }}
+                    >
+                      {corpusPreview
+                        .map((line) => {
+                          try { return JSON.stringify(JSON.parse(line), null, 2) }
+                          catch { return line }
+                        })
+                        .join('\n---\n')}
+                    </SyntaxHighlighter>
+                  </div>
+                </div>
+              )}
+
+              {/* Owning team (spec 2026-06-03). Required for non-org-admins;
+                  the new data source is created owned by this team and its
+                  members get read/ingest. Org admins may leave it as "None"
+                  to create a personal/admin-owned source. */}
+              {(availableTeams.length > 0 || ingestOwnerTeamRequired) && (
+                <div className="flex items-center gap-2 mt-2 ml-1">
+                  <Users className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <span className="shrink-0 text-sm text-muted-foreground">
+                    Owning team{ingestOwnerTeamRequired ? ' *' : ''}:
+                  </span>
+                  <div className="w-64 max-w-full">
+                    <TeamPicker
+                      value={ingestOwnerTeamSlug}
+                      onChange={setIngestOwnerTeamSlug}
+                      options={availableTeams.map((t) => ({
+                        slug: t.slug,
+                        name: t.name,
+                        _id: t._id,
+                      }))}
+                      ariaLabel="Owning team"
+                      ariaInvalid={ingestOwnerTeamMissing}
+                      placeholder={ingestOwnerTeamRequired ? 'Select a teamâ€¦' : 'None (personal)'}
+                      searchPlaceholder="Search your teams..."
+                      emptyLabel={
+                        availableTeams.length === 0
+                          ? 'No teams available'
+                          : 'No teams match'
+                      }
+                      disabled={availableTeams.length === 0}
+                    />
+                  </div>
+                  {ingestOwnerTeamRequired && availableTeams.length === 0 && (
+                    <span className="text-xs text-amber-600 dark:text-amber-400">
+                      No team grants you data-source authoring â€” ask an admin.
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {/* Quick options - Crawl Mode for web */}
+              {ingestType === 'web' && (
+                <div className="flex items-center gap-4 mt-2 ml-1">
+                  <span className="text-sm text-muted-foreground">Crawl mode:</span>
+                  <div className="flex gap-2">
+                    {[
+                      { value: 'single', label: 'Single Page' },
+                      { value: 'sitemap', label: 'Sitemap' },
+                      { value: 'recursive', label: 'Follow Links' },
+                    ].map((mode) => (
+                      <button
+                        key={mode.value}
+                        onClick={() => {
+                          setCrawlMode(mode.value as 'single' | 'sitemap' | 'recursive')
+                          // Auto-enable follow_external_links for sitemap mode since sitemaps
+                          // often contain URLs pointing to a canonical domain
+                          setFollowExternalLinks(mode.value === 'sitemap')
+                        }}
+                        className={`px-3 py-1 text-xs rounded-full transition-colors ${
+                          crawlMode === mode.value
+                            ? 'bg-primary text-primary-foreground'
+                            : 'bg-muted text-muted-foreground hover:bg-muted/80'
+                        }`}
+                      >
+                        {mode.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {ingestType === 'confluence' && (
+                <label className="flex items-center gap-2 mt-2 ml-1 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={includeSubPages}
+                    onChange={(e) => setIncludeSubPages(e.target.checked)}
+                    className="rounded border-border text-primary focus:ring-primary h-4 w-4"
+                  />
+                  <span className="text-sm text-muted-foreground">Include child pages</span>
+                </label>
+              )}
+
+              {/* Description - outside advanced options */}
+              <div className="mt-3">
+                <Input
+                  placeholder="Description (optional) - helps agents understand this source"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  className="w-full"
+                />
+              </div>
+            </div>
+
+            {/* Advanced Options - Animated Collapsible */}
+            <div>
+              <button
+                onClick={() => setShowAdvancedOptions(!showAdvancedOptions)}
+                className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <Settings className="h-4 w-4" />
+                <span>Advanced Options</span>
+                <motion.div
+                  animate={{ rotate: showAdvancedOptions ? 180 : 0 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  <ChevronDown className="h-4 w-4" />
+                </motion.div>
+              </button>
+
+              <AnimatePresence>
+                {showAdvancedOptions && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: "auto", opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.2 }}
+                    className="overflow-hidden"
+                  >
+                    <div className="mt-4 p-4 rounded-lg bg-muted/50 border border-border/50 space-y-4">
+                      {/* Web-specific Scrapy settings */}
+                      {ingestType === 'web' && (
+                        <>
+                          {/* Crawl Limits */}
+                          <div className="grid grid-cols-2 gap-4">
+                            <div>
+                              <label className="block text-sm font-medium text-muted-foreground mb-1">
+                                Max Pages
+                              </label>
+                              <Input
+                                type="number"
+                                min={1}
+                                max={10000}
+                                value={maxPages}
+                                onChange={(e) => setMaxPages(Number(e.target.value))}
+                                className="w-full"
+                              />
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                Maximum pages to crawl
+                              </p>
+                            </div>
+                            {crawlMode === 'recursive' && (
+                              <div>
+                                <label className="block text-sm font-medium text-muted-foreground mb-1">
+                                  Max Depth
+                                </label>
+                                <Input
+                                  type="number"
+                                  min={1}
+                                  max={10}
+                                  value={maxDepth}
+                                  onChange={(e) => setMaxDepth(Number(e.target.value))}
+                                  className="w-full"
+                                />
+                                <p className="mt-1 text-xs text-muted-foreground">
+                                  How deep to follow links (1-10)
+                                </p>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* JavaScript Rendering */}
+                          <div className="space-y-2">
+                            <label className="flex items-center gap-2 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={renderJavascript}
+                                onChange={(e) => setRenderJavascript(e.target.checked)}
+                                className="rounded border-border text-primary focus:ring-primary h-4 w-4"
+                              />
+                              <span className="text-sm font-medium text-muted-foreground">
+                                Render JavaScript (slower, for SPAs)
+                              </span>
+                            </label>
+                            {renderJavascript && (
+                              <div className="ml-6">
+                                <label className="block text-sm font-medium text-muted-foreground mb-1">
+                                  Wait for selector (optional)
+                                </label>
+                                <Input
+                                  type="text"
+                                  placeholder="e.g. .content-loaded, #main-content"
+                                  value={waitForSelector}
+                                  onChange={(e) => setWaitForSelector(e.target.value)}
+                                  className="w-full"
+                                />
+                                <p className="mt-1 text-xs text-muted-foreground">
+                                  CSS selector to wait for before extracting content
+                                </p>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Rate Limiting */}
+                          <div className="grid grid-cols-2 gap-4">
+                            <div>
+                              <label className="block text-sm font-medium text-muted-foreground mb-1">
+                                Download Delay (seconds)
+                              </label>
+                              <Input
+                                type="number"
+                                min={0}
+                                max={10}
+                                step={0.1}
+                                value={downloadDelay}
+                                onChange={(e) => setDownloadDelay(Number(e.target.value))}
+                                className="w-full"
+                              />
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                Delay between requests to avoid rate limiting
+                              </p>
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium text-muted-foreground mb-1">
+                                Concurrent Requests
+                              </label>
+                              <Input
+                                type="number"
+                                min={1}
+                                max={50}
+                                value={concurrentRequests}
+                                onChange={(e) => setConcurrentRequests(Number(e.target.value))}
+                                className="w-full"
+                              />
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                Number of parallel requests (1-50)
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* Crawl Behavior */}
+                          <div className="space-y-2">
+                            <label className="flex items-center gap-2 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={respectRobotsTxt}
+                                onChange={(e) => setRespectRobotsTxt(e.target.checked)}
+                                className="rounded border-border text-primary focus:ring-primary h-4 w-4"
+                              />
+                              <span className="text-sm text-muted-foreground">
+                                Respect robots.txt
+                              </span>
+                            </label>
+                            {(crawlMode === 'recursive' || crawlMode === 'sitemap') && (
+                              <label className="flex items-center gap-2 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={followExternalLinks}
+                                  onChange={(e) => setFollowExternalLinks(e.target.checked)}
+                                  className="rounded border-border text-primary focus:ring-primary h-4 w-4"
+                                />
+                                <span className="text-sm text-muted-foreground">
+                                  Follow external links
+                                </span>
+                              </label>
+                            )}
+                          </div>
+
+                          {/* URL Patterns */}
+                          {crawlMode === 'recursive' && (
+                            <div className="space-y-3">
+                              {/* Restrict to this page button */}
+                              {url && (
+                                <div className="flex items-center gap-2">
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => {
+                                      try {
+                                        const parsed = new URL(url)
+                                        // Build regex: escape special chars, match base path
+                                        const baseUrl = `${parsed.origin}${parsed.pathname}`
+                                        const escapedPattern = `^${baseUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`
+                                        setAllowedUrlPatterns(escapedPattern)
+                                      } catch (e) {
+                                        // Invalid URL, ignore
+                                      }
+                                    }}
+                                    className="text-xs"
+                                  >
+                                    <LinkIcon className="h-3 w-3 mr-1" />
+                                    Restrict to this page
+                                  </Button>
+                                  <span className="text-xs text-muted-foreground">
+                                    Auto-generate pattern to only crawl tabs/sections of this page
+                                  </span>
+                                </div>
+                              )}
+                              
+                              <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                  <label className="block text-sm font-medium text-muted-foreground mb-1">
+                                    Allowed URL Patterns
+                                  </label>
+                                  <textarea
+                                    placeholder="Regex patterns (one per line)&#10;e.g. /docs/.*&#10;/api/.*"
+                                    value={allowedUrlPatterns}
+                                    onChange={(e) => setAllowedUrlPatterns(e.target.value)}
+                                    className="w-full px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent bg-background text-foreground text-xs font-mono resize-none"
+                                    rows={3}
+                                  />
+                                  <p className="mt-1 text-xs text-muted-foreground">
+                                    Only crawl URLs matching these regex patterns. Use single backslash to escape: <code className="bg-muted px-1 rounded">Badge\?section=</code>
+                                  </p>
+                                </div>
+                                <div>
+                                  <label className="block text-sm font-medium text-muted-foreground mb-1">
+                                    Denied URL Patterns
+                                  </label>
+                                  <textarea
+                                    placeholder="Regex patterns (one per line)&#10;e.g. /blog/.*&#10;\.pdf$"
+                                    value={deniedUrlPatterns}
+                                    onChange={(e) => setDeniedUrlPatterns(e.target.value)}
+                                    className="w-full px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent bg-background text-foreground text-xs font-mono resize-none"
+                                    rows={3}
+                                  />
+                                  <p className="mt-1 text-xs text-muted-foreground">
+                                    Skip URLs matching these regex patterns. Use single backslash to escape: <code className="bg-muted px-1 rounded">\.(pdf|zip)$</code>
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Separator before Chunk Settings */}
+                          <hr className="border-border/50" />
+
+                          {/* Chunk Settings */}
+                          <div className="grid grid-cols-2 gap-4">
+                            <div>
+                              <label className="block text-sm font-medium text-muted-foreground mb-1">
+                                Chunk Size
+                              </label>
+                              <Input
+                                type="number"
+                                min={100}
+                                max={100000}
+                                step={500}
+                                value={chunkSize}
+                                onChange={(e) => setChunkSize(Number(e.target.value))}
+                                className="w-full"
+                              />
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                Max characters per chunk (default: 10000)
+                              </p>
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium text-muted-foreground mb-1">
+                                Chunk Overlap
+                              </label>
+                              <Input
+                                type="number"
+                                min={0}
+                                max={10000}
+                                step={100}
+                                value={chunkOverlap}
+                                onChange={(e) => setChunkOverlap(Number(e.target.value))}
+                                className="w-full"
+                              />
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                Overlap between chunks (default: 2000)
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* Separator before Auto-Reload Settings */}
+                          <hr className="border-border/50" />
+
+                          {/* Auto-Reload Settings */}
+                          <div>
+                            <label className="block text-sm font-medium text-muted-foreground mb-1">
+                              Auto-Reload Interval
+                            </label>
+                            <select
+                              value={isCustomReloadInterval ? 'custom' : reloadInterval}
+                              onChange={(e) => {
+                                const value = e.target.value
+                                if (value === 'custom') {
+                                  setReloadInterval(3600) // Default custom to 1h
+                                  setIsCustomReloadInterval(true)
+                                } else {
+                                  setReloadInterval(Number(value))
+                                  setIsCustomReloadInterval(false)
+                                }
+                              }}
+                              className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                            >
+                              <option value="3600">Every 1 hour</option>
+                              <option value="21600">Every 6 hours</option>
+                              <option value="86400">Every 24 hours</option>
+                              <option value="259200">Every 3 days</option>
+                              <option value="604800">Every 7 days</option>
+                              <option value="custom">Custom...</option>
+                            </select>
+                            {isCustomReloadInterval && (
+                              <div className="mt-2">
+                                <Input
+                                  type="number"
+                                  min={60}
+                                  step={60}
+                                  value={reloadInterval}
+                                  onChange={(e) => setReloadInterval(Math.max(60, Number(e.target.value)))}
+                                  className="w-full"
+                                  placeholder="Interval in seconds (min: 60)"
+                                />
+                                <p className="mt-1 text-xs text-muted-foreground">
+                                  Custom interval in seconds (minimum: 60)
+                                </p>
+                              </div>
+                            )}
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              How often this data source should be automatically refreshed
+                            </p>
+                          </div>
+                        </>
+                      )}
+                      {ingestType === 'file' && (
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-sm font-medium text-muted-foreground mb-1">
+                              Chunk Size
+                            </label>
+                            <Input
+                              type="number"
+                              min={100}
+                              max={100000}
+                              step={500}
+                              value={chunkSize}
+                              onChange={(e) => setChunkSize(Number(e.target.value))}
+                              className="w-full"
+                            />
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              Max characters per chunk
+                            </p>
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-muted-foreground mb-1">
+                              Chunk Overlap
+                            </label>
+                            <Input
+                              type="number"
+                              min={0}
+                              max={10000}
+                              step={100}
+                              value={chunkOverlap}
+                              onChange={(e) => setChunkOverlap(Number(e.target.value))}
+                              className="w-full"
+                            />
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              Overlap between chunks
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          </motion.section>
+          )}
+
+          {/* Data Sources Section */}
+          <motion.section 
+            className="bg-card rounded-xl shadow-sm border border-border"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3, delay: 0.1 }}
+          >
+            {/* Section Header */}
+            <div className="px-5 py-4 border-b border-border flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <h3 className="text-base font-semibold text-foreground">Data Sources</h3>
+                <button
+                  onClick={() => setShowHelp(true)}
+                  className="p-1 rounded-full hover:bg-muted/50 text-muted-foreground hover:text-foreground transition-colors"
+                  title="Learn about Ingestors, Datasources, and Documents"
+                >
+                  <HelpCircle className="h-4 w-4" />
+                </button>
+                <Badge variant="secondary" className="text-xs">
+                  {filteredDataSources.length} {selectedSourceType !== 'all' || searchQuery ? `of ${dataSources.length}` : ''}
+                </Badge>
+              </div>
+              
+              {/* Search Input and Refresh Button - Right Aligned */}
+              <div className="flex items-center gap-2">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    type="text"
+                    placeholder="Search data sources..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-9 pr-8 h-9 w-64"
+                  />
+                  {searchQuery && (
+                    <button
+                      onClick={() => setSearchQuery('')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-full hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => fetchDataSources(true)}
+                  disabled={loadingDataSources || refreshingDataSources}
+                  className="gap-2"
+                >
+                  <RefreshCw className={cn("h-4 w-4", refreshingDataSources && "animate-spin")} />
+                  {refreshingDataSources ? 'Refreshing...' : 'Refresh'}
+                </Button>
+              </div>
+            </div>
+
+            {/* Filter Pills */}
+            {sourceTypes.length > 0 && (
+              <div className="px-5 py-3 border-b border-border/50 flex flex-wrap gap-2">
+                <Button
+                  variant={selectedSourceType === 'all' ? "default" : "ghost"}
+                  size="sm"
+                  onClick={() => setSelectedSourceType('all')}
+                  className="rounded-full h-7 text-xs"
+                >
+                  All ({dataSources.length})
+                </Button>
+                {sourceTypes.map(type => {
+                  const count = dataSources.filter(ds => ds.source_type === type).length
+                  const icon = getIconForType(type)
+                  return (
+                    <Button
+                      key={type}
+                      variant={selectedSourceType === type ? "default" : "ghost"}
+                      size="sm"
+                      onClick={() => setSelectedSourceType(type)}
+                      className="rounded-full h-7 text-xs gap-1.5"
+                    >
+                      {icon && <IconRenderer icon={icon} className="w-3.5 h-3.5" />}
+                      {type} ({count})
+                    </Button>
+                  )
+                })}
+              </div>
+            )}
+
+            {/* Data Sources List */}
+            <div className="p-5">
+              {loadingDataSources && dataSources.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+                  <Loader2 className="h-8 w-8 animate-spin mb-3" />
+                  <p>Loading data sources...</p>
+                </div>
+              ) : dataSources.length === 0 ? (
+                // Empty State
+                <motion.div 
+                  className="flex flex-col items-center justify-center py-12 text-center"
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                >
+                  <div className="p-4 rounded-2xl gradient-primary-br shadow-lg shadow-primary/20 mb-4">
+                    <Database className="h-8 w-8 text-white" />
+                  </div>
+                  <h3 className="text-lg font-semibold mb-2">No data sources yet</h3>
+                  <p className="text-muted-foreground text-sm max-w-sm mb-4">
+                    Ingest a URL above to start building your knowledge base
+                  </p>
+                </motion.div>
+              ) : filteredDataSources.length === 0 ? (
+                <p className="text-muted-foreground text-center py-8">
+                  No data sources found for type: {selectedSourceType}
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  <div>
+                    {paginatedDataSources.map((ds, index) => {
+                      const isExpanded = expandedRows.has(ds.datasource_id)
+                      const jobs = dataSourceJobs[ds.datasource_id] || []
+                      const latestJob = jobs[0]
+                      const hasActiveJob = latestJob && (latestJob.status === 'in_progress' || latestJob.status === 'pending')
+                      const isWebloaderDatasource = ds.ingestor_id === WEBLOADER_INGESTOR_ID
+                      const isConfluenceDatasource = ds.ingestor_id === CONFLUENCE_INGESTOR_ID
+                      const isJiraDatasource = ds.ingestor_id === JIRA_INGESTOR_ID
+                      const supportsReload = isWebloaderDatasource || isConfluenceDatasource
+                      const isConfigDriven = isJiraDatasource
+                      const icon = getIconForType(ds.source_type)
+                      
+                      // Get reload interval (first-class field or default)
+                      const dsReloadInterval = ds.reload_interval ?? DEFAULT_RELOAD_INTERVAL
+                      const hasReloadInterval = ds.reload_interval !== undefined && ds.reload_interval !== null
+                      const isOverdue = isRefreshOverdue(ds.last_updated, dsReloadInterval)
+                      
+                      // Find latest completed job for metrics display
+                      const completedJob = jobs.find(j => j.status === 'completed' || j.status === 'completed_with_errors')
+                      const hasMetrics = completedJob && ((completedJob.document_count ?? 0) > 0 || (completedJob.chunk_count ?? 0) > 0)
+
+                      return (
+                        <motion.div
+                          key={ds.datasource_id}
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: index * 0.03 }}
+                          className={cn(
+                            "border border-border rounded-lg overflow-hidden transition-all duration-200",
+                            isExpanded ? "ring-1 ring-primary/20 shadow-sm" : "hover:border-border/80"
+                          )}
+                        >
+                          {/* Row Header */}
+                          <div 
+                            className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-muted/30 transition-colors"
+                            onClick={() => toggleRow(ds.datasource_id)}
+                          >
+                            <motion.div
+                              animate={{ rotate: isExpanded ? 90 : 0 }}
+                              transition={{ duration: 0.2 }}
+                            >
+                              <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                            </motion.div>
+                            
+                            {icon && <IconRenderer icon={icon} className="w-5 h-5" />}
+                            
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                {renamingDsId === ds.datasource_id ? (
+                                  <div className="flex items-center gap-1 max-w-md flex-1" onClick={(e) => e.stopPropagation()}>
+                                    <Input
+                                      autoFocus
+                                      value={renameDraft}
+                                      onChange={(e) => setRenameDraft(e.target.value)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === "Enter") { e.preventDefault(); void commitRename(ds.datasource_id); }
+                                        else if (e.key === "Escape") { e.preventDefault(); cancelRename(); }
+                                      }}
+                                      disabled={renameSaving}
+                                      maxLength={120}
+                                      className="h-7 text-sm"
+                                      placeholder="Display name"
+                                    />
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="h-7 w-7 p-0"
+                                      disabled={renameSaving || !renameDraft.trim()}
+                                      onClick={() => void commitRename(ds.datasource_id)}
+                                      title="Save name (Enter)"
+                                    >
+                                      <Check className="h-3.5 w-3.5" />
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="h-7 w-7 p-0"
+                                      disabled={renameSaving}
+                                      onClick={cancelRename}
+                                      title="Cancel (Esc)"
+                                    >
+                                      <X className="h-3.5 w-3.5" />
+                                    </Button>
+                                  </div>
+                                ) : (
+                                  <>
+                                    <span
+                                      className="font-medium text-sm truncate max-w-md"
+                                      title={ds.name ? `${ds.name}\n${ds.datasource_id}` : ds.datasource_id}
+                                    >
+                                      {ds.name || (ds.datasource_id.length > 60 ? `${ds.datasource_id.substring(0, 60)}\u2026` : ds.datasource_id)}
+                                    </span>
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="h-6 w-6 p-0 opacity-50 hover:opacity-100 shrink-0"
+                                      onClick={(e) => { e.stopPropagation(); beginRename(ds); }}
+                                      title="Rename data source"
+                                    >
+                                      <Pencil className="h-3 w-3" />
+                                    </Button>
+                                  </>
+                                )}
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-5 w-5 p-0 text-muted-foreground hover:text-foreground shrink-0"
+                                  title="Ownership & sharing"
+                                  onClick={(e) => { e.stopPropagation(); setSharingDatasource(ds); }}
+                                >
+                                  <Users className="h-3.5 w-3.5" />
+                                </Button>
+                                <Badge variant="secondary" className="text-[10px] shrink-0">
+                                  {ds.source_type}
+                                </Badge>
+                              </div>
+                              <div className="flex items-center gap-3 text-xs text-muted-foreground mt-0.5">
+                                {ds.name && (
+                                  <>
+                                    <span
+                                      className="font-mono text-[10px] truncate max-w-[18rem]"
+                                      title={ds.datasource_id}
+                                    >
+                                      {ds.datasource_id}
+                                    </span>
+                                    <span className="text-border">|</span>
+                                  </>
+                                )}
+                                <span>Updated {formatRelativeTime(ds.last_updated)}</span>
+                                {hasReloadInterval && (
+                                  <>
+                                    <span className="text-border">|</span>
+                                    <span className={isOverdue ? "text-amber-500" : ""}>
+                                      {formatNextReload(ds.last_updated, dsReloadInterval)}
+                                    </span>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-3 shrink-0">
+                              {/* Metrics from latest completed job */}
+                              {hasMetrics && (
+                                <span className="text-xs text-muted-foreground">
+                                  {completedJob.document_count} documents, {completedJob.chunk_count} chunks
+                                </span>
+                              )}
+                              
+                              {latestJob ? (
+                                <StatusBadge status={latestJob.status} />
+                              ) : (
+                                <span className="text-xs text-muted-foreground">No jobs</span>
+                              )}
+
+                              {(canIngest || canDelete) && (
+                              <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
+                                {canIngest && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => setShowReIngestConfirm(ds.datasource_id)}
+                                  disabled={hasActiveJob || !supportsReload || isConfigDriven || !hasPermission(Permission.INGEST)}
+                                  className="h-7 w-7 p-0"
+                                  title={!hasPermission(Permission.INGEST) ? 'Insufficient permissions' : isConfigDriven ? 'Managed by ingestor config' : !supportsReload ? 'Re-ingest not supported' : hasActiveJob ? 'Job in progress' : 'Re-ingest'}
+                                >
+                                  <RotateCcw className="h-3.5 w-3.5" />
+                                </Button>
+                                )}
+                                {canDelete && (
+                                <>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => setShowCleanupConfirm(ds.datasource_id)}
+                                  disabled={hasActiveJob || !hasPermission(Permission.DELETE)}
+                                  className="h-7 w-7 p-0 hover:bg-amber-500/10 hover:text-amber-500"
+                                  title={!hasPermission(Permission.DELETE) ? 'Insufficient permissions' : hasActiveJob ? 'Job in progress' : 'Cleanup stale data'}
+                                >
+                                  <Eraser className="h-3.5 w-3.5" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => setShowDeleteDataSourceConfirm(ds.datasource_id)}
+                                  disabled={hasActiveJob || isConfigDriven || !hasPermission(Permission.DELETE)}
+                                  className="h-7 w-7 p-0 hover:bg-destructive/10 hover:text-destructive"
+                                  title={!hasPermission(Permission.DELETE) ? 'Insufficient permissions' : isConfigDriven ? 'Managed by ingestor config' : hasActiveJob ? 'Job in progress' : 'Delete'}
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                                </>
+                                )}
+                              </div>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Expanded Content */}
+                          <AnimatePresence>
+                            {isExpanded && (
+                              <motion.div
+                                initial={{ height: 0, opacity: 0 }}
+                                animate={{ height: "auto", opacity: 1 }}
+                                exit={{ height: 0, opacity: 0 }}
+                                transition={{ duration: 0.15 }}
+                                className="overflow-hidden"
+                              >
+                                <div className="px-4 py-4 bg-muted/20 border-t border-border space-y-4">
+                                  {/* Metadata Grid */}
+                                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                                    <div>
+                                      <p className="text-xs font-medium text-muted-foreground mb-1">Datasource ID</p>
+                                      <p className="font-mono text-xs text-foreground break-all">{ds.datasource_id}</p>
+                                    </div>
+                                    <div>
+                                      <p className="text-xs font-medium text-muted-foreground mb-1">Ingestor ID</p>
+                                      <p className="font-mono text-xs text-foreground break-all">{ds.ingestor_id}</p>
+                                    </div>
+                                    <div>
+                                      <p className="text-xs font-medium text-muted-foreground mb-1">Chunk Size</p>
+                                      <p className="text-foreground">{ds.default_chunk_size}</p>
+                                    </div>
+                                    <div>
+                                      <p className="text-xs font-medium text-muted-foreground mb-1">Chunk Overlap</p>
+                                      <p className="text-foreground">{ds.default_chunk_overlap}</p>
+                                    </div>
+                                    <div>
+                                      <p className="text-xs font-medium text-muted-foreground mb-1">Reload Interval</p>
+                                      <p className="text-foreground">
+                                        {(() => {
+                                          const interval = ds.reload_interval ?? DEFAULT_RELOAD_INTERVAL
+                                          if (interval >= 86400) return `${Math.round(interval / 86400)}d`
+                                          if (interval >= 3600) return `${Math.round(interval / 3600)}h`
+                                          return `${interval}s`
+                                        })()}
+                                      </p>
+                                    </div>
+                                  </div>
+
+                                  {ds.description && (
+                                    <div>
+                                      <p className="text-xs font-medium text-muted-foreground mb-1">Description</p>
+                                      <p className="text-sm text-foreground bg-muted/50 p-3 rounded-lg">{ds.description}</p>
+                                    </div>
+                                  )}
+
+                                  {ds.metadata && Object.keys(ds.metadata).length > 0 && (
+                                    <details className="rounded-lg bg-muted/50 border border-border/50">
+                                      <summary className="cursor-pointer text-xs font-medium text-foreground px-3 py-2 hover:bg-muted/50">
+                                        Metadata ({Object.keys(ds.metadata).length} fields)
+                                      </summary>
+                                      <div className="px-3 pb-3">
+                                        <SyntaxHighlighter
+                                          language="json"
+                                          style={vscDarkPlus}
+                                          customStyle={{
+                                            margin: 0,
+                                            borderRadius: '0.5rem',
+                                            fontSize: '0.75rem',
+                                            maxHeight: '300px'
+                                          }}
+                                        >
+                                          {JSON.stringify(ds.metadata, null, 2)}
+                                        </SyntaxHighlighter>
+                                      </div>
+                                    </details>
+                                  )}
+
+                                  {/* Jobs Section - Collapsible */}
+                                  {jobs.length > 0 && (
+                                    <div className="border-t border-border/50 pt-4">
+                                      <button
+                                        onClick={(e) => { e.stopPropagation(); toggleJobsSection(ds.datasource_id); }}
+                                        className="flex items-center gap-2 text-sm font-medium text-foreground hover:text-primary transition-colors w-full text-left"
+                                      >
+                                        <motion.div
+                                          animate={{ rotate: expandedJobsSections.has(ds.datasource_id) ? 90 : 0 }}
+                                          transition={{ duration: 0.1 }}
+                                          className="shrink-0"
+                                        >
+                                          <ChevronRight className="h-4 w-4" />
+                                        </motion.div>
+                                        <Activity className="h-4 w-4 shrink-0" />
+                                        <span className="shrink-0">Ingestion Jobs</span>
+                                        <Badge variant="secondary" className="text-[10px] shrink-0">
+                                          {jobs.length} total
+                                        </Badge>
+                                        {/* Show latest job status when collapsed */}
+                                        {!expandedJobsSections.has(ds.datasource_id) && jobs[0] && (
+                                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                                            <span className="text-muted-foreground shrink-0">â€¢</span>
+                                            <StatusBadge status={jobs[0].status} />
+                                            <span className="text-xs text-muted-foreground truncate">
+                                              {jobs[0].message}
+                                            </span>
+                                          </div>
+                                        )}
+                                      </button>
+
+                                      <AnimatePresence>
+                                        {expandedJobsSections.has(ds.datasource_id) && (
+                                          <motion.div
+                                            initial={{ height: 0, opacity: 0 }}
+                                            animate={{ height: "auto", opacity: 1 }}
+                                            exit={{ height: 0, opacity: 0 }}
+                                            transition={{ duration: 0.15 }}
+                                            className="overflow-hidden"
+                                          >
+                                            <div className="mt-3 space-y-2">
+                                              {jobs.map((job) => {
+                                                const isJobExpanded = expandedJobs.has(job.job_id)
+                                                const isJobActive = job.status === 'in_progress' || job.status === 'pending'
+                                                const jobTotal = job.total ?? 0
+                                                const progress = (jobTotal > 0 && job.progress_counter >= 0)
+                                                  ? Math.min(100, (job.progress_counter / jobTotal) * 100)
+                                                  : 0
+
+                                                return (
+                                                  <div
+                                                    key={job.job_id}
+                                                    className="border border-border rounded-lg bg-card overflow-hidden"
+                                                  >
+                                                    <div 
+                                                      className="p-3 cursor-pointer hover:bg-muted/30 transition-colors"
+                                                      onClick={(e) => { e.stopPropagation(); toggleJob(job.job_id); }}
+                                                    >
+                                                      <div className="flex items-center justify-between gap-2">
+                                                        <div className="flex-1 min-w-0">
+                                                          <div className="flex items-center gap-2">
+                                                            <motion.div
+                                                              animate={{ rotate: isJobExpanded ? 90 : 0 }}
+                                                              transition={{ duration: 0.2 }}
+                                                            >
+                                                              <ChevronRight className="h-3 w-3 text-muted-foreground" />
+                                                            </motion.div>
+                                                            <span className="font-mono text-xs text-muted-foreground truncate">
+                                                              {job.job_id}
+                                                            </span>
+                                                            <StatusBadge status={job.status} />
+                                                          </div>
+
+                                                          {isJobActive && jobTotal > 0 && (
+                                                            <ProgressBar 
+                                                              progress={progress} 
+                                                              total={jobTotal} 
+                                                              current={job.progress_counter} 
+                                                            />
+                                                          )}
+
+                                                          {!isJobExpanded && (
+                                                            <p className="text-xs text-muted-foreground mt-1 line-clamp-1">
+                                                              {job.message}
+                                                            </p>
+                                                          )}
+                                                        </div>
+
+                                                        {isJobActive && (
+                                                          <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            onClick={(e) => { e.stopPropagation(); handleTerminateJob(ds.datasource_id, job.job_id); }}
+                                                            disabled={!hasPermission(Permission.INGEST)}
+                                                            className="h-7 px-2 hover:bg-destructive/10 hover:text-destructive"
+                                                          >
+                                                            <StopCircle className="h-3.5 w-3.5 mr-1" />
+                                                            Stop
+                                                          </Button>
+                                                        )}
+                                                      </div>
+                                                    </div>
+
+                                                    <AnimatePresence>
+                                                      {isJobExpanded && (
+                                                        <motion.div
+                                                          initial={{ height: 0, opacity: 0 }}
+                                                          animate={{ height: "auto", opacity: 1 }}
+                                                          exit={{ height: 0, opacity: 0 }}
+                                                          transition={{ duration: 0.15 }}
+                                                          className="overflow-hidden"
+                                                        >
+                                                          <div className="px-3 pb-3 pt-2 border-t border-border space-y-2" onClick={(e) => e.stopPropagation()}>
+                                                            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                                                              <div>
+                                                                <span className="font-medium text-muted-foreground">Created:</span>
+                                                                <p className="text-foreground">
+                                                                  {new Date(job.created_at * 1000).toLocaleString()}
+                                                                  <span className="text-muted-foreground ml-1">({formatRelativeTime(job.created_at)})</span>
+                                                                </p>
+                                                              </div>
+                                                              {job.completed_at && (
+                                                                <div>
+                                                                  <span className="font-medium text-muted-foreground">Completed:</span>
+                                                                  <p className="text-foreground">
+                                                                    {new Date(job.completed_at * 1000).toLocaleString()}
+                                                                    <span className="text-muted-foreground ml-1">({formatRelativeTime(job.completed_at)})</span>
+                                                                  </p>
+                                                                </div>
+                                                              )}
+                                                              <div>
+                                                                <span className="font-medium text-muted-foreground">Processed:</span>
+                                                                <p className="text-foreground">{job.progress_counter}</p>
+                                                              </div>
+                                                              <div>
+                                                                <span className="font-medium text-muted-foreground">Failed:</span>
+                                                                <p className={job.failed_counter > 0 ? "text-destructive" : "text-foreground"}>
+                                                                  {job.failed_counter}
+                                                                </p>
+                                                              </div>
+                                                              <div>
+                                                                <span className="font-medium text-muted-foreground">Documents:</span>
+                                                                <p className="text-foreground">{job.document_count ?? 0}</p>
+                                                              </div>
+                                                              <div>
+                                                                <span className="font-medium text-muted-foreground">Chunks:</span>
+                                                                <p className="text-foreground">{job.chunk_count ?? 0}</p>
+                                                              </div>
+                                                            </div>
+                                                            
+                                                            <div className="text-xs">
+                                                              <span className="font-medium text-muted-foreground">Status:</span>
+                                                              <div className={cn(
+                                                                "mt-1 px-3 py-2 rounded-md font-mono text-xs",
+                                                                isJobActive 
+                                                                  ? "bg-zinc-900 text-green-400 border border-zinc-700" 
+                                                                  : "bg-muted/50 text-foreground"
+                                                              )}>
+                                                                {job.message}
+                                                                {isJobActive && (
+                                                                  <span className="inline-flex ml-1">
+                                                                    <span className="animate-[pulse_1s_ease-in-out_infinite]">.</span>
+                                                                    <span className="animate-[pulse_1s_ease-in-out_0.2s_infinite]">.</span>
+                                                                    <span className="animate-[pulse_1s_ease-in-out_0.4s_infinite]">.</span>
+                                                                  </span>
+                                                                )}
+                                                              </div>
+                                                            </div>
+
+                                                            {job.error_msgs && job.error_msgs.length > 0 && (
+                                                              <details className="rounded-md bg-zinc-900 border border-zinc-700 overflow-hidden">
+                                                                <summary className="cursor-pointer text-xs font-mono px-3 py-1.5 hover:bg-zinc-800 flex items-center gap-2 text-zinc-400">
+                                                                  <span className="text-red-400">âœ—</span>
+                                                                  <span className="text-red-400">{job.error_msgs.length}</span> error{job.error_msgs.length !== 1 ? 's' : ''}
+                                                                </summary>
+                                                                <div className="px-3 pb-2 pt-1 max-h-48 overflow-y-auto font-mono text-xs space-y-0.5 border-t border-zinc-800">
+                                                                  {job.error_msgs.map((error: string, index: number) => (
+                                                                    <div key={index} className="text-red-400/90 py-0.5 flex">
+                                                                      <span className="text-zinc-600 mr-2 select-none">â€º</span>
+                                                                      <span className="break-all">{error}</span>
+                                                                    </div>
+                                                                  ))}
+                                                                </div>
+                                                              </details>
+                                                            )}
+                                                          </div>
+                                                        </motion.div>
+                                                      )}
+                                                    </AnimatePresence>
+                                                  </div>
+                                                )
+                                              })}
+                                            </div>
+                                          </motion.div>
+                                        )}
+                                      </AnimatePresence>
+                                    </div>
+                                  )}
+
+                                  {/* Documents Section */}
+                                  <div className="border-t border-border/50 pt-4">
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); toggleDocumentsSection(ds.datasource_id); }}
+                                      className="flex items-center gap-2 text-sm font-medium text-foreground hover:text-primary transition-colors w-full text-left"
+                                    >
+                                      <motion.div
+                                        animate={{ rotate: expandedDocumentsSections.has(ds.datasource_id) ? 90 : 0 }}
+                                        transition={{ duration: 0.1 }}
+                                      >
+                                        <ChevronRight className="h-4 w-4" />
+                                      </motion.div>
+                                      <FileText className="h-4 w-4" />
+                                      <span>View Documents</span>
+                                      {datasourceDocuments[ds.datasource_id] && (
+                                        <Badge variant="secondary" className="text-[10px] ml-1">
+                                          {datasourceDocuments[ds.datasource_id].total_documents} docs / {datasourceDocuments[ds.datasource_id].total_chunks} chunks
+                                        </Badge>
+                                      )}
+                                      {loadingDocuments.has(ds.datasource_id) && (
+                                        <Loader2 className="h-3 w-3 animate-spin ml-1" />
+                                      )}
+                                    </button>
+
+                                    <AnimatePresence>
+                                      {expandedDocumentsSections.has(ds.datasource_id) && (
+                                        <motion.div
+                                          initial={{ height: 0, opacity: 0 }}
+                                          animate={{ height: "auto", opacity: 1 }}
+                                          exit={{ height: 0, opacity: 0 }}
+                                          transition={{ duration: 0.15 }}
+                                          className="overflow-hidden"
+                                        >
+                                          <div className="mt-3 space-y-2">
+                                            {loadingDocuments.has(ds.datasource_id) ? (
+                                              <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
+                                                <Loader2 className="h-4 w-4 animate-spin" />
+                                                Loading documents...
+                                              </div>
+                                            ) : datasourceDocuments[ds.datasource_id]?.documents.length === 0 ? (
+                                              <p className="text-sm text-muted-foreground py-2">No documents found</p>
+                                            ) : (
+                                              <div className="space-y-1 max-h-[32rem] overflow-y-auto pr-2">
+                                                {datasourceDocuments[ds.datasource_id]?.documents.map((doc: DocumentInfo) => {
+                                                  const isDocExpanded = expandedDocuments.has(doc.document_id)
+                                                  return (
+                                                    <div key={doc.document_id} className="border border-border/50 rounded-lg bg-muted/30">
+                                                      <button
+                                                        onClick={(e) => { e.stopPropagation(); toggleDocument(doc.document_id); }}
+                                                        className="flex items-center gap-2 w-full p-2 text-left hover:bg-muted/50 rounded-lg transition-colors"
+                                                      >
+                                                        <motion.div
+                                                          animate={{ rotate: isDocExpanded ? 90 : 0 }}
+                                                          transition={{ duration: 0.1 }}
+                                                        >
+                                                          <ChevronRight className="h-3 w-3 text-muted-foreground" />
+                                                        </motion.div>
+                                                        <FileText className="h-3 w-3 text-muted-foreground shrink-0" />
+                                                        <div className="flex items-center gap-1 min-w-0 flex-1">
+                                                          <span className="text-xs font-medium truncate" title={doc.title}>
+                                                            {doc.title}
+                                                          </span>
+                                                          <Info 
+                                                            className="h-3 w-3 text-muted-foreground/40 hover:text-primary shrink-0 cursor-pointer transition-colors" 
+                                                            onClick={(e) => openDocumentMetadata(doc, e)}
+                                                          />
+                                                        </div>
+                                                        <span 
+                                                          className="text-[9px] text-muted-foreground/60 font-mono w-[360px] overflow-hidden text-ellipsis whitespace-nowrap shrink-0" 
+                                                          style={{ direction: 'rtl', textAlign: 'right' }}
+                                                          title={doc.document_id}
+                                                        >
+                                                          {doc.document_id}
+                                                        </span>
+                                                        <Badge variant="outline" className="text-[9px] shrink-0">
+                                                          {doc.chunks.length} chunks
+                                                        </Badge>
+                                                      </button>
+
+                                                      <AnimatePresence>
+                                                        {isDocExpanded && (
+                                                          <motion.div
+                                                            initial={{ height: 0, opacity: 0 }}
+                                                            animate={{ height: "auto", opacity: 1 }}
+                                                            exit={{ height: 0, opacity: 0 }}
+                                                            transition={{ duration: 0.1 }}
+                                                            className="overflow-hidden"
+                                                          >
+                                                            <div className="px-2 pb-2 space-y-1">
+                                                              {doc.chunks.map((chunk: ChunkInfo) => {
+                                                                const isChunkExpanded = expandedChunks.has(chunk.id)
+                                                                const chunkContent = chunkContents[chunk.id]
+                                                                const isLoadingChunk = loadingChunkContent.has(chunk.id)
+                                                                
+                                                                return (
+                                                                  <div key={chunk.id} className="border border-border/30 rounded bg-background/50">
+                                                                    <button
+                                                                      onClick={(e) => {
+                                                                        e.stopPropagation()
+                                                                        toggleChunk(chunk.id)
+                                                                        if (!isChunkExpanded && !chunkContent) {
+                                                                          fetchChunkContent(chunk.id)
+                                                                        }
+                                                                      }}
+                                                                      className="flex items-center gap-2 w-full p-1.5 text-left hover:bg-muted/30 rounded transition-colors"
+                                                                    >
+                                                                      <motion.div
+                                                                        animate={{ rotate: isChunkExpanded ? 90 : 0 }}
+                                                                        transition={{ duration: 0.1 }}
+                                                                        className="shrink-0"
+                                                                      >
+                                                                        <ChevronRight className="h-2.5 w-2.5 text-muted-foreground" />
+                                                                      </motion.div>
+                                                                      <Layers className="h-2.5 w-2.5 text-muted-foreground shrink-0" />
+                                                                      <div className="flex items-center gap-1 shrink-0">
+                                                                        <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                                                                          Chunk {chunk.chunk_index + 1}/{chunk.total_chunks}
+                                                                        </span>
+                                                                        <Info 
+                                                                          className="h-2.5 w-2.5 text-muted-foreground/40 hover:text-primary cursor-pointer transition-colors" 
+                                                                          onClick={(e) => openChunkMetadata(chunk, e)}
+                                                                        />
+                                                                      </div>
+                                                                      {chunk.metadata.fresh_until && (
+                                                                        <span className={cn(
+                                                                          "text-[9px] shrink-0 whitespace-nowrap",
+                                                                          chunk.metadata.fresh_until * 1000 < Date.now() 
+                                                                            ? "text-destructive" 
+                                                                            : "text-muted-foreground"
+                                                                        )}>
+                                                                          {formatFreshUntil(chunk.metadata.fresh_until)}
+                                                                        </span>
+                                                                      )}
+                                                                      <span className="flex-1 min-w-0" />
+                                                                      {isLoadingChunk && (
+                                                                        <Loader2 className="h-2.5 w-2.5 animate-spin shrink-0" />
+                                                                      )}
+                                                                      <span 
+                                                                        className="text-[8px] text-muted-foreground/60 font-mono w-[300px] overflow-hidden text-ellipsis whitespace-nowrap shrink-0" 
+                                                                        style={{ direction: 'rtl', textAlign: 'right' }}
+                                                                        title={chunk.id}
+                                                                      >
+                                                                        {chunk.id}
+                                                                      </span>
+                                                                    </button>
+
+                                                                    <AnimatePresence>
+                                                                      {isChunkExpanded && (
+                                                                        <motion.div
+                                                                          initial={{ height: 0, opacity: 0 }}
+                                                                          animate={{ height: "auto", opacity: 1 }}
+                                                                          exit={{ height: 0, opacity: 0 }}
+                                                                          transition={{ duration: 0.1 }}
+                                                                          className="overflow-hidden"
+                                                                        >
+                                                                          <div className="px-2 pb-2 pt-1 border-t border-border/30">
+                                                                            {/* Chunk metadata */}
+                                                                            <div className="flex flex-wrap gap-x-3 gap-y-1 text-[9px] text-muted-foreground mb-2">
+                                                                              {chunk.metadata.document_type && (
+                                                                                <span>Type: {chunk.metadata.document_type}</span>
+                                                                              )}
+                                                                              {chunk.metadata.document_ingested_at && (
+                                                                                <span>Ingested: {formatRelativeTime(chunk.metadata.document_ingested_at)}</span>
+                                                                              )}
+                                                                              {chunk.metadata.is_structured_entity && (
+                                                                                <Badge variant="outline" className="text-[8px] h-4 px-1">Structured</Badge>
+                                                                              )}
+                                                                              {chunk.metadata.source && (
+                                                                                <span className="truncate max-w-[200px]" title={chunk.metadata.source}>
+                                                                                  Source: {chunk.metadata.source}
+                                                                                </span>
+                                                                              )}
+                                                                            </div>
+                                                                            
+                                                                            {/* Chunk content */}
+                                                                            {isLoadingChunk ? (
+                                                                              <div className="flex items-center gap-2 text-[10px] text-muted-foreground py-2">
+                                                                                <Loader2 className="h-3 w-3 animate-spin" />
+                                                                                Loading content...
+                                                                              </div>
+                                                                            ) : chunkContent ? (
+                                                                              <div className="bg-zinc-900 rounded p-2 max-h-48 overflow-y-auto">
+                                                                                <pre className="text-[10px] text-zinc-300 whitespace-pre-wrap font-mono leading-relaxed">
+                                                                                  {chunkContent}
+                                                                                </pre>
+                                                                              </div>
+                                                                            ) : (
+                                                                              <p className="text-[10px] text-muted-foreground italic">
+                                                                                Content not loaded
+                                                                              </p>
+                                                                            )}
+                                                                          </div>
+                                                                        </motion.div>
+                                                                      )}
+                                                                    </AnimatePresence>
+                                                                  </div>
+                                                                )
+                                                              })}
+                                                            </div>
+                                                          </motion.div>
+                                                        )}
+                                                      </AnimatePresence>
+                                                    </div>
+                                                  )
+                                                })}
+                                              </div>
+                                            )}
+                                            
+                                            {/* Warning badge for approaching 16k Milvus limit */}
+                                            {documentsPagination[ds.datasource_id]?.offset >= 16000 && 
+                                             documentsPagination[ds.datasource_id]?.hasMore && (
+                                              <div className="mt-2 px-3 py-2 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
+                                                <p className="text-xs text-yellow-600 dark:text-yellow-500 flex items-center gap-1">
+                                                  <AlertCircle className="h-3 w-3" />
+                                                  Approaching Milvus query limit (16,384 chunks). Only first 16,383 chunks can be loaded.
+                                                </p>
+                                              </div>
+                                            )}
+                                            
+                                            {/* Load More button */}
+                                            {documentsPagination[ds.datasource_id]?.hasMore && (
+                                              <div className="pt-2 text-center border-t border-border/50 mt-2">
+                                                <Button
+                                                  variant="outline"
+                                                  size="sm"
+                                                  onClick={(e) => {
+                                                    e.stopPropagation()
+                                                    const pagination = documentsPagination[ds.datasource_id]
+                                                    if (pagination) {
+                                                      fetchDocumentsPage(ds.datasource_id, pagination.offset)
+                                                    }
+                                                  }}
+                                                  disabled={loadingDocuments.has(ds.datasource_id)}
+                                                  className="text-xs"
+                                                >
+                                                  {loadingDocuments.has(ds.datasource_id) ? (
+                                                    <>
+                                                      <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                                                      Loading...
+                                                    </>
+                                                  ) : (
+                                                    <>Load More Chunks</>
+                                                  )}
+                                                </Button>
+                                              </div>
+                                            )}
+                                          </div>
+                                        </motion.div>
+                                      )}
+                                    </AnimatePresence>
+                                  </div>
+                                </div>
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+                        </motion.div>
+                      )
+                    })}
+                  </div>
+
+                  {/* Pagination */}
+                  {totalPages > 1 && (
+                    <div className="flex items-center justify-between pt-4 border-t border-border mt-4">
+                      <p className="text-sm text-muted-foreground">
+                        Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, filteredDataSources.length)} of {filteredDataSources.length}
+                      </p>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                          disabled={currentPage === 1}
+                        >
+                          Previous
+                        </Button>
+                        {Array.from({ length: totalPages }, (_, i) => i + 1)
+                          .filter(page => page === 1 || page === totalPages || (page >= currentPage - 1 && page <= currentPage + 1))
+                          .map((page, idx, arr) => (
+                            <React.Fragment key={page}>
+                              {idx > 0 && arr[idx - 1] !== page - 1 && (
+                                <span className="px-2 text-muted-foreground">...</span>
+                              )}
+                              <Button
+                                variant={currentPage === page ? "default" : "outline"}
+                                size="sm"
+                                onClick={() => setCurrentPage(page)}
+                                className="w-8 h-8 p-0"
+                              >
+                                {page}
+                              </Button>
+                            </React.Fragment>
+                          ))
+                        }
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                          disabled={currentPage === totalPages}
+                        >
+                          Next
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </motion.section>
+
+          {/* Ingestors Section */}
+          <motion.section 
+            className="bg-card rounded-xl shadow-sm border border-border"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3, delay: 0.2 }}
+          >
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => setShowIngestors(!showIngestors)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setShowIngestors(!showIngestors); } }}
+              className="w-full px-5 py-4 flex items-center justify-between hover:bg-muted/30 transition-colors cursor-pointer"
+            >
+              <div className="flex items-center gap-3">
+                <Server className="h-5 w-5 text-muted-foreground" />
+                <h3 className="text-base font-semibold text-foreground">Ingestors</h3>
+                <button
+                  onClick={(e) => { e.stopPropagation(); setShowHelp(true); }}
+                  className="p-1 rounded-full hover:bg-muted/50 text-muted-foreground hover:text-foreground transition-colors"
+                  title="Learn about Ingestors, Datasources, and Documents"
+                >
+                  <HelpCircle className="h-4 w-4" />
+                </button>
+                <Badge variant="secondary" className="text-xs">
+                  {ingestors.length}
+                </Badge>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={(e) => { e.stopPropagation(); fetchIngestors(); }}
+                  disabled={loadingIngestors || refreshingIngestors}
+                  className="gap-2"
+                >
+                  <RefreshCw className={cn("h-4 w-4", refreshingIngestors && "animate-spin")} />
+                </Button>
+                <motion.div
+                  animate={{ rotate: showIngestors ? 180 : 0 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                </motion.div>
+              </div>
+            </div>
+
+            <AnimatePresence>
+              {showIngestors && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: "auto", opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.2 }}
+                  className="overflow-hidden"
+                >
+                  <div className="px-5 pb-5 border-t border-border pt-4">
+                    {loadingIngestors && ingestors.length === 0 ? (
+                      <div className="flex items-center justify-center py-8 text-muted-foreground">
+                        <Loader2 className="h-5 w-5 animate-spin mr-2" />
+                        Loading ingestors...
+                      </div>
+                    ) : ingestors.length === 0 ? (
+                      <p className="text-muted-foreground text-center py-8">
+                        No ingestors found. Ingestors are background services that process and ingest data.
+                      </p>
+                    ) : (
+                      <div className="space-y-2">
+                        {ingestors.map((ingestor, index) => {
+                          const isExpanded = expandedIngestors.has(ingestor.ingestor_id)
+                          const isDefaultWebloader = ingestor.ingestor_id === WEBLOADER_INGESTOR_ID
+                          const icon = getIconForType(ingestor.ingestor_type)
+
+                          return (
+                            <motion.div
+                              key={ingestor.ingestor_id}
+                              initial={{ opacity: 0, y: 10 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              transition={{ delay: index * 0.03 }}
+                              className="border border-border rounded-lg overflow-hidden"
+                            >
+                              <div 
+                                className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-muted/30 transition-colors"
+                                onClick={() => toggleIngestor(ingestor.ingestor_id)}
+                              >
+                                <motion.div
+                                  animate={{ rotate: isExpanded ? 90 : 0 }}
+                                  transition={{ duration: 0.2 }}
+                                >
+                                  <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                                </motion.div>
+                                
+                                {icon && <IconRenderer icon={icon} className="w-4 h-4" />}
+                                
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-medium text-sm">{ingestor.ingestor_name}</span>
+                                    <Badge variant="secondary" className="text-[10px]">
+                                      {ingestor.ingestor_type}
+                                    </Badge>
+                                    {isDefaultWebloader && (
+                                      <Badge variant="outline" className="text-[10px]">
+                                        Default
+                                      </Badge>
+                                    )}
+                                  </div>
+                                  <p className="text-xs text-muted-foreground mt-0.5">
+                                    Last seen: {ingestor.last_seen ? formatRelativeTime(ingestor.last_seen) : 'Never'}
+                                  </p>
+                                </div>
+
+                                {canDelete && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={(e) => { e.stopPropagation(); setShowDeleteIngestorConfirm(ingestor.ingestor_id); }}
+                                  disabled={isDefaultWebloader}
+                                  className="h-7 w-7 p-0 hover:bg-destructive/10 hover:text-destructive"
+                                  title={isDefaultWebloader ? 'Cannot delete default webloader' : 'Delete ingestor'}
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                                )}
+                              </div>
+
+                              <AnimatePresence>
+                                {isExpanded && (
+                                  <motion.div
+                                    initial={{ height: 0, opacity: 0 }}
+                                    animate={{ height: "auto", opacity: 1 }}
+                                    exit={{ height: 0, opacity: 0 }}
+                                    transition={{ duration: 0.2 }}
+                                    className="overflow-hidden"
+                                  >
+                                    <div className="px-4 py-4 bg-muted/20 border-t border-border space-y-3">
+                                      <div className="grid grid-cols-2 gap-4 text-sm">
+                                        <div>
+                                          <p className="text-xs font-medium text-muted-foreground mb-1">Ingestor ID</p>
+                                          <p className="font-mono text-xs text-foreground break-all">{ingestor.ingestor_id}</p>
+                                        </div>
+                                        <div>
+                                          <p className="text-xs font-medium text-muted-foreground mb-1">Last Seen</p>
+                                          <p className="text-foreground text-sm">
+                                            {ingestor.last_seen ? new Date(ingestor.last_seen * 1000).toLocaleString() : 'Never'}
+                                          </p>
+                                        </div>
+                                      </div>
+
+                                      {ingestor.description && (
+                                        <div>
+                                          <p className="text-xs font-medium text-muted-foreground mb-1">Description</p>
+                                          <p className="text-sm text-foreground bg-muted/50 p-3 rounded-lg">{ingestor.description}</p>
+                                        </div>
+                                      )}
+
+                                      {ingestor.metadata && Object.keys(ingestor.metadata).length > 0 && (
+                                        <details className="rounded-lg bg-muted/50 border border-border/50">
+                                          <summary className="cursor-pointer text-xs font-medium text-foreground px-3 py-2 hover:bg-muted/50">
+                                            Metadata ({Object.keys(ingestor.metadata).length} fields)
+                                          </summary>
+                                          <div className="px-3 pb-3">
+                                            <SyntaxHighlighter
+                                              language="json"
+                                              style={vscDarkPlus}
+                                              customStyle={{
+                                                margin: 0,
+                                                borderRadius: '0.5rem',
+                                                fontSize: '0.75rem',
+                                                maxHeight: '200px'
+                                              }}
+                                            >
+                                              {JSON.stringify(ingestor.metadata, null, 2)}
+                                            </SyntaxHighlighter>
+                                          </div>
+                                        </details>
+                                      )}
+                                    </div>
+                                  </motion.div>
+                                )}
+                              </AnimatePresence>
+                            </motion.div>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </motion.section>
+        </div>
+      </ScrollArea>
+
+      {/* Delete Data Source Confirmation Dialog */}
+      <AnimatePresence>
+        {showDeleteDataSourceConfirm && (
+          <motion.div 
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setShowDeleteDataSourceConfirm(null)}
+          >
+            <motion.div 
+              className="bg-card p-6 rounded-xl shadow-2xl max-w-md w-full mx-4 border border-border"
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-2 rounded-lg bg-destructive/10">
+                  <Trash2 className="h-5 w-5 text-destructive" />
+                </div>
+                <h3 className="text-lg font-bold text-foreground">Delete Data Source</h3>
+              </div>
+              <p className="text-muted-foreground mb-6">
+                Are you sure you want to delete this data source? This will permanently remove all associated documents and data. This action cannot be undone.
+              </p>
+              <div className="flex justify-end gap-3">
+                <Button
+                  variant="ghost"
+                  onClick={() => setShowDeleteDataSourceConfirm(null)}
+                  disabled={isDeletingDataSource}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={() => handleDeleteDataSource(showDeleteDataSourceConfirm)}
+                  disabled={isDeletingDataSource}
+                >
+                  {isDeletingDataSource && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+                  {isDeletingDataSource ? 'Deleting...' : 'Delete Data Source'}
+                </Button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Re-ingest Confirmation Dialog */}
+      <AnimatePresence>
+        {showReIngestConfirm && (
+          <motion.div 
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setShowReIngestConfirm(null)}
+          >
+            <motion.div 
+              className="bg-card p-6 rounded-xl shadow-2xl max-w-md w-full mx-4 border border-border"
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-2 rounded-lg bg-primary/10">
+                  <RotateCcw className="h-5 w-5 text-primary" />
+                </div>
+                <h3 className="text-lg font-bold text-foreground">Re-ingest Data Source</h3>
+              </div>
+              <p className="text-muted-foreground mb-6">
+                This will re-fetch and re-process all content from this data source. Existing documents will be updated with fresh content.
+              </p>
+              <div className="flex justify-end gap-3">
+                <Button
+                  variant="ghost"
+                  onClick={() => setShowReIngestConfirm(null)}
+                  disabled={isReIngesting}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={() => handleReloadDataSource(showReIngestConfirm)}
+                  disabled={isReIngesting}
+                >
+                  {isReIngesting && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+                  {isReIngesting ? 'Re-ingesting...' : 'Re-ingest'}
+                </Button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Re-ingest Error Dialog */}
+      <Dialog open={Boolean(reIngestError)} onOpenChange={(open) => !open && setReIngestError(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertCircle className="h-5 w-5 text-destructive" />
+              Re-ingest failed
+            </DialogTitle>
+            <DialogDescription>
+              The data source could not be re-ingested. Check your ReBAC assignment for this knowledge base and try again.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            {reIngestError}
+          </div>
+          <div className="flex justify-end">
+            <Button onClick={() => setReIngestError(null)}>OK</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Ownership & sharing â€” the shared KbSharingPanel (owner team +
+          transfer + share-with-teams), opened from each source's people
+          icon. Replaces the retired per-team read/ingest/admin popover. */}
+      <Dialog open={Boolean(sharingDatasource)} onOpenChange={(open) => !open && setSharingDatasource(null)}>
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Users className="h-5 w-5 text-muted-foreground" />
+              Ownership &amp; Sharing
+            </DialogTitle>
+            <DialogDescription className="truncate" title={sharingDatasource?.name ?? sharingDatasource?.datasource_id}>
+              {sharingDatasource?.name ?? sharingDatasource?.datasource_id}
+            </DialogDescription>
+          </DialogHeader>
+          {sharingDatasource && (
+            <KbSharingPanel knowledgeBaseId={sharingDatasource.datasource_id} />
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Cleanup Confirmation Dialog */}
+      <AnimatePresence>
+        {showCleanupConfirm && (
+          <motion.div 
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setShowCleanupConfirm(null)}
+          >
+            <motion.div 
+              className="bg-card p-6 rounded-xl shadow-2xl max-w-md w-full mx-4 border border-border"
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-2 rounded-lg bg-amber-500/10">
+                  <Eraser className="h-5 w-5 text-amber-500" />
+                </div>
+                <h3 className="text-lg font-bold text-foreground">Cleanup Stale Data</h3>
+              </div>
+              <p className="text-muted-foreground mb-4">
+                This will delete stale chunks and graph entities from this data source where the <code className="text-xs bg-muted px-1 py-0.5 rounded">fresh_until</code> timestamp has expired.
+              </p>
+              <div className="bg-amber-500/10 border-l-4 border-amber-500 p-3 mb-6 rounded-r-lg">
+                <p className="text-sm text-amber-600 dark:text-amber-400">
+                  <strong>Note:</strong> This only removes data that is past its expiration time. Active data will not be affected.
+                </p>
+              </div>
+              <div className="flex justify-end gap-3">
+                <Button
+                  variant="ghost"
+                  onClick={() => setShowCleanupConfirm(null)}
+                  disabled={isCleaningUp}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={() => handleCleanupDataSource(showCleanupConfirm)}
+                  disabled={isCleaningUp}
+                  className="bg-amber-500 hover:bg-amber-600 text-white"
+                >
+                  {isCleaningUp && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+                  {isCleaningUp ? 'Cleaning up...' : 'Cleanup'}
+                </Button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Delete Ingestor Confirmation Dialog */}
+      <AnimatePresence>
+        {showDeleteIngestorConfirm && (
+          <motion.div 
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setShowDeleteIngestorConfirm(null)}
+          >
+            <motion.div 
+              className="bg-card p-6 rounded-xl shadow-2xl max-w-md w-full mx-4 border border-border"
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-2 rounded-lg bg-destructive/10">
+                  <Trash2 className="h-5 w-5 text-destructive" />
+                </div>
+                <h3 className="text-lg font-bold text-foreground">Delete Ingestor</h3>
+              </div>
+              <p className="text-muted-foreground mb-4">
+                Are you sure you want to delete this ingestor?
+              </p>
+              <div className="bg-primary/10 border-l-4 border-primary p-3 mb-6 rounded-r-lg">
+                <p className="text-sm text-primary">
+                  <strong>Note:</strong> This will only remove the ingestor metadata. It will <strong>NOT</strong> delete any associated datasources or ingested data.
+                </p>
+              </div>
+              <div className="flex justify-end gap-3">
+                <Button
+                  variant="ghost"
+                  onClick={() => setShowDeleteIngestorConfirm(null)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={() => handleDeleteIngestor(showDeleteIngestorConfirm)}
+                >
+                  Delete Ingestor
+                </Button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Help Popup */}
+      <AnimatePresence>
+        {showHelp && (
+          <motion.div 
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setShowHelp(false)}
+          >
+            <motion.div 
+              className="bg-card p-6 rounded-xl shadow-2xl max-w-lg w-full mx-4 border border-border"
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between mb-5">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-primary/10">
+                    <HelpCircle className="h-5 w-5 text-primary" />
+                  </div>
+                  <h3 className="text-lg font-bold text-foreground">How It Works</h3>
+                </div>
+                <button
+                  onClick={() => setShowHelp(false)}
+                  className="p-1 rounded-full hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              {/* Diagram */}
+              <div className="mb-6 p-4 bg-muted/30 rounded-lg border border-border/50">
+                <div className="flex items-center justify-center gap-2 text-sm">
+                  <div className="flex flex-col items-center gap-1">
+                    <div className="p-2 rounded-lg bg-blue-500/20 border border-blue-500/30">
+                      <Server className="h-5 w-5 text-blue-400" />
+                    </div>
+                    <span className="text-xs font-medium text-blue-400">Ingestor</span>
+                  </div>
+                  <div className="flex flex-col items-center">
+                    <ArrowRight className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-[10px] text-muted-foreground">creates</span>
+                  </div>
+                  <div className="flex flex-col items-center gap-1">
+                    <div className="p-2 rounded-lg bg-emerald-500/20 border border-emerald-500/30">
+                      <Database className="h-5 w-5 text-emerald-400" />
+                    </div>
+                    <span className="text-xs font-medium text-emerald-400">Datasource</span>
+                  </div>
+                  <div className="flex flex-col items-center">
+                    <ArrowRight className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-[10px] text-muted-foreground">contains</span>
+                  </div>
+                  <div className="flex flex-col items-center gap-1">
+                    <div className="p-2 rounded-lg bg-purple-500/20 border border-purple-500/30">
+                      <FileText className="h-5 w-5 text-purple-400" />
+                    </div>
+                    <span className="text-xs font-medium text-purple-400">Documents</span>
+                  </div>
+                  <div className="flex flex-col items-center">
+                    <ArrowRight className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-[10px] text-muted-foreground">split into</span>
+                  </div>
+                  <div className="flex flex-col items-center gap-1">
+                    <div className="p-2 rounded-lg bg-orange-500/20 border border-orange-500/30">
+                      <Layers className="h-5 w-5 text-orange-400" />
+                    </div>
+                    <span className="text-xs font-medium text-orange-400">Chunks</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Definitions */}
+              <div className="space-y-4">
+                <div className="flex gap-3">
+                  <div className="p-2 rounded-lg bg-blue-500/20 border border-blue-500/30 h-fit">
+                    <Server className="h-4 w-4 text-blue-400" />
+                  </div>
+                  <div>
+                    <h4 className="font-semibold text-foreground text-sm">Ingestors</h4>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Background services that fetch and process content from external sources. Each ingestor type (web, Confluence, GitHub, etc.) handles a specific source type and can create multiple datasources.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex gap-3">
+                  <div className="p-2 rounded-lg bg-emerald-500/20 border border-emerald-500/30 h-fit">
+                    <Database className="h-4 w-4 text-emerald-400" />
+                  </div>
+                  <div>
+                    <h4 className="font-semibold text-foreground text-sm">Datasources</h4>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      A collection of documents from a single source URL or location. Each datasource tracks its own refresh schedule and contains one or more documents. Example: a documentation website.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex gap-3">
+                  <div className="p-2 rounded-lg bg-purple-500/20 border border-purple-500/30 h-fit">
+                    <FileText className="h-4 w-4 text-purple-400" />
+                  </div>
+                  <div>
+                    <h4 className="font-semibold text-foreground text-sm">Documents</h4>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Individual pages or files extracted from a datasource. Each document is split into smaller chunks for efficient vector embedding and semantic search.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex gap-3">
+                  <div className="p-2 rounded-lg bg-orange-500/20 border border-orange-500/30 h-fit">
+                    <Layers className="h-4 w-4 text-orange-400" />
+                  </div>
+                  <div>
+                    <h4 className="font-semibold text-foreground text-sm">Chunks</h4>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Small segments of text that are converted into vector embeddings for semantic search. Chunk size and overlap can be configured per datasource.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-6 flex justify-end">
+                <Button onClick={() => setShowHelp(false)}>
+                  Got it
+                </Button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Metadata Modal */}
+      <Dialog open={metadataModal?.isOpen ?? false} onOpenChange={(open) => !open && setMetadataModal(null)}>
+        <DialogContent className="max-w-lg max-h-[80vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {metadataModal?.type === 'document' ? (
+                <FileText className="h-4 w-4" />
+              ) : (
+                <Layers className="h-4 w-4" />
+              )}
+              {metadataModal?.type === 'document' ? 'Document' : 'Chunk'} Metadata
+            </DialogTitle>
+            <DialogDescription className="truncate" title={metadataModal?.title}>
+              {metadataModal?.title}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex-1 overflow-y-auto">
+            <div className="space-y-2">
+              {metadataModal?.metadata && Object.entries(metadataModal.metadata).map(([key, value]) => (
+                <div key={key} className="flex flex-col gap-0.5 py-1.5 border-b border-border/50 last:border-0">
+                  <span className="text-xs font-medium text-muted-foreground">{key}</span>
+                  <span className="text-sm font-mono break-all">
+                    {value === null || value === undefined ? (
+                      <span className="text-muted-foreground/50 italic">null</span>
+                    ) : typeof value === 'boolean' ? (
+                      <Badge variant={value ? "default" : "secondary"} className="text-[10px]">
+                        {value ? 'true' : 'false'}
+                      </Badge>
+                    ) : typeof value === 'number' ? (
+                      key.includes('time') || key.includes('until') || key.includes('at') ? (
+                        <span title={new Date(value * 1000).toISOString()}>
+                          {formatRelativeTime(value)} <span className="text-muted-foreground/60">({value})</span>
+                        </span>
+                      ) : (
+                        String(value)
+                      )
+                    ) : typeof value === 'object' ? (
+                      <pre className="text-[10px] bg-muted/50 p-2 rounded overflow-x-auto">
+                        {JSON.stringify(value, null, 2)}
+                      </pre>
+                    ) : (
+                      String(value)
+                    )}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}

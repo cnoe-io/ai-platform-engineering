@@ -1,0 +1,98 @@
+import type {
+UniversalRebacResourceAction,
+UniversalRebacResourceRef,
+} from "./rbac-universal";
+
+export type SlackChannelGrantResourceType = "agent" | "tool" | "knowledge_base" | "skill" | "task";
+
+export interface SlackChannelRef {
+  workspace_id: string;
+  channel_id: string;
+  channel_name?: string;
+  team_slug?: string;
+}
+
+export interface SlackChannelResourceGrant {
+  workspace_id: string;
+  channel_id: string;
+  resource: UniversalRebacResourceRef & { type: SlackChannelGrantResourceType };
+  actions: UniversalRebacResourceAction[];
+  source_type: "manual" | "policy_rule" | "migration" | "bootstrap" | "route";
+  status: "active" | "staged" | "revoked" | "blocked";
+  created_by?: string;
+  created_at: string;
+  updated_by?: string;
+  updated_at?: string;
+}
+
+export type SlackRouteListenMode = "message" | "mention" | "all";
+
+// C1 — Per-route execution identity
+// Semantics: omitted/undefined === { mode: "obo_user" }
+export type SlackRouteExecutionMode = "obo_user" | "service_account";
+
+export interface SlackRouteExecutionIdentity {
+  mode: SlackRouteExecutionMode;          // default "obo_user"
+  service_account_sub?: string;           // REQUIRED when mode === "service_account"
+  service_account_name?: string;          // optional display cache (friendly name)
+}
+
+export interface SlackRouteOverthinkConfig {
+  enabled?: boolean;
+  skip_markers?: string[];
+  followup_prompt?: string;
+}
+
+export interface SlackRouteSideConfig {
+  enabled?: boolean;
+  listen?: SlackRouteListenMode;
+  user_list?: string[];
+  bot_list?: string[];
+  overthink?: SlackRouteOverthinkConfig;
+}
+
+export interface SlackRouteEscalationConfig {
+  emoji?: {
+    enabled?: boolean;
+    name?: string;
+  };
+  delete_admins?: string[];
+  users?: string[];
+  victorops?: {
+    enabled?: boolean;
+    team?: string;
+  };
+}
+
+export interface SlackChannelAgentRoute {
+  workspace_id: string;
+  channel_id: string;
+  agent_id: string;
+  enabled: boolean;
+  priority: number;
+  users?: SlackRouteSideConfig;
+  bots?: SlackRouteSideConfig;
+  escalation?: SlackRouteEscalationConfig;
+  /** Per-route execution identity. Omitted/undefined === { mode: "obo_user" }. */
+  execution_identity?: SlackRouteExecutionIdentity;
+  source_type: "manual" | "yaml_import" | "bootstrap";
+  status: "active" | "disabled" | "revoked";
+  created_by?: string;
+  created_at: string;
+  updated_by?: string;
+  updated_at?: string;
+}
+
+export interface SlackChannelAccessCheckRequest {
+  workspace_id: string;
+  channel_id: string;
+  user_subject?: string;
+  resource: UniversalRebacResourceRef;
+  action: UniversalRebacResourceAction;
+}
+
+export interface SlackChannelAccessCheckResult {
+  allowed: boolean;
+  channel_allowed: boolean;
+  reason: "allowed" | "missing_channel_grant" | "unsupported_action";
+}

@@ -1,0 +1,167 @@
+// GET /api/chat/conversations/[id]/messages - Get all messages in conversation
+//   Reads persisted message rows for conversation history and audit views.
+// POST /api/chat/conversations/[id]/messages - Add message to conversation
+//   Used by integrations and maintenance tooling that write message rows through
+//   the BFF instead of the chat turn endpoint.
+
+import {
+ApiError,
+getPaginationParams,
+paginatedResponse,
+requireConversationAccess,
+successResponse,
+validateRequired,
+validateUUID,
+withAuth,
+withErrorHandler,
+} from '@/lib/api-middleware';
+import { getCollection } from '@/lib/mongodb';
+import { requireConversationResourcePermission } from '@/lib/rbac/conversation-implicit-authz';
+import type { AddMessageRequest,Conversation,Message } from '@/types/mongodb';
+import { NextRequest } from 'next/server';
+
+// GET /api/chat/conversations/[id]/messages
+export const GET = withErrorHandler(async (
+  request: NextRequest,
+  context: { params: Promise<{ id: string }> }
+) => {
+  return withAuth(request, async (req, user, session) => {
+    const params = await context.params;
+    const conversationId = params.id;
+
+    if (!validateUUID(conversationId)) {
+      throw new ApiError('Invalid conversation ID format', 400);
+    }
+
+    // Verify user has access (admins get read-only audit access)
+    const { conversation } = await requireConversationAccess(
+      conversationId, user.email, getCollection, session
+    );
+    await requireConversationResourcePermission(session, user.email, conversation, 'read');
+
+    const { page, pageSize, skip } = getPaginationParams(request);
+
+    const messages = await getCollection<Message>('messages');
+
+    const total = await messages.countDocuments({ conversation_id: conversationId });
+
+    const items = await messages
+      .find({ conversation_id: conversationId })
+      .sort({ created_at: 1 })
+      .skip(skip)
+      .limit(pageSize)
+      .toArray();
+
+    return paginatedResponse(items, total, page, pageSize);
+  });
+});
+
+// POST /api/chat/conversations/[id]/messages
+// Uses UPSERT on message_id: if a message with this client-generated ID already
+// exists, it is updated (content, metadata, events). Idempotent — safe to call
+// multiple times for the same message without duplicating rows.
+export const POST = withErrorHandler(async (
+  request: NextRequest,
+  context: { params: Promise<{ id: string }> }
+) => {
+  return withAuth(request, async (req, user, session) => {
+    const params = await context.params;
+    const conversationId = params.id;
+    const body: AddMessageRequest = await request.json();
+
+    if (!validateUUID(conversationId)) {
+      throw new ApiError('Invalid conversation ID format', 400);
+    }
+
+    validateRequired(body, ['role', 'content']);
+
+    // Verify user has access and get conversation for owner_id
+    const { access_level, conversation } = await requireConversationAccess(
+      conversationId, user.email, getCollection, session
+    );
+    await requireConversationResourcePermission(session, user.email, conversation, 'write');
+
+    // Read-only access — block writes
+    if (access_level === 'admin_audit' || access_level === 'shared_readonly') {
+      throw new ApiError('Read-only access — cannot add messages', 403, 'FORBIDDEN');
+    }
+
+    const conversations = await getCollection<Conversation>('conversations');
+    const ownerId = conversation?.owner_id || user.email;
+
+    const messages = await getCollection<Message>('messages');
+
+    const now = new Date();
+
+    // Resolve sender identity for user messages.
+    // If the client provides sender fields, use them. Otherwise, fall back to
+    // the authenticated session user. This ensures shared conversations correctly
+    // attribute each message to the person who typed it.
+    const senderEmail = body.sender_email || (body.role === 'user' ? user.email : undefined);
+    const senderName = body.sender_name || (body.role === 'user' ? user.name : undefined);
+    const senderImage = body.sender_image || undefined;
+
+    // Upsert: update if message_id exists, insert otherwise.
+    // $set updates content/metadata/events on every call (idempotent).
+    // $setOnInsert sets immutable fields only on first insert.
+    const result = await messages.updateOne(
+      { message_id: body.message_id, conversation_id: conversationId },
+      {
+        $set: {
+          content: body.content,
+          metadata: {
+            source: 'web',
+            turn_id: body.metadata?.turn_id || `turn-${Date.now()}`,
+            model: body.metadata?.model,
+            tokens_used: body.metadata?.tokens_used,
+            latency_ms: body.metadata?.latency_ms,
+            agent_name: body.metadata?.agent_name,
+            is_final: body.metadata?.is_final,
+            ...(body.metadata?.turn_status && { turn_status: body.metadata.turn_status }),
+            ...(body.metadata?.is_interrupted && { is_interrupted: body.metadata.is_interrupted }),
+            ...(body.metadata?.task_id && { task_id: body.metadata.task_id }),
+            ...(body.metadata?.timeline_segments && { timeline_segments: body.metadata.timeline_segments }),
+          },
+          ...(body.stream_events !== undefined && { stream_events: body.stream_events }),
+          ...(body.artifacts !== undefined && { artifacts: body.artifacts }),
+          updated_at: now,
+        },
+        $setOnInsert: {
+          message_id: body.message_id,
+          conversation_id: conversationId,
+          owner_id: ownerId,
+          role: body.role,
+          created_at: now,
+          // Sender identity — set only on insert (immutable per message)
+          ...(senderEmail && { sender_email: senderEmail }),
+          ...(senderName && { sender_name: senderName }),
+          ...(senderImage && { sender_image: senderImage }),
+        },
+      },
+      { upsert: true }
+    );
+
+    // Only increment total_messages on new inserts (not updates)
+    if (result.upsertedId) {
+      await conversations.updateOne(
+        { _id: conversationId },
+        {
+          $set: { updated_at: now },
+          $inc: { 'metadata.total_messages': 1 },
+        }
+      );
+    } else {
+      // Just update timestamp for updates
+      await conversations.updateOne(
+        { _id: conversationId },
+        { $set: { updated_at: now } }
+      );
+    }
+
+    const upserted = await messages.findOne(
+      { message_id: body.message_id, conversation_id: conversationId }
+    );
+
+    return successResponse(upserted, result.upsertedId ? 201 : 200);
+  });
+});

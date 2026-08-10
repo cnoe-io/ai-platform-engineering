@@ -1,0 +1,9 @@
+env-config.js
+
+# Test coverage reports
+coverage/
+*.lcov
+node_modules/
+.next/
+.env*.local
+.DS_Store

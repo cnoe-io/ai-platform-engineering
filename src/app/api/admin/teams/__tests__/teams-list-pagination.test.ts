@@ -1,0 +1,217 @@
+/**
+ * @jest-environment node
+ *
+ * Tests for GET /api/admin/teams pagination. Pagination + server-side search
+ * are opt-in via the `page` query param: with it, the route returns a
+ * `{ teams, total, page, page_size, has_more }` envelope and pushes
+ * skip/limit + a search filter into Mongo; without it, the route returns the
+ * full list exactly as before (so the shared filter dropdowns keep working).
+ */
+
+import { NextRequest } from "next/server";
+import { ObjectId } from "mongodb";
+
+const mockGetServerSession = jest.fn();
+const mockCheckPermission = jest.fn();
+const mockRequireBaselineAdminSurfaceRead = jest.fn();
+const mockLoadTeamMemberCounts = jest.fn();
+const mockLoadTeamIdpSourceTypes = jest.fn();
+const mockListOpenFgaObjects = jest.fn();
+
+jest.mock("next-auth", () => ({
+  getServerSession: (...args: unknown[]) => mockGetServerSession(...args),
+}));
+
+jest.mock("@/lib/auth-config", () => ({
+  authOptions: {},
+  isBootstrapAdmin: jest.fn().mockReturnValue(false),
+  REQUIRED_ADMIN_GROUP: "",
+}));
+
+jest.mock("@/lib/config", () => ({
+  getConfig: (key: string) => key === "ssoEnabled",
+}));
+
+jest.mock("@/lib/rbac/keycloak-authz", () => ({
+  checkPermission: (...args: unknown[]) => mockCheckPermission(...args),
+}));
+
+jest.mock("@/lib/rbac/audit", () => ({ logAuthzDecision: jest.fn() }));
+
+jest.mock("@/lib/rbac/require-openfga", () => ({
+  requireBaselineAdminSurfaceRead: (...args: unknown[]) =>
+    mockRequireBaselineAdminSurfaceRead(...args),
+  requireAdminSurfaceManage: jest.fn(),
+}));
+
+jest.mock("@/lib/rbac/openfga", () => ({
+  listOpenFgaObjects: (...args: unknown[]) => mockListOpenFgaObjects(...args),
+}));
+
+jest.mock("@/lib/rbac/team-membership-store", () => ({
+  loadTeamMemberCounts: (...args: unknown[]) => mockLoadTeamMemberCounts(...args),
+  loadTeamIdpSourceTypes: (...args: unknown[]) => mockLoadTeamIdpSourceTypes(...args),
+}));
+
+jest.mock("@/lib/rbac/team-membership-source-store", () => ({
+  upsertTeamMembershipSource: jest.fn(),
+}));
+
+jest.mock("@/lib/rbac/team-membership-sync", () => ({
+  mongoRoleToOpenFgaRelations: jest.fn(() => []),
+  resolveKeycloakUserSubject: jest.fn(),
+  writeTeamMembershipTuples: jest.fn(),
+}));
+
+jest.mock("@/lib/rbac/keycloak-admin", () => ({
+  isValidTeamSlug: jest.fn(() => true),
+}));
+
+const mockCollections: Record<string, any> = {};
+let mockIsMongoDBConfigured = true;
+
+jest.mock("@/lib/mongodb", () => ({
+  get isMongoDBConfigured() {
+    return mockIsMongoDBConfigured;
+  },
+  getCollection: jest.fn(async (name: string) => mockCollections[name] ?? createMockCollection()),
+}));
+
+function createMockCollection() {
+  return {
+    find: jest.fn().mockReturnValue({
+      sort: jest.fn().mockReturnValue({ toArray: jest.fn().mockResolvedValue([]) }),
+      toArray: jest.fn().mockResolvedValue([]),
+    }),
+    findOne: jest.fn().mockResolvedValue(null),
+    countDocuments: jest.fn().mockResolvedValue(0),
+  };
+}
+
+// A teams collection that records the query/skip/limit it was asked for and
+// supports BOTH the paginated chain (find().sort().skip().limit().toArray())
+// and the unpaginated chain (find().sort().toArray()).
+function seedTeamsCollection(rows: Array<Record<string, unknown>>, total: number) {
+  const calls: { query?: Record<string, unknown>; skip?: number; limit?: number } = {};
+  const cursor: any = {
+    sort: jest.fn().mockReturnValue(cursorChain()),
+  };
+  function cursorChain() {
+    const chain: any = {
+      skip: jest.fn((n: number) => {
+        calls.skip = n;
+        return chain;
+      }),
+      limit: jest.fn((n: number) => {
+        calls.limit = n;
+        return chain;
+      }),
+      toArray: jest.fn().mockResolvedValue(rows),
+    };
+    return chain;
+  }
+  const teamsCol = {
+    find: jest.fn((query: Record<string, unknown>) => {
+      calls.query = query;
+      return cursor;
+    }),
+    countDocuments: jest.fn().mockResolvedValue(total),
+    findOne: jest.fn().mockResolvedValue(null),
+  };
+  mockCollections.teams = teamsCol;
+  return { teamsCol, calls };
+}
+
+function makeRequest(url: string): NextRequest {
+  return new NextRequest(new URL(url, "http://localhost:3000"));
+}
+
+function accessTokenWithRoles(roles: string[]): string {
+  const payload = Buffer.from(JSON.stringify({ realm_access: { roles } }), "utf8").toString(
+    "base64url",
+  );
+  return `h.${payload}.s`;
+}
+
+function adminSession() {
+  return {
+    user: { email: "admin@example.com", name: "Admin" },
+    role: "admin",
+    sub: "admin-sub",
+    accessToken: accessTokenWithRoles(["admin"]),
+  };
+}
+
+const teamRow = (slug: string) => ({
+  _id: new ObjectId(),
+  slug,
+  name: slug,
+  owner_id: "owner@example.com",
+  created_at: new Date(),
+});
+
+beforeEach(() => {
+  jest.clearAllMocks();
+  mockIsMongoDBConfigured = true;
+  Object.keys(mockCollections).forEach((key) => delete mockCollections[key]);
+  mockGetServerSession.mockResolvedValue(adminSession());
+  mockCheckPermission.mockResolvedValue({ allowed: true, reason: "OK" });
+  mockRequireBaselineAdminSurfaceRead.mockResolvedValue(undefined);
+  // hasAdminView is probed via requireRbacPermission(admin_ui, view) →
+  // checkPermission. Default allow so the admin sees the unscoped list.
+  mockLoadTeamMemberCounts.mockResolvedValue(new Map());
+  mockLoadTeamIdpSourceTypes.mockResolvedValue(new Map());
+  mockListOpenFgaObjects.mockResolvedValue({ objects: [] });
+});
+
+async function callGet(url: string) {
+  const { GET } = await import("../route");
+  const response = await GET(makeRequest(url));
+  return { response, body: await response.json() };
+}
+
+describe("GET /api/admin/teams pagination", () => {
+  it("returns a paginated envelope and pushes skip/limit + search into Mongo", async () => {
+    const { calls } = seedTeamsCollection([teamRow("alpha")], 60);
+
+    const { response, body } = await callGet(
+      "/api/admin/teams?page=2&page_size=24&search=alp",
+    );
+
+    expect(response.status).toBe(200);
+    expect(body.data.page).toBe(2);
+    expect(body.data.page_size).toBe(24);
+    expect(body.data.total).toBe(60);
+    expect(body.data.has_more).toBe(true); // 2*24=48 < 60
+    expect(body.data.teams).toHaveLength(1);
+
+    // skip = (page-1)*pageSize, limit = pageSize
+    expect(calls.skip).toBe(24);
+    expect(calls.limit).toBe(24);
+    // search builds a case-insensitive $or over name/slug/description/owner_id.
+    // The clauses hold RegExp objects (which JSON.stringify flattens to {}),
+    // so assert on the structure + the compiled regex source/flags directly.
+    const and = (calls.query as { $and?: Array<{ $or?: Array<Record<string, RegExp>> }> })?.$and;
+    const orClause = and?.find((clause) => Array.isArray(clause.$or))?.$or;
+    expect(orClause).toBeDefined();
+    const fields = orClause!.map((entry) => Object.keys(entry)[0]);
+    expect(fields).toEqual(["name", "slug", "description", "owner_id"]);
+    const nameRx = orClause!.find((entry) => entry.name)!.name;
+    expect(nameRx).toBeInstanceOf(RegExp);
+    expect(nameRx.source).toBe("alp");
+    expect(nameRx.flags).toContain("i");
+  });
+
+  it("returns the full list (no pagination fields) when `page` is absent", async () => {
+    seedTeamsCollection([teamRow("alpha"), teamRow("beta")], 2);
+
+    const { response, body } = await callGet("/api/admin/teams");
+
+    expect(response.status).toBe(200);
+    expect(body.data.teams).toHaveLength(2);
+    expect(body.data.total).toBe(2);
+    // The legacy (unpaginated) envelope omits page / page_size / has_more.
+    expect(body.data.page).toBeUndefined();
+    expect(body.data.has_more).toBeUndefined();
+  });
+});
