@@ -1,3 +1,30 @@
+## 0.5.67-dev.1-chart.1 (2026-08-06)
+
+### Feat
+
+- **helm**: resolve object storage from a shared global.storage.s3 block
+
+## 0.5.67-dev.1 (2026-08-06)
+
+### Fix
+
+- **ui**: preserve explicit unlinked-SA agent grants across visibility demotion
+
+## 0.5.67 (2026-08-04)
+
+### Fix
+
+- **ui**: grant unlinked service account can_use when agent shared with Everyone
+
+## 0.5.66-dev.1 (2026-08-04)
+
+### Feat
+
+- **ui**: add dropped input files panel to metrics tab
+- **dynamic-agents**: track dropped input files and add multimodal regression harness
+
+## 0.5.66 (2026-07-31)
+
 ## 0.5.65-dev.1 (2026-07-30)
 
 ### Fix

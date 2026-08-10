@@ -2010,6 +2010,11 @@ class AgentRuntime:
             store=self._get_attachment_store(),
         )
         for skip in skipped_files:
+            prom_metrics.dropped_input_files_total.labels(
+                agent_name=self.config.name,
+                model_id=model_id,
+                reason=skip.reason,
+            ).inc()
             for frame in encoder.on_warning(
                 _skipped_file_warning(skip, model_id, max_file_bytes, max_turn_bytes)
             ):
