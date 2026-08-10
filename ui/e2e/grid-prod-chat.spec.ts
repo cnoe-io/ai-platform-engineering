@@ -1,5 +1,6 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
-import { existsSync, readFileSync } from "node:fs";
+import { expect, test, type Locator, type Page, type TestInfo } from "@playwright/test";
+import { dirname } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { allGridProdScenarios, type GridProdScenario } from "./fixtures/grid-prod-scenarios";
 
 const defaultGridChatUrl = "https://grid.outshift.io/chat";
@@ -9,6 +10,7 @@ const gridSaveStorageState = process.env.GRID_SAVE_STORAGE_STATE || defaultGridS
 const gridStorageState = process.env.GRID_STORAGE_STATE || gridSaveStorageState;
 const gridInteractiveSso = process.env.GRID_INTERACTIVE_SSO === "true";
 const gridSsoEmail = process.env.GRID_SSO_EMAIL;
+const gridChatAgentName = process.env.GRID_CHAT_AGENT_NAME || "SRE Agent";
 const gridRunId = process.env.GRID_TEST_RUN_ID || new Date().toISOString().replace(/[-:.TZ]/g, "").slice(0, 14);
 const defaultGridAuthTimeoutMs = gridInteractiveSso ? 600_000 : 30_000;
 const gridAuthTimeoutMs = Number(process.env.GRID_AUTH_TIMEOUT_MS || defaultGridAuthTimeoutMs);
@@ -20,6 +22,8 @@ const gridUserResponseCooldownMs = Number(process.env.GRID_USER_RESPONSE_COOLDOW
 const gridHitlFormValues = loadGridHitlFormValues("GRID_HITL_FORM_VALUES_JSON");
 const gridReuseConversation = process.env.GRID_REUSE_CONVERSATION === "true";
 const gridDismissPopups = process.env.GRID_DISMISS_POPUPS !== "false";
+const gridExecutionReportPath = process.env.GRID_EXECUTION_REPORT_PATH || "test-results/grid-prod-execution-report.json";
+const gridExecutionReportEnabled = process.env.GRID_EXECUTION_REPORT !== "false";
 const shouldRunGridProd = process.env.RUN_GRID_PROD === "true";
 const scenarios = loadGridScenarios();
 
@@ -28,31 +32,85 @@ interface HitlState {
   lastUserResponseAt: number;
 }
 
+interface ScenarioExecutionResult {
+  run_id: string;
+  status: "passed" | "failed";
+  scenario: Pick<GridProdScenario, "id" | "area" | "name">;
+  started_at: string;
+  completed_at: string;
+  duration_ms: number;
+  chat_url: string;
+  prompt: string;
+  completion_reason: string;
+  execution_evidence: {
+    tool_completed: boolean;
+    expected_texts: string[];
+    auto_tool_approval_enabled: boolean;
+    auto_user_response_enabled: boolean;
+  };
+  resource_details: Record<string, string | string[]>;
+  final_response: string;
+  assistant_messages: string[];
+  error?: string;
+}
+
+interface ScenarioSnapshot {
+  assistantMessages: string[];
+  finalAssistantText: string;
+  pageText: string;
+}
+
 test.describe("GRID prod chat scenarios", () => {
   test.skip(!shouldRunGridProd, "Set RUN_GRID_PROD=true to run against the live GRID chat app.");
   test.use(gridStorageState && existsSync(gridStorageState) ? { storageState: gridStorageState } : {});
   test.describe.configure({ mode: "serial" });
+
+  test.beforeAll(() => {
+    resetGridExecutionReport();
+  });
 
   test.beforeEach(async ({ page }) => {
     installPopupDismissal(page);
   });
 
   test("opens the configured GRID chat", async ({ page }) => {
+    test.setTimeout(Math.max(90_000, gridAuthTimeoutMs + 30_000));
     await openGridChat(page);
   });
 
   for (const scenario of scenarios) {
-    test(scenario.name, async ({ page }) => {
+    test(scenario.name, async ({ page }, testInfo) => {
       test.setTimeout(Math.max(90_000, gridAuthTimeoutMs + gridExecutionTimeoutMs + 30_000));
+      const startedAt = new Date();
       const prompt = livePrompt(scenario);
-      const input = await openGridChat(page);
-      await dismissBlockingPopups(page);
-      await input.fill(prompt);
-      await sendMessage(page);
-      await dismissBlockingPopups(page);
 
-      await expect(page.getByText(prompt)).toBeVisible();
-      await waitForScenarioExecution(page, scenario, prompt);
+      try {
+        const input = await openGridChat(page);
+        await dismissBlockingPopups(page);
+        await input.fill(prompt);
+        await sendMessage(page);
+        await dismissBlockingPopups(page);
+
+        await waitForPromptSubmission(page, input, prompt);
+        const completionReason = await waitForScenarioExecution(page, scenario, prompt);
+        const result = await buildScenarioExecutionResult(page, scenario, prompt, startedAt, "passed", completionReason);
+        assertScenarioProducedExecutionResult(result);
+        await attachGridExecutionResult(testInfo, result);
+        appendGridExecutionResult(result);
+      } catch (error) {
+        const result = await buildScenarioExecutionResult(
+          page,
+          scenario,
+          prompt,
+          startedAt,
+          "failed",
+          "scenario failed before completion",
+          error,
+        );
+        await attachGridExecutionResult(testInfo, result);
+        appendGridExecutionResult(result);
+        throw error;
+      }
     });
   }
 });
@@ -90,6 +148,7 @@ async function openGridChat(page: Page): Promise<Locator> {
   await dismissBlockingPopups(page);
 
   let input = await waitForChatInput(page);
+  await saveGridStorageState(page);
   if (!gridReuseConversation) {
     await startFreshConversation(page);
     await dismissBlockingPopups(page);
@@ -122,7 +181,7 @@ async function startFreshConversation(page: Page) {
 }
 
 async function createFreshConversationViaApi(page: Page): Promise<string | undefined> {
-  return page.evaluate(async () => {
+  return page.evaluate(async (preferredAgentName) => {
     type ApiEnvelope<T> = { success?: boolean; data?: T; error?: string };
     type Agent = { _id?: string; id?: string; name?: string; enabled?: boolean };
     type ConversationPayload = {
@@ -163,8 +222,17 @@ async function createFreshConversationViaApi(page: Page): Promise<string | undef
         ? agentsPayload?.data ?? []
         : [];
     const enabledAgents = agents.filter((agent) => agent.enabled !== false);
+    const preferredAgent = enabledAgents.find(
+      (agent) => agent.name?.trim().toLowerCase() === preferredAgentName.trim().toLowerCase(),
+    );
     const defaultAgent = enabledAgents.find((agent) => (agent._id || agent.id) === defaultAgentId);
-    const agentId = defaultAgent?._id || defaultAgent?.id || enabledAgents[0]?._id || enabledAgents[0]?.id || defaultAgentId;
+    const agentId = preferredAgent?._id
+      || preferredAgent?.id
+      || defaultAgent?._id
+      || defaultAgent?.id
+      || enabledAgents[0]?._id
+      || enabledAgents[0]?.id
+      || defaultAgentId;
 
     if (!agentId) {
       throw new Error("No available GRID chat agent was found for a fresh conversation.");
@@ -185,7 +253,10 @@ async function createFreshConversationViaApi(page: Page): Promise<string | undef
       throw new Error("GRID conversation creation succeeded without returning a conversation id.");
     }
     return conversationId;
-  }).catch(() => undefined);
+  }, gridChatAgentName).catch((error) => {
+    console.warn("[GRID prod chat] Fresh conversation API creation failed:", error);
+    return undefined;
+  });
 }
 
 function gridConversationUrl(conversationId: string) {
@@ -236,13 +307,37 @@ async function waitForChatInput(page: Page): Promise<Locator> {
 }
 
 async function chatInput(page: Page): Promise<Locator> {
-  const byPlaceholder = page.getByPlaceholder(/Ask CAIPE anything|Ask anything|message|chat/i).first();
-  if (await byPlaceholder.count()) return byPlaceholder;
+  const byPlaceholder = page.getByPlaceholder(/Ask CAIPE anything|Ask anything|Type.*message|Send.*message|message/i).first();
+  if (await byPlaceholder.count() && await isVisible(byPlaceholder)) return byPlaceholder;
 
-  const textarea = page.locator("textarea").first();
+  const textarea = page.locator("textarea:visible").last();
   if (await textarea.count()) return textarea;
 
-  return page.locator("[contenteditable='true']").first();
+  return page.locator("[contenteditable='true']:visible").last();
+}
+
+async function waitForPromptSubmission(page: Page, input: Locator, prompt: string) {
+  const promptVisible = page.getByText(prompt).first().waitFor({ state: "visible", timeout: 15_000 })
+    .then(() => true)
+    .catch(() => false);
+  const inputCleared = waitForInputCleared(input, 15_000)
+    .then(() => true)
+    .catch(() => false);
+
+  if (await Promise.race([promptVisible, inputCleared])) return;
+
+  throw new Error("GRID chat prompt was not submitted: the prompt did not appear and the composer did not clear.");
+}
+
+async function waitForInputCleared(input: Locator, timeout: number) {
+  await expect.poll(async () => currentInputText(input), { timeout }).toBe("");
+}
+
+async function currentInputText(input: Locator): Promise<string> {
+  const value = await input.inputValue().catch(() => undefined);
+  if (value !== undefined) return value.trim();
+
+  return input.evaluate((node) => (node.textContent ?? "").trim()).catch(() => "");
 }
 
 async function isVisible(locator: Locator): Promise<boolean> {
@@ -318,7 +413,7 @@ function dismissButtonNames() {
   ];
 }
 
-async function waitForScenarioExecution(page: Page, scenario: GridProdScenario, prompt: string) {
+async function waitForScenarioExecution(page: Page, scenario: GridProdScenario, prompt: string): Promise<string> {
   const expectedTexts = expectedLiveText(scenario);
   const expectedAssistantTexts = expectedTexts.filter(
     (text) => !prompt.toLowerCase().includes(text.toLowerCase()),
@@ -341,9 +436,13 @@ async function waitForScenarioExecution(page: Page, scenario: GridProdScenario, 
       continue;
     }
 
-    if (await hasCompletedToolSignal(page) && await hasAnyAssistantText(page, expectedTexts)) return;
+    if (await hasCompletedToolSignal(page) && await hasAnyAssistantText(page, expectedTexts)) {
+      return "completed tool signal and expected assistant text were visible";
+    }
 
-    if (await hasAllAssistantText(page, effectiveExpectedTexts)) return;
+    if (await hasAllAssistantText(page, effectiveExpectedTexts)) {
+      return "all expected assistant text was visible";
+    }
 
     if (await isVisible(page.getByText(/\btool(s)?\b/i).last())) {
       lastSignal = "tool activity is visible but expected completion text has not appeared yet";
@@ -736,6 +835,214 @@ function defaultHitlChatResponse(scenario: GridProdScenario, attempt: number): s
   ].filter(Boolean).join("\n");
 }
 
+function resetGridExecutionReport() {
+  if (!gridExecutionReportEnabled) return;
+
+  mkdirSync(dirname(gridExecutionReportPath), { recursive: true });
+  writeFileSync(gridExecutionReportPath, JSON.stringify({
+    run_id: gridRunId,
+    started_at: new Date().toISOString(),
+    grid_chat_url: gridChatUrl,
+    auto_tool_approval_enabled: gridAutoApproveToolCalls,
+    auto_user_response_enabled: gridAutoRespondToUserInput,
+    scenarios: [],
+  }, null, 2));
+}
+
+function appendGridExecutionResult(result: ScenarioExecutionResult) {
+  if (!gridExecutionReportEnabled) return;
+
+  const report = existsSync(gridExecutionReportPath)
+    ? JSON.parse(readFileSync(gridExecutionReportPath, "utf8")) as { scenarios?: ScenarioExecutionResult[] }
+    : { scenarios: [] };
+  const scenariosForReport = report.scenarios ?? [];
+  scenariosForReport.push(result);
+
+  writeFileSync(gridExecutionReportPath, JSON.stringify({
+    ...report,
+    completed_at: new Date().toISOString(),
+    scenarios: scenariosForReport,
+  }, null, 2));
+}
+
+async function attachGridExecutionResult(testInfo: TestInfo, result: ScenarioExecutionResult) {
+  await testInfo.attach(`grid-prod-result-${result.scenario.id}.json`, {
+    body: JSON.stringify(result, null, 2),
+    contentType: "application/json",
+  });
+}
+
+async function buildScenarioExecutionResult(
+  page: Page,
+  scenario: GridProdScenario,
+  prompt: string,
+  startedAt: Date,
+  status: ScenarioExecutionResult["status"],
+  completionReason: string,
+  error?: unknown,
+): Promise<ScenarioExecutionResult> {
+  const completedAt = new Date();
+  const snapshot = await scenarioSnapshot(page);
+  const safeAssistantMessages = snapshot.assistantMessages.map(sanitizeResultText);
+  const safeFinalResponse = sanitizeResultText(snapshot.finalAssistantText || snapshot.pageText);
+  const toolCompleted = await hasCompletedToolSignal(page).catch(() => false);
+
+  return {
+    run_id: gridRunId,
+    status,
+    scenario: {
+      id: scenario.id,
+      area: scenario.area,
+      name: scenario.name,
+    },
+    started_at: startedAt.toISOString(),
+    completed_at: completedAt.toISOString(),
+    duration_ms: completedAt.getTime() - startedAt.getTime(),
+    chat_url: page.url(),
+    prompt,
+    completion_reason: completionReason,
+    execution_evidence: {
+      tool_completed: toolCompleted,
+      expected_texts: expectedLiveText(scenario),
+      auto_tool_approval_enabled: gridAutoApproveToolCalls,
+      auto_user_response_enabled: gridAutoRespondToUserInput,
+    },
+    resource_details: extractScenarioResourceDetails(
+      scenario,
+      hitlFormValuesFor(scenario),
+      `${snapshot.pageText}\n${snapshot.finalAssistantText}`,
+      completedAt,
+    ),
+    final_response: safeFinalResponse,
+    assistant_messages: safeAssistantMessages.slice(-5),
+    ...(error ? { error: error instanceof Error ? error.message : String(error) } : {}),
+  };
+}
+
+async function scenarioSnapshot(page: Page): Promise<ScenarioSnapshot> {
+  const assistantMessages = await page
+    .locator(assistantMessageXPath())
+    .evaluateAll((nodes) => nodes
+      .map((node) => (node.textContent ?? "").replace(/\s+/g, " ").trim())
+      .filter(Boolean))
+    .catch(() => []);
+  const pageText = await page.locator("body").innerText({ timeout: 5_000 }).catch(() => "");
+  const finalAssistantText = assistantMessages.length > 0
+    ? assistantMessages[assistantMessages.length - 1]
+    : "";
+
+  return {
+    assistantMessages,
+    finalAssistantText,
+    pageText,
+  };
+}
+
+function assertScenarioProducedExecutionResult(result: ScenarioExecutionResult) {
+  const chatOnlyQuestion = /(?:please provide|please confirm|can you confirm|would you like|do you want|i need|need .*details|which .* should i|what .* should i)/i;
+  if (!result.execution_evidence.tool_completed && chatOnlyQuestion.test(result.final_response)) {
+    throw new Error([
+      `GRID scenario "${result.scenario.name}" produced a chat-only follow-up instead of an execution result.`,
+      "Final response:",
+      result.final_response,
+    ].join(" "));
+  }
+}
+
+function extractScenarioResourceDetails(
+  scenario: GridProdScenario,
+  values: Record<string, string>,
+  rawText: string,
+  completedAt: Date,
+): Record<string, string | string[]> {
+  const text = sanitizeResultText(rawText);
+  const details: Record<string, string | string[]> = {
+    completed_at: completedAt.toISOString(),
+  };
+  const add = (key: string, value?: string | string[]) => {
+    if (Array.isArray(value)) {
+      if (value.length > 0) details[key] = value;
+      return;
+    }
+    if (value) details[key] = value;
+  };
+  const addValues = (...keys: string[]) => {
+    for (const key of keys) {
+      add(key, values[key]);
+    }
+  };
+
+  switch (scenario.id) {
+    case "create-llm-key":
+      add("created_at", completedAt.toISOString());
+      addValues("key_name", "key_type", "provider", "gateway", "model", "owner", "team", "purpose", "ttl", "ttl_hours", "budget", "max_budget");
+      add("observed_key_ids", uniqueMatches(text, /\b(?:key[_\s-]?id|token[_\s-]?id)\s*[:#]?\s*([A-Za-z0-9_.-]{6,})/gi));
+      break;
+    case "create-ec2-instance":
+      add("created_at", completedAt.toISOString());
+      addValues("instance_name", "aws_account", "region", "instance_type", "ami", "operating_system", "subnet", "security_group", "owner", "ttl", "ttl_hours", "tags");
+      add("observed_instance_ids", uniqueMatches(text, /\bi-[0-9a-f]{8,17}\b/gi));
+      add("observed_private_ips", uniqueMatches(text, /\b10\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/g));
+      add("observed_public_ips", uniqueMatches(text, /\b(?:[1-9]\d?|1\d\d|2[01]\d|22[0-3])(?:\.(?:\d{1,3})){3}\b/g));
+      break;
+    case "create-s3-bucket":
+      add("created_at", completedAt.toISOString());
+      addValues("bucket_name", "aws_account", "region", "encryption", "public_access_block", "block_public_access", "versioning", "owner", "ttl", "ttl_hours", "tags");
+      break;
+    case "create-github-repo":
+      add("created_at", completedAt.toISOString());
+      addValues("repository_name", "repo_name", "owner", "organization", "visibility", "default_branch", "branch_protection", "workflow_checks", "description");
+      add("observed_repository_urls", uniqueMatches(text, /https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+/g));
+      break;
+    case "deploy-application":
+      addValues("application", "app_name", "namespace", "environment", "repository", "branch", "image", "image_tag", "argocd_application", "owner", "ttl", "ttl_hours");
+      add("observed_revisions", uniqueMatches(text, /\b(?:revision|commit|sha)\s*[:#]?\s*([a-f0-9]{7,40})\b/gi));
+      break;
+    case "create-jira-ticket":
+      add("created_at", completedAt.toISOString());
+      addValues("jira_project_key", "project_key", "issue_type", "summary", "title", "description", "epic_key", "epic", "labels", "priority");
+      add("observed_jira_keys", uniqueMatches(text, /\b[A-Z][A-Z0-9]+-\d+\b/g));
+      break;
+    case "webex-team-space-update":
+      addValues("space", "team_space", "webex_space", "room", "title", "message", "summary");
+      break;
+    default:
+      addValues(
+        "environment",
+        "service",
+        "application",
+        "app_name",
+        "namespace",
+        "cluster",
+        "region",
+        "argocd_application",
+        "repository",
+        "knowledge_base",
+        "query",
+        "question",
+        "time_range",
+        "severity",
+      );
+      break;
+  }
+
+  return details;
+}
+
+function uniqueMatches(text: string, pattern: RegExp): string[] {
+  return Array.from(new Set(Array.from(text.matchAll(pattern))
+    .map((match) => match[1] || match[0])
+    .filter(Boolean)));
+}
+
+function sanitizeResultText(text: string): string {
+  return text
+    .replace(/\bsk-[A-Za-z0-9_-]{8,}\b/g, "[redacted-api-key]")
+    .replace(/\bBearer\s+[A-Za-z0-9._-]+/gi, "Bearer [redacted]")
+    .replace(/\b(api[_\s-]?key|token|secret|password)\s*[:=]\s*\S+/gi, "$1: [redacted]")
+    .slice(0, 8_000);
+}
+
 async function failOnVisibleChatError(page: Page) {
   const error = page.getByText(/^Error:/i).first();
   if (await isVisible(error)) {
@@ -845,6 +1152,9 @@ async function signInControl(page: Page): Promise<Locator> {
 async function newChatControl(page: Page): Promise<Locator> {
   const button = page.getByRole("button", { name: /new chat|start a new chat|new conversation|custom query/i }).first();
   if (await button.count()) return button;
+
+  const agentButton = page.getByRole("button", { name: new RegExp(escapeRegExp(gridChatAgentName), "i") }).first();
+  if (await agentButton.count()) return agentButton;
 
   const titledButton = page.locator("button[title*='New' i], button[aria-label*='New' i]").first();
   if (await titledButton.count()) return titledButton;

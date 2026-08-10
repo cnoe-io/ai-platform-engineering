@@ -83,10 +83,33 @@ To let Playwright approve tool calls automatically after you run a scenario:
 npm run test:e2e:grid:ui:approve
 ```
 
+To execute the full live scenario suite without manual tool approvals and write
+per-scenario results:
+
+```bash
+npm run test:e2e:grid:execute
+```
+
+Print the report in a PR-friendly format:
+
+```bash
+npm run test:e2e:grid:report
+```
+
+The execution report is written to
+`test-results/grid-prod-execution-report.json`. Each scenario records the fresh
+chat URL, completion timestamp, final GRID response, whether a completed tool
+signal was observed, and resource details derived from the executed inputs and
+GRID response. For example, the LLM key scenario reports the generated LiteLLM
+key name, model, key type, owner, TTL, budget, and completion timestamp. The EC2
+scenario reports the generated instance name, AWS account, region, instance
+type, AMI/OS, network defaults, TTL, and any observed EC2 instance IDs or IPs
+found in GRID's final response. Secret-looking key/token values are redacted.
+
 To also supply input-form values automatically:
 
 ```bash
-GRID_HITL_FORM_VALUES_JSON='{"key_type":"individual","model":"gpt-4o-mini"}' \
+GRID_HITL_FORM_VALUES_JSON='{"key_type":"individual","model":"azure/gpt-4o-mini"}' \
 npm run test:e2e:grid:ui:approve
 ```
 
@@ -140,3 +163,44 @@ npm run test:e2e:grid
 ```
 
 Use the same `GRID_STORAGE_STATE` variable with `npm run test:e2e:ui` for Playwright UI mode. Omit `GRID_STORAGE_STATE` when you want to force a fresh interactive SSO login. The `e2e/.auth/` directory is ignored and must not be committed.
+
+## Team pre-merge workflow
+
+For every PR, keep the normal mocked UI/Playwright checks as the required
+automated signal. The live GRID prod suite creates real conversations and can
+create real downstream resources, so run it as a trusted manual pre-merge check
+only when the PR changes GRID chat, workflows, agents, credentials, MCP, Skills,
+or deployment flows.
+
+Local pre-merge run:
+
+```bash
+git checkout <pr-branch>
+cd ui
+npm ci
+npm run test:e2e:grid:execute
+npm run test:e2e:grid:report
+```
+
+Before the first local run, create `e2e/.auth/grid-prod.json` by running
+`npm run test:e2e:grid:ui`, completing Cisco/Duo SSO in the Playwright browser,
+and waiting for GRID chat to load. Each teammate owns their own local auth file.
+Never commit or share `e2e/.auth/grid-prod.json`.
+
+Optional GitHub pre-merge run:
+
+1. Configure a protected GitHub Environment named `grid-prod-live`.
+2. Add `GRID_PROD_STORAGE_STATE_B64` to that environment using a trusted CI or
+   shared test account, not a personal account:
+
+   ```bash
+   base64 -i ui/e2e/.auth/grid-prod.json | pbcopy
+   ```
+
+3. Open **Actions > [E2E] GRID Prod Live > Run workflow**.
+4. Set `target_ref` to the PR branch or commit SHA.
+5. Download the `grid-prod-live-*` artifact or read the log section from
+   `npm run test:e2e:grid:report`.
+
+The GitHub workflow does not perform interactive SSO. If the stored GRID session
+expires, refresh the environment secret with a new storage-state file and rerun.

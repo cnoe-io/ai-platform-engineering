@@ -1,0 +1,104 @@
+name: "[E2E] GRID Prod Live"
+description: "Manually run live GRID prod Playwright scenarios against a trusted branch before merge"
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_ref:
+        description: "Branch, tag, or SHA to test. Use the PR branch name before merging."
+        required: false
+        type: string
+      grid_chat_url:
+        description: "GRID chat URL"
+        required: true
+        default: "https://grid.outshift.io/chat"
+        type: string
+      scenarios_path:
+        description: "Scenario fixture path inside ui/"
+        required: true
+        default: "./e2e/fixtures/grid-prod-scenarios.example.json"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ inputs.target_ref || github.ref }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: "24"
+
+jobs:
+  grid-prod-live:
+    name: "GRID prod live scenarios"
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    environment: grid-prod-live
+
+    steps:
+      - name: 🔒 Harden runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v6
+        with:
+          ref: ${{ inputs.target_ref || github.ref }}
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install UI dependencies
+        working-directory: ui
+        run: npm ci --no-audit --no-fund
+
+      - name: Install Playwright Chromium
+        working-directory: ui
+        run: npx playwright install --with-deps chromium
+
+      - name: Create GRID storage state
+        working-directory: ui
+        env:
+          GRID_PROD_STORAGE_STATE_B64: ${{ secrets.GRID_PROD_STORAGE_STATE_B64 }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GRID_PROD_STORAGE_STATE_B64:-}" ]; then
+            echo "::error::Missing GRID_PROD_STORAGE_STATE_B64. Configure it in the protected grid-prod-live environment."
+            exit 1
+          fi
+
+          mkdir -p e2e/.auth
+          printf "%s" "${GRID_PROD_STORAGE_STATE_B64}" | base64 -d > e2e/.auth/grid-prod.json
+          node -e "JSON.parse(require('fs').readFileSync('e2e/.auth/grid-prod.json', 'utf8')); console.log('GRID storage state JSON is valid')"
+
+      - name: Run GRID prod live scenarios
+        working-directory: ui
+        env:
+          GRID_CHAT_URL: ${{ inputs.grid_chat_url }}
+          GRID_SCENARIOS_PATH: ${{ inputs.scenarios_path }}
+          GRID_EXECUTION_REPORT_PATH: ./test-results/grid-prod-execution-report.json
+        run: npm run test:e2e:grid:execute:ci
+
+      - name: Print GRID prod report
+        if: always()
+        working-directory: ui
+        env:
+          GRID_EXECUTION_REPORT_PATH: ./test-results/grid-prod-execution-report.json
+        run: npm run test:e2e:grid:report || true
+
+      - name: Upload GRID prod artifacts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: grid-prod-live-${{ github.run_id }}
+          path: |
+            ui/test-results/
+            ui/playwright-report/
+          if-no-files-found: ignore
