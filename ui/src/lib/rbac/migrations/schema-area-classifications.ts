@@ -172,6 +172,11 @@ export const SCHEMA_AREA_CLASSIFICATIONS: Record<string, SchemaAreaClassificatio
     classification: "baseline_v1",
     description: "Team records.",
   },
+  tome_projects: {
+    classification: "migration",
+    description:
+      "Tome project/Area/BHAG records. `project_labels_to_slug_v1` rewrites `labels.initiatives`/`labels.areas` from display-name strings to stable slugs and unsets the legacy `name` field.",
+  },
   turns: {
     classification: "baseline_v1",
     description: "Chat turn records.",

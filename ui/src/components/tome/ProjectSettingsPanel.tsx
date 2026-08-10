@@ -288,17 +288,26 @@ export function ProjectSettingsPanel({
     let cancelled = false;
     fetch(`/api/projects?type=area&initiative=${encodeURIComponent(selectedBhagSlug)}`)
       .then((res) => (res.ok ? res.json() : null))
-      .then((body) => {
+      .then(async (body) => {
         if (cancelled) return;
         const list = (body?.data?.projects ?? []) as { title?: string; name?: string; slug: string }[];
         const options = list.map((a) => ({ name: a.title ?? a.name ?? a.slug, slug: a.slug }));
         // The project's own Area tag may not appear here — an Area is not
         // guaranteed to tag its parent BHAG back in its own labels (a real,
-        // non-error state). Always include the current selection as an option.
+        // non-error state). Always include the current selection as an
+        // option, resolving its display title directly since the filtered
+        // list above may not contain it.
         if (selectedAreaSlug && !options.some((o) => o.slug === selectedAreaSlug)) {
-          options.push({ name: selectedAreaSlug, slug: selectedAreaSlug });
+          try {
+            const res = await fetch(`/api/projects/${encodeURIComponent(selectedAreaSlug)}`);
+            const areaBody = res.ok ? await res.json() : null;
+            const area = areaBody?.data?.project as { title?: string; name?: string } | undefined;
+            options.push({ name: area?.title ?? area?.name ?? selectedAreaSlug, slug: selectedAreaSlug });
+          } catch {
+            options.push({ name: selectedAreaSlug, slug: selectedAreaSlug });
+          }
         }
-        setAreaOptions(options);
+        if (!cancelled) setAreaOptions(options);
       })
       .catch(() => !cancelled && setAreaOptions([]));
     return () => {

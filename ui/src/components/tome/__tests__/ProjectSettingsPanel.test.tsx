@@ -49,7 +49,7 @@ describe("ProjectSettingsPanel hierarchy hydration", () => {
               team_id: "example-team-id",
               team_slug: "example-team",
               team_name: "Example Team",
-              labels: { areas: ["Example Area"], initiatives: [] },
+              labels: { areas: ["example-area"], initiatives: [] },
               sources: { repos: [], confluence_url: "" },
               data_steward: { type: "user", id: "test-user@example.com" },
             },
@@ -62,7 +62,7 @@ describe("ProjectSettingsPanel hierarchy hydration", () => {
         return jsonResponse({
           data: {
             projects: [
-              { type: "bhag", slug: "example-bhag", name: "Example BHAG" },
+              { type: "bhag", slug: "example-bhag", title: "Example BHAG" },
             ],
           },
         });
@@ -75,19 +75,19 @@ describe("ProjectSettingsPanel hierarchy hydration", () => {
               {
                 type: "area",
                 slug: "example-area",
-                name: "Example Area",
-                labels: { initiatives: ["Example BHAG"] },
+                title: "Example Area",
+                labels: { initiatives: ["example-bhag"] },
               },
             ],
           },
         });
       }
 
-      if (url === "/api/projects?type=area&initiative=Example%20BHAG") {
+      if (url === "/api/projects?type=area&initiative=example-bhag") {
         return jsonResponse({
           data: {
             projects: [
-              { type: "area", slug: "example-area", name: "Example Area" },
+              { type: "area", slug: "example-area", title: "Example Area" },
             ],
           },
         });
@@ -134,7 +134,7 @@ describe("ProjectSettingsPanel hierarchy hydration", () => {
 
     expect(global.fetch).toHaveBeenCalledWith("/api/projects?type=area");
     expect(global.fetch).toHaveBeenCalledWith(
-      "/api/projects?type=area&initiative=Example%20BHAG",
+      "/api/projects?type=area&initiative=example-bhag",
     );
   });
 
@@ -157,7 +157,7 @@ describe("ProjectSettingsPanel hierarchy hydration", () => {
               // Tagged directly to both a BHAG and an Area, independently —
               // not an error state. The Area below is NOT itself tagged to
               // this (or any) BHAG in its own labels.
-              labels: { areas: ["Untagged Area"], initiatives: ["Direct BHAG"] },
+              labels: { areas: ["untagged-area"], initiatives: ["direct-bhag"] },
               sources: { repos: [], confluence_url: "" },
               data_steward: { type: "user", id: "test-user@example.com" },
             },
@@ -168,7 +168,7 @@ describe("ProjectSettingsPanel hierarchy hydration", () => {
 
       if (url === "/api/projects?type=bhag") {
         return jsonResponse({
-          data: { projects: [{ type: "bhag", slug: "direct-bhag", name: "Direct BHAG" }] },
+          data: { projects: [{ type: "bhag", slug: "direct-bhag", title: "Direct BHAG" }] },
         });
       }
 
@@ -179,7 +179,7 @@ describe("ProjectSettingsPanel hierarchy hydration", () => {
               {
                 type: "area",
                 slug: "untagged-area",
-                name: "Untagged Area",
+                title: "Untagged Area",
                 labels: { initiatives: [] },
               },
             ],
@@ -187,8 +187,14 @@ describe("ProjectSettingsPanel hierarchy hydration", () => {
         });
       }
 
-      if (url === "/api/projects?type=area&initiative=Direct%20BHAG") {
+      if (url === "/api/projects?type=area&initiative=direct-bhag") {
         return jsonResponse({ data: { projects: [] } });
+      }
+
+      if (url === "/api/projects/untagged-area") {
+        return jsonResponse({
+          data: { project: { type: "area", slug: "untagged-area", title: "Untagged Area" } },
+        });
       }
 
       if (url === "/api/dynamic-agents/teams") {

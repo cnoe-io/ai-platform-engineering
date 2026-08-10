@@ -105,20 +105,17 @@ export function projectMatchesLabels(
 ): boolean {
   const labels = project.labels ?? {};
   const projDomain = labels.domain ?? project.domain;
-  const hasDomain = (values: string[] | undefined, candidates: (string | undefined)[]) => {
+  // Case/whitespace-insensitive on purpose: slugs already normalize to
+  // themselves, and this stays safe for any pre-migration display-name label
+  // that hasn't been rewritten to a slug yet.
+  const has = (values: string[] | undefined, candidates: (string | undefined)[]) => {
     if (!values || values.length === 0) return true;
     const want = new Set(values.map(normLabel));
     return candidates.some((c) => c && want.has(normLabel(c)));
   };
-  // initiatives and areas store parent slugs (stable, already normalized).
-  const hasSlug = (values: string[] | undefined, stored: string[]) => {
-    if (!values || values.length === 0) return true;
-    const want = new Set(values);
-    return stored.some((s) => want.has(s));
-  };
   return (
-    hasDomain(filter.domains, [projDomain]) &&
-    hasSlug(filter.initiatives, labels.initiatives ?? []) &&
-    hasSlug(filter.areas, labels.areas ?? [])
+    has(filter.domains, [projDomain]) &&
+    has(filter.initiatives, labels.initiatives ?? []) &&
+    has(filter.areas, labels.areas ?? [])
   );
 }
