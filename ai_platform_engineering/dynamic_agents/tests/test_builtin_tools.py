@@ -61,9 +61,76 @@ def test_create_curl_tool_success() -> None:
     mock_result.stderr = ""
     mock_result.returncode = 0
     with patch("dynamic_agents.services.builtin_tools.socket.getaddrinfo", return_value=public_ip_records), \
-         patch("subprocess.run", return_value=mock_result):
+         patch("subprocess.run", return_value=mock_result) as mock_run:
         result = curl_tool.invoke({"command": "curl -s https://api.example.com/status"})
     assert result == '{"status": "ok"}'
+    assert mock_run.call_args.args[0] == [
+        "curl",
+        "--globoff",
+        "--max-redirs",
+        "0",
+        "-s",
+        "--",
+        "https://api.example.com/status",
+    ]
+
+
+def test_create_curl_tool_validates_every_url() -> None:
+    builtin_tools = importlib.import_module("dynamic_agents.services.builtin_tools")
+    curl_tool = getattr(builtin_tools, "create_curl_tool")(allowed_domains="*.example.com")
+    public_ip_records = [(2, 1, 6, "", ("93.184.216.34", 0))]
+
+    with patch("dynamic_agents.services.builtin_tools.socket.getaddrinfo", return_value=public_ip_records), \
+         patch("subprocess.run") as mock_run:
+        result = curl_tool.invoke(
+            {"command": "curl https://api.example.com/status https://outside.example.org/status"}
+        )
+
+    assert result == "ERROR: Domain 'outside.example.org' is not allowed. Allowed patterns: *.example.com"
+    mock_run.assert_not_called()
+
+
+def test_create_curl_tool_rejects_options_with_local_file_access() -> None:
+    builtin_tools = importlib.import_module("dynamic_agents.services.builtin_tools")
+    curl_tool = getattr(builtin_tools, "create_curl_tool")(allowed_domains="*")
+    commands = [
+        "curl --output response.txt https://api.example.com/status",
+        "curl --config settings.txt https://api.example.com/status",
+        "curl --upload-file payload.txt https://api.example.com/status",
+        "curl --form document=@payload.txt https://api.example.com/status",
+        "curl --data-binary @payload.txt https://api.example.com/status",
+        "curl --header @headers.txt https://api.example.com/status",
+        "curl file:///etc/hosts",
+    ]
+
+    with patch("subprocess.run") as mock_run:
+        results = [curl_tool.invoke({"command": command}) for command in commands]
+
+    assert all(result.startswith("ERROR:") for result in results)
+    mock_run.assert_not_called()
+
+
+def test_create_curl_tool_allows_inline_request_data() -> None:
+    builtin_tools = importlib.import_module("dynamic_agents.services.builtin_tools")
+    curl_tool = getattr(builtin_tools, "create_curl_tool")(allowed_domains="*")
+    public_ip_records = [(2, 1, 6, "", ("93.184.216.34", 0))]
+    mock_result = MagicMock(stdout='{"status":"ok"}', stderr="", returncode=0)
+
+    with patch("dynamic_agents.services.builtin_tools.socket.getaddrinfo", return_value=public_ip_records), \
+         patch("subprocess.run", return_value=mock_result) as mock_run:
+        result = curl_tool.invoke(
+            {
+                "command": (
+                    "curl -sS -X POST https://api.example.com/items "
+                    "-H 'Content-Type: application/json' --data-raw '{\"name\":\"test\"}'"
+                )
+            }
+        )
+
+    assert result == '{"status":"ok"}'
+    argv = mock_run.call_args.args[0]
+    assert argv[-2:] == ["--", "https://api.example.com/items"]
+    assert ["--globoff", "--max-redirs", "0"] == argv[1:4]
 
 
 def test_curl_tool_in_builtin_tool_definitions() -> None:
