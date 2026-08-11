@@ -259,7 +259,7 @@ More information on the RAG agent can be found [here](https://github.com/cnoe-io
 ### Graph RAG
 
 The AI platform engineering repository also includes **Graph RAG**, which uses Neo4J to create knowledge graphs from structured data (K8s objects, AWS resources).
-See the [Graph RAG documentation](https://cnoe-io.github.io/ai-platform-engineering/knowledge_bases/graph_rag) for more details, and how to run it in your local environment.
+See the [Graph RAG documentation](https://caipe.io/docs/knowledge_bases/#knowledge-graph) for more details, and how to run it in your local environment.
 
 ### Unified Knowledge Base
 

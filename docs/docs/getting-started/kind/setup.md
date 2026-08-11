@@ -199,7 +199,7 @@ RAG uses **OpenAI embeddings** by default. If your main LLM is Claude, the scrip
 After RAG is deployed, you can ingest a documentation site:
 
 ```bash
-./setup-caipe.sh --non-interactive --rag --ingest-url=https://cnoe-io.github.io/ai-platform-engineering/
+./setup-caipe.sh --non-interactive --rag --ingest-url=https://caipe.io/
 ```
 
 You can monitor progress in the CAIPE UI under the Knowledge Base tab.

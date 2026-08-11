@@ -341,12 +341,12 @@ class TestWorkerSpiderRedirectHandling:
   @pytest.mark.asyncio
   async def test_async_start_uses_mode_specific_start_requests(self):
     """WorkerSpider should not let Scrapy default to parse() for start URLs."""
-    spider = self._make_worker_spider(start_url="https://cnoe-io.github.io/ai-platform-engineering/", crawl_mode="sitemap")
+    spider = self._make_worker_spider(start_url="https://example.com/", crawl_mode="sitemap")
 
     requests = [request async for request in spider.start()]
 
     assert len(requests) == 1
-    assert requests[0].url == "https://cnoe-io.github.io/ai-platform-engineering/sitemap.xml"
+    assert requests[0].url == "https://example.com/sitemap.xml"
     assert requests[0].callback == spider.parse_sitemap
 
   def test_should_follow_uses_start_domain_when_no_redirect(self):
@@ -374,11 +374,11 @@ class TestWorkerSpiderRedirectHandling:
 
   def test_parse_page_sets_effective_domain_on_redirect(self):
     """parse_page should set effective_domain when response URL differs from start_url."""
-    spider = self._make_worker_spider(start_url="https://caipe.io")
+    spider = self._make_worker_spider(start_url="https://legacy.example.com")
 
     # Create a mock response that simulates landing on a different domain after redirect
     mock_response = Mock()
-    mock_response.url = "https://cnoe-io.github.io/ai-platform-engineering/"
+    mock_response.url = "https://docs.example.com/"
     mock_response.status = 200
     mock_response.text = "<html><body>Content</body></html>"
     mock_response.css = Mock(return_value=Mock(getall=Mock(return_value=[])))
@@ -390,7 +390,7 @@ class TestWorkerSpiderRedirectHandling:
     list(spider.parse_page(mock_response))
 
     # After parse_page, effective_domain should be set to the response domain
-    assert spider.effective_domain == "cnoe-io.github.io"
+    assert spider.effective_domain == "docs.example.com"
 
   def test_parse_page_does_not_change_effective_domain_if_same(self):
     """parse_page should not set effective_domain if response domain matches start domain."""
@@ -408,22 +408,22 @@ class TestWorkerSpiderRedirectHandling:
     # effective_domain should remain None since no redirect occurred
     assert spider.effective_domain is None
 
-  def test_caipe_io_redirect_scenario(self):
-    """Simulate the caipe.io -> cnoe-io.github.io redirect scenario."""
-    spider = self._make_worker_spider(start_url="https://caipe.io", crawl_mode="recursive")
+  def test_legacy_host_redirects_to_canonical_domain(self):
+    """A crawl should follow links on the canonical domain after redirecting from a legacy host."""
+    spider = self._make_worker_spider(start_url="https://legacy.example.com", crawl_mode="recursive")
 
     # Before any redirect handling
-    # A link to github.io should be blocked (external)
-    assert spider._should_follow("https://cnoe-io.github.io/ai-platform-engineering/docs/", track_filtering=False) is False
+    # A link to the canonical domain should be blocked before the redirect is detected.
+    assert spider._should_follow("https://docs.example.com/guide/", track_filtering=False) is False
 
     # Simulate parse_page detecting the redirect
-    spider.effective_domain = "cnoe-io.github.io"
+    spider.effective_domain = "docs.example.com"
 
     # Now the same link should be allowed
-    assert spider._should_follow("https://cnoe-io.github.io/ai-platform-engineering/docs/", track_filtering=False) is True
+    assert spider._should_follow("https://docs.example.com/guide/", track_filtering=False) is True
 
     # Links to original domain should now be blocked
-    assert spider._should_follow("https://caipe.io/some-page", track_filtering=False) is False
+    assert spider._should_follow("https://legacy.example.com/some-page", track_filtering=False) is False
 
   def test_should_follow_blocks_private_ip_even_when_external_links_enabled(self):
     """WorkerSpider should not schedule internal or metadata-service URLs."""
@@ -595,18 +595,15 @@ class TestParseSitemapIndex:
 
 
 class TestParseSitemapFlatUrlset:
-  """Tests for parse_sitemap against a real, non-indexed sitemap.
+  """Tests for parse_sitemap against a representative non-indexed sitemap.
 
-  cnoe-io.github.io/ai-platform-engineering/sitemap.xml (this repo's own docs
-  site) is a flat Docusaurus-generated <urlset> with 4200+ entries and the
-  extra xmlns/changefreq/priority attributes real sitemaps carry - the
-  opposite shape from the outshift.cisco.com index above. This guards against
-  the sitemapindex check in parse_sitemap ever misfiring on an ordinary,
-  larger, real-world urlset.
+  Docusaurus generates a flat <urlset> with namespace, changefreq, and priority
+  attributes. This guards against the sitemapindex check ever misfiring on an
+  ordinary, larger sitemap.
   """
 
-  # A representative excerpt of the real sitemap, namespaces and per-url tags intact.
-  REAL_FLAT_URLSET = """<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:news="http://www.google.com/schemas/sitemap-news/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1" xmlns:video="http://www.google.com/schemas/sitemap-video/1.1"><url><loc>https://cnoe-io.github.io/ai-platform-engineering/blog</loc><changefreq>weekly</changefreq><priority>0.5</priority></url><url><loc>https://cnoe-io.github.io/ai-platform-engineering/blog/ai-agent-vs-mcp-server</loc><changefreq>weekly</changefreq><priority>0.5</priority></url><url><loc>https://cnoe-io.github.io/ai-platform-engineering/docs/workshop/rag</loc><changefreq>weekly</changefreq><priority>0.5</priority></url><url><loc>https://cnoe-io.github.io/ai-platform-engineering/docs/workshop/tracing</loc><changefreq>weekly</changefreq><priority>0.5</priority></url><url><loc>https://cnoe-io.github.io/ai-platform-engineering/</loc><changefreq>weekly</changefreq><priority>0.5</priority></url></urlset>"""
+  # A representative Docusaurus sitemap excerpt with namespace and per-URL tags intact.
+  REPRESENTATIVE_FLAT_URLSET = """<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:news="http://www.google.com/schemas/sitemap-news/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1" xmlns:video="http://www.google.com/schemas/sitemap-video/1.1"><url><loc>https://docs.example.com/blog</loc><changefreq>weekly</changefreq><priority>0.5</priority></url><url><loc>https://docs.example.com/blog/example-post</loc><changefreq>weekly</changefreq><priority>0.5</priority></url><url><loc>https://docs.example.com/docs/workshop/example</loc><changefreq>weekly</changefreq><priority>0.5</priority></url><url><loc>https://docs.example.com/docs/workshop/tracing</loc><changefreq>weekly</changefreq><priority>0.5</priority></url><url><loc>https://docs.example.com/</loc><changefreq>weekly</changefreq><priority>0.5</priority></url></urlset>"""
 
   def _make_worker_spider(self, max_pages: int = 100):
     """Create a WorkerSpider instance for testing."""
@@ -616,7 +613,7 @@ class TestParseSitemapFlatUrlset:
 
     request = CrawlRequest(
       job_id="test-job",
-      url="https://cnoe-io.github.io/ai-platform-engineering/",
+      url="https://docs.example.com/",
       datasource_id="test-ds",
       crawl_mode="sitemap",
       max_pages=max_pages,
@@ -636,13 +633,13 @@ class TestParseSitemapFlatUrlset:
     mock_response.request.url = url
     return mock_response
 
-  def test_real_flat_urlset_is_not_treated_as_an_index(self):
+  def test_representative_flat_urlset_is_not_treated_as_an_index(self):
     """A namespaced Docusaurus <urlset> must dispatch straight to parse_page, not recurse."""
     from unittest.mock import patch
 
     spider = self._make_worker_spider()
     response = self._make_sitemap_response(
-      "https://cnoe-io.github.io/ai-platform-engineering/sitemap.xml", self.REAL_FLAT_URLSET
+      "https://docs.example.com/sitemap.xml", self.REPRESENTATIVE_FLAT_URLSET
     )
 
     with patch("ingestors.webloader.loader.scrapy_worker.is_publicly_routable_url", return_value=(True, "")):
@@ -653,13 +650,13 @@ class TestParseSitemapFlatUrlset:
     assert spider.urls_found_in_sitemap == 5
     assert spider.total_pages_to_crawl == 5
 
-  def test_real_flat_urlset_respects_max_pages_truncation(self):
-    """With 4200+ real URLs in the live sitemap, max_pages must still cap what gets queued."""
+  def test_representative_flat_urlset_respects_max_pages_truncation(self):
+    """For a larger flat sitemap, max_pages must still cap what gets queued."""
     from unittest.mock import patch
 
     spider = self._make_worker_spider(max_pages=3)
     response = self._make_sitemap_response(
-      "https://cnoe-io.github.io/ai-platform-engineering/sitemap.xml", self.REAL_FLAT_URLSET
+      "https://docs.example.com/sitemap.xml", self.REPRESENTATIVE_FLAT_URLSET
     )
 
     with patch("ingestors.webloader.loader.scrapy_worker.is_publicly_routable_url", return_value=(True, "")):

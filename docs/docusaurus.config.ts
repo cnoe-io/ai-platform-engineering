@@ -62,12 +62,16 @@ const config: Config = {
     [
       '@docusaurus/plugin-client-redirects',
       {
-        // GitHub Pages preserves the old project path when redirecting its
-        // github.io URL to the custom domain. Keep those existing links valid.
+        // Keep custom-domain links that still include the former GitHub Pages
+        // project path valid.
         createRedirects(existingPath: string) {
           return `/ai-platform-engineering${existingPath}`;
         },
         redirects: [
+          // GitHub Pages strips the project prefix from legacy host URLs. These
+          // historically published docs links also omitted the /docs route.
+          {from: '/getting-started/quick-start', to: '/docs/getting-started/quick-start'},
+          {from: '/knowledge_bases/graph_rag', to: '/docs/knowledge_bases/'},
           // /docs/index has no real page; redirect to Quick Start
           {from: '/docs/index', to: '/docs/getting-started/quick-start'},
           // Old docs-based release notes → new blog posts
