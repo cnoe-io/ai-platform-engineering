@@ -376,6 +376,11 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'doc',
+      id: 'agent-ops/grid-production-slo-sla',
+      label: 'GRID Production SLO/SLA',
+    },
+    {
+      type: 'doc',
       id: 'contributing/index',
       label: 'Contributing',
     },
