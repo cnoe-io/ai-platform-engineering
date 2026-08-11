@@ -151,6 +151,7 @@ type SessionAuthSession = {
   isAuthorized?: boolean;
   isServiceAccount?: boolean;
   org?: string;
+  principalType?: 'oidc_user' | 'service_account' | 'catalog_api_key' | 'skills_api_key';
   role?: string;
   sub?: string;
   user?: {
@@ -411,7 +412,10 @@ export async function getAuthenticatedUser(
 
   await persistKeycloakSubMapping(session, user);
 
-  const authenticated = { user, session: { ...session, role } };
+  const authenticated = {
+    user,
+    session: { ...session, role, principalType: 'oidc_user' as const },
+  };
   writeCachedSessionAuth(request, authenticated);
   return cloneSessionAuthPayload(authenticated);
 }
@@ -607,7 +611,13 @@ export async function getAuthFromBearerOrSession(
       // sub must be present so filterSkillsByOpenFga does not short-circuit to [].
       // The synthetic subject is used only for OpenFGA read checks on global skills;
       // it never appears in audit logs for user-owned resources.
-      session: { role: 'user', canViewAdmin: false, catalogKey, sub: 'catalog-key-user@local' },
+      session: {
+        role: 'user',
+        canViewAdmin: false,
+        catalogKey,
+        sub: 'catalog-key-user@local',
+        principalType: 'catalog_api_key',
+      },
     };
   }
 
@@ -637,7 +647,11 @@ export async function getAuthFromBearerOrSession(
         // sub must be present so filterSkillsByOpenFga resolves the caller's identity;
         // prefer the real Keycloak sub when resolved, else fall back to email so this
         // never regresses to the "missing sub drops all skills" bug.
-        session: { role: 'user', sub: sub ?? localIdentity.email },
+        session: {
+          role: 'user',
+          sub: sub ?? localIdentity.email,
+          principalType: 'skills_api_key',
+        },
       };
     }
 
@@ -667,6 +681,9 @@ export async function getAuthFromBearerOrSession(
       // first-party service callers (e.g. the Slack bot) as
       // `service_account:<sub>` rather than `user:<sub>`.
       isServiceAccount: identity.isServiceAccount === true,
+      principalType: identity.isServiceAccount === true
+        ? 'service_account' as const
+        : 'oidc_user' as const,
       user: { email: identity.email, name: identity.name },
     };
     if (process.env.NODE_ENV !== 'test') {

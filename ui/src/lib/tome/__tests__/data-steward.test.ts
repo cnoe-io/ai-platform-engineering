@@ -3,6 +3,7 @@ import {
   getTomeProjectPermissions,
   reconcileDataSteward,
   resolveDataSteward,
+  resolveStoredDataSteward,
   tomeDataObject,
 } from "@/lib/tome/data-steward";
 import type { ProjectDocument } from "@/types/projects";
@@ -49,7 +50,7 @@ jest.mock("@/lib/rbac/openfga", () => ({
 jest.mock("@/lib/tome/access", () => ({
   canReadTomeProject: (...args: unknown[]) => mockCanReadTomeProject(...args),
   tomeDataObject: (p: ProjectDocument) =>
-    `document:tome/${p.type === "bhag" || p.type === "area" ? p.type : "project"}/${p.slug}`,
+    `document:tome/${p.type === "bhag" || p.type === "area" ? p.type : "project"}/${String(p._id)}`,
 }));
 
 jest.mock("@/lib/rbac/tome-admin", () => ({
@@ -99,9 +100,9 @@ describe("Tome data-steward authorization", () => {
   });
 
   it.each([
-    ["project", "document:tome/project/example"],
-    ["area", "document:tome/area/example"],
-    ["bhag", "document:tome/bhag/example"],
+    ["project", "document:tome/project/project-id"],
+    ["area", "document:tome/area/project-id"],
+    ["bhag", "document:tome/bhag/project-id"],
   ] as const)("scopes %s steward grants to its own object", (type, expected) => {
     expect(tomeDataObject(project(type))).toBe(expected);
   });
@@ -127,7 +128,7 @@ describe("Tome data-steward authorization", () => {
     expect(dataStewardTuple(project(), steward!)).toEqual({
       user: "user:user-sub",
       relation: "writer",
-      object: "document:tome/project/example",
+      object: "document:tome/project/project-id",
     });
   });
 
@@ -146,7 +147,7 @@ describe("Tome data-steward authorization", () => {
     expect(dataStewardTuple(project("area"), steward!)).toEqual({
       user: "team:primary#member",
       relation: "writer",
-      object: "document:tome/area/example",
+      object: "document:tome/area/project-id",
     });
   });
 
@@ -164,7 +165,7 @@ describe("Tome data-steward authorization", () => {
     expect(mockCheckOpenFgaTuple).toHaveBeenCalledWith({
       user: "user:user-sub",
       relation: "can_write",
-      object: "document:tome/bhag/example",
+      object: "document:tome/bhag/project-id",
     });
   });
 
@@ -180,6 +181,25 @@ describe("Tome data-steward authorization", () => {
     ).resolves.toEqual({ canRead: true, canEdit: true, canManageSteward: true });
     expect(mockCheckOpenFgaTuple).not.toHaveBeenCalled();
   });
+
+  it.each(["catalog_api_key", "skills_api_key"])(
+    "rejects %s before any administrator or OpenFGA decision",
+    async (principalType) => {
+      await expect(
+        getTomeProjectPermissions({
+          project: project(),
+          user: { email: "catalog-user@example.test" },
+          session: { sub: "catalog-user", principalType },
+        }),
+      ).rejects.toMatchObject({
+        statusCode: 403,
+        code: "TOME_INTERACTIVE_PRINCIPAL_REQUIRED",
+      });
+      expect(mockIsTomeAdmin).not.toHaveBeenCalled();
+      expect(mockCanReadTomeProject).not.toHaveBeenCalled();
+      expect(mockCheckOpenFgaTuple).not.toHaveBeenCalled();
+    },
+  );
 
   it("repairs a stored team steward tuple before checking again", async () => {
     mockCheckOpenFgaTuple
@@ -200,7 +220,7 @@ describe("Tome data-steward authorization", () => {
         {
           user: "team:primary#member",
           relation: "writer",
-          object: "document:tome/area/example",
+          object: "document:tome/area/project-id",
         },
       ],
       deletes: [],
@@ -215,6 +235,14 @@ describe("Tome data-steward authorization", () => {
       email: "old@example.com",
     };
     const next = { type: "team" as const, id: "primary", name: "Primary Team" };
+    mockGetCollection.mockReturnValue({
+      findOne: jest.fn().mockResolvedValue({
+        email: "old@example.com",
+        name: "Canonical Old User",
+        keycloak_sub: "old-sub",
+        metadata: {},
+      }),
+    });
 
     await reconcileDataSteward(project("project", previous), next);
 
@@ -223,7 +251,7 @@ describe("Tome data-steward authorization", () => {
         {
           user: "team:primary#member",
           relation: "writer",
-          object: "document:tome/project/example",
+          object: "document:tome/project/project-id",
         },
       ],
       deletes: [],
@@ -232,9 +260,53 @@ describe("Tome data-steward authorization", () => {
       {
         user: "user:old-sub",
         relation: "writer",
-        object: "document:tome/project/example",
+        object: "document:tome/project/project-id",
       },
     ]);
+  });
+
+  it("rejects caller-supplied resolved steward identities", async () => {
+    await expect(
+      resolveDataSteward({
+        type: "user",
+        id: "forged-sub",
+        name: "Forged User",
+      } as never),
+    ).rejects.toMatchObject({ code: "INVALID_DATA_STEWARD" });
+    expect(mockGetCollection).not.toHaveBeenCalled();
+  });
+
+  it("refreshes stored steward metadata from the trusted user record", async () => {
+    const findOne = jest.fn().mockResolvedValue({
+      email: "canonical@example.com",
+      name: "Canonical User",
+      keycloak_sub: "canonical-sub",
+      metadata: {},
+    });
+    mockGetCollection.mockReturnValue({
+      findOne,
+    });
+
+    await expect(
+      resolveStoredDataSteward({
+        type: "user",
+        id: "stale-sub",
+        name: "Untrusted Name",
+        email: "stale@example.com",
+      }),
+    ).resolves.toEqual({
+      type: "user",
+      id: "canonical-sub",
+      name: "Canonical User",
+      email: "canonical@example.com",
+    });
+    expect(findOne).toHaveBeenCalledTimes(1);
+    expect(findOne).toHaveBeenCalledWith({
+      $or: [
+        { keycloak_sub: "stale-sub" },
+        { "metadata.keycloak_sub": "stale-sub" },
+      ],
+    });
   });
 
   it("fails closed when OpenFGA is unavailable", async () => {

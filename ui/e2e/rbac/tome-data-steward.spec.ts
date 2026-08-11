@@ -93,7 +93,7 @@ function tomeHandler(
             can_manage_steward: canManageSteward,
           },
           rbac: {
-            object: `document:tome/project/${SLUG}`,
+            object: "document:tome/project/example-project-id",
             directTeam: {
               slug: "example-team",
               name: "Example Team",
@@ -682,8 +682,11 @@ test.describe("Tome data-steward controls (mocked)", () => {
     await expect(page.getByText("Write", { exact: true })).toBeVisible();
     await expect(page.getByText("Example Steward (user)", { exact: true })).toBeVisible();
     await expect(
-      page.getByText(`document:tome/project/${SLUG}`, { exact: true }),
+      page.getByText("document:tome/project/example-project-id", { exact: true }),
     ).toBeVisible();
+    await expect(
+      page.getByText(`document:tome/project/${SLUG}`, { exact: true }),
+    ).toHaveCount(0);
     await expect(
       page.getByText("team:example-team#member reader", { exact: false }),
     ).toBeVisible();

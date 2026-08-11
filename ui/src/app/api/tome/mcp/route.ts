@@ -19,6 +19,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { getAuthFromBearerOrSession } from "@/lib/api-middleware";
+import { requireInteractiveTomePrincipal } from "@/lib/tome/principal";
 import { isTomeServerEnabled } from "@/lib/tome/guard";
 
 export const dynamic = "force-dynamic";
@@ -1244,7 +1245,8 @@ export async function POST(request: NextRequest) {
   // Authenticate the transport. Bearer (skills API token, or a Keycloak access
   // token from the OAuth/PKCE flow) or session cookie.
   try {
-    await getAuthFromBearerOrSession(request);
+    const { session } = await getAuthFromBearerOrSession(request);
+    requireInteractiveTomePrincipal(session);
   } catch {
     // Point clients at our RFC 9728 metadata so they can discover the
     // authorization server and run the OAuth flow (Claude Code et al.). Behind

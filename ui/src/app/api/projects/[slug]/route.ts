@@ -16,12 +16,15 @@ import {
 } from "@/lib/projects/confluence-source";
 import { runOnboardingDeletes, runOnboardingUpdates } from "@/lib/projects/onboarding-providers";
 import { normalizeGitHubRepositorySource } from "@/lib/projects/github-repository";
-import { canManageProjectsOrganization } from "@/lib/projects/project-admin";
+import {
+  canAssignProjectToTeam,
+  canManageProjectsOrganization,
+} from "@/lib/projects/project-admin";
 import { cleanLabelList } from "@/lib/projects/labels";
 import { isBootstrapAdmin } from "@/lib/auth-config";
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
-import { getRbacCollection } from "@/lib/rbac/mongo-collections";
 import { auditTome, tomeActorFromAuth, type TomeAuditActor } from "@/lib/tome/audit";
+import { resolveUniqueTomeProjectBySlug } from "@/lib/tome/project-resolver";
 import {
   getTomeReadConfiguration,
   invalidateTomeReadAccessCatalogCache,
@@ -33,10 +36,10 @@ import {
   getTomeProjectPermissions,
   reconcileDataSteward,
   resolveDataSteward,
+  resolveStoredDataSteward,
 } from "@/lib/tome/data-steward";
 import type { DataStewardInput, ProjectDocument } from "@/types/projects";
 import type { Team } from "@/types/teams";
-import type { TeamMembershipSource } from "@/types/identity-group-sync";
 
 /**
  * Resolve a team by Mongo `_id` (string) or `slug`. Returns the team with a
@@ -54,27 +57,6 @@ async function resolveTeamByIdOrSlug(
   return team ? { ...team, _id: String(team._id) } : null;
 }
 
-/**
- * May `actorEmail` assign a project to `team`? True for org admins, or when the
- * actor has an active canonical membership row for the target team. Mirrors the
- * gate used by `/api/dynamic-agents/teams` (the selector source).
- */
-async function canAssignToTeam(
-  team: Team & { _id: string },
-  actorEmail: string | undefined,
-  isOrgAdmin: boolean,
-): Promise<boolean> {
-  if (isOrgAdmin) return true;
-  const email = actorEmail?.trim().toLowerCase();
-  if (!email || !team.slug) return false;
-  const sources = await getRbacCollection<TeamMembershipSource>("teamMembershipSources");
-  const row = await sources.findOne({
-    status: "active",
-    user_email: email,
-    team_slug: team.slug,
-  });
-  return Boolean(row);
-}
 
 /** Emit `tome.source.attach`/`detach` events for what changed between the
  * project's sources before and after a PATCH. Repos + Confluence URL compared
@@ -121,8 +103,7 @@ export const GET = withErrorHandler(
     const { user, session } = await getAuthFromBearerOrSession(_request);
     const { slug } = await context.params;
 
-    const projects = await getCollection<ProjectDocument>("projects");
-    const project = await projects.findOne({ slug });
+    const project = await resolveUniqueTomeProjectBySlug(slug);
     if (!project) {
       throw new ApiError("Project not found", 404, "PROJECT_NOT_FOUND");
     }
@@ -137,7 +118,7 @@ export const GET = withErrorHandler(
     }
     const [readConfiguration, steward] = await Promise.all([
       getTomeReadConfiguration(project),
-      resolveDataSteward(project.data_steward).catch(() => null),
+      resolveStoredDataSteward(project.data_steward).catch(() => null),
     ]);
     return successResponse({
       project: {
@@ -181,7 +162,7 @@ export const DELETE = withErrorHandler(
     const { slug } = await context.params;
 
     const projects = await getCollection<ProjectDocument>("projects");
-    const project = await projects.findOne({ slug });
+    const project = await resolveUniqueTomeProjectBySlug(slug);
     if (!project) {
       throw new ApiError("Project not found", 404, "PROJECT_NOT_FOUND");
     }
@@ -210,11 +191,22 @@ export const DELETE = withErrorHandler(
     const sub = (session as { sub?: string } | undefined)?.sub;
     const externalDeletes = await runOnboardingDeletes(project, sub);
 
+    // Migrate legacy slug tuples before removing this exact ID so stale
+    // readers/parents cannot survive an administrator deleting an old record.
+    await reconcileTomeReadAccess(project);
     await Promise.all([
       removeTomeReadAccess(project),
       reconcileDataSteward(project, null),
     ]);
     await projects.deleteOne({ _id: project._id });
+    await (
+      await getCollection<{ _id: string; project_id: string }>(
+        "project_slug_reservations",
+      )
+    ).deleteOne({
+      _id: slug,
+      project_id: String(project._id),
+    });
     invalidateTomeReadAccessCatalogCache();
 
     auditTome({
@@ -242,7 +234,7 @@ export const PATCH = withErrorHandler(
     const { slug } = await context.params;
 
     const projects = await getCollection<ProjectDocument>("projects");
-    const project = await projects.findOne({ slug });
+    const project = await resolveUniqueTomeProjectBySlug(slug);
     if (!project) {
       throw new ApiError("Project not found", 404, "PROJECT_NOT_FOUND");
     }
@@ -314,7 +306,7 @@ export const PATCH = withErrorHandler(
         throw new ApiError("Target team not found", 404, "TEAM_NOT_FOUND");
       }
       if (target._id !== project.team_id && target.slug !== project.team_slug) {
-        const allowed = await canAssignToTeam(target, user.email, isOrgAdmin);
+        const allowed = await canAssignProjectToTeam(target, user.email, isOrgAdmin);
         if (!allowed) {
           throw new ApiError(
             "You are not allowed to move this project into that team",
@@ -441,7 +433,7 @@ export const PATCH = withErrorHandler(
         });
       }
       if (nextDataSteward) {
-        const previousSteward = await resolveDataSteward(project.data_steward).catch(() => null);
+        const previousSteward = await resolveStoredDataSteward(project.data_steward).catch(() => null);
         await reconcileDataSteward(
           { ...project, data_steward: nextDataSteward },
           previousSteward,
@@ -452,7 +444,7 @@ export const PATCH = withErrorHandler(
       throw error;
     }
 
-    const updated = await projects.findOne({ slug });
+    const updated = await projects.findOne({ _id: project._id });
     if (!updated) throw new ApiError("Project not found after update", 500, "UPDATE_FAILED");
 
     const sub = (session as { sub?: string } | undefined)?.sub;
@@ -476,7 +468,7 @@ export const PATCH = withErrorHandler(
     }
 
     const updatedReadConfiguration = await getTomeReadConfiguration(updated);
-    const updatedSteward = await resolveDataSteward(updated.data_steward).catch(() => null);
+    const updatedSteward = await resolveStoredDataSteward(updated.data_steward).catch(() => null);
     return successResponse({
       project: { ...updated, _id: String(updated._id) },
       rbac: {
