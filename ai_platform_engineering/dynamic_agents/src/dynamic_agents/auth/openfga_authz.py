@@ -256,6 +256,25 @@ def _is_service_account(payload: dict[str, Any] | None) -> bool:
     return isinstance(preferred, str) and preferred.startswith("service-account-")
 
 
+def current_bearer_principal() -> tuple[str, str]:
+    """Return the validated bearer principal as ``(type, id)``."""
+    token = current_user_token.get()
+    if not token:
+        _raise_authz(401, "Bearer token is required", "missing_bearer", "not_signed_in", "sign_in")
+    payload = _decode_payload_from_validated_token(token)
+    subject = payload.get("sub") if payload else None
+    if not _is_valid_openfga_id(subject):
+        _raise_authz(
+            401,
+            "Bearer token subject could not be verified",
+            "bearer_invalid",
+            "bearer_invalid",
+            "sign_in",
+        )
+    principal_type = "service_account" if _is_service_account(payload) else "user"
+    return principal_type, subject
+
+
 async def _check_agent_use(fga_subject: str, agent_id: str) -> bool:
     """Check `<fga_subject> can_use agent:<agent_id>`.
 
@@ -281,6 +300,93 @@ async def _check_agent_use(fga_subject: str, agent_id: str) -> bool:
         response.raise_for_status()
         body = response.json()
         return bool(body.get("allowed"))
+
+
+async def _check_resource_permission(
+    fga_subject: str,
+    resource_type: str,
+    resource_id: str,
+    relation: str,
+) -> bool:
+    """Check one already-validated OpenFGA resource tuple."""
+    base_url = _openfga_http_url()
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        store_id = await _get_openfga_store_id(client, base_url)
+        response = await client.post(
+            f"{base_url}/stores/{store_id}/check",
+            headers=_openfga_headers(),
+            json={
+                "tuple_key": {
+                    "user": fga_subject,
+                    "relation": relation,
+                    "object": f"{resource_type}:{resource_id}",
+                }
+            },
+        )
+        response.raise_for_status()
+        return bool(response.json().get("allowed"))
+
+
+async def require_file_resource_permission(
+    resource_type: str,
+    resource_id: str,
+    relation: str,
+) -> None:
+    """Authorize the current bearer subject for a file namespace resource."""
+    allowed_relations = {
+        "agent": {"can_use"},
+        "conversation": {"can_read", "can_write"},
+        "task": {"can_read", "can_write"},
+    }
+    if (
+        resource_type not in allowed_relations
+        or relation not in allowed_relations[resource_type]
+        or not _is_valid_openfga_id(resource_id)
+    ):
+        _raise_authz(400, "Invalid file resource", "invalid_resource", "invalid_request", "fix_request")
+
+    token = current_user_token.get()
+    if not token:
+        _raise_authz(401, "Bearer token is required", "missing_bearer", "not_signed_in", "sign_in")
+    payload = _decode_payload_from_validated_token(token)
+    subject = payload.get("sub") if payload else None
+    if not _is_valid_openfga_id(subject):
+        _raise_authz(
+            401,
+            "Bearer token subject could not be verified",
+            "bearer_invalid",
+            "bearer_invalid",
+            "sign_in",
+        )
+
+    if _is_service_account(payload):
+        principal_candidates = [f"service_account:{subject}"]
+    else:
+        principal_candidates = [f"user:{subject}"]
+        email_principal = _normalize_email_principal(payload.get("email") if payload else None)
+        if email_principal:
+            principal_candidates.append(f"user:{email_principal}")
+
+    try:
+        for candidate in principal_candidates:
+            if await _check_resource_permission(candidate, resource_type, resource_id, relation):
+                return
+    except Exception as exc:
+        logger.warning(
+            "OpenFGA file resource check failed for %s:%s: %s",
+            resource_type,
+            resource_id,
+            exc,
+        )
+        _raise_authz(
+            503,
+            "Authorization service is temporarily unavailable. Please try again in a moment.",
+            "PDP_UNAVAILABLE",
+            "pdp_unavailable",
+            "retry",
+        )
+
+    _raise_authz(403, "Permission denied", "file#access", "pdp_denied", "contact_admin")
 
 
 async def require_agent_use_permission(agent_id: str) -> None:
