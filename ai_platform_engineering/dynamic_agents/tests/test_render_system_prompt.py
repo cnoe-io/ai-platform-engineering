@@ -148,6 +148,12 @@ class TestSandboxSecurity:
         with pytest.raises(SystemPromptRenderError, match="dict"):
             _render_system_prompt("{{ dict(a=1) }}", None)
 
+    def test_context_mutation_is_blocked(self):
+        """Templates cannot mutate list values supplied in render context."""
+        user = UserContext(email="user@example.com", groups=["primary"])
+        with pytest.raises(SystemPromptRenderError, match="unsafe"):
+            _render_system_prompt("{{ user.groups.append('secondary') }}", None, user=user)
+
 
 class TestTemplateErrorHandling:
     """Tests that template failures raise SystemPromptRenderError."""
