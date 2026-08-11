@@ -244,7 +244,36 @@
 
 .img-quarter-width img {
   width: var(--img-width, 400px);
+  max-width: 100%;
+  height: auto;
   /* Use variable with 400px as fallback */
+}
+
+/* Keep authored media and wide data readable on narrow documentation pages. */
+.theme-doc-markdown img,
+.theme-blog-markdown img {
+  max-width: 100%;
+  height: auto;
+}
+
+.theme-doc-markdown table,
+.theme-blog-markdown table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.theme-doc-markdown,
+.theme-blog-markdown {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 480px) {
+  .theme-doc-markdown pre,
+  .theme-blog-markdown pre {
+    border-radius: 6px;
+  }
 }
 
 /* Mermaid diagrams — click to fullscreen */
