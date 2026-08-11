@@ -29,9 +29,8 @@ jobs:
         with:
           app-id: ${{ secrets.CI_BUILD_APP_ID }}
           private-key: ${{ secrets.CI_BUILD_APP_PRIVATE_KEY }}
-          # Keep the App token on the high-volume Actions API. PR and comment
-          # calls use the explicitly scoped workflow token below.
-          permission-actions: read
+          permission-issues: write
+          permission-pull-requests: read
 
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
@@ -39,7 +38,6 @@ jobs:
       - name: Reconcile prebuild artifact comment
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
-          GITHUB_COMMENT_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.client_payload.pr_number }}
           HEAD_SHA: ${{ github.event.client_payload.head_sha }}
         run: python3 .github/scripts/reconcile-prebuild-artifacts.py
