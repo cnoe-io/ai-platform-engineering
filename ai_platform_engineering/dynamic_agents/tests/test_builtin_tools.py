@@ -1,6 +1,12 @@
 import importlib
+import json
+import shutil
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock, patch
+
+import pytest
 
 
 def test_self_identity_returns_agent_id() -> None:
@@ -110,6 +116,57 @@ def test_create_curl_tool_rejects_options_with_local_file_access() -> None:
     mock_run.assert_not_called()
 
 
+@pytest.mark.parametrize(
+    "command",
+    [
+        "curl -o response.txt https://api.example.com/status",
+        "curl -K settings.txt https://api.example.com/status",
+        "curl -T payload.txt https://api.example.com/status",
+        "curl -F document=@payload.txt https://api.example.com/status",
+        "curl --location https://api.example.com/status",
+        "curl --url https://api.example.com/status",
+        "curl --proxy http://proxy.example.test https://api.example.com/status",
+        "curl --data-urlencode name@payload.txt https://api.example.com/status",
+        "curl --json @payload.json https://api.example.com/status",
+        "curl --header=@headers.txt https://api.example.com/status",
+    ],
+)
+def test_create_curl_tool_rejects_unsupported_or_file_capable_forms(command: str) -> None:
+    builtin_tools = importlib.import_module("dynamic_agents.services.builtin_tools")
+    curl_tool = getattr(builtin_tools, "create_curl_tool")(
+        allowed_domains="*", allow_non_public_urls=True
+    )
+
+    with patch("subprocess.run") as mock_run:
+        result = curl_tool.invoke({"command": command})
+
+    assert result.startswith("ERROR:")
+    mock_run.assert_not_called()
+
+
+def test_create_curl_tool_expands_only_allowlisted_combined_short_flags() -> None:
+    builtin_tools = importlib.import_module("dynamic_agents.services.builtin_tools")
+    args, error = builtin_tools._prepare_curl_args(
+        "curl -sSf https://api.example.com/items/{one,two}",
+        "*",
+        True,
+        True,
+    )
+
+    assert error is None
+    assert args == [
+        "curl",
+        "--globoff",
+        "--max-redirs",
+        "0",
+        "-s",
+        "-S",
+        "-f",
+        "--",
+        "https://api.example.com/items/{one,two}",
+    ]
+
+
 def test_create_curl_tool_allows_inline_request_data() -> None:
     builtin_tools = importlib.import_module("dynamic_agents.services.builtin_tools")
     curl_tool = getattr(builtin_tools, "create_curl_tool")(allowed_domains="*")
@@ -131,6 +188,60 @@ def test_create_curl_tool_allows_inline_request_data() -> None:
     argv = mock_run.call_args.args[0]
     assert argv[-2:] == ["--", "https://api.example.com/items"]
     assert ["--globoff", "--max-redirs", "0"] == argv[1:4]
+
+
+@pytest.mark.skipif(shutil.which("curl") is None, reason="curl binary is not installed")
+def test_create_curl_tool_runs_constrained_post_against_local_http_server() -> None:
+    received: dict[str, object] = {}
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
+            content_length = int(self.headers.get("Content-Length", "0"))
+            received.update(
+                path=self.path,
+                content_type=self.headers.get("Content-Type"),
+                body=json.loads(self.rfile.read(content_length)),
+            )
+            payload = b'{"accepted":true}'
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
+        def log_message(self, _format: str, *args: object) -> None:
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        port = server.server_address[1]
+        builtin_tools = importlib.import_module("dynamic_agents.services.builtin_tools")
+        curl_tool = getattr(builtin_tools, "create_curl_tool")(
+            allowed_domains="*",
+            https_only=False,
+            allow_non_public_urls=True,
+        )
+        result = curl_tool.invoke(
+            {
+                "command": (
+                    f"curl -sS -X POST -H 'Content-Type: application/json' "
+                    f"--data-raw '{{\"name\":\"example\"}}' http://127.0.0.1:{port}/items"
+                )
+            }
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+    assert result == '{"accepted":true}'
+    assert received == {
+        "path": "/items",
+        "content_type": "application/json",
+        "body": {"name": "example"},
+    }
 
 
 def test_curl_tool_in_builtin_tool_definitions() -> None:
