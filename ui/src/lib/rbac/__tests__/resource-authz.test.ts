@@ -76,6 +76,11 @@ describe("resource-authz", () => {
       expect(subjectFromSession({ sub: "   " })).toBeNull();
       expect(subjectFromSession({ sub: 123 as unknown })).toBeNull();
     });
+
+    it("does not promote catalog keys or local skills tokens to user subjects", () => {
+      expect(subjectFromSession({ sub: "owner-sub", principalType: "catalog_api_key" })).toBeNull();
+      expect(subjectFromSession({ sub: "owner-sub", principalType: "skills_api_key" })).toBeNull();
+    });
   });
 
   it("checks a service-account tuple for client-credentials callers", async () => {
