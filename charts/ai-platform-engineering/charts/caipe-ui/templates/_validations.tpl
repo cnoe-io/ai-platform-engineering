@@ -15,6 +15,18 @@
 {{- end -}}
 {{- $_ := set $oauthProviders $provider true -}}
 {{- $_ := required (printf "caipe-ui.oauthConnectors[%d].name is required" $index) $connector.name -}}
+{{- $mcpUrl := $connector.mcpUrl | default "" -}}
+{{- $isDcr := ne $mcpUrl "" -}}
+{{- if $isDcr -}}
+{{- range $field := list "clientId" "clientIdEnv" "clientSecretEnv" "authorizationUrl" "tokenUrl" "pkce" -}}
+{{- if hasKey $connector $field -}}
+{{- fail (printf "caipe-ui.oauthConnectors[%d].%s is not allowed when mcpUrl is used" $index $field) -}}
+{{- end -}}
+{{- end -}}
+{{- if and (hasKey $connector "scopes") (not (kindIs "slice" $connector.scopes)) -}}
+{{- fail (printf "caipe-ui.oauthConnectors[%d].scopes must be a list" $index) -}}
+{{- end -}}
+{{- else -}}
 {{- $_ := required (printf "caipe-ui.oauthConnectors[%d].authorizationUrl is required" $index) $connector.authorizationUrl -}}
 {{- $_ := required (printf "caipe-ui.oauthConnectors[%d].tokenUrl is required" $index) $connector.tokenUrl -}}
 {{- if not (hasKey $connector "scopes") -}}
@@ -40,6 +52,7 @@
 {{- $envName := index $connector $field | default "" -}}
 {{- if and $envName (not (regexMatch "^[A-Za-z_][A-Za-z0-9_]*$" $envName)) -}}
 {{- fail (printf "caipe-ui.oauthConnectors[%d].%s must be a valid environment variable name" $index $field) -}}
+{{- end -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}

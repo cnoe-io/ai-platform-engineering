@@ -946,6 +946,85 @@ describe("ProviderConnectionService", () => {
     });
   });
 
+  it("sends an MCP resource indicator during authorization, token exchange, and refresh", async () => {
+    const connectors = new MemoryCollection<OAuthConnectorDocument>();
+    const connections = new MemoryCollection<ProviderConnectionDocument>();
+    const secrets = new Map<string, string>();
+    const payloadStore = {
+      getSecret: jest.fn(async (ref: string) => {
+        const value = secrets.get(ref);
+        if (!value) throw new Error("missing secret");
+        return value;
+      }),
+      putSecret: jest.fn(async ({ secretRefId, plaintext }: { secretRefId: string; plaintext: string }) => {
+        secrets.set(secretRefId, plaintext);
+      }),
+    };
+    connectors.docs.push({
+      id: "connector-1",
+      name: "Example MCP",
+      provider: "example-mcp",
+      clientId: "dcr-client-id",
+      clientSecretRef: "oauth_connector:connector-1:client_secret",
+      authorizationUrl: "https://idp.example.com/oauth/authorize",
+      tokenUrl: "https://idp.example.com/oauth/token",
+      scopes: ["openid", "offline_access"],
+      redirectUri: "https://grid.example.com/api/credentials/oauth/example-mcp/callback",
+      resource: "https://mcp.example.com/api/mcp",
+      source: "mcp_dcr",
+      enabled: true,
+      pkce: true,
+      createdAt: new Date("2026-08-08T00:00:00Z"),
+      updatedAt: new Date("2026-08-08T00:00:00Z"),
+    });
+    const tokenClient = jest.fn<ProviderConnectionServiceOptions["tokenClient"]>()
+      .mockResolvedValueOnce({
+        access_token: "initial-access-token",
+        refresh_token: "refresh-token",
+        expires_in: 1,
+      })
+      .mockResolvedValueOnce({ access_token: "refreshed-access-token", expires_in: 3600 });
+    const service = new ProviderConnectionService({
+      providerConnectionsCollection: connections,
+      connectorsCollection: connectors,
+      payloadStore,
+      tokenClient,
+      idGenerator: () => "provider-connection-1",
+      now: () => new Date("2026-08-08T00:00:00Z"),
+    });
+
+    const start = await service.startConnection({
+      providerKey: "example-mcp",
+      owner: { type: "user", id: "user-1" },
+      state: "state-1",
+      codeChallenge: "challenge-1",
+    });
+    expect(new URL(start.authorizationUrl).searchParams.get("resource")).toBe(
+      "https://mcp.example.com/api/mcp",
+    );
+
+    const connection = await service.completeConnection({
+      providerKey: "example-mcp",
+      owner: { type: "user", id: "user-1" },
+      code: "authorization-code",
+      codeVerifier: "verifier-1",
+    });
+    expect(tokenClient.mock.calls[0][1]).toMatchObject({
+      client_id: "dcr-client-id",
+      code_verifier: "verifier-1",
+      resource: "https://mcp.example.com/api/mcp",
+    });
+    expect(tokenClient.mock.calls[0][1]).not.toHaveProperty("client_secret");
+
+    await service.refreshConnection(connection.id);
+    expect(tokenClient.mock.calls[1][1]).toMatchObject({
+      client_id: "dcr-client-id",
+      refresh_token: "refresh-token",
+      resource: "https://mcp.example.com/api/mcp",
+    });
+    expect(tokenClient.mock.calls[1][1]).not.toHaveProperty("client_secret");
+  });
+
   it("requests only the user's chosen subset and persists requested + granted scopes", async () => {
     const connectors = new MemoryCollection<OAuthConnectorDocument>();
     const connections = new MemoryCollection<ProviderConnectionDocument>();
