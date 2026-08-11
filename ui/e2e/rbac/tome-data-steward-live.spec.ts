@@ -206,7 +206,7 @@ test.describe("Tome data-steward RBAC (live OpenFGA)", () => {
       await expect(saveButton).toBeDisabled();
       await saveButton.locator("..").hover();
       await expect(page.getByText("Project view only access", { exact: true })).toBeVisible();
-      await expect(page.getByRole("button", { name: "Upload pages" })).toHaveCount(0);
+      await expect(page.getByRole("button", { name: "Import pages" })).toHaveCount(0);
       await expect(page.getByRole("button", { name: "New page" })).toHaveCount(0);
     } finally {
       await installSession(page, env, {

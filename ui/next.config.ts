@@ -10,7 +10,7 @@ const nextConfig: NextConfig = {
   // when bundled, CJS/ESM interop turns that into `{ default: fn }`, so the call
   // throws "nodeFetch is not a function". Externalizing preserves the raw
   // require so node-fetch resolves to the callable function.
-  serverExternalPackages: ["@okta/okta-sdk-nodejs"],
+  serverExternalPackages: ["@okta/okta-sdk-nodejs", "pdfkit"],
 
   // No NEXT_PUBLIC_* env vars needed — config is served via GET /api/config
   // and consumed client-side through the ConfigProvider + useConfig() hook.
@@ -25,6 +25,12 @@ const nextConfig: NextConfig = {
   // nested under node_modules/mcp-remote).
   outputFileTracingIncludes: {
     "/api/tome/mcp/bundle": MCP_REMOTE_DEPENDENCIES.map((pkg) => `./node_modules/${pkg}/**/*`),
+    "/api/tome/projects/[slug]/export": [
+      "./node_modules/dejavu-fonts-ttf/ttf/DejaVuSans.ttf",
+      "./node_modules/dejavu-fonts-ttf/ttf/DejaVuSans-Oblique.ttf",
+      "./node_modules/dejavu-fonts-ttf/ttf/DejaVuSans-Bold.ttf",
+      "./node_modules/dejavu-fonts-ttf/ttf/DejaVuSansMono.ttf",
+    ],
   },
 
   typescript: {
