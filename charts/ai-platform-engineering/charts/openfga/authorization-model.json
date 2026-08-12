@@ -4635,6 +4635,14 @@
               {
                 "type": "team",
                 "relation": "admin"
+              },
+              {
+                "type": "organization",
+                "relation": "member"
+              },
+              {
+                "type": "organization",
+                "relation": "admin"
               }
             ]
           },
@@ -4653,6 +4661,14 @@
               {
                 "type": "team",
                 "relation": "admin"
+              },
+              {
+                "type": "organization",
+                "relation": "member"
+              },
+              {
+                "type": "organization",
+                "relation": "admin"
               }
             ]
           },
@@ -4667,6 +4683,10 @@
               {
                 "type": "team",
                 "relation": "admin"
+              },
+              {
+                "type": "organization",
+                "relation": "admin"
               }
             ]
           },
@@ -4680,6 +4700,10 @@
               },
               {
                 "type": "team",
+                "relation": "admin"
+              },
+              {
+                "type": "organization",
                 "relation": "admin"
               }
             ]
