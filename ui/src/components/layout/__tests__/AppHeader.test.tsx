@@ -451,7 +451,6 @@ beforeEach(() => {
 describe('AppHeader — application chrome', () => {
   beforeEach(() => {
     jest.clearAllMocks()
-    window.localStorage.removeItem('application-navigation-collapsed')
     mockStorageMode = 'mongodb'
     mockPathname = '/chat'
     mockIsAdmin = false

@@ -1,12 +1,13 @@
 "use client";
 
 import {
-  createContext,
   useCallback,
+  createContext,
   useContext,
   useMemo,
-  useSyncExternalStore,
+  useState,
 } from "react";
+import { WORKSPACE_RAIL_COOKIE_MAX_AGE_SECONDS } from "@/lib/workspace-rail";
 
 interface WorkspaceRailState {
   collapsed: boolean;
@@ -20,62 +21,33 @@ const WorkspaceRailContext = createContext<WorkspaceRailState>({
   toggle: () => undefined,
 });
 
-const WORKSPACE_RAIL_STORAGE_EVENT = "caipe:workspace-rail-storage";
-const workspaceRailFallback = new Map<string,boolean>();
-
 export function WorkspaceRailProvider({
   children,
   collapsible,
-  storageKey = "workspace-navigation-collapsed",
+  cookieName = "workspace-navigation-collapsed",
+  initialCollapsed = false,
 }: {
   children: React.ReactNode;
   collapsible: boolean;
-  storageKey?: string;
+  cookieName?: string;
+  initialCollapsed?: boolean;
 }): React.ReactElement {
-  const readCollapsed = useCallback((): boolean => {
-    if (!collapsible || typeof window === "undefined") return false;
-    try {
-      return window.localStorage.getItem(storageKey) === "true";
-    } catch {
-      // Storage can be unavailable in privacy-restricted browser contexts.
-      return workspaceRailFallback.get(storageKey) ?? false;
-    }
-  },[collapsible,storageKey]);
-  const subscribe = useCallback((onStoreChange: () => void) => {
-    if (!collapsible || typeof window === "undefined") return () => undefined;
-    const handleStorage = (event: StorageEvent) => {
-      if (event.key === storageKey) onStoreChange();
-    };
-    const handleLocalStorage = (event: Event) => {
-      if (
-        event instanceof CustomEvent
-        && event.detail === storageKey
-      ) onStoreChange();
-    };
-    window.addEventListener("storage",handleStorage);
-    window.addEventListener(WORKSPACE_RAIL_STORAGE_EVENT,handleLocalStorage);
-    return () => {
-      window.removeEventListener("storage",handleStorage);
-      window.removeEventListener(WORKSPACE_RAIL_STORAGE_EVENT,handleLocalStorage);
-    };
-  },[collapsible,storageKey]);
-  const collapsed = useSyncExternalStore(subscribe,readCollapsed,() => false);
+  const [collapsed,setCollapsed] = useState(
+    collapsible && initialCollapsed,
+  );
+  const toggle = useCallback(() => {
+    if (!collapsible) return;
+    const next = !collapsed;
+    const secure = window.location.protocol === "https:" ? "; Secure" : "";
+    document.cookie = `${encodeURIComponent(cookieName)}=${String(next)}; Path=/; Max-Age=${WORKSPACE_RAIL_COOKIE_MAX_AGE_SECONDS}; SameSite=Lax${secure}`;
+    setCollapsed(next);
+  },[collapsed,collapsible,cookieName]);
 
   const value = useMemo<WorkspaceRailState>(() => ({
     collapsed,
     collapsible,
-    toggle: () => {
-      if (!collapsible) return;
-      try {
-        window.localStorage.setItem(storageKey,String(!collapsed));
-      } catch {
-        workspaceRailFallback.set(storageKey,!collapsed);
-      }
-      window.dispatchEvent(new CustomEvent(WORKSPACE_RAIL_STORAGE_EVENT,{
-        detail: storageKey,
-      }));
-    },
-  }),[collapsed,collapsible,storageKey]);
+    toggle,
+  }),[collapsed,collapsible,toggle]);
 
   return (
     <WorkspaceRailContext.Provider value={value}>

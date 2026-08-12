@@ -1,6 +1,7 @@
 "use client";
 
 import { WorkspaceRailProvider } from "@/components/layout/WorkspaceRailContext";
+import { APPLICATION_NAVIGATION_COLLAPSED_COOKIE } from "@/lib/workspace-rail";
 import React from "react";
 
 interface ApplicationNavigationRegistration {
@@ -24,8 +25,10 @@ const ApplicationNavigationContext =
 
 export function ApplicationNavigationProvider({
   children,
+  initialCollapsed = false,
 }: {
   children: React.ReactNode;
+  initialCollapsed?: boolean;
 }): React.ReactElement {
   const [registration,setRegistration] =
     React.useState<ApplicationNavigationRegistration | null>(null);
@@ -73,7 +76,8 @@ export function ApplicationNavigationProvider({
     <ApplicationNavigationContext.Provider value={value}>
       <WorkspaceRailProvider
         collapsible
-        storageKey="application-navigation-collapsed"
+        cookieName={APPLICATION_NAVIGATION_COLLAPSED_COOKIE}
+        initialCollapsed={initialCollapsed}
       >
         {children}
       </WorkspaceRailProvider>
