@@ -196,6 +196,8 @@ export interface ProjectSources {
 
 export interface ProjectDocument {
   _id?: string;
+  /** Authorization tuples use immutable Mongo project IDs when set to 2. */
+  tome_authorization_version?: 2;
   /** Project kind. Absent on legacy docs — treat absent as "project". */
   type?: ProjectType;
   slug: string;

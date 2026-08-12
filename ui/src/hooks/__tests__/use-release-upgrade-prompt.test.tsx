@@ -142,6 +142,49 @@ describe("useReleaseUpgradePrompt", () => {
     expect(result.current.releaseMarkdown?.body).toBe("Curated release notes body");
   });
 
+  it("uses exact generated notes for a mirror main increment", async () => {
+    const version = "0.5.63-ui-main-a5ba46dd5";
+    mockUseVersion.mockReturnValue({
+      isLoading: false,
+      versionInfo: { version, packageVersion: version, gitCommit: "a5ba46dd5", buildDate: "today" },
+    });
+    (global.fetch as jest.Mock).mockImplementation(async (url: RequestInfo | URL) => {
+      const href = String(url);
+      if (href === "/api/settings") {
+        return jsonResponse({
+          success: true,
+          data: { preferences: { releaseNotesDismissedVersions: [] } },
+        });
+      }
+      if (href === "/api/changelog") return jsonResponse({ releases: [], scopes: [] });
+      if (href === "/api/admin/platform-config") {
+        return jsonResponse({ success: true, data: { release_notes: { enabled: true } } });
+      }
+      if (href === `/api/release-notes?version=${version}`) {
+        return jsonResponse({
+          requestedVersion: version,
+          matchedVersion: version,
+          title: "Mirror main update a5ba46dd5",
+          date: "2026-08-09",
+          body: "Mirror-only changes",
+          source: "generated",
+          changelogUrl: "https://github.com/example/repository/compare/previous...current",
+        });
+      }
+      return jsonResponse({}, false);
+    });
+
+    const { result } = renderHook(() => useReleaseUpgradePrompt());
+
+    await waitFor(() => expect(result.current.open).toBe(true));
+    expect(result.current.release).toBeNull();
+    expect(result.current.releaseMarkdown).toMatchObject({
+      matchedVersion: version,
+      body: "Mirror-only changes",
+      changelogUrl: expect.stringContaining("example/repository/compare"),
+    });
+  });
+
   it("stores admin skip until next login only in sessionStorage", async () => {
     const { result } = renderHook(() => useReleaseUpgradePrompt());
 

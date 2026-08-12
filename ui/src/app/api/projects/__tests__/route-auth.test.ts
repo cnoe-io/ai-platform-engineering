@@ -32,7 +32,7 @@ jest.mock("@/lib/rbac/tome-admin", () => ({
   isTomeAdmin: (...args: unknown[]) => mockIsTomeAdmin(...args),
 }));
 
-import { POST } from "../route";
+import { GET, POST } from "../route";
 
 function createRequest(type: "bhag" | "area"): NextRequest {
   return new NextRequest("http://example.test/api/projects", {
@@ -63,6 +63,33 @@ describe("POST /api/projects Tome entity authorization", () => {
         success: false,
         code: "TOME_ADMIN_REQUIRED",
       });
+      expect(mockGetCollection).not.toHaveBeenCalled();
+    },
+  );
+});
+
+describe("GET /api/projects scoped-principal boundary", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it.each(["catalog_api_key", "skills_api_key"])(
+    "rejects %s before catalog discovery",
+    async (principalType) => {
+      mockGetAuthFromBearerOrSession.mockResolvedValue({
+        user: { email: "catalog-user@example.test" },
+        session: { sub: "catalog-user", principalType },
+      });
+
+      const response = await GET(
+        new NextRequest("http://example.test/api/projects"),
+      );
+
+      expect(response.status).toBe(403);
+      await expect(response.json()).resolves.toMatchObject({
+        code: "TOME_INTERACTIVE_PRINCIPAL_REQUIRED",
+      });
+      expect(mockIsTomeAdmin).not.toHaveBeenCalled();
       expect(mockGetCollection).not.toHaveBeenCalled();
     },
   );

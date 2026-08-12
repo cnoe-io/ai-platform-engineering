@@ -615,10 +615,34 @@ class ClientContext(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
+class InputFile(BaseModel):
+    """A file attached to a chat message (e.g. an uploaded image or document).
+
+    Carries either inline base64-encoded bytes (``data``) or a reference
+    ``uri``. ``mime_type`` is required so the runtime can build the correct
+    multimodal content block (image or document) for the LLM.
+    """
+
+    mime_type: str = Field(..., description="IANA media type, e.g. 'image/png' or 'application/pdf'")
+    data: str | None = Field(None, description="Base64-encoded file bytes")
+    uri: str | None = Field(None, description="URI reference to the file")
+    name: str | None = Field(None, description="Original filename, if known")
+
+    @model_validator(mode="after")
+    def _require_data_or_uri(self) -> "InputFile":
+        if not self.data and not self.uri:
+            raise ValueError("InputFile requires either 'data' (base64) or 'uri'")
+        return self
+
+
 class ChatRequest(BaseModel):
     """Request to chat with a dynamic agent."""
 
     message: str = Field(..., description="User message")
+    files: list[InputFile] | None = Field(
+        None,
+        description="Optional files attached to the message (uploaded images or documents) for multimodal input",
+    )
     conversation_id: str = Field(..., description="Conversation/session ID")
     agent_id: str = Field(..., description="Dynamic agent config ID")
     protocol: str = Field("custom", pattern=r"^(custom|agui)$", description="Wire protocol: 'custom' or 'agui'")

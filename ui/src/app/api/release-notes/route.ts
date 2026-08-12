@@ -46,12 +46,42 @@ export interface ReleaseNotesResponse {
   title: string | null;
   date: string | null;
   body: string | null;
-  source: "github" | "local" | "none";
+  source: "generated" | "github" | "local" | "none";
+  changelogUrl: string | null;
+}
+
+interface MainIncrementReleaseNotes {
+  version: string;
+  title: string;
+  date: string;
+  body: string;
+  changelogUrl: string;
 }
 
 /** Strip a leading `v` and any pre-release / build suffix (`-dev.14`, `-rc.1`). */
 function baseVersion(value: string): string {
   return value.trim().replace(/^v/i, "").split(/[-+]/)[0];
+}
+
+function readMainIncrementReleaseNotes(requestedVersion: string): MainIncrementReleaseNotes | null {
+  const notesPath = path.join(process.cwd(), "public", "main-increment-release-notes.json");
+  try {
+    if (!fs.existsSync(notesPath)) return null;
+    const parsed = JSON.parse(fs.readFileSync(notesPath, "utf8")) as Partial<MainIncrementReleaseNotes>;
+    if (
+      parsed.version !== requestedVersion ||
+      typeof parsed.title !== "string" ||
+      typeof parsed.date !== "string" ||
+      typeof parsed.body !== "string" ||
+      typeof parsed.changelogUrl !== "string"
+    ) {
+      return null;
+    }
+    return parsed as MainIncrementReleaseNotes;
+  } catch (error) {
+    console.warn("[Release Notes API] Generated main increment notes are invalid:", error);
+    return null;
+  }
 }
 
 function buildReleaseFile(name: string, rawUrl: string, localPath?: string): ReleaseFile | null {
@@ -205,6 +235,7 @@ export async function GET(request: NextRequest) {
     date: null,
     body: null,
     source: "none",
+    changelogUrl: null,
   };
 
   if (!requestedVersion) {
@@ -212,6 +243,19 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    const generated = readMainIncrementReleaseNotes(requestedVersion);
+    if (generated) {
+      return NextResponse.json({
+        requestedVersion,
+        matchedVersion: generated.version,
+        title: generated.title,
+        date: generated.date,
+        body: generated.body,
+        source: "generated",
+        changelogUrl: generated.changelogUrl,
+      } satisfies ReleaseNotesResponse);
+    }
+
     const files = await getReleaseFiles();
     const selected = selectRelease(files, baseVersion(requestedVersion));
     if (!selected) {
@@ -235,6 +279,7 @@ export async function GET(request: NextRequest) {
       date,
       body,
       source: content.source,
+      changelogUrl: null,
     };
     return NextResponse.json(result);
   } catch (error) {

@@ -29,11 +29,15 @@
 
 .heroGrid {
   display: grid;
-  grid-template-columns: 1fr 1.15fr 1.15fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr) minmax(0, 1.15fr);
   gap: 2rem;
   align-items: stretch;
   margin-bottom: 2.5rem;
   text-align: left;
+}
+
+.heroGrid > * {
+  min-width: 0;
 }
 
 .heroLeft {
@@ -55,6 +59,8 @@
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(56, 189, 248, 0.08);
   background: #0f172a;
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
   display: flex;
   flex-direction: column;
 }
@@ -82,6 +88,10 @@
   font-family: monospace;
   margin-left: 0.4rem;
   flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .heroDemoFullscreen {
@@ -176,6 +186,7 @@
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+  min-width: 0;
 }
 
 .heroRight .codeBlock {
@@ -212,6 +223,8 @@
   margin: 0 0 1rem !important;
   letter-spacing: -0.03em;
   color: #fff;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
 }
 
 .heroAccent {
@@ -258,6 +271,8 @@
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
+  justify-content: center;
+  text-align: center;
 }
 
 .heroPrimary:hover {
@@ -280,6 +295,8 @@
   align-items: center;
   gap: 0.3rem;
   backdrop-filter: blur(6px);
+  justify-content: center;
+  text-align: center;
 }
 
 .heroSecondary:hover {
@@ -301,6 +318,8 @@
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
+  justify-content: center;
+  text-align: center;
 }
 
 .heroSecondaryDark:hover {
@@ -369,6 +388,7 @@
   font-weight: 800 !important;
   margin: 0 0 0.75rem !important;
   letter-spacing: -0.02em;
+  text-wrap: balance;
 }
 
 .sectionSubtitle {
@@ -376,6 +396,7 @@
   color: #64748b;
   line-height: 1.65;
   margin: 0 auto;
+  overflow-wrap: anywhere;
 }
 
 [data-theme='dark'] .sectionSubtitle {
@@ -459,7 +480,7 @@
 
 .useCasesGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
   gap: 1.5rem;
   max-width: 1320px;
   margin: 0 auto;
@@ -474,6 +495,7 @@
   display: flex;
   flex-direction: column;
   transition: transform 0.15s, box-shadow 0.15s;
+  min-width: 0;
 }
 
 .useCaseCard:hover {
@@ -584,6 +606,7 @@
   padding: 0.3rem 0.85rem;
   font-size: 0.82rem;
   font-weight: 500;
+  overflow-wrap: anywhere;
 }
 
 /* ── Quick start ────────────────────────────────────────────────── */
@@ -607,6 +630,8 @@
   margin-top: 2rem;
   overflow: hidden;
   border: 1px solid rgba(56, 189, 248, 0.12);
+  min-width: 0;
+  max-width: 100%;
 }
 
 .codeHeader {
@@ -616,12 +641,15 @@
   gap: 0.5rem;
   align-items: center;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  min-width: 0;
 }
 
 .codeTab {
   font-size: 0.78rem;
   color: #94a3b8;
   font-family: monospace;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .copyBtn {
@@ -636,6 +664,7 @@
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
   letter-spacing: 0.03em;
+  flex-shrink: 0;
 }
 
 .copyBtn:hover {
@@ -651,6 +680,9 @@
   line-height: 1.7;
   overflow-x: auto;
   white-space: pre;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .codePre code {
@@ -795,7 +827,7 @@
 /* ── Responsive ─────────────────────────────────────────────────── */
 @media (max-width: 1200px) {
   .heroGrid {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     gap: 2rem;
   }
   .heroCenter {
@@ -810,7 +842,7 @@
 
 @media (max-width: 900px) {
   .heroGrid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     text-align: center;
     gap: 2rem;
   }
@@ -820,8 +852,77 @@
 }
 
 @media (max-width: 640px) {
-  .hero { padding: 4rem 1rem 3.5rem; }
-  .heroButtons, .ctaButtons { flex-direction: column; align-items: center; }
-  .heroStats { gap: 1.5rem; }
+  .hero { padding: 3rem 1rem 2.75rem; }
+  .heroGrid { gap: 1.5rem; margin-bottom: 2rem; }
+  .heroLeft { order: -2; }
+  .heroCenter { order: -1; }
+  .heroTitle { font-size: clamp(2rem, 10vw, 2.6rem) !important; }
+  .heroSubtitle { font-size: 0.98rem; }
+  .heroPronunciation { margin-bottom: 1.25rem; }
+  .heroButtons, .ctaButtons {
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+  }
+  .heroButtons a, .ctaButtons a { width: 100%; }
+  .heroDemoFrame { border-radius: 9px; }
+  .heroDemoGif {
+    flex: 0 0 auto;
+    aspect-ratio: 16 / 10;
+    height: auto;
+  }
+  .heroDemoFullscreen {
+    width: 40px;
+    height: 40px;
+    justify-content: center;
+    margin: -0.45rem -0.45rem -0.45rem auto;
+  }
+  .heroStats {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1.5rem 0.75rem;
+  }
+  .heroStat { min-width: 0; }
+  .features,
+  .inTheWild,
+  .quickstart,
+  .vision { padding: 3.5rem 1rem; }
+  .sectionHeader { margin-bottom: 2rem; }
+  .sectionTitle { font-size: 1.75rem !important; }
   .featuresGrid { grid-template-columns: 1fr; }
+  .useCasesGrid { grid-template-columns: minmax(0, 1fr); gap: 1rem; }
+  .useCaseBody { padding: 1.1rem 1.1rem 1.25rem; }
+  .integrations { padding: 2.25rem 1rem; }
+  .codeHeader { flex-wrap: wrap; }
+  .codePre { padding: 1rem; font-size: 0.72rem; }
+  .cta { padding: 4rem 1rem; }
+  .gifOverlay { padding: 0.75rem; }
+  .gifOverlayInner { max-width: 100%; max-height: calc(100dvh - 1.5rem); }
+  .gifOverlayImg { max-height: calc(100dvh - 1.5rem); }
+  .gifOverlayClose { width: 40px; height: 40px; }
+}
+
+@media (max-width: 380px) {
+  .hero { padding-left: 0.75rem; padding-right: 0.75rem; }
+  .heroTitle { font-size: 1.9rem !important; }
+  .heroSubtitle { line-height: 1.55; }
+  .heroDemoBar { padding-left: 0.7rem; padding-right: 0.7rem; }
+  .heroStats { gap: 1.25rem 0.5rem; }
+  .heroStatNumber { font-size: 1.4rem; }
+  .heroStatLabel { font-size: 0.65rem; }
+  .integrationChip { padding-left: 0.7rem; padding-right: 0.7rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gifOverlay { animation: none; }
+  .heroPrimary,
+  .heroSecondary,
+  .featureCard,
+  .useCaseCard,
+  .useCaseImg img { transition: none; }
+  .heroPrimary:hover,
+  .heroSecondary:hover,
+  .featureCard:hover,
+  .useCaseCard:hover,
+  .useCaseCard:hover .useCaseImg img { transform: none; }
 }

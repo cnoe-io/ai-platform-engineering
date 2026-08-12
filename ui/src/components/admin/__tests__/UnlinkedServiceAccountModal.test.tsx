@@ -99,6 +99,38 @@ describe("UnlinkedServiceAccountModal", () => {
     expect(screen.getByTestId("scope-tool-jira/search")).toBeInTheDocument();
   });
 
+  it("renders a global (everyone) agent as a locked chip with no remove button", async () => {
+    mockFetch({
+      sa: {
+        success: true,
+        data: {
+          ...ANON_SA,
+          scopes: [
+            { type: "agent", ref: "default", source: "everyone" },
+            { type: "agent", ref: "hello-world", source: "explicit" },
+          ],
+        },
+      },
+    });
+
+    render(<UnlinkedServiceAccountModal open isAdmin onOpenChange={jest.fn()} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("scope-agent-default")).toBeInTheDocument();
+    });
+
+    // The everyone-sourced agent must NOT expose a remove control...
+    expect(
+      screen.queryByRole("button", { name: /remove agent default/i }),
+    ).not.toBeInTheDocument();
+    // ...but the explicit one still does.
+    expect(
+      screen.getByRole("button", { name: /remove agent hello-world/i }),
+    ).toBeInTheDocument();
+    // And it carries a visible "Everyone" affordance.
+    expect(screen.getByTestId("scope-source-everyone-default")).toBeInTheDocument();
+  });
+
   it("keeps long scope refs from overflowing the list item (min-w-0/shrink-0/truncate)", async () => {
     render(
       <UnlinkedServiceAccountModal open isAdmin onOpenChange={jest.fn()} />,

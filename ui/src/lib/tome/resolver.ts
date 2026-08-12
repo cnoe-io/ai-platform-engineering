@@ -8,10 +8,10 @@
 // No first-segment guessing and no global term namespace: a cross-project ref
 // always names its project, so resolution is deterministic.
 
-import { getCollection } from "@/lib/mongodb";
 import { getPageStore } from "./page-store";
 import { parseFrontmatter } from "./schema";
 import { parseTomeHref } from "./tome-links";
+import { resolveUniqueTomeProjectBySlug } from "./project-resolver";
 import type { ProjectDocument } from "@/types/projects";
 
 export interface GlossaryResolution {
@@ -55,9 +55,8 @@ async function readPageSafe(projectId: string, path: string): Promise<string> {
 type ResolvedProject = ProjectDocument & { _id: string };
 
 async function projectBySlug(slug: string): Promise<ResolvedProject | null> {
-  const projects = await getCollection<ProjectDocument>("projects");
-  const p = await projects.findOne({ slug });
-  return p ? { ...p, _id: String(p._id) } : null;
+  const project = await resolveUniqueTomeProjectBySlug(slug);
+  return project ? { ...project, _id: String(project._id) } : null;
 }
 
 function glossaryFromMarkdown(md: string): {

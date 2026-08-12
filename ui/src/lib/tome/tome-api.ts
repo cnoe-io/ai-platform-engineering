@@ -17,6 +17,7 @@ import {
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import { isTomeServerEnabled } from "./guard";
 import { getTomeProjectPermissions } from "./data-steward";
+import { resolveUniqueTomeProjectBySlug } from "./project-resolver";
 import type { ProjectDocument } from "@/types/projects";
 
 export interface TomeProjectContext {
@@ -53,8 +54,7 @@ export async function loadTomeProject(
 
   const { user, session } = await getAuthFromBearerOrSession(request);
 
-  const projects = await getCollection<ProjectDocument>("projects");
-  const project = await projects.findOne({ slug });
+  const project = await resolveUniqueTomeProjectBySlug(slug);
   if (!project) {
     throw new ApiError("Project not found", 404, "PROJECT_NOT_FOUND");
   }
@@ -87,10 +87,10 @@ export async function loadTomeProject(
  * only writes when the tile is absent.
  */
 export async function ensureTomeTile(slug: string): Promise<void> {
-  const projects = await getCollection<ProjectDocument>("projects");
-  const project = await projects.findOne({ slug });
+  const project = await resolveUniqueTomeProjectBySlug(slug);
   if (!project) return;
   if (project.integrations?.tome_url) return;
+  const projects = await getCollection<ProjectDocument>("projects");
   await projects.updateOne(
     { _id: project._id },
     {

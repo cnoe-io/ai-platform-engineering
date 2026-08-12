@@ -24,8 +24,8 @@ jest.mock("@/lib/rbac/openfga", () => ({
 }));
 
 jest.mock("@/lib/tome/access", () => ({
-  tomeDataObject: (project: { slug: string; type?: string }) =>
-    `document:tome/${project.type ?? "project"}/${project.slug}`,
+  tomeDataObject: (project: { _id: string; type?: string }) =>
+    `document:tome/${project.type ?? "project"}/${project._id}`,
 }));
 
 jest.mock("@/lib/tome/mongo-collections", () => ({
@@ -96,7 +96,7 @@ describe("internal pages POST — FGA enforcement for chat-initiated writes", ()
     expect(mockCheckOpenFgaTuple).toHaveBeenCalledWith({
       user: "user:viewer-sub-123",
       relation: "can_write",
-      object: "document:tome/project/quantum",
+      object: "document:tome/project/proj-1",
     });
   });
 

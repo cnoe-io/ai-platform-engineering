@@ -35,6 +35,7 @@ from utils import slack_context
 from utils import slack_formatter
 from utils.hitl_handler import HITLCallbackHandler
 from utils.chat_envelope import augment_slack_client_context  # noqa: E402
+from utils.file_ingest import download_slack_files, IngestResult  # noqa: E402
 
 from sse_client import AgentAccessDeniedError, SSEClient, set_obo_token
 from utils.session_manager import SessionManager
@@ -59,12 +60,29 @@ from utils.slack_admin_api import start_slack_admin_api_server  # noqa: E402
 app = App(token=os.environ.get("SLACK_INTEGRATION_BOT_TOKEN", os.environ.get("SLACK_BOT_TOKEN", "")))
 APP_NAME = os.environ.get("SLACK_INTEGRATION_APP_NAME", os.environ.get("APP_NAME", "CAIPE"))
 _WORKSPACE_URL = os.environ.get("SLACK_WORKSPACE_URL", "").rstrip("/")
+_ROUTABLE_AMBIENT_MESSAGE_SUBTYPES = frozenset(
+  {None, "", "bot_message", "file_share"}
+)
 
 
 def _msg_link(channel_id: str, ts: str) -> str:
   if not _WORKSPACE_URL or not ts:
     return ""
   return f" {_WORKSPACE_URL}/archives/{channel_id}/p{ts.replace('.', '')}"
+
+
+def _apply_attachment_notices(message_text: str, ingest: IngestResult) -> str:
+  """Append any 'file attached but inaccessible' notices to the agent message.
+
+  Files that couldn't be downloaded (e.g. missing files:read scope) produce
+  notices; we fold them into the message so the agent can tell the user a file
+  was attached but unreadable instead of silently ignoring it. No notices ⇒
+  message unchanged.
+  """
+  if not ingest.notices:
+    return message_text
+  note = "\n\n".join(ingest.notices)
+  return f"{message_text}\n\n[Attachment note: {note}]" if message_text else f"[Attachment note: {note}]"
 
 
 def _ingestion_lag_ms(event: dict) -> int | None:
@@ -1046,6 +1064,7 @@ def _call_ai(
   overthink_config=None,
   escalation_config=None,
   client_context=None,
+  files=None,
 ):
   """Route to stream_response or invoke_response based on user type."""
   logger.info(f"[{thread_ts}] _call_ai: conv={conversation_id} agent={agent_id} user={user_id} overthink={overthink_config}")
@@ -1067,6 +1086,7 @@ def _call_ai(
       overthink_config=overthink_config,
       escalation_config=escalation_config,
       client_context=client_context,
+      files=files,
     )
   else:
     return ai.invoke_response(
@@ -1081,6 +1101,7 @@ def _call_ai(
       additional_footer=additional_footer,
       escalation_config=escalation_config,
       client_context=client_context,
+      files=files,
     )
 
 
@@ -1562,6 +1583,14 @@ def handle_mention(event, say, client, context=None):
 
     esc_config = get_escalation_config(agent_match) if agent_match else None
 
+    # Download any Slack attachments into base64 multimodal blocks so the model
+    # can read them (client.token authenticates the private file URLs). Files
+    # that couldn't be accessed (e.g. missing files:read scope) surface as
+    # notices folded into the message so the agent can tell the user.
+    ingest = download_slack_files(event.get("files"), bot_token=client.token)
+    input_files = ingest.files
+    context_message = _apply_attachment_notices(context_message, ingest)
+
     result = _call_ai(
       client=client,
       channel_id=channel_id,
@@ -1573,6 +1602,7 @@ def handle_mention(event, say, client, context=None):
       conversation_id=conversation_id,
       escalation_config=esc_config,
       client_context=client_context,
+      files=input_files,
     )
 
     if isinstance(result, dict) and result.get("skipped"):
@@ -1713,7 +1743,13 @@ def _route_to_agent(event, say, client, channel_config, agent_match, is_bot, bot
     channel_id = event.get("channel")
     thread_ts = event.get("ts")
 
-    if event.get("subtype") and event.get("subtype") != "bot_message":
+    subtype = event.get("subtype")
+    if subtype not in _ROUTABLE_AMBIENT_MESSAGE_SUBTYPES:
+      logger.debug(
+        "[{}] Ignoring ambient Slack message subtype={}",
+        thread_ts,
+        subtype,
+      )
       return
 
     if not utils.verify_thread_exists(client, channel_id, thread_ts):
@@ -1727,13 +1763,27 @@ def _route_to_agent(event, say, client, channel_config, agent_match, is_bot, bot
       user_id = event.get("user")
     team_id = event.get("team")
     message_text = slack_context.extract_message_text(event)
+    raw_files = event.get("files") or []
+
+    if raw_files:
+      logger.info(
+        "[{}] Processing Slack message attachments files={} has_text={} subtype={}",
+        thread_ts,
+        len(raw_files),
+        bool(message_text.strip()),
+        subtype or "none",
+      )
 
     user_name, user_email = utils.get_message_author_info(event, client)
     sender_label = "bot" if is_bot else "user"
 
     logger.info(f"[{thread_ts}] Routing {sender_label} message to agent={agent_match.agent_id} - User: {user_name} ({user_id}), Channel: {channel_id}{_msg_link(channel_id, thread_ts)}")
 
-    if not message_text or not message_text.strip():
+    if not message_text.strip() and not raw_files:
+      logger.debug(
+        "[{}] Ignoring ambient Slack message with no text or files",
+        thread_ts,
+      )
       return
 
     agent_id = agent_match.agent_id
@@ -1744,6 +1794,20 @@ def _route_to_agent(event, say, client, channel_config, agent_match, is_bot, bot
         "Slack channel grant denied for ambient message channel={} agent={} — silently dropping",
         channel_id,
         agent_id,
+      )
+      return
+
+    # Download attachments only after the route is authorized. If Slack file
+    # access is unavailable (for example, no files:read scope), the ingest
+    # notice is appended to the original text and CAIPE still handles the turn.
+    ingest = download_slack_files(raw_files, bot_token=client.token)
+    input_files = ingest.files
+    message_text = _apply_attachment_notices(message_text, ingest)
+
+    if not message_text.strip() and not input_files:
+      logger.info(
+        "[{}] Ignoring Slack file message with no usable text or attachments",
+        thread_ts,
       )
       return
 
@@ -1833,6 +1897,7 @@ def _route_to_agent(event, say, client, channel_config, agent_match, is_bot, bot
       overthink_config=overthink,
       escalation_config=esc_config,
       client_context=client_context,
+      files=input_files,
     )
 
     if isinstance(result, dict) and result.get("skipped"):
@@ -2091,6 +2156,14 @@ def handle_dm_message(event, say, client, context=None):
       surface_kind="dm",
     )
 
+    # Download any Slack attachments into base64 multimodal blocks so the model
+    # can read them (client.token authenticates the private file URLs). Files
+    # that couldn't be accessed (e.g. missing files:read scope) surface as
+    # notices folded into the message so the agent can tell the user.
+    ingest = download_slack_files(event.get("files"), bot_token=client.token)
+    input_files = ingest.files
+    context_message = _apply_attachment_notices(context_message, ingest)
+
     result = _call_ai(
       client=client,
       channel_id=dm_channel_id,
@@ -2101,6 +2174,7 @@ def handle_dm_message(event, say, client, context=None):
       agent_id=agent_id,
       conversation_id=conversation_id,
       client_context=client_context,
+      files=input_files,
     )
 
     if isinstance(result, dict) and result.get("retry_needed"):

@@ -22,13 +22,20 @@ import {
   normalizeConfluencePageScopes,
 } from "@/lib/projects/confluence-source";
 import { projectMatchesLabels, sanitizeLabels } from "@/lib/projects/labels";
+import {
+  canAssignProjectToTeam,
+  canManageProjectsOrganization,
+} from "@/lib/projects/project-admin";
+import { isBootstrapAdmin } from "@/lib/auth-config";
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import { isTomeAdmin, type TomeAdminSession } from "@/lib/rbac/tome-admin";
 import { auditTome, tomeActorFromAuth } from "@/lib/tome/audit";
+import { requireInteractiveTomePrincipal } from "@/lib/tome/principal";
 import {
   invalidateTomeReadAccessCatalogCache,
   listReadableTomeProjects,
   reconcileTomeReadAccess,
+  removeTomeReadAccess,
 } from "@/lib/tome/access";
 import {
   reconcileDataSteward,
@@ -38,6 +45,16 @@ import {
 import type { CreateProjectRequest, ProjectDocument, ProjectType } from "@/types/projects";
 import type { Team } from "@/types/teams";
 import type { ActiveIngestRun } from "@/types/tome";
+
+interface ProjectSlugReservation {
+  _id: string;
+  project_id: string;
+  created_at: Date;
+}
+
+function isMongoDuplicateKey(error: unknown): boolean {
+  return (error as { code?: unknown } | null)?.code === 11000;
+}
 
 async function resolveTeam(teamId: string): Promise<Team & { _id: string }> {
   const teams = await getCollection<Team>("teams");
@@ -62,6 +79,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   }
 
   const { user, session } = await getAuthFromBearerOrSession(request);
+  requireInteractiveTomePrincipal(session);
   // Tome admins see every Project, Area, and BHAG. Overlay the authenticated
   // email because bearer sessions do not always carry session.user.
   const adminSession = (session ?? {}) as TomeAdminSession;
@@ -207,26 +225,25 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   }
 
   const { user, session } = await getAuthFromBearerOrSession(request);
+  requireInteractiveTomePrincipal(session);
   const body = (await request.json()) as CreateProjectRequest;
   const projectType: ProjectType =
     body.type === "bhag" ? "bhag" : body.type === "area" ? "area" : "project";
 
-  if (projectType !== "project") {
-    const adminSession = (session ?? {}) as TomeAdminSession;
-    const admin = await isTomeAdmin({
-      ...adminSession,
-      user: {
-        ...adminSession.user,
-        email: user.email ?? adminSession.user?.email,
-      },
-    });
-    if (!admin) {
-      throw new ApiError(
-        "Only a Tome admin can create a BHAG or Area",
-        403,
-        "TOME_ADMIN_REQUIRED",
-      );
-    }
+  const adminSession = (session ?? {}) as TomeAdminSession;
+  const tomeAdmin = await isTomeAdmin({
+    ...adminSession,
+    user: {
+      ...adminSession.user,
+      email: user.email ?? adminSession.user?.email,
+    },
+  });
+  if (projectType !== "project" && !tomeAdmin) {
+    throw new ApiError(
+      "Only a Tome admin can create a BHAG or Area",
+      403,
+      "TOME_ADMIN_REQUIRED",
+    );
   }
 
   if (!body.name?.trim()) {
@@ -237,6 +254,20 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   }
 
   const team = await resolveTeam(body.team_id);
+  const canAssignTeam = await canAssignProjectToTeam(
+    team,
+    user.email,
+    tomeAdmin ||
+      (await canManageProjectsOrganization(session)) ||
+      isBootstrapAdmin(user.email),
+  );
+  if (!canAssignTeam) {
+    throw new ApiError(
+      "You must be a member of the selected team to create this entity",
+      403,
+      "PROJECT_TEAM_ASSIGNMENT_REQUIRED",
+    );
+  }
   const teamSlug = team.slug ?? deriveProjectSlug(team.name);
   const slug = deriveProjectSlug(body.name);
   if (!slug) {
@@ -244,7 +275,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   }
 
   const projects = await getCollection<ProjectDocument>("projects");
-  const existing = await projects.findOne({ slug, team_id: team._id });
+  const existing = await projects.findOne({ slug });
   if (existing) {
     const kindLabel = (t: string | undefined) =>
       t === "bhag" ? "BHAG" : t === "area" ? "Area" : "project";
@@ -252,8 +283,8 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     const newKind = kindLabel(projectType);
     const msg =
       existingKind === newKind
-        ? `${newKind} "${slug}" already exists for this team`
-        : `A ${existingKind} named "${slug}" already exists for this team — BHAGs, Areas, and projects share the same namespace`;
+        ? `${newKind} "${slug}" already exists`
+        : `A ${existingKind} named "${slug}" already exists — BHAGs, Areas, and projects share the same namespace`;
     throw new ApiError(msg, 409, "PROJECT_EXISTS");
   }
 
@@ -317,7 +348,10 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   }
 
   const now = new Date();
+  const projectId = new ObjectId();
   const doc: ProjectDocument = {
+    _id: projectId as unknown as string,
+    tome_authorization_version: 2,
     type: projectType,
     slug,
     title: catalog.metadata.title,
@@ -347,8 +381,20 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     updated_at: now,
   };
 
-  const result = await projects.insertOne(doc as ProjectDocument & { _id?: ObjectId });
+  const slugReservations = await getCollection<ProjectSlugReservation>(
+    "project_slug_reservations",
+  );
+  let reserved = false;
+  let inserted = false;
   try {
+    await slugReservations.insertOne({
+      _id: slug,
+      project_id: String(projectId),
+      created_at: now,
+    });
+    reserved = true;
+    await projects.insertOne(doc as ProjectDocument & { _id: ObjectId });
+    inserted = true;
     await reconcileDataSteward(
       { ...doc, data_steward: undefined },
       dataSteward,
@@ -356,8 +402,26 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     await reconcileTomeReadAccess(doc);
     invalidateTomeReadAccessCatalogCache();
   } catch (error) {
-    await projects.deleteOne({ _id: result.insertedId as unknown as string });
-    await reconcileDataSteward(doc, null).catch(() => undefined);
+    if (inserted) {
+      await projects.deleteOne({ _id: projectId as unknown as string });
+      await Promise.all([
+        reconcileDataSteward(doc, null).catch(() => undefined),
+        removeTomeReadAccess(doc).catch(() => undefined),
+      ]);
+    }
+    if (reserved) {
+      await slugReservations.deleteOne({
+        _id: slug,
+        project_id: String(projectId),
+      });
+    }
+    if (isMongoDuplicateKey(error)) {
+      throw new ApiError(
+        `An entity named "${slug}" is already being created or already exists`,
+        409,
+        "PROJECT_EXISTS",
+      );
+    }
     if (error instanceof Error && error.name === "OpenFgaWriteError") {
       console.error("[tome-projects] OpenFGA access setup failed", error);
       throw new ApiError(
@@ -377,7 +441,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   });
 
   return successResponse(
-    { project: { ...doc, _id: String(result.insertedId) } },
+    { project: { ...doc, _id: String(projectId) } },
     201,
   );
 });

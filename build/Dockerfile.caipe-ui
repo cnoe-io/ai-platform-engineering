@@ -107,6 +107,15 @@ COPY --from=build --chown=nextjs:nodejs /app/public ./public
 COPY --from=build --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=build --chown=nextjs:nodejs /app/.next/static ./.next/static
 
+# PDFKit loads TrueType fonts from their package paths at request time. Keep
+# the small DejaVu subset in the standalone image so Unicode wiki content,
+# including technical diagrams, renders consistently in production.
+COPY --from=build --chown=nextjs:nodejs /app/node_modules/dejavu-fonts-ttf/package.json ./node_modules/dejavu-fonts-ttf/package.json
+COPY --from=build --chown=nextjs:nodejs /app/node_modules/dejavu-fonts-ttf/ttf/DejaVuSans.ttf ./node_modules/dejavu-fonts-ttf/ttf/DejaVuSans.ttf
+COPY --from=build --chown=nextjs:nodejs /app/node_modules/dejavu-fonts-ttf/ttf/DejaVuSans-Oblique.ttf ./node_modules/dejavu-fonts-ttf/ttf/DejaVuSans-Oblique.ttf
+COPY --from=build --chown=nextjs:nodejs /app/node_modules/dejavu-fonts-ttf/ttf/DejaVuSans-Bold.ttf ./node_modules/dejavu-fonts-ttf/ttf/DejaVuSans-Bold.ttf
+COPY --from=build --chown=nextjs:nodejs /app/node_modules/dejavu-fonts-ttf/ttf/DejaVuSansMono.ttf ./node_modules/dejavu-fonts-ttf/ttf/DejaVuSansMono.ttf
+
 # Copy version info
 COPY --from=build --chown=nextjs:nodejs /app/public/version.json ./public/version.json
 

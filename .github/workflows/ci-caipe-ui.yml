@@ -4,12 +4,7 @@ description: "Build and push CAIPE UI Docker image"
 on:
   push:
     tags:
-      - 'caipe-ui-*'
-    branches:
-      - main
-    paths:
-      - 'ui/**'
-      - 'build/Dockerfile.caipe-ui'
+      - '**'
   pull_request:
     paths:
       - 'ui/**'
@@ -27,10 +22,9 @@ on:
         default: false
 
 permissions:
-  contents: read
-  packages: write
-  pull-requests: read
   actions: read
+  contents: read
+  pull-requests: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -49,6 +43,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Determine Tag
         id: version
@@ -59,7 +54,7 @@ jobs:
 
       - name: Detect changed paths
         id: filter
-        uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4
+        uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
         with:
           filters: |
             ui:
@@ -75,7 +70,6 @@ jobs:
         run: |
           SHOULD_BUILD="false"
           SHOULD_RETAG="false"
-          TAG_VERSION="${{ env.TAG_VERSION }}"
 
           # Chart-only tag: skip image builds entirely
           if [[ "$TAG_VERSION" =~ -chart\.[0-9]+$ ]]; then
@@ -159,7 +153,7 @@ jobs:
 
     steps:
       - name: 🔒 Harden runner
-        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920  # v2.20.0
+        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40  # v2.20.1
         with:
           egress-policy: audit
 
@@ -187,7 +181,16 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
+          fetch-depth: 0
           persist-credentials: false
+      - name: Generate mirror main increment release notes
+        if: contains(needs.determine-changes.outputs.tag_version, '-ui-main-')
+        env:
+          RELEASE_VERSION: ${{ needs.determine-changes.outputs.tag_version }}
+        run: |
+          node scripts/generate-main-increment-release-notes.mjs \
+            --version "$RELEASE_VERSION" \
+            --repository "$GITHUB_REPOSITORY"
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
       - name: Log in to GitHub Container Registry
@@ -204,7 +207,6 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' || (startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-rc.') && !contains(github.ref_name, '-hotfix.') && !contains(github.ref_name, '-chart.')) }}
-            type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
             type=raw,value=${{ needs.determine-changes.outputs.tag_version }},enable=${{ needs.determine-changes.outputs.tag_version != '' }}
             type=ref,event=tag,prefix=
             type=sha,format=short,prefix=
@@ -218,7 +220,7 @@ jobs:
           target: runner
           platforms: ${{ matrix.platform }}
           labels: ${{ steps.meta.outputs.labels }}
-          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=${{ github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main' }}
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=${{ github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/') }}
           cache-from: type=gha,scope=${{ matrix.arch }}
           cache-to: type=gha,mode=min,scope=${{ matrix.arch }}
           build-args: |
@@ -231,14 +233,14 @@ jobs:
           sbom: false
 
       - name: Export digest
-        if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main'
+        if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
         run: |
           mkdir -p /tmp/digests
           digest="${{ steps.build.outputs.digest }}"
           touch "/tmp/digests/${digest#sha256:}"
 
       - name: Upload digest
-        if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main'
+        if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: digests-${{ matrix.arch }}
@@ -252,7 +254,7 @@ jobs:
     needs: [determine-changes, build-and-push]
     if: |
       needs.determine-changes.outputs.should_build == 'true' &&
-      (github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main')
+      (github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/'))
     permissions:
       contents: read
       packages: write
@@ -261,7 +263,7 @@ jobs:
       IMAGE_NAME: ${{ github.repository_owner }}/${{ needs.determine-changes.outputs.image_prefix }}caipe-ui
     steps:
       - name: 🔒 Harden runner
-        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920  # v2.20.0
+        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40  # v2.20.1
         with:
           egress-policy: audit
 
@@ -319,9 +321,19 @@ jobs:
 
     steps:
       - name: 🔒 Harden runner
-        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920  # v2.20.0
+        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40  # v2.20.1
         with:
           egress-policy: audit
+
+      - name: 🔑 Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ secrets.CI_BUILD_APP_ID }}
+          private-key: ${{ secrets.CI_BUILD_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-packages: write
 
       - name: 📦 Install crane
         run: |
@@ -331,9 +343,10 @@ jobs:
 
       - name: 🔐 Log in to registry
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_ACTOR: ${{ github.actor }}
         run: |
-          echo "$GH_TOKEN" | crane auth login ghcr.io -u ${{ github.actor }} --password-stdin
+          echo "$GH_TOKEN" | crane auth login ghcr.io -u "$GH_ACTOR" --password-stdin
 
       - name: 🔍 Check source image and retag or build
         id: retag-or-build
@@ -469,9 +482,19 @@ jobs:
       needs.determine-changes.outputs.tag_version != '' &&
       !contains(needs.determine-changes.outputs.tag_version, '-')
     steps:
+      - name: 🔑 Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ secrets.CI_BUILD_APP_ID }}
+          private-key: ${{ secrets.CI_BUILD_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+
       - name: 🔔 Notify release finalize
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           TAG_VERSION: ${{ needs.determine-changes.outputs.tag_version }}
           BUILD_PUSH_RESULT: ${{ needs.build-and-push.result }}
           MERGE_RESULT: ${{ needs.merge-manifests.result }}
@@ -495,12 +518,12 @@ jobs:
 
           echo "🔔 Notifying release-finalize: tag=$TAG_VERSION, conclusion=$CONCLUSION"
 
-          gh api --method POST /repos/${{ github.repository }}/dispatches --input - <<EOF
+          gh api --method POST "/repos/${GH_REPOSITORY}/dispatches" --input - <<EOF
           {
             "event_type": "ci-completed",
             "client_payload": {
               "tag": "$TAG_VERSION",
-              "workflow": "${{ github.workflow }}",
+              "workflow": "$GH_WORKFLOW",
               "conclusion": "$CONCLUSION"
             }
           }

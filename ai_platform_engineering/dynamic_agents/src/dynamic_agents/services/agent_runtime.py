@@ -9,16 +9,19 @@ This module contains the core ``AgentRuntime`` class.  Sibling modules:
 """
 
 import asyncio
+import base64
 import json
 import logging
+import os
 import re
 import time
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 from uuid import uuid4
 
+from cnoe_agent_utils.llm_factory import resolve_bedrock_client
 from cnoe_agent_utils.tracing import TracingManager
 from deepagents import create_deep_agent
 from deepagents.backends.state import StateBackend
@@ -40,10 +43,15 @@ from dynamic_agents.models import (
     AgentContext,
     ClientContext,
     DynamicAgentConfig,
+    InputFile,
     InterruptConfig,
     MCPServerConfig,
     SubAgentRef,
     UserContext,
+)
+from dynamic_agents.services.attachment_store import (
+    AttachmentStore,
+    build_attachment_store,
 )
 from dynamic_agents.services.builtin_tools import (
     WorkflowApiClient,
@@ -69,7 +77,16 @@ from dynamic_agents.services.mcp_client import (
     resolve_mcp_connections_credential_refs,
     wrap_tools_with_error_handling,
 )
-from dynamic_agents.services.middleware import ToolResultInvariantMiddleware, build_middleware
+from dynamic_agents.services.middleware import (
+    TEXT_DOCUMENT_MIME_TYPES,
+    ToolResultInvariantMiddleware,
+    anthropic_text_document_block,
+    build_middleware,
+)
+from dynamic_agents.services.model_capabilities import (
+    ModelCapabilities,
+    get_model_capabilities,
+)
 from dynamic_agents.services.skills import build_skills_files, detect_missing_skills, load_skills
 
 if TYPE_CHECKING:
@@ -235,8 +252,332 @@ def _mcp_warning_events(permanent: list[str], transient: list[str]) -> list[str]
     return messages
 
 
+# MIME types the Bedrock Converse API can ingest, split by the LangChain
+# content-block type each maps to. Images become ``image`` blocks; everything
+# else becomes a ``document`` (``file``) block. Anything not listed here is
+# rejected by the langchain_aws adapter (raising ValueError), so we skip such
+# files with a warning rather than let them break the whole request.
+# Source: langchain_aws.chat_models.bedrock_converse.MIME_TO_FORMAT.
+_SUPPORTED_IMAGE_MIME_TYPES = frozenset(
+    {"image/png", "image/jpeg", "image/gif", "image/webp"}
+)
+_SUPPORTED_DOC_MIME_TYPES = frozenset(
+    {
+        "application/pdf",
+        "text/csv",
+        "application/msword",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/vnd.ms-excel",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "text/html",
+        "text/plain",
+        "text/markdown",
+    }
+)
+# Document types only the Anthropic Messages API client can ingest. Bedrock
+# Converse has no document format for XML (``_mime_type_to_format`` raises), but
+# the Anthropic client accepts it as a *text* document source. So these are kept
+# only when the resolved client is ``anthropic`` (see ``_build_user_content``);
+# on Converse/legacy they're skipped as unsupported rather than breaking the turn.
+_ANTHROPIC_ONLY_DOC_MIME_TYPES = frozenset({"text/xml", "application/xml"})
+
+
+# Reasons a file was dropped from the user turn, in machine-readable form so
+# the caller can build the right user-facing degradation message.
+SKIP_UNSUPPORTED_BY_PROVIDER = "unsupported_by_provider"
+SKIP_NOT_ACCEPTED_BY_MODEL = "not_accepted_by_model"
+# Guardrail drops: the file itself is fine, but accepting it would breach an
+# input limit (too many files this turn, or the file/turn is too large).
+SKIP_TOO_MANY_FILES = "too_many_files"
+SKIP_FILE_TOO_LARGE = "file_too_large"
+SKIP_TURN_TOO_LARGE = "turn_too_large"
+
+
+class SkippedFile(NamedTuple):
+    """A file that was attached but not sent to the model, and why.
+
+    ``reason`` is one of:
+
+    - ``SKIP_UNSUPPORTED_BY_PROVIDER`` — Bedrock/the adapter cannot ingest this
+      MIME type at all.
+    - ``SKIP_NOT_ACCEPTED_BY_MODEL`` — the provider supports it, but this agent's
+      model declared it does not accept that modality (e.g. a text-only model
+      handed an image).
+    - ``SKIP_TOO_MANY_FILES`` / ``SKIP_FILE_TOO_LARGE`` / ``SKIP_TURN_TOO_LARGE``
+      — the file is otherwise fine but accepting it would breach an input
+      guardrail (see ``config.Settings.max_input_*``).
+    """
+
+    name: str | None
+    mime_type: str
+    reason: str
+
+
+def _mb(num_bytes: int) -> str:
+    """Render a byte count as a compact MB string for user/model copy."""
+    mb = num_bytes / (1024 * 1024)
+    # Drop a trailing .0 so "5MB" reads cleaner than "5.0MB".
+    return f"{mb:.0f}MB" if mb == int(mb) else f"{mb:.1f}MB"
+
+
+def _skip_phrase(
+    skip: SkippedFile,
+    model_id: str | None = None,
+    max_file_bytes: int = 0,
+    max_turn_bytes: int = 0,
+) -> str:
+    """The reason clause shared by the user warning and the model-facing notice.
+
+    Returns just the "why" (no "Attached … wasn't read" framing) so both the
+    user warning and the ``_skipped_files_notice`` can reuse identical wording.
+    """
+    if skip.reason == SKIP_NOT_ACCEPTED_BY_MODEL:
+        kind = "image" if skip.mime_type in _SUPPORTED_IMAGE_MIME_TYPES else "document"
+        model = f" ({model_id})" if model_id else ""
+        return f"this agent's model{model} doesn't accept {kind} input"
+    if skip.reason == SKIP_TOO_MANY_FILES:
+        return "too many files were attached this turn"
+    if skip.reason == SKIP_FILE_TOO_LARGE:
+        limit = f" ({_mb(max_file_bytes)} max)" if max_file_bytes else ""
+        return f"it exceeds the per-file size limit{limit}"
+    if skip.reason == SKIP_TURN_TOO_LARGE:
+        limit = f" ({_mb(max_turn_bytes)} max)" if max_turn_bytes else ""
+        return f"the attachments exceed the per-message size limit{limit}"
+    # SKIP_UNSUPPORTED_BY_PROVIDER (default)
+    return f"its file type ({skip.mime_type}) isn't supported for model input"
+
+
+def _skipped_file_warning(
+    skip: SkippedFile,
+    model_id: str | None = None,
+    max_file_bytes: int = 0,
+    max_turn_bytes: int = 0,
+) -> str:
+    """User-facing copy explaining why an attached file was not sent to the model."""
+    label = f"'{skip.name}'" if skip.name else f"a {skip.mime_type} file"
+    why = _skip_phrase(skip, model_id, max_file_bytes, max_turn_bytes)
+    return f"Attached {label} wasn't read: {why} — answering from your text only."
+
+
+def _skipped_files_notice(
+    skipped: "list[SkippedFile]",
+    model_id: str | None = None,
+    max_file_bytes: int = 0,
+    max_turn_bytes: int = 0,
+) -> str:
+    """A single system-note, injected into the user turn, so the *model* knows a
+    file was dropped.
+
+    The user-facing ``on_warning`` frame is suppressed on some channels (e.g.
+    Slack, to avoid noise), which would otherwise leave the model answering as
+    if no file were attached — a silent failure. This note travels in the turn
+    content itself, so the model can acknowledge it couldn't read the file
+    regardless of channel.
+    """
+    if not skipped:
+        return ""
+    parts = []
+    for skip in skipped:
+        label = f"'{skip.name}'" if skip.name else f"a {skip.mime_type} file"
+        parts.append(f"{label} ({_skip_phrase(skip, model_id, max_file_bytes, max_turn_bytes)})")
+    listing = "; ".join(parts)
+    return (
+        f"[System note: {len(skipped)} attached file(s) could not be read and were "
+        f"not included: {listing}. Answer from the text. If a file was essential to "
+        f"the request, tell the user you could not read it and why.]"
+    )
+
+
+def _estimated_bytes(f: "InputFile") -> int:
+    """Best-effort decoded size of an inline attachment, in bytes.
+
+    Estimated from the base64 length (``≈ len(data) * 3 / 4``) so we never
+    decode a large payload into memory just to measure it. URI-referenced files
+    carry no inline bytes, so they measure 0 and are exempt from size guards
+    (only the count guard applies to them)."""
+    if not f.data:
+        return 0
+    n = len(f.data.rstrip("="))
+    return n * 3 // 4
+
+
+def _inline_document_block(
+    block: dict[str, Any], f: "InputFile", needs_text_source: bool
+) -> dict[str, Any]:
+    """Attach inline file bytes to ``block`` in the shape the adapter expects.
+
+    For most files that's ``base64``. For text-family documents on the Anthropic
+    client (``needs_text_source``) it's a text source carrying the decoded UTF-8
+    text, because Anthropic rejects non-PDF base64 document sources.
+    """
+    if needs_text_source and f.data:
+        try:
+            text = base64.b64decode(f.data).decode("utf-8")
+        except (ValueError, UnicodeDecodeError):
+            text = base64.b64decode(f.data).decode("utf-8", errors="replace")
+        return anthropic_text_document_block(block, text)
+    block["base64"] = f.data
+    return block
+
+
+def _build_user_content(
+    message: str,
+    files: "list[InputFile] | None",
+    capabilities: "ModelCapabilities | None" = None,
+    *,
+    model_id: str | None = None,
+    max_files: int = 0,
+    max_file_bytes: int = 0,
+    max_turn_bytes: int = 0,
+    store: "AttachmentStore | None" = None,
+) -> "tuple[str | list[dict[str, Any]], list[SkippedFile]]":
+    """Build the user-turn content for the agent's message list.
+
+    Without files, returns ``(message, [])`` (the fast path). With one or more
+    attachable files, returns ``(content_list, skipped)`` where ``content_list``
+    is a multimodal list — a text block followed by one block per surviving
+    file. Images become ``image`` blocks and documents (PDF, CSV, Office, HTML,
+    txt, md) become ``file`` blocks, so the model reads every supported file —
+    not just images. Both use LangChain's standard shape (``{"type": ...,
+    "mime_type": ..., "base64"|"url": ...}``), which the langchain_aws Bedrock
+    converse adapter converts natively.
+
+    A file is dropped (and recorded in ``skipped``) when any of:
+
+    - the provider cannot ingest its MIME type at all;
+    - ``capabilities`` declares this agent's model does not accept that modality
+      (so a no-vision model degrades cleanly to text instead of erroring);
+    - it would breach an input guardrail — ``max_files`` (per turn),
+      ``max_file_bytes`` (per file), or ``max_turn_bytes`` (aggregate of the
+      files kept this turn). Each guard is disabled when its value is ``0``.
+
+    ``capabilities=None`` means "accept everything the provider supports"
+    (unchanged legacy behavior). If no file survives, the plain string is
+    returned unchanged so the model still answers from the text.
+
+    When ``store`` is provided, a surviving file's bytes are uploaded to the
+    blob store and its block carries a ``source: {"store_key": ...}`` reference
+    instead of inline base64 — so the persisted checkpoint stays small and the
+    rehydration middleware re-inflates the bytes into the model request at
+    inference time. When ``store`` is None (legacy path / no store configured),
+    blocks keep inline base64 exactly as before.
+    """
+    if not files:
+        return message, []
+
+    caps = capabilities or ModelCapabilities()  # permissive default
+    # The Anthropic Messages API client needs text-family docs as text sources
+    # (base64 doc sources there are PDF-only) and is the only client that can
+    # take XML at all. Resolve once; None model_id (unit tests) means "not
+    # anthropic", preserving the legacy inline-base64 shape.
+    is_anthropic = bool(model_id) and resolve_bedrock_client(model_id) == "anthropic"
+    blocks: list[dict[str, Any]] = [{"type": "text", "text": message}]
+    skipped: list[SkippedFile] = []
+    kept_files = 0
+    turn_bytes = 0
+    for f in files:
+        # ── Guardrails (checked before type/modality): the file is fine, but
+        # accepting it would breach an input limit. Drop the overflow so a huge
+        # or unbounded attachment set can't inflate the checkpoint / breach
+        # Mongo's 16MB document cap. A limit of 0 disables that guard.
+        if max_files and kept_files >= max_files:
+            skipped.append(SkippedFile(f.name, f.mime_type, SKIP_TOO_MANY_FILES))
+            continue
+        size = _estimated_bytes(f)
+        if max_file_bytes and size > max_file_bytes:
+            logger.info(
+                f"[stream] Skipping file '{f.name!r}' ({f.mime_type}): ~{size} bytes "
+                f"exceeds per-file limit {max_file_bytes}"
+            )
+            skipped.append(SkippedFile(f.name, f.mime_type, SKIP_FILE_TOO_LARGE))
+            continue
+        if max_turn_bytes and turn_bytes + size > max_turn_bytes:
+            logger.info(
+                f"[stream] Skipping file '{f.name!r}' ({f.mime_type}): would push turn "
+                f"to ~{turn_bytes + size} bytes, over limit {max_turn_bytes}"
+            )
+            skipped.append(SkippedFile(f.name, f.mime_type, SKIP_TURN_TOO_LARGE))
+            continue
+
+        if f.mime_type in _SUPPORTED_IMAGE_MIME_TYPES:
+            block_type = "image"
+        elif f.mime_type in _SUPPORTED_DOC_MIME_TYPES:
+            block_type = "file"
+        elif is_anthropic and f.mime_type in _ANTHROPIC_ONLY_DOC_MIME_TYPES:
+            # XML: no Bedrock Converse document format exists, but the Anthropic
+            # client reads it as a text document source.
+            block_type = "file"
+        else:
+            logger.warning(
+                f"[stream] Skipping file with unsupported type '{f.mime_type}' "
+                f"(name={f.name!r}); Bedrock cannot ingest it"
+            )
+            skipped.append(SkippedFile(f.name, f.mime_type, SKIP_UNSUPPORTED_BY_PROVIDER))
+            continue
+
+        # Provider supports the type, but the selected model may not accept the
+        # modality — degrade cleanly rather than let it error downstream.
+        accepted = caps.accepts_images if block_type == "image" else caps.accepts_documents
+        if not accepted:
+            logger.info(
+                f"[stream] Skipping {block_type} '{f.name!r}' ({f.mime_type}): "
+                f"the agent's model does not accept this input modality"
+            )
+            skipped.append(SkippedFile(f.name, f.mime_type, SKIP_NOT_ACCEPTED_BY_MODEL))
+            continue
+
+        block: dict[str, Any] = {"type": block_type, "mime_type": f.mime_type}
+        # Text-family documents on the Anthropic client can't ride as base64
+        # document sources (PDF-only there) — they need a text source carrying
+        # the decoded content. When a store is configured the shaping happens at
+        # rehydration (bytes stay out of the checkpoint); here we handle the
+        # inline paths (no store, or a store put that fell back to inline).
+        needs_text_source = (
+            is_anthropic and block_type == "file" and f.mime_type in TEXT_DOCUMENT_MIME_TYPES
+        )
+        if store is not None and f.data:
+            # Reference form: upload bytes once (content-addressed) and persist
+            # only the key. The rehydration middleware turns this back into the
+            # right inline block (base64, or a text source for text docs on the
+            # Anthropic client) before the model call — bytes never enter the
+            # checkpoint. On any store failure, fall back to inline so a storage
+            # hiccup degrades to today's behavior instead of dropping the file.
+            try:
+                raw = base64.b64decode(f.data)
+                key = store.put(raw, content_type=f.mime_type)
+                block["source"] = {"store_key": key}
+            except Exception as exc:  # noqa: BLE001 — never fail the turn on storage
+                logger.warning(
+                    f"[stream] Attachment store put failed for '{f.name!r}' "
+                    f"({f.mime_type}); falling back to inline: {exc}"
+                )
+                block = _inline_document_block(block, f, needs_text_source)
+        elif f.data:
+            block = _inline_document_block(block, f, needs_text_source)
+        else:
+            block["url"] = f.uri
+        # Document blocks carry a filename; the adapter warns without one.
+        # (Text-source blocks keep it too — harmless and preserves provenance.)
+        if block_type == "file" and f.name:
+            block["name"] = f.name
+        blocks.append(block)
+        kept_files += 1
+        turn_bytes += size
+
+    # Only switch to multimodal if at least one file survived filtering.
+    content = blocks if len(blocks) > 1 else message
+    return content, skipped
+
+
 class AgentRuntime:
     """Runtime for a single dynamic agent instance."""
+
+    # Class-level defaults so the lazy attachment-store accessor is safe even
+    # when an instance is constructed without __init__ (e.g. object.__new__ in
+    # unit tests that exercise _resolve_subagents in isolation). __init__ sets
+    # the per-instance values; these are the fall-through.
+    _attachment_store: "AttachmentStore | None" = None
+    _attachment_store_built: bool = False
 
     def __init__(
         self,
@@ -282,6 +623,13 @@ class AgentRuntime:
             )
         self._session_id = session_id
         self._graph = None
+        # Attachment blob store, built lazily on first use (see
+        # ``attachment_store``). Shared between the write path (upload bytes,
+        # persist a reference) and the rehydration middleware (fetch bytes back
+        # into the model request). None if construction fails, in which case the
+        # write path falls back to inline base64 (today's behavior).
+        self._attachment_store: AttachmentStore | None = None
+        self._attachment_store_built = False
 
         if ephemeral:
             # In-memory only — no MongoDB writes, GC'd with the runtime
@@ -368,6 +716,48 @@ class AgentRuntime:
         )
         # Cancellation flag for graceful stream termination
         self._cancelled: bool = False
+
+    @staticmethod
+    def _prompt_cache_enabled() -> bool:
+        """Whether Bedrock prompt caching is on for this deployment.
+
+        Reads the Bedrock-scoped ``AWS_BEDROCK_ENABLE_PROMPT_CACHE`` flag. When
+        set, ``build_middleware`` attaches the native langchain caching
+        middleware matching the resolved Bedrock client (Anthropic or Converse);
+        see ``middleware._build_prompt_cache_middleware``.
+        """
+        return os.getenv("AWS_BEDROCK_ENABLE_PROMPT_CACHE", "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+
+    def _get_attachment_store(self) -> AttachmentStore | None:
+        """Return the shared attachment store, building it once on first use.
+
+        Returns None (and logs) if construction fails — the write path then
+        falls back to inline base64, so a misconfigured store degrades to
+        today's behavior instead of dropping attachments.
+        """
+        if not self._attachment_store_built:
+            self._attachment_store_built = True
+            try:
+                self._attachment_store = build_attachment_store(self.settings)
+                logger.info(
+                    "Agent '%s': attachment store backend=%s",
+                    self.config.name,
+                    self._attachment_store.backend_name,
+                )
+            except Exception as exc:  # noqa: BLE001 — never fail a turn on store init
+                logger.warning(
+                    "Agent '%s': attachment store unavailable (%s); "
+                    "attachments will ride inline as base64",
+                    self.config.name,
+                    exc,
+                )
+                self._attachment_store = None
+        return self._attachment_store
 
     def _resolve_backend_type(self) -> str:
         """Resolve effective backend type from agent config or server default."""
@@ -722,6 +1112,9 @@ class AgentRuntime:
             self._session_id,
             agent_name=self.config.name,
             model_id=self.config.model.id,
+            model_provider=self.config.model.provider,
+            attachment_store=self._get_attachment_store(),
+            enable_prompt_cache=self._prompt_cache_enabled(),
         )
         # Prepend skills middleware so it runs before other middleware
         if skills_middleware:
@@ -1025,6 +1418,9 @@ class AgentRuntime:
                     self._session_id,
                     agent_name=subagent_config.name,
                     model_id=subagent_config.model.id,
+                    model_provider=subagent_config.model.provider,
+                    attachment_store=self._get_attachment_store(),
+                    enable_prompt_cache=self._prompt_cache_enabled(),
                 ),
             }
 
@@ -1229,8 +1625,14 @@ class AgentRuntime:
         user_id: str,
         trace_id: str | None = None,
         encoder: "StreamEncoder | None" = None,
+        files: list[InputFile] | None = None,
     ) -> AsyncGenerator[str, None]:
         """Stream agent response for a user message.
+
+        When ``files`` are provided, the user turn is sent as a multimodal
+        content list (text block + one block per supported file — image or
+        document) instead of a plain string, so the model receives the file
+        bytes.
 
         Yields SSE frame strings produced by the encoder.
         """
@@ -1242,6 +1644,7 @@ class AgentRuntime:
             trace_id,
             encoder,
             observation,
+            files,
         )
         async for frame in self._observe_turn(implementation, observation):
             yield frame
@@ -1301,6 +1704,7 @@ class AgentRuntime:
         trace_id: str | None,
         encoder: "StreamEncoder | None",
         observation: _TurnObservation,
+        files: list[InputFile] | None = None,
     ) -> AsyncGenerator[str, None]:
         if not self._initialized:
             await self.initialize()
@@ -1358,7 +1762,49 @@ class AgentRuntime:
                 yield frame
 
         # ── Core lifecycle: chunks ──
-        state_input: dict[str, Any] = {"messages": [{"role": "user", "content": message}]}
+        # Build the user turn: plain string normally, or a multimodal content
+        # list (text + image blocks) when files are attached. Files the model
+        # can't accept (unsupported type, a modality this model declares it
+        # doesn't take, or one that breaches an input guardrail) are dropped.
+        # The drop is surfaced twice, on purpose:
+        #   1. to the *user* as an on_warning frame (visible degradation), and
+        #   2. to the *model* as a system-note appended to the turn — because
+        #      some channels (Slack) suppress the user warning to avoid noise,
+        #      which would otherwise leave the model answering blind (silent
+        #      failure). See _skipped_files_notice.
+        model_id = self.config.model.id
+        max_file_bytes = self.settings.max_input_file_bytes
+        max_turn_bytes = self.settings.max_input_turn_bytes
+        user_content, skipped_files = _build_user_content(
+            message,
+            files,
+            get_model_capabilities(model_id),
+            model_id=model_id,
+            max_files=self.settings.max_input_files,
+            max_file_bytes=max_file_bytes,
+            max_turn_bytes=max_turn_bytes,
+            store=self._get_attachment_store(),
+        )
+        for skip in skipped_files:
+            prom_metrics.dropped_input_files_total.labels(
+                agent_name=self.config.name,
+                model_id=model_id,
+                reason=skip.reason,
+            ).inc()
+            for frame in encoder.on_warning(
+                _skipped_file_warning(skip, model_id, max_file_bytes, max_turn_bytes)
+            ):
+                yield frame
+        if skipped_files:
+            # Tell the model (channel-agnostic) so it can degrade gracefully.
+            notice = _skipped_files_notice(
+                skipped_files, model_id, max_file_bytes, max_turn_bytes
+            )
+            if isinstance(user_content, list):
+                user_content[0]["text"] = f"{user_content[0]['text']}\n\n{notice}".strip()
+            else:
+                user_content = f"{user_content}\n\n{notice}".strip()
+        state_input: dict[str, Any] = {"messages": [{"role": "user", "content": user_content}]}
         # Inject skills files into state for StateBackend (non-GridFS mode).
         # In GridFS mode, skills are pre-populated in the store at init time.
         if getattr(self, "_skills_files", None) and self._resolve_backend_type() != BACKEND_STORE:

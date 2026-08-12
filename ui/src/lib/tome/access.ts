@@ -11,6 +11,10 @@ import {
   writeOpenFgaTuples,
   type OpenFgaTupleKey,
 } from "@/lib/rbac/openfga";
+import {
+  dataStewardOpenFgaSubject,
+  resolveStoredDataSteward,
+} from "@/lib/tome/steward-identity";
 import type { ProjectDocument, ProjectType } from "@/types/projects";
 import type { Team } from "@/types/teams";
 
@@ -48,12 +52,31 @@ let catalogReconcile:
   | undefined;
 let warnedMissingParentRelation = false;
 
+class TomeAuthorizationCollisionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "TomeAuthorizationCollisionError";
+  }
+}
+
 function projectType(project: Pick<ProjectDocument, "type">): ProjectType {
   return project.type === "bhag" || project.type === "area" ? project.type : "project";
 }
 
-export function tomeDataObject(project: Pick<ProjectDocument, "slug" | "type">): string {
+export function legacyTomeDataObject(
+  project: Pick<ProjectDocument, "slug" | "type">,
+): string {
   return `document:tome/${projectType(project)}/${project.slug}`;
+}
+
+export function tomeDataObject(
+  project: Pick<ProjectDocument, "_id" | "slug" | "type">,
+): string {
+  const id = project._id == null ? "" : String(project._id).trim();
+  if (!validOpenFgaId(id)) {
+    throw new Error(`Tome entity ${project.slug} has no immutable project id`);
+  }
+  return `document:tome/${projectType(project)}/${id}`;
 }
 
 function validOpenFgaId(value: string): boolean {
@@ -166,6 +189,23 @@ async function readAllObjectTuples(
   return tuples;
 }
 
+async function readAllTuples(
+  tuple: Partial<OpenFgaTupleKey>,
+): Promise<OpenFgaTupleKey[]> {
+  const tuples: OpenFgaTupleKey[] = [];
+  let continuationToken: string | undefined;
+  do {
+    const result = await readOpenFgaTuples({
+      tuple,
+      pageSize: 100,
+      continuationToken,
+    });
+    tuples.push(...result.tuples.map((stored) => stored.key));
+    continuationToken = result.continuationToken;
+  } while (continuationToken);
+  return tuples;
+}
+
 function tupleKey(tuple: OpenFgaTupleKey): string {
   return `${tuple.user}\n${tuple.relation}\n${tuple.object}`;
 }
@@ -199,6 +239,69 @@ async function writeRequiredTuples(writes: OpenFgaTupleKey[]): Promise<void> {
 }
 
 /**
+ * Rebuild trusted steward authorization on the immutable-id object, then
+ * remove all legacy tuples. Team readers and parent edges are reconstructed by
+ * the caller. A collision makes legacy grants unattributable, so migration
+ * fails closed until an operator resolves the duplicate records.
+ */
+export async function migrateLegacyTomeAuthorization(
+  project: ProjectDocument,
+  catalog: readonly ProjectDocument[],
+): Promise<void> {
+  if (project.tome_authorization_version === 2) return;
+  const legacyObject = legacyTomeDataObject(project);
+  const object = tomeDataObject(project);
+  const collisions = catalog.filter(
+    (candidate) => legacyTomeDataObject(candidate) === legacyObject,
+  );
+  if (collisions.length > 1) {
+    throw new TomeAuthorizationCollisionError(
+      `Cannot migrate ambiguous Tome authorization object ${legacyObject}; ` +
+        `${collisions.length} project records share it`,
+    );
+  }
+
+  const [objectTuples, subjectTuples] = await Promise.all([
+    readAllTuples({ object: legacyObject }),
+    readAllTuples({ user: legacyObject }),
+  ]);
+  const legacyTuples = [...objectTuples, ...subjectTuples];
+  const steward = await resolveStoredDataSteward(project.data_steward).catch(() => null);
+  const writes: OpenFgaTupleKey[] = [
+    ...(steward
+      ? [{
+          user: dataStewardOpenFgaSubject(steward),
+          relation: "writer",
+          object,
+        }]
+      : []),
+    ...catalog
+      .filter((candidate) =>
+        resolveTomeParentsFromCatalog(candidate, catalog).some(
+          (parent) => String(parent._id) === String(project._id),
+        ),
+      )
+      .map((child) => ({
+        user: object,
+        relation: PARENT_RELATION,
+        object: tomeDataObject(child),
+      })),
+  ];
+  if (writes.length > 0) {
+    await writeRequiredTuples(writes);
+  }
+  if (legacyTuples.length > 0) {
+    await deleteExactOpenFgaTuples(legacyTuples);
+  }
+
+  const projects = await getCollection<ProjectDocument>("projects");
+  await projects.updateOne(
+    { _id: project._id },
+    { $set: { tome_authorization_version: 2 } },
+  );
+}
+
+/**
  * Reconcile the direct shared-team reader and structural parent links for one
  * Tome entity. Team readers and document parents on Tome document objects are
  * owned by this projection; user/channel readers remain untouched.
@@ -210,6 +313,7 @@ export async function reconcileTomeReadAccess(
   const projects =
     catalog ??
     (await (await getCollection<ProjectDocument>("projects")).find({}).toArray());
+  await migrateLegacyTomeAuthorization(project, projects);
   const desired = await desiredReadTuples(project, projects);
   const object = tomeDataObject(project);
   const [storedReaders, storedParents] = await Promise.all([
@@ -254,13 +358,15 @@ export async function reconcileTomeReadAccess(
 
 export async function removeTomeReadAccess(project: ProjectDocument): Promise<void> {
   const object = tomeDataObject(project);
-  const [storedReaders, storedParents] = await Promise.all([
+  const [storedReaders, storedParents, storedAsParent] = await Promise.all([
     readAllObjectTuples(object, TEAM_READER_RELATION),
     readAllObjectTuples(object, PARENT_RELATION),
+    readAllTuples({ user: object, relation: PARENT_RELATION }),
   ]);
   const deletes = [
     ...storedReaders.filter((tuple) => /^team:[^#]+#member$/.test(tuple.user)),
     ...storedParents.filter((tuple) => tuple.user.startsWith("document:tome/")),
+    ...storedAsParent,
   ];
   if (deletes.length > 0) {
     await deleteExactOpenFgaTuples(deletes);
@@ -277,7 +383,12 @@ export async function ensureTomeReadAccessCatalog(): Promise<ProjectDocument[]> 
     const projects = await getCollection<ProjectDocument>("projects");
     const catalog = await projects.find({}).toArray();
     for (const project of catalog) {
-      await reconcileTomeReadAccess(project, catalog);
+      try {
+        await reconcileTomeReadAccess(project, catalog);
+      } catch (error) {
+        if (!(error instanceof TomeAuthorizationCollisionError)) throw error;
+        console.error(`[tome-access] ${error.message}`);
+      }
     }
     return catalog;
   })();

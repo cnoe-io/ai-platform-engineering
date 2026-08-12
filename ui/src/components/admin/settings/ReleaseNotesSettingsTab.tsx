@@ -173,7 +173,8 @@ function ReleaseNotesCard({ isAdmin, readOnly = false }: ReleaseNotesSettingsTab
         const notesPayload = notesRes.ok ? await notesRes.json() : null;
         const hasExactCuratedNotes =
           Boolean(notesPayload?.body) &&
-          normalizeVersion(notesPayload?.matchedVersion) === baseVersion(version);
+          (normalizeVersion(notesPayload?.matchedVersion) === version ||
+            normalizeVersion(notesPayload?.matchedVersion) === baseVersion(version));
         setPreviewMarkdown(
           hasExactCuratedNotes
             ? {
@@ -181,6 +182,7 @@ function ReleaseNotesCard({ isAdmin, readOnly = false }: ReleaseNotesSettingsTab
                 title: notesPayload.title ?? null,
                 date: notesPayload.date ?? null,
                 body: notesPayload.body,
+                changelogUrl: notesPayload.changelogUrl ?? null,
               }
             : null,
         );

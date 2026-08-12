@@ -6,11 +6,13 @@ import { NextRequest } from "next/server";
 
 const mockDeleteOne = jest.fn(async () => ({ deletedCount: 1 }));
 const mockFindOne = jest.fn();
+const mockFindBySlug = jest.fn();
 const mockGetTomeProjectPermissions = jest.fn();
 const mockRunOnboardingDeletes = jest.fn(async () => []);
 const mockRemoveTomeReadAccess = jest.fn(async () => undefined);
 const mockReconcileDataSteward = jest.fn(async () => undefined);
 const mockInvalidateTomeReadAccessCatalogCache = jest.fn();
+const mockDeleteReservation = jest.fn(async () => ({ deletedCount: 1 }));
 
 jest.mock("@/lib/api-middleware", () => {
   const actual = jest.requireActual("@/lib/api-middleware");
@@ -28,10 +30,15 @@ jest.mock("@/lib/api-middleware", () => {
 
 jest.mock("@/lib/mongodb", () => ({
   isMongoDBConfigured: true,
-  getCollection: jest.fn(async () => ({
-    findOne: mockFindOne,
-    deleteOne: mockDeleteOne,
-  })),
+  getCollection: jest.fn(async (name: string) =>
+    name === "project_slug_reservations"
+      ? { deleteOne: mockDeleteReservation }
+      : {
+          findOne: mockFindOne,
+          find: mockFindBySlug,
+          deleteOne: mockDeleteOne,
+        },
+  ),
 }));
 
 jest.mock("@/lib/tome/data-steward", () => ({
@@ -66,7 +73,7 @@ jest.mock("@/lib/tome/audit", () => ({
   })),
 }));
 
-import { DELETE } from "../route";
+import { DELETE, GET } from "../route";
 
 function request(slug: string): NextRequest {
   return new NextRequest(`http://example.test/api/projects/${slug}`, {
@@ -75,12 +82,17 @@ function request(slug: string): NextRequest {
 }
 
 async function deleteEntity(type: "project" | "area" | "bhag") {
-  mockFindOne.mockResolvedValue({
+  const project = {
     _id: `${type}-id`,
     slug: `example-${type}`,
     name: `Example ${type}`,
     title: `Example ${type}`,
     type,
+  };
+  mockFindBySlug.mockReturnValue({
+    limit: jest.fn().mockReturnValue({
+      toArray: jest.fn().mockResolvedValue([project]),
+    }),
   });
   return DELETE(request(`example-${type}`), {
     params: Promise.resolve({ slug: `example-${type}` }),
@@ -118,6 +130,10 @@ describe("DELETE /api/projects/[slug] authorization", () => {
 
     expect(response.status).toBe(200);
     expect(mockDeleteOne).toHaveBeenCalledWith({ _id: "project-id" });
+    expect(mockDeleteReservation).toHaveBeenCalledWith({
+      _id: "example-project",
+      project_id: "project-id",
+    });
     expect(mockInvalidateTomeReadAccessCatalogCache).toHaveBeenCalledTimes(1);
   });
 
@@ -132,5 +148,36 @@ describe("DELETE /api/projects/[slug] authorization", () => {
 
     expect(response.status).toBe(200);
     expect(mockDeleteOne).toHaveBeenCalledWith({ _id: "bhag-id" });
+  });
+});
+
+describe("slug collision boundary", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it.each([
+    ["GET", GET],
+    ["DELETE", DELETE],
+  ] as const)("fails closed for ambiguous %s requests before authorization", async (_method, handler) => {
+    mockFindBySlug.mockReturnValue({
+      limit: jest.fn().mockReturnValue({
+        toArray: jest.fn().mockResolvedValue([
+          { _id: "first-id", slug: "duplicate", type: "project" },
+          { _id: "second-id", slug: "duplicate", type: "project" },
+        ]),
+      }),
+    });
+
+    const response = await handler(request("duplicate"), {
+      params: Promise.resolve({ slug: "duplicate" }),
+    });
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      code: "PROJECT_SLUG_AMBIGUOUS",
+    });
+    expect(mockGetTomeProjectPermissions).not.toHaveBeenCalled();
+    expect(mockDeleteOne).not.toHaveBeenCalled();
   });
 });

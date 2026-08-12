@@ -13,18 +13,21 @@
 import type { NextRequest } from "next/server";
 import { ObjectId } from "mongodb";
 
-import { ApiError } from "@/lib/api-middleware";
+import { ApiError } from "@/lib/api-error";
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import { isTomeServerEnabled } from "./guard";
+import { resolveUniqueTomeProjectBySlug } from "./project-resolver";
 import type { ProjectDocument } from "@/types/projects";
 
 /**
- * Validate the agent's shared-token bearer. When `TOME_AGENT_TOKEN` is unset
- * (local dev), auth is skipped — the agent and CAIPE talk over localhost.
+ * Validate the agent's shared-token bearer. Missing configuration is a server
+ * error, never an authentication bypass.
  */
 export function requireAgentToken(request: NextRequest): void {
-  const expected = process.env.TOME_AGENT_TOKEN;
-  if (!expected) return; // dev: no token configured → allow
+  const expected = process.env.TOME_AGENT_TOKEN?.trim();
+  if (!expected) {
+    throw new ApiError("Tome agent token is not configured", 503, "TOME_AGENT_TOKEN_REQUIRED");
+  }
   const header = request.headers.get("authorization") ?? "";
   const token = header.replace(/^Bearer\s+/i, "").trim();
   if (token !== expected) {
@@ -43,10 +46,11 @@ export async function resolveProject(
     throw new ApiError("MongoDB not configured", 503, "MONGODB_NOT_CONFIGURED");
   }
   const projects = await getCollection<ProjectDocument>("projects");
-  let project = await projects.findOne({ slug: idOrSlug });
-  if (!project && ObjectId.isValid(idOrSlug)) {
+  let project: ProjectDocument | null = null;
+  if (ObjectId.isValid(idOrSlug)) {
     project = await projects.findOne({ _id: new ObjectId(idOrSlug) as unknown as string });
   }
+  if (!project) project = await resolveUniqueTomeProjectBySlug(idOrSlug);
   if (!project) {
     throw new ApiError("Project not found", 404, "PROJECT_NOT_FOUND");
   }

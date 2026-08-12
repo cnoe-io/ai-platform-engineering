@@ -22,6 +22,7 @@ export interface ReleaseMarkdown {
   title: string | null;
   date: string | null;
   body: string;
+  changelogUrl?: string | null;
 }
 
 interface ReleaseNotesResponse {
@@ -29,6 +30,7 @@ interface ReleaseNotesResponse {
   title?: string | null;
   date?: string | null;
   body?: string | null;
+  changelogUrl?: string | null;
 }
 
 interface SettingsResponse {
@@ -199,7 +201,8 @@ export function useReleaseUpgradePrompt(): ReleaseUpgradePromptState {
             const hasExactChangelog = Boolean(matchingRelease);
             const hasExactCuratedNotes =
               Boolean(notesPayload?.body) &&
-              normalizeVersion(notesPayload?.matchedVersion) === baseVersion(activeReleaseVersion);
+              (normalizeVersion(notesPayload?.matchedVersion) === activeReleaseVersion ||
+                normalizeVersion(notesPayload?.matchedVersion) === baseVersion(activeReleaseVersion));
             setReleaseMarkdown(
               !hasExactChangelog && hasExactCuratedNotes
                 ? {
@@ -207,6 +210,7 @@ export function useReleaseUpgradePrompt(): ReleaseUpgradePromptState {
                     title: notesPayload.title ?? null,
                     date: notesPayload.date ?? null,
                     body: notesPayload.body,
+                    changelogUrl: notesPayload.changelogUrl ?? null,
                   }
                 : null,
             );

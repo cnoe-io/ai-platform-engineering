@@ -232,3 +232,50 @@ class TestSSEClientParseEvent:
     assert event.type == SSEEventType.TOOL_CALL_ARGS
     assert event.delta == '{"thought": "searching"}'
     assert event.tool_call_id == "tc-1"
+
+
+class TestStreamChatPayload:
+  """The request body stream_chat builds — the seam multimodal files ride on."""
+
+  def _capture_payload(self, monkeypatch):
+    """Stub _stream_sse and return a dict that receives the built payload."""
+    captured: dict = {}
+
+    def fake_stream_sse(self, url, payload, bearer_token=None):
+      captured["url"] = url
+      captured["payload"] = payload
+      return iter(())
+
+    monkeypatch.setattr(SSEClient, "_stream_sse", fake_stream_sse)
+    return captured
+
+  def test_files_included_when_present(self, monkeypatch):
+    captured = self._capture_payload(monkeypatch)
+    client = SSEClient("http://example.com")
+    files = [{"mime_type": "image/png", "data": "Zm9v", "name": "a.png"}]
+
+    list(client.stream_chat("hi", "conv-1", "agent-1", files=files))
+
+    assert captured["payload"]["files"] == files
+    # Base fields still present and correct.
+    assert captured["payload"]["message"] == "hi"
+    assert captured["payload"]["protocol"] == "agui"
+    assert captured["url"].endswith("/api/v1/chat/stream/start")
+
+  def test_files_omitted_when_empty(self, monkeypatch):
+    captured = self._capture_payload(monkeypatch)
+    client = SSEClient("http://example.com")
+
+    list(client.stream_chat("hi", "conv-1", "agent-1", files=[]))
+
+    # No empty "files" key — the backend/gateway should see the same body as
+    # a plain text turn.
+    assert "files" not in captured["payload"]
+
+  def test_files_omitted_when_none(self, monkeypatch):
+    captured = self._capture_payload(monkeypatch)
+    client = SSEClient("http://example.com")
+
+    list(client.stream_chat("hi", "conv-1", "agent-1"))
+
+    assert "files" not in captured["payload"]

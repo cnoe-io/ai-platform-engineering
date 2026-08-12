@@ -1,7 +1,4 @@
-import { ObjectId } from "mongodb";
-
 import { ApiError } from "@/lib/api-middleware";
-import { getCollection } from "@/lib/mongodb";
 import {
   checkOpenFgaTuple,
   deleteExactOpenFgaTuples,
@@ -11,38 +8,26 @@ import {
 } from "@/lib/rbac/openfga";
 import { isTomeAdmin, type TomeAdminSession } from "@/lib/rbac/tome-admin";
 import { canReadTomeProject, tomeDataObject } from "@/lib/tome/access";
-import type { User } from "@/types/mongodb";
-import type {
-  DataStewardAssignment,
-  DataStewardInput,
-  ProjectDocument,
-  StoredDataSteward,
-} from "@/types/projects";
-import type { Team } from "@/types/teams";
+import { requireInteractiveTomePrincipal } from "@/lib/tome/principal";
+import {
+  dataStewardOpenFgaSubject,
+  resolveStoredDataSteward,
+  validDataStewardSubjectId,
+} from "@/lib/tome/steward-identity";
+import type { DataStewardAssignment, ProjectDocument } from "@/types/projects";
 
 const STEWARD_RELATION = "writer";
 const WRITE_RELATION = "can_write";
 
 export { tomeDataObject } from "@/lib/tome/access";
-
-function escapeRegex(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function userSubject(user: Pick<User, "keycloak_sub" | "metadata">): string | null {
-  return user.keycloak_sub?.trim() || user.metadata?.keycloak_sub?.trim() || null;
-}
-
-function validSubjectId(value: string): boolean {
-  return Boolean(value) && value.length <= 256 && !/[\s:#]/.test(value);
-}
-
-export function dataStewardOpenFgaSubject(steward: DataStewardAssignment): string {
-  return steward.type === "team" ? `team:${steward.id}#member` : `user:${steward.id}`;
-}
+export {
+  dataStewardOpenFgaSubject,
+  resolveDataSteward,
+  resolveStoredDataSteward,
+} from "@/lib/tome/steward-identity";
 
 export function dataStewardTuple(
-  project: Pick<ProjectDocument, "slug" | "type">,
+  project: Pick<ProjectDocument, "_id" | "slug" | "type">,
   steward: DataStewardAssignment,
 ): OpenFgaTupleKey {
   return {
@@ -52,98 +37,11 @@ export function dataStewardTuple(
   };
 }
 
-async function resolveUserSteward(email: string): Promise<DataStewardAssignment> {
-  const normalizedEmail = email.trim().toLowerCase();
-  if (!normalizedEmail || normalizedEmail.length > 320 || !normalizedEmail.includes("@")) {
-    throw new ApiError("Select a valid data-steward user", 400, "INVALID_DATA_STEWARD");
-  }
-  const users = await getCollection<User>("users");
-  const user = await users.findOne({
-    email: { $regex: `^${escapeRegex(normalizedEmail)}$`, $options: "i" },
-  });
-  const subject = user ? userSubject(user) : null;
-  if (!user || !subject || !validSubjectId(subject)) {
-    throw new ApiError(
-      "The data steward must sign in to CAIPE before they can be assigned",
-      400,
-      "DATA_STEWARD_PROFILE_REQUIRED",
-    );
-  }
-  return {
-    type: "user",
-    id: subject,
-    name: user.name || user.email,
-    email: user.email.toLowerCase(),
-  };
-}
-
-async function resolveTeamSteward(teamId: string): Promise<DataStewardAssignment> {
-  const normalized = teamId.trim();
-  if (!normalized) {
-    throw new ApiError("Select a data-steward team", 400, "INVALID_DATA_STEWARD");
-  }
-  const teams = await getCollection<Team>("teams");
-  let team: Team | null = null;
-  if (ObjectId.isValid(normalized)) {
-    team = await teams.findOne({ _id: new ObjectId(normalized) as unknown as string });
-  }
-  if (!team) team = await teams.findOne({ slug: normalized });
-  if (!team) {
-    throw new ApiError("Data-steward team not found", 404, "DATA_STEWARD_TEAM_NOT_FOUND");
-  }
-  const slug = team.slug?.trim() || String(team._id);
-  if (!validSubjectId(slug)) {
-    throw new ApiError("Data-steward team has an invalid identity", 400, "INVALID_DATA_STEWARD");
-  }
-  return { type: "team", id: slug, name: team.name || slug };
-}
-
-export async function resolveDataSteward(
-  input: DataStewardInput | StoredDataSteward | null | undefined,
-): Promise<DataStewardAssignment | null> {
-  if (!input) return null;
-  if (typeof input === "string") return resolveUserSteward(input);
-  if (input.type === "user") {
-    if (
-      "id" in input &&
-      typeof input.id === "string" &&
-      validSubjectId(input.id) &&
-      typeof input.name === "string"
-    ) {
-      return {
-        type: "user",
-        id: input.id,
-        name: input.name,
-        ...("email" in input && typeof input.email === "string"
-          ? { email: input.email.toLowerCase() }
-          : {}),
-      };
-    }
-    if ("email" in input && typeof input.email === "string") {
-      return resolveUserSteward(input.email);
-    }
-  }
-  if (input.type === "team") {
-    if (
-      "id" in input &&
-      typeof input.id === "string" &&
-      validSubjectId(input.id) &&
-      typeof input.name === "string"
-    ) {
-      return { type: "team", id: input.id, name: input.name };
-    }
-    if ("team_id" in input && typeof input.team_id === "string") {
-      return resolveTeamSteward(input.team_id);
-    }
-  }
-  throw new ApiError("Invalid data-steward assignment", 400, "INVALID_DATA_STEWARD");
-}
-
 export async function reconcileDataSteward(
-  project: Pick<ProjectDocument, "slug" | "type" | "data_steward">,
+  project: Pick<ProjectDocument, "_id" | "slug" | "type" | "data_steward">,
   next: DataStewardAssignment | null,
 ): Promise<void> {
-  const previous = await resolveDataSteward(project.data_steward).catch(() => null);
+  const previous = await resolveStoredDataSteward(project.data_steward).catch(() => null);
   const writes = next ? [dataStewardTuple(project, next)] : [];
   const deletes =
     previous && (!next || dataStewardOpenFgaSubject(previous) !== dataStewardOpenFgaSubject(next))
@@ -191,7 +89,7 @@ function adminSession(input: TomePermissionInput): TomeAdminSession {
 
 export function tomeSessionSubject(session: unknown): string | null {
   const sub = (session as { sub?: unknown } | null)?.sub;
-  return typeof sub === "string" && validSubjectId(sub) ? sub : null;
+  return typeof sub === "string" && validDataStewardSubjectId(sub) ? sub : null;
 }
 
 /**
@@ -202,6 +100,7 @@ export function tomeSessionSubject(session: unknown): string | null {
 export async function getTomeProjectPermissions(
   input: TomePermissionInput,
 ): Promise<{ canRead: boolean; canEdit: boolean; canManageSteward: boolean }> {
+  requireInteractiveTomePrincipal(input.session);
   const canManageSteward = await isTomeAdmin(adminSession(input));
   if (canManageSteward) {
     return { canRead: true, canEdit: true, canManageSteward: true };
@@ -223,7 +122,7 @@ export async function getTomeProjectPermissions(
     if ((await check()).allowed) {
       return { canRead: true, canEdit: true, canManageSteward: false };
     }
-    const steward = await resolveDataSteward(input.project.data_steward).catch(() => null);
+    const steward = await resolveStoredDataSteward(input.project.data_steward).catch(() => null);
     if (!steward) {
       return { canRead, canEdit: false, canManageSteward: false };
     }

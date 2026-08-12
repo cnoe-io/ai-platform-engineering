@@ -18,6 +18,21 @@ main → release/x.y.z branch → RC tags → final x.y.z tag → Helm publish +
 
 The `auto-tag.yml` workflow handles tag creation automatically. A human triggers `release-finalize.yml` to promote an RC to a stable release.
 
+### Mirror main UI increments
+
+The mirror can also publish a UI-only update from `main` with
+`release-caipe-ui.yml`. These builds use a version such as
+`x.y.z-ui-main-<commit>`.
+
+- The UI build compares the new tag with the previous `caipe-ui-*-ui-main-*`
+  tag.
+- Features, fixes, documentation, and maintenance commits are grouped into
+  incremental release notes.
+- The generated notes are embedded in the image because the mirror repository
+  may not be anonymously readable at runtime.
+- The release popup matches the complete version, including `ui-main-<commit>`,
+  and links to the corresponding mirror comparison.
+
 ---
 
 ## Step 1 — Create the release branch

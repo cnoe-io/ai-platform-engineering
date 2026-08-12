@@ -4,9 +4,11 @@ import { NextRequest } from "next/server";
 
 import { getAuthFromBearerOrSession, successResponse, withErrorHandler } from "@/lib/api-middleware";
 import { isBackstageConfigured, fetchBackstageSystems } from "@/lib/projects/backstage-client";
+import { requireInteractiveTomePrincipal } from "@/lib/tome/principal";
 
 export const GET = withErrorHandler(async (request: NextRequest) => {
-  await getAuthFromBearerOrSession(request);
+  const { session } = await getAuthFromBearerOrSession(request);
+  requireInteractiveTomePrincipal(session);
 
   const configured = isBackstageConfigured();
   if (!configured) {

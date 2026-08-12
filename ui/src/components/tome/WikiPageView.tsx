@@ -17,6 +17,7 @@ import { EdgeFields } from "@/components/tome/EdgeFields";
 import { TrackedEntityFields } from "@/components/tome/TrackedEntityFields";
 import { KindBadge } from "@/components/tome/KindBadge";
 import { ViewOnlyTooltip } from "@/components/tome/ViewOnlyTooltip";
+import { WikiExportMenu } from "@/components/tome/WikiExportMenu";
 import {
   Tooltip,
   TooltipContent,
@@ -391,6 +392,13 @@ export function WikiPageView({
           )}
           {canEdit && !locked && !isMirror && (
             <KindToggle currentKind={kind} onChange={handleChangeKind} />
+          )}
+          {!isEditing && (
+            <WikiExportMenu
+              slug={slug}
+              path={path}
+              triggerClassName="border border-border p-1.5"
+            />
           )}
           {isEditing ? (
             <div className="flex items-center divide-x divide-border rounded-md border border-border">

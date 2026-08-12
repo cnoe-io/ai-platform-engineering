@@ -1,7 +1,10 @@
 import {
   canReadTomeProject,
+  ensureTomeReadAccessCatalog,
   invalidateTomeReadAccessCatalogCache,
   listReadableTomeProjects,
+  migrateLegacyTomeAuthorization,
+  removeTomeReadAccess,
   reconcileTomeReadAccess,
   resetTomeReadAccessCatalogCacheForTests,
   resolveTomeParentsFromCatalog,
@@ -47,6 +50,7 @@ function project(
 ): ProjectDocument {
   return {
     _id: `${slug}-id`,
+    tome_authorization_version: 2,
     type,
     slug,
     name,
@@ -112,9 +116,28 @@ describe("Tome read authorization", () => {
   });
 
   it("uses a distinct OpenFGA document object at every hierarchy level", () => {
-    expect(tomeDataObject(bhag)).toBe("document:tome/bhag/goal");
-    expect(tomeDataObject(area)).toBe("document:tome/area/platform");
-    expect(tomeDataObject(child)).toBe("document:tome/project/service");
+    expect(tomeDataObject(bhag)).toBe("document:tome/bhag/goal-id");
+    expect(tomeDataObject(area)).toBe("document:tome/area/platform-id");
+    expect(tomeDataObject(child)).toBe("document:tome/project/service-id");
+  });
+
+  it.each([
+    ["missing", undefined],
+    ["blank", "   "],
+    ["whitespace", "project id"],
+    ["colon", "project:id"],
+    ["hash", "project#id"],
+    ["overlong", "x".repeat(257)],
+  ])("rejects a %s immutable id before building an OpenFGA object", (_case, id) => {
+    expect(() => tomeDataObject({ ...child, _id: id as string })).toThrow(
+      "has no immutable project id",
+    );
+  });
+
+  it("keeps equal slugs isolated by immutable id", () => {
+    expect(tomeDataObject(child)).not.toBe(
+      tomeDataObject({ ...child, _id: "other-service-id" }),
+    );
   });
 
   it("resolves downward-only BHAG and Area parents", () => {
@@ -131,7 +154,7 @@ describe("Tome read authorization", () => {
         {
           user: "team:service-team#member",
           relation: "reader",
-          object: "document:tome/project/service",
+          object: "document:tome/project/service-id",
         },
       ],
       deletes: [],
@@ -139,9 +162,9 @@ describe("Tome read authorization", () => {
     expect(mockWriteOpenFgaTuples).toHaveBeenNthCalledWith(2, {
       writes: [
         {
-          user: "document:tome/area/platform",
+          user: "document:tome/area/platform-id",
           relation: "parent",
-          object: "document:tome/project/service",
+          object: "document:tome/project/service-id",
         },
       ],
       deletes: [],
@@ -184,7 +207,7 @@ describe("Tome read authorization", () => {
         {
           user: "team:service-team#member",
           relation: "reader",
-          object: "document:tome/project/service",
+          object: "document:tome/project/service-id",
         },
       ],
       deletes: [],
@@ -231,29 +254,43 @@ describe("Tome read authorization", () => {
   });
 
   it("removes stale managed team and parent grants", async () => {
-    mockReadOpenFgaTuples
-      .mockResolvedValueOnce({
+    mockReadOpenFgaTuples.mockImplementation(
+      ({ tuple }: { tuple: { object?: string; relation?: string } }) => {
+        if (
+          tuple.object === "document:tome/project/service-id" &&
+          tuple.relation === "reader"
+        ) {
+          return Promise.resolve({
         tuples: [
           {
             key: {
               user: "team:old-team#member",
               relation: "reader",
-              object: "document:tome/project/service",
+              object: "document:tome/project/service-id",
             },
           },
         ],
-      })
-      .mockResolvedValueOnce({
+          });
+        }
+        if (
+          tuple.object === "document:tome/project/service-id" &&
+          tuple.relation === "parent"
+        ) {
+          return Promise.resolve({
         tuples: [
           {
             key: {
               user: "document:tome/bhag/old-goal",
               relation: "parent",
-              object: "document:tome/project/service",
+              object: "document:tome/project/service-id",
             },
           },
         ],
-      });
+          });
+        }
+        return Promise.resolve({ tuples: [], continuationToken: undefined });
+      },
+    );
 
     await reconcileTomeReadAccess(child, [bhag, area, child]);
 
@@ -261,19 +298,315 @@ describe("Tome read authorization", () => {
       {
         user: "team:old-team#member",
         relation: "reader",
-        object: "document:tome/project/service",
+        object: "document:tome/project/service-id",
       },
       {
         user: "document:tome/bhag/old-goal",
         relation: "parent",
-        object: "document:tome/project/service",
+        object: "document:tome/project/service-id",
       },
     ]);
   });
 
+  it("removes inbound parent edges when deleting a Tome entity", async () => {
+    mockReadOpenFgaTuples.mockImplementation(
+      ({ tuple }: { tuple: { object?: string; user?: string; relation?: string } }) => {
+        if (
+          tuple.user === "document:tome/area/platform-id" &&
+          tuple.relation === "parent"
+        ) {
+          return Promise.resolve({
+            tuples: [
+              {
+                key: {
+                  user: "document:tome/area/platform-id",
+                  relation: "parent",
+                  object: "document:tome/project/service-id",
+                },
+              },
+            ],
+          });
+        }
+        return Promise.resolve({ tuples: [], continuationToken: undefined });
+      },
+    );
+
+    await removeTomeReadAccess(area);
+
+    expect(mockDeleteExactOpenFgaTuples).toHaveBeenCalledWith([
+      {
+        user: "document:tome/area/platform-id",
+        relation: "parent",
+        object: "document:tome/project/service-id",
+      },
+    ]);
+  });
+
+  it("migrates legacy slug tuples before using immutable-id objects", async () => {
+    const legacyObject = "document:tome/project/service";
+    const legacyChild = {
+      ...child,
+      tome_authorization_version: undefined,
+      data_steward: {
+        type: "user" as const,
+        id: "canonical-sub",
+        name: "Canonical Steward",
+        email: "steward@example.test",
+      },
+    };
+    const updateOne = jest.fn().mockResolvedValue({ modifiedCount: 1 });
+    mockGetCollection.mockImplementation((name: string) =>
+      name === "users"
+        ? {
+            findOne: jest.fn().mockResolvedValue({
+              email: "steward@example.test",
+              name: "Canonical Steward",
+              keycloak_sub: "canonical-sub",
+              metadata: {},
+            }),
+          }
+        : { updateOne },
+    );
+    mockReadOpenFgaTuples.mockImplementation(
+      ({ tuple }: { tuple: { object?: string; user?: string } }) => {
+        if (tuple.object === legacyObject) {
+          return Promise.resolve({
+            tuples: [
+              {
+                key: {
+                  user: "user:forged-sub",
+                  relation: "writer",
+                  object: legacyObject,
+                },
+              },
+            ],
+          });
+        }
+        if (tuple.user === legacyObject) {
+          return Promise.resolve({
+            tuples: [
+              {
+                key: {
+                  user: legacyObject,
+                  relation: "parent",
+                  object: "document:tome/project/child-id",
+                },
+              },
+            ],
+          });
+        }
+        return Promise.resolve({ tuples: [] });
+      },
+    );
+
+    await migrateLegacyTomeAuthorization(legacyChild, [bhag, area, legacyChild]);
+
+    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
+      writes: [
+        {
+          user: "user:canonical-sub",
+          relation: "writer",
+          object: "document:tome/project/service-id",
+        },
+      ],
+      deletes: [],
+    });
+    expect(mockDeleteExactOpenFgaTuples).toHaveBeenCalledWith([
+      {
+        user: "user:forged-sub",
+        relation: "writer",
+        object: legacyObject,
+      },
+      {
+        user: legacyObject,
+        relation: "parent",
+        object: "document:tome/project/child-id",
+      },
+    ]);
+    expect(updateOne).toHaveBeenCalledWith(
+      { _id: "service-id" },
+      { $set: { tome_authorization_version: 2 } },
+    );
+  });
+
+  it("does not touch OpenFGA or Mongo after migration is marked complete", async () => {
+    await migrateLegacyTomeAuthorization(child, [bhag, area, child]);
+
+    expect(mockReadOpenFgaTuples).not.toHaveBeenCalled();
+    expect(mockWriteOpenFgaTuples).not.toHaveBeenCalled();
+    expect(mockDeleteExactOpenFgaTuples).not.toHaveBeenCalled();
+    expect(mockGetCollection).not.toHaveBeenCalled();
+  });
+
+  it("reads every legacy tuple page before deleting the old authorization object", async () => {
+    const legacyChild = {
+      ...child,
+      tome_authorization_version: undefined,
+      data_steward: undefined,
+    };
+    const legacyObject = "document:tome/project/service";
+    const first = {
+      user: "team:old-team#member",
+      relation: "reader",
+      object: legacyObject,
+    };
+    const second = {
+      user: "user:old-writer",
+      relation: "writer",
+      object: legacyObject,
+    };
+    const updateOne = jest.fn().mockResolvedValue({ modifiedCount: 1 });
+    mockGetCollection.mockImplementation((name: string) =>
+      name === "users"
+        ? { findOne: jest.fn().mockResolvedValue(null) }
+        : { updateOne },
+    );
+    mockReadOpenFgaTuples.mockImplementation(
+      ({ tuple, continuationToken }: {
+        tuple: { object?: string; user?: string };
+        continuationToken?: string;
+      }) => {
+        if (tuple.object === legacyObject && !continuationToken) {
+          return Promise.resolve({
+            tuples: [{ key: first }],
+            continuationToken: "next-page",
+          });
+        }
+        if (tuple.object === legacyObject && continuationToken === "next-page") {
+          return Promise.resolve({ tuples: [{ key: second }] });
+        }
+        return Promise.resolve({ tuples: [] });
+      },
+    );
+
+    await migrateLegacyTomeAuthorization(legacyChild, [legacyChild]);
+
+    expect(mockReadOpenFgaTuples).toHaveBeenCalledWith({
+      tuple: { object: legacyObject },
+      pageSize: 100,
+      continuationToken: "next-page",
+    });
+    expect(mockDeleteExactOpenFgaTuples).toHaveBeenCalledWith([first, second]);
+    expect(updateOne).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves legacy tuples and the migration marker when trusted writes fail", async () => {
+    const legacyChild = {
+      ...child,
+      tome_authorization_version: undefined,
+      data_steward: {
+        type: "user" as const,
+        id: "canonical-sub",
+        name: "Canonical Steward",
+        email: "steward@example.test",
+      },
+    };
+    const updateOne = jest.fn();
+    mockGetCollection.mockImplementation((name: string) =>
+      name === "users"
+        ? {
+            findOne: jest.fn().mockResolvedValue({
+              email: "steward@example.test",
+              name: "Canonical Steward",
+              keycloak_sub: "canonical-sub",
+              metadata: {},
+            }),
+          }
+        : { updateOne },
+    );
+    mockWriteOpenFgaTuples.mockResolvedValue({
+      enabled: false,
+      writes: 0,
+      deletes: 0,
+    });
+
+    await expect(
+      migrateLegacyTomeAuthorization(legacyChild, [legacyChild]),
+    ).rejects.toThrow("OpenFGA is not configured");
+    expect(mockDeleteExactOpenFgaTuples).not.toHaveBeenCalled();
+    expect(updateOne).not.toHaveBeenCalled();
+  });
+
+  it("does not mark migration complete when deleting legacy tuples fails", async () => {
+    const legacyChild = {
+      ...child,
+      tome_authorization_version: undefined,
+      data_steward: undefined,
+    };
+    const updateOne = jest.fn();
+    mockGetCollection.mockImplementation((name: string) =>
+      name === "users"
+        ? { findOne: jest.fn().mockResolvedValue(null) }
+        : { updateOne },
+    );
+    mockReadOpenFgaTuples.mockImplementation(
+      ({ tuple }: { tuple: { object?: string } }) =>
+        Promise.resolve({
+          tuples: tuple.object
+            ? [{
+                key: {
+                  user: "user:forged-sub",
+                  relation: "writer",
+                  object: "document:tome/project/service",
+                },
+              }]
+            : [],
+        }),
+    );
+    mockDeleteExactOpenFgaTuples.mockRejectedValue(new Error("delete unavailable"));
+
+    await expect(
+      migrateLegacyTomeAuthorization(legacyChild, [legacyChild]),
+    ).rejects.toThrow("delete unavailable");
+    expect(updateOne).not.toHaveBeenCalled();
+  });
+
+  it("refuses to migrate an authorization object shared by duplicate records", async () => {
+    const legacyChild = { ...child, tome_authorization_version: undefined };
+    const duplicate = { ...legacyChild, _id: "other-id", team_id: "other-team-id" };
+    await expect(
+      migrateLegacyTomeAuthorization(legacyChild, [legacyChild, duplicate]),
+    ).rejects.toThrow("2 project records share it");
+    expect(mockReadOpenFgaTuples).not.toHaveBeenCalled();
+  });
+
+  it("skips only ambiguous legacy rows while reconciling an unrelated catalog row", async () => {
+    const legacyChild = { ...child, tome_authorization_version: undefined };
+    const duplicate = { ...legacyChild, _id: "other-id", team_id: "other-team-id" };
+    const unrelated = project(
+      "unrelated",
+      "project",
+      "Unrelated Project",
+      "unrelated-team",
+    );
+    const error = jest.spyOn(console, "error").mockImplementation(() => undefined);
+    mockGetCollection.mockReturnValue({
+      find: jest.fn().mockReturnValue({
+        toArray: jest.fn().mockResolvedValue([legacyChild, duplicate, unrelated]),
+      }),
+    });
+
+    await expect(ensureTomeReadAccessCatalog()).resolves.toEqual([
+      legacyChild,
+      duplicate,
+      unrelated,
+    ]);
+
+    expect(error).toHaveBeenCalledTimes(2);
+    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
+      writes: [{
+        user: "team:unrelated-team#member",
+        relation: "reader",
+        object: "document:tome/project/unrelated-id",
+      }],
+      deletes: [],
+    });
+    error.mockRestore();
+  });
+
   it("filters discovery from OpenFGA can_read objects", async () => {
     mockListOpenFgaObjects.mockResolvedValue({
-      objects: ["document:tome/area/platform", "document:tome/project/service"],
+      objects: ["document:tome/area/platform-id", "document:tome/project/service-id"],
     });
 
     await expect(
@@ -302,8 +635,8 @@ describe("Tome read authorization", () => {
     });
     mockListOpenFgaObjects.mockResolvedValue({
       objects: [
-        "document:tome/project/service",
-        "document:tome/project/new-service",
+        "document:tome/project/service-id",
+        "document:tome/project/new-service-id",
       ],
     });
 

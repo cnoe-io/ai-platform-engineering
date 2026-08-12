@@ -82,8 +82,16 @@ ANTHROPIC_API_KEY=...                 # required
 ANTHROPIC_BASE_URL=https://...        # optional: proxy/gateway (e.g. litellm)
 TTT_CHAT_MODEL=claude-sonnet-4-6      # optional override
 TTT_INGEST_MODEL=claude-haiku-4-5     # optional override
-TOME_AGENT_TOKEN=dev                  # must match ui/.env.local
+TOME_AGENT_TOKEN=dev                  # required; must match ui/.env.local
 ```
+
+Internal agent callbacks fail closed when `TOME_AGENT_TOKEN` is missing or
+does not match. Do not expose `/api/tome/api/internal/*` through public ingress.
+
+On upgrade, Tome lazily replaces legacy slug-keyed OpenFGA tuples with
+immutable Project-ID objects. A duplicate legacy authorization object is
+withheld until an administrator resolves the duplicate records by `_id`; new
+Projects, Areas, and BHAGs share one globally unique slug namespace.
 
 Rebuild the agent after changing its code: `docker compose -f docker-compose.tome.yaml up -d --build tome-agent`.
 

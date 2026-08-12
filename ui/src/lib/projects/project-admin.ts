@@ -2,7 +2,10 @@
 
 import { getUserTeamIds } from "@/lib/api-middleware";
 import { caipeOrgKey } from "@/lib/rbac/organization";
+import { getRbacCollection } from "@/lib/rbac/mongo-collections";
 import { requireResourcePermission } from "@/lib/rbac/resource-authz";
+import type { TeamMembershipSource } from "@/types/identity-group-sync";
+import type { Team } from "@/types/teams";
 
 /**
  * True if the user belongs to the project's team, using the same canonical
@@ -38,4 +41,24 @@ export async function canManageProjectsOrganization(
   } catch {
     return false;
   }
+}
+
+/** True when an org admin or active canonical team member may assign a project. */
+export async function canAssignProjectToTeam(
+  team: Pick<Team, "slug">,
+  actorEmail: string | null | undefined,
+  isOrgAdmin: boolean,
+): Promise<boolean> {
+  if (isOrgAdmin) return true;
+  const email = actorEmail?.trim().toLowerCase();
+  const teamSlug = team.slug?.trim();
+  if (!email || !teamSlug) return false;
+  const sources = await getRbacCollection<TeamMembershipSource>("teamMembershipSources");
+  return Boolean(
+    await sources.findOne({
+      status: "active",
+      user_email: email,
+      team_slug: teamSlug,
+    }),
+  );
 }

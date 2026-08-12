@@ -68,7 +68,11 @@ describe("loadTomeProject read enforcement", () => {
       session: { sub: "viewer-sub" },
     });
     mockGetCollection.mockReturnValue({
-      findOne: jest.fn().mockResolvedValue(project),
+      find: jest.fn().mockReturnValue({
+        limit: jest.fn().mockReturnValue({
+          toArray: jest.fn().mockResolvedValue([project]),
+        }),
+      }),
     });
   });
 

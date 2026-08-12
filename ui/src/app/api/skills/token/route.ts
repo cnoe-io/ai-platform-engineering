@@ -25,7 +25,11 @@
 
 import { randomUUID } from 'node:crypto';
 
-import { handleApiError,withAuth } from '@/lib/api-middleware';
+import {
+  getAuthenticatedUser,
+  handleApiError,
+  requireRbacPermission,
+} from '@/lib/api-middleware';
 import { signLocalSkillsToken } from '@/lib/jwt-validation';
 import { getActiveSkillsApiKey, registerSkillsApiKey } from '@/lib/skills-api-keys';
 import { NextRequest,NextResponse } from 'next/server';
@@ -34,16 +38,16 @@ const MAX_DAYS = 90;
 
 export async function GET(request: NextRequest) {
   try {
-    return await withAuth(request, async (_req, user) => {
-      const active = await getActiveSkillsApiKey(user.email);
-      if (!active) {
-        return NextResponse.json({ has_active_key: false });
-      }
-      return NextResponse.json({
-        has_active_key: true,
-        created_at: active.created_at,
-        expires_at: active.expires_at,
-      });
+    const { user, session } = await getAuthenticatedUser(request);
+    await requireRbacPermission(session, 'skill', 'invoke');
+    const active = await getActiveSkillsApiKey(user.email);
+    if (!active) {
+      return NextResponse.json({ has_active_key: false });
+    }
+    return NextResponse.json({
+      has_active_key: true,
+      created_at: active.created_at,
+      expires_at: active.expires_at,
     });
   } catch (error) {
     return handleApiError(error);
@@ -52,38 +56,44 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    return await withAuth(request, async (_req, user) => {
-      let days = MAX_DAYS;
+    const { user, session } = await getAuthenticatedUser(request);
+    await requireRbacPermission(session, 'skill', 'invoke');
+    let days = MAX_DAYS;
 
-      try {
-        const body = await request.json();
-        if (body.expires_in_days !== undefined) {
-          const requested = Number(body.expires_in_days);
-          if (!Number.isInteger(requested) || requested < 1 || requested > MAX_DAYS) {
-            return NextResponse.json(
-              { error: `expires_in_days must be an integer between 1 and ${MAX_DAYS}` },
-              { status: 400 },
-            );
-          }
-          days = requested;
+    try {
+      const body = await request.json();
+      if (body.expires_in_days !== undefined) {
+        const requested = Number(body.expires_in_days);
+        if (!Number.isInteger(requested) || requested < 1 || requested > MAX_DAYS) {
+          return NextResponse.json(
+            { error: `expires_in_days must be an integer between 1 and ${MAX_DAYS}` },
+            { status: 400 },
+          );
         }
-      } catch {
-        // Empty body or invalid JSON — use defaults
+        days = requested;
       }
+    } catch {
+      // Empty body or invalid JSON — use defaults
+    }
 
-      const jti = randomUUID();
-      const createdAt = new Date();
-      const expiresAt = new Date(createdAt.getTime() + days * 86400_000);
-      const token = await signLocalSkillsToken(user.email, user.name, `${days}d`, jti);
+    const jti = randomUUID();
+    const createdAt = new Date();
+    const expiresAt = new Date(createdAt.getTime() + days * 86400_000);
+    const token = await signLocalSkillsToken(
+      user.email,
+      user.name,
+      `${days}d`,
+      session.sub ?? user.email,
+      jti,
+    );
+    await registerSkillsApiKey({ userEmail: user.email, jti, createdAt, expiresAt });
+    const expiresIn = days * 86400;
 
-      await registerSkillsApiKey({ userEmail: user.email, jti, createdAt, expiresAt });
-
-      return NextResponse.json({
-        token,
-        token_type: 'Bearer',
-        expires_in: days * 86400,
-        scope: 'skills:read',
-      });
+    return NextResponse.json({
+      token,
+      token_type: 'Bearer',
+      expires_in: expiresIn,
+      scope: 'skills:read',
     });
   } catch (error) {
     return handleApiError(error);

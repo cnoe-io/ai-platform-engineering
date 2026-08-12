@@ -16,6 +16,7 @@ import {
   Layers,
   Link2,
   ListChecks,
+  Loader2,
   MessageSquare,
   MessagesSquare,
   Newspaper,
@@ -52,6 +53,7 @@ import { ProjectSettingsPanel } from "@/components/tome/ProjectSettingsPanel";
 import { OnboardingModal } from "@/components/tome/OnboardingModal";
 import { WikiSidebar } from "@/components/tome/WikiSidebar";
 import { WikiPageView } from "@/components/tome/WikiPageView";
+import { WikiExportMenu } from "@/components/tome/WikiExportMenu";
 import type { GlossaryPreview } from "@/components/tome/CrepeEditor";
 import { parseTomeHref } from "@/lib/tome/tome-links";
 import { BetaBadge } from "@/components/tome/BetaBadge";
@@ -68,6 +70,10 @@ import { TomeProductFeedback } from "@/components/tome/TomeProductFeedback";
 import { EdgeGraphDialog } from "@/components/tome/EdgeGraphDialog";
 import { ViewOnlyTooltip } from "@/components/tome/ViewOnlyTooltip";
 import { parseFrontmatter, SPEC_BY_PATH } from "@/lib/tome/schema";
+import {
+  isSupportedTomeImportPath,
+  TOME_IMPORT_ACCEPT,
+} from "@/lib/tome/document-import-formats";
 import { cn } from "@/lib/utils";
 import type { PageTreeNode } from "@/types/tome";
 import {
@@ -264,6 +270,7 @@ export function TomeWiki({ slug }: { slug: string }) {
   // "New page" popover + hidden file picker for the Wiki rail action cluster.
   const [newPageOpen, setNewPageOpen] = useState(false);
   const [newPageName, setNewPageName] = useState("");
+  const [importing, setImporting] = useState(false);
   const newPageInputRef = useRef<HTMLInputElement | null>(null);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -718,27 +725,51 @@ export function TomeWiki({ slug }: { slug: string }) {
     [data, slug, writeMarkdown, load, navigate, view],
   );
 
-  // Import .md/.mdx files as wiki pages (each file's text → PUT /pages).
-  // Nested layout is preserved via webkitRelativePath when a folder is dropped.
+  // Import supported documents through the server converter. Nested layout is
+  // preserved via webkitRelativePath when a folder is selected/dropped.
   const uploadPages = useCallback(
     async (files: FileList | File[]) => {
-      const list = Array.from(files).filter((f) => /\.(md|mdx)$/i.test(f.name));
-      if (list.length === 0) return;
+      const list = Array.from(files);
+      const unsupported = list.filter((file) => {
+        const sourcePath =
+          (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name;
+        return !isSupportedTomeImportPath(sourcePath);
+      });
+      if (list.length === 0 || unsupported.length > 0) {
+        setError("Choose Markdown, text, HTML, DOCX, or PDF files to import.");
+        return;
+      }
+      setImporting(true);
+      setError(null);
       try {
+        const form = new FormData();
         for (const f of list) {
           const rel =
             (f as File & { webkitRelativePath?: string }).webkitRelativePath ||
             f.name;
-          const path = rel.replace(/^\/+/, "");
-          const text = await f.text();
-          await writeMarkdown(path, text, `upload ${path}`);
+          form.append("files", f, f.name);
+          form.append("paths", rel.replace(/^\/+/, ""));
+        }
+        const res = await fetch(`/api/tome/projects/${slug}/import`, {
+          method: "POST",
+          body: form,
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => null);
+          throw new Error(
+            (typeof body?.error === "string" ? body.error : body?.error?.message) ||
+              body?.message ||
+              `import failed (${res.status})`,
+          );
         }
         await load();
       } catch (e) {
         setError(String((e as Error)?.message ?? e));
+      } finally {
+        setImporting(false);
       }
     },
-    [writeMarkdown, load],
+    [slug, load],
   );
 
   const crumbs = useMemo<Crumb[]>(() => {
@@ -1133,15 +1164,21 @@ export function TomeWiki({ slug }: { slug: string }) {
                         {showHidden ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                       </button>
                     )}
+                    {!isEmpty && !loading && <WikiExportMenu slug={slug} />}
                     {!loading && canEdit && (
                       <button
                         type="button"
                         onClick={() => uploadInputRef.current?.click()}
-                        title="Upload .md files as pages (or drag onto the editor)"
-                        aria-label="Upload pages"
+                        title="Import Markdown, text, HTML, DOCX, or PDF files"
+                        aria-label="Import pages"
+                        disabled={importing}
                         className="rounded p-1 hover:bg-muted hover:text-foreground"
                       >
-                        <Upload className="h-3.5 w-3.5" />
+                        {importing ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Upload className="h-3.5 w-3.5" />
+                        )}
                       </button>
                     )}
                     {!loading && canEdit && (
@@ -1215,7 +1252,7 @@ export function TomeWiki({ slug }: { slug: string }) {
                                 className="inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground"
                               >
                                 <Upload className="h-3.5 w-3.5" />
-                                Upload instead
+                                Import instead
                               </button>
                               <Button type="submit" size="sm" className="h-7 px-2.5 text-[11px]" disabled={!newPageName.trim()}>
                                 Create
@@ -1231,7 +1268,7 @@ export function TomeWiki({ slug }: { slug: string }) {
                 <input
                   ref={uploadInputRef}
                   type="file"
-                  accept=".md,.mdx,text/markdown"
+                  accept={TOME_IMPORT_ACCEPT}
                   multiple
                   className="hidden"
                   onChange={(e) => {

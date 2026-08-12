@@ -51,7 +51,7 @@
   --font-sans: var(--font-inter), var(--font-source-sans), var(--font-ibm-plex), system-ui, sans-serif;
   --font-inter: var(--font-inter), system-ui, sans-serif;
   --font-source-sans: var(--font-source-sans), system-ui, sans-serif;
-  --font-ibm-plex: var(--font-ibm-plex), system-ui, sans-serif;
+  --font-ibm-plex: "IBM Plex Sans", system-ui, sans-serif;
   --font-mono: var(--font-mono), Menlo, Monaco, Consolas, monospace;
 
   /* Custom font size */
