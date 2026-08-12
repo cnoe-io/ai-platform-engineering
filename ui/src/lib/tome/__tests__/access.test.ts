@@ -80,14 +80,14 @@ const area = project(
   "area",
   "Platform",
   "platform-team",
-  { initiatives: ["Example Goal"] },
+  { initiatives: ["goal"] },
 );
 const child = project(
   "service",
   "project",
   "Service",
   "service-team",
-  { areas: ["Platform"] },
+  { areas: ["platform"] },
 );
 
 describe("Tome read authorization", () => {

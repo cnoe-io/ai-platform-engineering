@@ -68,6 +68,12 @@ import {
   type DropTeamKbOwnershipInputs,
 } from "./drop-team-kb-ownership";
 import { schemaAreasNeedingVersionBootstrap } from "./schema-bootstrap";
+import {
+  applyProjectLabelsToSlugMigration,
+  planProjectLabelsToSlugMigration,
+  PROJECT_LABELS_TO_SLUG_CONFIRMATION,
+  PROJECT_LABELS_TO_SLUG_MIGRATION_ID,
+} from "./project-labels-to-slug";
 export {
   getUnclassifiedSchemaAreas,
   SCHEMA_AREA_CLASSIFICATIONS,
@@ -575,6 +581,20 @@ export const MIGRATION_DEFINITIONS: MigrationDefinition[] = [
     dependencies: [KNOWLEDGE_BASE_SHARED_TEAM_GRANTS_MIGRATION_ID],
   },
   KEYCLOAK_RBAC_MIGRATION_DEFINITION,
+  {
+    id: PROJECT_LABELS_TO_SLUG_MIGRATION_ID,
+    release: RELEASE_060,
+    schema_area: "tome_projects",
+    from_version: 1,
+    to_version: 2,
+    kind: "explicit",
+    title: "Migrate project hierarchy labels from display names to slugs",
+    description:
+      "Rewrites `labels.initiatives` and `labels.areas` on project documents to store the stable slug of the referenced BHAG or Area, replacing the frozen display-name strings that caused renames to break child-resolution across all read paths. Also unsets the legacy `name` field (superseded by `title` + `slug`).",
+    confirmation: PROJECT_LABELS_TO_SLUG_CONFIRMATION,
+    required: true,
+    implemented: true,
+  },
   {
     id: USER_PREFERENCES_DEFAULT_AGENT_CLEANUP_MIGRATION_ID,
     release: RELEASE_060,
@@ -2991,6 +3011,9 @@ export async function planMigration(migrationId: string, now = new Date().toISOS
   if (migrationId === LEGACY_RUNTIME_CLEANUP_MIGRATION_ID) {
     return deriveLegacyRuntimeCleanupPlan(await loadLegacyRuntimeCleanupInputs());
   }
+  if (migrationId === PROJECT_LABELS_TO_SLUG_MIGRATION_ID) {
+    return planProjectLabelsToSlugMigration();
+  }
   if (migrationId === USER_PREFERENCES_DEFAULT_AGENT_CLEANUP_MIGRATION_ID) {
     return deriveUserPreferencesDefaultAgentCleanupPlan(
       await loadUserPreferencesDefaultAgentCleanupInputs(),
@@ -3346,6 +3369,12 @@ export async function applyMigration(input: {
       now,
       collections,
     });
+    await recordCompletedMigration({ definition, result, now, actor: input.actor });
+    return result;
+  }
+
+  if (input.migrationId === PROJECT_LABELS_TO_SLUG_MIGRATION_ID) {
+    const result = await applyProjectLabelsToSlugMigration({ actor: input.actor, now });
     await recordCompletedMigration({ definition, result, now, actor: input.actor });
     return result;
   }

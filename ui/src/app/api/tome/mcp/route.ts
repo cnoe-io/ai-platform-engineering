@@ -229,7 +229,7 @@ const TOOLS: ToolDef[] = [
       const data = ensureOk(await fwd("GET", "/api/projects"), "list projects");
       const projects = (data?.projects ?? []).map((p: any) => ({
         slug: p.slug,
-        name: p.name ?? p.title,
+        name: p.title ?? p.name,
         status: p.status,
       }));
       return toolText(JSON.stringify(projects, null, 2));
@@ -248,7 +248,7 @@ const TOOLS: ToolDef[] = [
         JSON.stringify(
           {
             slug: p.slug,
-            name: p.name ?? p.title,
+            name: p.title ?? p.name,
             type: p.type ?? "project",
             status: p.status,
             sources: p.sources,
@@ -270,7 +270,7 @@ const TOOLS: ToolDef[] = [
       const data = ensureOk(await fwd("GET", "/api/projects?type=bhag"), "list bhags");
       const bhags = (data?.projects ?? []).map((b: any) => ({
         slug: b.slug,
-        name: b.name ?? b.title,
+        name: b.title ?? b.name,
         status: b.status,
       }));
       return toolText(JSON.stringify(bhags, null, 2));
@@ -288,8 +288,8 @@ const TOOLS: ToolDef[] = [
       if ((b.type ?? "project") !== "bhag") {
         return toolText(`"${b.slug ?? args.bhag_slug}" is not a BHAG (type=${b.type ?? "project"}).`, true);
       }
-      const name = b.name ?? b.title ?? "";
-      const encodedName = encodeURIComponent(name);
+      const displayName = b.title ?? b.name ?? "";
+      const encodedName = encodeURIComponent(b.slug);
       const [areaData, skipData] = await Promise.all([
         ensureOk(
           await fwd("GET", `/api/projects?type=area&initiative=${encodedName}`),
@@ -302,20 +302,20 @@ const TOOLS: ToolDef[] = [
       ]);
       const areas = (areaData?.projects ?? []).map((c: any) => ({
         slug: c.slug,
-        name: c.name ?? c.title,
+        name: c.title ?? c.name,
         status: c.status,
         kind: "area" as const,
       }));
       const skipProjects = (skipData?.projects ?? []).map((c: any) => ({
         slug: c.slug,
-        name: c.name ?? c.title,
+        name: c.title ?? c.name,
         status: c.status,
         kind: "project" as const,
       }));
       const children = [...areas, ...skipProjects];
       return toolText(
         JSON.stringify(
-          { slug: b.slug, name, status: b.status, child_projects: children },
+          { slug: b.slug, name: displayName, status: b.status, child_projects: children },
           null,
           2,
         ),
@@ -334,15 +334,13 @@ const TOOLS: ToolDef[] = [
       if ((b.type ?? "project") !== "bhag") {
         return toolText(`"${b.slug ?? args.bhag_slug}" is not a BHAG (type=${b.type ?? "project"}).`, true);
       }
-      const name = b.name ?? b.title ?? "";
-      const encodedName = encodeURIComponent(name);
       const [areaData, skipData] = await Promise.all([
         ensureOk(
-          await fwd("GET", `/api/projects?type=area&initiative=${encodedName}`),
+          await fwd("GET", `/api/projects?type=area&initiative=${encodeURIComponent(b.slug)}`),
           "list area children",
         ),
         ensureOk(
-          await fwd("GET", `/api/projects?initiative=${encodedName}`),
+          await fwd("GET", `/api/projects?initiative=${encodeURIComponent(b.slug)}`),
           "list skip-level projects",
         ),
       ]);
@@ -366,7 +364,7 @@ const TOOLS: ToolDef[] = [
       for (const area of areas) {
         // Fetch Area's own pages and its child projects
         const areaChildData = ensureOk(
-          await fwd("GET", `/api/projects?area=${encodeURIComponent(area.name ?? area.title ?? "")}`),
+          await fwd("GET", `/api/projects?area=${encodeURIComponent(area.slug)}`),
           "list area projects",
         );
         const areaProjects = (areaChildData?.projects ?? []) as any[];
@@ -374,7 +372,7 @@ const TOOLS: ToolDef[] = [
         for (const ap of areaProjects) {
           areaProjectContext.push({
             slug: ap.slug,
-            name: ap.name ?? ap.title,
+            name: ap.title ?? ap.name,
             status: ap.status,
             kind: "project",
             pages: await fetchPages(ap.slug),
@@ -382,7 +380,7 @@ const TOOLS: ToolDef[] = [
         }
         childContext.push({
           slug: area.slug,
-          name: area.name ?? area.title,
+          name: area.title ?? area.name,
           status: area.status,
           kind: "area",
           pages: await fetchPages(area.slug),
@@ -392,7 +390,7 @@ const TOOLS: ToolDef[] = [
       for (const c of skipProjects) {
         childContext.push({
           slug: c.slug,
-          name: c.name ?? c.title,
+          name: c.title ?? c.name,
           status: c.status,
           kind: "project",
           pages: await fetchPages(c.slug),
@@ -400,7 +398,7 @@ const TOOLS: ToolDef[] = [
       }
       return toolText(
         JSON.stringify(
-          { bhag: { slug: b.slug, name, pages: bhagPages }, children: childContext },
+          { bhag: { slug: b.slug, name: b.title ?? b.name, pages: bhagPages }, children: childContext },
           null,
           2,
         ),
@@ -416,7 +414,7 @@ const TOOLS: ToolDef[] = [
       const data = ensureOk(await fwd("GET", "/api/projects?type=area"), "list areas");
       const areas = (data?.projects ?? []).map((a: any) => ({
         slug: a.slug,
-        name: a.name ?? a.title,
+        name: a.title ?? a.name,
         status: a.status,
         initiatives: a.labels?.initiatives ?? [],
       }));
@@ -435,19 +433,18 @@ const TOOLS: ToolDef[] = [
       if (a.type !== "area") {
         return toolText(`"${a.slug ?? args.area_slug}" is not an Area (type=${a.type ?? "project"}).`, true);
       }
-      const name = a.name ?? a.title ?? "";
       const childData = ensureOk(
-        await fwd("GET", `/api/projects?area=${encodeURIComponent(name)}`),
+        await fwd("GET", `/api/projects?area=${encodeURIComponent(a.slug)}`),
         "list area child projects",
       );
       const children = (childData?.projects ?? []).map((c: any) => ({
         slug: c.slug,
-        name: c.name ?? c.title,
+        name: c.title ?? c.name,
         status: c.status,
       }));
       return toolText(
         JSON.stringify(
-          { slug: a.slug, name, status: a.status, initiatives: a.labels?.initiatives ?? [], child_projects: children },
+          { slug: a.slug, name: a.title ?? a.name, status: a.status, initiatives: a.labels?.initiatives ?? [], child_projects: children },
           null,
           2,
         ),
@@ -466,9 +463,8 @@ const TOOLS: ToolDef[] = [
       if (a.type !== "area") {
         return toolText(`"${a.slug ?? args.area_slug}" is not an Area (type=${a.type ?? "project"}).`, true);
       }
-      const name = a.name ?? a.title ?? "";
       const childData = ensureOk(
-        await fwd("GET", `/api/projects?area=${encodeURIComponent(name)}`),
+        await fwd("GET", `/api/projects?area=${encodeURIComponent(a.slug)}`),
         "list area child projects",
       );
       const children = (childData?.projects ?? []) as any[];
@@ -490,7 +486,7 @@ const TOOLS: ToolDef[] = [
       for (const c of children) {
         childContext.push({
           slug: c.slug,
-          name: c.name ?? c.title,
+          name: c.title ?? c.name,
           status: c.status,
           kind: "project",
           pages: await fetchPages(c.slug),
@@ -498,7 +494,7 @@ const TOOLS: ToolDef[] = [
       }
       return toolText(
         JSON.stringify(
-          { area: { slug: a.slug, name, pages: areaPages }, children: childContext },
+          { area: { slug: a.slug, name: a.title ?? a.name, pages: areaPages }, children: childContext },
           null,
           2,
         ),

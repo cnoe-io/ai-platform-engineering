@@ -791,14 +791,22 @@ export function ProjectsHub() {
     }
   }, []);
 
-  // Index BHAG entities by normalized name so a Group-by-BHAG section can find
-  // the entity matching its initiative label.
+  // Index BHAG entities by slug (the stable key stored in labels.initiatives
+  // post-migration) AND by legacy frozen name (for any relationship tagged
+  // before project_labels_to_slug_v1 ran, or never matched by it) so a
+  // Group-by-BHAG section can find the entity under either convention.
   const bhagByLabel = new Map<string, EnrichedProject>();
-  for (const b of bhags) bhagByLabel.set(normLabel(b.name), b);
+  for (const b of bhags) {
+    bhagByLabel.set(normLabel(b.slug), b);
+    if (b.name) bhagByLabel.set(normLabel(b.name), b);
+  }
 
-  // Index Area entities by normalized name for the Group-by-Area view.
+  // Index Area entities the same way for the Group-by-Area view.
   const areaByLabel = new Map<string, EnrichedProject>();
-  for (const a of areas) areaByLabel.set(normLabel(a.name), a);
+  for (const a of areas) {
+    areaByLabel.set(normLabel(a.slug), a);
+    if (a.name) areaByLabel.set(normLabel(a.name), a);
+  }
 
   // Areas tagged to a BHAG (via labels.initiatives), keyed by the BHAG's
   // normalized label, so a Group-by-BHAG section can nest its Areas.
@@ -981,12 +989,19 @@ export function ProjectsHub() {
   if (groupBy === "initiative" || groupBy === "area") {
     const covered = new Set(groups.map((g) => normLabel(g.label)));
     for (const entity of entitiesForGroupBy) {
-      const key = normLabel(entity.name);
-      if (covered.has(key)) continue;
+      const key = normLabel(entity.slug);
+      // A relationship tagged before the migration (or never matched by it)
+      // groups under the entity's legacy frozen name, not its slug — check
+      // both so an already-covered legacy-tagged entity isn't double-added.
+      if (covered.has(key) || (entity.name && covered.has(normLabel(entity.name)))) continue;
       covered.add(key);
+      // `label` stays the slug — it's the lookup key used throughout this
+      // component (bhagByLabel/areaByLabel, drag-order, creating state);
+      // ProjectGroup resolves the human-readable display via
+      // hierarchyDisplayName(bhag/area, label) once the entity is matched.
       groups.splice(groups.length > 0 && groups[groups.length - 1].key === "__ungrouped__" ? groups.length - 1 : groups.length, 0, {
         key: entity.slug,
-        label: entity.name,
+        label: entity.slug,
         items: [],
       });
     }
@@ -1166,22 +1181,33 @@ export function ProjectsHub() {
                     { label: string; area: EnrichedProject | null; items: EnrichedProject[] }
                   >();
                   for (const ai of taggedAreaItems) {
-                    merged.set(normLabel(ai.label), {
-                      label: ai.label,
-                      area: areaByLabel.get(normLabel(ai.label)) ?? null,
+                    // Canonicalize on the resolved entity's slug so a legacy
+                    // name-tagged group and a slug-tagged group for the SAME
+                    // area merge into one entry instead of appearing twice.
+                    const resolvedArea = areaByLabel.get(normLabel(ai.label)) ?? null;
+                    const canonicalKey = resolvedArea ? normLabel(resolvedArea.slug) : normLabel(ai.label);
+                    merged.set(canonicalKey, {
+                      label: resolvedArea ? resolvedArea.slug : ai.label,
+                      area: resolvedArea,
                       items: ai.items,
                     });
                   }
                   for (const a of areasByBhagLabel.get(normLabel(g.label)) ?? []) {
-                    const key = normLabel(a.name);
-                    const entityItems = projectsByAreaLabel.get(key) ?? [];
+                    const key = normLabel(a.slug);
+                    // Children may tag this area by its slug (post-migration)
+                    // or its legacy frozen name — gather both, deduped.
+                    const bySlug = projectsByAreaLabel.get(key) ?? [];
+                    const byName = a.name ? projectsByAreaLabel.get(normLabel(a.name)) ?? [] : [];
+                    const entityItems = [
+                      ...new Map([...bySlug, ...byName].map((p) => [String(p._id), p])).values(),
+                    ];
                     const existing = merged.get(key);
                     if (existing) {
                       const byId = new Map(existing.items.map((p) => [String(p._id), p]));
                       for (const p of entityItems) byId.set(String(p._id), p);
-                      merged.set(key, { label: a.name, area: a, items: [...byId.values()] });
+                      merged.set(key, { label: a.slug, area: a, items: [...byId.values()] });
                     } else {
-                      merged.set(key, { label: a.name, area: a, items: entityItems });
+                      merged.set(key, { label: a.slug, area: a, items: entityItems });
                     }
                   }
                   childAreas = [...merged.values()].sort(

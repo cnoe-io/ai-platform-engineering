@@ -442,7 +442,7 @@ export function IngestPanel({
       .then(([projJson, preflightJson]) => {
         if (cancelled) return;
         const proj = projJson?.data?.project ?? {};
-        setProjectName(proj.name ?? proj.title ?? "");
+        setProjectName(proj.slug ?? "");
         const s = proj.sources ?? {};
         setSourceRows(sourcesFromProject(s));
         setPreflight(preflightJson?.data?.sources ?? null);
@@ -774,7 +774,7 @@ export function IngestPanel({
                   <div className="mt-2">
                     {projectName ? (
                       <ChildProjectsPanel
-                        bhagName={projectName}
+                        bhagSlug={projectName}
                         entityKind={entityKind}
                         preflight
                         onCount={setBhagCount}

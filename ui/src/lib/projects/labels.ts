@@ -105,6 +105,9 @@ export function projectMatchesLabels(
 ): boolean {
   const labels = project.labels ?? {};
   const projDomain = labels.domain ?? project.domain;
+  // Case/whitespace-insensitive on purpose: slugs already normalize to
+  // themselves, and this stays safe for any pre-migration display-name label
+  // that hasn't been rewritten to a slug yet.
   const has = (values: string[] | undefined, candidates: (string | undefined)[]) => {
     if (!values || values.length === 0) return true;
     const want = new Set(values.map(normLabel));

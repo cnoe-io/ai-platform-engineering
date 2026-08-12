@@ -2,44 +2,37 @@
 // (kept here to avoid a cycle between those two modules).
 
 import { getCollection } from "@/lib/mongodb";
-import { normLabel } from "@/lib/projects/labels";
 import type { ProjectDocument } from "@/types/projects";
 
 type ChildRef = { project_id: string; slug: string; name: string; type: "project" | "area" };
 
 /**
  * Resolve the Areas tagged to a BHAG (their `labels.initiatives` contains
- * the BHAG's name). These are the first-tier children the BHAG synthesis reads.
+ * the BHAG's slug). These are the first-tier children the BHAG synthesis reads.
  */
-export async function resolveBhagAreas(bhagName: string): Promise<ChildRef[]> {
-  const want = normLabel(bhagName);
-  if (!want) return [];
+export async function resolveBhagAreas(bhagSlug: string): Promise<ChildRef[]> {
+  if (!bhagSlug) return [];
   const col = await getCollection<ProjectDocument>("projects");
-  const candidates = await col
-    .find({ type: "area", "labels.initiatives": { $exists: true, $ne: [] } })
+  const results = await col
+    .find({ type: "area", "labels.initiatives": bhagSlug })
     .toArray();
-  return candidates
-    .filter((p) => (p.labels?.initiatives ?? []).some((i) => normLabel(i) === want))
-    .map((p) => ({ project_id: String(p._id), slug: p.slug, name: p.title || p.name, type: "area" }));
+  return results.map((p) => ({ project_id: String(p._id), slug: p.slug, name: p.title, type: "area" }));
 }
 
 /**
  * Resolve projects that tag a given Area (via `labels.areas`). These are the
  * leaf projects an Area synthesis reads.
  */
-export async function resolveAreaChildren(areaName: string): Promise<ChildRef[]> {
-  const want = normLabel(areaName);
-  if (!want) return [];
+export async function resolveAreaChildren(areaSlug: string): Promise<ChildRef[]> {
+  if (!areaSlug) return [];
   const col = await getCollection<ProjectDocument>("projects");
-  const candidates = await col
+  const results = await col
     .find({
       $or: [{ type: "project" }, { type: { $exists: false } }],
-      "labels.areas": { $exists: true, $ne: [] },
+      "labels.areas": areaSlug,
     })
     .toArray();
-  return candidates
-    .filter((p) => (p.labels?.areas ?? []).some((a) => normLabel(a) === want))
-    .map((p) => ({ project_id: String(p._id), slug: p.slug, name: p.title || p.name, type: "project" }));
+  return results.map((p) => ({ project_id: String(p._id), slug: p.slug, name: p.title, type: "project" }));
 }
 
 /**
@@ -49,22 +42,19 @@ export async function resolveAreaChildren(areaName: string): Promise<ChildRef[]>
  * kind it is — a cascade needs to recurse into an Area's own children before
  * ingesting/synthesizing it, but a skip-level project is a plain ingest leaf.
  */
-export async function resolveBhagChildren(bhagName: string): Promise<ChildRef[]> {
-  const want = normLabel(bhagName);
-  if (!want) return [];
+export async function resolveBhagChildren(bhagSlug: string): Promise<ChildRef[]> {
+  if (!bhagSlug) return [];
   const col = await getCollection<ProjectDocument>("projects");
-  const candidates = await col
+  const results = await col
     .find({
       $or: [{ type: "project" }, { type: { $exists: false } }, { type: "area" }],
-      "labels.initiatives": { $exists: true, $ne: [] },
+      "labels.initiatives": bhagSlug,
     })
     .toArray();
-  return candidates
-    .filter((p) => (p.labels?.initiatives ?? []).some((i) => normLabel(i) === want))
-    .map((p) => ({
-      project_id: String(p._id),
-      slug: p.slug,
-      name: p.title || p.name,
-      type: p.type === "area" ? "area" : "project",
-    }));
+  return results.map((p) => ({
+    project_id: String(p._id),
+    slug: p.slug,
+    name: p.title,
+    type: p.type === "area" ? "area" : "project",
+  }));
 }

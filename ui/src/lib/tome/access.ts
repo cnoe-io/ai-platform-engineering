@@ -129,16 +129,21 @@ export function resolveTomeParentsFromCatalog(
 
   for (const candidate of catalog) {
     if (candidate.slug === project.slug) continue;
-    const candidateName = normLabel(candidate.name || candidate.title || "");
+    // Match by slug (post-migration convention) or by the candidate's legacy
+    // frozen name (any relationship tagged before project_labels_to_slug_v1
+    // ran, or never matched by it) — either can appear in a project's own
+    // labels.initiatives/labels.areas.
+    const candidateSlug = normLabel(candidate.slug);
+    const candidateName = candidate.name ? normLabel(candidate.name) : null;
     if (
       candidate.type === "bhag" &&
-      labels.bhags.has(candidateName)
+      (labels.bhags.has(candidateSlug) || (candidateName && labels.bhags.has(candidateName)))
     ) {
       parents.push(candidate);
     } else if (
       projectType(project) === "project" &&
       candidate.type === "area" &&
-      labels.areas.has(candidateName)
+      (labels.areas.has(candidateSlug) || (candidateName && labels.areas.has(candidateName)))
     ) {
       parents.push(candidate);
     }
