@@ -110,6 +110,7 @@ describe("Tome wiki export", () => {
     const rawPdf = pdf.toString("latin1");
     expect(rawPdf).not.toContain("agent-only source guidance");
     expect(rawPdf).toContain("DejaVuSans");
+    expect(rawPdf).not.toContain("/BaseFont /Helvetica");
     expect(rawPdf.match(/\/Type \/Page\b/g)).toHaveLength(6);
   });
 });
