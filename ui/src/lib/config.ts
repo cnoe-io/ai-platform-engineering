@@ -71,6 +71,14 @@ export interface Config {
   /** Support email address for contact links */
   supportEmail: string;
   /**
+   * Team slug pre-selected in new agent and project owner pickers — the
+   * deployment's catchall/default team (e.g. an everyone-gets-added-
+   * automatically team), so most users never have to search a long team list.
+   * Null leaves project onboarding empty; agent creation falls back to
+   * `outshift-everyone` when that team is assignable by the current user.
+   */
+  defaultTeamSlug: string | null;
+  /**
    * When true and SSO is disabled, show Admin tab without login (dev only).
    * Set ALLOW_DEV_ADMIN_WHEN_SSO_DISABLED=true. Do not use in production.
    */

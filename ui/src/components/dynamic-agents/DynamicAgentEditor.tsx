@@ -20,6 +20,7 @@ import { type TeamPickerOption } from "@/components/ui/team-picker";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/toast";
 import { useEditorDirtyTracking } from "@/hooks/use-editor-dirty-tracking";
+import { getConfig } from "@/lib/config";
 import { gradientThemes } from "@/lib/gradient-themes";
 import { getMarkdownComponents } from "@/lib/markdown-components";
 import { cn } from "@/lib/utils";
@@ -37,7 +38,7 @@ SubAgentRef,
 VisibilityType,
 } from "@/types/dynamic-agent";
 import { AnimatePresence,motion } from "framer-motion";
-import { ArrowLeft,Check,ChevronDown,ChevronLeft,ChevronRight,Eye,Globe,GripHorizontal,Loader2,Pencil,Sparkles,Users } from "lucide-react";
+import { AlertCircle,ArrowLeft,Check,ChevronDown,ChevronLeft,ChevronRight,Eye,Globe,GripHorizontal,Loader2,Pencil,Sparkles,Users } from "lucide-react";
 import React from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -139,6 +140,8 @@ const STEPS = [
 ];
 
 type StepId = AgentSetupStep;
+
+const DEFAULT_AGENT_OWNER_TEAM_SLUG = "outshift-everyone";
 
 /**
  * Horizontal step indicator component
@@ -468,6 +471,9 @@ export function DynamicAgentEditor({
   const [availableTeams, setAvailableTeams] = React.useState<
     TeamOption[]
   >([]);
+  const [teamDefaultsApplied, setTeamDefaultsApplied] = React.useState(
+    Boolean(source?.owner_team_slug),
+  );
 
   // AI suggestion state
   const [generatingField, setGeneratingField] = React.useState<string | null>(null);
@@ -639,13 +645,30 @@ export function DynamicAgentEditor({
         const data = await response.json();
         if (data.success && Array.isArray(data.data)) {
           setAvailableTeams(data.data);
+          // Prefer the deployment-wide catchall team for new agents. The
+          // endpoint already limits non-admin users to their own teams, and we
+          // additionally require the returned team to be owner-eligible. A
+          // user's existing choice (or a cloned agent's owner) always wins.
+          const defaultSlug =
+            getConfig("defaultTeamSlug") || DEFAULT_AGENT_OWNER_TEAM_SLUG;
+          const defaultTeam = data.data.find(
+            (team: TeamOption) =>
+              team.slug === defaultSlug && team.can_own_agents !== false,
+          );
+          if (!isEditing && defaultTeam?.slug) {
+            setOwnerTeamSlug((current) => current || defaultTeam.slug || "");
+          }
         }
       } catch (err) {
         console.error("Failed to fetch teams:", err);
+      } finally {
+        // Like the model default, the owner-team default is initial form
+        // state—not a user edit. Re-key dirty tracking after it settles.
+        setTeamDefaultsApplied(true);
       }
     }
     fetchTeams();
-  }, []);
+  }, [isEditing]);
 
   // When editing an existing agent, find out if it is the platform default.
   // If it is, lock the visibility selector so the admin can't accidentally
@@ -744,13 +767,47 @@ export function DynamicAgentEditor({
   // appears clean.
   const snapshotIdentity =
     agent?._id ?? cloneFrom?._id ?? "new";
-  const snapshotKey = `${snapshotIdentity}|${modelDefaultsApplied ? "1" : "0"}`;
+  const snapshotKey = `${snapshotIdentity}|${modelDefaultsApplied ? "1" : "0"}|${teamDefaultsApplied ? "1" : "0"}`;
 
   const { dirty, resetSnapshot } = useEditorDirtyTracking({
     enabled: !readOnly,
     currentValues: currentFormValues,
     snapshotKey,
   });
+
+  const ownerTeamMissing = !isEditing && !ownerTeamSlug;
+  const blockers: { field: string; message: string; step: StepId }[] = React.useMemo(() => {
+    const list: { field: string; message: string; step: StepId }[] = [];
+    if (!name.trim()) {
+      list.push({ field: "name", message: "Agent name is required", step: "basic" });
+    }
+    if (availableModels.length === 0) {
+      list.push({
+        field: "modelAvailability",
+        message: "At least one model provider must be configured",
+        step: "basic",
+      });
+    } else if (!modelId || !modelProvider) {
+      list.push({ field: "model", message: "Model selection is required", step: "basic" });
+    }
+    if (ownerTeamMissing) {
+      list.push({ field: "ownerTeam", message: "Owner Team is required", step: "basic" });
+    }
+    if (!systemPrompt.trim()) {
+      list.push({
+        field: "systemPrompt",
+        message: "Instructions (system prompt) are required",
+        step: "instructions",
+      });
+    }
+    return list;
+  }, [name, systemPrompt, modelId, modelProvider, availableModels.length, ownerTeamMissing]);
+
+  const firstBlocker = blockers[0];
+  const blockerStepLabel = firstBlocker
+    ? STEPS.find((step) => step.id === firstBlocker.step)?.label ?? firstBlocker.step
+    : null;
+
   const currentStepIndex = STEPS.findIndex((s) => s.id === activeStep);
   const currentStepConfig = STEPS.find((s) => s.id === activeStep);
 
@@ -761,6 +818,13 @@ export function DynamicAgentEditor({
   };
 
   const goToNextStep = async () => {
+    // Required fields do not disable navigation controls. Instead, keep the
+    // user on the relevant step and let the persistent inline footer warning
+    // explain what needs attention.
+    if (blockers.some((blocker) => blocker.step === activeStep)) {
+      return;
+    }
+
     // Gate the instructions → tools transition behind a passing AI Review when
     // the admin has flagged this target as "blocking". `ensurePassedOrRun` is a
     // no-op when the config is disabled or informational.
@@ -927,9 +991,18 @@ export function DynamicAgentEditor({
     opts?: { forceConfirmNotMember?: boolean },
   ) => {
     e?.preventDefault();
-    setLoading(true);
     setError(null);
     setTransferNeedsServerConfirm(false);
+
+    // Submission stays clickable. If the form is incomplete, route the user
+    // to the first missing field; the footer warning remains visible and the
+    // server is never called with an invalid payload.
+    if (firstBlocker) {
+      selectStep(firstBlocker.step);
+      return;
+    }
+
+    setLoading(true);
     // `setState` is async, so a confirm-and-retry can't rely on the freshly-set
     // `transferConfirmedNotMember`; the caller passes the value through opts.
     const confirmNotMember = opts?.forceConfirmNotMember || transferConfirmedNotMember;
@@ -959,18 +1032,6 @@ export function DynamicAgentEditor({
         setLoading(false);
         return;
       }
-    }
-
-    // Validate required fields
-    if (!modelId || !modelProvider) {
-      setError("Model selection is required");
-      setLoading(false);
-      return;
-    }
-    if (!isEditing && !ownerTeamSlug) {
-      setError("Owner team is required");
-      setLoading(false);
-      return;
     }
 
     // Validate ID for new agents
@@ -1112,44 +1173,6 @@ export function DynamicAgentEditor({
     }
   };
 
-  // Each entry describes one reason the Create Agent / Save Changes button is
-  // disabled. We render `blockers[0]` next to the button so the user always
-  // sees WHY they can't submit and on which step to fix it — previously the
-  // button just went `disabled` with no explanation, which the user reported
-  // as confusing (especially the Owner Team case, where the picker sits on
-  // the first wizard step but the button lives below step 5's content).
-  //
-  // assisted-by Cursor claude-opus-4-7
-  const ownerTeamMissing = !isEditing && !ownerTeamSlug;
-
-  const blockers: { field: string; label: string; step: StepId }[] = React.useMemo(() => {
-    const list: { field: string; label: string; step: StepId }[] = [];
-    if (!name.trim()) {
-      list.push({ field: "name", label: "Agent name", step: "basic" });
-    }
-    if (availableModels.length === 0) {
-      // Distinct from "model not picked" — the user can't pick anything
-      // because nothing is configured. Surfacing this separately tells the
-      // operator the problem is upstream (no providers configured).
-      list.push({ field: "modelAvailability", label: "At least one model provider must be configured", step: "basic" });
-    } else if (!modelId) {
-      list.push({ field: "model", label: "Model", step: "basic" });
-    }
-    if (ownerTeamMissing) {
-      list.push({ field: "ownerTeam", label: "Owner Team", step: "basic" });
-    }
-    if (!systemPrompt.trim()) {
-      list.push({ field: "systemPrompt", label: "Instructions (system prompt)", step: "instructions" });
-    }
-    return list;
-  }, [name, systemPrompt, modelId, availableModels.length, ownerTeamMissing]);
-
-  const isValid = blockers.length === 0;
-  const firstBlocker = blockers[0];
-  const blockerStepLabel = firstBlocker
-    ? STEPS.find((s) => s.id === firstBlocker.step)?.label ?? firstBlocker.step
-    : null;
-
   // Back-button click handler. When the form has unsaved changes, we surface
   // an in-app confirmation modal instead of silently discarding work. The
   // dialog itself is rendered at the bottom of this component.
@@ -1223,7 +1246,19 @@ export function DynamicAgentEditor({
             <StepIndicator 
               steps={STEPS} 
               currentStep={activeStep} 
-              onStepClick={selectStep}
+              onStepClick={(step) => {
+                const targetIndex = STEPS.findIndex((candidate) => candidate.id === step);
+                const blockingField = blockers.find(
+                  (blocker) =>
+                    STEPS.findIndex((candidate) => candidate.id === blocker.step) >= currentStepIndex &&
+                    STEPS.findIndex((candidate) => candidate.id === blocker.step) < targetIndex,
+                );
+                if (targetIndex > currentStepIndex && blockingField) {
+                  selectStep(blockingField.step);
+                  return;
+                }
+                selectStep(step);
+              }}
             />
           </div>
 
@@ -1618,6 +1653,10 @@ export function DynamicAgentEditor({
                   !isEditing && availableTeams.length === 0 ? (
                     <p className="text-xs text-destructive">
                       You must belong to at least one team to create a team-owned agent.
+                    </p>
+                  ) : ownerTeamMissing ? (
+                    <p className="text-xs text-destructive" role="alert">
+                      Choose an owner team before continuing.
                     </p>
                   ) : null
                 }
@@ -2048,8 +2087,21 @@ export function DynamicAgentEditor({
 
       {/* Action Buttons - Outside the card content */}
       <div className="flex items-center gap-2 px-6 py-4 border-t bg-muted/30">
-        <div className="text-xs text-muted-foreground mr-auto hidden sm:block">
-          {readOnly ? (
+        <div className="mr-auto min-w-0 text-xs">
+          {!readOnly && firstBlocker ? (
+            <button
+              type="button"
+              data-testid="create-agent-blocker-hint"
+              className="flex items-center gap-1.5 text-left text-amber-700 hover:underline dark:text-amber-400"
+              onClick={() => selectStep(firstBlocker.step)}
+            >
+              <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+              <span>
+                {firstBlocker.message}
+                {blockerStepLabel ? ` (${blockerStepLabel} step)` : ""}.
+              </span>
+            </button>
+          ) : readOnly ? (
             "This agent is config-driven and cannot be modified"
           ) : (
             <>
@@ -2064,13 +2116,10 @@ export function DynamicAgentEditor({
         {!readOnly && (
           <Button
             onClick={handleSubmit}
-            disabled={loading || !isValid}
-            // Native-tooltip mirror of the inline hint above. Helps users who
-            // hover the button looking for an explanation when they miss the
-            // inline text (e.g. on narrow screens where the hint wraps).
+            disabled={loading}
             title={
               !loading && firstBlocker
-                ? `${firstBlocker.label} is required${blockerStepLabel ? ` (on ${blockerStepLabel} step)` : ""}`
+                ? `${firstBlocker.message}${blockerStepLabel ? ` (on ${blockerStepLabel} step)` : ""}`
                 : undefined
             }
           >

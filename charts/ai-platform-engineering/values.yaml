@@ -848,6 +848,8 @@ caipe-ui:
     TAGLINE: "Multi-Agent Workflow Automation"
     DESCRIPTION: "Where Humans and AI agents collaborate to deliver high quality outcomes."
     APP_NAME: "CAIPE"
+    # Catchall team pre-selected for new agents/projects when assignable.
+    DEFAULT_TEAM_SLUG: "outshift-everyone"
     # Canonical Slack workspace namespace used by UI-managed Slack ReBAC/routes.
     SLACK_WORKSPACE_ALIAS: "CAIPE"
     # Slack bot internal admin API used by the Web UI BFF for route reload and

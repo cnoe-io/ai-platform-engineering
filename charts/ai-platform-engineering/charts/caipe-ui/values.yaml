@@ -223,6 +223,8 @@ config:
   TAGLINE: "Multi-Agent Workflow Automation"
   DESCRIPTION: "Where Humans and AI agents collaborate to deliver high quality outcomes."
   APP_NAME: "CAIPE"
+  # Catchall team pre-selected for new agents/projects when assignable.
+  DEFAULT_TEAM_SLUG: "outshift-everyone"
   # AgentGateway MCP discovery endpoints. Leave empty to default to the in-cluster
   # AgentGateway Services (admin /config on "<release>-agentgateway:15000"; MCP
   # listener mode-aware on the standalone proxy or controller Gateway). Only used
