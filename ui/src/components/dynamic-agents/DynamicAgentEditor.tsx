@@ -141,6 +141,27 @@ const STEPS = [
 
 type StepId = AgentSetupStep;
 
+type BlockerField =
+  | "name"
+  | "modelAvailability"
+  | "model"
+  | "ownerTeam"
+  | "systemPrompt";
+
+interface FormBlocker {
+  field: BlockerField;
+  message: string;
+  step: StepId;
+}
+
+const BLOCKER_FOCUS_TARGETS: Record<BlockerField, string> = {
+  name: "name",
+  modelAvailability: "model-validation-target",
+  model: "modelId",
+  ownerTeam: "ownerTeam",
+  systemPrompt: "system-prompt-validation-target",
+};
+
 const DEFAULT_AGENT_OWNER_TEAM_SLUG = "outshift-everyone";
 
 /**
@@ -463,6 +484,10 @@ export function DynamicAgentEditor({
   const [blockingMessage, setBlockingMessage] = React.useState<string | null>(
     null,
   );
+  const [validationTarget, setValidationTarget] = React.useState<
+    (FormBlocker & { attempt: number }) | null
+  >(null);
+  const [nextBuzzCount, setNextBuzzCount] = React.useState(0);
   const [, setMiddlewareError] = React.useState(false);
   const [availableModels, setAvailableModels] = React.useState<
     { model_id: string; name: string; provider: string; description: string }[]
@@ -776,8 +801,8 @@ export function DynamicAgentEditor({
   });
 
   const ownerTeamMissing = !isEditing && !ownerTeamSlug;
-  const blockers: { field: string; message: string; step: StepId }[] = React.useMemo(() => {
-    const list: { field: string; message: string; step: StepId }[] = [];
+  const blockers: FormBlocker[] = React.useMemo(() => {
+    const list: FormBlocker[] = [];
     if (!name.trim()) {
       list.push({ field: "name", message: "Agent name is required", step: "basic" });
     }
@@ -811,6 +836,29 @@ export function DynamicAgentEditor({
   const currentStepIndex = STEPS.findIndex((s) => s.id === activeStep);
   const currentStepConfig = STEPS.find((s) => s.id === activeStep);
 
+  const revealBlocker = (blocker: FormBlocker, buzzNext = false) => {
+    setValidationTarget((current) => ({
+      ...blocker,
+      attempt: (current?.attempt ?? 0) + 1,
+    }));
+    if (buzzNext) setNextBuzzCount((count) => count + 1);
+    if (activeStep !== blocker.step) selectStep(blocker.step);
+  };
+
+  React.useEffect(() => {
+    if (!validationTarget || activeStep !== validationTarget.step) return;
+
+    const frame = window.requestAnimationFrame(() => {
+      const target = document.getElementById(
+        BLOCKER_FOCUS_TARGETS[validationTarget.field],
+      );
+      target?.scrollIntoView?.({ behavior: "smooth", block: "center" });
+      target?.focus({ preventScroll: true });
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeStep, validationTarget]);
+
   const goToPreviousStep = () => {
     if (currentStepIndex > 0) {
       selectStep(STEPS[currentStepIndex - 1].id);
@@ -821,7 +869,11 @@ export function DynamicAgentEditor({
     // Required fields do not disable navigation controls. Instead, keep the
     // user on the relevant step and let the persistent inline footer warning
     // explain what needs attention.
-    if (blockers.some((blocker) => blocker.step === activeStep)) {
+    const currentStepBlocker = blockers.find(
+      (blocker) => blocker.step === activeStep,
+    );
+    if (currentStepBlocker) {
+      revealBlocker(currentStepBlocker, true);
       return;
     }
 
@@ -998,7 +1050,7 @@ export function DynamicAgentEditor({
     // to the first missing field; the footer warning remains visible and the
     // server is never called with an invalid payload.
     if (firstBlocker) {
-      selectStep(firstBlocker.step);
+      revealBlocker(firstBlocker);
       return;
     }
 
@@ -1254,7 +1306,7 @@ export function DynamicAgentEditor({
                     STEPS.findIndex((candidate) => candidate.id === blocker.step) < targetIndex,
                 );
                 if (targetIndex > currentStepIndex && blockingField) {
-                  selectStep(blockingField.step);
+                  revealBlocker(blockingField);
                   return;
                 }
                 selectStep(step);
@@ -1277,7 +1329,31 @@ export function DynamicAgentEditor({
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   disabled={loading || !!readOnly}
+                  className={cn(
+                    validationTarget?.field === "name" &&
+                      !name.trim() &&
+                      "border-destructive focus-visible:ring-destructive",
+                  )}
+                  aria-invalid={
+                    validationTarget?.field === "name" && !name.trim()
+                      ? true
+                      : undefined
+                  }
+                  aria-describedby={
+                    validationTarget?.field === "name" && !name.trim()
+                      ? "name-required-message"
+                      : undefined
+                  }
                 />
+                {validationTarget?.field === "name" && !name.trim() && (
+                  <p
+                    id="name-required-message"
+                    role="alert"
+                    className="text-xs text-destructive"
+                  >
+                    Enter an agent name before continuing.
+                  </p>
+                )}
                 {/* Show generated ID */}
                 {isEditing ? (
                   <p className="text-xs text-muted-foreground">
@@ -1298,7 +1374,16 @@ export function DynamicAgentEditor({
                 <Label htmlFor="modelId">
                   LLM Model <span className="text-destructive">*</span>
                 </Label>
-                <div className="p-3 rounded-lg border-2 border-primary/20 bg-primary/5">
+                <div
+                  id="model-validation-target"
+                  tabIndex={-1}
+                  className={cn(
+                    "p-3 rounded-lg border-2 border-primary/20 bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    (validationTarget?.field === "model" ||
+                      validationTarget?.field === "modelAvailability") &&
+                      "border-destructive/60 focus-visible:ring-destructive",
+                  )}
+                >
                   <select
                     id="modelId"
                     value={`${modelId}::${modelProvider}`}
@@ -1725,7 +1810,11 @@ export function DynamicAgentEditor({
 
           {/* Instructions Step */}
           {activeStep === "instructions" && (
-            <div className="space-y-4 pt-2">
+            <div
+              id="system-prompt-validation-target"
+              tabIndex={-1}
+              className="space-y-4 pt-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
               <div className="space-y-2">
                 <div className="flex items-center justify-between relative">
                   <Label htmlFor="systemPrompt">
@@ -1951,6 +2040,13 @@ export function DynamicAgentEditor({
                   Define your agent&apos;s behavior, personality, and capabilities.
                 </p>
 
+                {validationTarget?.field === "systemPrompt" &&
+                  !systemPrompt.trim() && (
+                    <p role="alert" className="text-xs text-destructive">
+                      Enter instructions before continuing.
+                    </p>
+                  )}
+
                 {blockingMessage && (
                   <div className="rounded-lg bg-destructive/10 border border-destructive/30 p-3">
                     <p className="text-sm text-destructive">{blockingMessage}</p>
@@ -2071,16 +2167,28 @@ export function DynamicAgentEditor({
               <ChevronLeft className="h-4 w-4 mr-1" />
               Previous
             </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => void goToNextStep()}
-              disabled={currentStepIndex === STEPS.length - 1 || loading}
-              size="sm"
+            <motion.div
+              key={`next-buzz-${nextBuzzCount}`}
+              data-testid="next-step-feedback"
+              data-validation-buzz={nextBuzzCount}
+              animate={
+                nextBuzzCount > 0
+                  ? { x: [0, -6, 6, -4, 4, 0] }
+                  : undefined
+              }
+              transition={{ duration: 0.32, ease: "easeOut" }}
             >
-              Next
-              <ChevronRight className="h-4 w-4 ml-1" />
-            </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => void goToNextStep()}
+                disabled={currentStepIndex === STEPS.length - 1 || loading}
+                size="sm"
+              >
+                Next
+                <ChevronRight className="h-4 w-4 ml-1" />
+              </Button>
+            </motion.div>
           </div>
         </form>
       </CardContent>
@@ -2093,7 +2201,7 @@ export function DynamicAgentEditor({
               type="button"
               data-testid="create-agent-blocker-hint"
               className="flex items-center gap-1.5 text-left text-amber-700 hover:underline dark:text-amber-400"
-              onClick={() => selectStep(firstBlocker.step)}
+              onClick={() => revealBlocker(firstBlocker)}
             >
               <AlertCircle className="h-3.5 w-3.5 shrink-0" />
               <span>

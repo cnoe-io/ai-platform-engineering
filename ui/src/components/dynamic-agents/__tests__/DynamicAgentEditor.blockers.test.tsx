@@ -194,17 +194,31 @@ describe("DynamicAgentEditor — required-field enforcement", () => {
     ).toBeInTheDocument();
   });
 
-  it("keeps Next enabled but does not leave Basic Info while a required field is missing", async () => {
+  it("buzzes Next, focuses the first required field, and explains why navigation stopped", async () => {
     render(<DynamicAgentEditor onCancel={jest.fn()} onSave={jest.fn()} />);
     await flushAsync();
 
     const nextButton = screen.getByRole("button", { name: /Next/i });
     expect(nextButton).toBeEnabled();
+    expect(screen.getByTestId("next-step-feedback")).toHaveAttribute(
+      "data-validation-buzz",
+      "0",
+    );
 
     fireEvent.click(nextButton);
 
     expect(screen.getByRole("heading", { name: "Step 1: Basic Info" })).toBeInTheDocument();
     expect(screen.getByTestId("create-agent-blocker-hint")).toBeInTheDocument();
+    expect(screen.getByTestId("next-step-feedback")).toHaveAttribute(
+      "data-validation-buzz",
+      "1",
+    );
+    expect(
+      screen.getByText("Enter an agent name before continuing."),
+    ).toBeInTheDocument();
+    const nameInput = screen.getByPlaceholderText(/Code Review Agent/i);
+    expect(nameInput).toHaveAttribute("aria-invalid", "true");
+    await waitFor(() => expect(nameInput).toHaveFocus());
   });
 
   it("auto-selects outshift-everyone when it is an eligible owner team", async () => {
