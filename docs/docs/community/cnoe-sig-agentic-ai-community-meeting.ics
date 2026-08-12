@@ -26,7 +26,7 @@ DTSTART;TZID=Europe/Berlin:20250717T180000
 DTEND;TZID=Europe/Berlin:20250717T190000
 RRULE:FREQ=WEEKLY;BYDAY=TH
 SUMMARY:CNOE Agentic SIG AI Community Weekly Meeting
-DESCRIPTION:Join the CNOE Agentic AI SIG Community for weekly discussions on multi-agent systems, platform engineering, and community updates.\n\nLinks:\n- Getting Started: https://cnoe-io.github.io/ai-platform-engineering/getting-started/quick-start\n- Meeting Recordings: https://github.com/cnoe-io/agentic-ai/wiki/Meeting-Recordings\n- Governance: https://github.com/cnoe-io/governance/tree/main/sigs/agentic-ai\n- Roadmap: https://github.com/orgs/cnoe-io/projects/9\n\nJoin Webex: https://go.webex.com/meet/cnoe
+DESCRIPTION:Join the CNOE Agentic AI SIG Community for weekly discussions on multi-agent systems, platform engineering, and community updates.\n\nLinks:\n- Getting Started: https://caipe.io/docs/getting-started/quick-start\n- Meeting Recordings: https://github.com/cnoe-io/agentic-ai/wiki/Meeting-Recordings\n- Governance: https://github.com/cnoe-io/governance/tree/main/sigs/agentic-ai\n- Roadmap: https://github.com/orgs/cnoe-io/projects/9\n\nJoin Webex: https://go.webex.com/meet/cnoe
 LOCATION:https://go.webex.com/meet/cnoe
 ORGANIZER;CN=CNOE Agentic SIG AI Community:MAILTO:info@cnoe.io
 UID:cnoe-agentic-ai-sig@cnoe-io.github.io

@@ -11,6 +11,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/components/ui/toast";
 import { Tooltip,TooltipContent,TooltipProvider,TooltipTrigger } from "@/components/ui/tooltip";
 import { resolveUsableChatAgentId } from "@/lib/chat-agent-selection";
+import { getErrorMessage } from "@/lib/error-utils";
 import { getStorageMode } from "@/lib/storage-config";
 import { cn,formatDate,truncateText } from "@/lib/utils";
 import { useChatStore } from "@/store/chat-store";
@@ -715,8 +716,25 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
                                 console.log('[Sidebar] Created replacement conversation:', navigateToId);
                               }
 
-                              // Archive the conversation (updates store + server)
-                              await deleteConversation(conv.id);
+                              // Archive the conversation (updates store + server).
+                              // The store rolls the conversation back into the list
+                              // when the server rejects the delete (e.g. a shared
+                              // conversation the viewer does not own), so report the
+                              // failure instead of claiming success — otherwise the
+                              // row silently returns on the next reload.
+                              try {
+                                await deleteConversation(conv.id);
+                              } catch (error) {
+                                toast(
+                                  `Couldn't archive "${archivedTitle}": ${getErrorMessage(error, 'the server rejected the request')}`,
+                                  "error",
+                                  6000,
+                                );
+                                if (navigateToId) {
+                                  router.replace(`/chat/${navigateToId}`);
+                                }
+                                return;
+                              }
 
                               // Show toast
                               if (storageMode === 'mongodb') {

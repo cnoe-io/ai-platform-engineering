@@ -65,6 +65,13 @@
   border-bottom: 1px solid rgba(0, 0, 0, 0.06);
 }
 
+/* A backdrop filter creates a containing block for fixed descendants. Disable
+ * it while the mobile sidebar is open so the sidebar fills the viewport. */
+.navbar.navbar-sidebar--show {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
 [data-theme='dark'] .navbar {
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }

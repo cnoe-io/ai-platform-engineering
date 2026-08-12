@@ -30,12 +30,85 @@ After modifying `values.yaml` in any chart, regenerate the chart READMEs:
 make helm-docs
 ```
 
+## Commit Requirements
+
+Both of these are enforced by CI on every pull request.
+
+### Developer Certificate of Origin (DCO)
+
+Every commit must carry a `Signed-off-by` trailer certifying the
+[Developer Certificate of Origin](https://developercertificate.org/). The `DCO`
+check fails the PR if any commit is missing one.
+
+```bash
+# Sign off as you commit
+git commit -s -m "fix(ui): correct the widget alignment"
+```
+
+This appends a trailer matching your Git `user.name` and `user.email`:
+
+```text
+Signed-off-by: Your Name <you@example.com>
+```
+
+Forgot to sign off? Amend the last commit, or rewrite the whole branch:
+
+```bash
+git commit --amend -s --no-edit          # last commit only
+git rebase --signoff main                # every commit on the branch
+```
+
+Then force-push the branch. Sign-off is a personal certification — only ever
+sign off in your own name.
+
+### Conventional Commits
+
+Commit messages must follow
+[Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) in the
+form `type(scope): description`. Use the same format for PR titles.
+
+Allowed types (see `.github/workflows/conventional_commits.yml`):
+
+`feat`, `fix`, `docs`, `style`, `refactor`, `test`, `build`, `perf`, `ci`,
+`chore`, `revert`, `merge`, `wip`, `bump`, `release`
+
+```text
+feat(rag): add userinfo caching
+fix(dynamic-agents): retry on transient Bedrock throttling
+docs(charts): document the OpenFGA values
+```
+
+## Branch Naming
+
+Prefix a branch with `prebuild/` when you want CI to build and publish
+prebuild container images for the PR — for example
+`prebuild/feat/rag-batch-job-status`. The images are pushed to
+`ghcr.io/<org>/prebuild/<component>` and cleaned up when the PR closes.
+
+Without the prefix the standard CI build runs instead, and no prebuild image is
+published.
+
+## Local Checks
+
+Run the relevant checks before opening a PR. These are the same commands CI runs.
+
+| Scope | Command |
+|---|---|
+| Python lint (Ruff) | `make lint` — `make lint-fix` to autofix |
+| CAIPE UI unit tests | `make caipe-ui-tests` |
+| CAIPE UI RBAC regression | `make caipe-ui-e2e-rbac` |
+| Core Python tests | `make test-core` |
+| Chart READMEs | `make helm-docs` after editing any `values.yaml` |
+
+`make help` lists the full set of targets, including the per-component
+`make test-mcp-*` suites.
+
 ## Pull Request (PR) Policy
 
 1. **Fork the Repository**: Start by forking the repository and creating a new branch for your changes.
-2. **Write Clear Commit Messages**: Ensure your commit messages are concise and descriptive.
+2. **Write Clear Commit Messages**: Follow the [Commit Requirements](#commit-requirements) above — sign-off and Conventional Commits are both enforced.
 3. **Follow Coding Standards**: Adhere to the project's coding standards and guidelines.
-4. **Testing**: Test your changes thoroughly before submitting a PR.
+4. **Testing**: Test your changes thoroughly before submitting a PR. See [Local Checks](#local-checks).
 5. **PR Submission**:
     - Provide a clear description of the changes in the PR.
     - Reference any related issues or tickets.
