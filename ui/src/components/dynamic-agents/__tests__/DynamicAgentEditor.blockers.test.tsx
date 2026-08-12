@@ -213,11 +213,14 @@ describe("DynamicAgentEditor — required-field enforcement", () => {
       "data-validation-buzz",
       "1",
     );
-    expect(
-      screen.getByText("Enter an agent name before continuing."),
-    ).toBeInTheDocument();
+    const validationMessage = screen.getByText(
+      "Enter an agent name before continuing.",
+    );
+    expect(validationMessage).toHaveClass("text-orange-700");
+    expect(validationMessage).not.toHaveClass("text-destructive");
     const nameInput = screen.getByPlaceholderText(/Code Review Agent/i);
     expect(nameInput).toHaveAttribute("aria-invalid", "true");
+    expect(nameInput).toHaveClass("border-orange-500/70");
     await waitFor(() => expect(nameInput).toHaveFocus());
   });
 

@@ -1332,7 +1332,7 @@ export function DynamicAgentEditor({
                   className={cn(
                     validationTarget?.field === "name" &&
                       !name.trim() &&
-                      "border-destructive focus-visible:ring-destructive",
+                      "border-orange-500/70 focus-visible:ring-orange-500",
                   )}
                   aria-invalid={
                     validationTarget?.field === "name" && !name.trim()
@@ -1349,7 +1349,7 @@ export function DynamicAgentEditor({
                   <p
                     id="name-required-message"
                     role="alert"
-                    className="text-xs text-destructive"
+                    className="text-xs text-orange-700 dark:text-orange-400"
                   >
                     Enter an agent name before continuing.
                   </p>
@@ -1381,7 +1381,7 @@ export function DynamicAgentEditor({
                     "p-3 rounded-lg border-2 border-primary/20 bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                     (validationTarget?.field === "model" ||
                       validationTarget?.field === "modelAvailability") &&
-                      "border-destructive/60 focus-visible:ring-destructive",
+                      "border-orange-500/70 focus-visible:ring-orange-500",
                   )}
                 >
                   <select
@@ -1414,7 +1414,7 @@ export function DynamicAgentEditor({
                     )}
                   </select>
                   {!modelsLoading && availableModels.length === 0 ? (
-                    <p className="text-xs text-destructive mt-2">
+                    <p className="text-xs text-orange-700 dark:text-orange-400 mt-2">
                       No LLM models available. Please check your deployment configuration.
                     </p>
                   ) : (
@@ -1736,11 +1736,11 @@ export function DynamicAgentEditor({
                 }
                 ownerExtra={
                   !isEditing && availableTeams.length === 0 ? (
-                    <p className="text-xs text-destructive">
+                    <p className="text-xs text-orange-700 dark:text-orange-400">
                       You must belong to at least one team to create a team-owned agent.
                     </p>
                   ) : ownerTeamMissing ? (
-                    <p className="text-xs text-destructive" role="alert">
+                    <p className="text-xs text-orange-700 dark:text-orange-400" role="alert">
                       Choose an owner team before continuing.
                     </p>
                   ) : null
@@ -1813,7 +1813,11 @@ export function DynamicAgentEditor({
             <div
               id="system-prompt-validation-target"
               tabIndex={-1}
-              className="space-y-4 pt-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className={cn(
+                "space-y-4 pt-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                validationTarget?.field === "systemPrompt" &&
+                  "focus-visible:ring-orange-500",
+              )}
             >
               <div className="space-y-2">
                 <div className="flex items-center justify-between relative">
@@ -2042,7 +2046,7 @@ export function DynamicAgentEditor({
 
                 {validationTarget?.field === "systemPrompt" &&
                   !systemPrompt.trim() && (
-                    <p role="alert" className="text-xs text-destructive">
+                    <p role="alert" className="text-xs text-orange-700 dark:text-orange-400">
                       Enter instructions before continuing.
                     </p>
                   )}
@@ -2200,7 +2204,7 @@ export function DynamicAgentEditor({
             <button
               type="button"
               data-testid="create-agent-blocker-hint"
-              className="flex items-center gap-1.5 text-left text-amber-700 hover:underline dark:text-amber-400"
+              className="flex items-center gap-1.5 text-left text-orange-700 hover:underline dark:text-orange-400"
               onClick={() => revealBlocker(firstBlocker)}
             >
               <AlertCircle className="h-3.5 w-3.5 shrink-0" />
