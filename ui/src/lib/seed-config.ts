@@ -987,12 +987,16 @@ export interface RagSourceAdoptSkip {
  */
 export async function adoptConfigImportedRagSources(
   sourceIds: string[],
-  teamAssignment: { ownerTeamSlug: string | null },
+  ownership: {
+    ownerTeamSlug: string | null;
+    ownerSubject?: string | null;
+  },
 ): Promise<{ adopted: string[]; skipped: RagSourceAdoptSkip[] }> {
   const collection = await getCollection<IngestionSourceConfig>(
     "rag_ingestion_sources",
   );
-  const ownerTeamSlug = teamAssignment.ownerTeamSlug;
+  const ownerTeamSlug = ownership.ownerTeamSlug;
+  const ownerSubject = ownerTeamSlug ? null : (ownership.ownerSubject ?? null);
   const adopted: string[] = [];
   const skipped: RagSourceAdoptSkip[] = [];
 
@@ -1014,7 +1018,7 @@ export async function adoptConfigImportedRagSources(
       continue;
     }
 
-    const nextVisibility: IngestionSourceVisibility = ownerTeamSlug
+    const nextVisibility: IngestionSourceVisibility = ownerTeamSlug || ownerSubject
       ? "team"
       : existing.visibility;
     const now = new Date().toISOString();
@@ -1022,11 +1026,14 @@ export async function adoptConfigImportedRagSources(
     // Adoption changes source-management policy only. Query ownership stays
     // intact and remains editable through Search access.
     const previousOwnerTeamSlug = existing.owner_team_slug ?? null;
+    const previousOwnerSubject = existing.owner_subject ?? null;
     const previousSharedTeamSlugs = normalizeStringArray(
       existing.shared_with_teams,
     );
     await reconcileIngestionSourceRelationships({
       sourceId,
+      ownerSubject,
+      previousOwnerSubject,
       ownerTeamSlug,
       previousOwnerTeamSlug,
       nextSharedTeamSlugs: [],
@@ -1041,10 +1048,16 @@ export async function adoptConfigImportedRagSources(
           config_driven: false,
           config_import_adopted: true,
           visibility: nextVisibility,
-          owner_team_slug: ownerTeamSlug ?? undefined,
+          ...(ownerTeamSlug ? { owner_team_slug: ownerTeamSlug } : {}),
+          ...(ownerSubject ? { owner_subject: ownerSubject } : {}),
           shared_with_teams: [],
           updated_at: now,
         },
+        $unset: ownerTeamSlug
+          ? { owner_subject: "" }
+          : ownerSubject
+            ? { owner_team_slug: "" }
+            : {},
       } as never,
     );
 

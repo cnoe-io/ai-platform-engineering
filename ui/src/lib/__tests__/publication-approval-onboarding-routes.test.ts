@@ -11,7 +11,7 @@ const mockCallSlackBotAdmin = jest.fn();
 const mockCallWebexBotAdmin = jest.fn();
 const mockPlanConnectorPublication = jest.fn();
 const mockCreatePublicationRequest = jest.fn();
-const mockInvalidatePublicationRequests = jest.fn();
+const mockReplacePendingConnectorPublicationRequest = jest.fn();
 const mockOnboardWebexSpace = jest.fn();
 const mockConfiguredSlackChannelsById = jest.fn();
 
@@ -46,8 +46,8 @@ jest.mock("@/lib/mongodb", () => ({ getCollection: jest.fn() }));
 jest.mock("@/lib/publication-approval.server", () => ({
   createPublicationRequest: (...args: unknown[]) =>
     mockCreatePublicationRequest(...args),
-  invalidatePublicationRequests: (...args: unknown[]) =>
-    mockInvalidatePublicationRequests(...args),
+  replacePendingConnectorPublicationRequest: (...args: unknown[]) =>
+    mockReplacePendingConnectorPublicationRequest(...args),
   listPublicationActorTeamSlugs: jest
     .fn()
     .mockResolvedValue(["requester-team"]),
@@ -168,7 +168,7 @@ beforeEach(() => {
       updated_at: "2026-01-01T00:00:00.000Z",
     }),
   );
-  mockInvalidatePublicationRequests.mockResolvedValue(0);
+  mockReplacePendingConnectorPublicationRequest.mockResolvedValue(0);
 });
 
 describe("self-service connector publication", () => {

@@ -53,6 +53,8 @@ jest.mock("@/lib/mongodb", () => ({
 }));
 
 jest.mock("@/lib/rag-collections.server", () => ({
+  RAG_COLLECTION_ID_PATTERN: /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/,
+  RAG_COLLECTIONS_COLLECTION: "rag_collections",
   bootstrapPlatformRagCollection: (...args: unknown[]) =>
     mockBootstrapPlatformRagCollection(...args),
   replaceCollectionSources: (...args: unknown[]) =>
@@ -134,6 +136,7 @@ function mockFetchDatasources(datasources: unknown[]) {
 
 function mockCollections(
   existingSources: Array<Record<string, unknown>> = [],
+  ragCollections: Array<Record<string, unknown>> = [],
 ) {
   mockGetCollection.mockImplementation(async (name: string) => {
     if (name === "rag_ingestion_sources") {
@@ -147,6 +150,13 @@ function mockCollections(
     if (name === "dynamic_agents") {
       return {
         updateMany: (...args: unknown[]) => mockUpdateLegacyAgents(...args),
+      };
+    }
+    if (name === "rag_collections") {
+      return {
+        findOne: jest.fn(async ({ _id }: { _id: string }) =>
+          ragCollections.find((collection) => collection._id === _id) ?? null,
+        ),
       };
     }
     throw new Error(`unexpected collection ${name}`);
@@ -188,8 +198,8 @@ describe("POST /api/admin/rag/sources/migrate-from-config", () => {
       reader_team_slugs: ["search-team"],
     });
     mockReplaceCollectionSources.mockImplementation(
-      async (_id: string, sourceIds: string[]) => ({
-        _id: "platform-rag",
+      async (id: string, sourceIds: string[]) => ({
+        _id: id,
         source_ids: sourceIds,
       }),
     );
@@ -272,7 +282,12 @@ describe("POST /api/admin/rag/sources/migrate-from-config", () => {
     const body = await response.json();
 
     expect(body.data.sources).toEqual([]);
-    expect(body.data.platform_collection.source_count).toBe(1);
+    expect(body.data.legacy_source_count).toBe(1);
+    expect(body.data.destination_collection).toEqual({
+      id: "platform-rag",
+      source_count: 0,
+      agents_updated: 0,
+    });
   });
 
   it("does not treat scoped direct datasources without Mongo config rows as legacy-global", async () => {
@@ -302,7 +317,7 @@ describe("POST /api/admin/rag/sources/migrate-from-config", () => {
 
     expect(response.status).toBe(200);
     expect(body.data.sources).toEqual([]);
-    expect(body.data.platform_collection.source_count).toBe(0);
+    expect(body.data.legacy_source_count).toBe(0);
   });
 
   it("does not replace policy or publish scoped direct datasources during apply", async () => {
@@ -361,7 +376,7 @@ describe("POST /api/admin/rag/sources/migrate-from-config", () => {
         importable: true,
       }),
     ]);
-    expect(body.data.platform_collection.source_count).toBe(1);
+    expect(body.data.legacy_source_count).toBe(1);
   });
 
   it("keeps previously imported environment sources visible but disabled", async () => {
@@ -415,7 +430,7 @@ describe("POST /api/admin/rag/sources/migrate-from-config", () => {
     expect(mockCreateIngestionSource).not.toHaveBeenCalled();
     expect(mockAdoptConfigImportedRagSources).toHaveBeenCalledWith(
       ["slack-channel-C1"],
-      { ownerTeamSlug: "manage-team" },
+      { ownerTeamSlug: "manage-team", ownerSubject: null },
     );
     expect(body.data.adopted).toEqual(["slack-channel-C1"]);
   });
@@ -866,5 +881,77 @@ describe("POST /api/admin/rag/sources/migrate-from-config", () => {
       "platform-rag",
       ["existing-source", "legacy-source"],
     );
+  });
+
+  it("imports into the selected collection and uses its Owner", async () => {
+    mockFetchDatasources([
+      redisDs({
+        datasource_id: "legacy-source",
+        source_type: "example_connector",
+        metadata: {},
+      }),
+    ]);
+    mockCollections([], [
+      {
+        _id: "engineering-docs",
+        source_ids: ["existing-source"],
+        owner_subject: null,
+        maintainer_team_slugs: ["engineering"],
+        reader_team_slugs: ["engineering"],
+      },
+    ]);
+
+    const { POST } = await import("../route");
+    const response = await POST(
+      postRequest({
+        dry_run: false,
+        source_ids: [],
+        destination_collection_id: "engineering-docs",
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(mockBootstrapPlatformRagCollection).not.toHaveBeenCalled();
+    expect(mockReconcileIngestionSourceRelationships).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceId: "legacy-source",
+        ownerSubject: null,
+        ownerTeamSlug: "engineering",
+      }),
+    );
+    expect(mockReplaceCollectionSources).toHaveBeenCalledWith(
+      "engineering-docs",
+      ["existing-source", "legacy-source"],
+    );
+    expect(mockUpdateLegacyAgents).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          rag_collection_ids: ["engineering-docs"],
+        }),
+      }),
+    );
+    expect(body.data.destination_collection).toEqual({
+      id: "engineering-docs",
+      source_count: 2,
+      agents_updated: 2,
+    });
+  });
+
+  it("rejects an unknown destination collection", async () => {
+    mockCollections();
+
+    const { POST } = await import("../route");
+    const response = await POST(
+      postRequest({
+        dry_run: true,
+        destination_collection_id: "missing-collection",
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(404);
+    expect(body.code).toBe("DESTINATION_COLLECTION_NOT_FOUND");
   });
 });

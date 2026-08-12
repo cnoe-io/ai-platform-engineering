@@ -2,6 +2,10 @@
 
 import type { ReactNode } from "react";
 import type { SlackRouteExecutionIdentity } from "@/types/slack-rebac";
+import type {
+  PendingConnectorPublicationRequestView,
+  PublicationActor,
+} from "@/types/publication-approval";
 
 // Re-export so callers that only import from connector-admin-adapter can
 // reference the type without an additional import from slack-rebac.
@@ -170,6 +174,51 @@ export interface DiscoveredItem {
   selectable?: boolean;
   botId?: string;
   availableBotIds?: string[];
+  pendingApproval?: {
+    requestId: string;
+    status: "pending" | "applying";
+    requester: PublicationActor;
+    requesterIsViewer: boolean;
+    teamSlug: string;
+    agentId: string;
+    botId?: string;
+    approverTeamSlugs: string[];
+    approverUserSubjects: string[];
+  };
+}
+
+export function parsePendingConnectorPublication(
+  value: unknown,
+): DiscoveredItem["pendingApproval"] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const request = value as Partial<PendingConnectorPublicationRequestView>;
+  if (
+    typeof request.id !== "string" ||
+    (request.status !== "pending" && request.status !== "applying") ||
+    !request.requester ||
+    typeof request.requester.subject !== "string"
+  ) {
+    return undefined;
+  }
+  return {
+    requestId: request.id,
+    status: request.status,
+    requester: request.requester,
+    requesterIsViewer: request.requester_is_viewer === true,
+    teamSlug: typeof request.team_slug === "string" ? request.team_slug : "",
+    agentId: typeof request.agent_id === "string" ? request.agent_id : "",
+    ...(typeof request.bot_id === "string" ? { botId: request.bot_id } : {}),
+    approverTeamSlugs: Array.isArray(request.approver_team_slugs)
+      ? request.approver_team_slugs.filter(
+          (slug): slug is string => typeof slug === "string",
+        )
+      : [],
+    approverUserSubjects: Array.isArray(request.approver_user_subjects)
+      ? request.approver_user_subjects.filter(
+          (subject): subject is string => typeof subject === "string",
+        )
+      : [],
+  };
 }
 
 export interface DiscoveryPage {
@@ -330,6 +379,7 @@ export interface ConnectorAdminAdapter {
     toastMessage: string;
     appliedItemIds?: string[];
     pendingItemIds?: string[];
+    pendingApproverTeamSlugs?: string[];
   }>;
 
   // ── Configured detail extras ──────────────────────────────────────────

@@ -61,8 +61,16 @@ interface PublicationApprovalQueueProps {
 
 interface Summary {
   pending_count: number;
+  requester_pending_count: number;
   can_approve: boolean;
   can_manage_settings: boolean;
+}
+
+interface PaginationState {
+  page: number;
+  page_size: number;
+  total: number;
+  total_pages: number;
 }
 
 const EMPTY_SETTINGS: PublicationApprovalSettings = {
@@ -130,6 +138,14 @@ function actorLabel(request: PublicationRequestDocument): string {
 }
 
 function decisionLabel(request: PublicationRequestDocument): string | null {
+  if (request.status === "rejected") {
+    const rejectionEntry = [...request.history]
+      .reverse()
+      .find((entry) => entry.action === "rejected");
+    const reviewer = request.decided_by ?? rejectionEntry?.actor;
+    const label = reviewer?.name || reviewer?.email;
+    return `Rejected by ${label || "Unknown user"}`;
+  }
   if (request.status !== "approved") return null;
   if (request.history.some((entry) => entry.action === "auto_approved")) {
     return "Approved automatically by policy";
@@ -140,6 +156,29 @@ function decisionLabel(request: PublicationRequestDocument): string | null {
   const approver = request.decided_by ?? approvalEntry?.actor;
   const label = approver?.name || approver?.email;
   return `Approved by ${label || "Unknown user"}`;
+}
+
+function rejectionReason(request: PublicationRequestDocument): string | null {
+  if (request.status !== "rejected") return null;
+  const stored = request.decision_note?.trim();
+  if (stored) return stored;
+  const historyEntry = [...request.history]
+    .reverse()
+    .find((entry) => entry.action === "rejected");
+  return historyEntry?.note?.trim() || null;
+}
+
+function statusBadgeClass(status: PublicationRequestDocument["status"]): string {
+  if (status === "approved") {
+    return "border-emerald-500/40 bg-emerald-500/10 text-emerald-600";
+  }
+  if (status === "rejected") {
+    return "border-red-500/40 bg-red-500/10 text-red-600";
+  }
+  if (status === "pending" || status === "applying") {
+    return "border-amber-500/40 bg-amber-500/10 text-amber-600";
+  }
+  return "border-border bg-muted/40 text-muted-foreground";
 }
 
 function sourceChangeSummary(value: unknown): string {
@@ -454,6 +493,13 @@ export function PublicationApprovalQueue({ readOnly = false }: PublicationApprov
   const [view, setView] = React.useState<"pending" | "history">(linkedView);
   const [requests, setRequests] = React.useState<PublicationRequestDocument[]>([]);
   const [summary, setSummary] = React.useState<Summary | null>(null);
+  const [page, setPage] = React.useState(1);
+  const [pagination, setPagination] = React.useState<PaginationState>({
+    page: 1,
+    page_size: 20,
+    total: 0,
+    total_pages: 1,
+  });
   const [loading, setLoading] = React.useState(true);
   const [actingId, setActingId] = React.useState<string | null>(null);
   const [rejectingId, setRejectingId] = React.useState<string | null>(null);
@@ -477,30 +523,57 @@ export function PublicationApprovalQueue({ readOnly = false }: PublicationApprov
       const status = view === "pending"
         ? "pending,applying"
         : "approved,rejected,cancelled,superseded";
-      const [requestsResponse, summaryResponse] = await Promise.all([
-        fetch(`/api/publication-requests?status=${status}`),
-        fetch("/api/publication-requests/summary"),
-      ]);
-      if (!requestsResponse.ok || !summaryResponse.ok) throw new Error("Could not load approvals");
-      const [requestBody, summaryBody] = await Promise.all([
-        requestsResponse.json(),
-        summaryResponse.json(),
-      ]);
+      const summaryResponse = await fetch("/api/publication-requests/summary");
+      if (!summaryResponse.ok) throw new Error("Could not load approvals");
+      const summaryBody = await summaryResponse.json();
+      const loadedSummary = (summaryBody as { data?: Summary }).data ?? summaryBody as Summary;
+      const mine = !loadedSummary.can_approve || Boolean(
+        linkedRequestId &&
+        view === "history" &&
+        !loadedSummary.can_manage_settings,
+      );
+      const params = new URLSearchParams({
+        status,
+        page: String(page),
+        page_size: "20",
+        ...(mine ? { mine: "true" } : {}),
+        ...(linkedRequestId && view === linkedView
+          ? { request_id: linkedRequestId }
+          : {}),
+      });
+      const requestsResponse = await fetch(`/api/publication-requests?${params.toString()}`);
+      if (!requestsResponse.ok) throw new Error("Could not load approvals");
+      const requestBody = await requestsResponse.json();
       const loadedRequests = unwrap<PublicationRequestDocument[]>(requestBody, "requests") ?? [];
       setRequests(loadedRequests);
+      const loadedPagination = unwrap<PaginationState>(requestBody, "pagination");
+      const nextPagination = loadedPagination ?? {
+        page,
+        page_size: 20,
+        total: loadedRequests.length,
+        total_pages: 1,
+      };
+      setPagination(nextPagination);
+      if (nextPagination.page !== page) setPage(nextPagination.page);
       if (linkedRequestId && loadedRequests.some((item) => item._id === linkedRequestId)) {
         setExpandedId(linkedRequestId);
       }
-      setSummary((summaryBody as { data?: Summary }).data ?? summaryBody as Summary);
+      setSummary({
+        pending_count: loadedSummary.pending_count ?? 0,
+        requester_pending_count: loadedSummary.requester_pending_count ?? 0,
+        can_approve: loadedSummary.can_approve ?? false,
+        can_manage_settings: loadedSummary.can_manage_settings ?? false,
+      });
     } catch (error) {
       toast(error instanceof Error ? error.message : "Could not load approvals", "error");
     } finally {
       setLoading(false);
     }
-  }, [linkedRequestId, toast, view]);
+  }, [linkedRequestId, linkedView, page, toast, view]);
 
   React.useEffect(() => {
     setView(linkedView);
+    setPage(1);
   }, [linkedView]);
 
   React.useEffect(() => { void load(); }, [load]);
@@ -556,6 +629,7 @@ export function PublicationApprovalQueue({ readOnly = false }: PublicationApprov
         throw new Error(body?.error || body?.data?.error || `Could not ${decision} request`);
       }
       toast(decision === "approve" ? "Publication approved." : "Publication rejected.", "success");
+      window.dispatchEvent(new Event("in-app-notifications:refresh"));
       setRejectingId(null);
       setDecisionNote("");
       await load();
@@ -667,14 +741,18 @@ export function PublicationApprovalQueue({ readOnly = false }: PublicationApprov
             <Button
               size="sm"
               variant={view === "pending" ? "default" : "outline"}
-              onClick={() => setView("pending")}
+              onClick={() => { setView("pending"); setPage(1); }}
             >
-              Pending {summary ? `(${summary.pending_count})` : ""}
+              Pending {summary
+                ? `(${summary.can_approve
+                    ? summary.pending_count
+                    : summary.requester_pending_count})`
+                : ""}
             </Button>
             <Button
               size="sm"
               variant={view === "history" ? "default" : "outline"}
-              onClick={() => setView("history")}
+              onClick={() => { setView("history"); setPage(1); }}
             >
               History
             </Button>
@@ -686,7 +764,11 @@ export function PublicationApprovalQueue({ readOnly = false }: PublicationApprov
             </div>
           ) : requests.length === 0 ? (
             <div className="rounded-lg border border-dashed py-12 text-center text-sm text-muted-foreground">
-              {view === "pending" ? "No publication requests need your review." : "No approval history yet."}
+              {view === "pending"
+                ? summary?.can_approve
+                  ? "No publication requests need your review."
+                  : "You have no pending requests."
+                : "No request history yet."}
             </div>
           ) : (
             <div className="space-y-3">
@@ -694,6 +776,7 @@ export function PublicationApprovalQueue({ readOnly = false }: PublicationApprov
                 const expanded = expandedId === item._id;
                 const rejecting = rejectingId === item._id;
                 const decision = decisionLabel(item);
+                const rejectedBecause = rejectionReason(item);
                 const approverLabels = [
                   ...item.approver_team_slugs.map(
                     (slug) => teams.find((team) => team.slug === slug)?.name ??
@@ -725,10 +808,20 @@ export function PublicationApprovalQueue({ readOnly = false }: PublicationApprov
                               {decision}
                             </span>
                           )}
+                          {view === "history" && rejectedBecause && (
+                            <span className="mt-1 block text-xs text-red-600">
+                              Reason: {rejectedBecause}
+                            </span>
+                          )}
                         </span>
                       </button>
                       <div className="flex items-center gap-2">
-                        <Badge variant="outline" className="capitalize">{item.status}</Badge>
+                        <Badge
+                          variant="outline"
+                          className={cn("capitalize", statusBadgeClass(item.status))}
+                        >
+                          {item.status}
+                        </Badge>
                         {item.risk_facts.organization_wide && (
                           <Badge className="border-amber-500/40 bg-amber-500/10 text-amber-600">Organization-wide</Badge>
                         )}
@@ -813,6 +906,36 @@ export function PublicationApprovalQueue({ readOnly = false }: PublicationApprov
                   </div>
                 );
               })}
+              {pagination.total_pages > 1 && (
+                <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4">
+                  <p className="text-xs text-muted-foreground">
+                    {pagination.total} request{pagination.total === 1 ? "" : "s"}
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={loading || pagination.page <= 1}
+                      onClick={() => setPage((current) => Math.max(1, current - 1))}
+                    >
+                      Previous
+                    </Button>
+                    <span className="text-xs text-muted-foreground">
+                      Page {pagination.page} of {pagination.total_pages}
+                    </span>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={loading || pagination.page >= pagination.total_pages}
+                      onClick={() => setPage((current) => current + 1)}
+                    >
+                      Next
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </CardContent>

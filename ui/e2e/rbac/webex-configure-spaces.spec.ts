@@ -430,7 +430,7 @@ test.describe("mocked Webex Configure spaces UI", () => {
       page.getByRole("checkbox", { name: "Import Workflow Alerts" }),
     ).not.toBeChecked();
     await expect(
-      page.getByRole("button", { name: /^Set up 0 spaces$/ }),
+      page.getByRole("button", { name: /^Submit 0 spaces$/ }),
     ).toBeDisabled();
 
     await pickAgent(
@@ -442,7 +442,7 @@ test.describe("mocked Webex Configure spaces UI", () => {
       page.getByRole("checkbox", { name: "Import Workflow Alerts" }),
     ).toBeChecked();
     await expect(
-      page.getByRole("button", { name: /^Set up 0 spaces$/ }),
+      page.getByRole("button", { name: /^Submit 0 spaces$/ }),
     ).toBeDisabled();
     await pickTeam(
       page,
@@ -453,7 +453,7 @@ test.describe("mocked Webex Configure spaces UI", () => {
       page.getByRole("checkbox", { name: "Import Workflow Alerts" }),
     ).toBeChecked();
     await expect(
-      page.getByRole("button", { name: /^Set up 1 space$/ }),
+      page.getByRole("button", { name: /^Submit 1 space$/ }),
     ).toBeEnabled();
 
     await page.getByRole("button", { name: "Clear selection" }).click();
@@ -515,7 +515,7 @@ test.describe("mocked Webex Configure spaces UI", () => {
       page.getByRole("button", { name: /Dynamic Agent for Night Ops/i }),
     ).toContainText("KB Agent");
 
-    await page.getByRole("button", { name: /^Set up 2 spaces$/ }).click();
+    await page.getByRole("button", { name: /^Submit 2 spaces$/ }).click();
     await expect.poll(() => state.defaultsRequests.length).toBe(2);
     expect(state.defaultsRequests).toEqual(
       expect.arrayContaining([

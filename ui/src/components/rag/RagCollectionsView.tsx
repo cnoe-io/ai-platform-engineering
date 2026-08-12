@@ -583,6 +583,28 @@ export function RagCollectionsView() {
 
       <div className="grid min-h-0 flex-1 grid-cols-[minmax(260px,340px)_1fr]">
         <div className="space-y-2 overflow-y-auto border-r p-4">
+          {isCreating && (
+            <div
+              className="w-full rounded-xl border border-primary/50 bg-primary/[0.06] p-4 text-left"
+              aria-current="true"
+              data-testid="new-collection-draft"
+            >
+              <div className="flex items-start gap-3">
+                <div className="rounded-lg bg-primary/15 p-2 text-primary">
+                  <Layers3 className="h-5 w-5" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-medium">
+                    {draftName.trim() || "New Collection"}
+                  </p>
+                  <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                    {draftDescription.trim() || "Unsaved collection"}
+                  </p>
+                  <p className="mt-3 text-xs text-muted-foreground">Not saved</p>
+                </div>
+              </div>
+            </div>
+          )}
           {collections.map((collection) => (
             <button
               type="button"
@@ -593,7 +615,8 @@ export function RagCollectionsView() {
               }}
               className={cn(
                 "w-full rounded-xl border p-4 text-left transition-colors hover:border-primary/40 hover:bg-primary/[0.03]",
-                selectedId === collection._id &&
+                !isCreating &&
+                  selectedId === collection._id &&
                   "border-primary/50 bg-primary/[0.06]",
               )}
             >
@@ -644,9 +667,19 @@ export function RagCollectionsView() {
             <div className="mx-auto max-w-4xl animate-in space-y-5 fade-in slide-in-from-right-2 duration-200">
               <Card>
                 <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
+                  <CardTitle className="flex items-center gap-3">
                     <Layers3 className="h-5 w-5 text-primary" />
-                    {isCreating ? "New collection" : "Collection settings"}
+                    <Label htmlFor="collection-name" className="sr-only">
+                      Name
+                    </Label>
+                    <Input
+                      id="collection-name"
+                      value={draftName}
+                      onChange={(event) => setDraftName(event.target.value)}
+                      placeholder="New Collection"
+                      disabled={!canManageDraft || saving}
+                      className="h-10 max-w-xl text-lg font-semibold"
+                    />
                   </CardTitle>
                   <CardDescription>
                     {isCreating
@@ -654,17 +687,8 @@ export function RagCollectionsView() {
                       : "Collections group datasources so they can be assigned and managed together."}
                   </CardDescription>
                 </CardHeader>
-                <CardContent className="grid gap-4 sm:grid-cols-2">
+                <CardContent>
                   <div className="space-y-2">
-                    <Label htmlFor="collection-name">Name</Label>
-                    <Input
-                      id="collection-name"
-                      value={draftName}
-                      onChange={(event) => setDraftName(event.target.value)}
-                      disabled={!canManageDraft || saving}
-                    />
-                  </div>
-                  <div className="space-y-2 sm:col-span-2">
                     <Label htmlFor="collection-description">Description</Label>
                     <Textarea
                       id="collection-description"
@@ -782,24 +806,22 @@ export function RagCollectionsView() {
                   <CardContent className="grid gap-4 sm:grid-cols-2">
                     {canDelegateDraft && (
                       <div className="space-y-2">
-                        <Label>Owner teams</Label>
+                        <Label className="block">Owner teams</Label>
                         <TeamMultiPicker
                           options={teamOptions}
                           selected={draftMaintainers}
                           onChange={setDraftMaintainers}
                           placeholder="Select Owner teams..."
-                          portalled={false}
                         />
                       </div>
                     )}
                     <div className="space-y-2">
-                      <Label>Search teams</Label>
+                      <Label className="block">Search teams</Label>
                       <TeamMultiPicker
                         options={teamOptions}
                         selected={draftReaders}
                         onChange={setDraftReaders}
                         placeholder="Select Search teams..."
-                        portalled={false}
                       />
                     </div>
                   </CardContent>

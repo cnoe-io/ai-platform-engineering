@@ -10,12 +10,12 @@ import {
 import { getCollection } from "@/lib/mongodb";
 import {
   createPublicationRequest,
-  invalidatePublicationRequests,
   listPublicationActorTeamSlugs,
   planConnectorPublication,
   publicationActorFromSession,
   publicationResourceRevision,
   recordAutoApprovedPublication,
+  replacePendingConnectorPublicationRequest,
 } from "@/lib/publication-approval.server";
 import { getPublicationApprovalSettings } from "@/lib/publication-approval-settings";
 import { ensureSlackBotOboPermissions } from "@/lib/rbac/keycloak-admin";
@@ -783,7 +783,7 @@ export const POST = withErrorHandler(async (request: NextRequest) =>
         status: "not_onboarded",
         requested_state: requestedState,
       });
-      await invalidatePublicationRequests(
+      await replacePendingConnectorPublicationRequest(
         resource,
         actor,
         "A newer Slack onboarding request replaced this proposal.",
@@ -806,6 +806,8 @@ export const POST = withErrorHandler(async (request: NextRequest) =>
           resource,
           status: publicationRequest.status,
           reason: plan.reason,
+          approver_team_slugs: publicationRequest.approver_team_slugs,
+          approver_user_subjects: publicationRequest.approver_user_subjects ?? [],
         });
       } else {
         const result = await applySlackChannelOnboarding(

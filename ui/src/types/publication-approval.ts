@@ -96,6 +96,19 @@ export interface PendingPublicationRequestView {
   created_at: string;
 }
 
+/** Requester-safe state shown beside a discovered Slack channel or Webex space. */
+export interface PendingConnectorPublicationRequestView {
+  id: string;
+  status: "pending" | "applying";
+  requester: PublicationActor;
+  requester_is_viewer: boolean;
+  team_slug: string;
+  agent_id: string;
+  bot_id?: string;
+  approver_team_slugs: string[];
+  approver_user_subjects: string[];
+}
+
 export interface PublicationThresholds {
   slack_channel_members_without_approval: number;
   webex_space_members_without_approval: number;
@@ -133,6 +146,17 @@ export interface PublicationPolicyPlan {
 
 export interface PublicationRequestSummary {
   pending_count: number;
+  requester_pending_count: number;
   can_approve: boolean;
   can_manage_settings: boolean;
+}
+
+export interface PublicationRequestPage {
+  requests: PublicationRequestDocument[];
+  pagination: {
+    page: number;
+    page_size: number;
+    total: number;
+    total_pages: number;
+  };
 }

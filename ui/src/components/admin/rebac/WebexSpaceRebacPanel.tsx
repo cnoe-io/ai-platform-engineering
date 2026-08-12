@@ -26,6 +26,7 @@ ItemAgentRoute,
 ItemDiagnostics,
 ItemSummary,
 } from "./connector-admin-adapter";
+import { parsePendingConnectorPublication } from "./connector-admin-adapter";
 
 function WebexConfiguredSpaceDelete({
   item,
@@ -221,6 +222,7 @@ const WEBEX_ADAPTER: ConnectorAdminAdapter = {
           botId: Array.isArray(sp.available_bot_ids) && sp.available_bot_ids.length === 1
             ? String(sp.available_bot_ids[0])
             : undefined,
+          pendingApproval: parsePendingConnectorPublication(sp.pending_publication),
         };
       }),
       nextCursor: d.next_cursor ?? null,
@@ -401,6 +403,7 @@ const WEBEX_ADAPTER: ConnectorAdminAdapter = {
     if (selectedImports.length === 0) return { toastMessage: "No spaces selected." };
     const appliedItemIds: string[] = [];
     const pendingItemIds: string[] = [];
+    const pendingApproverTeamSlugs = new Set<string>();
     for (const space of selectedImports) {
       const response = await fetchFn("/api/admin/webex/spaces/onboard", {
         method: "POST",
@@ -417,16 +420,25 @@ const WEBEX_ADAPTER: ConnectorAdminAdapter = {
         }),
       });
       if (!response.ok) throw new Error(await response.text());
-      const result = apiData<{ pending_approval?: boolean }>(await response.json());
-      if (result.pending_approval) pendingItemIds.push(space.id);
+      const result = apiData<{
+        pending_approval?: boolean;
+        publication_request?: { approver_team_slugs?: string[] };
+      }>(await response.json());
+      if (result.pending_approval) {
+        pendingItemIds.push(space.id);
+        for (const slug of result.publication_request?.approver_team_slugs ?? []) {
+          pendingApproverTeamSlugs.add(slug);
+        }
+      }
       else appliedItemIds.push(space.id);
     }
     return {
       toastMessage: pendingItemIds.length > 0
-        ? `${pendingItemIds.length} Webex space${pendingItemIds.length === 1 ? " is" : "s are"} waiting for publication approval${appliedItemIds.length > 0 ? `; ${appliedItemIds.length} onboarded immediately` : ""}.`
+        ? `${pendingItemIds.length} Webex space${pendingItemIds.length === 1 ? "" : "s"} submitted${appliedItemIds.length > 0 ? `; ${appliedItemIds.length} onboarded immediately` : ""}.`
         : `Onboarded ${appliedItemIds.length} Webex space${appliedItemIds.length === 1 ? "" : "s"}.`,
       appliedItemIds,
       pendingItemIds,
+      pendingApproverTeamSlugs: [...pendingApproverTeamSlugs],
     };
   },
 

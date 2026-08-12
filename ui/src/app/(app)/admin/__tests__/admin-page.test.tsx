@@ -556,7 +556,7 @@ describe('Admin Dashboard Page', () => {
       render(<AdminPage />);
 
       await waitFor(() => {
-        expect(screen.getByRole('heading', { name: 'Admin' })).toBeInTheDocument();
+        expect(screen.getByRole('heading', { name: 'Users' })).toBeInTheDocument();
       });
 
       expect(screen.queryByText('Read-Only')).not.toBeInTheDocument();
@@ -1147,7 +1147,8 @@ describe('Admin Dashboard Page', () => {
     });
 
     it('marks the Everyone and Super Admins teams as built in', async () => {
-      currentSearchParams = new URLSearchParams('cat=people&tab=teams');
+      currentPathname = '/admin/people/teams';
+      currentSearchParams = new URLSearchParams();
       setupFetchMock({
         teams: {
           success: true,

@@ -47,6 +47,11 @@ import {
   withErrorHandler,
 } from "@/lib/api-middleware";
 import { getDiscoveryCacheTtlMs } from "@/lib/rbac/discovery-cache-config";
+import {
+  activeConnectorPublicationRequestsByItemId,
+  connectorPublicationRequestView,
+  publicationActorFromSession,
+} from "@/lib/publication-approval.server";
 import { requireResourcePermission } from "@/lib/rbac/resource-authz";
 import { configuredSlackChannelsById } from "@/lib/rbac/slack-channel-configured-directory";
 import { NextRequest } from "next/server";
@@ -310,11 +315,15 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   const page = afterCursor.slice(0, limit);
   const hasMore = afterCursor.length > limit;
   const nextCursor = hasMore ? page[page.length - 1].name : null;
-  const configuredById = await configuredSlackChannelsById(
-    page.map((channel) => channel.id),
-  );
+  const actor = publicationActorFromSession(session);
+  const pageIds = page.map((channel) => channel.id);
+  const [configuredById, pendingById] = await Promise.all([
+    configuredSlackChannelsById(pageIds),
+    activeConnectorPublicationRequestsByItemId("slack_channel", pageIds),
+  ]);
   const channels = page.map((channel) => {
     const configured = configuredById.get(channel.id);
+    const pending = pendingById.get(channel.id);
     return {
       ...channel,
       configured: Boolean(configured),
@@ -329,6 +338,9 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         : {}),
       ...(configured?.agentName
         ? { configured_agent_name: configured.agentName }
+        : {}),
+      ...(!configured && pending
+        ? { pending_publication: connectorPublicationRequestView(pending, actor) }
         : {}),
     };
   });

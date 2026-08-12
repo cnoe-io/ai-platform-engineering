@@ -33,11 +33,73 @@ const PREVIEW_SOURCES = [
   },
 ];
 
+const COLLECTIONS = [
+  {
+    _id: "platform-rag",
+    name: "Platform RAG",
+    description: "Shared knowledge",
+    is_platform: true,
+    source_ids: [],
+    maintainer_team_slugs: ["super-admins"],
+    reader_team_slugs: ["everyone"],
+    global_read: false,
+    created_by: "platform",
+    created_at: "2026-08-01T00:00:00.000Z",
+    updated_at: "2026-08-01T00:00:00.000Z",
+    _permissions: {
+      can_read: true,
+      can_publish: true,
+      can_manage: true,
+      can_delegate: true,
+    },
+  },
+  {
+    _id: "engineering-docs",
+    name: "Engineering Docs",
+    description: "Team knowledge",
+    is_platform: false,
+    source_ids: [],
+    maintainer_team_slugs: ["engineering"],
+    reader_team_slugs: ["engineering"],
+    global_read: false,
+    created_by: "admin-sub",
+    created_at: "2026-08-01T00:00:00.000Z",
+    updated_at: "2026-08-01T00:00:00.000Z",
+    _permissions: {
+      can_read: true,
+      can_publish: true,
+      can_manage: true,
+      can_delegate: true,
+    },
+  },
+];
+
 function mockFetch({
-  preview = { success: true, data: { sources: PREVIEW_SOURCES } },
+  preview = {
+    success: true,
+    data: {
+      sources: PREVIEW_SOURCES,
+      legacy_source_count: 3,
+      destination_collection: {
+        id: "platform-rag",
+        source_count: 0,
+        agents_updated: 0,
+      },
+    },
+  },
   apply = {
     success: true,
-    data: { sources: PREVIEW_SOURCES, adopted: ["slack-channel-C1"], skipped: [] },
+    data: {
+      sources: PREVIEW_SOURCES,
+      adopted: ["slack-channel-C1"],
+      skipped: [],
+      legacy_source_count: 3,
+      destination_collection: {
+        id: "platform-rag",
+        source_count: 3,
+        agents_updated: 0,
+      },
+    },
   },
 }: {
   preview?: object;
@@ -52,6 +114,25 @@ function mockFetch({
         json: () => Promise.resolve(payload),
       } as Response);
     }
+    if (href === "/api/rag/collections") {
+      return Promise.resolve({
+        json: () =>
+          Promise.resolve({ success: true, data: { collections: COLLECTIONS } }),
+      } as Response);
+    }
+    if (href === "/api/dynamic-agents/teams") {
+      return Promise.resolve({
+        json: () =>
+          Promise.resolve({
+            success: true,
+            data: [
+              { slug: "super-admins", name: "Super Admins" },
+              { slug: "everyone", name: "Everyone" },
+              { slug: "engineering", name: "Engineering" },
+            ],
+          }),
+      } as Response);
+    }
     return Promise.reject(new Error(`Unexpected fetch: ${href}`));
   });
 }
@@ -64,12 +145,12 @@ describe("ImportRagSourcesFromConfigCard", () => {
 
   it("renders nothing for non-admins", () => {
     render(<ImportRagSourcesFromConfigCard isAdmin={false} />);
-    expect(screen.queryByText("Migrate Ingested RAG Sources")).not.toBeInTheDocument();
+    expect(screen.queryByText("Import Existing RAG Sources")).not.toBeInTheDocument();
   });
 
   it("shows the button and pane for admins", () => {
     render(<ImportRagSourcesFromConfigCard isAdmin />);
-    expect(screen.getByText("Migrate Ingested RAG Sources")).toBeInTheDocument();
+    expect(screen.getByText("Import Existing RAG Sources")).toBeInTheDocument();
     expect(screen.getByTestId("import-rag-sources-from-config-button")).toBeInTheDocument();
     expect(screen.queryByText("Admin")).not.toBeInTheDocument();
   });
@@ -87,8 +168,14 @@ describe("ImportRagSourcesFromConfigCard", () => {
     expect(screen.getByTestId("import-rag-source-checkbox-slack-channel-C2")).toBeDisabled();
     expect(screen.getByText("Already imported")).toBeInTheDocument();
     expect(screen.queryByText("Has config row")).not.toBeInTheDocument();
-    expect(screen.getByText("Destination: Platform RAG")).toBeInTheDocument();
-    expect(screen.getByRole("dialog")).toHaveClass("sm:max-w-[600px]");
+    expect(screen.getByLabelText("Destination collection")).toHaveValue(
+      "platform-rag",
+    );
+    expect(screen.getByText("Owner:").closest("p")).toHaveTextContent(
+      "Owner: Super Admins · Search: Everyone",
+    );
+    expect(screen.getByRole("dialog")).toHaveClass("sm:max-w-[680px]");
+    expect(screen.getByRole("dialog")).not.toHaveClass("min-w-0");
   });
 
   it("applies only the selected source ids to Platform RAG", async () => {
@@ -113,11 +200,37 @@ describe("ImportRagSourcesFromConfigCard", () => {
     expect(applyCall).toBeDefined();
     const body = JSON.parse(String(applyCall![1].body));
     expect(body.source_ids).toEqual(["slack-channel-C3"]);
+    expect(body.destination_collection_id).toBe("platform-rag");
     expect(body).not.toHaveProperty("management_team_slug");
     expect(body).not.toHaveProperty("search_team_slug");
     expect(screen.getByTestId("import-rag-sources-result")).toHaveTextContent(
-      "Imported 1 source.",
+      "Imported editable settings for 1 source.",
     );
+  });
+
+  it("imports into another collection when selected", async () => {
+    render(<ImportRagSourcesFromConfigCard isAdmin />);
+    fireEvent.click(screen.getByTestId("import-rag-sources-from-config-button"));
+
+    const destination = await screen.findByLabelText("Destination collection");
+    fireEvent.change(destination, { target: { value: "engineering-docs" } });
+    expect(screen.getByText("Owner:").closest("p")).toHaveTextContent(
+      "Owner: Engineering · Search: Engineering",
+    );
+
+    fireEvent.click(screen.getByTestId("import-rag-sources-apply-button"));
+
+    await waitFor(() => {
+      const applyCall = (global.fetch as jest.Mock).mock.calls.find(([, init]) => {
+        if (!init?.body) return false;
+        return JSON.parse(String(init.body)).dry_run === false;
+      });
+      expect(JSON.parse(String(applyCall?.[1]?.body))).toEqual(
+        expect.objectContaining({
+          destination_collection_id: "engineering-docs",
+        }),
+      );
+    });
   });
 
   it("deselecting a source excludes it from the apply request", async () => {

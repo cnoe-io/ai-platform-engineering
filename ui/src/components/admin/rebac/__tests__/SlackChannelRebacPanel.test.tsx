@@ -977,12 +977,12 @@ it("discovers bot-member channels and applies defaults after admin consent", asy
   await pickAgent("Dynamic Agent for #new-alerts", "test-april-2025");
   await waitFor(() => {
     expect(
-      screen.getByRole("button", { name: /^Set up 1 channel$/ }),
+      screen.getByRole("button", { name: /^Submit 1 channel$/ }),
     ).toBeEnabled();
   });
 
   fireEvent.click(
-    screen.getByRole("button", { name: /^Set up \d+ channels?$/ }),
+    screen.getByRole("button", { name: /^Submit \d+ channels?$/ }),
   );
 
   await waitFor(() =>
@@ -1156,7 +1156,7 @@ it("shows discovered channel setup feedback as a toast without shifting the acti
   await pickAgent("Dynamic Agent for #new-alerts", "test-april-2025");
 
   const applyButton = screen.getByRole("button", {
-    name: /^Set up \d+ channels?$/,
+    name: /^Submit \d+ channels?$/,
   });
   fireEvent.click(applyButton);
 

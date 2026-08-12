@@ -50,7 +50,9 @@ export function BuiltInResourceHint({
             <CircleHelp className="h-3.5 w-3.5" aria-hidden="true" />
           </span>
         </TooltipTrigger>
-        <TooltipContent className="max-w-64 text-left">{text}</TooltipContent>
+        <TooltipContent className="max-w-64 overflow-hidden whitespace-normal break-words text-left">
+          {text}
+        </TooltipContent>
       </Tooltip>
     </TooltipProvider>
   );

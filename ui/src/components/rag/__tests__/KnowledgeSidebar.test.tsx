@@ -6,10 +6,11 @@
  * feature-gated navigation instead of rendering a dead control.
  */
 
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 
+let mockPathname = "/knowledge-bases/search";
 jest.mock("next/navigation", () => ({
-  usePathname: () => "/knowledge-bases/search",
+  usePathname: () => mockPathname,
   useRouter: () => ({ push: jest.fn() }),
 }));
 
@@ -98,13 +99,7 @@ describe("<KnowledgeSidebar />", () => {
       mcp_tools: true,
       has_any_kb: true,
     });
-    render(
-      <KnowledgeSidebar
-        collapsed={false}
-        onCollapse={() => {}}
-        graphRagEnabled={true}
-      />,
-    );
+    render(<KnowledgeSidebar graphRagEnabled={true} />);
 
     fireEvent.click(screen.getByTestId("kb-link-/knowledge-bases/search"));
 

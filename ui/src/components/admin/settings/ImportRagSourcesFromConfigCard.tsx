@@ -11,8 +11,8 @@
  *
  * Flow: the preview lists sources originating in environment configuration,
  * including disabled rows for prior imports. Applying creates editable
- * settings where supported and adds the sources to Platform RAG without
- * changing that collection's Owner or Search access.
+ * settings where supported and adds the sources to the selected collection
+ * without changing that collection's Owner or Search access.
  */
 
 import { AlertTriangle, FileUp, Loader2 } from "lucide-react";
@@ -35,6 +35,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import {
+  PLATFORM_RAG_COLLECTION_ID,
+  type RagCollectionWithPermissions,
+} from "@/types/rag-collection";
 
 interface PreviewSource {
   source_id: string;
@@ -53,6 +58,11 @@ type SkipReason =
 interface AdoptSkip {
   source_id: string;
   reason: SkipReason;
+}
+
+interface TeamRow {
+  slug?: string;
+  name?: string;
 }
 
 const SKIP_REASON_LABEL: Record<SkipReason, string> = {
@@ -76,11 +86,19 @@ export function ImportRagSourcesFromConfigCard({
   const [error, setError] = useState<string | null>(null);
   const [previewSources, setPreviewSources] = useState<PreviewSource[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [platformSourceCount, setPlatformSourceCount] = useState(0);
+  const [legacySourceCount, setLegacySourceCount] = useState(0);
+  const [collections, setCollections] = useState<
+    RagCollectionWithPermissions[]
+  >([]);
+  const [teams, setTeams] = useState<TeamRow[]>([]);
+  const [destinationCollectionId, setDestinationCollectionId] = useState(
+    PLATFORM_RAG_COLLECTION_ID,
+  );
   const [result, setResult] = useState<{
     adopted: string[];
     skipped: AdoptSkip[];
-    platformSourceCount: number;
+    destinationName: string;
+    destinationSourceCount: number;
     agentsUpdated: number;
   } | null>(null);
 
@@ -90,6 +108,7 @@ export function ImportRagSourcesFromConfigCard({
     setLoading(true);
     setError(null);
     setResult(null);
+    setDestinationCollectionId(PLATFORM_RAG_COLLECTION_ID);
     (async () => {
       try {
         const previewRes = await fetch(
@@ -100,28 +119,55 @@ export function ImportRagSourcesFromConfigCard({
             body: JSON.stringify({ dry_run: true }),
           },
         ).then((response) => response.json());
-        if (cancelled) return;
-        if (previewRes.success) {
-          const sources = (
-            (previewRes.data?.sources ?? []) as PreviewSource[]
-          ).filter((source) => source.importable || source.already_adopted);
-          setPlatformSourceCount(
-            previewRes.data?.platform_collection?.source_count ?? 0,
-          );
-          setPreviewSources(sources);
-          setSelectedIds(
-            new Set(
-              sources.filter((s) => s.importable).map((s) => s.source_id),
-            ),
-          );
-        } else {
-          setError(
-            previewRes.error ||
-              "Could not load sources from environment configuration",
+        if (!previewRes.success) {
+          throw new Error(
+            previewRes.error || "Could not load sources from deployment settings",
           );
         }
-      } catch {
-        if (!cancelled) setError("Could not load the source preview");
+        const [collectionRes, teamRes] = await Promise.all([
+          fetch("/api/rag/collections").then((response) => response.json()),
+          fetch("/api/dynamic-agents/teams").then((response) => response.json()),
+        ]);
+        if (cancelled) return;
+        if (!collectionRes?.success) {
+          throw new Error(collectionRes?.error || "Could not load collections");
+        }
+        const availableCollections = (
+          (collectionRes.data?.collections ?? []) as RagCollectionWithPermissions[]
+        ).filter(
+          (collection) =>
+            collection._permissions.can_publish || collection._permissions.can_manage,
+        );
+        if (availableCollections.length === 0) {
+          throw new Error("No collection is available for this import");
+        }
+        const defaultDestination =
+          availableCollections.find(
+            (collection) => collection._id === PLATFORM_RAG_COLLECTION_ID,
+          ) ?? availableCollections[0];
+        const sources = (
+          (previewRes.data?.sources ?? []) as PreviewSource[]
+        ).filter((source) => source.importable || source.already_adopted);
+        setLegacySourceCount(previewRes.data?.legacy_source_count ?? sources.length);
+        setPreviewSources(sources);
+        setCollections(availableCollections);
+        setTeams(
+          teamRes?.success && Array.isArray(teamRes.data) ? teamRes.data : [],
+        );
+        setDestinationCollectionId(defaultDestination._id);
+        setSelectedIds(
+          new Set(
+            sources.filter((s) => s.importable).map((s) => s.source_id),
+          ),
+        );
+      } catch (loadError) {
+        if (!cancelled) {
+          setError(
+            loadError instanceof Error
+              ? loadError.message
+              : "Could not load the source preview",
+          );
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -151,6 +197,7 @@ export function ImportRagSourcesFromConfigCard({
         body: JSON.stringify({
           dry_run: false,
           source_ids: Array.from(selectedIds),
+          destination_collection_id: destinationCollectionId,
         }),
       });
       const data = await res.json();
@@ -161,8 +208,13 @@ export function ImportRagSourcesFromConfigCard({
       setResult({
         adopted: data.data.adopted ?? [],
         skipped: data.data.skipped ?? [],
-        platformSourceCount: data.data.platform_collection?.source_count ?? 0,
-        agentsUpdated: data.data.platform_collection?.agents_updated ?? 0,
+        destinationName:
+          collections.find(
+            (collection) => collection._id === destinationCollectionId,
+          )?.name ?? "the selected collection",
+        destinationSourceCount:
+          data.data.destination_collection?.source_count ?? 0,
+        agentsUpdated: data.data.destination_collection?.agents_updated ?? 0,
       });
       setPreviewSources((prev) =>
         prev.map((s) =>
@@ -186,14 +238,34 @@ export function ImportRagSourcesFromConfigCard({
 
   if (!isAdmin) return null;
 
+  const destinationCollection = collections.find(
+    (collection) => collection._id === destinationCollectionId,
+  );
+  const teamName = (slug: string): string =>
+    teams.find((team) => team.slug === slug)?.name ??
+    slug
+      .split("-")
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(" ");
+  const ownerLabel = destinationCollection?.maintainer_team_slugs.length
+    ? destinationCollection.maintainer_team_slugs.map(teamName).join(", ")
+    : "Personal owner";
+  const searchLabel = destinationCollection?.global_read
+    ? "Everyone"
+    : destinationCollection?.reader_team_slugs.length
+      ? destinationCollection.reader_team_slugs.map(teamName).join(", ")
+      : "Owner only";
+
   return (
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          Migrate Ingested RAG Sources
+          Import Existing RAG Sources
         </CardTitle>
         <CardDescription>
-          Import sources from environment configuration into Platform RAG.
+          Bring existing sources into Knowledge Bases without ingesting them
+          again.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -208,20 +280,18 @@ export function ImportRagSourcesFromConfigCard({
           data-testid="import-rag-sources-from-config-button"
         >
           <FileUp className="h-4 w-4" />
-          Migrate Sources
+          Review Sources
         </Button>
       </CardContent>
 
       <Dialog open={open} onOpenChange={(next) => !applying && setOpen(next)}>
-        <DialogContent className="flex max-h-[85vh] w-[calc(100vw-2rem)] min-w-0 flex-col overflow-visible sm:max-w-[600px]">
+        <DialogContent className="flex max-h-[85vh] w-[calc(100vw-2rem)] flex-col overflow-visible sm:max-w-[680px]">
           <DialogHeader>
-            <DialogTitle>Migrate ingested RAG sources</DialogTitle>
+            <DialogTitle>Import existing RAG sources</DialogTitle>
             <DialogDescription>
               <span className="block">
-                Import sources from environment configuration into Platform RAG.
-              </span>
-              <span className="mt-1 block">
-                Platform RAG keeps its current Owner and Search access.
+                Choose where to add sources that were configured when this
+                platform was deployed. Their indexed content stays in place.
               </span>
             </DialogDescription>
           </DialogHeader>
@@ -248,12 +318,13 @@ export function ImportRagSourcesFromConfigCard({
                     className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-300"
                     data-testid="import-rag-sources-result"
                   >
-                    Platform RAG now contains {result.platformSourceCount} source
-                    {result.platformSourceCount === 1 ? "" : "s"}.
+                    Added the sources to {result.destinationName}. The
+                    collection now contains {result.destinationSourceCount} source
+                    {result.destinationSourceCount === 1 ? "" : "s"}.
                     {result.adopted.length > 0 && (
                       <>
                         {" "}
-                        Imported {result.adopted.length} source
+                        Imported editable settings for {result.adopted.length} source
                         {result.adopted.length === 1 ? "" : "s"}.
                       </>
                     )}
@@ -276,10 +347,63 @@ export function ImportRagSourcesFromConfigCard({
                   </div>
                 )}
 
+                <div className="space-y-2 rounded-md border p-3">
+                  <Label htmlFor="rag-import-destination" className="block">
+                    Destination collection
+                  </Label>
+                  <select
+                    id="rag-import-destination"
+                    value={destinationCollectionId}
+                    onChange={(event) =>
+                      setDestinationCollectionId(event.target.value)
+                    }
+                    disabled={applying || collections.length === 0}
+                    className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                  >
+                    {collections.map((collection) => (
+                      <option key={collection._id} value={collection._id}>
+                        {collection.name}
+                        {collection.is_platform ? " (recommended)" : ""}
+                      </option>
+                    ))}
+                  </select>
+                  {destinationCollection && (
+                    <div className="space-y-1 text-xs leading-relaxed text-muted-foreground">
+                      <p>
+                        Imported sources use this collection&apos;s current
+                        access.
+                        {destinationCollection.is_platform
+                          ? " Platform RAG is recommended because it keeps the shared access used before Knowledge Bases were managed here."
+                          : ""}
+                      </p>
+                      <p>
+                        <span className="font-medium text-foreground">Owner:</span>{" "}
+                        {ownerLabel}
+                        <span aria-hidden="true"> · </span>
+                        <span className="font-medium text-foreground">Search:</span>{" "}
+                        {searchLabel}
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="min-w-0 space-y-1 break-words text-xs text-muted-foreground">
+                  <p>
+                    Found {legacySourceCount} existing source
+                    {legacySourceCount === 1 ? "" : "s"}. All will be added to{" "}
+                    {destinationCollection?.name ?? "the selected collection"}.
+                  </p>
+                  <p>
+                    The checklist controls which supported connector settings
+                    become editable here. Sources that are not listed or
+                    selected are still added to the collection.
+                  </p>
+                </div>
+
                 {previewSources.length === 0 ? (
                   <p className="text-sm text-muted-foreground">
-                    No sources from environment configuration are available to
-                    import. You can still update Platform RAG access below.
+                    No connector settings can be imported. The sources can
+                    still be added to the collection.
                   </p>
                 ) : (
                   <div
@@ -311,20 +435,6 @@ export function ImportRagSourcesFromConfigCard({
                   </div>
                 )}
 
-                <p className="min-w-0 break-words text-xs text-muted-foreground">
-                  Platform RAG will include {platformSourceCount} source
-                  {platformSourceCount === 1 ? "" : "s"} from environment
-                  configuration. Other configured sources are included
-                  automatically, even when they are not listed above.
-                </p>
-
-                <div className="rounded-md border p-3">
-                  <p className="text-sm font-medium">Destination: Platform RAG</p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Imported sources use Platform RAG&apos;s Owner and Search
-                    access while they remain in the collection.
-                  </p>
-                </div>
               </div>
             )}
           </div>
@@ -341,12 +451,14 @@ export function ImportRagSourcesFromConfigCard({
             <Button
               type="button"
               onClick={handleApply}
-              disabled={loading || applying}
+              disabled={
+                loading || applying || !destinationCollectionId
+              }
               className="gap-2"
               data-testid="import-rag-sources-apply-button"
             >
               {applying && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-              Migrate to Platform RAG
+              Import to {destinationCollection?.name ?? "collection"}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -11,6 +11,7 @@ DiagnosticRoute,
 ItemSummary,
 RuntimeSyncSummary,
 } from "./connector-admin-adapter";
+import { parsePendingConnectorPublication } from "./connector-admin-adapter";
 import { ConnectorAdminPanel } from "./ConnectorAdminPanel";
 import { SlackConfiguredChannelDetail } from "./slack/SlackConfiguredChannelDetail";
 import { SlackVictoropsAgentSetting } from "./SlackVictoropsAgentSetting";
@@ -35,6 +36,26 @@ function formatSlackChannelName(value: unknown): string {
   const name = String(value ?? "").trim();
   if (!name) return "";
   return name.startsWith("#") ? name : `#${name}`;
+}
+
+async function responseErrorMessage(
+  response: Response,
+  fallback: string,
+): Promise<string> {
+  const text = await response.text().catch(() => "");
+  if (!text) return fallback;
+  try {
+    const payload = JSON.parse(text) as { error?: unknown; message?: unknown };
+    if (typeof payload.error === "string" && payload.error.trim()) {
+      return payload.error;
+    }
+    if (typeof payload.message === "string" && payload.message.trim()) {
+      return payload.message;
+    }
+  } catch {
+    // Plain-text responses are already suitable for the toast.
+  }
+  return text;
 }
 
 const SLACK_ADAPTER: ConnectorAdminAdapter = {
@@ -110,6 +131,7 @@ const SLACK_ADAPTER: ConnectorAdminAdapter = {
               ? ch.configured_agent_name
               : undefined,
           memberCount: typeof ch.num_members === "number" ? ch.num_members : undefined,
+          pendingApproval: parsePendingConnectorPublication(ch.pending_publication),
           secondary: [
             String(ch.id ?? ""),
             typeof ch.num_members === "number" ? pluralize(ch.num_members, "member") : "",
@@ -212,7 +234,7 @@ const SLACK_ADAPTER: ConnectorAdminAdapter = {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ agent_id: route.agent_id }),
       });
-      if (!res.ok) throw new Error(await res.text());
+      if (!res.ok) throw new Error(await responseErrorMessage(res, "Could not update Slack routing"));
       return { toast: `Removed inactive routing rules for ${route.agent_id}.` };
     }
     const currentRoute = routes.find((entry) => entry.agent_id === route.agent_id);
@@ -233,7 +255,7 @@ const SLACK_ADAPTER: ConnectorAdminAdapter = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ routes: nextRoutes }),
     });
-    if (!res.ok) throw new Error(await res.text());
+    if (!res.ok) throw new Error(await responseErrorMessage(res, "Could not update Slack routing"));
     const data = apiData<{ routes: typeof routes }>(await res.json());
     return {
       toast: `Saved default routing for ${route.agent_id} (@mentions only).`,
@@ -257,7 +279,7 @@ const SLACK_ADAPTER: ConnectorAdminAdapter = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ routes: nextRoutes }),
     });
-    if (!res.ok) throw new Error(await res.text());
+    if (!res.ok) throw new Error(await responseErrorMessage(res, "Could not update Slack routing"));
     const data = apiData<{ routes: typeof routes }>(await res.json());
     return {
       toast: "Routing issues fixed: saved missing rules and set a clear primary agent priority.",
@@ -299,10 +321,13 @@ const SLACK_ADAPTER: ConnectorAdminAdapter = {
         } : {}),
       }),
     });
-    if (!res.ok) throw new Error(await res.text());
+    if (!res.ok) throw new Error(await responseErrorMessage(res, "Could not submit Slack channels"));
     const data = apiData<{
       summary: Record<string, number>;
-      publication_requests?: Array<{ item_id?: string }>;
+      publication_requests?: Array<{
+        item_id?: string;
+        approver_team_slugs?: string[];
+      }>;
       applied?: Array<{ item_id?: string }>;
     }>(await res.json());
     const s = data.summary;
@@ -312,13 +337,20 @@ const SLACK_ADAPTER: ConnectorAdminAdapter = {
     const appliedItemIds = (data.applied ?? [])
       .map((item) => item.item_id ?? "")
       .filter(Boolean);
+    const pendingApproverTeamSlugs = Array.from(new Set(
+      (data.publication_requests ?? []).flatMap((item) =>
+        Array.isArray(item.approver_team_slugs) ? item.approver_team_slugs : [],
+      ),
+    ));
     return {
       toastMessage: pendingItemIds.length > 0
-        ? `${pendingItemIds.length} Slack channel${pendingItemIds.length === 1 ? " is" : "s are"} waiting for publication approval${appliedItemIds.length > 0 ? `; ${appliedItemIds.length} onboarded immediately` : ""}.`
+        ? `${pendingItemIds.length} Slack channel${pendingItemIds.length === 1 ? "" : "s"} submitted${appliedItemIds.length > 0 ? `; ${appliedItemIds.length} onboarded immediately` : ""}.`
         : selectedImports.length > 0
           ? `Discovered defaults applied: onboarded ${s.channels_onboarded ?? s.onboarded ?? 0} channels, assigned ${s.channels_assigned_team ?? 0} channels, ensured ${s.channel_grants_ensured ?? 0} channel grants, ensured ${s.routes_ensured ?? 0} routes, preserved ${s.routes_preserved ?? 0} existing routes.`
         : `Slack channel association defaults applied: assigned ${s.channels_assigned_team} channels, ensured ${s.channel_grants_ensured} channel grants, ensured ${s.routes_ensured} routes.`,
-      ...(data.publication_requests ? { pendingItemIds, appliedItemIds } : {}),
+      ...(data.publication_requests
+        ? { pendingItemIds, appliedItemIds, pendingApproverTeamSlugs }
+        : {}),
     };
   },
 

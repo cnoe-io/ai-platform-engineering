@@ -4,11 +4,12 @@ import { NextRequest } from "next/server";
 
 const mockCallWebexBotAdmin = jest.fn();
 const mockRequireResourcePermission = jest.fn();
+const mockActiveConnectorPublicationRequestsByItemId = jest.fn();
 
 jest.mock("@/lib/api-middleware", () => ({
   getAuthFromBearerOrSession: jest.fn(async () => ({
     user: { email: "admin@example.com" },
-    session: { user: { email: "admin@example.com" } },
+    session: { sub: "admin-sub", user: { email: "admin@example.com" } },
   })),
   successResponse: (data: unknown) => Response.json({ success: true, data }),
   withErrorHandler: (handler: (request: NextRequest) => Promise<Response>) => handler,
@@ -35,6 +36,29 @@ jest.mock("@/lib/rbac/discovery-cache-config", () => ({
   getDiscoveryCacheTtlMs: jest.fn(async () => 3_600_000),
 }));
 
+jest.mock("@/lib/publication-approval.server", () => ({
+  activeConnectorPublicationRequestsByItemId: (...args: unknown[]) =>
+    mockActiveConnectorPublicationRequestsByItemId(...args),
+  publicationActorFromSession: (session: { sub?: string }) => ({
+    subject: session.sub ?? "",
+  }),
+  connectorPublicationRequestView: (
+    request: Record<string, unknown>,
+    actor: { subject: string },
+  ) => ({
+    id: request._id,
+    status: request.status,
+    requester: request.requester,
+    requester_is_viewer:
+      (request.requester as { subject: string }).subject === actor.subject,
+    team_slug: "team-primary",
+    agent_id: "agent-primary",
+    bot_id: "primary",
+    approver_team_slugs: ["reviewers"],
+    approver_user_subjects: [],
+  }),
+}));
+
 const bots = [
   { id: "primary", name: "Primary", available: true },
   { id: "secondary", name: "Secondary", available: true },
@@ -57,6 +81,7 @@ describe("GET /api/admin/webex/available-spaces", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockRequireResourcePermission.mockResolvedValue(undefined);
+    mockActiveConnectorPublicationRequestsByItemId.mockResolvedValue(new Map());
     mockCallWebexBotAdmin.mockImplementation(async (path: string) => {
       if (path === "/admin/webex/bots") return { bots };
       if (path === "/admin/webex/bots/primary/spaces") {
@@ -80,7 +105,7 @@ describe("GET /api/admin/webex/available-spaces", () => {
     await GET(new NextRequest("http://localhost/api/admin/webex/available-spaces"));
 
     expect(mockRequireResourcePermission).toHaveBeenCalledWith(
-      { user: { email: "admin@example.com" } },
+      { sub: "admin-sub", user: { email: "admin@example.com" } },
       { type: "admin_surface", id: "webex", action: "read" },
       { bypassForOrgAdmin: true },
     );

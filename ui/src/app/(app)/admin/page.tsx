@@ -1428,7 +1428,7 @@ function AdminPage() {
           <WorkspacePageHeader
             actions={(
               <>
-                {isAdmin ? (
+                {isAdmin && (
                   <button
                     type="button"
                     onClick={() => setSimulationDialogOpen(true)}
@@ -1445,11 +1445,6 @@ function AdminPage() {
                       'View as'
                     )}
                   </button>
-                ) : (
-                  <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/15 px-3 py-1 text-xs font-medium text-amber-600 dark:text-amber-400">
-                    <Eye className="h-3.5 w-3.5" />
-                    Read-Only
-                  </span>
                 )}
                 <CrawlConsoleHeaderPill />
               </>

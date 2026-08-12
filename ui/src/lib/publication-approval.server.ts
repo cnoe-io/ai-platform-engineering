@@ -3,6 +3,10 @@ import type { Collection } from "mongodb";
 
 import { ApiError } from "@/lib/api-error";
 import { reconcileTupleDiff } from "@/lib/authz";
+import {
+  archiveInAppNotifications,
+  createInAppNotification,
+} from "@/lib/in-app-notifications.server";
 import { getCollection } from "@/lib/mongodb";
 import {
   getPublicationApprovalSettings,
@@ -18,7 +22,10 @@ import type {
   PublicationApprovalSettings,
   PublicationAuditAction,
   PublicationPolicyPlan,
+  PendingConnectorPublicationRequestView,
   PublicationRequestDocument,
+  PublicationRequestPage,
+  PublicationRequestSummary,
   PublicationRequestStatus,
   PublicationResourceKind,
   PublicationResourceRef,
@@ -27,6 +34,70 @@ import type {
 const REQUEST_COLLECTION = "publication_requests";
 const ACTIVE_STATUSES: PublicationRequestStatus[] = ["pending", "applying"];
 const APPLY_LEASE_MS = 5 * 60 * 1000;
+
+function publicationNotificationKey(
+  requestId: string,
+  event: "requested" | "approved" | "rejected",
+): string {
+  return `publication:${requestId}:${event}`;
+}
+
+function actorDisplayName(actor: PublicationActor): string {
+  return actor.name || actor.email || "A user";
+}
+
+async function notifyPublicationRequestCreated(
+  request: PublicationRequestDocument,
+): Promise<void> {
+  try {
+    await createInAppNotification({
+      eventKey: publicationNotificationKey(request._id, "requested"),
+      recipientUserSubjects: request.approver_user_subjects,
+      recipientTeamSlugs: request.approver_team_slugs,
+      recipientOrganizationAdmins: true,
+      title: "Approval needed",
+      message: `${actorDisplayName(request.requester)} submitted a publication request.`,
+      href: `/admin?cat=security&tab=approvals&request=${encodeURIComponent(request._id)}`,
+      severity: "warning",
+    });
+  } catch (error) {
+    console.error("[publication-approval] could not create reviewer notification", error);
+  }
+}
+
+async function notifyPublicationRequestDecision(
+  request: PublicationRequestDocument,
+  decision: "approved" | "rejected",
+  actor: PublicationActor,
+): Promise<void> {
+  try {
+    await archiveInAppNotifications([
+      publicationNotificationKey(request._id, "requested"),
+    ]);
+    await createInAppNotification({
+      eventKey: publicationNotificationKey(request._id, decision),
+      recipientUserSubjects: [request.requester.subject],
+      title: decision === "approved" ? "Request approved" : "Request rejected",
+      message: decision === "rejected" && request.decision_note?.trim()
+        ? `${request.resource.label} was rejected by ${actorDisplayName(actor)}. Reason: ${request.decision_note.trim()}`
+        : `${request.resource.label} was ${decision} by ${actorDisplayName(actor)}.`,
+      href: `/admin?cat=security&tab=approvals&view=history&request=${encodeURIComponent(request._id)}`,
+      severity: decision === "approved" ? "success" : "error",
+    });
+  } catch (error) {
+    console.error("[publication-approval] could not create decision notification", error);
+  }
+}
+
+async function archivePublicationRequestNotification(requestId: string): Promise<void> {
+  try {
+    await archiveInAppNotifications([
+      publicationNotificationKey(requestId, "requested"),
+    ]);
+  } catch (error) {
+    console.error("[publication-approval] could not archive reviewer notification", error);
+  }
+}
 
 export interface PublicationSession {
   sub?: unknown;
@@ -104,8 +175,13 @@ export interface PublicationRequestListOptions {
   statuses?: PublicationRequestStatus[];
   kinds?: PublicationResourceKind[];
   resourceIds?: string[];
+  requestIds?: string[];
   mine?: boolean;
-  limit?: number;
+}
+
+export interface PublicationRequestPageOptions extends PublicationRequestListOptions {
+  page?: number;
+  pageSize?: number;
 }
 
 function normalizedStrings(values: unknown): string[] {
@@ -752,14 +828,26 @@ async function supersedePendingPublicationRequests(input: {
       },
     } as never,
   );
+  const replaced = await input.collection
+    .find({
+      "resource.kind": input.resource.kind,
+      "resource.id": input.resource.id,
+      status: "superseded",
+      decided_at: input.at,
+      _id: { $ne: input.replacementId },
+    } as never)
+    .toArray();
+  await Promise.all(replaced.map((request) =>
+    archivePublicationRequestNotification(request._id)
+  ));
 }
 
 /**
  * Leave one deterministic pending proposal for a resource.
  *
- * Request creation can race across UI replicas. Selecting the newest persisted
- * proposal (with `_id` as a stable same-millisecond tie-breaker) prevents two
- * creators from superseding each other and leaving no request to review.
+ * Request creation can race across UI replicas. Selecting the first persisted
+ * proposal (with `_id` as a stable same-millisecond tie-breaker) preserves
+ * first-writer ownership so a simultaneous request cannot replace it.
  */
 async function coalescePendingPublicationRequests(input: {
   collection: Collection<PublicationRequestDocument>;
@@ -771,7 +859,7 @@ async function coalescePendingPublicationRequests(input: {
       "resource.id": input.resource.id,
       status: "pending",
     } as never)
-    .sort({ created_at: -1, _id: -1 })
+    .sort({ created_at: 1, _id: 1 })
     .limit(1)
     .toArray();
   const winner = pending[0];
@@ -816,7 +904,10 @@ export async function createPublicationRequest(
     collection,
     resource: input.resource,
   });
-  if (!winner || winner._id === id) return document;
+  if (!winner || winner._id === id) {
+    await notifyPublicationRequestCreated(document);
+    return document;
+  }
   const supersededAt = new Date().toISOString();
   return {
     ...document,
@@ -903,6 +994,15 @@ export async function invalidatePublicationRequests(
     "resource.id": resource.id,
     status: "applying",
   } as never);
+  const invalidated = await collection.find({
+    "resource.kind": resource.kind,
+    "resource.id": resource.id,
+    status: "superseded",
+    decided_at: now,
+  } as never).toArray();
+  await Promise.all(invalidated.map((request) =>
+    archivePublicationRequestNotification(request._id)
+  ));
   if (applying) {
     throw new ApiError(
       "An approval is being applied to this resource. Try again in a moment.",
@@ -911,6 +1011,170 @@ export async function invalidatePublicationRequests(
     );
   }
   return result.modifiedCount;
+}
+
+/**
+ * Replace a connector-onboarding proposal without letting one requester
+ * overwrite another person's pending request.
+ */
+export async function replacePendingConnectorPublicationRequest(
+  resource: PublicationResourceRef,
+  actor: PublicationActor,
+  note: string,
+): Promise<number> {
+  if (resource.kind !== "slack_channel" && resource.kind !== "webex_space") {
+    throw new ApiError("Connector request replacement requires a chat resource", 400);
+  }
+  const collection = await getCollection<PublicationRequestDocument>(REQUEST_COLLECTION);
+  const applying = await collection.findOne({
+    "resource.kind": resource.kind,
+    "resource.id": resource.id,
+    status: "applying",
+  } as never);
+  if (applying) {
+    throw new ApiError(
+      "This request is already being approved. Try again in a moment.",
+      409,
+      "PUBLICATION_APPLY_IN_PROGRESS",
+    );
+  }
+  const pending = await collection
+    .find({
+      "resource.kind": resource.kind,
+      "resource.id": resource.id,
+      status: "pending",
+    } as never)
+    .sort({ created_at: -1, _id: -1 })
+    .toArray();
+  const owned = pending.filter((request) => request.requester.subject === actor.subject);
+  const someoneElses = pending.find(
+    (request) => request.requester.subject !== actor.subject,
+  );
+  if (someoneElses) {
+    throw new ApiError(
+      `${resource.label} already has a request from ${actorDisplayName(someoneElses.requester)}.`,
+      409,
+      "PUBLICATION_REQUEST_OWNED_BY_ANOTHER_USER",
+    );
+  }
+  if (owned.length === 0) return 0;
+  const now = new Date().toISOString();
+  const result = await collection.updateMany(
+    {
+      "resource.kind": resource.kind,
+      "resource.id": resource.id,
+      "requester.subject": actor.subject,
+      status: "pending",
+    } as never,
+    {
+      $set: { status: "superseded", updated_at: now, decided_at: now },
+      $push: {
+        history: auditEntry("superseded", actor, now, {
+          note,
+          from_status: "pending",
+          to_status: "superseded",
+        }),
+      },
+    } as never,
+  );
+  const applyingAfterUpdate = await collection.findOne({
+    "resource.kind": resource.kind,
+    "resource.id": resource.id,
+    status: "applying",
+  } as never);
+  const replaced = await collection.find({
+    "resource.kind": resource.kind,
+    "resource.id": resource.id,
+    "requester.subject": actor.subject,
+    status: "superseded",
+    decided_at: now,
+  } as never).toArray();
+  await Promise.all(replaced.map((request) =>
+    archivePublicationRequestNotification(request._id)
+  ));
+  if (applyingAfterUpdate) {
+    throw new ApiError(
+      "This request is already being approved. Try again in a moment.",
+      409,
+      "PUBLICATION_APPLY_IN_PROGRESS",
+    );
+  }
+  return result.modifiedCount;
+}
+
+function connectorItemId(
+  request: PublicationRequestDocument,
+): string | null {
+  if (request.resource.kind === "webex_space") {
+    return typeof request.requested_state.space_id === "string"
+      ? request.requested_state.space_id
+      : null;
+  }
+  if (request.resource.kind !== "slack_channel") return null;
+  const defaults = request.requested_state.channel_defaults;
+  if (!Array.isArray(defaults)) return null;
+  const first = defaults[0];
+  if (!first || typeof first !== "object" || Array.isArray(first)) return null;
+  const row = first as Record<string, unknown>;
+  return typeof row.channel_id === "string"
+    ? row.channel_id
+    : typeof row.id === "string"
+      ? row.id
+      : null;
+}
+
+/** One batched lookup used to annotate connector discovery pages. */
+export async function activeConnectorPublicationRequestsByItemId(
+  kind: "slack_channel" | "webex_space",
+  itemIds: string[],
+): Promise<Map<string, PublicationRequestDocument>> {
+  const ids = normalizedStrings(itemIds);
+  if (ids.length === 0) return new Map();
+  const itemField = kind === "slack_channel"
+    ? "requested_state.channel_defaults.channel_id"
+    : "requested_state.space_id";
+  const collection = await getCollection<PublicationRequestDocument>(REQUEST_COLLECTION);
+  const requests = await collection
+    .find({
+      "resource.kind": kind,
+      status: { $in: ACTIVE_STATUSES },
+      [itemField]: { $in: ids },
+    } as never)
+    .sort({ updated_at: -1, _id: -1 })
+    .limit(ids.length)
+    .toArray();
+  const result = new Map<string, PublicationRequestDocument>();
+  for (const request of requests) {
+    const itemId = connectorItemId(request);
+    if (itemId && !result.has(itemId)) result.set(itemId, request);
+  }
+  return result;
+}
+
+export function connectorPublicationRequestView(
+  request: PublicationRequestDocument,
+  viewer: PublicationActor,
+): PendingConnectorPublicationRequestView {
+  if (request.status !== "pending" && request.status !== "applying") {
+    throw new ApiError("Connector request is no longer pending", 409);
+  }
+  return {
+    id: request._id,
+    status: request.status,
+    requester: request.requester,
+    requester_is_viewer: request.requester.subject === viewer.subject,
+    team_slug: typeof request.requested_state.team_slug === "string"
+      ? request.requested_state.team_slug
+      : "",
+    agent_id: typeof request.requested_state.agent_id === "string"
+      ? request.requested_state.agent_id
+      : "",
+    ...(typeof request.requested_state.bot_id === "string"
+      ? { bot_id: request.requested_state.bot_id }
+      : {}),
+    approver_team_slugs: request.approver_team_slugs,
+    approver_user_subjects: request.approver_user_subjects ?? [],
+  };
 }
 
 /**
@@ -949,6 +1213,14 @@ export async function invalidatePublicationRequestsReferencingDatasource(
     ...resourceQuery,
     status: "applying",
   } as never);
+  const invalidated = await collection.find({
+    ...resourceQuery,
+    status: "superseded",
+    decided_at: now,
+  } as never).toArray();
+  await Promise.all(invalidated.map((request) =>
+    archivePublicationRequestNotification(request._id)
+  ));
   if (applying) {
     throw new ApiError(
       "An approval that references this datasource is being applied. Try again in a moment.",
@@ -1012,39 +1284,147 @@ async function recoverStaleApplyingRequests(): Promise<void> {
   }
 }
 
-export async function listPublicationRequestsForActor(
+interface PublicationReviewerAccess {
+  query: Record<string, unknown> | null;
+  canApprove: boolean;
+  canManage: boolean;
+}
+
+function reviewerSelected(
   actor: PublicationActor,
-  options: PublicationRequestListOptions = {},
-): Promise<PublicationRequestDocument[]> {
-  await recoverStaleApplyingRequests();
-  const collection = await getCollection<PublicationRequestDocument>(REQUEST_COLLECTION);
+  memberships: Set<string>,
+  users: string[],
+  teams: string[],
+): boolean {
+  return users.includes(actor.subject) || teams.some((slug) => memberships.has(slug));
+}
+
+async function publicationReviewerAccess(
+  actor: PublicationActor,
+): Promise<PublicationReviewerAccess> {
+  const canManage = await canManagePublicationSettings(actor);
+  if (canManage) return { query: {}, canApprove: true, canManage: true };
+  const canApprove = await hasGlobalPublicationApproval(actor);
+  if (!canApprove) return { query: null, canApprove: false, canManage: false };
+
+  const [settings, teamSlugs] = await Promise.all([
+    getPublicationApprovalSettings(),
+    listPublicationActorTeamSlugs(actor, "member"),
+  ]);
+  const memberships = new Set(teamSlugs);
+  const clauses: Record<string, unknown>[] = [];
+
+  if (reviewerSelected(
+    actor,
+    memberships,
+    settings.slack_reviewer_user_subjects,
+    settings.slack_reviewer_team_slugs,
+  )) {
+    clauses.push({ "resource.kind": "slack_channel" });
+  }
+  if (reviewerSelected(
+    actor,
+    memberships,
+    settings.webex_reviewer_user_subjects,
+    settings.webex_reviewer_team_slugs,
+  )) {
+    clauses.push({ "resource.kind": "webex_space" });
+  }
+
+  const ragKinds: PublicationResourceKind[] = ["rag_datasource", "rag_collection"];
+  const ragGlobalTeams = Array.from(new Set([
+    ...settings.rag_reviewer_team_slugs,
+    ...(settings.rag_reviewer_team_delegations["*"] ?? []),
+  ]));
+  const ragGlobalUsers = Array.from(new Set([
+    ...settings.rag_reviewer_user_subjects,
+    ...(settings.rag_reviewer_user_delegations["*"] ?? []),
+  ]));
+  if (reviewerSelected(actor, memberships, ragGlobalUsers, ragGlobalTeams)) {
+    clauses.push({ "resource.kind": { $in: ragKinds } });
+  } else {
+    const targetTeams = Array.from(new Set([
+      ...Object.keys(settings.rag_reviewer_team_delegations),
+      ...Object.keys(settings.rag_reviewer_user_delegations),
+    ]))
+      .filter((target) => target !== "*")
+      .filter((target) => reviewerSelected(
+        actor,
+        memberships,
+        settings.rag_reviewer_user_delegations[target] ?? [],
+        settings.rag_reviewer_team_delegations[target] ?? [],
+      ));
+    if (targetTeams.length > 0) {
+      clauses.push({
+        "resource.kind": { $in: ragKinds },
+        "risk_facts.target_team_slugs": { $in: targetTeams },
+      });
+    }
+  }
+
+  return {
+    query: clauses.length > 0 ? { $or: clauses } : null,
+    canApprove: canApprove && clauses.length > 0,
+    canManage: false,
+  };
+}
+
+function publicationRequestFilter(
+  actor: PublicationActor,
+  options: PublicationRequestListOptions,
+): Record<string, unknown> {
   const statuses = options.statuses?.length ? options.statuses : undefined;
   const kinds = options.kinds?.length ? options.kinds : undefined;
   const resourceIds = options.resourceIds?.length ? options.resourceIds : undefined;
-  const query: Record<string, unknown> = {
+  const requestIds = options.requestIds?.length ? options.requestIds : undefined;
+  return {
+    ...(requestIds ? { _id: { $in: requestIds } } : {}),
     ...(statuses ? { status: { $in: statuses } } : {}),
     ...(kinds ? { "resource.kind": { $in: kinds } } : {}),
     ...(resourceIds ? { "resource.id": { $in: resourceIds } } : {}),
     ...(options.mine ? { "requester.subject": actor.subject } : {}),
   };
-  const rows = await collection
+}
+
+export async function listPublicationRequestsPageForActor(
+  actor: PublicationActor,
+  options: PublicationRequestPageOptions = {},
+): Promise<PublicationRequestPage> {
+  await recoverStaleApplyingRequests();
+  const collection = await getCollection<PublicationRequestDocument>(REQUEST_COLLECTION);
+  const pageSize = Math.min(100, Math.max(1, Math.floor(options.pageSize ?? 20)));
+  const requestedPage = Math.max(1, Math.floor(options.page ?? 1));
+  const base = publicationRequestFilter(actor, options);
+  const access = options.mine
+    ? { query: {}, canApprove: false, canManage: false }
+    : await publicationReviewerAccess(actor);
+  if (!access.query) {
+    return {
+      requests: [],
+      pagination: { page: 1, page_size: pageSize, total: 0, total_pages: 1 },
+    };
+  }
+  const query = Object.keys(access.query).length > 0
+    ? { $and: [base, access.query] }
+    : base;
+  const total = await collection.countDocuments(query as never);
+  const totalPages = total === 0 ? 1 : Math.ceil(total / pageSize);
+  const page = Math.min(requestedPage, totalPages);
+  const requests = await collection
     .find(query as never)
-    .sort({ created_at: -1 })
-    .limit(Math.min(Math.max(options.limit ?? 100, 1), 500))
+    .sort({ created_at: -1, _id: -1 })
+    .skip((page - 1) * pageSize)
+    .limit(pageSize)
     .toArray();
-  if (options.mine || (await canManagePublicationSettings(actor))) return rows;
-  if (!(await hasGlobalPublicationApproval(actor))) return [];
-  const settings = await getPublicationApprovalSettings();
-  const memberships = new Set(await listPublicationActorTeamSlugs(actor, "member"));
-  return rows.filter((request) => {
-    const reviewers = reviewerAssignmentsForResource(
-      request.resource.kind,
-      request.risk_facts.target_team_slugs,
-      settings,
-    );
-    return reviewers.users.includes(actor.subject) ||
-      reviewers.teams.some((slug) => memberships.has(slug));
-  });
+  return {
+    requests,
+    pagination: {
+      page,
+      page_size: pageSize,
+      total,
+      total_pages: totalPages,
+    },
+  };
 }
 
 export async function acquirePublicationRequestForApproval(
@@ -1153,6 +1533,7 @@ export async function completePublicationApproval(
     await grantRequestApplyCapability(applying, actor).catch(() => {});
     throw new ApiError("Publication request is no longer applying", 409);
   }
+  await notifyPublicationRequestDecision(updated, "approved", actor);
   return updated;
 }
 
@@ -1250,6 +1631,7 @@ export async function supersedeApplyingPublicationRequest(
     await grantRequestApplyCapability(applying, actor).catch(() => {});
     throw new ApiError("Publication request is no longer applying", 409);
   }
+  await archivePublicationRequestNotification(updated._id);
   return updated;
 }
 
@@ -1286,6 +1668,7 @@ export async function rejectPublicationRequest(
     { returnDocument: "after" },
   );
   if (!updated) throw new ApiError(`This request is already ${request.status}`, 409);
+  await notifyPublicationRequestDecision(updated, "rejected", actor);
   return updated;
 }
 
@@ -1334,46 +1717,35 @@ export async function cancelPublicationRequest(
       "REQUEST_NOT_PENDING",
     );
   }
+  await archivePublicationRequestNotification(updated._id);
   return updated;
 }
 
 export async function publicationRequestSummary(
   actor: PublicationActor,
-): Promise<{ pending_count: number; can_approve: boolean; can_manage_settings: boolean }> {
+): Promise<PublicationRequestSummary> {
   await recoverStaleApplyingRequests();
-  const canManage = await canManagePublicationSettings(actor);
-  const hasApproval = canManage || (await hasGlobalPublicationApproval(actor));
-  if (!hasApproval) {
-    return {
-      pending_count: 0,
-      can_approve: false,
-      can_manage_settings: false,
-    };
-  }
-  const memberships = canManage
-    ? []
-    : await listPublicationActorTeamSlugs(actor, "member");
   const collection = await getCollection<PublicationRequestDocument>(REQUEST_COLLECTION);
-  const pendingCount = canManage
-    ? await collection.countDocuments({ status: "pending" } as never)
-    : (await (async () => {
-        const settings = await getPublicationApprovalSettings();
-        const membershipSet = new Set(memberships);
-        const pending = await collection.find({ status: "pending" } as never).toArray();
-        return pending.filter((request) => {
-          const reviewers = reviewerAssignmentsForResource(
-            request.resource.kind,
-            request.risk_facts.target_team_slugs,
-            settings,
-          );
-          return reviewers.users.includes(actor.subject) ||
-            reviewers.teams.some((slug) => membershipSet.has(slug));
-        }).length;
-      })());
+  const access = await publicationReviewerAccess(actor);
+  const reviewerQuery = access.query && Object.keys(access.query).length > 0
+    ? { $and: [{ status: { $in: ACTIVE_STATUSES } }, access.query] }
+    : access.query
+      ? { status: { $in: ACTIVE_STATUSES } }
+      : null;
+  const [pendingCount, requesterPendingCount] = await Promise.all([
+    reviewerQuery
+      ? collection.countDocuments(reviewerQuery as never)
+      : Promise.resolve(0),
+    collection.countDocuments({
+      "requester.subject": actor.subject,
+      status: { $in: ACTIVE_STATUSES },
+    } as never),
+  ]);
   return {
     pending_count: pendingCount,
-    can_approve: hasApproval,
-    can_manage_settings: canManage,
+    requester_pending_count: requesterPendingCount,
+    can_approve: access.canApprove,
+    can_manage_settings: access.canManage,
   };
 }
 

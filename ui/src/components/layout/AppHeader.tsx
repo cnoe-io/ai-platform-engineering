@@ -4,14 +4,11 @@ import {
   ApplicationNavigationMenuButton,
   MobileApplicationBrand,
 } from "@/components/layout/ApplicationNavigation";
-import {
-  GuardedNavigationLink,
-  isOnHeaderDialogEditor,
-} from "@/components/layout/GuardedNavigationLink";
+import { isOnHeaderDialogEditor } from "@/components/layout/GuardedNavigationLink";
 import { ReleaseUpgradeDialog } from "@/components/release/ReleaseUpgradeDialog";
+import { NotificationBell } from "@/components/notifications/NotificationBell";
 import { SettingsPanel } from "@/components/settings-panel";
 import { UnsavedChangesDialog } from "@/components/shared/UnsavedChangesDialog";
-import { ReportProblemDialog } from "@/components/ticket/ReportProblemDialog";
 import { Button } from "@/components/ui/button";
 import { GithubIcon as Github } from "@/components/ui/icons";
 import {
@@ -21,25 +18,17 @@ PopoverTrigger,
 } from "@/components/ui/popover";
 import { UserMenu } from "@/components/user-menu";
 import { useAdminRole } from "@/hooks/use-admin-role";
-import { useAgentRuntimeHealth } from "@/hooks/use-agent-runtime-health";
 import { useKeycloakHealthSummary } from "@/hooks/use-keycloak-health-summary";
 import { useMigrationStatus } from "@/hooks/use-migration-status";
-import { usePlatformHealthProbes } from "@/hooks/use-platform-health-probes";
-import { usePublicationApprovalSummary } from "@/hooks/use-publication-approval-summary";
-import { useRAGHealth } from "@/hooks/use-rag-health";
 import { useReleaseUpgradePrompt } from "@/hooks/use-release-upgrade-prompt";
-import { useVersion } from "@/hooks/use-version";
 import { config } from "@/lib/config";
 import { pushWithNavigationProgress } from "@/lib/navigation-progress";
 import { cn } from "@/lib/utils";
 import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
-import { AnimatePresence,motion } from "framer-motion";
 import {
 AlertTriangle,
 BookOpen,
 ChevronRight,
-FileText,
-Loader2,
 } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { usePathname,useRouter } from "next/navigation";
@@ -50,7 +39,6 @@ export function AppHeader() {
   const router = useRouter();
   const { data: session } = useSession();
   const { isAdmin } = useAdminRole();
-  const publicationApprovals = usePublicationApprovalSummary();
   const {
     hasUnsavedChanges,
     pendingNavigationHref,
@@ -80,7 +68,6 @@ export function AppHeader() {
     cancelNavigation();
   }, [cancelNavigation]);
 
-  const [reportDialogOpen, setReportDialogOpen] = React.useState(false);
   // Controlled state for the admin alerts popover. Per-row clicks
   // navigate programmatically (not via an `<a>`
   // inside the popover) because the popover's own outside-click
@@ -99,25 +86,6 @@ export function AppHeader() {
     }
   }, [session, isAdmin]);
 
-  // Health check for the Dynamic Agents runtime API path (polls every 30 seconds)
-  const {
-    status: runtimeStatus,
-  } = useAgentRuntimeHealth();
-  // Health check for RAG server (polls every 30 seconds)
-  const {
-    status: ragStatus
-  } = useRAGHealth();
-  const {
-    status: platformProbeStatus,
-    capabilities: platformCapabilities,
-    secondsUntilNextCheck: platformProbeNextCheck,
-  } = usePlatformHealthProbes();
-
-  // Check if RAG is enabled in config
-  const ragEnabled = config.ragEnabled;
-
-  // Fetch version info
-  const { versionInfo } = useVersion();
   const releasePrompt = useReleaseUpgradePrompt();
   const migrationStatus = useMigrationStatus();
   // Admin-only Keycloak health summary so the header chip can surface
@@ -130,49 +98,6 @@ export function AppHeader() {
   const noAuthStatusText = config.unsafeRbacBypassEnabled
     ? "RBAC bypass is enabled. UI authorization checks allow every operation."
     : "SSO is disabled. This deployment is not enforcing browser sign-in.";
-
-  // Combined status: hard failures from the API path or platform
-  // dependencies mark the system as disconnected; optional RAG failures are
-  // degraded so the core chat/runtime path can still show separately.
-  const getCombinedStatus = () => {
-    if (runtimeStatus === "checking") return "checking";
-    if (ragEnabled && ragStatus === "checking") return "checking";
-    if (platformProbeStatus === "checking") return "checking";
-    if (runtimeStatus === "disconnected") return "disconnected";
-    if (platformProbeStatus === "down") return "disconnected";
-    if (platformProbeStatus === "degraded") return "degraded";
-    if (ragEnabled && ragStatus === "disconnected") return "rag-disconnected";
-    return "connected";
-  };
-
-  const combinedStatus = getCombinedStatus();
-  const combinedStatusLabel =
-    combinedStatus === "connected" ? "Healthy" :
-    combinedStatus === "checking" ? "Checking" :
-    "Degraded";
-  // assisted-by Codex Codex-sonnet-4-6
-  const activeCapabilities = platformCapabilities.filter(
-    (capability) => capability.status !== "disabled",
-  );
-  const [expandedHealthDetails, setExpandedHealthDetails] = React.useState<Set<string>>(
-    () => new Set(),
-  );
-  const toggleHealthDetail = React.useCallback((capabilityId: string) => {
-    setExpandedHealthDetails((current) => {
-      const next = new Set(current);
-      if (next.has(capabilityId)) {
-        next.delete(capabilityId);
-      } else {
-        next.add(capabilityId);
-      }
-      return next;
-    });
-  }, []);
-  const platformHealthLabel =
-    platformProbeStatus === "healthy" ? "Ready" :
-    platformProbeStatus === "degraded" ? "Degraded" :
-    platformProbeStatus === "down" ? "Down" :
-    "Checking";
 
   // Admin-only alerts shown in the right cluster. Sources collapse into
   // a SINGLE pill ("Alerts: <total>") to keep the header uncluttered —
@@ -258,21 +183,7 @@ export function AppHeader() {
           : null,
       ].filter(Boolean) as AdminAlertSource[])
     : [];
-  const adminAlerts: AdminAlertSource[] = [
-    ...(publicationApprovals.can_approve &&
-    publicationApprovals.pending_count > 0
-      ? [
-          {
-            id: "publication_approvals",
-            label: "Publication approvals pending",
-            count: publicationApprovals.pending_count,
-            severity: "amber" as const,
-            href: "/admin/security/approvals",
-          },
-        ]
-      : []),
-    ...adminOnlyAlerts,
-  ];
+  const adminAlerts = adminOnlyAlerts;
   return (
     <>
     <header className="relative z-50 flex h-14 shrink-0 items-center justify-between gap-2 bg-card/50 px-3 backdrop-blur-xl sm:px-4">
@@ -283,197 +194,7 @@ export function AppHeader() {
 
       {/* Status & Actions */}
       <div className="flex shrink-0 items-center gap-1.5">
-        {/* Combined Connection Status */}
         <div className="flex items-center gap-1.5">
-          <Popover>
-            <PopoverTrigger asChild>
-              <button
-                aria-label={`System status: ${combinedStatusLabel}`}
-                className={cn(
-                  "flex items-center gap-1.5 rounded-full text-xs font-medium cursor-pointer transition-all hover:scale-105",
-                  // When connected: fixed square so the lone dot stays a perfect circle
-                  combinedStatus === "connected"
-                    ? "h-8 w-8 justify-center bg-green-500/15 text-green-400 border border-green-500/30 hover:bg-green-500/20"
-                    : "px-2.5 py-1",
-                  combinedStatus === "checking" && "bg-amber-500/15 text-amber-400 border border-amber-500/30 hover:bg-amber-500/20",
-                  combinedStatus === "degraded" && "bg-amber-500/15 text-amber-400 border border-amber-500/30 hover:bg-amber-500/20",
-                  combinedStatus === "rag-disconnected" && "bg-amber-500/15 text-amber-400 border border-amber-500/30 hover:bg-amber-500/20",
-                  combinedStatus === "disconnected" && "bg-red-500/15 text-red-400 border border-red-500/30 hover:bg-red-500/20"
-                )}
-              >
-                {combinedStatus === "checking" ? (
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                ) : (
-                  <div className={cn(
-                    "h-2 w-2 rounded-full shrink-0 transition-colors duration-700",
-                    combinedStatus === "connected" && "bg-green-400",
-                    combinedStatus === "degraded" && "bg-amber-400",
-                    combinedStatus === "rag-disconnected" && "bg-amber-400",
-                    combinedStatus === "disconnected" && "bg-red-400",
-                  )} />
-                )}
-                {/* Label animates in only when not "connected" */}
-                <AnimatePresence initial={false}>
-                  {combinedStatus !== "connected" && (
-                    <motion.span
-                      key={combinedStatusLabel}
-                      initial={{ opacity: 0, width: 0 }}
-                      animate={{ opacity: 1, width: "auto" }}
-                      exit={{ opacity: 0, width: 0 }}
-                      transition={{ duration: 0.2 }}
-                      className="overflow-hidden whitespace-nowrap"
-                    >
-                      {combinedStatusLabel}
-                    </motion.span>
-                  )}
-                </AnimatePresence>
-              </button>
-            </PopoverTrigger>
-            <PopoverContent side="bottom" align="end" className="w-80 max-w-[calc(100vw-1rem)] p-0 overflow-hidden">
-              <div className="bg-card">
-                <div className="border-b border-border/60 p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      {isAdmin ? (
-                        <GuardedNavigationLink
-                          href="/admin/operations/health"
-                          className="inline-flex max-w-full items-center gap-1 rounded-sm text-sm font-semibold text-foreground hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                          aria-label="Open Admin health status"
-                        >
-                          <span className="truncate">System Status</span>
-                          <ChevronRight className="h-3.5 w-3.5 shrink-0" />
-                        </GuardedNavigationLink>
-                      ) : (
-                        <div className="text-sm font-semibold text-foreground">System Status</div>
-                      )}
-                    </div>
-                    <div className="flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-muted/40 px-2 py-0.5 text-xs font-medium">
-                      <span className={cn(
-                        "h-2 w-2 rounded-full",
-                        combinedStatus === "connected" && "bg-green-400",
-                        combinedStatus === "checking" && "bg-amber-400",
-                        combinedStatus === "degraded" && "bg-amber-400",
-                        combinedStatus === "rag-disconnected" && "bg-amber-400",
-                        combinedStatus === "disconnected" && "bg-red-400",
-                      )} />
-                      {combinedStatusLabel}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-3 p-4">
-                  <div className="rounded-lg border border-border/70 bg-muted/25 p-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                        Platform
-                      </div>
-                      <div className="text-xs text-muted-foreground">{platformHealthLabel}</div>
-                    </div>
-                    {platformProbeStatus === "checking" && activeCapabilities.length === 0 ? (
-                      <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                        Checking capabilities
-                      </div>
-                    ) : activeCapabilities.length > 0 ? (
-                      <div className="mt-3 space-y-2">
-                        {activeCapabilities.map((capability) => {
-                          const showDetail = capability.status === "degraded" || capability.status === "down";
-                          const expanded = expandedHealthDetails.has(capability.id);
-                          const dot = (
-                            <span className={cn(
-                              "mt-1 h-2 w-2 shrink-0 rounded-full",
-                              capability.status === "healthy" && "bg-green-400",
-                              capability.status === "degraded" && "bg-amber-400",
-                              capability.status === "down" && "bg-red-400",
-                            )} />
-                          );
-
-                          if (!showDetail) {
-                            return (
-                              <div key={capability.id} className="flex items-center justify-between gap-3">
-                                <div className="min-w-0 truncate text-xs font-medium text-foreground">
-                                  {capability.label}
-                                </div>
-                                <span className={cn(
-                                  "h-2 w-2 shrink-0 rounded-full",
-                                  capability.status === "healthy" && "bg-green-400",
-                                )} />
-                              </div>
-                            );
-                          }
-
-                          return (
-                            <div key={capability.id} className="flex items-start justify-between gap-3">
-                              <div className="min-w-0 flex-1">
-                                <div className="truncate text-xs font-medium text-foreground">
-                                  {capability.label}
-                                </div>
-                                <button
-                                  type="button"
-                                  className={cn(
-                                    "mt-0.5 block max-w-full rounded-sm text-left text-[11px] leading-snug text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                                    expanded ? "whitespace-normal break-words" : "overflow-hidden text-ellipsis whitespace-nowrap",
-                                  )}
-                                  aria-expanded={expanded}
-                                  aria-label={`${expanded ? "Collapse" : "Expand"} ${capability.label} details`}
-                                  onClick={() => toggleHealthDetail(capability.id)}
-                                >
-                                  <span
-                                    className={cn(
-                                      "block max-w-full",
-                                      expanded ? "whitespace-normal break-words" : "overflow-hidden text-ellipsis whitespace-nowrap",
-                                    )}
-                                  >
-                                    {capability.detail}
-                                  </span>
-                                </button>
-                              </div>
-                              {dot}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    ) : (
-                      <div className="mt-3 text-xs text-muted-foreground">
-                        No active platform capabilities reported.
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="space-y-1.5 border-t border-border/50 bg-muted/20 px-4 py-2.5">
-                  <div className="text-right text-xs text-muted-foreground">
-                    Next: {platformProbeNextCheck}s
-                  </div>
-                  {versionInfo && (
-                    <div className="flex items-center justify-between gap-3 text-[10px] text-muted-foreground font-mono">
-                      <div className="flex min-w-0 items-center gap-2">
-                        <span className="font-semibold text-primary">UI:</span>
-                        <span>{versionInfo.version}</span>
-                        {versionInfo.gitCommit !== "unknown" && (
-                          <span className="text-muted-foreground/60">
-                            ({versionInfo.gitCommit.substring(0, 7)})
-                          </span>
-                        )}
-                        <button
-                          onClick={() => window.dispatchEvent(new CustomEvent("open-changelog"))}
-                          className="inline-flex items-center gap-1 text-primary hover:underline font-sans font-medium cursor-pointer"
-                        >
-                          <FileText className="h-3 w-3" />
-                          Changelog
-                        </button>
-                      </div>
-                      {versionInfo.buildDate && (
-                        <span className="shrink-0 text-muted-foreground/60">
-                          Built: {new Date(versionInfo.buildDate).toLocaleDateString()}
-                        </span>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </PopoverContent>
-          </Popover>
           {noAuthConfigured && (
             <Popover>
               <PopoverTrigger asChild>
@@ -624,30 +345,7 @@ export function AppHeader() {
         </div>
 
         {/* Personalization, Links & User */}
-        <div className="flex items-center gap-1 border-l border-border pl-1.5">
-          {config.reportProblemEnabled && (
-            <>
-              <button
-                aria-label="Report a Problem"
-                title="Report a Problem"
-                className="flex items-center gap-1.5 h-8 px-2 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                onClick={() => setReportDialogOpen(true)}
-              >
-                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                <motion.span
-                  initial={false}
-                  animate={{ opacity: 1, width: "auto" }}
-                  className="overflow-hidden whitespace-nowrap hidden sm:block"
-                >
-                  Report a Problem
-                </motion.span>
-              </button>
-              <ReportProblemDialog
-                open={reportDialogOpen}
-                onOpenChange={setReportDialogOpen}
-              />
-            </>
-          )}
+        <div className="flex items-center gap-1">
           <SettingsPanel />
           {config.docsUrl && (
             <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
@@ -663,6 +361,7 @@ export function AppHeader() {
               </a>
             </Button>
           )}
+          <NotificationBell enabled={Boolean(session)} />
           <UserMenu />
         </div>
       </div>

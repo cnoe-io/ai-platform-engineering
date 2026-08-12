@@ -5,6 +5,8 @@ import {
   createPublicationRequest,
   failPublicationApproval,
   invalidatePublicationRequests,
+  listPublicationRequestsPageForActor,
+  replacePendingConnectorPublicationRequest,
 } from "@/lib/publication-approval.server";
 import {
   DEFAULT_PUBLICATION_APPROVAL_SETTINGS,
@@ -26,6 +28,11 @@ jest.mock("@/lib/mongodb", () => ({
 
 jest.mock("@/lib/authz", () => ({
   reconcileTupleDiff: (...args: unknown[]) => mockReconcileTupleDiff(...args),
+}));
+
+jest.mock("@/lib/in-app-notifications.server", () => ({
+  archiveInAppNotifications: jest.fn().mockResolvedValue(undefined),
+  createInAppNotification: jest.fn().mockResolvedValue(undefined),
 }));
 
 jest.mock("@/lib/rbac/openfga", () => ({
@@ -227,6 +234,39 @@ describe("publication approval delegation", () => {
 });
 
 describe("publication request lifecycle", () => {
+  it("paginates a requester's history without exposing other users' requests", async () => {
+    const history = request({ status: "rejected" });
+    const historyCursor = {
+      sort: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
+      toArray: jest.fn().mockResolvedValue([history]),
+    };
+    const collection = {
+      countDocuments: jest.fn().mockResolvedValue(21),
+      find: jest.fn()
+        .mockReturnValueOnce(emptyApplyingCursor())
+        .mockReturnValueOnce(historyCursor),
+    };
+    mockGetCollection.mockResolvedValue(collection);
+
+    await expect(listPublicationRequestsPageForActor(REQUESTER, {
+      statuses: ["rejected"],
+      mine: true,
+      page: 2,
+      pageSize: 20,
+    })).resolves.toEqual({
+      requests: [history],
+      pagination: { page: 2, page_size: 20, total: 21, total_pages: 2 },
+    });
+    expect(collection.countDocuments).toHaveBeenCalledWith({
+      status: { $in: ["rejected"] },
+      "requester.subject": REQUESTER.subject,
+    });
+    expect(historyCursor.skip).toHaveBeenCalledWith(20);
+    expect(historyCursor.limit).toHaveBeenCalledWith(20);
+  });
+
   it("lets the requester withdraw a pending request", async () => {
     const pending = request();
     const cancelled = {
@@ -333,27 +373,27 @@ describe("publication request lifecycle", () => {
   });
 
   it("coalesces concurrent proposals without superseding the deterministic winner", async () => {
-    const newer = request({
-      _id: "request-newer",
-      created_at: "2026-01-01T00:00:01.000Z",
+    const existing = request({
+      _id: "request-existing",
+      created_at: "2026-01-01T00:00:00.000Z",
     });
     const collection = {
       insertOne: jest.fn().mockResolvedValue({ acknowledged: true }),
       find: jest.fn().mockReturnValue({
         sort: jest.fn().mockReturnThis(),
         limit: jest.fn().mockReturnThis(),
-        toArray: jest.fn().mockResolvedValue([newer]),
+        toArray: jest.fn().mockResolvedValue([existing]),
       }),
       updateMany: jest.fn().mockResolvedValue({ modifiedCount: 1 }),
     };
     mockGetCollection.mockResolvedValue(collection);
 
     const created = await createPublicationRequest({
-      resource: newer.resource,
+      resource: existing.resource,
       resourceRevision: "revision-primary",
       requestedState: { search_team_slugs: ["other-team"] },
       effectiveState: { search_team_slugs: [] },
-      riskFacts: newer.risk_facts,
+      riskFacts: existing.risk_facts,
       requester: REQUESTER,
       requesterTeamSlugs: ["requester-team"],
       approverTeamSlugs: ["approver-team"],
@@ -363,7 +403,7 @@ describe("publication request lifecycle", () => {
     expect(collection.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         status: "pending",
-        _id: { $ne: "request-newer" },
+        _id: { $ne: "request-existing" },
       }),
       expect.objectContaining({
         $set: expect.objectContaining({ status: "superseded" }),
@@ -375,6 +415,9 @@ describe("publication request lifecycle", () => {
     const collection = {
       updateMany: jest.fn().mockResolvedValue({ modifiedCount: 1 }),
       findOne: jest.fn().mockResolvedValue(request({ status: "applying" })),
+      find: jest.fn().mockReturnValue({
+        toArray: jest.fn().mockResolvedValue([]),
+      }),
     };
     mockGetCollection.mockResolvedValue(collection);
 
@@ -390,6 +433,38 @@ describe("publication request lifecycle", () => {
     ).rejects.toMatchObject({
       statusCode: 409,
       code: "PUBLICATION_APPLY_IN_PROGRESS",
+    });
+  });
+
+  it("does not let one requester replace another user's connector request", async () => {
+    const otherRequester = request({
+      resource: {
+        kind: "slack_channel",
+        id: "workspace-primary/channel-primary",
+        label: "Slack: #primary",
+      },
+      requester: {
+        subject: "other-subject",
+        email: "other@example.com",
+        name: "Other User",
+      },
+    });
+    const collection = {
+      findOne: jest.fn().mockResolvedValue(null),
+      find: jest.fn().mockReturnValue({
+        sort: jest.fn().mockReturnThis(),
+        toArray: jest.fn().mockResolvedValue([otherRequester]),
+      }),
+    };
+    mockGetCollection.mockResolvedValue(collection);
+
+    await expect(replacePendingConnectorPublicationRequest(
+      otherRequester.resource,
+      REQUESTER,
+      "A newer request replaced this one.",
+    )).rejects.toMatchObject({
+      statusCode: 409,
+      code: "PUBLICATION_REQUEST_OWNED_BY_ANOTHER_USER",
     });
   });
 

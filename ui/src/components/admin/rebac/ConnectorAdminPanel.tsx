@@ -498,19 +498,28 @@ function enrichDiscoveredRows(
   return rows.map((row) => {
     const existing = sources.configuredItemsById.get(row.id);
     const legacyAgent = sources.legacyChannelAgents[row.id];
+    const pending = row.pendingApproval;
     // assisted-by Codex Codex-sonnet-4-6: 1:1 Webex rooms are personal bot DMs, not team-assigned spaces.
     const teamRequired = row.teamRequired !== false;
     const configured = row.configured === true || Boolean(existing);
-    const selectable = row.selectable !== false && teamRequired && !configured;
+    const selectable =
+      row.selectable !== false &&
+      teamRequired &&
+      !configured &&
+      (!pending || (pending.requesterIsViewer && pending.status === "pending"));
     const teamSlug =
-      teamRequired
+      pending
+        ? row.team_slug
+        : teamRequired
         ? row.team_slug ||
           existing?.team_slug ||
           sources.globalDefaults.team_slug ||
           ""
         : "";
     const agentId =
-      configured
+      pending
+        ? row.agent_id
+        : configured
         ? row.agent_id || existing?.primary_agent_id || ""
         : selectable
         ? row.agent_id ||
@@ -1048,8 +1057,14 @@ export function ConnectorAdminPanel({
         const prev = prevById.get(item.id);
         const existing = configuredItemsById.get(item.id);
         const isExisting = item.configured === true || configuredItemIds.has(item.id);
+        const pending = isExisting ? undefined : item.pendingApproval;
+        const pendingOwnedByViewer = pending?.requesterIsViewer === true;
         const teamRequired = item.teamRequired !== false;
-        const selectable = item.selectable !== false && teamRequired && !isExisting;
+        const selectable =
+          item.selectable !== false &&
+          teamRequired &&
+          !isExisting &&
+          (!pending || (pendingOwnedByViewer && pending.status === "pending"));
         const existingTeamName = existing?.team_slug
           ? teams.find((team) => team.slug === existing.team_slug)?.name
           : undefined;
@@ -1063,6 +1078,9 @@ export function ConnectorAdminPanel({
           ? selectable && !isExisting
           : false;
         if (prev) {
+          const samePendingRequest =
+            Boolean(pending) &&
+            prev.pendingApproval?.requestId === pending?.requestId;
           return {
             ...prev,
             name: item.name,
@@ -1071,34 +1089,55 @@ export function ConnectorAdminPanel({
             selectable,
             configured: isExisting,
             configuredBy,
-            selected: selectable ? prev.selected : false,
+            pendingApproval: pending,
+            selected: selectable
+              ? pendingOwnedByViewer && !samePendingRequest
+                ? true
+                : prev.selected
+              : false,
             team_slug: teamRequired
-              ? prev.team_slug || configuredTeamSlug
+              ? pending
+                ? samePendingRequest
+                  ? prev.team_slug
+                  : pending.teamSlug
+                : prev.team_slug || configuredTeamSlug
               : "",
             agent_id: isExisting
               ? prev.agent_id || configuredAgentId
+              : pending
+                ? samePendingRequest
+                  ? prev.agent_id
+                  : pending.agentId
               : selectable
                 ? prev.agent_id || ""
                 : "",
-            botId: prev.botId || existing?.bot_id || item.botId || "",
+            botId: pending
+              ? samePendingRequest
+                ? prev.botId
+                : pending.botId || item.botId || ""
+              : prev.botId || existing?.bot_id || item.botId || "",
             availableBotIds: item.availableBotIds,
             is_existing: isExisting || prev.is_existing,
           };
         }
         return {
           ...item,
-          selected: autoSelect,
+          selected: pendingOwnedByViewer || autoSelect,
           teamRequired,
           selectable,
           configured: isExisting,
           configuredBy,
-          team_slug: teamRequired ? configuredTeamSlug : "",
+          team_slug: teamRequired
+            ? pending?.teamSlug || configuredTeamSlug
+            : "",
           agent_id: isExisting
             ? configuredAgentId
+            : pending
+              ? pending.agentId
             : selectable
               ? existing?.primary_agent_id ?? ""
               : "",
-          botId: existing?.bot_id || item.botId || "",
+          botId: pending?.botId || existing?.bot_id || item.botId || "",
           is_existing: isExisting,
         };
       });
@@ -1175,6 +1214,7 @@ export function ConnectorAdminPanel({
                 secondary: row.secondary,
                 teamRequired: row.teamRequired,
                 selectable: row.selectable,
+                pendingApproval: row.pendingApproval,
                 botId: row.botId,
                 availableBotIds: row.availableBotIds,
               })),
@@ -1313,13 +1353,41 @@ export function ConnectorAdminPanel({
   const applyOnboarding = async () => {
     setLoading(true); setMessage(null);
     try {
-      const result = await adapter.applyOnboarding({
+      const pendingChanged = (row: DiscoveredRow) => Boolean(
+        row.pendingApproval && (
+          row.team_slug !== row.pendingApproval.teamSlug ||
+          row.agent_id !== row.pendingApproval.agentId ||
+          (row.botId ?? "") !== (row.pendingApproval.botId ?? "")
+        ),
+      );
+      const withdrawalRows = discoveredRows.filter((row) =>
+        row.selected &&
+        row.selectable !== false &&
+        row.pendingApproval?.requesterIsViewer === true &&
+        row.pendingApproval.status === "pending" &&
+        !row.team_slug &&
+        !row.agent_id
+      );
+      const submissionRows = discoveredRows.filter((row) =>
+        row.selected &&
+        row.selectable !== false &&
+        Boolean(row.team_slug) &&
+        Boolean(row.agent_id) &&
+        (!row.pendingApproval || pendingChanged(row))
+      );
+      const submissionIds = new Set(submissionRows.map((row) => row.id));
+      let result: Awaited<ReturnType<typeof adapter.applyOnboarding>> = {
+        toastMessage: "",
+        appliedItemIds: [],
+        pendingItemIds: [],
+      };
+      if (submissionRows.length > 0) result = await adapter.applyOnboarding({
         rows: discoveredRows.map((r) => ({
           id: r.id,
           name: r.name,
           teamSlug: r.team_slug,
           agentId: r.agent_id,
-          selected: r.selected,
+          selected: submissionIds.has(r.id),
           teamRequired: r.teamRequired,
           selectable: r.selectable,
           botId: r.botId || (!adapter.discoveryIdentityPerItem ? selectedDiscoveryIdentityId : ""),
@@ -1331,32 +1399,65 @@ export function ConnectorAdminPanel({
         createDefaultRoutes: true,
         fetchFn: fetch,
       });
-      await Promise.all([loadItems(), loadRoutes(), loadDiagnostics()]);
-      const selectedIds = discoveredRows
-        .filter((r) => r.selected && r.selectable !== false)
-        .map((r) => r.id);
-      const appliedIds = new Set(result.appliedItemIds ?? selectedIds);
-      const pendingIds = new Set(result.pendingItemIds ?? []);
-      setDiscoveredRows((rows) => rows.map((row) => appliedIds.has(row.id)
-        ? {
-            ...row,
-            configured: true,
-            configuredBy:
-              teams.find((team) => team.slug === row.team_slug)?.name ||
-              row.team_slug,
-            is_existing: true,
-            selectable: false,
-            selected: false,
-          }
-        : row));
-      if (pendingIds.size > 0) {
-        setDiscoveredRows((rows) => rows.map((row) => pendingIds.has(row.id) ? { ...row, selected: false } : row));
+      if (withdrawalRows.length > 0) {
+        await Promise.all(withdrawalRows.map(async (row) => {
+          const response = await fetch(
+            `/api/publication-requests/${encodeURIComponent(row.pendingApproval!.requestId)}/cancel`,
+            { method: "POST" },
+          );
+          if (!response.ok) throw new Error(await response.text());
+        }));
       }
-      if (pendingIds.size > 0) {
-        toast(result.toastMessage, "warning", 7000);
+      await Promise.all([loadItems(), loadRoutes(), loadDiagnostics()]);
+      if (paginatedDiscovery) {
+        await fetchDiscoveryPage({
+          append: false,
+          q: discoverySearch.trim(),
+          toastOnSuccess: false,
+        });
+      } else {
+        await discoverItems();
+      }
+      const appliedIds = new Set(result.appliedItemIds ?? []);
+      if (appliedIds.size > 0) {
+        setDiscoveredRows((rows) => rows.map((row) =>
+          appliedIds.has(row.id)
+            ? {
+                ...row,
+                configured: true,
+                configuredBy:
+                  teams.find((team) => team.slug === row.team_slug)?.name ||
+                  row.team_slug,
+                is_existing: true,
+                selectable: false,
+                selected: false,
+                pendingApproval: undefined,
+              }
+            : row
+        ));
+      }
+      const pendingIds = result.pendingItemIds ?? [];
+      if (pendingIds.length > 0) {
+        const approvers = (result.pendingApproverTeamSlugs ?? []).map(
+          (slug) => teams.find((team) => team.slug === slug)?.name || slug,
+        );
+        const itemLabel = pendingIds.length === 1
+          ? adapter.itemSingular[0].toUpperCase() + adapter.itemSingular.slice(1)
+          : `${pendingIds.length} ${adapter.itemPlural}`;
+        toast(
+          `${itemLabel} submitted. Awaiting approval from ${approvers.join(", ") || "platform administrators"}.`,
+          "warning",
+          7000,
+        );
+      } else if (withdrawalRows.length > 0 && submissionRows.length === 0) {
+        toast(
+          `${withdrawalRows.length === 1 ? "Request" : `${withdrawalRows.length} requests`} withdrawn.`,
+          "success",
+        );
       } else {
         toast(result.toastMessage, "success");
       }
+      window.dispatchEvent(new Event("in-app-notifications:refresh"));
     } catch (err) {
       const msg = err instanceof Error ? err.message : `Failed to apply ${adapter.connectorName} onboarding`;
       setMessage(msg); toast(msg, "error");
@@ -1858,6 +1959,7 @@ export function ConnectorAdminPanel({
               isExisting: row.is_existing,
               configuredBy: row.configuredBy,
               configuredAgentName: row.configuredAgentName,
+              pendingApproval: row.pendingApproval,
               teamRequired: row.teamRequired,
               selectable: row.selectable,
               importLabel: `Import ${row.name}`,

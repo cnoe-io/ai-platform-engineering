@@ -248,7 +248,7 @@ describe("RagCollectionsView", () => {
     expect(
       await screen.findByText("Select or create a RAG collection."),
     ).toBeInTheDocument();
-    expect(screen.queryByText("Collection settings")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Name")).not.toBeInTheDocument();
     expect(
       screen.queryByTestId("knowledge-card-datasource-slack-channel-C00000000"),
     ).not.toBeInTheDocument();
@@ -257,7 +257,9 @@ describe("RagCollectionsView", () => {
       screen.getByRole("button", { name: /Primary collection/i }),
     );
 
-    expect(await screen.findByText("Collection settings")).toBeInTheDocument();
+    expect(
+      await screen.findByDisplayValue("Primary collection"),
+    ).toBeInTheDocument();
     expect(mockReplace).toHaveBeenCalledWith(
       "/knowledge-bases/collections?collection=primary-collection",
       { scroll: false },
@@ -270,7 +272,21 @@ describe("RagCollectionsView", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: "New Collection" }),
     );
-    expect(screen.getByText("New collection")).toBeInTheDocument();
+    expect(screen.getByTestId("new-collection-draft")).toHaveTextContent(
+      "New Collection",
+    );
+    fireEvent.change(screen.getByLabelText("Name"), {
+      target: { value: "Incident response" },
+    });
+    fireEvent.change(screen.getByLabelText("Description"), {
+      target: { value: "Runbooks and service notes" },
+    });
+    expect(screen.getByTestId("new-collection-draft")).toHaveTextContent(
+      "Incident response",
+    );
+    expect(screen.getByTestId("new-collection-draft")).toHaveTextContent(
+      "Runbooks and service notes",
+    );
     expect(screen.getByText("Datasources")).toBeInTheDocument();
     expect(screen.getByText("Team access")).toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
@@ -285,8 +301,10 @@ describe("RagCollectionsView", () => {
 
     render(<RagCollectionsView />);
 
-    expect(await screen.findByText("New collection")).toBeInTheDocument();
-    expect(screen.queryByText("Collection settings")).not.toBeInTheDocument();
+    expect(await screen.findByTestId("new-collection-draft")).toHaveTextContent(
+      "New Collection",
+    );
+    expect(screen.getByLabelText("Name")).toHaveValue("");
   });
 
   it("creates a collection with its selected datasources in one save flow", async () => {
@@ -339,11 +357,15 @@ describe("RagCollectionsView", () => {
     expect(
       await screen.findByText("Unsaved collection changes"),
     ).toBeInTheDocument();
-    expect(screen.getByText("New collection")).toBeInTheDocument();
+    expect(screen.getByTestId("new-collection-draft")).toHaveTextContent(
+      "Unsaved collection",
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "Discard changes" }));
 
-    expect(await screen.findByText("Collection settings")).toBeInTheDocument();
+    expect(
+      await screen.findByDisplayValue("Primary collection"),
+    ).toBeInTheDocument();
   });
 
   it("confirms that deleting a collection leaves its data unchanged", async () => {

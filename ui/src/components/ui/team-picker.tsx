@@ -364,6 +364,7 @@ export function TeamMultiPicker({
   ariaLabel,
   hideSlugSuffix = false,
   portalled = true,
+  contentSide = "bottom",
   triggerChipCap = 2,
   helperText,
   allowClearAll = true,
@@ -506,6 +507,7 @@ export function TeamMultiPicker({
       </PopoverTrigger>
       <PopoverContent
         align="start"
+        side={contentSide}
         className={cn("w-[min(360px,90vw)] p-0", contentClassName)}
         portalled={portalled}
       >

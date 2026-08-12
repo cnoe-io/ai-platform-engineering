@@ -214,6 +214,7 @@ describe("adoptConfigImportedRagSources", () => {
           owner_team_slug: "platform",
           shared_with_teams: [],
         }),
+        $unset: { owner_subject: "" },
       },
     );
     expect(mockReconcileIngestionSourceRelationships).toHaveBeenCalledWith(
@@ -230,6 +231,40 @@ describe("adoptConfigImportedRagSources", () => {
     // its own sharing dialog), so adoption must not rewrite either query graph.
     expect(mockReconcileKnowledgeBaseRelationships).not.toHaveBeenCalled();
     expect(mockReconcileDataSourceRelationships).not.toHaveBeenCalled();
+  });
+
+  it("can transfer an imported source to a personal collection owner", async () => {
+    mockCollection.findOne.mockResolvedValue({
+      source_id: "slack-channel-C1",
+      config_driven: true,
+      config_import_adopted: false,
+      visibility: "global",
+      owner_team_slug: "previous-team",
+      shared_with_teams: [],
+    });
+
+    const result = await adoptConfigImportedRagSources(["slack-channel-C1"], {
+      ownerTeamSlug: null,
+      ownerSubject: "user-subject",
+    });
+
+    expect(result).toEqual({ adopted: ["slack-channel-C1"], skipped: [] });
+    expect(mockCollection.updateOne).toHaveBeenCalledWith(
+      { source_id: "slack-channel-C1" },
+      expect.objectContaining({
+        $set: expect.objectContaining({ owner_subject: "user-subject" }),
+        $unset: { owner_team_slug: "" },
+      }),
+    );
+    expect(mockReconcileIngestionSourceRelationships).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceId: "slack-channel-C1",
+        ownerSubject: "user-subject",
+        previousOwnerSubject: null,
+        ownerTeamSlug: null,
+        previousOwnerTeamSlug: "previous-team",
+      }),
+    );
   });
 
   // T056

@@ -556,7 +556,7 @@ it("discovers Webex bot spaces, auto-selects new ones, and submits verified onbo
   await pickAgent("Dynamic Agent for Incident War Room", "incident-agent");
   expect(screen.getByRole("combobox", { name: "Webex bot" })).toHaveValue("primary");
 
-  fireEvent.click(screen.getByRole("button", { name: /^Set up \d+ spaces?$/ }));
+  fireEvent.click(screen.getByRole("button", { name: /^Submit \d+ spaces?$/ }));
 
   await waitFor(() =>
     expect(fetchMock).toHaveBeenCalledWith(
@@ -725,9 +725,9 @@ it("hides direct Webex rooms from space discovery", async () => {
     }),
   ).toBeInTheDocument();
   expect(screen.queryByText("Example User")).not.toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "Set up 1 space" })).toBeEnabled();
+  expect(screen.getByRole("button", { name: "Submit 1 space" })).toBeEnabled();
 
-  fireEvent.click(screen.getByRole("button", { name: "Set up 1 space" }));
+  fireEvent.click(screen.getByRole("button", { name: "Submit 1 space" }));
 
   await waitFor(() => {
     const postCall = fetchMock.mock.calls.find(

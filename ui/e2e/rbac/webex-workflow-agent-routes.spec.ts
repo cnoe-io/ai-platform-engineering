@@ -273,7 +273,7 @@ test.describe("mocked Webex workflow agent routing regression", () => {
     await expect(
       page.getByRole("button", { name: /Dynamic Agent for Workflow Alerts/i }),
     ).toContainText(workflowAgent.name);
-    await page.getByRole("button", { name: /^Set up 2 spaces$/ }).click();
+    await page.getByRole("button", { name: /^Submit 2 spaces$/ }).click();
 
     await expect.poll(() => defaultsRequests.length).toBe(1);
     expect(defaultsRequests[0]).toMatchObject({

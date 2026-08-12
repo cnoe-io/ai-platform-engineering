@@ -16,9 +16,9 @@
  * deliberately excluded, even when their connector does not use a Mongo
  * config row (for example local-file uploads).
  *
- * Apply always imports into Platform RAG. Its current Owner and Search policy
- * remains authoritative, while supported source configurations become
- * editable in the UI.
+ * Apply imports into the selected collection (Platform RAG by default). The
+ * collection's current Owner and Search policy remains authoritative, while
+ * supported source configurations become editable in the UI.
  */
 
 import { NextRequest } from "next/server";
@@ -34,6 +34,8 @@ import {
 import { getCollection } from "@/lib/mongodb";
 import {
   bootstrapPlatformRagCollection,
+  RAG_COLLECTION_ID_PATTERN,
+  RAG_COLLECTIONS_COLLECTION,
   replaceCollectionSources,
 } from "@/lib/rag-collections.server";
 import { adoptConfigImportedRagSources } from "@/lib/seed-config";
@@ -46,14 +48,16 @@ import {
   reconcileKnowledgeBaseRelationships,
 } from "@/lib/rbac/openfga-owned-resources-reconcile";
 import { caipeOrgKey } from "@/lib/rbac/organization";
-import { SUPER_ADMINS_TEAM_SLUG } from "@/lib/rbac/reserved-teams";
 import { requireResourcePermission } from "@/lib/rbac/resource-authz";
 import type {
   IngestionSourceConfig,
   IngestionSourceType,
   WebSourceSettings,
 } from "@/types/ingestion-source";
-import { PLATFORM_RAG_COLLECTION_ID } from "@/types/rag-collection";
+import {
+  PLATFORM_RAG_COLLECTION_ID,
+  type RagCollection,
+} from "@/types/rag-collection";
 
 const OPENFGA_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._~@|*+=,/-]{0,191}$/;
 const MAX_MIGRATION_SOURCES = 500;
@@ -84,7 +88,8 @@ interface MigrateFromConfigResult {
   sources: MigratePreviewSource[];
   adopted?: string[];
   skipped?: MigrateSkip[];
-  platform_collection?: {
+  legacy_source_count: number;
+  destination_collection: {
     id: string;
     source_count: number;
     agents_updated: number;
@@ -485,7 +490,10 @@ function extractFieldsFromRedis(
 
 async function persistDatasourceAccessPolicy(
   datasource: RedisDataSource,
-  managementTeamSlug: string,
+  managementOwner: {
+    ownerSubject: string | null;
+    ownerTeamSlug: string | null;
+  },
   session: { accessToken?: string; org?: string },
 ): Promise<void> {
   if (!session.accessToken) {
@@ -513,10 +521,10 @@ async function persistDatasourceAccessPolicy(
         },
         // This metadata is management ownership only. Query access comes from
         // `search_with_teams` and its separate knowledge_base projection.
-        owner_team_slug: managementTeamSlug,
-        owner_subject: null,
+        owner_team_slug: managementOwner.ownerTeamSlug,
+        owner_subject: managementOwner.ownerSubject,
         shared_with_teams: [],
-        // Search access is inherited through Platform RAG. Keeping the
+        // Search access is inherited through the destination collection. Keeping the
         // datasource-level list empty avoids two policy sources that can
         // drift apart later when the collection audience changes.
         search_with_teams: [],
@@ -550,7 +558,7 @@ async function previewSourcesFromRedis(session: {
 }): Promise<{
   preview: MigratePreviewSource[];
   adoptable: Map<string, AdoptableEntry>;
-  /** Legacy-global sources that belong in Platform RAG. */
+  /** Legacy-global sources that belong in the selected destination collection. */
   platformSources: RedisDataSource[];
   /** Sources without a DB row whose ownership policy still needs adoption. */
   unmanagedSources: RedisDataSource[];
@@ -639,7 +647,9 @@ async function previewSourcesFromRedis(session: {
   return { preview, adoptable, platformSources, unmanagedSources };
 }
 
-async function attachLegacyAgentsToPlatformRag(): Promise<number> {
+async function attachLegacyAgentsToCollection(
+  collectionId: string,
+): Promise<number> {
   const agents = await getCollection<Record<string, unknown>>("dynamic_agents");
   const result = await agents.updateMany(
     {
@@ -661,12 +671,56 @@ async function attachLegacyAgentsToPlatformRag(): Promise<number> {
     } as never,
     {
       $set: {
-        rag_collection_ids: [PLATFORM_RAG_COLLECTION_ID],
+        rag_collection_ids: [collectionId],
         updated_at: new Date().toISOString(),
       },
     },
   );
   return result.modifiedCount;
+}
+
+async function loadMigrationDestination(rawId: unknown): Promise<RagCollection> {
+  const id = normalizeString(rawId) ?? PLATFORM_RAG_COLLECTION_ID;
+  if (!RAG_COLLECTION_ID_PATTERN.test(id)) {
+    throw new ApiError(
+      "destination_collection_id is invalid",
+      400,
+      "INVALID_DESTINATION_COLLECTION_ID",
+    );
+  }
+  if (id === PLATFORM_RAG_COLLECTION_ID) {
+    return bootstrapPlatformRagCollection();
+  }
+  const collections = await getCollection<RagCollection>(
+    RAG_COLLECTIONS_COLLECTION,
+  );
+  const destination = await collections.findOne({ _id: id } as never);
+  if (!destination) {
+    throw new ApiError(
+      "Destination collection not found",
+      404,
+      "DESTINATION_COLLECTION_NOT_FOUND",
+    );
+  }
+  return destination;
+}
+
+function managementOwnerForCollection(collection: RagCollection): {
+  ownerSubject: string | null;
+  ownerTeamSlug: string | null;
+} {
+  const ownerTeamSlug = collection.maintainer_team_slugs?.[0] ?? null;
+  const ownerSubject = ownerTeamSlug
+    ? null
+    : normalizeString(collection.owner_subject);
+  if (!ownerTeamSlug && !ownerSubject) {
+    throw new ApiError(
+      "The destination collection needs an Owner before sources can be imported",
+      409,
+      "DESTINATION_COLLECTION_HAS_NO_OWNER",
+    );
+  }
+  return { ownerSubject, ownerTeamSlug };
 }
 
 export const POST = withErrorHandler(async (request: NextRequest) => {
@@ -701,6 +755,10 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   }
   const dryRun = body.dry_run !== false;
 
+  const destination = await loadMigrationDestination(
+    body.destination_collection_id,
+  );
+
   const { preview, adoptable, platformSources, unmanagedSources } =
     await previewSourcesFromRedis({
       accessToken: session.accessToken,
@@ -710,9 +768,10 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   if (dryRun) {
     return successResponse<MigrateFromConfigResult>({
       sources: preview,
-      platform_collection: {
-        id: PLATFORM_RAG_COLLECTION_ID,
-        source_count: platformSources.length,
+      legacy_source_count: platformSources.length,
+      destination_collection: {
+        id: destination._id,
+        source_count: destination.source_ids?.length ?? 0,
         agents_updated: 0,
       },
     });
@@ -723,9 +782,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     ? parseSourceIds(body.source_ids)
     : preview.filter((s) => s.importable).map((s) => s.source_id);
 
-  const currentPlatform = await bootstrapPlatformRagCollection();
-  const managementTeamSlug =
-    currentPlatform.maintainer_team_slugs[0] ?? SUPER_ADMINS_TEAM_SLUG;
+  const managementOwner = managementOwnerForCollection(destination);
   const adopted: string[] = [];
   const skipped: MigrateSkip[] = [];
 
@@ -741,8 +798,8 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     await reconcileIngestionSourceRelationships({
       sourceId,
       creatorSubject: datasource.creator_subject,
-      ownerSubject: null,
-      ownerTeamSlug: managementTeamSlug,
+      ownerSubject: managementOwner.ownerSubject,
+      ownerTeamSlug: managementOwner.ownerTeamSlug,
       nextSharedTeamSlugs: [],
       previousSharedTeamSlugs: [],
       globalUserAccess: false,
@@ -751,7 +808,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       knowledgeBaseId: sourceId,
       creatorSubject: datasource.creator_subject,
       ownerSubject: null,
-      // Management is intentionally independent. Platform RAG supplies read
+      // Management is intentionally independent. The collection supplies read
       // access to the selected audience through parent_collection.
       ownerTeamSlug: null,
       nextSharedTeamSlugs: [],
@@ -761,7 +818,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       dataSourceId: sourceId,
       parentKnowledgeBaseId: sourceId,
     });
-    await persistDatasourceAccessPolicy(datasource, managementTeamSlug, {
+    await persistDatasourceAccessPolicy(datasource, managementOwner, {
       accessToken: session.accessToken,
       org: session.org,
     });
@@ -798,11 +855,11 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       fields: entry.fields,
       name: entry.ds.name ?? sourceId,
       description: entry.ds.description ?? "",
-      ownerTeamSlug: managementTeamSlug,
+      ownerTeamSlug: managementOwner.ownerTeamSlug,
       sharedWithTeams: [],
       searchWithTeams: [],
       creatorSubject: entry.ds.creator_subject ?? null,
-      ownerSubject: null,
+      ownerSubject: managementOwner.ownerSubject,
       recordedSearchOwnerTeamSlug: null,
       defaultChunkSize: entry.ds.default_chunk_size,
       defaultChunkOverlap: entry.ds.default_chunk_overlap,
@@ -814,7 +871,8 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
 
   if (seededConfigIds.length > 0) {
     const seededResult = await adoptConfigImportedRagSources(seededConfigIds, {
-      ownerTeamSlug: managementTeamSlug,
+      ownerTeamSlug: managementOwner.ownerTeamSlug,
+      ownerSubject: managementOwner.ownerSubject,
     });
     adopted.push(...seededResult.adopted);
     skipped.push(
@@ -825,24 +883,25 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     );
   }
 
-  const platform = await replaceCollectionSources(
-    PLATFORM_RAG_COLLECTION_ID,
+  const updatedDestination = await replaceCollectionSources(
+    destination._id,
     Array.from(
       new Set([
-        ...(currentPlatform.source_ids ?? []),
+        ...(destination.source_ids ?? []),
         ...platformSources.map((source) => source.datasource_id),
       ]),
     ),
   );
-  const agentsUpdated = await attachLegacyAgentsToPlatformRag();
+  const agentsUpdated = await attachLegacyAgentsToCollection(destination._id);
 
   return successResponse<MigrateFromConfigResult>({
     sources: preview,
     adopted,
     skipped,
-    platform_collection: {
-      id: platform._id,
-      source_count: platform.source_ids.length,
+    legacy_source_count: platformSources.length,
+    destination_collection: {
+      id: updatedDestination._id,
+      source_count: updatedDestination.source_ids.length,
       agents_updated: agentsUpdated,
     },
   });
