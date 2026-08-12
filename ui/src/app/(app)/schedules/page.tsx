@@ -89,6 +89,7 @@ interface ScheduleVersion {
   changed_fields: string[];
   title: string | null;
   agent_id: string;
+  memory_namespace: string | null;
   edit_agent_id: string | null;
   message_template: string;
   attributes: Record<string, unknown>;
@@ -123,6 +124,7 @@ type ScheduleHistoryEntry =
 interface ScheduleItem {
   schedule_id: string;
   agent_id: string;
+  memory_namespace: string | null;
   edit_agent_id: string | null;
   agent_name: string;
   title: string | null;
@@ -504,6 +506,7 @@ export default function SchedulesPage() {
   const [editCron, setEditCron] = useState("");
   const [editTz, setEditTz] = useState("");
   const [editMessage, setEditMessage] = useState("");
+  const [editMemoryNamespace, setEditMemoryNamespace] = useState("");
   const [clockTick, setClockTick] = useState(() => Date.now());
   const [serverClock, setServerClock] = useState<{
     serverNowMs: number;
@@ -572,6 +575,7 @@ export default function SchedulesPage() {
     setEditCron(item.cron);
     setEditTz(item.tz);
     setEditMessage(item.message_template);
+    setEditMemoryNamespace(item.memory_namespace || "");
   }, []);
 
   const toggleOneOffRuns = useCallback((scheduleId: string) => {
@@ -607,6 +611,7 @@ export default function SchedulesPage() {
     setEditCron(updated.cron);
     setEditTz(updated.tz);
     setEditMessage(updated.message_template);
+    setEditMemoryNamespace(updated.memory_namespace || "");
   }, []);
 
   const toggleSchedule = useCallback(async (item: ScheduleItem) => {
@@ -676,6 +681,7 @@ export default function SchedulesPage() {
         title?: string;
         attributes?: Record<string, unknown>;
         edit_agent_id?: string | null;
+        memory_namespace?: string | null;
       },
       failureMessage: string
     ) => {
@@ -715,13 +721,14 @@ export default function SchedulesPage() {
         cron: editCron,
         tz: editTz,
         message_template: editMessage,
+        memory_namespace: editMemoryNamespace.trim() || null,
       },
       "Failed to update schedule"
     );
     if (saved) {
       setEditingItem(null);
     }
-  }, [editCron, editMessage, editTitle, editTz, editingItem, patchSchedule]);
+  }, [editCron, editMemoryNamespace, editMessage, editTitle, editTz, editingItem, patchSchedule]);
 
   const rollbackToVersion = useCallback(
     async (version: ScheduleVersion) => {
@@ -731,6 +738,7 @@ export default function SchedulesPage() {
         {
           ...(version.title ? { title: version.title } : {}),
           edit_agent_id: version.edit_agent_id,
+          memory_namespace: version.memory_namespace,
           attributes: version.attributes,
           cron: version.cron,
           tz: version.tz,
@@ -940,6 +948,20 @@ export default function SchedulesPage() {
                             onChange={(event) => setEditMessage(event.target.value)}
                             className="min-h-56 font-mono text-xs"
                           />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="schedule-memory-namespace">Memory namespace</Label>
+                          <Input
+                            id="schedule-memory-namespace"
+                            value={editMemoryNamespace}
+                            onChange={(event) => setEditMemoryNamespace(event.target.value)}
+                            placeholder="No namespace"
+                            className="font-mono"
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            Scheduled chats mount this working context. Clear it for an unscoped run.
+                          </p>
                         </div>
 
                         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -1257,6 +1279,11 @@ export default function SchedulesPage() {
                                 <div className="text-xs text-muted-foreground">
                                   Timezone: {item.tz}
                                 </div>
+                                {item.memory_namespace && (
+                                  <div className="text-xs text-muted-foreground">
+                                    Memory: {item.memory_namespace}
+                                  </div>
+                                )}
                                 <div className="text-xs text-muted-foreground">
                                   Version {item.version || 1}
                                 </div>

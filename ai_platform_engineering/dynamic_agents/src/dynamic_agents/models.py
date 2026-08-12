@@ -46,6 +46,7 @@ class UserContext(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     email: str
+    sub: str | None = None
     name: str | None = None
     groups: list[str] = []
     is_admin: bool = False
@@ -350,6 +351,44 @@ class SelfIdentityToolConfig(BaseModel):
     enabled: bool = Field(True, description="Whether the tool is enabled")
 
 
+class MemoryNamespaceConfig(BaseModel):
+    """A statically configured memory working context."""
+
+    key: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]{0,63}$")
+    label: str = Field(min_length=1)
+
+
+class MemoryNamespaceSourceConfig(BaseModel):
+    """An MCP tool whose result supplies available memory namespaces."""
+
+    server: str = Field(min_length=1)
+    tool: str = Field(min_length=1)
+    args: dict[str, Any] = Field(default_factory=dict)
+    key_path: str = Field(min_length=1)
+    label_path: str = Field(min_length=1)
+
+
+class NamespaceScopedToolsConfig(BaseModel):
+    """Tools whose namespace argument is bound by the trusted runtime."""
+
+    server: str = Field(min_length=1)
+    tools: list[str] = Field(default_factory=list, min_length=1)
+    bind_arg: str = Field(min_length=1)
+    require_namespace: bool = True
+
+
+class MemoryToolConfig(BaseModel):
+    """Configuration for deepagents-backed user memory."""
+
+    enabled: bool = Field(False, description="Whether memory files and injection are enabled")
+    namespaces: list[MemoryNamespaceConfig] = Field(default_factory=list)
+    namespace_source: MemoryNamespaceSourceConfig | None = None
+    allow_custom: bool = False
+    namespace_scoped_tools: list[NamespaceScopedToolsConfig] = Field(default_factory=list)
+    # Accepted and ignored for one release so existing agent documents load.
+    context_providers: list[dict[str, Any]] = Field(default_factory=list, exclude=True)
+
+
 class BuiltinToolsConfig(BaseModel):
     """Configuration for built-in tools available to dynamic agents."""
 
@@ -383,6 +422,10 @@ class BuiltinToolsConfig(BaseModel):
         None,
         alias="agent_info",
         description="Configuration for the self_identity tool (returns this agent's identity)",
+    )
+    memory: MemoryToolConfig | None = Field(
+        None,
+        description="Configuration for the memory built-in tool group",
     )
     workflows: list[str] | None = Field(
         None,
@@ -648,6 +691,11 @@ class ChatRequest(BaseModel):
     protocol: str = Field("custom", pattern=r"^(custom|agui)$", description="Wire protocol: 'custom' or 'agui'")
     trace_id: str | None = Field(None, description="Optional trace ID for Langfuse tracing")
     client_context: ClientContext | None = Field(None, description="Opaque client context for system prompt rendering")
+    memory_enabled: bool = Field(True, description="Whether memory retrieval/tools are enabled for this run")
+    memory_namespace: str | None = Field(
+        None,
+        description="Immutable memory working context selected when the conversation is created",
+    )
     config_override: dict | None = Field(
         None,
         description=(

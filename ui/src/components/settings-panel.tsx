@@ -5,7 +5,6 @@ import { apiClient } from "@/lib/api-client";
 import { getConfig } from "@/lib/config";
 import { gradientThemes,type GradientThemeId } from "@/lib/gradient-themes";
 import { cn } from "@/lib/utils";
-import { isFeatureEnabled } from "@/store/feature-flag-store";
 import { AnimatePresence,motion } from "framer-motion";
 import { Check,ChevronDown,Cloud,CloudOff,Monitor,Palette,Type,X } from "lucide-react";
 import { useTheme } from "next-themes";
@@ -49,14 +48,6 @@ type GradientTheme = GradientThemeId;
 
 // Sync status type for UI indicator
 type SyncStatus = 'idle' | 'syncing' | 'synced' | 'error';
-
-/** @deprecated Use `isFeatureEnabled("memory")` from `@/store/feature-flag-store` */
-export const MEMORY_ENABLED_KEY = "caipe-feature-flags";
-
-/** @deprecated Use `isFeatureEnabled("memory")` from `@/store/feature-flag-store` */
-export function isMemoryEnabled(): boolean {
-  return isFeatureEnabled("memory");
-}
 
 export function SettingsPanel() {
   const [open, setOpen] = useState(false);

@@ -2,6 +2,7 @@
 // POST /api/chat/conversations - Create new conversation (or return existing via upsert)
 
 import {
+  ApiError,
   getAuthFromBearerOrSession,
   getPaginationParams,
   getUserTeamIds,
@@ -20,6 +21,7 @@ import {
 } from '@/lib/rbac/conversation-implicit-authz';
 import { requireAgentUsePermission } from '@/lib/rbac/openfga-agent-authz';
 import { writeOpenFgaTuples } from '@/lib/rbac/openfga';
+import { authenticateRequest,buildBackendHeaders,getDynamicAgentsConfig } from '@/lib/da-proxy';
 import { buildParticipants } from '@/types/a2a';
 import type { ClientType, Conversation, CreateConversationRequest } from '@/types/mongodb';
 import { VALID_CLIENT_TYPES } from '@/types/mongodb';
@@ -314,6 +316,61 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     return denial;
   }
 
+  const requestedMemoryNamespace = body.metadata?.memory_namespace;
+  if (requestedMemoryNamespace !== undefined) {
+    if (
+      typeof requestedMemoryNamespace !== 'string' ||
+      !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(requestedMemoryNamespace)
+    ) {
+      throw new ApiError('memory_namespace must be a valid lowercase namespace key', 400);
+    }
+    const auth = await authenticateRequest(request);
+    if (auth instanceof NextResponse) return auth;
+    const daConfig = getDynamicAgentsConfig();
+    if (daConfig instanceof NextResponse) return daConfig;
+    let namespaceResponse: Response;
+    try {
+      namespaceResponse = await fetch(
+        `${daConfig.dynamicAgentsUrl}/api/v1/agents/${encodeURIComponent(body.agent_id)}/memory-namespaces?refresh=true`,
+        { headers: buildBackendHeaders('application/json', auth), cache: 'no-store' },
+      );
+    } catch {
+      return NextResponse.json(
+        { success: false, error: 'Memory namespace could not be validated' },
+        { status: 503 },
+      );
+    }
+    if (!namespaceResponse.ok) {
+      return NextResponse.json(
+        { success: false, error: 'Memory namespace could not be validated' },
+        { status: namespaceResponse.status === 503 ? 503 : 400 },
+      );
+    }
+    let namespacePayload: Record<string, unknown>;
+    try {
+      namespacePayload = await namespaceResponse.json() as Record<string, unknown>;
+    } catch {
+      return NextResponse.json(
+        { success: false, error: 'Memory namespace could not be validated' },
+        { status: 503 },
+      );
+    }
+    const namespaceData = namespacePayload.data as
+      | { items?: unknown; allow_custom?: unknown }
+      | undefined;
+    const namespaceItems = namespaceData?.items;
+    if (
+      namespaceData?.allow_custom !== true &&
+      (!Array.isArray(namespaceItems) ||
+        !namespaceItems.some((item: { key?: unknown }) => item.key === requestedMemoryNamespace))
+    ) {
+      return NextResponse.json(
+        { success: false, error: 'Memory namespace is not available to this user' },
+        { status: 400 },
+      );
+    }
+  }
+
   const conversations = await getCollection<Conversation>('conversations');
 
   // ⚠️ RISK: owner_id can be set by any authenticated caller. This trusts the caller
@@ -335,6 +392,16 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       idempotency_key: body.idempotency_key,
     });
     if (existing) {
+      const existingNamespace = existing.metadata?.memory_namespace;
+      if (
+        requestedMemoryNamespace !== undefined &&
+        existingNamespace !== requestedMemoryNamespace
+      ) {
+        throw new ApiError(
+          "An idempotent conversation's memory namespace is immutable",
+          409,
+        );
+      }
       // If the returning caller is a service account, ensure the writer grant exists
       // (write-if-missing). This heals conversations created before this fix was deployed.
       if (saSub) {

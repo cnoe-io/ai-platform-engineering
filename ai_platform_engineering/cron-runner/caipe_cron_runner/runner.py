@@ -119,6 +119,7 @@ def main() -> int:
       "message": message,
       "conversation_id": run_id,
       "trace_id": run_id,
+      "memory_namespace": schedule.get("memory_namespace"),
       "client_context": {
         "source": "scheduler",
         "schedule_id": schedule_id,

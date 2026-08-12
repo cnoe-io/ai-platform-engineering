@@ -22,7 +22,7 @@ import { useFeatureFlagStore } from "@/store/feature-flag-store";
 import { buildParticipants,ChatMessage as ChatMessageType,Conversation,type MessageAttachment,TurnStatus } from "@/types/a2a";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 import { AnimatePresence,motion } from "framer-motion";
-import { Activity,ArrowDown,ArrowLeft,Check,ChevronUp,Copy,Loader2,Paperclip,RotateCcw,Send,ShieldCheck,Sparkles,Square,User } from "lucide-react";
+import { Activity,ArrowDown,ArrowLeft,BookOpen,Brain,Check,ChevronUp,Copy,Loader2,Paperclip,RotateCcw,Send,ShieldCheck,Sparkles,Square,User } from "lucide-react";
 import { resolveUsableChatAgentId } from "@/lib/chat-agent-selection";
 import { AgentPicker } from "@/components/ui/agent-picker";
 import { signIn,useSession } from "next-auth/react";
@@ -36,6 +36,8 @@ import { Feedback,FeedbackButton } from "./FeedbackButton";
 import { MetadataInputForm,type InputField,type UserInputMetadata } from "./MetadataInputForm";
 import { AttachmentChips,type PendingAttachment } from "./AttachmentChips";
 import { MessageAttachments } from "./MessageAttachments";
+import { MemoryDialog as FileMemoryDialog } from "./MemoryDialog";
+import { MemoryNamespacePicker } from "./MemoryNamespacePicker";
 import { getFilteredCommands,SlashCommandMenu,type SlashCommand } from "./SlashCommandMenu";
 import { ToolApprovalCard } from "./ToolApprovalCard";
 import { useSlashCommands } from "./useSlashCommands";
@@ -67,6 +69,7 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
   const agentCustomTheme = agent?.ui?.custom_theme_config ?? null;
   const agentName = agent?.name;
   const agentSkills = agent?.skills;
+  const agentAllowsMemory = agent?.builtin_tools?.memory?.enabled === true;
   const { data: session } = useSession();
   const { toast } = useToast();
   const router = useRouter();
@@ -124,6 +127,9 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
   const [showSlashMenu, setShowSlashMenu] = useState(false);
   const [slashFilter, setSlashFilter] = useState("");
   const [slashSelectedIndex, setSlashSelectedIndex] = useState(0);
+  const [memoryPreferenceEnabled, setMemoryPreferenceEnabled] = useState(true);
+  const [memoryDialogOpen, setMemoryDialogOpen] = useState(false);
+  const [memoryFocusIds, setMemoryFocusIds] = useState<string[]>([]);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const scrollViewportRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -256,6 +262,12 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
   const accessToken = ssoEnabled ? session?.accessToken : undefined;
 
   const conversation = getActiveConversation();
+  const memoryToggleLocked = Boolean(conversation?.messages?.some((message) => message.role === "user"));
+  const memoryToggleDisabled = !agentAllowsMemory || memoryToggleLocked;
+  const memoryEnabled = agentAllowsMemory && memoryPreferenceEnabled;
+  const memoryNamespace = typeof conversation?.metadata?.memory_namespace === "string"
+    ? conversation.metadata.memory_namespace
+    : undefined;
 
   // Ref to track which conversations we've checked for HITL interrupt state
   const interruptCheckedRef = useRef<Set<string>>(new Set());
@@ -732,6 +744,63 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
     setTimeout(() => setCopiedId(null), 2000);
   };
 
+  const handleOpenMemory = useCallback((memoryIds: string[] = []) => {
+    setMemoryFocusIds(memoryIds);
+    setMemoryDialogOpen(true);
+  }, []);
+
+  const linkContinuation = useCallback(async (nextConversationId: string) => {
+    if (!activeConversationId) return;
+    try {
+      const response = await fetch(`/api/chat/conversations/${activeConversationId}/metadata`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ metadata: { continued_to: nextConversationId } }),
+      });
+      if (!response.ok) throw new Error("continuation link was not saved");
+      useChatStore.setState((state) => ({
+        conversations: state.conversations.map((item) =>
+          item.id === activeConversationId
+            ? { ...item, metadata: { ...item.metadata, continued_to: nextConversationId } }
+            : item,
+        ),
+      }));
+    } catch {
+      toast("The new chat was created, but its back-link could not be saved.", "warning", 5000);
+    }
+  }, [activeConversationId, toast]);
+
+  const handleMemoryNamespaceChange = useCallback(async (namespace?: string) => {
+    if (namespace === memoryNamespace) return;
+    try {
+      const nextConversationId = await createConversation(agentId, {
+        memoryNamespace: namespace,
+        ...(activeConversationId && { continuedFrom: activeConversationId }),
+      });
+      await linkContinuation(nextConversationId);
+      router.push(`/chat/${nextConversationId}`);
+    } catch (caught) {
+      toast((caught as Error).message || "Could not start a scoped chat", "error", 6000);
+    }
+  }, [activeConversationId, agentId, createConversation, linkContinuation, memoryNamespace, router, toast]);
+
+  const handleWorkOnNamespace = useCallback(async (
+    namespace: string,
+    podRecord: Record<string, unknown>,
+  ) => {
+    try {
+      const nextConversationId = await createConversation(agentId, {
+        memoryNamespace: namespace,
+        ...(activeConversationId && { continuedFrom: activeConversationId }),
+        openingContext: podRecord,
+      });
+      await linkContinuation(nextConversationId);
+      router.push(`/chat/${nextConversationId}`);
+    } catch (caught) {
+      toast((caught as Error).message || "Could not start a scoped chat", "error", 6000);
+    }
+  }, [activeConversationId, agentId, createConversation, linkContinuation, router, toast]);
+
   // ═══════════════════════════════════════════════════════════════
   // Streaming state & helpers
   // ═══════════════════════════════════════════════════════════════
@@ -825,6 +894,7 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
       }
       const streamEvent = createStreamEvent("tool_end", {
         tool_call_id: toolCallId,
+        completed_tool_name: resolvedName,
         error,
         result,
         args: parsedArgs,
@@ -928,6 +998,23 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
     onWarning(message, namespace) {
       const streamEvent = createStreamEvent("warning", {
         message,
+        namespace: namespace ?? [],
+      });
+      addStreamEvent(streamEvent, convId);
+    },
+
+    onMemoryUpdate(memoryIds, action, namespace) {
+      const streamEvent = createStreamEvent("memory_update", {
+        memory_ids: memoryIds,
+        action,
+        namespace: namespace ?? [],
+      });
+      addStreamEvent(streamEvent, convId);
+    },
+
+    onMemoryInjected(memoryIds, namespace) {
+      const streamEvent = createStreamEvent("memory_injected", {
+        memory_ids: memoryIds,
         namespace: namespace ?? [],
       });
       addStreamEvent(streamEvent, convId);
@@ -1094,6 +1181,8 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
           conversationId: convId,
           agentId,
           clientContext,
+          memoryEnabled,
+          memoryNamespace,
           ...(filesToSend.length > 0 && { files: filesToSend }),
         },
         callbacks,
@@ -1129,7 +1218,7 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
       });
       setConversationStreaming(convId, null);
     }
-  }, [isThisConversationStreaming, activeConversationId, accessToken, agentId, agentProtocol, getActiveConversation, createConversation, clearStreamEvents, addMessage, appendToMessage, updateMessage, setConversationStreaming, buildStreamCallbacks, finalizeStreamLoop, session?.user, showAuthErrorToast, toast]);
+  }, [isThisConversationStreaming, activeConversationId, accessToken, agentId, agentProtocol, getActiveConversation, createConversation, clearStreamEvents, addMessage, appendToMessage, updateMessage, setConversationStreaming, buildStreamCallbacks, finalizeStreamLoop, session?.user, showAuthErrorToast, toast, memoryEnabled, memoryNamespace]);
 
   // Handle queued messages after streaming completes
   useEffect(() => {
@@ -1465,7 +1554,7 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
       const callbacks = buildStreamCallbacks(activeConversationId, assistantMsgId, loopState, toolCallIdToName);
 
       await adapter.resumeStream(
-        { conversationId: activeConversationId, agentId: resumeAgentId, resumeData: formDataJson, clientContext },
+        { conversationId: activeConversationId, agentId: resumeAgentId, resumeData: formDataJson, clientContext, memoryEnabled, memoryNamespace },
         callbacks,
       );
 
@@ -1481,7 +1570,7 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
     }
   }, [pendingUserInput, activeConversationId, accessToken, agentProtocol, addMessage, updateMessage,
       appendToMessage, addStreamEvent, setConversationStreaming,
-      clearStreamEvents, getActiveConversation, buildStreamCallbacks, finalizeStreamLoop]);
+      clearStreamEvents, getActiveConversation, buildStreamCallbacks, finalizeStreamLoop, memoryEnabled, memoryNamespace]);
 
   // Handle tool approval decisions (approve/reject/edit)
   // Shows cards sequentially; only resumes after all tools are decided.
@@ -1583,7 +1672,7 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
     try {
       const callbacks = buildStreamCallbacks(activeConversationId, assistantMsgId, loopState, toolCallIdToName);
       await adapter.resumeStream(
-        { conversationId: activeConversationId, agentId: resumeAgentId, resumeData, clientContext },
+        { conversationId: activeConversationId, agentId: resumeAgentId, resumeData, clientContext, memoryEnabled, memoryNamespace },
         callbacks,
       );
       finalizeStreamLoop(activeConversationId, assistantMsgId, loopState);
@@ -1597,7 +1686,7 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
     }
   }, [pendingToolApproval, activeConversationId, accessToken, agentProtocol, addMessage, updateMessage,
       addStreamEvent, setConversationStreaming, clearStreamEvents, getActiveConversation,
-      buildStreamCallbacks, finalizeStreamLoop]);
+      buildStreamCallbacks, finalizeStreamLoop, memoryEnabled, memoryNamespace]);
 
   // Handle slash command detection in input
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -1712,6 +1801,29 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
 
   return (
     <div className="h-full w-full flex flex-col bg-background relative">
+      <FileMemoryDialog
+        open={memoryDialogOpen}
+        onOpenChange={setMemoryDialogOpen}
+        focusIds={memoryFocusIds}
+        agentId={agentId}
+        memoryNamespace={typeof conversation?.metadata?.memory_namespace === "string" ? conversation.metadata.memory_namespace : null}
+      />
+
+      {(conversation?.metadata?.continued_from || conversation?.metadata?.continued_to) && (
+        <div className="border-b bg-muted/20 px-4 py-1.5 text-center text-xs text-muted-foreground">
+          {typeof conversation.metadata.continued_from === "string" && (
+            <button className="hover:text-foreground hover:underline" onClick={() => router.push(`/chat/${conversation.metadata?.continued_from}`)}>
+              Continued from {conversation.metadata.continued_from.slice(0, 8)}…
+            </button>
+          )}
+          {typeof conversation.metadata.continued_to === "string" && (
+            <button className="ml-3 hover:text-foreground hover:underline" onClick={() => router.push(`/chat/${conversation.metadata?.continued_to}`)}>
+              Continued in {conversation.metadata.continued_to.slice(0, 8)}…
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Messages Area */}
       <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
         <ScrollArea className="flex-1" viewportRef={scrollViewportRef}>
@@ -1860,6 +1972,16 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
                         );
                       }
 
+                      const memoryUpdateIds = msg.role === "assistant"
+                        ? Array.from(new Set(
+                            turnEvents.flatMap((event) => event.memoryUpdateData?.memory_ids ?? [])
+                          ))
+                        : [];
+                      const memoryInjectedIds = msg.role === "assistant"
+                        ? Array.from(new Set(
+                            turnEvents.flatMap((event) => event.memoryInjectedData?.memory_ids ?? [])
+                          ))
+                        : [];
                       return (
                         <ChatMessage
                           key={msg.id}
@@ -1879,6 +2001,10 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
                           agentCustomTheme={agentCustomTheme}
                           agentName={agentName}
                           turnEvents={turnEvents}
+                          memoryInjectedIds={memoryInjectedIds}
+                          memoryUpdateIds={memoryUpdateIds}
+                          onOpenMemory={handleOpenMemory}
+                          onWorkOnNamespace={handleWorkOnNamespace}
                           // Timeline props (only passed to latest message)
                           timelineFiles={timelineFiles}
                           timelineTasks={timelineTasks}
@@ -2160,6 +2286,15 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
               {/* Staged attachment previews (above the input row). */}
               <AttachmentChips attachments={attachments} onRemove={removeAttachment} />
 
+              {agentAllowsMemory && (
+                <MemoryNamespacePicker
+                  agentId={agentId}
+                  value={memoryNamespace}
+                  disabled={memoryToggleLocked}
+                  onChange={(value) => { void handleMemoryNamespaceChange(value); }}
+                />
+              )}
+
               <div className="flex items-center gap-3">
                 <TextareaAutosize
                   ref={inputRef}
@@ -2178,6 +2313,60 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
                   minRows={1}
                   maxRows={10}
                 />
+                <div className="flex items-center gap-1 shrink-0">
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="inline-flex">
+                          <button
+                            type="button"
+                            aria-pressed={memoryEnabled}
+                            disabled={memoryToggleDisabled}
+                            onClick={() => {
+                              if (memoryToggleDisabled) return;
+                              setMemoryPreferenceEnabled((enabled) => !enabled);
+                            }}
+                            className={cn(
+                              "inline-flex h-9 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60",
+                              memoryEnabled
+                                ? "border-sky-500/30 bg-sky-500/10 text-sky-300 hover:bg-sky-500/20"
+                                : "border-border bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground"
+                            )}
+                          >
+                            <Brain className="h-3.5 w-3.5" />
+                            <span>Memory</span>
+                          </button>
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {!agentAllowsMemory
+                          ? "Memory is disabled for this chat. This agent doesn't allow memory use. Please contact an administrator to enable it."
+                          : memoryToggleLocked
+                          ? "Memory cannot be changed after the first message in this chat"
+                          : memoryEnabled
+                            ? "Memory is on for this chat"
+                            : "Memory is off for this chat"}
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-9 w-9 text-muted-foreground hover:text-foreground"
+                          onClick={() => handleOpenMemory([])}
+                        >
+                          <BookOpen className="h-4 w-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Manage memory</TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </div>
                 {/* Attach files */}
                 <Button
                   size="icon"
@@ -2337,6 +2526,7 @@ const LoadEarlierDivider = React.memo(function LoadEarlierDivider({
   );
 });
 
+
 interface ChatMessageProps {
   message: ChatMessageType;
   onCopy: (content: string, id: string) => void;
@@ -2354,6 +2544,10 @@ interface ChatMessageProps {
   agentCustomTheme?: import("@/types/dynamic-agent").CustomThemeConfig | null;
   agentName?: string;
   turnEvents?: StreamEvent[];
+  memoryInjectedIds?: string[];
+  memoryUpdateIds?: string[];
+  onOpenMemory?: (memoryIds: string[]) => void;
+  onWorkOnNamespace?: (namespace: string, podRecord: Record<string, unknown>) => void;
   // Timeline props (for AgentTimeline)
   timelineFiles?: string[];
   timelineTasks?: TaskItem[];
@@ -2385,6 +2579,10 @@ const ChatMessage = React.memo(function ChatMessage({
   agentCustomTheme,
   agentName,
   turnEvents = [],
+  memoryInjectedIds = [],
+  memoryUpdateIds = [],
+  onOpenMemory,
+  onWorkOnNamespace,
   // Timeline props
   timelineFiles = [],
   timelineTasks = [],
@@ -2410,6 +2608,42 @@ const ChatMessage = React.memo(function ChatMessage({
     isStreaming, 
     message.turnStatus
   );
+  const podContexts = useMemo(() => {
+    const found = new Map<string, { key: string; label: string; record: Record<string, unknown> }>();
+    for (const event of turnEvents) {
+      const toolData = event.toolData;
+      if (!toolData || !("completed_tool_name" in toolData)) continue;
+      const toolName = toolData.completed_tool_name || "";
+      if (!toolName.endsWith("list_pods") && !toolName.endsWith("upsert_pod")) continue;
+      if (!toolData.result) continue;
+      try {
+        let decoded: unknown = JSON.parse(toolData.result);
+        if (Array.isArray(decoded) && decoded.length === 1 && typeof decoded[0] === "object") {
+          const text = (decoded[0] as { text?: unknown }).text;
+          if (typeof text === "string") decoded = JSON.parse(text);
+        }
+        if (!decoded || typeof decoded !== "object") continue;
+        const object = decoded as Record<string, unknown>;
+        const candidates = Array.isArray(object.pods)
+          ? object.pods
+          : [object.pod && typeof object.pod === "object" ? object.pod : object];
+        for (const candidate of candidates) {
+          if (!candidate || typeof candidate !== "object") continue;
+          const record = candidate as Record<string, unknown>;
+          const key = String(record.pod_id ?? record.id ?? "");
+          if (!/^[a-z0-9][a-z0-9_-]{0,63}$/.test(key)) continue;
+          found.set(key, {
+            key,
+            label: String(record.pod_name ?? record.name ?? key),
+            record,
+          });
+        }
+      } catch {
+        // Tool result was not structured JSON; no namespace affordance.
+      }
+    }
+    return [...found.values()];
+  }, [turnEvents]);
 
   return (
     <motion.div
@@ -2607,6 +2841,17 @@ const ChatMessage = React.memo(function ChatMessage({
               </motion.div>
             )}
 
+            {memoryInjectedIds.length > 0 && onOpenMemory && (
+              <button
+                type="button"
+                onClick={() => onOpenMemory(memoryInjectedIds)}
+                className="mb-2 mr-2 inline-flex items-center gap-1.5 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-300 transition-colors hover:bg-emerald-500/20"
+              >
+                <Brain className="h-3.5 w-3.5" />
+                {memoryInjectedIds.length === 1 ? "1 memory injected" : `${memoryInjectedIds.length} memories injected`}
+              </button>
+            )}
+
             {/* Main content: timeline (streaming or completed with events) or fallback */}
             {isStreaming || turnEvents.length > 0 ? (
               <AgentTimeline
@@ -2634,6 +2879,33 @@ const ChatMessage = React.memo(function ChatMessage({
                 This response failed to complete. No content was generated.
               </div>
             ) : null}
+
+            {memoryUpdateIds.length > 0 && onOpenMemory && (
+              <button
+                type="button"
+                onClick={() => onOpenMemory(memoryUpdateIds)}
+                className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-sky-500/25 bg-sky-500/10 px-2.5 py-1 text-xs font-medium text-sky-300 transition-colors hover:bg-sky-500/20"
+              >
+                <Brain className="h-3.5 w-3.5" />
+                {memoryUpdateIds.length === 1 ? "Memory updated" : `${memoryUpdateIds.length} memories updated`}
+              </button>
+            )}
+
+            {podContexts.length > 0 && onWorkOnNamespace && (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {podContexts.map((pod) => (
+                  <Button
+                    key={pod.key}
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => onWorkOnNamespace(pod.key, pod.record)}
+                  >
+                    Work on this pod: {pod.label}
+                  </Button>
+                ))}
+              </div>
+            )}
 
             {/* Action buttons (copy, retry, collapse) */}
             {displayContent && (

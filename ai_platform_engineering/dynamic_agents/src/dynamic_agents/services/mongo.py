@@ -164,8 +164,6 @@ class MongoDBService:
             return DynamicAgentConfig(**_strip_nulls(doc))
         return None
 
-
-
     # =========================================================================
     # Read-only MCP server access
     # =========================================================================

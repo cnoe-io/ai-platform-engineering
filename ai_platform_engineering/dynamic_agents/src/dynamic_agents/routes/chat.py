@@ -14,6 +14,8 @@ from dynamic_agents.config import get_settings
 from dynamic_agents.log_config import conversation_id_var
 from dynamic_agents.models import ChatRequest, ClientContext, DynamicAgentConfig, InputFile, UserContext
 from dynamic_agents.services.llm_clients import LLMConfigError
+from dynamic_agents.services.memory_namespaces import resolve_memory_namespaces
+from dynamic_agents.services.memory_paths import validate_namespace_key
 from dynamic_agents.services.mongo import MongoDBService, get_mongo_service
 from dynamic_agents.services.runtime_cache import (
     RuntimeCapacityError,
@@ -75,11 +77,41 @@ def apply_config_override(agent: DynamicAgentConfig, config_override: dict[str, 
     # Validate allowed_tools subset constraint before merging
     if "allowed_tools" in config_override:
         _validate_allowed_tools_subset(agent.allowed_tools, config_override["allowed_tools"])
+    _validate_memory_override(agent, config_override)
 
     # Convert agent to dict, deep merge, reconstruct
     agent_dict = agent.model_dump(by_alias=True)
     merged = _deep_merge(agent_dict, config_override)
     return DynamicAgentConfig.model_validate(merged)
+
+
+def _validate_memory_override(agent: DynamicAgentConfig, config_override: dict[str, Any]) -> None:
+    """Prevent request overrides from relaxing trusted namespace policy."""
+
+    builtin_override = config_override.get("builtin_tools")
+    if not isinstance(builtin_override, dict) or "memory" not in builtin_override:
+        return
+    memory_override = builtin_override["memory"]
+    if not isinstance(memory_override, dict):
+        raise HTTPException(status_code=400, detail="config_override memory must be an object")
+
+    base_memory = agent.builtin_tools.memory if agent.builtin_tools else None
+    if base_memory is None:
+        if set(memory_override) <= {"enabled"} and memory_override.get("enabled") is False:
+            return
+        raise HTTPException(status_code=400, detail="config_override cannot enable or configure memory")
+
+    base = base_memory.model_dump()
+    candidate = _deep_merge(base, memory_override)
+    if candidate.get("enabled") and not base.get("enabled"):
+        raise HTTPException(status_code=400, detail="config_override cannot enable memory")
+    if {key: value for key, value in candidate.items() if key != "enabled"} != {
+        key: value for key, value in base.items() if key != "enabled"
+    }:
+        raise HTTPException(
+            status_code=400,
+            detail="config_override cannot change memory namespace policy",
+        )
 
 
 def _validate_allowed_tools_subset(
@@ -164,6 +196,8 @@ class ResumeStreamRequest(BaseModel):
     resume_data: str  # JSON string with type discriminator (form_input or tool_approval)
     protocol: str = Field("custom", pattern=r"^(custom|agui)$")
     trace_id: str | None = None
+    memory_enabled: bool = True
+    memory_namespace: str | None = None
     config_override: dict | None = Field(
         None,
         description=(
@@ -189,6 +223,57 @@ def _is_scheduler_invoke(request: ChatRequest) -> bool:
     return request.client_context.model_dump().get("source") == "scheduler"
 
 
+async def _validate_memory_namespace(
+    namespace: str | None,
+    *,
+    agent: DynamicAgentConfig,
+    mcp_servers: list,
+    mongo: MongoDBService,
+    conversation_id: str,
+) -> None:
+    """Fail closed on undeclared keys and prevent mid-conversation mutation."""
+
+    memory = agent.builtin_tools.memory if agent.builtin_tools else None
+    if namespace is not None:
+        try:
+            validate_namespace_key(namespace)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if not memory or not memory.enabled:
+            raise HTTPException(status_code=400, detail="This agent does not enable memory namespaces")
+        if not memory.allow_custom:
+            try:
+                # Conversation creation and invocation are authorization
+                # boundaries. Re-resolve through the authoritative MCP rather
+                # than trusting the picker endpoint's short-lived cache.
+                available = await resolve_memory_namespaces(
+                    agent,
+                    mcp_servers,
+                    get_settings(),
+                    use_cache=False,
+                )
+            except Exception as exc:  # noqa: BLE001 - selected namespaces fail closed
+                raise HTTPException(
+                    status_code=503,
+                    detail="Memory namespace could not be validated",
+                ) from exc
+            if namespace not in {item["key"] for item in available}:
+                raise HTTPException(status_code=400, detail="Memory namespace is not available to this user")
+
+    if mongo._db is None:
+        return
+    conversation = mongo._db["conversations"].find_one(
+        {"_id": conversation_id},
+        {"metadata.memory_namespace": 1},
+    )
+    if not isinstance(conversation, dict) or not conversation:
+        return
+    metadata = conversation.get("metadata")
+    stored = metadata.get("memory_namespace") if isinstance(metadata, dict) else None
+    if stored != namespace and (stored is not None or namespace is not None):
+        raise HTTPException(status_code=409, detail="A conversation's memory namespace is immutable")
+
+
 async def _collect_invoke_response(
     *,
     runtime,
@@ -206,6 +291,7 @@ async def _collect_invoke_response(
         request.trace_id,
         encoder,
         files=request.files,
+        memory_enabled=request.memory_enabled,
     ):
         pass
 
@@ -248,6 +334,8 @@ async def _generate_sse_events(
     mongo: MongoDBService | None = None,
     client_context: ClientContext | None = None,
     files: list[InputFile] | None = None,
+    memory_enabled: bool = True,
+    memory_namespace: str | None = None,
 ) -> AsyncGenerator[str, None]:
     """Generate SSE events from agent streaming.
 
@@ -271,10 +359,19 @@ async def _generate_sse_events(
             session_id,
             user=user,
             client_context=client_context,
+            memory_namespace=memory_namespace,
         )
 
         # Stream response with trace_id for Langfuse tracing
-        async for frame in runtime.stream(message, session_id, user.email, trace_id, encoder, files=files):
+        async for frame in runtime.stream(
+            message,
+            session_id,
+            user.email,
+            trace_id,
+            encoder,
+            files=files,
+            memory_enabled=memory_enabled,
+        ):
             yield frame
 
     except RuntimeCapacityError as e:
@@ -348,6 +445,13 @@ async def chat_start_stream(
 
     # Get MCP servers for this agent and its subagents
     mcp_servers = mongo.get_agent_mcp_servers(agent)
+    await _validate_memory_namespace(
+        request.memory_namespace,
+        agent=agent,
+        mcp_servers=mcp_servers,
+        mongo=mongo,
+        conversation_id=request.conversation_id,
+    )
 
     logger.info(
         f"[chat] Starting chat request: "
@@ -373,6 +477,8 @@ async def chat_start_stream(
             mongo=mongo,
             client_context=request.client_context,
             files=request.files,
+            memory_enabled=request.memory_enabled,
+            memory_namespace=request.memory_namespace,
         ),
         media_type="text/event-stream",
         headers={
@@ -392,6 +498,8 @@ async def _generate_resume_sse_events(
     encoder: StreamEncoder,
     trace_id: str | None = None,
     mongo: MongoDBService | None = None,
+    memory_enabled: bool = True,
+    memory_namespace: str | None = None,
 ) -> AsyncGenerator[str, None]:
     """Generate SSE events from agent resume streaming.
 
@@ -413,10 +521,18 @@ async def _generate_resume_sse_events(
             mcp_servers,
             session_id,
             user=user,
+            memory_namespace=memory_namespace,
         )
 
         # Resume streaming with form data
-        async for frame in runtime.resume(session_id, user.email, resume_data, trace_id, encoder):
+        async for frame in runtime.resume(
+            session_id,
+            user.email,
+            resume_data,
+            trace_id,
+            encoder,
+            memory_enabled=memory_enabled,
+        ):
             yield frame
 
     except RuntimeCapacityError as e:
@@ -465,6 +581,13 @@ async def chat_resume_stream(
 
     # Get MCP servers for this agent and its subagents
     mcp_servers = mongo.get_agent_mcp_servers(agent)
+    await _validate_memory_namespace(
+        request.memory_namespace,
+        agent=agent,
+        mcp_servers=mcp_servers,
+        mongo=mongo,
+        conversation_id=request.conversation_id,
+    )
 
     logger.info(
         f"[chat] Resuming stream: agent='{agent.name}', user={user.email}, "
@@ -485,6 +608,8 @@ async def chat_resume_stream(
             encoder=encoder,
             trace_id=request.trace_id,
             mongo=mongo,
+            memory_enabled=request.memory_enabled,
+            memory_namespace=request.memory_namespace,
         ),
         media_type="text/event-stream",
         headers={
@@ -521,6 +646,13 @@ async def chat_invoke(
 
     # Get MCP servers for this agent and its subagents
     mcp_servers = mongo.get_agent_mcp_servers(agent)
+    await _validate_memory_namespace(
+        request.memory_namespace,
+        agent=agent,
+        mcp_servers=mcp_servers,
+        mongo=mongo,
+        conversation_id=request.conversation_id,
+    )
 
     settings = get_settings()
     persist_history = settings.invoke_persist_history
@@ -541,6 +673,7 @@ async def chat_invoke(
                 request.conversation_id,
                 user=user,
                 client_context=request.client_context,
+                memory_namespace=request.memory_namespace,
             ) as runtime:
                 return await _collect_invoke_response(
                     runtime=runtime,
@@ -557,6 +690,7 @@ async def chat_invoke(
                     request.conversation_id,
                     user=user,
                     client_context=request.client_context,
+                    memory_namespace=request.memory_namespace,
                 )
             else:
                 runtime = await stack.enter_async_context(
@@ -566,6 +700,7 @@ async def chat_invoke(
                         request.conversation_id,
                         user=user,
                         client_context=request.client_context,
+                        memory_namespace=request.memory_namespace,
                     )
                 )
 

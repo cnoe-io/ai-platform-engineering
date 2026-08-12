@@ -44,6 +44,9 @@ export const PATCH = withErrorHandler(async (
   if (!body.metadata || typeof body.metadata !== 'object' || Array.isArray(body.metadata)) {
     throw new ApiError('Request body must contain a "metadata" object', 400);
   }
+  if (Object.prototype.hasOwnProperty.call(body.metadata, 'memory_namespace')) {
+    throw new ApiError("A conversation's memory namespace is immutable", 409);
+  }
 
   const conversations = await getCollection<Conversation>('conversations');
   const conversation = await conversations.findOne({ _id: conversationId });

@@ -197,6 +197,13 @@ def get_builtin_tool_definitions() -> list[BuiltinToolDefinition]:
             enabled_by_default=True,
             config_fields=[],
         ),
+        BuiltinToolDefinition(
+            id="memory",
+            name="Memory",
+            description="Mounts durable global, agent, and working-context Markdown memory",
+            enabled_by_default=False,
+            config_fields=[],
+        ),
     ]
 
 
@@ -831,6 +838,9 @@ def create_format_file_tool(store, namespace_factory):
         Returns:
             The path to the newly created formatted file, or an error message.
         """
+        if file_path == "/memories" or file_path.startswith("/memories/"):
+            return "Error: format_file cannot access user memory files"
+
         namespace = namespace_factory()
 
         # Read the file from the store
