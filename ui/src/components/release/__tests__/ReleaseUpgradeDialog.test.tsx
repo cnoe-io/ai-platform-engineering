@@ -106,6 +106,31 @@ describe("ReleaseUpgradeDialog", () => {
     expect(onDismissPermanently).toHaveBeenCalledTimes(1);
   });
 
+  it("links generated main increment notes to the mirror comparison", () => {
+    render(
+      <ReleaseUpgradeDialog
+        open
+        isAdmin
+        releaseVersion="0.5.63-ui-main-a5ba46dd5"
+        release={null}
+        releaseMarkdown={{
+          matchedVersion: "0.5.63-ui-main-a5ba46dd5",
+          title: "Mirror main update",
+          date: "2026-08-09",
+          body: "## What's New\n\n- Mirror update",
+          changelogUrl: "https://github.com/example/repository/compare/previous...current",
+        }}
+        onSkipUntilNextLogin={jest.fn()}
+        onDismissPermanently={jest.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("link", { name: "View full changelog" })).toHaveAttribute(
+      "href",
+      "https://github.com/example/repository/compare/previous...current",
+    );
+  });
+
   it("renders markdown emphasis in release note items", () => {
     render(
       <ReleaseUpgradeDialog

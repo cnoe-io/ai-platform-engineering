@@ -340,3 +340,6 @@ COMMIT_BODY.md
 reports/
 
 *.drawio
+
+# Generated during mirror main UI image builds.
+ui/public/main-increment-release-notes.json

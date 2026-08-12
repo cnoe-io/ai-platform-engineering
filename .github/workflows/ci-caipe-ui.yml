@@ -181,7 +181,16 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
+          fetch-depth: 0
           persist-credentials: false
+      - name: Generate mirror main increment release notes
+        if: contains(needs.determine-changes.outputs.tag_version, '-ui-main-')
+        env:
+          RELEASE_VERSION: ${{ needs.determine-changes.outputs.tag_version }}
+        run: |
+          node scripts/generate-main-increment-release-notes.mjs \
+            --version "$RELEASE_VERSION" \
+            --repository "$GITHUB_REPOSITORY"
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
       - name: Log in to GitHub Container Registry

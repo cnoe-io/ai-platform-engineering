@@ -5,9 +5,14 @@ import { TokenExpiryGuard } from "@/components/token-expiry-guard";
 import { ToastProvider } from "@/components/ui/toast";
 import { getClientConfigScript,getServerConfig } from "@/lib/config";
 import type { Metadata } from "next";
-import { IBM_Plex_Sans,Inter,JetBrains_Mono,Source_Sans_3 } from "next/font/google";
+import { Inter,JetBrains_Mono,Source_Sans_3 } from "next/font/google";
 import { headers } from "next/headers";
 import Script from "next/script";
+import "@fontsource/ibm-plex-sans/latin-300.css";
+import "@fontsource/ibm-plex-sans/latin-400.css";
+import "@fontsource/ibm-plex-sans/latin-500.css";
+import "@fontsource/ibm-plex-sans/latin-600.css";
+import "@fontsource/ibm-plex-sans/latin-700.css";
 import "./globals.css";
 
 // Primary font: Inter - Used by OpenAI, clean and highly readable
@@ -22,15 +27,6 @@ const inter = Inter({
 const sourceSans = Source_Sans_3({
   variable: "--font-source-sans",
   subsets: ["latin"],
-  display: "swap",
-  fallback: ["system-ui", "arial"],
-});
-
-// Alternative: IBM Plex Sans - Professional, used by IBM/Carbon
-const ibmPlex = IBM_Plex_Sans({
-  variable: "--font-ibm-plex",
-  subsets: ["latin"],
-  weight: ["300", "400", "500", "600", "700"],
   display: "swap",
   fallback: ["system-ui", "arial"],
 });
@@ -98,7 +94,7 @@ export default async function RootLayout({
         />
       </head>
       <body
-        className={`${inter.variable} ${sourceSans.variable} ${ibmPlex.variable} ${jetbrainsMono.variable} font-sans antialiased`}
+        className={`${inter.variable} ${sourceSans.variable} ${jetbrainsMono.variable} font-sans antialiased`}
         data-font-size={cfg.defaultFontSize}
         data-font-family={cfg.defaultFontFamily}
       >

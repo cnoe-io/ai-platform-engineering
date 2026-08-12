@@ -2,6 +2,7 @@
  * @jest-environment node
  */
 import { NextRequest } from "next/server";
+import fs from "fs";
 
 const RAW_BASE = "https://raw.githubusercontent.com/cnoe-io/ai-platform-engineering/main/docs/releases";
 
@@ -89,6 +90,42 @@ describe("/api/release-notes", () => {
     // Real markdown content is preserved.
     expect(data.body).toContain("## What's New");
     expect(data.body).toContain("Run the migration runbook");
+  });
+
+  it("prefers exact generated mirror main increment notes over the stable base release", async () => {
+    jest.resetModules();
+    const version = "0.5.63-ui-main-a5ba46dd5";
+    const generatedPath = "main-increment-release-notes.json";
+    jest.spyOn(fs, "existsSync").mockImplementation((candidate) =>
+      String(candidate).endsWith(generatedPath),
+    );
+    jest.spyOn(fs, "readFileSync").mockReturnValue(
+      JSON.stringify({
+        version,
+        previousVersion: "0.5.63-ui-main-9ea3d7d28",
+        title: "Mirror main update a5ba46dd5",
+        date: "2026-08-09",
+        body: "## What's New\n\n- Mirror-only update",
+        changelogUrl: "https://github.com/example/repository/compare/previous...current",
+      }),
+    );
+    global.fetch = jest.fn(() => {
+      throw new Error("Generated notes should not fetch upstream content");
+    }) as unknown as typeof fetch;
+
+    const { GET } = await import("../route");
+    const response = await GET(
+      new NextRequest(`http://localhost/api/release-notes?version=${version}`),
+    );
+    const data = await response.json();
+
+    expect(data).toMatchObject({
+      matchedVersion: version,
+      source: "generated",
+      body: expect.stringContaining("Mirror-only update"),
+      changelogUrl: expect.stringContaining("example/repository/compare"),
+    });
+    expect(global.fetch).not.toHaveBeenCalled();
   });
 
   it("does not fall back to an older release when the exact version is missing", async () => {

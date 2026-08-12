@@ -213,7 +213,7 @@ export function ReleaseUpgradeDialog({
 
         <div className="text-xs text-muted-foreground">
           <a
-            href={CHANGELOG_URL}
+            href={releaseMarkdown?.changelogUrl ?? CHANGELOG_URL}
             target="_blank"
             rel="noopener noreferrer"
             className="font-medium text-primary underline-offset-2 hover:underline"
