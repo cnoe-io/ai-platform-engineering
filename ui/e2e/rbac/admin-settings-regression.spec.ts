@@ -106,6 +106,16 @@ test.describe("mocked Admin workspace browser regression",() => {
 
     await page.getByRole("button",{ name: "Collapse sidebar",exact: true }).click();
     await expect(page.getByRole("button",{ name: "Expand sidebar",exact: true })).toBeVisible();
+    await expect.poll(async () => page.context().cookies()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "caipe-application-navigation-collapsed",
+          value: "true",
+        }),
+      ]),
+    );
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(page.getByRole("button",{ name: "Expand sidebar",exact: true })).toBeVisible();
     await page.getByRole("button",{ name: "Admin",exact: true }).hover();
     const flyoutNavigation = page.getByRole("navigation",{ name: "Admin sections" });
     const flyoutResources = flyoutNavigation.getByRole("button",{
