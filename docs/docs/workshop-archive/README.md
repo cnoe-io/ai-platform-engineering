@@ -6,7 +6,7 @@ title: "Workshop Overview"
 # 🚀 Mission Control for the Mars Colony - AI Platform Engineering Workshop
 
 
-**Get ready to ⚡ level up with [Community AI Platform Engineering](https://cnoe-io.github.io/ai-platform-engineering/) in this hands-on workshop where you'll explore, run, modify, deploy, and master Outshift's open-source, secure, enterprise-ready, distributed multi-agent system.**
+**Get ready to ⚡ level up with [Community AI Platform Engineering](https://caipe.io/) in this hands-on workshop where you'll explore, run, modify, deploy, and master Outshift's open-source, secure, enterprise-ready, distributed multi-agent system.**
 
 ---
 
@@ -34,7 +34,7 @@ Set up 🛰️ communication and 🌦️ weather monitoring systems to support l
 
 ## 🏗️ What is CAIPE?
 
-**[Community AI Platform Engineering (CAIPE)](https://cnoe-io.github.io/ai-platform-engineering)** (pronounced as `cape`) is an open-source, Multi-Agentic AI System (MAS) supported by the [CNOE (Cloud Native Operational Excellence)](https://cnoe.io) forum.
+**[Community AI Platform Engineering (CAIPE)](https://caipe.io/)** (pronounced as `cape`) is an open-source, Multi-Agentic AI System (MAS) supported by the [CNOE (Cloud Native Operational Excellence)](https://cnoe.io) forum.
 
 CAIPE provides a secure, scalable, persona-driven reference implementation with built-in knowledge base retrieval that streamlines platform operations, accelerates workflows, and fosters innovation for modern engineering teams.
 
@@ -64,8 +64,8 @@ Happy exploring and good luck 🚀
 
 ## 📚 Documentation & Resources
 
-- **📖 CAIPE Documentation:** [https://cnoe-io.github.io/ai-platform-engineering/](https://cnoe-io.github.io/ai-platform-engineering/)
-- **💬 Community:** [CAIPE Community](https://cnoe-io.github.io/ai-platform-engineering/community/)
+- **📖 CAIPE Documentation:** [https://caipe.io/](https://caipe.io/)
+- **💬 Community:** [CAIPE Community](https://caipe.io/community/)
 
 ---
 

@@ -110,7 +110,7 @@ CAIPE uses a supervisor pattern, where a coordinator agent delegates tasks to sp
 
 ## Additional Resources
 
-- [CAIPE Documentation](https://cnoe-io.github.io/ai-platform-engineering/)
+- [CAIPE Documentation](https://caipe.io/)
 - [CAIPE GitHub Repository](https://github.com/cnoe-io/ai-platform-engineering)
 
 Visit the CAIPE repository.
@@ -128,5 +128,4 @@ _Link:_ [https://github.com/cnoe-io/ai-platform-engineering](https://github.com/
 ## Ready to Start?
 
 **Next:** Proceed to the "AI Agents and ReAct Pattern" module to build your first agent and learn the foundational concepts of agentic AI.
-
 

@@ -3,7 +3,7 @@
 # ============================================================================
 # Development version of docker-compose.yaml with local builds and file mounts.
 # For setup instructions and agent orchestration details, refer to:
-#   https://cnoe-io.github.io/ai-platform-engineering/getting-started/quick-start
+#   https://caipe.io/docs/getting-started/quick-start
 #
 # The runtime is the CAIPE UI (BFF) + dynamic-agents. Each tool integration runs
 # as a standalone MCP server container (mcp-*); start the ones you need via their

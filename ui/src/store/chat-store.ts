@@ -50,6 +50,21 @@ function persistLastActiveConversationId(id: string | null): void {
   }
 }
 
+/**
+ * True when the server says the conversation does not exist — expected for
+ * conversations that only ever lived in local state. Any other failure (403 on
+ * a conversation shared with the viewer, 5xx, network) means the row survives
+ * on the server and a local-only removal would silently come back.
+ */
+function isConversationMissingError(error: unknown): boolean {
+  // APIClientError carries the HTTP status; fall back to the message for
+  // errors raised outside the API client.
+  const status = (error as { status?: unknown } | null)?.status;
+  if (typeof status === "number") return status === 404;
+  const message = getErrorMessage(error, "");
+  return message.includes("404") || message.includes("not found");
+}
+
 // Track streaming state per conversation
 interface StreamingState {
   conversationId: string;
@@ -553,6 +568,16 @@ const storeImplementation: StateCreator<ChatState> = (set, get) => ({
       deleteConversation: async (id: string) => {
         const storageMode = await getStorageMode();
 
+        // Snapshot for rollback. The removal below is optimistic, so a server
+        // rejection (e.g. a conversation shared with — but not owned by — the
+        // viewer, which returns 403) must not leave the row hidden locally
+        // while it still exists on the server: it would silently reappear on
+        // the next hydrate.
+        const previousState = get();
+        const removedConversation = previousState.conversations.find((c: Conversation) => c.id === id);
+        const removedIndex = previousState.conversations.findIndex((c: Conversation) => c.id === id);
+        const previousActiveId = previousState.activeConversationId;
+
         // Delete from local state first (instant UI update)
         set((state: ChatState) => {
           const wasActiveConversation = state.activeConversationId === id;
@@ -591,11 +616,32 @@ const storeImplementation: StateCreator<ChatState> = (set, get) => ({
             console.log('[ChatStore] Deleted conversation from MongoDB:', id);
           } catch (error) {
             // 404 is expected for conversations that were never saved to MongoDB
-            if (getErrorMessage(error, "")?.includes('404') || getErrorMessage(error, "")?.includes('not found')) {
+            if (isConversationMissingError(error)) {
               console.log('[ChatStore] Conversation not in MongoDB (expected for new conversations):', id);
-            } else {
-              console.error('[ChatStore] Failed to delete from MongoDB:', error);
+              return;
             }
+
+            // The server still holds the conversation — restore it so the list
+            // matches the server, and let the caller report the failure.
+            console.error('[ChatStore] Failed to delete from MongoDB:', error);
+            if (removedConversation) {
+              set((state: ChatState) => {
+                if (state.conversations.some((c: Conversation) => c.id === id)) return state;
+                const restored = [...state.conversations];
+                restored.splice(Math.min(Math.max(removedIndex, 0), restored.length), 0, removedConversation);
+                return {
+                  conversations: restored,
+                  // Only undo the auto-advance this call made; leave any
+                  // selection the user changed in the meantime alone.
+                  activeConversationId:
+                    state.activeConversationId === nextActiveId
+                      ? previousActiveId
+                      : state.activeConversationId,
+                };
+              });
+              persistLastActiveConversationId(get().activeConversationId);
+            }
+            throw error;
           }
         }
       },
