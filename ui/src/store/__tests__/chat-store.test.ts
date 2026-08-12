@@ -1332,6 +1332,49 @@ describe('chat-store', () => {
       // Local state should still be cleaned up
       expect(useChatStore.getState().conversations).toHaveLength(0);
     });
+
+    it('restores the conversation and rethrows when the server refuses the delete', async () => {
+      // A conversation shared with — but not owned by — the viewer: the server
+      // returns 403 and keeps the row, so hiding it locally would make it
+      // reappear on the next hydrate.
+      const forbidden = Object.assign(new Error('Forbidden'), { status: 403 });
+      mockApiClient.deleteConversation.mockRejectedValue(forbidden);
+
+      const conv1 = makeConversation({ id: 'keep-1' });
+      const conv2 = makeConversation({ id: 'shared-2' });
+      const conv3 = makeConversation({ id: 'keep-3' });
+
+      useChatStore.setState({
+        conversations: [conv1, conv2, conv3],
+        activeConversationId: 'shared-2',
+      });
+
+      await expect(
+        useChatStore.getState().deleteConversation('shared-2')
+      ).rejects.toThrow('Forbidden');
+
+      // Restored in place, active selection unchanged
+      expect(useChatStore.getState().conversations.map((c) => c.id)).toEqual([
+        'keep-1',
+        'shared-2',
+        'keep-3',
+      ]);
+      expect(useChatStore.getState().activeConversationId).toBe('shared-2');
+    });
+
+    it('treats a 404 status as an accepted delete even when the message differs', async () => {
+      mockApiClient.deleteConversation.mockRejectedValue(
+        Object.assign(new Error('Conversation unavailable'), { status: 404 })
+      );
+
+      const conv = makeConversation({ id: 'gone' });
+      useChatStore.setState({ conversations: [conv], activeConversationId: 'gone' });
+
+      await expect(
+        useChatStore.getState().deleteConversation('gone')
+      ).resolves.toBeUndefined();
+      expect(useChatStore.getState().conversations).toHaveLength(0);
+    });
   });
 
   // --------------------------------------------------------------------------
