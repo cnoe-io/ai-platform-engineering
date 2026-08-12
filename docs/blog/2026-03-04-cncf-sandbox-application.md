@@ -56,7 +56,7 @@ https://github.com/cnoe-io/ai-platform-engineering
 
 ### Website URL
 
-https://cnoe-io.github.io/ai-platform-engineering/
+https://caipe.io/
 
 ## Roadmap
 
@@ -89,7 +89,7 @@ Key roadmap themes include:
    Expanding contributors through working groups, improved onboarding, and community workshops such as CAIPE Labs.
 
 Project documentation:
-[https://cnoe-io.github.io/ai-platform-engineering/](https://cnoe-io.github.io/ai-platform-engineering/)
+[https://caipe.io/](https://caipe.io/)
 
 ### Contributing guide
 

@@ -37,7 +37,7 @@ _Please give us a ⭐️ on GitHub. Your support helps grow our community and ke
 
 ## 📖🛰️ Download Mission Manual 🚀
 
-* Navigate to CAIP Docs - [https://cnoe-io.github.io/ai-platform-engineering/](https://cnoe-io.github.io/ai-platform-engineering/)
+* Navigate to CAIP Docs - [https://caipe.io/](https://caipe.io/)
 ### 📖 Mission Manual Exploration Checklist
 
 - [ ] Explore **Getting Started** → **Quick Start**
@@ -329,7 +329,7 @@ Agentic Systems landscape is evolving rapidly, understanding the distinction bet
 
 **Reference blog:**
 
-* [AI Agent vs MCP Server](https://cnoe-io.github.io/ai-platform-engineering/blog/ai-agent-vs-mcp-server)
+* [AI Agent vs MCP Server](https://caipe.io/blog/ai-agent-vs-mcp-server)
 
 ## A2A Protocol
 
@@ -342,6 +342,6 @@ The Agent2Agent (A2A) Protocol is an open standard designed to enable seamless c
 ### 🚀 Mission 1 Checklist
 
 - [ ] ⭐ Starred the [CAIPE GitHub repository](https://github.com/cnoe-io/ai-platform-engineering)
-- [ ] 📖 Checked out the [CAIPE documentation](https://cnoe-io.github.io/ai-platform-engineering/)
+- [ ] 📖 Checked out the [CAIPE documentation](https://caipe.io/)
 - [ ] 🤖 Tried the Simple ReAct Agent example in your environment
 - [ ] 🔗 Tried the Simple ReAct Agent with MCP Server integration (see docs/examples)
