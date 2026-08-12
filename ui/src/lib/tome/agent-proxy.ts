@@ -169,6 +169,8 @@ export interface AgentIngestRequest {
    */
   seed_stable_pages: boolean;
   report_id: string;
+  /** The user who triggered this run, for revision attribution. */
+  actor_email: string | null;
   /** Same as `AgentChatRequest.credentials`. */
   credentials: ForwardedCredentials;
 }
@@ -430,6 +432,7 @@ export function buildIngestRequest(
     connectorData?: Record<string, unknown>;
     credentials?: ForwardedCredentials;
     seedStablePages?: boolean;
+    actorEmail?: string | null;
     /** BHAG/Area only: tagged child projects to synthesize with direct sources. */
     childProjects?: ChildProjectSnapshot[];
     /** OpenFGA-filtered cross-project catalog for agent read tools. */
@@ -452,6 +455,7 @@ export function buildIngestRequest(
     is_greenfield: opts.isGreenfield,
     mode: opts.isGreenfield ? "full" : (opts.mode ?? "full"),
     seed_stable_pages: opts.seedStablePages ?? false,
+    actor_email: opts.actorEmail ?? null,
     credentials: opts.credentials ?? {},
   };
 }

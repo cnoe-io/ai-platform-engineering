@@ -74,7 +74,6 @@ import {
   isSupportedTomeImportPath,
   TOME_IMPORT_ACCEPT,
 } from "@/lib/tome/document-import-formats";
-import { normLabel } from "@/lib/projects/labels";
 import { cn } from "@/lib/utils";
 import type { PageTreeNode } from "@/types/tome";
 import {

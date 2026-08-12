@@ -93,6 +93,44 @@ export function tomeSessionSubject(session: unknown): string | null {
 }
 
 /**
+ * Returns true when `sub` is allowed to write pages for `project` — either
+ * because they are a Tome admin (admin shortcut, no per-project tuple needed)
+ * or because they hold `can_write` in OpenFGA. Fails-closed on errors.
+ */
+export async function canWriteAs(
+  sub: string,
+  project: Pick<ProjectDocument, "_id" | "slug" | "type" | "data_steward">,
+): Promise<boolean> {
+  if (await isTomeAdmin({ sub })) return true;
+  try {
+    const result = await checkOpenFgaTuple({
+      user: `user:${sub}`,
+      relation: WRITE_RELATION,
+      object: tomeDataObject(project),
+    });
+    if (result.allowed) return true;
+    // Attempt self-repair: re-write the steward tuple if it exists in the DB
+    // but is missing from FGA, then check once more.
+    const steward = await resolveStoredDataSteward(project.data_steward).catch(() => null);
+    if (!steward) return false;
+    const repaired = await writeOpenFgaTuples({
+      writes: [dataStewardTuple(project, steward)],
+      deletes: [],
+    });
+    if (!repaired.enabled) return false;
+    return (
+      await checkOpenFgaTuple({
+        user: `user:${sub}`,
+        relation: WRITE_RELATION,
+        object: tomeDataObject(project),
+      })
+    ).allowed;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Resolve the one permission used by every Tome data mutation. The OpenFGA
  * decision is authoritative; stored steward metadata is used only to repair a
  * missing tuple before checking once more.
@@ -110,35 +148,11 @@ export async function getTomeProjectPermissions(
   if (!sub) {
     return { canRead: false, canEdit: false, canManageSteward: false };
   }
-  const check = async () =>
-    checkOpenFgaTuple({
-      user: `user:${sub}`,
-      relation: WRITE_RELATION,
-      object: tomeDataObject(input.project),
-    });
 
   try {
     const canRead = await canReadTomeProject(sub, input.project);
-    if ((await check()).allowed) {
-      return { canRead: true, canEdit: true, canManageSteward: false };
-    }
-    const steward = await resolveStoredDataSteward(input.project.data_steward).catch(() => null);
-    if (!steward) {
-      return { canRead, canEdit: false, canManageSteward: false };
-    }
-    const repaired = await writeOpenFgaTuples({
-      writes: [dataStewardTuple(input.project, steward)],
-      deletes: [],
-    });
-    if (!repaired.enabled) {
-      return { canRead, canEdit: false, canManageSteward: false };
-    }
-    const canEdit = (await check()).allowed;
-    return {
-      canRead: canRead || canEdit,
-      canEdit,
-      canManageSteward: false,
-    };
+    const canEdit = await canWriteAs(sub, input.project);
+    return { canRead: canRead || canEdit, canEdit, canManageSteward: false };
   } catch {
     return { canRead: false, canEdit: false, canManageSteward: false };
   }

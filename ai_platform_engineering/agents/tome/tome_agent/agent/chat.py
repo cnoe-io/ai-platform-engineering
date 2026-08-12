@@ -163,6 +163,7 @@ async def stream_chat(
     sdk_session_id: str | None,
     snapshot: ProjectSnapshot,
     stable_pages: dict[str, str],
+    actor_email: str | None = None,
     is_compact: bool = False,
 ) -> AsyncIterator[ChatEventPayload]:
     """Run one chat turn against the SDK and yield ChatEventPayloads the
@@ -190,13 +191,15 @@ async def stream_chat(
     # workspace sync). Widen the read fence to them; writes stay confined to cwd.
     child_read_dirs = [project_root(c.project_id) for c in (snapshot.child_projects or [])]
 
+    author = f"{actor_email} via tome-agent-chat" if actor_email else "tome-agent-chat"
+
     def _options(resume: str | None) -> Any:
         return build_agent_options(
             snapshot=snapshot,
             system_prompt=system_prompt,
             model=_chat_model(),
             max_turns=MAX_TURNS,
-            persist_author="ttt-chat",
+            persist_author=author,
             report_id=None,
             resume=resume,
             include_partial_messages=True,

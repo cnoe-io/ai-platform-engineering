@@ -8,8 +8,7 @@ import { ApiError, withErrorHandler } from "@/lib/api-middleware";
 import { requireAgentToken, resolveProject } from "@/lib/tome/internal-api";
 import { getPageStore } from "@/lib/tome/page-store";
 import { getTomeIngestRunsCollection } from "@/lib/tome/mongo-collections";
-import { checkOpenFgaTuple } from "@/lib/rbac/openfga";
-import { tomeDataObject } from "@/lib/tome/access";
+import { canWriteAs } from "@/lib/tome/data-steward";
 
 export const dynamic = "force-dynamic";
 
@@ -55,12 +54,8 @@ export const POST = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
         "DATA_STEWARD_REQUIRED",
       );
     }
-    const result = await checkOpenFgaTuple({
-      user: `user:${body.actor_sub}`,
-      relation: "can_write",
-      object: tomeDataObject(project),
-    });
-    if (!result.allowed) {
+    const allowed = await canWriteAs(body.actor_sub, project);
+    if (!allowed) {
       throw new ApiError(
         "Only a data steward may edit pages via the chat agent",
         403,

@@ -322,6 +322,7 @@ async def write_verbatim_pages(
     *,
     report_id: UUID,
     project_id: str,
+    author: str = "tome-agent-ingest",
 ) -> list[IngestEventPayload]:
     """Direct, deterministic writes for `.tome/pages/*.md` mirrors — bypasses
     the agent turn entirely (no LLM interpretation of the body), per #322.
@@ -339,7 +340,7 @@ async def write_verbatim_pages(
                 page_path=page_path,
                 body=_verbatim_page_frontmatter(name, slug, sha) + body,
                 message=f"verbatim mirror: {slug}/.tome/pages/{name}.md",
-                author="ttt-pipeline",
+                author=author,
                 report_id=report_id,
                 project_id=project_id,
             )
@@ -379,6 +380,7 @@ async def stream_ingest(
     snapshot: ProjectSnapshot,
     is_greenfield: bool,
     report_id: UUID,
+    actor_email: str | None = None,
     seed_stable_pages: bool = False,
     quick: bool = False,
 ) -> AsyncIterator[IngestEventPayload]:
@@ -408,8 +410,10 @@ async def stream_ingest(
 
     extras = await resolve_connector_extras(snapshot, connector_data)
 
+    ingest_author = f"{actor_email} via tome-agent-ingest" if actor_email else "tome-agent-ingest"
+
     for event in await write_verbatim_pages(
-        extras, report_id=report_id, project_id=snapshot.project_id
+        extras, report_id=report_id, project_id=snapshot.project_id, author=ingest_author
     ):
         yield event
 
@@ -435,7 +439,7 @@ async def stream_ingest(
         ),
         model=_ingest_model(),
         max_turns=MAX_TURNS,
-        persist_author="ttt-pipeline",
+        persist_author=ingest_author,
         report_id=report_id,
         on_write=on_write,
     )
