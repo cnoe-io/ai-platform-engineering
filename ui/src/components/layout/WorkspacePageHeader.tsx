@@ -1,3 +1,6 @@
+"use client";
+
+import { useWorkspacePageActionsTarget } from "@/components/layout/WorkspacePageActions";
 import { cn } from "@/lib/utils";
 import { NavigationProgressLink } from "@/components/layout/NavigationProgressLink";
 import { ChevronRight } from "lucide-react";
@@ -79,6 +82,8 @@ export function WorkspacePageHeader({
   title,
   titleId,
 }: WorkspacePageHeaderProps): React.ReactElement {
+  const actionsRef = useWorkspacePageActionsTarget();
+
   return (
     <header className={cn("space-y-3",className)}>
       <WorkspaceBreadcrumbs breadcrumbs={breadcrumbs} />
@@ -88,7 +93,14 @@ export function WorkspacePageHeader({
           <h1 className="text-2xl font-semibold tracking-tight" id={titleId}>{title}</h1>
           <p className="mt-1 text-sm text-muted-foreground">{description}</p>
         </div>
-        {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
+        {actions || actionsRef ? (
+          <div
+            className="flex flex-wrap items-center gap-2"
+            ref={actionsRef}
+          >
+            {actions}
+          </div>
+        ) : null}
       </div>
     </header>
   );

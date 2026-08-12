@@ -23,6 +23,7 @@ import {
   type KnowledgeCardItem,
   type KnowledgeDragCandidate,
 } from "@/components/rag/KnowledgeCardSelector";
+import { WorkspacePageActions } from "@/components/layout/WorkspacePageActions";
 import { UnsavedChangesDialog } from "@/components/shared/UnsavedChangesDialog";
 import { BuiltInResourceHint } from "@/components/ui/built-in-resource-hint";
 import { Button } from "@/components/ui/button";
@@ -566,22 +567,15 @@ export function RagCollectionsView() {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden">
-      <div className="flex items-center justify-between border-b px-6 py-4">
-        <div>
-          <h1 className="text-xl font-semibold">RAG Collections</h1>
-          <p className="text-sm text-muted-foreground">
-            Group indexed datasources once, attach them to agents, and update
-            membership centrally.
-          </p>
-        </div>
+    <>
+      <WorkspacePageActions>
         <Button onClick={() => runGuarded(beginCreate)} className="gap-2">
           <Plus className="h-4 w-4" />
           New Collection
         </Button>
-      </div>
+      </WorkspacePageActions>
 
-      <div className="grid min-h-0 flex-1 grid-cols-[minmax(260px,340px)_1fr]">
+      <div className="grid h-full min-h-0 grid-cols-[minmax(260px,340px)_1fr] overflow-hidden">
         <div className="space-y-2 overflow-y-auto border-r p-4">
           {isCreating && (
             <div
@@ -664,7 +658,7 @@ export function RagCollectionsView() {
 
         <div className="overflow-y-auto p-6">
           {selected || isCreating ? (
-            <div className="mx-auto max-w-4xl animate-in space-y-5 fade-in slide-in-from-right-2 duration-200">
+            <div className="w-full animate-in space-y-5 fade-in slide-in-from-right-2 duration-200">
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-3">
@@ -887,6 +881,6 @@ export function RagCollectionsView() {
         description="Save this collection or discard your changes before leaving."
         discardLabel="Discard changes"
       />
-    </div>
+    </>
   );
 }

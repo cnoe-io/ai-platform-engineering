@@ -89,6 +89,7 @@ import type {
 } from "@/types/publication-approval";
 import { DatasourceAccessBadges } from "./DatasourceAccessBadges";
 import { DatasourceAccessFields } from "./DatasourceAccessFields";
+import { WorkspacePageActions } from "@/components/layout/WorkspacePageActions";
 import {
   dataSourceFilterProjection,
   datasourceTypeLabel,
@@ -1637,41 +1638,36 @@ export default function IngestView() {
   };
 
   return (
-    <div className="h-full flex flex-col bg-background overflow-hidden">
-      {/* Compact operational summary */}
-      <div className="shrink-0 border-b border-border px-6 py-3">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
+      <WorkspacePageActions>
         <div className="flex flex-wrap items-center justify-end gap-3">
-              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-card/50 border border-border/50">
-                <FileText className="h-4 w-4 text-primary" />
-                <span className="text-sm font-medium">
-                  {stats.totalDataSources}
-                </span>
-                <span className="text-xs text-muted-foreground">Sources</span>
-              </div>
-              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-card/50 border border-border/50">
-                <Activity
-                  className={cn(
-                    "h-4 w-4",
-                    stats.activeJobs > 0
-                      ? "text-primary animate-pulse"
-                      : "text-muted-foreground",
-                  )}
-                />
-                <span className="text-sm font-medium">{stats.activeJobs}</span>
-                <span className="text-xs text-muted-foreground">Active</span>
-              </div>
-              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-card/50 border border-border/50">
-                <Server className="h-4 w-4 text-muted-foreground" />
-                <span className="text-sm font-medium">
-                  {stats.totalIngestors}
-                </span>
-                <span className="text-xs text-muted-foreground">Ingestors</span>
-              </div>
+          <div className="flex items-center gap-2 rounded-lg border border-border/50 bg-card/50 px-3 py-1.5">
+            <FileText className="h-4 w-4 text-primary" />
+            <span className="text-sm font-medium">{stats.totalDataSources}</span>
+            <span className="text-xs text-muted-foreground">Sources</span>
           </div>
-      </div>
+          <div className="flex items-center gap-2 rounded-lg border border-border/50 bg-card/50 px-3 py-1.5">
+            <Activity
+              className={cn(
+                "h-4 w-4",
+                stats.activeJobs > 0
+                  ? "animate-pulse text-primary"
+                  : "text-muted-foreground",
+              )}
+            />
+            <span className="text-sm font-medium">{stats.activeJobs}</span>
+            <span className="text-xs text-muted-foreground">Active</span>
+          </div>
+          <div className="flex items-center gap-2 rounded-lg border border-border/50 bg-card/50 px-3 py-1.5">
+            <Server className="h-4 w-4 text-muted-foreground" />
+            <span className="text-sm font-medium">{stats.totalIngestors}</span>
+            <span className="text-xs text-muted-foreground">Ingestors</span>
+          </div>
+        </div>
+      </WorkspacePageActions>
 
       {/* Scrollable Content */}
-      <ScrollArea className="flex-1">
+      <ScrollArea className="min-h-0 flex-1">
         <div className="p-6 space-y-6">
           {/* Ingest Section — hidden for users without INGEST permission */}
           {canIngest && (
