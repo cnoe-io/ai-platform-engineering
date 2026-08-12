@@ -383,8 +383,8 @@ export async function bootstrapOAuthConnectorsFromEnv(options?: {
         await registerMcpDcrConnector({
           input,
           connectorService: {
-            listConnectors: service.listConnectors!,
-            createConnector: service.createConnector!,
+            listConnectors: service.listConnectors!.bind(service),
+            createConnector: service.createConnector!.bind(service),
           },
           fetchImpl: options?.fetchImpl,
         });
