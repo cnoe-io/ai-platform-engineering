@@ -94,45 +94,45 @@ describe('CapabilityCards', () => {
       expect(screen.getByTestId('capability-card-workflows')).toHaveAttribute('href', '/workflows')
     })
 
-    it('Knowledge Bases card links to /knowledge-bases', () => {
+    it('Knowledge Bases card links to the canonical Search page', () => {
       render(<CapabilityCards ragEnabled={true} />)
-      expect(screen.getByTestId('capability-card-knowledge-bases')).toHaveAttribute('href', '/knowledge-bases')
+      expect(screen.getByTestId('capability-card-knowledge-bases')).toHaveAttribute('href', '/knowledge-bases/search')
     })
 
     it('renders Chat card title and description', () => {
       render(<CapabilityCards ragEnabled={true} />)
       expect(screen.getByText('Chat')).toBeInTheDocument()
-      expect(screen.getByText(/Have natural conversations with AI agents/)).toBeInTheDocument()
+      expect(screen.getByText(/Ask agents questions, troubleshoot issues/)).toBeInTheDocument()
     })
 
     it('renders Skills card title and description', () => {
       render(<CapabilityCards ragEnabled={true} />)
       expect(screen.getByText('Skills')).toBeInTheDocument()
-      expect(screen.getByText(/Browse and run pre-built agent workflows/)).toBeInTheDocument()
+      expect(screen.getByText(/Discover reusable skills and templates/)).toBeInTheDocument()
     })
 
     it('renders Agents card title and description', () => {
       render(<CapabilityCards ragEnabled={true} />)
       expect(screen.getByText('Agents')).toBeInTheDocument()
-      expect(screen.getByText(/Create and manage custom AI agents/)).toBeInTheDocument()
+      expect(screen.getByText(/Build AI agents with the models, skills, and tools/)).toBeInTheDocument()
     })
 
     it('renders Tools card title and description', () => {
       render(<CapabilityCards ragEnabled={true} />)
       expect(screen.getByText('Tools')).toBeInTheDocument()
-      expect(screen.getByText(/Connect agents to APIs/)).toBeInTheDocument()
+      expect(screen.getByText(/Connect agents to APIs, infrastructure/)).toBeInTheDocument()
     })
 
     it('renders Workflows card title and description', () => {
       render(<CapabilityCards ragEnabled={true} />)
       expect(screen.getByText('Workflows')).toBeInTheDocument()
-      expect(screen.getByText(/Create and manage self-service workflows/)).toBeInTheDocument()
+      expect(screen.getByText(/Automate repeatable, multi-step work/)).toBeInTheDocument()
     })
 
     it('renders Knowledge Bases card title and description', () => {
       render(<CapabilityCards ragEnabled={true} />)
       expect(screen.getByText('Knowledge Bases')).toBeInTheDocument()
-      expect(screen.getByText(/Search and explore your organization's knowledge/)).toBeInTheDocument()
+      expect(screen.getByText(/Search trusted organizational knowledge/)).toBeInTheDocument()
     })
 
     it('renders the section heading', () => {

@@ -638,14 +638,14 @@ export default function SearchView({ onExploreEntity, onNavigateToDataSources }:
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
                         transition={fastTransition}
-                        className="h-full flex flex-col items-center pt-[20vh] px-6 py-8 overflow-y-auto"
+                        className="h-full flex flex-col items-center px-6 py-8 pt-[10vh] overflow-y-auto"
                     >
                         {/* Logo/Title */}
                         <div className="mb-6 text-center">
                             <div className="inline-flex p-4 rounded-2xl gradient-primary-br shadow-lg shadow-primary/20 mb-4">
                                 <Search className="h-10 w-10 text-white" />
                             </div>
-                            <h1 className="text-3xl font-bold gradient-text mb-2">Knowledge Search</h1>
+                            <h2 className="text-3xl font-bold gradient-text mb-2">Knowledge Search</h2>
                             <p className="text-muted-foreground">Search and explore your knowledge base</p>
                         </div>
 

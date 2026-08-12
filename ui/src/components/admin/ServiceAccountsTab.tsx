@@ -144,12 +144,15 @@ export function ServiceAccountsTab({
   // Debounce typed input before it drives a fetch, resetting to page 1 so a
   // new search always starts from the top of the result set.
   useEffect(() => {
+    const nextSearch = searchDraft.trim();
+    if (nextSearch === search) return;
+
     const id = window.setTimeout(() => {
-      setSearch(searchDraft.trim());
+      setSearch(nextSearch);
       setPage(1);
     }, 300);
     return () => window.clearTimeout(id);
-  }, [searchDraft]);
+  }, [search, searchDraft]);
 
   const listUrl = useMemo(() => {
     const params = new URLSearchParams();
@@ -209,13 +212,10 @@ export function ServiceAccountsTab({
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h2 className="text-lg font-semibold">Service Accounts</h2>
-          <p className="text-sm text-muted-foreground">
-            Machine identities owned by your teams. Each can only use the agents and tools
-            its creator holds. The credential is shown once at creation.
-          </p>
-        </div>
+        <p className="max-w-2xl text-sm text-muted-foreground">
+          Machine identities owned by your teams. Each can only use the agents and tools
+          its creator holds. The credential is shown once at creation.
+        </p>
         <div className="flex gap-2">
           <Button
             type="button"

@@ -1630,8 +1630,8 @@ export function DynamicAgentEditor({
                         data-testid="platform-default-visibility-note"
                       >
                         This agent is the platform default for new chats, so every signed-in user
-                        can use it. Change the platform default in Admin → Settings before changing
-                        its visibility.
+                        can use it. Change the platform default in Settings → Platform settings → Defaults
+                        before changing its visibility.
                       </p>
                     )}
                     <div className="grid grid-cols-2 gap-2">
