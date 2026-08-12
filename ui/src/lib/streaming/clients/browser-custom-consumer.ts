@@ -79,6 +79,7 @@ export class CustomStreamAdapter implements StreamAdapter {
       agent_id: params.agentId,
       protocol: "custom",
       ...(params.clientContext && { client_context: params.clientContext }),
+      ...(params.files?.length && { files: params.files }),
     });
 
     await this._stream(url, body, callbacks);

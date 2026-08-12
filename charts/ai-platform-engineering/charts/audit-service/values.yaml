@@ -32,9 +32,12 @@ storage:
     retentionDays: 1
 
   s3:
+    # bucket/region/endpointUrl fall back to global.storage.s3 when left empty,
+    # so a CAIPE sysadmin can set them once for the whole platform. A value set
+    # here always wins over the global.
     bucket: ""
     prefix: audit
-    region: us-east-1
+    region: ""
     endpointUrl: ""
     # retentionDays: Days before S3 objects expire via a lifecycle rule.
     # 0 means no lifecycle rule is applied (operator manages expiry externally).

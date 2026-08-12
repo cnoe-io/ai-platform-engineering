@@ -37,6 +37,12 @@ creates or resumes conversations, and streams responses through Dynamic Agents.
 | `chat:write` | Post replies |
 | `reactions:write` | Add feedback/status reactions |
 
+## Optional Slack Scopes
+
+| Scope | Purpose |
+|---|---|
+| `files:read` | Read files attached to messages. Without it, the bot continues with the message text and tells the user that it could not access the attachment. |
+
 ## Important Environment Variables
 
 | Variable | Purpose |

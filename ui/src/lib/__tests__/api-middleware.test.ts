@@ -32,6 +32,10 @@ jest.mock('@/lib/jwt-validation', () => ({
   validateLocalSkillsJWT: jest.fn().mockResolvedValue(null),
 }));
 
+jest.mock('@/lib/catalog-api-keys', () => ({
+  verifyCatalogApiKey: jest.fn().mockResolvedValue(null),
+}));
+
 const mockGetConfig = jest.fn((key: string) => key === 'ssoEnabled');
 jest.mock('@/lib/config', () => ({
   getConfig: (...args: unknown[]) => mockGetConfig(...args),
@@ -54,14 +58,130 @@ const mockGetServerSession = jest.requireMock('next-auth').getServerSession;
 const mockGetCollection = jest.requireMock('@/lib/mongodb').getCollection;
 const mockValidateBearerJWT = jest.requireMock('@/lib/jwt-validation').validateBearerJWT;
 const mockValidateLocalSkillsJWT = jest.requireMock('@/lib/jwt-validation').validateLocalSkillsJWT;
+const mockVerifyCatalogApiKey = jest.requireMock('@/lib/catalog-api-keys').verifyCatalogApiKey;
 const mockCheckOpenFgaTuple = jest.requireMock('@/lib/rbac/openfga').checkOpenFgaTuple;
 const mockCheckPermission = jest.requireMock('@/lib/rbac/keycloak-authz').checkPermission;
 
 beforeEach(() => {
   mockGetConfig.mockImplementation((key: string) => key === 'ssoEnabled');
   mockAuditWrite.mockClear();
+  mockVerifyCatalogApiKey.mockReset().mockResolvedValue(null);
+  mockValidateLocalSkillsJWT.mockReset().mockResolvedValue(null);
   delete process.env.CAIPE_UNSAFE_RBAC_BYPASS;
   delete process.env.CAIPE_SESSION_AUTH_CACHE_TTL_MS;
+});
+
+describe('getAuthFromBearerOrSession scoped credentials', () => {
+  it('rejects an invalid catalog API key', async () => {
+    const request = new Request('http://test.com/api/skills', {
+      headers: { 'X-Caipe-Catalog-Key': 'sk_invalid.secret' },
+    }) as unknown as NextRequest;
+
+    await expect(getAuthFromBearerOrSession(request)).rejects.toMatchObject({
+      statusCode: 401,
+      code: 'CATALOG_KEY_INVALID',
+    });
+    expect(mockVerifyCatalogApiKey).toHaveBeenCalledWith('sk_invalid.secret');
+  });
+
+  it('binds a valid catalog API key to its owner for catalog reads', async () => {
+    mockVerifyCatalogApiKey.mockResolvedValue('owner-sub');
+    const request = new Request('http://test.com/api/skills?include_content=true', {
+      headers: { 'X-Caipe-Catalog-Key': 'sk_valid.secret' },
+    }) as unknown as NextRequest;
+
+    const result = await getAuthFromBearerOrSession(request);
+
+    expect(result.user.email).toBe('owner-sub');
+    expect(result.session).toMatchObject({
+      sub: 'owner-sub',
+      principalType: 'catalog_api_key',
+      authScopes: ['catalog:read'],
+    });
+    expect(result.session).not.toHaveProperty('catalogKey');
+  });
+
+  it.each([
+    ['GET', '/api/credentials/oauth-connectors'],
+    ['GET', '/api/dynamic-agents/available'],
+    ['GET', '/api/mcp-servers'],
+    ['GET', '/api/workflow-configs'],
+    ['POST', '/api/ai/assist'],
+    ['GET', '/api/chat/conversations'],
+    ['PUT', '/api/files/content'],
+    ['POST', '/api/projects'],
+    ['GET', '/api/projects/backstage/lookup'],
+    ['POST', '/api/tome/mcp'],
+  ])('rejects a valid catalog API key on %s %s', async (method, path) => {
+    mockVerifyCatalogApiKey.mockResolvedValue('owner-sub');
+    const request = new Request(`http://test.com${path}`, {
+      method,
+      headers: { 'X-Caipe-Catalog-Key': 'sk_valid.secret' },
+    }) as unknown as NextRequest;
+
+    await expect(getAuthFromBearerOrSession(request)).rejects.toMatchObject({
+      statusCode: 403,
+      code: 'CATALOG_KEY_NOT_ALLOWED',
+    });
+  });
+
+  it('accepts a scoped local skills token only for catalog reads', async () => {
+    mockValidateLocalSkillsJWT.mockResolvedValue({
+      email: 'owner@example.com',
+      name: 'Owner',
+      groups: [],
+      sub: 'owner-sub',
+      tokenType: 'skills_api_key',
+      scopes: ['skills:read'],
+      audience: 'caipe-skills-api',
+      issuer: 'caipe-ui',
+    });
+    const request = new Request('http://test.com/api/skills', {
+      headers: { Authorization: 'Bearer local-token' },
+    }) as unknown as NextRequest;
+
+    const result = await getAuthFromBearerOrSession(request);
+
+    expect(result.session).toMatchObject({
+      sub: 'owner-sub',
+      principalType: 'skills_api_key',
+      authScopes: ['skills:read'],
+    });
+  });
+
+  it.each([
+    ['GET', '/api/credentials/oauth-connectors'],
+    ['GET', '/api/dynamic-agents/available'],
+    ['GET', '/api/mcp-servers'],
+    ['GET', '/api/workflow-configs'],
+    ['POST', '/api/ai/assist'],
+    ['GET', '/api/chat/conversations'],
+    ['PUT', '/api/files/content'],
+    ['POST', '/api/projects'],
+    ['GET', '/api/projects/backstage/lookup'],
+    ['POST', '/api/tome/mcp'],
+  ])('rejects a valid local skills token on %s %s', async (method, path) => {
+    mockValidateLocalSkillsJWT.mockResolvedValue({
+      email: 'owner@example.com',
+      name: 'Owner',
+      groups: [],
+      sub: 'owner-sub',
+      tokenType: 'skills_api_key',
+      scopes: ['skills:read'],
+      audience: 'caipe-skills-api',
+      issuer: 'caipe-ui',
+    });
+    const request = new Request(`http://test.com${path}`, {
+      method,
+      headers: { Authorization: 'Bearer local-token' },
+    }) as unknown as NextRequest;
+
+    await expect(getAuthFromBearerOrSession(request)).rejects.toMatchObject({
+      statusCode: 403,
+      code: 'SKILLS_TOKEN_NOT_ALLOWED',
+    });
+    expect(mockValidateBearerJWT).not.toHaveBeenCalled();
+  });
 });
 
 jest.spyOn(console, 'error').mockImplementation(() => {});
@@ -1050,63 +1170,44 @@ describe('getAuthenticatedUser', () => {
     expect(mockValidateBearerJWT).toHaveBeenCalledTimes(2);
   });
 
-  it('resolves session.sub from the persisted keycloak_sub mapping for skills-API-key callers', async () => {
+  it('uses the signed stable subject for skills-API-key catalog reads', async () => {
     mockValidateLocalSkillsJWT.mockResolvedValue({
       email: 'skills-user@test.com',
       name: 'Skills User',
+      sub: 'oidc-sub-123',
+      tokenType: 'skills_api_key',
+      scopes: ['skills:read'],
+      issuer: 'caipe-ui',
+      audience: 'caipe-skills-api',
     });
-    const mockFindOne = jest.fn().mockResolvedValue({ keycloak_sub: 'oidc-sub-123' });
-    mockGetCollection.mockResolvedValue({ findOne: mockFindOne });
 
     const makeRequest = () =>
-      new Request('http://test.com/api/mcp/tome', {
+      new Request('http://test.com/api/skills', {
         headers: { authorization: 'Bearer skills-token' },
       }) as unknown as NextRequest;
 
     const { session } = await getAuthFromBearerOrSession(makeRequest());
 
-    expect(mockFindOne).toHaveBeenCalledWith(
-      { email: 'skills-user@test.com' },
-      { projection: { keycloak_sub: 1 } }
-    );
     expect(session.sub).toBe('oidc-sub-123');
-  });
-
-  it('falls back to the email as session.sub when no keycloak_sub mapping exists for the skills-API-key email', async () => {
-    // sub must never be omitted here: filterSkillsByOpenFga short-circuits to
-    // [] when subject is null, which previously dropped all skills for any
-    // caller without a resolved Keycloak sub (see the "missing sub drops all
-    // skills" fix). Falling back to email keeps that guarantee while still
-    // preferring the real Keycloak sub when one is resolved (see the
-    // preceding test).
-    mockValidateLocalSkillsJWT.mockResolvedValue({
-      email: 'unmapped@test.com',
-      name: 'Unmapped User',
-    });
-    const mockFindOne = jest.fn().mockResolvedValue(null);
-    mockGetCollection.mockResolvedValue({ findOne: mockFindOne });
-
-    const makeRequest = () =>
-      new Request('http://test.com/api/mcp/tome', {
-        headers: { authorization: 'Bearer skills-token' },
-      }) as unknown as NextRequest;
-
-    const { session } = await getAuthFromBearerOrSession(makeRequest());
-
-    expect(session.sub).toBe('unmapped@test.com');
+    expect(mockGetCollection).not.toHaveBeenCalled();
   });
 
   it('rejects a skills-API-key token whose jti was revoked', async () => {
     mockValidateLocalSkillsJWT.mockResolvedValue({
       email: 'revoked-user@test.com',
       name: 'Revoked User',
+      sub: 'revoked-sub',
       jti: 'revoked-jti',
+      tokenType: 'skills_api_key',
+      scopes: ['skills:read'],
+      issuer: 'caipe-ui',
+      audience: 'caipe-skills-api',
     });
     const mockFindOne = jest.fn().mockResolvedValue({ status: 'revoked' });
     mockGetCollection.mockResolvedValue({ findOne: mockFindOne });
 
     const makeRequest = () =>
-      new Request('http://test.com/api/mcp/tome', {
+      new Request('http://test.com/api/skills', {
         headers: { authorization: 'Bearer revoked-token' },
       }) as unknown as NextRequest;
 
@@ -1119,13 +1220,18 @@ describe('getAuthenticatedUser', () => {
     mockValidateLocalSkillsJWT.mockResolvedValue({
       email: 'active-user@test.com',
       name: 'Active User',
+      sub: 'active-sub',
       jti: 'active-jti',
+      tokenType: 'skills_api_key',
+      scopes: ['skills:read'],
+      issuer: 'caipe-ui',
+      audience: 'caipe-skills-api',
     });
     const mockFindOne = jest.fn().mockResolvedValue({ status: 'active' });
     mockGetCollection.mockResolvedValue({ findOne: mockFindOne });
 
     const makeRequest = () =>
-      new Request('http://test.com/api/mcp/tome', {
+      new Request('http://test.com/api/skills', {
         headers: { authorization: 'Bearer active-token' },
       }) as unknown as NextRequest;
 
@@ -1137,13 +1243,18 @@ describe('getAuthenticatedUser', () => {
     mockValidateLocalSkillsJWT.mockResolvedValue({
       email: 'legacy-user@test.com',
       name: 'Legacy User',
+      sub: 'legacy-sub',
       jti: 'legacy-jti',
+      tokenType: 'skills_api_key',
+      scopes: ['skills:read'],
+      issuer: 'caipe-ui',
+      audience: 'caipe-skills-api',
     });
     const mockFindOne = jest.fn().mockResolvedValue(null);
     mockGetCollection.mockResolvedValue({ findOne: mockFindOne });
 
     const makeRequest = () =>
-      new Request('http://test.com/api/mcp/tome', {
+      new Request('http://test.com/api/skills', {
         headers: { authorization: 'Bearer legacy-token' },
       }) as unknown as NextRequest;
 

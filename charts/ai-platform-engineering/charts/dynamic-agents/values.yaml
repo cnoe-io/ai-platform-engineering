@@ -196,6 +196,29 @@ config:
   # attributes (tool defs, message history) blow up. 256 KiB
   # default. Set to "0" to disable.
   SKILL_TRACE_MAX_ATTR_BYTES: "262144"
+  # ─── Attachment blob store ──────────────────────────────────────────────
+  # Multimodal chat attachment bytes are stored once (content-addressed) in
+  # this backend; only a reference is persisted to the Mongo checkpoint, and
+  # the rehydration middleware fetches the bytes back into the model request at
+  # inference time. Keeps the checkpoint small and under Mongo's 16MB cap.
+  #
+  # ATTACHMENT_BACKEND / ATTACHMENT_S3_* are resolved by the
+  # dynamic-agents.attachmentConfig helper (templates/_helpers.tpl), not here:
+  #   * backend defaults to "auto" -> "s3" when a bucket is available, else "local"
+  #   * ATTACHMENT_S3_BUCKET / _REGION / _ENDPOINT_URL fall back to
+  #     global.storage.s3 so the bucket is set once for the whole platform
+  # For s3, rely on ambient (IRSA) credentials — the pod's service account role
+  # grants S3 access, no secret. To pin any value, set it explicitly here (an
+  # explicit value always wins over the global); e.g. ATTACHMENT_BACKEND: "s3".
+  ATTACHMENT_LOCAL_PATH: "/var/lib/caipe-attachments"
+  # ─── Bedrock prompt caching ─────────────────────────────────────────────
+  # Selects ChatBedrockConverse (via cnoe_agent_utils.LLMFactory) and lets the
+  # rehydration middleware insert cachePoint markers so the large stable prefix
+  # (system + tools + completed turns and their re-sent file bytes) is cached
+  # and only the newest turn is billed uncached. REQUIRED for the attachment
+  # replay path to be affordable on Bedrock (no Files API there). Deploy values
+  # set this to "true"; kept "false" here so local/dev doesn't force Converse.
+  AWS_BEDROCK_ENABLE_PROMPT_CACHE: "false"
 
 agentContext:
   # Secret shared with openfga-authz-bridge for signed agent_id context headers.

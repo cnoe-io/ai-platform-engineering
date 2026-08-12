@@ -7,7 +7,8 @@ import { generateId } from "@/lib/utils";
 import type { StreamAdapter } from "@/lib/streaming";
 import { apiClient } from "@/lib/api-client";
 import { getStorageMode, shouldUseLocalStorage } from "@/lib/storage-config";
-import type { Message as StoredMessage, StoredStreamEvent } from "@/types/mongodb";
+import type { Artifact, Message as StoredMessage, StoredStreamEvent } from "@/types/mongodb";
+import { MAX_INLINE_PERSIST_BYTES } from "@/lib/file-attachments";
 
 const LAST_ACTIVE_CONVERSATION_KEY = "caipe-chat-last-active-conversation";
 
@@ -47,6 +48,21 @@ function persistLastActiveConversationId(id: string | null): void {
   } else {
     window.localStorage.removeItem(LAST_ACTIVE_CONVERSATION_KEY);
   }
+}
+
+/**
+ * True when the server says the conversation does not exist — expected for
+ * conversations that only ever lived in local state. Any other failure (403 on
+ * a conversation shared with the viewer, 5xx, network) means the row survives
+ * on the server and a local-only removal would silently come back.
+ */
+function isConversationMissingError(error: unknown): boolean {
+  // APIClientError carries the HTTP status; fall back to the message for
+  // errors raised outside the API client.
+  const status = (error as { status?: unknown } | null)?.status;
+  if (typeof status === "number") return status === 404;
+  const message = getErrorMessage(error, "");
+  return message.includes("404") || message.includes("not found");
 }
 
 // Track streaming state per conversation
@@ -529,6 +545,16 @@ const storeImplementation: StateCreator<ChatState> = (set, get) => ({
       deleteConversation: async (id: string) => {
         const storageMode = await getStorageMode();
 
+        // Snapshot for rollback. The removal below is optimistic, so a server
+        // rejection (e.g. a conversation shared with — but not owned by — the
+        // viewer, which returns 403) must not leave the row hidden locally
+        // while it still exists on the server: it would silently reappear on
+        // the next hydrate.
+        const previousState = get();
+        const removedConversation = previousState.conversations.find((c: Conversation) => c.id === id);
+        const removedIndex = previousState.conversations.findIndex((c: Conversation) => c.id === id);
+        const previousActiveId = previousState.activeConversationId;
+
         // Delete from local state first (instant UI update)
         set((state: ChatState) => {
           const wasActiveConversation = state.activeConversationId === id;
@@ -567,11 +593,32 @@ const storeImplementation: StateCreator<ChatState> = (set, get) => ({
             console.log('[ChatStore] Deleted conversation from MongoDB:', id);
           } catch (error) {
             // 404 is expected for conversations that were never saved to MongoDB
-            if (getErrorMessage(error, "")?.includes('404') || getErrorMessage(error, "")?.includes('not found')) {
+            if (isConversationMissingError(error)) {
               console.log('[ChatStore] Conversation not in MongoDB (expected for new conversations):', id);
-            } else {
-              console.error('[ChatStore] Failed to delete from MongoDB:', error);
+              return;
             }
+
+            // The server still holds the conversation — restore it so the list
+            // matches the server, and let the caller report the failure.
+            console.error('[ChatStore] Failed to delete from MongoDB:', error);
+            if (removedConversation) {
+              set((state: ChatState) => {
+                if (state.conversations.some((c: Conversation) => c.id === id)) return state;
+                const restored = [...state.conversations];
+                restored.splice(Math.min(Math.max(removedIndex, 0), restored.length), 0, removedConversation);
+                return {
+                  conversations: restored,
+                  // Only undo the auto-advance this call made; leave any
+                  // selection the user changed in the meantime alone.
+                  activeConversationId:
+                    state.activeConversationId === nextActiveId
+                      ? previousActiveId
+                      : state.activeConversationId,
+                };
+              });
+              persistLastActiveConversationId(get().activeConversationId);
+            }
+            throw error;
           }
         }
       },
@@ -917,6 +964,26 @@ const storeImplementation: StateCreator<ChatState> = (set, get) => ({
               console.log(`[ChatStore] Attaching ${convStreamEvents.length} conversation-level stream events to assistant message ${msg.id}`);
             }
 
+            // Persist user attachments as artifacts so the upload stays in the
+            // transcript across reloads. Inline base64 is capped: above the
+            // cap we keep name/mime/size but drop the data (a document chip
+            // still renders) to avoid bloating conversation documents.
+            const attachmentArtifacts: Artifact[] | undefined = msg.attachments?.length
+              ? msg.attachments.map((att) => {
+                  const persistData = att.data != null
+                    && (att.size == null || att.size <= MAX_INLINE_PERSIST_BYTES);
+                  return {
+                    type: "attachment",
+                    name: att.name,
+                    data: {
+                      mime_type: att.mime_type,
+                      ...(att.size != null && { size: att.size }),
+                      ...(persistData && { data: att.data }),
+                    },
+                  };
+                })
+              : undefined;
+
             // The API does upsert on message_id — inserts on first call,
             // updates content/metadata/events on subsequent calls.
             await apiClient.addMessage(conversationId, {
@@ -941,6 +1008,7 @@ const storeImplementation: StateCreator<ChatState> = (set, get) => ({
                 ...(msg.latencyMs != null && { latency_ms: msg.latencyMs }),
               },
               stream_events: serializedStreamEvents,
+              ...(attachmentArtifacts && { artifacts: attachmentArtifacts }),
             });
 
             savedCount++;
@@ -1045,6 +1113,22 @@ const storeImplementation: StateCreator<ChatState> = (set, get) => ({
 
             const isExplicitlyInterrupted = Boolean(msg.metadata?.is_interrupted);
             const hasHitlForm = streamEvents.some((event) => event.type === 'input_required');
+
+            // Rehydrate user attachments from artifacts (type: "attachment").
+            // Data may be absent for large files (dropped at persist time) — the
+            // renderer falls back to a document chip in that case.
+            const attachments = (msg.artifacts || [])
+              .filter((a) => a.type === 'attachment')
+              .map((a) => {
+                const d = a.data as { mime_type?: string; size?: number; data?: string };
+                return {
+                  name: a.name,
+                  mime_type: d?.mime_type || 'application/octet-stream',
+                  ...(typeof d?.size === 'number' && { size: d.size }),
+                  ...(typeof d?.data === 'string' && { data: d.data }),
+                };
+              });
+
             const chatMsg: ChatMessage = {
               id: msg.message_id || msg._id?.toString() || generateId(),
               role: msg.role as "user" | "assistant",
@@ -1071,6 +1155,7 @@ const storeImplementation: StateCreator<ChatState> = (set, get) => ({
               senderEmail: msg.sender_email,
               senderName: msg.sender_name,
               senderImage: msg.sender_image,
+              ...(attachments.length > 0 && { attachments }),
             };
 
             return chatMsg;

@@ -111,6 +111,40 @@ class Settings(BaseSettings):
     oauth2_scope: str = ""
     oauth2_audience: str = ""
 
+    # Per-model input-capability overrides (env: MODEL_CAPABILITIES_JSON). JSON object
+    # mapping model id (or family prefix) to accepted modalities, e.g.
+    # '{"some-text-only-model": {"accepts_images": false}}'. Merged over the
+    # seed defaults in services/model_capabilities.py; malformed JSON is ignored.
+    # This is the values-driven seam for declaring per-model file acceptance
+    # from Helm values without a code change.
+    model_capabilities_json: str = ""
+
+    # Input-attachment guardrails (env: MAX_INPUT_FILES / MAX_INPUT_FILE_BYTES /
+    # MAX_INPUT_TURN_BYTES). Attached files ride inline as base64 in the user
+    # turn, which is checkpointed to MongoDB — an unbounded set of large files
+    # inflates the checkpoint and can breach Mongo's 16MB per-document cap. These
+    # caps drop the overflow gracefully (the drop is surfaced to the user and to
+    # the model) rather than failing the write. A value of 0 disables that guard
+    # (unlimited), so ops can tune per-env from Helm without a code change.
+    max_input_files: int = 10
+    max_input_file_bytes: int = 5 * 1024 * 1024  # 5 MiB per file
+    max_input_turn_bytes: int = 20 * 1024 * 1024  # 20 MiB total per turn
+
+    # Attachment blob store (env: ATTACHMENT_BACKEND / ATTACHMENT_LOCAL_PATH /
+    # ATTACHMENT_S3_BUCKET / ATTACHMENT_S3_PREFIX / ATTACHMENT_S3_REGION /
+    # ATTACHMENT_S3_ENDPOINT_URL). Attachment bytes are stored once, content-
+    # addressed, in this backend; only a reference is persisted in the MongoDB
+    # checkpoint, and the rehydration middleware fetches the bytes back into the
+    # model request at inference time. "local" (default) writes to disk — works
+    # out of the box for docker-compose dev; "s3" uses the shared bucket via
+    # ambient (IRSA) credentials. Mirrors the audit-service storage config shape.
+    attachment_backend: str = "local"
+    attachment_local_path: str = "/var/lib/caipe-attachments"
+    attachment_s3_bucket: str = ""
+    attachment_s3_prefix: str = "attachments"
+    attachment_s3_region: str = "us-west-2"
+    attachment_s3_endpoint_url: str | None = None
+
 
 @lru_cache
 def get_settings() -> Settings:

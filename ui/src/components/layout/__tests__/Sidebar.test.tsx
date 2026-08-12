@@ -131,8 +131,9 @@ jest.mock('@/components/ui/tooltip', () => ({
   TooltipTrigger: ({ children }: unknown) => <>{children}</>,
 }))
 
+const mockToast = jest.fn()
 jest.mock('@/components/ui/toast', () => ({
-  useToast: () => ({ toast: jest.fn() }),
+  useToast: () => ({ toast: mockToast }),
 }))
 
 jest.mock('@/lib/storage-config', () => ({
@@ -660,6 +661,64 @@ describe('Sidebar — Live Status Indicator', () => {
       expect(screen.getByText('Original Title')).toBeInTheDocument()
       expect(mockUpdateConversationTitle).not.toHaveBeenCalled()
     })
+  })
+
+  // --------------------------------------------------------------------------
+  // Archive failures
+  // --------------------------------------------------------------------------
+
+  describe('archive failure handling', () => {
+    /** Clicks the archive action on the first conversation in the list. */
+    function clickArchive() {
+      const archiveButton = screen.getAllByTestId('icon-archive')[0].closest('button')
+      expect(archiveButton).not.toBeNull()
+      fireEvent.click(archiveButton as HTMLButtonElement)
+    }
+
+    it('reports the failure instead of claiming the conversation was archived', async () => {
+      // The store restores the conversation when the server refuses (e.g. 403 on
+      // a conversation shared with, but not owned by, the viewer).
+      mockDeleteConversation.mockRejectedValue(new Error('Forbidden'))
+      mockConversations = [
+        makeConv('conv-shared', 'Shared Chat', { owner_id: 'owner@test.com' }),
+        makeConv('conv-mine', 'My Chat', { owner_id: 'test@test.com' }),
+      ]
+
+      render(<Sidebar {...defaultProps} />)
+      clickArchive()
+
+      await waitFor(() => {
+        expect(mockToast).toHaveBeenCalledWith(
+          expect.stringContaining("Couldn't archive \"Shared Chat\""),
+          'error',
+          expect.any(Number),
+        )
+      })
+      expect(mockToast).not.toHaveBeenCalledWith(
+        expect.stringContaining('moved to Archive'),
+        'success',
+        expect.any(Number),
+      )
+    })
+
+    it('confirms the archive when the server accepts it', async () => {
+      mockDeleteConversation.mockResolvedValue(undefined)
+      mockConversations = [
+        makeConv('conv-mine', 'My Chat', { owner_id: 'test@test.com' }),
+        makeConv('conv-other', 'Other Chat', { owner_id: 'test@test.com' }),
+      ]
+
+      render(<Sidebar {...defaultProps} />)
+      clickArchive()
+
+      await waitFor(() => {
+        expect(mockToast).toHaveBeenCalledWith(
+          '"My Chat" moved to Archive',
+          'success',
+          expect.any(Number),
+        )
+      })
+  })
   })
 
   // --------------------------------------------------------------------------
