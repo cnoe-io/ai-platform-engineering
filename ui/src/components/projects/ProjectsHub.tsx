@@ -718,7 +718,7 @@ export function ProjectsHub() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hero, setHero] = useState<OnboardingHeroConfig>({
-    title: "Projects for your teams",
+    title: "TOME: knowledge for your teams",
     description: "Onboarding steps are configured externally.",
   });
   const [onboardingOpen, setOnboardingOpen] = useState(false);

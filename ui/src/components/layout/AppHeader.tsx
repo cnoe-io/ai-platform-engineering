@@ -573,7 +573,7 @@ export function AppHeader() {
     {
       key: "projects",
       href: "/projects",
-      label: "Projects",
+      label: "TOME",
       Icon: FolderKanban,
       activeTextClassName: "text-white",
       activeIndicatorClassName: "bg-indigo-600 shadow-sm",
