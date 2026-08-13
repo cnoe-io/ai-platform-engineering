@@ -1,5 +1,5 @@
 import { ApiError } from "@/lib/api-error";
-import { authorize, authorizeMany, type Action, type Subject } from "@/lib/authz";
+import { authorize, authorizeMany, type Action, type Subject, type TrustedAuthorizeContext } from "@/lib/authz";
 import type { UniversalRebacResourceType } from "@/types/rbac-universal";
 
 import { type OpenFgaCheckResult, type OpenFgaTupleKey } from "./openfga";
@@ -57,6 +57,7 @@ export interface ResourcePermissionOptions {
    * OpenFGA checks).
    */
   bypassForOrgAdmin?: boolean;
+  trustedContext?: TrustedAuthorizeContext;
 }
 
 function isOrgAdminBypassKillSwitchEnabled(): boolean {
@@ -109,11 +110,16 @@ async function tupleAllowed(
   return result.allowed === true;
 }
 
-async function casAllowed(subject: Subject, target: ResourcePermissionTarget): Promise<boolean> {
+async function casAllowed(
+  subject: Subject,
+  target: ResourcePermissionTarget,
+  trustedContext?: TrustedAuthorizeContext,
+): Promise<boolean> {
   const result = await authorize({
     subject,
     resource: { type: target.type, id: target.id },
     action: resourcePermissionActionToCasAction(target.action),
+    trustedContext,
   });
   return result.decision === "ALLOW";
 }
@@ -127,7 +133,7 @@ async function resourceAllowed(
   if (options.check) {
     return tupleAllowed(subjectString, target, options.check);
   }
-  return casAllowed(casSubject, target);
+  return casAllowed(casSubject, target, options.trustedContext);
 }
 
 async function isOrgAdmin(
@@ -350,6 +356,7 @@ export async function requireResourcePermission(
     subject: casSubject,
     resource: { type: target.type, id: target.id },
     action: resourcePermissionActionToCasAction(target.action),
+    trustedContext: options.trustedContext,
   });
   if (result.decision === "ALLOW") {
     return;

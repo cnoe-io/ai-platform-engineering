@@ -26,6 +26,96 @@ def _unsigned_token(sub: str) -> str:
     return f"{encode({'alg': 'none', 'typ': 'JWT'})}.{encode({'sub': sub})}."
 
 
+def _direct_interaction_headers(bridge, *, secret: str, now: int) -> dict[str, str]:
+    payload = {
+        "source": "slack",
+        "conversationKind": "direct",
+        "iat": now,
+        "exp": now + 90,
+    }
+    encoded = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip("=")
+    signature = hmac.new(secret.encode(), encoded.encode(), hashlib.sha256).hexdigest()
+    return {
+        "x-caipe-trusted-interaction": encoded,
+        "x-caipe-trusted-interaction-signature": signature,
+    }
+
+
+def test_verified_direct_interaction(monkeypatch: pytest.MonkeyPatch) -> None:
+    bridge = _load_bridge_module()
+    monkeypatch.setattr(bridge, "AGENT_CONTEXT_HMAC_SECRET", "test-secret")
+    headers = _direct_interaction_headers(bridge, secret="test-secret", now=1_750_000_000)
+    assert bridge._has_verified_direct_interaction(headers, now=1_750_000_001)
+
+
+def test_direct_interaction_rejects_forgery(monkeypatch: pytest.MonkeyPatch) -> None:
+    bridge = _load_bridge_module()
+    monkeypatch.setattr(bridge, "AGENT_CONTEXT_HMAC_SECRET", "test-secret")
+    headers = _direct_interaction_headers(bridge, secret="wrong-secret", now=1_750_000_000)
+    assert not bridge._has_verified_direct_interaction(headers, now=1_750_000_001)
+
+
+def test_private_mcp_requires_owner_and_verified_dm(monkeypatch: pytest.MonkeyPatch) -> None:
+    bridge = _load_bridge_module()
+    monkeypatch.setattr(bridge, "_decode_verified_bearer_subject", lambda _header: "test-user")
+    monkeypatch.setattr(bridge, "BYPASS_SUBS", frozenset())
+    monkeypatch.setattr(bridge, "AGENT_CONTEXT_HMAC_SECRET", "test-secret")
+    monkeypatch.setattr(bridge, "log_authz_decision", lambda **_event: None, raising=False)
+    monkeypatch.setattr(
+        bridge,
+        "_check_openfga",
+        lambda user, relation, obj: (user, relation, obj)
+        in {
+            ("user:test-user", "can_call", "mcp_gateway:list"),
+            ("organization:caipe", "private_marker", "mcp_server:private-example"),
+            ("user:test-user", "owner", "mcp_server:private-example"),
+        },
+    )
+
+    unsigned_request = bridge.build_check_request(
+        headers={"authorization": "Bearer valid-token"},
+        path="/mcp/private-example",
+        method="POST",
+    )
+    denied = bridge.OpenFgaAuthorizationService().Check(unsigned_request, None)
+    assert denied.status.code == bridge.PERMISSION_DENIED
+
+    now = int(time.time())
+    headers = {
+        "authorization": "Bearer valid-token",
+        **_direct_interaction_headers(bridge, secret="test-secret", now=now),
+    }
+    signed_request = bridge.build_check_request(
+        headers=headers,
+        path="/mcp/private-example",
+        method="POST",
+    )
+    allowed = bridge.OpenFgaAuthorizationService().Check(signed_request, None)
+    assert allowed.status.code == bridge.OK
+
+
+def test_private_mcp_is_not_allowed_by_subject_bypass(monkeypatch: pytest.MonkeyPatch) -> None:
+    bridge = _load_bridge_module()
+    monkeypatch.setattr(bridge, "_decode_verified_bearer_subject", lambda _header: "bypass-user")
+    monkeypatch.setattr(bridge, "BYPASS_SUBS", frozenset({"bypass-user"}))
+    monkeypatch.setattr(bridge, "log_authz_decision", lambda **_event: None, raising=False)
+    monkeypatch.setattr(
+        bridge,
+        "_check_openfga",
+        lambda user, relation, obj: (user, relation, obj)
+        == ("organization:caipe", "private_marker", "mcp_server:private-example"),
+    )
+
+    request = bridge.build_check_request(
+        headers={"authorization": "Bearer valid-token"},
+        path="/mcp/private-example",
+        method="POST",
+    )
+    response = bridge.OpenFgaAuthorizationService().Check(request, None)
+
+    assert response.status.code == bridge.PERMISSION_DENIED
+
+
 def test_uses_verified_bearer_subject(monkeypatch: pytest.MonkeyPatch) -> None:
     bridge = _load_bridge_module()
     monkeypatch.setattr(
@@ -280,6 +370,7 @@ def test_restricted_mcp_server_denies_caller_without_invoke_grant(
     assert response.status.message == "caller lacks MCP server invoke grant"
     assert checks == [
         ("user:user-sub-123", "can_call", "mcp_gateway:list"),
+        ("organization:caipe", "private_marker", "mcp_server:scheduler"),
         ("user:user-sub-123", "can_invoke", "mcp_server:scheduler"),
     ]
     assert events[-1]["reason_code"] == "DENY_MCP_SERVER_INVOKE"
@@ -319,6 +410,7 @@ def test_restricted_mcp_server_allows_caller_with_invoke_grant(
     assert response.status.code == bridge.OK
     assert checks == [
         ("user:admin-sub", "can_call", "mcp_gateway:list"),
+        ("organization:caipe", "private_marker", "mcp_server:scheduler"),
         ("user:admin-sub", "can_invoke", "mcp_server:scheduler"),
     ]
     assert any(event["reason_code"] == "OK_MCP_SERVER_INVOKE" for event in events)
@@ -353,7 +445,10 @@ def test_unrestricted_mcp_server_does_not_require_invoke_grant(
     response = bridge.OpenFgaAuthorizationService().Check(request, None)
 
     assert response.status.code == bridge.OK
-    assert checks == [("user:user-sub-123", "can_call", "mcp_gateway:list")]
+    assert checks == [
+        ("user:user-sub-123", "can_call", "mcp_gateway:list"),
+        ("organization:caipe", "private_marker", "mcp_server:jira"),
+    ]
 
 
 def test_tools_call_requires_user_agent_and_agent_tool_grants(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -393,6 +488,7 @@ def test_tools_call_requires_user_agent_and_agent_tool_grants(monkeypatch: pytes
     assert response.status.code == bridge.OK
     assert checks == [
         ("user:user-sub-123", "can_call", "mcp_gateway:list"),
+        ("organization:caipe", "private_marker", "mcp_server:jira"),
         ("user:user-sub-123", "can_use", "agent:agent-test-april-2025"),
         ("agent:agent-test-april-2025", "can_call", "tool:jira/search"),
     ]
@@ -712,7 +808,10 @@ def test_local_agent_context_bypasses_agent_use_and_tool_checks(
 
     assert response.status.code == bridge.OK
     # No agent:<id> can_use/can_call checks were performed.
-    assert checks == [("user:user-sub-123", "can_call", "mcp_gateway:list")]
+    assert checks == [
+        ("user:user-sub-123", "can_call", "mcp_gateway:list"),
+        ("organization:caipe", "private_marker", "mcp_server:jira"),
+    ]
     local_allow = [e for e in events if e["reason_code"] == "OK_LOCAL_AGENT_CONTEXT"]
     assert len(local_allow) == 1
     # The audit event is scoped to the actual tool target (tool:<server>/<name>),

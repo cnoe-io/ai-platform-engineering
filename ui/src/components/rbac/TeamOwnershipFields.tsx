@@ -79,6 +79,8 @@ export interface TeamOwnershipFieldsProps {
   shareHelpText?: React.ReactNode;
   /** When false, the entire share section is hidden (e.g. agent visibility !== "team"). */
   showShare?: boolean;
+  /** When false, hide the owner-team picker (personal/private resources). */
+  showOwner?: boolean;
   /** Rendered between the owner block and the share block (e.g. agent visibility toggle). */
   betweenOwnerAndShare?: React.ReactNode;
   /** Rendered at the bottom of the owner block (e.g. agent platform-admin warning). */
@@ -117,6 +119,7 @@ export function TeamOwnershipFields(props: TeamOwnershipFieldsProps) {
     shareLabel = "Share with Teams",
     shareHelpText,
     showShare = true,
+    showOwner = true,
     betweenOwnerAndShare,
     ownerExtra,
     // `renderGrantDetail` and `extraGrantPreviewItems` remain in the props
@@ -157,7 +160,7 @@ export function TeamOwnershipFields(props: TeamOwnershipFieldsProps) {
   return (
     <div className="space-y-4">
       {/* Owner team ------------------------------------------------------ */}
-      <div className="space-y-2 rounded-lg">
+      {showOwner && <div className="space-y-2 rounded-lg">
         <Label htmlFor="ownerTeam">
           {ownerLabel}{" "}
           {ownerRequired && !isEditing && (
@@ -202,7 +205,7 @@ export function TeamOwnershipFields(props: TeamOwnershipFieldsProps) {
           </p>
         )}
         {ownerExtra}
-      </div>
+      </div>}
 
       {betweenOwnerAndShare}
 

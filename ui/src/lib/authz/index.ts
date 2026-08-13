@@ -21,7 +21,13 @@ import { workflowDelegationPreCheck } from "./domains/workflow";
 // ─── Singleton engine (module-level, reused across requests) ──────────────────
 
 const engine = compose(createOpenFgaEngine(), {
-  preCheck: async (req) => workflowDelegationPreCheck(req),
+  preCheck: async (req) => {
+    // Keep Mongo-backed product policy out of the module-load path used by
+    // pure tuple builders and CLI tooling. Runtime decisions still load and
+    // evaluate persisted visibility before the OpenFGA check.
+    const { privateResourcePreCheck } = await import("./domains/private-resource");
+    return (await privateResourcePreCheck(req)) ?? workflowDelegationPreCheck(req);
+  },
 });
 
 const admin = createOpenFgaAdmin();
@@ -143,4 +149,5 @@ export type {
   ResourceType,
   Subject,
   SubjectType,
+  TrustedAuthorizeContext,
 } from "./contract";

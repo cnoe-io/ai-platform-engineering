@@ -392,6 +392,7 @@ describe("MCPServerEditor credential sources", () => {
           name: "Jira",
           transport: "http",
           endpoint: "http://agentgateway:4000/mcp/jira",
+          visibility: "private",
           credential_sources: [
             {
               kind: "provider_connection",

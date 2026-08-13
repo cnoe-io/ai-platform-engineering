@@ -1,0 +1,164 @@
+import { createHmac, timingSafeEqual } from "crypto";
+import type { TrustedAuthorizeContext } from "./contract";
+
+const MAX_CLOCK_SKEW_SECONDS = 90;
+const HEADER_SOURCE = "x-caipe-interaction-source";
+const HEADER_KIND = "x-caipe-interaction-kind";
+const HEADER_TIMESTAMP = "x-caipe-interaction-timestamp";
+const HEADER_SIGNATURE = "x-caipe-interaction-signature";
+
+type TrustedInteraction = NonNullable<TrustedAuthorizeContext["interaction"]>;
+
+function signingSecret(source: string): string {
+  if (source === "slack") {
+    return process.env.SLACK_LINK_HMAC_SECRET?.trim()
+      || process.env.SLACK_SIGNING_SECRET?.trim()
+      || "";
+  }
+  if (source === "webex") {
+    return process.env.WEBEX_LINK_HMAC_SECRET?.trim()
+      || process.env.WEBEX_SIGNING_SECRET?.trim()
+      || "";
+  }
+  return "";
+}
+
+function signaturePayload(input: {
+  source: string;
+  kind: string;
+  timestamp: string;
+  method: string;
+  pathname: string;
+}): string {
+  return [input.source, input.kind, input.timestamp, input.method.toUpperCase(), input.pathname].join("\n");
+}
+
+function constantTimeEqualHex(left: string, right: string): boolean {
+  if (!/^[a-f0-9]{64}$/i.test(left) || !/^[a-f0-9]{64}$/i.test(right)) return false;
+  return timingSafeEqual(Buffer.from(left, "hex"), Buffer.from(right, "hex"));
+}
+
+/**
+ * Verify bot-authored interaction metadata. Public body fields such as
+ * client_context.surface_kind are deliberately ignored.
+ */
+interface InteractionRequest {
+  headers: { get(name: string): string | null };
+  method: string;
+  nextUrl: { pathname: string };
+}
+
+export function trustedInteractionFromRequest(request: InteractionRequest): TrustedInteraction {
+  const source = request.headers.get(HEADER_SOURCE)?.trim().toLowerCase() ?? "";
+  const kind = request.headers.get(HEADER_KIND)?.trim().toLowerCase() ?? "";
+  const timestamp = request.headers.get(HEADER_TIMESTAMP)?.trim() ?? "";
+  const suppliedSignature = request.headers.get(HEADER_SIGNATURE)?.trim() ?? "";
+  const secret = signingSecret(source);
+  const timestampSeconds = Number(timestamp);
+  const nowSeconds = Math.floor(Date.now() / 1000);
+
+  if (
+    (source !== "slack" && source !== "webex")
+    || (kind !== "direct" && kind !== "group")
+    || !Number.isSafeInteger(timestampSeconds)
+    || Math.abs(nowSeconds - timestampSeconds) > MAX_CLOCK_SKEW_SECONDS
+    || !secret
+  ) {
+    return { source: "web", conversationKind: "personal", verified: false };
+  }
+
+  const expected = createHmac("sha256", secret)
+    .update(signaturePayload({
+      source,
+      kind,
+      timestamp,
+      method: request.method,
+      pathname: request.nextUrl.pathname,
+    }))
+    .digest("hex");
+
+  if (!constantTimeEqualHex(suppliedSignature, expected)) {
+    return { source: "web", conversationKind: "personal", verified: false };
+  }
+
+  return {
+    source,
+    conversationKind: kind,
+    verified: true,
+  };
+}
+
+export const TRUSTED_INTERACTION_HEADERS = {
+  source: HEADER_SOURCE,
+  kind: HEADER_KIND,
+  timestamp: HEADER_TIMESTAMP,
+  signature: HEADER_SIGNATURE,
+} as const;
+
+const INTERNAL_CONTEXT_HEADER = "x-caipe-trusted-interaction";
+const INTERNAL_SIGNATURE_HEADER = "x-caipe-trusted-interaction-signature";
+
+function internalSecret(): string {
+  return process.env.CAIPE_AGENT_CONTEXT_HMAC_SECRET?.trim() || "";
+}
+
+export function addTrustedInteractionToBody(
+  body: Record<string, unknown>,
+  interaction: TrustedInteraction,
+): void {
+  const existing = body.client_context;
+  const context = existing && typeof existing === "object" && !Array.isArray(existing)
+    ? { ...(existing as Record<string, unknown>) }
+    : {};
+  delete context._caipe_trusted_interaction;
+  delete context._caipe_trusted_interaction_signature;
+
+  const secret = internalSecret();
+  if (interaction.verified && interaction.conversationKind === "direct" && secret) {
+    const now = Math.floor(Date.now() / 1000);
+    const token = Buffer.from(JSON.stringify({
+      source: interaction.source,
+      conversationKind: interaction.conversationKind,
+      iat: now,
+      exp: now + MAX_CLOCK_SKEW_SECONDS,
+    })).toString("base64url");
+    context._caipe_trusted_interaction = token;
+    context._caipe_trusted_interaction_signature = createHmac("sha256", secret)
+      .update(token)
+      .digest("hex");
+  }
+  body.client_context = context;
+}
+
+export function trustedInteractionFromInternalHeaders(headers: Headers): TrustedInteraction {
+  const token = headers.get(INTERNAL_CONTEXT_HEADER)?.trim() || "";
+  const suppliedSignature = headers.get(INTERNAL_SIGNATURE_HEADER)?.trim() || "";
+  const secret = internalSecret();
+  if (!token || !secret) return { source: "api", conversationKind: "unknown", verified: false };
+  const expected = createHmac("sha256", secret).update(token).digest("hex");
+  if (!constantTimeEqualHex(suppliedSignature, expected)) {
+    return { source: "api", conversationKind: "unknown", verified: false };
+  }
+  try {
+    const payload = JSON.parse(Buffer.from(token, "base64url").toString("utf8")) as Record<string, unknown>;
+    const now = Math.floor(Date.now() / 1000);
+    if (
+      (payload.source !== "slack" && payload.source !== "webex")
+      || payload.conversationKind !== "direct"
+      || typeof payload.iat !== "number"
+      || typeof payload.exp !== "number"
+      || payload.iat > now + MAX_CLOCK_SKEW_SECONDS
+      || payload.exp < now
+    ) {
+      return { source: "api", conversationKind: "unknown", verified: false };
+    }
+    return { source: payload.source, conversationKind: "direct", verified: true };
+  } catch {
+    return { source: "api", conversationKind: "unknown", verified: false };
+  }
+}
+
+export const INTERNAL_TRUSTED_INTERACTION_HEADERS = {
+  token: INTERNAL_CONTEXT_HEADER,
+  signature: INTERNAL_SIGNATURE_HEADER,
+} as const;

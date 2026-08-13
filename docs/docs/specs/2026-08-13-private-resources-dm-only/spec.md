@@ -173,7 +173,7 @@ As an administrator or security reviewer, I want every visibility change and den
 - **FR-019**: Every lifecycle relationship mutation for agent, MCP server, and `secret_ref` MUST pass through CAS reconciliation for centralized audit and cache invalidation.
 - **FR-020**: A private agent MUST project a direct human `owner` tuple plus audit-only `creator`; it MUST project no broader grants.
 - **FR-021**: A private MCP server MUST project a direct human `owner` tuple and no broader grants. Adding audit-only `creator` to `mcp_server` is REQUIRED for provenance parity.
-- **FR-022**: A private `secret_ref` MUST project its existing direct human capability tuple set. Adding `owner` may be a later model cleanup; phase 1 MUST NOT weaken current secret permission separation.
+- **FR-022**: A private `secret_ref` MUST project audit-only `creator`, functional human `owner`, and its existing separated metadata/use/manage/audit tuples. `owner` MAY participate in those permissions, but `creator` MUST NOT.
 - **FR-023**: Visibility transitions MUST submit required tuple deletes and writes in one OpenFGA write request when within the server's operation limit.
 - **FR-024**: Larger reconciliations MUST remain fail closed until every chunk is applied and verified. They MUST NOT expose a partially reconciled resource.
 - **FR-025**: CAS MUST invalidate decision caches after tuple mutation and MUST use a higher-consistency verification for changed allows and revocations before setting `authz_sync_state=ready`.

@@ -1,0 +1,139 @@
+import { expect, test, type Page } from "@playwright/test";
+
+import { rbacEnvOrSkip } from "./_env";
+import { installTestSession } from "./_helpers";
+
+async function jsonRequest(
+  page: Page,
+  path: string,
+  init: RequestInit,
+): Promise<{ status: number; body: Record<string, unknown> }> {
+  return page.evaluate(async ({ path: requestPath, init: requestInit }) => {
+    const response = await fetch(requestPath, requestInit);
+    return {
+      status: response.status,
+      body: await response.json() as Record<string, unknown>,
+    };
+  }, { path, init });
+}
+
+test.describe("RBAC live e2e — private resources", () => {
+  test("a private agent is manageable in web but cannot run from web or forged DM headers", async ({ page }) => {
+    const env = rbacEnvOrSkip({ requireUserSub: true });
+    await installTestSession(page, env, {
+      email: env.user.email,
+      subject: env.user.sub!,
+      role: "admin",
+    });
+    await page.goto("/", { waitUntil: "domcontentloaded" });
+
+    const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const name = `Private E2E ${suffix}`;
+    const agentId = `agent-private-e2e-${suffix}`;
+    const mcpSlug = `private-e2e-${suffix}`;
+    const mcpId = `mcp-${mcpSlug}`;
+    let secretId = "";
+    try {
+      const secret = await jsonRequest(page, "/api/credentials/secrets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: `Private E2E credential ${suffix}`,
+          type: "api_key",
+          value: `e2e-${suffix}`,
+        }),
+      });
+      expect(secret.status, JSON.stringify(secret.body)).toBe(201);
+      const secretData = secret.body.data as Record<string, unknown>;
+      secretId = String(secretData.id ?? "");
+      expect(secretId).not.toBe("");
+      expect(secretData.visibility).toBe("private");
+
+      const mcp = await jsonRequest(page, "/api/mcp-servers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: mcpSlug,
+          name: `Private E2E MCP ${suffix}`,
+          transport: "http",
+          endpoint: "https://mcp.example.com/mcp",
+          visibility: "private",
+          credential_sources: [{
+            kind: "secret_ref",
+            target: "header",
+            name: "X-CAIPE-Provider-Token",
+            secret_ref: secretId,
+          }],
+        }),
+      });
+      expect(mcp.status, JSON.stringify(mcp.body)).toBe(201);
+      expect((mcp.body.data as Record<string, unknown>)?.visibility).toBe("private");
+
+      const created = await jsonRequest(page, "/api/dynamic-agents", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name,
+          system_prompt: "Respond with a short test acknowledgement.",
+          model: { id: "not-invoked", provider: "openai" },
+          visibility: "private",
+          allowed_tools: { [mcpId]: ["*"] },
+        }),
+      });
+      expect(created.status, JSON.stringify(created.body)).toBe(201);
+      expect((created.body.data as Record<string, unknown>)?.visibility).toBe("private");
+
+      const listed = await jsonRequest(page, `/api/dynamic-agents?id=${agentId}`, { method: "GET" });
+      expect(listed.status, JSON.stringify(listed.body)).toBe(200);
+
+      const webRun = await jsonRequest(page, "/api/v1/chat/invoke", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: "test",
+          conversation_id: crypto.randomUUID(),
+          agent_id: agentId,
+        }),
+      });
+      expect(webRun.status).toBe(403);
+      expect(webRun.body.code).toBe("PRIVATE_DM_REQUIRED");
+
+      const forgedRun = await jsonRequest(page, "/api/v1/chat/invoke", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CAIPE-Interaction-Source": "slack",
+          "X-CAIPE-Interaction-Kind": "direct",
+          "X-CAIPE-Interaction-Timestamp": String(Math.floor(Date.now() / 1000)),
+          "X-CAIPE-Interaction-Signature": "0".repeat(64),
+        },
+        body: JSON.stringify({
+          message: "test",
+          conversation_id: crypto.randomUUID(),
+          agent_id: agentId,
+        }),
+      });
+      expect(forgedRun.status).toBe(403);
+      expect(forgedRun.body.code).toBe("PRIVATE_DM_REQUIRED");
+
+      const webMcpUse = await jsonRequest(page, "/api/mcp-servers/test-tool", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ serverId: mcpId, toolName: "not-invoked", params: {} }),
+      });
+      expect(webMcpUse.status).toBe(403);
+    } finally {
+      await jsonRequest(page, `/api/dynamic-agents?id=${encodeURIComponent(agentId)}`, {
+        method: "DELETE",
+      }).catch(() => undefined);
+      await jsonRequest(page, `/api/mcp-servers?id=${encodeURIComponent(mcpId)}`, {
+        method: "DELETE",
+      }).catch(() => undefined);
+      if (secretId) {
+        await jsonRequest(page, `/api/credentials/secrets/${encodeURIComponent(secretId)}`, {
+          method: "DELETE",
+        }).catch(() => undefined);
+      }
+    }
+  });
+});

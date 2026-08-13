@@ -96,6 +96,18 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _public_client_context(client_context: ClientContext | None) -> dict[str, Any]:
+    """Remove BFF-only authorization proof before exposing context to an LLM/tool."""
+
+    if not client_context:
+        return {}
+    return {
+        key: value
+        for key, value in client_context.model_dump().items()
+        if not key.startswith("_caipe_")
+    }
+
+
 @dataclass
 class _TurnObservation:
     """Mutable state shared by a public turn wrapper and its implementation."""
@@ -197,7 +209,7 @@ def _render_system_prompt(
         SystemPromptRenderError: If the template has syntax errors,
             attempts unsafe attribute access, or otherwise fails to render.
     """
-    ctx = client_context.model_dump() if client_context else {}
+    ctx = _public_client_context(client_context)
     user_ctx = user.model_dump(exclude={"raw_claims"}) if user else {}
     try:
         template = _jinja_env.from_string(template_str)
@@ -801,11 +813,24 @@ class AgentRuntime:
 
         if not self.settings.credential_api_url or not self._auth_bearer:
             return None
+        client_context = self._client_context.model_dump() if self._client_context else {}
+        trusted_interaction = {
+            "token": str(client_context.get("_caipe_trusted_interaction") or ""),
+            "signature": str(client_context.get("_caipe_trusted_interaction_signature") or ""),
+        }
         return CredentialExchangeClient(
             base_url=self.settings.credential_api_url,
             audience=self.settings.credential_service_audience,
             token_provider=lambda: self._auth_bearer or "",
+            trusted_interaction=trusted_interaction,
         )
+
+    def _trusted_interaction_headers(self) -> dict[str, str]:
+        client_context = self._client_context.model_dump() if self._client_context else {}
+        return {
+            "token": str(client_context.get("_caipe_trusted_interaction") or ""),
+            "signature": str(client_context.get("_caipe_trusted_interaction_signature") or ""),
+        }
 
     def _record_mcp_credential_failures(
         self, failures: dict[str, McpCredentialUnavailableError]
@@ -853,6 +878,7 @@ class AgentRuntime:
                 agent_gateway_url=self.settings.agent_gateway_url,
                 auth_bearer=self._auth_bearer,
                 agent_id=self.config.id,
+                trusted_interaction=self._trusted_interaction_headers(),
             )
             cred_result = await resolve_mcp_connections_credential_refs(
                 self.mcp_servers,
@@ -918,7 +944,7 @@ class AgentRuntime:
                 )
 
         # 2. Add built-in tools
-        client_ctx = self._client_context.model_dump() if self._client_context else None
+        client_ctx = _public_client_context(self._client_context) or None
         builtin_tools = self._build_builtin_tools(self._user, client_context=client_ctx)
         builtin_tool_names = {t.name for t in builtin_tools}
         if builtin_tools:
@@ -1096,7 +1122,7 @@ class AgentRuntime:
                     "agent_id": self.config.id,
                     "conv_id": self._session_id,
                     "user_context": self._user.model_dump(exclude={"raw_claims"}) if self._user else None,
-                    "client_context": self._client_context.model_dump() if self._client_context else None,
+                    "client_context": _public_client_context(self._client_context) or None,
                 },
                 workflow_labels=getattr(self, "_workflow_labels", None),
             )
@@ -1460,6 +1486,7 @@ class AgentRuntime:
                 agent_gateway_url=self.settings.agent_gateway_url,
                 auth_bearer=self._auth_bearer,
                 agent_id=subagent_config.id,
+                trusted_interaction=self._trusted_interaction_headers(),
             )
             cred_result = await resolve_mcp_connections_credential_refs(
                 self.mcp_servers,
@@ -1491,7 +1518,7 @@ class AgentRuntime:
                 tools.extend(mcp_tools)
 
         # 2. Add built-in tools based on subagent's config
-        client_ctx = self._client_context.model_dump() if self._client_context else None
+        client_ctx = _public_client_context(self._client_context) or None
         builtin_tools = self._build_builtin_tools(self._user, subagent_config, client_context=client_ctx)
         builtin_tool_names = {tool.name for tool in builtin_tools}
         if builtin_tools:

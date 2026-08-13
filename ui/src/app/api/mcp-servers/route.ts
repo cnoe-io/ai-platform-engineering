@@ -13,6 +13,7 @@ successResponse,
 withErrorHandler,
 } from "@/lib/api-middleware";
 import { getCollection } from "@/lib/mongodb";
+import { CREDENTIAL_COLLECTIONS } from "@/lib/credentials/collections";
 import { agentGatewayMcpEndpointUrl } from "@/lib/rbac/agentgateway-mcp-discovery";
 import {
   isAgentGatewayManagedEndpoint,
@@ -55,7 +56,50 @@ const SERVER_MUTABLE_FIELDS = [
   "env",
   "credential_sources",
   "enabled",
+  "visibility",
+  "owner_team_slug",
+  "shared_with_teams",
 ] as const;
+
+function normalizedTeamSlugs(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return Array.from(new Set(value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter(Boolean)));
+}
+
+interface SecretScopeDocument {
+  id: string;
+  owner?: { type?: string; id?: string };
+  sharedWithTeams?: string[];
+}
+
+async function validateCredentialScopes(input: {
+  visibility: "private" | "team";
+  ownerSubject: string;
+  credentialSources?: MCPCredentialSource[];
+}): Promise<void> {
+  const secretIds = (input.credentialSources ?? [])
+    .filter((source) => source.kind === "secret_ref" && typeof source.secret_ref === "string")
+    .map((source) => source.secret_ref!.trim())
+    .filter(Boolean);
+  if (secretIds.length === 0) return;
+  const refs = await getCollection<SecretScopeDocument>(CREDENTIAL_COLLECTIONS.secretRefs);
+  const secrets = await Promise.all(secretIds.map((id) => refs.findOne({ id })));
+  for (const secret of secrets) {
+    if (!secret) continue;
+    const isPrivate = secret.owner?.type === "user" && (secret.sharedWithTeams?.length ?? 0) === 0;
+    if (!isPrivate) continue;
+    if (input.visibility !== "private" || secret.owner?.id !== input.ownerSubject) {
+      throw new ApiError(
+        "Private credentials can only be attached to a private MCP server owned by the same user.",
+        400,
+        "PRIVATE_DEPENDENCY_SCOPE_MISMATCH",
+      );
+    }
+  }
+}
 
 async function requireOwnerTeamMembership(session: Parameters<typeof requireResourcePermission>[0], ownerTeamSlug: string): Promise<void> {
   try {
@@ -342,10 +386,21 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
 
     // Silently prepend mcp- prefix to user-provided ID
     const serverId = body.id.startsWith("mcp-") ? body.id as string : `mcp-${body.id as string}`;
-    const ownerTeamSlug = normalizeString(body.owner_team_slug);
+    const visibility: "private" | "team" = body.visibility === "team" ? "team" : "private";
+    if (visibility === "private" && session.isServiceAccount === true) {
+      throw new ApiError("Service accounts cannot own private MCP servers", 403, "PRIVATE_OWNER_MUST_BE_USER");
+    }
+    const ownerTeamSlug = visibility === "team" ? normalizeString(body.owner_team_slug) : null;
+    if (visibility === "team" && !ownerTeamSlug) {
+      throw new ApiError("Owner team is required for team MCP servers", 400, "OWNER_TEAM_REQUIRED");
+    }
     if (ownerTeamSlug) {
       await requireOwnerTeamMembership(session, ownerTeamSlug);
     }
+    const sharedTeamSlugs = visibility === "team"
+      ? normalizedTeamSlugs(body.shared_with_teams).filter((slug) => slug !== ownerTeamSlug)
+      : [];
+    for (const slug of sharedTeamSlugs) await requireOwnerTeamMembership(session, slug);
 
     // Uniqueness check
     const existing = await collection.findOne({ _id: serverId });
@@ -373,6 +428,13 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
           : undefined,
       credentialSources: body.credential_sources,
     });
+    await validateCredentialScopes({
+      visibility,
+      ownerSubject,
+      credentialSources: gatewayManaged.credential_sources,
+    });
+    const ownerSubjectKind =
+      session.isServiceAccount === true ? ("service_account" as const) : ("user" as const);
 
     // Build document with explicit field allowlist (Security VII)
     const now = new Date();
@@ -391,23 +453,27 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       agentgateway_discovered: gatewayManaged.agentgateway_discovered,
       agentgateway_target_endpoint: gatewayManaged.agentgateway_target_endpoint,
       owner_id: user.email,
-      owner_subject: ownerSubject,
+      owner_subject: visibility === "private" ? ownerSubject : undefined,
+      owner_subject_kind: visibility === "private" ? "user" : undefined,
+      creator_subject: ownerSubjectKind === "user" ? ownerSubject : undefined,
       owner_team_slug: ownerTeamSlug ?? undefined,
+      visibility,
+      shared_with_teams: sharedTeamSlugs,
       // Server-controlled — never from request body
       config_driven: false,
       created_at: now.toISOString(),
       updated_at: now.toISOString(),
     };
 
-    const ownerSubjectKind =
-      session.isServiceAccount === true ? ("service_account" as const) : ("user" as const);
-
     await reconcileMcpServerRelationships(
       {
         serverId,
-        ownerSubject,
+        ownerSubject: visibility === "private" ? ownerSubject : null,
         ownerSubjectKind,
         ownerTeamSlug,
+        creatorSubject: ownerSubjectKind === "user" ? ownerSubject : null,
+        personalOwnerAccess: visibility === "private",
+        nextSharedTeamSlugs: sharedTeamSlugs,
       },
       {
         caller: { type: ownerSubjectKind, id: ownerSubject },
@@ -469,6 +535,28 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
       return successResponse(server);
     }
 
+    const nextVisibility: "private" | "team" = updateData.visibility === "team"
+      ? "team"
+      : updateData.visibility === "private" ? "private" : server.visibility === "private" ? "private" : "team";
+    if (nextVisibility === "private" && session.isServiceAccount === true) {
+      throw new ApiError("Service accounts cannot own private MCP servers", 403, "PRIVATE_OWNER_MUST_BE_USER");
+    }
+    const nextOwnerTeamSlug = nextVisibility === "team"
+      ? normalizeString(updateData.owner_team_slug) ?? normalizeString(server.owner_team_slug)
+      : null;
+    if (nextVisibility === "team" && !nextOwnerTeamSlug) {
+      throw new ApiError("Owner team is required for team MCP servers", 400, "OWNER_TEAM_REQUIRED");
+    }
+    if (nextOwnerTeamSlug && nextOwnerTeamSlug !== server.owner_team_slug) {
+      await requireOwnerTeamMembership(session, nextOwnerTeamSlug);
+    }
+    const nextSharedTeamSlugs = nextVisibility === "team"
+      ? normalizedTeamSlugs(updateData.shared_with_teams ?? server.shared_with_teams)
+        .filter((slug) => slug !== nextOwnerTeamSlug)
+      : [];
+    for (const slug of nextSharedTeamSlugs) await requireOwnerTeamMembership(session, slug);
+    updateData.visibility = nextVisibility;
+    updateData.shared_with_teams = nextSharedTeamSlugs;
     const nextTransport = (updateData.transport as TransportType | undefined) ?? server.transport;
     if (isNetworkTransport(nextTransport)) {
       const gatewayManaged = await normalizeNetworkServerForAgentGateway({
@@ -496,9 +584,55 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
 
     updateData.updated_at = new Date().toISOString();
 
+    const ownerSubject = requireStableSubject(session);
+    const storedOwnerSubject = server.owner_subject ?? ownerSubject;
+    const storedOwnerSubjectKind = server.owner_subject_kind
+      ?? (server.owner_subject === ownerSubject && session.isServiceAccount === true
+        ? "service_account"
+        : "user");
+    await validateCredentialScopes({
+      visibility: nextVisibility,
+      ownerSubject: nextVisibility === "private" ? ownerSubject : storedOwnerSubject,
+      credentialSources: (updateData.credential_sources ?? server.credential_sources) as MCPCredentialSource[] | undefined,
+    });
+    await reconcileMcpServerRelationships(
+      {
+        serverId: id,
+        ownerSubject: nextVisibility === "private"
+          ? ownerSubject
+          : server.visibility === "private" ? storedOwnerSubject : null,
+        ownerSubjectKind: nextVisibility === "private" ? "user" : storedOwnerSubjectKind,
+        ownerTeamSlug: nextOwnerTeamSlug,
+        previousOwnerTeamSlug: server.owner_team_slug,
+        creatorSubject: server.creator_subject
+          ?? (storedOwnerSubjectKind === "user" ? storedOwnerSubject : null),
+        personalOwnerAccess: nextVisibility === "private",
+        previousPersonalOwnerAccess: server.visibility !== "team",
+        nextSharedTeamSlugs,
+        previousSharedTeamSlugs: server.shared_with_teams ?? [],
+      },
+      {
+        caller: { type: session.isServiceAccount === true ? "service_account" : "user", id: ownerSubject },
+        source: "mcp_server_update",
+      },
+    );
+
     const updated = await collection.findOneAndUpdate(
       { _id: id },
-      { $set: updateData },
+      nextVisibility === "private"
+        ? {
+            $set: {
+              ...updateData,
+              owner_subject: ownerSubject,
+              owner_subject_kind: "user",
+              shared_with_teams: [],
+            },
+            $unset: { owner_team_slug: "" },
+          }
+        : {
+            $set: { ...updateData, owner_team_slug: nextOwnerTeamSlug },
+            $unset: { owner_subject: "", owner_subject_kind: "" },
+          },
       { returnDocument: "after" },
     );
 

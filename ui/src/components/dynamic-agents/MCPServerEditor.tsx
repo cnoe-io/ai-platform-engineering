@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card,CardContent,CardDescription,CardHeader,CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { TeamPicker,type TeamPickerOption } from "@/components/ui/team-picker";
+import { TeamMultiPicker,TeamPicker,type TeamPickerOption } from "@/components/ui/team-picker";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Tooltip,
@@ -27,6 +27,7 @@ MCPServerConfig,
 MCPServerConfigCreate,
 MCPServerConfigUpdate,
 TransportType,
+VisibilityType,
 } from "@/types/dynamic-agent";
 import { ArrowLeft,Info,Loader2,Plus,X } from "lucide-react";
 import React from "react";
@@ -208,6 +209,12 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel, initialVal
   const [credentialSources, setCredentialSources] = React.useState<MCPCredentialSource[]>(
     normalizeCredentialSourcesForEditor(server?.credential_sources ?? initialValues?.credential_sources),
   );
+  const [visibility, setVisibility] = React.useState<Extract<VisibilityType, "private" | "team">>(
+    server ? (server.visibility === "private" ? "private" : "team") : "private",
+  );
+  const [ownerTeamSlug, setOwnerTeamSlug] = React.useState(server?.owner_team_slug || "");
+  const [sharedTeamSlugs, setSharedTeamSlugs] = React.useState<string[]>(server?.shared_with_teams || []);
+  const [availableTeams, setAvailableTeams] = React.useState<TeamPickerOption[]>([]);
 
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -224,6 +231,27 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel, initialVal
     missingCredentials: string[];
   } | null>(null);
   const [credentialProbeLoading, setCredentialProbeLoading] = React.useState(false);
+
+  React.useEffect(() => {
+    if (visibility !== "team") return;
+    async function loadTeams(): Promise<void> {
+      try {
+        const response = await fetch("/api/dynamic-agents/teams");
+        const payload = await response.json();
+        if (!payload.success || !Array.isArray(payload.data)) return;
+        setAvailableTeams(payload.data
+          .filter((team: TeamPickerOption) => typeof team.slug === "string" && team.slug)
+          .map((team: TeamPickerOption) => ({
+            slug: team.slug,
+            name: team.name,
+            description: team.description,
+          })));
+      } catch {
+        setAvailableTeams([]);
+      }
+    }
+    void loadTeams();
+  }, [visibility]);
 
   // Arg input state
   const [newArg, setNewArg] = React.useState("");
@@ -542,6 +570,9 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel, initialVal
           // Always send credential_sources on update (including []) so the BFF can
           // clear previously saved bindings; omitting the field is a no-op.
           credential_sources: normalizedCredentialSources,
+          visibility,
+          owner_team_slug: visibility === "team" ? ownerTeamSlug.trim() : undefined,
+          shared_with_teams: visibility === "team" ? sharedTeamSlugs : [],
         };
 
         const response = await fetch(`/api/mcp-servers?id=${server._id}`, {
@@ -572,6 +603,9 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel, initialVal
           args: transport === "stdio" ? args : undefined,
           env: transport === "stdio" && Object.keys(env).length > 0 ? env : undefined,
           credential_sources: normalizedCredentialSources.length > 0 ? normalizedCredentialSources : undefined,
+          visibility,
+          owner_team_slug: visibility === "team" ? ownerTeamSlug.trim() : undefined,
+          shared_with_teams: visibility === "team" ? sharedTeamSlugs : [],
         };
 
         const response = await fetch("/api/mcp-servers", {
@@ -598,6 +632,7 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel, initialVal
     name.trim() &&
     (isEditing || id.trim() || deriveServerIdFromDisplayName(name)) &&
     (transport === "stdio" ? command.trim() : endpoint.trim()) &&
+    (visibility === "private" || ownerTeamSlug.trim()) &&
     credentialSources.every((source) =>
       normalizedCredentialSource(source, providerConnectionOptions) !== null
     );
@@ -627,6 +662,51 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel, initialVal
           {/* Basic Info */}
           <div className="space-y-4">
             <h3 className="text-sm font-medium">Basic Information</h3>
+
+            <div className="space-y-2">
+              <Label>Access</Label>
+              <div className="grid grid-cols-2 gap-2">
+                {(["private", "team"] as const).map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    onClick={() => setVisibility(option)}
+                    disabled={loading || readOnly}
+                    className={`rounded-lg border p-3 text-left text-sm capitalize ${
+                      visibility === option ? "border-primary bg-primary/5" : "border-muted"
+                    }`}
+                  >
+                    {option}
+                    <span className="mt-1 block text-xs normal-case text-muted-foreground">
+                      {option === "private"
+                        ? "Only your private agents may use it, from verified DMs."
+                        : "Members of the owner team may use it."}
+                    </span>
+                  </button>
+                ))}
+              </div>
+              {visibility === "team" && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="mcp-owner-team">Owner team slug</Label>
+                  <TeamPicker
+                    id="mcp-owner-team"
+                    value={ownerTeamSlug}
+                    onChange={setOwnerTeamSlug}
+                    options={availableTeams}
+                    placeholder="Select an owner team"
+                    disabled={loading || readOnly}
+                  />
+                  <Label>Share with teams</Label>
+                  <TeamMultiPicker
+                    selected={sharedTeamSlugs}
+                    onChange={setSharedTeamSlugs}
+                    options={availableTeams.filter((team) => team.slug !== ownerTeamSlug)}
+                    placeholder="Select additional teams"
+                    disabled={loading || readOnly}
+                  />
+                </div>
+              )}
+            </div>
 
             <div className="space-y-2">
               <Label htmlFor="mcp-display-name">

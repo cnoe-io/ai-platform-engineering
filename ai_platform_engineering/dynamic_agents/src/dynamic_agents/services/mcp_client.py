@@ -247,6 +247,7 @@ def build_mcp_connection_config(
     agent_gateway_url: str | None = None,
     auth_bearer: str | None = None,
     agent_id: str | None = None,
+    trusted_interaction: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Build connection config dict for MultiServerMCPClient.
 
@@ -261,6 +262,12 @@ def build_mcp_connection_config(
     headers: dict[str, str] = {}
     if auth_bearer:
         headers["Authorization"] = f"Bearer {auth_bearer}"
+    if trusted_interaction:
+        token = trusted_interaction.get("token", "")
+        signature = trusted_interaction.get("signature", "")
+        if token and signature:
+            headers["X-CAIPE-Trusted-Interaction"] = token
+            headers["X-CAIPE-Trusted-Interaction-Signature"] = signature
 
     # Spec 102 Phase 8 / T106: also attach the httpx_client_factory so the
     # per-request user JWT and signed agent context are injected on every
@@ -322,6 +329,7 @@ def build_mcp_connections(
     agent_gateway_url: str | None = None,
     auth_bearer: str | None = None,
     agent_id: str | None = None,
+    trusted_interaction: dict[str, str] | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Build MCP connections dict for MultiServerMCPClient.
 
@@ -358,6 +366,7 @@ def build_mcp_connections(
             agent_gateway_url=agent_gateway_url if use_gateway else None,
             auth_bearer=auth_bearer,
             agent_id=agent_id,
+            trusted_interaction=trusted_interaction,
         )
 
     return connections

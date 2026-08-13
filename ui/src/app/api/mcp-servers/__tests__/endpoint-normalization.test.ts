@@ -269,6 +269,8 @@ describe("PUT /api/mcp-servers?id=<id> — endpoint normalisation", () => {
       transport: "http",
       endpoint: "http://agentgateway:4000/mcp",
       config_driven: false,
+      visibility: "private",
+      owner_subject: "alice-sub",
     };
     mockFindOne.mockResolvedValue(existing);
     mockFindOneAndUpdate.mockImplementation(async (_filter, update) => ({
@@ -304,6 +306,8 @@ describe("PUT /api/mcp-servers?id=<id> — endpoint normalisation", () => {
       transport: "http",
       endpoint: "http://agentgateway:4000/mcp/mcp-jira",
       config_driven: false,
+      visibility: "private",
+      owner_subject: "alice-sub",
     };
     mockFindOne.mockResolvedValue(existing);
     mockFindOneAndUpdate.mockImplementation(async (_filter, update) => ({
@@ -335,6 +339,8 @@ describe("PUT /api/mcp-servers?id=<id> — endpoint normalisation", () => {
       transport: "http",
       endpoint: "http://agentgateway:4000/mcp/atlassian-confluence",
       config_driven: false,
+      visibility: "private",
+      owner_subject: "alice-sub",
     };
     mockFindOne.mockResolvedValue(existing);
     mockFindOneAndUpdate.mockImplementation(async (_filter, update) => ({

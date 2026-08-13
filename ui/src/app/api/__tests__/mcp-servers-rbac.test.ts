@@ -235,7 +235,7 @@ describe("MCP server per-resource RBAC", () => {
     ]);
   });
 
-  it("lets a service account create an MCP server with service_account owner tuples", async () => {
+  it("lets a service account create a team-owned MCP server", async () => {
     mockSession = {
       sub: "bot-client-id",
       isServiceAccount: true,
@@ -258,6 +258,8 @@ describe("MCP server per-resource RBAC", () => {
           name: "Bot Tools",
           transport: "http",
           endpoint: "https://mcp.example.test/mcp",
+          visibility: "team",
+          owner_team_slug: "platform",
         }),
       }),
     );
@@ -266,9 +268,12 @@ describe("MCP server per-resource RBAC", () => {
     expect(mockReconcileMcpServerRelationships).toHaveBeenCalledWith(
       {
         serverId: "mcp-bot-tools",
-        ownerSubject: "bot-client-id",
+        ownerSubject: null,
         ownerSubjectKind: "service_account",
-        ownerTeamSlug: null,
+        ownerTeamSlug: "platform",
+        creatorSubject: null,
+        personalOwnerAccess: false,
+        nextSharedTeamSlugs: [],
       },
       {
         caller: { type: "service_account", id: "bot-client-id" },
@@ -277,7 +282,8 @@ describe("MCP server per-resource RBAC", () => {
     );
     expect(insertOne).toHaveBeenCalledWith(
       expect.objectContaining({
-        owner_subject: "bot-client-id",
+        owner_subject: undefined,
+        owner_team_slug: "platform",
       }),
     );
   });
@@ -364,6 +370,9 @@ describe("MCP server per-resource RBAC", () => {
         ownerSubject: "alice-sub",
         ownerSubjectKind: "user",
         ownerTeamSlug: null,
+        creatorSubject: "alice-sub",
+        personalOwnerAccess: true,
+        nextSharedTeamSlugs: [],
       },
       {
         caller: { type: "user", id: "alice-sub" },
@@ -375,6 +384,7 @@ describe("MCP server per-resource RBAC", () => {
         _id: "mcp-ops-tools",
         owner_id: "alice@example.com",
         owner_subject: "alice-sub",
+        creator_subject: "alice-sub",
         owner_team_slug: undefined,
       }),
     );
@@ -424,6 +434,7 @@ describe("MCP server per-resource RBAC", () => {
           name: "Team Tools",
           transport: "http",
           endpoint: "https://mcp.example.test/mcp",
+          visibility: "team",
           owner_team_slug: "platform",
         }),
       }),
@@ -437,9 +448,12 @@ describe("MCP server per-resource RBAC", () => {
     expect(mockReconcileMcpServerRelationships).toHaveBeenCalledWith(
       {
         serverId: "mcp-team-tools",
-        ownerSubject: "alice-sub",
+        ownerSubject: null,
         ownerSubjectKind: "user",
         ownerTeamSlug: "platform",
+        creatorSubject: "alice-sub",
+        personalOwnerAccess: false,
+        nextSharedTeamSlugs: [],
       },
       {
         caller: { type: "user", id: "alice-sub" },
@@ -454,7 +468,13 @@ describe("MCP server per-resource RBAC", () => {
   });
 
   it("requires mcp_server#manage before updating a server", async () => {
-    const server = { _id: "mcp-visible", name: "Visible", config_driven: false };
+    const server = {
+      _id: "mcp-visible",
+      name: "Visible",
+      config_driven: false,
+      visibility: "private",
+      owner_subject: "alice-sub",
+    };
     mockGetCollection.mockResolvedValue({
       findOne: jest.fn().mockResolvedValue(server),
       findOneAndUpdate: jest.fn().mockResolvedValue({ ...server, name: "Updated" }),

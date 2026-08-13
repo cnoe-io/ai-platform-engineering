@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 
+import type { TrustedAuthorizeContext } from "@/lib/authz";
+import { privateResourcePreCheck } from "@/lib/authz/domains/private-resource";
+
 import { logOpenFgaRebacAuditEvent } from "./audit";
 import { withAuthzSpan } from "./authz-tracing";
 import { checkOpenFgaTuple } from "./openfga";
@@ -23,6 +26,7 @@ export interface AgentUsePermissionInput {
    * time (FR-020 static access). assisted-by Claude claude-opus-4-8
    */
   isServiceAccount?: boolean;
+  trustedContext?: TrustedAuthorizeContext;
 }
 
 const OPENFGA_ID_PATTERN = /^[A-Za-z0-9._-]+$/;
@@ -58,6 +62,7 @@ export async function requireAgentUsePermission({
   correlationId,
   traceparent,
   isServiceAccount = false,
+  trustedContext,
 }: AgentUsePermissionInput): Promise<NextResponse | null> {
   if (!isValidOpenFgaId(subject)) {
     return authzResponse(
@@ -105,6 +110,40 @@ export async function requireAgentUsePermission({
         : `user:${subject}`;
       const resourceRef = `${namespacedSubject} can_use agent:${agentId}`;
       try {
+        const contextDecision = await privateResourcePreCheck({
+          subject: {
+            type: isServiceAccount ? "service_account" : "user",
+            id: String(subject),
+          },
+          resource: { type: "agent", id: String(agentId) },
+          action: "use",
+          trustedContext,
+        });
+        if (contextDecision?.decision === "DENY") {
+          logOpenFgaRebacAuditEvent({
+            tenantId,
+            sub: subject,
+            operation: "agent_use_check",
+            resource: "dynamic_agent",
+            scope: "use",
+            outcome: "deny",
+            reasonCode: "PRIVATE_RESOURCE_CONTEXT_DENIED",
+            pdp: "cas",
+            resourceRef,
+            email,
+            correlationId,
+          });
+          return authzResponse(
+            {
+              error: "Private agents can only be used from a verified Slack DM or Webex 1:1 conversation.",
+              code: "PRIVATE_DM_REQUIRED",
+              reason: "private_resource_context_denied",
+              action: "open_direct_message",
+            },
+            403,
+          );
+        }
+
         // Service accounts are authorized ONLY by their own direct grants. The
         // email-principal alias and the team-union fallback are human/user
         // concepts (an SA has no email identity and its access is static, not

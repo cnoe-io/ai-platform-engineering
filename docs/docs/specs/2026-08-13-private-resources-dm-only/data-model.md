@@ -93,7 +93,7 @@ user:<sub> manager         secret_ref:<id>
 user:<sub> auditor         secret_ref:<id>
 ```
 
-This avoids collapsing metadata discovery, use, management, sharing, and audit into one broad relation. A future model revision may add an audit-only `creator` and functional `owner`, but migration is not required to deliver private enforcement.
+This keeps metadata discovery, use, management, sharing, and audit separated. Add audit-only `creator` and functional human `owner`; `owner` participates in the existing permissions while `creator` remains provenance-only.
 
 ## 4. CAS Decision Matrix
 
