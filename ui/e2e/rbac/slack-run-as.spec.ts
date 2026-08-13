@@ -448,7 +448,7 @@ test.describe("mocked Slack Run as browser regression", () => {
     await expect(page.getByText("1 configured channels")).toBeVisible();
     await expect(page.getByText("#grid-test-4")).toBeVisible();
     await expect(page.getByText("team:eti-sre-admin-jenkins")).toBeVisible();
-    await expect(page.getByRole("tab", { name: "Onboard channels" })).toHaveCount(0);
+    await expect(page.getByRole("tab", { name: "Onboard channels" })).toBeVisible();
     await expect(page.getByRole("tab", { name: "Advanced" })).toHaveCount(0);
     await page.getByRole("button", { name: /#grid-test-4/ }).click();
     await expect(page.getByRole("button", { name: "Add Agent" })).toBeVisible();
@@ -742,10 +742,11 @@ test.describe("mocked Slack Run as browser regression", () => {
     });
 
     // assisted-by Codex Codex-sonnet-4-6
-    // The generic team member should stay in the self-service configured view:
-    // no Onboard/Advanced admin surfaces, with editability decided per channel.
+    // The generic team member can request onboarding from the self-service view,
+    // while platform-wide Advanced controls remain hidden. Existing-channel
+    // editability is still decided per channel.
     await expect(page.getByText("Slack channels", { exact: true })).toBeVisible();
-    await expect(page.getByRole("tab", { name: "Onboard channels" })).toHaveCount(0);
+    await expect(page.getByRole("tab", { name: "Onboard channels" })).toBeVisible();
     await expect(page.getByRole("tab", { name: "Advanced" })).toHaveCount(0);
     await expect(page.getByText("Discover channels")).toHaveCount(0);
     await expect(page.getByText("#editable-channel")).toBeVisible();

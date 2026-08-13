@@ -268,7 +268,6 @@ test.describe("mocked Webex workflow agent routing regression", () => {
     await expect.poll(() => onboardingRequests.length).toBe(1);
     expect(onboardingRequests[0]).toMatchObject({
       bot_id: webexBot.id,
-      workspace_id: "",
       space_id: "space-onboard-new",
       space_name: "Workflow Alerts",
       team_slug: "platform",

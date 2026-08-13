@@ -301,7 +301,11 @@ test.describe("Platform Health page", () => {
     await page.goto("/admin/operations/health");
     await dismissReleaseUpgradeDialog(page);
     await expect(page.getByText("System Status: Degraded")).toBeVisible();
-    await expect(page.getByText("Knowledge Bases", { exact: true })).toBeVisible();
+    await expect(
+      page.getByRole("button", {
+        name: "Inspect Knowledge Bases health details",
+      }),
+    ).toBeVisible();
     await expect(page.getByText("Knowledge Bases health check returned HTTP 503")).toBeVisible();
     await expect(page.getByText(/need attention/i)).toHaveCount(0);
   });

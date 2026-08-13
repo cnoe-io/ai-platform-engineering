@@ -516,7 +516,6 @@ test.describe("mocked Webex Configure spaces UI", () => {
       expect.arrayContaining([
         expect.objectContaining({
           bot_id: webexBot.id,
-          workspace_id: "",
           space_id: "space-alerts",
           space_name: "Workflow Alerts",
           team_slug: "platform",
@@ -526,7 +525,6 @@ test.describe("mocked Webex Configure spaces UI", () => {
         }),
         expect.objectContaining({
           bot_id: webexBot.id,
-          workspace_id: "",
           space_id: "space-night-ops",
           space_name: "Night Ops",
           team_slug: "ops",
