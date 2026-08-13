@@ -966,6 +966,10 @@ pre code.hljs {
   font-family: var(--font-sans);
 }
 
+.wide-reading .milkdown-host .milkdown .ProseMirror {
+  max-width: none;
+}
+
 .milkdown-host .milkdown .ProseMirror h1,
 .milkdown-host .milkdown .ProseMirror h2,
 .milkdown-host .milkdown .ProseMirror h3,
