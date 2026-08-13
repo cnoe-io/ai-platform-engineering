@@ -7,6 +7,7 @@ import {
   ArrowRight,
   ArrowUpRight,
   Check,
+  Clock,
   FileText,
   FolderKanban,
   Layers,
@@ -139,6 +140,7 @@ function buildSteps(projectName?: string): Step[] {
     { node: <WelcomeStep name={name} /> },
     { node: <PagesStep /> },
     { node: <IngestStep /> },
+    { node: <AutoIngestStep /> },
     { node: <TomeDirectoryStep /> },
     { node: <BhagStep /> },
     { node: <GlossaryStep /> },
@@ -282,6 +284,22 @@ function IngestStep() {
         ones untouched.
       </StepHeader>
       <IngestDemo />
+    </div>
+  );
+}
+
+function AutoIngestStep() {
+  return (
+    <div className="space-y-4">
+      <StepHeader icon={<Clock className="h-5 w-5" />} eyebrow="Auto-ingest" title="Or let ingest run itself">
+        Turn on auto-ingest in Settings and the agent runs on a schedule you pick, daily or
+        weekly, with no one clicking &quot;Run ingest.&quot; You choose whose connected
+        GitHub/Atlassian/Webex accounts each run uses.
+      </StepHeader>
+      <div className="rounded-lg border bg-muted/30 px-3 py-2.5 text-xs leading-relaxed text-muted-foreground">
+        Every scheduled run shows up in the Feed like any other ingest, and Settings always
+        shows when the next run fires.
+      </div>
     </div>
   );
 }

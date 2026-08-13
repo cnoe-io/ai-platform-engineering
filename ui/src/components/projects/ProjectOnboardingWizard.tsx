@@ -9,6 +9,7 @@ import {
   Boxes,
   Check,
   CheckCircle2,
+  Clock,
   FolderKanban,
   Layers,
   ListChecks,
@@ -33,6 +34,11 @@ import { SourcePicker } from "@/components/projects/source-pickers";
 import { getConfig } from "@/lib/config";
 import { cn } from "@/lib/utils";
 import { toWebexRoomSource } from "@/lib/projects/webex-room";
+import {
+  DEFAULT_SCHEDULE,
+  describeSchedule,
+  scheduleToCron,
+} from "@/lib/tome/auto-ingest/schedule-presets";
 import type {
   ConfluencePageScope,
   ProjectDocument,
@@ -88,9 +94,9 @@ interface WizardStepMeta {
   gradient: string;
   checklist?: string[];
   /** type = pick project/area/bhag; create = general info; slt = SLT governance
-   * fields; access = team/steward; integrations = apps/sources; review =
-   * confirm + commit. */
-  kind: "type" | "create" | "slt" | "access" | "integrations" | "review";
+   * fields; access = team/steward; integrations = apps/sources; auto-ingest =
+   * scheduled ingest opt-in; review = confirm + commit. */
+  kind: "type" | "create" | "slt" | "access" | "integrations" | "auto-ingest" | "review";
   source?: SourceKind;
 }
 
@@ -175,6 +181,17 @@ function buildWizardSteps(
         kind: "integrations",
       }
     : null;
+  const autoIngest: WizardStepMeta | null =
+    entityType === "project"
+      ? {
+          id: "auto-ingest",
+          title: "Auto-ingest",
+          subtitle: "Optional. Run ingest on a schedule.",
+          icon: Clock,
+          gradient: DEFAULT_GRADIENT,
+          kind: "auto-ingest",
+        }
+      : null;
   const review: WizardStepMeta = {
     id: "review",
     title: "Review & Create",
@@ -185,7 +202,7 @@ function buildWizardSteps(
   };
   const steps: (WizardStepMeta | null)[] = [type, create];
   if (entityType === "project") steps.push(slt);
-  steps.push(access, integrations, review);
+  steps.push(access, integrations, autoIngest, review);
   return steps.filter((s): s is WizardStepMeta => Boolean(s));
 }
 
@@ -205,6 +222,8 @@ export function ProjectOnboardingWizard({
   // Which integrations the user has enabled (id → on), seeded from the config's
   // `default_enabled`. Drives the Integrations step + which apps provision.
   const [enabled, setEnabled] = useState<Record<string, boolean>>({});
+  const [autoIngestOnboardEnabled, setAutoIngestOnboardEnabled] = useState(false);
+  const [autoIngestSchedule, setAutoIngestSchedule] = useState(DEFAULT_SCHEDULE);
   const [phaseIndex, setPhaseIndex] = useState(0);
   const [entityType, setEntityType] = useState<EntityType>("project");
   // Hierarchy tagging (replaces free-text initiatives/areas): the parent BHAG
@@ -262,6 +281,7 @@ export function ProjectOnboardingWizard({
   const isSltPhase = phase.kind === "slt";
   const isAccessPhase = phase.kind === "access";
   const isIntegrationsPhase = phase.kind === "integrations";
+  const isAutoIngestPhase = phase.kind === "auto-ingest";
   const isReviewPhase = phase.kind === "review";
 
   useEffect(() => {
@@ -472,6 +492,24 @@ export function ProjectOnboardingWizard({
         }
       }
 
+      if (autoIngestOnboardEnabled && currentUserEmail) {
+        try {
+          await fetch(`/api/projects/${created.slug}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              autoIngest: {
+                enabled: true,
+                cron: scheduleToCron(autoIngestSchedule),
+                credentialOwnerEmail: currentUserEmail,
+              },
+            }),
+          });
+        } catch {
+          /* best-effort — configurable later in Settings */
+        }
+      }
+
       onComplete?.(created);
       // Land the user on the new project (keep the "Creating…" state until nav).
       window.location.href = `/projects/${created.slug}`;
@@ -493,7 +531,8 @@ export function ProjectOnboardingWizard({
       phase.kind === "create" ||
       phase.kind === "slt" ||
       phase.kind === "access" ||
-      phase.kind === "integrations"
+      phase.kind === "integrations" ||
+      phase.kind === "auto-ingest"
     ) {
       advanceFromCurrentStep();
       return;
@@ -504,7 +543,8 @@ export function ProjectOnboardingWizard({
   }
 
   const isPreCreate =
-    isTypePhase || isCreatePhase || isSltPhase || isAccessPhase || isIntegrationsPhase;
+    isTypePhase || isCreatePhase || isSltPhase || isAccessPhase || isIntegrationsPhase ||
+    isAutoIngestPhase;
 
   const primaryLabel = isPreCreate
     ? "Continue"
@@ -1030,6 +1070,66 @@ export function ProjectOnboardingWizard({
                       </div>
                     );
                   })}
+                </div>
+              ) : null}
+
+              {isAutoIngestPhase ? (
+                <div className="space-y-4">
+                  <p className="text-sm text-muted-foreground">
+                    Run ingest automatically on a schedule, on top of manual runs. Fully
+                    optional, and editable anytime in Project Settings.
+                  </p>
+                  <div className="overflow-hidden rounded-xl border border-border/60 bg-card/30">
+                    <button
+                      type="button"
+                      onClick={() => setAutoIngestOnboardEnabled((prev) => !prev)}
+                      aria-pressed={autoIngestOnboardEnabled}
+                      className="group flex w-full items-center gap-3 p-4 text-left transition hover:bg-accent/30"
+                    >
+                      <span
+                        className={cn(
+                          "flex h-5 w-5 shrink-0 items-center justify-center rounded-md border transition",
+                          autoIngestOnboardEnabled
+                            ? "border-primary bg-primary text-primary-foreground"
+                            : "border-border",
+                        )}
+                      >
+                        {autoIngestOnboardEnabled ? <Check className="h-3.5 w-3.5" /> : null}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm font-medium">Enable auto-ingest</span>
+                      </span>
+                    </button>
+                    {autoIngestOnboardEnabled ? (
+                      <div className="space-y-2 border-t border-border/60 p-4">
+                        <div className="grid grid-cols-3 gap-2">
+                          {(["daily", "weekly"] as const).map((preset) => (
+                            <button
+                              key={preset}
+                              type="button"
+                              onClick={() =>
+                                setAutoIngestSchedule((prev) => ({ ...prev, preset }))
+                              }
+                              className={cn(
+                                "rounded-lg border px-3 py-2 text-sm font-medium capitalize",
+                                autoIngestSchedule.preset === preset
+                                  ? "border-primary bg-primary/10 text-primary"
+                                  : "border-border/60",
+                              )}
+                            >
+                              {preset}
+                            </button>
+                          ))}
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          {describeSchedule(autoIngestSchedule)}. Runs authenticate as{" "}
+                          <span className="font-medium">you</span>, using your connected
+                          GitHub/Atlassian/Webex accounts. Change who this runs as anytime in
+                          Settings.
+                        </p>
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
               ) : null}
 

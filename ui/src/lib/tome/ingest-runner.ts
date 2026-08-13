@@ -122,6 +122,7 @@ async function createRunRecord(
     cascadeId?: string;
     cascadeRole?: "child" | "parent";
     blockedByCascadeIds?: string[];
+    triggeredBy?: "manual" | "auto";
   },
 ): Promise<{ runId: string; reportId: string; isGreenfield: boolean }> {
   const projectId = project._id;
@@ -158,6 +159,7 @@ async function createRunRecord(
     log: [],
     started_at: now,
     triggered_by_sub: opts.sub || undefined,
+    triggered_by: opts.triggeredBy ?? "manual",
     dispatch: opts.dispatch,
     cascade_id: opts.cascadeId,
     cascade_role: opts.cascadeRole,
@@ -234,7 +236,7 @@ async function prepareRun(
   if (isGreenfield) {
     await seedGreenfieldStablePages(project, reportId, runId);
   }
-  await appendLog(runId, dispatchLine(isGreenfield));
+  await appendLog(runId, dispatchLine(isGreenfield, run.triggered_by));
 
   // The original request session is gone by now; re-resolve from the stored sub.
   const credentials = await resolveCredentialsForSub(run.triggered_by_sub ?? "");
@@ -316,6 +318,7 @@ async function prepareRun(
       slug: candidate.slug,
       name: candidate.title || candidate.name,
     })),
+    triggeredBy: run.triggered_by,
   });
 
   return { projectId, reportId, req, endpoint };
@@ -349,6 +352,8 @@ export async function startIngestRun(
     agentEndpoint?: string;
     /** Bypass draft review: pages this run writes go straight to "live". */
     skipReview?: boolean;
+    /** "auto" = fired by the CRON scheduler, not a human clicking "Run ingest". */
+    triggeredBy?: "manual" | "auto";
   },
 ): Promise<{ runId: string }> {
   const projectId = ctx.projectId;
@@ -359,6 +364,7 @@ export async function startIngestRun(
   const { runId } = await createRunRecord(ctx.project, {
     status: "running",
     sub: sessionSub(ctx.session),
+    triggeredBy: opts.triggeredBy,
     dispatch: {
       endpoint: opts.agentEndpoint ?? "/ingest",
       seed: opts.seed ?? null,
@@ -366,6 +372,7 @@ export async function startIngestRun(
       seedStablePages: opts.seedStablePages,
       webexMeetings: opts.webexMeetings,
       skipReview: opts.skipReview,
+      triggeredBy: opts.triggeredBy,
     },
   });
 
@@ -552,6 +559,7 @@ async function auditRunLifecycle(
         report_id: run.report_id ?? undefined,
         endpoint: run.dispatch?.endpoint ?? "/ingest",
         greenfield: run.greenfield,
+        triggered_by: run.triggered_by ?? "manual",
         cascade_id: run.cascade_id ?? undefined,
         cascade_role: run.cascade_role ?? undefined,
         ...extra,
@@ -560,7 +568,12 @@ async function auditRunLifecycle(
 
     if (project?.slug && isMyceliumConfigured()) {
       const mode = run.dispatch?.endpoint === "/synthesize" ? "bhag_rollup" : "ingest";
-      const label = mode === "bhag_rollup" ? "Synthesize" : "Ingest";
+      const label =
+        mode === "bhag_rollup"
+          ? "Synthesize"
+          : run.triggered_by === "auto"
+            ? "Scheduled auto-ingest"
+            : "Ingest";
       const status =
         action === "tome.ingest.started"
           ? "running"
@@ -588,7 +601,7 @@ async function auditRunLifecycle(
         sender_handle: "tome",
         content,
         kind: "ingest_event",
-        payload: { run_id: runId, mode, status },
+        payload: { run_id: runId, mode, status, triggered_by: run.triggered_by ?? "manual" },
         // Same id across started/succeeded/failed so the Feed collapses them
         // into one row instead of three, showing the latest status.
         correlation_id: runId,

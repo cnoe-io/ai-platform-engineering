@@ -162,6 +162,12 @@ export interface IngestDispatch {
    * completion, same as before the draft-review feature existed.
    */
   skipReview?: boolean;
+  /**
+   * "auto" = fired by the CRON scheduler with no human triggering it this
+   * run — the agent should treat `seed`/existing context as authoritative
+   * rather than expecting fresh human intent. Default "manual".
+   */
+  triggeredBy?: "manual" | "auto";
 }
 
 /** Lifecycle + streamed log for one ingest run. */
@@ -172,6 +178,8 @@ export interface IngestRun {
   status: IngestRunStatus;
   /** Whether this was the greenfield (first) ingest that seeds stable pages. */
   greenfield: boolean;
+  /** "auto" = fired unattended by the CRON scheduler. Default "manual". */
+  triggered_by?: "manual" | "auto";
   log: string[];
   error?: string;
   started_at: Date;

@@ -61,4 +61,14 @@ export async function register() {
   } catch (err) {
     console.warn("[instrumentation] Tome source-feed poller not started:", err);
   }
+
+  // Start the Tome auto-ingest scheduler. Opt-in via TOME_AUTO_INGEST_ENABLED.
+  // Fires CRON-scheduled ingest runs for projects that opted in. Idempotent;
+  // failures here must not take down the server.
+  try {
+    const { startAutoIngestScheduler } = await import("./lib/tome/auto-ingest/scheduler");
+    startAutoIngestScheduler();
+  } catch (err) {
+    console.warn("[instrumentation] Tome auto-ingest scheduler not started:", err);
+  }
 }

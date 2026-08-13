@@ -22,6 +22,7 @@ import {
 } from "@/lib/projects/project-admin";
 import { cleanLabelList } from "@/lib/projects/labels";
 import { isBootstrapAdmin } from "@/lib/auth-config";
+import { isValidCron } from "@/lib/rbac/cron";
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import { auditTome, tomeActorFromAuth, type TomeAuditActor } from "@/lib/tome/audit";
 import { resolveUniqueTomeProjectBySlug } from "@/lib/tome/project-resolver";
@@ -272,6 +273,17 @@ export const PATCH = withErrorHandler(
       sources_feed_enabled?: boolean;
       decision_blast_radius?: "small" | "large" | null;
       optionality?: string[];
+      /**
+       * CRON-scheduled auto-ingest. `credentialOwnerEmail` is the explicit
+       * fallback identity whose forwarded credentials scheduled runs use —
+       * never derived from the (possibly team) data steward. `null` clears
+       * the owner (schedule stays configured but won't fire until reset).
+       */
+      autoIngest?: {
+        enabled?: boolean;
+        cron?: string;
+        credentialOwnerEmail?: string | null;
+      } | null;
     };
 
     if ("data_steward" in body && !permissions.canManageSteward) {
@@ -279,6 +291,13 @@ export const PATCH = withErrorHandler(
         "Only a Tome admin can change the data steward",
         403,
         "TOME_ADMIN_REQUIRED",
+      );
+    }
+    if ("autoIngest" in body && !permissions.canEdit) {
+      throw new ApiError(
+        "Only this entity's data steward or a Tome admin can change the auto-ingest schedule",
+        403,
+        "DATA_STEWARD_REQUIRED",
       );
     }
 
@@ -337,6 +356,47 @@ export const PATCH = withErrorHandler(
     }
     if (typeof body.sources_feed_enabled === "boolean") {
       $set["sources_feed_enabled"] = body.sources_feed_enabled;
+    }
+    if ("autoIngest" in body) {
+      if (!body.autoIngest) {
+        $unset["autoIngest"] = "";
+      } else {
+        if (typeof body.autoIngest.enabled === "boolean") {
+          $set["autoIngest.enabled"] = body.autoIngest.enabled;
+        }
+        if (typeof body.autoIngest.cron === "string") {
+          if (!isValidCron(body.autoIngest.cron)) {
+            throw new ApiError("Invalid auto-ingest schedule", 400, "INVALID_AUTO_INGEST_CRON");
+          }
+          $set["autoIngest.cron"] = body.autoIngest.cron.trim();
+        }
+        if ("credentialOwnerEmail" in body.autoIngest) {
+          if (!body.autoIngest.credentialOwnerEmail) {
+            $set["autoIngest.credentialOwner"] = null;
+          } else {
+            // Reuse the same "must have signed into CAIPE" resolution the data
+            // steward uses — the credential owner is a distinct, explicit
+            // identity, never derived from the (possibly team) steward.
+            const owner = await resolveDataSteward({
+              type: "user",
+              email: body.autoIngest.credentialOwnerEmail,
+            });
+            if (!owner) {
+              throw new ApiError(
+                "Auto-ingest credential owner is required",
+                400,
+                "INVALID_AUTO_INGEST_OWNER",
+              );
+            }
+            $set["autoIngest.credentialOwner"] = {
+              subject: owner.id,
+              email: owner.email ?? body.autoIngest.credentialOwnerEmail.trim().toLowerCase(),
+              name: owner.name,
+              confirmedAt: new Date().toISOString(),
+            };
+          }
+        }
+      }
     }
     if ("decision_blast_radius" in body) {
       if (body.decision_blast_radius) $set["decision_blast_radius"] = body.decision_blast_radius;

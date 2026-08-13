@@ -194,6 +194,45 @@ export interface ProjectSources {
   component_urls?: string[]; // arbitrary software/service URLs
 }
 
+/**
+ * Explicit fallback identity whose forwarded OAuth credentials an
+ * auto-ingest run uses. Deliberately separate from `data_steward`: a
+ * steward can be a team (no single OAuth grant to execute as), so
+ * auto-ingest needs its own single-user identity, set explicitly by
+ * whoever configures the schedule (defaulting to themselves) rather than
+ * derived implicitly from the steward.
+ */
+export interface AutoIngestCredentialOwner {
+  /** Keycloak subject, used to resolve forwarded credentials off-request. */
+  subject: string;
+  email: string;
+  name: string;
+  /** ISO timestamp of when this owner was last confirmed (set on save). */
+  confirmedAt: string;
+}
+
+export interface AutoIngestLastRun {
+  at: string;
+  status: "success" | "failed" | "skipped_no_credential";
+  runId?: string;
+  /** Human-readable reason, set on failed/skipped runs for UI surfacing. */
+  reason?: string;
+}
+
+/**
+ * CRON-scheduled auto-ingest configuration (onboarding-time opt-in,
+ * editable later in Settings). `credentialOwner: null` is a valid,
+ * common state (e.g. no one has confirmed an owner yet) — treat it as
+ * "configured but not runnable," not an error.
+ */
+export interface AutoIngestConfig {
+  enabled: boolean;
+  /** 5-field UTC cron expression; validate with isValidCron. */
+  cron: string;
+  credentialOwner: AutoIngestCredentialOwner | null;
+  lastRun?: AutoIngestLastRun;
+}
+
 export interface ProjectDocument {
   _id?: string;
   /** Authorization tuples use immutable Mongo project IDs when set to 2. */
@@ -244,6 +283,8 @@ export interface ProjectDocument {
   optionality?: string[];
   /** Per-project on/off for the source-activity feed. Undefined = on. */
   sources_feed_enabled?: boolean;
+  /** CRON-scheduled auto-ingest configuration. Undefined = not opted in. */
+  autoIngest?: AutoIngestConfig;
   created_at: Date;
   updated_at: Date;
 }

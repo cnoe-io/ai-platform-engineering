@@ -3,7 +3,7 @@
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowUpRight,
   Check,
@@ -42,8 +42,16 @@ import { ChildProjectsPanel } from "@/components/tome/BhagProjectsPanel";
 import { PanelHeader } from "@/components/tome/PanelHeader";
 import { TomeLoading } from "@/components/tome/TomeLoading";
 import { ViewOnlyTooltip } from "@/components/tome/ViewOnlyTooltip";
-import type { ProjectDocument, ProjectSources, ProjectType } from "@/types/projects";
+import type { AutoIngestConfig, ProjectDocument, ProjectSources, ProjectType } from "@/types/projects";
 import { dataStewardUserEmail, isSynthesizedType } from "@/types/projects";
+import {
+  DEFAULT_SCHEDULE,
+  cronToSchedule,
+  describeRelativeTime,
+  nextCronRun,
+  scheduleToCron,
+  type ScheduleFormState,
+} from "@/lib/tome/auto-ingest/schedule-presets";
 
 const BLAST_RADIUS_OPTIONS = [
   { value: "small", label: "Small and reversible (2-way)", hint: "The team runs on its own" },
@@ -107,6 +115,7 @@ export function ProjectSettingsPanel({
   onOpenIngest?: () => void;
 }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { kinds: sourceKinds, loading: sourceKindsLoading } = useProjectSourceKinds();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -120,7 +129,9 @@ export function ProjectSettingsPanel({
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [dangerOpen, setDangerOpen] = useState(false);
-  const [settingsTab, setSettingsTab] = useState("general");
+  const [settingsTab, setSettingsTab] = useState(
+    () => searchParams?.get("tab") || "general",
+  );
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -156,6 +167,21 @@ export function ProjectSettingsPanel({
   // SLT governance fields
   const [blastRadius, setBlastRadius] = useState<"small" | "large" | "">("");
   const [optionality, setOptionality] = useState<string[]>([]);
+
+  // Auto-ingest schedule (GH #437)
+  const [autoIngestEnabled, setAutoIngestEnabled] = useState(false);
+  const [autoIngestSchedule, setAutoIngestSchedule] = useState<ScheduleFormState>(DEFAULT_SCHEDULE);
+  const [autoIngestOwnerEmail, setAutoIngestOwnerEmail] = useState("");
+  const [autoIngestOwnerName, setAutoIngestOwnerName] = useState("");
+  const [autoIngestLastRun, setAutoIngestLastRun] = useState<AutoIngestConfig["lastRun"]>(undefined);
+  const nextAutoIngestRun = autoIngestEnabled
+    ? nextCronRun(scheduleToCron(autoIngestSchedule), new Date())
+    : null;
+  const nextRunLabel = nextAutoIngestRun
+    ? `Next run ${describeRelativeTime(nextAutoIngestRun, new Date())} (${String(
+        nextAutoIngestRun.getUTCHours(),
+      ).padStart(2, "0")}:${String(nextAutoIngestRun.getUTCMinutes()).padStart(2, "0")} UTC)`
+    : null;
 
   // Organization
   const [teams, setTeams] = useState<TeamPickerOption[]>([]);
@@ -231,6 +257,13 @@ export function ProjectSettingsPanel({
         }
         setBlastRadius((project.decision_blast_radius as "small" | "large" | "") ?? "");
         setOptionality(project.optionality ?? []);
+        setAutoIngestEnabled(project.autoIngest?.enabled ?? false);
+        setAutoIngestSchedule(
+          project.autoIngest?.cron ? cronToSchedule(project.autoIngest.cron) : DEFAULT_SCHEDULE,
+        );
+        setAutoIngestOwnerEmail(project.autoIngest?.credentialOwner?.email ?? "");
+        setAutoIngestOwnerName(project.autoIngest?.credentialOwner?.name ?? "");
+        setAutoIngestLastRun(project.autoIngest?.lastRun);
         setError(null);
       })
       .catch((e) => !cancelled && setError(e instanceof Error ? e.message : String(e)))
@@ -416,6 +449,13 @@ export function ProjectSettingsPanel({
       if (!isSynthesized) {
         payload.sources_feed_enabled = feedEnabled;
       }
+      if (canEdit) {
+        payload.autoIngest = {
+          enabled: autoIngestEnabled,
+          cron: scheduleToCron(autoIngestSchedule),
+          credentialOwnerEmail: autoIngestOwnerEmail.trim() || null,
+        };
+      }
 
       // Hierarchy tagging, per type. A BHAG has no parent — send nothing.
       // A project tags both its BHAG and Area directly — never rely on the
@@ -468,6 +508,13 @@ export function ProjectSettingsPanel({
       setFeedEnabled(project.sources_feed_enabled !== false);
       setBlastRadius((project.decision_blast_radius as "small" | "large" | "") ?? "");
       setOptionality(project.optionality ?? []);
+      setAutoIngestEnabled(project.autoIngest?.enabled ?? false);
+      setAutoIngestSchedule(
+        project.autoIngest?.cron ? cronToSchedule(project.autoIngest.cron) : DEFAULT_SCHEDULE,
+      );
+      setAutoIngestOwnerEmail(project.autoIngest?.credentialOwner?.email ?? "");
+      setAutoIngestOwnerName(project.autoIngest?.credentialOwner?.name ?? "");
+      setAutoIngestLastRun(project.autoIngest?.lastRun);
       setSavedAt(true);
       onSaved?.(project);
       void loadFeedStatus();
@@ -493,6 +540,9 @@ export function ProjectSettingsPanel({
     feedEnabled,
     blastRadius,
     optionality,
+    autoIngestEnabled,
+    autoIngestSchedule,
+    autoIngestOwnerEmail,
     teamChanged,
     selectedTeamId,
     onSaved,
@@ -552,10 +602,7 @@ export function ProjectSettingsPanel({
                     General
                   </TabsTrigger>
                   <TabsTrigger value="organization" className={TAB_TRIGGER_CLASS}>
-                    Organization
-                  </TabsTrigger>
-                  <TabsTrigger value="slt" className={TAB_TRIGGER_CLASS}>
-                    SLT Configuration
+                    Access Config
                   </TabsTrigger>
                   {isSynthesized && (
                     <TabsTrigger value="projects" className={TAB_TRIGGER_CLASS}>
@@ -566,8 +613,16 @@ export function ProjectSettingsPanel({
                     Sources
                   </TabsTrigger>
                   {!isSynthesized && (
+                    <TabsTrigger value="auto-ingest" className={TAB_TRIGGER_CLASS}>
+                      Auto-ingest
+                    </TabsTrigger>
+                  )}
+                  <TabsTrigger value="slt" className={TAB_TRIGGER_CLASS}>
+                    Metadata
+                  </TabsTrigger>
+                  {!isSynthesized && (
                     <TabsTrigger value="feed" className={TAB_TRIGGER_CLASS}>
-                      Source activity feed
+                      Activity Feed
                     </TabsTrigger>
                   )}
                 </TabsList>
@@ -1006,6 +1061,182 @@ export function ProjectSettingsPanel({
                       Activity is fetched with the steward&apos;s GitHub visibility and shown to
                       everyone with access to this project.
                     </p>
+                  </div>
+                </TabsContent>
+              )}
+
+              {!isSynthesized && (
+                <TabsContent value="auto-ingest" className="space-y-6 pt-6">
+                  <div className="space-y-6">
+                    <Field label="Auto-ingest">
+                      <fieldset disabled={!canEdit} className="space-y-4 disabled:opacity-60">
+                        <p className="text-xs text-muted-foreground">
+                          Run ingest automatically on a schedule, on top of manual runs.
+                          {onOpenIngest && (
+                            <>
+                              {" "}
+                              Want to ingest now?{" "}
+                              <button
+                                type="button"
+                                onClick={onOpenIngest}
+                                className="font-medium text-primary underline-offset-2 hover:underline"
+                              >
+                                Click here
+                              </button>
+                              .
+                            </>
+                          )}
+                        </p>
+                        <label className="flex items-center gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={autoIngestEnabled}
+                            onChange={(e) => setAutoIngestEnabled(e.target.checked)}
+                            disabled={!canEdit}
+                          />
+                          Enable scheduled auto-ingest
+                        </label>
+
+                        {autoIngestEnabled && (
+                          <>
+                            <div className="grid grid-cols-3 gap-2">
+                              {(["daily", "weekly", "advanced"] as const).map((preset) => (
+                                <button
+                                  key={preset}
+                                  type="button"
+                                  disabled={!canEdit}
+                                  onClick={() =>
+                                    setAutoIngestSchedule((prev) => ({ ...prev, preset }))
+                                  }
+                                  className={`rounded-lg border px-3 py-2 text-sm font-medium capitalize ${
+                                    autoIngestSchedule.preset === preset
+                                      ? "border-primary bg-primary/10 text-primary"
+                                      : "border-border/60"
+                                  }`}
+                                >
+                                  {preset}
+                                </button>
+                              ))}
+                            </div>
+
+                            {autoIngestSchedule.preset !== "advanced" ? (
+                              <div className="flex flex-wrap items-center gap-2">
+                                {autoIngestSchedule.preset === "weekly" && (
+                                  <select
+                                    value={autoIngestSchedule.weekday}
+                                    disabled={!canEdit}
+                                    onChange={(e) =>
+                                      setAutoIngestSchedule((prev) => ({
+                                        ...prev,
+                                        weekday: Number(e.target.value),
+                                      }))
+                                    }
+                                    className="rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                                  >
+                                    {["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].map(
+                                      (name, idx) => (
+                                        <option key={name} value={idx}>
+                                          {name}
+                                        </option>
+                                      ),
+                                    )}
+                                  </select>
+                                )}
+                                <input
+                                  type="time"
+                                  disabled={!canEdit}
+                                  value={`${String(autoIngestSchedule.hour).padStart(2, "0")}:${String(
+                                    autoIngestSchedule.minute,
+                                  ).padStart(2, "0")}`}
+                                  onChange={(e) => {
+                                    const [h, m] = e.target.value.split(":").map(Number);
+                                    setAutoIngestSchedule((prev) => ({
+                                      ...prev,
+                                      hour: h ?? prev.hour,
+                                      minute: m ?? prev.minute,
+                                    }));
+                                  }}
+                                  className="rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                                />
+                                <div className="flex flex-col text-xs text-muted-foreground">
+                                  <span>your local time</span>
+                                  {nextRunLabel && <span>{nextRunLabel}</span>}
+                                </div>
+                              </div>
+                            ) : (
+                              <>
+                                <input
+                                  type="text"
+                                  placeholder="minute hour day-of-month month day-of-week (UTC)"
+                                  value={autoIngestSchedule.advancedCron}
+                                  disabled={!canEdit}
+                                  onChange={(e) =>
+                                    setAutoIngestSchedule((prev) => ({
+                                      ...prev,
+                                      advancedCron: e.target.value,
+                                    }))
+                                  }
+                                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/40"
+                                />
+                                {nextRunLabel && (
+                                  <p className="text-xs text-muted-foreground">{nextRunLabel}</p>
+                                )}
+                              </>
+                            )}
+
+                            <div>
+                              <p className="mb-1 text-sm font-medium">Runs as</p>
+                              <p className="mb-2 text-xs text-muted-foreground">
+                                Scheduled runs authenticate as this person, using their connected
+                                GitHub, Atlassian, and Webex accounts.
+                              </p>
+                              <div className="flex items-center gap-2">
+                                <div className="min-w-0 flex-1">
+                                  <UserEmailPicker
+                                    value={autoIngestOwnerEmail}
+                                    onChange={setAutoIngestOwnerEmail}
+                                    currentUserEmail={currentUserEmail}
+                                    disabled={!canEdit}
+                                  />
+                                </div>
+                                {canEdit && currentUserEmail && autoIngestOwnerEmail !== currentUserEmail && (
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="shrink-0"
+                                    onClick={() => setAutoIngestOwnerEmail(currentUserEmail)}
+                                  >
+                                    Use my credentials
+                                  </Button>
+                                )}
+                              </div>
+                              {!autoIngestOwnerEmail && (
+                                <p className="mt-1.5 flex items-center gap-1 text-xs text-amber-500">
+                                  <TriangleAlert className="h-3.5 w-3.5" /> Pick who this runs as.
+                                  The schedule won&apos;t fire until then.
+                                </p>
+                              )}
+                              {autoIngestOwnerEmail && autoIngestLastRun?.status === "failed" && (
+                                <p className="mt-1.5 flex items-start gap-1 text-xs text-destructive">
+                                  <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                                  Last scheduled run failed
+                                  {autoIngestLastRun.reason ? `: ${autoIngestLastRun.reason}` : ""}.
+                                  Reconfirm {autoIngestOwnerName || autoIngestOwnerEmail}&apos;s
+                                  credentials or pick someone else, then save.
+                                </p>
+                              )}
+                              {autoIngestLastRun?.status === "success" && (
+                                <p className="mt-1.5 flex items-center gap-1 text-xs text-emerald-500">
+                                  <Check className="h-3.5 w-3.5" /> Last scheduled run succeeded at{" "}
+                                  {new Date(autoIngestLastRun.at).toLocaleString()}.
+                                </p>
+                              )}
+                            </div>
+                          </>
+                        )}
+                      </fieldset>
+                    </Field>
                   </div>
                 </TabsContent>
               )}

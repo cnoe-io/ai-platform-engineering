@@ -79,8 +79,9 @@ export function formatIngestEvent(ev: IngestEvent): string {
 }
 
 /** A start-of-run line written by the runner before the agent dispatches. */
-export function dispatchLine(isGreenfield: boolean): string {
-  return `[${hhmmss()}] ▶ agent ingest dispatched (mode=${isGreenfield ? "greenfield" : "incremental"})`;
+export function dispatchLine(isGreenfield: boolean, triggeredBy?: "manual" | "auto"): string {
+  const trigger = triggeredBy === "auto" ? ", trigger=auto" : "";
+  return `[${hhmmss()}] ▶ agent ingest dispatched (mode=${isGreenfield ? "greenfield" : "incremental"}${trigger})`;
 }
 
 /** Info line (· marker). */

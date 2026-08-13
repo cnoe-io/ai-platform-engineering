@@ -541,6 +541,10 @@ test.describe("Tome data-steward controls (mocked)", () => {
     await page.getByRole("option", { name: "Example Team" }).click();
     await page.getByRole("button", { name: "Continue" }).click();
     await expect(
+      page.getByRole("heading", { name: "Auto-ingest" }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Continue" }).click();
+    await expect(
       page.getByRole("heading", { name: "Review & Create" }),
     ).toBeVisible();
 
@@ -635,8 +639,8 @@ test.describe("Tome data-steward controls (mocked)", () => {
       }),
     ).toBeVisible();
 
-    await page.getByRole("tab", { name: "Organization" }).click();
-    const organizationPanel = page.getByRole("tabpanel", { name: "Organization" });
+    await page.getByRole("tab", { name: "Access Config" }).click();
+    const organizationPanel = page.getByRole("tabpanel", { name: "Access Config" });
     await expect(
       organizationPanel.getByText("Shared directly with", { exact: true }),
     ).toBeVisible();

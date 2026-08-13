@@ -13,6 +13,7 @@ jest.mock("next-auth/react", () => ({
 
 jest.mock("next/navigation", () => ({
   useRouter: () => ({ push: jest.fn() }),
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 const mockUseProjectSourceKinds = jest.fn(() => ({
@@ -122,7 +123,7 @@ describe("ProjectSettingsPanel hierarchy hydration", () => {
 
     expect(await screen.findByText("Project settings")).toBeInTheDocument();
 
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Organization" }), {
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Access Config" }), {
       button: 0,
       ctrlKey: false,
     });
@@ -214,7 +215,7 @@ describe("ProjectSettingsPanel hierarchy hydration", () => {
 
     expect(await screen.findByText("Project settings")).toBeInTheDocument();
 
-    fireEvent.mouseDown(screen.getByRole("tab", { name: "Organization" }), {
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Access Config" }), {
       button: 0,
       ctrlKey: false,
     });

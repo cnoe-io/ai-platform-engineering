@@ -309,11 +309,16 @@ describe("Tome read authorization", () => {
   });
 
   it("removes inbound parent edges when deleting a Tome entity", async () => {
+    // readAllTuples({ user, relation }) has no object at all — OpenFGA
+    // rejects that outright, so the caller adds a type-only `object:
+    // "document:"` filter (every Tome object is a document:...). The mock
+    // asserts that widened filter shape.
     mockReadOpenFgaTuples.mockImplementation(
       ({ tuple }: { tuple: { object?: string; user?: string; relation?: string } }) => {
         if (
           tuple.user === "document:tome/area/platform-id" &&
-          tuple.relation === "parent"
+          tuple.relation === "parent" &&
+          tuple.object === "document:"
         ) {
           return Promise.resolve({
             tuples: [
@@ -382,7 +387,10 @@ describe("Tome read authorization", () => {
             ],
           });
         }
-        if (tuple.user === legacyObject) {
+        // readAllTuples({ user: legacyObject }) has no object at all — the
+        // caller widens it to a type-only `object: "document:"` filter
+        // (see readAllTuples's fix for the `user`-only OpenFGA /read 400).
+        if (tuple.user === legacyObject && tuple.object === "document:") {
           return Promise.resolve({
             tuples: [
               {

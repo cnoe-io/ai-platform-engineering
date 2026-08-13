@@ -171,6 +171,12 @@ export interface AgentIngestRequest {
   report_id: string;
   /** Same as `AgentChatRequest.credentials`. */
   credentials: ForwardedCredentials;
+  /**
+   * "auto" = fired unattended by the CRON scheduler, no human triggered this
+   * run just now. The agent should treat `seed`/existing context as
+   * authoritative rather than expecting fresh human intent. Default "manual".
+   */
+  triggered_by: "manual" | "auto";
 }
 
 function toWebexRoomSnapshot(
@@ -434,6 +440,8 @@ export function buildIngestRequest(
     childProjects?: ChildProjectSnapshot[];
     /** OpenFGA-filtered cross-project catalog for agent read tools. */
     readableProjects?: ChildProjectSnapshot[];
+    /** "auto" = unattended CRON run; no fresh human intent behind `seed`. */
+    triggeredBy?: "manual" | "auto";
   },
 ): AgentIngestRequest {
   const snapshot = buildSnapshotFromProject(project);
@@ -453,5 +461,6 @@ export function buildIngestRequest(
     mode: opts.isGreenfield ? "full" : (opts.mode ?? "full"),
     seed_stable_pages: opts.seedStablePages ?? false,
     credentials: opts.credentials ?? {},
+    triggered_by: opts.triggeredBy ?? "manual",
   };
 }
