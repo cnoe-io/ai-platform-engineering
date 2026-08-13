@@ -14,17 +14,17 @@ A complete RAG stack including server, agents, Redis, Neo4j and Milvus
 
 | | |
 |---|---|
-| **Version** | `0.2.38` |
+| **Version** | `0.5.68` |
 | **Type** | application |
 
 ## Quick Start
 
 ```bash
 # Add and install the chart
-helm install rag-stack oci://ghcr.io/cnoe-io/charts/rag-stack --version 0.2.38
+helm install rag-stack oci://ghcr.io/cnoe-io/charts/rag-stack --version 0.5.68
 
 # Upgrade an existing release
-helm upgrade rag-stack oci://ghcr.io/cnoe-io/charts/rag-stack --version 0.2.38
+helm upgrade rag-stack oci://ghcr.io/cnoe-io/charts/rag-stack --version 0.5.68
 ```
 
 ## Customizing Values
@@ -33,15 +33,15 @@ Override default values using `--set` flags or a custom values file:
 
 ```bash
 # Override individual values
-helm install rag-stack oci://ghcr.io/cnoe-io/charts/rag-stack --version 0.2.38 \
+helm install rag-stack oci://ghcr.io/cnoe-io/charts/rag-stack --version 0.5.68 \
   --set replicaCount=2
 
 # Use a custom values file
-helm install rag-stack oci://ghcr.io/cnoe-io/charts/rag-stack --version 0.2.38 \
+helm install rag-stack oci://ghcr.io/cnoe-io/charts/rag-stack --version 0.5.68 \
   -f custom-values.yaml
 
 # Show all configurable values
-helm show values oci://ghcr.io/cnoe-io/charts/rag-stack --version 0.2.38
+helm show values oci://ghcr.io/cnoe-io/charts/rag-stack --version 0.5.68
 ```
 
 ## Reading the Values Table
@@ -65,21 +65,21 @@ helm show values oci://ghcr.io/cnoe-io/charts/rag-stack --version 0.2.38
 | agent-ontology.image.pullPolicy | string | `"Always"` |  |
 | agent-ontology.image.repository | string | `"ghcr.io/cnoe-io/caipe-rag-agent-ontology"` |  |
 | agent-ontology.image.tag | string | `""` |  |
-| agent-ontology.livenessProbe.failureThreshold | int | `10` |  |
-| agent-ontology.livenessProbe.initialDelaySeconds | int | `60` |  |
+| agent-ontology.livenessProbe.failureThreshold | int | `3` |  |
+| agent-ontology.livenessProbe.httpGet.path | string | `"/v1/graph/ontology/agent/status"` |  |
+| agent-ontology.livenessProbe.httpGet.port | string | `"http"` |  |
 | agent-ontology.livenessProbe.periodSeconds | int | `10` |  |
-| agent-ontology.livenessProbe.tcpSocket.port | string | `"http"` |  |
 | agent-ontology.livenessProbe.timeoutSeconds | int | `5` |  |
 | agent-ontology.logLevel | string | `"INFO"` |  |
 | agent-ontology.maxConcurrentEvaluation | int | `10` |  |
 | agent-ontology.maxLlmTokens | int | `100000` |  |
 | agent-ontology.minCountForEval | int | `3` |  |
 | agent-ontology.podAnnotations | object | `{}` |  |
-| agent-ontology.readinessProbe.failureThreshold | int | `10` |  |
-| agent-ontology.readinessProbe.initialDelaySeconds | int | `60` |  |
-| agent-ontology.readinessProbe.periodSeconds | int | `10` |  |
-| agent-ontology.readinessProbe.tcpSocket.port | string | `"http"` |  |
-| agent-ontology.readinessProbe.timeoutSeconds | int | `5` |  |
+| agent-ontology.readinessProbe.failureThreshold | int | `3` |  |
+| agent-ontology.readinessProbe.httpGet.path | string | `"/v1/graph/ontology/agent/status"` |  |
+| agent-ontology.readinessProbe.httpGet.port | string | `"http"` |  |
+| agent-ontology.readinessProbe.periodSeconds | int | `5` |  |
+| agent-ontology.readinessProbe.timeoutSeconds | int | `3` |  |
 | agent-ontology.resources.limits.cpu | string | `"1500m"` |  |
 | agent-ontology.resources.limits.ephemeral-storage | string | `"3Gi"` |  |
 | agent-ontology.resources.limits.memory | string | `"3Gi"` |  |
@@ -89,8 +89,16 @@ helm show values oci://ghcr.io/cnoe-io/charts/rag-stack --version 0.2.38
 | agent-ontology.serverPort | int | `8098` |  |
 | agent-ontology.service.port | int | `8098` |  |
 | agent-ontology.service.type | string | `"ClusterIP"` |  |
+| agent-ontology.startupProbe.failureThreshold | int | `30` |  |
+| agent-ontology.startupProbe.httpGet.path | string | `"/v1/graph/ontology/agent/status"` |  |
+| agent-ontology.startupProbe.httpGet.port | string | `"http"` |  |
+| agent-ontology.startupProbe.initialDelaySeconds | int | `10` |  |
+| agent-ontology.startupProbe.periodSeconds | int | `10` |  |
+| agent-ontology.startupProbe.timeoutSeconds | int | `5` |  |
 | agent-ontology.syncInterval | int | `0` |  |
 | agentExports.data.enabled | bool | `true` |  |
+| global.image | object | `{"channel":"","tag":""}` | Global image tag override. When set, overrides appVersion-based image tags for all rag-stack subcharts. Individual subchart image.tag values still take highest precedence. |
+| global.image.channel | string | `""` | Image repository channel for maintained CAIPE images. Empty means auto: rc/hotfix/dev chart appVersions use `pre-release/`, final release appVersions use the root published image repositories. Set to `pre-release` or `release` to force either repository channel. |
 | global.llmSecrets.create | bool | `true` |  |
 | global.llmSecrets.data | object | `{}` |  |
 | global.llmSecrets.externalSecrets.data | list | `[]` |  |
@@ -105,6 +113,7 @@ helm show values oci://ghcr.io/cnoe-io/charts/rag-stack --version 0.2.38
 | global.rag.neo4j.username | string | `"neo4j"` |  |
 | global.rag.ontologyAgentRestapi.host | string | `"agent-ontology"` |  |
 | global.rag.ontologyAgentRestapi.port | int | `8098` |  |
+| global.rag.openfga.httpUrl | string | `""` |  |
 | global.rag.ragServer.host | string | `"rag-server"` |  |
 | global.rag.ragServer.port | int | `9446` |  |
 | global.rag.redis.db | int | `0` |  |
@@ -167,7 +176,7 @@ helm show values oci://ghcr.io/cnoe-io/charts/rag-stack --version 0.2.38
 | rag-redis.service.type | string | `"ClusterIP"` |  |
 | rag-server.enableGraphRag | bool | `true` |  |
 | rag-server.enabled | bool | `true` |  |
-| rag-server.env.ALLOW_UNAUTHENTICATED | string | `"true"` |  |
+| rag-server.env.CAIPE_UNSAFE_RBAC_BYPASS | string | `"false"` |  |
 | rag-server.env.CLEANUP_INTERVAL | string | `"86400"` |  |
 | rag-server.env.EMBEDDINGS_MODEL | string | `"text-embedding-3-small"` |  |
 | rag-server.env.EMBEDDINGS_PROVIDER | string | `"azure-openai"` |  |
@@ -178,7 +187,6 @@ helm show values oci://ghcr.io/cnoe-io/charts/rag-stack --version 0.2.38
 | rag-server.env.MAX_GRAPH_RAW_QUERY_TOKENS | string | `"80000"` |  |
 | rag-server.env.MAX_INGESTION_CONCURRENCY | string | `"30"` |  |
 | rag-server.env.MAX_RESULTS_PER_QUERY | string | `"100"` |  |
-| rag-server.env.RBAC_DEFAULT_ROLE | string | `"readonly"` |  |
 | rag-server.env.SEARCH_RESULT_TRUNCATE_LENGTH | string | `"500"` |  |
 | rag-server.env.SKIP_INIT_TESTS | string | `"false"` |  |
 | rag-server.env.SLEEP_ON_INIT_FAILURE_SECONDS | string | `"180"` |  |
@@ -218,9 +226,9 @@ helm show values oci://ghcr.io/cnoe-io/charts/rag-stack --version 0.2.38
 
 | Name | Version | Condition / Tags |
 |------|---------|------------------|
-| rag-server | `0.2.38` | `rag-server.enabled` |
-| agent-ontology | `0.2.38` | `agent-ontology.enabled` |
-| rag-ingestors | `0.2.38` | `rag-ingestors.enabled` |
+| rag-server | `0.5.68` | `rag-server.enabled` |
+| agent-ontology | `0.5.68` | `agent-ontology.enabled` |
+| rag-ingestors | `0.5.68` | `rag-ingestors.enabled` |
 | neo4j | `2025.07.1` | `neo4j.enabled` |
-| rag-redis | `0.2.38` | `rag-redis.enabled` |
+| rag-redis | `0.5.68` | `rag-redis.enabled` |
 | milvus | `5.0.2` | `milvus.enabled` |
