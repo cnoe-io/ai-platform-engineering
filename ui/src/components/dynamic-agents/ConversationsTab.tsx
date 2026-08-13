@@ -2,7 +2,7 @@
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card,CardContent,CardDescription,CardHeader,CardTitle } from "@/components/ui/card";
+import { Card,CardContent,CardHeader } from "@/components/ui/card";
 import {
 Dialog,
 DialogContent,
@@ -216,22 +216,16 @@ export function ConversationsTab() {
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <div>
-            <CardTitle>Conversations</CardTitle>
-            <CardDescription>
-              View and manage Dynamic Agent conversations. Clear checkpoint data to remove message history.
-            </CardDescription>
-          </div>
+    <Card className="rounded-none border-0 bg-transparent shadow-none">
+      <CardHeader className="px-0 pb-5 pt-0">
+        <div className="flex justify-end">
           <Button variant="outline" size="sm" onClick={fetchConversations} disabled={loading}>
             <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
             Refresh
           </Button>
         </div>
       </CardHeader>
-      <CardContent>
+      <CardContent className="px-0 pt-6">
         {/* Search and Filters */}
         <div className="flex items-center gap-4 mb-4">
           <form onSubmit={handleSearch} className="flex-1 flex gap-2">
@@ -245,6 +239,7 @@ export function ConversationsTab() {
               />
             </div>
             <select
+              aria-label="Filter conversations by agent"
               value={agentFilter}
               onChange={(e) => {
                 setAgentFilter(e.target.value);
@@ -468,8 +463,10 @@ export function ConversationsTab() {
 
                 {/* Page size dropdown */}
                 <div className="flex items-center gap-2">
-                  <label className="text-sm text-muted-foreground whitespace-nowrap">Rows</label>
+                  <label className="text-sm text-muted-foreground whitespace-nowrap" htmlFor="conversation-page-size">Rows</label>
                   <select
+                    aria-label="Rows per page"
+                    id="conversation-page-size"
                     value={pageSize}
                     onChange={(e) => {
                       setPageSize(Number(e.target.value));

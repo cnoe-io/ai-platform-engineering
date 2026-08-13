@@ -32,9 +32,11 @@ async function assertPersonalCredentialsAvailable(page: Page): Promise<void> {
   await gotoPersonalCredentialsSecrets(page);
   await dismissReleaseUpgradeDialog(page);
   try {
-    await expect(page.getByRole("heading", { name: "Credentials" })).toBeVisible({
-      timeout: 10_000,
-    });
+    await expect(
+      page
+        .getByRole("navigation",{ name: "Breadcrumb" })
+        .getByRole("link",{ name: "Credentials",exact: true }),
+    ).toBeVisible({ timeout: 10_000 });
   } catch {
     test.skip(
       true,
@@ -146,7 +148,7 @@ test.describe("mocked credentials workspace browser regression", () => {
 
       await page.getByRole("button", { name: /more details/i }).click();
       await expect(page.getByText("Secret added")).toBeVisible();
-      await expect(page.getByText("other@caipe.local")).toHaveCount(0);
+      await expect(page.getByText("other@example.com")).toHaveCount(0);
     });
   });
 
@@ -297,13 +299,13 @@ test.describe("mocked credentials workspace browser regression", () => {
             data: {
               ok: true,
               provider: "atlassian",
-              accessible_resources: [{ name: "CAIPE Jira", scopes: ["read:jira-user"] }],
+              accessible_resources: [{ name: "Example Site", scopes: ["read:jira-user"] }],
               diagnostics: [
                 {
                   id: "atlassian_accessible_resources",
                   label: "Accessible Atlassian sites",
                   status: "passed",
-                  detail: "CAIPE Jira is accessible.",
+                  detail: "Example Site is accessible.",
                   action: "No action needed.",
                 },
               ],
@@ -322,14 +324,14 @@ test.describe("mocked credentials workspace browser regression", () => {
       await relayPage.waitForLoadState("domcontentloaded");
       await relayPage.close().catch(() => undefined);
 
-      await expect(page).toHaveURL(/\/credentials#connections$/);
+      await expect(page).toHaveURL(/\/credentials\/connections$/);
       await expect(page.getByRole("heading", { name: "Connected Apps" })).toBeVisible();
       await expect(page.getByText("Atlassian Cloud")).toBeVisible();
       await expect(page.getByText("healthy")).toBeVisible();
       await expect(page.getByText("expired")).toHaveCount(0);
 
       await page.getByRole("button", { name: /test atlassian connection/i }).click();
-      await expect(page.getByText(/Atlassian access check passed: CAIPE Jira/i)).toBeVisible();
+      await expect(page.getByText(/Atlassian access check passed: Example Site/i)).toBeVisible();
       expect(profileChecks).toEqual(["new-atlassian-connection"]);
     });
   });

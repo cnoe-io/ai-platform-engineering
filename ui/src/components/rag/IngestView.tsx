@@ -994,33 +994,9 @@ export default function IngestView() {
 
   return (
     <div className="h-full flex flex-col bg-background overflow-hidden">
-      {/* Compact Header with Gradient and Stats */}
-      <div className="relative overflow-hidden border-b border-border shrink-0">
-        {/* Gradient Background */}
-        <div 
-          className="absolute inset-0" 
-          style={{
-            background: `linear-gradient(to bottom right, color-mix(in srgb, var(--gradient-from) 15%, transparent) 0%, color-mix(in srgb, var(--gradient-to) 8%, transparent) 50%, transparent 100%)`
-          }}
-        />
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-primary/5 via-transparent to-transparent" />
-
-        <div className="relative px-6 py-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg gradient-primary-br shadow-md shadow-primary/20">
-                <Database className="h-5 w-5 text-white" />
-              </div>
-              <div>
-                <h1 className="text-lg font-bold gradient-text">Data Sources</h1>
-                <p className="text-muted-foreground text-xs">
-                  Ingest and manage your knowledge base sources
-                </p>
-              </div>
-            </div>
-
-            {/* Stats Row */}
-            <div className="flex items-center gap-4">
+      {/* Compact operational summary */}
+      <div className="shrink-0 border-b border-border px-6 py-3">
+          <div className="flex flex-wrap items-center justify-end gap-3">
               <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-card/50 border border-border/50">
                 <FileText className="h-4 w-4 text-primary" />
                 <span className="text-sm font-medium">{stats.totalDataSources}</span>
@@ -1036,9 +1012,7 @@ export default function IngestView() {
                 <span className="text-sm font-medium">{stats.totalIngestors}</span>
                 <span className="text-xs text-muted-foreground">Ingestors</span>
               </div>
-            </div>
           </div>
-        </div>
       </div>
 
       {/* Scrollable Content */}

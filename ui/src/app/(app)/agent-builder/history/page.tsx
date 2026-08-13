@@ -3,6 +3,7 @@
 import { WorkflowHistoryView } from "@/components/agent-builder/WorkflowHistoryView";
 import { AuthGuard } from "@/components/auth-guard";
 import { Button } from "@/components/ui/button";
+import { pushWithNavigationProgress } from "@/lib/navigation-progress";
 import type { WorkflowRun } from "@/types/workflow-run";
 import { motion } from "framer-motion";
 import { ArrowLeft,LayoutGrid } from "lucide-react";
@@ -16,11 +17,10 @@ import { useRouter } from "next/navigation";
  */
 export default function WorkflowHistoryPage() {
   const router = useRouter();
-
   const handleReRun = (run: WorkflowRun) => {
     // Navigate to agent builder with the workflow ID
     // The agent-builder page will need to handle the runWorkflow query param
-    router.push(`/agent-builder?workflow=${run.workflow_id}&autorun=true`);
+    pushWithNavigationProgress(router,`/agent-builder?workflow=${run.workflow_id}&autorun=true`);
   };
 
   return (
@@ -32,7 +32,7 @@ export default function WorkflowHistoryPage() {
           <Button 
             variant="ghost" 
             size="icon" 
-            onClick={() => router.push('/')}
+            onClick={() => pushWithNavigationProgress(router,'/')}
             title="Go to home page"
           >
             <LayoutGrid className="h-5 w-5" />
@@ -40,7 +40,7 @@ export default function WorkflowHistoryPage() {
           <Button 
             variant="ghost" 
             size="icon" 
-            onClick={() => router.push('/agent-builder')}
+            onClick={() => pushWithNavigationProgress(router,'/agent-builder')}
             title="Back to workflows"
           >
             <ArrowLeft className="h-5 w-5" />

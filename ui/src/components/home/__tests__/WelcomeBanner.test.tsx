@@ -64,6 +64,14 @@ describe('WelcomeBanner', () => {
     expect(screen.getByTestId('welcome-banner')).toBeInTheDocument()
   })
 
+  it('uses the breathing gradient without pointer-position overrides', () => {
+    render(<WelcomeBanner userName="Test" />)
+    const banner = screen.getByTestId('welcome-banner')
+    expect(banner).toHaveClass('welcome-banner')
+    expect(banner.style.getPropertyValue('--welcome-pointer-x')).toBe('')
+    expect(banner.style.getPropertyValue('--welcome-pointer-y')).toBe('')
+  })
+
   it('renders the sparkles icon', () => {
     render(<WelcomeBanner />)
     expect(screen.getByTestId('icon-sparkles')).toBeInTheDocument()
@@ -71,7 +79,9 @@ describe('WelcomeBanner', () => {
 
   it('renders the tagline', () => {
     render(<WelcomeBanner />)
-    expect(screen.getByText('Your AI-powered platform engineering assistant')).toBeInTheDocument()
+    expect(
+      screen.getByText('What do you want to get done today?'),
+    ).toBeInTheDocument()
   })
 
   it('renders preferences shortcut when callback provided', () => {

@@ -147,7 +147,7 @@ Documents are sent to the RAG server **as they are crawled**, rather than waitin
 
 ### 8. Redirect Handling
 
-When crawling sites that redirect (e.g., `caipe.io` → `cnoe-io.github.io`), the crawler automatically updates its domain filtering to follow links on the **destination domain**, not the original URL. This ensures recursive crawling works correctly through redirects.
+When crawling sites that redirect (e.g., `legacy.example.com` → `docs.example.com`), the crawler automatically updates its domain filtering to follow links on the **destination domain**, not the original URL. This ensures recursive crawling works correctly through redirects.
 
 ## Running with Docker Compose
 
@@ -206,4 +206,3 @@ INFO: Completed URL ingestion for https://example.com
 - Failed URLs are logged and can be retried via reload commands
 - The ingestor automatically manages task concurrency to prevent resource exhaustion
 - Periodic reloads ensure documentation stays current without manual intervention
-

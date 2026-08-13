@@ -1147,4 +1147,4 @@ When a token exchange fails (scope exceeded, connection revoked, refresh token e
 - [GitHub OAuth Apps](https://docs.github.com/en/apps/oauth-apps)
 - [Atlassian OAuth 2.0 (3LO)](https://developer.atlassian.com/cloud/jira/platform/oauth-2-3lo-apps/)
 - [ArgoCD OIDC Configuration](https://argo-cd.readthedocs.io/en/stable/operator-manual/user-management/#existing-oidc-provider)
-- [CAIPE Documentation](https://cnoe-io.github.io/ai-platform-engineering/)
+- [CAIPE Documentation](https://caipe.io/)

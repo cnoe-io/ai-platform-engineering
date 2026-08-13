@@ -660,9 +660,8 @@ For those interested in diving deeper:
 - **[Context Engineering](https://blog.langchain.com/context-engineering-for-agents/)**: Optimizing prompts and context for better performance
 - **[Multi-Agent Orchestration](https://cisco.com/blog/architecting-jarvis-technical-deep-dive-into-its-multi-agent-system-design?search=jarvis)**: Coordinating multiple specialized agents
 - **[Tool Pruning via RAG](https://github.com/langchain-ai/langgraph-bigtool)**: Intelligently selecting relevant tools from large toolsets
-- **[AI Agent vs MCP Server - Detailed Comparison](https://cnoe-io.github.io/ai-platform-engineering/blog/ai-agent-vs-mcp-server)**
+- **[AI Agent vs MCP Server - Detailed Comparison](https://caipe.io/blog/ai-agent-vs-mcp-server)**
 - **[LangChain Documentation](https://python.langchain.com/docs/)**
 - **[Model Context Protocol Specification](https://modelcontextprotocol.io/)**
 
 ---
-

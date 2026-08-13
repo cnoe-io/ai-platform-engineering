@@ -58,7 +58,7 @@ docs/docs/specs/                    # All specs (auto-published via Docusaurus)
 
 ### Specs are auto-published
 
-All specs live under `docs/docs/specs/` — not in a hidden directory. This means every spec, plan, and ADR is automatically published to the [CAIPE documentation site](https://cnoe-io.github.io/ai-platform-engineering/). External contributors and users see the same design documents that agents and engineers work from.
+All specs live under `docs/docs/specs/` — not in a hidden directory. This means every spec, plan, and ADR is automatically published to the [CAIPE documentation site](https://caipe.io/). External contributors and users see the same design documents that agents and engineers work from.
 
 ### Skills for AI tools
 
