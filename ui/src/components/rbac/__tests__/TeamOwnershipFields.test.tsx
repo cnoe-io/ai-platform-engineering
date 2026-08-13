@@ -60,7 +60,7 @@ describe("TeamOwnershipFields", () => {
       screen.queryByRole("button", { name: /Transfer ownership/i }),
     ).not.toBeInTheDocument();
     expect(
-      screen.getByText(/Changing the owner team will transfer ownership when you save/i),
+      screen.getByText(/Changing this team transfers management when you save/i),
     ).toBeInTheDocument();
   });
 

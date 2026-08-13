@@ -268,7 +268,7 @@ describe("DynamicAgentEditor — required-field enforcement", () => {
     expect(screen.queryByRole("button", { name: /Transfer ownership/i })).not.toBeInTheDocument();
     expect(screen.getByLabelText(/Owner Team/i)).not.toBeDisabled();
     expect(
-      screen.getByText(/Changing the owner team will transfer ownership when you save/i),
+      screen.getByText(/Changing this team transfers management when you save/i),
     ).toBeInTheDocument();
 
     await pickTeam(/Owner Team/i, "data-eng");

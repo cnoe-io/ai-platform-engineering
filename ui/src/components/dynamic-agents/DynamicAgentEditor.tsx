@@ -85,19 +85,19 @@ const VISIBILITY_OPTIONS: { value: VisibilityType; label: string; icon: React.Re
     value: "private",
     label: "Private",
     icon: <Lock className="h-4 w-4" />,
-    description: "Only you can manage it. Runtime use is limited to verified Slack DMs and Webex 1:1 chats.",
+    description: "Only you, in the web UI or direct messages.",
   },
   {
     value: "team",
     label: "Team",
     icon: <Users className="h-4 w-4" />,
-    description: "Team members can use; you manage as creator; team admins can manage. Optionally share with other teams.",
+    description: "Your team and any teams you share it with.",
   },
   {
     value: "global",
     label: "Global",
     icon: <Globe className="h-4 w-4" />,
-    description: "Available to all users; owner-team admins manage it.",
+    description: "Every signed-in user.",
   },
 ];
 
@@ -1594,19 +1594,10 @@ export function DynamicAgentEditor({
                     disabled: team.can_own_agents === false,
                   }))}
                 ownerHelpText={
-                  <>
-                    Select a team you belong to as the owner. You manage this
-                    agent as its creator; team members can use it; team admins
-                    can manage it.
-                  </>
+                  <>Team admins can manage this agent.</>
                 }
                 shareHelpText={
-                  <>
-                    Select which additional teams can access this agent. Members
-                    of a shared team can DM it and use it in any Slack channel or
-                    Webex space mapped to that team. Team admins can manage shared
-                    agents.
-                  </>
+                  <>Additional teams can use this agent.</>
                 }
                 ownerExtra={
                   !isEditing && availableTeams.length === 0 ? (
@@ -1615,7 +1606,7 @@ export function DynamicAgentEditor({
                     </p>
                   ) : null
                 }
-                betweenOwnerAndShare={
+                beforeOwner={
                   <div className="space-y-2">
                     <Label>Visibility</Label>
                     {isPlatformDefault && (
@@ -1655,34 +1646,6 @@ export function DynamicAgentEditor({
                         );
                       })}
                     </div>
-                    {visibility === "global" && (
-                      <div
-                        role="note"
-                        aria-label="Global visibility summary"
-                        className="space-y-1 rounded-lg border bg-muted/30 p-3 text-xs"
-                        data-testid="global-visibility-grant-preview"
-                      >
-                        <div className="font-medium text-foreground">
-                          Everyone can use this agent
-                          {isPlatformDefault ? " (it is also the platform default)" : ""}.
-                        </div>
-                        <p className="text-muted-foreground">
-                          When you save, every signed-in user will be able to chat
-                          with this agent. Owner-team admins still manage it.
-                        </p>
-                      </div>
-                    )}
-                    {visibility === "private" && (
-                      <div
-                        role="note"
-                        className="rounded-lg border bg-muted/30 p-3 text-xs text-muted-foreground"
-                        data-testid="private-visibility-summary"
-                      >
-                        Private resources are only available to you in the web UI
-                        and in Slack or Webex direct messages. They cannot be used
-                        in channels or group spaces.
-                      </div>
-                    )}
                   </div>
                 }
               />
