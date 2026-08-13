@@ -49,7 +49,7 @@ type WebexConfigureState = {
   ttl: number;
   platformConfigPatches: unknown[];
   discoveryRequests: URL[];
-  defaultsRequests: unknown[];
+  onboardingRequests: unknown[];
   configuredSpaces: Array<{
     bot_id: string;
     workspace_id: string;
@@ -105,7 +105,7 @@ function defaultState(): WebexConfigureState {
     ttl: 45,
     platformConfigPatches: [],
     discoveryRequests: [],
-    defaultsRequests: [],
+    onboardingRequests: [],
     configuredSpaces: [
       {
         bot_id: webexBot.id,
@@ -247,20 +247,23 @@ function webexConfigureHandler(state: WebexConfigureState): MockRouteHandler {
       return true;
     }
 
-    if (path === "/api/admin/webex/spaces/defaults" && method === "POST") {
+    if (path === "/api/admin/webex/spaces/onboard" && method === "POST") {
       const body = await postJson(route);
-      state.defaultsRequests.push(body);
+      state.onboardingRequests.push(body);
       const request = body as {
+        bot_id?: string;
+        workspace_id?: string;
+        space_id?: string;
+        space_name?: string;
         team_slug?: string;
         agent_id?: string;
-        manual_spaces?: Array<{ id: string; name?: string; bot_id?: string }>;
       } | null;
-      for (const space of request?.manual_spaces ?? []) {
+      if (request?.space_id) {
         state.configuredSpaces.push({
-          bot_id: space.bot_id ?? webexBot.id,
-          workspace_id: "WEBEX-WORKSPACE",
-          space_id: space.id,
-          space_name: space.name ?? space.id,
+          bot_id: request.bot_id ?? webexBot.id,
+          workspace_id: request.workspace_id || "WEBEX-WORKSPACE",
+          space_id: request.space_id,
+          space_name: request.space_name ?? request.space_id,
           team_slug: request?.team_slug,
           primary_agent_id: request?.agent_id,
           active_grants: 1,
@@ -269,15 +272,7 @@ function webexConfigureHandler(state: WebexConfigureState): MockRouteHandler {
       }
       await fulfillJson(route, {
         success: true,
-        data: {
-          summary: {
-            spaces_onboarded: request?.manual_spaces?.length ?? 0,
-            spaces_assigned_team: request?.manual_spaces?.length ?? 0,
-            space_grants_ensured: request?.manual_spaces?.length ?? 0,
-            routes_ensured: request?.manual_spaces?.length ?? 0,
-            routes_preserved: 0,
-          },
-        },
+        data: { pending_approval: false },
       });
       return true;
     }
@@ -516,27 +511,31 @@ test.describe("mocked Webex Configure spaces UI", () => {
     ).toContainText("KB Agent");
 
     await page.getByRole("button", { name: /^Submit 2 spaces$/ }).click();
-    await expect.poll(() => state.defaultsRequests.length).toBe(2);
-    expect(state.defaultsRequests).toEqual(
+    await expect.poll(() => state.onboardingRequests.length).toBe(2);
+    expect(state.onboardingRequests).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
+          bot_id: webexBot.id,
+          workspace_id: "",
+          space_id: "space-alerts",
+          space_name: "Workflow Alerts",
           team_slug: "platform",
           agent_id: "agent-sre",
-          create_routes: true,
-          manual_spaces: [
-            { id: "space-alerts", name: "Workflow Alerts", bot_id: webexBot.id },
-          ],
+          listen: "mention",
+          create_route: true,
         }),
         expect.objectContaining({
+          bot_id: webexBot.id,
+          workspace_id: "",
+          space_id: "space-night-ops",
+          space_name: "Night Ops",
           team_slug: "ops",
           agent_id: "agent-kb",
-          create_routes: true,
-          manual_spaces: [
-            { id: "space-night-ops", name: "Night Ops", bot_id: webexBot.id },
-          ],
+          listen: "mention",
+          create_route: true,
         }),
       ]),
     );
-    expect(JSON.stringify(state.defaultsRequests)).not.toContain("direct-sri");
+    expect(JSON.stringify(state.onboardingRequests)).not.toContain("direct-sri");
   });
 });

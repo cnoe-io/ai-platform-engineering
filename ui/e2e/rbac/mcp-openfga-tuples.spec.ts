@@ -1442,7 +1442,7 @@ test.describe("mocked MCP OpenFGA tuple browser regression", () => {
         response.request().method() === "POST" &&
         new URL(response.url()).pathname === "/api/rag/v1/ingest/local-file",
     );
-    await page.getByRole("button", { name: /^Ingest$/ }).click();
+    await page.getByRole("button", { name: /^Ingest file$/ }).click();
     expect((await uploadResponse).status()).toBe(202);
 
     await expect.poll(() => mocks.uploadRequests.length).toBe(1);
