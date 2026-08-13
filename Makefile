@@ -455,7 +455,7 @@ docs-helm-charts: check-yq check-helm-docs ## Generate Helm chart documentation 
 
 docs-helm-validate: docs-helm-charts docs-build ## End-to-end validation: generate docs + Docusaurus build + RC check
 	@echo "Checking for RC version patterns in generated docs..."
-	@if grep -rE '-(rc|alpha|beta|pre)\.' docs/docs/installation/helm-charts/ 2>/dev/null; then \
+	@if grep -rE '-(dev|rc|hotfix|alpha|beta|pre)\.' docs/docs/installation/helm-charts/ 2>/dev/null; then \
 		echo "FAIL: RC version patterns found in generated docs"; \
 		exit 1; \
 	fi
