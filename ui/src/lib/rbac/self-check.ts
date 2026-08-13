@@ -51,6 +51,7 @@ type TupleSource =
   | "mcp_servers.config_driven"
   | "mcp_servers.owner_subject"
   | "mcp_servers.owner_team_slug"
+  | "mcp_servers.sharing"
   | "mcp_servers.org_admin_manager"
   | "llm_models.config_driven"
   | "llm_models.owner_subject"
@@ -112,6 +113,8 @@ interface McpServerDoc extends Document {
   name?: string;
   owner_subject?: string;
   owner_team_slug?: string | null;
+  shared_with_teams?: string[];
+  visibility?: string;
   config_driven?: boolean;
   source?: string;
 }
@@ -733,7 +736,14 @@ function buildExpectedTuplesAndStaleReferences(
     if (!isValidOpenFgaId(serverId)) continue;
     const object = `mcp_server:${serverId}`;
     const resource = { type: "mcp_server", id: serverId };
-    if (server.config_driven !== false) {
+    const hasExplicitVisibility =
+      server.visibility === "private" ||
+      server.visibility === "team" ||
+      server.visibility === "global";
+    const usesLegacyDiscoveryPolicy =
+      !hasExplicitVisibility &&
+      (server.config_driven !== false || server.source === "agentgateway");
+    if (usesLegacyDiscoveryPolicy) {
       tuples.push(expected("mcp_servers.config_driven", `${orgObject}#member`, "reader", object, resource));
       tuples.push(expected("mcp_servers.config_driven", `${orgObject}#member`, "user", object, resource));
       tuples.push(expected("mcp_servers.config_driven", `${orgObject}#admin`, "manager", object, resource));
@@ -741,21 +751,31 @@ function buildExpectedTuplesAndStaleReferences(
       if (isValidOpenFgaId(server.owner_subject)) {
         tuples.push(expected("mcp_servers.owner_subject", `user:${server.owner_subject}`, "owner", object, resource));
       }
-      if (isValidOpenFgaId(server.owner_team_slug)) {
-        if (resourceIndex.teamSlugs.has(server.owner_team_slug)) {
-          tuples.push(expected("mcp_servers.owner_team_slug", `team:${server.owner_team_slug}#member`, "reader", object, resource));
-          tuples.push(expected("mcp_servers.owner_team_slug", `team:${server.owner_team_slug}#member`, "user", object, resource));
-          tuples.push(expected("mcp_servers.owner_team_slug", `team:${server.owner_team_slug}#member`, "invoker", object, resource));
-          tuples.push(expected("mcp_servers.owner_team_slug", `team:${server.owner_team_slug}#admin`, "manager", object, resource));
+      const sharingTeamSlugs =
+        server.visibility === "team" || (!hasExplicitVisibility && server.owner_team_slug)
+        ? [server.owner_team_slug, ...(server.shared_with_teams ?? [])]
+        : [];
+      for (const rawTeamSlug of new Set(sharingTeamSlugs)) {
+        if (!isValidOpenFgaId(rawTeamSlug)) continue;
+        if (resourceIndex.teamSlugs.has(rawTeamSlug)) {
+          tuples.push(expected("mcp_servers.sharing", `team:${rawTeamSlug}#member`, "reader", object, resource));
+          tuples.push(expected("mcp_servers.sharing", `team:${rawTeamSlug}#member`, "user", object, resource));
+          tuples.push(expected("mcp_servers.sharing", `team:${rawTeamSlug}#member`, "invoker", object, resource));
+          tuples.push(expected("mcp_servers.sharing", `team:${rawTeamSlug}#admin`, "manager", object, resource));
         } else {
           staleReferences.push(stale(
-            "mcp_servers.owner_team_slug",
-            `MCP server references missing team ${server.owner_team_slug}`,
-            `${serverId} has owner_team_slug=${server.owner_team_slug}, but that team is not active.`,
-            "Move the MCP server to an active owner team or restore the missing team.",
-            { type: "team", id: server.owner_team_slug },
+            "mcp_servers.sharing",
+            `MCP server references missing team ${rawTeamSlug}`,
+            `${serverId} is shared with ${rawTeamSlug}, but that team is not active.`,
+            "Remove the stale MCP server share or restore the missing team.",
+            { type: "team", id: rawTeamSlug },
           ));
         }
+      }
+      if (server.visibility === "global") {
+        tuples.push(expected("mcp_servers.sharing", `${orgObject}#member`, "reader", object, resource));
+        tuples.push(expected("mcp_servers.sharing", `${orgObject}#member`, "user", object, resource));
+        tuples.push(expected("mcp_servers.sharing", `${orgObject}#member`, "invoker", object, resource));
       }
       tuples.push(expected("mcp_servers.org_admin_manager", `${orgObject}#admin`, "manager", object, resource));
     }
