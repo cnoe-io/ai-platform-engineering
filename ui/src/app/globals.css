@@ -959,7 +959,7 @@ pre code.hljs {
 }
 
 .milkdown-host .milkdown .ProseMirror {
-  max-width: 52rem;
+  max-width: 60rem;
   margin: 0 auto;
   padding: 2rem 2.5rem 6rem;
   color: hsl(var(--foreground));
