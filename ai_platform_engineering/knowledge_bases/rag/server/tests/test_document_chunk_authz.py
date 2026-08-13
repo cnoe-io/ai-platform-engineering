@@ -25,40 +25,40 @@ from server.rbac import require_authenticated_user
 
 
 def _user(role: str = Role.READONLY, subject: str = "primary-sub") -> UserContext:
-    return UserContext(
-        subject=subject,
-        email="primary@example.com",
-        role=role,
-        is_authenticated=True,
-        groups=[],
-    )
+  return UserContext(
+    subject=subject,
+    email="primary@example.com",
+    role=role,
+    is_authenticated=True,
+    groups=[],
+  )
 
 
 def _allow():
-    async def _ok(*args, **kwargs):
-        return None
+  async def _ok(*args, **kwargs):
+    return None
 
-    return _ok
+  return _ok
 
 
 def _deny(status_code: int = 403, detail: str = "Access denied for this datasource"):
-    async def _raise(*args, **kwargs):
-        raise HTTPException(status_code=status_code, detail=detail)
+  async def _raise(*args, **kwargs):
+    raise HTTPException(status_code=status_code, detail=detail)
 
-    return _raise
+  return _raise
 
 
 @pytest.fixture
 def client() -> TestClient:
-    return TestClient(restapi.app, raise_server_exceptions=False)
+  return TestClient(restapi.app, raise_server_exceptions=False)
 
 
 @pytest.fixture(autouse=True)
 def _wire(monkeypatch: pytest.MonkeyPatch):
-    restapi.app.dependency_overrides[require_authenticated_user] = _user
-    monkeypatch.setattr(restapi, "vector_db", MagicMock(), raising=False)
-    yield
-    restapi.app.dependency_overrides.clear()
+  restapi.app.dependency_overrides[require_authenticated_user] = _user
+  monkeypatch.setattr(restapi, "vector_db", MagicMock(), raising=False)
+  yield
+  restapi.app.dependency_overrides.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -67,55 +67,56 @@ def _wire(monkeypatch: pytest.MonkeyPatch):
 
 
 def test_list_documents_denied_returns_403_and_skips_query(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr(restapi, "check_datasource_access", _deny(), raising=False)
+  monkeypatch.setattr(restapi, "check_datasource_access", _deny(), raising=False)
 
-    client = TestClient(restapi.app, raise_server_exceptions=False)
-    response = client.get("/v1/datasource/secondary-ds/documents")
+  client = TestClient(restapi.app, raise_server_exceptions=False)
+  response = client.get("/v1/datasource/secondary-ds/documents")
 
-    assert response.status_code == 403
-    restapi.vector_db.client.query.assert_not_called()
+  assert response.status_code == 403
+  restapi.vector_db.client.query.assert_not_called()
 
 
 def test_list_documents_allowed_queries_milvus(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr(restapi, "check_datasource_access", _allow(), raising=False)
-    restapi.vector_db.client.query.return_value = []
+  monkeypatch.setattr(restapi, "check_datasource_access", _allow(), raising=False)
+  restapi.vector_db.client.query.return_value = []
 
-    client = TestClient(restapi.app, raise_server_exceptions=False)
-    response = client.get("/v1/datasource/primary-ds/documents")
+  client = TestClient(restapi.app, raise_server_exceptions=False)
+  response = client.get("/v1/datasource/primary-ds/documents")
 
-    assert response.status_code == 200
-    restapi.vector_db.client.query.assert_called_once()
-    _, kwargs = restapi.vector_db.client.query.call_args
+  assert response.status_code == 200
+  assert restapi.vector_db.client.query.call_count == 3
+  for call in restapi.vector_db.client.query.call_args_list:
+    _, kwargs = call
     assert "primary-ds" in kwargs["filter"]
 
 
 def test_list_documents_passes_datasource_id_and_scope_to_check(monkeypatch: pytest.MonkeyPatch):
-    calls = []
+  calls = []
 
-    async def _spy(request, user, datasource_id, scope):
-        calls.append((datasource_id, scope))
+  async def _spy(request, user, datasource_id, scope):
+    calls.append((datasource_id, scope))
 
-    monkeypatch.setattr(restapi, "check_datasource_access", _spy, raising=False)
-    restapi.vector_db.client.query.return_value = []
+  monkeypatch.setattr(restapi, "check_datasource_access", _spy, raising=False)
+  restapi.vector_db.client.query.return_value = []
 
-    client = TestClient(restapi.app, raise_server_exceptions=False)
-    client.get("/v1/datasource/primary-ds/documents")
+  client = TestClient(restapi.app, raise_server_exceptions=False)
+  client.get("/v1/datasource/primary-ds/documents")
 
-    assert calls == [("primary-ds", "read")]
+  assert calls == [("primary-ds", "read")]
 
 
 def test_list_documents_org_admin_bypass_via_real_helper(monkeypatch: pytest.MonkeyPatch):
-    """A coarse-ADMIN principal is allowed through the REAL check_datasource_access
-    helper's unrestricted-access short-circuit (no monkeypatch of the check)."""
-    restapi.app.dependency_overrides[require_authenticated_user] = lambda: _user(role=Role.ADMIN)
-    monkeypatch.setattr(restapi, "RBAC_TEAM_SCOPE_ENABLED", True, raising=False)
-    monkeypatch.setenv("OPENFGA_HTTP", "http://openfga")
-    restapi.vector_db.client.query.return_value = []
+  """A coarse-ADMIN principal is allowed through the REAL check_datasource_access
+  helper's unrestricted-access short-circuit (no monkeypatch of the check)."""
+  restapi.app.dependency_overrides[require_authenticated_user] = lambda: _user(role=Role.ADMIN)
+  monkeypatch.setattr(restapi, "RBAC_TEAM_SCOPE_ENABLED", True, raising=False)
+  monkeypatch.setenv("OPENFGA_HTTP", "http://openfga")
+  restapi.vector_db.client.query.return_value = []
 
-    client = TestClient(restapi.app, raise_server_exceptions=False)
-    response = client.get("/v1/datasource/primary-ds/documents")
+  client = TestClient(restapi.app, raise_server_exceptions=False)
+  response = client.get("/v1/datasource/primary-ds/documents")
 
-    assert response.status_code == 200
+  assert response.status_code == 200
 
 
 # ---------------------------------------------------------------------------
@@ -124,60 +125,54 @@ def test_list_documents_org_admin_bypass_via_real_helper(monkeypatch: pytest.Mon
 
 
 def test_get_chunk_content_404_when_missing(monkeypatch: pytest.MonkeyPatch):
-    calls = []
+  calls = []
 
-    async def _spy(*args, **kwargs):
-        calls.append(args)
+  async def _spy(*args, **kwargs):
+    calls.append(args)
 
-    monkeypatch.setattr(restapi, "check_datasource_access", _spy, raising=False)
-    restapi.vector_db.client.query.return_value = []
+  monkeypatch.setattr(restapi, "check_datasource_access", _spy, raising=False)
+  restapi.vector_db.client.query.return_value = []
 
-    client = TestClient(restapi.app, raise_server_exceptions=False)
-    response = client.get("/v1/chunk/missing-chunk/content")
+  client = TestClient(restapi.app, raise_server_exceptions=False)
+  response = client.get("/v1/chunk/missing-chunk/content")
 
-    assert response.status_code == 404
-    assert calls == []
+  assert response.status_code == 404
+  assert calls == []
 
 
 def test_get_chunk_content_denied_returns_403(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr(restapi, "check_datasource_access", _deny(), raising=False)
-    restapi.vector_db.client.query.return_value = [
-        {"id": "chunk-1", "text": "secret text", "datasource_id": "secondary-ds"}
-    ]
+  monkeypatch.setattr(restapi, "check_datasource_access", _deny(), raising=False)
+  restapi.vector_db.client.query.return_value = [{"id": "chunk-1", "text": "secret text", "datasource_id": "secondary-ds"}]
 
-    client = TestClient(restapi.app, raise_server_exceptions=False)
-    response = client.get("/v1/chunk/chunk-1/content")
+  client = TestClient(restapi.app, raise_server_exceptions=False)
+  response = client.get("/v1/chunk/chunk-1/content")
 
-    assert response.status_code == 403
+  assert response.status_code == 403
 
 
 def test_get_chunk_content_allowed_returns_text(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr(restapi, "check_datasource_access", _allow(), raising=False)
-    restapi.vector_db.client.query.return_value = [
-        {"id": "chunk-1", "text": "hello world", "datasource_id": "primary-ds"}
-    ]
+  monkeypatch.setattr(restapi, "check_datasource_access", _allow(), raising=False)
+  restapi.vector_db.client.query.return_value = [{"id": "chunk-1", "text": "hello world", "datasource_id": "primary-ds"}]
 
-    client = TestClient(restapi.app, raise_server_exceptions=False)
-    response = client.get("/v1/chunk/chunk-1/content")
+  client = TestClient(restapi.app, raise_server_exceptions=False)
+  response = client.get("/v1/chunk/chunk-1/content")
 
-    assert response.status_code == 200
-    assert response.json()["text_content"] == "hello world"
+  assert response.status_code == 200
+  assert response.json()["text_content"] == "hello world"
 
 
 def test_get_chunk_content_resolves_datasource_id_from_chunk_metadata(monkeypatch: pytest.MonkeyPatch):
-    calls = []
+  calls = []
 
-    async def _spy(request, user, datasource_id, scope):
-        calls.append((datasource_id, scope))
+  async def _spy(request, user, datasource_id, scope):
+    calls.append((datasource_id, scope))
 
-    monkeypatch.setattr(restapi, "check_datasource_access", _spy, raising=False)
-    restapi.vector_db.client.query.return_value = [
-        {"id": "chunk-1", "text": "hello world", "datasource_id": "primary-ds"}
-    ]
+  monkeypatch.setattr(restapi, "check_datasource_access", _spy, raising=False)
+  restapi.vector_db.client.query.return_value = [{"id": "chunk-1", "text": "hello world", "datasource_id": "primary-ds"}]
 
-    client = TestClient(restapi.app, raise_server_exceptions=False)
-    client.get("/v1/chunk/chunk-1/content")
+  client = TestClient(restapi.app, raise_server_exceptions=False)
+  client.get("/v1/chunk/chunk-1/content")
 
-    assert calls == [("primary-ds", "read")]
-    _, kwargs = restapi.vector_db.client.query.call_args
-    assert "datasource_id" in kwargs["output_fields"]
+  assert calls == [("primary-ds", "read")]
+  _, kwargs = restapi.vector_db.client.query.call_args
+  assert "datasource_id" in kwargs["output_fields"]
