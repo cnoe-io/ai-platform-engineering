@@ -7,9 +7,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PageTemplateEditor } from "@/components/tome/PageTemplateEditor";
 import { TomeAdminsTab } from "@/components/tome/admin/TomeAdminsTab";
 import { TomeAnalyticsTab } from "@/components/tome/admin/TomeAnalyticsTab";
+import { TomeAuthorizationHealthTab } from "@/components/tome/admin/TomeAuthorizationHealthTab";
 import { useSubtabParam } from "@/hooks/use-subtab-param";
 
-const TOME_ADMIN_TABS = ["page-templates", "analytics", "admins"] as const;
+const TOME_ADMIN_TABS = ["page-templates", "analytics", "authorization", "admins"] as const;
 type TomeAdminTab = (typeof TOME_ADMIN_TABS)[number];
 
 export default function TomeAdminPage() {
@@ -63,6 +64,7 @@ function TomeAdminPageContent() {
         <TabsList>
           <TabsTrigger value="page-templates">Page Templates</TabsTrigger>
           <TabsTrigger value="analytics">Analytics</TabsTrigger>
+          <TabsTrigger value="authorization">Health</TabsTrigger>
           <TabsTrigger value="admins">Admins</TabsTrigger>
         </TabsList>
 
@@ -76,6 +78,10 @@ function TomeAdminPageContent() {
 
         <TabsContent value="analytics" className="mt-0 space-y-4">
           <TomeAnalyticsTab />
+        </TabsContent>
+
+        <TabsContent value="authorization" className="mt-0 space-y-4">
+          <TomeAuthorizationHealthTab />
         </TabsContent>
 
         <TabsContent value="admins" className="mt-0 space-y-4">

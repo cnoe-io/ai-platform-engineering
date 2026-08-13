@@ -94,8 +94,8 @@ export function tomeSessionSubject(session: unknown): string | null {
 
 /**
  * Resolve the one permission used by every Tome data mutation. The OpenFGA
- * decision is authoritative; stored steward metadata is used only to repair a
- * missing tuple before checking once more.
+ * decision is authoritative; stored steward and canonical membership metadata
+ * are used only to repair missing implied tuples before checking once more.
  */
 export async function getTomeProjectPermissions(
   input: TomePermissionInput,
@@ -122,17 +122,19 @@ export async function getTomeProjectPermissions(
     if ((await check()).allowed) {
       return { canRead: true, canEdit: true, canManageSteward: false };
     }
-    const steward = await resolveStoredDataSteward(input.project.data_steward).catch(() => null);
-    if (!steward) {
-      return { canRead, canEdit: false, canManageSteward: false };
-    }
-    const repaired = await writeOpenFgaTuples({
-      writes: [dataStewardTuple(input.project, steward)],
-      deletes: [],
+    // Load lazily to avoid a module cycle: the reconciler uses the neutral
+    // steward identity helpers, while this permission path calls it only on a
+    // denied decision. It restores the document writer edge and, for a team
+    // steward, this caller's membership edge only when an active canonical
+    // membership-source row proves that relationship.
+    const { repairTomeAuthorizationForProject } = await import(
+      "@/lib/tome/authorization-health"
+    );
+    await repairTomeAuthorizationForProject({
+      project: input.project,
+      userSubject: sub,
+      userEmail: input.user.email,
     });
-    if (!repaired.enabled) {
-      return { canRead, canEdit: false, canManageSteward: false };
-    }
     const canEdit = (await check()).allowed;
     return {
       canRead: canRead || canEdit,

@@ -71,4 +71,16 @@ export async function register() {
   } catch (err) {
     console.warn("[instrumentation] Tome auto-ingest scheduler not started:", err);
   }
+
+  // Keep Tome's stored steward/team membership intent projected into
+  // OpenFGA. The worker runs once at startup and then periodically; a Mongo
+  // lease prevents multiple UI replicas from repairing the same drift.
+  try {
+    const { startTomeAuthorizationReconciler } = await import(
+      "./lib/tome/authorization-reconcile-scheduler"
+    );
+    startTomeAuthorizationReconciler();
+  } catch (err) {
+    console.warn("[instrumentation] Tome authorization auto-repair not started:", err);
+  }
 }
