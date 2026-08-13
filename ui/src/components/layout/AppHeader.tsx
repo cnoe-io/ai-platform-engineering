@@ -208,6 +208,7 @@ export function calculateVisibleHeaderNavItems({
 
 export function AppHeader() {
   const pathname = usePathname();
+  const router = useRouter();
   const shouldReduceMotion = useReducedMotion();
   const { data: session } = useSession();
   const { isAdmin } = useAdminRole();
@@ -245,9 +246,13 @@ export function AppHeader() {
     const href = confirmNavigation();
     if (href) {
       setUnsaved(false);
-      window.location.href = href;
+      // Keep confirmed navigation inside the Next.js app. A full-page
+      // window.location navigation fires beforeunload handlers and can show a
+      // second, browser-owned prompt after the user already confirmed in the
+      // app dialog.
+      router.push(href);
     }
-  }, [confirmNavigation, setUnsaved]);
+  }, [confirmNavigation, router, setUnsaved]);
 
   const handleCancel = React.useCallback(() => {
     cancelNavigation();
@@ -262,7 +267,6 @@ export function AppHeader() {
   // visibly does nothing in that race. Programmatic navigation + an
   // explicit close-after-push is deterministic.
   const [alertsPopoverOpen, setAlertsPopoverOpen] = React.useState(false);
-  const router = useRouter();
   const handleReportProblemClick = React.useCallback(async () => {
     if (config.reportProblemRouting === 'dynamic-agent' && config.reportProblemDynamicAgentId) {
       const newId = await createConversation(config.reportProblemDynamicAgentId);

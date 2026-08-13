@@ -1,12 +1,9 @@
 /**
  * Tests for how DynamicAgentEditor enforces required fields on submit.
  *
- * Enforcement is intentionally quiet: the Create Agent button is `disabled`
- * while any required field is missing (Owner Team, name, model, system
- * prompt), with a hover-only native `title=` explaining what's left. The
- * owner picker carries a silent `aria-invalid` for screen readers. We
- * deliberately do NOT render loud red badges, inline error boxes, or a
- * footer "Required: …" banner — the asterisk + disabled button are enough.
+ * Submission controls remain enabled while required fields are missing. The
+ * editor shows the first blocker inline, keeps forward navigation on the
+ * relevant step, and never sends an incomplete payload to the API.
  */
 
 import React from "react";
@@ -60,6 +57,10 @@ jest.mock("@/components/ui/toast", () => ({
   useToast: () => ({ toast: jest.fn() }),
 }));
 
+jest.mock("@/lib/config", () => ({
+  getConfig: jest.fn(() => null),
+}));
+
 jest.mock("framer-motion", () => ({
   __esModule: true,
   motion: new Proxy(
@@ -80,6 +81,7 @@ jest.mock("framer-motion", () => ({
 
 import { DynamicAgentEditor } from "../DynamicAgentEditor";
 import { pickTeam } from "@/__test-utils__/team-picker";
+import { getConfig } from "@/lib/config";
 
 // ============================================================================
 // Helpers
@@ -100,7 +102,12 @@ function jsonResponse(body: unknown) {
  * "missing" to "filled" and edit-mode transfers can switch teams without
  * rerendering).
  */
-function mockApi() {
+const defaultTeams = [
+  { _id: "team-1", slug: "platform", name: "Platform", can_own_agents: true, user_role: "admin" },
+  { _id: "team-2", slug: "data-eng", name: "Data Eng", can_own_agents: true, user_role: "admin" },
+];
+
+function mockApi(teams = defaultTeams) {
   const fetchMock = jest.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
     const u = typeof url === "string" ? url : url.toString();
     if (u.includes("/api/dynamic-agents/models")) {
@@ -114,10 +121,7 @@ function mockApi() {
     if (u.includes("/api/dynamic-agents/teams")) {
       return jsonResponse({
         success: true,
-        data: [
-          { _id: "team-1", slug: "platform", name: "Platform", can_own_agents: true, user_role: "admin" },
-          { _id: "team-2", slug: "data-eng", name: "Data Eng", can_own_agents: true, user_role: "admin" },
-        ],
+        data: teams,
       });
     }
     if (init?.method === "PUT" || init?.method === "POST") {
@@ -145,6 +149,7 @@ async function flushAsync() {
 
 describe("DynamicAgentEditor — required-field enforcement", () => {
   beforeEach(() => {
+    jest.mocked(getConfig).mockReturnValue(null);
     mockApi();
   });
 
@@ -152,7 +157,7 @@ describe("DynamicAgentEditor — required-field enforcement", () => {
     jest.restoreAllMocks();
   });
 
-  it("disables Create Agent (with a hover tooltip) while Owner Team is empty", async () => {
+  it("keeps Create Agent enabled and shows an inline warning while Owner Team is empty", async () => {
     render(<DynamicAgentEditor onCancel={jest.fn()} onSave={jest.fn()} />);
     await flushAsync();
 
@@ -164,32 +169,68 @@ describe("DynamicAgentEditor — required-field enforcement", () => {
     fireEvent.change(nameInput, { target: { value: "blocker-test-agent" } });
 
     // At this point: name ✔, model ✔ (auto-picked from the models fetch),
-    // owner_team ✗. Enforcement is quiet: the button stays disabled and only
-    // the hover tooltip names what's missing — no loud footer banner.
+    // owner_team ✗. The action remains available and its blocker is visible.
     const createButton = await screen.findByRole("button", { name: /Create Agent/i });
-    expect(createButton).toBeDisabled();
+    expect(createButton).toBeEnabled();
     expect(createButton).toHaveAttribute(
       "title",
       expect.stringContaining("Owner Team is required") as unknown as string
     );
-
-    // The loud footer "Required: …" hint must NOT be rendered.
-    expect(screen.queryByTestId("create-agent-blocker-hint")).not.toBeInTheDocument();
+    expect(screen.getByTestId("create-agent-blocker-hint")).toHaveTextContent(
+      "Owner Team is required",
+    );
   });
 
-  it("marks the empty Owner Team picker aria-invalid without rendering a loud error box", async () => {
+  it("marks the empty Owner Team picker invalid and explains how to continue", async () => {
     render(<DynamicAgentEditor onCancel={jest.fn()} onSave={jest.fn()} />);
     await flushAsync();
 
     const nameInput = screen.getByPlaceholderText(/Code Review Agent/i) as HTMLInputElement;
     fireEvent.change(nameInput, { target: { value: "blocker-test-agent" } });
 
-    // Silent accessibility hook stays; the loud "is required" alert box is gone.
     expect(screen.getByLabelText(/Owner Team/i)).toHaveAttribute("aria-invalid", "true");
-    expect(screen.queryByText(/Owner Team is required/i)).not.toBeInTheDocument();
     expect(
-      screen.queryByText(/Choose a team before creating this agent/i),
-    ).not.toBeInTheDocument();
+      screen.getByText(/Choose an owner team before continuing/i),
+    ).toBeInTheDocument();
+  });
+
+  it("buzzes Next, focuses the first required field, and explains why navigation stopped", async () => {
+    render(<DynamicAgentEditor onCancel={jest.fn()} onSave={jest.fn()} />);
+    await flushAsync();
+
+    const nextButton = screen.getByRole("button", { name: /Next/i });
+    expect(nextButton).toBeEnabled();
+    expect(screen.getByTestId("next-step-feedback")).toHaveAttribute(
+      "data-validation-buzz",
+      "0",
+    );
+
+    fireEvent.click(nextButton);
+
+    expect(screen.getByRole("heading", { name: "Step 1: Basic Info" })).toBeInTheDocument();
+    expect(screen.getByTestId("create-agent-blocker-hint")).toBeInTheDocument();
+    expect(screen.getByTestId("next-step-feedback")).toHaveAttribute(
+      "data-validation-buzz",
+      "1",
+    );
+    const validationMessage = screen.getByText(
+      "Enter an agent name before continuing.",
+    );
+    expect(validationMessage).toHaveClass("text-orange-700");
+    expect(validationMessage).not.toHaveClass("text-destructive");
+    const nameInput = screen.getByPlaceholderText(/Code Review Agent/i);
+    expect(nameInput).toHaveAttribute("aria-invalid", "true");
+    expect(nameInput).toHaveClass("border-orange-500/70");
+    await waitFor(() => expect(nameInput).toHaveFocus());
+  });
+
+  it("uses DEFAULT_TEAM_SLUG as the owner-team override", async () => {
+    jest.mocked(getConfig).mockReturnValue("platform");
+
+    render(<DynamicAgentEditor onCancel={jest.fn()} onSave={jest.fn()} />);
+    await flushAsync();
+
+    expect(screen.getByLabelText(/Owner Team/i)).toHaveTextContent("Platform");
   });
 
   it("starts on the deep-linked setup step and reports subsequent step changes", async () => {
@@ -212,16 +253,16 @@ describe("DynamicAgentEditor — required-field enforcement", () => {
     expect(screen.getByRole("heading", { name: "Step 5: Advanced" })).toBeInTheDocument();
   });
 
-  it("enables Create Agent once Owner Team and the remaining fields are filled", async () => {
+  it("clears the Owner Team warning once a team is selected", async () => {
     render(<DynamicAgentEditor onCancel={jest.fn()} onSave={jest.fn()} />);
     await flushAsync();
 
     const nameInput = screen.getByPlaceholderText(/Code Review Agent/i) as HTMLInputElement;
     fireEvent.change(nameInput, { target: { value: "blocker-test-agent" } });
 
-    // Pre-condition: button disabled, owner picker flagged.
+    // Pre-condition: button is available, owner picker is flagged.
     const createButton = screen.getByRole("button", { name: /Create Agent/i });
-    expect(createButton).toBeDisabled();
+    expect(createButton).toBeEnabled();
 
     // Pick the team via the searchable TeamPicker (2026-05-27).
     await pickTeam(/Owner Team/i, "platform");
@@ -233,6 +274,9 @@ describe("DynamicAgentEditor — required-field enforcement", () => {
       expect(createButton).not.toHaveAttribute(
         "title",
         expect.stringContaining("Owner Team is required") as unknown as string,
+      );
+      expect(screen.getByTestId("create-agent-blocker-hint")).not.toHaveTextContent(
+        "Owner Team is required",
       );
     });
   });

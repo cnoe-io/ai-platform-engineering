@@ -71,10 +71,10 @@ export interface Config {
   /** Support email address for contact links */
   supportEmail: string;
   /**
-   * Team slug pre-selected (and pinned to the top) in the project-creation
-   * team picker — the deployment's catchall/default team (e.g. an
-   * everyone-gets-added-automatically team), so most users never have to
-   * search a long team list. Null = no default, picker starts empty.
+   * Team slug pre-selected in new agent and project owner pickers — the
+   * deployment's catchall/default team (e.g. an everyone-gets-added-
+   * automatically team), so most users never have to search a long team list.
+   * Null leaves owner selection empty so the user must choose a team.
    */
   defaultTeamSlug: string | null;
   /**

@@ -343,6 +343,7 @@ jest.mock('@/lib/utils', () => ({
 // ============================================================================
 
 import { AppHeader, calculateVisibleHeaderNavItems } from '../AppHeader'
+import { useUnsavedChangesStore } from '@/store/unsaved-changes-store'
 
 // ============================================================================
 // Tests
@@ -358,8 +359,33 @@ beforeEach(() => {
     isLoading: false,
   }
   mockRouterPush.mockReset()
+  useUnsavedChangesStore.setState({
+    hasUnsavedChanges: false,
+    pendingNavigationHref: null,
+    pendingDeferredAction: null,
+  })
   popoverOpenProps.length = 0
   lastPopoverState = { open: false }
+})
+
+describe('AppHeader — unsaved custom-agent navigation', () => {
+  it('uses the in-app dialog and client router after discarding changes', () => {
+    mockPathname = '/dynamic-agents'
+    useUnsavedChangesStore.getState().setUnsaved(true)
+    const browserConfirm = jest.spyOn(window, 'confirm')
+
+    render(<AppHeader />)
+
+    fireEvent.click(screen.getAllByTestId('link-/chat')[0])
+    expect(screen.getByText('Unsaved changes')).toBeInTheDocument()
+    expect(mockRouterPush).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByText('Discard changes'))
+
+    expect(mockRouterPush).toHaveBeenCalledWith('/chat')
+    expect(browserConfirm).not.toHaveBeenCalled()
+    expect(useUnsavedChangesStore.getState().hasUnsavedChanges).toBe(false)
+  })
 })
 
 describe('AppHeader — nav tabs', () => {
