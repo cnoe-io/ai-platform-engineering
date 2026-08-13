@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, Code, Loader2, X } from "lucide-react";
+import { ArrowLeftRight, ChevronDown, Code, Loader2, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -102,6 +102,7 @@ export function WikiPageView({
 }: Props) {
   const [isEditing, setIsEditing] = useState(false);
   const [rawMode, setRawMode] = useState(false);
+  const [wideReading, setWideReading] = useState(false);
   const [rawDraft, setRawDraft] = useState("");
   const [saving, setSaving] = useState(false);
   const [editorEpoch, setEditorEpoch] = useState(0);
@@ -394,11 +395,31 @@ export function WikiPageView({
             <KindToggle currentKind={kind} onChange={handleChangeKind} />
           )}
           {!isEditing && (
-            <WikiExportMenu
-              slug={slug}
-              path={path}
-              triggerClassName="border border-border p-1.5"
-            />
+            <>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => setWideReading((v) => !v)}
+                    aria-pressed={wideReading}
+                    className={cn(
+                      "rounded-md border border-border p-1.5 transition-colors hover:bg-muted hover:text-foreground",
+                      wideReading ? "bg-muted text-foreground" : "text-muted-foreground",
+                    )}
+                  >
+                    <ArrowLeftRight className="h-3.5 w-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="text-xs">
+                  {wideReading ? "Narrow reading width" : "Wide reading width"}
+                </TooltipContent>
+              </Tooltip>
+              <WikiExportMenu
+                slug={slug}
+                path={path}
+                triggerClassName="border border-border p-1.5"
+              />
+            </>
           )}
           {isEditing ? (
             <div className="flex items-center divide-x divide-border rounded-md border border-border">
@@ -531,27 +552,29 @@ export function WikiPageView({
             "ring-2 ring-inset ring-amber-400/70 dark:ring-amber-700/60",
         )}
       >
-        {isEditing && rawMode ? (
-          <div className="milkdown-host h-full">
-            <textarea
-              className="raw-markdown-editor"
-              value={rawDraft}
-              onChange={(e) => setRawDraft(e.target.value)}
-              spellCheck={false}
-              aria-label="Raw markdown editor"
+        <div className={cn(!isEditing && wideReading && "wide-reading")}>
+          {isEditing && rawMode ? (
+            <div className="milkdown-host h-full">
+              <textarea
+                className="raw-markdown-editor"
+                value={rawDraft}
+                onChange={(e) => setRawDraft(e.target.value)}
+                spellCheck={false}
+                aria-label="Raw markdown editor"
+              />
+            </div>
+          ) : (
+            <CrepeEditor
+              key={`${slug}-${path}-${editorEpoch}`}
+              ref={editorRef}
+              initialMarkdown={isEditing ? richInitialBody : body}
+              readonly={!isEditing}
+              onNavigate={onNavigate}
+              glossaryPreview={glossaryPreview}
+              hideHtmlComments
             />
-          </div>
-        ) : (
-          <CrepeEditor
-            key={`${slug}-${path}-${editorEpoch}`}
-            ref={editorRef}
-            initialMarkdown={isEditing ? richInitialBody : body}
-            readonly={!isEditing}
-            onNavigate={onNavigate}
-            glossaryPreview={glossaryPreview}
-            hideHtmlComments
-          />
-        )}
+          )}
+        </div>
       </ScrollArea>
     </div>
   );
