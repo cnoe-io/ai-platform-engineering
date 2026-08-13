@@ -224,26 +224,6 @@ describe("DynamicAgentEditor — required-field enforcement", () => {
     await waitFor(() => expect(nameInput).toHaveFocus());
   });
 
-  it("auto-selects outshift-everyone when it is an eligible owner team", async () => {
-    mockApi([
-      {
-        _id: "team-everyone",
-        slug: "outshift-everyone",
-        name: "Outshift Everyone",
-        can_own_agents: true,
-        user_role: "member",
-      },
-      ...defaultTeams,
-    ]);
-
-    render(<DynamicAgentEditor onCancel={jest.fn()} onSave={jest.fn()} />);
-    await flushAsync();
-
-    expect(screen.getByLabelText(/Owner Team/i)).toHaveTextContent("Outshift Everyone");
-    expect(screen.getByLabelText(/Owner Team/i)).not.toHaveAttribute("aria-invalid", "true");
-    expect(screen.queryByText(/Choose an owner team before continuing/i)).not.toBeInTheDocument();
-  });
-
   it("uses DEFAULT_TEAM_SLUG as the owner-team override", async () => {
     jest.mocked(getConfig).mockReturnValue("platform");
 

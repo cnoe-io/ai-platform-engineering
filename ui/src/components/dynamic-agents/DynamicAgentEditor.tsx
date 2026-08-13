@@ -162,8 +162,6 @@ const BLOCKER_FOCUS_TARGETS: Record<BlockerField, string> = {
   systemPrompt: "system-prompt-validation-target",
 };
 
-const DEFAULT_AGENT_OWNER_TEAM_SLUG = "outshift-everyone";
-
 /**
  * Horizontal step indicator component
  */
@@ -674,8 +672,7 @@ export function DynamicAgentEditor({
           // endpoint already limits non-admin users to their own teams, and we
           // additionally require the returned team to be owner-eligible. A
           // user's existing choice (or a cloned agent's owner) always wins.
-          const defaultSlug =
-            getConfig("defaultTeamSlug") || DEFAULT_AGENT_OWNER_TEAM_SLUG;
+          const defaultSlug = getConfig("defaultTeamSlug");
           const defaultTeam = data.data.find(
             (team: TeamOption) =>
               team.slug === defaultSlug && team.can_own_agents !== false,

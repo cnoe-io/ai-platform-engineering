@@ -74,8 +74,7 @@ export interface Config {
    * Team slug pre-selected in new agent and project owner pickers — the
    * deployment's catchall/default team (e.g. an everyone-gets-added-
    * automatically team), so most users never have to search a long team list.
-   * Null leaves project onboarding empty; agent creation falls back to
-   * `outshift-everyone` when that team is assignable by the current user.
+   * Null leaves owner selection empty so the user must choose a team.
    */
   defaultTeamSlug: string | null;
   /**
