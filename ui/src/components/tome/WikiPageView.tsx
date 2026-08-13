@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, Code, Loader2, Maximize2, Minimize2, X } from "lucide-react";
+import { ChevronDown, ChevronsLeftRight, ChevronsRightLeft, Code, Loader2, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -405,9 +405,9 @@ export function WikiPageView({
                     className="rounded-md border border-border p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                   >
                     {wideReading ? (
-                      <Minimize2 className="h-3.5 w-3.5" />
+                      <ChevronsRightLeft className="h-3.5 w-3.5" />
                     ) : (
-                      <Maximize2 className="h-3.5 w-3.5" />
+                      <ChevronsLeftRight className="h-3.5 w-3.5" />
                     )}
                   </button>
                 </TooltipTrigger>
