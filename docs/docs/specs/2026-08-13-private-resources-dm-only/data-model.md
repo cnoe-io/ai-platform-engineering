@@ -1,4 +1,4 @@
-# Data Model: Private Resources and DM-Only Personal Execution
+# Data Model: Private Resources and Personal Execution
 
 ## 1. Persisted Ownership State
 
@@ -46,7 +46,7 @@ Rules:
 - Public `/api/authz/v1` bodies cannot set it.
 - Slack/Webex identifiers are audit correlation data, not authority by themselves.
 - Unknown or absent interaction context denies private execution.
-- Management APIs in the authenticated Web UI use `web/personal`; Web UI chat cannot use this to execute a private resource.
+- Authenticated owner Web UI and user-scoped API requests use `web/personal` and may execute a private resource.
 - The DM bot endpoint must pass `slack/direct` or `webex/direct`; it cannot call a context-free helper.
 
 ## 3. OpenFGA Projection
@@ -102,11 +102,11 @@ CAS first reads trusted persisted visibility/sync state, applies product policy,
 | Visibility | Subject/context | Product-policy result | OpenFGA principal |
 |---|---|---|---|
 | Private control-plane read/manage/delete | owner + Web UI personal | continue | `user:<sub>` |
-| Private execution | owner + Web UI personal | deny | no check required |
+| Private execution | owner + Web UI personal or user-scoped API | continue | `user:<sub>` |
 | Private | owner + Slack DM | continue | `user:<sub>` |
 | Private | owner + Webex direct | continue | `user:<sub>` |
 | Private | owner + any group context | deny | no check required |
-| Private | service account/API/schedule/agent | deny | no check required |
+| Private | service account/non-user API/schedule/agent | deny | no check required |
 | Private | unknown/missing context | deny | no check required |
 | Team | DM/Web UI | existing user/team-union policy | user and/or team |
 | Team | group channel/space | existing mapped channel/team policy | channel/space + team |

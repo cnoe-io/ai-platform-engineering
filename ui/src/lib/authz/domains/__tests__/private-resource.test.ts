@@ -8,9 +8,9 @@ const baseRequest = {
 
 describe("private resource context policy", () => {
   it.each([
-    ["web", "personal"],
     ["slack", "group"],
     ["webex", "group"],
+    ["api", "unknown"],
   ] as const)("denies private use from %s/%s", (source, conversationKind) => {
     expect(evaluatePrivateResourceContext({
       ...baseRequest,
@@ -19,6 +19,15 @@ describe("private resource context policy", () => {
       decision: "DENY",
       reason: "PRIVATE_RESOURCE_CONTEXT_DENIED",
     });
+  });
+
+  it("allows owner checks to continue for the authenticated web UI", () => {
+    expect(evaluatePrivateResourceContext({
+      ...baseRequest,
+      trustedContext: {
+        interaction: { source: "web", conversationKind: "personal", verified: false },
+      },
+    }, "private")).toBeNull();
   });
 
   it.each(["slack", "webex"] as const)("allows owner checks to continue for verified %s DMs", (source) => {

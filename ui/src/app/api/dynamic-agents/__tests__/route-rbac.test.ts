@@ -190,6 +190,11 @@ describe("dynamic agents RBAC routes", () => {
       session,
       agents,
       { type: "agent", action: "discover", id: expect.any(Function) },
+      {
+        trustedContext: {
+          interaction: { source: "web", conversationKind: "personal", verified: false },
+        },
+      },
     );
     expect(body).toMatchObject({
       success: true,
@@ -217,6 +222,11 @@ describe("dynamic agents RBAC routes", () => {
       session,
       [{ _id: "agent-runtime", enabled: true }],
       { type: "agent", action: "use", id: expect.any(Function) },
+      {
+        trustedContext: {
+          interaction: { source: "web", conversationKind: "personal", verified: false },
+        },
+      },
     );
   });
 

@@ -18,7 +18,7 @@ async function jsonRequest(
 }
 
 test.describe("RBAC live e2e — private resources", () => {
-  test("a private agent is manageable in web but cannot run from web or forged DM headers", async ({ page }) => {
+  test("a private resource chain is manageable and authorized from the web UI", async ({ page }) => {
     const env = rbacEnvOrSkip({ requireUserSub: true });
     await installTestSession(page, env, {
       email: env.user.email,
@@ -86,42 +86,30 @@ test.describe("RBAC live e2e — private resources", () => {
       const listed = await jsonRequest(page, `/api/dynamic-agents?id=${agentId}`, { method: "GET" });
       expect(listed.status, JSON.stringify(listed.body)).toBe(200);
 
-      const webRun = await jsonRequest(page, "/api/v1/chat/invoke", {
+      const webAgentUse = await jsonRequest(page, "/api/user/check_agent_access", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          message: "test",
-          conversation_id: crypto.randomUUID(),
           agent_id: agentId,
         }),
       });
-      expect(webRun.status).toBe(403);
-      expect(webRun.body.code).toBe("PRIVATE_DM_REQUIRED");
+      expect(webAgentUse.status, JSON.stringify(webAgentUse.body)).toBe(200);
+      expect((webAgentUse.body.data as Record<string, unknown>)?.allowed).toBe(true);
 
-      const forgedRun = await jsonRequest(page, "/api/v1/chat/invoke", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-CAIPE-Interaction-Source": "slack",
-          "X-CAIPE-Interaction-Kind": "direct",
-          "X-CAIPE-Interaction-Timestamp": String(Math.floor(Date.now() / 1000)),
-          "X-CAIPE-Interaction-Signature": "0".repeat(64),
-        },
-        body: JSON.stringify({
-          message: "test",
-          conversation_id: crypto.randomUUID(),
-          agent_id: agentId,
-        }),
-      });
-      expect(forgedRun.status).toBe(403);
-      expect(forgedRun.body.code).toBe("PRIVATE_DM_REQUIRED");
-
-      const webMcpUse = await jsonRequest(page, "/api/mcp-servers/test-tool", {
+      const webMcpUse = await jsonRequest(page, "/api/mcp-servers/agent-context", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ serverId: mcpId, toolName: "not-invoked", params: {} }),
+        body: JSON.stringify({ serverIds: [mcpId] }),
       });
-      expect(webMcpUse.status).toBe(403);
+      expect(webMcpUse.status, JSON.stringify(webMcpUse.body)).toBe(200);
+      const webMcpData = webMcpUse.body.data as Record<string, unknown>;
+      expect(webMcpData.server_ids).toEqual([mcpId]);
+      expect(webMcpData.headers).toEqual(expect.objectContaining({
+        "X-CAIPE-Agent-Context": expect.any(String),
+        "X-CAIPE-Agent-Context-Signature": expect.any(String),
+        "X-CAIPE-Trusted-Interaction": expect.any(String),
+        "X-CAIPE-Trusted-Interaction-Signature": expect.any(String),
+      }));
     } finally {
       await jsonRequest(page, `/api/dynamic-agents?id=${encodeURIComponent(agentId)}`, {
         method: "DELETE",

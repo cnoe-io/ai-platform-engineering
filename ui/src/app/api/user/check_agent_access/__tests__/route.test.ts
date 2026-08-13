@@ -95,6 +95,31 @@ describe("POST /api/user/check_agent_access", () => {
     });
   });
 
+  it("allows the owner to use a private agent from the authenticated web UI", async () => {
+    mockGetCollection.mockResolvedValue({
+      findOne: jest.fn().mockResolvedValue({
+        _id: "private-agent",
+        enabled: true,
+        visibility: "private",
+      }),
+    });
+    mockEvaluateAgentAccess.mockResolvedValue({
+      allowed: true,
+      path: "direct_user_grant",
+      reasonCode: "ALLOW_DIRECT",
+    });
+
+    const response = await POST(makeRequest({ agent_id: "private-agent" }));
+
+    expect(response.status).toBe(200);
+    const json = await bodyOf(response);
+    expect(json.data).toEqual({
+      allowed: true,
+      reason: "ALLOW_DIRECT",
+      path: "direct_user_grant",
+    });
+  });
+
   it("allows via team union and surfaces the matched slug", async () => {
     mockEvaluateAgentAccess.mockResolvedValue({
       allowed: true,

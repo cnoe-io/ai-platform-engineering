@@ -1678,8 +1678,9 @@ export function DynamicAgentEditor({
                         className="rounded-lg border bg-muted/30 p-3 text-xs text-muted-foreground"
                         data-testid="private-visibility-summary"
                       >
-                        Private resources are not runnable from the web UI, APIs,
-                        scheduled jobs, Slack channels, or Webex group spaces.
+                        Private resources are only available to you in the web UI
+                        and in Slack or Webex direct messages. They cannot be used
+                        in channels or group spaces.
                       </div>
                     )}
                   </div>

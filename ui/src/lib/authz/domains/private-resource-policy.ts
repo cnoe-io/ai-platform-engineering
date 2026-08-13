@@ -12,9 +12,14 @@ export function evaluatePrivateResourceContext(
 
   const interaction = req.trustedContext?.interaction;
   const allowed = req.subject.type === "user"
-    && interaction?.verified === true
-    && interaction.conversationKind === "direct"
-    && (interaction.source === "slack" || interaction.source === "webex");
+    && (
+      (interaction?.source === "web" && interaction.conversationKind === "personal")
+      || (
+        interaction?.verified === true
+        && interaction.conversationKind === "direct"
+        && (interaction.source === "slack" || interaction.source === "webex")
+      )
+    );
 
   return allowed
     ? null

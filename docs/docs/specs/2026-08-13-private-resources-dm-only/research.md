@@ -1,4 +1,4 @@
-# Research: Private Resources and DM-Only Personal Execution
+# Research: Private Resources and Personal Execution
 
 ## Executive Finding
 
@@ -13,7 +13,7 @@ The repository already has pieces of private ownership, but not one end-to-end p
 Therefore the recommended design is:
 
 - model personal ownership with stored direct-user tuples;
-- allow Web UI management but enforce DM-only data-plane use as a CAS product-policy deny based on server-derived context;
+- allow authenticated owner use in the Web UI and enforce direct-message-only use in Slack and Webex through a CAS product-policy deny based on server-derived context;
 - keep resource configuration as source of truth;
 - reconcile every lifecycle tuple change through CAS;
 - fail closed while Mongo and OpenFGA are not at the same authorization revision.
@@ -127,7 +127,7 @@ Use today's agent policy and tell users to create a personal team.
 
 - a team is an administrative group, not an ownership mode;
 - accidental membership changes silently broaden personal access;
-- DM-only execution still is not expressed;
+- Channel-aware execution still is not expressed;
 - MCP and credential UX remain inconsistent.
 
 One-person teams remain a backward-compatible workaround until rollout completes.
@@ -167,7 +167,7 @@ Use the existing direct owner relation and rely on each bot to call it only from
 
 ### Alternative E - CAS product-policy gate plus static tuples
 
-Store durable ownership in OpenFGA and have CAS allow private data-plane use only when trusted context proves a Slack or Webex direct conversation; Web UI remains management-only.
+Store durable ownership in OpenFGA and have CAS allow private data-plane use only when trusted context proves authenticated personal web/API use or a Slack or Webex direct conversation.
 
 **Selected**:
 
@@ -175,7 +175,7 @@ Store durable ownership in OpenFGA and have CAS allow private data-plane use onl
 - separates relationships (“who”) from request environment (“where”);
 - can deny before OpenFGA and cannot expand authority;
 - works without an immediate OpenFGA model-wide conditional migration;
-- creates one auditable, action-aware rule: Web UI may manage; only Slack/Webex direct conversations may execute; API, local, group, and scheduled contexts deny.
+- creates one auditable, action-aware rule: authenticated owners may use private resources in the Web UI or user-scoped API; Slack/Webex use requires a direct conversation; group, service-account, delegated-agent, and scheduled contexts deny.
 
 ## Consistency Decision
 
@@ -216,6 +216,6 @@ Here “compare-and-set” applies to publishing the reconciliation state. CAS i
 1. **CAS and schema foundation**: trusted interaction context, visibility fields, revision/pending state, decision reasons.
 2. **Credential normalization**: preserve existing user-private secrets, move tuple writes through CAS, keep OAuth connections caller-scoped.
 3. **Private MCP**: explicit UI/model, creator provenance, CAS reconcile, per-invocation enforcement.
-4. **Private agent**: restore private visibility, DM-only execution/Web UI management policy, prohibit defaults and group routing.
+4. **Private agent**: restore private visibility, owner execution in web/direct messages, and prohibit defaults and group routing.
 5. **Dependency enforcement and migrations**: validate parent/child visibility and classify existing MCP data.
 6. **Rollout and observability**: feature flag, drift report, context-deny metrics, retry/admin repair.

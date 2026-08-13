@@ -14,6 +14,7 @@ successResponse,
 withErrorHandler,
 } from "@/lib/api-middleware";
 import { getCollection } from "@/lib/mongodb";
+import { trustedInteractionFromRequest } from "@/lib/authz/trusted-interaction";
 import {
 allowedToolsFromAgent,
 deleteAllAgentToolTuples,
@@ -440,11 +441,20 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       action: enabledOnly ? ("use" as const) : ("discover" as const),
       id: (agent: DynamicAgentConfig) => String(agent._id),
     };
-    const visibleItems = await filterResourcesByPermission(session, scopedItems, listTarget);
+    const permissionOptions = {
+      trustedContext: { interaction: trustedInteractionFromRequest(request) },
+    };
+    const visibleItems = await filterResourcesByPermission(
+      session,
+      scopedItems,
+      listTarget,
+      permissionOptions,
+    );
     const pageItems = visibleItems.slice(skip, skip + pageSize);
     const { rows } = await resolveAgentListPermissions(
       session,
       pageItems.map((agent) => String(agent._id)),
+      permissionOptions,
     );
     const items: DynamicAgentConfigWithPermissions[] = pageItems.map((agent) => ({
       ...(agent as DynamicAgentConfig),

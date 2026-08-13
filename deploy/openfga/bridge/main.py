@@ -552,10 +552,10 @@ def _agent_context_from_headers(
     return AgentContext(agent_id=agent_id, kind=kind)
 
 
-def _has_verified_direct_interaction(
+def _has_permitted_private_interaction(
     headers: dict[str, str], *, now: int | None = None
 ) -> bool:
-    """Verify the short-lived BFF proof used by private resources."""
+    """Verify a short-lived BFF proof for web or direct-message private use."""
 
     if not AGENT_CONTEXT_HMAC_SECRET:
         return False
@@ -573,9 +573,15 @@ def _has_verified_direct_interaction(
     except Exception:
         return False
     current = int(now if now is not None else time.time())
-    return (
+    permitted_context = (
+        payload.get("source") == "web"
+        and payload.get("conversationKind") == "personal"
+    ) or (
         payload.get("source") in ("slack", "webex")
         and payload.get("conversationKind") == "direct"
+    )
+    return (
+        permitted_context
         and isinstance(payload.get("iat"), int)
         and isinstance(payload.get("exp"), int)
         and payload["iat"] <= current + 90
@@ -813,7 +819,7 @@ class OpenFgaAuthorizationService:
                     )
                 if private_target and (
                     not _check_openfga(user, "owner", mcp_server_obj)
-                    or not _has_verified_direct_interaction(headers)
+                    or not _has_permitted_private_interaction(headers)
                 ):
                     _audit_decision(
                         request=request,
@@ -828,7 +834,7 @@ class OpenFgaAuthorizationService:
                     return build_check_response(
                         allowed=False,
                         code=PERMISSION_DENIED,
-                        message="private MCP servers require their owner in a verified direct message",
+                        message="private MCP servers are only available to their owner in the web UI or a direct message",
                     )
             if allowed and mcp_target in RESTRICTED_MCP_SERVERS:
                 mcp_server_obj = f"mcp_server:{mcp_target}"

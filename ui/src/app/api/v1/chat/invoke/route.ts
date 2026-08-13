@@ -393,6 +393,9 @@ async function handleScheduledInvoke(
     tenantId: "default",
     traceparent: traceContext.traceparent,
     isServiceAccount: false,
+    trustedContext: {
+      interaction: { source: "api", conversationKind: "unknown", verified: false },
+    },
   });
   if (authzResponse) return authzResponse;
 

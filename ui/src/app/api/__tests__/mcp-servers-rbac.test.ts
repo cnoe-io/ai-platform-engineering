@@ -112,7 +112,12 @@ describe("MCP server per-resource RBAC", () => {
       expect.objectContaining({ sub: "alice-sub", role: "user" }),
       items,
       { type: "mcp_server", action: "read", id: expect.any(Function) },
-      { bypassForOrgAdmin: true },
+      {
+        bypassForOrgAdmin: true,
+        trustedContext: {
+          interaction: { source: "web", conversationKind: "personal", verified: false },
+        },
+      },
     );
     expect(body.data.items).toEqual([
       {
@@ -125,7 +130,12 @@ describe("MCP server per-resource RBAC", () => {
     expect(mockResolveMcpServerListPermissions).toHaveBeenCalledWith(
       expect.objectContaining({ sub: "alice-sub", role: "user" }),
       ["mcp-visible"],
-      { bypassForOrgAdmin: true },
+      {
+        bypassForOrgAdmin: true,
+        trustedContext: {
+          interaction: { source: "web", conversationKind: "personal", verified: false },
+        },
+      },
     );
   });
 
@@ -151,7 +161,12 @@ describe("MCP server per-resource RBAC", () => {
       expect.objectContaining({ sub: "admin-sub", role: "admin" }),
       items,
       { type: "mcp_server", action: "read", id: expect.any(Function) },
-      { bypassForOrgAdmin: true },
+      {
+        bypassForOrgAdmin: true,
+        trustedContext: {
+          interaction: { source: "web", conversationKind: "personal", verified: false },
+        },
+      },
     );
     expect(body.data.items).toEqual([
       {
@@ -193,7 +208,12 @@ describe("MCP server per-resource RBAC", () => {
       expect.anything(),
       allServers,
       expect.objectContaining({ type: "mcp_server", action: "read" }),
-      { bypassForOrgAdmin: true },
+      {
+        bypassForOrgAdmin: true,
+        trustedContext: {
+          interaction: { source: "web", conversationKind: "personal", verified: false },
+        },
+      },
     );
     expect(body.data.items).toHaveLength(5);
     expect(body.data.items[0]).toEqual({

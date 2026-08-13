@@ -135,7 +135,7 @@ export async function requireAgentUsePermission({
           });
           return authzResponse(
             {
-              error: "Private agents can only be used from a verified Slack DM or Webex 1:1 conversation.",
+              error: "Private agents are only available to you in the web UI and in Slack or Webex direct messages.",
               code: "PRIVATE_DM_REQUIRED",
               reason: "private_resource_context_denied",
               action: "open_direct_message",

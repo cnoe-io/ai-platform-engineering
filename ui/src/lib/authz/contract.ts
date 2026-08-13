@@ -16,7 +16,7 @@ export type ReasonCode =
   | "NOT_AUTHENTICATED"// caller token missing or invalid
   | "AUTHZ_UNAVAILABLE"// PDP error, retriable
   | "INVALID_REQUEST"  // bad id or malformed input
-  | "PRIVATE_RESOURCE_CONTEXT_DENIED"; // private data-plane use outside a verified DM
+  | "PRIVATE_RESOURCE_CONTEXT_DENIED"; // private use outside web/personal or a verified DM
 
 export interface Subject {
   type: SubjectType;

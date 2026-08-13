@@ -26,10 +26,17 @@ def _unsigned_token(sub: str) -> str:
     return f"{encode({'alg': 'none', 'typ': 'JWT'})}.{encode({'sub': sub})}."
 
 
-def _direct_interaction_headers(bridge, *, secret: str, now: int) -> dict[str, str]:
+def _interaction_headers(
+    bridge,
+    *,
+    secret: str,
+    now: int,
+    source: str = "slack",
+    conversation_kind: str = "direct",
+) -> dict[str, str]:
     payload = {
-        "source": "slack",
-        "conversationKind": "direct",
+        "source": source,
+        "conversationKind": conversation_kind,
         "iat": now,
         "exp": now + 90,
     }
@@ -44,18 +51,31 @@ def _direct_interaction_headers(bridge, *, secret: str, now: int) -> dict[str, s
 def test_verified_direct_interaction(monkeypatch: pytest.MonkeyPatch) -> None:
     bridge = _load_bridge_module()
     monkeypatch.setattr(bridge, "AGENT_CONTEXT_HMAC_SECRET", "test-secret")
-    headers = _direct_interaction_headers(bridge, secret="test-secret", now=1_750_000_000)
-    assert bridge._has_verified_direct_interaction(headers, now=1_750_000_001)
+    headers = _interaction_headers(bridge, secret="test-secret", now=1_750_000_000)
+    assert bridge._has_permitted_private_interaction(headers, now=1_750_000_001)
+
+
+def test_verified_web_interaction(monkeypatch: pytest.MonkeyPatch) -> None:
+    bridge = _load_bridge_module()
+    monkeypatch.setattr(bridge, "AGENT_CONTEXT_HMAC_SECRET", "test-secret")
+    headers = _interaction_headers(
+        bridge,
+        secret="test-secret",
+        now=1_750_000_000,
+        source="web",
+        conversation_kind="personal",
+    )
+    assert bridge._has_permitted_private_interaction(headers, now=1_750_000_001)
 
 
 def test_direct_interaction_rejects_forgery(monkeypatch: pytest.MonkeyPatch) -> None:
     bridge = _load_bridge_module()
     monkeypatch.setattr(bridge, "AGENT_CONTEXT_HMAC_SECRET", "test-secret")
-    headers = _direct_interaction_headers(bridge, secret="wrong-secret", now=1_750_000_000)
-    assert not bridge._has_verified_direct_interaction(headers, now=1_750_000_001)
+    headers = _interaction_headers(bridge, secret="wrong-secret", now=1_750_000_000)
+    assert not bridge._has_permitted_private_interaction(headers, now=1_750_000_001)
 
 
-def test_private_mcp_requires_owner_and_verified_dm(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_private_mcp_requires_owner_and_permitted_context(monkeypatch: pytest.MonkeyPatch) -> None:
     bridge = _load_bridge_module()
     monkeypatch.setattr(bridge, "_decode_verified_bearer_subject", lambda _header: "test-user")
     monkeypatch.setattr(bridge, "BYPASS_SUBS", frozenset())
@@ -83,7 +103,7 @@ def test_private_mcp_requires_owner_and_verified_dm(monkeypatch: pytest.MonkeyPa
     now = int(time.time())
     headers = {
         "authorization": "Bearer valid-token",
-        **_direct_interaction_headers(bridge, secret="test-secret", now=now),
+        **_interaction_headers(bridge, secret="test-secret", now=now),
     }
     signed_request = bridge.build_check_request(
         headers=headers,

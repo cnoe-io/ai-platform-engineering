@@ -1,14 +1,20 @@
 import { createHmac } from "crypto";
-import { trustedInteractionFromRequest } from "../trusted-interaction";
+import {
+  trustedInteractionFromInternalHeaders,
+  trustedInteractionFromRequest,
+  trustedInteractionProofHeaders,
+} from "../trusted-interaction";
 
 describe("trustedInteractionFromRequest", () => {
   beforeEach(() => {
     process.env.SLACK_LINK_HMAC_SECRET = "test-signing-secret";
+    process.env.CAIPE_AGENT_CONTEXT_HMAC_SECRET = "test-internal-secret";
     jest.spyOn(Date, "now").mockReturnValue(1_750_000_000_000);
   });
 
   afterEach(() => {
     delete process.env.SLACK_LINK_HMAC_SECRET;
+    delete process.env.CAIPE_AGENT_CONTEXT_HMAC_SECRET;
     jest.restoreAllMocks();
   });
 
@@ -44,5 +50,26 @@ describe("trustedInteractionFromRequest", () => {
     expect(trustedInteractionFromRequest(request({
       "x-caipe-interaction-timestamp": "1749999000",
     })).verified).toBe(false);
+  });
+
+  it("mints and verifies an internal proof for authenticated web use", () => {
+    const proof = trustedInteractionProofHeaders({
+      source: "web",
+      conversationKind: "personal",
+      verified: false,
+    });
+    expect(trustedInteractionFromInternalHeaders(new Headers(proof))).toEqual({
+      source: "web",
+      conversationKind: "personal",
+      verified: true,
+    });
+  });
+
+  it("does not mint an internal proof for a group conversation", () => {
+    expect(trustedInteractionProofHeaders({
+      source: "slack",
+      conversationKind: "group",
+      verified: true,
+    })).toEqual({});
   });
 });

@@ -412,12 +412,10 @@ export async function filterResourcesByPermission<T>(
   if (resources.length === 0) return [];
 
   const ids = resources.map((resource) => target.id(resource));
-  const results = await authorizeMany(
-    casSubject,
-    resourcePermissionActionToCasAction(target.action),
-    target.type,
-    ids,
-  );
+  const action = resourcePermissionActionToCasAction(target.action);
+  const results = options.trustedContext
+    ? await authorizeMany(casSubject, action, target.type, ids, {}, options.trustedContext)
+    : await authorizeMany(casSubject, action, target.type, ids);
 
   return resources.filter((resource) => results.get(target.id(resource))?.decision === "ALLOW");
 }
@@ -470,13 +468,13 @@ export async function resolveMcpServerListPermissions(
   const uniqueIds = [...new Set(serverIds.filter((id) => id.trim().length > 0))];
   const [manageResults, invokeResults, discoverResults, repairResult] = await Promise.all([
     uniqueIds.length > 0
-      ? authorizeMany(casSubject, "manage", "mcp_server", uniqueIds)
+      ? authorizeMany(casSubject, "manage", "mcp_server", uniqueIds, {}, options.trustedContext)
       : Promise.resolve(new Map<string, Awaited<ReturnType<typeof authorize>>>()),
     uniqueIds.length > 0
-      ? authorizeMany(casSubject, "invoke", "mcp_server", uniqueIds)
+      ? authorizeMany(casSubject, "invoke", "mcp_server", uniqueIds, {}, options.trustedContext)
       : Promise.resolve(new Map<string, Awaited<ReturnType<typeof authorize>>>()),
     uniqueIds.length > 0
-      ? authorizeMany(casSubject, "discover", "mcp_server", uniqueIds)
+      ? authorizeMany(casSubject, "discover", "mcp_server", uniqueIds, {}, options.trustedContext)
       : Promise.resolve(new Map<string, Awaited<ReturnType<typeof authorize>>>()),
     resourceAllowed(subject, casSubject, { type: "mcp_server", id: "agentgateway", action: "admin" }, options),
   ]);
@@ -544,13 +542,13 @@ export async function resolveAgentListPermissions(
   const uniqueIds = [...new Set(agentIds.filter((id) => id.trim().length > 0))];
   const [manageResults, writeResults, discoverResults] = await Promise.all([
     uniqueIds.length > 0
-      ? authorizeMany(casSubject, "manage", "agent", uniqueIds)
+      ? authorizeMany(casSubject, "manage", "agent", uniqueIds, {}, options.trustedContext)
       : Promise.resolve(new Map<string, Awaited<ReturnType<typeof authorize>>>()),
     uniqueIds.length > 0
-      ? authorizeMany(casSubject, "write", "agent", uniqueIds)
+      ? authorizeMany(casSubject, "write", "agent", uniqueIds, {}, options.trustedContext)
       : Promise.resolve(new Map<string, Awaited<ReturnType<typeof authorize>>>()),
     uniqueIds.length > 0
-      ? authorizeMany(casSubject, "discover", "agent", uniqueIds)
+      ? authorizeMany(casSubject, "discover", "agent", uniqueIds, {}, options.trustedContext)
       : Promise.resolve(new Map<string, Awaited<ReturnType<typeof authorize>>>()),
   ]);
 

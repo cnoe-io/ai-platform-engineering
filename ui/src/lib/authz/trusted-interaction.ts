@@ -7,7 +7,7 @@ const HEADER_KIND = "x-caipe-interaction-kind";
 const HEADER_TIMESTAMP = "x-caipe-interaction-timestamp";
 const HEADER_SIGNATURE = "x-caipe-interaction-signature";
 
-type TrustedInteraction = NonNullable<TrustedAuthorizeContext["interaction"]>;
+export type TrustedInteraction = NonNullable<TrustedAuthorizeContext["interaction"]>;
 
 function signingSecret(source: string): string {
   if (source === "slack") {
@@ -95,8 +95,8 @@ export const TRUSTED_INTERACTION_HEADERS = {
   signature: HEADER_SIGNATURE,
 } as const;
 
-const INTERNAL_CONTEXT_HEADER = "x-caipe-trusted-interaction";
-const INTERNAL_SIGNATURE_HEADER = "x-caipe-trusted-interaction-signature";
+const INTERNAL_CONTEXT_HEADER = "X-CAIPE-Trusted-Interaction";
+const INTERNAL_SIGNATURE_HEADER = "X-CAIPE-Trusted-Interaction-Signature";
 
 function internalSecret(): string {
   return process.env.CAIPE_AGENT_CONTEXT_HMAC_SECRET?.trim() || "";
@@ -113,21 +113,42 @@ export function addTrustedInteractionToBody(
   delete context._caipe_trusted_interaction;
   delete context._caipe_trusted_interaction_signature;
 
-  const secret = internalSecret();
-  if (interaction.verified && interaction.conversationKind === "direct" && secret) {
-    const now = Math.floor(Date.now() / 1000);
-    const token = Buffer.from(JSON.stringify({
-      source: interaction.source,
-      conversationKind: interaction.conversationKind,
-      iat: now,
-      exp: now + MAX_CLOCK_SKEW_SECONDS,
-    })).toString("base64url");
+  const headers = trustedInteractionProofHeaders(interaction);
+  const token = headers[INTERNAL_CONTEXT_HEADER];
+  const signature = headers[INTERNAL_SIGNATURE_HEADER];
+  if (token && signature) {
     context._caipe_trusted_interaction = token;
-    context._caipe_trusted_interaction_signature = createHmac("sha256", secret)
-      .update(token)
-      .digest("hex");
+    context._caipe_trusted_interaction_signature = signature;
   }
   body.client_context = context;
+}
+
+function isPermittedPrivateInteraction(interaction: TrustedInteraction): boolean {
+  if (interaction.source === "web" && interaction.conversationKind === "personal") {
+    return true;
+  }
+  return interaction.verified
+    && interaction.conversationKind === "direct"
+    && (interaction.source === "slack" || interaction.source === "webex");
+}
+
+/** Mint the short-lived BFF proof forwarded to credential and MCP enforcement. */
+export function trustedInteractionProofHeaders(
+  interaction: TrustedInteraction,
+): Record<string, string> {
+  const secret = internalSecret();
+  if (!secret || !isPermittedPrivateInteraction(interaction)) return {};
+  const now = Math.floor(Date.now() / 1000);
+  const token = Buffer.from(JSON.stringify({
+    source: interaction.source,
+    conversationKind: interaction.conversationKind,
+    iat: now,
+    exp: now + MAX_CLOCK_SKEW_SECONDS,
+  })).toString("base64url");
+  return {
+    [INTERNAL_CONTEXT_HEADER]: token,
+    [INTERNAL_SIGNATURE_HEADER]: createHmac("sha256", secret).update(token).digest("hex"),
+  };
 }
 
 export function trustedInteractionFromInternalHeaders(headers: Headers): TrustedInteraction {
@@ -143,8 +164,11 @@ export function trustedInteractionFromInternalHeaders(headers: Headers): Trusted
     const payload = JSON.parse(Buffer.from(token, "base64url").toString("utf8")) as Record<string, unknown>;
     const now = Math.floor(Date.now() / 1000);
     if (
-      (payload.source !== "slack" && payload.source !== "webex")
-      || payload.conversationKind !== "direct"
+      !(
+        (payload.source === "web" && payload.conversationKind === "personal")
+        || ((payload.source === "slack" || payload.source === "webex")
+          && payload.conversationKind === "direct")
+      )
       || typeof payload.iat !== "number"
       || typeof payload.exp !== "number"
       || payload.iat > now + MAX_CLOCK_SKEW_SECONDS
@@ -152,7 +176,11 @@ export function trustedInteractionFromInternalHeaders(headers: Headers): Trusted
     ) {
       return { source: "api", conversationKind: "unknown", verified: false };
     }
-    return { source: payload.source, conversationKind: "direct", verified: true };
+    return {
+      source: payload.source,
+      conversationKind: payload.conversationKind,
+      verified: true,
+    } as TrustedInteraction;
   } catch {
     return { source: "api", conversationKind: "unknown", verified: false };
   }

@@ -14,6 +14,7 @@ withErrorHandler,
 } from "@/lib/api-middleware";
 import { getCollection } from "@/lib/mongodb";
 import { CREDENTIAL_COLLECTIONS } from "@/lib/credentials/collections";
+import { trustedInteractionFromRequest } from "@/lib/authz/trusted-interaction";
 import { agentGatewayMcpEndpointUrl } from "@/lib/rbac/agentgateway-mcp-discovery";
 import {
   isAgentGatewayManagedEndpoint,
@@ -296,7 +297,10 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       action: "read" as const,
       id: (server: MCPServerConfig) => String(server._id),
     };
-    const permissionOptions = { bypassForOrgAdmin: true as const };
+    const permissionOptions = {
+      bypassForOrgAdmin: true as const,
+      trustedContext: { interaction: trustedInteractionFromRequest(request) },
+    };
     const requestedId = new URL(request.url).searchParams.get("id")?.trim();
 
     if (requestedId) {
