@@ -7,8 +7,7 @@
 {{- $vpaEnabled := or .Values.vpa.enabled (and $globalVpa $globalVpa.enabled) }}
 {{- if $vpaEnabled }}
 {{- $vpa := mergeOverwrite (deepCopy $globalVpa) .Values.vpa }}
-{{- $ingestors := include "rag-ingestors.configuredIngestors" . | fromYamlArray }}
-{{- range $ingestor := $ingestors }}
+{{- range $ingestor := .Values.ingestors }}
 ---
 apiVersion: autoscaling.k8s.io/v1
 kind: VerticalPodAutoscaler

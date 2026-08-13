@@ -88,17 +88,3 @@ helm show values oci://ghcr.io/cnoe-io/charts/rag-ingestors --version 0.5.68
 | vpa.minAllowed.cpu | string | `"50m"` |  |
 | vpa.minAllowed.memory | string | `"128Mi"` |  |
 | vpa.updateMode | string | `"InPlaceOrRecreate"` |  |
-| webloader.enabled | bool | `false` |  |
-| webloader.env.WEBLOADER_MAX_INGESTION_TASKS | string | `"5"` |  |
-| webloader.envFrom | list | `[]` |  |
-| webloader.initDelaySeconds | int | `0` |  |
-| webloader.logLevel | string | `"INFO"` |  |
-| webloader.name | string | `"webloader"` |  |
-| webloader.resources.limits.cpu | string | `"500m"` |  |
-| webloader.resources.limits.ephemeral-storage | string | `"1Gi"` |  |
-| webloader.resources.limits.memory | string | `"1Gi"` |  |
-| webloader.resources.requests.cpu | string | `"100m"` |  |
-| webloader.resources.requests.ephemeral-storage | string | `"256Mi"` |  |
-| webloader.resources.requests.memory | string | `"256Mi"` |  |
-| webloader.syncInterval | int | `86400` |  |
-| webloader.type | string | `"webloader"` |  |

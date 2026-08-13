@@ -73,7 +73,15 @@ def test_rag_server_never_contains_a_web_ingestor_sidecar() -> None:
   ]
 
 
-def test_custom_ingestor_list_does_not_remove_webloader() -> None:
+def test_webloader_is_a_regular_ingestor_list_item() -> None:
+  values = yaml.safe_load((RAG_STACK / "values.yaml").read_text())
+  ingestors = values["rag-ingestors"]["ingestors"]
+
+  assert ingestors[0]["name"] == "webloader"
+  assert ingestors[0]["type"] == "webloader"
+
+
+def test_custom_ingestor_list_uses_normal_helm_replacement_semantics() -> None:
   deployments = _deployments(
     _render_rag_stack(
       {
@@ -87,16 +95,8 @@ def test_custom_ingestor_list_does_not_remove_webloader() -> None:
     for deployment in deployments
   }
 
-  assert {"jira", "webloader"}.issubset(ingestor_types)
-
-
-def test_webloader_can_be_disabled_explicitly() -> None:
-  deployments = _deployments(_render_rag_stack({"rag-ingestors.webloader.enabled": "false"}))
-
-  assert all(
-    deployment["metadata"]["labels"].get("app.kubernetes.io/ingestor-type") != "webloader"
-    for deployment in deployments
-  )
+  assert "jira" in ingestor_types
+  assert "webloader" not in ingestor_types
 
 
 def test_legacy_web_ingestor_sidecar_values_are_ignored() -> None:

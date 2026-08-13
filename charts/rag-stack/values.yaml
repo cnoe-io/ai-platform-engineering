@@ -327,32 +327,28 @@ rag-ingestors:
   # Global configuration
   ragServerUrl: "http://rag-server:9446"
 
-  # Web ingestion is always a separate Deployment and remains enabled when an
-  # operator replaces the additional ingestors list below.
-  webloader:
-    enabled: true
-    name: webloader
-    type: webloader
-    syncInterval: 86400
-    initDelaySeconds: 0
-    logLevel: INFO
-    # Authentication defaults come from global.rag.ingestorOidc.
-    env:
-      WEBLOADER_MAX_INGESTION_TASKS: "5"
-    envFrom: []
-    resources:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-        ephemeral-storage: 256Mi
-      limits:
-        cpu: 500m
-        memory: 1Gi
-        ephemeral-storage: 1Gi
-
-  # Additional ingestors. Each entry creates a separate Deployment.
+  # Each ingestor creates a separate Deployment.
   # See charts/rag-ingestors/values.yaml for detailed examples.
-  ingestors: []
+  ingestors:
+    - name: webloader
+      type: webloader
+      syncInterval: 86400
+      initDelaySeconds: 0
+      logLevel: INFO
+      # Authentication defaults come from global.rag.ingestorOidc.
+      env:
+        WEBLOADER_MAX_INGESTION_TASKS: "5"
+      envFrom: []
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+          ephemeral-storage: 256Mi
+        limits:
+          cpu: 500m
+          memory: 1Gi
+          ephemeral-storage: 1Gi
+
     # Example: Deploy AWS and K8s ingestors
     # - name: aws-prod
     #   type: aws

@@ -45,28 +45,6 @@ securityContext:
   seccompProfile:
     type: RuntimeDefault
 
-# Web ingestion runs as a standalone Deployment. It is separate from the list
-# below so replacing that list cannot remove the platform's web crawler.
-webloader:
-  enabled: false
-  name: webloader
-  type: webloader
-  syncInterval: 86400
-  initDelaySeconds: 0
-  logLevel: INFO
-  env:
-    WEBLOADER_MAX_INGESTION_TASKS: "5"
-  envFrom: []
-  resources:
-    requests:
-      cpu: 100m
-      memory: 256Mi
-      ephemeral-storage: 256Mi
-    limits:
-      cpu: 500m
-      memory: 1Gi
-      ephemeral-storage: 1Gi
-
 # List of ingestors to deploy
 # Each ingestor will create a separate Deployment
 # By default, no ingestors are deployed
