@@ -115,6 +115,7 @@ function createMockCollection() {
     insertOne: jest.fn().mockResolvedValue({ insertedId: new ObjectId() }),
     insertMany: jest.fn().mockResolvedValue({ insertedCount: 0 }),
     updateOne: jest.fn().mockResolvedValue({ modifiedCount: 1 }),
+    updateMany: jest.fn().mockResolvedValue({ modifiedCount: 1 }),
     countDocuments: jest.fn().mockResolvedValue(0),
   };
 }
@@ -512,6 +513,10 @@ describe('PATCH /api/chat/conversations/[id]/share — permission updates', () =
       .mockResolvedValue({ ...conv });
     mockCollections['conversations'] = convsCol;
 
+    const teamsCol = createMockCollection();
+    teamsCol.findOne.mockResolvedValue({ _id: new ObjectId(TEAM_ID), name: 'Example Team' });
+    mockCollections['teams'] = teamsCol;
+
     mockGetServerSession.mockResolvedValue({
       user: { email: OWNER_EMAIL, name: 'Owner' },
       sub: 'owner-sub',
@@ -532,6 +537,52 @@ describe('PATCH /api/chat/conversations/[id]/share — permission updates', () =
       { _id: conv._id },
       { $set: { 'sharing.team_permissions': { [TEAM_ID]: 'comment' } } }
     );
+    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
+      writes: expect.arrayContaining([
+        { user: `team:${TEAM_ID}#member`, relation: 'reader', object: `conversation:${conv._id}` },
+        { user: `team:${TEAM_ID}#member`, relation: 'writer', object: `conversation:${conv._id}` },
+      ]),
+      deletes: [],
+    });
+  });
+
+  it('removes the team writer grant when changing permission to view', async () => {
+    const conv = makeConversation({
+      sharing: {
+        shared_with: [],
+        shared_with_teams: [TEAM_ID],
+        team_permissions: { [TEAM_ID]: 'comment' },
+      },
+    });
+    const convsCol = createMockCollection();
+    convsCol.findOne.mockResolvedValueOnce(conv).mockResolvedValue({ ...conv });
+    mockCollections['conversations'] = convsCol;
+    const teamsCol = createMockCollection();
+    teamsCol.findOne.mockResolvedValue({ _id: new ObjectId(TEAM_ID), name: 'Example Team' });
+    mockCollections['teams'] = teamsCol;
+    mockGetServerSession.mockResolvedValue({
+      user: { email: OWNER_EMAIL, name: 'Owner' },
+      sub: 'owner-sub',
+    });
+
+    const { PATCH } = await import('@/app/api/chat/conversations/[id]/share/route');
+    const req = new NextRequest(`http://localhost/api/chat/conversations/${TEST_CONV_ID}/share`, {
+      method: 'PATCH',
+      body: JSON.stringify({ team_id: TEAM_ID, permission: 'view' }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    const res = await PATCH(req, { params: Promise.resolve({ id: conv._id }) });
+
+    expect(res.status).toBe(200);
+    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
+      writes: [
+        { user: `team:${TEAM_ID}#member`, relation: 'reader', object: `conversation:${conv._id}` },
+      ],
+      deletes: [
+        { user: `team:${TEAM_ID}#member`, relation: 'writer', object: `conversation:${conv._id}` },
+      ],
+    });
   });
 
   it('rejects PATCH with invalid permission value', async () => {
@@ -578,6 +629,120 @@ describe('PATCH /api/chat/conversations/[id]/share — permission updates', () =
     const res = await PATCH(req, { params: Promise.resolve({ id: conv._id }) });
 
     expect(res.status).toBe(403);
+  });
+});
+
+describe('DELETE /api/chat/conversations/[id]/share — access removal', () => {
+  it('revokes direct user access and removes OpenFGA grants', async () => {
+    const conv = makeConversation({
+      sharing: { shared_with: [VIEWER_EMAIL], shared_with_teams: [] },
+    });
+    const convsCol = createMockCollection();
+    convsCol.findOne
+      .mockResolvedValueOnce(conv)
+      .mockResolvedValue({ ...conv, sharing: { ...conv.sharing, shared_with: [] } });
+    mockCollections['conversations'] = convsCol;
+    const sharingAccessCol = createMockCollection();
+    mockCollections['sharing_access'] = sharingAccessCol;
+    const usersCol = createMockCollection();
+    usersCol.find.mockReturnValue({
+      project: jest.fn().mockReturnValue({
+        toArray: jest.fn().mockResolvedValue([
+          { email: VIEWER_EMAIL, keycloak_sub: 'viewer-sub' },
+        ]),
+      }),
+    });
+    mockCollections['users'] = usersCol;
+    mockGetServerSession.mockResolvedValue({
+      user: { email: OWNER_EMAIL, name: 'Owner' },
+      sub: 'owner-sub',
+    });
+
+    const { DELETE } = await import('@/app/api/chat/conversations/[id]/share/route');
+    const req = new NextRequest(`http://localhost/api/chat/conversations/${TEST_CONV_ID}/share`, {
+      method: 'DELETE',
+      body: JSON.stringify({ email: VIEWER_EMAIL }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    const res = await DELETE(req, { params: Promise.resolve({ id: conv._id }) });
+
+    expect(res.status).toBe(200);
+    expect(sharingAccessCol.updateMany).toHaveBeenCalledWith(
+      {
+        conversation_id: conv._id,
+        granted_to: { $in: [VIEWER_EMAIL] },
+        revoked_at: { $exists: false },
+      },
+      { $set: { revoked_at: expect.any(Date) } },
+    );
+    expect(convsCol.updateOne).toHaveBeenCalledWith(
+      { _id: conv._id },
+      { $set: { 'sharing.shared_with': [] } },
+    );
+    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
+      writes: [],
+      deletes: expect.arrayContaining([
+        { user: 'user:viewer-sub', relation: 'reader', object: `conversation:${conv._id}` },
+        { user: 'user:viewer-sub', relation: 'writer', object: `conversation:${conv._id}` },
+      ]),
+    });
+  });
+
+  it('removes team access, permissions, and OpenFGA grants', async () => {
+    const conv = makeConversation({
+      sharing: {
+        shared_with: [],
+        shared_with_teams: ['platform'],
+        team_permissions: { platform: 'comment' },
+      },
+    });
+    const convsCol = createMockCollection();
+    convsCol.findOne
+      .mockResolvedValueOnce(conv)
+      .mockResolvedValue({
+        ...conv,
+        sharing: { ...conv.sharing, shared_with_teams: [], team_permissions: {} },
+      });
+    mockCollections['conversations'] = convsCol;
+    const teamsCol = createMockCollection();
+    teamsCol.findOne.mockResolvedValue({
+      _id: new ObjectId(TEAM_ID),
+      slug: 'platform',
+      name: 'Platform',
+    });
+    mockCollections['teams'] = teamsCol;
+    mockGetServerSession.mockResolvedValue({
+      user: { email: OWNER_EMAIL, name: 'Owner' },
+      sub: 'owner-sub',
+    });
+
+    const { DELETE } = await import('@/app/api/chat/conversations/[id]/share/route');
+    const req = new NextRequest(`http://localhost/api/chat/conversations/${TEST_CONV_ID}/share`, {
+      method: 'DELETE',
+      body: JSON.stringify({ team_id: 'platform' }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    const res = await DELETE(req, { params: Promise.resolve({ id: conv._id }) });
+
+    expect(res.status).toBe(200);
+    expect(convsCol.updateOne).toHaveBeenCalledWith(
+      { _id: conv._id },
+      {
+        $set: {
+          'sharing.shared_with_teams': [],
+          'sharing.team_permissions': {},
+        },
+      },
+    );
+    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
+      writes: [],
+      deletes: expect.arrayContaining([
+        { user: 'team:platform#member', relation: 'reader', object: `conversation:${conv._id}` },
+        { user: 'team:platform#member', relation: 'writer', object: `conversation:${conv._id}` },
+      ]),
+    });
   });
 });
 
