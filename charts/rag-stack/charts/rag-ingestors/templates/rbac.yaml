@@ -1,4 +1,5 @@
-{{- range $ingestor := .Values.ingestors }}
+{{- $ingestors := include "rag-ingestors.configuredIngestors" . | fromYamlArray }}
+{{- range $ingestor := $ingestors }}
 {{- if and (eq $ingestor.type "k8s") ($ingestor.rbac) ($ingestor.rbac.create) }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -32,4 +33,3 @@ subjects:
     namespace: {{ $.Release.Namespace }}
 {{- end }}
 {{- end }}
-

@@ -1,0 +1,125 @@
+# Copyright 2026 CNOE
+# SPDX-License-Identifier: Apache-2.0
+
+"""Regression tests for the standalone webloader Helm deployment."""
+
+import subprocess
+from pathlib import Path
+
+import yaml
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+RAG_STACK = REPO_ROOT / "charts/rag-stack"
+RAG_SERVER = RAG_STACK / "charts/rag-server"
+
+
+def _render_rag_stack(set_values: dict[str, str] | None = None) -> list[dict]:
+  command = [
+    "helm",
+    "template",
+    "test",
+    str(RAG_STACK),
+    "--set",
+    "neo4j.enabled=false",
+    "--set",
+    "milvus.enabled=false",
+    "--set",
+    "agent-ontology.enabled=false",
+  ]
+  for key, value in (set_values or {}).items():
+    command.extend(["--set", f"{key}={value}"])
+  result = subprocess.run(
+    command,
+    capture_output=True,
+    check=True,
+    text=True,
+  )
+  return [document for document in yaml.safe_load_all(result.stdout) if document]
+
+
+def _deployments(documents: list[dict]) -> list[dict]:
+  return [document for document in documents if document.get("kind") == "Deployment"]
+
+
+def _environment(container: dict) -> dict[str, object]:
+  return {entry["name"]: entry.get("value") for entry in container.get("env", [])}
+
+
+def test_webloader_runs_in_its_own_deployment() -> None:
+  deployments = _deployments(_render_rag_stack())
+  webloader = next(
+    deployment
+    for deployment in deployments
+    if deployment["metadata"]["labels"].get("app.kubernetes.io/ingestor-type") == "webloader"
+  )
+  container = webloader["spec"]["template"]["spec"]["containers"][0]
+
+  assert webloader["metadata"]["name"].endswith("-rag-ingestors-webloader")
+  assert container["name"] == "ingestor"
+  assert "caipe-rag-ingestors" in container["image"]
+  assert _environment(container)["INGESTOR_TYPE"] == "webloader"
+  assert _environment(container)["RAG_SERVER_URL"] == "http://rag-server:9446"
+
+
+def test_rag_server_never_contains_a_web_ingestor_sidecar() -> None:
+  deployments = _deployments(_render_rag_stack())
+  rag_server = next(
+    deployment for deployment in deployments if deployment["metadata"]["name"] == "rag-server"
+  )
+
+  assert [container["name"] for container in rag_server["spec"]["template"]["spec"]["containers"]] == [
+    "rag-server"
+  ]
+
+
+def test_custom_ingestor_list_does_not_remove_webloader() -> None:
+  deployments = _deployments(
+    _render_rag_stack(
+      {
+        "rag-ingestors.ingestors[0].name": "jira-example",
+        "rag-ingestors.ingestors[0].type": "jira",
+      }
+    )
+  )
+  ingestor_types = {
+    deployment["metadata"]["labels"].get("app.kubernetes.io/ingestor-type")
+    for deployment in deployments
+  }
+
+  assert {"jira", "webloader"}.issubset(ingestor_types)
+
+
+def test_webloader_can_be_disabled_explicitly() -> None:
+  deployments = _deployments(_render_rag_stack({"rag-ingestors.webloader.enabled": "false"}))
+
+  assert all(
+    deployment["metadata"]["labels"].get("app.kubernetes.io/ingestor-type") != "webloader"
+    for deployment in deployments
+  )
+
+
+def test_legacy_web_ingestor_sidecar_values_are_ignored() -> None:
+  result = subprocess.run(
+    [
+      "helm",
+      "template",
+      "test",
+      str(RAG_SERVER),
+      "--set",
+      "global.vpa.enabled=false",
+      "--set",
+      "global.image.tag=test",
+      "--set",
+      "webIngestor.enabled=true",
+    ],
+    capture_output=True,
+    check=True,
+    text=True,
+  )
+  documents = [document for document in yaml.safe_load_all(result.stdout) if document]
+  deployment = _deployments(documents)[0]
+
+  assert [container["name"] for container in deployment["spec"]["template"]["spec"]["containers"]] == [
+    "rag-server"
+  ]

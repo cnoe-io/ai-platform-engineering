@@ -49,6 +49,25 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
+Build the complete ingestor list. Webloader is configured separately so an
+operator-supplied ingestors list cannot accidentally remove it.
+*/}}
+{{- define "rag-ingestors.configuredIngestors" -}}
+{{- $configured := .Values.ingestors | default list -}}
+{{- $webloader := .Values.webloader | default dict -}}
+{{- if get $webloader "enabled" -}}
+{{- $webloaderName := get $webloader "name" -}}
+{{- range $ingestor := $configured -}}
+{{- if eq (get $ingestor "name") $webloaderName -}}
+{{- fail (printf "rag-ingestors.ingestors contains reserved webloader name %q; configure it with rag-ingestors.webloader instead" $webloaderName) -}}
+{{- end -}}
+{{- end -}}
+{{- $configured = prepend $configured (omit (deepCopy $webloader) "enabled") -}}
+{{- end -}}
+{{- toYaml $configured -}}
+{{- end -}}
+
+{{/*
 Create the name of the service account to use
 */}}
 {{- define "rag-ingestors.serviceAccountName" -}}

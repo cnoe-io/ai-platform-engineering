@@ -123,41 +123,6 @@ spec:
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-        {{- if .Values.webIngestor.enabled }}
-        # Web Ingestor sidecar container
-        - name: web-ingestor
-          {{- with .Values.webIngestor.securityContext }}
-          securityContext:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
-          image: "{{ include "rag-server.imageRepository" (dict "root" . "repository" .Values.webIngestor.image.repository) }}:{{ .Values.webIngestor.image.tag | default (include "rag-server.appVersion" .) }}"
-          imagePullPolicy: {{ .Values.webIngestor.image.pullPolicy }}
-          {{- with .Values.webIngestor.envFrom }}
-          envFrom:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
-          env:
-            # Fixed/computed values
-            - name: INGESTOR_TYPE
-              value: "webloader"
-            - name: REDIS_URL
-              value: {{ include "rag-server.redisUrl" . | quote }}
-            - name: RAG_SERVER_URL
-              value: "http://localhost:9446"
-            # All other configuration via env map
-            {{- range $key, $value := .Values.webIngestor.env }}
-            - name: {{ $key }}
-              value: {{ $value | quote }}
-            {{- end }}
-          {{- with .Values.webIngestor.resources }}
-          resources:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
-          {{- with .Values.webIngestor.extraVolumeMounts }}
-          volumeMounts:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
-        {{- end }}
       {{- with .Values.extraVolumes }}
       volumes:
         {{- toYaml . | nindent 8 }}
@@ -174,4 +139,3 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-

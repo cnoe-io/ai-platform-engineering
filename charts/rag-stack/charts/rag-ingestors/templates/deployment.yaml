@@ -1,4 +1,5 @@
-{{- range $ingestor := .Values.ingestors }}
+{{- $ingestors := include "rag-ingestors.configuredIngestors" . | fromYamlArray }}
+{{- range $ingestor := $ingestors }}
 ---
 apiVersion: apps/v1
 kind: Deployment
