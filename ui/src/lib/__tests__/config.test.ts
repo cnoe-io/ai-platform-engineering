@@ -105,6 +105,7 @@ describe('getServerConfig', () => {
       expect(cfg.spinnerColor).toBeNull();
       expect(cfg.showPoweredBy).toBe(true);
       expect(cfg.supportEmail).toBe('support@example.com');
+      expect(cfg.defaultTeamSlug).toBeNull();
       expect(cfg.allowDevAdminWhenSsoDisabled).toBe(false);
       expect(cfg.unsafeRbacBypassEnabled).toBe(false);
       expect(cfg.auditLogsEnabled).toBe(false);
@@ -141,7 +142,7 @@ describe('getServerConfig', () => {
         'ragEnabled', 'mongodbEnabled', 'credentialsEnabled', 'userConnectionsEnabled',
         'tagline', 'description', 'appName', 'logoUrl', 'envBadge',
         'gradientFrom', 'gradientTo', 'logoStyle', 'spinnerColor',
-        'showPoweredBy', 'supportEmail', 'allowDevAdminWhenSsoDisabled', 'unsafeRbacBypassEnabled',
+        'showPoweredBy', 'supportEmail', 'defaultTeamSlug', 'allowDevAdminWhenSsoDisabled', 'unsafeRbacBypassEnabled',
         'storageMode', 'enabledIntegrationIcons', 'faviconUrl',
         'docsUrl', 'sourceUrl', 'workflowRunnerEnabled', 'workflowsEnabled', 'dynamicAgentsEnabled', 'feedbackEnabled',
         'allowBuiltinSkillMutation',
@@ -168,6 +169,11 @@ describe('getServerConfig', () => {
   // ---------- Custom env vars (new names) ----------
 
   describe('custom env vars (clean names)', () => {
+    it('should read DEFAULT_TEAM_SLUG', () => {
+      process.env.DEFAULT_TEAM_SLUG = 'primary';
+      expect(getServerConfig().defaultTeamSlug).toBe('primary');
+    });
+
     it('should read SSO_ENABLED=true', () => {
       process.env.SSO_ENABLED = 'true';
       expect(getServerConfig().ssoEnabled).toBe(true);
@@ -865,7 +871,7 @@ describe('getClientConfigScript (XSS safety)', () => {
       'ragEnabled', 'mongodbEnabled', 'credentialsEnabled', 'userConnectionsEnabled',
       'tagline', 'description', 'appName', 'logoUrl', 'envBadge',
       'gradientFrom', 'gradientTo', 'logoStyle', 'spinnerColor',
-      'showPoweredBy', 'supportEmail', 'allowDevAdminWhenSsoDisabled', 'unsafeRbacBypassEnabled',
+      'showPoweredBy', 'supportEmail', 'defaultTeamSlug', 'allowDevAdminWhenSsoDisabled', 'unsafeRbacBypassEnabled',
       'storageMode', 'enabledIntegrationIcons', 'faviconUrl',
       'docsUrl', 'sourceUrl', 'workflowRunnerEnabled', 'workflowsEnabled', 'dynamicAgentsEnabled', 'feedbackEnabled',
       'allowBuiltinSkillMutation',
