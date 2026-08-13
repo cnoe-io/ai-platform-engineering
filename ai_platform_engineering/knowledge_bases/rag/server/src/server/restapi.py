@@ -2676,6 +2676,7 @@ async def ingest_url(
       last_updated=int(time.time()),
       default_chunk_size=url_request.settings.chunk_size,
       default_chunk_overlap=url_request.settings.chunk_overlap,
+      reload_interval=url_request.reload_interval,
       owner_team_slug=(url_request.owner_team_slug or "").strip() or None,
       creator_subject=user.subject,
       owner_subject=user.subject if not (url_request.owner_team_slug or "").strip() else None,

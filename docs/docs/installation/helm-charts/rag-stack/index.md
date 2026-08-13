@@ -171,7 +171,6 @@ helm show values oci://ghcr.io/cnoe-io/charts/rag-stack --version 0.5.68
 | rag-ingestors.ingestors[0].resources.requests.cpu | string | `"100m"` |  |
 | rag-ingestors.ingestors[0].resources.requests.ephemeral-storage | string | `"256Mi"` |  |
 | rag-ingestors.ingestors[0].resources.requests.memory | string | `"256Mi"` |  |
-| rag-ingestors.ingestors[0].syncInterval | int | `86400` |  |
 | rag-ingestors.ingestors[0].type | string | `"webloader"` |  |
 | rag-ingestors.ragServerUrl | string | `"http://rag-server:9446"` |  |
 | rag-redis.enabled | bool | `true` |  |

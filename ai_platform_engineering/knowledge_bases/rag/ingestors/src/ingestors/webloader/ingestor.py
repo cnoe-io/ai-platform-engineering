@@ -16,11 +16,14 @@ import uuid
 from redis.asyncio import Redis
 
 from common.ingestor import IngestorBuilder, Client
-from common.ingestor_listener import run_ingestor_listener
+from common.ingestor_listener import (
+  reload_persisted_datasources,
+  run_ingestor_listener,
+)
 from common.models.rag import DataSourceInfo
 from common.models.server import UrlIngestRequest, WebIngestorCommand, UrlReloadRequest, ScrapySettings, CrawlMode
 from common.job_manager import JobStatus, JobManager
-from common.constants import WEBLOADER_INGESTOR_NAME, WEBLOADER_INGESTOR_TYPE, MIN_RELOAD_INTERVAL
+from common.constants import WEBLOADER_INGESTOR_NAME, WEBLOADER_INGESTOR_TYPE
 from common.utils import get_logger, generate_datasource_id_from_url
 
 from loader.scrapy_loader import ScrapyLoader
@@ -33,9 +36,6 @@ logger = get_logger(__name__)
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 
 # Webloader configuration
-CHECK_INTERVAL = int(
-  os.getenv("WEBLOADER_CHECK_INTERVAL", os.getenv("SYNC_INTERVAL", "600"))
-)  # How often to check whether datasources are due for reload.
 MAX_INGESTION_TASKS = int(
   os.getenv("WEBLOADER_MAX_INGESTION_TASKS", os.getenv("MAX_CONCURRENT_JOBS", "5"))
 )  # Max concurrent on-demand ingestion tasks.
@@ -141,8 +141,10 @@ async def process_url_ingestion(client: Client, job_manager: JobManager, url_req
     try:
       if job_id:
         await job_manager.add_error_msg(job_id, error_msg)
-    except Exception:
-      pass
+    except Exception as status_error:
+      logger.warning(
+        f"Failed to record the web ingestion error for job {job_id}: {status_error}"
+      )
 
     raise
 
@@ -177,7 +179,7 @@ async def preview_url_ingestion(
     allow_non_public_urls=settings.allow_non_public_urls,
     ingestor_id=client.ingestor_id or "",
     datasource_name=url_request.description or url_request.url,
-    reload_interval=url_request.reload_interval or 86400,
+    reload_interval=url_request.reload_interval,
   )
   items_by_url: dict[str, dict[str, str]] = {}
 
@@ -260,8 +262,14 @@ async def reload_datasource(
     logger.warning(f"{message}, skipping")
     return
 
-  # Parse the UrlIngestRequest model
-  url_request = UrlIngestRequest.model_validate(url_ingest_request_data)
+  # Older datasource metadata may predate the required request field. The
+  # datasource record is authoritative for its persisted refresh cadence.
+  url_request = UrlIngestRequest.model_validate(
+    {
+      **url_ingest_request_data,
+      "reload_interval": datasource_info.reload_interval,
+    }
+  )
 
   logger.info(f"Reloading datasource: {datasource_info.datasource_id}")
 
@@ -347,57 +355,15 @@ async def redis_listener(client: Client):
 
 
 async def periodic_reload(client: Client):
-  """
-  Reload datasources that are due for refresh based on their individual reload intervals.
-  Fetches datasources filtered by ingestor_id and re-ingests only those that are due.
-  Called periodically by IngestorBuilder or on-demand via Redis.
-  """
-  logger.info("Starting datasource reload check...")
-
-  # Ensure worker pool is running before attempting any reloads
-  # This handles the race condition where periodic_reload is called before redis_listener has started the pool
+  """Reload due web datasources with the shared connector scheduler."""
+  # The startup listener normally starts the pool first. This also covers a
+  # startup race and explicit reload-all commands.
   await get_worker_pool()
-
-  job_manager = JobManager(redis_client)
-  current_time = int(time.time())
-
-  try:
-    datasources = await client.list_datasources(ingestor_id=client.ingestor_id)
-    logger.info(f"Found {len(datasources)} datasources to check")
-
-    reloaded_count = 0
-    skipped_count = 0
-
-    for datasource_info in datasources:
-      try:
-        # Get per-datasource reload interval, clamp to minimum to prevent tight loops
-        ds_reload_interval = datasource_info.reload_interval
-        if ds_reload_interval < MIN_RELOAD_INTERVAL:
-          logger.warning(f"Datasource {datasource_info.datasource_id} has reload_interval {ds_reload_interval}s below minimum {MIN_RELOAD_INTERVAL}s, clamping to minimum")
-          ds_reload_interval = MIN_RELOAD_INTERVAL
-
-        # Check if datasource is due for reload
-        if datasource_info.last_updated is not None:
-          time_since_update = current_time - datasource_info.last_updated
-          if time_since_update < ds_reload_interval:
-            logger.debug(f"Skipping datasource {datasource_info.datasource_id}: last updated {time_since_update}s ago, interval is {ds_reload_interval}s")
-            skipped_count += 1
-            continue
-
-        # Datasource is due for reload (or has never been updated)
-        logger.info(f"Reloading datasource {datasource_info.datasource_id} (interval: {ds_reload_interval}s)")
-        await reload_datasource(client, job_manager, datasource_info)
-        reloaded_count += 1
-
-      except Exception as e:
-        logger.error(f"Error reloading datasource {datasource_info.datasource_id}: {e}")
-        logger.error(traceback.format_exc())
-
-    logger.info(f"Datasource reload completed: {reloaded_count} reloaded, {skipped_count} skipped")
-
-  except Exception as e:
-    logger.error(f"Error in datasource reload: {e}")
-    logger.error(traceback.format_exc())
+  await reload_persisted_datasources(
+    client,
+    reload_datasource,
+    job_manager=JobManager(redis_client),
+  )
 
 
 if __name__ == "__main__":
@@ -406,8 +372,17 @@ if __name__ == "__main__":
 
     # Build and run the ingestor with standard asyncio
     # No Twisted reactor needed - Scrapy runs in subprocess workers
-    # Note: .every(CHECK_INTERVAL) sets how often to check if datasources need reloading
-    IngestorBuilder().name(WEBLOADER_INGESTOR_NAME).type(WEBLOADER_INGESTOR_TYPE).description("Default ingestor for websites and sitemaps").metadata({}).sync_with_fn(periodic_reload).with_startup(redis_listener).every(CHECK_INTERVAL).run()
+    (
+      IngestorBuilder()
+      .name(WEBLOADER_INGESTOR_NAME)
+      .type(WEBLOADER_INGESTOR_TYPE)
+      .description("Default ingestor for websites and sitemaps")
+      .metadata({})
+      .sync_with_fn(periodic_reload)
+      .with_startup(redis_listener)
+      .schedule_from_datasources()
+      .run()
+    )
 
   except KeyboardInterrupt:
     logger.info("Webloader ingestor interrupted by user")

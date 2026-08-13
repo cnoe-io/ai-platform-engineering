@@ -13,7 +13,7 @@ PAGE_URL = "https://wiki.example.com/wiki/spaces/ENG/pages/123456/Overview"
 
 
 def _request(**overrides: object) -> ConfluenceIngestRequest:
-  return ConfluenceIngestRequest(url=PAGE_URL, **overrides)
+  return ConfluenceIngestRequest(url=PAGE_URL, reload_interval=86400, **overrides)
 
 
 def test_new_confluence_source_identity_includes_root_page() -> None:

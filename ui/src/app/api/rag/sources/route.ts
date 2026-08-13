@@ -999,7 +999,14 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     body.reload_interval,
     "reload_interval",
     60,
-  ) ?? DEFAULT_RELOAD_INTERVAL;
+  );
+  if (reloadInterval === undefined) {
+    throw new ApiError(
+      "reload_interval is required",
+      400,
+      "INVALID_SOURCE_PAYLOAD",
+    );
+  }
   body.default_chunk_size = defaultChunkSize;
   body.default_chunk_overlap = defaultChunkOverlap;
   body.reload_interval = reloadInterval;

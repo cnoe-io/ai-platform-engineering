@@ -332,7 +332,6 @@ rag-ingestors:
   ingestors:
     - name: webloader
       type: webloader
-      syncInterval: 86400
       initDelaySeconds: 0
       logLevel: INFO
       # Authentication defaults come from global.rag.ingestorOidc.

@@ -97,6 +97,11 @@ DEFAULT_RELOAD_INTERVAL = 86400  # 24 hours
 # Prevents excessive resource usage from too-frequent reloads
 MIN_RELOAD_INTERVAL = 60
 
+# Database-managed ingestors periodically re-read datasource schedules so a
+# source added while the worker is sleeping is picked up promptly. This is an
+# internal scheduling detail, not a datasource refresh setting.
+DATASOURCE_SCHEDULE_CHECK_INTERVAL = 60
+
 
 # Redis key prefix for userinfo cache (fetched from OIDC userinfo endpoint)
 REDIS_USERINFO_CACHE_PREFIX = "rag/rbac/userinfo_cache:"

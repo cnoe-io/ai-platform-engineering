@@ -18,7 +18,11 @@ from requests.auth import HTTPBasicAuth
 from langchain_core.documents import Document
 
 from common.ingestor import IngestorBuilder, Client
-from common.ingestor_listener import reload_persisted_datasources, run_ingestor_listener
+from common.ingestor_listener import (
+    configured_reload_interval,
+    reload_persisted_datasources,
+    run_ingestor_listener,
+)
 from common.models.rag import DataSourceInfo, DocumentMetadata
 from common.models.server import (
     JiraIngestRequest,
@@ -30,8 +34,6 @@ from common import utils
 
 logger = utils.get_logger(__name__)
 
-# Sync configuration
-sync_interval = int(os.environ.get("SYNC_INTERVAL", "86400"))  # Default 24 hours
 init_delay = int(os.environ.get("INIT_DELAY_SECONDS", "0"))
 
 MAX_INGESTION_TASKS = int(os.environ.get("JIRA_MAX_INGESTION_TASKS", "5"))
@@ -224,6 +226,7 @@ def _build_issue_document(
     custom_fields: Optional[Dict[str, str]] = None,
     include_comments: bool = True,
     include_links: bool = True,
+    reload_interval: int = 86400,
 ) -> Document:
     """
     Build a RAG Document from a Jira issue dict.
@@ -333,8 +336,7 @@ def _build_issue_document(
         document_type="jira_issue",
         document_ingested_at=int(time.time()),
         document_id=f"jira-issue-{key}",
-        # sync_interval=0 is valid (single-run mode) but get_fresh_until requires >0
-        fresh_until=utils.get_fresh_until(sync_interval or 86400),
+        fresh_until=utils.get_fresh_until(reload_interval),
         title=f"[{key}] {summary}",
         metadata={
             "issue_key": key,
@@ -399,17 +401,17 @@ async def sync_jira_projects(client: Client) -> None:
             ds_slug = ds_name.lower().replace(" ", "-")
             datasource_id = f"jira-{project_key.lower()}-{ds_slug}"
 
-            # Skip if this datasource was recently synced (within sync_interval)
             existing = existing_datasources.get(datasource_id)
             if existing and (existing.metadata or {}).get("config_managed") is True:
                 logger.debug(
                     f"Skipping legacy JIRA_PROJECTS config for database-managed datasource {datasource_id}"
                 )
                 continue
-            if existing and existing.last_updated and (now - existing.last_updated) < sync_interval:
+            reload_interval = configured_reload_interval(ds_config, existing)
+            if existing and existing.last_updated and (now - existing.last_updated) < reload_interval:
                 logger.info(
                     f"Skipping {project_key}/{ds_name}: last synced {now - existing.last_updated}s ago "
-                    f"(interval: {sync_interval}s)"
+                    f"(interval: {reload_interval}s)"
                 )
                 continue
 
@@ -437,7 +439,7 @@ async def sync_jira_projects(client: Client) -> None:
                     last_updated=int(time.time()),
                     default_chunk_size=existing.default_chunk_size if existing else 10000,
                     default_chunk_overlap=existing.default_chunk_overlap if existing else 2000,
-                    reload_interval=sync_interval,
+                    reload_interval=reload_interval,
                     creator_subject=existing.creator_subject if existing else None,
                     owner_subject=existing.owner_subject if existing else None,
                     owner_team_slug=existing.owner_team_slug if existing else None,
@@ -449,7 +451,6 @@ async def sync_jira_projects(client: Client) -> None:
                         "datasource_name": ds_name,
                         "jira_url": JIRA_URL,
                         "jql": jql,
-                        "reload_interval": sync_interval,
                         "custom_fields": ds_custom_fields,
                         "include_comments": ds_include_comments,
                         "include_links": ds_include_links,
@@ -476,6 +477,7 @@ async def sync_jira_projects(client: Client) -> None:
                         custom_fields=ds_custom_fields,
                         include_comments=ds_include_comments,
                         include_links=ds_include_links,
+                        reload_interval=reload_interval,
                     )
                     documents.append(doc)
                 except Exception as e:
@@ -493,7 +495,7 @@ async def sync_jira_projects(client: Client) -> None:
                 last_updated=int(time.time()),
                 default_chunk_size=existing.default_chunk_size if existing else 10000,
                 default_chunk_overlap=existing.default_chunk_overlap if existing else 2000,
-                reload_interval=sync_interval,
+                reload_interval=reload_interval,
                 creator_subject=existing.creator_subject if existing else None,
                 owner_subject=existing.owner_subject if existing else None,
                 owner_team_slug=existing.owner_team_slug if existing else None,
@@ -506,7 +508,6 @@ async def sync_jira_projects(client: Client) -> None:
                     "jira_url": JIRA_URL,
                     "jql": jql,
                     "issue_count": len(documents),
-                    "reload_interval": sync_interval,
                     "custom_fields": ds_custom_fields,
                     "include_comments": ds_include_comments,
                     "include_links": ds_include_links,
@@ -528,7 +529,7 @@ async def sync_jira_projects(client: Client) -> None:
                     job_id=job_id,
                     datasource_id=datasource_id,
                     documents=documents,
-                    fresh_until=utils.get_fresh_until(sync_interval or 86400),
+                    fresh_until=utils.get_fresh_until(reload_interval),
                 )
                 await client.update_job(
                     job_id=job_id,
@@ -554,6 +555,7 @@ async def _fetch_and_build_documents(
     custom_fields: Optional[Dict[str, str]],
     include_comments: bool,
     include_links: bool,
+    reload_interval: int,
 ) -> List[Document]:
     """Run a JQL search and build RAG documents for the resulting issues."""
     standard_fields = [
@@ -593,6 +595,7 @@ async def _fetch_and_build_documents(
                 custom_fields=custom_fields,
                 include_comments=include_comments,
                 include_links=include_links,
+                reload_interval=reload_interval,
             )
             documents.append(doc)
         except Exception as e:
@@ -639,6 +642,7 @@ async def process_project_ingestion(
             custom_fields=ingest_request.custom_fields,
             include_comments=ingest_request.include_comments,
             include_links=ingest_request.include_links,
+            reload_interval=datasource_info.reload_interval,
         )
 
         datasource_info.last_updated = int(time.time())
@@ -759,6 +763,7 @@ async def reload_datasource(
             custom_fields=custom_fields,
             include_comments=include_comments,
             include_links=include_links,
+            reload_interval=datasource_info.reload_interval,
         )
 
         datasource_info.last_updated = int(time.time())
@@ -818,7 +823,7 @@ async def redis_listener(client: Client):
                 metadata = datasource.metadata or {}
                 if metadata.get("config_managed") is True:
                     continue
-                datasource.reload_interval = sync_interval
+                datasource.reload_interval = configured_reload_interval(config, datasource)
                 datasource.metadata = {
                     **metadata,
                     "project_key": project_key,
@@ -853,7 +858,11 @@ async def redis_listener(client: Client):
 async def periodic_reload(client: Client) -> None:
     """Refresh both legacy env sources and UI/database-managed sources."""
     await sync_jira_projects(client)
-    await reload_persisted_datasources(client, reload_datasource)
+    await reload_persisted_datasources(
+        client,
+        reload_datasource,
+        config_managed_only=True,
+    )
 
 
 async def reload_all_jira_projects(client: Client) -> None:
@@ -870,12 +879,11 @@ def main() -> None:
         .metadata({
             "jira_url": JIRA_URL,
             "projects": projects,
-            "sync_interval": sync_interval,
             "init_delay": init_delay,
         }) \
         .sync_with_fn(periodic_reload) \
         .with_startup(redis_listener) \
-        .every(sync_interval) \
+        .schedule_from_datasources() \
         .with_init_delay(init_delay) \
         .run()
 

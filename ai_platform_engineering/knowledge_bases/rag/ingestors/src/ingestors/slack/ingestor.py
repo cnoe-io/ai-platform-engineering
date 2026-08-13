@@ -16,7 +16,11 @@ from slack_sdk.errors import SlackApiError
 from langchain_core.documents import Document
 
 from common.ingestor import IngestorBuilder, Client
-from common.ingestor_listener import reload_persisted_datasources, run_ingestor_listener
+from common.ingestor_listener import (
+  configured_reload_interval,
+  reload_persisted_datasources,
+  run_ingestor_listener,
+)
 from common.models.rag import DataSourceInfo, DocumentMetadata
 from common.models.server import (
   SlackIngestRequest,
@@ -29,8 +33,6 @@ from common.utils import get_logger, get_fresh_until, derive_friendly_name
 logger = get_logger(__name__)
 
 
-# Sync interval (also used to calculate fresh_until)
-sync_interval = int(os.environ.get("SYNC_INTERVAL", "86400"))  # Default 24 hours
 init_delay = int(os.environ.get("INIT_DELAY_SECONDS", "0"))
 
 MAX_INGESTION_TASKS = int(os.environ.get("SLACK_MAX_INGESTION_TASKS", "5"))
@@ -370,6 +372,14 @@ async def sync_slack_channels(client: Client):
         f"Skipping legacy SLACK_CHANNELS config for database-managed datasource {datasource_id}"
       )
       continue
+    reload_interval = configured_reload_interval(config, existing)
+    if (
+      existing
+      and existing.last_updated
+      and int(time.time()) - existing.last_updated < reload_interval
+    ):
+      logger.debug(f"Skipping #{channel_name}: datasource refresh is not due")
+      continue
     last_ts = timestamp_map.get(channel_id)
 
     # Detect lookback_days change — if it changed, reset last_ts to force
@@ -393,7 +403,7 @@ async def sync_slack_channels(client: Client):
       last_updated=int(time.time()),
       default_chunk_size=existing.default_chunk_size if existing else 10000,
       default_chunk_overlap=existing.default_chunk_overlap if existing else 2000,
-      reload_interval=sync_interval,
+      reload_interval=reload_interval,
       creator_subject=existing.creator_subject if existing else None,
       owner_subject=existing.owner_subject if existing else None,
       owner_team_slug=existing.owner_team_slug if existing else None,
@@ -429,8 +439,7 @@ async def sync_slack_channels(client: Client):
     job_id = job_response["job_id"]
 
     try:
-      # Ingest documents with fresh_until based on sync interval (not message timestamp)
-      fresh_until = get_fresh_until(sync_interval)
+      fresh_until = get_fresh_until(reload_interval)
       await client.ingest_documents(job_id=job_id, datasource_id=datasource_id, documents=documents, fresh_until=fresh_until)
 
       # Update job status
@@ -650,7 +659,7 @@ async def redis_listener(client: Client):
       config = channels.get(channel_id)
       if not isinstance(config, dict):
         continue
-      datasource.reload_interval = sync_interval
+      datasource.reload_interval = configured_reload_interval(config, datasource)
       datasource.metadata = {
         **metadata,
         "channel_id": channel_id,
@@ -680,7 +689,11 @@ async def redis_listener(client: Client):
 async def periodic_reload(client: Client) -> None:
   """Refresh both legacy env sources and UI/database-managed sources."""
   await sync_slack_channels(client)
-  await reload_persisted_datasources(client, reload_datasource)
+  await reload_persisted_datasources(
+    client,
+    reload_datasource,
+    config_managed_only=True,
+  )
 
 
 async def reload_all_slack_channels(client: Client) -> None:
@@ -695,11 +708,27 @@ def main():
   workspace_url = os.environ.get("SLACK_WORKSPACE_URL", "https://slack.com")
   channels = configured_channels()
 
-  # Build and run ingestor. `.with_startup(redis_listener)` runs the on-demand
-  # queue concurrently with the periodic persisted-datasource reload loop.
-  IngestorBuilder().name(f"slack-{bot_name}").type("slack").description(f"Slack ingestor for {workspace_url}").metadata(
-    {"workspace_url": workspace_url, "bot_name": bot_name, "sync_interval": sync_interval, "init_delay": init_delay, "channels": channels}
-  ).sync_with_fn(periodic_reload).with_startup(redis_listener).every(sync_interval).with_init_delay(init_delay).run()
+  # The on-demand queue and persisted per-datasource schedules are independent
+  # from deployment configuration.
+  (
+    IngestorBuilder()
+    .name(f"slack-{bot_name}")
+    .type("slack")
+    .description(f"Slack ingestor for {workspace_url}")
+    .metadata(
+      {
+        "workspace_url": workspace_url,
+        "bot_name": bot_name,
+        "init_delay": init_delay,
+        "channels": channels,
+      }
+    )
+    .sync_with_fn(periodic_reload)
+    .with_startup(redis_listener)
+    .schedule_from_datasources()
+    .with_init_delay(init_delay)
+    .run()
+  )
 
 
 if __name__ == "__main__":

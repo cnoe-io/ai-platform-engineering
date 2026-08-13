@@ -59,6 +59,7 @@ sys.modules.setdefault("loader.worker_types", _loader_types)
 # redis stub (module-level `Redis.from_url(...)` call)
 _redis_instance = MagicMock()
 _redis_instance.blpop = AsyncMock(return_value=None)
+_redis_instance.smembers = AsyncMock(return_value=set())
 _redis_instance.close = AsyncMock()
 _redis_mod = _make_stub_module("redis")
 _redis_async_mod = _make_stub_module("redis.asyncio")
@@ -102,6 +103,7 @@ async def test_preview_uses_bounded_real_crawl_without_persisting():
   request = UrlIngestRequest(
     url="https://example.com/docs",
     settings=ScrapySettings(max_pages=500),
+    reload_interval=86400,
   )
   client = MagicMock(ingestor_id="web:primary")
   pool = MagicMock()
@@ -174,6 +176,7 @@ def make_url_request(
 ) -> UrlIngestRequest:
   kwargs: dict = dict(
     url=url,
+    reload_interval=86400,
     check_for_sitemaps=check_for_sitemaps,
     sitemap_max_urls=sitemap_max_urls,
     ingest_type=ingest_type,
@@ -387,7 +390,7 @@ class TestGetEffectiveSettings:
 
   def test_no_settings_provided_creates_default_scrapy_settings(self):
     """When request.settings is None, default ScrapySettings are created."""
-    request = UrlIngestRequest(url="https://ex.com")
+    request = UrlIngestRequest(url="https://ex.com", reload_interval=86400)
     assert request.settings is not None  # pydantic default_factory
     eff, _ = _get_effective_settings(request, "ds-1")
     assert isinstance(eff, ScrapySettings)
@@ -705,6 +708,7 @@ class TestReloadDatasource:
   ) -> DataSourceInfo:
     url_req = UrlIngestRequest(
       url=url,
+      reload_interval=86400,
       check_for_sitemaps=check_for_sitemaps,
       sitemap_max_urls=sitemap_max_urls,
     ).model_dump()
@@ -924,7 +928,7 @@ class TestPeriodicReload:
   ) -> DataSourceInfo:
     """Returns a datasource that was updated `seconds_ago` seconds ago."""
     last_updated = int(_time()) - seconds_ago
-    meta: dict = {"url_ingest_request": UrlIngestRequest(url="https://ex.com").model_dump()}
+    meta: dict = {"url_ingest_request": UrlIngestRequest(url="https://ex.com", reload_interval=86400).model_dump()}
     return make_datasource(datasource_id, last_updated=last_updated, metadata=meta, reload_interval=reload_interval)
 
   async def test_empty_datasource_list_does_nothing(self):
@@ -956,7 +960,7 @@ class TestPeriodicReload:
 
   async def test_never_updated_datasource_is_always_reloaded(self):
     """last_updated=None means never synced → always trigger reload."""
-    meta = {"url_ingest_request": UrlIngestRequest(url="https://ex.com").model_dump()}
+    meta = {"url_ingest_request": UrlIngestRequest(url="https://ex.com", reload_interval=86400).model_dump()}
     ds = make_datasource("ds-1", last_updated=None, metadata=meta)
     client = make_client("ing-1", [ds])
 
@@ -968,7 +972,7 @@ class TestPeriodicReload:
 
   async def test_uses_default_reload_interval_when_not_in_metadata_stale(self):
     """No reload_interval in metadata → uses DEFAULT_RELOAD_INTERVAL; stale → reload."""
-    meta = {"url_ingest_request": UrlIngestRequest(url="https://ex.com").model_dump()}
+    meta = {"url_ingest_request": UrlIngestRequest(url="https://ex.com", reload_interval=86400).model_dump()}
     ds = make_datasource(
       "ds-1",
       last_updated=int(_time()) - DEFAULT_RELOAD_INTERVAL - 1,
@@ -984,7 +988,7 @@ class TestPeriodicReload:
 
   async def test_uses_default_reload_interval_when_not_in_metadata_fresh(self):
     """No reload_interval in metadata; updated just now → skip (default interval)."""
-    meta = {"url_ingest_request": UrlIngestRequest(url="https://ex.com").model_dump()}
+    meta = {"url_ingest_request": UrlIngestRequest(url="https://ex.com", reload_interval=86400).model_dump()}
     ds = make_datasource(
       "ds-1",
       last_updated=int(_time()) - 10,
@@ -1045,7 +1049,7 @@ class TestPeriodicReload:
 
     with (
       patch("ingestors.webloader.ingestor.reload_datasource", return_value=None),
-      patch.object(ingestor_module.logger, "warning") as mock_warn,
+      patch("common.ingestor_listener.logger.warning") as mock_warn,
     ):
       await periodic_reload(client)
 
@@ -1060,7 +1064,7 @@ class TestPeriodicReload:
 
     reloaded: list[str] = []
 
-    async def side_effect(c, jm, ds):
+    async def side_effect(c, jm, ds, job_id=None):
       reloaded.append(ds.datasource_id)
       if ds.datasource_id == "ds-fail":
         raise RuntimeError("boom")
@@ -1087,7 +1091,7 @@ class TestPeriodicReload:
 
     reloaded: list[str] = []
 
-    async def capture(c, jm, ds):
+    async def capture(c, jm, ds, job_id=None):
       reloaded.append(ds.datasource_id)
 
     with patch("ingestors.webloader.ingestor.reload_datasource", side_effect=capture):
@@ -1103,7 +1107,7 @@ class TestPeriodicReload:
 
     reloaded: list[str] = []
 
-    async def real_reload(c, jm, ds):
+    async def real_reload(c, jm, ds, job_id=None):
       if not ds.metadata:
         return
       reloaded.append(ds.datasource_id)
@@ -1152,7 +1156,7 @@ class TestPeriodicReload:
 
     captured_jm = []
 
-    async def capture(c, jm, ds_info):
+    async def capture(c, jm, ds_info, job_id=None):
       captured_jm.append(jm)
 
     with (
@@ -1160,6 +1164,7 @@ class TestPeriodicReload:
       patch("ingestors.webloader.ingestor.JobManager") as MockJM,
     ):
       mock_jm_instance = MagicMock()
+      mock_jm_instance.get_jobs_by_datasource = AsyncMock(return_value=[])
       MockJM.return_value = mock_jm_instance
       await periodic_reload(client)
 
@@ -1174,7 +1179,7 @@ class TestPeriodicReload:
 
     with (
       patch("ingestors.webloader.ingestor.reload_datasource", return_value=None),
-      patch.object(ingestor_module.logger, "info") as mock_info,
+      patch("common.ingestor_listener.logger.info") as mock_info,
     ):
       await periodic_reload(client)
 
@@ -1189,7 +1194,7 @@ class TestPeriodicReload:
 
     attempted: list[str] = []
 
-    async def always_fail(c, jm, ds):
+    async def always_fail(c, jm, ds, job_id=None):
       attempted.append(ds.datasource_id)
       raise RuntimeError("always fails")
 

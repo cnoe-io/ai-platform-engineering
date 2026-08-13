@@ -38,10 +38,12 @@ Required environment variables:
 Optional environment variables:
 
 - `CONFLUENCE_SPACES` - JSON object mapping space keys to page configurations. Format: `{"SPACE_KEY": [{"page_id": "123", "get_child_pages": false}], "SPACE2": []}`. Empty array fetches entire space. If not set, only user-requested pages are ingested.
-- `CONFLUENCE_SYNC_INTERVAL` - Sync interval in seconds (default: `86400` = 24 hours)
 - `CONFLUENCE_SSL_VERIFY` - Enable SSL verification (default: `true`)
 - `CONFLUENCE_MAX_CONCURRENCY` - Max concurrent page fetches (default: `5`)
 - `CONFLUENCE_MAX_INGESTION_TASKS` - Max concurrent ingestion tasks from Redis queue (default: `5`)
+
+Each datasource stores its own required refresh interval. Legacy
+`CONFLUENCE_SPACES` sources retain a 24-hour interval until imported and edited.
 
 ## Usage
 

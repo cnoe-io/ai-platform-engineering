@@ -210,7 +210,7 @@ export const ingestUrl = async (params: {
   ingest_type?: string;
   get_child_pages?: boolean;
   settings?: ScrapySettings;
-  reload_interval?: number;
+  reload_interval: number;
   // Optional management owner. Leaving it unset creates a personal source;
   // selecting a team additionally requires membership in an author-enabled
   // team. Search Access is independent below.
@@ -227,11 +227,12 @@ export const ingestUrl = async (params: {
       url: params.url,
       description: params.description || "",
       get_child_pages: params.get_child_pages || false,
+      reload_interval: params.reload_interval,
       owner_team_slug: params.owner_team_slug || null,
       search_team_slugs: params.search_team_slugs ?? [],
     });
   } else {
-    // Web ingestion with ScrapySettings and optional reload_interval
+    // Web ingestion with ScrapySettings and a per-datasource reload interval
     return apiPost("/v1/ingest/webloader/url", {
       url: params.url,
       description: params.description || "",

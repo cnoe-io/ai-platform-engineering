@@ -1405,9 +1405,7 @@ export default function IngestView() {
                       allow_non_public_urls: allowNonPublicUrls,
                     }
                   : undefined,
-              // Per-datasource reload interval (null = use global default)
-              reload_interval:
-                ingestType === "web" ? reloadInterval : undefined,
+              reload_interval: reloadInterval,
             });
       const { datasource_id } = response;
       await Promise.all([

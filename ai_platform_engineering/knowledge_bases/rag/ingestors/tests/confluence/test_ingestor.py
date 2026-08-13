@@ -51,6 +51,7 @@ async def test_preview_page_uses_bounded_selection_without_ingesting(
   request = ConfluenceIngestRequest(
     url="https://example.atlassian.net/wiki/spaces/EXAMPLE/pages/123/Root",
     get_child_pages=True,
+    reload_interval=86400,
   )
 
   result = await ingestor_module.preview_page_ingestion(rag_client, request)

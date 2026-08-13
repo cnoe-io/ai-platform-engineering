@@ -133,6 +133,7 @@ async def test_preview_project_is_bounded_and_does_not_ingest() -> None:
         source_slug="preview",
         name="Example preview",
         jql="project = EXAMPLE",
+        reload_interval=86400,
     )
 
     with patch.object(ingestor_module, "JiraClient", return_value=jira):

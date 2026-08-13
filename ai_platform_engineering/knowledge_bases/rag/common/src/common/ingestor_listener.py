@@ -18,7 +18,11 @@ from typing import Any, Optional, Type
 from pydantic import BaseModel
 from redis.asyncio import Redis
 
-from common.constants import MIN_RELOAD_INTERVAL, ingestor_request_queue
+from common.constants import (
+  DEFAULT_RELOAD_INTERVAL,
+  MIN_RELOAD_INTERVAL,
+  ingestor_request_queue,
+)
 from common.ingestor import Client
 from common.job_manager import JobManager, JobStatus, is_stale_pending_job
 from common.models.rag import DataSourceInfo
@@ -35,11 +39,37 @@ LabelHandler = Callable[[BaseModel], str]
 PreviewHandler = Callable[[Client, BaseModel], Awaitable[dict[str, Any]]]
 
 
+def configured_reload_interval(
+  config: dict[str, Any],
+  existing: Optional[DataSourceInfo] = None,
+) -> int:
+  """Resolve a legacy config source's persisted refresh interval.
+
+  Existing datasource cadence wins when an older config has no per-source
+  value. New legacy sources retain the historical 24-hour default.
+  """
+  raw_value = config.get("reload_interval")
+  if raw_value is None:
+    return existing.reload_interval if existing else DEFAULT_RELOAD_INTERVAL
+  if isinstance(raw_value, bool):
+    raise ValueError("reload_interval must be an integer number of seconds")
+  try:
+    interval = int(raw_value)
+  except (TypeError, ValueError) as error:
+    raise ValueError("reload_interval must be an integer number of seconds") from error
+  if interval < MIN_RELOAD_INTERVAL:
+    raise ValueError(
+      f"reload_interval must be at least {MIN_RELOAD_INTERVAL} seconds"
+    )
+  return interval
+
+
 async def reload_persisted_datasources(
   client: Client,
   reload_handler: ReloadHandler,
   *,
   due_only: bool = True,
+  config_managed_only: bool = False,
   job_manager: Optional[JobManager] = None,
 ) -> tuple[int, int]:
   """Reload datasource records assigned to this ingestor.
@@ -63,9 +93,36 @@ async def reload_persisted_datasources(
   now = int(time.time())
 
   try:
-    datasources = await client.list_datasources(ingestor_id=client.ingestor_id)
+    try:
+      datasources = await client.list_datasources(ingestor_id=client.ingestor_id)
+    except Exception as error:
+      logger.error(f"Failed to list persisted datasources: {error}")
+      logger.error(traceback.format_exc())
+      return 0, 0
+
     for datasource in datasources:
       try:
+        if config_managed_only and not (datasource.metadata or {}).get("config_managed"):
+          skipped += 1
+          continue
+
+        if datasource.reload_interval < MIN_RELOAD_INTERVAL:
+          logger.warning(
+            f"Datasource {datasource.datasource_id} has reload_interval "
+            f"{datasource.reload_interval}s below minimum "
+            f"{MIN_RELOAD_INTERVAL}s; using the minimum"
+          )
+        reload_interval = max(datasource.reload_interval, MIN_RELOAD_INTERVAL)
+        if due_only and datasource.last_updated is not None:
+          age = now - datasource.last_updated
+          if age < reload_interval:
+            logger.debug(
+              f"Skipping datasource {datasource.datasource_id}: last updated "
+              f"{age}s ago, interval is {reload_interval}s"
+            )
+            skipped += 1
+            continue
+
         jobs = await job_manager.get_jobs_by_datasource(datasource.datasource_id)
         has_active_job = any(
           job.status == JobStatus.IN_PROGRESS
@@ -78,17 +135,6 @@ async def reload_persisted_datasources(
           )
           skipped += 1
           continue
-
-        reload_interval = max(datasource.reload_interval, MIN_RELOAD_INTERVAL)
-        if due_only and datasource.last_updated is not None:
-          age = now - datasource.last_updated
-          if age < reload_interval:
-            logger.debug(
-              f"Skipping datasource {datasource.datasource_id}: last updated "
-              f"{age}s ago, interval is {reload_interval}s"
-            )
-            skipped += 1
-            continue
 
         logger.info(
           f"Reloading persisted datasource {datasource.datasource_id} "

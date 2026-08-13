@@ -5,7 +5,10 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from common.ingestor_listener import reload_persisted_datasources
+from common.ingestor_listener import (
+  configured_reload_interval,
+  reload_persisted_datasources,
+)
 from common.job_manager import JobInfo, JobStatus
 from common.models.rag import DataSourceInfo
 
@@ -105,3 +108,62 @@ def test_reload_persisted_datasources_isolates_source_failure(
 
   assert result == (1, 0)
   assert reload_handler.await_count == 2
+
+
+def test_reload_persisted_datasources_handles_list_failure() -> None:
+  client = AsyncMock()
+  client.ingestor_id = "example:primary"
+  client.list_datasources.side_effect = ConnectionError("metadata unavailable")
+  job_manager = AsyncMock()
+  reload_handler = AsyncMock()
+
+  result = asyncio.run(
+    reload_persisted_datasources(
+      client,
+      reload_handler,
+      job_manager=job_manager,
+    )
+  )
+
+  assert result == (0, 0)
+  reload_handler.assert_not_awaited()
+
+
+def test_reload_persisted_datasources_can_select_database_managed_sources(
+  monkeypatch: pytest.MonkeyPatch,
+) -> None:
+  monkeypatch.setattr("common.ingestor_listener.time.time", lambda: 10_000)
+  legacy = _datasource("legacy", last_updated=0)
+  managed = _datasource("managed", last_updated=0)
+  managed.metadata = {"config_managed": True}
+  client = AsyncMock()
+  client.ingestor_id = "example:primary"
+  client.list_datasources.return_value = [legacy, managed]
+  job_manager = AsyncMock()
+  job_manager.get_jobs_by_datasource.return_value = None
+  reload_handler = AsyncMock()
+
+  result = asyncio.run(
+    reload_persisted_datasources(
+      client,
+      reload_handler,
+      config_managed_only=True,
+      job_manager=job_manager,
+    )
+  )
+
+  assert result == (1, 1)
+  reload_handler.assert_awaited_once_with(client, job_manager, managed, None)
+
+
+def test_configured_reload_interval_preserves_existing_cadence() -> None:
+  datasource = _datasource("existing", last_updated=0, reload_interval=7200)
+
+  assert configured_reload_interval({}) == 86400
+  assert configured_reload_interval({}, datasource) == 7200
+  assert configured_reload_interval({"reload_interval": 3600}, datasource) == 3600
+
+
+def test_configured_reload_interval_rejects_invalid_values() -> None:
+  with pytest.raises(ValueError, match="at least"):
+    configured_reload_interval({"reload_interval": 30})

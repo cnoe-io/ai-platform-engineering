@@ -26,6 +26,7 @@ from common.job_manager import JobStatus, JobManager
 from common.constants import (
   CONFLUENCE_INGESTOR_NAME,
   CONFLUENCE_INGESTOR_TYPE,
+  DEFAULT_RELOAD_INTERVAL,
 )
 from common.utils import get_logger
 from loader import ConfluenceLoader, generate_datasource_id
@@ -51,7 +52,6 @@ if not CONFLUENCE_TOKEN:
 
 CONFLUENCE_SSL_VERIFY = os.environ.get("CONFLUENCE_SSL_VERIFY", "true").lower() == "true"
 CONFLUENCE_SPACES = os.environ.get("CONFLUENCE_SPACES", "")
-RELOAD_INTERVAL = int(os.environ.get("CONFLUENCE_SYNC_INTERVAL", "86400"))  # 24 hours default
 MAX_CONCURRENCY = int(os.environ.get("CONFLUENCE_MAX_CONCURRENCY", "5"))
 MAX_INGESTION_TASKS = int(os.environ.get("CONFLUENCE_MAX_INGESTION_TASKS", "5"))
 PREVIEW_MAX_ITEMS = max(1, min(int(os.getenv("INGESTOR_PREVIEW_MAX_ITEMS", "100")), 500))
@@ -111,7 +111,7 @@ def _create_datasource_info(
     last_updated=int(time.time()),
     default_chunk_size=1000,
     default_chunk_overlap=200,
-    reload_interval=RELOAD_INTERVAL,
+    reload_interval=DEFAULT_RELOAD_INTERVAL,
   )
 
 
@@ -301,8 +301,11 @@ async def process_page_ingestion(
     try:
       if "job_id" in locals():
         await job_manager.add_error_msg(job_id, error_msg)
-    except Exception:
-      pass
+    except Exception as status_error:
+      logger.warning(
+        f"Failed to record the Confluence ingestion error for job "
+        f"{locals().get('job_id')}: {status_error}"
+      )
 
     raise
 
@@ -516,6 +519,17 @@ async def periodic_reload(client: Client):
             )
             continue
 
+          if (
+            datasource_info
+            and datasource_info.last_updated
+            and int(time.time()) - datasource_info.last_updated
+            < datasource_info.reload_interval
+          ):
+            logger.debug(
+              f"Skipping {space_key}: datasource refresh is not due"
+            )
+            continue
+
           if not datasource_info:
             # Create datasource
             logger.info(f"Creating datasource for configured space: {datasource_id}")
@@ -596,6 +610,7 @@ async def periodic_reload(client: Client):
     await reload_persisted_datasources(
       client,
       reload_datasource,
+      config_managed_only=True,
       job_manager=job_manager,
     )
 
@@ -625,7 +640,6 @@ async def redis_listener(client: Client):
       metadata = datasource.metadata or {}
       if metadata.get("config_managed") is True:
         continue
-      datasource.reload_interval = RELOAD_INTERVAL
       datasource.metadata = {
         **metadata,
         "space_key": space_key,
@@ -669,7 +683,6 @@ if __name__ == "__main__":
     logger.info("Starting Confluence Ingestor...")
     logger.info(f"Confluence URL: {CONFLUENCE_URL}")
     logger.info(f"Configured spaces: {CONFLUENCE_SPACES or '(none)'}")
-    logger.info(f"Reload interval: {RELOAD_INTERVAL}s")
 
     # Build and run the ingestor (same pattern as webloader)
     configured_spaces = (
@@ -683,13 +696,12 @@ if __name__ == "__main__":
       .metadata(
         {
           "confluence_url": CONFLUENCE_URL,
-          "reload_interval": RELOAD_INTERVAL,
           "spaces": configured_spaces,
         }
       )
       .sync_with_fn(periodic_reload)
       .with_startup(redis_listener)
-      .every(RELOAD_INTERVAL)
+      .schedule_from_datasources()
       .run()
     )
 

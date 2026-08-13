@@ -81,7 +81,7 @@ class IngestionTuning(BaseModel):
 
   default_chunk_size: int = Field(10000, ge=100, le=100000)
   default_chunk_overlap: int = Field(2000, ge=0, le=10000)
-  reload_interval: int = Field(86400, ge=60)
+  reload_interval: int = Field(..., ge=60)
   search_team_slugs: List[str] = Field(
     default_factory=list,
     description=(
@@ -139,7 +139,7 @@ class UrlIngestRequest(BaseModel):
   url: str = Field(..., description="URL to ingest")
   description: str = Field("", description="Description for this data source")
   settings: ScrapySettings = Field(default_factory=lambda: ScrapySettings(), description="Scraping configuration (crawl mode, JS rendering, rate limiting, etc.)")
-  reload_interval: Optional[int] = Field(None, description="Auto-reload interval in seconds. If not specified, uses global WEBLOADER_RELOAD_INTERVAL (default 24h). Minimum: 60 seconds.")
+  reload_interval: int = Field(..., ge=60, description="Auto-reload interval in seconds.")
   # Optional management owner. None creates a personal source owned by the
   # caller; Search Access remains the independent list below.
   owner_team_slug: Optional[str] = Field(None, description="Slug of the team that will manage this new data source. None creates a personal source.")

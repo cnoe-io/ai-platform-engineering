@@ -76,9 +76,13 @@ spec:
             - name: LOG_LEVEL
               value: {{ $ingestor.logLevel | default "INFO" | quote }}
             
-            # Sync configuration
+            # Deployment-managed ingestors retain a fixed refresh interval.
+            # UI-managed ingestors schedule from their datasource records and
+            # omit this setting.
+            {{- if hasKey $ingestor "syncInterval" }}
             - name: SYNC_INTERVAL
-              value: {{ $ingestor.syncInterval | default 86400 | quote }}
+              value: {{ $ingestor.syncInterval | quote }}
+            {{- end }}
             - name: INIT_DELAY_SECONDS
               value: {{ $initDelaySeconds | quote }}
 

@@ -6,6 +6,7 @@
 import subprocess
 from pathlib import Path
 
+import pytest
 import yaml
 
 
@@ -60,6 +61,7 @@ def test_webloader_runs_in_its_own_deployment() -> None:
   assert "caipe-rag-ingestors" in container["image"]
   assert _environment(container)["INGESTOR_TYPE"] == "webloader"
   assert _environment(container)["RAG_SERVER_URL"] == "http://rag-server:9446"
+  assert "SYNC_INTERVAL" not in _environment(container)
 
 
 def test_rag_server_never_contains_a_web_ingestor_sidecar() -> None:
@@ -97,6 +99,53 @@ def test_custom_ingestor_list_uses_normal_helm_replacement_semantics() -> None:
 
   assert "jira" in ingestor_types
   assert "webloader" not in ingestor_types
+
+
+def test_fixed_interval_is_only_emitted_when_configured() -> None:
+  deployments = _deployments(
+    _render_rag_stack(
+      {
+        "rag-ingestors.ingestors[0].name": "argocd-example",
+        "rag-ingestors.ingestors[0].type": "argocdv3",
+        "rag-ingestors.ingestors[0].syncInterval": "7200",
+      }
+    )
+  )
+  argocd = next(
+    deployment
+    for deployment in deployments
+    if deployment["metadata"]["labels"].get("app.kubernetes.io/ingestor-type")
+    == "argocdv3"
+  )
+  container = argocd["spec"]["template"]["spec"]["containers"][0]
+
+  assert _environment(container)["SYNC_INTERVAL"] == "7200"
+
+
+@pytest.mark.parametrize(
+  "ingestor_type",
+  ["webloader", "slack", "webex", "jira", "confluence"],
+)
+def test_ui_managed_ingestors_do_not_receive_a_deployment_interval(
+  ingestor_type: str,
+) -> None:
+  deployments = _deployments(
+    _render_rag_stack(
+      {
+        "rag-ingestors.ingestors[0].name": f"{ingestor_type}-example",
+        "rag-ingestors.ingestors[0].type": ingestor_type,
+      }
+    )
+  )
+  deployment = next(
+    item
+    for item in deployments
+    if item["metadata"]["labels"].get("app.kubernetes.io/ingestor-type")
+    == ingestor_type
+  )
+  container = deployment["spec"]["template"]["spec"]["containers"][0]
+
+  assert "SYNC_INTERVAL" not in _environment(container)
 
 
 def test_legacy_web_ingestor_sidecar_values_are_ignored() -> None:

@@ -6,7 +6,10 @@ import aiohttp
 from common.models.rag import DataSourceInfo, DocumentMetadata, StructuredEntity
 from common.models.server import DocumentIngestRequest, IngestorPingRequest, ExploreDataEntityRequest
 from common.job_manager import JobStatus, JobInfo
-from common.constants import DEFAULT_RELOAD_INTERVAL, MIN_RELOAD_INTERVAL
+from common.constants import (
+  DATASOURCE_SCHEDULE_CHECK_INTERVAL,
+  MIN_RELOAD_INTERVAL,
+)
 from langchain_core.documents import Document
 import common.utils as utils
 import dotenv
@@ -673,6 +676,8 @@ class IngestorBuilder:
     self._sync_function: Optional[Callable] = None
     self._startup_function: Optional[Callable] = None
     self._sync_interval = 0  # User-specified sync interval (how often data should be refreshed)
+    self._datasource_scheduled = False
+    self._schedule_check_only = False
     self._init_delay = 0  # Optional init delay
     self._last_sync_time: Optional[int] = None  # Track last sync completion time
 
@@ -710,6 +715,22 @@ class IngestorBuilder:
     """
     self._sync_interval = seconds
     return self
+
+  def schedule_from_datasources(self) -> "IngestorBuilder":
+    """Schedule reloads from each datasource's persisted reload interval.
+
+    The worker periodically re-reads datasource records so sources created or
+    edited through the application are discovered without a deployment-level
+    refresh interval.
+    """
+    self._datasource_scheduled = True
+    return self
+
+  def _schedule_fallback_interval(self) -> int:
+    """Return the retry interval when datasource scheduling is unavailable."""
+    if self._datasource_scheduled:
+      return DATASOURCE_SCHEDULE_CHECK_INTERVAL
+    return self._sync_interval
 
   def with_init_delay(self, seconds: int) -> "IngestorBuilder":
     """Set an optional initialization delay in seconds before starting sync"""
@@ -755,11 +776,18 @@ class IngestorBuilder:
     Returns:
         tuple[int, bool]: (seconds to sleep, has_datasources)
     """
+    self._schedule_check_only = False
     try:
       current_time = int(time.time())
 
       # Fetch all datasources for this ingestor
       datasources = await client.list_datasources(ingestor_id=client.ingestor_id)
+
+      if self._datasource_scheduled and self._last_sync_time is None:
+        # Run once at worker startup. This materializes newly-added legacy
+        # environment config while every persisted source still performs its
+        # own due check before contacting the upstream connector.
+        return (0, bool(datasources))
 
       if not datasources:
         # No datasources yet - base scheduling on last sync time
@@ -768,9 +796,22 @@ class IngestorBuilder:
           logger.debug("No datasources found and never synced before, needs immediate sync")
           return (0, False)
 
+        if self._datasource_scheduled:
+          # Startup already reconciled legacy configuration. UI-created
+          # sources arrive through the command listener and create their
+          # datasource record, so an empty worker only needs to re-read
+          # schedule metadata from here onward.
+          self._schedule_check_only = True
+          logger.info(
+            "No datasources found, checking schedule metadata again in "
+            f"{DATASOURCE_SCHEDULE_CHECK_INTERVAL}s"
+          )
+          return (DATASOURCE_SCHEDULE_CHECK_INTERVAL, False)
+
         # Calculate time until next sync based on last sync time
         time_since_last_sync = current_time - self._last_sync_time
-        time_until_next_sync = self._sync_interval - time_since_last_sync
+        fallback_interval = self._schedule_fallback_interval()
+        time_until_next_sync = fallback_interval - time_since_last_sync
 
         if time_until_next_sync <= 0:
           # Overdue for next sync
@@ -778,11 +819,11 @@ class IngestorBuilder:
           return (0, False)
 
         # Schedule next sync based on interval
-        logger.info(f"No datasources found, next sync in {time_until_next_sync}s based on last sync time")
+        logger.info(f"No datasources found, checking again in {time_until_next_sync}s")
         return (int(time_until_next_sync), False)
 
       # Find the earliest datasource that will need reloading
-      min_time_until_reload = DEFAULT_RELOAD_INTERVAL
+      min_time_until_reload: int | None = None
 
       for ds in datasources:
         if ds.last_updated is None:
@@ -805,21 +846,39 @@ class IngestorBuilder:
           return (0, True)
 
         # Track the earliest reload time
-        if time_until_reload < min_time_until_reload:
+        if min_time_until_reload is None or time_until_reload < min_time_until_reload:
           min_time_until_reload = time_until_reload
           logger.debug(f"Datasource {ds.datasource_id} will need reload in {time_until_reload}s (interval: {ds_reload_interval}s)")
 
-      # Add a small minimum to avoid too-frequent checks (e.g., 1 minute)
-      MIN_SLEEP_TIME = 60  # 1 minute minimum
-      sleep_time = max(MIN_SLEEP_TIME, int(min_time_until_reload))
-
-      logger.info(f"Next sync in {sleep_time}s ({sleep_time / 3600:.1f}h) based on datasource schedules")
+      assert min_time_until_reload is not None
+      if (
+        self._datasource_scheduled
+        and min_time_until_reload > DATASOURCE_SCHEDULE_CHECK_INTERVAL
+      ):
+        # Only re-read metadata at this wake-up. Connector work remains asleep
+        # until a datasource is actually due.
+        self._schedule_check_only = True
+        sleep_time = DATASOURCE_SCHEDULE_CHECK_INTERVAL
+        logger.info(
+          f"Next datasource schedule check in {sleep_time}s; earliest refresh "
+          f"is due in {int(min_time_until_reload)}s"
+        )
+      else:
+        minimum_sleep = 1 if self._datasource_scheduled else MIN_RELOAD_INTERVAL
+        sleep_time = max(minimum_sleep, int(min_time_until_reload))
+        logger.info(
+          f"Next datasource refresh in {sleep_time}s "
+          f"({sleep_time / 3600:.1f}h)"
+        )
       return (sleep_time, True)
 
     except Exception as e:
-      # If we can't calculate, fall back to sync interval
-      logger.warning(f"Error calculating next sync time: {e}, using full sync_interval")
-      return (self._sync_interval, False)
+      fallback_interval = self._schedule_fallback_interval()
+      self._schedule_check_only = self._datasource_scheduled
+      logger.warning(
+        f"Error calculating next sync time: {e}, retrying in {fallback_interval}s"
+      )
+      return (fallback_interval, False)
 
   async def _run_ingestor(self):
     """Internal method to run the ingestor with proper async handling"""
@@ -833,7 +892,8 @@ class IngestorBuilder:
     # Check if we should exit after first sync (for debugging and job mode)
     exit_after_first_sync = os.getenv("EXIT_AFTER_FIRST_SYNC", "false").lower() in ("true", "1", "yes")
 
-    logger.info(f"Starting ingestor: {self._name} (type: {self._type}, sync_interval: {self._sync_interval}s, init_delay: {self._init_delay}s, exit_after_first_sync: {exit_after_first_sync})")
+    schedule_mode = "datasource" if self._datasource_scheduled else "fixed"
+    logger.info(f"Starting ingestor: {self._name} (type: {self._type}, schedule: {schedule_mode}, sync_interval: {self._sync_interval}s, init_delay: {self._init_delay}s, exit_after_first_sync: {exit_after_first_sync})")
 
     # Create and initialize RAG client
     client = Client(self._name, self._type, self._description, self._metadata)
@@ -892,7 +952,7 @@ class IngestorBuilder:
         logger.info(f"Waiting {self._init_delay} seconds before starting sync...")
         await sleep_while_monitoring_startup(self._init_delay)
 
-      if self._sync_interval <= 0:
+      if self._sync_interval <= 0 and not self._datasource_scheduled:
         # Single run mode
         logger.info("Running single sync cycle...")
 
@@ -923,13 +983,22 @@ class IngestorBuilder:
           # Enforce minimum sleep to prevent tight loops from misconfiguration
           MIN_LOOP_SLEEP = 600  # 10 minute floor
           if sleep_time > 0:
-            # No datasources need syncing yet, sleep until next one is due
-            logger.info(f"Sleeping for {sleep_time}s before next sync")
+            if self._schedule_check_only:
+              logger.info(
+                f"Sleeping for {sleep_time}s before rechecking datasource schedules"
+              )
+            else:
+              logger.info(f"Sleeping for {sleep_time}s before next sync")
             await sleep_while_monitoring_startup(sleep_time)
+            if self._schedule_check_only:
+              continue
           elif self._last_sync_time is not None:
             time_since_last_sync = int(time.time()) - self._last_sync_time
-            if time_since_last_sync < MIN_LOOP_SLEEP:
-              backoff = MIN_LOOP_SLEEP - time_since_last_sync
+            minimum_loop_sleep = (
+              MIN_RELOAD_INTERVAL if self._datasource_scheduled else MIN_LOOP_SLEEP
+            )
+            if time_since_last_sync < minimum_loop_sleep:
+              backoff = minimum_loop_sleep - time_since_last_sync
               logger.warning(f"Sync returned sleep_time=0 but last sync was only {time_since_last_sync}s ago, backing off {backoff}s to prevent tight loop")
               await sleep_while_monitoring_startup(backoff)
 

@@ -140,6 +140,7 @@ function postBody(overrides: Record<string, unknown> = {}) {
     channel_id: "C1234567890",
     name: "eng-general",
     owner_team_slug: "platform",
+    reload_interval: 86400,
     ...overrides,
   };
 }
@@ -622,6 +623,24 @@ describe("POST /api/rag/sources", () => {
 
     expect(response.status).toBe(400);
     expect(json.code).toBe("INVALID_SOURCE_PAYLOAD");
+    expect(sources.insertOne).not.toHaveBeenCalled();
+  });
+
+  it("requires a per-datasource reload interval", async () => {
+    const { POST } = await import("../route");
+
+    const response = await POST(
+      request("/api/rag/sources", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(postBody({ reload_interval: undefined })),
+      }),
+    );
+    const json = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(json.code).toBe("INVALID_SOURCE_PAYLOAD");
+    expect(json.error).toBe("reload_interval is required");
     expect(sources.insertOne).not.toHaveBeenCalled();
   });
 
