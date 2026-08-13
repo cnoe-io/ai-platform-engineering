@@ -60,7 +60,7 @@ def test_get_llm_uses_agent_values_when_both_set(monkeypatch):
 
     assert result == "llm"
     assert captured["provider"] == "aws-bedrock"
-    assert captured["kwargs"] == {"model": "claude-sonnet-4-6"}
+    assert captured["kwargs"] == {"model": "claude-sonnet-4-6", "stream_usage": True}
 
 
 def test_get_llm_falls_back_to_env_provider_when_agent_provider_empty(monkeypatch):
@@ -81,7 +81,7 @@ def test_get_llm_falls_back_to_env_provider_when_agent_provider_empty(monkeypatc
 
     assert result == "llm"
     assert captured["provider"] == "aws-bedrock"
-    assert captured["kwargs"] == {"model": "claude-sonnet-4-6"}
+    assert captured["kwargs"] == {"model": "claude-sonnet-4-6", "stream_usage": True}
 
 
 def test_get_llm_skips_model_kwarg_when_agent_model_empty(monkeypatch):
@@ -131,7 +131,7 @@ def test_get_llm_both_empty_falls_back_to_env(monkeypatch):
 
     assert result == "llm"
     assert captured["provider"] == "aws-bedrock"
-    assert captured["kwargs"] == {}
+    assert captured["kwargs"] == {"stream_usage": True}
 
 
 def test_get_llm_raises_actionable_error_when_no_provider_anywhere(monkeypatch):

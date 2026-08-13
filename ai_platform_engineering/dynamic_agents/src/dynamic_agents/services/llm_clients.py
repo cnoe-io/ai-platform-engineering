@@ -138,7 +138,9 @@ def get_llm(provider: str, model_id: str) -> BaseChatModel:
 
     resolved_provider, resolved_model = _resolve_llm_defaults(provider, model_id)
 
-    kwargs: dict[str, Any] = {}
+    kwargs: dict[str, Any] = {
+        "stream_usage": True,
+    }
     if resolved_model is not None:
         kwargs["model"] = resolved_model
 

@@ -107,16 +107,17 @@ class StreamEncoder(ABC):
 # ═══════════════════════════════════════════════════════════════
 
 
-def get_encoder(protocol: str = "custom") -> StreamEncoder:
+def get_encoder(protocol: str = "custom", include_usage: bool = True) -> StreamEncoder:
     """Create an encoder for the given protocol.
 
     Args:
         protocol: "custom" (old SSE format) or "agui" (AG-UI protocol)
+        include_usage: Whether to include usage_metadata in the stream finish event
     """
     if protocol == "agui":
         from .agui_sse import AGUIStreamEncoder
 
-        return AGUIStreamEncoder()
+        return AGUIStreamEncoder(include_usage=include_usage)
     from .custom_sse import CustomStreamEncoder
 
-    return CustomStreamEncoder()
+    return CustomStreamEncoder(include_usage=include_usage)

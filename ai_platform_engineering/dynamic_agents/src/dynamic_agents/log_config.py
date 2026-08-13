@@ -14,6 +14,7 @@ from contextvars import ContextVar
 
 # Conversation context for logging - set in route handlers
 conversation_id_var: ContextVar[str] = ContextVar("conversation_id", default="-")
+tool_result_display_limit_var: ContextVar[int | None] = ContextVar("tool_result_display_limit", default=None)
 
 LOG_FORMAT = "%(asctime)s %(levelname)s [dynamic_agents] conv=%(conversation_id)s %(message)s"
 LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
