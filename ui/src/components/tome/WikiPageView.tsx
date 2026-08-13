@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronsLeftRight, ChevronsRightLeft, Code, Loader2, X } from "lucide-react";
+import { ArrowLeftRight, ChevronDown, Code, Loader2, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -402,13 +402,12 @@ export function WikiPageView({
                     type="button"
                     onClick={() => setWideReading((v) => !v)}
                     aria-pressed={wideReading}
-                    className="rounded-md border border-border p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                  >
-                    {wideReading ? (
-                      <ChevronsRightLeft className="h-3.5 w-3.5" />
-                    ) : (
-                      <ChevronsLeftRight className="h-3.5 w-3.5" />
+                    className={cn(
+                      "rounded-md border border-border p-1.5 transition-colors hover:bg-muted hover:text-foreground",
+                      wideReading ? "bg-muted text-foreground" : "text-muted-foreground",
                     )}
+                  >
+                    <ArrowLeftRight className="h-3.5 w-3.5" />
                   </button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom" className="text-xs">
