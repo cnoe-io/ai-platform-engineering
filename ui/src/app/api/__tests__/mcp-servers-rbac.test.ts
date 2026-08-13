@@ -269,6 +269,8 @@ describe("MCP server per-resource RBAC", () => {
         ownerSubject: "bot-client-id",
         ownerSubjectKind: "service_account",
         ownerTeamSlug: null,
+        nextSharedTeamSlugs: [],
+        sharedWithOrg: false,
       },
       {
         caller: { type: "service_account", id: "bot-client-id" },
@@ -364,6 +366,8 @@ describe("MCP server per-resource RBAC", () => {
         ownerSubject: "alice-sub",
         ownerSubjectKind: "user",
         ownerTeamSlug: null,
+        nextSharedTeamSlugs: [],
+        sharedWithOrg: false,
       },
       {
         caller: { type: "user", id: "alice-sub" },
@@ -376,6 +380,8 @@ describe("MCP server per-resource RBAC", () => {
         owner_id: "alice@example.com",
         owner_subject: "alice-sub",
         owner_team_slug: undefined,
+        visibility: "private",
+        shared_with_teams: [],
       }),
     );
   });
@@ -440,6 +446,8 @@ describe("MCP server per-resource RBAC", () => {
         ownerSubject: "alice-sub",
         ownerSubjectKind: "user",
         ownerTeamSlug: "platform",
+        nextSharedTeamSlugs: [],
+        sharedWithOrg: false,
       },
       {
         caller: { type: "user", id: "alice-sub" },
@@ -472,6 +480,102 @@ describe("MCP server per-resource RBAC", () => {
     expect(mockRequireResourcePermission).toHaveBeenCalledWith(
       expect.objectContaining({ sub: "alice-sub", role: "user" }),
       { type: "mcp_server", id: "mcp-visible", action: "manage" },
+    );
+  });
+
+  it("makes an AgentGateway MCP server global and replaces its legacy org policy", async () => {
+    const server = {
+      _id: "mcp-tome",
+      name: "Tome",
+      transport: "http",
+      config_driven: false,
+      source: "agentgateway",
+      owner_subject: "alice-sub",
+    };
+    const findOneAndUpdate = jest.fn().mockResolvedValue({
+      ...server,
+      visibility: "global",
+      shared_with_teams: [],
+    });
+    mockGetCollection.mockResolvedValue({
+      findOne: jest.fn().mockResolvedValue(server),
+      findOneAndUpdate,
+    });
+    const { PUT } = await import("../mcp-servers/route");
+
+    const response = await PUT(
+      request("/api/mcp-servers?id=mcp-tome", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ visibility: "global", shared_with_teams: [] }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockReconcileMcpServerRelationships).toHaveBeenCalledWith(
+      expect.objectContaining({
+        serverId: "mcp-tome",
+        sharedWithOrg: true,
+        previousSharedWithOrg: true,
+        nextSharedTeamSlugs: [],
+      }),
+      expect.objectContaining({ source: "mcp_server_update_sharing" }),
+    );
+    expect(findOneAndUpdate).toHaveBeenCalledWith(
+      { _id: "mcp-tome" },
+      { $set: expect.objectContaining({ visibility: "global", shared_with_teams: [] }) },
+      { returnDocument: "after" },
+    );
+  });
+
+  it("resolves selected team slugs before creating a team-visible MCP server", async () => {
+    const insertOne = jest.fn();
+    mockGetCollection.mockImplementation(async (name: string) => {
+      if (name === "teams") {
+        return {
+          find: jest.fn().mockReturnValue({
+            project: jest.fn().mockReturnValue({
+              toArray: jest.fn().mockResolvedValue([{ slug: "platform" }]),
+            }),
+          }),
+        };
+      }
+      return {
+        findOne: jest.fn().mockResolvedValue(null),
+        insertOne,
+      };
+    });
+    const { POST } = await import("../mcp-servers/route");
+
+    const response = await POST(
+      request("/api/mcp-servers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: "team-search",
+          name: "Team Search",
+          transport: "http",
+          endpoint: "https://mcp.example.test/mcp",
+          visibility: "team",
+          shared_with_teams: ["platform"],
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    expect(mockReconcileMcpServerRelationships).toHaveBeenCalledWith(
+      expect.objectContaining({
+        serverId: "mcp-team-search",
+        nextSharedTeamSlugs: ["platform"],
+        sharedWithOrg: false,
+      }),
+      expect.anything(),
+    );
+    expect(insertOne).toHaveBeenCalledWith(
+      expect.objectContaining({
+        visibility: "team",
+        shared_with_teams: ["platform"],
+      }),
     );
   });
 

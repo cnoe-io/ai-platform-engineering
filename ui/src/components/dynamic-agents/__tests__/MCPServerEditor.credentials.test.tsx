@@ -36,6 +36,12 @@ describe("MCPServerEditor credential sources", () => {
       if (url === "/api/mcp-servers/agentgateway/discover") {
         return response({ targets: [] });
       }
+      if (url === "/api/dynamic-agents/teams") {
+        return response([
+          { _id: "team-platform", slug: "platform", name: "Platform" },
+          { _id: "team-data", slug: "data", name: "Data" },
+        ]);
+      }
       if (url === "/api/mcp-servers/endpoint-probe") {
         return response({
           attempts: [
@@ -368,6 +374,25 @@ describe("MCPServerEditor credential sources", () => {
     expect(screen.queryByLabelText(/provider connection/i)).not.toBeInTheDocument();
     expect(screen.getByLabelText(/^provider$/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/credential header/i)).toHaveValue("X-CAIPE-Provider-Token");
+  });
+
+  it("saves explicit global MCP access from the editor", async () => {
+    const user = userEvent.setup();
+    render(<MCPServerEditor server={null} onSave={jest.fn()} onCancel={jest.fn()} />);
+
+    await user.type(screen.getByLabelText(/display name/i), "Shared Search");
+    await user.type(screen.getByLabelText(/upstream url|endpoint url/i), "https://mcp.example.com/mcp");
+    await user.click(screen.getByRole("button", { name: /Global Every signed-in organization member/i }));
+    await user.click(screen.getByRole("button", { name: /create server/i }));
+
+    await waitFor(() =>
+      expect(createBody()).toEqual(
+        expect.objectContaining({
+          visibility: "global",
+          shared_with_teams: [],
+        }),
+      ),
+    );
   });
 
   it("sends an empty credential_sources array when all credentials are removed on edit", async () => {
