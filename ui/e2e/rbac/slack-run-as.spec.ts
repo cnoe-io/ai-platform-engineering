@@ -737,7 +737,7 @@ test.describe("mocked Slack Run as browser regression", () => {
       handlers: [slackHandler],
     });
 
-    await page.goto("/admin/integrations/slack?subtab=onboard", {
+    await page.goto("/admin/integrations/slack", {
       waitUntil: "domcontentloaded",
     });
 
