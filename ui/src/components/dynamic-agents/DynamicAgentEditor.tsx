@@ -20,6 +20,7 @@ import { type TeamPickerOption } from "@/components/ui/team-picker";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/toast";
 import { useEditorDirtyTracking } from "@/hooks/use-editor-dirty-tracking";
+import { getConfig } from "@/lib/config";
 import { gradientThemes } from "@/lib/gradient-themes";
 import { getMarkdownComponents } from "@/lib/markdown-components";
 import { cn } from "@/lib/utils";
@@ -37,7 +38,7 @@ SubAgentRef,
 VisibilityType,
 } from "@/types/dynamic-agent";
 import { AnimatePresence,motion } from "framer-motion";
-import { ArrowLeft,Check,ChevronDown,ChevronLeft,ChevronRight,Eye,Globe,GripHorizontal,Loader2,Pencil,Sparkles,Users } from "lucide-react";
+import { AlertCircle,ArrowLeft,Check,ChevronDown,ChevronLeft,ChevronRight,Eye,Globe,GripHorizontal,Loader2,Pencil,Sparkles,Users } from "lucide-react";
 import React from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -139,6 +140,27 @@ const STEPS = [
 ];
 
 type StepId = AgentSetupStep;
+
+type BlockerField =
+  | "name"
+  | "modelAvailability"
+  | "model"
+  | "ownerTeam"
+  | "systemPrompt";
+
+interface FormBlocker {
+  field: BlockerField;
+  message: string;
+  step: StepId;
+}
+
+const BLOCKER_FOCUS_TARGETS: Record<BlockerField, string> = {
+  name: "name",
+  modelAvailability: "model-validation-target",
+  model: "modelId",
+  ownerTeam: "ownerTeam",
+  systemPrompt: "system-prompt-validation-target",
+};
 
 /**
  * Horizontal step indicator component
@@ -460,6 +482,10 @@ export function DynamicAgentEditor({
   const [blockingMessage, setBlockingMessage] = React.useState<string | null>(
     null,
   );
+  const [validationTarget, setValidationTarget] = React.useState<
+    (FormBlocker & { attempt: number }) | null
+  >(null);
+  const [nextBuzzCount, setNextBuzzCount] = React.useState(0);
   const [, setMiddlewareError] = React.useState(false);
   const [availableModels, setAvailableModels] = React.useState<
     { model_id: string; name: string; provider: string; description: string }[]
@@ -468,6 +494,9 @@ export function DynamicAgentEditor({
   const [availableTeams, setAvailableTeams] = React.useState<
     TeamOption[]
   >([]);
+  const [teamDefaultsApplied, setTeamDefaultsApplied] = React.useState(
+    Boolean(source?.owner_team_slug),
+  );
 
   // AI suggestion state
   const [generatingField, setGeneratingField] = React.useState<string | null>(null);
@@ -639,13 +668,29 @@ export function DynamicAgentEditor({
         const data = await response.json();
         if (data.success && Array.isArray(data.data)) {
           setAvailableTeams(data.data);
+          // Prefer the deployment-wide catchall team for new agents. The
+          // endpoint already limits non-admin users to their own teams, and we
+          // additionally require the returned team to be owner-eligible. A
+          // user's existing choice (or a cloned agent's owner) always wins.
+          const defaultSlug = getConfig("defaultTeamSlug");
+          const defaultTeam = data.data.find(
+            (team: TeamOption) =>
+              team.slug === defaultSlug && team.can_own_agents !== false,
+          );
+          if (!isEditing && defaultTeam?.slug) {
+            setOwnerTeamSlug((current) => current || defaultTeam.slug || "");
+          }
         }
       } catch (err) {
         console.error("Failed to fetch teams:", err);
+      } finally {
+        // Like the model default, the owner-team default is initial form
+        // state—not a user edit. Re-key dirty tracking after it settles.
+        setTeamDefaultsApplied(true);
       }
     }
     fetchTeams();
-  }, []);
+  }, [isEditing]);
 
   // When editing an existing agent, find out if it is the platform default.
   // If it is, lock the visibility selector so the admin can't accidentally
@@ -744,15 +789,72 @@ export function DynamicAgentEditor({
   // appears clean.
   const snapshotIdentity =
     agent?._id ?? cloneFrom?._id ?? "new";
-  const snapshotKey = `${snapshotIdentity}|${modelDefaultsApplied ? "1" : "0"}`;
+  const snapshotKey = `${snapshotIdentity}|${modelDefaultsApplied ? "1" : "0"}|${teamDefaultsApplied ? "1" : "0"}`;
 
   const { dirty, resetSnapshot } = useEditorDirtyTracking({
     enabled: !readOnly,
     currentValues: currentFormValues,
     snapshotKey,
   });
+
+  const ownerTeamMissing = !isEditing && !ownerTeamSlug;
+  const blockers: FormBlocker[] = React.useMemo(() => {
+    const list: FormBlocker[] = [];
+    if (!name.trim()) {
+      list.push({ field: "name", message: "Agent name is required", step: "basic" });
+    }
+    if (availableModels.length === 0) {
+      list.push({
+        field: "modelAvailability",
+        message: "At least one model provider must be configured",
+        step: "basic",
+      });
+    } else if (!modelId || !modelProvider) {
+      list.push({ field: "model", message: "Model selection is required", step: "basic" });
+    }
+    if (ownerTeamMissing) {
+      list.push({ field: "ownerTeam", message: "Owner Team is required", step: "basic" });
+    }
+    if (!systemPrompt.trim()) {
+      list.push({
+        field: "systemPrompt",
+        message: "Instructions (system prompt) are required",
+        step: "instructions",
+      });
+    }
+    return list;
+  }, [name, systemPrompt, modelId, modelProvider, availableModels.length, ownerTeamMissing]);
+
+  const firstBlocker = blockers[0];
+  const blockerStepLabel = firstBlocker
+    ? STEPS.find((step) => step.id === firstBlocker.step)?.label ?? firstBlocker.step
+    : null;
+
   const currentStepIndex = STEPS.findIndex((s) => s.id === activeStep);
   const currentStepConfig = STEPS.find((s) => s.id === activeStep);
+
+  const revealBlocker = (blocker: FormBlocker, buzzNext = false) => {
+    setValidationTarget((current) => ({
+      ...blocker,
+      attempt: (current?.attempt ?? 0) + 1,
+    }));
+    if (buzzNext) setNextBuzzCount((count) => count + 1);
+    if (activeStep !== blocker.step) selectStep(blocker.step);
+  };
+
+  React.useEffect(() => {
+    if (!validationTarget || activeStep !== validationTarget.step) return;
+
+    const frame = window.requestAnimationFrame(() => {
+      const target = document.getElementById(
+        BLOCKER_FOCUS_TARGETS[validationTarget.field],
+      );
+      target?.scrollIntoView?.({ behavior: "smooth", block: "center" });
+      target?.focus({ preventScroll: true });
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeStep, validationTarget]);
 
   const goToPreviousStep = () => {
     if (currentStepIndex > 0) {
@@ -761,6 +863,17 @@ export function DynamicAgentEditor({
   };
 
   const goToNextStep = async () => {
+    // Required fields do not disable navigation controls. Instead, keep the
+    // user on the relevant step and let the persistent inline footer warning
+    // explain what needs attention.
+    const currentStepBlocker = blockers.find(
+      (blocker) => blocker.step === activeStep,
+    );
+    if (currentStepBlocker) {
+      revealBlocker(currentStepBlocker, true);
+      return;
+    }
+
     // Gate the instructions → tools transition behind a passing AI Review when
     // the admin has flagged this target as "blocking". `ensurePassedOrRun` is a
     // no-op when the config is disabled or informational.
@@ -927,9 +1040,18 @@ export function DynamicAgentEditor({
     opts?: { forceConfirmNotMember?: boolean },
   ) => {
     e?.preventDefault();
-    setLoading(true);
     setError(null);
     setTransferNeedsServerConfirm(false);
+
+    // Submission stays clickable. If the form is incomplete, route the user
+    // to the first missing field; the footer warning remains visible and the
+    // server is never called with an invalid payload.
+    if (firstBlocker) {
+      revealBlocker(firstBlocker);
+      return;
+    }
+
+    setLoading(true);
     // `setState` is async, so a confirm-and-retry can't rely on the freshly-set
     // `transferConfirmedNotMember`; the caller passes the value through opts.
     const confirmNotMember = opts?.forceConfirmNotMember || transferConfirmedNotMember;
@@ -959,18 +1081,6 @@ export function DynamicAgentEditor({
         setLoading(false);
         return;
       }
-    }
-
-    // Validate required fields
-    if (!modelId || !modelProvider) {
-      setError("Model selection is required");
-      setLoading(false);
-      return;
-    }
-    if (!isEditing && !ownerTeamSlug) {
-      setError("Owner team is required");
-      setLoading(false);
-      return;
     }
 
     // Validate ID for new agents
@@ -1112,44 +1222,6 @@ export function DynamicAgentEditor({
     }
   };
 
-  // Each entry describes one reason the Create Agent / Save Changes button is
-  // disabled. We render `blockers[0]` next to the button so the user always
-  // sees WHY they can't submit and on which step to fix it — previously the
-  // button just went `disabled` with no explanation, which the user reported
-  // as confusing (especially the Owner Team case, where the picker sits on
-  // the first wizard step but the button lives below step 5's content).
-  //
-  // assisted-by Cursor claude-opus-4-7
-  const ownerTeamMissing = !isEditing && !ownerTeamSlug;
-
-  const blockers: { field: string; label: string; step: StepId }[] = React.useMemo(() => {
-    const list: { field: string; label: string; step: StepId }[] = [];
-    if (!name.trim()) {
-      list.push({ field: "name", label: "Agent name", step: "basic" });
-    }
-    if (availableModels.length === 0) {
-      // Distinct from "model not picked" — the user can't pick anything
-      // because nothing is configured. Surfacing this separately tells the
-      // operator the problem is upstream (no providers configured).
-      list.push({ field: "modelAvailability", label: "At least one model provider must be configured", step: "basic" });
-    } else if (!modelId) {
-      list.push({ field: "model", label: "Model", step: "basic" });
-    }
-    if (ownerTeamMissing) {
-      list.push({ field: "ownerTeam", label: "Owner Team", step: "basic" });
-    }
-    if (!systemPrompt.trim()) {
-      list.push({ field: "systemPrompt", label: "Instructions (system prompt)", step: "instructions" });
-    }
-    return list;
-  }, [name, systemPrompt, modelId, availableModels.length, ownerTeamMissing]);
-
-  const isValid = blockers.length === 0;
-  const firstBlocker = blockers[0];
-  const blockerStepLabel = firstBlocker
-    ? STEPS.find((s) => s.id === firstBlocker.step)?.label ?? firstBlocker.step
-    : null;
-
   // Back-button click handler. When the form has unsaved changes, we surface
   // an in-app confirmation modal instead of silently discarding work. The
   // dialog itself is rendered at the bottom of this component.
@@ -1223,7 +1295,19 @@ export function DynamicAgentEditor({
             <StepIndicator 
               steps={STEPS} 
               currentStep={activeStep} 
-              onStepClick={selectStep}
+              onStepClick={(step) => {
+                const targetIndex = STEPS.findIndex((candidate) => candidate.id === step);
+                const blockingField = blockers.find(
+                  (blocker) =>
+                    STEPS.findIndex((candidate) => candidate.id === blocker.step) >= currentStepIndex &&
+                    STEPS.findIndex((candidate) => candidate.id === blocker.step) < targetIndex,
+                );
+                if (targetIndex > currentStepIndex && blockingField) {
+                  revealBlocker(blockingField);
+                  return;
+                }
+                selectStep(step);
+              }}
             />
           </div>
 
@@ -1242,7 +1326,31 @@ export function DynamicAgentEditor({
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   disabled={loading || !!readOnly}
+                  className={cn(
+                    validationTarget?.field === "name" &&
+                      !name.trim() &&
+                      "border-orange-500/70 focus-visible:ring-orange-500",
+                  )}
+                  aria-invalid={
+                    validationTarget?.field === "name" && !name.trim()
+                      ? true
+                      : undefined
+                  }
+                  aria-describedby={
+                    validationTarget?.field === "name" && !name.trim()
+                      ? "name-required-message"
+                      : undefined
+                  }
                 />
+                {validationTarget?.field === "name" && !name.trim() && (
+                  <p
+                    id="name-required-message"
+                    role="alert"
+                    className="text-xs text-orange-700 dark:text-orange-400"
+                  >
+                    Enter an agent name before continuing.
+                  </p>
+                )}
                 {/* Show generated ID */}
                 {isEditing ? (
                   <p className="text-xs text-muted-foreground">
@@ -1263,7 +1371,16 @@ export function DynamicAgentEditor({
                 <Label htmlFor="modelId">
                   LLM Model <span className="text-destructive">*</span>
                 </Label>
-                <div className="p-3 rounded-lg border-2 border-primary/20 bg-primary/5">
+                <div
+                  id="model-validation-target"
+                  tabIndex={-1}
+                  className={cn(
+                    "p-3 rounded-lg border-2 border-primary/20 bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    (validationTarget?.field === "model" ||
+                      validationTarget?.field === "modelAvailability") &&
+                      "border-orange-500/70 focus-visible:ring-orange-500",
+                  )}
+                >
                   <select
                     id="modelId"
                     value={`${modelId}::${modelProvider}`}
@@ -1294,7 +1411,7 @@ export function DynamicAgentEditor({
                     )}
                   </select>
                   {!modelsLoading && availableModels.length === 0 ? (
-                    <p className="text-xs text-destructive mt-2">
+                    <p className="text-xs text-orange-700 dark:text-orange-400 mt-2">
                       No LLM models available. Please check your deployment configuration.
                     </p>
                   ) : (
@@ -1616,8 +1733,12 @@ export function DynamicAgentEditor({
                 }
                 ownerExtra={
                   !isEditing && availableTeams.length === 0 ? (
-                    <p className="text-xs text-destructive">
+                    <p className="text-xs text-orange-700 dark:text-orange-400">
                       You must belong to at least one team to create a team-owned agent.
+                    </p>
+                  ) : ownerTeamMissing ? (
+                    <p className="text-xs text-orange-700 dark:text-orange-400" role="alert">
+                      Choose an owner team before continuing.
                     </p>
                   ) : null
                 }
@@ -1686,7 +1807,15 @@ export function DynamicAgentEditor({
 
           {/* Instructions Step */}
           {activeStep === "instructions" && (
-            <div className="space-y-4 pt-2">
+            <div
+              id="system-prompt-validation-target"
+              tabIndex={-1}
+              className={cn(
+                "space-y-4 pt-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                validationTarget?.field === "systemPrompt" &&
+                  "focus-visible:ring-orange-500",
+              )}
+            >
               <div className="space-y-2">
                 <div className="flex items-center justify-between relative">
                   <Label htmlFor="systemPrompt">
@@ -1912,6 +2041,13 @@ export function DynamicAgentEditor({
                   Define your agent&apos;s behavior, personality, and capabilities.
                 </p>
 
+                {validationTarget?.field === "systemPrompt" &&
+                  !systemPrompt.trim() && (
+                    <p role="alert" className="text-xs text-orange-700 dark:text-orange-400">
+                      Enter instructions before continuing.
+                    </p>
+                  )}
+
                 {blockingMessage && (
                   <div className="rounded-lg bg-destructive/10 border border-destructive/30 p-3">
                     <p className="text-sm text-destructive">{blockingMessage}</p>
@@ -2032,24 +2168,49 @@ export function DynamicAgentEditor({
               <ChevronLeft className="h-4 w-4 mr-1" />
               Previous
             </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => void goToNextStep()}
-              disabled={currentStepIndex === STEPS.length - 1 || loading}
-              size="sm"
+            <motion.div
+              key={`next-buzz-${nextBuzzCount}`}
+              data-testid="next-step-feedback"
+              data-validation-buzz={nextBuzzCount}
+              animate={
+                nextBuzzCount > 0
+                  ? { x: [0, -6, 6, -4, 4, 0] }
+                  : undefined
+              }
+              transition={{ duration: 0.32, ease: "easeOut" }}
             >
-              Next
-              <ChevronRight className="h-4 w-4 ml-1" />
-            </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => void goToNextStep()}
+                disabled={currentStepIndex === STEPS.length - 1 || loading}
+                size="sm"
+              >
+                Next
+                <ChevronRight className="h-4 w-4 ml-1" />
+              </Button>
+            </motion.div>
           </div>
         </form>
       </CardContent>
 
       {/* Action Buttons - Outside the card content */}
       <div className="flex items-center gap-2 px-6 py-4 border-t bg-muted/30">
-        <div className="text-xs text-muted-foreground mr-auto hidden sm:block">
-          {readOnly ? (
+        <div className="mr-auto min-w-0 text-xs">
+          {!readOnly && firstBlocker ? (
+            <button
+              type="button"
+              data-testid="create-agent-blocker-hint"
+              className="flex items-center gap-1.5 text-left text-orange-700 hover:underline dark:text-orange-400"
+              onClick={() => revealBlocker(firstBlocker)}
+            >
+              <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+              <span>
+                {firstBlocker.message}
+                {blockerStepLabel ? ` (${blockerStepLabel} step)` : ""}.
+              </span>
+            </button>
+          ) : readOnly ? (
             "This agent is config-driven and cannot be modified"
           ) : (
             <>
@@ -2064,13 +2225,10 @@ export function DynamicAgentEditor({
         {!readOnly && (
           <Button
             onClick={handleSubmit}
-            disabled={loading || !isValid}
-            // Native-tooltip mirror of the inline hint above. Helps users who
-            // hover the button looking for an explanation when they miss the
-            // inline text (e.g. on narrow screens where the hint wraps).
+            disabled={loading}
             title={
               !loading && firstBlocker
-                ? `${firstBlocker.label} is required${blockerStepLabel ? ` (on ${blockerStepLabel} step)` : ""}`
+                ? `${firstBlocker.message}${blockerStepLabel ? ` (on ${blockerStepLabel} step)` : ""}`
                 : undefined
             }
           >

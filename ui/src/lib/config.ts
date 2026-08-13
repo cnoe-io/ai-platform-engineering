@@ -71,6 +71,13 @@ export interface Config {
   /** Support email address for contact links */
   supportEmail: string;
   /**
+   * Team slug pre-selected in new agent and project owner pickers — the
+   * deployment's catchall/default team (e.g. an everyone-gets-added-
+   * automatically team), so most users never have to search a long team list.
+   * Null leaves owner selection empty so the user must choose a team.
+   */
+  defaultTeamSlug: string | null;
+  /**
    * When true and SSO is disabled, show Admin tab without login (dev only).
    * Set ALLOW_DEV_ADMIN_WHEN_SSO_DISABLED=true. Do not use in production.
    */
@@ -243,6 +250,7 @@ const DEFAULT_CONFIG: Config = {
   spinnerColor: null,
   showPoweredBy: true,
   supportEmail: DEFAULT_SUPPORT_EMAIL,
+  defaultTeamSlug: null,
   allowDevAdminWhenSsoDisabled: false,
   unsafeRbacBypassEnabled: false,
   storageMode: 'localStorage',
@@ -435,6 +443,7 @@ export function getServerConfig(): Config {
     spinnerColor: env('SPINNER_COLOR') || null,
     showPoweredBy,
     supportEmail: env('SUPPORT_EMAIL') || DEFAULT_SUPPORT_EMAIL,
+    defaultTeamSlug: env('DEFAULT_TEAM_SLUG') || null,
     allowDevAdminWhenSsoDisabled,
     unsafeRbacBypassEnabled,
     storageMode: mongodbEnabled ? 'mongodb' : 'localStorage',
