@@ -2,6 +2,7 @@ import { ApiError } from "@/lib/api-middleware";
 import { getCollection } from "@/lib/mongodb";
 import {
 agentGatewayAdminConfigUrl,
+  builtinCredentialSourcesFor,
 buildAgentGatewayMcpDiscovery,
 toAgentGatewayMcpServerDocument,
 type AgentGatewayMcpDiscovery,
@@ -23,6 +24,36 @@ type AgentGatewayMigrationWarning = {
   message: string;
 };
 
+function needsTomeCredentialSourceRepair(existing: MCPServerConfig | null): boolean {
+  if (!existing?.agentgateway_discovered || existing._id !== "mcp-tome") return false;
+  const sources = existing.credential_sources;
+  if (!Array.isArray(sources) || sources.length === 0) return true;
+  return sources.some(
+    (source) => source.kind === "provider_connection" && source.provider === "tome",
+  );
+}
+
+/** Repair known credential mappings written by older discovery builds. */
+export async function repairKnownAgentGatewayMcpServers(
+  collection?: Awaited<ReturnType<typeof getCollection<MCPServerConfig>>>,
+): Promise<string[]> {
+  const targetCollection = collection ?? await getCollection<MCPServerConfig>(COLLECTION_NAME);
+  const existing = await targetCollection.findOne({ _id: "mcp-tome" } as never);
+  const credentialSources = builtinCredentialSourcesFor("mcp-tome");
+  if (!needsTomeCredentialSourceRepair(existing) || !credentialSources) return [];
+
+  await targetCollection.updateOne(
+    { _id: "mcp-tome" } as never,
+    {
+      $set: {
+        credential_sources: credentialSources,
+        updated_at: new Date().toISOString(),
+      },
+    } as never,
+  );
+  return ["mcp-tome"];
+}
+
 async function reconcileAgentGatewayMcpServer(
   serverId: string,
   existing: MCPServerConfig | null,
@@ -35,7 +66,7 @@ async function reconcileAgentGatewayMcpServer(
         existing.visibility === "team" ? existing.owner_team_slug : null,
       nextSharedTeamSlugs:
         existing.visibility === "team" ? existing.shared_with_teams ?? [] : [],
-      sharedWithOrg: existing.visibility === "global",
+      globalOrganizationAccess: existing.visibility === "global",
     });
     return;
   }
@@ -67,6 +98,7 @@ export async function syncSelectedAgentGatewayMcpServers(ids?: string[]) {
     ids && ids.length > 0 ? ids : discovery.targets.map((target) => target.id),
   );
   const collection = await getCollection<MCPServerConfig>(COLLECTION_NAME);
+  await repairKnownAgentGatewayMcpServers(collection);
   const added: string[] = [];
   const migrated: string[] = [];
   const refreshed: string[] = [];

@@ -341,6 +341,71 @@ describe("AgentGateway MCP server discovery API", () => {
     });
   });
 
+  it("repairs the stale provider connection on an existing discovered Tome target", async () => {
+    const updateOne = jest.fn();
+    const existingTome = {
+      _id: "mcp-tome",
+      name: "Tome",
+      transport: "http",
+      endpoint: "http://agentgateway:4000/mcp",
+      enabled: true,
+      source: "agentgateway",
+      agentgateway_discovered: true,
+      credential_sources: [
+        {
+          kind: "provider_connection",
+          name: "X-CAIPE-Provider-Token",
+          provider: "tome",
+          target: "header",
+        },
+      ],
+    };
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        binds: [{
+          listeners: [{
+            routes: [{
+              backends: [{
+                mcp: { targets: [{ name: "mcp-tome", mcp: { host: "https://example.test/api/tome/mcp" } }] },
+              }],
+            }],
+          }],
+        }],
+      }),
+    }) as unknown as typeof fetch;
+    mockGetCollection.mockResolvedValue({
+      find: jest.fn().mockReturnValue({ toArray: jest.fn().mockResolvedValue([existingTome]) }),
+      findOne: jest.fn().mockResolvedValue(existingTome),
+      insertOne: jest.fn(),
+      updateOne,
+    });
+    const { POST } = await import("../sync/route");
+
+    const response = await POST(
+      request("/api/mcp-servers/agentgateway/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: ["mcp-tome"] }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(updateOne).toHaveBeenCalledWith(
+      { _id: "mcp-tome" },
+      {
+        $set: expect.objectContaining({
+          credential_sources: [{
+            kind: "caller_token",
+            name: "X-CAIPE-Provider-Token",
+            target: "header",
+          }],
+          updated_at: expect.any(String),
+        }),
+      },
+    );
+  });
+
   it("preserves an explicit global sharing policy during AgentGateway sync", async () => {
     const existing = {
       _id: "rag",
@@ -374,7 +439,7 @@ describe("AgentGateway MCP server discovery API", () => {
     expect(mockReconcileMcpServerRelationships).toHaveBeenCalledWith(
       expect.objectContaining({
         serverId: "rag",
-        sharedWithOrg: true,
+        globalOrganizationAccess: true,
         nextSharedTeamSlugs: [],
       }),
     );

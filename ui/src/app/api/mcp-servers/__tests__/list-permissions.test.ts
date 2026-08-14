@@ -59,6 +59,7 @@ jest.mock("@/lib/rbac/openfga-owned-resources-reconcile", () => ({
 }));
 
 jest.mock("../agentgateway/_lib", () => ({
+  repairKnownAgentGatewayMcpServers: jest.fn(),
   syncSelectedAgentGatewayMcpServers: jest.fn(),
 }));
 

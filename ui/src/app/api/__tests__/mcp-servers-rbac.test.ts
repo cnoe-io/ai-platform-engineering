@@ -65,6 +65,7 @@ jest.mock("@/lib/rbac/openfga-owned-resources-reconcile", () => ({
 }));
 
 jest.mock("../mcp-servers/agentgateway/_lib", () => ({
+  repairKnownAgentGatewayMcpServers: jest.fn(),
   syncSelectedAgentGatewayMcpServers: (...args: unknown[]) => mockSyncSelectedAgentGatewayMcpServers(...args),
 }));
 
@@ -571,6 +572,14 @@ describe("MCP server per-resource RBAC", () => {
 
   it("requires team membership before creating a team-owned MCP server", async () => {
     const insertOne = jest.fn();
+    mockRequireResourcePermission.mockImplementation(async (
+      _session: unknown,
+      resource: { type: string; action: string },
+    ) => {
+      if (resource.type === "organization" && resource.action === "manage") {
+        throw new Error("not an organization admin");
+      }
+    });
     mockGetCollection.mockResolvedValue({
       findOne: jest.fn().mockResolvedValue(null),
       insertOne,

@@ -123,6 +123,44 @@ beforeEach(() => {
 });
 
 describe("POST /api/mcp-servers — endpoint normalisation", () => {
+  it("allows an organization admin to own and share with teams without explicit team tuples", async () => {
+    mockFindOne.mockResolvedValue(null);
+    mockInsertOne.mockResolvedValue({ acknowledged: true });
+    mockRequireResourcePermission.mockImplementation(async (
+      _session: unknown,
+      resource: { type: string; action: string },
+    ) => {
+      if (resource.type === "team") throw new Error("no direct team tuple");
+    });
+    const { POST } = await import("../route");
+
+    const response = await POST(
+      request("/api/mcp-servers", {
+        method: "POST",
+        body: JSON.stringify({
+          id: "team-tool",
+          name: "Team Tool",
+          transport: "http",
+          endpoint: "https://mcp.example.test/mcp",
+          visibility: "team",
+          owner_team_slug: "primary",
+          shared_with_teams: ["secondary"],
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    expect(mockInsertOne).toHaveBeenCalledWith(expect.objectContaining({
+      visibility: "team",
+      owner_team_slug: "primary",
+      shared_with_teams: ["secondary"],
+    }));
+    expect(mockRequireResourcePermission).not.toHaveBeenCalledWith(
+      session,
+      expect.objectContaining({ type: "team" }),
+    );
+  });
+
   it("rewrites a bare AgentGateway endpoint to /mcp/<server_id> on create", async () => {
     mockFindOne.mockResolvedValue(null);
     mockInsertOne.mockResolvedValue({ acknowledged: true });

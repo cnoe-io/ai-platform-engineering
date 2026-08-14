@@ -132,6 +132,10 @@ async function canManageOrganization(
 }
 
 async function requireOwnerTeamMembership(session: Parameters<typeof requireResourcePermission>[0], ownerTeamSlug: string): Promise<void> {
+  // The team picker intentionally lets organization admins select any team.
+  // Keep the write path consistent with that UI and with global-resource
+  // administration, even when the admin has no explicit team tuple.
+  if (await canManageOrganization(session)) return;
   try {
     await requireResourcePermission(session, { type: "team", id: ownerTeamSlug, action: "use" });
     return;
@@ -291,13 +295,17 @@ async function selfHealAgentGatewayMcpServersForList(
   collection: Awaited<ReturnType<typeof getCollection<MCPServerConfig>>>,
 ): Promise<void> {
   try {
+    const {
+      repairKnownAgentGatewayMcpServers,
+      syncSelectedAgentGatewayMcpServers,
+    } = await import("./agentgateway/_lib");
+    await repairKnownAgentGatewayMcpServers(collection);
     const discoveredCount = await collection.countDocuments({ source: "agentgateway" } as never);
     if (discoveredCount > 0) return;
 
     // assisted-by Codex Codex-sonnet-4-6
     // Startup self-heal can miss AgentGateway readiness; list-time recovery
     // keeps built-in routes like knowledge-base visible in MCP pickers.
-    const { syncSelectedAgentGatewayMcpServers } = await import("./agentgateway/_lib");
     await syncSelectedAgentGatewayMcpServers();
   } catch (error) {
     console.warn(

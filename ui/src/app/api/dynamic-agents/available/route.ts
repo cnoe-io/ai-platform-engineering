@@ -20,6 +20,7 @@ import { filterAgentsByOwnershipScopeForSession } from "@/lib/rbac/agent-ownersh
 import { baselineBootstrapTuples,getBaselineFgaProfile } from "@/lib/rbac/baseline-access";
 import { writeOpenFgaTuples } from "@/lib/rbac/openfga";
 import { filterResourcesByPermission } from "@/lib/rbac/resource-authz";
+import { trustedInteractionFromRequest } from "@/lib/authz/trusted-interaction";
 import {
 createJsonResponseCacheStore,
 envTtlMs,
@@ -168,6 +169,8 @@ async function getAvailableAgents(request: NextRequest) {
     type: "agent",
     action: "use",
     id: (agent) => String(agent._id),
+  }, {
+    trustedContext: { interaction: trustedInteractionFromRequest(request) },
   });
 
   // Normalize legacy model_id/model_provider → model

@@ -143,6 +143,34 @@ describe('ShareDialog search performance', () => {
     expect(screen.getByText('New User')).toBeInTheDocument();
     expect(teamGets).toBe(1);
   });
+
+  it('does not offer a share action for an email absent from the workspace directory', async () => {
+    ;(global.fetch as jest.Mock).mockImplementation((url: string) => {
+      if (url.includes('/api/dynamic-agents/teams')) return success([]);
+      if (url.includes('/share')) {
+        return success({ sharing: initialSharing, access_list: [] });
+      }
+      return success({});
+    });
+
+    render(
+      <ShareDialog
+        conversationId="conversation-1"
+        conversationTitle="Example conversation"
+        open
+        onOpenChange={jest.fn()}
+        initialSharing={initialSharing}
+      />,
+    );
+
+    fireEvent.change(screen.getByPlaceholderText('Search by email or team name...'), {
+      target: { value: 'missing-user@example.test' },
+    });
+
+    expect(await screen.findByText('No people or teams found')).toBeInTheDocument();
+    expect(screen.getByText('Only users already in this workspace can be added.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Share with missing-user/ })).not.toBeInTheDocument();
+  });
 });
 
 describe('ShareDialog access management', () => {

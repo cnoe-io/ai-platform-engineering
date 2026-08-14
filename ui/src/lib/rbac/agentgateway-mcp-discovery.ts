@@ -87,6 +87,16 @@ export const BUILTIN_MCP_CREDENTIAL_SOURCES: Record<string, MCPCredentialSource[
       fallback_client_credentials: true,
     },
   ],
+  // TOME's MCP endpoint authorizes the signed-in caller. AgentGateway still
+  // validates Authorization itself, so the BFF forwards the same JWT through
+  // the provider-token header for the bridge to apply upstream.
+  "mcp-tome": [
+    {
+      kind: "caller_token",
+      name: "X-CAIPE-Provider-Token",
+      target: "header",
+    },
+  ],
 };
 
 /** Built-in credential sources for a discovered target id, if any. */

@@ -222,7 +222,11 @@ describe("dynamic agents RBAC routes", () => {
     expect(mockFilterResourcesByPermission).toHaveBeenCalledWith(
       session,
       [{ _id: "agent-runtime", enabled: true }],
-      { type: "agent", action: "use", id: expect.any(Function) },
+      {
+        type: "agent",
+        action: "use",
+        id: expect.any(Function),
+      },
       {
         trustedContext: {
           interaction: { source: "web", conversationKind: "personal", verified: false },
@@ -294,6 +298,11 @@ describe("dynamic agents RBAC routes", () => {
       session,
       scopedAgents,
       { type: "agent", action: "use", id: expect.any(Function) },
+      {
+        trustedContext: {
+          interaction: { source: "web", conversationKind: "personal", verified: false },
+        },
+      },
     );
     expect(body.data).toEqual([expect.objectContaining({ _id: "incident-agent" })]);
   });
@@ -327,6 +336,11 @@ describe("dynamic agents RBAC routes", () => {
       session,
       agents,
       { type: "agent", action: "use", id: expect.any(Function) },
+      {
+        trustedContext: {
+          interaction: { source: "web", conversationKind: "personal", verified: false },
+        },
+      },
     );
   });
 
@@ -395,6 +409,11 @@ describe("dynamic agents RBAC routes", () => {
       session,
       agents,
       { type: "agent", action: "use", id: expect.any(Function) },
+      {
+        trustedContext: {
+          interaction: { source: "web", conversationKind: "personal", verified: false },
+        },
+      },
     );
   });
 

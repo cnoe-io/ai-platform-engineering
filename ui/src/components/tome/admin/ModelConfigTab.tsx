@@ -176,10 +176,11 @@ export function ModelConfigTab() {
           {MODEL_ROLES.map(({ role, label, description }) => {
             const draft = drafts[role] ?? "";
             const doc = docs[role];
-            const isCustom = Boolean(draft) && !isCatalogModel(draft);
+            const isCustom = draft === CUSTOM_MODEL_VALUE || (Boolean(draft) && !isCatalogModel(draft));
+            const modelValue = draft === CUSTOM_MODEL_VALUE ? "" : draft;
             const result = testResults[role];
-            const tested = result?.ok === true && result.model === draft.trim();
-            const dirty = draft.trim() !== (doc?.model ?? "");
+            const tested = result?.ok === true && result.model === modelValue.trim();
+            const dirty = modelValue.trim() !== (doc?.model ?? "");
             return (
               <div key={role} className="rounded-xl border border-border bg-card p-4">
                 <div className="mb-2 flex items-baseline justify-between gap-2">
@@ -191,7 +192,7 @@ export function ModelConfigTab() {
                   <div className="flex flex-col gap-2 sm:flex-row">
                     <select
                       value={!draft ? "" : isCustom ? CUSTOM_MODEL_VALUE : draft}
-                      onChange={(event) => setDraft(role, event.target.value === CUSTOM_MODEL_VALUE ? "" : event.target.value)}
+                      onChange={(event) => setDraft(role, event.target.value)}
                       className="h-9 min-w-0 flex-1 rounded-md border border-border bg-background px-2 text-sm"
                     >
                       <option value="">Unset (inherit next level)</option>
@@ -199,7 +200,7 @@ export function ModelConfigTab() {
                       <option value={CUSTOM_MODEL_VALUE}>Custom…</option>
                     </select>
                     <div className="flex gap-2">
-                      <Button size="sm" variant="outline" onClick={() => void test(role)} disabled={!draft.trim() || testingRole === role} className="gap-2">
+                      <Button size="sm" variant="outline" onClick={() => void test(role)} disabled={!modelValue.trim() || testingRole === role} className="gap-2">
                         {testingRole === role ? <Loader2 className="h-4 w-4 animate-spin" /> : result?.ok ? <CheckCircle2 className="h-4 w-4 text-emerald-500" /> : result && !result.ok ? <XCircle className="h-4 w-4 text-destructive" /> : null}
                         Test
                       </Button>
@@ -211,7 +212,7 @@ export function ModelConfigTab() {
                       </Button>
                     </div>
                   </div>
-                  {isCustom && <Input value={draft} onChange={(event) => setDraft(role, event.target.value)} placeholder="provider/model-id" className="font-mono text-sm" />}
+                  {isCustom && <Input value={modelValue} onChange={(event) => setDraft(role, event.target.value)} placeholder="provider/model-id" className="font-mono text-sm" />}
                   {result && !result.ok && "error" in result && <p className="text-xs text-destructive">{result.error}</p>}
                   {tested && <p className="text-xs text-emerald-600">Model responded successfully. Save is enabled.</p>}
                   {!doc && !draft && <p className="text-xs text-muted-foreground">No value at this scope; the next resolution level will be used.</p>}

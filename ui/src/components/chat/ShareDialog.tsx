@@ -384,19 +384,6 @@ export function ShareDialog({
     }
   };
 
-  // Handle sharing by email directly (for users not yet in system)
-  const handleShareByEmail = async () => {
-    if (!canManageSharing) return;
-    // Simple email validation
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(searchInput)) {
-      alert("Please enter a valid email address");
-      return;
-    }
-
-    await handleShareUser(searchInput);
-  };
-
   const handleCopyLink = async () => {
     try {
       await navigator.clipboard.writeText(shareUrl);
@@ -694,27 +681,15 @@ export function ShareDialog({
                   </div>
                 )}
                 
-                {/* No results - offer to share by email */}
+                {/* Do not create grants for identities absent from the directory. */}
                 {noResults && !searching && userResults.length === 0 && teamResults.length === 0 && (
                   <div className="px-3 py-4">
                     <p className="text-sm text-muted-foreground mb-2">
                       No people or teams found
                     </p>
-                    {/* Only show email share if it looks like an email */}
-                    {/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(searchInput) && (
-                      <>
-                        <button
-                          onClick={handleShareByEmail}
-                          disabled={loading}
-                          className="w-full px-3 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 text-sm font-medium"
-                        >
-                          Share with {searchInput}
-                        </button>
-                        <p className="text-xs text-muted-foreground mt-2">
-                          They&apos;ll get access when they log in
-                        </p>
-                      </>
-                    )}
+                    <p className="text-xs text-muted-foreground">
+                      Only users already in this workspace can be added.
+                    </p>
                   </div>
                 )}
               </div>

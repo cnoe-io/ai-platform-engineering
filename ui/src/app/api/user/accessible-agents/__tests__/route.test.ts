@@ -70,6 +70,23 @@ describe("GET /api/user/accessible-agents", () => {
       { id: "agent-y", name: "Agent Y", description: "Y does Y" },
       { id: "agent-z", name: "Agent Z", description: "Z does Z" },
     ]);
+    expect(mockFilterResources).toHaveBeenCalledWith(
+      expect.objectContaining({ sub: "alice-sub" }),
+      expect.any(Array),
+      expect.objectContaining({
+        type: "agent",
+        action: "use",
+      }),
+      {
+        trustedContext: {
+          interaction: {
+            source: "web",
+            conversationKind: "personal",
+            verified: false,
+          },
+        },
+      },
+    );
   });
 
   it("returns only the agents that filterResourcesByPermission allows", async () => {

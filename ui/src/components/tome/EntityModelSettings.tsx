@@ -148,9 +148,10 @@ export function EntityModelSettings({
         const config = configs[role];
         const effective = resolved[role];
         const draft = drafts[role] ?? "";
-        const custom = Boolean(draft) && !isCatalogModel(draft);
+        const custom = draft === CUSTOM_MODEL_VALUE || (Boolean(draft) && !isCatalogModel(draft));
+        const modelValue = draft === CUSTOM_MODEL_VALUE ? "" : draft;
         const result = results[role];
-        const tested = result?.ok === true && result.model === draft.trim();
+        const tested = result?.ok === true && result.model === modelValue.trim();
         return (
           <div key={role} className="rounded-lg border border-border p-4">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -164,7 +165,7 @@ export function EntityModelSettings({
               <div className="flex flex-col gap-2 sm:flex-row">
                 <select
                   value={!draft ? "" : custom ? CUSTOM_MODEL_VALUE : draft}
-                  onChange={(event) => setDraft(role, event.target.value === CUSTOM_MODEL_VALUE ? "" : event.target.value)}
+                  onChange={(event) => setDraft(role, event.target.value)}
                   disabled={!canEdit}
                   className="h-9 min-w-0 flex-1 rounded-md border border-border bg-background px-2 text-sm"
                 >
@@ -173,14 +174,14 @@ export function EntityModelSettings({
                   <option value={CUSTOM_MODEL_VALUE}>Custom…</option>
                 </select>
                 <div className="flex gap-2">
-                  <Button size="sm" variant="outline" onClick={() => void test(role)} disabled={!canEdit || !draft.trim() || busy === role}>
+                  <Button size="sm" variant="outline" onClick={() => void test(role)} disabled={!canEdit || !modelValue.trim() || busy === role}>
                     {busy === role ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : result?.ok ? <CheckCircle2 className="mr-1 h-4 w-4 text-emerald-500" /> : result && !result.ok ? <XCircle className="mr-1 h-4 w-4 text-destructive" /> : null} Test
                   </Button>
-                  <Button size="sm" onClick={() => void save(role)} disabled={!canEdit || draft.trim() === (config?.model ?? "") || !tested || busy === role}><Save className="mr-1 h-4 w-4" /> Save</Button>
+                  <Button size="sm" onClick={() => void save(role)} disabled={!canEdit || modelValue.trim() === (config?.model ?? "") || !tested || busy === role}><Save className="mr-1 h-4 w-4" /> Save</Button>
                   <Button size="sm" variant="outline" onClick={() => void clear(role)} disabled={!canEdit || !config || busy === role}><RotateCcw className="mr-1 h-4 w-4" /> Inherit</Button>
                 </div>
               </div>
-              {custom && <Input value={draft} onChange={(event) => setDraft(role, event.target.value)} disabled={!canEdit} placeholder="provider/model-id" className="font-mono text-sm" />}
+              {custom && <Input value={modelValue} onChange={(event) => setDraft(role, event.target.value)} disabled={!canEdit} placeholder="provider/model-id" className="font-mono text-sm" />}
               {result && !result.ok && "error" in result && <p className="text-xs text-destructive">{result.error}</p>}
               {tested && <p className="text-xs text-emerald-600">Model responded successfully. Save is enabled.</p>}
             </div>
