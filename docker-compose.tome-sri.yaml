@@ -37,6 +37,7 @@ services:
     environment:
       - NEXTAUTH_URL=https://tome-sri.dev.outshift.io
       - OIDC_ISSUER=https://tome-sri.dev.outshift.io/realms/caipe
+      - OIDC_IDP_HINT=${OIDC_IDP_HINT:-duo-sso}
       - TOME_MCP_OAUTH_ISSUER=https://tome-sri.dev.outshift.io/realms/caipe
       - CONFLUENCE_REDIRECT_URI=https://tome-sri.dev.outshift.io/api/credentials/oauth/atlassian/callback
       - INTERNAL_BASE_URL=http://localhost:3000
@@ -55,6 +56,10 @@ services:
       - REPORT_PROBLEM_GITHUB_TOKEN=${REPORT_PROBLEM_GITHUB_TOKEN}
 
   keycloak:
+    # The persisted Tome SRI realm uses the experimental CIMD client policy.
+    # Keep a compatible image and enable the provider; otherwise every
+    # authorization and token request fails while loading client-id-uri.
+    image: quay.io/keycloak/keycloak:26.7.1
     environment:
       - KC_HOSTNAME=https://tome-sri.dev.outshift.io
       - KC_PROXY_HEADERS=xforwarded
@@ -62,9 +67,16 @@ services:
       - KC_HOSTNAME_BACKCHANNEL_DYNAMIC=true
     # Keep this environment overlay self-contained while the preview host may
     # run an older generated base Compose file during branch validation.
-    command: ["start-dev", "--import-realm", "--http-port", "7080", "--https-port", "7443", "--features=token-exchange,admin-fine-grained-authz:v1", "--spi-well-known--openid-configuration--openid-configuration-override=/opt/keycloak/conf/openid-configuration-override.json"]
+    command: ["start-dev", "--import-realm", "--http-port", "7080", "--https-port", "7443", "--features=cimd,token-exchange,admin-fine-grained-authz:v1", "--spi-well-known--openid-configuration--openid-configuration-override=/opt/keycloak/conf/openid-configuration-override.json"]
     volumes:
       - ./charts/ai-platform-engineering/charts/keycloak/openid-configuration-override.json:/opt/keycloak/conf/openid-configuration-override.json:ro
+
+  # Tome SRI is SSO-only. init-idp.sh makes the broker redirector required
+  # and disables the local username/password forms execution.
+  keycloak-init:
+    environment:
+      IDP_ALIAS: ${IDP_ALIAS:-duo-sso}
+      KEYCLOAK_FORCE_IDP_REDIRECT: "true"
 
   openfga-authz-bridge:
     environment:
