@@ -14,12 +14,13 @@ then drives this loop. Writes persist through the same hook as every other agent
 
 from __future__ import annotations
 
+import asyncio
 import logging
-import os
 from collections.abc import AsyncIterator
 from uuid import UUID
 
 from tome_agent import prompts
+from tome_agent.agent import http_client
 from tome_agent.agent.loop import build_agent_options, project_root
 from tome_agent.agent.run_stream import consume_agent_query, emit_log, now_iso
 from tome_agent.orchestrator.contract import IngestEventPayload, ProjectSnapshot
@@ -31,7 +32,11 @@ MAX_TURNS = 100
 
 
 def _compaction_model() -> str:
-    return os.environ.get("TTT_INGEST_MODEL", COMPACTION_MODEL_DEFAULT)
+    return http_client.resolve_model(
+        "compact",
+        COMPACTION_MODEL_DEFAULT,
+        ("TTT_INGEST_MODEL",),
+    )
 
 
 def _build_compaction_system_prompt(snapshot: ProjectSnapshot) -> str:
@@ -79,6 +84,10 @@ async def stream_compaction(
     """Run a wiki compaction pass as a Claude Agent SDK loop. Yields IngestEvents
     the agent's HTTP handler writes to the SSE response."""
     log_buf: list[IngestEventPayload] = []
+    models = await asyncio.to_thread(
+        http_client.fetch_model_config, snapshot.project_id, snapshot.project_type
+    )
+    http_client.set_model_overrides(models)
 
     async def on_write(page_path: str, byte_count: int) -> None:
         log_buf.append(
@@ -92,10 +101,15 @@ async def stream_compaction(
     # (read-only) so compaction can check its pages against the ground truth.
     child_read_dirs = [project_root(c.project_id) for c in (snapshot.child_projects or [])]
 
+    model_provenance = http_client.resolve_model_with_provenance(
+        "compact",
+        COMPACTION_MODEL_DEFAULT,
+        ("TTT_INGEST_MODEL",),
+    )
     options = build_agent_options(
         snapshot=snapshot,
         system_prompt=_build_compaction_system_prompt(snapshot),
-        model=_compaction_model(),
+        model=model_provenance["model"],
         max_turns=MAX_TURNS,
         persist_author="tome-compaction",
         report_id=report_id,
@@ -121,5 +135,7 @@ async def stream_compaction(
     if seed and seed.strip():
         yield emit_log(f"· seed: {seed.strip()[:200]}")
 
-    async for event in consume_agent_query(prompt, options, log_buf):
+    async for event in consume_agent_query(
+        prompt, options, log_buf, model_provenance=model_provenance
+    ):
         yield event

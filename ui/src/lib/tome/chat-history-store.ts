@@ -13,7 +13,13 @@ import {
   getTomeChatSessionsCollection,
   getTomeChatMessagesCollection,
 } from "@/lib/tome/mongo-collections";
-import type { ChatMessage, ChatPart, ChatRole, ChatSession } from "@/types/tome";
+import type {
+  ChatMessage,
+  ChatPart,
+  ChatRole,
+  ChatSession,
+  ModelProvenance,
+} from "@/types/tome";
 
 /** The most-recent session for (project, user), or null. Never creates. */
 export async function findActiveSession(
@@ -100,6 +106,8 @@ export async function appendMessage(
   role: ChatRole,
   content: string,
   parts?: ChatPart[],
+  model?: string,
+  modelProvenance?: ModelProvenance,
 ): Promise<ChatMessage> {
   const messages = await getTomeChatMessagesCollection();
   const sessions = await getTomeChatSessionsCollection();
@@ -111,6 +119,8 @@ export async function appendMessage(
     role,
     content,
     ...(parts && parts.length ? { parts } : {}),
+    ...(model ? { model } : {}),
+    ...(modelProvenance ? { model_provenance: modelProvenance } : {}),
     created_at: now,
   };
   await messages.insertOne(message);

@@ -39,6 +39,7 @@ import { UserEmailPicker } from "@/components/ui/user-email-picker";
 import { AutosavingSourcesEditor } from "@/components/projects/source-pickers/AutosavingSourcesEditor";
 import { useProjectSourceKinds } from "@/components/projects/source-pickers/useProjectSourceKinds";
 import { ChildProjectsPanel } from "@/components/tome/BhagProjectsPanel";
+import { EntityModelSettings } from "@/components/tome/EntityModelSettings";
 import { PanelHeader } from "@/components/tome/PanelHeader";
 import { TomeLoading } from "@/components/tome/TomeLoading";
 import { ViewOnlyTooltip } from "@/components/tome/ViewOnlyTooltip";
@@ -612,6 +613,9 @@ export function ProjectSettingsPanel({
                   <TabsTrigger value="sources" className={TAB_TRIGGER_CLASS}>
                     Sources
                   </TabsTrigger>
+                  <TabsTrigger value="models" className={TAB_TRIGGER_CLASS}>
+                    Models
+                  </TabsTrigger>
                   {!isSynthesized && (
                     <TabsTrigger value="auto-ingest" className={TAB_TRIGGER_CLASS}>
                       Auto-ingest
@@ -1032,6 +1036,10 @@ export function ProjectSettingsPanel({
                     </>
                   )}
                 </div>
+              </TabsContent>
+
+              <TabsContent value="models" className="space-y-6 pt-6">
+                <EntityModelSettings slug={slug} entityType={projectKind} canEdit={canEdit} />
               </TabsContent>
 
               {/* Source activity feed: a consumer of the data steward's connection

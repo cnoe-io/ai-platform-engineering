@@ -85,6 +85,12 @@ TTT_INGEST_MODEL=claude-haiku-4-5     # optional override
 TOME_AGENT_TOKEN=dev                  # required; must match ui/.env.local
 ```
 
+Tome model settings resolve in this order: exact Project/Area/BHAG override,
+entity-type default, global default, environment variable, then the built-in
+default. `TTT_CHAT_MODEL` backs chat; `TTT_INGEST_MODEL` backs ingest,
+synthesis, and compaction. Every value saved in Settings must first pass a live
+agent smoke test.
+
 Internal agent callbacks fail closed when `TOME_AGENT_TOKEN` is missing or
 does not match. Do not expose `/api/tome/api/internal/*` through public ingress.
 

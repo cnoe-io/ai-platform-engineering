@@ -37,6 +37,8 @@ export const GET = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
     review_outcome: run.review_outcome ?? null,
     reviewed_by: run.reviewed_by ?? null,
     usage: run.usage ?? null,
+    model: run.model ?? null,
+    model_provenance: run.model_provenance ?? null,
     context_usage: run.context_usage ?? null,
     log: (run.log ?? []).join("\n"),
   });

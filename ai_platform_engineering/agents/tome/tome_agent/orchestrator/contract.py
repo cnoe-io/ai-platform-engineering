@@ -223,6 +223,22 @@ class IngestEventPayload(BaseModel):
     data: dict[str, Any]
 
 
+# ---------- agent /model-check ----------
+
+
+class ModelCheckRequest(BaseModel):
+    """POST /model-check — smoke-test a candidate model id (admin UI Test
+    button) before it's saved to the model-config store. No project scope,
+    no tools, no persistence — just proves the id + ANTHROPIC_BASE_URL/auth
+    path actually resolves."""
+    model: str
+
+
+class ModelCheckResponse(BaseModel):
+    ok: bool
+    error: str | None = None
+
+
 # ---------- agent /healthz, /readyz ----------
 
 
@@ -244,6 +260,8 @@ __all__ = [
     "IngestEventPayload",
     "IngestEventType",
     "IngestRequest",
+    "ModelCheckRequest",
+    "ModelCheckResponse",
     "ProjectSnapshot",
     "RepoSnapshot",
     "WebexRoomSnapshot",

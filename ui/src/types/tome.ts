@@ -148,6 +148,15 @@ export type IngestRunStatus =
   | "succeeded"
   | "failed";
 
+/** Immutable record of how an effective model was selected for a run/turn. */
+export interface ModelProvenance {
+  model: string;
+  source: "exact" | "type" | "global" | "environment" | "fallback";
+  scope_kind?: "exact" | "type" | "global" | null;
+  scope_id?: string | null;
+  config_version?: number | null;
+}
+
 /** What the queue worker needs to actually start a queued run later. */
 export interface IngestDispatch {
   /** Agent endpoint: "/ingest" (source pull) or "/synthesize" (BHAG roll-up). */
@@ -222,6 +231,11 @@ export interface IngestRun {
   cost_usd?: number;
   /** Agent-reported number of turns completed by the run. */
   turns?: number;
+  /** The model id this run actually ran on — admin-editable per role
+   * (Settings → Models), so this can differ run to run. */
+  model?: string;
+  /** Resolution source captured at execution time. */
+  model_provenance?: ModelProvenance;
   /**
    * Latest exact context-window occupancy, from the Claude Agent SDK's own
    * live accounting (the same figure the CLI's `/context` shows) — accounts
@@ -276,6 +290,10 @@ export interface ChatMessage {
   content: string;
   /** Interleaved render model; absent on legacy/user rows (fall back to content). */
   parts?: ChatPart[];
+  /** The model id that produced this turn. Assistant rows only — admin-editable
+   * per role (Settings → Models), so this can differ turn to turn. */
+  model?: string;
+  model_provenance?: ModelProvenance;
   created_at: Date;
 }
 

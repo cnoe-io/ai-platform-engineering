@@ -5,12 +5,19 @@ import { useRouter } from "next/navigation";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PageTemplateEditor } from "@/components/tome/PageTemplateEditor";
+import { ModelConfigTab } from "@/components/tome/admin/ModelConfigTab";
 import { TomeAdminsTab } from "@/components/tome/admin/TomeAdminsTab";
 import { TomeAnalyticsTab } from "@/components/tome/admin/TomeAnalyticsTab";
 import { TomeAuthorizationHealthTab } from "@/components/tome/admin/TomeAuthorizationHealthTab";
 import { useSubtabParam } from "@/hooks/use-subtab-param";
 
-const TOME_ADMIN_TABS = ["page-templates", "analytics", "authorization", "admins"] as const;
+const TOME_ADMIN_TABS = [
+  "page-templates",
+  "models",
+  "analytics",
+  "authorization",
+  "admins",
+] as const;
 type TomeAdminTab = (typeof TOME_ADMIN_TABS)[number];
 
 export default function TomeAdminPage() {
@@ -63,6 +70,7 @@ function TomeAdminPageContent() {
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as TomeAdminTab)} className="space-y-6">
         <TabsList>
           <TabsTrigger value="page-templates">Page Templates</TabsTrigger>
+          <TabsTrigger value="models">Models</TabsTrigger>
           <TabsTrigger value="analytics">Analytics</TabsTrigger>
           <TabsTrigger value="authorization">Health</TabsTrigger>
           <TabsTrigger value="admins">Admins</TabsTrigger>
@@ -74,6 +82,10 @@ function TomeAdminPageContent() {
             agent read this config.
           </p>
           <PageTemplateEditor />
+        </TabsContent>
+
+        <TabsContent value="models" className="mt-0 space-y-4">
+          <ModelConfigTab />
         </TabsContent>
 
         <TabsContent value="analytics" className="mt-0 space-y-4">

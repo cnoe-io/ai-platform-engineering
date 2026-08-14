@@ -22,7 +22,7 @@ import logging
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, TypedDict
 from uuid import UUID
 
 import httpx
@@ -61,6 +61,48 @@ _active_project_id: contextvars.ContextVar[str | None] = contextvars.ContextVar(
 def set_active_project_id(project_id: str) -> None:
     """Scope this request's backend callbacks to `project_id`."""
     _active_project_id.set(project_id)
+
+
+# Per-run model-config override, fetched once at the start of each ingest/
+# chat/synthesize/compact run via `fetch_model_config()`. Task-local so
+# concurrent runs can't clobber each other; a run that never sets this
+# transparently falls back to the env var / hardcoded constant.
+class ModelResolution(TypedDict, total=False):
+    model: str
+    source: str
+    scope_kind: str | None
+    scope_id: str | None
+    config_version: int | None
+
+
+_model_overrides: contextvars.ContextVar[dict[str, ModelResolution] | None] = contextvars.ContextVar(
+    "tome_model_overrides", default=None
+)
+
+
+def set_model_overrides(by_role: dict[str, ModelResolution] | None) -> None:
+    """Install this run's admin-editable model config."""
+    _model_overrides.set(by_role or None)
+
+
+def resolve_model_with_provenance(
+    role: str,
+    default: str,
+    env_vars: tuple[str, ...] = (),
+) -> ModelResolution:
+    """Resolve configured -> environment -> built-in and retain its source."""
+    overrides = _model_overrides.get()
+    if overrides and role in overrides:
+        return overrides[role]
+    for env_var in env_vars:
+        value = os.environ.get(env_var, "").strip()
+        if value:
+            return {"model": value, "source": "environment", "scope_id": env_var}
+    return {"model": default, "source": "fallback"}
+
+
+def resolve_model(role: str, default: str, env_vars: tuple[str, ...] = ()) -> str:
+    return resolve_model_with_provenance(role, default, env_vars)["model"]
 
 
 # Per-request OAuth credentials forwarded from the caller. Keyed by provider
@@ -289,6 +331,53 @@ def fetch_page_templates() -> dict[str, list[dict[str, Any]]] | None:
         if isinstance(scope, str) and isinstance(pages, list):
             by_scope[scope] = pages
     return by_scope or None
+
+
+def fetch_model_config(
+    entity_id: str,
+    entity_type: str,
+) -> dict[str, ModelResolution] | None:
+    """Fetch exact/type/global resolution for one entity.
+
+    Roles: `ingest`, `chat`, `synthesize`, `compact`. Returns None on any
+    error so the caller falls back to its env var / hardcoded constant —
+    no agent surface hard-depends on this endpoint. Agent-token authed; no
+    request scope."""
+    url = f"{_backend_url()}/api/internal/model-config"
+    try:
+        with httpx.Client(timeout=DEFAULT_TIMEOUT) as client:
+            resp = client.get(
+                url,
+                headers=_auth_headers(),
+                params={"entity_id": entity_id, "entity_type": entity_type},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+    except Exception:
+        log.warning("fetch_model_config failed; using env var / hardcoded default", exc_info=True)
+        return None
+    models = data.get("models") if isinstance(data, dict) else None
+    if not isinstance(models, list):
+        return None
+    by_role: dict[str, ModelResolution] = {}
+    for entry in models:
+        role = entry.get("role")
+        model = entry.get("model")
+        source = entry.get("source")
+        if (
+            isinstance(role, str)
+            and isinstance(model, str)
+            and model.strip()
+            and isinstance(source, str)
+        ):
+            by_role[role] = {
+                "model": model,
+                "source": source,
+                "scope_kind": entry.get("scope_kind"),
+                "scope_id": entry.get("scope_id"),
+                "config_version": entry.get("config_version"),
+            }
+    return by_role or None
 
 
 def fetch_all_pages_sync(project_id: str | None = None) -> dict[str, str]:

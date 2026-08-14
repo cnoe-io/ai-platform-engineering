@@ -27,12 +27,14 @@ and persistence. CAIPE Mongo is the system of record.
 | `TTT_AGENT_TOKEN` | Shared bearer for the internal callbacks (non-empty) |
 | `TTT_PROJECT_ROOT` | Working-copy dir for the agent's file tools (rehydrated each run) |
 | `TTT_AGENT_ROLE` | `editor` \| `viewer` |
-| `TTT_CHAT_MODEL` / `TTT_INGEST_MODEL` | Model ids (Anthropic-style; may be served via a proxy) |
+| `TTT_CHAT_MODEL` / `TTT_INGEST_MODEL` | Deployment fallback model ids when no exact/type/global setting exists |
 | `ANTHROPIC_BASE_URL` / `ANTHROPIC_API_KEY` | Anthropic-style endpoint + key (a proxy may front Bedrock etc.) |
 | `GITHUB_TOKEN` / `CONFLUENCE_TOKEN` / `WEBEX_TOKEN` | Read-only source tokens for the connector MCPs (optional) |
 
-The endpoint, models, and credentials are entirely config-driven — nothing
-host- or product-specific is hardcoded.
+The endpoint, models, and credentials are config-driven — nothing host- or
+product-specific is hardcoded. Model resolution is exact entity, entity type,
+global, environment, then built-in fallback. `TTT_CHAT_MODEL` backs chat;
+`TTT_INGEST_MODEL` backs ingest, synthesis, and compaction.
 
 ## Run (local dev)
 

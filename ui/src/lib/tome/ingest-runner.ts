@@ -651,12 +651,23 @@ async function setRunCompletionAccounting(
   runId: string,
   data: Record<string, unknown>,
 ): Promise<void> {
-  const update: Record<string, number> = {};
+  const update: Record<string, unknown> = {};
   if (typeof data.cost_usd === "number" && Number.isFinite(data.cost_usd) && data.cost_usd >= 0) {
     update.cost_usd = data.cost_usd;
   }
   if (typeof data.turns === "number" && Number.isFinite(data.turns) && data.turns >= 0) {
     update.turns = data.turns;
+  }
+  if (typeof data.model === "string" && data.model.trim()) {
+    update.model = data.model.trim();
+  }
+  if (
+    data.model_provenance &&
+    typeof data.model_provenance === "object" &&
+    typeof (data.model_provenance as Record<string, unknown>).model === "string" &&
+    typeof (data.model_provenance as Record<string, unknown>).source === "string"
+  ) {
+    update.model_provenance = data.model_provenance;
   }
   if (Object.keys(update).length === 0) return;
   const runs = await getTomeIngestRunsCollection();

@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 from collections.abc import AsyncIterator
 from typing import Any
 from uuid import UUID
@@ -40,7 +39,11 @@ MAX_TURNS = 100
 
 
 def _synthesis_model() -> str:
-    return os.environ.get("TTT_INGEST_MODEL", SYNTHESIS_MODEL_DEFAULT)
+    return http_client.resolve_model(
+        "synthesize",
+        SYNTHESIS_MODEL_DEFAULT,
+        ("TTT_INGEST_MODEL",),
+    )
 
 
 def _build_synthesis_system_prompt(
@@ -217,6 +220,10 @@ async def stream_synthesis(
     log_buf: list[IngestEventPayload] = []
     templates = await asyncio.to_thread(http_client.fetch_page_templates)
     report_schema.set_template_overrides(templates)
+    models = await asyncio.to_thread(
+        http_client.fetch_model_config, snapshot.project_id, snapshot.project_type
+    )
+    http_client.set_model_overrides(models)
     connector_extras = await resolve_connector_extras(snapshot, connector_data)
 
     async def on_write(page_path: str, byte_count: int) -> None:
@@ -230,6 +237,11 @@ async def stream_synthesis(
     # Widen the read fence to the child projects' on-disk wikis (read-only).
     child_read_dirs = [project_root(c.project_id) for c in (snapshot.child_projects or [])]
 
+    model_provenance = http_client.resolve_model_with_provenance(
+        "synthesize",
+        SYNTHESIS_MODEL_DEFAULT,
+        ("TTT_INGEST_MODEL",),
+    )
     options = build_agent_options(
         snapshot=snapshot,
         system_prompt=_build_synthesis_system_prompt(
@@ -238,7 +250,7 @@ async def stream_synthesis(
             seed_stable_pages,
             connector_extras,
         ),
-        model=_synthesis_model(),
+        model=model_provenance["model"],
         max_turns=MAX_TURNS,
         persist_author="ttt-synthesis",
         report_id=report_id,
@@ -286,5 +298,7 @@ async def stream_synthesis(
     if seed and seed.strip():
         yield emit_log(f"· seed: {seed.strip()[:200]}")
 
-    async for event in consume_agent_query(prompt, options, log_buf):
+    async for event in consume_agent_query(
+        prompt, options, log_buf, model_provenance=model_provenance
+    ):
         yield event

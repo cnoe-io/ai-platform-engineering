@@ -6,6 +6,8 @@ Endpoints:
   `ChatEventPayload`s. SDK chat loop, snapshot-driven.
 - `POST /ingest` — body `IngestRequest`, response `text/event-stream` of
   `IngestEventPayload`s. SDK ingest loop, snapshot-driven.
+- `POST /model-check` — body `ModelCheckRequest`, response `ModelCheckResponse`.
+  Toolless one-shot smoke test for a candidate model id (admin UI Test button).
 - `GET /healthz` — process is alive. Always 200 once the app has started.
 - `GET /readyz` — agent is ready to serve. 200 if the ttt config import
   succeeded and the snapshot endpoint is reachable; 503 otherwise.
@@ -30,6 +32,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
+from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import StreamingResponse
 
@@ -46,6 +49,8 @@ from tome_agent.orchestrator.contract import (
     HealthResponse,
     IngestEventPayload,
     IngestRequest,
+    ModelCheckRequest,
+    ModelCheckResponse,
 )
 
 log = logging.getLogger("tome_agent.agent.main")
@@ -127,6 +132,39 @@ def readyz() -> Response:
 
 # `/metrics` itself is served by PrometheusHTTPMiddleware (registered above),
 # not a route handler — see tome_agent.metrics.PrometheusHTTPMiddleware.
+
+
+# ---------- model-check ----------
+
+
+@app.post("/model-check", response_model=ModelCheckResponse)
+async def model_check_endpoint(body: ModelCheckRequest) -> ModelCheckResponse:
+    """Smoke-test a candidate model id: the admin UI's model-config Test
+    button calls this (via the backend proxy) before an id is saved. No
+    project scope, no tools, no persist hook — a single toolless turn that
+    proves the id resolves through the container's ANTHROPIC_BASE_URL/auth,
+    the same path a real ingest/chat run would use."""
+    if not _state.ready:
+        raise HTTPException(503, "agent not ready")
+    options = ClaudeAgentOptions(
+        model=body.model,
+        max_turns=1,
+        allowed_tools=[],
+        system_prompt="Reply with the single word: ok",
+    )
+    try:
+        async for message in query(prompt="ping", options=options):
+            if isinstance(message, ResultMessage):
+                if getattr(message, "is_error", False):
+                    # The provider's actual rejection reason (e.g. "Invalid
+                    # model name") lands in `result`, not `errors` — the SDK
+                    # only populates the latter for a narrower error class.
+                    detail = getattr(message, "result", None) or message.subtype
+                    return ModelCheckResponse(ok=False, error=str(detail))
+                return ModelCheckResponse(ok=True)
+    except Exception as e:  # noqa: BLE001 — surfaced to the admin UI verbatim
+        return ModelCheckResponse(ok=False, error=f"{type(e).__name__}: {e}")
+    return ModelCheckResponse(ok=False, error="No result from model")
 
 
 # ---------- chat ----------

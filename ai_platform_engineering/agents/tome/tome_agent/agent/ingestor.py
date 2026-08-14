@@ -39,7 +39,7 @@ MAX_TURNS = 100
 
 
 def _ingest_model() -> str:
-    return os.environ.get("TTT_INGEST_MODEL", INGEST_MODEL_DEFAULT)
+    return http_client.resolve_model("ingest", INGEST_MODEL_DEFAULT, ("TTT_INGEST_MODEL",))
 
 
 def _template_change_note(
@@ -387,11 +387,15 @@ async def stream_ingest(
     log_buf: list[IngestEventPayload] = []
     _emit_log = emit_log
 
-    # Load the admin-editable page-template config for this run. Sets a
-    # task-local override the schema accessors prefer; falls back to the
-    # hardcoded constants when the backend is unreachable.
+    # Load the admin-editable page-template and model config for this run.
+    # Sets task-local overrides the schema/model accessors prefer; falls back
+    # to the hardcoded constants when the backend is unreachable.
     templates = await asyncio.to_thread(http_client.fetch_page_templates)
     report_schema.set_template_overrides(templates)
+    models = await asyncio.to_thread(
+        http_client.fetch_model_config, snapshot.project_id, snapshot.project_type
+    )
+    http_client.set_model_overrides(models)
 
     # On incremental runs, note any template pages missing from disk or whose
     # kind changed, so the agent reconciles template edits made since the last
@@ -423,6 +427,9 @@ async def stream_ingest(
             )
         )
 
+    model_provenance = http_client.resolve_model_with_provenance(
+        "ingest", INGEST_MODEL_DEFAULT, ("TTT_INGEST_MODEL",)
+    )
     options = build_agent_options(
         snapshot=snapshot,
         system_prompt=_build_system_prompt(
@@ -433,7 +440,7 @@ async def stream_ingest(
             template_note=template_note,
             quick=quick,
         ),
-        model=_ingest_model(),
+        model=model_provenance["model"],
         max_turns=MAX_TURNS,
         persist_author="ttt-pipeline",
         report_id=report_id,
@@ -471,5 +478,7 @@ async def stream_ingest(
     if seed and seed.strip():
         yield _emit_log(f"· seed: {seed.strip()[:200]}")
 
-    async for event in consume_agent_query(prompt, options, log_buf):
+    async for event in consume_agent_query(
+        prompt, options, log_buf, model_provenance=model_provenance
+    ):
         yield event
