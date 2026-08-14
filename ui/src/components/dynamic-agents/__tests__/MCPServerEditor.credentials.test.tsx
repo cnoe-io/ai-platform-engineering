@@ -91,6 +91,29 @@ describe("MCPServerEditor credential sources", () => {
     }) as jest.Mock;
   });
 
+  it("shows spaced Private, Team, and Global access choices and preserves global edit state", () => {
+    render(
+      <MCPServerEditor
+        server={{
+          _id: "global-tools",
+          name: "Global Tools",
+          transport: "http",
+          endpoint: "https://mcp.example.test/mcp",
+          visibility: "global",
+        }}
+        onSave={jest.fn()}
+        onCancel={jest.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Access and visibility")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^private/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^team/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^global/i })).toHaveClass("border-primary");
+    expect(screen.queryByLabelText("Owner team")).not.toBeInTheDocument();
+    expect(screen.queryByText("Share with teams")).not.toBeInTheDocument();
+  });
+
   it("creates header and environment secret refs from selectable secrets", async () => {
     const user = userEvent.setup();
     render(<MCPServerEditor server={null} onSave={jest.fn()} onCancel={jest.fn()} />);

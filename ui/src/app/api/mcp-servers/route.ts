@@ -78,7 +78,11 @@ interface SecretScopeDocument {
 }
 
 function normalizedMcpServerScope(server: MCPServerConfig): MCPServerConfig {
-  if (server.visibility === "private" || server.visibility === "team") return server;
+  if (
+    server.visibility === "private"
+    || server.visibility === "team"
+    || server.visibility === "global"
+  ) return server;
   const personalLegacyServer = !server.config_driven
     && !normalizeString(server.owner_team_slug)
     && server.owner_subject_kind !== "service_account"
@@ -87,7 +91,7 @@ function normalizedMcpServerScope(server: MCPServerConfig): MCPServerConfig {
 }
 
 async function validateCredentialScopes(input: {
-  visibility: "private" | "team";
+  visibility: "private" | "team" | "global";
   ownerSubject: string;
   credentialSources?: MCPCredentialSource[];
 }): Promise<void> {
@@ -109,6 +113,21 @@ async function validateCredentialScopes(input: {
         "PRIVATE_DEPENDENCY_SCOPE_MISMATCH",
       );
     }
+  }
+}
+
+async function canManageOrganization(
+  session: Parameters<typeof requireResourcePermission>[0],
+): Promise<boolean> {
+  try {
+    await requireResourcePermission(session, {
+      type: "organization",
+      id: caipeOrgKey(),
+      action: "manage",
+    });
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -400,12 +419,21 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
 
     // Silently prepend mcp- prefix to user-provided ID
     const serverId = body.id.startsWith("mcp-") ? body.id as string : `mcp-${body.id as string}`;
-    const visibility: "private" | "team" = body.visibility === "team" ? "team" : "private";
+    const visibility: "private" | "team" | "global" = body.visibility === "global"
+      ? "global"
+      : body.visibility === "team" ? "team" : "private";
     if (visibility === "private" && !isPrivateResourcesEnabled()) {
       throw new ApiError("Private MCP servers are not enabled for this deployment", 409, "PRIVATE_RESOURCES_DISABLED");
     }
     if (visibility === "private" && session.isServiceAccount === true) {
       throw new ApiError("Service accounts cannot own private MCP servers", 403, "PRIVATE_OWNER_MUST_BE_USER");
+    }
+    if (visibility === "global" && !(await canManageOrganization(session))) {
+      throw new ApiError(
+        "Only platform admins can create global MCP servers",
+        403,
+        "GLOBAL_MCP_SERVER_FORBIDDEN",
+      );
     }
     const ownerTeamSlug = visibility === "team" ? normalizeString(body.owner_team_slug) : null;
     if (visibility === "team" && !ownerTeamSlug) {
@@ -491,6 +519,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
         creatorSubject: ownerSubjectKind === "user" ? ownerSubject : null,
         personalOwnerAccess: visibility === "private",
         nextSharedTeamSlugs: sharedTeamSlugs,
+        ...(visibility === "global" ? { globalOrganizationAccess: true } : {}),
       },
       {
         caller: { type: ownerSubjectKind, id: ownerSubject },
@@ -552,9 +581,15 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
       return successResponse(server);
     }
 
-    const nextVisibility: "private" | "team" = updateData.visibility === "team"
-      ? "team"
-      : updateData.visibility === "private" ? "private" : server.visibility === "private" ? "private" : "team";
+    const nextVisibility: "private" | "team" | "global" = updateData.visibility === "global"
+      ? "global"
+      : updateData.visibility === "team"
+        ? "team"
+        : updateData.visibility === "private"
+          ? "private"
+          : server.visibility === "global"
+            ? "global"
+            : server.visibility === "private" ? "private" : "team";
     if (
       nextVisibility === "private"
       && server.visibility !== "private"
@@ -564,6 +599,13 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     }
     if (nextVisibility === "private" && session.isServiceAccount === true) {
       throw new ApiError("Service accounts cannot own private MCP servers", 403, "PRIVATE_OWNER_MUST_BE_USER");
+    }
+    if (nextVisibility === "global" && !(await canManageOrganization(session))) {
+      throw new ApiError(
+        "Only platform admins can make MCP servers global",
+        403,
+        "GLOBAL_MCP_SERVER_FORBIDDEN",
+      );
     }
     const nextOwnerTeamSlug = nextVisibility === "team"
       ? normalizeString(updateData.owner_team_slug) ?? normalizeString(server.owner_team_slug)
@@ -631,9 +673,11 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
         creatorSubject: server.creator_subject
           ?? (storedOwnerSubjectKind === "user" ? storedOwnerSubject : null),
         personalOwnerAccess: nextVisibility === "private",
-        previousPersonalOwnerAccess: server.visibility !== "team",
+        previousPersonalOwnerAccess: server.visibility === "private",
         nextSharedTeamSlugs,
         previousSharedTeamSlugs: server.shared_with_teams ?? [],
+        globalOrganizationAccess: nextVisibility === "global",
+        previousGlobalOrganizationAccess: server.visibility === "global",
       },
       {
         caller: { type: session.isServiceAccount === true ? "service_account" : "user", id: ownerSubject },
@@ -653,9 +697,14 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
             },
             $unset: { owner_team_slug: "" },
           }
-        : {
+        : nextVisibility === "team"
+          ? {
             $set: { ...updateData, owner_team_slug: nextOwnerTeamSlug },
             $unset: { owner_subject: "", owner_subject_kind: "" },
+          }
+          : {
+            $set: { ...updateData, visibility: "global", shared_with_teams: [] },
+            $unset: { owner_subject: "", owner_subject_kind: "", owner_team_slug: "" },
           },
       { returnDocument: "after" },
     );

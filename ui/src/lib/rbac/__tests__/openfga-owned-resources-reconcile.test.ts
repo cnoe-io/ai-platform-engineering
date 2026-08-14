@@ -331,6 +331,57 @@ describe("reconcileMcpServerRelationships", () => {
     );
   });
 
+  it("writes and revokes organization grants for global MCP visibility", async () => {
+    await reconcileMcpServerRelationships({
+      serverId: "mcp-global-tools",
+      globalOrganizationAccess: true,
+      previousGlobalOrganizationAccess: true,
+    });
+
+    expect(mockReconcileTupleDiff).toHaveBeenCalledWith(
+      {
+        writes: expect.arrayContaining([
+          {
+            user: "organization:caipe#member",
+            relation: "reader",
+            object: "mcp_server:mcp-global-tools",
+          },
+          {
+            user: "organization:caipe#member",
+            relation: "user",
+            object: "mcp_server:mcp-global-tools",
+          },
+        ]),
+        deletes: expect.arrayContaining([
+          {
+            user: "organization:caipe#member",
+            relation: "invoker",
+            object: "mcp_server:mcp-global-tools",
+          },
+        ]),
+      },
+      expect.objectContaining({ source: "mcp_server_create" }),
+    );
+  });
+
+  it("deletes organization grants when a global MCP server is demoted", async () => {
+    await reconcileMcpServerRelationships({
+      serverId: "mcp-global-tools",
+      previousGlobalOrganizationAccess: true,
+      ownerTeamSlug: "primary",
+    });
+
+    const diff = mockReconcileTupleDiff.mock.calls[0][0];
+    expect(diff.deletes).toEqual(expect.arrayContaining([
+      { user: "organization:caipe#member", relation: "reader", object: "mcp_server:mcp-global-tools" },
+      { user: "organization:caipe#member", relation: "user", object: "mcp_server:mcp-global-tools" },
+      { user: "organization:caipe#member", relation: "invoker", object: "mcp_server:mcp-global-tools" },
+    ]));
+    expect(diff.writes).toEqual(expect.arrayContaining([
+      { user: "team:primary#member", relation: "reader", object: "mcp_server:mcp-global-tools" },
+    ]));
+  });
+
   it("writes owner tuples with service_account namespace and audit caller", async () => {
     await reconcileMcpServerRelationships(
       {

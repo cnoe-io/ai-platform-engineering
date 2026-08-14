@@ -55,6 +55,10 @@ export interface McpServerRelationshipInput extends OwnedResourceInput {
   serverId: string;
   nextSharedTeamSlugs?: readonly string[] | null;
   previousSharedTeamSlugs?: readonly string[] | null;
+  /** Grant organization members discovery/use access to a global server. */
+  globalOrganizationAccess?: boolean;
+  /** Revoke the prior organization-member grant when demoting from global. */
+  previousGlobalOrganizationAccess?: boolean;
 }
 
 export interface ConfigDrivenMcpServerRelationshipInput {
@@ -438,6 +442,22 @@ export function buildMcpServerRelationshipTupleDiff(
       { user: `team:${slug}#member`, relation: "reader", object },
       { user: `team:${slug}#member`, relation: "user", object },
       { user: `team:${slug}#member`, relation: "invoker", object },
+    );
+  }
+  const orgMember = `${organizationObjectId()}#member`;
+  if (input.globalOrganizationAccess) {
+    writes.push(
+      { user: orgMember, relation: "reader", object },
+      { user: orgMember, relation: "user", object },
+    );
+    // Direct invocation remains agent-scoped; global users may discover and
+    // attach the server but do not receive a raw invoker grant.
+    deletes.push({ user: orgMember, relation: "invoker", object });
+  } else if (input.previousGlobalOrganizationAccess) {
+    deletes.push(
+      { user: orgMember, relation: "reader", object },
+      { user: orgMember, relation: "user", object },
+      { user: orgMember, relation: "invoker", object },
     );
   }
   // assisted-by Codex Codex-sonnet-4-6

@@ -55,7 +55,7 @@ export interface MCPServerConfig {
   owner_subject_kind?: "user" | "service_account";
   creator_subject?: string;
   owner_team_slug?: string;
-  visibility?: Extract<VisibilityType, "private" | "team">;
+  visibility?: VisibilityType;
   shared_with_teams?: string[];
   created_at: string;
   updated_at: string;
@@ -111,7 +111,7 @@ export interface MCPServerConfigCreate {
   credential_sources?: MCPCredentialSource[];
   enabled?: boolean;
   owner_team_slug?: string;
-  visibility?: Extract<VisibilityType, "private" | "team">;
+  visibility?: VisibilityType;
   shared_with_teams?: string[];
 }
 
@@ -127,7 +127,7 @@ export interface MCPServerConfigUpdate {
   credential_sources?: MCPCredentialSource[];
   enabled?: boolean;
   owner_team_slug?: string;
-  visibility?: Extract<VisibilityType, "private" | "team">;
+  visibility?: VisibilityType;
   shared_with_teams?: string[];
 }
 
