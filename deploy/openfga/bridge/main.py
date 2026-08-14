@@ -12,6 +12,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import signal
 import sys
 import time
@@ -57,6 +58,16 @@ BYPASS_SUBS = frozenset(
     s.strip() for s in os.environ.get("OPENFGA_BYPASS_SUBS", "").split(",") if s.strip()
 )
 AGENT_CONTEXT_HMAC_SECRET = os.environ.get("CAIPE_AGENT_CONTEXT_HMAC_SECRET", "").strip()
+PRIVATE_RESOURCES_ENABLED = os.environ.get("PRIVATE_RESOURCES_ENABLED", "").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+_ORG_KEY_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
+_configured_org_key = os.environ.get("CAIPE_ORG_KEY", "").strip()
+CAIPE_ORG_KEY = _configured_org_key if _ORG_KEY_PATTERN.fullmatch(_configured_org_key) else "caipe"
+PRIVATE_MARKER_SUBJECT = f"organization:{CAIPE_ORG_KEY}"
 AGENT_CONTEXT_MAX_AGE_SECONDS = int(os.environ.get("CAIPE_AGENT_CONTEXT_MAX_AGE_SECONDS", "300"))
 # "local" contexts (minted by /api/mcp-servers/agent-context for CLI/local
 # callers, see ui/src/lib/mcp-http-server-client.ts) get a longer max age than
@@ -552,6 +563,44 @@ def _agent_context_from_headers(
     return AgentContext(agent_id=agent_id, kind=kind)
 
 
+def _has_permitted_private_interaction(
+    headers: dict[str, str], *, now: int | None = None
+) -> bool:
+    """Verify a short-lived BFF proof for web or direct-message private use."""
+
+    if not AGENT_CONTEXT_HMAC_SECRET:
+        return False
+    encoded = headers.get("x-caipe-trusted-interaction", "")
+    signature = headers.get("x-caipe-trusted-interaction-signature", "")
+    if not encoded or not signature:
+        return False
+    expected = hmac.new(
+        AGENT_CONTEXT_HMAC_SECRET.encode(), encoded.encode(), hashlib.sha256
+    ).hexdigest()
+    if not hmac.compare_digest(expected, signature):
+        return False
+    try:
+        payload = json.loads(_b64url_decode(encoded))
+    except Exception:
+        return False
+    current = int(now if now is not None else time.time())
+    permitted_context = (
+        payload.get("source") == "web"
+        and payload.get("conversationKind") == "personal"
+    ) or (
+        payload.get("source") in ("slack", "webex")
+        and payload.get("conversationKind") == "direct"
+    )
+    return (
+        permitted_context
+        and isinstance(payload.get("iat"), int)
+        and isinstance(payload.get("exp"), int)
+        and payload["iat"] <= current + 90
+        and current <= payload["exp"]
+        and payload["exp"] - payload["iat"] <= 90
+    )
+
+
 def _request_body_text(request: CheckRequest) -> str:
     http_request = request.attributes.request.http
     if http_request.raw_body:
@@ -731,7 +780,22 @@ class OpenFgaAuthorizationService:
                 message="missing authenticated subject",
             )
 
-        if sub in BYPASS_SUBS:
+        mcp_target = _mcp_target_from_path(request.attributes.request.http.path)
+        private_target = False
+        if PRIVATE_RESOURCES_ENABLED and sub in BYPASS_SUBS and mcp_target:
+            try:
+                private_target = _check_openfga(
+                    PRIVATE_MARKER_SUBJECT,
+                    "private_marker",
+                    f"mcp_server:{mcp_target}",
+                )
+            except Exception as exc:
+                # A bypass identity must not skip private-resource policy merely
+                # because the marker lookup is unavailable. Continue through
+                # the normal fail-closed OpenFGA path instead.
+                print(f"[bridge] private MCP marker check failed: {exc}", file=sys.stderr)
+                private_target = True
+        if sub in BYPASS_SUBS and not private_target:
             _audit_decision(
                 request=request,
                 subject=sub,
@@ -758,7 +822,31 @@ class OpenFgaAuthorizationService:
         start = time.perf_counter()
         try:
             allowed = _check_openfga(user, relation, obj)
-            mcp_target = _mcp_target_from_path(request.attributes.request.http.path)
+            if PRIVATE_RESOURCES_ENABLED and allowed and mcp_target:
+                mcp_server_obj = f"mcp_server:{mcp_target}"
+                if sub not in BYPASS_SUBS:
+                    private_target = _check_openfga(
+                        PRIVATE_MARKER_SUBJECT, "private_marker", mcp_server_obj
+                    )
+                if private_target and (
+                    not _check_openfga(user, "owner", mcp_server_obj)
+                    or not _has_permitted_private_interaction(headers)
+                ):
+                    _audit_decision(
+                        request=request,
+                        subject=sub,
+                        user=user,
+                        relation="owner",
+                        obj=mcp_server_obj,
+                        outcome="deny",
+                        reason_code="PRIVATE_RESOURCE_CONTEXT_DENIED",
+                        duration_ms=(time.perf_counter() - start) * 1000,
+                    )
+                    return build_check_response(
+                        allowed=False,
+                        code=PERMISSION_DENIED,
+                        message="private MCP servers are only available to their owner in the web UI or a direct message",
+                    )
             if allowed and mcp_target in RESTRICTED_MCP_SERVERS:
                 mcp_server_obj = f"mcp_server:{mcp_target}"
                 server_allowed = _check_openfga(user, "can_invoke", mcp_server_obj)

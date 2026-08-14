@@ -932,6 +932,7 @@ async def handle_webex_message(
                 "webex_room_id": parsed.webex_room_id,
                 "bot_id": parsed.bot_id,
                 "person_email": parsed.person_email,
+                "is_direct": parsed.is_direct,
             }
         )
 

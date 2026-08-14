@@ -21,7 +21,13 @@ import { workflowDelegationPreCheck } from "./domains/workflow";
 // ─── Singleton engine (module-level, reused across requests) ──────────────────
 
 const engine = compose(createOpenFgaEngine(), {
-  preCheck: async (req) => workflowDelegationPreCheck(req),
+  preCheck: async (req) => {
+    // Keep Mongo-backed product policy out of the module-load path used by
+    // pure tuple builders and CLI tooling. Runtime decisions still load and
+    // evaluate persisted visibility before the OpenFGA check.
+    const { privateResourcePreCheck } = await import("./domains/private-resource");
+    return (await privateResourcePreCheck(req)) ?? workflowDelegationPreCheck(req);
+  },
 });
 
 const admin = createOpenFgaAdmin();
@@ -51,7 +57,20 @@ export async function authorizeMany(
   resourceType: ResourceType,
   ids: string[],
   ctx: DecisionContext = {},
+  trustedContext?: AuthorizeRequest["trustedContext"],
 ): Promise<Map<string, AuthorizeResult>> {
+  if (trustedContext && (action === "use" || action === "invoke" || action === "call")) {
+    const entries = await Promise.all(ids.map(async (id) => [
+      id,
+      await authorize({
+        subject,
+        action,
+        resource: { type: resourceType, id },
+        trustedContext,
+      }, ctx),
+    ] as const));
+    return new Map(entries);
+  }
   const results = await engine.batchCheck(subject, action, resourceType, ids);
   for (const [id, result] of results) {
     emitDecisionAudit(subject, { type: resourceType, id }, action, result, ctx);
@@ -143,4 +162,5 @@ export type {
   ResourceType,
   Subject,
   SubjectType,
+  TrustedAuthorizeContext,
 } from "./contract";

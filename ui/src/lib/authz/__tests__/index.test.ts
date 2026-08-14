@@ -20,7 +20,10 @@ jest.mock("../engines/openfga", () => {
   };
 });
 // Audit is a no-op in tests (Mongo unconfigured).
-jest.mock("@/lib/mongodb", () => ({ getCollection: jest.fn(), isMongoDBConfigured: false }));
+jest.mock("@/lib/mongodb", () => ({
+  getCollection: jest.fn(async () => ({ findOne: jest.fn(async () => null) })),
+  isMongoDBConfigured: false,
+}));
 
 const mockEmitGrantAudit = jest.fn();
 jest.mock("../audit", () => {

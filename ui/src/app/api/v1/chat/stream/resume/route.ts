@@ -7,6 +7,7 @@
 
 import { createAuthzTraceContext } from "@/lib/rbac/authz-tracing";
 import { requireAgentUsePermission } from "@/lib/rbac/openfga-agent-authz";
+import { addTrustedInteractionToBody, trustedInteractionFromRequest } from "@/lib/authz/trusted-interaction";
 import { NextRequest,NextResponse } from "next/server";
 import { requireConversationWriteAccess } from "../../_conversation-authz";
 import {
@@ -48,6 +49,7 @@ export async function POST(request: NextRequest): Promise<Response> {
   const traceContext = createAuthzTraceContext(request.headers.get("traceparent"));
   authResult.traceparent = traceContext.traceparent;
 
+  const interaction = trustedInteractionFromRequest(request);
   const authzResponse = await requireAgentUsePermission({
     subject: authResult.subject,
     agentId: body.agent_id,
@@ -55,8 +57,10 @@ export async function POST(request: NextRequest): Promise<Response> {
     tenantId: authResult.tenantId,
     traceparent: traceContext.traceparent,
     isServiceAccount: authResult.isServiceAccount,
+    trustedContext: { interaction },
   });
   if (authzResponse) return authzResponse;
+  addTrustedInteractionToBody(body, interaction);
 
   const conversationAuthzResponse = await requireConversationWriteAccess(
     authResult,

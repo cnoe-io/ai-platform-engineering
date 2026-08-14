@@ -19,6 +19,7 @@ import {
   getDirectSharingAccessConversationIds,
 } from '@/lib/rbac/conversation-implicit-authz';
 import { requireAgentUsePermission } from '@/lib/rbac/openfga-agent-authz';
+import { trustedInteractionFromRequest } from '@/lib/authz/trusted-interaction';
 import { writeOpenFgaTuples } from '@/lib/rbac/openfga';
 import { buildParticipants } from '@/types/a2a';
 import type { ClientType, Conversation, CreateConversationRequest } from '@/types/mongodb';
@@ -309,6 +310,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     agentId: body.agent_id,
     email: user.email,
     isServiceAccount: session.isServiceAccount,
+    trustedContext: { interaction: trustedInteractionFromRequest(request) },
   });
   if (denial) {
     return denial;

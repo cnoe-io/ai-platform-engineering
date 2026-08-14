@@ -68,6 +68,12 @@ import {
   type DropTeamKbOwnershipInputs,
 } from "./drop-team-kb-ownership";
 import { schemaAreasNeedingVersionBootstrap } from "./schema-bootstrap";
+import {
+  applyPrivateResourceVisibilityMigration,
+  planPrivateResourceVisibilityMigration,
+  PRIVATE_RESOURCE_VISIBILITY_CONFIRMATION,
+  PRIVATE_RESOURCE_VISIBILITY_MIGRATION_ID,
+} from "./private-resource-visibility";
 export {
   getUnclassifiedSchemaAreas,
   SCHEMA_AREA_CLASSIFICATIONS,
@@ -449,6 +455,21 @@ export const MIGRATION_DEFINITIONS: MigrationDefinition[] = [
       "Aligns OpenFGA grants with each skill's Mongo `visibility`: writes owner/creator tuples, grants or revokes team/org-wide access from existing FGA state, and removes stale team shares on private skills so gallery `can_discover` matches the Private badge.",
     confirmation: "MIGRATE agent_skills TO v2",
     required: true,
+    implemented: true,
+  },
+  {
+    id: PRIVATE_RESOURCE_VISIBILITY_MIGRATION_ID,
+    release: RELEASE_060,
+    schema_area: "private_resource_visibility",
+    from_version: 1,
+    to_version: 2,
+    kind: "explicit",
+    title: "Private-resource visibility classification",
+    description:
+      "Classifies legacy personal/team MCP servers and credentials, then reconciles their owner/team OpenFGA tuples before PRIVATE_RESOURCES_ENABLED is turned on.",
+    confirmation: PRIVATE_RESOURCE_VISIBILITY_CONFIRMATION,
+    required: false,
+    blocking: false,
     implemented: true,
   },
   {
@@ -3068,6 +3089,9 @@ export async function planMigration(migrationId: string, now = new Date().toISOS
     );
     return planAgentSkillOpenFgaReconcileMigration();
   }
+  if (migrationId === PRIVATE_RESOURCE_VISIBILITY_MIGRATION_ID) {
+    return planPrivateResourceVisibilityMigration();
+  }
   if (migrationId === TEAM_TOOL_WILDCARD_SLASH_MIGRATION_ID) {
     const { teams, toolTuples } = await loadTeamToolWildcardInputs();
     // The migration reads only `_id` + `resources.tools[]`; the loader returns
@@ -3373,6 +3397,12 @@ export async function applyMigration(input: {
       actor: input.actor,
       now,
     });
+    await recordCompletedMigration({ definition, result, now, actor: input.actor });
+    return result;
+  }
+
+  if (input.migrationId === PRIVATE_RESOURCE_VISIBILITY_MIGRATION_ID) {
+    const result = await applyPrivateResourceVisibilityMigration({ actor: input.actor, now });
     await recordCompletedMigration({ definition, result, now, actor: input.actor });
     return result;
   }

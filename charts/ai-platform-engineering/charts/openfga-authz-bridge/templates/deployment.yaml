@@ -42,6 +42,10 @@ spec:
             - name: OPENFGA_BYPASS_SUBS
               value: {{ .Values.openfga.bypassSubs | quote }}
             {{- end }}
+            - name: PRIVATE_RESOURCES_ENABLED
+              value: {{ .Values.privateResources.enabled | quote }}
+            - name: CAIPE_ORG_KEY
+              value: {{ .Values.privateResources.organizationKey | quote }}
             {{- if .Values.agentContext.existingSecret.name }}
             - name: CAIPE_AGENT_CONTEXT_HMAC_SECRET
               valueFrom:
