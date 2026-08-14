@@ -326,6 +326,9 @@ export interface Gist {
   body: string;
   author: string; // email of the creator
   created_at: Date;
+  /** Last edit metadata; absent on gists created before editing was supported. */
+  updated_at?: Date;
+  updated_by?: string;
   /** Freeform labels for lightweight filtering — no hierarchy, unlike wiki paths. */
   tags?: string[];
 }

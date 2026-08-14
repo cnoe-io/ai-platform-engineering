@@ -101,8 +101,73 @@ describe("Tome MCP authentication challenge", () => {
       expect.arrayContaining([
         expect.objectContaining({ name: "tome_list_projects" }),
         expect.objectContaining({ name: "tome_create_project" }),
+        expect.objectContaining({ name: "tome_update_gist" }),
       ]),
     );
+  });
+
+  it("forwards gist updates through the caller-authenticated project route", async () => {
+    mockGetAuthFromBearerOrSession.mockResolvedValue({
+      user: { email: "editor@example.test" },
+      session: { principalType: "oidc_user", sub: "editor-subject" },
+    });
+    const originalFetch = global.fetch;
+    global.fetch = jest.fn().mockResolvedValue(
+      Response.json({
+        success: true,
+        data: {
+          gist: {
+            id: "gist-1",
+            title: "Updated title",
+            body: "Updated body",
+            tags: ["updated"],
+            path: "/projects/example-project/tome/gists/gist-1",
+          },
+        },
+      }),
+    );
+
+    try {
+      const response = await POST(
+        new NextRequest("http://caipe-ui:3000/api/tome/mcp", {
+          method: "POST",
+          headers: { authorization: "Bearer redacted" },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: 8,
+            method: "tools/call",
+            params: {
+              name: "tome_update_gist",
+              arguments: {
+                project_slug: "example-project",
+                gist_id: "gist-1",
+                title: "Updated title",
+                tags: ["updated"],
+              },
+            },
+          }),
+        }),
+      );
+      const body = await response.json();
+      const result = JSON.parse(body.result.content[0].text);
+
+      expect(response.status).toBe(200);
+      expect(global.fetch).toHaveBeenCalledWith(
+        "http://caipe-ui:3000/api/tome/projects/example-project/gists/gist-1",
+        expect.objectContaining({
+          method: "PATCH",
+          headers: expect.objectContaining({ Authorization: "Bearer redacted" }),
+          body: JSON.stringify({ title: "Updated title", tags: ["updated"] }),
+        }),
+      );
+      expect(result).toMatchObject({
+        id: "gist-1",
+        title: "Updated title",
+        url: expect.stringContaining("/projects/example-project/tome/gists/gist-1"),
+      });
+    } finally {
+      global.fetch = originalFetch;
+    }
   });
 
   it("returns a JSON-RPC parse error only after interactive authentication", async () => {

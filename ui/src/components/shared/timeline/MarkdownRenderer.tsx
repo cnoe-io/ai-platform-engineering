@@ -94,6 +94,15 @@ md.use(sharedMarkedOptions);
 md.use(
   markedShiki({
     async highlight(code, lang) {
+      // TOME embed fences are render directives, not programming languages.
+      // Preserve their original language before Shiki downgrades unknown
+      // languages to `text`; decorateExternalEmbeds() validates the payload
+      // and replaces this inert block with an allowlisted iframe later.
+      const embedLanguage = lang.trim().toLowerCase();
+      if (parseTomeEmbed(embedLanguage, code)) {
+        return `<pre data-language="${embedLanguage}"><code>${escapeHtml(code)}</code></pre>`;
+      }
+
       const hl = await getHighlighter();
       let language = lang || "text";
       if (!(language in bundledLanguages)) {

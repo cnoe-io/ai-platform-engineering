@@ -8,12 +8,34 @@ jest.mock("remend", () => ({
 
 jest.mock("marked-shiki", () => ({
   __esModule: true,
-  default: () => ({}),
+  default: ({
+    highlight,
+  }: {
+    highlight: (code: string, lang: string, props: string[]) => Promise<string>;
+  }) => ({
+    async: true,
+    async walkTokens(token: {
+      type: string;
+      lang?: string;
+      text: string;
+      block?: boolean;
+    }) {
+      if (token.type !== "code") return;
+      const [lang = "text", ...props] = token.lang?.split(" ") ?? [];
+      token.type = "html";
+      token.block = true;
+      token.text = `${await highlight(token.text, lang, props)}\n`;
+    },
+  }),
 }));
 
 jest.mock("shiki", () => ({
-  bundledLanguages: {},
-  createHighlighter: jest.fn(),
+  bundledLanguages: { text: true },
+  createHighlighter: jest.fn(async () => ({
+    codeToHtml: (code: string) => `<pre class="shiki"><code>${code}</code></pre>`,
+    getLoadedLanguages: () => ["text"],
+    loadLanguage: jest.fn(),
+  })),
 }));
 
 describe("MarkdownRenderer links", () => {
@@ -36,13 +58,18 @@ describe("MarkdownRenderer links", () => {
 
   it("renders allowlisted external embeds only when explicitly enabled", async () => {
     const content = [
+      "```vidcast",
+      "url: https://app.vidcast.io/share/embed/4e2a9de5-2d25-420b-a59a-acdb321bd1b3",
+      "title: Example Vidcast",
+      "```",
+      "",
       "```youtube",
-      "url: https://youtu.be/M7lc1UVf-VE",
+      "url: https://www.youtube.com/watch?v=b4STimVN60E",
       "title: Example video",
       "```",
       "",
       "```arxiv",
-      "url: https://arxiv.org/abs/1706.03762",
+      "url: https://arxiv.org/html/2607.12662v1",
       "title: Example paper",
       "```",
     ].join("\n");
@@ -56,16 +83,20 @@ describe("MarkdownRenderer links", () => {
       <MarkdownRenderer content={content} enableExternalEmbeds />,
     );
     await waitFor(() =>
-      expect(enabled.container.querySelectorAll("iframe")).toHaveLength(2),
+      expect(enabled.container.querySelectorAll("iframe")).toHaveLength(3),
     );
 
+    expect(enabled.container.querySelector(".tome-vidcast-iframe")).toHaveAttribute(
+      "src",
+      "https://app.vidcast.io/share/embed/4e2a9de5-2d25-420b-a59a-acdb321bd1b3",
+    );
     expect(enabled.container.querySelector(".tome-youtube-iframe")).toHaveAttribute(
       "src",
-      "https://www.youtube-nocookie.com/embed/M7lc1UVf-VE",
+      "https://www.youtube-nocookie.com/embed/b4STimVN60E",
     );
     expect(enabled.container.querySelector(".tome-arxiv-iframe")).toHaveAttribute(
       "src",
-      "https://arxiv.org/pdf/1706.03762",
+      "https://arxiv.org/pdf/2607.12662v1",
     );
   });
 

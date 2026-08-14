@@ -1186,6 +1186,39 @@ const TOOLS: ToolDef[] = [
       );
     },
   },
+  {
+    name: "tome_update_gist",
+    description:
+      "Edit an existing gist without creating a new Feed entry. `project_slug` and `gist_id` are required. Provide at least one of `title`, `body` (markdown), or `tags`; omitted fields are preserved, while an empty `tags` array clears all tags. Returns the updated gist and its app URL.",
+    inputSchema: schema(
+      {
+        project_slug: STR,
+        gist_id: STR,
+        title: STR,
+        body: STR,
+        tags: { type: "array", items: STR },
+      },
+      ["project_slug", "gist_id"],
+    ),
+    handler: async (request, fwd, args) => {
+      if (args.title === undefined && args.body === undefined && args.tags === undefined) {
+        return toolText("Provide at least one of `title`, `body`, or `tags`.", true);
+      }
+      const slug = encodeURIComponent(String(args.project_slug));
+      const id = encodeURIComponent(String(args.gist_id));
+      const update: Record<string, unknown> = {};
+      if (args.title !== undefined) update.title = String(args.title);
+      if (args.body !== undefined) update.body = String(args.body);
+      if (args.tags !== undefined) update.tags = parseTagsArg(args.tags);
+      const data = ensureOk(
+        await fwd("PATCH", `/api/tome/projects/${slug}/gists/${id}`, update),
+        "update gist",
+      );
+      const gist = data?.gist ?? {};
+      const url = gist.path ? `${publicOrigin(request)}${gist.path}` : undefined;
+      return toolText(JSON.stringify({ ...gist, url }, null, 2));
+    },
+  },
 ];
 
 const TOOLS_BY_NAME = new Map(TOOLS.map((t) => [t.name, t]));

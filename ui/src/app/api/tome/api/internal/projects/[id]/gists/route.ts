@@ -34,6 +34,8 @@ export const GET = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
         body: g.body,
         author: g.author,
         created_at: g.created_at,
+        updated_at: g.updated_at,
+        updated_by: g.updated_by,
         tags: g.tags ?? [],
       },
     });
@@ -49,6 +51,8 @@ export const GET = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
       title: g.title,
       author: g.author,
       created_at: g.created_at,
+      updated_at: g.updated_at,
+      updated_by: g.updated_by,
       tags: g.tags ?? [],
     })),
   });
