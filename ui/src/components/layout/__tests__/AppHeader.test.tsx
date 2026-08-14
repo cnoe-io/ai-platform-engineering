@@ -483,6 +483,33 @@ describe('AppHeader — application chrome', () => {
       expect(screen.getByTestId('user-menu')).toBeInTheDocument()
     })
 
+    it('collapses the previous section when navigation moves to another area', () => {
+      mockStorageMode = 'mongodb'
+      mockIsAdmin = true
+      mockRagEnabled = true
+      mockPathname = '/admin/people/users'
+
+      const { rerender } = render(
+        <>
+          <AdminNavigationFixture />
+          <AppHeader />
+        </>,
+      )
+
+      expect(applicationButton('Admin')).toHaveAttribute('aria-expanded', 'true')
+
+      mockPathname = '/knowledge-bases/collections'
+      rerender(
+        <>
+          <AdminNavigationFixture />
+          <AppHeader />
+        </>,
+      )
+
+      expect(applicationButton('Admin')).toHaveAttribute('aria-expanded', 'false')
+      expect(applicationButton('Knowledge Bases')).toHaveAttribute('aria-expanded', 'true')
+    })
+
     it('opens inactive section navigation on hover and highlights only the current item', () => {
       mockPathname = '/chat'
       mockRagEnabled = true

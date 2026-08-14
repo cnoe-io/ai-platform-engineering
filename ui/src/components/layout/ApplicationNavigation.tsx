@@ -158,15 +158,13 @@ function ApplicationNavigationContents({
       lastActiveAreaRef.current = activeArea;
       autoExpandedAreaRef.current = null;
     }
-    if (!activeArea || !activeHasSectionNavigation) return;
+    if (!activeArea || !activeHasSectionNavigation) {
+      setExpandedAreaKeys(new Set());
+      return;
+    }
     if (autoExpandedAreaRef.current === activeArea) return;
     autoExpandedAreaRef.current = activeArea;
-    setExpandedAreaKeys((current) => {
-      if (current.has(activeArea)) return current;
-      const next = new Set(current);
-      next.add(activeArea);
-      return next;
-    });
+    setExpandedAreaKeys(new Set([activeArea]));
   }, [activeArea,activeHasSectionNavigation]);
 
   const items = [
@@ -318,13 +316,9 @@ function ApplicationNavigationContents({
 
           const toggleContext = () => {
             setExpandedAreaKeys((current) => {
-              const next = new Set(current);
-              if (next.has(item.key)) {
-                next.delete(item.key);
-              } else {
-                next.add(item.key);
-              }
-              return next;
+              return current.has(item.key)
+                ? new Set()
+                : new Set([item.key]);
             });
           };
           const control = item.disabled ? (
@@ -462,7 +456,7 @@ export function ApplicationNavigationRail(): React.ReactElement {
   return (
     <aside
       className={cn(
-        "hidden h-screen shrink-0 flex-col border-r border-border/60 bg-background/70 backdrop-blur-xl xl:flex",
+        "hidden h-full shrink-0 flex-col border-r border-border/60 bg-background/70 backdrop-blur-xl xl:flex",
         collapsed ? "w-[4.25rem]" : "w-64",
       )}
     >

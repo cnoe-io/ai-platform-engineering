@@ -32,9 +32,9 @@ export function AppLayoutClient({
     <ApplicationNavigationProvider
       initialCollapsed={initialNavigationCollapsed}
     >
-      <div className="flex h-screen bg-background noise-overlay">
+      <div className="flex h-dvh overflow-hidden bg-background noise-overlay">
         <ApplicationNavigationRail />
-        <div className="flex min-w-0 flex-1 flex-col">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <AppHeader />
           <LiveStreamBanner />
           <div className="flex min-h-0 flex-1 flex-col">
