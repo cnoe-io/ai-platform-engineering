@@ -23,6 +23,11 @@ import {
   filterResourcesByPermission,
   type ResourceAuthzSession,
 } from "@/lib/rbac/resource-authz";
+import {
+  isEveryoneKnowledgeAudience,
+  reconcileExistingUnlinkedKnowledgeAccess,
+  withUnlinkedEveryoneKnowledgeAccess,
+} from "@/lib/rbac/unlinked-knowledge-access";
 
 export { RAG_COLLECTIONS_COLLECTION, RAG_COLLECTION_ID_PATTERN };
 const PLATFORM_RAG_BOOTSTRAP_SUBJECT = "platform";
@@ -114,7 +119,19 @@ export async function reconcileCollectionRelationships(
       tuple,
     ]),
   );
-  await reconcileTupleDiff(
+  const previousEveryoneAccess =
+    Boolean(previous?.global_read) ||
+    isEveryoneKnowledgeAudience(previous?.reader_team_slugs);
+  const nextEveryoneAccess =
+    Boolean(next?.global_read) ||
+    isEveryoneKnowledgeAudience(next?.reader_team_slugs);
+  const diff = await withUnlinkedEveryoneKnowledgeAccess(
+    {
+      type: "collection",
+      id: next?._id ?? previous?._id ?? "",
+      previousEveryoneAccess,
+      nextEveryoneAccess,
+    },
     {
       writes: [...nextByKey]
         .filter(([key]) => !previousByKey.has(key))
@@ -123,10 +140,16 @@ export async function reconcileCollectionRelationships(
         .filter(([key]) => !nextByKey.has(key))
         .map(([, tuple]) => tuple),
     },
+  );
+  await reconcileTupleDiff(
+    diff,
     {
       source: "rag_collection_relationships",
     },
   );
+  if (previousEveryoneAccess && !nextEveryoneAccess) {
+    await reconcileExistingUnlinkedKnowledgeAccess();
+  }
 }
 
 /** Ensure a collection Search team also has the coarse RAG feature gate. */

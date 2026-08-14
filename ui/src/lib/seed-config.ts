@@ -1871,6 +1871,22 @@ export async function applySeedConfig(): Promise<void> {
         err,
       );
     }
+    try {
+      const { reconcileExistingUnlinkedKnowledgeAccess } = await import(
+        "@/lib/rbac/unlinked-knowledge-access"
+      );
+      const result = await reconcileExistingUnlinkedKnowledgeAccess();
+      if (result.datasourceCount > 0 || result.collectionCount > 0) {
+        console.log(
+          `[seed-config] Reconciled unlinked access for ${result.datasourceCount} datasource(s) and ${result.collectionCount} collection(s)`,
+        );
+      }
+    } catch (err) {
+      console.error(
+        "[seed-config] Unlinked knowledge access reconcile threw:",
+        err,
+      );
+    }
   }
 
   // First-run safety net: if the dynamic_agents collection is still empty

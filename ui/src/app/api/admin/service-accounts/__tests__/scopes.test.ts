@@ -64,6 +64,15 @@ jest.mock("@/lib/rbac/organization", () => ({
   organizationObjectId: jest.fn().mockReturnValue("organization:example-org"),
 }));
 
+const mockListEveryoneKnowledgeScopes = jest.fn();
+const mockReconcileExistingUnlinkedKnowledgeAccess = jest.fn();
+jest.mock("@/lib/rbac/unlinked-knowledge-access", () => ({
+  listEveryoneKnowledgeScopes: (...args: unknown[]) =>
+    mockListEveryoneKnowledgeScopes(...args),
+  reconcileExistingUnlinkedKnowledgeAccess: (...args: unknown[]) =>
+    mockReconcileExistingUnlinkedKnowledgeAccess(...args),
+}));
+
 import { POST, DELETE } from "../[id]/scopes/route";
 
 const SESSION = { sub: "editor-sub", user: { email: "editor@example.com" } };
@@ -125,6 +134,16 @@ beforeEach(() => {
   mockUpdateScopesSnapshot.mockResolvedValue(true);
   // Default: no agent is global.
   mockFindAgentVisibilities.mockResolvedValue(new Map());
+  mockListEveryoneKnowledgeScopes.mockResolvedValue({
+    datasourceIds: new Set<string>(),
+    collectionIds: new Set<string>(),
+  });
+  mockReconcileExistingUnlinkedKnowledgeAccess.mockResolvedValue({
+    datasourceCount: 0,
+    collectionCount: 0,
+    writes: 0,
+    deletes: 0,
+  });
 });
 
 describe("POST .../[id]/scopes (add)", () => {
@@ -552,6 +571,151 @@ describe("DELETE .../[id]/scopes (remove)", () => {
         object: "organization:example-org",
       },
     ]);
+  });
+
+  it("does not remove automatic Everyone knowledge from the unlinked account", async () => {
+    manageableWithHeld(new Set());
+    mockGetBySub.mockResolvedValue({
+      sa_sub: SA_ID,
+      is_platform_unlinked: true,
+      scopes_snapshot: [],
+    });
+
+    const res = await DELETE(
+      scopeRequest({ type: "collection", ref: "platform-rag" }),
+      ctx(),
+    );
+
+    expect(res.status).toBe(409);
+    await expect(res.json()).resolves.toEqual(
+      expect.objectContaining({ error: expect.stringMatching(/Everyone/) }),
+    );
+    expect(mockDeleteExactOpenFgaTuples).not.toHaveBeenCalled();
+  });
+
+  it("removes an explicit unlinked knowledge scope and restores any automatic grants", async () => {
+    manageableWithHeld(new Set());
+    mockGetBySub.mockResolvedValue({
+      sa_sub: SA_ID,
+      is_platform_unlinked: true,
+      scopes_snapshot: [
+        {
+          type: "collection",
+          ref: "platform-rag",
+          added_by: "admin-subject",
+          added_at: new Date("2026-01-01T00:00:00.000Z"),
+        },
+      ],
+    });
+
+    const res = await DELETE(
+      scopeRequest({ type: "collection", ref: "platform-rag" }),
+      ctx(),
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockReconcileExistingUnlinkedKnowledgeAccess).toHaveBeenCalledTimes(
+      1,
+    );
+  });
+});
+
+describe("unlinked knowledge snapshot provenance", () => {
+  it("does not turn an automatic Everyone collection into an explicit scope", async () => {
+    manageableWithHeld(new Set(["can_call tool:jira/search"]));
+    mockGetBySub.mockResolvedValue({
+      sa_sub: SA_ID,
+      is_platform_unlinked: true,
+      scopes_snapshot: [],
+    });
+    mockListEveryoneKnowledgeScopes.mockResolvedValue({
+      datasourceIds: new Set<string>(),
+      collectionIds: new Set(["platform-rag"]),
+    });
+    mockListOpenFgaObjects.mockImplementation(
+      async ({ type }: { type: string }) => ({
+        objects: type === "tool" ? ["tool:jira/search"] : [],
+      }),
+    );
+    mockReadOpenFgaTuples.mockImplementation(
+      async ({ tuple: filter }: { tuple: { object: string } }) => ({
+        tuples:
+          filter.object === "rag_collection:"
+            ? [
+                {
+                  key: {
+                    user: `service_account:${SA_ID}`,
+                    relation: "reader",
+                    object: "rag_collection:platform-rag",
+                  },
+                },
+              ]
+            : [],
+        continuationToken: undefined,
+      }),
+    );
+
+    const res = await POST(
+      scopeRequest({ type: "tool", ref: "jira/search" }),
+      ctx(),
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockUpdateScopesSnapshot).toHaveBeenCalledWith(
+      SA_ID,
+      expect.not.arrayContaining([
+        expect.objectContaining({
+          type: "collection",
+          ref: "platform-rag",
+        }),
+      ]),
+    );
+  });
+
+  it("records an explicit collection even when Everyone already grants it", async () => {
+    manageableWithHeld(new Set(["can_read rag_collection:platform-rag"]));
+    mockGetBySub.mockResolvedValue({
+      sa_sub: SA_ID,
+      is_platform_unlinked: true,
+      scopes_snapshot: [],
+    });
+    mockListEveryoneKnowledgeScopes.mockResolvedValue({
+      datasourceIds: new Set<string>(),
+      collectionIds: new Set(["platform-rag"]),
+    });
+    mockReadOpenFgaTuples.mockImplementation(
+      async ({ tuple: filter }: { tuple: { object: string } }) => ({
+        tuples:
+          filter.object === "rag_collection:"
+            ? [
+                {
+                  key: {
+                    user: `service_account:${SA_ID}`,
+                    relation: "reader",
+                    object: "rag_collection:platform-rag",
+                  },
+                },
+              ]
+            : [],
+        continuationToken: undefined,
+      }),
+    );
+
+    const res = await POST(
+      scopeRequest({ type: "collection", ref: "platform-rag" }),
+      ctx(),
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockUpdateScopesSnapshot).toHaveBeenCalledWith(
+      SA_ID,
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "collection",
+          ref: "platform-rag",
+        }),
+      ]),
+    );
   });
 });
 

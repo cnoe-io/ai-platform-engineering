@@ -38,9 +38,8 @@ export interface ScopeRef {
 /**
  * A scope as surfaced by the Unlinked Access resolver, annotated with where the
  * grant comes from:
- *  - `"everyone"` — an agent shared with Everyone (global). Owned by the
- *    agent's visibility, so it is read-only in the panel; changing it means
- *    editing the agent.
+ *  - `"everyone"` — an agent, datasource, or collection shared with Everyone.
+ *    Owned by that resource's sharing settings, so it is read-only here.
  *  - `"explicit"` — added directly to the unlinked SA via this panel; removable.
  */
 export interface UnlinkedScope extends ScopeRef {

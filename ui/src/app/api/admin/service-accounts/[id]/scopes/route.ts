@@ -15,6 +15,10 @@ import {
   scopeWriteTuple,
   type ScopeRef,
 } from "@/lib/service-account-scopes";
+import {
+  listEveryoneKnowledgeScopes,
+  reconcileExistingUnlinkedKnowledgeAccess,
+} from "@/lib/rbac/unlinked-knowledge-access";
 import type { ServiceAccountScope } from "@/types/mongodb";
 import { hasOrganizationAdmin as isPlatformAdmin } from "@/lib/rbac/platform-admin";
 import { organizationObjectId } from "@/lib/rbac/organization";
@@ -139,8 +143,15 @@ async function authorizeScopeMutation(
 async function refreshSnapshot(
   saSub: string,
   addedByForNew: { sub: string; at: Date },
+  explicitlyAddedScope?: ScopeRef,
 ): Promise<void> {
   const subject = `service_account:${saSub}`;
+  const serviceAccount = await getBySub(saSub);
+  const prior = serviceAccount?.scopes_snapshot ?? [];
+  const priorByKey = new Map(prior.map((s) => [`${s.type}:${s.ref}`, s]));
+  const everyoneKnowledge = serviceAccount?.is_platform_unlinked
+    ? await listEveryoneKnowledgeScopes()
+    : null;
   const [agentObjects, toolObjects, knowledgeScopes] = await Promise.all([
     listOpenFgaObjects({ user: subject, relation: "can_use", type: "agent" }),
     listOpenFgaObjects({ user: subject, relation: "can_call", type: "tool" }),
@@ -149,10 +160,28 @@ async function refreshSnapshot(
 
   const agentIds = agentObjects.objects.map(refFromObject);
   const toolIds = toolObjects.objects.map(refFromObject);
-  const datasourceIds = knowledgeScopes
+  // Automatic Everyone collection grants are direct reader tuples too. Keep
+  // them out of the snapshot unless an admin also explicitly selected the
+  // same scope; the snapshot records explicit intent and protects it from an
+  // eventual Everyone removal.
+  const explicitKnowledgeScopes = knowledgeScopes.filter((scope) => {
+    if (!everyoneKnowledge) return true;
+    const key = `${scope.type}:${scope.ref}`;
+    const automatic =
+      scope.type === "datasource"
+        ? everyoneKnowledge.datasourceIds.has(scope.ref)
+        : everyoneKnowledge.collectionIds.has(scope.ref);
+    return (
+      !automatic ||
+      priorByKey.has(key) ||
+      (explicitlyAddedScope?.type === scope.type &&
+        explicitlyAddedScope.ref === scope.ref)
+    );
+  });
+  const datasourceIds = explicitKnowledgeScopes
     .filter((scope) => scope.type === "datasource")
     .map((scope) => scope.ref);
-  const collectionIds = knowledgeScopes
+  const collectionIds = explicitKnowledgeScopes
     .filter((scope) => scope.type === "collection")
     .map((scope) => scope.ref);
 
@@ -167,9 +196,6 @@ async function refreshSnapshot(
 
   // Preserve prior added_by/added_at where we have them; default new entries to
   // the current editor/time.
-  const prior = (await getBySub(saSub))?.scopes_snapshot ?? [];
-  const priorByKey = new Map(prior.map((s) => [`${s.type}:${s.ref}`, s]));
-
   const build = (
     type: ServiceAccountScope["type"],
     refs: string[],
@@ -242,7 +268,11 @@ export async function POST(request: Request, context: RouteContext) {
         source: "service_account_scope_add",
       },
     );
-    await refreshSnapshot(id, { sub: actor.callerSub, at: new Date() });
+    await refreshSnapshot(
+      id,
+      { sub: actor.callerSub, at: new Date() },
+      scope,
+    );
 
     logOpenFgaRebacAuditEvent({
       sub: actor.callerSub,
@@ -268,6 +298,25 @@ export async function DELETE(request: Request, context: RouteContext) {
   const pre = await authorizeScopeMutation(request, id);
   if ("response" in pre) return pre.response;
   const { actor, scope } = pre;
+  const serviceAccount = await getBySub(id);
+
+  if (
+    serviceAccount?.is_platform_unlinked &&
+    (scope.type === "datasource" || scope.type === "collection") &&
+    !(serviceAccount.scopes_snapshot ?? []).some(
+      (candidate) =>
+        candidate.type === scope.type && candidate.ref === scope.ref,
+    )
+  ) {
+    return NextResponse.json(
+      {
+        success: false,
+        error:
+          "This knowledge access comes from sharing with Everyone. Change the datasource or collection Search access to revoke it.",
+      },
+      { status: 409 },
+    );
+  }
 
   // An agent shared with Everyone (global) grants the unlinked SA `can_use`
   // through the agent's visibility, not through this explicit scope. Removing
@@ -314,6 +363,12 @@ export async function DELETE(request: Request, context: RouteContext) {
       },
     );
     await refreshSnapshot(id, { sub: actor.callerSub, at: new Date() });
+    if (
+      serviceAccount?.is_platform_unlinked &&
+      (scope.type === "datasource" || scope.type === "collection")
+    ) {
+      await reconcileExistingUnlinkedKnowledgeAccess();
+    }
 
     logOpenFgaRebacAuditEvent({
       sub: actor.callerSub,

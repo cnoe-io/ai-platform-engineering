@@ -39,6 +39,11 @@ import {
   type ShareableResourceInput,
 } from "./openfga-owned-resources";
 import { openFgaResourceId } from "./openfga-resource-ids";
+import {
+  isEveryoneKnowledgeAudience,
+  reconcileExistingUnlinkedKnowledgeAccess,
+  withUnlinkedEveryoneKnowledgeAccess,
+} from "./unlinked-knowledge-access";
 
 export { OpenFgaReconcileRequiredError } from "@/lib/authz";
 
@@ -222,7 +227,26 @@ export async function reconcileConfigDrivenLlmModelRelationships(
 export async function reconcileKnowledgeBaseRelationships(
   input: KnowledgeBaseRelationshipInput,
 ): Promise<OpenFgaReconcileResult> {
-  return reconcileOwnedResource(buildKnowledgeBaseRelationshipTupleDiff(input));
+  const previousEveryoneAccess = isEveryoneKnowledgeAudience(
+    input.previousSharedTeamSlugs,
+  );
+  const nextEveryoneAccess = isEveryoneKnowledgeAudience(
+    input.nextSharedTeamSlugs,
+  );
+  const diff = await withUnlinkedEveryoneKnowledgeAccess(
+    {
+      type: "datasource",
+      id: input.knowledgeBaseId,
+      previousEveryoneAccess,
+      nextEveryoneAccess,
+    },
+    buildKnowledgeBaseRelationshipTupleDiff(input),
+  );
+  const result = await reconcileOwnedResource(diff);
+  if (previousEveryoneAccess && !nextEveryoneAccess) {
+    await reconcileExistingUnlinkedKnowledgeAccess();
+  }
+  return result;
 }
 
 export async function reconcileDataSourceRelationships(
