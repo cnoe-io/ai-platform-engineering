@@ -22,9 +22,15 @@ describe("EntityModelSettings", () => {
 
   it("keeps Custom selected and reveals an editable model id", async () => {
     const user = userEvent.setup();
+    const onDirtyChange = jest.fn();
     render(
       <ToastProvider>
-        <EntityModelSettings slug="example-project" entityType="project" canEdit />
+        <EntityModelSettings
+          slug="example-project"
+          entityType="project"
+          canEdit
+          onDirtyChange={onDirtyChange}
+        />
       </ToastProvider>,
     );
 
@@ -37,5 +43,6 @@ describe("EntityModelSettings", () => {
     expect(customInput).toHaveValue("");
     await user.type(customInput, "provider/example-model");
     expect(customInput).toHaveValue("provider/example-model");
+    await waitFor(() => expect(onDirtyChange).toHaveBeenLastCalledWith(true));
   });
 });

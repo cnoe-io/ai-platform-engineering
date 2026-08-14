@@ -26,7 +26,14 @@ export interface Crumb {
  * ingest view replaces the chat, with each ancestor clickable. Also carries
  * the BHAG → Area → Project hierarchy chain when applicable, so navigating
  * up the tree doesn't require a trip back to the Projects hub. */
-export function Breadcrumb({ items }: { items: Crumb[] }) {
+export function Breadcrumb({
+  items,
+  onBeforeNavigate,
+}: {
+  items: Crumb[];
+  /** Return true when the caller intercepted this link navigation. */
+  onBeforeNavigate?: (href: string) => boolean;
+}) {
   return (
     <nav className="flex min-w-0 items-center gap-1 text-sm">
       {items.map((c, i) => {
@@ -50,6 +57,9 @@ export function Breadcrumb({ items }: { items: Crumb[] }) {
             {c.href ? (
               <Link
                 href={c.href}
+                onClick={(event) => {
+                  if (onBeforeNavigate?.(c.href!)) event.preventDefault();
+                }}
                 className={cn(
                   "inline-flex min-w-0 shrink items-center gap-1 transition-colors",
                   c.colorClass

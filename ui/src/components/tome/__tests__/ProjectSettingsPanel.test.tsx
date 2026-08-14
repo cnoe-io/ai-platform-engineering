@@ -6,6 +6,8 @@ import React from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import { ProjectSettingsPanel } from "../ProjectSettingsPanel";
+import { ToastProvider } from "@/components/ui/toast";
+import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
 
 jest.mock("next-auth/react", () => ({
   useSession: () => ({ data: { user: { email: "test-user@example.com" } } }),
@@ -32,11 +34,44 @@ const jsonResponse = (data: unknown, ok = true) =>
     json: async () => data,
   } as Response);
 
+const renderSettings = (props: React.ComponentProps<typeof ProjectSettingsPanel>) =>
+  render(
+    <ToastProvider>
+      <ProjectSettingsPanel {...props} />
+    </ToastProvider>,
+  );
+
 describe("ProjectSettingsPanel hierarchy hydration", () => {
   beforeEach(() => {
+    useUnsavedChangesStore.setState({
+      hasUnsavedChanges: false,
+      pendingNavigationHref: null,
+      pendingDeferredAction: null,
+    });
     mockUseProjectSourceKinds.mockReturnValue({ kinds: [], loading: false });
-    (global.fetch as jest.Mock).mockImplementation((input: RequestInfo | URL) => {
+    (global.fetch as jest.Mock).mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+
+      if (url === "/api/projects/example-project" && init?.method === "PATCH") {
+        const payload = JSON.parse(String(init.body)) as { title: string; description: string };
+        return jsonResponse({
+          data: {
+            project: {
+              type: "project",
+              slug: "example-project",
+              name: "Example Project",
+              title: payload.title,
+              description: payload.description,
+              team_id: "example-team-id",
+              team_slug: "example-team",
+              team_name: "Example Team",
+              labels: { areas: ["example-area"], initiatives: ["example-bhag"] },
+              sources: { repos: [], confluence_url: "" },
+              data_steward: { type: "user", id: "test-user@example.com" },
+            },
+          },
+        });
+      }
 
       if (url === "/api/projects/example-project") {
         return jsonResponse({
@@ -116,10 +151,12 @@ describe("ProjectSettingsPanel hierarchy hydration", () => {
 
   afterEach(() => {
     jest.clearAllMocks();
+    useUnsavedChangesStore.getState().cancelNavigation();
+    useUnsavedChangesStore.getState().setUnsaved(false);
   });
 
   it("restores a saved Area and its parent BHAG when settings reopen", async () => {
-    render(<ProjectSettingsPanel slug="example-project" />);
+    renderSettings({ slug: "example-project" });
 
     expect(await screen.findByText("Project settings")).toBeInTheDocument();
 
@@ -137,6 +174,59 @@ describe("ProjectSettingsPanel hierarchy hydration", () => {
     expect(global.fetch).toHaveBeenCalledWith(
       "/api/projects?type=area&initiative=example-bhag",
     );
+  });
+
+  it("offers Stay or Discard when navigation would lose changed settings", async () => {
+    renderSettings({ slug: "example-project" });
+
+    const title = await screen.findByDisplayValue("Example Project");
+    await waitFor(() => {
+      expect(useUnsavedChangesStore.getState().hasUnsavedChanges).toBe(false);
+    });
+
+    fireEvent.change(title, { target: { value: "Changed title" } });
+    await waitFor(() => {
+      expect(useUnsavedChangesStore.getState().hasUnsavedChanges).toBe(true);
+    });
+
+    const beforeUnload = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(beforeUnload);
+    expect(beforeUnload.defaultPrevented).toBe(true);
+
+    const navigate = jest.fn();
+    useUnsavedChangesStore.getState().requestDeferredAction(navigate);
+    expect(await screen.findByText("Discard unsaved settings?")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Stay" }));
+    expect(navigate).not.toHaveBeenCalled();
+    expect(useUnsavedChangesStore.getState().hasUnsavedChanges).toBe(true);
+
+    useUnsavedChangesStore.getState().requestDeferredAction(navigate);
+    fireEvent.click(await screen.findByRole("button", { name: "Discard and leave" }));
+
+    expect(navigate).toHaveBeenCalledTimes(1);
+    expect(useUnsavedChangesStore.getState().hasUnsavedChanges).toBe(false);
+  });
+
+  it("clears the navigation guard after settings save successfully", async () => {
+    renderSettings({ slug: "example-project" });
+
+    fireEvent.change(await screen.findByDisplayValue("Example Project"), {
+      target: { value: "Saved title" },
+    });
+    await waitFor(() => {
+      expect(useUnsavedChangesStore.getState().hasUnsavedChanges).toBe(true);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue("Saved title")).toBeInTheDocument();
+      expect(useUnsavedChangesStore.getState().hasUnsavedChanges).toBe(false);
+    });
+    const beforeUnload = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(beforeUnload);
+    expect(beforeUnload.defaultPrevented).toBe(false);
   });
 
   it("keeps a project's own direct BHAG tag even when its tagged Area has no BHAG of its own", async () => {
@@ -211,7 +301,7 @@ describe("ProjectSettingsPanel hierarchy hydration", () => {
       return jsonResponse({});
     });
 
-    render(<ProjectSettingsPanel slug="example-project" />);
+    renderSettings({ slug: "example-project" });
 
     expect(await screen.findByText("Project settings")).toBeInTheDocument();
 
@@ -262,12 +352,7 @@ describe("ProjectSettingsPanel hierarchy hydration", () => {
     );
     const onOpenIngest = jest.fn();
 
-    render(
-      <ProjectSettingsPanel
-        slug="example-project"
-        onOpenIngest={onOpenIngest}
-      />,
-    );
+    renderSettings({ slug: "example-project", onOpenIngest });
     expect(await screen.findByText("Area settings")).toBeInTheDocument();
 
     fireEvent.mouseDown(screen.getByRole("tab", { name: "Sources" }), {

@@ -546,8 +546,8 @@ test.describe("TOME model evaluations default-off behavior (mocked)", () => {
     });
     await page.getByText(`${PROJECT_SLUG} · ingest`, { exact: true }).click();
 
-    expect(await page.getByText(MODEL_A, { exact: true }).count()).toBeGreaterThan(0);
-    expect(await page.getByText(MODEL_B, { exact: true }).count()).toBeGreaterThan(0);
+    await expect(page.getByText(MODEL_A, { exact: true }).first()).toBeVisible();
+    await expect(page.getByText(MODEL_B, { exact: true }).first()).toBeVisible();
     await expect(page.getByText("candidate-x", { exact: true })).toHaveCount(0);
     await expect(page.getByText("candidate-y", { exact: true })).toHaveCount(0);
 

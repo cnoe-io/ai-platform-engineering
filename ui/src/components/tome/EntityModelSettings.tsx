@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { CheckCircle2, Loader2, RotateCcw, Save, XCircle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -23,10 +23,12 @@ export function EntityModelSettings({
   slug,
   entityType,
   canEdit,
+  onDirtyChange,
 }: {
   slug: string;
   entityType: ProjectType;
   canEdit: boolean;
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const { toast } = useToast();
   const [configs, setConfigs] = useState<Partial<Record<ModelRole, ModelConfigView>>>({});
@@ -37,6 +39,18 @@ export function EntityModelSettings({
   const [busy, setBusy] = useState<ModelRole | null>(null);
 
   const endpoint = `/api/tome/projects/${encodeURIComponent(slug)}/model-config`;
+  const dirty = useMemo(
+    () => canEdit && MODEL_ROLES.some(({ role }) => {
+      const draft = drafts[role] ?? "";
+      return draft === CUSTOM_MODEL_VALUE || draft.trim() !== (configs[role]?.model ?? "");
+    }),
+    [canEdit, configs, drafts],
+  );
+
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {

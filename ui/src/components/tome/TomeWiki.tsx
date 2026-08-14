@@ -75,6 +75,7 @@ import {
   TOME_IMPORT_ACCEPT,
 } from "@/lib/tome/document-import-formats";
 import { cn } from "@/lib/utils";
+import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
 import type { PageTreeNode } from "@/types/tome";
 import {
   dataStewardLabel,
@@ -218,13 +219,29 @@ export function TomeWiki({ slug }: { slug: string }) {
   }, [pathname, base]);
   // The active view is derived from the URL — Agent is the landing view.
   const view = useMemo(() => pathToView(segments), [segments]);
+  const {
+    hasUnsavedChanges,
+    requestNavigation,
+    requestDeferredAction,
+  } = useUnsavedChangesStore();
   const navigate = useCallback(
     (next: MainView) => {
       const url = viewToPath(slug, next);
-      if (url !== pathname) window.history.pushState(null, "", url);
+      if (url === pathname) return;
+      const action = () => window.history.pushState(null, "", url);
+      if (view.kind === "settings" && hasUnsavedChanges) {
+        requestDeferredAction(action);
+        return;
+      }
+      action();
     },
-    [slug, pathname],
+    [slug, pathname, view.kind, hasUnsavedChanges, requestDeferredAction],
   );
+  const interceptHrefNavigation = useCallback((href: string): boolean => {
+    if (view.kind !== "settings" || !hasUnsavedChanges) return false;
+    requestNavigation(href);
+    return true;
+  }, [hasUnsavedChanges, requestNavigation, view.kind]);
 
   const [data, setData] = useState<PagesResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -933,7 +950,12 @@ export function TomeWiki({ slug }: { slug: string }) {
         <header className="flex items-center gap-1 px-4 py-2 text-sm">
           {/* Back to the projects list. The project's own detail/apps page is
               skipped (it redirects into Tome); reach it via `?apps=1` if needed. */}
-          <Link href="/projects">
+          <Link
+            href="/projects"
+            onClick={(event) => {
+              if (interceptHrefNavigation("/projects")) event.preventDefault();
+            }}
+          >
             <Button variant="ghost" size="sm" className="h-auto gap-1.5 px-2 py-1">
               <ArrowLeft className="h-4 w-4" />
               Projects
@@ -941,6 +963,7 @@ export function TomeWiki({ slug }: { slug: string }) {
           </Link>
           <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
           <Breadcrumb
+            onBeforeNavigate={interceptHrefNavigation}
             items={[
               ...hierarchyCrumbs,
               {

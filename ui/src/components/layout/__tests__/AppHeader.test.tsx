@@ -386,6 +386,22 @@ describe('AppHeader — unsaved custom-agent navigation', () => {
     expect(browserConfirm).not.toHaveBeenCalled()
     expect(useUnsavedChangesStore.getState().hasUnsavedChanges).toBe(false)
   })
+
+  it('guards top navigation from dirty Tome project settings', () => {
+    mockPathname = '/projects/example-project/tome/settings'
+    useUnsavedChangesStore.getState().setUnsaved(true)
+
+    render(<AppHeader />)
+
+    fireEvent.click(screen.getAllByTestId('link-/chat')[0])
+    expect(screen.getByText('Discard unsaved settings?')).toBeInTheDocument()
+    expect(mockRouterPush).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByText('Stay'))
+
+    expect(mockRouterPush).not.toHaveBeenCalled()
+    expect(useUnsavedChangesStore.getState().hasUnsavedChanges).toBe(true)
+  })
 })
 
 describe('AppHeader — nav tabs', () => {

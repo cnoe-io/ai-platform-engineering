@@ -2,7 +2,7 @@
 
 import { useSession } from "next-auth/react";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowUpRight,
@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { UnsavedChangesDialog } from "@/components/shared/UnsavedChangesDialog";
 import {
   Dialog,
   DialogContent,
@@ -53,6 +54,7 @@ import {
   scheduleToCron,
   type ScheduleFormState,
 } from "@/lib/tome/auto-ingest/schedule-presets";
+import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
 
 const BLAST_RADIUS_OPTIONS = [
   { value: "small", label: "Small and reversible (2-way)", hint: "The team runs on its own" },
@@ -69,6 +71,53 @@ const OPTIONALITY_OPTIONS = [
 
 const TAB_TRIGGER_CLASS =
   "rounded-none border-b-2 border-transparent px-1 pb-2 pt-1 text-sm font-medium data-[state=active]:bg-transparent data-[state=active]:shadow-none";
+
+interface ProjectSettingsSnapshot {
+  title: string;
+  description: string;
+  teamSlug: string;
+  selectedBhagSlug: string | null;
+  selectedAreaSlug: string;
+  stewardType: "user" | "team";
+  stewardEmail: string;
+  stewardTeamId: string;
+  feedEnabled: boolean;
+  blastRadius: "small" | "large" | "";
+  optionality: string[];
+  autoIngestEnabled: boolean;
+  autoIngestSchedule: ScheduleFormState;
+  autoIngestOwnerEmail: string;
+}
+
+function snapshotFromProject(project: ProjectDocument): ProjectSettingsSnapshot {
+  const kind = project.type ?? "project";
+  const initiatives = project.labels?.initiatives ?? [];
+  const areas = project.labels?.areas ?? [];
+  const teamSteward = typeof project.data_steward === "object"
+    && project.data_steward.type === "team";
+
+  return {
+    title: project.title,
+    description: project.description ?? "",
+    teamSlug: project.team_slug ?? "",
+    selectedBhagSlug: kind === "bhag" ? null : initiatives[0] ?? null,
+    selectedAreaSlug: kind === "project" ? areas[0] ?? "" : "",
+    stewardType: teamSteward ? "team" : "user",
+    stewardEmail: teamSteward ? "" : dataStewardUserEmail(project.data_steward),
+    stewardTeamId:
+      typeof project.data_steward === "object" && project.data_steward.type === "team"
+        ? project.data_steward.id
+        : "",
+    feedEnabled: project.sources_feed_enabled !== false,
+    blastRadius: (project.decision_blast_radius as "small" | "large" | "") ?? "",
+    optionality: project.optionality ?? [],
+    autoIngestEnabled: project.autoIngest?.enabled ?? false,
+    autoIngestSchedule: project.autoIngest?.cron
+      ? cronToSchedule(project.autoIngest.cron)
+      : DEFAULT_SCHEDULE,
+    autoIngestOwnerEmail: project.autoIngest?.credentialOwner?.email ?? "",
+  };
+}
 
 interface TomeRbacConfiguration {
   object: string;
@@ -175,6 +224,9 @@ export function ProjectSettingsPanel({
   const [autoIngestOwnerEmail, setAutoIngestOwnerEmail] = useState("");
   const [autoIngestOwnerName, setAutoIngestOwnerName] = useState("");
   const [autoIngestLastRun, setAutoIngestLastRun] = useState<AutoIngestConfig["lastRun"]>(undefined);
+  const [savedSnapshot, setSavedSnapshot] = useState<ProjectSettingsSnapshot | null>(null);
+  const [sourcesDirty, setSourcesDirty] = useState(false);
+  const [modelsDirty, setModelsDirty] = useState(false);
   const nextAutoIngestRun = autoIngestEnabled
     ? nextCronRun(scheduleToCron(autoIngestSchedule), new Date())
     : null;
@@ -265,6 +317,9 @@ export function ProjectSettingsPanel({
         setAutoIngestOwnerEmail(project.autoIngest?.credentialOwner?.email ?? "");
         setAutoIngestOwnerName(project.autoIngest?.credentialOwner?.name ?? "");
         setAutoIngestLastRun(project.autoIngest?.lastRun);
+        setSavedSnapshot(snapshotFromProject(project));
+        setSourcesDirty(false);
+        setModelsDirty(false);
         setError(null);
       })
       .catch((e) => !cancelled && setError(e instanceof Error ? e.message : String(e)))
@@ -290,7 +345,13 @@ export function ProjectSettingsPanel({
         const list = (body?.data?.projects ?? []) as ProjectDocument[];
         const match = list.find((a) => a.slug === selectedAreaSlug);
         const fallback = match?.labels?.initiatives?.[0];
-        if (fallback) setSelectedBhagSlug(fallback);
+        if (fallback) {
+          setSelectedBhagSlug(fallback);
+          // This is hydration of the saved hierarchy, not a user edit.
+          setSavedSnapshot((current) => current
+            ? { ...current, selectedBhagSlug: fallback }
+            : current);
+        }
       })
       .catch(() => undefined);
     return () => {
@@ -421,6 +482,111 @@ export function ProjectSettingsPanel({
     [teams, teamSlug],
   );
 
+  const currentSnapshot = useMemo<ProjectSettingsSnapshot>(() => ({
+    title,
+    description,
+    teamSlug,
+    selectedBhagSlug,
+    selectedAreaSlug,
+    stewardType,
+    stewardEmail,
+    stewardTeamId,
+    feedEnabled,
+    blastRadius,
+    optionality,
+    autoIngestEnabled,
+    autoIngestSchedule,
+    autoIngestOwnerEmail,
+  }), [
+    title,
+    description,
+    teamSlug,
+    selectedBhagSlug,
+    selectedAreaSlug,
+    stewardType,
+    stewardEmail,
+    stewardTeamId,
+    feedEnabled,
+    blastRadius,
+    optionality,
+    autoIngestEnabled,
+    autoIngestSchedule,
+    autoIngestOwnerEmail,
+  ]);
+  const formDirty = canEdit
+    && savedSnapshot !== null
+    && JSON.stringify(currentSnapshot) !== JSON.stringify(savedSnapshot);
+  const hasUnsavedChanges = formDirty || sourcesDirty || modelsDirty;
+  const {
+    setUnsaved,
+    pendingNavigationHref,
+    pendingDeferredAction,
+    requestNavigation,
+    cancelNavigation,
+    confirmNavigation,
+    confirmDeferredAction,
+  } = useUnsavedChangesStore();
+
+  useEffect(() => {
+    setUnsaved(hasUnsavedChanges);
+  }, [hasUnsavedChanges, setUnsaved]);
+
+  useEffect(() => () => setUnsaved(false), [setUnsaved]);
+
+  useEffect(() => {
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!hasUnsavedChanges) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [hasUnsavedChanges]);
+
+  // If an autosave completes while a navigation confirmation is open, finish
+  // the already-requested navigation without asking the user to discard data
+  // that is no longer dirty.
+  useEffect(() => {
+    if (hasUnsavedChanges) return;
+    if (pendingDeferredAction) {
+      confirmDeferredAction();
+      return;
+    }
+    if (pendingNavigationHref) {
+      const href = confirmNavigation();
+      if (href) router.push(href);
+    }
+  }, [
+    hasUnsavedChanges,
+    pendingDeferredAction,
+    pendingNavigationHref,
+    confirmDeferredAction,
+    confirmNavigation,
+    router,
+  ]);
+
+  const handleLinkClickCapture = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
+    if (!hasUnsavedChanges || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+      return;
+    }
+    const target = event.target instanceof Element ? event.target : null;
+    const anchor = target?.closest("a[href]") as HTMLAnchorElement | null;
+    if (!anchor || anchor.target === "_blank" || anchor.hasAttribute("download")) return;
+    const destination = new URL(anchor.href, window.location.href);
+    if (destination.origin !== window.location.origin) return;
+    const href = `${destination.pathname}${destination.search}${destination.hash}`;
+    const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    if (href === current) return;
+    event.preventDefault();
+    event.stopPropagation();
+    requestNavigation(href);
+  }, [hasUnsavedChanges, requestNavigation]);
+
+  const discardDeferredNavigation = useCallback(() => {
+    setUnsaved(false);
+    confirmDeferredAction();
+  }, [confirmDeferredAction, setUnsaved]);
+
   const save = useCallback(async () => {
     if (!canEdit) return;
 
@@ -516,6 +682,7 @@ export function ProjectSettingsPanel({
       setAutoIngestOwnerEmail(project.autoIngest?.credentialOwner?.email ?? "");
       setAutoIngestOwnerName(project.autoIngest?.credentialOwner?.name ?? "");
       setAutoIngestLastRun(project.autoIngest?.lastRun);
+      setSavedSnapshot(snapshotFromProject(project));
       setSavedAt(true);
       onSaved?.(project);
       void loadFeedStatus();
@@ -570,7 +737,7 @@ export function ProjectSettingsPanel({
   }
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col" onClickCapture={handleLinkClickCapture}>
       <ScrollArea className="flex-1">
         <div className="mx-auto max-w-4xl space-y-6 p-6">
           <PanelHeader
@@ -976,7 +1143,7 @@ export function ProjectSettingsPanel({
                 </TabsContent>
               )}
 
-              <TabsContent value="sources" className="space-y-6 pt-6">
+              <TabsContent value="sources" forceMount className="space-y-6 pt-6 data-[state=inactive]:hidden">
                 <div className="space-y-6">
                   <div className="flex items-center justify-end">
                     <Link
@@ -1009,6 +1176,7 @@ export function ProjectSettingsPanel({
                         value={sources}
                         onChange={setSources}
                         onSaved={onSaved}
+                        onDirtyChange={setSourcesDirty}
                       />
                       {onOpenIngest && (
                         <div className="flex flex-col gap-3 rounded-lg border border-primary/25 bg-primary/5 p-4 sm:flex-row sm:items-center sm:justify-between">
@@ -1038,8 +1206,13 @@ export function ProjectSettingsPanel({
                 </div>
               </TabsContent>
 
-              <TabsContent value="models" className="space-y-6 pt-6">
-                <EntityModelSettings slug={slug} entityType={projectKind} canEdit={canEdit} />
+              <TabsContent value="models" forceMount className="space-y-6 pt-6 data-[state=inactive]:hidden">
+                <EntityModelSettings
+                  slug={slug}
+                  entityType={projectKind}
+                  canEdit={canEdit}
+                  onDirtyChange={setModelsDirty}
+                />
               </TabsContent>
 
               {/* Source activity feed: a consumer of the data steward's connection
@@ -1269,6 +1442,16 @@ export function ProjectSettingsPanel({
           </Button>
         </ViewOnlyTooltip>
       </div>
+
+      <UnsavedChangesDialog
+        open={Boolean(pendingDeferredAction) && hasUnsavedChanges}
+        onDiscard={discardDeferredNavigation}
+        onCancel={cancelNavigation}
+        title="Discard unsaved settings?"
+        description="Your unsaved project settings will be lost if you leave now."
+        discardLabel="Discard and leave"
+        cancelLabel="Stay"
+      />
     </div>
   );
 }

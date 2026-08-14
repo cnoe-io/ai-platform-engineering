@@ -89,18 +89,24 @@ const EDITOR_ROUTES_WITH_HEADER_DIALOG = [
   "/dynamic-agents",
 ];
 
+function isOnTomeProjectSettings(
+  pathname: string | null | undefined,
+): boolean {
+  return Boolean(pathname && /^\/projects\/[^/]+\/tome\/settings(?:\/|$)/.test(pathname));
+}
+
 function isOnGuardedEditor(pathname: string | null | undefined): boolean {
   if (!pathname) return false;
-  return EDITOR_ROUTES_WITH_OWN_DISCARD_DIALOG.some((p) =>
-    pathname.startsWith(p),
-  );
+  return isOnTomeProjectSettings(pathname)
+    || EDITOR_ROUTES_WITH_OWN_DISCARD_DIALOG.some((p) => pathname.startsWith(p));
 }
 
 function isOnHeaderDialogEditor(
   pathname: string | null | undefined,
 ): boolean {
   if (!pathname) return false;
-  return EDITOR_ROUTES_WITH_HEADER_DIALOG.some((p) => pathname.startsWith(p));
+  return isOnTomeProjectSettings(pathname)
+    || EDITOR_ROUTES_WITH_HEADER_DIALOG.some((p) => pathname.startsWith(p));
 }
 
 function GuardedLink({
@@ -1323,8 +1329,12 @@ export function AppHeader() {
         open={!!pendingNavigationHref}
         onDiscard={handleDiscard}
         onCancel={handleCancel}
-        title="Unsaved changes"
-        description="You have unsaved changes. They will be lost if you leave now."
+        title={isOnTomeProjectSettings(pathname) ? "Discard unsaved settings?" : "Unsaved changes"}
+        description={isOnTomeProjectSettings(pathname)
+          ? "Your unsaved project settings will be lost if you leave now."
+          : "You have unsaved changes. They will be lost if you leave now."}
+        discardLabel={isOnTomeProjectSettings(pathname) ? "Discard and leave" : undefined}
+        cancelLabel={isOnTomeProjectSettings(pathname) ? "Stay" : undefined}
       />
     )}
     {session && releasePrompt.releaseVersion && (
