@@ -1052,9 +1052,10 @@ describe('Admin Dashboard Page', () => {
       expect(within(table).queryByText('user')).not.toBeInTheDocument();
     });
 
-    it("discloses another category without navigating to its first destination", async () => {
+    it("discloses categories manually and collapses the previous category after navigation", async () => {
       currentPathname = "/admin/people/users";
-      render(<AdminPage />);
+      setupFetchMock();
+      const { rerender } = render(<AdminPage />);
 
       const navigation = await screen.findByRole("navigation", { name: "Admin sections" });
       const peopleCategory = within(navigation).getByRole("button", { name: "Teams & Users" });
@@ -1072,6 +1073,22 @@ describe('Admin Dashboard Page', () => {
       expect(peopleCategory).toHaveAttribute("aria-expanded", "true");
       expect(within(navigation).getByRole("link", { name: "Users" })).toBeInTheDocument();
       expect(replaceMock).not.toHaveBeenCalled();
+
+      currentPathname = "/admin/integrations/slack";
+      rerender(<AdminPage />);
+
+      expect(
+        await screen.findByRole("heading", { level: 1, name: "Slack" }),
+      ).toBeInTheDocument();
+      const updatedNavigation = screen.getByRole("navigation", { name: "Admin sections" });
+      await waitFor(() => {
+        expect(
+          within(updatedNavigation).getByRole("button", { name: "Teams & Users" }),
+        ).toHaveAttribute("aria-expanded", "false");
+      });
+      expect(
+        within(updatedNavigation).getByRole("button", { name: "Integrations" }),
+      ).toHaveAttribute("aria-expanded", "true");
     });
 
     it("defaults bare Admin to the canonical Users route", async () => {
@@ -1096,7 +1113,7 @@ describe('Admin Dashboard Page', () => {
         within(screen.getByRole("navigation", { name: "Admin sections" }))
           .getByRole("link", { name: "Users" }),
       ).toHaveAttribute("aria-current", "page");
-      expect(screen.getByText("admin@example.com")).toBeInTheDocument();
+      expect(await screen.findByText("admin@example.com")).toBeInTheDocument();
       expect(replaceMock).toHaveBeenCalledWith("/admin/people/users", { scroll: false });
       expect(screen.queryByText("Settings")).not.toBeInTheDocument();
     });
