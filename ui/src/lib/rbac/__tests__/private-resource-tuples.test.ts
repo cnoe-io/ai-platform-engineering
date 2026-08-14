@@ -59,6 +59,24 @@ describe("private resource tuple projections", () => {
     ]));
   });
 
+  it("removes a legacy owner without deleting a marker that never existed", () => {
+    const diff = buildMcpServerRelationshipTupleDiff({
+      serverId: "mcp-example",
+      ownerSubject: "test-user",
+      personalOwnerAccess: false,
+      previousPersonalOwnerAccess: true,
+      previousPrivateMarkerPresent: false,
+      globalOrganizationAccess: true,
+    });
+
+    expect(diff.deletes).toContainEqual(
+      { user: "user:test-user", relation: "owner", object: "mcp_server:mcp-example" },
+    );
+    expect(diff.deletes).not.toContainEqual(
+      { user: "organization:caipe", relation: "private_marker", object: "mcp_server:mcp-example" },
+    );
+  });
+
   it("reconciles additional MCP team grants without granting management", () => {
     const diff = buildMcpServerRelationshipTupleDiff({
       serverId: "mcp-example",
