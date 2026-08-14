@@ -1,6 +1,7 @@
 "use client";
 
 import { getErrorMessage } from "@/lib/error-utils";
+import { getConfig } from "@/lib/config";
 import type { Extension } from "@codemirror/state";
 
 import {
@@ -355,6 +356,7 @@ export function DynamicAgentEditor({
 }: DynamicAgentEditorProps) {
   const isEditing = !!agent;
   const isCloning = !!cloneFrom;
+  const privateResourcesEnabled = getConfig("privateResourcesEnabled");
   const { toast } = useToast();
   
   // Source for initial values: editing agent > cloning source > empty defaults
@@ -1620,7 +1622,9 @@ export function DynamicAgentEditor({
                       </p>
                     )}
                     <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                      {VISIBILITY_OPTIONS.map((opt) => {
+                      {VISIBILITY_OPTIONS
+                        .filter((opt) => opt.value !== "private" || privateResourcesEnabled || visibility === "private")
+                        .map((opt) => {
                         // When this agent is the platform default, lock the
                         // selector so the admin can't try to demote
                         // `global → team` here — the BFF will reject it.

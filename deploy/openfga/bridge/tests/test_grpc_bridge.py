@@ -9,6 +9,11 @@ from pathlib import Path
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _enable_private_resources(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PRIVATE_RESOURCES_ENABLED", "true")
+
+
 def _load_bridge_module():
     module_path = Path(__file__).resolve().parents[1] / "main.py"
     spec = importlib.util.spec_from_file_location("openfga_bridge_main", module_path)
@@ -134,6 +139,34 @@ def test_private_mcp_is_not_allowed_by_subject_bypass(monkeypatch: pytest.Monkey
     response = bridge.OpenFgaAuthorizationService().Check(request, None)
 
     assert response.status.code == bridge.PERMISSION_DENIED
+
+
+def test_private_marker_uses_configured_organization(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CAIPE_ORG_KEY", "example-org")
+    bridge = _load_bridge_module()
+    assert bridge.PRIVATE_MARKER_SUBJECT == "organization:example-org"
+
+
+def test_private_enforcement_is_disabled_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("PRIVATE_RESOURCES_ENABLED")
+    bridge = _load_bridge_module()
+    checks: list[tuple[str, str, str]] = []
+    monkeypatch.setattr(bridge, "_decode_verified_bearer_subject", lambda _header: "test-user")
+    monkeypatch.setattr(bridge, "BYPASS_SUBS", frozenset())
+    monkeypatch.setattr(bridge, "log_authz_decision", lambda **_event: None, raising=False)
+    monkeypatch.setattr(
+        bridge,
+        "_check_openfga",
+        lambda user, relation, obj: checks.append((user, relation, obj)) or True,
+    )
+    request = bridge.build_check_request(
+        headers={"authorization": "Bearer valid-token"},
+        path="/mcp/private-example",
+        method="POST",
+    )
+    response = bridge.OpenFgaAuthorizationService().Check(request, None)
+    assert response.status.code == bridge.OK
+    assert not any(relation == "private_marker" for _, relation, _ in checks)
 
 
 def test_uses_verified_bearer_subject(monkeypatch: pytest.MonkeyPatch) -> None:

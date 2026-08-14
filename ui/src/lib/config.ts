@@ -48,6 +48,8 @@ export interface Config {
   credentialsEnabled: boolean;
   /** Whether the user-facing Credentials surface (nav + /credentials page) is enabled */
   userConnectionsEnabled: boolean;
+  /** Whether personal private agents, MCP servers, and credentials are enabled. */
+  privateResourcesEnabled: boolean;
   /** Main tagline displayed throughout the UI */
   tagline: string;
   /** Description text displayed throughout the UI */
@@ -232,6 +234,7 @@ const DEFAULT_CONFIG: Config = {
   mongodbEnabled: false,
   credentialsEnabled: false,
   userConnectionsEnabled: false,
+  privateResourcesEnabled: false,
   tagline: DEFAULT_TAGLINE,
   description: DEFAULT_DESCRIPTION,
   appName: DEFAULT_APP_NAME,
@@ -381,6 +384,7 @@ export function getServerConfig(): Config {
   const userConnectionsEnabled =
     credentialsEnabled &&
     (userConnectionsRaw === undefined ? true : userConnectionsRaw === 'true');
+  const privateResourcesEnabled = enabledEnv('PRIVATE_RESOURCES_ENABLED');
   const userInfoToolEnabled = env('ENABLE_USER_INFO_TOOL') === 'true';
 
   // Enabled when an org URL is set AND we have credentials in EITHER mode:
@@ -424,6 +428,7 @@ export function getServerConfig(): Config {
     mongodbEnabled,
     credentialsEnabled,
     userConnectionsEnabled,
+    privateResourcesEnabled,
     tagline: env('TAGLINE') || DEFAULT_TAGLINE,
     description: env('DESCRIPTION') || DEFAULT_DESCRIPTION,
     appName: env('APP_NAME') || DEFAULT_APP_NAME,

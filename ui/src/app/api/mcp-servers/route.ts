@@ -15,6 +15,7 @@ withErrorHandler,
 import { getCollection } from "@/lib/mongodb";
 import { CREDENTIAL_COLLECTIONS } from "@/lib/credentials/collections";
 import { trustedInteractionFromRequest } from "@/lib/authz/trusted-interaction";
+import { isPrivateResourcesEnabled } from "@/lib/feature-flags/private-resources";
 import { agentGatewayMcpEndpointUrl } from "@/lib/rbac/agentgateway-mcp-discovery";
 import {
   isAgentGatewayManagedEndpoint,
@@ -74,6 +75,15 @@ interface SecretScopeDocument {
   id: string;
   owner?: { type?: string; id?: string };
   sharedWithTeams?: string[];
+}
+
+function normalizedMcpServerScope(server: MCPServerConfig): MCPServerConfig {
+  if (server.visibility === "private" || server.visibility === "team") return server;
+  const personalLegacyServer = !server.config_driven
+    && !normalizeString(server.owner_team_slug)
+    && server.owner_subject_kind !== "service_account"
+    && Boolean(normalizeString(server.owner_subject));
+  return { ...server, visibility: personalLegacyServer ? "private" : "team" };
 }
 
 async function validateCredentialScopes(input: {
@@ -321,7 +331,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         permissionOptions,
       );
       const result: MCPServerConfigWithPermissions = {
-        ...server,
+        ...normalizedMcpServerScope(server),
         permissions: mcpServerRowPermissionsOrDefault(rows, requestedId),
       };
       return successResponse(result);
@@ -337,7 +347,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       permissionOptions,
     );
     const items: MCPServerConfigWithPermissions[] = pageItems.map((server) => ({
-      ...server,
+      ...normalizedMcpServerScope(server),
       permissions: mcpServerRowPermissionsOrDefault(rows, String(server._id)),
     }));
 
@@ -391,6 +401,9 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     // Silently prepend mcp- prefix to user-provided ID
     const serverId = body.id.startsWith("mcp-") ? body.id as string : `mcp-${body.id as string}`;
     const visibility: "private" | "team" = body.visibility === "team" ? "team" : "private";
+    if (visibility === "private" && !isPrivateResourcesEnabled()) {
+      throw new ApiError("Private MCP servers are not enabled for this deployment", 409, "PRIVATE_RESOURCES_DISABLED");
+    }
     if (visibility === "private" && session.isServiceAccount === true) {
       throw new ApiError("Service accounts cannot own private MCP servers", 403, "PRIVATE_OWNER_MUST_BE_USER");
     }
@@ -542,6 +555,13 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     const nextVisibility: "private" | "team" = updateData.visibility === "team"
       ? "team"
       : updateData.visibility === "private" ? "private" : server.visibility === "private" ? "private" : "team";
+    if (
+      nextVisibility === "private"
+      && server.visibility !== "private"
+      && !isPrivateResourcesEnabled()
+    ) {
+      throw new ApiError("Private MCP servers are not enabled for this deployment", 409, "PRIVATE_RESOURCES_DISABLED");
+    }
     if (nextVisibility === "private" && session.isServiceAccount === true) {
       throw new ApiError("Service accounts cannot own private MCP servers", 403, "PRIVATE_OWNER_MUST_BE_USER");
     }

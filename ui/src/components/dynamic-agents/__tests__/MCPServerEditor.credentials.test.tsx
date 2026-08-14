@@ -1,6 +1,10 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
+jest.mock("@/lib/config", () => ({
+  getConfig: (key: string) => key === "privateResourcesEnabled",
+}));
+
 import { MCPServerEditor } from "../MCPServerEditor";
 
 // assisted-by Codex Codex-sonnet-4-6

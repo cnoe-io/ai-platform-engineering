@@ -6,6 +6,7 @@ const HEADER_SOURCE = "x-caipe-interaction-source";
 const HEADER_KIND = "x-caipe-interaction-kind";
 const HEADER_TIMESTAMP = "x-caipe-interaction-timestamp";
 const HEADER_SIGNATURE = "x-caipe-interaction-signature";
+const HEADER_CLIENT_SOURCE = "x-client-source";
 
 export type TrustedInteraction = NonNullable<TrustedAuthorizeContext["interaction"]>;
 
@@ -57,6 +58,14 @@ export function trustedInteractionFromRequest(request: InteractionRequest): Trus
   const timestampSeconds = Number(timestamp);
   const nowSeconds = Math.floor(Date.now() / 1000);
 
+  const identifiedBotSource = (() => {
+    const clientSource = request.headers.get(HEADER_CLIENT_SOURCE)?.trim().toLowerCase() ?? "";
+    if (clientSource.includes("slack")) return "slack" as const;
+    if (clientSource.includes("webex")) return "webex" as const;
+    return null;
+  })();
+  const assertedBotSource = source === "slack" || source === "webex" ? source : null;
+
   if (
     (source !== "slack" && source !== "webex")
     || (kind !== "direct" && kind !== "group")
@@ -64,6 +73,16 @@ export function trustedInteractionFromRequest(request: InteractionRequest): Trus
     || Math.abs(nowSeconds - timestampSeconds) > MAX_CLOCK_SKEW_SECONDS
     || !secret
   ) {
+    // A bot that identifies itself must never fall back to the browser policy
+    // when its signing secret is absent, stale, or malformed. Treat it as an
+    // unverified bot request so private use fails closed.
+    if (identifiedBotSource || assertedBotSource) {
+      return {
+        source: identifiedBotSource ?? assertedBotSource!,
+        conversationKind: "unknown",
+        verified: false,
+      };
+    }
     return { source: "web", conversationKind: "personal", verified: false };
   }
 
@@ -78,6 +97,13 @@ export function trustedInteractionFromRequest(request: InteractionRequest): Trus
     .digest("hex");
 
   if (!constantTimeEqualHex(suppliedSignature, expected)) {
+    if (identifiedBotSource || assertedBotSource) {
+      return {
+        source: identifiedBotSource ?? assertedBotSource!,
+        conversationKind: "unknown",
+        verified: false,
+      };
+    }
     return { source: "web", conversationKind: "personal", verified: false };
   }
 
@@ -173,6 +199,7 @@ export function trustedInteractionFromInternalHeaders(headers: Headers): Trusted
       || typeof payload.exp !== "number"
       || payload.iat > now + MAX_CLOCK_SKEW_SECONDS
       || payload.exp < now
+      || payload.exp - payload.iat > MAX_CLOCK_SKEW_SECONDS
     ) {
       return { source: "api", conversationKind: "unknown", verified: false };
     }

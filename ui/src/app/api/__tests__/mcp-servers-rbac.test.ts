@@ -75,6 +75,7 @@ function request(path: string, init?: RequestInit): NextRequest {
 describe("MCP server per-resource RBAC", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    process.env.PRIVATE_RESOURCES_ENABLED = "true";
     mockSession = { sub: "alice-sub", role: "user", user: { email: "alice@example.com" } };
     mockPagination = { page: 1, pageSize: 20, skip: 0 };
     mockRequireRbacPermission.mockResolvedValue(undefined);
@@ -123,6 +124,7 @@ describe("MCP server per-resource RBAC", () => {
       {
         _id: "mcp-visible",
         name: "Visible",
+        visibility: "team",
         permissions: { can_manage: true, can_invoke: true, can_discover: true },
       },
     ]);
@@ -173,6 +175,7 @@ describe("MCP server per-resource RBAC", () => {
         _id: "mcp-visible",
         name: "Visible",
         endpoint: "http://mcp-visible:8000/mcp",
+        visibility: "team",
         permissions: { can_manage: true, can_invoke: true, can_discover: true },
       },
     ]);
@@ -219,6 +222,7 @@ describe("MCP server per-resource RBAC", () => {
     expect(body.data.items[0]).toEqual({
       _id: "mcp-server-10",
       name: "Server 10",
+      visibility: "team",
       permissions: { can_manage: true, can_invoke: true, can_discover: true },
     });
     expect(body.data.total).toBe(15);
@@ -250,6 +254,7 @@ describe("MCP server per-resource RBAC", () => {
       {
         _id: "knowledge-base",
         name: "Knowledge Base",
+        visibility: "team",
         permissions: { can_manage: true, can_invoke: true, can_discover: true },
       },
     ]);
@@ -408,6 +413,34 @@ describe("MCP server per-resource RBAC", () => {
         owner_team_slug: undefined,
       }),
     );
+  });
+
+  it("rejects private MCP creation while the rollout flag is disabled", async () => {
+    process.env.PRIVATE_RESOURCES_ENABLED = "false";
+    const insertOne = jest.fn();
+    mockGetCollection.mockResolvedValue({
+      findOne: jest.fn().mockResolvedValue(null),
+      insertOne,
+    });
+    const { POST } = await import("../mcp-servers/route");
+
+    const response = await POST(
+      request("/api/mcp-servers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: "private-tools",
+          name: "Private Tools",
+          transport: "http",
+          endpoint: "https://mcp.example.test/mcp",
+          visibility: "private",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    expect(insertOne).not.toHaveBeenCalled();
+    expect(mockReconcileMcpServerRelationships).not.toHaveBeenCalled();
   });
 
   it("requires a stable subject before writing MCP ownership tuples", async () => {

@@ -118,16 +118,19 @@ describe("GET /api/mcp-servers list permissions", () => {
       {
         _id: "mcp-managed",
         name: "Managed",
+        visibility: "team",
         permissions: { can_manage: true, can_invoke: true, can_discover: true },
       },
       {
         _id: "mcp-invoke-only",
         name: "Invoke Only",
+        visibility: "team",
         permissions: { can_manage: false, can_invoke: true, can_discover: true },
       },
       {
         _id: "mcp-read-only",
         name: "Read Only",
+        visibility: "team",
         permissions: { can_manage: false, can_invoke: false, can_discover: false },
       },
     ]);
@@ -160,6 +163,7 @@ describe("GET /api/mcp-servers list permissions", () => {
     );
     expect(body.data).toEqual({
       ...server,
+      visibility: "team",
       permissions: { can_manage: true, can_invoke: true, can_discover: true },
     });
   });

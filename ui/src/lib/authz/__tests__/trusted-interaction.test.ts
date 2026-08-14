@@ -43,7 +43,30 @@ describe("trustedInteractionFromRequest", () => {
   it("fails closed for a forged signature", () => {
     expect(trustedInteractionFromRequest(request({
       "x-caipe-interaction-signature": "0".repeat(64),
-    }))).toEqual({ source: "web", conversationKind: "personal", verified: false });
+    }))).toEqual({ source: "slack", conversationKind: "unknown", verified: false });
+  });
+
+  it.each([
+    ["slack-bot", "slack"],
+    ["webex-bot", "webex"],
+  ] as const)("does not treat an unsigned %s request as web", (clientSource, source) => {
+    const unsigned = request({
+      "x-client-source": clientSource,
+      "x-caipe-interaction-signature": "",
+    });
+    expect(trustedInteractionFromRequest(unsigned)).toEqual({
+      source,
+      conversationKind: "unknown",
+      verified: false,
+    });
+  });
+
+  it("continues treating a normal browser request without bot headers as web", () => {
+    expect(trustedInteractionFromRequest({
+      method: "POST",
+      nextUrl: { pathname: "/api/v1/chat/invoke" },
+      headers: new Headers(),
+    })).toEqual({ source: "web", conversationKind: "personal", verified: false });
   });
 
   it("fails closed for a stale timestamp", () => {
@@ -71,5 +94,19 @@ describe("trustedInteractionFromRequest", () => {
       conversationKind: "group",
       verified: true,
     })).toEqual({});
+  });
+
+  it("rejects an otherwise valid internal proof with an excessive lifetime", () => {
+    const token = Buffer.from(JSON.stringify({
+      source: "web",
+      conversationKind: "personal",
+      iat: 1_750_000_000,
+      exp: 1_750_000_100,
+    })).toString("base64url");
+    const signature = createHmac("sha256", "test-internal-secret").update(token).digest("hex");
+    expect(trustedInteractionFromInternalHeaders(new Headers({
+      "X-CAIPE-Trusted-Interaction": token,
+      "X-CAIPE-Trusted-Interaction-Signature": signature,
+    }))).toEqual({ source: "api", conversationKind: "unknown", verified: false });
   });
 });

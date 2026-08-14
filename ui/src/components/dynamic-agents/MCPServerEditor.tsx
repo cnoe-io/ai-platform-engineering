@@ -21,6 +21,7 @@ import {
   SUPPRESS_SECRET_LIKE_INPUT_PROPS,
 } from "@/lib/suppress-password-manager";
 import { normalizeCustomProviderCredentialSource } from "@/lib/mcp-credential-scope";
+import { getConfig } from "@/lib/config";
 import type {
 MCPCredentialSource,
 MCPServerConfig,
@@ -188,6 +189,8 @@ function normalizedCredentialSource(
 export function MCPServerEditor({ server, readOnly, onSave, onCancel, initialValues }: MCPServerEditorProps) {
   const isEditing = !!server;
 
+  const privateResourcesEnabled = getConfig("privateResourcesEnabled");
+
   // Form state
   const [id, setId] = React.useState(server?._id || "");
   const [idManuallyEdited, setIdManuallyEdited] = React.useState(Boolean(server?._id));
@@ -210,7 +213,9 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel, initialVal
     normalizeCredentialSourcesForEditor(server?.credential_sources ?? initialValues?.credential_sources),
   );
   const [visibility, setVisibility] = React.useState<Extract<VisibilityType, "private" | "team">>(
-    server ? (server.visibility === "private" ? "private" : "team") : "private",
+    server
+      ? (server.visibility === "private" || (!server.visibility && !server.owner_team_slug) ? "private" : "team")
+      : privateResourcesEnabled ? "private" : "team",
   );
   const [ownerTeamSlug, setOwnerTeamSlug] = React.useState(server?.owner_team_slug || "");
   const [sharedTeamSlugs, setSharedTeamSlugs] = React.useState<string[]>(server?.shared_with_teams || []);
@@ -666,7 +671,9 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel, initialVal
             <div className="space-y-2">
               <Label>Access</Label>
               <div className="grid grid-cols-2 gap-2">
-                {(["private", "team"] as const).map((option) => (
+                {(["private", "team"] as const)
+                  .filter((option) => option !== "private" || privateResourcesEnabled || visibility === "private")
+                  .map((option) => (
                   <button
                     key={option}
                     type="button"

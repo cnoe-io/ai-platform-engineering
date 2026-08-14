@@ -15,6 +15,7 @@ withErrorHandler,
 } from "@/lib/api-middleware";
 import { getCollection } from "@/lib/mongodb";
 import { trustedInteractionFromRequest } from "@/lib/authz/trusted-interaction";
+import { isPrivateResourcesEnabled } from "@/lib/feature-flags/private-resources";
 import {
 allowedToolsFromAgent,
 deleteAllAgentToolTuples,
@@ -509,6 +510,9 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     const visibility: VisibilityType = rawVisibility === "private"
       ? "private"
       : rawVisibility === "global" ? "global" : "team";
+    if (visibility === "private" && !isPrivateResourcesEnabled()) {
+      throw new ApiError("Private agents are not enabled for this deployment", 409, "PRIVATE_RESOURCES_DISABLED");
+    }
     if (visibility === "private" && session.isServiceAccount === true) {
       throw new ApiError("Service accounts cannot own private agents", 403, "PRIVATE_OWNER_MUST_BE_USER");
     }
@@ -742,6 +746,13 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     // first. We only block the demote case; promoting team → global is
     // always fine.
     const currentVisibility = agent.visibility as VisibilityType | "private" | undefined;
+    if (
+      finalVisibility === "private"
+      && currentVisibility !== "private"
+      && !isPrivateResourcesEnabled()
+    ) {
+      throw new ApiError("Private agents are not enabled for this deployment", 409, "PRIVATE_RESOURCES_DISABLED");
+    }
     const changesProtectedDefaultVisibility = finalVisibility === "private"
       || (finalVisibility === "team" && currentVisibility === "global");
     if (changesProtectedDefaultVisibility && (await isPlatformDefaultAgent(id))) {

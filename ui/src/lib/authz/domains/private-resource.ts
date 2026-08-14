@@ -1,5 +1,6 @@
 import { CREDENTIAL_COLLECTIONS } from "@/lib/credentials/collections";
 import { getCollection } from "@/lib/mongodb";
+import { isPrivateResourcesEnabled } from "@/lib/feature-flags/private-resources";
 
 import type { AuthorizeRequest, AuthorizeResult } from "../contract";
 import {
@@ -46,6 +47,6 @@ async function loadVisibility(req: AuthorizeRequest): Promise<ResourceVisibility
 }
 
 export async function privateResourcePreCheck(req: AuthorizeRequest): Promise<AuthorizeResult | null> {
-  if (!PRIVATE_DATA_ACTIONS.has(req.action)) return null;
+  if (!isPrivateResourcesEnabled() || !PRIVATE_DATA_ACTIONS.has(req.action)) return null;
   return evaluatePrivateResourceContext(req, await loadVisibility(req));
 }

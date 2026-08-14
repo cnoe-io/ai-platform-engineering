@@ -12,6 +12,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import signal
 import sys
 import time
@@ -57,6 +58,16 @@ BYPASS_SUBS = frozenset(
     s.strip() for s in os.environ.get("OPENFGA_BYPASS_SUBS", "").split(",") if s.strip()
 )
 AGENT_CONTEXT_HMAC_SECRET = os.environ.get("CAIPE_AGENT_CONTEXT_HMAC_SECRET", "").strip()
+PRIVATE_RESOURCES_ENABLED = os.environ.get("PRIVATE_RESOURCES_ENABLED", "").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+_ORG_KEY_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
+_configured_org_key = os.environ.get("CAIPE_ORG_KEY", "").strip()
+CAIPE_ORG_KEY = _configured_org_key if _ORG_KEY_PATTERN.fullmatch(_configured_org_key) else "caipe"
+PRIVATE_MARKER_SUBJECT = f"organization:{CAIPE_ORG_KEY}"
 AGENT_CONTEXT_MAX_AGE_SECONDS = int(os.environ.get("CAIPE_AGENT_CONTEXT_MAX_AGE_SECONDS", "300"))
 # "local" contexts (minted by /api/mcp-servers/agent-context for CLI/local
 # callers, see ui/src/lib/mcp-http-server-client.ts) get a longer max age than
@@ -771,10 +782,10 @@ class OpenFgaAuthorizationService:
 
         mcp_target = _mcp_target_from_path(request.attributes.request.http.path)
         private_target = False
-        if sub in BYPASS_SUBS and mcp_target:
+        if PRIVATE_RESOURCES_ENABLED and sub in BYPASS_SUBS and mcp_target:
             try:
                 private_target = _check_openfga(
-                    "organization:caipe",
+                    PRIVATE_MARKER_SUBJECT,
                     "private_marker",
                     f"mcp_server:{mcp_target}",
                 )
@@ -811,11 +822,11 @@ class OpenFgaAuthorizationService:
         start = time.perf_counter()
         try:
             allowed = _check_openfga(user, relation, obj)
-            if allowed and mcp_target:
+            if PRIVATE_RESOURCES_ENABLED and allowed and mcp_target:
                 mcp_server_obj = f"mcp_server:{mcp_target}"
                 if sub not in BYPASS_SUBS:
                     private_target = _check_openfga(
-                        "organization:caipe", "private_marker", mcp_server_obj
+                        PRIVATE_MARKER_SUBJECT, "private_marker", mcp_server_obj
                     )
                 if private_target and (
                     not _check_openfga(user, "owner", mcp_server_obj)

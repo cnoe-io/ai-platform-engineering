@@ -110,7 +110,56 @@ test.describe("RBAC live e2e — private resources", () => {
         "X-CAIPE-Trusted-Interaction": expect.any(String),
         "X-CAIPE-Trusted-Interaction-Signature": expect.any(String),
       }));
+
+      const unsignedSlackAgentUse = await jsonRequest(page, "/api/user/check_agent_access", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Client-Source": "slack-bot",
+        },
+        body: JSON.stringify({ agent_id: agentId }),
+      });
+      expect(unsignedSlackAgentUse.status, JSON.stringify(unsignedSlackAgentUse.body)).toBe(200);
+      expect(unsignedSlackAgentUse.body.data).toMatchObject({
+        allowed: false,
+        reason: "PRIVATE_RESOURCE_CONTEXT_DENIED",
+      });
+
+      const unsignedSlackMcpUse = await jsonRequest(page, "/api/mcp-servers/agent-context", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Client-Source": "slack-bot",
+        },
+        body: JSON.stringify({ serverIds: [mcpId] }),
+      });
+      expect(unsignedSlackMcpUse.status, JSON.stringify(unsignedSlackMcpUse.body)).toBe(403);
+
+      await installTestSession(page, env, {
+        email: "other-user@example.com",
+        subject: `other-user-${suffix}`,
+        role: "user",
+      });
+      const outsiderAgentUse = await jsonRequest(page, "/api/user/check_agent_access", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agent_id: agentId }),
+      });
+      expect(outsiderAgentUse.status, JSON.stringify(outsiderAgentUse.body)).toBe(200);
+      expect(outsiderAgentUse.body.data).toMatchObject({ allowed: false });
+
+      const outsiderMcpUse = await jsonRequest(page, "/api/mcp-servers/agent-context", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ serverIds: [mcpId] }),
+      });
+      expect(outsiderMcpUse.status, JSON.stringify(outsiderMcpUse.body)).toBe(403);
     } finally {
+      await installTestSession(page, env, {
+        email: env.user.email,
+        subject: env.user.sub!,
+        role: "admin",
+      }).catch(() => undefined);
       await jsonRequest(page, `/api/dynamic-agents?id=${encodeURIComponent(agentId)}`, {
         method: "DELETE",
       }).catch(() => undefined);
