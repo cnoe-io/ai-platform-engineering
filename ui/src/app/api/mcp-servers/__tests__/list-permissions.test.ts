@@ -106,23 +106,31 @@ describe("GET /api/mcp-servers list permissions", () => {
     expect(mockResolveMcpServerListPermissions).toHaveBeenCalledWith(
       expect.objectContaining({ sub: "alice-sub" }),
       ["mcp-managed", "mcp-invoke-only", "mcp-read-only"],
-      { bypassForOrgAdmin: true },
+      {
+        bypassForOrgAdmin: true,
+        trustedContext: {
+          interaction: { source: "web", conversationKind: "personal", verified: false },
+        },
+      },
     );
     expect(body.data.capabilities).toEqual({ repair_agentgateway: true });
     expect(body.data.items).toEqual([
       {
         _id: "mcp-managed",
         name: "Managed",
+        visibility: "team",
         permissions: { can_manage: true, can_invoke: true, can_discover: true },
       },
       {
         _id: "mcp-invoke-only",
         name: "Invoke Only",
+        visibility: "team",
         permissions: { can_manage: false, can_invoke: true, can_discover: true },
       },
       {
         _id: "mcp-read-only",
         name: "Read Only",
+        visibility: "team",
         permissions: { can_manage: false, can_invoke: false, can_discover: false },
       },
     ]);
@@ -146,10 +154,16 @@ describe("GET /api/mcp-servers list permissions", () => {
       expect.objectContaining({ sub: "alice-sub" }),
       [server],
       { type: "mcp_server", action: "read", id: expect.any(Function) },
-      { bypassForOrgAdmin: true },
+      {
+        bypassForOrgAdmin: true,
+        trustedContext: {
+          interaction: { source: "web", conversationKind: "personal", verified: false },
+        },
+      },
     );
     expect(body.data).toEqual({
       ...server,
+      visibility: "team",
       permissions: { can_manage: true, can_invoke: true, can_discover: true },
     });
   });

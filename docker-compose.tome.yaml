@@ -325,6 +325,8 @@ services:
       OPENFGA_RELATION: can_call
       OPENFGA_OBJECT: mcp_gateway:list
       OPENFGA_BYPASS_SUBS: ${OPENFGA_BYPASS_SUBS:-}
+      CAIPE_ORG_KEY: ${CAIPE_ORG_KEY:-caipe}
+      PRIVATE_RESOURCES_ENABLED: ${PRIVATE_RESOURCES_ENABLED:-false}
       JWT_JWKS_URL: ${BRIDGE_JWT_JWKS_URL:-http://keycloak:7080/realms/caipe/protocol/openid-connect/certs}
       JWT_ISSUER: ${BRIDGE_JWT_ISSUER:-http://localhost:7080/realms/caipe}
       JWT_AUDIENCES: ${BRIDGE_JWT_AUDIENCES:-caipe-platform,agentgateway}

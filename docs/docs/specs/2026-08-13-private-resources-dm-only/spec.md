@@ -1,9 +1,9 @@
-# Feature Specification: Private Resources and DM-Only Personal Execution
+# Feature Specification: Private Resources and Personal Execution
 
 **Feature Branch**: `2026-08-13-private-resources-dm-only`
 **Created**: 2026-08-13
 **Status**: Draft
-**Input**: Support private dynamic agents, MCP servers, and credentials with OpenFGA tuples reconciled through CAS. Private resources may be created and managed in the Web UI, but may execute only in verified Slack direct messages or Webex 1:1 rooms, never in group channels or spaces.
+**Input**: Support private dynamic agents, MCP servers, and credentials with OpenFGA tuples reconciled through CAS. Owners may manage and execute private resources in the authenticated Web UI or through user-scoped APIs. Slack and Webex execution is limited to verified direct messages, never group channels or spaces.
 
 ## Summary
 
@@ -17,7 +17,7 @@ Add one consistent visibility model to dynamic agents, MCP servers, and secret-b
 OpenFGA answers **who** has a relationship with a resource. CAS also enforces **where** a private resource may be used. A private-resource allow therefore requires both:
 
 1. a direct owner capability in OpenFGA; and
-2. a trusted CAS interaction context proving Slack DM or Webex 1:1 use for data-plane actions.
+2. a trusted CAS interaction context proving authenticated personal web/API use, Slack DM, or Webex 1:1 use for data-plane actions.
 
 The persisted resource is the source of truth. CAS projects its desired relationships into OpenFGA and fails closed while that projection is stale or incomplete.
 
@@ -38,11 +38,12 @@ The persisted resource is the source of truth. CAS projects its desired relation
 - “Private” means private to that owner, not individually shared with several users.
 - Sharing a private resource requires converting it to `team` and selecting an owner team.
 - Private control-plane actions are allowed from the authenticated owner's Web UI session.
-- Private execution is allowed only from:
+- Private execution is allowed from:
+  - the authenticated owner's Web UI session or user-scoped API request;
   - a verified Slack `im`/DM event for the linked owner;
   - a verified Webex room whose `roomType` is `direct` for the linked owner.
 - Private execution is denied from:
-  - Web UI chat, local clients, and general API calls;
+  - unauthenticated or non-user-scoped API calls;
   - Slack channels, group DMs, and shared channels;
   - Webex group spaces;
   - service accounts, API-triggered workflows, schedules, and unattended jobs;
@@ -90,14 +91,14 @@ As a user, I want to create an agent, MCP server, or credential that only I can 
 
 As the owner of a private agent, I want to use it in my linked Slack or Webex direct conversations, while preventing it from appearing or running in every other execution surface.
 
-**Independent Test**: Invoke the same private agent as its owner from Web UI chat, Slack DM, Slack channel, Webex direct room, and Webex group space. Only the two direct-message cases are allowed; Web UI still permits management.
+**Independent Test**: Invoke the same private agent as its owner from Web UI chat, Slack DM, Slack channel, Webex direct room, and Webex group space. Web UI and the two direct-message cases are allowed; group contexts are denied.
 
 **Acceptance Scenarios**:
 
 1. **Given** the linked owner sends a Slack DM, **When** the bot resolves a private agent, **Then** CAS receives trusted `surface=slack` and `conversation_kind=direct`, checks the direct owner capability, and allows execution.
 2. **Given** the linked owner sends a Webex 1:1 message, **When** Webex supplied `roomType=direct`, **Then** CAS receives trusted `surface=webex` and `conversation_kind=direct` and may allow execution.
-3. **Given** the owner uses the Web UI, **When** they create, edit, or delete the private resource, **Then** CAS may allow the control-plane action, but Web UI chat cannot execute it.
-4. **Given** the owner invokes the private agent from Web UI chat, a Slack channel, or a Webex group space, **When** authorization runs, **Then** CAS denies before or regardless of any direct user owner tuple.
+3. **Given** the owner uses the Web UI, **When** they create, edit, delete, or chat with the private resource, **Then** CAS allows the action after checking the direct owner capability.
+4. **Given** the owner invokes the private agent from a Slack channel or Webex group space, **When** authorization runs, **Then** CAS denies before or regardless of any direct user owner tuple.
 5. **Given** a Slack or Webex payload with missing, unknown, or contradictory conversation type, **When** a private resource is selected, **Then** authorization fails closed.
 6. **Given** another linked user is in a DM with the bot, **When** they guess a private agent identifier, **Then** OpenFGA denies because the owner tuple does not match.
 
@@ -162,7 +163,7 @@ As an administrator or security reviewer, I want every visibility change and den
 - **FR-011**: Public request bodies and advisory `context` MUST NOT populate or override trusted interaction context.
 - **FR-012**: Slack DM classification MUST be derived from verified Slack event metadata (`channel_type=im`) or an equivalent server-side lookup, not solely from a caller-provided channel-id prefix.
 - **FR-013**: Webex direct classification MUST be derived from verified Webex webhook metadata (`roomType=direct`) or an equivalent Webex API lookup. Missing room type is not direct.
-- **FR-014**: CAS MUST allow private resource execution (`use`, `invoke`, tool call, or secret use) only for `slack/direct` or `webex/direct` trusted contexts. `web/personal` may authorize control-plane read/manage/delete actions only.
+- **FR-014**: CAS MUST allow private resource execution (`use`, `invoke`, tool call, or secret use) for authenticated owner `web/personal`, verified `slack/direct`, or verified `webex/direct` contexts only.
 - **FR-015**: Slack group DMs (`mpim`), public/private channels, shared channels, and Webex group spaces MUST be treated as shared contexts and denied for private resources.
 - **FR-016**: Group-channel/space PEPs MUST authorize against the channel/space and mapped team principal only; they MUST NOT fall back to the human's direct owner grant.
 - **FR-017**: The DM access endpoint MUST carry a server-derived surface contract to CAS and MUST NOT remain a context-free direct OpenFGA helper.
@@ -173,7 +174,7 @@ As an administrator or security reviewer, I want every visibility change and den
 - **FR-019**: Every lifecycle relationship mutation for agent, MCP server, and `secret_ref` MUST pass through CAS reconciliation for centralized audit and cache invalidation.
 - **FR-020**: A private agent MUST project a direct human `owner` tuple plus audit-only `creator`; it MUST project no broader grants.
 - **FR-021**: A private MCP server MUST project a direct human `owner` tuple and no broader grants. Adding audit-only `creator` to `mcp_server` is REQUIRED for provenance parity.
-- **FR-022**: A private `secret_ref` MUST project its existing direct human capability tuple set. Adding `owner` may be a later model cleanup; phase 1 MUST NOT weaken current secret permission separation.
+- **FR-022**: A private `secret_ref` MUST project audit-only `creator`, functional human `owner`, and its existing separated metadata/use/manage/audit tuples. `owner` MAY participate in those permissions, but `creator` MUST NOT.
 - **FR-023**: Visibility transitions MUST submit required tuple deletes and writes in one OpenFGA write request when within the server's operation limit.
 - **FR-024**: Larger reconciliations MUST remain fail closed until every chunk is applied and verified. They MUST NOT expose a partially reconciled resource.
 - **FR-025**: CAS MUST invalidate decision caches after tuple mutation and MUST use a higher-consistency verification for changed allows and revocations before setting `authz_sync_state=ready`.
@@ -233,7 +234,7 @@ See [data-model.md](./data-model.md) for fields, tuple examples, state transitio
 
 - **SC-001**: The authorization matrix has automated coverage for all supported resources, three surfaces, direct/group context, owner/non-owner, and every visibility supported by that resource type.
 - **SC-002**: Zero private resources are returned to unauthorized discovery requests in integration tests.
-- **SC-003**: Zero private invocations succeed from Web UI chat, local/API clients, Slack channels, Slack group DMs, Webex group spaces, schedules, service accounts, or delegated agents.
+- **SC-003**: Owner private invocations succeed from authenticated Web UI and user-scoped API requests, while zero private invocations succeed from Slack channels, Slack group DMs, Webex group spaces, schedules, service accounts, delegated agents, or unauthenticated/non-user API clients.
 - **SC-004**: All private ↔ broader-scope transition tests show no stale allow after CAS reports `ready`.
 - **SC-005**: Every relationship mutation emits a CAS audit event and invalidates decision caches.
 - **SC-006**: Existing user-owned secrets migrate without secret re-encryption or loss of owner access.
@@ -249,6 +250,6 @@ See [data-model.md](./data-model.md) for fields, tuple examples, state transitio
 
 ## Open Product Questions
 
-- Should a future phase allow private execution from Web UI chat or an authenticated local CLI? Recommendation: keep phase 1 DM-only; any expansion requires an explicit trusted surface policy and must never treat the current long-lived local agent-context header as proof of a DM.
+- Should a future phase allow private execution from unattended local CLI sessions? Recommendation: require a short-lived user-scoped proof and never treat the long-lived local agent-context header alone as authorization for a private resource.
 - Should ownership recovery be org-admin-only or use a two-person approval? Recommendation: org-admin-only initially, with mandatory audit and no credential-value access.
 - Should knowledge bases adopt private visibility next? Recommendation: defer until metadata/search-result leakage and ingestion-worker identity are designed together.

@@ -97,6 +97,7 @@ beforeEach(() => {
   // reads this via agentGatewayMcpEndpointUrl(), which is also exercised
   // by other test suites — set it here so test order doesn't matter.
   process.env.AGENT_GATEWAY_URL = "http://agentgateway:4000";
+  process.env.PRIVATE_RESOURCES_ENABLED = "true";
 
   mockGetAuthFromBearerOrSession.mockResolvedValue({ session, user });
   mockRequireResourcePermission.mockResolvedValue(undefined);
@@ -269,6 +270,8 @@ describe("PUT /api/mcp-servers?id=<id> — endpoint normalisation", () => {
       transport: "http",
       endpoint: "http://agentgateway:4000/mcp",
       config_driven: false,
+      visibility: "private",
+      owner_subject: "alice-sub",
     };
     mockFindOne.mockResolvedValue(existing);
     mockFindOneAndUpdate.mockImplementation(async (_filter, update) => ({
@@ -304,6 +307,8 @@ describe("PUT /api/mcp-servers?id=<id> — endpoint normalisation", () => {
       transport: "http",
       endpoint: "http://agentgateway:4000/mcp/mcp-jira",
       config_driven: false,
+      visibility: "private",
+      owner_subject: "alice-sub",
     };
     mockFindOne.mockResolvedValue(existing);
     mockFindOneAndUpdate.mockImplementation(async (_filter, update) => ({
@@ -335,6 +340,8 @@ describe("PUT /api/mcp-servers?id=<id> — endpoint normalisation", () => {
       transport: "http",
       endpoint: "http://agentgateway:4000/mcp/atlassian-confluence",
       config_driven: false,
+      visibility: "private",
+      owner_subject: "alice-sub",
     };
     mockFindOne.mockResolvedValue(existing);
     mockFindOneAndUpdate.mockImplementation(async (_filter, update) => ({

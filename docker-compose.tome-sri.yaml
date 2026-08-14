@@ -41,6 +41,8 @@ services:
       - CONFLUENCE_REDIRECT_URI=https://tome-sri.dev.outshift.io/api/credentials/oauth/atlassian/callback
       - INTERNAL_BASE_URL=http://localhost:3000
       - TOME_ENABLED=${TOME_ENABLED:-true}
+      - PRIVATE_RESOURCES_ENABLED=${PRIVATE_RESOURCES_ENABLED:-true}
+      - CAIPE_AGENT_CONTEXT_HMAC_SECRET=${CAIPE_AGENT_CONTEXT_HMAC_SECRET}
       - TOME_AUTO_INGEST_ENABLED=${TOME_AUTO_INGEST_ENABLED:-true}
       - TOME_AUTO_INGEST_CREDENTIAL_REFRESH_MS=${TOME_AUTO_INGEST_CREDENTIAL_REFRESH_MS:-300000}
       - TOME_AGENT_URL=http://tome-agent-tome:8766
@@ -63,6 +65,11 @@ services:
     command: ["start-dev", "--import-realm", "--http-port", "7080", "--https-port", "7443", "--features=token-exchange,admin-fine-grained-authz:v1", "--spi-well-known--openid-configuration--openid-configuration-override=/opt/keycloak/conf/openid-configuration-override.json"]
     volumes:
       - ./charts/ai-platform-engineering/charts/keycloak/openid-configuration-override.json:/opt/keycloak/conf/openid-configuration-override.json:ro
+
+  openfga-authz-bridge:
+    environment:
+      - PRIVATE_RESOURCES_ENABLED=${PRIVATE_RESOURCES_ENABLED:-true}
+      - CAIPE_ORG_KEY=${CAIPE_ORG_KEY:-caipe}
 
   # langfuse-web also maps 3000:3000 — remap to 3001 to avoid collision with
   # caipe-ui. `ports` is a merge-by-union list in Compose, so a plain override

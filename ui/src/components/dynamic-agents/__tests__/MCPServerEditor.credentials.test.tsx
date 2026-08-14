@@ -1,6 +1,10 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
+jest.mock("@/lib/config", () => ({
+  getConfig: (key: string) => key === "privateResourcesEnabled",
+}));
+
 import { MCPServerEditor } from "../MCPServerEditor";
 
 // assisted-by Codex Codex-sonnet-4-6
@@ -93,18 +97,27 @@ describe("MCPServerEditor credential sources", () => {
     }) as jest.Mock;
   });
 
-  it("places access and visibility below credentials", async () => {
-    render(<MCPServerEditor server={null} onSave={jest.fn()} onCancel={jest.fn()} />);
-
-    const credentialsHeading = screen.getByRole("heading", { name: "Credentials" });
-    const accessHeading = screen.getByRole("heading", { name: "Access" });
-
-    await waitFor(() =>
-      expect(
-        credentialsHeading.compareDocumentPosition(accessHeading) &
-          Node.DOCUMENT_POSITION_FOLLOWING,
-      ).toBe(Node.DOCUMENT_POSITION_FOLLOWING),
+  it("shows spaced Private, Team, and Global access choices and preserves global edit state", () => {
+    render(
+      <MCPServerEditor
+        server={{
+          _id: "global-tools",
+          name: "Global Tools",
+          transport: "http",
+          endpoint: "https://mcp.example.test/mcp",
+          visibility: "global",
+        }}
+        onSave={jest.fn()}
+        onCancel={jest.fn()}
+      />,
     );
+
+    expect(screen.getByText("Access and visibility")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^private/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^team/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^global/i })).toHaveClass("border-primary");
+    expect(screen.queryByLabelText("Owner team")).not.toBeInTheDocument();
+    expect(screen.queryByText("Share with teams")).not.toBeInTheDocument();
   });
 
   it("creates header and environment secret refs from selectable secrets", async () => {
@@ -396,7 +409,7 @@ describe("MCPServerEditor credential sources", () => {
 
     await user.type(screen.getByLabelText(/display name/i), "Shared Search");
     await user.type(screen.getByLabelText(/upstream url|endpoint url/i), "https://mcp.example.com/mcp");
-    await user.click(screen.getByRole("button", { name: /Global Every signed-in organization member/i }));
+    await user.click(screen.getByRole("button", { name: /Global Every signed-in user/i }));
     await user.click(screen.getByRole("button", { name: /create server/i }));
 
     await waitFor(() =>
@@ -431,6 +444,7 @@ describe("MCPServerEditor credential sources", () => {
           name: "Jira",
           transport: "http",
           endpoint: "http://agentgateway:4000/mcp/jira",
+          visibility: "private",
           credential_sources: [
             {
               kind: "provider_connection",

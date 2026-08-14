@@ -1,5 +1,10 @@
 // assisted-by Codex Codex-sonnet-4-6
 
+jest.mock("@/lib/mongodb", () => ({
+  getCollection: jest.fn(async () => ({ findOne: jest.fn(async () => null) })),
+  isMongoDBConfigured: false,
+}));
+
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 
 import {

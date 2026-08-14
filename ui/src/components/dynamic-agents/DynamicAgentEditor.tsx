@@ -38,7 +38,7 @@ SubAgentRef,
 VisibilityType,
 } from "@/types/dynamic-agent";
 import { AnimatePresence,motion } from "framer-motion";
-import { AlertCircle,ArrowLeft,Check,ChevronDown,ChevronLeft,ChevronRight,Eye,Globe,GripHorizontal,Loader2,Pencil,Sparkles,Users } from "lucide-react";
+import { AlertCircle,ArrowLeft,Check,ChevronDown,ChevronLeft,ChevronRight,Eye,Globe,GripHorizontal,Loader2,Lock,Pencil,Sparkles,Users } from "lucide-react";
 import React from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -81,23 +81,24 @@ function generateSlug(name: string): string {
   return slug ? `agent-${slug}` : "";
 }
 
-// Visibility picker — `private` was retired on 2026-05-22 (see
-// `docs/docs/changes/2026-05-22-remove-private-agents.md` and the
-// `VisibilityType` definition in `@/types/dynamic-agent`). Every dynamic
-// agent is now team-owned; users who want a truly personal agent should
-// create a single-member team and own the agent through that team.
 const VISIBILITY_OPTIONS: { value: VisibilityType; label: string; icon: React.ReactNode; description: string }[] = [
+  {
+    value: "private",
+    label: "Private",
+    icon: <Lock className="h-4 w-4" />,
+    description: "Only you, in the web UI or direct messages.",
+  },
   {
     value: "team",
     label: "Team",
     icon: <Users className="h-4 w-4" />,
-    description: "Team members can use; you manage as creator; team admins can manage. Optionally share with other teams.",
+    description: "Your team and any teams you share it with.",
   },
   {
     value: "global",
     label: "Global",
     icon: <Globe className="h-4 w-4" />,
-    description: "Available to all users; owner-team admins manage it.",
+    description: "Every signed-in user.",
   },
 ];
 
@@ -376,6 +377,7 @@ export function DynamicAgentEditor({
 }: DynamicAgentEditorProps) {
   const isEditing = !!agent;
   const isCloning = !!cloneFrom;
+  const privateResourcesEnabled = getConfig("privateResourcesEnabled");
   const { toast } = useToast();
   
   // Source for initial values: editing agent > cloning source > empty defaults
@@ -387,17 +389,9 @@ export function DynamicAgentEditor({
   );
   const [description, setDescription] = React.useState(source?.description || "");
   const [systemPrompt, setSystemPrompt] = React.useState(source?.system_prompt || "");
-  // Default to `team` for new agents — every agent must have an owner
-  // team, and team-scoped sharing is the safest default. `private` is
-  // retired (see `VisibilityType` in `@/types/dynamic-agent`); legacy
-  // docs that still carry `visibility: 'private'` on the wire are coerced
-  // to `team` here so the picker has a matching tile to highlight. The
-  // BFF-side `coerceAgentVisibilityOnRead` helper does the same on read,
-  // but we coerce defensively in the UI in case a stale GET response
-  // slips through before that helper is wired into every route.
   const [visibility, setVisibility] = React.useState<VisibilityType>(() => {
-    const raw = source?.visibility as VisibilityType | "private" | undefined;
-    if (raw === "team" || raw === "global") return raw;
+    const raw = source?.visibility;
+    if (raw === "private" || raw === "team" || raw === "global") return raw;
     return "team";
   });
   const [sharedWithTeams, setSharedWithTeams] = React.useState<string[]>(
@@ -797,7 +791,7 @@ export function DynamicAgentEditor({
     snapshotKey,
   });
 
-  const ownerTeamMissing = !isEditing && !ownerTeamSlug;
+  const ownerTeamMissing = visibility !== "private" && !ownerTeamSlug;
   const blockers: FormBlocker[] = React.useMemo(() => {
     const list: FormBlocker[] = [];
     if (!name.trim()) {
@@ -1134,7 +1128,7 @@ export function DynamicAgentEditor({
           // Ownership transfer (US3): only send owner_team_slug when the user
           // changed the owner picker, so a normal edit never trips the route's
           // transfer guard.
-          ...(transferRequested
+          ...(visibility !== "private" && transferRequested
             ? {
                 owner_team_slug: ownerTeamSlug,
                 confirm_not_member: confirmNotMember,
@@ -1169,7 +1163,7 @@ export function DynamicAgentEditor({
           description: description || undefined,
           system_prompt: systemPrompt,
           visibility,
-          owner_team_slug: ownerTeamSlug,
+          owner_team_slug: visibility === "private" ? undefined : ownerTeamSlug,
           shared_with_teams: visibility === "team" ? sharedWithTeams : undefined,
           allowed_tools: allowedTools,
           builtin_tools: builtinTools,
@@ -1676,10 +1670,11 @@ export function DynamicAgentEditor({
                 ownerTeamSlug={ownerTeamSlug}
                 sharedTeamSlugs={sharedWithTeams}
                 isEditing={isEditing}
-                ownerRequired
+                ownerRequired={visibility !== "private"}
                 allowTransfer={isEditing}
                 resourceNoun="agent"
                 disabled={loading || !!readOnly}
+                showOwner={visibility !== "private"}
                 showShare={visibility === "team"}
                 currentUserTeamSlugs={availableTeams
                   .map((team) => team.slug)
@@ -1717,19 +1712,10 @@ export function DynamicAgentEditor({
                     disabled: team.can_own_agents === false,
                   }))}
                 ownerHelpText={
-                  <>
-                    Select a team you belong to as the owner. You manage this
-                    agent as its creator; team members can use it; team admins
-                    can manage it.
-                  </>
+                  <>Team admins can manage this agent.</>
                 }
                 shareHelpText={
-                  <>
-                    Select which additional teams can access this agent. Members
-                    of a shared team can DM it and use it in any Slack channel or
-                    Webex space mapped to that team. Team admins can manage shared
-                    agents.
-                  </>
+                  <>Additional teams can use this agent.</>
                 }
                 ownerExtra={
                   !isEditing && availableTeams.length === 0 ? (
@@ -1738,11 +1724,11 @@ export function DynamicAgentEditor({
                     </p>
                   ) : ownerTeamMissing ? (
                     <p className="text-xs text-orange-700 dark:text-orange-400" role="alert">
-                      Choose an owner team before continuing.
+                      Select an owner team.
                     </p>
                   ) : null
                 }
-                betweenOwnerAndShare={
+                beforeOwner={
                   <div className="space-y-2">
                     <Label>Visibility</Label>
                     {isPlatformDefault && (
@@ -1755,8 +1741,10 @@ export function DynamicAgentEditor({
                         its visibility.
                       </p>
                     )}
-                    <div className="grid grid-cols-2 gap-2">
-                      {VISIBILITY_OPTIONS.map((opt) => {
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                      {VISIBILITY_OPTIONS
+                        .filter((opt) => opt.value !== "private" || privateResourcesEnabled || visibility === "private")
+                        .map((opt) => {
                         // When this agent is the platform default, lock the
                         // selector so the admin can't try to demote
                         // `global → team` here — the BFF will reject it.
@@ -1782,23 +1770,6 @@ export function DynamicAgentEditor({
                         );
                       })}
                     </div>
-                    {visibility === "global" && (
-                      <div
-                        role="note"
-                        aria-label="Global visibility summary"
-                        className="space-y-1 rounded-lg border bg-muted/30 p-3 text-xs"
-                        data-testid="global-visibility-grant-preview"
-                      >
-                        <div className="font-medium text-foreground">
-                          Everyone can use this agent
-                          {isPlatformDefault ? " (it is also the platform default)" : ""}.
-                        </div>
-                        <p className="text-muted-foreground">
-                          When you save, every signed-in user will be able to chat
-                          with this agent. Owner-team admins still manage it.
-                        </p>
-                      </div>
-                    )}
                   </div>
                 }
               />
