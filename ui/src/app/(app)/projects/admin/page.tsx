@@ -9,6 +9,7 @@ import { ModelConfigTab } from "@/components/tome/admin/ModelConfigTab";
 import { TomeAdminsTab } from "@/components/tome/admin/TomeAdminsTab";
 import { TomeAnalyticsTab } from "@/components/tome/admin/TomeAnalyticsTab";
 import { TomeAuthorizationHealthTab } from "@/components/tome/admin/TomeAuthorizationHealthTab";
+import { AutoIngestCredentialHealthTab } from "@/components/tome/admin/AutoIngestCredentialHealthTab";
 import { useSubtabParam } from "@/hooks/use-subtab-param";
 
 const TOME_ADMIN_TABS = [
@@ -68,11 +69,11 @@ function TomeAdminPageContent() {
       </div>
 
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as TomeAdminTab)} className="space-y-6">
-        <TabsList>
+        <TabsList className="h-auto flex-wrap gap-1">
           <TabsTrigger value="page-templates">Page Templates</TabsTrigger>
           <TabsTrigger value="models">Models</TabsTrigger>
           <TabsTrigger value="analytics">Analytics</TabsTrigger>
-          <TabsTrigger value="authorization">Health</TabsTrigger>
+          <TabsTrigger value="authorization">RBAC Health</TabsTrigger>
           <TabsTrigger value="admins">Admins</TabsTrigger>
         </TabsList>
 
@@ -92,8 +93,11 @@ function TomeAdminPageContent() {
           <TomeAnalyticsTab />
         </TabsContent>
 
-        <TabsContent value="authorization" className="mt-0 space-y-4">
+        <TabsContent value="authorization" className="mt-0 space-y-8">
           <TomeAuthorizationHealthTab />
+          <div className="border-t border-border/60 pt-8">
+            <AutoIngestCredentialHealthTab />
+          </div>
         </TabsContent>
 
         <TabsContent value="admins" className="mt-0 space-y-4">

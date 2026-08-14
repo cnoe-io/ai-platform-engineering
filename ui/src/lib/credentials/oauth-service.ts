@@ -140,6 +140,14 @@ export interface ProviderConnectionServiceOptions {
   now?: () => Date;
 }
 
+export interface ProviderConnectionRefreshResult {
+  accessToken: string;
+  expiresIn?: number;
+  /** Set only for diagnostics callers when a rejected refresh grant fell back
+   * to the still-valid stored access token. Never contains provider payloads. */
+  refreshFailed?: boolean;
+}
+
 function nonEmpty(value: string, field: string): string {
   const trimmed = value.trim();
   if (!trimmed) {
@@ -858,7 +866,10 @@ export class ProviderConnectionService {
     return toProviderConnectionMetadata(connection);
   }
 
-  async refreshConnection(connectionId: string): Promise<{ accessToken: string; expiresIn?: number }> {
+  async refreshConnection(
+    connectionId: string,
+    options?: { includeDiagnostics?: boolean },
+  ): Promise<ProviderConnectionRefreshResult> {
     const connection = await this.providerConnectionsCollection.findOne({ id: connectionId });
     if (!connection) {
       throw new ApiError("Provider connection was not found", 404, "CREDENTIAL_NOT_FOUND");
@@ -960,7 +971,10 @@ export class ProviderConnectionService {
       // that do not support refresh). Reuse the still-valid stored access token
       // rather than failing the exchange and forcing a static PAT fallback.
       if (storedAccessToken) {
-        return reuseStoredToken();
+        const fallback = reuseStoredToken();
+        return options?.includeDiagnostics
+          ? { ...fallback, refreshFailed: true }
+          : fallback;
       }
       throw error;
     }

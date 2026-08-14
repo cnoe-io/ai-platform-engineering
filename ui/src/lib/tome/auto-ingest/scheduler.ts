@@ -16,7 +16,11 @@ import { cronMatches } from "../../rbac/cron";
 import { resolveCredentialsForSub } from "../agent-proxy";
 import { auditTome } from "../audit";
 import { isIngestRunning, startIngestRun } from "../ingest-runner";
-import { claimAutoIngestFire } from "./cursor";
+import {
+  AUTO_INGEST_CREDENTIAL_REFRESH_INTERVAL_MS,
+  refreshAutoIngestCredentialHealth,
+} from "./credential-health";
+import { claimAutoIngestCredentialRefresh, claimAutoIngestFire } from "./cursor";
 
 const TICK_INTERVAL_MS = Number(process.env.TOME_AUTO_INGEST_TICK_MS) || 60 * 1000;
 
@@ -27,6 +31,10 @@ function isEnabled(): boolean {
 /** UTC minute key, e.g. "2026-08-13T02:00", used to dedupe fires per minute. */
 function utcMinuteKey(now: Date): string {
   return now.toISOString().slice(0, 16);
+}
+
+function credentialRefreshWindowKey(now: Date): string {
+  return String(Math.floor(now.getTime() / AUTO_INGEST_CREDENTIAL_REFRESH_INTERVAL_MS));
 }
 
 async function recordLastRun(
@@ -132,6 +140,17 @@ export async function tickAutoIngestScheduler(now: Date): Promise<void> {
     return;
   }
 
+  try {
+    if (await claimAutoIngestCredentialRefresh(credentialRefreshWindowKey(now))) {
+      await refreshAutoIngestCredentialHealth(now, projects);
+    }
+  } catch (err) {
+    console.error(
+      "[AutoIngest] credential refresh failed: " +
+        (err instanceof Error ? err.message : String(err)),
+    );
+  }
+
   for (const project of projects) {
     try {
       await maybeFireForProject(project, now);
@@ -154,7 +173,9 @@ export function startAutoIngestScheduler(): void {
     console.log("[AutoIngest] disabled (set TOME_AUTO_INGEST_ENABLED=true to enable)");
     return;
   }
-  console.log("[AutoIngest] scheduler started (tick every 60s, UTC)");
+  console.log(
+    `[AutoIngest] scheduler started (tick every ${TICK_INTERVAL_MS}ms; credential refresh every ${AUTO_INGEST_CREDENTIAL_REFRESH_INTERVAL_MS}ms)`,
+  );
 
   let running = false;
   const runTick = async () => {
@@ -166,6 +187,7 @@ export function startAutoIngestScheduler(): void {
       running = false;
     }
   };
+  void runTick();
   timer = setInterval(() => void runTick(), TICK_INTERVAL_MS);
   timer.unref?.();
 }

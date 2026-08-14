@@ -41,6 +41,8 @@ services:
       - CONFLUENCE_REDIRECT_URI=https://tome-sri.dev.outshift.io/api/credentials/oauth/atlassian/callback
       - INTERNAL_BASE_URL=http://localhost:3000
       - TOME_ENABLED=${TOME_ENABLED:-true}
+      - TOME_AUTO_INGEST_ENABLED=${TOME_AUTO_INGEST_ENABLED:-true}
+      - TOME_AUTO_INGEST_CREDENTIAL_REFRESH_MS=${TOME_AUTO_INGEST_CREDENTIAL_REFRESH_MS:-300000}
       - TOME_AGENT_URL=http://tome-agent-tome:8766
       - TOME_AGENT_BACKEND_URL=http://caipe-ui:3000/api/tome
       - MYCELIUM_URL=http://mycelium-backend-tome:8000

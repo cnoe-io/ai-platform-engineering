@@ -10,7 +10,10 @@ const COLLECTION = "tome_auto_ingest_cursors";
 interface AutoIngestCursorDoc {
   _id: string; // `${projectId}`
   last_fire_minute?: string;
+  last_credential_refresh_window?: string;
 }
+
+const CREDENTIAL_REFRESH_CURSOR_ID = "__credential_refresh__";
 
 /**
  * Atomically claim the right to fire auto-ingest for `projectId` at
@@ -34,5 +37,31 @@ export async function claimAutoIngestFire(
     return true;
   } catch {
     return false; // another racer inserted first
+  }
+}
+
+/**
+ * Atomically claim one credential-refresh window across all UI replicas.
+ * The caller chooses the window key from its configured interval, so this
+ * remains replica-safe without holding a distributed lock during provider I/O.
+ */
+export async function claimAutoIngestCredentialRefresh(windowKey: string): Promise<boolean> {
+  const col = await getCollection<AutoIngestCursorDoc>(COLLECTION);
+  const res = await col.updateOne(
+    {
+      _id: CREDENTIAL_REFRESH_CURSOR_ID,
+      last_credential_refresh_window: { $ne: windowKey },
+    },
+    { $set: { last_credential_refresh_window: windowKey } },
+  );
+  if (res.modifiedCount === 1) return true;
+  try {
+    await col.insertOne({
+      _id: CREDENTIAL_REFRESH_CURSOR_ID,
+      last_credential_refresh_window: windowKey,
+    });
+    return true;
+  } catch {
+    return false;
   }
 }

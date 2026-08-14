@@ -338,6 +338,10 @@ async function createIndexes(db: Db) {
     safeCreateIndex(db, 'rag_ingestion_sources', { shared_with_teams: 1 }),
     safeCreateIndex(db, 'rag_ingestion_sources', { source_type: 1, status: 1 }),
     safeCreateIndex(db, 'rag_ingestion_sources', { config_driven: 1 }),
+
+    // TOME scheduled-ingest token health. One snapshot per credential owner
+    // and provider; _id enforces uniqueness, while status supports admin triage.
+    safeCreateIndex(db, 'tome_auto_ingest_credential_health', { status: 1, last_attempt_at: -1 }),
   ]);
 
   console.log('✅ MongoDB indexes ensured');

@@ -12,6 +12,8 @@ const getCollection = jest.fn(async () => ({
 }));
 
 const claimAutoIngestFire = jest.fn();
+const claimAutoIngestCredentialRefresh = jest.fn();
+const refreshAutoIngestCredentialHealth = jest.fn();
 const resolveCredentialsForSub = jest.fn();
 const isIngestRunning = jest.fn();
 const startIngestRun = jest.fn();
@@ -22,6 +24,11 @@ jest.mock("@/lib/mongodb", () => ({
 }));
 jest.mock("../auto-ingest/cursor", () => ({
   claimAutoIngestFire: (...a: unknown[]) => claimAutoIngestFire(...a),
+  claimAutoIngestCredentialRefresh: (...a: unknown[]) => claimAutoIngestCredentialRefresh(...a),
+}));
+jest.mock("../auto-ingest/credential-health", () => ({
+  AUTO_INGEST_CREDENTIAL_REFRESH_INTERVAL_MS: 300_000,
+  refreshAutoIngestCredentialHealth: (...a: unknown[]) => refreshAutoIngestCredentialHealth(...a),
 }));
 jest.mock("../agent-proxy", () => ({
   resolveCredentialsForSub: (...a: unknown[]) => resolveCredentialsForSub(...a),
@@ -66,6 +73,8 @@ const owner = { subject: "sub-1", email: "owner@example.com", name: "Owner", con
 beforeEach(() => {
   jest.clearAllMocks();
   claimAutoIngestFire.mockResolvedValue(true);
+  claimAutoIngestCredentialRefresh.mockResolvedValue(true);
+  refreshAutoIngestCredentialHealth.mockResolvedValue(undefined);
   isIngestRunning.mockResolvedValue(false);
   resolveCredentialsForSub.mockResolvedValue({ github: { access_token: "tok" } });
   startIngestRun.mockResolvedValue({ runId: "run-1" });
@@ -90,6 +99,38 @@ describe("tickAutoIngestScheduler", () => {
       { _id: "proj-1" },
       { $set: { "autoIngest.lastRun": expect.objectContaining({ status: "success", runId: "run-1" }) } },
     );
+  });
+
+  it("claims one replica-safe window and refreshes auto-ingest credentials", async () => {
+    const projects = [
+      project({ autoIngest: { enabled: true, cron: "0 3 * * *", credentialOwner: owner } }),
+    ];
+    findToArray.mockResolvedValue(projects);
+
+    await tickAutoIngestScheduler(dueNow);
+
+    expect(claimAutoIngestCredentialRefresh).toHaveBeenCalledWith("5938584");
+    expect(refreshAutoIngestCredentialHealth).toHaveBeenCalledWith(dueNow, projects);
+  });
+
+  it("does not refresh credentials when another replica owns the window", async () => {
+    findToArray.mockResolvedValue([]);
+    claimAutoIngestCredentialRefresh.mockResolvedValue(false);
+
+    await tickAutoIngestScheduler(dueNow);
+
+    expect(refreshAutoIngestCredentialHealth).not.toHaveBeenCalled();
+  });
+
+  it("continues evaluating schedules when background credential refresh fails", async () => {
+    findToArray.mockResolvedValue([
+      project({ autoIngest: { enabled: true, cron: "0 2 * * *", credentialOwner: owner } }),
+    ]);
+    refreshAutoIngestCredentialHealth.mockRejectedValue(new Error("provider unavailable"));
+
+    await tickAutoIngestScheduler(dueNow);
+
+    expect(startIngestRun).toHaveBeenCalledTimes(1);
   });
 
   it("does not fire when the cron doesn't match", async () => {
