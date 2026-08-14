@@ -21,7 +21,7 @@ import json
 import logging
 import os
 import re
-from typing import Any
+from typing import Any, Mapping
 
 import httpx
 from fastapi import HTTPException
@@ -94,7 +94,13 @@ class _CasMetaError(Exception):
         self.status_code = status_code
 
 
-async def _decide_agent_use(subject_type: str, subject: str, agent_id: str, bearer: str) -> bool:
+async def _decide_agent_use(
+    subject_type: str,
+    subject: str,
+    agent_id: str,
+    bearer: str,
+    trusted_interaction: Mapping[str, Any] | None = None,
+) -> bool:
     """Ask CAS whether `subject` may use `agent_id`.
 
     Forwards the caller's bearer (OBO) so CAS's subject-binding (caller == subject)
@@ -106,6 +112,12 @@ async def _decide_agent_use(subject_type: str, subject: str, agent_id: str, bear
     if not base:
         raise RuntimeError("AUTHZ_SERVICE_URL is not configured")
     headers = {"Authorization": f"Bearer {bearer}", "Content-Type": "application/json"}
+    if trusted_interaction:
+        token = trusted_interaction.get("_caipe_trusted_interaction")
+        signature = trusted_interaction.get("_caipe_trusted_interaction_signature")
+        if isinstance(token, str) and token and isinstance(signature, str) and signature:
+            headers["X-CAIPE-Trusted-Interaction"] = token
+            headers["X-CAIPE-Trusted-Interaction-Signature"] = signature
     traceparent = current_traceparent.get()
     if traceparent:
         headers["traceparent"] = traceparent
@@ -121,7 +133,10 @@ async def _decide_agent_use(subject_type: str, subject: str, agent_id: str, bear
     return response.json().get("decision") == "ALLOW"
 
 
-async def require_agent_use_permission(agent_id: str) -> None:
+async def require_agent_use_permission(
+    agent_id: str,
+    trusted_interaction: Mapping[str, Any] | None = None,
+) -> None:
     """Require the current bearer's subject to be allowed to use ``agent_id``.
 
     Delegates the decision to CAS (the single PDP). Raises ``HTTPException`` with a
@@ -139,7 +154,13 @@ async def require_agent_use_permission(agent_id: str) -> None:
     subject_type, subject = decoded
 
     try:
-        allowed = await _decide_agent_use(subject_type, subject, agent_id, token)
+        allowed = await _decide_agent_use(
+            subject_type,
+            subject,
+            agent_id,
+            token,
+            trusted_interaction,
+        )
     except _CasMetaError as exc:
         # A definitive 4xx from CAS (e.g. 403 subject-binding, 400 bad request, 401)
         # is not transient — surface it as the same status so the caller sees a

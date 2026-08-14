@@ -164,6 +164,10 @@ class ResumeStreamRequest(BaseModel):
     resume_data: str  # JSON string with type discriminator (form_input or tool_approval)
     protocol: str = Field("custom", pattern=r"^(custom|agui)$")
     trace_id: str | None = None
+    client_context: dict[str, Any] | None = Field(
+        None,
+        description="Opaque client context, including internal interaction proof forwarded by the BFF.",
+    )
     config_override: dict | None = Field(
         None,
         description=(
@@ -335,7 +339,10 @@ async def chat_start_stream(
     # Set conversation context for logging
     conversation_id_var.set(request.conversation_id)
 
-    await require_agent_use_permission(request.agent_id)
+    await require_agent_use_permission(
+        request.agent_id,
+        request.client_context.model_dump() if request.client_context else None,
+    )
 
     # Get agent config after the runtime policy check passes.
     agent = mongo.get_agent(request.agent_id)
@@ -452,7 +459,10 @@ async def chat_resume_stream(
     # Set conversation context for logging
     conversation_id_var.set(request.conversation_id)
 
-    await require_agent_use_permission(request.agent_id)
+    await require_agent_use_permission(
+        request.agent_id,
+        request.client_context,
+    )
 
     # Get agent config after the runtime policy check passes.
     agent = mongo.get_agent(request.agent_id)
@@ -508,7 +518,10 @@ async def chat_invoke(
     # Set conversation context for logging
     conversation_id_var.set(request.conversation_id)
 
-    await require_agent_use_permission(request.agent_id)
+    await require_agent_use_permission(
+        request.agent_id,
+        request.client_context.model_dump() if request.client_context else None,
+    )
 
     # Get agent config after the runtime policy check passes.
     agent = mongo.get_agent(request.agent_id)
