@@ -23,6 +23,7 @@ import {
   type KnowledgeCardItem,
   type KnowledgeDragCandidate,
 } from "@/components/rag/KnowledgeCardSelector";
+import { DatasourceAccessFields } from "@/components/rag/DatasourceAccessFields";
 import { WorkspacePageActions } from "@/components/layout/WorkspacePageActions";
 import { UnsavedChangesDialog } from "@/components/shared/UnsavedChangesDialog";
 import { BuiltInResourceHint } from "@/components/ui/built-in-resource-hint";
@@ -677,7 +678,7 @@ export function RagCollectionsView() {
                   </CardTitle>
                   <CardDescription>
                     {isCreating
-                      ? "Create a personal collection. Add datasources and Search access before saving if you want."
+                      ? "Private by default. You are the Owner and the only person who can search this collection until you add teams below."
                       : "Collections group datasources so they can be assigned and managed together."}
                   </CardDescription>
                 </CardHeader>
@@ -788,36 +789,70 @@ export function RagCollectionsView() {
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
                       <ShieldCheck className="h-5 w-5 text-emerald-500" />{" "}
-                      Team access
+                      Access
                     </CardTitle>
                     <CardDescription>
-                      Members of Owner teams can add datasources, and their team
-                      admins can manage collection settings. Members of Search
-                      teams can query every datasource in the collection through
-                      Search, APIs, and agents.
+                      Add teams if other people should manage or search this
+                      collection.
                     </CardDescription>
                   </CardHeader>
-                  <CardContent className="grid gap-4 sm:grid-cols-2">
-                    {canDelegateDraft && (
-                      <div className="space-y-2">
-                        <Label className="block">Owner teams</Label>
+                  <CardContent>
+                    <DatasourceAccessFields
+                      className="border-0 p-0"
+                      ownerControl={(
+                        <div className="space-y-2">
+                          {selectedHasPersonalOwner && (
+                            <div
+                              className="flex w-fit items-center gap-2 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                              data-testid="personal-collection-owner"
+                            >
+                              <Users
+                                aria-hidden="true"
+                                className="h-4 w-4 text-muted-foreground"
+                              />
+                              {isCreating ? "You (personal)" : "Personal owner"}
+                            </div>
+                          )}
+                          {canDelegateDraft && (
+                            <div className="space-y-1.5">
+                              <Label className="text-xs text-muted-foreground">
+                                Owner teams
+                              </Label>
+                              <TeamMultiPicker
+                                options={teamOptions}
+                                selected={draftMaintainers}
+                                onChange={setDraftMaintainers}
+                                placeholder="Add Owner teams..."
+                                ariaLabel="Owner teams"
+                              />
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      ownerDescription={selectedHasPersonalOwner
+                        ? isCreating
+                          ? "You can manage this collection and add datasources. Owner teams can help manage it."
+                          : "The personal Owner can manage this collection and add datasources. Owner teams can help manage it."
+                        : "Owner-team members can add datasources, and their team admins can manage collection settings."}
+                      searchControl={(
                         <TeamMultiPicker
                           options={teamOptions}
-                          selected={draftMaintainers}
-                          onChange={setDraftMaintainers}
-                          placeholder="Select Owner teams..."
+                          selected={draftReaders}
+                          onChange={setDraftReaders}
+                          placeholder={selectedHasPersonalOwner
+                            ? isCreating
+                              ? "Only you can search — add teams"
+                              : "Only the personal Owner can search — add teams"
+                            : "No Search teams — add teams"}
+                          ariaLabel="Search teams"
                         />
-                      </div>
-                    )}
-                    <div className="space-y-2">
-                      <Label className="block">Search teams</Label>
-                      <TeamMultiPicker
-                        options={teamOptions}
-                        selected={draftReaders}
-                        onChange={setDraftReaders}
-                        placeholder="Select Search teams..."
-                      />
-                    </div>
+                      )}
+                      searchDescription={selectedHasPersonalOwner
+                        ? isCreating
+                          ? "You can search this collection. Members of selected teams can also search it through Search, APIs, and agents."
+                          : "The personal Owner can search this collection. Members of selected teams can also search it through Search, APIs, and agents."
+                        : "Members of selected teams can search this collection through Search, APIs, and agents."}
+                    />
                   </CardContent>
                 </Card>
               )}

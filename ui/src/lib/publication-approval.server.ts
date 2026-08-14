@@ -1439,10 +1439,16 @@ export async function acquirePublicationRequestForApproval(
     throw new ApiError("You are not an approver for this request", 403, "APPROVAL_FORBIDDEN");
   }
   const settings = await getPublicationApprovalSettings();
+  const requesterIsOrganizationAdmin =
+    request.risk_facts.organization_wide &&
+    request.requester.subject === actor.subject
+      ? await canManagePublicationSettings(actor)
+      : false;
   if (
     request.risk_facts.organization_wide &&
     request.requester.subject === actor.subject &&
-    !settings.allow_organization_wide_self_approval
+    !settings.allow_organization_wide_self_approval &&
+    !requesterIsOrganizationAdmin
   ) {
     throw new ApiError(
       "Organization-wide publication must be approved by someone other than the requester",

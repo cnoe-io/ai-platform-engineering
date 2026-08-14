@@ -287,8 +287,17 @@ describe("RagCollectionsView", () => {
     expect(screen.getByTestId("new-collection-draft")).toHaveTextContent(
       "Runbooks and service notes",
     );
+    expect(
+      screen.getByText(
+        "Private by default. You are the Owner and the only person who can search this collection until you add teams below.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText("You (personal)")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Search teams" })).toHaveTextContent(
+      "Only you can search — add teams",
+    );
     expect(screen.getByText("Datasources")).toBeInTheDocument();
-    expect(screen.getByText("Team access")).toBeInTheDocument();
+    expect(screen.getByText("Access")).toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(mockReplace).toHaveBeenCalledWith(
       "/knowledge-bases/collections?new=1",

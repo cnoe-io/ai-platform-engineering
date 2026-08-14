@@ -1003,7 +1003,7 @@ export function PublicationApprovalQueue({ readOnly = false }: PublicationApprov
                     <PolicySwitch
                       checked={settings.allow_organization_wide_self_approval}
                       label="Allow self-approval for company-wide publication"
-                      description="When off, another reviewer must approve."
+                      description="When off, another reviewer must approve. Superadmins can always approve their own requests."
                       disabled={!settings.require_rag_publication_approval}
                       onChange={(value) => setSettings((current) => ({
                         ...current,

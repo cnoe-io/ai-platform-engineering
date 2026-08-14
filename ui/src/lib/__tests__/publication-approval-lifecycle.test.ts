@@ -192,6 +192,42 @@ describe("publication approval delegation", () => {
     expect(mockReconcileTupleDiff).not.toHaveBeenCalled();
   });
 
+  it("allows an organization administrator to approve their own request", async () => {
+    const publicationRequest = request({
+      requester: APPROVER,
+      risk_facts: {
+        organization_wide: true,
+        target_team_slugs: ["everyone"],
+        reasons: ["new organization-wide audience"],
+      },
+    });
+    const applying = {
+      ...publicationRequest,
+      status: "applying" as const,
+      apply_started_at: "2026-01-01T00:01:00.000Z",
+    };
+    const collection = {
+      find: jest.fn().mockReturnValue(emptyApplyingCursor()),
+      findOne: jest.fn().mockResolvedValue(publicationRequest),
+      findOneAndUpdate: jest.fn().mockResolvedValue(applying),
+    };
+    mockGetCollection.mockResolvedValue(collection);
+    mockCheckOpenFgaTuple.mockImplementation(
+      async ({ relation }: { relation: string }) => ({
+        allowed: relation === "can_manage",
+      }),
+    );
+
+    await expect(
+      acquirePublicationRequestForApproval(publicationRequest._id, APPROVER),
+    ).resolves.toEqual(applying);
+    expect(collection.findOneAndUpdate).toHaveBeenCalledWith(
+      { _id: publicationRequest._id, status: "pending" },
+      expect.any(Object),
+      { returnDocument: "after" },
+    );
+  });
+
   it("acquires one pending request and grants only its request-scoped apply capability", async () => {
     const publicationRequest = request();
     const applying = {
