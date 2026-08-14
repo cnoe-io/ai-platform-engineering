@@ -96,7 +96,7 @@ describe("Tome wiki export", () => {
     expect(markdown).not.toContain("agent-only source guidance");
   });
 
-  it("exports Vidcast blocks as safe links while preserving portable Markdown", () => {
+  it("exports external embeds as safe links while preserving portable Markdown", () => {
     const id = "de4fc0eb-7146-4044-86a3-60c3cbd976a3";
     const vidcastPages = {
       "demo.md": [
@@ -110,6 +110,16 @@ describe("Tome wiki export", () => {
         `url: https://app.vidcast.io/share/embed/${id}`,
         "title: Example walkthrough",
         "```",
+        "",
+        "```youtube",
+        "url: https://youtu.be/M7lc1UVf-VE",
+        "title: Example video",
+        "```",
+        "",
+        "```arxiv",
+        "url: https://arxiv.org/abs/1706.03762",
+        "title: Example paper",
+        "```",
       ].join("\n"),
     };
     const document = buildWikiExportDocument({
@@ -121,11 +131,15 @@ describe("Tome wiki export", () => {
     const html = renderWikiHtml(document);
     const markdown = renderWikiMarkdown(document);
 
-    expect(html).toContain('<aside class="video-link">');
+    expect(html.match(/<aside class="embed-link">/g)).toHaveLength(3);
     expect(html).toContain("Example walkthrough");
     expect(html).toContain(`href="https://app.vidcast.io/share/${id}"`);
+    expect(html).toContain('href="https://www.youtube.com/watch?v=M7lc1UVf-VE"');
+    expect(html).toContain('href="https://arxiv.org/abs/1706.03762"');
     expect(html).not.toContain("<iframe");
     expect(markdown).toContain("```vidcast");
+    expect(markdown).toContain("```youtube");
+    expect(markdown).toContain("```arxiv");
     expect(markdown).toContain(`url: https://app.vidcast.io/share/embed/${id}`);
   });
 

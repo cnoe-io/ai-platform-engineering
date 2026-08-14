@@ -30,7 +30,7 @@ import {
 } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toast";
 import {
-  hydrateVidcastPreviews,
+  hydrateEmbedPreviews,
   imageFileToDataUrl,
   renderTomeCodePreview,
 } from "@/lib/tome/editor-media";
@@ -205,12 +205,12 @@ export const CrepeEditor = forwardRef<CrepeEditorHandle, Props>(function CrepeEd
   }, [readonly]);
 
   // Code-block previews are sanitized by Crepe, which intentionally strips
-  // iframes. Hydrate only the inert Vidcast placeholders produced by our
+  // iframes. Hydrate only the inert provider placeholders produced by our
   // allowlisted preview renderer, and re-validate before setting iframe.src.
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
-    const hydrate = () => hydrateVidcastPreviews(host);
+    const hydrate = () => hydrateEmbedPreviews(host);
     hydrate();
     const observer = new MutationObserver(hydrate);
     observer.observe(host, { childList: true, subtree: true });

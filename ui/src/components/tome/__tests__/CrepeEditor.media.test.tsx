@@ -147,14 +147,15 @@ describe("CrepeEditor media configuration", () => {
     await waitFor(() => expect(dialog).not.toBeInTheDocument());
   });
 
-  it("hydrates sanitized Vidcast placeholders into allowlisted iframes", async () => {
+  it("hydrates sanitized external placeholders into allowlisted iframes", async () => {
     const { container } = render(<CrepeEditor initialMarkdown="# Example" readonly />);
     const host = container.querySelector(".milkdown-host") as HTMLDivElement;
     host.innerHTML = [
-      '<div class="tome-vidcast-preview"',
-      ' data-vidcast-src="https://app.vidcast.io/share/embed/de4fc0eb-7146-4044-86a3-60c3cbd976a3"',
-      ' data-vidcast-title="Example video">',
-      '<div class="tome-vidcast-frame"></div>',
+      '<div class="tome-embed-preview tome-youtube-preview"',
+      ' data-embed-provider="youtube"',
+      ' data-embed-src="https://www.youtube-nocookie.com/embed/M7lc1UVf-VE"',
+      ' data-embed-title="Example video">',
+      '<div class="tome-embed-frame tome-video-frame"></div>',
       "</div>",
     ].join("");
 
@@ -165,7 +166,7 @@ describe("CrepeEditor media configuration", () => {
     });
     expect(iframe).toHaveAttribute(
       "src",
-      "https://app.vidcast.io/share/embed/de4fc0eb-7146-4044-86a3-60c3cbd976a3",
+      "https://www.youtube-nocookie.com/embed/M7lc1UVf-VE",
     );
     expect(iframe).toHaveAttribute("title", "Example video");
   });

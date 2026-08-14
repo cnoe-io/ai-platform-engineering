@@ -1,7 +1,7 @@
 import mermaid from "mermaid";
 
 import {
-  hydrateVidcastPreviews,
+  hydrateEmbedPreviews,
   imageFileToDataUrl,
   renderTomeCodePreview,
 } from "../editor-media";
@@ -104,7 +104,7 @@ describe("TOME editor media", () => {
     root.append(applyPreview.mock.calls[0]?.[0] as HTMLElement);
     expect(root.querySelector("iframe")).toBeNull();
 
-    hydrateVidcastPreviews(root);
+    hydrateEmbedPreviews(root);
 
     const iframe = root.querySelector("iframe");
     expect(iframe).toHaveAttribute(
@@ -115,7 +115,7 @@ describe("TOME editor media", () => {
     expect(iframe).toHaveAttribute("loading", "lazy");
     expect(iframe).toHaveAttribute("allow", "fullscreen; autoplay; clipboard-write");
     expect(iframe).toHaveAttribute("allowfullscreen");
-    expect(root.querySelector(".tome-vidcast-link")).toHaveAttribute(
+    expect(root.querySelector(".tome-embed-link")).toHaveAttribute(
       "href",
       `https://app.vidcast.io/share/${VIDEO_ID}`,
     );
@@ -131,10 +131,61 @@ describe("TOME editor media", () => {
     );
 
     const alert = applyPreview.mock.calls[0]?.[0] as HTMLElement;
-    expect(alert).toHaveClass("tome-vidcast-error");
+    expect(alert).toHaveClass("tome-embed-error", "tome-vidcast-error");
     expect(alert).toHaveAttribute("role", "alert");
     expect(alert.textContent).toContain("app.vidcast.io");
     expect(alert.querySelector("iframe")).toBeNull();
+  });
+
+  it("renders YouTube through the privacy-enhanced player", () => {
+    const applyPreview = jest.fn();
+
+    renderTomeCodePreview(
+      "youtube",
+      [
+        "url: https://www.youtube.com/watch?v=M7lc1UVf-VE&t=30",
+        "title: YouTube example",
+      ].join("\n"),
+      applyPreview,
+    );
+    const root = document.createElement("div");
+    root.append(applyPreview.mock.calls[0]?.[0] as HTMLElement);
+    hydrateEmbedPreviews(root);
+
+    const iframe = root.querySelector("iframe");
+    expect(iframe).toHaveAttribute(
+      "src",
+      "https://www.youtube-nocookie.com/embed/M7lc1UVf-VE?start=30",
+    );
+    expect(iframe).toHaveAttribute("title", "YouTube example");
+    expect(iframe).toHaveAttribute("allowfullscreen");
+    expect(iframe?.getAttribute("allow")).toContain("encrypted-media");
+    expect(root.querySelector(".tome-embed-link")).toHaveAttribute(
+      "href",
+      "https://www.youtube.com/watch?v=M7lc1UVf-VE&t=30",
+    );
+  });
+
+  it("renders arXiv papers as embedded PDFs", () => {
+    const applyPreview = jest.fn();
+
+    renderTomeCodePreview(
+      "arxiv",
+      ["url: https://arxiv.org/abs/1706.03762", "title: Example paper"].join("\n"),
+      applyPreview,
+    );
+    const root = document.createElement("div");
+    root.append(applyPreview.mock.calls[0]?.[0] as HTMLElement);
+    hydrateEmbedPreviews(root);
+
+    const iframe = root.querySelector("iframe");
+    expect(iframe).toHaveAttribute("src", "https://arxiv.org/pdf/1706.03762");
+    expect(iframe).toHaveAttribute("title", "Example paper");
+    expect(iframe).not.toHaveAttribute("allow");
+    expect(root.querySelector(".tome-embed-link")).toHaveAttribute(
+      "href",
+      "https://arxiv.org/abs/1706.03762",
+    );
   });
 
   it("turns pasted images into persistent data URLs", async () => {

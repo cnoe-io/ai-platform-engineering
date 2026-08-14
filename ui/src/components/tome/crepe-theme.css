@@ -213,24 +213,31 @@
   white-space: pre-wrap;
 }
 
-/* Vidcast fenced blocks are hydrated after Crepe sanitizes their inert
+/* External embed blocks are hydrated after Crepe sanitizes their inert
    placeholders. The iframe itself is always created by trusted renderer code. */
-.tome-vidcast-preview {
+.tome-embed-preview {
   display: grid;
   gap: 0.625rem;
 }
 
-.tome-vidcast-frame {
+.tome-embed-frame {
   position: relative;
   width: 100%;
-  aspect-ratio: 16 / 9;
   overflow: hidden;
   border: 1px solid hsl(var(--border));
   border-radius: 0.75rem;
   background: hsl(var(--muted));
 }
 
-.tome-vidcast-iframe {
+.tome-video-frame {
+  aspect-ratio: 16 / 9;
+}
+
+.tome-document-frame {
+  height: clamp(32rem, 70vh, 56rem);
+}
+
+.tome-embed-iframe {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -238,7 +245,7 @@
   border: 0;
 }
 
-.tome-vidcast-link {
+.tome-embed-link {
   width: fit-content;
   color: hsl(var(--primary));
   font-size: 0.8125rem;
@@ -246,10 +253,16 @@
   text-underline-offset: 0.2em;
 }
 
-.tome-vidcast-error {
+.tome-embed-error {
   border: 1px solid var(--crepe-color-error);
   border-radius: 0.375rem;
   color: var(--crepe-color-error);
   padding: 0.75rem;
   white-space: pre-wrap;
+}
+
+@media (max-width: 40rem) {
+  .tome-document-frame {
+    height: 30rem;
+  }
 }

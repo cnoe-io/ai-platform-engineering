@@ -148,7 +148,11 @@ export function GistView({
               </div>
             )}
             <div className="mt-6 text-sm">
-              <MarkdownRenderer content={gist.body} variant="final" />
+              <MarkdownRenderer
+                content={gist.body}
+                variant="final"
+                enableExternalEmbeds
+              />
             </div>
           </div>
         )}

@@ -1,4 +1,4 @@
-import { parseVidcastEmbed } from "@/lib/tome/vidcast";
+import { parseTomeEmbed, type TomeEmbed } from "@/lib/tome/embeds";
 
 const MAX_EMBEDDED_IMAGE_BYTES = 2 * 1024 * 1024;
 
@@ -19,6 +19,32 @@ function mermaidPreviewMarkup(svg: string): string {
   ].join("");
 }
 
+export function createEmbedPreview(embed: TomeEmbed): HTMLElement {
+  const node = document.createElement("div");
+  node.className = `tome-embed-preview tome-${embed.provider}-preview`;
+  node.dataset.embedProvider = embed.provider;
+  node.dataset.embedSrc = embed.src;
+  node.dataset.embedTitle = embed.title;
+  const frame = document.createElement("div");
+  frame.className = `tome-embed-frame tome-${embed.kind}-frame`;
+  const fallback = document.createElement("a");
+  fallback.className = "tome-embed-link";
+  fallback.href = embed.watchUrl;
+  fallback.target = "_blank";
+  fallback.rel = "noopener noreferrer";
+  fallback.textContent = `${embed.linkLabel}: ${embed.title}`;
+  node.append(frame, fallback);
+  return node;
+}
+
+export function createEmbedError(provider: string, message: string): HTMLElement {
+  const node = document.createElement("div");
+  node.className = `tome-embed-error tome-${provider}-error`;
+  node.setAttribute("role", "alert");
+  node.textContent = message;
+  return node;
+}
+
 /**
  * Render Mermaid fenced code blocks through Crepe's async preview hook.
  * Returning null leaves every other fenced language as a normal code block.
@@ -29,34 +55,28 @@ export function renderTomeCodePreview(
   applyPreview: (value: null | string | HTMLElement) => void,
 ): null | void {
   const normalizedLanguage = language.trim().toLowerCase();
-  if (normalizedLanguage === "vidcast") {
-    const parsed = parseVidcastEmbed(content);
-    if (parsed.ok === false) {
-      const node = document.createElement("div");
-      node.className = "tome-vidcast-error";
-      node.setAttribute("role", "alert");
-      node.textContent = `Could not embed Vidcast: ${parsed.error}`;
-      applyPreview(node);
+  const embed = parseTomeEmbed(normalizedLanguage, content);
+  if (embed) {
+    const providerLabel =
+      normalizedLanguage === "arxiv"
+        ? "arXiv"
+        : normalizedLanguage === "youtube"
+          ? "YouTube"
+          : "Vidcast";
+    if (embed.ok === false) {
+      applyPreview(
+        createEmbedError(
+          normalizedLanguage,
+          `Could not embed ${providerLabel}: ${embed.error}`,
+        ),
+      );
       return;
     }
 
     // Crepe sanitizes all preview markup and deliberately removes iframes.
     // Emit inert data here; CrepeEditor re-validates it and creates the iframe
     // after the sanitizer has completed.
-    const node = document.createElement("div");
-    node.className = "tome-vidcast-preview";
-    node.dataset.vidcastSrc = parsed.value.src;
-    node.dataset.vidcastTitle = parsed.value.title;
-    const frame = document.createElement("div");
-    frame.className = "tome-vidcast-frame";
-    const fallback = document.createElement("a");
-    fallback.className = "tome-vidcast-link";
-    fallback.href = parsed.value.watchUrl;
-    fallback.target = "_blank";
-    fallback.rel = "noopener noreferrer";
-    fallback.textContent = `Watch ${parsed.value.title} on Vidcast`;
-    node.append(frame, fallback);
-    applyPreview(node);
+    applyPreview(createEmbedPreview(embed.value));
     return;
   }
 
@@ -85,35 +105,45 @@ export function renderTomeCodePreview(
     });
 }
 
-/** Create validated Vidcast iframes inside sanitized Crepe placeholders. */
-export function hydrateVidcastPreviews(root: ParentNode): void {
+/** Create validated external iframes inside sanitized Crepe placeholders. */
+export function hydrateEmbedPreviews(root: ParentNode): void {
   root
     .querySelectorAll<HTMLElement>(
-      ".tome-vidcast-preview:not([data-vidcast-hydrated])",
+      ".tome-embed-preview:not([data-embed-hydrated])",
     )
     .forEach((preview) => {
-      preview.dataset.vidcastHydrated = "true";
-      const parsed = parseVidcastEmbed(
+      preview.dataset.embedHydrated = "true";
+      const provider = preview.dataset.embedProvider ?? "";
+      const parsed = parseTomeEmbed(
+        provider,
         [
-          `url: ${preview.dataset.vidcastSrc ?? ""}`,
-          `title: ${preview.dataset.vidcastTitle ?? "Vidcast video"}`,
+          `url: ${preview.dataset.embedSrc ?? ""}`,
+          `title: ${preview.dataset.embedTitle ?? "Embedded content"}`,
         ].join("\n"),
       );
-      const frame = preview.querySelector<HTMLElement>(".tome-vidcast-frame");
-      if (!parsed.ok || !frame) {
-        preview.classList.add("tome-vidcast-error");
+      const frame = preview.querySelector<HTMLElement>(".tome-embed-frame");
+      if (!parsed || !parsed.ok || !frame) {
+        preview.classList.add("tome-embed-error");
         preview.setAttribute("role", "alert");
-        preview.textContent = "The Vidcast embed could not be loaded safely.";
+        preview.textContent = "The external embed could not be loaded safely.";
         return;
       }
 
       const iframe = document.createElement("iframe");
-      iframe.className = "tome-vidcast-iframe";
+      iframe.className = `tome-embed-iframe tome-${parsed.value.provider}-iframe`;
       iframe.src = parsed.value.src;
       iframe.title = parsed.value.title;
       iframe.setAttribute("loading", "lazy");
-      iframe.setAttribute("allow", "fullscreen; autoplay; clipboard-write");
-      iframe.setAttribute("allowfullscreen", "");
+      if (parsed.value.provider === "youtube") {
+        iframe.setAttribute(
+          "allow",
+          "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share",
+        );
+        iframe.setAttribute("allowfullscreen", "");
+      } else if (parsed.value.provider === "vidcast") {
+        iframe.setAttribute("allow", "fullscreen; autoplay; clipboard-write");
+        iframe.setAttribute("allowfullscreen", "");
+      }
       iframe.setAttribute("referrerpolicy", "strict-origin-when-cross-origin");
       frame.replaceChildren(iframe);
     });

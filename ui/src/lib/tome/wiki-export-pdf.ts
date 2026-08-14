@@ -4,7 +4,7 @@ import { marked, type Token, type Tokens } from "marked";
 import PDFDocument from "pdfkit";
 
 import type { WikiExportDocument } from "@/lib/tome/wiki-export";
-import { parseVidcastEmbed } from "@/lib/tome/vidcast";
+import { parseTomeEmbed } from "@/lib/tome/embeds";
 
 const FONT_DIRECTORY = path.join(
   /* turbopackIgnore: true */ process.cwd(),
@@ -162,16 +162,14 @@ function renderTokens(doc: PDFKit.PDFDocument, tokens: Token[], depth = 0): void
           .text(inlineText(token.tokens), { lineGap: 2, paragraphGap: 5 });
         break;
       case "code":
-        if (token.lang?.trim().toLowerCase() === "vidcast") {
-          const parsed = parseVidcastEmbed(token.text);
+        {
+          const embed = parseTomeEmbed(token.lang ?? "", token.text);
           renderCodeBlock(
             doc,
-            parsed.ok
-              ? `${parsed.value.title}\nWatch on Vidcast: ${parsed.value.watchUrl}`
+            embed?.ok
+              ? `${embed.value.title}\n${embed.value.linkLabel}: ${embed.value.watchUrl}`
               : token.text,
           );
-        } else {
-          renderCodeBlock(doc, token.text);
         }
         break;
       case "blockquote": {

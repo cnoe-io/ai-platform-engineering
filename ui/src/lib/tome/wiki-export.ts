@@ -7,7 +7,7 @@ import {
   type FrontmatterValue,
 } from "@/lib/tome/schema";
 import type { PageKind, PageTreeNode } from "@/types/tome";
-import { parseVidcastEmbed } from "@/lib/tome/vidcast";
+import { parseTomeEmbed } from "@/lib/tome/embeds";
 
 const HTML_COMMENT_RE = /<!--[\s\S]*?-->/g;
 const PAGE_KINDS = new Set<PageKind>(["stable", "dynamic", "hidden", "report"]);
@@ -140,10 +140,10 @@ function markdownRenderer(): Marked {
     breaks: false,
     renderer: {
       code({ text, lang }) {
-        if (lang?.trim().toLowerCase() === "vidcast") {
-          const parsed = parseVidcastEmbed(text);
-          if (parsed.ok) {
-            return `<aside class="video-link"><strong>${escapeHtml(parsed.value.title)}</strong><a href="${escapeHtml(parsed.value.watchUrl)}">Watch on Vidcast</a></aside>`;
+        const embed = parseTomeEmbed(lang ?? "", text);
+        if (embed) {
+          if (embed.ok) {
+            return `<aside class="embed-link"><strong>${escapeHtml(embed.value.title)}</strong><a href="${escapeHtml(embed.value.watchUrl)}">${escapeHtml(embed.value.linkLabel)}</a></aside>`;
           }
         }
         const language = lang?.trim().match(/^[A-Za-z0-9_+-]+$/)?.[0];
@@ -248,8 +248,8 @@ main { width: min(960px, calc(100% - 32px)); margin: 32px auto 64px; }
 .page-body th { background: #f9fafb; } .page-body a { color: #175cd3; } .empty { color: #98a2b3; font-style: italic; }
 .page-body blockquote { margin-left: 0; border-left: 3px solid #d0d5dd; padding-left: 12px; color: #475467; }
 .raw-html { color: #475467; } .image-link { color: #175cd3; font-style: italic; }
-.video-link { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 14px 0; border: 1px solid #d0d5dd; border-radius: 8px; background: #f8fafc; padding: 14px 16px; }
-.video-link a { flex: none; }
+.embed-link { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 14px 0; border: 1px solid #d0d5dd; border-radius: 8px; background: #f8fafc; padding: 14px 16px; }
+.embed-link a { flex: none; }
 @media (max-width: 680px) {
   main { width: min(100% - 20px, 960px); margin-top: 10px; }
   .cover { min-height: 440px; border-radius: 16px; padding: 38px 28px; }
