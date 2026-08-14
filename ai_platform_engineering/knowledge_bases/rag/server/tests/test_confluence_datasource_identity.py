@@ -24,6 +24,14 @@ def test_new_confluence_source_identity_includes_root_page() -> None:
   ) == "src_confluence___wiki_example_com__ENG__123456"
 
 
+def test_new_confluence_source_identity_sanitizes_legacy_unsafe_space_key() -> None:
+  assert restapi.resolve_confluence_datasource_id(
+    _request(),
+    "Control Plane",
+    "123456",
+  ) == "src_confluence___wiki_example_com__Control_Plane__123456"
+
+
 def test_preprovisioned_legacy_space_identity_remains_supported() -> None:
   legacy_id = "src_confluence___wiki_example_com__ENG"
 

@@ -2,6 +2,7 @@ import ipaddress
 import json
 import logging
 import os
+import re
 import socket
 from json import JSONEncoder
 import traceback
@@ -184,7 +185,17 @@ def generate_confluence_datasource_id(
   """
   domain = urlparse(confluence_url).netloc.replace(".", "_").replace("-", "_")
   datasource_id = f"src_confluence___{domain}__{space_key}"
-  return f"{datasource_id}__{page_id}" if page_id else datasource_id
+  if not page_id:
+    # Keep whole-space IDs stable for legacy environment configuration. These
+    # sources are handled by the one-time import compatibility path.
+    return datasource_id
+
+  raw_id = f"{datasource_id}__{page_id}"
+  safe_id = re.sub(r"[^A-Za-z0-9._~@|*+=,/-]", "_", raw_id)
+  if len(safe_id) <= 192:
+    return safe_id
+  suffix = hashlib.sha256(raw_id.encode()).hexdigest()[:12]
+  return f"{safe_id[:179]}_{suffix}"
 
 
 def derive_friendly_name_from_url(url: str, max_length: int = 64) -> str:

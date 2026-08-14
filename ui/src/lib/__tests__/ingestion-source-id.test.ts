@@ -49,6 +49,18 @@ describe("ingestion source id formulas", () => {
     );
   });
 
+  it("makes page-scoped Confluence ids safe for managed access", () => {
+    expect(
+      confluenceSpaceSourceId(
+        "https://confluence.example.com:8090/wiki",
+        "Control Plane",
+        "123",
+      ),
+    ).toBe(
+      "src_confluence___confluence_example_com_8090__Control_Plane__123",
+    );
+  });
+
   it("webex_space matches `webex-space-{space_id}` (ingestors/webex/ingestor.py:425)", () => {
     expect(webexSpaceSourceId("abc123")).toBe("webex-space-abc123");
   });

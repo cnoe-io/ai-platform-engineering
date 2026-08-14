@@ -6,7 +6,7 @@ import json
 import re
 import traceback
 import uuid
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 from common import utils
 from fastapi import FastAPI, status, HTTPException, Query, Depends, Response, UploadFile, File, Form
 from fastapi.responses import JSONResponse
@@ -2531,7 +2531,7 @@ async def preview_confluence_ingestion(
         status_code=400,
         detail=f"URL must be from configured Confluence instance: {configured.scheme}://{configured.netloc}",
       )
-  space_key = confluence_match.group(1)
+  space_key = unquote(confluence_match.group(1))
   page_id = confluence_match.group(2)
   datasource_id = resolve_confluence_datasource_id(
     confluence_request,
@@ -2749,7 +2749,7 @@ async def ingest_confluence_page(
   if not confluence_match:
     raise HTTPException(status_code=400, detail="Invalid Confluence URL format. Expected: https://domain.atlassian.net/wiki/spaces/SPACE/pages/PAGE_ID/Title")
 
-  space_key = confluence_match.group(1)
+  space_key = unquote(confluence_match.group(1))
   page_id = confluence_match.group(2)
 
   # Validate that submitted URL matches configured Confluence instance

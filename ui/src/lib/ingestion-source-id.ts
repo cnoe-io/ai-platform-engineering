@@ -42,6 +42,13 @@ function netloc(url: string): string {
   return url.replace(/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//, "").split(/[/?#]/)[0];
 }
 
+function managedSourceId(rawId: string): string {
+  const sanitized = rawId.replace(/[^A-Za-z0-9._~@|*+=,/\-]/gu, "_");
+  if (sanitized.length <= 192) return sanitized;
+  const suffix = createHash("sha256").update(rawId).digest("hex").slice(0, 12);
+  return `${sanitized.slice(0, 179)}_${suffix}`;
+}
+
 export function confluenceSpaceSourceId(
   confluenceUrl: string,
   spaceKey: string,
@@ -49,7 +56,9 @@ export function confluenceSpaceSourceId(
 ): string {
   const domain = netloc(confluenceUrl).replace(/[.-]/g, "_");
   const spaceId = `src_confluence___${domain}__${spaceKey}`;
-  return pageId ? `${spaceId}__${pageId}` : spaceId;
+  // Preserve whole-space IDs from legacy environment configuration. New
+  // page-scoped sources must also be valid authorization resource IDs.
+  return pageId ? managedSourceId(`${spaceId}__${pageId}`) : spaceId;
 }
 
 export function webUrlSourceId(url: string): string {

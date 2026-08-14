@@ -94,3 +94,11 @@ def test_generate_confluence_datasource_id_scopes_ui_source_to_root_page():
     "ENG",
     "123456",
   ) == "src_confluence___wiki_example_com__ENG__123456"
+
+
+def test_generate_confluence_datasource_id_makes_page_source_safe_for_managed_access():
+  assert generate_confluence_datasource_id(
+    "https://wiki.example.com:8090/confluence",
+    "Control Plane",
+    "123456",
+  ) == "src_confluence___wiki_example_com_8090__Control_Plane__123456"

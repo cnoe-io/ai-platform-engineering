@@ -48,12 +48,14 @@ interface PreviewSource {
   in_db: boolean;
   already_adopted: boolean;
   importable: boolean;
+  unavailable_reason?: "unsupported_legacy_id";
 }
 
 type SkipReason =
   | "not_found_in_redis"
   | "missing_identity_fields"
-  | "already_in_db";
+  | "already_in_db"
+  | "unsupported_legacy_id";
 
 interface AdoptSkip {
   source_id: string;
@@ -69,6 +71,7 @@ const SKIP_REASON_LABEL: Record<SkipReason, string> = {
   not_found_in_redis: "not found",
   missing_identity_fields: "missing required settings",
   already_in_db: "already imported",
+  unsupported_legacy_id: "must be re-added before it can be imported",
 };
 
 interface ImportRagSourcesFromConfigCardProps {
@@ -87,6 +90,7 @@ export function ImportRagSourcesFromConfigCard({
   const [previewSources, setPreviewSources] = useState<PreviewSource[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [legacySourceCount, setLegacySourceCount] = useState(0);
+  const [compatibleSourceCount, setCompatibleSourceCount] = useState(0);
   const [collections, setCollections] = useState<
     RagCollectionWithPermissions[]
   >([]);
@@ -147,8 +151,17 @@ export function ImportRagSourcesFromConfigCard({
           ) ?? availableCollections[0];
         const sources = (
           (previewRes.data?.sources ?? []) as PreviewSource[]
-        ).filter((source) => source.importable || source.already_adopted);
+        ).filter(
+          (source) =>
+            source.importable ||
+            source.already_adopted ||
+            source.unavailable_reason,
+        );
         setLegacySourceCount(previewRes.data?.legacy_source_count ?? sources.length);
+        setCompatibleSourceCount(
+          previewRes.data?.compatible_source_count ??
+            sources.filter((source) => !source.unavailable_reason).length,
+        );
         setPreviewSources(sources);
         setCollections(availableCollections);
         setTeams(
@@ -390,9 +403,17 @@ export function ImportRagSourcesFromConfigCard({
                 <div className="min-w-0 space-y-1 break-words text-xs text-muted-foreground">
                   <p>
                     Found {legacySourceCount} existing source
-                    {legacySourceCount === 1 ? "" : "s"}. All will be added to{" "}
+                    {legacySourceCount === 1 ? "" : "s"}. {compatibleSourceCount}{" "}
+                    will be added to{" "}
                     {destinationCollection?.name ?? "the selected collection"}.
                   </p>
+                  {legacySourceCount > compatibleSourceCount && (
+                    <p>
+                      {legacySourceCount - compatibleSourceCount} older source
+                      {legacySourceCount - compatibleSourceCount === 1 ? "" : "s"}{" "}
+                      cannot be imported and must be re-added from Data Sources.
+                    </p>
+                  )}
                   <p>
                     The checklist controls which supported connector settings
                     become editable here. Sources that are not listed or
@@ -413,7 +434,7 @@ export function ImportRagSourcesFromConfigCard({
                     {previewSources.map((source) => (
                       <label
                         key={source.source_id}
-                        className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted/50"
+                        className="flex items-start gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted/50"
                       >
                         <input
                           type="checkbox"
@@ -422,10 +443,21 @@ export function ImportRagSourcesFromConfigCard({
                           onChange={() => toggleSelected(source.source_id)}
                           data-testid={`import-rag-source-checkbox-${source.source_id}`}
                         />
-                        <span className="min-w-0 flex-1 truncate">
-                          {source.name}
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate">{source.name}</span>
+                          {source.unavailable_reason ===
+                            "unsupported_legacy_id" && (
+                            <span className="mt-0.5 block text-xs text-muted-foreground">
+                              This source uses an older format. Re-add it from
+                              Data Sources before importing it.
+                            </span>
+                          )}
                         </span>
-                        {source.already_adopted ? (
+                        {source.unavailable_reason === "unsupported_legacy_id" ? (
+                          <Badge variant="destructive" className="shrink-0">
+                            Re-add required
+                          </Badge>
+                        ) : source.already_adopted ? (
                           <Badge variant="secondary" className="shrink-0">
                             Already imported
                           </Badge>

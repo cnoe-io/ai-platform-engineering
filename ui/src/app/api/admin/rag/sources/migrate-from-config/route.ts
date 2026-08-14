@@ -72,12 +72,15 @@ interface MigratePreviewSource {
   already_adopted: boolean;
   /** Can be converted to editable DB configuration by this migration. */
   importable: boolean;
+  /** Why a legacy source cannot be added to a managed collection. */
+  unavailable_reason?: "unsupported_legacy_id";
 }
 
 type MigrateSkipReason =
   | "not_found_in_redis"
   | "missing_identity_fields"
-  | "already_in_db";
+  | "already_in_db"
+  | "unsupported_legacy_id";
 
 interface MigrateSkip {
   source_id: string;
@@ -89,6 +92,7 @@ interface MigrateFromConfigResult {
   adopted?: string[];
   skipped?: MigrateSkip[];
   legacy_source_count: number;
+  compatible_source_count: number;
   destination_collection: {
     id: string;
     source_count: number;
@@ -203,9 +207,13 @@ function parseSourceIds(raw: unknown): string[] {
     new Set(
       raw.map((value) => {
         const id = normalizeString(value);
-        if (!id || !OPENFGA_ID_PATTERN.test(id)) {
+        // A stale browser may submit an older datasource id that is present in
+        // Redis but cannot be represented in the authorization model. Accept a
+        // bounded identifier here so the apply path can skip that one source
+        // without failing the rest of the import.
+        if (!id || id.length > 256 || /[\u0000-\u001f\u007f]/.test(id)) {
           throw new ApiError(
-            "source_ids must contain valid datasource ids",
+            "source_ids must contain datasource ids",
             400,
             "INVALID_SOURCE_IDS",
           );
@@ -562,6 +570,8 @@ async function previewSourcesFromRedis(session: {
   platformSources: RedisDataSource[];
   /** Sources without a DB row whose ownership policy still needs adoption. */
   unmanagedSources: RedisDataSource[];
+  /** All legacy sources found, including ones that cannot be imported. */
+  migrationCandidateCount: number;
 }> {
   const redisSources = await fetchRedisDatasources(session);
   if (redisSources.length === 0) {
@@ -570,6 +580,7 @@ async function previewSourcesFromRedis(session: {
       adoptable: new Map(),
       platformSources: [],
       unmanagedSources: [],
+      migrationCandidateCount: 0,
     };
   }
 
@@ -592,6 +603,7 @@ async function previewSourcesFromRedis(session: {
   const adoptable = new Map<string, AdoptableEntry>();
   const platformSources: RedisDataSource[] = [];
   const unmanagedSources: RedisDataSource[] = [];
+  let migrationCandidateCount = 0;
 
   for (const ds of redisSources) {
     if (!ds.datasource_id) continue;
@@ -610,9 +622,24 @@ async function previewSourcesFromRedis(session: {
     // only the genuinely unscoped, pre-RBAC corpus belongs in Platform RAG.
     // A scoped direct datasource may have no Mongo config row and must never
     // be interpreted as legacy-global merely because of that absence.
-    if (isMigrationCandidate) {
-      platformSources.push(ds);
+    if (!isMigrationCandidate) continue;
+    migrationCandidateCount += 1;
+
+    const sourceType = SOURCE_TYPE_MAP[ds.source_type];
+    if (!OPENFGA_ID_PATTERN.test(ds.datasource_id)) {
+      preview.push({
+        source_id: ds.datasource_id,
+        name: ds.name ?? ds.datasource_id,
+        source_type: sourceType ?? ds.source_type,
+        in_db: Boolean(existing),
+        already_adopted: alreadyAdopted,
+        importable: false,
+        unavailable_reason: "unsupported_legacy_id",
+      });
+      continue;
     }
+
+    platformSources.push(ds);
     if (
       (isUnscopedLegacySource || (isLegacyConfigSource && !alreadyAdopted)) &&
       !policyAlreadyAdopted
@@ -620,12 +647,9 @@ async function previewSourcesFromRedis(session: {
       unmanagedSources.push(ds);
     }
 
-    const sourceType = SOURCE_TYPE_MAP[ds.source_type];
     if (!sourceType) continue;
     // Sources created in the UI already have editable settings and are not
     // part of this one-time environment-config import.
-    if (!isMigrationCandidate) continue;
-
     preview.push({
       source_id: ds.datasource_id,
       name: ds.name ?? ds.datasource_id,
@@ -644,7 +668,13 @@ async function previewSourcesFromRedis(session: {
     }
   }
 
-  return { preview, adoptable, platformSources, unmanagedSources };
+  return {
+    preview,
+    adoptable,
+    platformSources,
+    unmanagedSources,
+    migrationCandidateCount,
+  };
 }
 
 async function attachLegacyAgentsToCollection(
@@ -759,7 +789,13 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     body.destination_collection_id,
   );
 
-  const { preview, adoptable, platformSources, unmanagedSources } =
+  const {
+    preview,
+    adoptable,
+    platformSources,
+    unmanagedSources,
+    migrationCandidateCount,
+  } =
     await previewSourcesFromRedis({
       accessToken: session.accessToken,
       org: session.org,
@@ -768,7 +804,8 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   if (dryRun) {
     return successResponse<MigrateFromConfigResult>({
       sources: preview,
-      legacy_source_count: platformSources.length,
+      legacy_source_count: migrationCandidateCount,
+      compatible_source_count: platformSources.length,
       destination_collection: {
         id: destination._id,
         source_count: destination.source_ids?.length ?? 0,
@@ -829,6 +866,10 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     const previewEntry = previewById.get(sourceId);
     if (!previewEntry) {
       skipped.push({ source_id: sourceId, reason: "not_found_in_redis" });
+      continue;
+    }
+    if (previewEntry.unavailable_reason === "unsupported_legacy_id") {
+      skipped.push({ source_id: sourceId, reason: "unsupported_legacy_id" });
       continue;
     }
     if (previewEntry.already_adopted || !previewEntry.importable) {
@@ -898,7 +939,8 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     sources: preview,
     adopted,
     skipped,
-    legacy_source_count: platformSources.length,
+    legacy_source_count: migrationCandidateCount,
+    compatible_source_count: platformSources.length,
     destination_collection: {
       id: updatedDestination._id,
       source_count: updatedDestination.source_ids.length,

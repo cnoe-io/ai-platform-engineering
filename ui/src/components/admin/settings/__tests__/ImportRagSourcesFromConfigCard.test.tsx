@@ -178,6 +178,44 @@ describe("ImportRagSourcesFromConfigCard", () => {
     expect(screen.getByRole("dialog")).not.toHaveClass("min-w-0");
   });
 
+  it("disables legacy sources that must be re-added", async () => {
+    const unsafeId = "src_confluence___wiki_example_com__Control Plane";
+    mockFetch({
+      preview: {
+        success: true,
+        data: {
+          sources: [
+            ...PREVIEW_SOURCES,
+            {
+              source_id: unsafeId,
+              name: "Confluence: Control Plane",
+              source_type: "confluence_space",
+              in_db: false,
+              already_adopted: false,
+              importable: false,
+              unavailable_reason: "unsupported_legacy_id",
+            },
+          ],
+          legacy_source_count: 4,
+          compatible_source_count: 3,
+        },
+      },
+    });
+
+    render(<ImportRagSourcesFromConfigCard isAdmin />);
+    fireEvent.click(screen.getByTestId("import-rag-sources-from-config-button"));
+
+    const checkbox = await screen.findByTestId(
+      `import-rag-source-checkbox-${unsafeId}`,
+    );
+    expect(checkbox).toBeDisabled();
+    expect(checkbox).not.toBeChecked();
+    expect(screen.getByText("Re-add required")).toBeInTheDocument();
+    expect(
+      screen.getByText(/1 older source cannot be imported/i),
+    ).toBeInTheDocument();
+  });
+
   it("applies only the selected source ids to Platform RAG", async () => {
     render(<ImportRagSourcesFromConfigCard isAdmin />);
     fireEvent.click(screen.getByTestId("import-rag-sources-from-config-button"));

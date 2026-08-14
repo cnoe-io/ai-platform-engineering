@@ -290,6 +290,86 @@ describe("POST /api/admin/rag/sources/migrate-from-config", () => {
     });
   });
 
+  it("flags legacy source ids that cannot use managed access", async () => {
+    mockFetchDatasources([
+      redisDs({
+        datasource_id: "src_confluence___wiki_example_com__Control Plane",
+        name: "Confluence: Control Plane",
+        source_type: "confluence",
+        metadata: {
+          confluence_url: "https://wiki.example.com/wiki",
+          space_key: "Control Plane",
+        },
+      }),
+    ]);
+    mockCollections();
+
+    const { POST } = await import("../route");
+    const response = await POST(postRequest({ dry_run: true }));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.sources).toEqual([
+      {
+        source_id: "src_confluence___wiki_example_com__Control Plane",
+        name: "Confluence: Control Plane",
+        source_type: "confluence_space",
+        in_db: false,
+        already_adopted: false,
+        importable: false,
+        unavailable_reason: "unsupported_legacy_id",
+      },
+    ]);
+    expect(body.data.legacy_source_count).toBe(1);
+    expect(body.data.compatible_source_count).toBe(0);
+  });
+
+  it("skips an unsafe legacy id while importing the remaining sources", async () => {
+    const unsafeId = "src_confluence___wiki_example_com__Control Plane";
+    mockFetchDatasources([
+      redisDs(),
+      redisDs({
+        datasource_id: unsafeId,
+        name: "Confluence: Control Plane",
+        source_type: "confluence",
+        metadata: {
+          confluence_url: "https://wiki.example.com/wiki",
+          space_key: "Control Plane",
+        },
+      }),
+    ]);
+    mockCollections();
+    mockCreateIngestionSource.mockResolvedValue({
+      source_id: "slack-channel-C1",
+    });
+
+    const { POST } = await import("../route");
+    const response = await POST(
+      postRequest({
+        dry_run: false,
+        source_ids: ["slack-channel-C1", unsafeId],
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.adopted).toEqual(["slack-channel-C1"]);
+    expect(body.data.skipped).toContainEqual({
+      source_id: unsafeId,
+      reason: "unsupported_legacy_id",
+    });
+    expect(mockReplaceCollectionSources).toHaveBeenCalledWith(
+      "platform-rag",
+      ["slack-channel-C1"],
+    );
+    expect(mockDeleteAllDataSourceRelationshipTuples).not.toHaveBeenCalledWith(
+      unsafeId,
+    );
+    expect(mockReconcileKnowledgeBaseRelationships).not.toHaveBeenCalledWith(
+      expect.objectContaining({ knowledgeBaseId: unsafeId }),
+    );
+  });
+
   it("does not treat scoped direct datasources without Mongo config rows as legacy-global", async () => {
     mockFetchDatasources([
       redisDs({
