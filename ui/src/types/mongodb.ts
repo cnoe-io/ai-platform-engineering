@@ -522,11 +522,11 @@ export interface WebexUserMetrics {
 // hash (contrast catalog_api_keys, which stores a hash). Keycloak owns the
 // secret entirely and shows it once.
 
-/** A single agent/tool/datasource grant snapshot. Display cache only — OpenFGA tuples are
+/** A single agent/tool/knowledge grant snapshot. Display cache only — OpenFGA tuples are
  *  the source of truth for access. */
 export interface ServiceAccountScope {
-  type: "agent" | "tool" | "datasource";
-  /** Agent/datasource id, or "<server>/<toolname>" / "<server>/*" for tools. */
+  type: "agent" | "tool" | "datasource" | "collection";
+  /** Agent, datasource, or collection id; tools use their catalog ref. */
   ref: string;
   added_by: string; // Keycloak sub of who added this scope (audit).
   added_at: Date;

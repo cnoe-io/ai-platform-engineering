@@ -62,11 +62,37 @@ describe("parseScope", () => {
   });
 
   it("still validates agent refs against ID_SEGMENT (no slash/underscore games)", () => {
-    expect(parseScope({ type: "agent", ref: "incident-resolver" }).scope).toEqual({
+    expect(
+      parseScope({ type: "agent", ref: "incident-resolver" }).scope,
+    ).toEqual({
       type: "agent",
       ref: "incident-resolver",
     });
-    expect(parseScope({ type: "agent", ref: "bad/agent" }).error).toMatch(/malformed agent ref/);
+    expect(parseScope({ type: "agent", ref: "bad/agent" }).error).toMatch(
+      /malformed agent ref/,
+    );
+  });
+
+  it("accepts collection ids and rejects malformed collection refs", () => {
+    expect(parseScope({ type: "collection", ref: "platform-rag" })).toEqual({
+      scope: { type: "collection", ref: "platform-rag" },
+    });
+    expect(
+      parseScope({ type: "collection", ref: "bad collection" }).error,
+    ).toMatch(/malformed collection ref/);
+  });
+
+  it("writes a collection reader tuple", () => {
+    expect(
+      scopeWriteTuple(
+        { type: "collection", ref: "platform-rag" },
+        "service_account:sa-1",
+      ),
+    ).toEqual({
+      user: "service_account:sa-1",
+      relation: "reader",
+      object: "rag_collection:platform-rag",
+    });
   });
 });
 

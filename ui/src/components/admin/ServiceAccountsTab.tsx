@@ -17,6 +17,7 @@ import {
   ChevronRight,
   Database,
   KeyRound,
+  Layers3,
   Loader2,
   Plus,
   RefreshCw,
@@ -65,7 +66,12 @@ interface ServiceAccountListItem {
   created_at: string;
   status: "active" | "revoked";
   protected?: boolean;
-  scope_counts: { agents: number; tools: number; datasources: number };
+  scope_counts: {
+    agents: number;
+    tools: number;
+    datasources: number;
+    collections: number;
+  };
 }
 
 interface GrantableItem {
@@ -77,6 +83,7 @@ interface GrantableData {
   agents: GrantableItem[];
   tools: GrantableItem[];
   datasources: GrantableItem[];
+  collections: GrantableItem[];
 }
 
 function normalizeGrantableData(
@@ -86,18 +93,50 @@ function normalizeGrantableData(
     agents: Array.isArray(value?.agents) ? value.agents : [],
     tools: Array.isArray(value?.tools) ? value.tools : [],
     datasources: Array.isArray(value?.datasources) ? value.datasources : [],
+    collections: Array.isArray(value?.collections) ? value.collections : [],
   };
+}
+
+interface ScopeRef {
+  type: "agent" | "tool" | "datasource" | "collection";
+  ref: string;
+}
+
+interface KnowledgeGrantOption extends ScopeRef {
+  label: string;
+}
+
+function knowledgeGrantOptions(
+  collections: GrantableItem[],
+  datasources: GrantableItem[],
+): KnowledgeGrantOption[] {
+  const candidates = [
+    ...collections.map((item) => ({
+      type: "collection" as const,
+      ref: item.ref,
+      baseLabel: `Collection: ${item.name}`,
+    })),
+    ...datasources.map((item) => ({
+      type: "datasource" as const,
+      ref: item.ref,
+      baseLabel: `Datasource: ${item.name}`,
+    })),
+  ];
+  const counts = new Map<string, number>();
+  for (const item of candidates) {
+    counts.set(item.baseLabel, (counts.get(item.baseLabel) ?? 0) + 1);
+  }
+  return candidates.map(({ type, ref, baseLabel }) => ({
+    type,
+    ref,
+    label: counts.get(baseLabel) === 1 ? baseLabel : `${baseLabel} (${ref})`,
+  }));
 }
 
 interface CreatedCredential {
   client_id: string;
   client_secret: string;
   token_url: string;
-}
-
-interface ScopeRef {
-  type: "agent" | "tool" | "datasource";
-  ref: string;
 }
 
 interface ServiceAccountDetail {
@@ -324,7 +363,7 @@ export function ServiceAccountsTab({
                   <th className="px-4 py-3">Team</th>
                   <th className="px-4 py-3 w-24">Agents</th>
                   <th className="px-4 py-3 w-24">Tools</th>
-                  <th className="px-4 py-3 w-28">Datasources</th>
+                  <th className="px-4 py-3 w-36">RAG access</th>
                   <th className="px-4 py-3 w-24">Status</th>
                   <th className="px-4 py-3 w-28 text-right">Actions</th>
                 </tr>
@@ -453,10 +492,16 @@ function ServiceAccountRow({
         </span>
       </td>
       <td className="px-4 py-2.5 align-top">
-        <span className="inline-flex items-center gap-1 text-muted-foreground">
-          <Database className="h-3.5 w-3.5" />{" "}
-          {sa.scope_counts.datasources ?? 0}
-        </span>
+        <div className="flex items-center gap-3 text-muted-foreground">
+          <span className="inline-flex items-center gap-1" title="Datasources">
+            <Database className="h-3.5 w-3.5" />
+            {sa.scope_counts.datasources ?? 0}
+          </span>
+          <span className="inline-flex items-center gap-1" title="Collections">
+            <Layers3 className="h-3.5 w-3.5" />
+            {sa.scope_counts.collections ?? 0}
+          </span>
+        </div>
       </td>
       <td className="px-4 py-2.5 align-top">
         <StatusBadge status={sa.status} />
@@ -513,11 +558,13 @@ function CreateServiceAccountDialog({
     agents: [],
     tools: [],
     datasources: [],
+    collections: [],
   });
   const [grantableError, setGrantableError] = useState(false);
   const [selectedAgents, setSelectedAgents] = useState<string[]>([]);
   const [selectedTools, setSelectedTools] = useState<string[]>([]);
   const [selectedDatasources, setSelectedDatasources] = useState<string[]>([]);
+  const [selectedCollections, setSelectedCollections] = useState<string[]>([]);
   const [loadingOptions, setLoadingOptions] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -531,9 +578,10 @@ function CreateServiceAccountDialog({
     setSelectedAgents([]);
     setSelectedTools([]);
     setSelectedDatasources([]);
+    setSelectedCollections([]);
     setFormError(null);
     setGrantableError(false);
-    setGrantable({ agents: [], tools: [], datasources: [] });
+    setGrantable({ agents: [], tools: [], datasources: [], collections: [] });
     setLoadingOptions(true);
 
     let cancelled = false;
@@ -576,11 +624,15 @@ function CreateServiceAccountDialog({
   const agentRefToLabel = new Map(grantable.agents.map((a) => [a.ref, a.name]));
   const toolLabelToRef = new Map(grantable.tools.map((t) => [t.name, t.ref]));
   const toolRefToLabel = new Map(grantable.tools.map((t) => [t.ref, t.name]));
-  const datasourceLabelToRef = new Map(
-    grantable.datasources.map((d) => [d.name, d.ref]),
+  const knowledgeOptions = knowledgeGrantOptions(
+    grantable.collections,
+    grantable.datasources,
   );
-  const datasourceRefToLabel = new Map(
-    grantable.datasources.map((d) => [d.ref, d.name]),
+  const knowledgeLabelToScope = new Map(
+    knowledgeOptions.map((item) => [item.label, item]),
+  );
+  const knowledgeKeyToLabel = new Map(
+    knowledgeOptions.map((item) => [`${item.type}:${item.ref}`, item.label]),
   );
 
   const submit = useCallback(async () => {
@@ -600,6 +652,10 @@ function CreateServiceAccountDialog({
         ...selectedTools.map((ref) => ({ type: "tool" as const, ref })),
         ...selectedDatasources.map((ref) => ({
           type: "datasource" as const,
+          ref,
+        })),
+        ...selectedCollections.map((ref) => ({
+          type: "collection" as const,
           ref,
         })),
       ];
@@ -645,6 +701,7 @@ function CreateServiceAccountDialog({
     selectedAgents,
     selectedTools,
     selectedDatasources,
+    selectedCollections,
     onCreated,
   ]);
 
@@ -655,7 +712,7 @@ function CreateServiceAccountDialog({
           <DialogTitle>Create Service Account</DialogTitle>
           <DialogDescription>
             Owned by one of your teams. You can only grant agents, tools, and
-            datasources you currently hold — the credential is shown once.
+            knowledge you currently hold — the credential is shown once.
           </DialogDescription>
         </DialogHeader>
 
@@ -766,26 +823,39 @@ function CreateServiceAccountDialog({
             <div className="space-y-1">
               <label className="text-sm font-medium">RAG Datasources</label>
               <MultiSelect
-                options={grantable.datasources.map((d) => d.name)}
-                selected={selectedDatasources
-                  .map((ref) => datasourceRefToLabel.get(ref))
+                options={knowledgeOptions.map((item) => item.label)}
+                selected={[
+                  ...selectedCollections.map((ref) => `collection:${ref}`),
+                  ...selectedDatasources.map((ref) => `datasource:${ref}`),
+                ]
+                  .map((key) => knowledgeKeyToLabel.get(key))
                   .filter((v): v is string => Boolean(v))}
-                onChange={(labels) =>
+                onChange={(labels) => {
+                  const selected = labels
+                    .map((label) => knowledgeLabelToScope.get(label))
+                    .filter((value): value is KnowledgeGrantOption =>
+                      Boolean(value),
+                    );
+                  setSelectedCollections(
+                    selected
+                      .filter((item) => item.type === "collection")
+                      .map((item) => item.ref),
+                  );
                   setSelectedDatasources(
-                    labels
-                      .map((label) => datasourceLabelToRef.get(label))
-                      .filter((v): v is string => Boolean(v)),
-                  )
-                }
-                placeholder="Grant datasources you can access..."
-                emptyLabel="You hold no datasources to grant"
-                badgeLabel="datasources"
+                    selected
+                      .filter((item) => item.type === "datasource")
+                      .map((item) => item.ref),
+                  );
+                }}
+                placeholder="Grant collections or datasources..."
+                emptyLabel="You hold no RAG knowledge to grant"
+                badgeLabel="knowledge items"
                 portalled={false}
               />
               <p className="text-xs text-muted-foreground">
-                The service account receives the same Search access you currently
-                hold. It can use those sources through direct RAG calls or
-                assigned agents.
+                A collection includes its current and future datasources. The
+                service account can use selected knowledge through direct RAG
+                calls or assigned agents.
               </p>
             </div>
 
@@ -839,6 +909,7 @@ function ManageServiceAccountDialog({
     agents: [],
     tools: [],
     datasources: [],
+    collections: [],
   });
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -851,6 +922,7 @@ function ManageServiceAccountDialog({
   const [addAgents, setAddAgents] = useState<string[]>([]);
   const [addTools, setAddTools] = useState<string[]>([]);
   const [addDatasources, setAddDatasources] = useState<string[]>([]);
+  const [addCollections, setAddCollections] = useState<string[]>([]);
 
   // ── Tokens section state ───────────────────────────────────────────────────
   const [credentials, setCredentials] = useState<ServiceAccountCredential[]>(
@@ -996,17 +1068,30 @@ function ManageServiceAccountDialog({
   const addableDatasources = grantable.datasources.filter(
     (item) => !existingRefs.has(`datasource:${item.ref}`),
   );
+  const addableCollections = grantable.collections.filter(
+    (item) => !existingRefs.has(`collection:${item.ref}`),
+  );
   // label↔ref maps so the MultiSelect shows friendly names while we submit refs
   // (same pattern as the create dialog).
   const agentLabelToRef = new Map(addableAgents.map((a) => [a.name, a.ref]));
   const agentRefToLabel = new Map(addableAgents.map((a) => [a.ref, a.name]));
   const toolLabelToRef = new Map(addableTools.map((t) => [t.name, t.ref]));
   const toolRefToLabel = new Map(addableTools.map((t) => [t.ref, t.name]));
-  const datasourceLabelToRef = new Map(
-    addableDatasources.map((d) => [d.name, d.ref]),
+  const collectionNameByRef = new Map(
+    grantable.collections.map((item) => [item.ref, item.name]),
   );
-  const datasourceRefToLabel = new Map(
-    addableDatasources.map((d) => [d.ref, d.name]),
+  const datasourceNameByRef = new Map(
+    grantable.datasources.map((item) => [item.ref, item.name]),
+  );
+  const knowledgeOptions = knowledgeGrantOptions(
+    addableCollections,
+    addableDatasources,
+  );
+  const knowledgeLabelToScope = new Map(
+    knowledgeOptions.map((item) => [item.label, item]),
+  );
+  const knowledgeKeyToLabel = new Map(
+    knowledgeOptions.map((item) => [`${item.type}:${item.ref}`, item.label]),
   );
 
   const addScope = useCallback(async () => {
@@ -1015,6 +1100,7 @@ function ManageServiceAccountDialog({
       ...addAgents.map((ref) => ({ type: "agent" as const, ref })),
       ...addTools.map((ref) => ({ type: "tool" as const, ref })),
       ...addDatasources.map((ref) => ({ type: "datasource" as const, ref })),
+      ...addCollections.map((ref) => ({ type: "collection" as const, ref })),
     ];
     if (selected.length === 0) return;
     setBusy(true);
@@ -1043,12 +1129,21 @@ function ManageServiceAccountDialog({
       setAddAgents([]);
       setAddTools([]);
       setAddDatasources([]);
+      setAddCollections([]);
       await refresh();
       onMutated();
     } finally {
       setBusy(false);
     }
-  }, [saId, addAgents, addTools, addDatasources, refresh, onMutated]);
+  }, [
+    saId,
+    addAgents,
+    addTools,
+    addDatasources,
+    addCollections,
+    refresh,
+    onMutated,
+  ]);
 
   const removeScope = useCallback(
     async (scope: ScopeRef) => {
@@ -1247,8 +1342,8 @@ function ManageServiceAccountDialog({
               <span className="text-sm font-medium">Current scopes</span>
               {detail.scopes.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
-                  No scopes — this account cannot use any agent, tool, or
-                  datasource yet.
+                  No scopes — this account cannot use any agent, tool, or RAG
+                  knowledge yet.
                 </p>
               ) : (
                 <ul className="space-y-1">
@@ -1256,6 +1351,12 @@ function ManageServiceAccountDialog({
                     const isPending =
                       pendingRemove?.type === scope.type &&
                       pendingRemove?.ref === scope.ref;
+                    const displayName =
+                      scope.type === "collection"
+                        ? collectionNameByRef.get(scope.ref)
+                        : scope.type === "datasource"
+                          ? datasourceNameByRef.get(scope.ref)
+                          : undefined;
                     return (
                       <li
                         key={`${scope.type}:${scope.ref}`}
@@ -1266,10 +1367,14 @@ function ManageServiceAccountDialog({
                             <Bot className="h-3.5 w-3.5 text-muted-foreground" />
                           ) : scope.type === "datasource" ? (
                             <Database className="h-3.5 w-3.5 text-muted-foreground" />
+                          ) : scope.type === "collection" ? (
+                            <Layers3 className="h-3.5 w-3.5 text-muted-foreground" />
                           ) : (
                             <Wrench className="h-3.5 w-3.5 text-muted-foreground" />
                           )}
-                          <code className="text-xs">{scope.ref}</code>
+                          <code className="text-xs" title={scope.ref}>
+                            {displayName ?? scope.ref}
+                          </code>
                         </span>
                         {isPending ? (
                           // Delete-confirm (T028): removal can be unrecoverable via the
@@ -1373,20 +1478,33 @@ function ManageServiceAccountDialog({
                   RAG Datasources
                 </label>
                 <MultiSelect
-                  options={addableDatasources.map((d) => d.name)}
-                  selected={addDatasources
-                    .map((ref) => datasourceRefToLabel.get(ref))
+                  options={knowledgeOptions.map((item) => item.label)}
+                  selected={[
+                    ...addCollections.map((ref) => `collection:${ref}`),
+                    ...addDatasources.map((ref) => `datasource:${ref}`),
+                  ]
+                    .map((key) => knowledgeKeyToLabel.get(key))
                     .filter((v): v is string => Boolean(v))}
-                  onChange={(labels) =>
+                  onChange={(labels) => {
+                    const selected = labels
+                      .map((label) => knowledgeLabelToScope.get(label))
+                      .filter((value): value is KnowledgeGrantOption =>
+                        Boolean(value),
+                      );
+                    setAddCollections(
+                      selected
+                        .filter((item) => item.type === "collection")
+                        .map((item) => item.ref),
+                    );
                     setAddDatasources(
-                      labels
-                        .map((label) => datasourceLabelToRef.get(label))
-                        .filter((v): v is string => Boolean(v)),
-                    )
-                  }
-                  placeholder="Add datasources..."
-                  emptyLabel="No more datasources you can grant"
-                  badgeLabel="datasources"
+                      selected
+                        .filter((item) => item.type === "datasource")
+                        .map((item) => item.ref),
+                    );
+                  }}
+                  placeholder="Add collections or datasources..."
+                  emptyLabel="No more RAG knowledge you can grant"
+                  badgeLabel="knowledge items"
                   portalled={false}
                 />
               </div>
@@ -1397,7 +1515,8 @@ function ManageServiceAccountDialog({
                     busy ||
                     (addAgents.length === 0 &&
                       addTools.length === 0 &&
-                      addDatasources.length === 0)
+                      addDatasources.length === 0 &&
+                      addCollections.length === 0)
                   }
                   className="gap-1.5"
                 >

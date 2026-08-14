@@ -23,9 +23,11 @@ jest.mock("@/lib/auth-config", () => ({
 
 const mockListOpenFgaObjects = jest.fn();
 const mockCheckOpenFgaTuple = jest.fn();
+const mockReadOpenFgaTuples = jest.fn();
 jest.mock("@/lib/rbac/openfga", () => ({
   listOpenFgaObjects: (...args: unknown[]) => mockListOpenFgaObjects(...args),
   checkOpenFgaTuple: (...args: unknown[]) => mockCheckOpenFgaTuple(...args),
+  readOpenFgaTuples: (...args: unknown[]) => mockReadOpenFgaTuples(...args),
 }));
 
 const mockResolveAuthorizedAdminSimulationScope = jest.fn();
@@ -117,6 +119,10 @@ beforeEach(() => {
   mockCheckOpenFgaTuple.mockResolvedValue({ allowed: false });
   mockResolveAuthorizedAdminSimulationScope.mockResolvedValue(null);
   mockHasOrganizationAdmin.mockResolvedValue(false);
+  mockReadOpenFgaTuples.mockResolvedValue({
+    tuples: [],
+    continuationToken: undefined,
+  });
 });
 
 describe("GET /api/admin/service-accounts (list)", () => {
@@ -133,7 +139,12 @@ describe("GET /api/admin/service-accounts (list)", () => {
     const item = body.data.items[0];
     expect(item.id).toBe("sa-123");
     expect(item.name).toBe("incident-bot");
-    expect(item.scope_counts).toEqual({ agents: 1, tools: 2, datasources: 0 });
+    expect(item.scope_counts).toEqual({
+      agents: 1,
+      tools: 2,
+      datasources: 0,
+      collections: 0,
+    });
 
     assertNoSecrets(body);
   });
@@ -289,8 +300,19 @@ describe("GET /api/admin/service-accounts/[id] (detail)", () => {
     mockGetBySub.mockResolvedValue(SA_DOC);
     mockListOpenFgaObjects
       .mockResolvedValueOnce({ objects: ["agent:incident-resolver"] }) // can_use agent
-      .mockResolvedValueOnce({ objects: ["tool:jira/search", "tool:jira/*"] }) // can_call tool
-      .mockResolvedValueOnce({ objects: [] }); // can_read data_source
+      .mockResolvedValueOnce({ objects: ["tool:jira/search", "tool:jira/*"] }); // can_call tool
+    mockReadOpenFgaTuples.mockResolvedValue({
+      tuples: [
+        {
+          key: {
+            user: "service_account:sa-123",
+            relation: "reader",
+            object: "rag_collection:platform-rag",
+          },
+        },
+      ],
+      continuationToken: undefined,
+    });
 
     const res = await detailGET(
       new Request("http://localhost"),
@@ -305,6 +327,7 @@ describe("GET /api/admin/service-accounts/[id] (detail)", () => {
       { type: "agent", ref: "incident-resolver" },
       { type: "tool", ref: "jira/search" },
       { type: "tool", ref: "jira/*" },
+      { type: "collection", ref: "platform-rag" },
     ]);
 
     assertNoSecrets(body);
@@ -338,8 +361,7 @@ describe("GET /api/admin/service-accounts/[id] (detail)", () => {
     mockGetBySub.mockResolvedValue(SA_DOC);
     mockListOpenFgaObjects
       .mockResolvedValueOnce({ objects: ["agent:incident-resolver"] })
-      .mockResolvedValueOnce({ objects: ["tool:jira/search", "tool:jira/*"] })
-      .mockResolvedValueOnce({ objects: [] });
+      .mockResolvedValueOnce({ objects: ["tool:jira/search", "tool:jira/*"] });
 
     const res = await detailGET(
       new Request("http://localhost"),

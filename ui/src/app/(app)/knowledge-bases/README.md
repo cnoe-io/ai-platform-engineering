@@ -50,7 +50,7 @@ Vector DB + Graph DB
 - Direct Search/API calls use every datasource for which the caller has Search access
 - Agents use direct datasource cards plus collection cards, intersected with the invoking caller's current datasource access
 - Explicitly selecting no cards disables that agent's RAG tools
-- Service accounts may be granted individual datasources through the existing agent/tool scope editor; creators can grant only resources they can access
+- Service accounts may be granted collections or individual datasources through the existing agent/tool scope editor; collection membership updates automatically
 - There is no separate service-account query permission
 
 ### Graph (`/knowledge-bases/graph`)

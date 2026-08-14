@@ -14,14 +14,17 @@ import type {
   RagCollection,
   RagCollectionMembershipLabel,
 } from "@/types/rag-collection";
-import { PLATFORM_RAG_COLLECTION_ID } from "@/types/rag-collection";
+import {
+  PLATFORM_RAG_COLLECTION_ID,
+  RAG_COLLECTIONS_COLLECTION,
+  RAG_COLLECTION_ID_PATTERN,
+} from "@/types/rag-collection";
 import {
   filterResourcesByPermission,
   type ResourceAuthzSession,
 } from "@/lib/rbac/resource-authz";
 
-export const RAG_COLLECTIONS_COLLECTION = "rag_collections";
-export const RAG_COLLECTION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+export { RAG_COLLECTIONS_COLLECTION, RAG_COLLECTION_ID_PATTERN };
 const PLATFORM_RAG_BOOTSTRAP_SUBJECT = "platform";
 
 /** Build a Mongo `$set` document without the immutable `_id` field. */

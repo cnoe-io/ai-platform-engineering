@@ -129,7 +129,12 @@ interface ServiceAccountListItem {
   created_at: Date;
   status: ServiceAccount["status"];
   protected: boolean;
-  scope_counts: { agents: number; tools: number; datasources: number };
+  scope_counts: {
+    agents: number;
+    tools: number;
+    datasources: number;
+    collections: number;
+  };
 }
 
 /** Strip the OpenFGA `team:` prefix from a list-objects result. */
@@ -141,16 +146,19 @@ function scopeCounts(snapshot: ServiceAccountScope[] | undefined): {
   agents: number;
   tools: number;
   datasources: number;
+  collections: number;
 } {
   let agents = 0;
   let tools = 0;
   let datasources = 0;
+  let collections = 0;
   for (const scope of snapshot ?? []) {
     if (scope.type === "agent") agents += 1;
     else if (scope.type === "tool") tools += 1;
     else if (scope.type === "datasource") datasources += 1;
+    else if (scope.type === "collection") collections += 1;
   }
-  return { agents, tools, datasources };
+  return { agents, tools, datasources, collections };
 }
 
 export async function GET(request: NextRequest) {
@@ -433,11 +441,10 @@ export async function POST(request: NextRequest) {
     };
     // RAG has a feature-level organization gate in addition to datasource
     // ACLs. Keep that implementation detail out of the self-service picker:
-    // selecting at least one datasource adds the harmless search baseline,
-    // while the selected data_source#reader tuples remain the actual data
-    // boundary (the same pattern as mcp_gateway:list above).
+    // selecting knowledge adds the harmless search baseline, while the selected
+    // datasource or collection reader tuples remain the actual data boundary.
     const ragSearchBaselineTuple: OpenFgaTupleKey | null = scopes.some(
-      (scope) => scope.type === "datasource",
+      (scope) => scope.type === "datasource" || scope.type === "collection",
     )
       ? {
           user: saSubject,
@@ -508,7 +515,7 @@ export async function POST(request: NextRequest) {
       scope: "admin",
       resourceRef: `service_account:${client.saSub}`,
       email: session.user.email ?? undefined,
-      correlationId: `service_account.create:${client.saSub}:${body.owning_team_id}:agents=${grantedSnapshot.filter((s) => s.type === "agent").length},tools=${grantedSnapshot.filter((s) => s.type === "tool").length},datasources=${grantedSnapshot.filter((s) => s.type === "datasource").length}`,
+      correlationId: `service_account.create:${client.saSub}:${body.owning_team_id}:agents=${grantedSnapshot.filter((s) => s.type === "agent").length},tools=${grantedSnapshot.filter((s) => s.type === "tool").length},datasources=${grantedSnapshot.filter((s) => s.type === "datasource").length},collections=${grantedSnapshot.filter((s) => s.type === "collection").length}`,
     });
 
     // Credential returned ONCE (FR-005).

@@ -57,12 +57,13 @@ function request(path: string): NextRequest {
 }
 
 function collectionReturning(rows: unknown[]) {
+  const cursor = {
+    sort: jest.fn(),
+    toArray: jest.fn().mockResolvedValue(rows),
+  };
+  cursor.sort.mockReturnValue(cursor);
   return {
-    find: jest.fn().mockReturnValue({
-      sort: jest.fn().mockReturnValue({
-        toArray: jest.fn().mockResolvedValue(rows),
-      }),
-    }),
+    find: jest.fn().mockReturnValue(cursor),
     updateMany: jest.fn().mockResolvedValue({ modifiedCount: 0 }),
     bulkWrite: jest.fn().mockResolvedValue({}),
   };
@@ -112,6 +113,11 @@ describe("GET /api/admin/service-accounts/grantable", () => {
       { user: "user:caller-sub", relation: "can_use", type: "agent" },
       { user: "user:caller-sub", relation: "can_call", type: "tool" },
       { user: "user:caller-sub", relation: "can_read", type: "data_source" },
+      {
+        user: "user:caller-sub",
+        relation: "can_read",
+        type: "rag_collection",
+      },
     ]);
 
     expect(body.data.agents).toEqual([
@@ -121,6 +127,33 @@ describe("GET /api/admin/service-accounts/grantable", () => {
     expect(body.data.tools).toEqual([
       { ref: "jira/*", name: "jira: all tools" },
       { ref: "jira/search", name: "jira: search" },
+    ]);
+  });
+
+  it("returns readable RAG collections alongside individual datasources", async () => {
+    mockListOpenFgaObjects.mockImplementation(
+      async (input: { type: string }) => {
+        if (input.type === "rag_collection") {
+          return { objects: ["rag_collection:platform-rag"] };
+        }
+        return { objects: [] };
+      },
+    );
+    mockGetCollection.mockImplementation((name: string) => {
+      if (name === "rag_collections") {
+        return Promise.resolve(
+          collectionReturning([{ _id: "platform-rag", name: "Platform RAG" }]),
+        );
+      }
+      throw new Error(`unexpected collection ${name}`);
+    });
+
+    const res = await GET(request("/api/admin/service-accounts/grantable"));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.data.collections).toEqual([
+      { ref: "platform-rag", name: "Platform RAG" },
     ]);
   });
 
@@ -249,6 +282,11 @@ describe("GET /api/admin/service-accounts/grantable", () => {
           ]),
         );
       }
+      if (name === "rag_collections") {
+        return Promise.resolve(
+          collectionReturning([{ _id: "platform-rag", name: "Platform RAG" }]),
+        );
+      }
       throw new Error(`unexpected collection ${name}`);
     });
 
@@ -274,6 +312,9 @@ describe("GET /api/admin/service-accounts/grantable", () => {
       { ref: "jira/create_issue", name: "jira: create issue" },
       { ref: "jira/search", name: "jira: search" },
     ]);
+    expect(body.data.collections).toEqual([
+      { ref: "platform-rag", name: "Platform RAG" },
+    ]);
   });
 
   it("returns the full platform MCP catalog for a platform admin in the normal service account picker", async () => {
@@ -293,6 +334,9 @@ describe("GET /api/admin/service-accounts/grantable", () => {
         );
       }
       if (name === "mcp_tool_catalog") {
+        return Promise.resolve(collectionReturning([]));
+      }
+      if (name === "rag_collections") {
         return Promise.resolve(collectionReturning([]));
       }
       throw new Error(`unexpected collection ${name}`);
@@ -331,6 +375,9 @@ describe("GET /api/admin/service-accounts/grantable", () => {
       if (name === "mcp_tool_catalog") {
         return Promise.resolve(collectionReturning([]));
       }
+      if (name === "rag_collections") {
+        return Promise.resolve(collectionReturning([]));
+      }
       throw new Error(`unexpected collection ${name}`);
     });
     global.fetch = jest.fn().mockResolvedValue({
@@ -363,6 +410,9 @@ describe("GET /api/admin/service-accounts/grantable", () => {
         );
       }
       if (name === "mcp_tool_catalog") {
+        return Promise.resolve(collectionReturning([]));
+      }
+      if (name === "rag_collections") {
         return Promise.resolve(collectionReturning([]));
       }
       throw new Error(`unexpected collection ${name}`);
@@ -411,6 +461,9 @@ describe("GET /api/admin/service-accounts/grantable", () => {
       if (name === "mcp_tool_catalog") {
         return Promise.resolve(collectionReturning([]));
       }
+      if (name === "rag_collections") {
+        return Promise.resolve(collectionReturning([]));
+      }
       throw new Error(`unexpected collection ${name}`);
     });
 
@@ -449,6 +502,9 @@ describe("GET /api/admin/service-accounts/grantable", () => {
             },
           ]),
         );
+      }
+      if (name === "rag_collections") {
+        return Promise.resolve(collectionReturning([]));
       }
       throw new Error(`unexpected collection ${name}`);
     });

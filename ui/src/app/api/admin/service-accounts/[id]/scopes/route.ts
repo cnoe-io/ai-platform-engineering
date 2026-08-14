@@ -8,6 +8,7 @@ import { logOpenFgaRebacAuditEvent } from "@/lib/rbac/audit";
 import { getBySub, updateScopesSnapshot } from "@/lib/service-accounts";
 import { findAgentVisibilities } from "@/lib/dynamic-agent-visibility";
 import {
+  listDirectServiceAccountKnowledgeScopes,
   parseScope,
   refFromObject,
   scopeCheckTuple,
@@ -140,26 +141,29 @@ async function refreshSnapshot(
   addedByForNew: { sub: string; at: Date },
 ): Promise<void> {
   const subject = `service_account:${saSub}`;
-  const [agentObjects, toolObjects, datasourceObjects] = await Promise.all([
+  const [agentObjects, toolObjects, knowledgeScopes] = await Promise.all([
     listOpenFgaObjects({ user: subject, relation: "can_use", type: "agent" }),
     listOpenFgaObjects({ user: subject, relation: "can_call", type: "tool" }),
-    listOpenFgaObjects({
-      user: subject,
-      relation: "can_read",
-      type: "data_source",
-    }),
+    listDirectServiceAccountKnowledgeScopes(subject),
   ]);
 
   const agentIds = agentObjects.objects.map(refFromObject);
   const toolIds = toolObjects.objects.map(refFromObject);
-  const datasourceIds = datasourceObjects.objects.map(refFromObject);
+  const datasourceIds = knowledgeScopes
+    .filter((scope) => scope.type === "datasource")
+    .map((scope) => scope.ref);
+  const collectionIds = knowledgeScopes
+    .filter((scope) => scope.type === "collection")
+    .map((scope) => scope.ref);
 
   // Global (Everyone-shared) agents grant the unlinked SA `can_use` via the
   // agent's visibility, not via an explicit panel scope. Keep those out of the
   // display snapshot so the snapshot only ever tracks explicit grants — the
   // panel surfaces global agents separately as read-only "via Everyone" chips.
   const visibilityById = await findAgentVisibilities(agentIds);
-  const explicitAgentIds = agentIds.filter((ref) => visibilityById.get(ref) !== "global");
+  const explicitAgentIds = agentIds.filter(
+    (ref) => visibilityById.get(ref) !== "global",
+  );
 
   // Preserve prior added_by/added_at where we have them; default new entries to
   // the current editor/time.
@@ -167,7 +171,7 @@ async function refreshSnapshot(
   const priorByKey = new Map(prior.map((s) => [`${s.type}:${s.ref}`, s]));
 
   const build = (
-    type: "agent" | "tool" | "datasource",
+    type: ServiceAccountScope["type"],
     refs: string[],
   ): ServiceAccountScope[] =>
     refs.map(
@@ -184,6 +188,7 @@ async function refreshSnapshot(
     ...build("agent", explicitAgentIds),
     ...build("tool", toolIds),
     ...build("datasource", datasourceIds),
+    ...build("collection", collectionIds),
   ];
   await updateScopesSnapshot(saSub, snapshot);
 }
@@ -220,7 +225,7 @@ export async function POST(request: Request, context: RouteContext) {
       {
         writes: [
           scopeWriteTuple(scope, saSubject),
-          ...(scope.type === "datasource"
+          ...(scope.type === "datasource" || scope.type === "collection"
             ? [
                 {
                   user: saSubject,
@@ -287,15 +292,12 @@ export async function DELETE(request: Request, context: RouteContext) {
   try {
     const saSubject = `service_account:${id}`;
     const deletes = [scopeWriteTuple(scope, saSubject)];
-    if (scope.type === "datasource") {
-      const currentDatasources = await listOpenFgaObjects({
-        user: saSubject,
-        relation: "can_read",
-        type: "data_source",
-      });
-      const remaining = currentDatasources.objects
-        .map((object) => object.replace(/^data_source:/, ""))
-        .filter((ref) => ref !== scope.ref);
+    if (scope.type === "datasource" || scope.type === "collection") {
+      const currentKnowledge =
+        await listDirectServiceAccountKnowledgeScopes(saSubject);
+      const remaining = currentKnowledge.filter(
+        (current) => current.type !== scope.type || current.ref !== scope.ref,
+      );
       if (remaining.length === 0) {
         deletes.push({
           user: saSubject,

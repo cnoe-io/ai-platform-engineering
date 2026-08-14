@@ -1,7 +1,8 @@
 /**
  * Shared scope helpers for the Service Accounts BFF routes.
  *
- * A "scope" is an agent, tool, or RAG datasource grant. These helpers centralize:
+ * A "scope" is an agent, tool, RAG datasource, or RAG collection grant. These
+ * helpers centralize:
  *  - boundary validation of a scope ref (constitution VII)
  *  - the OpenFGA tuple the EDITOR must hold to grant it (FR-006/008/015)
  *  - the BASE OpenFGA tuple reconciled for the service account (the policy
@@ -11,7 +12,8 @@
  * Spec: docs/docs/specs/2026-06-05-service-accounts/.
  */
 
-import type { OpenFgaTupleKey } from "@/lib/rbac/openfga";
+import { readOpenFgaTuples, type OpenFgaTupleKey } from "@/lib/rbac/openfga";
+import { RAG_COLLECTION_ID_PATTERN } from "@/types/rag-collection";
 
 /** OpenFGA-safe id segment (agent id, tool server, tool name). */
 export const ID_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
@@ -28,8 +30,8 @@ const DATASOURCE_ID = /^[A-Za-z0-9][A-Za-z0-9._~@|*+=,/-]{0,191}$/;
 const TOOL_SEGMENT = /^(?:\*|[A-Za-z0-9][A-Za-z0-9._-]*\*?)$/;
 
 export interface ScopeRef {
-  type: "agent" | "tool" | "datasource";
-  /** Agent id, datasource id, or a tool object id — see {@link isValidToolRef}. */
+  type: "agent" | "tool" | "datasource" | "collection";
+  /** Agent, datasource, or collection id; tools use their object id. */
   ref: string;
 }
 
@@ -108,7 +110,15 @@ export function parseScope(raw: unknown): { scope?: ScopeRef; error?: string } {
       return { error: `malformed datasource ref: ${ref}` };
     return { scope: { type: "datasource", ref } };
   }
-  return { error: "scope.type must be 'agent', 'tool', or 'datasource'" };
+  if (obj.type === "collection") {
+    if (!RAG_COLLECTION_ID_PATTERN.test(ref)) {
+      return { error: `malformed collection ref: ${ref}` };
+    }
+    return { scope: { type: "collection", ref } };
+  }
+  return {
+    error: "scope.type must be 'agent', 'tool', 'datasource', or 'collection'",
+  };
 }
 
 /** The (relation, object) an EDITOR must hold to grant this scope (FR-006/008/015). */
@@ -128,6 +138,13 @@ export function scopeCheckTuple(
       user: editorSubject,
       relation: "can_read",
       object: `data_source:${scope.ref}`,
+    };
+  }
+  if (scope.type === "collection") {
+    return {
+      user: editorSubject,
+      relation: "can_read",
+      object: `rag_collection:${scope.ref}`,
     };
   }
   return {
@@ -157,5 +174,58 @@ export function scopeWriteTuple(
       object: `data_source:${scope.ref}`,
     };
   }
+  if (scope.type === "collection") {
+    return {
+      user: saSubject,
+      relation: "reader",
+      object: `rag_collection:${scope.ref}`,
+    };
+  }
   return { user: saSubject, relation: "caller", object: `tool:${scope.ref}` };
+}
+
+/**
+ * Read direct knowledge grants for a service account.
+ *
+ * A collection grant makes all of its member datasources readable. Listing
+ * effective datasource access would therefore expand one collection into
+ * hundreds of apparent datasource scopes. The management API must show and
+ * remove only the grants the user actually selected.
+ */
+export async function listDirectServiceAccountKnowledgeScopes(
+  saSubject: string,
+): Promise<ScopeRef[]> {
+  const scopes = new Map<string, ScopeRef>();
+  let continuationToken: string | undefined;
+
+  do {
+    const page = await readOpenFgaTuples({
+      tuple: { user: saSubject },
+      continuationToken,
+      pageSize: 100,
+    });
+    for (const { key } of page.tuples) {
+      let scope: ScopeRef | null = null;
+      if (key.relation === "reader" && key.object.startsWith("data_source:")) {
+        scope = {
+          type: "datasource",
+          ref: key.object.slice("data_source:".length),
+        };
+      } else if (
+        key.relation === "reader" &&
+        key.object.startsWith("rag_collection:")
+      ) {
+        scope = {
+          type: "collection",
+          ref: key.object.slice("rag_collection:".length),
+        };
+      }
+      if (scope) scopes.set(`${scope.type}:${scope.ref}`, scope);
+    }
+    continuationToken = page.continuationToken;
+  } while (continuationToken);
+
+  return [...scopes.values()].sort((left, right) =>
+    `${left.type}:${left.ref}`.localeCompare(`${right.type}:${right.ref}`),
+  );
 }

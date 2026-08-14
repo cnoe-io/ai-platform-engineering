@@ -148,9 +148,10 @@ Creates a personal collection. Service-account callers are rejected.
   datasource access. Agent configuration can narrow access; it never grants it.
 - Explicit empty arrays disable the agent's RAG tools. Missing fields are a
   temporary legacy state used only before migration.
-- Service accounts receive explicit datasource Search scopes in the existing
-  service-account editor (`data_source#reader` internally). Search is
-  query-only; calls still require an assigned agent/tool as applicable.
+- Service accounts can receive a collection or an individual datasource in the
+  existing scope editor. Collection membership is inherited live, so changing
+  the collection does not require editing each service account. Calls still
+  require an assigned agent/tool as applicable.
 
 ### Legacy global-RAG migration
 

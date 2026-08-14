@@ -12,11 +12,15 @@ import {
   listCachedMcpTools,
 } from "@/lib/rbac/mcp-tool-catalog";
 import type { MCPToolInfo } from "@/types/dynamic-agent";
+import {
+  RAG_COLLECTIONS_COLLECTION,
+  type RagCollection,
+} from "@/types/rag-collection";
 
 /**
  * GET /api/admin/service-accounts/grantable
  *
- * Returns the agents, tools, and RAG datasources the caller can grant, to populate the create /
+ * Returns the agents, tools, and RAG knowledge the caller can grant, to populate the create /
  * add-scope picker (FR-009). Normal users can only delegate their own holdings
  * (FR-007). Platform admins can grant from the full enabled platform catalog,
  * because org-admin authority is administrative and may not be materialized as
@@ -25,7 +29,7 @@ import type { MCPToolInfo } from "@/types/dynamic-agent";
  * Backed by `listOpenFgaObjects(user:<caller>, can_use, agent)` and the tool
  * equivalent (`can_call`, `tool`). See research.md R-8.
  *
- * Response: { success, data: { agents, tools, datasources } }
+ * Response: { success, data: { agents, tools, datasources, collections } }
  * Credential material is never involved here.
  */
 
@@ -330,6 +334,48 @@ async function listGrantableDatasources(input: {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+async function listGrantableCollections(input: {
+  caller: string;
+  platformAdmin?: boolean;
+}): Promise<GrantableItem[]> {
+  let ids: string[] = [];
+  if (!input.platformAdmin) {
+    const readable = await listOpenFgaObjects({
+      user: input.caller,
+      relation: "can_read",
+      type: "rag_collection",
+    });
+    ids = readable.objects.map((object) => stripType(object, "rag_collection"));
+  }
+  const names = new Map<string, string>();
+
+  if (isMongoDBConfigured && (input.platformAdmin || ids.length > 0)) {
+    try {
+      const collection = await getCollection<RagCollection>(
+        RAG_COLLECTIONS_COLLECTION,
+      );
+      const query = input.platformAdmin ? {} : { _id: { $in: ids } };
+      const rows = await collection
+        .find(query as never, { projection: { _id: 1, name: 1 } })
+        .toArray();
+      for (const row of rows) {
+        const ref = String(row._id);
+        names.set(ref, row.name || ref);
+      }
+      if (input.platformAdmin) ids = rows.map((row) => String(row._id));
+    } catch (error) {
+      console.warn(
+        "[service-accounts/grantable] collection labels unavailable:",
+        error instanceof Error ? error.message : error,
+      );
+    }
+  }
+
+  return Array.from(new Set(ids))
+    .map((ref) => ({ ref, name: names.get(ref) ?? ref }))
+    .sort((left, right) => left.name.localeCompare(right.name));
+}
+
 export async function GET(request?: NextRequest | Request) {
   const session = (await getServerSession(authOptions)) as {
     sub?: string;
@@ -352,7 +398,7 @@ export async function GET(request?: NextRequest | Request) {
   try {
     const platformAdmin = await hasOrganizationAdmin(session);
     if (platformAdmin) {
-      const [catalog, datasources] = await Promise.all([
+      const [catalog, datasources, collections] = await Promise.all([
         listFullPlatformCatalog(request),
         listGrantableDatasources({
           caller,
@@ -360,10 +406,11 @@ export async function GET(request?: NextRequest | Request) {
           org: session.org,
           platformAdmin: true,
         }),
+        listGrantableCollections({ caller, platformAdmin: true }),
       ]);
       return NextResponse.json({
         success: true,
-        data: { ...catalog, datasources },
+        data: { ...catalog, datasources, collections },
       });
     }
 
@@ -374,15 +421,25 @@ export async function GET(request?: NextRequest | Request) {
       );
     }
 
-    const [agentObjects, toolObjects, datasources] = await Promise.all([
-      listOpenFgaObjects({ user: caller, relation: "can_use", type: "agent" }),
-      listOpenFgaObjects({ user: caller, relation: "can_call", type: "tool" }),
-      listGrantableDatasources({
-        caller,
-        accessToken: session.accessToken,
-        org: session.org,
-      }),
-    ]);
+    const [agentObjects, toolObjects, datasources, collections] =
+      await Promise.all([
+        listOpenFgaObjects({
+          user: caller,
+          relation: "can_use",
+          type: "agent",
+        }),
+        listOpenFgaObjects({
+          user: caller,
+          relation: "can_call",
+          type: "tool",
+        }),
+        listGrantableDatasources({
+          caller,
+          accessToken: session.accessToken,
+          org: session.org,
+        }),
+        listGrantableCollections({ caller }),
+      ]);
 
     // Resolve friendly names best-effort from the ReBAC resource catalog;
     // fall back to the ref itself so the picker is always usable even if the
@@ -413,7 +470,7 @@ export async function GET(request?: NextRequest | Request) {
 
     return NextResponse.json({
       success: true,
-      data: { agents, tools, datasources },
+      data: { agents, tools, datasources, collections },
     });
   } catch (error) {
     console.error("[service-accounts/grantable] failed:", error);

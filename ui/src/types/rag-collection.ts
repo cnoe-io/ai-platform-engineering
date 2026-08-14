@@ -6,6 +6,8 @@
  */
 
 export const PLATFORM_RAG_COLLECTION_ID = "platform-rag";
+export const RAG_COLLECTIONS_COLLECTION = "rag_collections";
+export const RAG_COLLECTION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 
 export interface RagCollectionPermissions {
   can_read: boolean;

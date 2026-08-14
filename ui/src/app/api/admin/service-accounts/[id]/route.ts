@@ -13,6 +13,10 @@ import { getBySub, updateStatus } from "@/lib/service-accounts";
 import { isProtectedServiceAccount } from "@/types/mongodb";
 import { hasOrganizationAdmin } from "@/lib/rbac/platform-admin";
 import { organizationObjectId } from "@/lib/rbac/organization";
+import {
+  listDirectServiceAccountKnowledgeScopes,
+  scopeWriteTuple,
+} from "@/lib/service-account-scopes";
 
 /**
  * GET /api/admin/service-accounts/[id]
@@ -86,7 +90,7 @@ export async function GET(_request: Request, context: RouteContext) {
     }
 
     // Authoritative scopes: read from OpenFGA, not the display snapshot.
-    const [agentObjects, toolObjects, datasourceObjects] = await Promise.all([
+    const [agentObjects, toolObjects, knowledgeScopes] = await Promise.all([
       listOpenFgaObjects({
         user: `service_account:${id}`,
         relation: "can_use",
@@ -97,11 +101,7 @@ export async function GET(_request: Request, context: RouteContext) {
         relation: "can_call",
         type: "tool",
       }),
-      listOpenFgaObjects({
-        user: `service_account:${id}`,
-        relation: "can_read",
-        type: "data_source",
-      }),
+      listDirectServiceAccountKnowledgeScopes(`service_account:${id}`),
     ]);
 
     const scopes = [
@@ -113,10 +113,7 @@ export async function GET(_request: Request, context: RouteContext) {
         type: "tool" as const,
         ref: stripType(object, "tool"),
       })),
-      ...datasourceObjects.objects.map((object) => ({
-        type: "datasource" as const,
-        ref: stripType(object, "data_source"),
-      })),
+      ...knowledgeScopes,
     ];
 
     return NextResponse.json({
@@ -223,7 +220,7 @@ export async function DELETE(_request: Request, context: RouteContext) {
 
     // Enumerate every scope tuple from OpenFGA so we delete them all (the
     // snapshot is not authoritative — read live grants).
-    const [agentObjects, toolObjects, datasourceObjects] = await Promise.all([
+    const [agentObjects, toolObjects, knowledgeScopes] = await Promise.all([
       listOpenFgaObjects({
         user: saSubject,
         relation: "can_use",
@@ -234,11 +231,7 @@ export async function DELETE(_request: Request, context: RouteContext) {
         relation: "can_call",
         type: "tool",
       }),
-      listOpenFgaObjects({
-        user: saSubject,
-        relation: "can_read",
-        type: "data_source",
-      }),
+      listDirectServiceAccountKnowledgeScopes(saSubject),
     ]);
     const tuples: OpenFgaTupleKey[] = [
       {
@@ -260,11 +253,7 @@ export async function DELETE(_request: Request, context: RouteContext) {
         relation: "caller",
         object,
       })),
-      ...datasourceObjects.objects.map((object) => ({
-        user: saSubject,
-        relation: "reader",
-        object,
-      })),
+      ...knowledgeScopes.map((scope) => scopeWriteTuple(scope, saSubject)),
     ];
 
     // Ordering rationale (FR-018): kill the CREDENTIAL first. The primary

@@ -28,6 +28,7 @@ const mockCheckOpenFgaTuple = jest.fn();
 const mockWriteOpenFgaTuples = jest.fn();
 const mockDeleteExactOpenFgaTuples = jest.fn();
 const mockListOpenFgaObjects = jest.fn();
+const mockReadOpenFgaTuples = jest.fn();
 jest.mock("@/lib/authz", () => ({
   reconcileTupleDiff: (diff: { writes: unknown[]; deletes: unknown[] }) =>
     diff.writes.length > 0
@@ -37,6 +38,7 @@ jest.mock("@/lib/authz", () => ({
 jest.mock("@/lib/rbac/openfga", () => ({
   checkOpenFgaTuple: (...args: unknown[]) => mockCheckOpenFgaTuple(...args),
   listOpenFgaObjects: (...args: unknown[]) => mockListOpenFgaObjects(...args),
+  readOpenFgaTuples: (...args: unknown[]) => mockReadOpenFgaTuples(...args),
 }));
 
 const mockLogAudit = jest.fn();
@@ -54,7 +56,8 @@ jest.mock("@/lib/service-accounts", () => ({
 
 const mockFindAgentVisibilities = jest.fn();
 jest.mock("@/lib/dynamic-agent-visibility", () => ({
-  findAgentVisibilities: (...args: unknown[]) => mockFindAgentVisibilities(...args),
+  findAgentVisibilities: (...args: unknown[]) =>
+    mockFindAgentVisibilities(...args),
 }));
 
 jest.mock("@/lib/rbac/organization", () => ({
@@ -114,6 +117,10 @@ beforeEach(() => {
   });
   // refreshSnapshot reads current tuples + the prior doc.
   mockListOpenFgaObjects.mockResolvedValue({ objects: [] });
+  mockReadOpenFgaTuples.mockResolvedValue({
+    tuples: [],
+    continuationToken: undefined,
+  });
   mockGetBySub.mockResolvedValue({ sa_sub: SA_ID, scopes_snapshot: [] });
   mockUpdateScopesSnapshot.mockResolvedValue(true);
   // Default: no agent is global.
@@ -183,6 +190,32 @@ describe("POST .../[id]/scopes (add)", () => {
           user: `service_account:${SA_ID}`,
           relation: "reader",
           object: "data_source:source-a",
+        },
+        {
+          user: `service_account:${SA_ID}`,
+          relation: "searcher",
+          object: "organization:example-org",
+        },
+      ],
+      deletes: [],
+    });
+  });
+
+  it("adds a held collection and its search baseline", async () => {
+    manageableWithHeld(new Set(["can_read rag_collection:platform-rag"]));
+
+    const res = await POST(
+      scopeRequest({ type: "collection", ref: "platform-rag" }),
+      ctx(),
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
+      writes: [
+        {
+          user: `service_account:${SA_ID}`,
+          relation: "reader",
+          object: "rag_collection:platform-rag",
         },
         {
           user: `service_account:${SA_ID}`,
@@ -329,9 +362,14 @@ describe("DELETE .../[id]/scopes (remove)", () => {
     // The agent is currently shared with Everyone — its unlinked-SA grant is
     // owned by the agent's visibility, not by an explicit panel scope, so the
     // panel must refuse to remove it (removing it would silently revert).
-    mockFindAgentVisibilities.mockResolvedValue(new Map([["default", "global"]]));
+    mockFindAgentVisibilities.mockResolvedValue(
+      new Map([["default", "global"]]),
+    );
 
-    const res = await DELETE(scopeRequest({ type: "agent", ref: "default" }), ctx());
+    const res = await DELETE(
+      scopeRequest({ type: "agent", ref: "default" }),
+      ctx(),
+    );
     expect(res.status).toBe(409);
     const body = await res.json();
     expect(body.success).toBe(false);
@@ -341,20 +379,40 @@ describe("DELETE .../[id]/scopes (remove)", () => {
 
   it("still removes an agent scope when the agent is NOT global", async () => {
     manageableWithHeld(new Set());
-    mockFindAgentVisibilities.mockResolvedValue(new Map([["incident-resolver", "team"]]));
+    mockFindAgentVisibilities.mockResolvedValue(
+      new Map([["incident-resolver", "team"]]),
+    );
 
-    const res = await DELETE(scopeRequest({ type: "agent", ref: "incident-resolver" }), ctx());
+    const res = await DELETE(
+      scopeRequest({ type: "agent", ref: "incident-resolver" }),
+      ctx(),
+    );
     expect(res.status).toBe(200);
     expect(mockDeleteExactOpenFgaTuples).toHaveBeenCalledWith([
-      { user: `service_account:${SA_ID}`, relation: "user", object: "agent:incident-resolver" },
+      {
+        user: `service_account:${SA_ID}`,
+        relation: "user",
+        object: "agent:incident-resolver",
+      },
     ]);
   });
 
   it("removing the last datasource also removes the hidden search baseline", async () => {
     manageableWithHeld(new Set());
-    mockListOpenFgaObjects
-      .mockResolvedValueOnce({ objects: ["data_source:source-a"] })
-      .mockResolvedValue({ objects: [] });
+    mockReadOpenFgaTuples
+      .mockResolvedValueOnce({
+        tuples: [
+          {
+            key: {
+              user: `service_account:${SA_ID}`,
+              relation: "reader",
+              object: "data_source:source-a",
+            },
+          },
+        ],
+        continuationToken: undefined,
+      })
+      .mockResolvedValue({ tuples: [], continuationToken: undefined });
 
     const res = await DELETE(
       scopeRequest({ type: "datasource", ref: "source-a" }),
@@ -378,11 +436,27 @@ describe("DELETE .../[id]/scopes (remove)", () => {
 
   it("retains the search baseline while another datasource remains", async () => {
     manageableWithHeld(new Set());
-    mockListOpenFgaObjects
+    mockReadOpenFgaTuples
       .mockResolvedValueOnce({
-        objects: ["data_source:source-a", "data_source:source-b"],
+        tuples: [
+          {
+            key: {
+              user: `service_account:${SA_ID}`,
+              relation: "reader",
+              object: "data_source:source-a",
+            },
+          },
+          {
+            key: {
+              user: `service_account:${SA_ID}`,
+              relation: "reader",
+              object: "data_source:source-b",
+            },
+          },
+        ],
+        continuationToken: undefined,
       })
-      .mockResolvedValue({ objects: [] });
+      .mockResolvedValue({ tuples: [], continuationToken: undefined });
 
     const res = await DELETE(
       scopeRequest({ type: "datasource", ref: "source-a" }),
@@ -395,6 +469,82 @@ describe("DELETE .../[id]/scopes (remove)", () => {
         user: `service_account:${SA_ID}`,
         relation: "reader",
         object: "data_source:source-a",
+      },
+    ]);
+  });
+
+  it("retains the search baseline while a collection remains", async () => {
+    manageableWithHeld(new Set());
+    mockReadOpenFgaTuples
+      .mockResolvedValueOnce({
+        tuples: [
+          {
+            key: {
+              user: `service_account:${SA_ID}`,
+              relation: "reader",
+              object: "data_source:source-a",
+            },
+          },
+          {
+            key: {
+              user: `service_account:${SA_ID}`,
+              relation: "reader",
+              object: "rag_collection:platform-rag",
+            },
+          },
+        ],
+        continuationToken: undefined,
+      })
+      .mockResolvedValue({ tuples: [], continuationToken: undefined });
+
+    const res = await DELETE(
+      scopeRequest({ type: "datasource", ref: "source-a" }),
+      ctx(),
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockDeleteExactOpenFgaTuples).toHaveBeenCalledWith([
+      {
+        user: `service_account:${SA_ID}`,
+        relation: "reader",
+        object: "data_source:source-a",
+      },
+    ]);
+  });
+
+  it("removing the last collection also removes the search baseline", async () => {
+    manageableWithHeld(new Set());
+    mockReadOpenFgaTuples
+      .mockResolvedValueOnce({
+        tuples: [
+          {
+            key: {
+              user: `service_account:${SA_ID}`,
+              relation: "reader",
+              object: "rag_collection:platform-rag",
+            },
+          },
+        ],
+        continuationToken: undefined,
+      })
+      .mockResolvedValue({ tuples: [], continuationToken: undefined });
+
+    const res = await DELETE(
+      scopeRequest({ type: "collection", ref: "platform-rag" }),
+      ctx(),
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockDeleteExactOpenFgaTuples).toHaveBeenCalledWith([
+      {
+        user: `service_account:${SA_ID}`,
+        relation: "reader",
+        object: "rag_collection:platform-rag",
+      },
+      {
+        user: `service_account:${SA_ID}`,
+        relation: "searcher",
+        object: "organization:example-org",
       },
     ]);
   });
@@ -422,6 +572,18 @@ describe("refreshSnapshot self-heal (global agents are visibility-owned)", () =>
         ["incident-resolver", "team"],
       ]),
     );
+    mockReadOpenFgaTuples.mockResolvedValue({
+      tuples: [
+        {
+          key: {
+            user: `service_account:${SA_ID}`,
+            relation: "reader",
+            object: "data_source:source-a",
+          },
+        },
+      ],
+      continuationToken: undefined,
+    });
     mockGetBySub.mockResolvedValue({ sa_sub: SA_ID, scopes_snapshot: [] });
 
     const res = await POST(

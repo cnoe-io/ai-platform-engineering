@@ -30,11 +30,13 @@ jest.mock("@/lib/auth-config", () => ({
 
 const mockCheckOpenFgaTuple = jest.fn();
 const mockListOpenFgaObjects = jest.fn();
+const mockReadOpenFgaTuples = jest.fn();
 const mockWriteOpenFgaTuples = jest.fn();
 const mockDeleteExactOpenFgaTuples = jest.fn();
 jest.mock("@/lib/rbac/openfga", () => ({
   checkOpenFgaTuple: (...args: unknown[]) => mockCheckOpenFgaTuple(...args),
   listOpenFgaObjects: (...args: unknown[]) => mockListOpenFgaObjects(...args),
+  readOpenFgaTuples: (...args: unknown[]) => mockReadOpenFgaTuples(...args),
   writeOpenFgaTuples: (...args: unknown[]) => mockWriteOpenFgaTuples(...args),
   deleteExactOpenFgaTuples: (...args: unknown[]) => mockDeleteExactOpenFgaTuples(...args),
 }));
@@ -103,6 +105,10 @@ beforeEach(() => {
   mockWriteOpenFgaTuples.mockResolvedValue({ enabled: true, writes: 1, deletes: 0 });
   mockDeleteExactOpenFgaTuples.mockResolvedValue({ enabled: true, writes: 0, deletes: 1 });
   mockListOpenFgaObjects.mockResolvedValue({ objects: [] });
+  mockReadOpenFgaTuples.mockResolvedValue({
+    tuples: [],
+    continuationToken: undefined,
+  });
   mockUpdateScopesSnapshot.mockResolvedValue(true);
   mockUpdateStatus.mockResolvedValue(true);
   mockGetBySub.mockResolvedValue({

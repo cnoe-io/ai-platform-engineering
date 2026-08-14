@@ -255,6 +255,45 @@ describe("POST /api/admin/service-accounts", () => {
     );
   });
 
+  it("grants a held collection without expanding its datasources", async () => {
+    allowMembershipAndScopes(new Set(["can_read rag_collection:platform-rag"]));
+
+    const res = await POST(
+      postRequest({
+        name: "collection-reader",
+        owning_team_id: "team-example",
+        scopes: [{ type: "collection", ref: "platform-rag" }],
+      }),
+    );
+
+    expect(res.status).toBe(201);
+    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
+      writes: expect.arrayContaining([
+        {
+          user: "service_account:sa-sub-1",
+          relation: "reader",
+          object: "rag_collection:platform-rag",
+        },
+        {
+          user: "service_account:sa-sub-1",
+          relation: "searcher",
+          object: "organization:example-org",
+        },
+      ]),
+      deletes: [],
+    });
+    expect(mockCreateServiceAccountDoc).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scopes_snapshot: [
+          expect.objectContaining({
+            type: "collection",
+            ref: "platform-rag",
+          }),
+        ],
+      }),
+    );
+  });
+
   it("lets an organization admin create with a datasource from the full catalog", async () => {
     allowMembershipAndScopes(new Set());
     mockHasOrganizationAdmin.mockResolvedValue(true);
