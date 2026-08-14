@@ -51,7 +51,7 @@ it("shows unread approval outcomes and marks one read when opened", async () => 
   fireEvent.click(await screen.findByText("Request rejected"));
 
   expect(mockPush).toHaveBeenCalledWith(
-    "/admin?cat=security&tab=approvals&view=history",
+    "/admin/security/approvals?view=history",
   );
   await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
     "/api/notifications/notification-primary",

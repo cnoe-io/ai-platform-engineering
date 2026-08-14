@@ -54,6 +54,20 @@ function unwrapPage(value: unknown): InAppNotificationPage {
   };
 }
 
+function currentNotificationHref(href: string): string {
+  const legacyPrefix = "/admin?";
+  if (!href.startsWith(legacyPrefix)) return href;
+
+  const params = new URLSearchParams(href.slice(legacyPrefix.length));
+  if (params.get("cat") !== "security" || params.get("tab") !== "approvals") {
+    return href;
+  }
+  params.delete("cat");
+  params.delete("tab");
+  const query = params.toString();
+  return query ? `/admin/security/approvals?${query}` : "/admin/security/approvals";
+}
+
 export function NotificationBell({ enabled }: { enabled: boolean }) {
   const router = useRouter();
   const { hasUnsavedChanges, requestNavigation } = useUnsavedChangesStore();
@@ -122,8 +136,9 @@ export function NotificationBell({ enabled }: { enabled: boolean }) {
     void markRead(notification.id);
     setOpen(false);
     if (!notification.href) return;
-    if (hasUnsavedChanges) requestNavigation(notification.href);
-    else router.push(notification.href);
+    const href = currentNotificationHref(notification.href);
+    if (hasUnsavedChanges) requestNavigation(href);
+    else router.push(href);
   };
 
   const markAllRead = async () => {

@@ -428,25 +428,18 @@ function ApplicationBrand({
         width={48}
       />
       {!collapsed ? (
-        <>
-          <span className="brand-lockup relative min-w-0">
-            <span
-              aria-hidden="true"
-              className="brand-name truncate text-2xl font-bold"
-            >
-              {Array.from(config.appName).map((letter,index) => (
-                <span className="brand-letter" key={`${letter}-${index}`}>
-                  {letter === " " ? "\u00a0" : letter}
-                </span>
-              ))}
-            </span>
+        <span className="brand-lockup relative min-w-0">
+          <span
+            aria-hidden="true"
+            className="brand-name truncate text-2xl font-bold"
+          >
+            {Array.from(config.appName).map((letter,index) => (
+              <span className="brand-letter" key={`${letter}-${index}`}>
+                {letter === " " ? "\u00a0" : letter}
+              </span>
+            ))}
           </span>
-          {config.envBadge ? (
-            <span className="absolute right-2 rounded border border-amber-500/30 bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-500">
-              {config.envBadge}
-            </span>
-          ) : null}
-        </>
+        </span>
       ) : null}
     </GuardedNavigationLink>
   );

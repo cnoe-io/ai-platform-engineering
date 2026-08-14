@@ -1032,6 +1032,9 @@ describe('Admin Dashboard Page', () => {
       expect(
         within(navigation).queryByRole('link', { name: /^Permissions Tool$/i }),
       ).not.toBeInTheDocument();
+      for (const subgroup of ['Policy', 'Authorization', 'Audit', 'Identity & maintenance']) {
+        expect(within(navigation).queryByText(subgroup)).not.toBeInTheDocument();
+      }
     });
 
     it('does not show Keycloak role badges for listed users', async () => {

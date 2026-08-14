@@ -346,6 +346,14 @@ export function AppHeader() {
 
         {/* Personalization, Links & User */}
         <div className="flex items-center gap-1">
+          {config.envBadge ? (
+            <span
+              className="mr-1 inline-flex shrink-0 items-center rounded-full border border-amber-500/40 bg-amber-500/15 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-400"
+              title={`${config.envBadge} environment`}
+            >
+              {config.envBadge}
+            </span>
+          ) : null}
           <SettingsPanel />
           {config.docsUrl && (
             <Button variant="ghost" size="icon" className="h-8 w-8" asChild>

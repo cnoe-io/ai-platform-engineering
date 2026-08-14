@@ -104,6 +104,7 @@ jest.mock('@/store/chat-store', () => ({
 
 let mockStorageMode = 'mongodb'
 let mockRagEnabled = false
+let mockEnvBadge = ''
 
 const mockReleasePrompt = {
   open: false,
@@ -164,7 +165,7 @@ jest.mock('@/lib/config', () => ({
     docsUrl: 'https://docs.example.com',
     githubUrl: 'https://github.com/example',
     ssoEnabled: true,
-    envBadge: '',
+    get envBadge() { return mockEnvBadge },
     workflowsEnabled: false,
     dynamicAgentsEnabled: true,
     schedulerEnabled: false,
@@ -181,7 +182,7 @@ jest.mock('@/lib/config', () => ({
     const configs: Record<string, unknown> = {
       appName: 'Test App',
       ssoEnabled: true,
-      envBadge: '',
+      get envBadge() { return mockEnvBadge },
       get storageMode() { return mockStorageMode },
       get ragEnabled() { return mockRagEnabled },
     }
@@ -380,6 +381,7 @@ describe('AppHeader — application chrome', () => {
     mockIsAdmin = false
     mockCanAccessDynamicAgents = false
     mockRagEnabled = false
+    mockEnvBadge = ''
     mockStreamingConversations = new Map()
     mockUnviewedConversations = new Set()
     mockInputRequiredConversations = new Set()
@@ -608,6 +610,16 @@ describe('AppHeader — application chrome', () => {
       expect(screen.queryByText('Preview')).not.toBeInTheDocument()
       expect(screen.queryByText('Dev')).not.toBeInTheDocument()
       expect(screen.queryByText('Prod')).not.toBeInTheDocument()
+    })
+
+    it('shows the environment badge beside the appearance control', () => {
+      mockEnvBadge = 'Preview'
+      render(<AppHeader />)
+
+      const badge = screen.getByText('Preview')
+      const settingsPanel = screen.getByTestId('settings-panel')
+      expect(within(applicationNavigation()).queryByText('Preview')).not.toBeInTheDocument()
+      expect(badge.nextElementSibling).toBe(settingsPanel)
     })
   })
 

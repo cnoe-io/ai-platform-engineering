@@ -57,7 +57,7 @@ async function notifyPublicationRequestCreated(
       recipientOrganizationAdmins: true,
       title: "Approval needed",
       message: `${actorDisplayName(request.requester)} submitted a publication request.`,
-      href: `/admin?cat=security&tab=approvals&request=${encodeURIComponent(request._id)}`,
+      href: `/admin/security/approvals?request=${encodeURIComponent(request._id)}`,
       severity: "warning",
     });
   } catch (error) {
@@ -81,7 +81,7 @@ async function notifyPublicationRequestDecision(
       message: decision === "rejected" && request.decision_note?.trim()
         ? `${request.resource.label} was rejected by ${actorDisplayName(actor)}. Reason: ${request.decision_note.trim()}`
         : `${request.resource.label} was ${decision} by ${actorDisplayName(actor)}.`,
-      href: `/admin?cat=security&tab=approvals&view=history&request=${encodeURIComponent(request._id)}`,
+      href: `/admin/security/approvals?view=history&request=${encodeURIComponent(request._id)}`,
       severity: decision === "approved" ? "success" : "error",
     });
   } catch (error) {

@@ -21,6 +21,7 @@ const mockCheckOpenFgaTuple = jest.fn();
 const mockListOpenFgaObjects = jest.fn();
 const mockReconcileTupleDiff = jest.fn();
 const mockGetPublicationApprovalSettings = jest.fn();
+const mockCreateInAppNotification = jest.fn().mockResolvedValue(undefined);
 
 jest.mock("@/lib/mongodb", () => ({
   getCollection: (...args: unknown[]) => mockGetCollection(...args),
@@ -32,7 +33,7 @@ jest.mock("@/lib/authz", () => ({
 
 jest.mock("@/lib/in-app-notifications.server", () => ({
   archiveInAppNotifications: jest.fn().mockResolvedValue(undefined),
-  createInAppNotification: jest.fn().mockResolvedValue(undefined),
+  createInAppNotification: (...args: unknown[]) => mockCreateInAppNotification(...args),
 }));
 
 jest.mock("@/lib/rbac/openfga", () => ({
@@ -368,6 +369,11 @@ describe("publication request lifecycle", () => {
       },
       expect.objectContaining({
         $set: expect.objectContaining({ status: "superseded" }),
+      }),
+    );
+    expect(mockCreateInAppNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        href: `/admin/security/approvals?request=${encodeURIComponent(created._id)}`,
       }),
     );
   });
