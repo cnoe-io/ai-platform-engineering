@@ -77,17 +77,19 @@ interface SecretScopeDocument {
   sharedWithTeams?: string[];
 }
 
-function normalizedMcpServerScope(server: MCPServerConfig): MCPServerConfig {
+function normalizedMcpServerVisibility(
+  server: MCPServerConfig,
+): "private" | "team" | "global" {
   if (
     server.visibility === "private"
     || server.visibility === "team"
     || server.visibility === "global"
-  ) return server;
-  const personalLegacyServer = !server.config_driven
-    && !normalizeString(server.owner_team_slug)
-    && server.owner_subject_kind !== "service_account"
-    && Boolean(normalizeString(server.owner_subject));
-  return { ...server, visibility: personalLegacyServer ? "private" : "team" };
+  ) return server.visibility;
+  return "global";
+}
+
+function normalizedMcpServerScope(server: MCPServerConfig): MCPServerConfig {
+  return { ...server, visibility: normalizedMcpServerVisibility(server) };
 }
 
 async function validateCredentialScopes(input: {
@@ -589,18 +591,17 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
       return successResponse(server);
     }
 
+    const previousVisibility = normalizedMcpServerVisibility(server);
     const nextVisibility: "private" | "team" | "global" = updateData.visibility === "global"
       ? "global"
       : updateData.visibility === "team"
         ? "team"
         : updateData.visibility === "private"
           ? "private"
-          : server.visibility === "global"
-            ? "global"
-            : server.visibility === "private" ? "private" : "team";
+          : previousVisibility;
     if (
       nextVisibility === "private"
-      && server.visibility !== "private"
+      && previousVisibility !== "private"
       && !isPrivateResourcesEnabled()
     ) {
       throw new ApiError("Private MCP servers are not enabled for this deployment", 409, "PRIVATE_RESOURCES_DISABLED");
@@ -664,6 +665,8 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
       ?? (server.owner_subject === ownerSubject && session.isServiceAccount === true
         ? "service_account"
         : "user");
+    const previousPersonalOwnerAccess = previousVisibility === "private"
+      || (server.visibility === undefined && Boolean(server.owner_subject));
     await validateCredentialScopes({
       visibility: nextVisibility,
       ownerSubject: nextVisibility === "private" ? ownerSubject : storedOwnerSubject,
@@ -674,18 +677,18 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
         serverId: id,
         ownerSubject: nextVisibility === "private"
           ? ownerSubject
-          : server.visibility === "private" ? storedOwnerSubject : null,
+          : previousPersonalOwnerAccess ? storedOwnerSubject : null,
         ownerSubjectKind: nextVisibility === "private" ? "user" : storedOwnerSubjectKind,
         ownerTeamSlug: nextOwnerTeamSlug,
         previousOwnerTeamSlug: server.owner_team_slug,
         creatorSubject: server.creator_subject
           ?? (storedOwnerSubjectKind === "user" ? storedOwnerSubject : null),
         personalOwnerAccess: nextVisibility === "private",
-        previousPersonalOwnerAccess: server.visibility === "private",
+        previousPersonalOwnerAccess,
         nextSharedTeamSlugs,
         previousSharedTeamSlugs: server.shared_with_teams ?? [],
         globalOrganizationAccess: nextVisibility === "global",
-        previousGlobalOrganizationAccess: server.visibility === "global",
+        previousGlobalOrganizationAccess: previousVisibility === "global",
       },
       {
         caller: { type: session.isServiceAccount === true ? "service_account" : "user", id: ownerSubject },

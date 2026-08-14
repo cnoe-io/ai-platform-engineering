@@ -300,6 +300,51 @@ describe("POST /api/mcp-servers — endpoint normalisation", () => {
 });
 
 describe("PUT /api/mcp-servers?id=<id> — endpoint normalisation", () => {
+  it("keeps an unclassified legacy server global when it is edited", async () => {
+    const existing = {
+      _id: "mcp-legacy",
+      name: "Legacy",
+      transport: "stdio",
+      command: "example-command",
+      config_driven: false,
+      owner_subject: "alice-sub",
+    };
+    mockFindOne.mockResolvedValue(existing);
+    mockFindOneAndUpdate.mockImplementation(async (_filter, update) => ({
+      ...existing,
+      ...(update as { $set: Record<string, unknown> }).$set,
+    }));
+    const { PUT } = await import("../route");
+
+    const response = await PUT(
+      request("/api/mcp-servers?id=mcp-legacy", {
+        method: "PUT",
+        body: JSON.stringify({ name: "Legacy renamed" }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockReconcileMcpServerRelationships).toHaveBeenCalledWith(
+      expect.objectContaining({
+        serverId: "mcp-legacy",
+        ownerSubject: "alice-sub",
+        personalOwnerAccess: false,
+        previousPersonalOwnerAccess: true,
+        globalOrganizationAccess: true,
+        previousGlobalOrganizationAccess: true,
+      }),
+      expect.any(Object),
+    );
+    expect(mockFindOneAndUpdate).toHaveBeenCalledWith(
+      { _id: "mcp-legacy" },
+      expect.objectContaining({
+        $set: expect.objectContaining({ visibility: "global" }),
+        $unset: expect.objectContaining({ owner_subject: "" }),
+      }),
+      { returnDocument: "after" },
+    );
+  });
+
   it("repairs a stale bare gateway endpoint when an admin re-saves the row", async () => {
     // Existing legacy row in Mongo with the broken bare endpoint.
     const existing = {

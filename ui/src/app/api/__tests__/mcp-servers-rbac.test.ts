@@ -125,7 +125,7 @@ describe("MCP server per-resource RBAC", () => {
       {
         _id: "mcp-visible",
         name: "Visible",
-        visibility: "team",
+        visibility: "global",
         permissions: { can_manage: true, can_invoke: true, can_discover: true },
       },
     ]);
@@ -193,7 +193,7 @@ describe("MCP server per-resource RBAC", () => {
         _id: "mcp-visible",
         name: "Visible",
         endpoint: "http://mcp-visible:8000/mcp",
-        visibility: "team",
+        visibility: "global",
         permissions: { can_manage: true, can_invoke: true, can_discover: true },
       },
     ]);
@@ -240,7 +240,7 @@ describe("MCP server per-resource RBAC", () => {
     expect(body.data.items[0]).toEqual({
       _id: "mcp-server-10",
       name: "Server 10",
-      visibility: "team",
+      visibility: "global",
       permissions: { can_manage: true, can_invoke: true, can_discover: true },
     });
     expect(body.data.total).toBe(15);
@@ -272,7 +272,7 @@ describe("MCP server per-resource RBAC", () => {
       {
         _id: "knowledge-base",
         name: "Knowledge Base",
-        visibility: "team",
+        visibility: "global",
         permissions: { can_manage: true, can_invoke: true, can_discover: true },
       },
     ]);

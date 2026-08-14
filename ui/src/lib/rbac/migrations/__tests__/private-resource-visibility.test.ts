@@ -24,18 +24,22 @@ describe("private resource visibility migration", () => {
   beforeEach(() => jest.clearAllMocks());
 
   it.each([
-    [{ _id: "mcp-personal", owner_subject: "user-sub" }, "private"],
-    [{ _id: "mcp-team", owner_subject: "user-sub", owner_team_slug: "primary" }, "team"],
+    [{ _id: "mcp-personal", owner_subject: "user-sub" }, "global"],
+    [{ _id: "mcp-team", owner_subject: "user-sub", owner_team_slug: "primary" }, "global"],
     [{ _id: "mcp-config", config_driven: true }, "global"],
     [{ _id: "mcp-discovered", agentgateway_discovered: true }, "global"],
-    [{ _id: "mcp-service", owner_subject: "service-sub", owner_subject_kind: "service_account" }, "team"],
+    [{ _id: "mcp-service", owner_subject: "service-sub", owner_subject_kind: "service_account" }, "global"],
+    [{ _id: "mcp-orphan" }, "global"],
   ] as const)("classifies legacy MCP scope %#", (doc, expected) => {
     expect(classifyLegacyMcpVisibility(doc)).toBe(expected);
   });
 
-  it("requires manual classification when a mutable MCP has no stable owner", () => {
-    expect(classifyLegacyMcpVisibility({ _id: "mcp-orphan" })).toBeNull();
-  });
+  it.each(["private", "team", "global"] as const)(
+    "preserves an explicit %s MCP visibility",
+    (visibility) => {
+      expect(classifyLegacyMcpVisibility({ _id: `mcp-${visibility}`, visibility })).toBe(visibility);
+    },
+  );
 
   it.each([
     [{ id: "private-secret", owner: { type: "user", id: "user-sub" }, sharedWithTeams: [] }, "private"],
@@ -45,13 +49,16 @@ describe("private resource visibility migration", () => {
     expect(classifyLegacySecretVisibility(doc)).toBe(expected);
   });
 
-  it("plans private, team-shared, global platform, and unresolved rows without mutating them", () => {
+  it("plans every legacy MCP server as global without mutating it", () => {
     const plan = derivePrivateResourceVisibilityPlan({
       mcpServers: [
         { _id: "mcp-private", owner_subject: "user-sub" },
         { _id: "mcp-shared", owner_subject: "user-sub", owner_team_slug: "primary" },
         { _id: "mcp-platform", agentgateway_discovered: true },
         { _id: "mcp-orphan" },
+        { _id: "mcp-explicit-private", visibility: "private" },
+        { _id: "mcp-explicit-team", visibility: "team" },
+        { _id: "mcp-explicit-global", visibility: "global" },
       ],
       secrets: [
         { id: "secret-private", owner: { type: "user", id: "user-sub" }, sharedWithTeams: [] },
@@ -60,19 +67,20 @@ describe("private resource visibility migration", () => {
     });
 
     expect(plan.mcp_updates).toEqual([
-      { id: "mcp-private", visibility: "private" },
-      { id: "mcp-shared", visibility: "team" },
+      { id: "mcp-private", visibility: "global" },
+      { id: "mcp-shared", visibility: "global" },
       { id: "mcp-platform", visibility: "global" },
+      { id: "mcp-orphan", visibility: "global" },
     ]);
     expect(plan.secret_updates).toEqual([
       { id: "secret-private", visibility: "private" },
       { id: "secret-shared", visibility: "team" },
     ]);
-    expect(plan.counts.unresolved_mcp_servers).toBe(1);
-    expect(plan.warnings[0]).toContain("mcp-orphan");
+    expect(plan.counts.unresolved_mcp_servers).toBe(0);
+    expect(plan.warnings).toEqual([]);
   });
 
-  it("reconciles through CAS before persisting private and team classifications", async () => {
+  it("reconciles legacy owner and team grants to global through one CAS diff", async () => {
     const mcpUpdateOne = jest.fn().mockResolvedValue({ modifiedCount: 1 });
     const secretUpdateOne = jest.fn().mockResolvedValue({ modifiedCount: 1 });
     const mcpServers = [
@@ -110,22 +118,35 @@ describe("private resource visibility migration", () => {
     });
 
     expect(reconcileMcpServerRelationships).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        serverId: "mcp-private",
+        ownerSubject: "private-owner",
+        personalOwnerAccess: false,
+        previousPersonalOwnerAccess: true,
+        globalOrganizationAccess: true,
+      }),
+      expect.objectContaining({ source: "private_resource_visibility_migration" }),
+    );
+    expect(reconcileMcpServerRelationships).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({
         serverId: "mcp-team",
         ownerSubject: "legacy-owner",
-        ownerTeamSlug: "primary",
+        previousOwnerTeamSlug: "primary",
         personalOwnerAccess: false,
         previousPersonalOwnerAccess: true,
-        nextSharedTeamSlugs: ["secondary"],
+        nextSharedTeamSlugs: [],
+        previousSharedTeamSlugs: ["secondary"],
+        globalOrganizationAccess: true,
       }),
       expect.objectContaining({ source: "private_resource_visibility_migration" }),
     );
     expect(mcpUpdateOne).toHaveBeenCalledWith(
       { _id: "mcp-team" },
       {
-        $set: { visibility: "team" },
-        $unset: { owner_subject: "", owner_subject_kind: "" },
+        $set: { visibility: "global", shared_with_teams: [] },
+        $unset: { owner_subject: "", owner_subject_kind: "", owner_team_slug: "" },
       },
     );
     expect(reconcileSecretRefOwnerRelationships).toHaveBeenCalledWith({

@@ -35,18 +35,14 @@ export type MigratedVisibility = "private" | "team" | "global";
 
 export function classifyLegacyMcpVisibility(
   doc: LegacyMcpScopeDocument,
-): MigratedVisibility | null {
+): MigratedVisibility {
   if (doc.visibility === "private" || doc.visibility === "team" || doc.visibility === "global") {
     return doc.visibility;
   }
-  // Platform-managed MCP servers already carry organization-wide OpenFGA
-  // grants. Preserve that audience instead of treating their intentionally
-  // absent personal/team owner as an ambiguous orphan.
-  if (doc.config_driven || doc.agentgateway_discovered) return "global";
-  if (doc.owner_team_slug?.trim()) return "team";
-  if (doc.owner_subject_kind === "service_account") return "team";
-  if (doc.owner_subject?.trim()) return "private";
-  return null;
+  // Before explicit visibility existed, every MCP server was available to the
+  // whole organization. Preserve that audience for every legacy row instead
+  // of interpreting stale owner/team metadata as a request to narrow access.
+  return "global";
 }
 
 export function classifyLegacySecretVisibility(
@@ -78,10 +74,6 @@ export function derivePrivateResourceVisibilityPlan(input: {
       || server.visibility === "global"
     ) continue;
     const visibility = classifyLegacyMcpVisibility(server);
-    if (!visibility) {
-      warnings.push(`MCP server ${server._id} has no stable owner or owner team; manual classification is required.`);
-      continue;
-    }
     mcpUpdates.push({ id: server._id, visibility });
   }
 
@@ -168,7 +160,28 @@ export async function applyPrivateResourceVisibilityMigration(input: {
     const ownerSubject = doc.owner_subject?.trim() || null;
     const ownerTeamSlug = doc.owner_team_slug?.trim() || null;
     if (update.visibility === "global") {
-      await reconcileConfigDrivenMcpServerRelationships({ serverId: doc._id });
+      const previousSharedTeamSlugs = doc.shared_with_teams ?? [];
+      if (ownerSubject || ownerTeamSlug || previousSharedTeamSlugs.length > 0) {
+        await reconcileMcpServerRelationships({
+          serverId: doc._id,
+          ownerSubject,
+          ownerSubjectKind: doc.owner_subject_kind,
+          creatorSubject: doc.creator_subject?.trim() || ownerSubject,
+          personalOwnerAccess: false,
+          previousPersonalOwnerAccess: Boolean(ownerSubject),
+          previousOwnerTeamSlug: ownerTeamSlug,
+          nextSharedTeamSlugs: [],
+          previousSharedTeamSlugs,
+          globalOrganizationAccess: true,
+        }, {
+          caller: ownerSubject
+            ? { type: doc.owner_subject_kind === "service_account" ? "service_account" : "user", id: ownerSubject }
+            : undefined,
+          source: "private_resource_visibility_migration",
+        });
+      } else {
+        await reconcileConfigDrivenMcpServerRelationships({ serverId: doc._id });
+      }
     } else if (!doc.config_driven) {
       await reconcileMcpServerRelationships({
         serverId: doc._id,
