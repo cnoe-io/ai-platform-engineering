@@ -1,3 +1,5 @@
+import { parseVidcastEmbed } from "@/lib/tome/vidcast";
+
 const MAX_EMBEDDED_IMAGE_BYTES = 2 * 1024 * 1024;
 
 let mermaidInitialized = false;
@@ -26,7 +28,39 @@ export function renderTomeCodePreview(
   content: string,
   applyPreview: (value: null | string | HTMLElement) => void,
 ): null | void {
-  if (language.trim().toLowerCase() !== "mermaid" || !content.trim()) return null;
+  const normalizedLanguage = language.trim().toLowerCase();
+  if (normalizedLanguage === "vidcast") {
+    const parsed = parseVidcastEmbed(content);
+    if (parsed.ok === false) {
+      const node = document.createElement("div");
+      node.className = "tome-vidcast-error";
+      node.setAttribute("role", "alert");
+      node.textContent = `Could not embed Vidcast: ${parsed.error}`;
+      applyPreview(node);
+      return;
+    }
+
+    // Crepe sanitizes all preview markup and deliberately removes iframes.
+    // Emit inert data here; CrepeEditor re-validates it and creates the iframe
+    // after the sanitizer has completed.
+    const node = document.createElement("div");
+    node.className = "tome-vidcast-preview";
+    node.dataset.vidcastSrc = parsed.value.src;
+    node.dataset.vidcastTitle = parsed.value.title;
+    const frame = document.createElement("div");
+    frame.className = "tome-vidcast-frame";
+    const fallback = document.createElement("a");
+    fallback.className = "tome-vidcast-link";
+    fallback.href = parsed.value.watchUrl;
+    fallback.target = "_blank";
+    fallback.rel = "noopener noreferrer";
+    fallback.textContent = `Watch ${parsed.value.title} on Vidcast`;
+    node.append(frame, fallback);
+    applyPreview(node);
+    return;
+  }
+
+  if (normalizedLanguage !== "mermaid" || !content.trim()) return null;
 
   const renderId = `tome-mermaid-${mermaidRenderId++}`;
   void import("mermaid")
@@ -48,6 +82,40 @@ export function renderTomeCodePreview(
       node.setAttribute("role", "alert");
       node.textContent = `Could not render Mermaid diagram: ${message}`;
       applyPreview(node);
+    });
+}
+
+/** Create validated Vidcast iframes inside sanitized Crepe placeholders. */
+export function hydrateVidcastPreviews(root: ParentNode): void {
+  root
+    .querySelectorAll<HTMLElement>(
+      ".tome-vidcast-preview:not([data-vidcast-hydrated])",
+    )
+    .forEach((preview) => {
+      preview.dataset.vidcastHydrated = "true";
+      const parsed = parseVidcastEmbed(
+        [
+          `url: ${preview.dataset.vidcastSrc ?? ""}`,
+          `title: ${preview.dataset.vidcastTitle ?? "Vidcast video"}`,
+        ].join("\n"),
+      );
+      const frame = preview.querySelector<HTMLElement>(".tome-vidcast-frame");
+      if (!parsed.ok || !frame) {
+        preview.classList.add("tome-vidcast-error");
+        preview.setAttribute("role", "alert");
+        preview.textContent = "The Vidcast embed could not be loaded safely.";
+        return;
+      }
+
+      const iframe = document.createElement("iframe");
+      iframe.className = "tome-vidcast-iframe";
+      iframe.src = parsed.value.src;
+      iframe.title = parsed.value.title;
+      iframe.setAttribute("loading", "lazy");
+      iframe.setAttribute("allow", "fullscreen; autoplay; clipboard-write");
+      iframe.setAttribute("allowfullscreen", "");
+      iframe.setAttribute("referrerpolicy", "strict-origin-when-cross-origin");
+      frame.replaceChildren(iframe);
     });
 }
 

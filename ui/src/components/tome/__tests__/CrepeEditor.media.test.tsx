@@ -146,4 +146,27 @@ describe("CrepeEditor media configuration", () => {
     fireEvent.keyDown(document, { key: "Escape" });
     await waitFor(() => expect(dialog).not.toBeInTheDocument());
   });
+
+  it("hydrates sanitized Vidcast placeholders into allowlisted iframes", async () => {
+    const { container } = render(<CrepeEditor initialMarkdown="# Example" readonly />);
+    const host = container.querySelector(".milkdown-host") as HTMLDivElement;
+    host.innerHTML = [
+      '<div class="tome-vidcast-preview"',
+      ' data-vidcast-src="https://app.vidcast.io/share/embed/de4fc0eb-7146-4044-86a3-60c3cbd976a3"',
+      ' data-vidcast-title="Example video">',
+      '<div class="tome-vidcast-frame"></div>',
+      "</div>",
+    ].join("");
+
+    const iframe = await waitFor(() => {
+      const value = host.querySelector("iframe");
+      expect(value).toBeInTheDocument();
+      return value as HTMLIFrameElement;
+    });
+    expect(iframe).toHaveAttribute(
+      "src",
+      "https://app.vidcast.io/share/embed/de4fc0eb-7146-4044-86a3-60c3cbd976a3",
+    );
+    expect(iframe).toHaveAttribute("title", "Example video");
+  });
 });

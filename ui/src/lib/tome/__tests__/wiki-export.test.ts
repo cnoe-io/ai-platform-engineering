@@ -96,6 +96,39 @@ describe("Tome wiki export", () => {
     expect(markdown).not.toContain("agent-only source guidance");
   });
 
+  it("exports Vidcast blocks as safe links while preserving portable Markdown", () => {
+    const id = "de4fc0eb-7146-4044-86a3-60c3cbd976a3";
+    const vidcastPages = {
+      "demo.md": [
+        "---",
+        "title: Demo",
+        "kind: stable",
+        "---",
+        "# Demo",
+        "",
+        "```vidcast",
+        `url: https://app.vidcast.io/share/embed/${id}`,
+        "title: Example walkthrough",
+        "```",
+      ].join("\n"),
+    };
+    const document = buildWikiExportDocument({
+      projectName: "Example Project",
+      pages: vidcastPages,
+      tree: buildTree(vidcastPages),
+    });
+
+    const html = renderWikiHtml(document);
+    const markdown = renderWikiMarkdown(document);
+
+    expect(html).toContain('<aside class="video-link">');
+    expect(html).toContain("Example walkthrough");
+    expect(html).toContain(`href="https://app.vidcast.io/share/${id}"`);
+    expect(html).not.toContain("<iframe");
+    expect(markdown).toContain("```vidcast");
+    expect(markdown).toContain(`url: https://app.vidcast.io/share/embed/${id}`);
+  });
+
   it("generates an actual PDF buffer", async () => {
     const document = buildWikiExportDocument({
       projectName: "Example Project",

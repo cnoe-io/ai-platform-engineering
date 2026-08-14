@@ -61,6 +61,7 @@ const nextConfig: NextConfig = {
             "img-src 'self' data: blob: https:",
             "font-src 'self' data:",
             "connect-src 'self' wss: https:",
+            "frame-src 'self' https://app.vidcast.io",
             "frame-ancestors 'none'",
           ].join('; '),
         },

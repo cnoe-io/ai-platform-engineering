@@ -1,9 +1,12 @@
 import mermaid from "mermaid";
 
 import {
+  hydrateVidcastPreviews,
   imageFileToDataUrl,
   renderTomeCodePreview,
 } from "../editor-media";
+
+const VIDEO_ID = "de4fc0eb-7146-4044-86a3-60c3cbd976a3";
 
 jest.mock("mermaid", () => ({
   __esModule: true,
@@ -83,6 +86,55 @@ describe("TOME editor media", () => {
     expect(alert).toHaveAttribute("role", "alert");
     expect(alert.textContent).toContain("<img src=x");
     expect(alert.querySelector("img")).toBeNull();
+  });
+
+  it("renders and hydrates a validated Vidcast block", () => {
+    const applyPreview = jest.fn();
+
+    renderTomeCodePreview(
+      "vidcast",
+      [
+        `url: https://app.vidcast.io/share/embed/${VIDEO_ID}`,
+        "title: CAIPE Demo July 2026",
+      ].join("\n"),
+      applyPreview,
+    );
+
+    const root = document.createElement("div");
+    root.append(applyPreview.mock.calls[0]?.[0] as HTMLElement);
+    expect(root.querySelector("iframe")).toBeNull();
+
+    hydrateVidcastPreviews(root);
+
+    const iframe = root.querySelector("iframe");
+    expect(iframe).toHaveAttribute(
+      "src",
+      `https://app.vidcast.io/share/embed/${VIDEO_ID}`,
+    );
+    expect(iframe).toHaveAttribute("title", "CAIPE Demo July 2026");
+    expect(iframe).toHaveAttribute("loading", "lazy");
+    expect(iframe).toHaveAttribute("allow", "fullscreen; autoplay; clipboard-write");
+    expect(iframe).toHaveAttribute("allowfullscreen");
+    expect(root.querySelector(".tome-vidcast-link")).toHaveAttribute(
+      "href",
+      `https://app.vidcast.io/share/${VIDEO_ID}`,
+    );
+  });
+
+  it("shows a safe error instead of previewing an untrusted Vidcast URL", () => {
+    const applyPreview = jest.fn();
+
+    renderTomeCodePreview(
+      "vidcast",
+      "https://example.test/share/embed/de4fc0eb-7146-4044-86a3-60c3cbd976a3",
+      applyPreview,
+    );
+
+    const alert = applyPreview.mock.calls[0]?.[0] as HTMLElement;
+    expect(alert).toHaveClass("tome-vidcast-error");
+    expect(alert).toHaveAttribute("role", "alert");
+    expect(alert.textContent).toContain("app.vidcast.io");
+    expect(alert.querySelector("iframe")).toBeNull();
   });
 
   it("turns pasted images into persistent data URLs", async () => {
