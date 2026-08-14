@@ -485,6 +485,11 @@ describe("DELETE .../[id]/scopes (remove)", () => {
               object: "data_source:source-a",
             },
           },
+        ],
+        continuationToken: undefined,
+      })
+      .mockResolvedValueOnce({
+        tuples: [
           {
             key: {
               user: `service_account:${SA_ID}`,

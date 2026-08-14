@@ -196,34 +196,42 @@ export async function listDirectServiceAccountKnowledgeScopes(
   saSubject: string,
 ): Promise<ScopeRef[]> {
   const scopes = new Map<string, ScopeRef>();
-  let continuationToken: string | undefined;
+  const types = [
+    { scopeType: "datasource" as const, objectPrefix: "data_source:" },
+    { scopeType: "collection" as const, objectPrefix: "rag_collection:" },
+  ];
 
-  do {
-    const page = await readOpenFgaTuples({
-      tuple: { user: saSubject },
-      continuationToken,
-      pageSize: 100,
-    });
-    for (const { key } of page.tuples) {
-      let scope: ScopeRef | null = null;
-      if (key.relation === "reader" && key.object.startsWith("data_source:")) {
-        scope = {
-          type: "datasource",
-          ref: key.object.slice("data_source:".length),
-        };
-      } else if (
-        key.relation === "reader" &&
-        key.object.startsWith("rag_collection:")
-      ) {
-        scope = {
-          type: "collection",
-          ref: key.object.slice("rag_collection:".length),
-        };
+  for (const { scopeType, objectPrefix } of types) {
+    let continuationToken: string | undefined;
+    do {
+      // OpenFGA requires Read filters to include an object type. Reading each
+      // direct knowledge type separately also prevents collection-inherited
+      // datasource access from appearing as an explicit scope.
+      const page = await readOpenFgaTuples({
+        tuple: {
+          user: saSubject,
+          relation: "reader",
+          object: objectPrefix,
+        },
+        continuationToken,
+        pageSize: 100,
+      });
+      for (const { key } of page.tuples) {
+        if (
+          key.user !== saSubject ||
+          key.relation !== "reader" ||
+          !key.object.startsWith(objectPrefix)
+        ) {
+          continue;
+        }
+        const ref = key.object.slice(objectPrefix.length);
+        if (ref) {
+          scopes.set(`${scopeType}:${ref}`, { type: scopeType, ref });
+        }
       }
-      if (scope) scopes.set(`${scope.type}:${scope.ref}`, scope);
-    }
-    continuationToken = page.continuationToken;
-  } while (continuationToken);
+      continuationToken = page.continuationToken;
+    } while (continuationToken);
+  }
 
   return [...scopes.values()].sort((left, right) =>
     `${left.type}:${left.ref}`.localeCompare(`${right.type}:${right.ref}`),

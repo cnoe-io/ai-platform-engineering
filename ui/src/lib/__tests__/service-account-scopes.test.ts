@@ -8,12 +8,23 @@
  * bound; this is just a charset/shape filter.
  */
 
+const mockReadOpenFgaTuples = jest.fn();
+
+jest.mock("@/lib/rbac/openfga", () => ({
+  readOpenFgaTuples: (...args: unknown[]) => mockReadOpenFgaTuples(...args),
+}));
+
 import {
   isValidToolRef,
+  listDirectServiceAccountKnowledgeScopes,
   parseScope,
   scopeWriteTuple,
   type ScopeRef,
 } from "@/lib/service-account-scopes";
+
+beforeEach(() => {
+  mockReadOpenFgaTuples.mockReset();
+});
 
 describe("isValidToolRef", () => {
   it.each([
@@ -115,5 +126,60 @@ describe("scopeWriteTuple round-trips every accepted tool shape", () => {
     });
     // Prefix-strip recovers the exact ref.
     expect(tuple.object.slice("tool:".length)).toBe(ref);
+  });
+});
+
+describe("listDirectServiceAccountKnowledgeScopes", () => {
+  it("reads each object type explicitly and returns only direct reader tuples", async () => {
+    mockReadOpenFgaTuples.mockImplementation(
+      async (input: { tuple: { object: string } }) => ({
+        tuples:
+          input.tuple.object === "data_source:"
+            ? [
+                {
+                  key: {
+                    user: "service_account:sa-1",
+                    relation: "reader",
+                    object: "data_source:source-1",
+                  },
+                },
+              ]
+            : [
+                {
+                  key: {
+                    user: "service_account:sa-1",
+                    relation: "reader",
+                    object: "rag_collection:platform-rag",
+                  },
+                },
+              ],
+        continuationToken: undefined,
+      }),
+    );
+
+    await expect(
+      listDirectServiceAccountKnowledgeScopes("service_account:sa-1"),
+    ).resolves.toEqual([
+      { type: "collection", ref: "platform-rag" },
+      { type: "datasource", ref: "source-1" },
+    ]);
+    expect(mockReadOpenFgaTuples).toHaveBeenNthCalledWith(1, {
+      tuple: {
+        user: "service_account:sa-1",
+        relation: "reader",
+        object: "data_source:",
+      },
+      continuationToken: undefined,
+      pageSize: 100,
+    });
+    expect(mockReadOpenFgaTuples).toHaveBeenNthCalledWith(2, {
+      tuple: {
+        user: "service_account:sa-1",
+        relation: "reader",
+        object: "rag_collection:",
+      },
+      continuationToken: undefined,
+      pageSize: 100,
+    });
   });
 });
