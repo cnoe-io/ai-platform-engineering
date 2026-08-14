@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card,CardContent,CardDescription,CardHeader,CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { TeamPicker,type TeamPickerOption } from "@/components/ui/team-picker";
+import { TeamMultiPicker,TeamPicker,type TeamPickerOption } from "@/components/ui/team-picker";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Tooltip,
@@ -26,9 +26,10 @@ MCPCredentialSource,
 MCPServerConfig,
 MCPServerConfigCreate,
 MCPServerConfigUpdate,
+MCPServerVisibilityType,
 TransportType,
 } from "@/types/dynamic-agent";
-import { ArrowLeft,Info,Loader2,Plus,X } from "lucide-react";
+import { ArrowLeft,Globe2,Info,Loader2,LockKeyhole,Plus,Users,X } from "lucide-react";
 import React from "react";
 
 export interface MCPServerInitialValues {
@@ -36,6 +37,12 @@ export interface MCPServerInitialValues {
   description?: string;
   endpoint?: string;
   credential_sources?: MCPCredentialSource[];
+}
+
+interface SharingTeam {
+  _id?: string;
+  slug?: string;
+  name?: string;
 }
 
 interface MCPServerEditorProps {
@@ -208,6 +215,16 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel, initialVal
   const [credentialSources, setCredentialSources] = React.useState<MCPCredentialSource[]>(
     normalizeCredentialSourcesForEditor(server?.credential_sources ?? initialValues?.credential_sources),
   );
+  const [visibility, setVisibility] = React.useState<MCPServerVisibilityType | null>(() => {
+    if (!server) return "private";
+    if (server.visibility) return server.visibility;
+    return server.owner_team_slug ? "team" : null;
+  });
+  const [sharedWithTeams, setSharedWithTeams] = React.useState<string[]>(() => {
+    if (server?.shared_with_teams?.length) return server.shared_with_teams;
+    return server?.owner_team_slug ? [server.owner_team_slug] : [];
+  });
+  const [availableTeams, setAvailableTeams] = React.useState<SharingTeam[]>([]);
 
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -286,6 +303,25 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel, initialVal
       }
     }
     void loadDiscovery();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    async function loadTeams() {
+      try {
+        const response = await fetch("/api/dynamic-agents/teams");
+        const payload = (await response.json()) as { success?: boolean; data?: SharingTeam[] };
+        if (!cancelled && payload.success && Array.isArray(payload.data)) {
+          setAvailableTeams(payload.data);
+        }
+      } catch {
+        // Best effort. The team picker remains empty and team saves stay disabled.
+      }
+    }
+    void loadTeams();
     return () => {
       cancelled = true;
     };
@@ -542,6 +578,12 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel, initialVal
           // Always send credential_sources on update (including []) so the BFF can
           // clear previously saved bindings; omitting the field is a no-op.
           credential_sources: normalizedCredentialSources,
+          ...(visibility
+            ? {
+                visibility,
+                shared_with_teams: visibility === "team" ? sharedWithTeams : [],
+              }
+            : {}),
         };
 
         const response = await fetch(`/api/mcp-servers?id=${server._id}`, {
@@ -572,6 +614,8 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel, initialVal
           args: transport === "stdio" ? args : undefined,
           env: transport === "stdio" && Object.keys(env).length > 0 ? env : undefined,
           credential_sources: normalizedCredentialSources.length > 0 ? normalizedCredentialSources : undefined,
+          visibility: visibility ?? "private",
+          shared_with_teams: visibility === "team" ? sharedWithTeams : [],
         };
 
         const response = await fetch("/api/mcp-servers", {
@@ -598,6 +642,7 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel, initialVal
     name.trim() &&
     (isEditing || id.trim() || deriveServerIdFromDisplayName(name)) &&
     (transport === "stdio" ? command.trim() : endpoint.trim()) &&
+    (visibility !== "team" || sharedWithTeams.length > 0) &&
     credentialSources.every((source) =>
       normalizedCredentialSource(source, providerConnectionOptions) !== null
     );
@@ -1165,6 +1210,97 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel, initialVal
                 })}
               </div>
             )}
+          </div>
+
+          {/* Sharing */}
+          <div className="space-y-4 border-t border-border/60 pt-6">
+            <div className="space-y-1">
+              <h3 className="text-sm font-medium">Access</h3>
+              <p className="text-xs text-muted-foreground">
+                Choose who can discover and invoke this MCP server.
+              </p>
+            </div>
+            {visibility === null ? (
+              <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 text-xs text-muted-foreground">
+                This existing server uses a legacy access policy. It will remain unchanged until
+                you select Private, Teams, or Global.
+              </div>
+            ) : null}
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+              {([
+                {
+                  value: "private" as const,
+                  label: "Private",
+                  description: "Only you and organization admins",
+                  Icon: LockKeyhole,
+                },
+                {
+                  value: "team" as const,
+                  label: "Teams",
+                  description: "Members of selected teams",
+                  Icon: Users,
+                },
+                {
+                  value: "global" as const,
+                  label: "Global",
+                  description: "Every signed-in organization member",
+                  Icon: Globe2,
+                },
+              ]).map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  aria-pressed={visibility === option.value}
+                  onClick={() => setVisibility(option.value)}
+                  disabled={loading || readOnly}
+                  className={`rounded-lg border p-3 text-left transition-colors ${
+                    visibility === option.value
+                      ? "border-primary bg-primary/5"
+                      : "border-muted hover:border-primary/50"
+                  }`}
+                >
+                  <div className="mb-1 flex items-center gap-2">
+                    <option.Icon className="h-4 w-4" aria-hidden="true" />
+                    <span className="text-sm font-medium">{option.label}</span>
+                  </div>
+                  <div className="text-xs text-muted-foreground">{option.description}</div>
+                </button>
+              ))}
+            </div>
+            {visibility === "team" ? (
+              <div className="space-y-2">
+                <Label htmlFor="mcp-shared-teams">
+                  Share with teams <span className="text-destructive">*</span>
+                </Label>
+                <TeamMultiPicker
+                  id="mcp-shared-teams"
+                  selected={sharedWithTeams}
+                  onChange={setSharedWithTeams}
+                  options={availableTeams
+                    .filter((team): team is SharingTeam & { slug: string } => Boolean(team.slug))
+                    .map((team) => ({
+                      slug: team.slug,
+                      name: team.name,
+                      _id: team._id,
+                    }))}
+                  placeholder="Select teams..."
+                  searchPlaceholder="Search teams..."
+                  disabled={loading || readOnly}
+                  portalled={false}
+                  helperText={`${availableTeams.length} teams available`}
+                />
+                {sharedWithTeams.length === 0 ? (
+                  <p className="text-xs text-destructive">
+                    Select at least one team before saving team access.
+                  </p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Selected team members can discover, probe, and invoke this server. Team admins
+                    can manage its configuration.
+                  </p>
+                )}
+              </div>
+            ) : null}
           </div>
 
           {/* Test Connection */}

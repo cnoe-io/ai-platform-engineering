@@ -50,6 +50,13 @@ interface OwnedResourceInput {
 
 export interface McpServerRelationshipInput extends OwnedResourceInput {
   serverId: string;
+  nextSharedTeamSlugs?: readonly string[] | null;
+  previousSharedTeamSlugs?: readonly string[] | null;
+  previousOwnerTeamSlug?: string | null;
+  /** Organization-wide reader/user/invoker grant for global MCP servers. */
+  sharedWithOrg?: boolean;
+  /** Prior global or legacy organization grant, used to revoke all member access. */
+  previousSharedWithOrg?: boolean;
 }
 
 export interface ConfigDrivenMcpServerRelationshipInput {
@@ -383,18 +390,36 @@ export function buildMcpServerRelationshipTupleDiff(
   if (ownerUser) {
     writes.push({ user: ownerUser, relation: "owner", object });
   }
-  if (input.ownerTeamSlug && isValidOpenFgaId(input.ownerTeamSlug)) {
+  const teamGrants = buildTeamGrantTuples({
+    object,
+    memberRelations: ["reader", "user", "invoker"],
+    ownerTeamSlug: input.ownerTeamSlug,
+    previousOwnerTeamSlug: input.previousOwnerTeamSlug,
+    nextSharedTeamSlugs: input.nextSharedTeamSlugs,
+    previousSharedTeamSlugs: input.previousSharedTeamSlugs,
+  });
+  writes.push(...teamGrants.writes);
+  const deletes = [...teamGrants.deletes];
+
+  if (input.sharedWithOrg === true) {
+    const orgMember = `${organizationObjectId()}#member`;
     writes.push(
-      { user: `team:${input.ownerTeamSlug}#member`, relation: "reader", object },
-      { user: `team:${input.ownerTeamSlug}#member`, relation: "user", object },
-      { user: `team:${input.ownerTeamSlug}#member`, relation: "invoker", object },
-      { user: `team:${input.ownerTeamSlug}#admin`, relation: "manager", object },
+      { user: orgMember, relation: "reader", object },
+      { user: orgMember, relation: "user", object },
+      { user: orgMember, relation: "invoker", object },
+    );
+  } else if (input.previousSharedWithOrg === true) {
+    const orgMember = `${organizationObjectId()}#member`;
+    deletes.push(
+      { user: orgMember, relation: "reader", object },
+      { user: orgMember, relation: "user", object },
+      { user: orgMember, relation: "invoker", object },
     );
   }
   // assisted-by Codex Codex-sonnet-4-6
   // User-created servers should be visible/manageable to organization admins immediately.
   writes.push({ user: `${organizationObjectId()}#admin`, relation: "manager", object });
-  return { writes: uniqueTuples(writes), deletes: [] };
+  return { writes: uniqueTuples(writes), deletes: uniqueTuples(deletes) };
 }
 
 export function buildConfigDrivenMcpServerRelationshipTupleDiff(

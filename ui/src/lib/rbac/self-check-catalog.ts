@@ -58,6 +58,7 @@ export const RBAC_SELF_CHECKS: RbacSelfCheckDefinition[] = [
       "mcp_servers.config_driven",
       "mcp_servers.owner_subject",
       "mcp_servers.owner_team_slug",
+      "mcp_servers.sharing",
       "mcp_servers.org_admin_manager",
       "baseline_access",
     ],

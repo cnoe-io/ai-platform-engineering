@@ -38,6 +38,9 @@ export type LegacyVisibilityType = VisibilityType | 'private';
 // MCP Server Types
 // =============================================================================
 
+/** Visibility policy for an MCP server. */
+export type MCPServerVisibilityType = 'private' | 'team' | 'global';
+
 export interface MCPServerConfig {
   _id: string;
   name: string;
@@ -57,6 +60,8 @@ export interface MCPServerConfig {
   owner_id?: string;
   owner_subject?: string;
   owner_team_slug?: string;
+  visibility?: MCPServerVisibilityType;
+  shared_with_teams?: string[];
   created_at: string;
   updated_at: string;
 }
@@ -111,6 +116,8 @@ export interface MCPServerConfigCreate {
   credential_sources?: MCPCredentialSource[];
   enabled?: boolean;
   owner_team_slug?: string;
+  visibility?: MCPServerVisibilityType;
+  shared_with_teams?: string[];
 }
 
 export interface MCPServerConfigUpdate {
@@ -124,6 +131,8 @@ export interface MCPServerConfigUpdate {
   env?: Record<string, string>;
   credential_sources?: MCPCredentialSource[];
   enabled?: boolean;
+  visibility?: MCPServerVisibilityType;
+  shared_with_teams?: string[];
 }
 
 export interface MCPToolInfo {
