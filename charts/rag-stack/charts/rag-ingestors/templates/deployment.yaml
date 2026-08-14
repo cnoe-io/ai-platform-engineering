@@ -67,24 +67,34 @@ spec:
             {{- $initDelaySeconds = $ingestor.initDelaySeconds }}
             {{- end }}
             # Core ingestor configuration
+            {{- if not (hasKey $customEnv "INGESTOR_TYPE") }}
             - name: INGESTOR_TYPE
               value: {{ $ingestor.type | quote }}
+            {{- end }}
+            {{- if not (hasKey $customEnv "RAG_SERVER_URL") }}
             - name: RAG_SERVER_URL
               value: {{ include "rag-ingestors.ragServerUrl" (list $ingestor $) | quote }}
+            {{- end }}
+            {{- if not (hasKey $customEnv "REDIS_URL") }}
             - name: REDIS_URL
               value: {{ include "rag-ingestors.redisUrl" $ | quote }}
+            {{- end }}
+            {{- if not (hasKey $customEnv "LOG_LEVEL") }}
             - name: LOG_LEVEL
               value: {{ $ingestor.logLevel | default "INFO" | quote }}
+            {{- end }}
             
             # Deployment-managed ingestors retain a fixed refresh interval.
             # UI-managed ingestors schedule from their datasource records and
             # omit this setting.
-            {{- if hasKey $ingestor "syncInterval" }}
+            {{- if and (hasKey $ingestor "syncInterval") (not (hasKey $customEnv "SYNC_INTERVAL")) }}
             - name: SYNC_INTERVAL
               value: {{ $ingestor.syncInterval | quote }}
             {{- end }}
+            {{- if not (hasKey $customEnv "INIT_DELAY_SECONDS") }}
             - name: INIT_DELAY_SECONDS
               value: {{ $initDelaySeconds | quote }}
+            {{- end }}
 
             # Shared RAG transport authentication. Per-ingestor env values take
             # precedence over these umbrella defaults.

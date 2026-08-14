@@ -47,6 +47,10 @@ def _environment(container: dict) -> dict[str, object]:
   return {entry["name"]: entry.get("value") for entry in container.get("env", [])}
 
 
+def _environment_names(container: dict) -> list[str]:
+  return [entry["name"] for entry in container.get("env", [])]
+
+
 def test_webloader_runs_in_its_own_deployment() -> None:
   deployments = _deployments(_render_rag_stack())
   webloader = next(
@@ -120,6 +124,42 @@ def test_fixed_interval_is_only_emitted_when_configured() -> None:
   container = argocd["spec"]["template"]["spec"]["containers"][0]
 
   assert _environment(container)["SYNC_INTERVAL"] == "7200"
+
+
+def test_custom_environment_overrides_do_not_create_duplicate_names() -> None:
+  overrides = {
+    "INGESTOR_TYPE": "custom",
+    "RAG_SERVER_URL": "http://rag.example.test:9446",
+    "REDIS_URL": "redis://redis.example.test:6379/1",
+    "LOG_LEVEL": "DEBUG",
+    "SYNC_INTERVAL": "3600",
+    "INIT_DELAY_SECONDS": "5",
+  }
+  set_values = {
+    "rag-ingestors.ingestors[0].name": "custom-example",
+    "rag-ingestors.ingestors[0].type": "webloader",
+    "rag-ingestors.ingestors[0].syncInterval": "7200",
+  }
+  set_values.update(
+    {
+      f"rag-ingestors.ingestors[0].env.{name}": value
+      for name, value in overrides.items()
+    }
+  )
+  deployments = _deployments(_render_rag_stack(set_values))
+  custom = next(
+    deployment
+    for deployment in deployments
+    if deployment["metadata"]["labels"].get("app.kubernetes.io/ingestor-name")
+    == "custom-example"
+  )
+  container = custom["spec"]["template"]["spec"]["containers"][0]
+  names = _environment_names(container)
+  environment = _environment(container)
+
+  assert len(names) == len(set(names))
+  for name, value in overrides.items():
+    assert environment[name] == value
 
 
 @pytest.mark.parametrize(
