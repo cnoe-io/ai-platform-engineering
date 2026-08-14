@@ -57,10 +57,22 @@ _active_project_id: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "tome_active_project_id", default=None
 )
 
+_active_experiment: contextvars.ContextVar[tuple[str, str] | None] = (
+    contextvars.ContextVar("tome_active_experiment", default=None)
+)
+
 
 def set_active_project_id(project_id: str) -> None:
     """Scope this request's backend callbacks to `project_id`."""
     _active_project_id.set(project_id)
+
+
+def set_active_experiment(experiment_id: str | None, artifact_id: str | None) -> None:
+    """Route page callbacks to an isolated experiment artifact when set."""
+    if experiment_id and artifact_id:
+        _active_experiment.set((experiment_id, artifact_id))
+    else:
+        _active_experiment.set(None)
 
 
 # Per-run model-config override, fetched once at the start of each ingest/
@@ -110,8 +122,8 @@ def resolve_model(role: str, default: str, env_vars: tuple[str, ...] = ()) -> st
 # (`expires_in`, `cloud_id`, `site_url`). Task-local so concurrent requests for
 # different users in the same container can't see each other's tokens. Read by
 # `build_agent_options` to wire MCPs with the right token per provider.
-_active_credentials: contextvars.ContextVar[dict[str, dict[str, str]]] = (
-    contextvars.ContextVar("tome_active_credentials", default={})
+_active_credentials: contextvars.ContextVar[dict[str, dict[str, str]] | None] = (
+    contextvars.ContextVar("tome_active_credentials", default=None)
 )
 
 
@@ -121,7 +133,7 @@ def set_active_credentials(credentials: dict[str, dict[str, str]]) -> None:
 
 
 def get_active_credentials() -> dict[str, dict[str, str]]:
-    return _active_credentials.get()
+    return _active_credentials.get() or {}
 
 
 # The chatting user's email, when known. Task-local, same rationale as
@@ -205,6 +217,7 @@ async def write_page(
 ) -> None:
     pid = project_id or _project_id()
     url = f"{_backend_url()}/api/internal/projects/{pid}/pages"
+    active_experiment = _active_experiment.get()
     payload = WritePageRequest(
         path=page_path,
         body=body,
@@ -212,6 +225,8 @@ async def write_page(
         author=author,
         report_id=report_id,
         actor_sub=_active_actor_sub.get(),
+        experiment_id=active_experiment[0] if active_experiment else None,
+        artifact_id=active_experiment[1] if active_experiment else None,
     )
     async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
         resp = await client.post(
@@ -454,9 +469,8 @@ async def stream_post(
     — this is here for symmetry and future use (e.g. fetching long
     documents in chunks)."""
     url = f"{_backend_url()}{path}"
-    async with httpx.AsyncClient(timeout=None) as client:
-        async with client.stream(
-            "POST", url, headers=_auth_headers(), json=json_body
-        ) as resp:
-            resp.raise_for_status()
-            yield resp
+    async with httpx.AsyncClient(timeout=None) as client, client.stream(
+        "POST", url, headers=_auth_headers(), json=json_body
+    ) as resp:
+        resp.raise_for_status()
+        yield resp

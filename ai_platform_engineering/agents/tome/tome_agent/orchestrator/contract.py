@@ -142,6 +142,26 @@ class ChatRequest(BaseModel):
 # ---------- agent inbound: /ingest ----------
 
 
+class FrozenEvidenceItem(BaseModel):
+    canonical_uri: str
+    content_hash: str
+    content: str
+
+
+class ExperimentRunContext(BaseModel):
+    experiment_id: str
+    artifact_id: str
+    evidence_bundle_id: str
+    blind_label: str
+    model: str
+    turn_limit: int = Field(default=100, ge=1, le=200)
+    seed: int
+    frozen_pages: dict[str, str] = Field(default_factory=dict)
+    frozen_child_pages: dict[str, dict[str, str]] = Field(default_factory=dict)
+    frozen_evidence: list[FrozenEvidenceItem] = Field(default_factory=list)
+    template_overrides: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
+
+
 class IngestRequest(BaseModel):
     run_id: UUID
     seed: str | None = None
@@ -165,8 +185,10 @@ class IngestRequest(BaseModel):
     """Same wire shape as `ChatRequest.credentials`. The caller MUST resolve
     these synchronously before async dispatch — by the time `driveIngest`
     runs, the user's session is gone."""
-
-
+    experiment: ExperimentRunContext | None = None
+    """When present, run from the supplied frozen workspace, force the named
+    candidate model, disable live connector tools, and route every page write
+    to an experiment artifact instead of normal wiki revisions."""
 # ---------- agent → backend callbacks ----------
 
 
@@ -181,6 +203,8 @@ class WritePageRequest(BaseModel):
     """OIDC subject of the human who triggered this write (chat sessions only).
     The internal API checks FGA can_write for this subject when report_id is
     absent, blocking writes from callers without data-steward access."""
+    experiment_id: str | None = None
+    artifact_id: str | None = None
 
 
 class AppendLogRequest(BaseModel):
@@ -239,6 +263,88 @@ class ModelCheckResponse(BaseModel):
     error: str | None = None
 
 
+# ---------- agent /evaluate ----------
+
+
+class EvaluationEvidenceItem(BaseModel):
+    id: str
+    canonical_uri: str
+    content_hash: str
+    content: str
+
+
+class EvaluationClaimEvidence(BaseModel):
+    evidence_item_id: str
+    canonical_uri: str
+    content_hash: str
+    quote: str | None = None
+
+
+class EvaluationClaim(BaseModel):
+    id: str
+    page: str
+    section: str | None = None
+    exact_text: str
+    start_offset: int = Field(ge=0)
+    end_offset: int = Field(ge=0)
+    classification: Literal[
+        "supported",
+        "partially_supported",
+        "unsupported",
+        "contradicted",
+        "unverifiable",
+    ]
+    reason: str
+    confidence: float = Field(ge=0, le=1)
+    abstained: bool = False
+    citations: list[str] = Field(default_factory=list)
+    evidence: list[EvaluationClaimEvidence] = Field(default_factory=list)
+    critical_kind: Literal[
+        "ownership",
+        "partner_or_customer",
+        "quantitative",
+        "date_or_deadline",
+        "commitment",
+        "project_status",
+        "security_or_compliance",
+        "financial",
+    ] | None = None
+    fabricated_entities: list[str] = Field(default_factory=list)
+    fabricated_quantitative_details: list[str] = Field(default_factory=list)
+
+
+class EvaluationSignal(BaseModel):
+    passed: int = Field(ge=0)
+    total: int = Field(ge=0)
+    findings: list[str] = Field(default_factory=list)
+
+
+class EvaluatorPromptContract(BaseModel):
+    version: str
+    system_prompt: str
+    request_template: str
+    editable: bool = False
+
+
+class ArtifactEvaluationRequest(BaseModel):
+    blind_label: str
+    evaluator_model: str
+    evaluator_prompt_version: str | None = None
+    entity_type: Literal["project", "area", "bhag"]
+    candidate_pages: dict[str, str]
+    evidence: list[EvaluationEvidenceItem]
+    required_template_paths: list[str] = Field(default_factory=list)
+    live_stable_pages: dict[str, str] = Field(default_factory=dict)
+
+
+class ArtifactEvaluationResponse(BaseModel):
+    claims: list[EvaluationClaim]
+    signals: dict[str, EvaluationSignal]
+    tokens: dict[str, int] = Field(default_factory=dict)
+    turns: int = 1
+    cost_usd: float | None = None
+
+
 # ---------- agent /healthz, /readyz ----------
 
 
@@ -251,11 +357,20 @@ class HealthResponse(BaseModel):
 
 __all__ = [
     "AppendLogRequest",
+    "ArtifactEvaluationRequest",
+    "ArtifactEvaluationResponse",
     "ChatEventPayload",
     "ChatEventType",
     "ChatRequest",
     "ChildProjectSnapshot",
     "ConfluenceSpaceSnapshot",
+    "EvaluationClaim",
+    "EvaluationClaimEvidence",
+    "EvaluationEvidenceItem",
+    "EvaluatorPromptContract",
+    "EvaluationSignal",
+    "ExperimentRunContext",
+    "FrozenEvidenceItem",
     "HealthResponse",
     "IngestEventPayload",
     "IngestEventType",

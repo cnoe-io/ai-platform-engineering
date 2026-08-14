@@ -30,7 +30,7 @@ import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query
 from fastapi import FastAPI, HTTPException, Response
@@ -39,13 +39,22 @@ from fastapi.responses import StreamingResponse
 from tome_agent.agent import http_client, workspace
 from tome_agent.agent.chat import stream_chat
 from tome_agent.agent.compact import stream_compaction
+from tome_agent.agent.evaluator import evaluate_artifact, evaluator_prompt_contract
 from tome_agent.agent.ingestor import stream_ingest
 from tome_agent.agent.synthesize import stream_synthesis
 from tome_agent.config import settings
-from tome_agent.metrics import PrometheusHTTPMiddleware, metrics, run_finished, run_started
+from tome_agent.metrics import (
+    PrometheusHTTPMiddleware,
+    metrics,
+    run_finished,
+    run_started,
+)
 from tome_agent.orchestrator.contract import (
+    ArtifactEvaluationRequest,
+    ArtifactEvaluationResponse,
     ChatEventPayload,
     ChatRequest,
+    EvaluatorPromptContract,
     HealthResponse,
     IngestEventPayload,
     IngestRequest,
@@ -66,9 +75,9 @@ class _AgentState:
     ready: bool = False
 
 
-_state = _AgentState(started_at=datetime.now(timezone.utc))
+_state = _AgentState(started_at=datetime.now(UTC))
 metrics.uptime_seconds.set_function(
-    lambda: (datetime.now(timezone.utc) - _state.started_at).total_seconds()
+    lambda: (datetime.now(UTC) - _state.started_at).total_seconds()
 )
 
 
@@ -167,6 +176,27 @@ async def model_check_endpoint(body: ModelCheckRequest) -> ModelCheckResponse:
     return ModelCheckResponse(ok=False, error="No result from model")
 
 
+@app.post("/evaluate", response_model=ArtifactEvaluationResponse)
+async def evaluate_endpoint(
+    body: ArtifactEvaluationRequest,
+) -> ArtifactEvaluationResponse:
+    """Evaluate one blinded candidate only against its frozen evidence."""
+    if not _state.ready:
+        raise HTTPException(503, "agent not ready")
+    try:
+        return await evaluate_artifact(body)
+    except ValueError as exc:
+        raise HTTPException(502, str(exc)) from exc
+
+
+@app.get("/evaluate/prompt", response_model=EvaluatorPromptContract)
+async def evaluator_prompt_endpoint() -> EvaluatorPromptContract:
+    """Expose the versioned evaluator prompt contract for immutable run snapshots."""
+    if not _state.ready:
+        raise HTTPException(503, "agent not ready")
+    return evaluator_prompt_contract()
+
+
 # ---------- chat ----------
 
 
@@ -193,7 +223,7 @@ async def chat_endpoint(body: ChatRequest):
         http_client.set_active_actor_email(body.actor_email)
         http_client.set_active_actor_sub(body.actor_sub)
         _state.in_flight_runs += 1
-        _state.last_activity_at = datetime.now(timezone.utc)
+        _state.last_activity_at = datetime.now(UTC)
         run_start = run_started()
         success = False
         try:
@@ -208,7 +238,7 @@ async def chat_endpoint(body: ChatRequest):
             success = True
         finally:
             _state.in_flight_runs = max(0, _state.in_flight_runs - 1)
-            _state.last_activity_at = datetime.now(timezone.utc)
+            _state.last_activity_at = datetime.now(UTC)
             run_finished("chat", run_start, success)
 
     return StreamingResponse(gen(), media_type="text/event-stream")
@@ -230,8 +260,12 @@ async def ingest_endpoint(body: IngestRequest):
         pid = body.snapshot.project_id
         http_client.set_active_project_id(pid)
         http_client.set_active_credentials(body.credentials)
+        http_client.set_active_experiment(
+            body.experiment.experiment_id if body.experiment else None,
+            body.experiment.artifact_id if body.experiment else None,
+        )
         _state.in_flight_runs += 1
-        _state.last_activity_at = datetime.now(timezone.utc)
+        _state.last_activity_at = datetime.now(UTC)
         run_start = run_started()
         success = False
         try:
@@ -240,7 +274,12 @@ async def ingest_endpoint(body: IngestRequest):
             # on-disk copy from the source of truth first so the ingest edits
             # the latest committed state.
             async with workspace.project_lock(pid):
-                await workspace.refresh_project(pid)
+                if body.experiment:
+                    await workspace.materialize_project_pages(
+                        pid, body.experiment.frozen_pages
+                    )
+                else:
+                    await workspace.refresh_project(pid)
                 async for event in stream_ingest(
                     run_id=body.run_id,
                     seed=body.seed,
@@ -250,12 +289,14 @@ async def ingest_endpoint(body: IngestRequest):
                     seed_stable_pages=body.seed_stable_pages,
                     report_id=body.report_id,
                     quick=body.mode == "quick" and not body.is_greenfield,
+                    experiment=body.experiment,
                 ):
                     yield _sse_format(event)
             success = True
         finally:
+            http_client.set_active_experiment(None, None)
             _state.in_flight_runs = max(0, _state.in_flight_runs - 1)
-            _state.last_activity_at = datetime.now(timezone.utc)
+            _state.last_activity_at = datetime.now(UTC)
             run_finished("ingest", run_start, success)
 
     return StreamingResponse(gen(), media_type="text/event-stream")
@@ -277,24 +318,35 @@ async def compact_endpoint(body: IngestRequest):
         pid = body.snapshot.project_id
         http_client.set_active_project_id(pid)
         http_client.set_active_credentials(body.credentials)
+        http_client.set_active_experiment(
+            body.experiment.experiment_id if body.experiment else None,
+            body.experiment.artifact_id if body.experiment else None,
+        )
         _state.in_flight_runs += 1
-        _state.last_activity_at = datetime.now(timezone.utc)
+        _state.last_activity_at = datetime.now(UTC)
         run_start = run_started()
         success = False
         try:
             async with workspace.project_lock(pid):
-                await workspace.refresh_project(pid)
+                if body.experiment:
+                    await workspace.materialize_project_pages(
+                        pid, body.experiment.frozen_pages
+                    )
+                else:
+                    await workspace.refresh_project(pid)
                 async for event in stream_compaction(
                     run_id=body.run_id,
                     seed=body.seed,
                     snapshot=body.snapshot,
                     report_id=body.report_id,
+                    experiment=body.experiment,
                 ):
                     yield _sse_format(event)
             success = True
         finally:
+            http_client.set_active_experiment(None, None)
             _state.in_flight_runs = max(0, _state.in_flight_runs - 1)
-            _state.last_activity_at = datetime.now(timezone.utc)
+            _state.last_activity_at = datetime.now(UTC)
             run_finished("compact", run_start, success)
 
     return StreamingResponse(gen(), media_type="text/event-stream")
@@ -313,19 +365,36 @@ async def synthesize_endpoint(body: IngestRequest):
         pid = body.snapshot.project_id
         http_client.set_active_project_id(pid)
         http_client.set_active_credentials(body.credentials)
+        http_client.set_active_experiment(
+            body.experiment.experiment_id if body.experiment else None,
+            body.experiment.artifact_id if body.experiment else None,
+        )
         _state.in_flight_runs += 1
-        _state.last_activity_at = datetime.now(timezone.utc)
+        _state.last_activity_at = datetime.now(UTC)
         run_start = run_started()
         success = False
         try:
             async with workspace.project_lock(pid):
-                await workspace.refresh_project(pid)
+                if body.experiment:
+                    await workspace.materialize_project_pages(
+                        pid, body.experiment.frozen_pages
+                    )
+                else:
+                    await workspace.refresh_project(pid)
                 # Refresh each child's on-disk wiki from the source of truth so
                 # the synthesis reads the latest committed state. Each under its
                 # own lock.
                 for child in body.snapshot.child_projects:
                     async with workspace.project_lock(child.project_id):
-                        await workspace.refresh_project(child.project_id)
+                        if body.experiment:
+                            await workspace.materialize_project_pages(
+                                child.project_id,
+                                body.experiment.frozen_child_pages.get(
+                                    child.project_id, {}
+                                ),
+                            )
+                        else:
+                            await workspace.refresh_project(child.project_id)
                 async for event in stream_synthesis(
                     run_id=body.run_id,
                     seed=body.seed,
@@ -334,12 +403,14 @@ async def synthesize_endpoint(body: IngestRequest):
                     is_greenfield=body.is_greenfield,
                     seed_stable_pages=body.seed_stable_pages,
                     report_id=body.report_id,
+                    experiment=body.experiment,
                 ):
                     yield _sse_format(event)
             success = True
         finally:
+            http_client.set_active_experiment(None, None)
             _state.in_flight_runs = max(0, _state.in_flight_runs - 1)
-            _state.last_activity_at = datetime.now(timezone.utc)
+            _state.last_activity_at = datetime.now(UTC)
             run_finished("synthesize", run_start, success)
 
     return StreamingResponse(gen(), media_type="text/event-stream")

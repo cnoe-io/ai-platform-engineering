@@ -29,7 +29,11 @@ from tome_agent.agent.loop import (
     sources_for_connector,
 )
 from tome_agent.agent.run_stream import consume_agent_query, emit_log, now_iso
-from tome_agent.orchestrator.contract import IngestEventPayload, ProjectSnapshot
+from tome_agent.orchestrator.contract import (
+    ExperimentRunContext,
+    IngestEventPayload,
+    ProjectSnapshot,
+)
 from tome_agent.reports import schema as report_schema
 
 log = logging.getLogger("tome_agent.agent.ingestor")
@@ -381,6 +385,7 @@ async def stream_ingest(
     report_id: UUID,
     seed_stable_pages: bool = False,
     quick: bool = False,
+    experiment: ExperimentRunContext | None = None,
 ) -> AsyncIterator[IngestEventPayload]:
     """Run an ingest as a Claude Agent SDK loop. Yields IngestEvents the
     agent's HTTP handler writes to the SSE response."""
@@ -390,10 +395,25 @@ async def stream_ingest(
     # Load the admin-editable page-template and model config for this run.
     # Sets task-local overrides the schema/model accessors prefer; falls back
     # to the hardcoded constants when the backend is unreachable.
-    templates = await asyncio.to_thread(http_client.fetch_page_templates)
+    templates = (
+        experiment.template_overrides
+        if experiment is not None
+        else await asyncio.to_thread(http_client.fetch_page_templates)
+    )
     report_schema.set_template_overrides(templates)
-    models = await asyncio.to_thread(
-        http_client.fetch_model_config, snapshot.project_id, snapshot.project_type
+    models = (
+        {
+            "ingest": {
+                "model": experiment.model,
+                "source": "experiment",
+                "scope_kind": "exact",
+                "scope_id": experiment.experiment_id,
+            }
+        }
+        if experiment is not None
+        else await asyncio.to_thread(
+            http_client.fetch_model_config, snapshot.project_id, snapshot.project_type
+        )
     )
     http_client.set_model_overrides(models)
 
@@ -403,19 +423,26 @@ async def stream_ingest(
     template_note = ""
     if not is_greenfield:
         try:
-            existing = await asyncio.to_thread(
-                http_client.fetch_all_pages_sync, snapshot.project_id
+            existing = (
+                experiment.frozen_pages
+                if experiment is not None
+                else await asyncio.to_thread(
+                    http_client.fetch_all_pages_sync, snapshot.project_id
+                )
             )
             template_note = _template_change_note(snapshot, existing)
         except Exception:
             log.warning("template-change diff skipped", exc_info=True)
 
-    extras = await resolve_connector_extras(snapshot, connector_data)
+    extras = (
+        {} if experiment is not None else await resolve_connector_extras(snapshot, connector_data)
+    )
 
-    for event in await write_verbatim_pages(
-        extras, report_id=report_id, project_id=snapshot.project_id
-    ):
-        yield event
+    if experiment is None:
+        for event in await write_verbatim_pages(
+            extras, report_id=report_id, project_id=snapshot.project_id
+        ):
+            yield event
 
     # `on_write` callback from the persist hook: emit a `page_written`
     # event the backend forwards to IngestRun.log.
@@ -430,30 +457,55 @@ async def stream_ingest(
     model_provenance = http_client.resolve_model_with_provenance(
         "ingest", INGEST_MODEL_DEFAULT, ("TTT_INGEST_MODEL",)
     )
+    system_prompt = _build_system_prompt(
+        snapshot,
+        is_greenfield,
+        extras,
+        seed_stable_pages=seed_stable_pages,
+        template_note=template_note,
+        quick=quick,
+    )
+    if experiment is not None:
+        manifest = "\n".join(
+            f"- {item.canonical_uri} sha256:{item.content_hash}"
+            for item in experiment.frozen_evidence
+        )
+        system_prompt += (
+            "\n\n---\n\nFROZEN EXPERIMENT EVIDENCE\n"
+            "This run is offline. Read only the files already materialized in the "
+            "workspace. Live connector, web, Feed, template, and cross-project tools "
+            "are intentionally unavailable. Do not guess missing details; write "
+            "TBD/unknown/not found. The immutable evidence manifest is:\n"
+            f"{manifest or '- no non-page evidence items'}"
+        )
     options = build_agent_options(
         snapshot=snapshot,
-        system_prompt=_build_system_prompt(
-            snapshot,
-            is_greenfield,
-            extras,
-            seed_stable_pages=seed_stable_pages,
-            template_note=template_note,
-            quick=quick,
-        ),
+        system_prompt=system_prompt,
         model=model_provenance["model"],
-        max_turns=MAX_TURNS,
+        max_turns=experiment.turn_limit if experiment is not None else MAX_TURNS,
         persist_author="ttt-pipeline",
         report_id=report_id,
         on_write=on_write,
+        offline=experiment is not None,
     )
 
     prompt_parts = [
         (
             f"Run a {'GREENFIELD' if is_greenfield else 'INCREMENTAL'} ingest "
             f'for "{snapshot.name}". Begin by reading the existing wiki pages, '
-            "then fetch recent activity and update pages per the system prompt."
+            + (
+                "then update pages using only the frozen evidence bundle."
+                if experiment is not None
+                else "then fetch recent activity and update pages per the system prompt."
+            )
         )
     ]
+    if experiment is not None:
+        prompt_parts.append(
+            "\n\nREPRODUCIBLE RUN IDENTITY: "
+            f"{experiment.experiment_id}; seed={experiment.seed}. "
+            "Use the seed only to make stable ordering choices; never invent evidence."
+        )
     if seed and seed.strip():
         prompt_parts.append(
             "\n\nUSER SEED INSTRUCTION (one-shot focus for this run — interpret "
@@ -461,7 +513,7 @@ async def stream_ingest(
             "preservation rules):\n"
             f"{seed.strip()}"
         )
-    for connector in REGISTRY:
+    for connector in (() if experiment is not None else REGISTRY):
         ext = connector.prompt_extension(extras.get(connector.slug))
         if ext:
             prompt_parts.append(ext)
@@ -471,7 +523,7 @@ async def stream_ingest(
         f"▶ agent ingest started "
         f"(mode={'greenfield' if is_greenfield else 'incremental'}, model={_ingest_model()})"
     )
-    for connector in REGISTRY:
+    for connector in (() if experiment is not None else REGISTRY):
         sources = sources_for_connector(snapshot, connector)
         for line in connector.log_lines(sources, extras.get(connector.slug)):
             yield _emit_log(line)

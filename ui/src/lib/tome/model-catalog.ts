@@ -12,9 +12,11 @@
 export const MODEL_CATALOG: string[] = [
   "bedrock/global.anthropic.claude-haiku-4-5-20251001-v1:0",
   "bedrock/global.anthropic.claude-sonnet-4-6",
+  "bedrock/global.anthropic.claude-sonnet-5",
   "bedrock/global.anthropic.claude-sonnet-4-5-20250929-v1:0",
   "bedrock/global.anthropic.claude-sonnet-4-20250514-v1:0",
   "bedrock/global.anthropic.claude-opus-4-8",
+  "bedrock/global.anthropic.claude-opus-5",
 ];
 
 /** Sentinel select value meaning "not one of the curated ids — show the raw text field". */

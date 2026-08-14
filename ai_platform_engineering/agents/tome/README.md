@@ -6,7 +6,7 @@ so all model work is delegated to this Python service over HTTP/SSE — the same
 pattern the platform uses for the supervisor and dynamic agents.
 
 It runs the **Claude Agent SDK** ingest + chat loops. The UI proxies
-`POST /chat` and `POST /ingest` to it; the agent calls back to the UI's
+`POST /chat`, `POST /ingest`, and `POST /evaluate` to it; the agent calls back to the UI's
 `/api/tome/api/internal/...` endpoints for the project snapshot, page bodies,
 and persistence. CAIPE Mongo is the system of record.
 
@@ -16,6 +16,7 @@ and persistence. CAIPE Mongo is the system of record.
 |---|---|---|
 | POST | `/chat` | Chat turn → `text/event-stream` (`token`/`tool_call`/`tool_result`/`session`/`done`/`error`) |
 | POST | `/ingest` | Ingest run → `text/event-stream` (`log`/`tool_call`/`page_written`/`done`/`error`) |
+| POST | `/evaluate` | Blinded, structured claim and fidelity evaluation against frozen evidence |
 | GET | `/healthz` · `/readyz` · `/metrics` | Liveness / readiness / metrics |
 
 ## Configuration (env)
@@ -35,6 +36,14 @@ The endpoint, models, and credentials are config-driven — nothing host- or
 product-specific is hardcoded. Model resolution is exact entity, entity type,
 global, environment, then built-in fallback. `TTT_CHAT_MODEL` backs chat;
 `TTT_INGEST_MODEL` backs ingest, synthesis, and compaction.
+
+## Experiment isolation
+
+Experiment requests carry an experiment id, artifact id, candidate model, seed, turn limit, and a
+frozen evidence bundle. The agent reconstructs the workspace from that bundle and disables live
+connector, web, feed, and TOME MCP tools. Page-write callbacks include both ids; the UI routes them to
+the experiment artifact collection instead of the live page store. The evaluator receives a blind
+label and evidence hashes, never the candidate model identity.
 
 ## Run (local dev)
 

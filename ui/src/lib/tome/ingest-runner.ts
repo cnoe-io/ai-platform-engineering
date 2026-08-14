@@ -43,6 +43,14 @@ import {
   isTomeAdminSubject,
   listReadableTomeProjects,
 } from "./access";
+import {
+  fallbackQualityPolicy,
+  getArtifactEvaluation,
+  resolveQualityPolicy,
+} from "./evaluation-store";
+import { canAutoPromoteOverdue } from "./rubric-evaluator";
+import { captureEvidenceBundle } from "./evidence-bundle";
+import { evaluateDraftQuality } from "./draft-quality";
 
 /** Load a project by its stable id (string or ObjectId), normalizing `_id` to string. */
 async function loadProjectById(
@@ -82,7 +90,7 @@ export function cancelRun(runId: string): void {
  * page edits (UI editor / PUT) are refused with 409 and can't race the agent's
  * rewrite. Best-effort — a failed flag flip must not fail/hang the ingest.
  */
-async function setProjectLocked(projectId: string, locked: boolean): Promise<void> {
+export async function setProjectLocked(projectId: string, locked: boolean): Promise<void> {
   try {
     const projects = await getCollection<ProjectDocument>("projects");
     const _id = (ObjectId.isValid(projectId)
@@ -136,6 +144,19 @@ async function createRunRecord(
     .next();
   const isGreenfield = !prior;
   const version = prior ? prior.version + 1 : 1;
+  const resolvedPolicy = await resolveQualityPolicy({
+    entityId: projectId,
+    entityType: project.type ?? "project",
+  });
+  const dispatch = {
+    ...opts.dispatch,
+    // An enforced gate always produces a draft. `skipReview` must never turn
+    // a missing/failed evaluation directly into a live wiki revision.
+    ...(resolvedPolicy.policy.mode === "enforce"
+      || (resolvedPolicy.policy.mode !== "off" && resolvedPolicy.policy.require_human_review)
+      ? { skipReview: false }
+      : {}),
+  };
 
   const now = new Date();
   const reportId = randomUUID();
@@ -160,11 +181,20 @@ async function createRunRecord(
     started_at: now,
     triggered_by_sub: opts.sub || undefined,
     triggered_by: opts.triggeredBy ?? "manual",
-    dispatch: opts.dispatch,
+    dispatch,
     cascade_id: opts.cascadeId,
     cascade_role: opts.cascadeRole,
     blocked_by_cascade_ids: opts.blockedByCascadeIds,
     queued_at: opts.status === "queued" ? now : undefined,
+    quality_policy_version: resolvedPolicy.policy.version,
+    quality_policy_scope: resolvedPolicy.source,
+    quality_policy_scope_id: resolvedPolicy.policy.scope_id,
+    quality_policy_mode: resolvedPolicy.policy.mode,
+    quality_require_human_review: resolvedPolicy.policy.require_human_review,
+    quality_allow_steward_override: resolvedPolicy.policy.allow_steward_override,
+    quality_evaluator_model: resolvedPolicy.policy.evaluator_model,
+    quality_rubric_policy: resolvedPolicy.policy.rubrics,
+    quality_entity_type: project.type ?? "project",
   };
   await runs.insertOne(run);
 
@@ -274,6 +304,21 @@ async function prepareRun(
     : isArea
       ? await resolveAreaChildren(project.name)
       : [];
+  if (run.quality_policy_mode !== "off") {
+    const bundle = await captureEvidenceBundle({
+      project,
+      childProjects: childProjects.map((child) => ({
+        _id: child.project_id,
+        slug: child.slug,
+      })),
+      createdBy: run.triggered_by_sub ?? "tome-system",
+      seed: dispatch.seed,
+    });
+    await runs.updateOne(
+      { _id: runId },
+      { $set: { evidence_bundle_id: bundle._id, evidence_hash: bundle.content_hash } },
+    );
+  }
   const actorSub = run.triggered_by_sub ?? "";
   const actorIsAdmin = actorSub ? await isTomeAdminSubject(actorSub) : false;
   const readableProjects = await listReadableTomeProjects(actorSub || null, {
@@ -729,6 +774,16 @@ async function driveIngest(
     const pages = await store.listPages(projectId, { includeDrafts: true });
     const summary = summaryFromOverview(pages);
     await reports.updateOne({ _id: reportId }, { $set: { summary } });
+    if (run?.quality_policy_mode !== "off") {
+      try {
+        await evaluateDraftQuality(runId, pages);
+      } catch (evaluationError) {
+        await appendLog(
+          runId,
+          `[--:--:--] ✗ quality evaluation failed: ${String((evaluationError as Error)?.message ?? evaluationError)}`,
+        );
+      }
+    }
 
     if (skipReview) {
       await runs.updateOne(
@@ -860,8 +915,25 @@ export async function promoteOverdueRuns(): Promise<number> {
   const overdue = await runs
     .find({ status: "awaiting_review", review_deadline: { $lt: new Date() } })
     .toArray();
+  let promoted = 0;
   for (const run of overdue) {
     try {
+      if (run.quality_policy_mode && run.quality_policy_mode !== "off") {
+        const evaluation = run.quality_evaluation_id
+          ? await getArtifactEvaluation(run.quality_evaluation_id)
+          : null;
+        const policy = {
+          ...fallbackQualityPolicy(),
+          mode: run.quality_policy_mode,
+          version: run.quality_policy_version ?? 0,
+          require_human_review: run.quality_require_human_review !== false,
+          allow_steward_override: run.quality_allow_steward_override === true,
+        };
+        // Required human reviews and enforced drafts with missing/failed
+        // evaluation stay pending after the deadline. A reaper must never
+        // become a back door around a quality policy.
+        if (!canAutoPromoteOverdue(policy, evaluation)) continue;
+      }
       const store = await getPageStore();
       if (run.report_id) await store.promoteDraftReport(run.project_id, run.report_id);
       await runs.updateOne(
@@ -878,11 +950,12 @@ export async function promoteOverdueRuns(): Promise<number> {
       await auditRunLifecycle(run._id!, "tome.ingest.finished", {
         review_outcome: "auto_promoted",
       });
+      promoted += 1;
     } catch (e) {
       console.warn(`promoteOverdueRuns: failed to promote run ${run._id}`, e);
     }
   }
-  return overdue.length;
+  return promoted;
 }
 
 /** Parse an SSE byte stream into typed ingest events (`event:`/`data:` frames). */

@@ -177,6 +177,26 @@ export interface AgentIngestRequest {
    * authoritative rather than expecting fresh human intent. Default "manual".
    */
   triggered_by: "manual" | "auto";
+  /** Frozen, isolated A/B execution context. Omitted for normal runs. */
+  experiment?: AgentExperimentRunContext;
+}
+
+export interface AgentExperimentRunContext {
+  experiment_id: string;
+  artifact_id: string;
+  evidence_bundle_id: string;
+  blind_label: string;
+  model: string;
+  turn_limit: number;
+  seed: number;
+  frozen_pages: Record<string, string>;
+  frozen_child_pages: Record<string, Record<string, string>>;
+  frozen_evidence: Array<{
+    canonical_uri: string;
+    content_hash: string;
+    content: string;
+  }>;
+  template_overrides: Record<string, Array<Record<string, unknown>>>;
 }
 
 function toWebexRoomSnapshot(

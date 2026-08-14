@@ -23,7 +23,11 @@ from tome_agent import prompts
 from tome_agent.agent import http_client
 from tome_agent.agent.loop import build_agent_options, project_root
 from tome_agent.agent.run_stream import consume_agent_query, emit_log, now_iso
-from tome_agent.orchestrator.contract import IngestEventPayload, ProjectSnapshot
+from tome_agent.orchestrator.contract import (
+    ExperimentRunContext,
+    IngestEventPayload,
+    ProjectSnapshot,
+)
 
 log = logging.getLogger("tome_agent.agent.compact")
 
@@ -80,12 +84,24 @@ async def stream_compaction(
     seed: str | None,
     snapshot: ProjectSnapshot,
     report_id: UUID,
+    experiment: ExperimentRunContext | None = None,
 ) -> AsyncIterator[IngestEventPayload]:
     """Run a wiki compaction pass as a Claude Agent SDK loop. Yields IngestEvents
     the agent's HTTP handler writes to the SSE response."""
     log_buf: list[IngestEventPayload] = []
-    models = await asyncio.to_thread(
-        http_client.fetch_model_config, snapshot.project_id, snapshot.project_type
+    models = (
+        {
+            "compact": {
+                "model": experiment.model,
+                "source": "experiment",
+                "scope_kind": "exact",
+                "scope_id": experiment.experiment_id,
+            }
+        }
+        if experiment is not None
+        else await asyncio.to_thread(
+            http_client.fetch_model_config, snapshot.project_id, snapshot.project_type
+        )
     )
     http_client.set_model_overrides(models)
 
@@ -106,24 +122,38 @@ async def stream_compaction(
         COMPACTION_MODEL_DEFAULT,
         ("TTT_INGEST_MODEL",),
     )
+    system_prompt = _build_compaction_system_prompt(snapshot)
+    if experiment is not None:
+        system_prompt += (
+            "\n\nFROZEN EXPERIMENT: use only the materialized workspace. "
+            "Live web, connector, Feed, and cross-project services are disabled."
+        )
     options = build_agent_options(
         snapshot=snapshot,
-        system_prompt=_build_compaction_system_prompt(snapshot),
+        system_prompt=system_prompt,
         model=model_provenance["model"],
-        max_turns=MAX_TURNS,
+        max_turns=experiment.turn_limit if experiment is not None else MAX_TURNS,
         persist_author="tome-compaction",
         report_id=report_id,
         on_write=on_write,
         extra_read_dirs=child_read_dirs,
+        offline=experiment is not None,
     )
 
     prompt_parts = [
-        "Run a compaction pass over this wiki. Glob the page tree, then tighten the "
-        "prose of the dynamic pages and fix any stale tome:// links. Preserve all "
-        "facts, citations, and frontmatter. Leave stable/hidden/report pages alone "
-        "and add/remove no pages. If the wiki is already tight and its links "
-        "resolve, make no edits."
+        (
+            "Run a compaction pass over this wiki. Glob the page tree, then tighten the "
+            "prose of the dynamic pages and fix any stale tome:// links. Preserve all "
+            "facts, citations, and frontmatter. Leave stable/hidden/report pages alone "
+            "and add/remove no pages. If the wiki is already tight and its links "
+            "resolve, make no edits."
+        )
     ]
+    if experiment is not None:
+        prompt_parts.append(
+            "\n\nREPRODUCIBLE RUN IDENTITY: "
+            f"{experiment.experiment_id}; seed={experiment.seed}."
+        )
     if seed and seed.strip():
         prompt_parts.append(
             "\n\nUSER SEED INSTRUCTION (one-shot focus for this run):\n"

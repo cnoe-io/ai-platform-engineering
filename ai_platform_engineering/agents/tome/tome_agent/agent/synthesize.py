@@ -29,7 +29,11 @@ from tome_agent.agent.loop import (
     sources_for_connector,
 )
 from tome_agent.agent.run_stream import consume_agent_query, emit_log, now_iso
-from tome_agent.orchestrator.contract import IngestEventPayload, ProjectSnapshot
+from tome_agent.orchestrator.contract import (
+    ExperimentRunContext,
+    IngestEventPayload,
+    ProjectSnapshot,
+)
 from tome_agent.reports import schema as report_schema
 
 log = logging.getLogger("tome_agent.agent.synthesize")
@@ -214,17 +218,35 @@ async def stream_synthesis(
     is_greenfield: bool,
     report_id: UUID,
     seed_stable_pages: bool = False,
+    experiment: ExperimentRunContext | None = None,
 ) -> AsyncIterator[IngestEventPayload]:
     """Run a BHAG synthesis as a Claude Agent SDK loop. Yields IngestEvents the
     agent's HTTP handler writes to the SSE response."""
     log_buf: list[IngestEventPayload] = []
-    templates = await asyncio.to_thread(http_client.fetch_page_templates)
+    templates = (
+        experiment.template_overrides
+        if experiment is not None
+        else await asyncio.to_thread(http_client.fetch_page_templates)
+    )
     report_schema.set_template_overrides(templates)
-    models = await asyncio.to_thread(
-        http_client.fetch_model_config, snapshot.project_id, snapshot.project_type
+    models = (
+        {
+            "synthesize": {
+                "model": experiment.model,
+                "source": "experiment",
+                "scope_kind": "exact",
+                "scope_id": experiment.experiment_id,
+            }
+        }
+        if experiment is not None
+        else await asyncio.to_thread(
+            http_client.fetch_model_config, snapshot.project_id, snapshot.project_type
+        )
     )
     http_client.set_model_overrides(models)
-    connector_extras = await resolve_connector_extras(snapshot, connector_data)
+    connector_extras = (
+        {} if experiment is not None else await resolve_connector_extras(snapshot, connector_data)
+    )
 
     async def on_write(page_path: str, byte_count: int) -> None:
         log_buf.append(
@@ -242,20 +264,34 @@ async def stream_synthesis(
         SYNTHESIS_MODEL_DEFAULT,
         ("TTT_INGEST_MODEL",),
     )
+    system_prompt = _build_synthesis_system_prompt(
+        snapshot,
+        is_greenfield,
+        seed_stable_pages,
+        connector_extras,
+    )
+    if experiment is not None:
+        manifest = "\n".join(
+            f"- {item.canonical_uri} sha256:{item.content_hash}"
+            for item in experiment.frozen_evidence
+        )
+        system_prompt += (
+            "\n\n---\n\nFROZEN EXPERIMENT EVIDENCE\n"
+            "This synthesis is offline. Read only the materialized frozen "
+            "workspace and child evidence; never call or infer live sources. "
+            "Use TBD/unknown/not found for evidence gaps. Manifest:\n"
+            f"{manifest or '- no non-page evidence items'}"
+        )
     options = build_agent_options(
         snapshot=snapshot,
-        system_prompt=_build_synthesis_system_prompt(
-            snapshot,
-            is_greenfield,
-            seed_stable_pages,
-            connector_extras,
-        ),
+        system_prompt=system_prompt,
         model=model_provenance["model"],
-        max_turns=MAX_TURNS,
+        max_turns=experiment.turn_limit if experiment is not None else MAX_TURNS,
         persist_author="ttt-synthesis",
         report_id=report_id,
         on_write=on_write,
         extra_read_dirs=child_read_dirs,
+        offline=experiment is not None,
     )
 
     entity_kind = "Area" if snapshot.project_type == "area" else "BHAG"
@@ -265,16 +301,27 @@ async def stream_synthesis(
             f'{entity_kind} synthesis for "{snapshot.name}". Begin by reading '
             "your own existing wiki pages, then read the wikis of the child "
             "projects at the paths listed in the system prompt, investigate the "
-            f"directly attached sources, and synthesize this {entity_kind}'s "
+            + (
+                "frozen child and source evidence, and synthesize this "
+                if experiment is not None
+                else "directly attached sources, and synthesize this "
+            )
+            + f"{entity_kind}'s "
             "pages. Ground everything in those inputs — do not invent."
         )
     ]
+    if experiment is not None:
+        prompt_parts.append(
+            "\n\nREPRODUCIBLE RUN IDENTITY: "
+            f"{experiment.experiment_id}; seed={experiment.seed}. "
+            "Use the seed only for stable ordering choices."
+        )
     if seed and seed.strip():
         prompt_parts.append(
             "\n\nUSER SEED INSTRUCTION (one-shot focus for this run):\n"
             f"{seed.strip()}"
         )
-    for connector in REGISTRY:
+    for connector in (() if experiment is not None else REGISTRY):
         extension = connector.prompt_extension(
             connector_extras.get(connector.slug)
         )
@@ -289,7 +336,7 @@ async def stream_synthesis(
         f"(mode={'greenfield' if is_greenfield else 'incremental'}, "
         f"projects={child_count}, model={_synthesis_model()})"
     )
-    for connector in REGISTRY:
+    for connector in (() if experiment is not None else REGISTRY):
         sources = sources_for_connector(snapshot, connector)
         for line in connector.log_lines(
             sources, connector_extras.get(connector.slug)

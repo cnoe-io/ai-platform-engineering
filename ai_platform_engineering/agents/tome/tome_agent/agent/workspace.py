@@ -27,7 +27,7 @@ log = logging.getLogger("tome_agent.agent.workspace")
 
 # One lock per project_id, created lazily. Module scope so it's shared across
 # all requests in the (multi-project) container.
-_project_locks: "defaultdict[str, asyncio.Lock]" = defaultdict(asyncio.Lock)
+_project_locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 
 
 def project_lock(project_id: str) -> asyncio.Lock:
@@ -69,6 +69,15 @@ async def refresh_project(project_id: str) -> None:
     except Exception:
         log.warning("refresh_project: fetch failed for %s", project_id, exc_info=True)
         return
+    await asyncio.to_thread(_materialize, project_id, pages)
+
+
+async def materialize_project_pages(project_id: str, pages: dict[str, str]) -> None:
+    """Replace the workspace with an already-frozen page map.
+
+    Experiment callers hold the project lock and use this instead of reading
+    today's backend state, ensuring both candidates start byte-for-byte equal.
+    """
     await asyncio.to_thread(_materialize, project_id, pages)
 
 

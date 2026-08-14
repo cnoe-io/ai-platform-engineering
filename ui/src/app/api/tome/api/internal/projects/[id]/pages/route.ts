@@ -10,6 +10,11 @@ import { getPageStore } from "@/lib/tome/page-store";
 import { getTomeIngestRunsCollection } from "@/lib/tome/mongo-collections";
 import { checkOpenFgaTuple } from "@/lib/rbac/openfga";
 import { tomeDataObject } from "@/lib/tome/access";
+import {
+  getExperiment,
+  getExperimentArtifact,
+  writeExperimentArtifactPage,
+} from "@/lib/tome/evaluation-store";
 
 export const dynamic = "force-dynamic";
 
@@ -39,9 +44,43 @@ export const POST = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
     author?: string;
     report_id?: string | null;
     actor_sub?: string | null;
+    experiment_id?: string | null;
+    artifact_id?: string | null;
   };
   if (typeof body.path !== "string" || typeof body.body !== "string") {
     throw new ApiError("`path` and `body` are required", 400, "BAD_REQUEST");
+  }
+
+  // Experiment writes are isolated by construction: validate both foreign
+  // keys and persist only to the candidate artifact collection. They never
+  // become PageRevisions and therefore cannot appear in the wiki or history.
+  if (body.experiment_id || body.artifact_id) {
+    if (!body.experiment_id || !body.artifact_id) {
+      throw new ApiError(
+        "Both `experiment_id` and `artifact_id` are required",
+        400,
+        "BAD_EXPERIMENT_WRITE",
+      );
+    }
+    const [experiment, artifact] = await Promise.all([
+      getExperiment(body.experiment_id),
+      getExperimentArtifact(body.artifact_id),
+    ]);
+    if (
+      !experiment ||
+      !artifact ||
+      experiment.project_id !== project._id ||
+      artifact.project_id !== project._id ||
+      artifact.experiment_id !== experiment._id
+    ) {
+      throw new ApiError(
+        "Experiment artifact does not belong to this project",
+        404,
+        "EXPERIMENT_ARTIFACT_NOT_FOUND",
+      );
+    }
+    await writeExperimentArtifactPage(body.artifact_id, body.path, body.body);
+    return Response.json({ ok: true, isolated: true });
   }
 
   // Chat-initiated writes (no report_id) carry actor_sub so we can enforce

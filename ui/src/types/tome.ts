@@ -11,6 +11,8 @@
  *    (`@/lib/tome/page-store`); Mongo holds the index/metadata only.
  */
 
+import type { RubricPolicy } from "@/types/tome-evaluation";
+
 // ---------------------------------------------------------------------------
 // Collections (index/metadata only — NO `projects`; reuse CAIPE's)
 // ---------------------------------------------------------------------------
@@ -151,7 +153,7 @@ export type IngestRunStatus =
 /** Immutable record of how an effective model was selected for a run/turn. */
 export interface ModelProvenance {
   model: string;
-  source: "exact" | "type" | "global" | "environment" | "fallback";
+  source: "exact" | "type" | "global" | "environment" | "fallback" | "experiment";
   scope_kind?: "exact" | "type" | "global" | null;
   scope_id?: string | null;
   config_version?: number | null;
@@ -248,6 +250,19 @@ export interface IngestRun {
     max_tokens: number;
     model: string;
   };
+  /** Grounded-quality evaluation attached to a promoted experiment draft. */
+  quality_evaluation_id?: string;
+  quality_policy_version?: number;
+  quality_policy_scope?: "global" | "type" | "exact";
+  quality_policy_scope_id?: string | null;
+  quality_policy_mode?: "off" | "observe" | "enforce";
+  quality_require_human_review?: boolean;
+  quality_allow_steward_override?: boolean;
+  quality_evaluator_model?: string;
+  quality_rubric_policy?: RubricPolicy;
+  evidence_bundle_id?: string;
+  evidence_hash?: string;
+  quality_entity_type?: "project" | "area" | "bhag";
 }
 
 /** One in-flight run, as surfaced on the projects hub (GET /api/projects). */

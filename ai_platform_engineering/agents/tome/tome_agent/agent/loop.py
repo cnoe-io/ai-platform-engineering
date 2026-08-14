@@ -16,8 +16,8 @@ import asyncio
 import logging
 import os
 from collections.abc import Callable
-from typing import Any
 from pathlib import Path
+from typing import Any
 from uuid import UUID
 
 import httpx
@@ -52,10 +52,8 @@ def _normalize_repo_slug(repo: str) -> str | None:
     """`https://github.com/foo/bar.git` → `foo/bar`. None on garbage input."""
     s = repo.strip().rstrip("/")
     for prefix in ("https://github.com/", "github.com/"):
-        if s.startswith(prefix):
-            s = s[len(prefix):]
-    if s.endswith(".git"):
-        s = s[: -len(".git")]
+        s = s.removeprefix(prefix)
+    s = s.removesuffix(".git")
     parts = s.split("/")
     if len(parts) < 2 or not parts[0] or not parts[1]:
         return None
@@ -430,6 +428,7 @@ def build_agent_options(
     include_partial_messages: bool = False,
     on_write: Callable[[str, int], Any] | None = None,
     extra_read_dirs: list[Path] | None = None,
+    offline: bool = False,
 ) -> ClaudeAgentOptions:
     """Compose ClaudeAgentOptions for chat and ingest in the agent
     container. MCP servers are scoped to the snapshot's sources.
@@ -457,13 +456,19 @@ def build_agent_options(
     # have no write tools — Edit and Write are excluded from the allowed
     # list so the SDK never offers them to Claude; the same restriction
     # keeps delete_page and the cross-project lookups editor-only below.
-    mcp_servers["tome"] = build_tome_mcp(
-        project_id=project_id,
-        project_dir=pdir,
-        author=persist_author,
-        readable_projects=snapshot.readable_projects,
-    )
-    if agent_role == "viewer":
+    if not offline:
+        mcp_servers["tome"] = build_tome_mcp(
+            project_id=project_id,
+            project_dir=pdir,
+            author=persist_author,
+            readable_projects=snapshot.readable_projects,
+        )
+    if offline:
+        # Frozen experiments may read and edit only the materialized bundle.
+        # No WebFetch, connector MCP, cross-project lookup, or live template
+        # call can make the two candidates observe different evidence.
+        allowed = list(WIKI_TOOLS)
+    elif agent_role == "viewer":
         allowed = [
             "Read",
             "Glob",
@@ -491,7 +496,7 @@ def build_agent_options(
             ]
         )
 
-    for connector in REGISTRY:
+    for connector in (() if offline else REGISTRY):
         token = _connector_token(connector.slug)
         if not connector.is_enabled(token):
             continue
@@ -505,7 +510,7 @@ def build_agent_options(
     # answers and the wiki. No attached "sources" — it's the project's own
     # conversation. Promoting (a write) is editor-only, same gate as the
     # other write tools above.
-    if os.environ.get("MYCELIUM_URL", "").strip() and snapshot.slug:
+    if not offline and os.environ.get("MYCELIUM_URL", "").strip() and snapshot.slug:
         mcp_servers["mycelium"] = build_mycelium_mcp(snapshot.slug)
         allowed.append("mcp__mycelium__feed_read_messages")
         if agent_role != "viewer":
