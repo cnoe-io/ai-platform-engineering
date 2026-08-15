@@ -17,10 +17,14 @@
  */
 
 import {
+  addQuestionToSet,
   batchDeleteQuestionSetItems,
+  createQuestionSet,
   deleteQuestionSet,
+  type DocumentInfo,
   type EvaluationJob,
   getDataSources,
+  getDatasourceDocuments,
   getEvaluationJobStatus,
   getEvaluationServiceHealth,
   listEvaluationJobs,
@@ -62,16 +66,19 @@ import {
   ListChecks,
   Pencil,
   Play,
+  Plus,
   Search,
   Trash2,
   Trophy,
   Upload,
+  X,
 } from "lucide-react";
 import {
   type ChangeEvent,
   // Aliased so the native MouseEvent stays available for the document-level
   // drag listeners in the column resizer.
   type MouseEvent as ReactMouseEvent,
+  type ReactNode,
   useCallback,
   useEffect,
   useRef,
@@ -238,6 +245,8 @@ function QuestionSetsPage() {
 
   const [editing, setEditing] = useState<QuestionSetItem | null>(null);
   const [renaming, setRenaming] = useState<QuestionSet | null>(null);
+  const [creatingSet, setCreatingSet] = useState(false);
+  const [addingQuestion, setAddingQuestion] = useState(false);
 
   const fetchSets = useCallback(async (preferId?: number) => {
     setLoadingSets(true);
@@ -356,10 +365,12 @@ function QuestionSetsPage() {
   };
 
   const handleSaveItem = async (patch: {
+    question_id?: string | null;
     input: string;
     expected_output?: string | null;
     category?: string | null;
     level?: string | null;
+    expected_doc_ids?: string[];
   }) => {
     if (!editing || selectedSetId == null) return;
     await updateQuestionSetItem(selectedSetId, editing.id, patch);
@@ -391,6 +402,29 @@ function QuestionSetsPage() {
     setRenaming(null);
     toast("Question set updated", "success");
     await fetchSets(updated.id);
+  };
+
+  const handleCreatedSet = async (created: QuestionSet) => {
+    setCreatingSet(false);
+    toast("Question set created", "success");
+    await fetchSets(created.id);
+  };
+
+  const handleAddQuestion = async (q: {
+    question_id?: string | null;
+    input: string;
+    expected_output?: string | null;
+    category?: string | null;
+    level?: string | null;
+    expected_doc_ids?: string[];
+  }) => {
+    if (selectedSetId == null) return;
+    await addQuestionToSet(selectedSetId, q);
+    setAddingQuestion(false);
+    toast("Question added", "success");
+    reloadQuestions();
+    // The set carries the count + category breakdown, so it goes stale.
+    fetchSets(selectedSetId);
   };
 
   const selectedSet = sets.find((s) => s.id === selectedSetId) ?? null;
@@ -458,7 +492,11 @@ function QuestionSetsPage() {
           </p>
         </div>
         {canWrite ? (
-          <div>
+          <div className="flex items-center gap-2">
+            <Button onClick={() => setCreatingSet(true)} className="gap-1.5">
+              <Plus className="h-4 w-4" />
+              Add question set
+            </Button>
             <input
               ref={fileInputRef}
               type="file"
@@ -593,6 +631,18 @@ function QuestionSetsPage() {
               Questions <span className="text-muted-foreground font-normal">({total})</span>
             </h3>
             <div className="flex items-center gap-2">
+              {canWrite && (
+                <Button
+                  size="sm"
+                  className="gap-1.5"
+                  onClick={() => setAddingQuestion(true)}
+                  disabled={selectedSetId == null}
+                  title={selectedSetId == null ? "Select a question set first" : undefined}
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  Add question
+                </Button>
+              )}
               {canWrite && selectedIds.length > 0 && (
                 <Button
                   variant="outline"
@@ -747,6 +797,372 @@ function QuestionSetsPage() {
           onSaved={handleRenamed}
         />
       )}
+
+      {creatingSet && (
+        <NewQuestionSetDialog
+          onClose={() => setCreatingSet(false)}
+          onCreated={handleCreatedSet}
+        />
+      )}
+
+      {addingQuestion && selectedSet && (
+        <AddQuestionDialog
+          setName={selectedSet.name}
+          categoryOptions={categoryOptions}
+          onClose={() => setAddingQuestion(false)}
+          onAdd={handleAddQuestion}
+        />
+      )}
+    </div>
+  );
+}
+
+interface QuestionFormValue {
+  question_id: string;
+  input: string;
+  expected_output: string;
+  category: string;
+  level: string;
+  expected_doc_ids: string[];
+}
+
+/** Repeatable list of text inputs (add / remove rows). Empty rows are dropped
+ *  by the caller before saving. */
+function StringListEditor({
+  values,
+  onChange,
+  placeholder,
+  addLabel,
+  trailing,
+}: {
+  values: string[];
+  onChange: (next: string[]) => void;
+  placeholder?: string;
+  addLabel: string;
+  /** Optional control rendered to the right of the "Add" button. */
+  trailing?: ReactNode;
+}) {
+  return (
+    <div className="space-y-2">
+      {values.map((v, i) => (
+        <div key={i} className="flex items-center gap-2">
+          <Input
+            value={v}
+            onChange={(e) => {
+              const next = [...values];
+              next[i] = e.target.value;
+              onChange(next);
+            }}
+            placeholder={placeholder}
+          />
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-9 w-9 p-0 text-destructive shrink-0"
+            onClick={() => onChange(values.filter((_, idx) => idx !== i))}
+            aria-label="Remove"
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+      ))}
+      <div className="flex items-center gap-2">
+        <Button
+          type="button"
+          size="sm"
+          className="gap-1.5"
+          onClick={() => onChange([...values, ""])}
+        >
+          <Plus className="h-3.5 w-3.5" />
+          {addLabel}
+        </Button>
+        {trailing}
+      </div>
+    </div>
+  );
+}
+
+/** Browse an ingested corpus (datasource) and pick document IDs, instead of
+ *  typing them by hand. Reuses the existing datasource + documents APIs. */
+function DocumentPicker({
+  existing,
+  onClose,
+  onConfirm,
+}: {
+  existing: string[];
+  onClose: () => void;
+  onConfirm: (docIds: string[]) => void;
+}) {
+  const [datasources, setDatasources] = useState<DataSourceInfo[]>([]);
+  const [datasourceId, setDatasourceId] = useState("");
+  const [docs, setDocs] = useState<DocumentInfo[]>([]);
+  const [hasMore, setHasMore] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    getDataSources()
+      .then((res) => {
+        setDatasources(res.datasources);
+        setDatasourceId(res.datasources[0]?.datasource_id ?? "");
+      })
+      .catch((err) =>
+        setError(err instanceof Error ? err.message : "Failed to load knowledge bases"),
+      );
+  }, []);
+
+  useEffect(() => {
+    if (!datasourceId) {
+      setDocs([]);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    getDatasourceDocuments(datasourceId, 0, 500)
+      .then((res) => {
+        if (cancelled) return;
+        setDocs(res.documents);
+        setHasMore(res.has_more);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load documents");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [datasourceId]);
+
+  const q = search.trim().toLowerCase();
+  const visible = q
+    ? docs.filter(
+        (d) => d.document_id.toLowerCase().includes(q) || (d.title || "").toLowerCase().includes(q),
+      )
+    : docs;
+
+  const toggle = (id: string) =>
+    setPicked((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Pick documents from a corpus</DialogTitle>
+          <DialogDescription>
+            Choose an ingested knowledge base, then check the documents this question should retrieve.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <select
+              value={datasourceId}
+              onChange={(e) => setDatasourceId(e.target.value)}
+              className="rounded-md border border-input bg-background px-3 py-2 text-sm min-w-[200px]"
+            >
+              {datasources.length === 0 ? (
+                <option value="">No knowledge bases</option>
+              ) : (
+                datasources.map((ds) => (
+                  <option key={ds.datasource_id} value={ds.datasource_id}>
+                    {ds.name || ds.datasource_id}
+                  </option>
+                ))
+              )}
+            </select>
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search title or document ID…"
+                className="pl-9"
+              />
+            </div>
+          </div>
+
+          {error && <p className="text-sm text-destructive">{error}</p>}
+          {hasMore && (
+            <p className="text-[11px] text-muted-foreground">
+              Showing the first 500 documents — use search to narrow down.
+            </p>
+          )}
+
+          <div className="max-h-80 overflow-auto rounded-xl border border-border divide-y divide-border/50">
+            {loading ? (
+              <p className="py-6 px-4 text-center text-sm text-muted-foreground">
+                Loading documents…
+              </p>
+            ) : visible.length === 0 ? (
+              <p className="py-6 px-4 text-center text-sm text-muted-foreground">
+                {docs.length === 0 ? "No documents in this knowledge base." : "No matches."}
+              </p>
+            ) : (
+              visible.map((d) => {
+                const already = existing.includes(d.document_id);
+                return (
+                  <label
+                    key={d.document_id}
+                    className="flex items-start gap-3 px-4 py-2.5 cursor-pointer hover:bg-muted/30"
+                  >
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 h-4 w-4 rounded border-border shrink-0"
+                      checked={already || picked.has(d.document_id)}
+                      disabled={already}
+                      onChange={() => toggle(d.document_id)}
+                    />
+                    <span className="min-w-0">
+                      <span className="block text-sm text-foreground truncate">
+                        {d.title || "(untitled)"}
+                      </span>
+                      <span className="block text-[11px] text-muted-foreground font-mono truncate">
+                        {d.document_id}
+                        {already ? " · already added" : ""}
+                      </span>
+                    </span>
+                  </label>
+                );
+              })
+            )}
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button onClick={() => onConfirm(Array.from(picked))} disabled={picked.size === 0}>
+            Add {picked.size || ""} document{picked.size === 1 ? "" : "s"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** Shared field set used by both the Add and Edit question dialogs. */
+function QuestionFields({
+  value,
+  onChange,
+  categoryOptions,
+  datalistId,
+}: {
+  value: QuestionFormValue;
+  onChange: (patch: Partial<QuestionFormValue>) => void;
+  categoryOptions: string[];
+  datalistId: string;
+}) {
+  const levelOptions = Array.from(
+    new Set([...KNOWN_LEVELS, ...(value.level ? [value.level] : [])]),
+  );
+  const [pickerOpen, setPickerOpen] = useState(false);
+  return (
+    <div className="space-y-4">
+      <div>
+        <label className="block text-xs font-medium text-muted-foreground mb-1">Question ID</label>
+        <Input
+          value={value.question_id}
+          onChange={(e) => onChange({ question_id: e.target.value })}
+          placeholder="Leave blank to auto-generate"
+        />
+      </div>
+      <div>
+        <label className="block text-xs font-medium text-muted-foreground mb-1">Question</label>
+        <Textarea value={value.input} onChange={(e) => onChange({ input: e.target.value })} rows={3} />
+      </div>
+      <div>
+        <label className="block text-xs font-medium text-muted-foreground mb-1">
+          Expected answer
+        </label>
+        <Textarea
+          value={value.expected_output}
+          onChange={(e) => onChange({ expected_output: e.target.value })}
+          rows={2}
+        />
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <label className="block text-xs font-medium text-muted-foreground mb-1">Category</label>
+          <Input
+            list={datalistId}
+            value={value.category}
+            onChange={(e) => onChange({ category: e.target.value })}
+            placeholder="e.g. bridge"
+          />
+          <datalist id={datalistId}>
+            {categoryOptions.map((c) => (
+              <option key={c} value={c} />
+            ))}
+          </datalist>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-muted-foreground mb-1">Level</label>
+          <select
+            value={value.level}
+            onChange={(e) => onChange({ level: e.target.value })}
+            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+          >
+            <option value="">{PLACEHOLDER}</option>
+            {levelOptions.map((l) => (
+              <option key={l} value={l}>
+                {l}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+      <div>
+        <label className="block text-xs font-medium text-muted-foreground mb-1">
+          Expected doc IDs
+        </label>
+        <StringListEditor
+          values={value.expected_doc_ids}
+          onChange={(next) => onChange({ expected_doc_ids: next })}
+          placeholder="e.g. hotpotqa_d3a4c096a4b780ac"
+          addLabel="Add doc ID manually"
+          trailing={
+            <Button
+              type="button"
+              size="sm"
+              className="gap-1.5"
+              onClick={() => setPickerOpen(true)}
+            >
+              <Search className="h-3.5 w-3.5" />
+              Pick from corpus
+            </Button>
+          }
+        />
+        <p className="mt-1 text-[11px] text-muted-foreground">
+          Corpus document IDs this question should retrieve — used for retrieval scoring. Leave empty
+          if not applicable.
+        </p>
+      </div>
+
+      {pickerOpen && (
+        <DocumentPicker
+          existing={value.expected_doc_ids.map((s) => s.trim()).filter(Boolean)}
+          onClose={() => setPickerOpen(false)}
+          onConfirm={(ids) => {
+            const merged = Array.from(
+              new Set([...value.expected_doc_ids.map((s) => s.trim()).filter(Boolean), ...ids]),
+            );
+            onChange({ expected_doc_ids: merged });
+            setPickerOpen(false);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -761,30 +1177,37 @@ function EditQuestionDialog({
   categoryOptions: string[];
   onClose: () => void;
   onSave: (patch: {
+    question_id?: string | null;
     input: string;
     expected_output?: string | null;
     category?: string | null;
     level?: string | null;
+    expected_doc_ids?: string[];
   }) => Promise<void>;
 }) {
-  const [input, setInput] = useState(item.input);
-  const [expectedOutput, setExpectedOutput] = useState(item.expected_output ?? "");
-  const [category, setCategory] = useState(item.category ?? "");
-  const [level, setLevel] = useState(item.level ?? "");
+  const [value, setValue] = useState<QuestionFormValue>({
+    question_id: item.question_id ?? "",
+    input: item.input,
+    expected_output: item.expected_output ?? "",
+    category: item.category ?? "",
+    level: item.level ?? "",
+    expected_doc_ids: item.expected_doc_ids ?? [],
+  });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const levelOptions = Array.from(new Set([...KNOWN_LEVELS, ...(level ? [level] : [])]));
+  const update = (patch: Partial<QuestionFormValue>) => setValue((v) => ({ ...v, ...patch }));
 
   const handleSave = async () => {
     setSaving(true);
     setError(null);
     try {
       await onSave({
-        input,
-        expected_output: expectedOutput || null,
-        category: category ? normalizeCategory(category, categoryOptions) : null,
-        level: level || null,
+        question_id: value.question_id.trim() || null,
+        input: value.input,
+        expected_output: value.expected_output || null,
+        category: value.category ? normalizeCategory(value.category, categoryOptions) : null,
+        level: value.level || null,
+        expected_doc_ids: value.expected_doc_ids.map((s) => s.trim()).filter(Boolean),
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Save failed");
@@ -799,81 +1222,24 @@ function EditQuestionDialog({
         <DialogHeader>
           <DialogTitle>Edit question</DialogTitle>
           <DialogDescription>
-            Only the question, expected answer, category, and level can be changed.
+            Blank Question ID auto-fills; empty Expected doc IDs disables retrieval scoring for this
+            question.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4">
-          <div>
-            <label className="block text-xs font-medium text-muted-foreground mb-1">Question</label>
-            <Textarea value={input} onChange={(e) => setInput(e.target.value)} rows={3} />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-muted-foreground mb-1">
-              Expected answer
-            </label>
-            <Textarea
-              value={expectedOutput}
-              onChange={(e) => setExpectedOutput(e.target.value)}
-              rows={2}
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-medium text-muted-foreground mb-1">
-                Category
-              </label>
-              <Input
-                list="qs-categories"
-                value={category}
-                onChange={(e) => setCategory(e.target.value)}
-                placeholder="e.g. bridge"
-              />
-              <datalist id="qs-categories">
-                {categoryOptions.map((c) => (
-                  <option key={c} value={c} />
-                ))}
-              </datalist>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-muted-foreground mb-1">Level</label>
-              <select
-                value={level}
-                onChange={(e) => setLevel(e.target.value)}
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-              >
-                <option value="">{PLACEHOLDER}</option>
-                {levelOptions.map((l) => (
-                  <option key={l} value={l}>
-                    {l}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {/* Read-only, eval-critical — shown for context, never editable */}
-          <div className="rounded-lg border border-border/50 bg-muted/20 p-3 space-y-1.5">
-            <p className="text-[11px] font-medium text-muted-foreground">
-              Read-only (cannot be changed)
-            </p>
-            <p className="text-xs text-muted-foreground">
-              <span className="font-medium">Question ID:</span> {item.question_id ?? PLACEHOLDER}
-            </p>
-            <p className="text-xs text-muted-foreground break-all">
-              <span className="font-medium">Expected doc IDs:</span>{" "}
-              {item.expected_doc_ids.join(", ") || PLACEHOLDER}
-            </p>
-          </div>
-
-          {error && <p className="text-sm text-destructive">{error}</p>}
-        </div>
+        <QuestionFields
+          value={value}
+          onChange={update}
+          categoryOptions={categoryOptions}
+          datalistId="qs-edit-categories"
+        />
+        {error && <p className="text-sm text-destructive mt-3">{error}</p>}
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={saving}>
             Cancel
           </Button>
-          <Button onClick={handleSave} disabled={saving || !input.trim()}>
+          <Button onClick={handleSave} disabled={saving || !value.input.trim()}>
             {saving ? "Saving…" : "Save"}
           </Button>
         </DialogFooter>
@@ -943,12 +1309,184 @@ function RenameSetDialog({
   );
 }
 
+function NewQuestionSetDialog({
+  onClose,
+  onCreated,
+}: {
+  onClose: () => void;
+  onCreated: (created: QuestionSet) => void;
+}) {
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSave = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      onCreated(
+        await createQuestionSet({ name: name.trim(), description: description.trim() || undefined }),
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Create failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>New question set</DialogTitle>
+          <DialogDescription>
+            Creates an empty set. Add questions to it with &ldquo;Add question&rdquo;.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3 py-2">
+          <div className="space-y-1.5">
+            <Label htmlFor="qs-new-name">Name</Label>
+            <Input
+              id="qs-new-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. hotpotqa manual set"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="qs-new-description">Description</Label>
+            <Input
+              id="qs-new-description"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Optional"
+            />
+          </div>
+          {error && <p className="text-sm text-destructive">{error}</p>}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={saving}>
+            Cancel
+          </Button>
+          <Button onClick={handleSave} disabled={saving || !name.trim()}>
+            {saving ? "Creating…" : "Create"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function AddQuestionDialog({
+  setName,
+  categoryOptions,
+  onClose,
+  onAdd,
+}: {
+  setName: string;
+  categoryOptions: string[];
+  onClose: () => void;
+  onAdd: (q: {
+    question_id?: string | null;
+    input: string;
+    expected_output?: string | null;
+    category?: string | null;
+    level?: string | null;
+    expected_doc_ids?: string[];
+  }) => Promise<void>;
+}) {
+  const [value, setValue] = useState<QuestionFormValue>({
+    question_id: "",
+    input: "",
+    expected_output: "",
+    category: "",
+    level: "",
+    expected_doc_ids: [],
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const update = (patch: Partial<QuestionFormValue>) => setValue((v) => ({ ...v, ...patch }));
+
+  const handleSave = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      await onAdd({
+        question_id: value.question_id.trim() || null,
+        input: value.input,
+        expected_output: value.expected_output || null,
+        category: value.category ? normalizeCategory(value.category, categoryOptions) : null,
+        level: value.level || null,
+        expected_doc_ids: value.expected_doc_ids.map((s) => s.trim()).filter(Boolean),
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Add failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Add question</DialogTitle>
+          <DialogDescription>Add a question to &ldquo;{setName}&rdquo;.</DialogDescription>
+        </DialogHeader>
+
+        <QuestionFields
+          value={value}
+          onChange={update}
+          categoryOptions={categoryOptions}
+          datalistId="qs-add-categories"
+        />
+        {error && <p className="text-sm text-destructive mt-3">{error}</p>}
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={saving}>
+            Cancel
+          </Button>
+          <Button onClick={handleSave} disabled={saving || !value.input.trim()}>
+            {saving ? "Adding…" : "Add question"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 /* ------------------------------------------------------------------ */
 /* Page 2 — Run Experiment                                             */
 /* ------------------------------------------------------------------ */
 
 const POLL_INTERVAL_MS = 2000;
 const RUNS_PAGE_SIZE = 8;
+
+// Experiments table columns — widths are in px and resizable by dragging the
+// header dividers (same behaviour as the Question Sets table). These are the
+// natural widths; when the container is too narrow for all of them, the
+// flexible text columns below are shrunk in order — each only down to a
+// comfortable minimum — so nothing overflows and no single column is crushed.
+// The last column (Details button) has no label.
+const RUN_FLEX_COLS: { i: number; min: number }[] = [
+  { i: 2, min: 120 }, // Knowledge base — shrinks first, but only to "just right"
+  { i: 3, min: 110 }, // Question set — takes the next share
+  { i: 1, min: 80 }, // Experiment — last
+];
+const RUN_COLS: { label: string }[] = [
+  { label: "Job" },
+  { label: "Experiment" },
+  { label: "Knowledge base" },
+  { label: "Question set" },
+  { label: "Top-K" },
+  { label: "Max items" },
+  { label: "Limit/cat" },
+  { label: "Semantic weight" },
+  { label: "Status" },
+  { label: "" },
+];
+const RUN_COL_DEFAULT_WIDTHS = [80, 95, 170, 150, 65, 85, 80, 115, 115, 80];
 
 /** Page numbers to render, with "…" gaps once there are too many to list. */
 function pageWindow(current: number, count: number): (number | "…")[] {
@@ -994,6 +1532,93 @@ function ExperimentStatusBadge({ status }: { status: ExperimentStatus }) {
   );
 }
 
+/** Run details for any row — success shows "no issues", failures show the stored
+ *  error (or explain a silent 0-item failure). Refetches on open for freshness. */
+function RunDetailsDialog({ job, onClose }: { job: EvaluationJob; onClose: () => void }) {
+  const [detail, setDetail] = useState<EvaluationJob>(job);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    getEvaluationJobStatus(job.job_id)
+      .then((j) => {
+        if (!cancelled) setDetail(j);
+      })
+      .catch(() => {
+        // Fall back to the row's job — it already carries status + error.
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [job.job_id]);
+
+  // Trust the failure signal from either source: the refetch can come back
+  // without the error the list row already carried (which drew the red badge),
+  // and dropping it would mislabel a failed run as "No issues".
+  const errorText = detail.error ?? job.error ?? null;
+  const failed =
+    experimentStatus(detail) === "failed" || experimentStatus(job) === "failed";
+  const status: ExperimentStatus = failed
+    ? "failed"
+    : experimentStatus(detail);
+  const items = detail.summary?.total_items ?? job.summary?.total_items ?? 0;
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Run details</DialogTitle>
+          <DialogDescription>
+            Job <span className="font-mono">{job.job_id.slice(0, 8)}</span> · {status}
+          </DialogDescription>
+        </DialogHeader>
+
+        {loading ? (
+          <p className="text-sm text-muted-foreground">Loading…</p>
+        ) : status === "finished" ? (
+          <div className="rounded-lg border border-green-500/30 bg-green-500/5 p-3">
+            <p className="text-sm font-medium text-green-600 dark:text-green-500">No issues</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              This run completed successfully
+              {items ? ` — ${items} question${items === 1 ? "" : "s"} evaluated` : ""}. Metric scores
+              are on the Leaderboard tab.
+            </p>
+          </div>
+        ) : status === "running" ? (
+          <p className="text-sm text-muted-foreground">This run is still in progress.</p>
+        ) : errorText ? (
+          <div>
+            <label className="block text-xs font-medium text-muted-foreground mb-1">Error</label>
+            <pre className="max-h-72 overflow-auto rounded-lg border border-border bg-muted/30 p-3 text-xs whitespace-pre-wrap break-words text-destructive">
+              {errorText}
+            </pre>
+          </div>
+        ) : items === 0 ? (
+          <p className="text-xs text-amber-500">
+            Completed with 0 evaluated questions — the run finished without scoring anything, so no
+            error was stored on the job. The cause (an empty or filtered question set, or every
+            question failing retrieval) is in the DeepEval service logs.
+          </p>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            This run failed, but no error message was stored. Check the DeepEval service logs for the
+            cause.
+          </p>
+        )}
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Close
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function RunExperimentPage() {
   const [questionSets, setQuestionSets] = useState<QuestionSet[]>([]);
   const [questionSetId, setQuestionSetId] = useState<number | null>(null);
@@ -1013,6 +1638,80 @@ function RunExperimentPage() {
 
   // null = still checking; drives the dot next to the panel heading.
   const [serviceHealthy, setServiceHealthy] = useState<boolean | null>(null);
+  const [detailsJob, setDetailsJob] = useState<EvaluationJob | null>(null);
+
+  // Fill the visible area with as many rows as fit rather than a fixed page size:
+  // measure where the table starts and divide the remaining viewport height by a
+  // row's height. Recomputed on resize.
+  const tableRef = useRef<HTMLDivElement | null>(null);
+  const [rowsPerPage, setRowsPerPage] = useState(RUNS_PAGE_SIZE);
+  useEffect(() => {
+    const measure = () => {
+      const el = tableRef.current;
+      if (!el) return;
+      const top = el.getBoundingClientRect().top;
+      const ROW_H = 44; // approx height of one row
+      const HEADER_H = 42; // thead row
+      // Space kept clear below the table so the note + pager buttons stay on
+      // screen and the page never has to scroll vertically.
+      const RESERVED = 150;
+      const avail = window.innerHeight - top - HEADER_H - RESERVED;
+      setRowsPerPage(Math.min(100, Math.max(5, Math.floor(avail / ROW_H))));
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, []);
+
+  // Drag a header divider to resize that column (same as the Question Sets table).
+  const [runColWidths, setRunColWidths] = useState<number[]>(RUN_COL_DEFAULT_WIDTHS);
+  const runTableWidth = runColWidths.reduce((a, b) => a + b, 0);
+  // Keep the natural widths when they fit; only when the container is too narrow
+  // shrink "Knowledge base" (to a floor) so the columns don't force a horizontal
+  // scroll. Skipped once the user has dragged a divider themselves.
+  const userSizedCols = useRef(false);
+  useEffect(() => {
+    const fit = () => {
+      if (userSizedCols.current) return;
+      const el = tableRef.current;
+      if (!el) return;
+      const avail = el.clientWidth;
+      const widths = [...RUN_COL_DEFAULT_WIDTHS];
+      let overflow = widths.reduce((a, b) => a + b, 0) - avail;
+      for (const f of RUN_FLEX_COLS) {
+        if (overflow <= 0) break;
+        const take = Math.min(widths[f.i] - f.min, overflow);
+        if (take > 0) {
+          widths[f.i] -= take;
+          overflow -= take;
+        }
+      }
+      setRunColWidths(widths);
+    };
+    fit();
+    window.addEventListener("resize", fit);
+    return () => window.removeEventListener("resize", fit);
+  }, []);
+  const startRunResize = (index: number, e: ReactMouseEvent) => {
+    e.preventDefault();
+    userSizedCols.current = true; // stop auto-fitting once the user takes over
+    const startX = e.clientX;
+    const startWidth = runColWidths[index];
+    const onMove = (ev: MouseEvent) => {
+      const dx = ev.clientX - startX;
+      setRunColWidths((prev) => {
+        const next = [...prev];
+        next[index] = Math.max(50, startWidth + dx);
+        return next;
+      });
+    };
+    const onUp = () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  };
 
   const loadRuns = useCallback(async () => {
     try {
@@ -1113,8 +1812,12 @@ function RunExperimentPage() {
     return typeof value === "number" ? String(value) : PLACEHOLDER;
   };
 
-  const pageCount = Math.max(1, Math.ceil(runs.length / RUNS_PAGE_SIZE));
-  const pageRuns = runs.slice((page - 1) * RUNS_PAGE_SIZE, page * RUNS_PAGE_SIZE);
+  const pageCount = Math.max(1, Math.ceil(runs.length / rowsPerPage));
+  const pageRuns = runs.slice((page - 1) * rowsPerPage, page * rowsPerPage);
+  // A resize can shrink the page count below the current page — snap back.
+  useEffect(() => {
+    if (page > pageCount) setPage(pageCount);
+  }, [page, pageCount]);
 
   // Re-fetch details only when the visible rows change or one of them changes
   // status — a job sitting at "running" keeps the same signature, so polling
@@ -1293,25 +1996,30 @@ function RunExperimentPage() {
           <h3 className="text-base font-semibold text-foreground">
             Experiments <span className="text-muted-foreground font-normal">({runs.length})</span>
           </h3>
-          <div className="rounded-xl border border-border overflow-x-auto">
-            <table className="w-full text-sm">
+          <div ref={tableRef} className="rounded-xl border border-border overflow-x-auto">
+            <table className="table-fixed text-sm" style={{ width: runTableWidth }}>
               <thead>
                 <tr className="bg-muted/40 text-left text-muted-foreground">
-                  <th className="py-2.5 px-4 font-medium whitespace-nowrap">Job</th>
-                  <th className="py-2.5 px-4 font-medium whitespace-nowrap">Experiment</th>
-                  <th className="py-2.5 px-4 font-medium whitespace-nowrap">Knowledge base</th>
-                  <th className="py-2.5 px-4 font-medium whitespace-nowrap">Question set</th>
-                  <th className="py-2.5 px-4 font-medium whitespace-nowrap">Top-K</th>
-                  <th className="py-2.5 px-4 font-medium whitespace-nowrap">Max items</th>
-                  <th className="py-2.5 px-4 font-medium whitespace-nowrap">Limit/cat</th>
-                  <th className="py-2.5 px-4 font-medium whitespace-nowrap">Semantic weight</th>
-                  <th className="py-2.5 px-4 font-medium whitespace-nowrap">Status</th>
+                  {RUN_COLS.map((c, i) => (
+                    <th
+                      key={i}
+                      style={{ width: runColWidths[i] }}
+                      className="relative py-2.5 px-4 font-medium select-none"
+                    >
+                      <span className="block truncate">{c.label}</span>
+                      <div
+                        onMouseDown={(e) => startRunResize(i, e)}
+                        className="absolute right-0 top-0 h-full w-1.5 cursor-col-resize hover:bg-primary/40"
+                        title="Drag to resize"
+                      />
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
                 {pageRuns.length === 0 && (
                   <tr>
-                    <td colSpan={9} className="py-10 px-4 text-center text-muted-foreground">
+                    <td colSpan={10} className="py-10 px-4 text-center text-muted-foreground">
                       No experiments yet — configure one on the left and hit Run.
                     </td>
                   </tr>
@@ -1322,34 +2030,46 @@ function RunExperimentPage() {
                   const job = { ...(details[row.job_id] ?? row), ...row };
                   return (
                     <tr key={job.job_id} className="border-t border-border/50">
-                      <td
-                        className="py-2.5 px-4 text-muted-foreground font-mono whitespace-nowrap"
-                        title={job.job_id}
-                      >
-                        {job.job_id.slice(0, 8)}
+                      <td className="py-2.5 px-4 overflow-hidden">
+                        <div
+                          className="truncate text-muted-foreground font-mono"
+                          title={job.job_id}
+                        >
+                          {job.job_id.slice(0, 8)}
+                        </div>
                       </td>
-                      <td className="py-2.5 px-4 text-muted-foreground whitespace-nowrap">
-                        {PLACEHOLDER}
+                      <td className="py-2.5 px-4 overflow-hidden">
+                        <div className="truncate text-muted-foreground">{PLACEHOLDER}</div>
                       </td>
-                      <td className="py-2.5 px-4 text-muted-foreground whitespace-nowrap">
-                        {knowledgeBaseName(job)}
+                      <td className="py-2.5 px-4 overflow-hidden">
+                        <div className="truncate text-muted-foreground" title={knowledgeBaseName(job)}>
+                          {knowledgeBaseName(job)}
+                        </div>
                       </td>
-                      <td className="py-2.5 px-4 text-foreground whitespace-nowrap">
-                        {questionSetName(job)}
+                      <td className="py-2.5 px-4 overflow-hidden">
+                        <div className="truncate text-foreground" title={questionSetName(job)}>
+                          {questionSetName(job)}
+                        </div>
                       </td>
-                      <td className="py-2.5 px-4 text-muted-foreground tabular-nums">
-                        {configNumber(job, "top_k")}
+                      <td className="py-2.5 px-4 overflow-hidden">
+                        <div className="truncate text-muted-foreground tabular-nums">
+                          {configNumber(job, "top_k")}
+                        </div>
                       </td>
-                      <td className="py-2.5 px-4 text-muted-foreground tabular-nums">
-                        {configNumber(job, "max_items")}
+                      <td className="py-2.5 px-4 overflow-hidden">
+                        <div className="truncate text-muted-foreground tabular-nums">
+                          {configNumber(job, "max_items")}
+                        </div>
                       </td>
-                      <td className="py-2.5 px-4 text-muted-foreground tabular-nums">
-                        {configNumber(job, "limit_per_category")}
+                      <td className="py-2.5 px-4 overflow-hidden">
+                        <div className="truncate text-muted-foreground tabular-nums">
+                          {configNumber(job, "limit_per_category")}
+                        </div>
                       </td>
-                      <td className="py-2.5 px-4 text-muted-foreground tabular-nums">
-                        {PLACEHOLDER}
+                      <td className="py-2.5 px-4 overflow-hidden">
+                        <div className="truncate text-muted-foreground tabular-nums">{PLACEHOLDER}</div>
                       </td>
-                      <td className="py-2.5 px-4 whitespace-nowrap">
+                      <td className="py-2.5 px-4 overflow-hidden whitespace-nowrap">
                         <ExperimentStatusBadge status={experimentStatus(job)} />
                         {job.cached && (
                           <span
@@ -1359,6 +2079,16 @@ function RunExperimentPage() {
                             cached
                           </span>
                         )}
+                      </td>
+                      <td className="py-2.5 px-4 text-right whitespace-nowrap">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7"
+                          onClick={() => setDetailsJob(job)}
+                        >
+                          Details
+                        </Button>
                       </td>
                     </tr>
                   );
@@ -1422,6 +2152,10 @@ function RunExperimentPage() {
           )}
         </div>
       </ScrollArea>
+
+      {detailsJob && (
+        <RunDetailsDialog job={detailsJob} onClose={() => setDetailsJob(null)} />
+      )}
     </div>
   );
 }

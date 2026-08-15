@@ -194,6 +194,18 @@ export async function uploadQuestions(setId: number, file: File): Promise<Upstre
   });
 }
 
+/** Add question(s) to a set via JSON body — the service accepts a single object or a list. */
+export async function addQuestions(
+  setId: number,
+  questions: QuestionPatch | QuestionPatch[],
+): Promise<UpstreamQuestion[]> {
+  return request(`/${setId}/questions`, 'question add', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(questions),
+  });
+}
+
 export async function batchDeleteQuestions(
   setId: number,
   ids: number[],
