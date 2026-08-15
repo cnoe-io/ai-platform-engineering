@@ -6,9 +6,16 @@ import { Bell,Eye,Loader2 } from "lucide-react";
 import { useEffect,useState } from "react";
 
 import { ReleaseUpgradeDialog } from "@/components/release/ReleaseUpgradeDialog";
-import type { ReleaseMarkdown,ReleaseNote } from "@/hooks/use-release-upgrade-prompt";
+import {
+  hasConfiguredReleaseNotesCompare,
+  releaseNotesRequestUrl,
+  type ReleaseMarkdown,
+  type ReleaseNote,
+  type ReleaseNotesNotificationConfig,
+} from "@/hooks/use-release-upgrade-prompt";
 import { Button } from "@/components/ui/button";
 import { Card,CardContent,CardDescription,CardHeader,CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 
 interface ReleaseNotesSettingsTabProps {
   isAdmin: boolean;
@@ -40,9 +47,16 @@ function ReleaseNotesCard({ isAdmin, readOnly = false }: ReleaseNotesSettingsTab
   // ── Platform-wide switch (admin only) ─────────────────────────────────────
   const [platformEnabled, setPlatformEnabled] = useState(true);
   const [savedPlatformEnabled, setSavedPlatformEnabled] = useState(true);
-  const [loadingConfig, setLoadingConfig] = useState(isAdmin);
+  const [repositoryUrl, setRepositoryUrl] = useState("");
+  const [savedRepositoryUrl, setSavedRepositoryUrl] = useState("");
+  const [previousCommit, setPreviousCommit] = useState("");
+  const [savedPreviousCommit, setSavedPreviousCommit] = useState("");
+  const [latestCommit, setLatestCommit] = useState("");
+  const [savedLatestCommit, setSavedLatestCommit] = useState("");
+  const [loadingConfig, setLoadingConfig] = useState(true);
   const [savingPlatform, setSavingPlatform] = useState(false);
   const [platformSaveResult, setPlatformSaveResult] = useState<"success" | "error" | null>(null);
+  const [platformSaveError, setPlatformSaveError] = useState<string | null>(null);
 
   // ── On-demand release notes popup ─────────────────────────────────────────
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -72,15 +86,24 @@ function ReleaseNotesCard({ isAdmin, readOnly = false }: ReleaseNotesSettingsTab
   }, []);
 
   useEffect(() => {
-    if (!isAdmin) return;
     let cancelled = false;
     fetch("/api/admin/platform-config")
       .then((response) => response.json())
       .then((configRes) => {
         if (cancelled || !configRes.success) return;
-        const next = configRes.data?.release_notes?.enabled !== false;
+        const releaseNotesConfig = configRes.data?.release_notes;
+        const next = releaseNotesConfig?.enabled !== false;
+        const nextRepositoryUrl = releaseNotesConfig?.repository_url?.trim() ?? "";
+        const nextPreviousCommit = releaseNotesConfig?.previous_commit?.trim() ?? "";
+        const nextLatestCommit = releaseNotesConfig?.latest_commit?.trim() ?? "";
         setPlatformEnabled(next);
         setSavedPlatformEnabled(next);
+        setRepositoryUrl(nextRepositoryUrl);
+        setSavedRepositoryUrl(nextRepositoryUrl);
+        setPreviousCommit(nextPreviousCommit);
+        setSavedPreviousCommit(nextPreviousCommit);
+        setLatestCommit(nextLatestCommit);
+        setSavedLatestCommit(nextLatestCommit);
       })
       .catch(() => {})
       .finally(() => {
@@ -118,26 +141,83 @@ function ReleaseNotesCard({ isAdmin, readOnly = false }: ReleaseNotesSettingsTab
 
   const savePlatformConfig = async () => {
     if (readOnly) return;
+    const nextConfig: ReleaseNotesNotificationConfig = {
+      enabled: platformEnabled,
+      repository_url: repositoryUrl.trim() || null,
+      previous_commit: previousCommit.trim() || null,
+      latest_commit: latestCommit.trim() || null,
+    };
+    const configuredFields = [
+      nextConfig.repository_url,
+      nextConfig.previous_commit,
+      nextConfig.latest_commit,
+    ].filter(Boolean).length;
+    if (configuredFields !== 0 && configuredFields !== 3) {
+      setPlatformSaveResult("error");
+      setPlatformSaveError("Set the repository URL and both commits, or leave all three empty.");
+      return;
+    }
+    if (configuredFields === 3) {
+      let repositoryIsValid = false;
+      try {
+        const parsed = new URL(nextConfig.repository_url as string);
+        repositoryIsValid =
+          parsed.protocol === "https:" &&
+          parsed.hostname.toLowerCase() === "github.com" &&
+          parsed.pathname.replace(/\.git\/?$/i, "").split("/").filter(Boolean).length === 2 &&
+          !parsed.search &&
+          !parsed.hash;
+      } catch {
+        repositoryIsValid = false;
+      }
+      if (!repositoryIsValid) {
+        setPlatformSaveResult("error");
+        setPlatformSaveError("Enter an https://github.com/<owner>/<repository> URL.");
+        return;
+      }
+      const commitPattern = /^[0-9a-f]{7,40}$/i;
+      if (
+        !commitPattern.test(nextConfig.previous_commit as string) ||
+        !commitPattern.test(nextConfig.latest_commit as string)
+      ) {
+        setPlatformSaveResult("error");
+        setPlatformSaveError("Enter commit SHAs containing 7 to 40 hexadecimal characters.");
+        return;
+      }
+    }
     setSavingPlatform(true);
     setPlatformSaveResult(null);
+    setPlatformSaveError(null);
     try {
       const res = await fetch("/api/admin/platform-config", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ release_notes: { enabled: platformEnabled } }),
+        body: JSON.stringify({ release_notes: nextConfig }),
       });
       const data = await res.json();
       if (data.success) {
-        const persisted = data.data?.release_notes?.enabled !== false;
-        setPlatformEnabled(persisted);
-        setSavedPlatformEnabled(persisted);
+        const persisted = data.data?.release_notes ?? nextConfig;
+        const persistedEnabled = persisted.enabled !== false;
+        const persistedRepositoryUrl = persisted.repository_url?.trim() ?? "";
+        const persistedPreviousCommit = persisted.previous_commit?.trim() ?? "";
+        const persistedLatestCommit = persisted.latest_commit?.trim() ?? "";
+        setPlatformEnabled(persistedEnabled);
+        setSavedPlatformEnabled(persistedEnabled);
+        setRepositoryUrl(persistedRepositoryUrl);
+        setSavedRepositoryUrl(persistedRepositoryUrl);
+        setPreviousCommit(persistedPreviousCommit);
+        setSavedPreviousCommit(persistedPreviousCommit);
+        setLatestCommit(persistedLatestCommit);
+        setSavedLatestCommit(persistedLatestCommit);
         setPlatformSaveResult("success");
         setTimeout(() => setPlatformSaveResult(null), 3000);
       } else {
         setPlatformSaveResult("error");
+        setPlatformSaveError(data.error?.message ?? "Could not save the release notes settings.");
       }
     } catch {
       setPlatformSaveResult("error");
+      setPlatformSaveError("Could not save the release notes settings.");
     } finally {
       setSavingPlatform(false);
     }
@@ -162,14 +242,21 @@ function ReleaseNotesCard({ isAdmin, readOnly = false }: ReleaseNotesSettingsTab
       setPreviewVersion(version);
 
       const changelogPayload = changelogRes.ok ? await changelogRes.json() : null;
-      const match: ReleaseNote | null =
-        changelogPayload?.releases?.find(
-          (item: ReleaseNote) => normalizeVersion(item.version) === version,
-        ) ?? null;
+      const savedCompareConfig: Partial<ReleaseNotesNotificationConfig> = {
+        repository_url: savedRepositoryUrl || null,
+        previous_commit: savedPreviousCommit || null,
+        latest_commit: savedLatestCommit || null,
+      };
+      const customCompareConfigured = hasConfiguredReleaseNotesCompare(savedCompareConfig);
+      const match: ReleaseNote | null = customCompareConfigured
+        ? null
+        : changelogPayload?.releases?.find(
+            (item: ReleaseNote) => normalizeVersion(item.version) === version,
+          ) ?? null;
       setPreviewRelease(match);
 
       if (!match) {
-        const notesRes = await fetch(`/api/release-notes?version=${encodeURIComponent(version)}`);
+        const notesRes = await fetch(releaseNotesRequestUrl(version, savedCompareConfig));
         const notesPayload = notesRes.ok ? await notesRes.json() : null;
         const hasExactCuratedNotes =
           Boolean(notesPayload?.body) &&
@@ -245,7 +332,7 @@ function ReleaseNotesCard({ isAdmin, readOnly = false }: ReleaseNotesSettingsTab
                 size="sm"
                 className="gap-2"
                 onClick={() => void showReleaseNotesPopup()}
-                disabled={previewLoading}
+                disabled={previewLoading || loadingConfig}
               >
                 {previewLoading ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -279,10 +366,64 @@ function ReleaseNotesCard({ isAdmin, readOnly = false }: ReleaseNotesSettingsTab
                 <p className="text-xs text-muted-foreground">
                   Platform-wide switch shown to every user after login.
                 </p>
+                <div className="space-y-3 rounded-md border p-3">
+                  <div>
+                    <p className="text-sm font-medium">Optional GitHub commit diff</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Set all three fields to show changes between two commits. Leave them empty to use the
+                      deployed-version release notes. Private repositories require a GitHub token on the UI server.
+                    </p>
+                  </div>
+                  <label className="block space-y-1 text-xs font-medium" htmlFor="release-notes-repository-url">
+                    <span>Repository URL</span>
+                    <Input
+                      id="release-notes-repository-url"
+                      value={repositoryUrl}
+                      onChange={(event) => setRepositoryUrl(event.target.value)}
+                      placeholder="https://github.com/example/repository"
+                      disabled={readOnly}
+                      spellCheck={false}
+                    />
+                  </label>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <label className="block space-y-1 text-xs font-medium" htmlFor="release-notes-previous-commit">
+                      <span>Previous upgraded commit</span>
+                      <Input
+                        id="release-notes-previous-commit"
+                        value={previousCommit}
+                        onChange={(event) => setPreviousCommit(event.target.value)}
+                        placeholder="Previous commit SHA"
+                        disabled={readOnly}
+                        spellCheck={false}
+                      />
+                    </label>
+                    <label className="block space-y-1 text-xs font-medium" htmlFor="release-notes-latest-commit">
+                      <span>Latest commit</span>
+                      <Input
+                        id="release-notes-latest-commit"
+                        value={latestCommit}
+                        onChange={(event) => setLatestCommit(event.target.value)}
+                        placeholder="Latest commit SHA"
+                        disabled={readOnly}
+                        spellCheck={false}
+                      />
+                    </label>
+                  </div>
+                </div>
+                {platformSaveError && (
+                  <p className="text-xs text-destructive" role="alert">
+                    {platformSaveError}
+                  </p>
+                )}
                 <SaveButton
                   onSave={savePlatformConfig}
                   saving={savingPlatform}
-                  dirty={platformEnabled !== savedPlatformEnabled}
+                  dirty={
+                    platformEnabled !== savedPlatformEnabled ||
+                    repositoryUrl !== savedRepositoryUrl ||
+                    previousCommit !== savedPreviousCommit ||
+                    latestCommit !== savedLatestCommit
+                  }
                   result={platformSaveResult}
                   disabled={readOnly}
                   ariaLabel="Save release notes settings"

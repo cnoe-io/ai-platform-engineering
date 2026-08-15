@@ -142,6 +142,68 @@ describe("useReleaseUpgradePrompt", () => {
     expect(result.current.releaseMarkdown?.body).toBe("Curated release notes body");
   });
 
+  it("uses an admin-configured commit diff instead of the deployed-version changelog", async () => {
+    (global.fetch as jest.Mock).mockImplementation(async (url: RequestInfo | URL, init?: RequestInit) => {
+      const href = String(url);
+      if (href === "/api/settings") {
+        return jsonResponse({
+          success: true,
+          data: { preferences: { releaseNotesDismissedVersions: [] } },
+        });
+      }
+      if (href === "/api/changelog") return jsonResponse(changelogPayload);
+      if (href === "/api/admin/platform-config") {
+        return jsonResponse({
+          success: true,
+          data: {
+            release_notes: {
+              enabled: true,
+              repository_url: "https://github.com/example/repository",
+              previous_commit: "1111111",
+              latest_commit: "2222222",
+            },
+          },
+        });
+      }
+      if (href.startsWith("/api/release-notes?")) {
+        return jsonResponse({
+          requestedVersion: "0.5.1",
+          matchedVersion: "0.5.1",
+          title: "Configured changes",
+          date: "2026-08-15",
+          body: "## What's New\n\n- Configured commit range",
+          source: "github-compare",
+          changelogUrl: "https://github.com/example/repository/compare/1111111...2222222",
+        });
+      }
+      if (href === "/api/settings/preferences" && init?.method === "PATCH") {
+        return jsonResponse({ success: true });
+      }
+      return jsonResponse({}, false);
+    });
+
+    const { result } = renderHook(() => useReleaseUpgradePrompt());
+
+    await waitFor(() => expect(result.current.open).toBe(true));
+    expect(result.current.release).toBeNull();
+    expect(result.current.releaseMarkdown?.body).toContain("Configured commit range");
+    expect(global.fetch).toHaveBeenCalledWith(
+      "/api/release-notes?version=0.5.1&compare=platform",
+    );
+
+    await act(async () => {
+      await result.current.dismissPermanently();
+    });
+    expect(global.fetch).toHaveBeenCalledWith(
+      "/api/settings/preferences",
+      expect.objectContaining({
+        body: JSON.stringify({
+          releaseNotesDismissedVersions: ["0.5.1:2222222"],
+        }),
+      }),
+    );
+  });
+
   it("uses exact generated notes for a mirror main increment", async () => {
     const version = "0.5.63-ui-main-a5ba46dd5";
     mockUseVersion.mockReturnValue({
