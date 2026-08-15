@@ -694,6 +694,17 @@ export const getQuestionSet = async (id: number): Promise<QuestionSet> => {
     return questionSetsFetch(`/${id}`);
 };
 
+/** Create an empty set — name + optional description, no file. */
+export const createQuestionSet = async (opts: {
+    name: string;
+    description?: string;
+}): Promise<QuestionSet> => {
+    const form = new FormData();
+    form.append('name', opts.name);
+    if (opts.description) form.append('description', opts.description);
+    return questionSetsFetch('', { method: 'POST', body: form });
+};
+
 /** Create a set, optionally seeded from a .jsonl / .csv / .json file. */
 export const uploadQuestionSet = async (
     file: File,
@@ -771,6 +782,25 @@ export const uploadQuestionsToSet = async (
     const form = new FormData();
     form.append('file', file);
     return questionSetsFetch(`/${id}/questions/upload`, { method: 'POST', body: form });
+};
+
+/** Add a single question to a set via JSON (no file). */
+export const addQuestionToSet = async (
+    id: number,
+    question: {
+        question_id?: string | null;
+        input: string;
+        expected_output?: string | null;
+        category?: string | null;
+        level?: string | null;
+        expected_doc_ids?: string[];
+    },
+): Promise<QuestionSetItem[]> => {
+    return questionSetsFetch(`/${id}/questions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(question),
+    });
 };
 
 export const batchDeleteQuestionSetItems = async (
