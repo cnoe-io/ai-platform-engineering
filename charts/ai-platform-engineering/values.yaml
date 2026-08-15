@@ -1500,6 +1500,7 @@ openfga-authz-bridge:
     repository: ghcr.io/cnoe-io/openfga-authz-bridge
     tag: ""
     pullPolicy: IfNotPresent
+  imagePullSecrets: []
   openfga:
     httpUrl: ""
     storeName: caipe-openfga
