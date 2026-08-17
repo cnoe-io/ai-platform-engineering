@@ -8,6 +8,7 @@ Set LLM_CLIENT_SHARING=false to disable client sharing (each call creates its ow
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from functools import lru_cache
@@ -18,6 +19,66 @@ from langchain_core.language_models import BaseChatModel
 logger = logging.getLogger(__name__)
 
 SHARE_CLIENTS = os.getenv("LLM_CLIENT_SHARING", "true").lower() != "false"
+
+
+def _flatten_text_content_blocks(body: dict[str, Any]) -> bytes | None:
+    """Rewrite pure-text OpenAI content-block arrays (`[{"type":"text","text":"..."}]`)
+    into plain strings.
+
+    LangChain's ChatOpenAI sends `content` as a list of blocks; real OpenAI accepts
+    both forms, but Cloudflare Workers AI's schema (behind the AI Gateway) only
+    accepts a string, so plain-text-only requests 400 with a schema error. Mixed
+    content (e.g. images) is left untouched since flattening would lose data and
+    Workers AI text models can't consume it anyway. Returns None when nothing to
+    change.
+    """
+    messages = body.get("messages")
+    if not isinstance(messages, list):
+        return None
+    changed = False
+    for message in messages:
+        if not isinstance(message, dict):
+            continue
+        content = message.get("content")
+        if not isinstance(content, list):
+            continue
+        texts: list[str] = []
+        for part in content:
+            if isinstance(part, dict) and part.get("type") == "text" and isinstance(part.get("text"), str):
+                texts.append(part["text"])
+            else:
+                texts = []
+                break
+        if texts:
+            message["content"] = "".join(texts)
+            changed = True
+    return json.dumps(body).encode("utf-8") if changed else None
+
+
+def _flatten_content_request_hook(request: Any) -> None:
+    """httpx sync `request` event hook — see `_flatten_text_content_blocks`."""
+    if request.method != "POST" or not request.content:
+        return
+    try:
+        body = json.loads(request.content)
+    except (ValueError, UnicodeDecodeError):
+        return
+    new_content = _flatten_text_content_blocks(body)
+    if new_content is not None:
+        import httpx._content
+
+        # httpx sends the wire body from `request.stream`, not `._content` — the
+        # latter is only a cache populated by `.read()`. Both must be replaced,
+        # or the old (larger) body still goes out under the new (smaller)
+        # Content-Length header, corrupting the request.
+        request.headers["content-length"] = str(len(new_content))
+        request.stream = httpx._content.ByteStream(new_content)  # noqa: SLF001 — httpx has no public content setter
+        request._content = new_content  # noqa: SLF001
+
+
+async def _async_flatten_content_request_hook(request: Any) -> None:
+    """httpx async `request` event hook — see `_flatten_text_content_blocks`."""
+    _flatten_content_request_hook(request)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -46,17 +107,44 @@ def _cached_bedrock_clients(region: str) -> tuple[Any, Any]:
     return _create_bedrock_clients(region)
 
 
-def _create_httpx_client(endpoint: str) -> Any:
+def _create_httpx_client(
+    endpoint: str, headers: tuple[tuple[str, str], ...] | None = None, flatten_content: bool = False
+) -> Any:
     import httpx
 
-    client = httpx.Client(timeout=httpx.Timeout(300.0, connect=60.0))
+    event_hooks = {"request": [_flatten_content_request_hook]} if flatten_content else None
+    client = httpx.Client(
+        timeout=httpx.Timeout(300.0, connect=60.0), headers=dict(headers) if headers else None, event_hooks=event_hooks
+    )
     logger.info("Created httpx client (endpoint=%s, shared=%s)", endpoint, SHARE_CLIENTS)
     return client
 
 
 @lru_cache(maxsize=4)
-def _cached_httpx_client(endpoint: str) -> Any:
-    return _create_httpx_client(endpoint)
+def _cached_httpx_client(
+    endpoint: str, headers: tuple[tuple[str, str], ...] | None = None, flatten_content: bool = False
+) -> Any:
+    return _create_httpx_client(endpoint, headers, flatten_content)
+
+
+def _create_async_httpx_client(
+    endpoint: str, headers: tuple[tuple[str, str], ...] | None = None, flatten_content: bool = False
+) -> Any:
+    import httpx
+
+    event_hooks = {"request": [_async_flatten_content_request_hook]} if flatten_content else None
+    client = httpx.AsyncClient(
+        timeout=httpx.Timeout(300.0, connect=60.0), headers=dict(headers) if headers else None, event_hooks=event_hooks
+    )
+    logger.info("Created async httpx client (endpoint=%s, shared=%s)", endpoint, SHARE_CLIENTS)
+    return client
+
+
+@lru_cache(maxsize=4)
+def _cached_async_httpx_client(
+    endpoint: str, headers: tuple[tuple[str, str], ...] | None = None, flatten_content: bool = False
+) -> Any:
+    return _create_async_httpx_client(endpoint, headers, flatten_content)
 
 
 def _get_bedrock_clients(region: str | None = None) -> tuple[Any, Any]:
@@ -67,11 +155,26 @@ def _get_bedrock_clients(region: str | None = None) -> tuple[Any, Any]:
     return _create_bedrock_clients(region)
 
 
-def _get_httpx_client(endpoint: str) -> Any:
-    """Get httpx.Client for OpenAI/Azure. Cached by endpoint when sharing enabled."""
+def _get_httpx_client(endpoint: str, headers: dict[str, str] | None = None, flatten_content: bool = False) -> Any:
+    """Get httpx.Client for OpenAI/Azure. Cached by (endpoint, headers, flatten_content) when sharing enabled."""
+    headers_key = tuple(sorted(headers.items())) if headers else None
     if SHARE_CLIENTS:
-        return _cached_httpx_client(endpoint)
-    return _create_httpx_client(endpoint)
+        return _cached_httpx_client(endpoint, headers_key, flatten_content)
+    return _create_httpx_client(endpoint, headers_key, flatten_content)
+
+
+def _get_async_httpx_client(endpoint: str, headers: dict[str, str] | None = None, flatten_content: bool = False) -> Any:
+    """Get httpx.AsyncClient for OpenAI/Azure. Cached by (endpoint, headers, flatten_content) when sharing enabled.
+
+    ChatOpenAI uses this (not the sync `http_client`) for streaming/async calls
+    (`_astream`) — without it, custom routing headers (e.g. the AI Gateway's
+    `x-portkey-provider`) never reach async requests even though `http_client`
+    is set correctly for sync ones.
+    """
+    headers_key = tuple(sorted(headers.items())) if headers else None
+    if SHARE_CLIENTS:
+        return _cached_async_httpx_client(endpoint, headers_key, flatten_content)
+    return _create_async_httpx_client(endpoint, headers_key, flatten_content)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -142,8 +245,67 @@ def get_llm(provider: str, model_id: str) -> BaseChatModel:
     if resolved_model is not None:
         kwargs["model"] = resolved_model
 
-    if SHARE_CLIENTS:
-        p = resolved_provider.lower().replace("-", "_")
+    factory_provider = resolved_provider
+    p = resolved_provider.lower().replace("-", "_")
+    # LLMFactory's "openai" builder always derives base_url from OPENAI_ENDPOINT
+    # (and passing base_url again via kwargs collides with that). For providers
+    # that need a different endpoint than the deployment-default OPENAI_ENDPOINT,
+    # temporarily override the env vars it reads for the duration of this call.
+    env_overrides: dict[str, str] = {}
+
+    if p == "cloudflare_workers_ai":
+        # Routed through the local Portkey AI Gateway (~/Software/aigateway,
+        # `wrangler dev` on :8787), which speaks the OpenAI chat-completions
+        # protocol but requires its own x-portkey-* routing headers, and
+        # expects the Workers AI model slug (e.g. "@cf/meta/llama-3.1-8b-instruct")
+        # as the "model" field. LLMFactory has no "cloudflare-workers-ai"
+        # provider, so we present it as "openai" with a custom transport.
+        # NOTE: the gateway reads the provider API key from the plain
+        # `Authorization: Bearer <token>` header (not `x-portkey-api-key`,
+        # despite that header existing) — confirmed against gateway source
+        # (handlerUtils.ts: `apiKey: requestHeaders['authorization']...`).
+        # ChatOpenAI sends `Authorization: Bearer <OPENAI_API_KEY>` itself,
+        # so the Cloudflare token is passed via the OPENAI_API_KEY override
+        # below rather than as a custom header.
+        endpoint = os.getenv("AI_GATEWAY_URL", "http://host.docker.internal:8787/v1")
+        headers = {
+            "x-portkey-provider": "workers-ai",
+            "x-portkey-workers-ai-account-id": os.getenv("CLOUDFLARE_ACCOUNT_ID", ""),
+        }
+        # Workers AI's schema requires string `content` (unlike OpenAI, which
+        # accepts both string and content-block-array forms); ChatOpenAI always
+        # sends the array form, so flatten pure-text blocks before they're sent.
+        kwargs["http_client"] = _get_httpx_client(endpoint, headers, flatten_content=True)
+        kwargs["http_async_client"] = _get_async_httpx_client(endpoint, headers, flatten_content=True)
+        # The AI Gateway's workers-ai route 500s on SSE (`stream: true`) requests
+        # while the same request with `stream: false` succeeds (confirmed via
+        # direct curl). `disable_streaming` stops LangChain's own .stream()/
+        # .astream() wrappers from requesting SSE; ChatOpenAI's `streaming`
+        # attribute (set unconditionally by LLMFactory, so it can't also be
+        # passed here — that raises a duplicate-kwarg TypeError) independently
+        # puts `stream: true` in the body even for a plain .invoke(), so it's
+        # force-disabled on the instance right after construction below.
+        kwargs["disable_streaming"] = True
+        # The LLM Models catalog's model_id can't contain "@" (UI validation:
+        # alphanumeric/dots/slashes/hyphens/underscores/colons only), so it
+        # can't hold the real Workers AI slug directly. The catalog entry's
+        # id is just a human-facing label for provider selection; the actual
+        # slug sent to Cloudflare always comes from CLOUDFLARE_WORKERS_AI_MODEL.
+        kwargs["model"] = os.getenv("CLOUDFLARE_WORKERS_AI_MODEL", "@cf/meta/llama-3.1-8b-instruct-fast")
+        env_overrides["OPENAI_ENDPOINT"] = endpoint
+        env_overrides["OPENAI_API_KEY"] = os.getenv("CLOUDFLARE_API_TOKEN", "")
+        factory_provider = "openai"
+    elif p == "openai_direct":
+        # Real OpenAI, kept separate from the deployment-default "openai"
+        # provider (which may point at an OpenAI-compatible endpoint like
+        # NVIDIA NIM or a local gateway via OPENAI_ENDPOINT).
+        endpoint = "https://api.openai.com/v1"
+        kwargs["http_client"] = _get_httpx_client(endpoint)
+        kwargs.setdefault("model", os.getenv("OPENAI_DIRECT_MODEL_NAME", "gpt-4o-mini"))
+        env_overrides["OPENAI_ENDPOINT"] = endpoint
+        env_overrides["OPENAI_API_KEY"] = os.getenv("OPENAI_DIRECT_API_KEY", "")
+        factory_provider = "openai"
+    elif SHARE_CLIENTS:
         if "bedrock" in p or "aws" in p:
             rt, ctrl = _get_bedrock_clients()
             kwargs["client"] = rt
@@ -156,8 +318,10 @@ def get_llm(provider: str, model_id: str) -> BaseChatModel:
             kwargs["http_client"] = _get_httpx_client(endpoint)
         # google-gemini / google-vertex-ai: no shared client needed
 
+    previous_env = {k: os.environ.get(k) for k in env_overrides}
+    os.environ.update(env_overrides)
     try:
-        llm = LLMFactory(provider=resolved_provider).get_llm(**kwargs)
+        llm = LLMFactory(provider=factory_provider).get_llm(**kwargs)
     except ValueError as exc:
         # LLMFactory raises ValueError for unknown providers OR missing
         # provider-specific env vars. Re-raise as LLMConfigError so the
@@ -166,6 +330,19 @@ def get_llm(provider: str, model_id: str) -> BaseChatModel:
             f"Cannot initialize LLM (provider={resolved_provider!r}, "
             f"model={resolved_model!r}): {exc}"
         ) from exc
+    finally:
+        for key, value in previous_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+    if p == "cloudflare_workers_ai":
+        # See the `disable_streaming` comment above — LLMFactory sets `streaming`
+        # unconditionally, so it must be overridden post-construction here rather
+        # than passed as a kwarg.
+        llm.streaming = False
+
     logger.info(
         "[llm] Instantiated %s (provider=%s, model=%s, shared_clients=%s)",
         type(llm).__name__,
@@ -180,4 +357,5 @@ def close_all() -> None:
     """Clear cached clients. Called on shutdown."""
     _cached_bedrock_clients.cache_clear()
     _cached_httpx_client.cache_clear()
+    _cached_async_httpx_client.cache_clear()
     logger.info("Cleared shared LLM client caches")

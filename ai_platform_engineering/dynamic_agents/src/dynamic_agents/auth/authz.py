@@ -27,6 +27,7 @@ import httpx
 from fastapi import HTTPException
 
 from dynamic_agents.auth.token_context import current_traceparent, current_user_token
+from dynamic_agents.config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -128,6 +129,10 @@ async def require_agent_use_permission(agent_id: str) -> None:
     structured detail on deny (403) or any meta-failure (400/401/503)."""
     if not _is_valid_id(agent_id):
         _raise_authz(400, "Invalid agent identifier", "invalid_agent_id", "invalid_request", "fix_request")
+
+    if get_settings().debug:
+        logger.debug("Debug mode enabled (DEBUG=true), bypassing CAS agent-use check for agent=%s", agent_id)
+        return
 
     token = current_user_token.get()
     if not token:
