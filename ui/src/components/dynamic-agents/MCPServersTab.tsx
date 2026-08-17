@@ -2,7 +2,7 @@
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card,CardContent,CardDescription,CardHeader,CardTitle } from "@/components/ui/card";
+import { Card,CardContent,CardHeader } from "@/components/ui/card";
 import {
 Dialog,
 DialogContent,
@@ -630,16 +630,9 @@ export function MCPServersTab({
         onSelect={handleCatalogSelect}
         onSelectCustom={() => setIsCreating(true)}
       />
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <div>
-            <CardTitle>MCP Servers</CardTitle>
-            <CardDescription>
-              Configure MCP server connections. Streamable HTTP servers are routed through AgentGateway so each tool call can be authorized before it reaches the server.
-            </CardDescription>
-          </div>
-          <div className="flex items-center gap-2">
+    <Card className="rounded-none border-0 bg-transparent shadow-none">
+      <CardHeader className="px-0 pb-5 pt-0">
+        <div className="flex flex-wrap items-center justify-end gap-2">
             {listCapabilities.repair_agentgateway && (
               <Button
                 variant="outline"
@@ -664,10 +657,9 @@ export function MCPServersTab({
               <Plus className="h-4 w-4 mr-2" />
               Add Server
             </Button>
-          </div>
         </div>
       </CardHeader>
-      <CardContent>
+      <CardContent className="px-0 pt-6">
         {agentGatewayError && (
           <div className="mb-4 flex items-start gap-2 rounded-lg bg-destructive/10 border border-destructive/30 p-3">
             <AlertCircle className="h-4 w-4 text-destructive mt-0.5 flex-shrink-0" />
@@ -758,7 +750,12 @@ export function MCPServersTab({
               const rowActionError = rowActionErrors[server._id];
               const toolHealth = toolHealthStatus(server, probe);
               return (
-                <div key={server._id} className="space-y-2">
+                <div
+                  aria-label={`MCP server ${server.name}`}
+                  className="space-y-2"
+                  key={server._id}
+                  role="group"
+                >
                   <div
                     className={`grid grid-cols-12 gap-4 py-3 px-2 rounded-lg hover:bg-muted/50 items-center ${
                       serverCanManage(server) ? "cursor-pointer" : "cursor-default"

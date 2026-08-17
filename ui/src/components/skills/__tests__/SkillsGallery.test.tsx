@@ -663,7 +663,7 @@ describe("SkillsGallery — Try Skill", () => {
     }] as AgentSkill[];
   });
 
-  it("calls createConversation, setPendingMessage with 'Lookup skill and use:', and router.push on Try Skill", async () => {
+  it("creates a conversation, stages the prompt, and opens the chat on Try Skill", async () => {
     await renderGallery();
     await act(async () => { fireEvent.click(screen.getByText("Chat Skill")); });
     const tryBtn = screen.getByRole("button", { name: /try skill/i });

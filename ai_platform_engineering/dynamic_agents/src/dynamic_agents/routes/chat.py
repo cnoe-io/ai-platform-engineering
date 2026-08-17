@@ -15,7 +15,7 @@ from dynamic_agents.auth.authz import (
 )
 from dynamic_agents.config import get_settings
 from dynamic_agents.log_config import conversation_id_var
-from dynamic_agents.models import ChatRequest, ClientContext, DynamicAgentConfig, UserContext
+from dynamic_agents.models import ChatRequest, ClientContext, DynamicAgentConfig, InputFile, UserContext
 from dynamic_agents.services.llm_clients import LLMConfigError
 from dynamic_agents.services.mongo import MongoDBService, get_mongo_service
 from dynamic_agents.services.runtime_cache import (
@@ -217,6 +217,7 @@ async def _collect_invoke_response(
         user.email,
         request.trace_id,
         encoder,
+        files=request.files,
     ):
         pass
 
@@ -258,6 +259,7 @@ async def _generate_sse_events(
     trace_id: str | None = None,
     mongo: MongoDBService | None = None,
     client_context: ClientContext | None = None,
+    files: list[InputFile] | None = None,
 ) -> AsyncGenerator[str, None]:
     """Generate SSE events from agent streaming.
 
@@ -284,7 +286,7 @@ async def _generate_sse_events(
         )
 
         # Stream response with trace_id for Langfuse tracing
-        async for frame in runtime.stream(message, session_id, user.email, trace_id, encoder):
+        async for frame in runtime.stream(message, session_id, user.email, trace_id, encoder, files=files):
             yield frame
 
     except RuntimeCapacityError as e:
@@ -386,6 +388,7 @@ async def chat_start_stream(
             trace_id=request.trace_id,
             mongo=mongo,
             client_context=request.client_context,
+            files=request.files,
         ),
         media_type="text/event-stream",
         headers={

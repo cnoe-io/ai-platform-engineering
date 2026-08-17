@@ -10,7 +10,12 @@ import { getConfig } from '@/lib/config';
 import { getCollection } from '@/lib/mongodb';
 import type { Conversation, User } from '@/types/mongodb';
 import type { TeamMembershipSource } from '@/types/identity-group-sync';
-import { validateBearerJWT, validateLocalSkillsJWT } from '@/lib/jwt-validation';
+import {
+  LocalSkillsJWTValidationError,
+  validateBearerJWT,
+  validateLocalSkillsJWT,
+} from '@/lib/jwt-validation';
+import { verifyCatalogApiKey } from '@/lib/catalog-api-keys';
 import { ApiError } from '@/lib/api-error';
 import type { AuthFailureAction, AuthFailureReason } from '@/lib/auth-error';
 import { CredentialError } from '@/lib/credentials/errors';
@@ -72,8 +77,6 @@ function classifyBearerError(err: unknown): ApiError {
   const e = err as { code?: string; claim?: string; message?: string };
   const code = typeof e?.code === 'string' ? e.code : '';
   const claim = typeof e?.claim === 'string' ? e.claim : '';
-  const msg = typeof e?.message === 'string' ? e.message : String(err);
-
   if (code === 'ERR_JWT_EXPIRED') {
     return new ApiError(
       'Your session has expired. Please sign in again.',
@@ -114,7 +117,7 @@ function classifyBearerError(err: unknown): ApiError {
 
   // Discovery / network / config errors — not the user's fault.
   return new ApiError(
-    `Authentication service error: ${msg}`,
+    'Authentication service is temporarily unavailable.',
     503,
     'AUTH_BACKEND_ERROR',
     'pdp_unavailable',
@@ -144,11 +147,12 @@ export interface GetAuthenticatedUserOptions {
 
 type SessionAuthSession = {
   accessToken?: string;
+  authScopes?: string[];
   canViewAdmin?: boolean;
-  catalogKey?: string;
   isAuthorized?: boolean;
   isServiceAccount?: boolean;
   org?: string;
+  principalType?: 'oidc_user' | 'service_account' | 'catalog_api_key' | 'skills_api_key';
   role?: string;
   sub?: string;
   user?: {
@@ -373,7 +377,10 @@ export async function getAuthenticatedUser(
 
   await persistKeycloakSubMapping(session, user);
 
-  const authenticated = { user, session: { ...session, role } };
+  const authenticated = {
+    user,
+    session: { ...session, role, principalType: 'oidc_user' as const },
+  };
   writeCachedSessionAuth(request, authenticated);
   return cloneSessionAuthPayload(authenticated);
 }
@@ -538,17 +545,16 @@ export async function withAuth<T>(
 ): Promise<T> {
   const { user, session } = await getAuthFromBearerOrSession(request);
   const policy = resolveLegacyWithAuthRbacPolicy(request);
-  if (session.catalogKey) {
-    if (policy.resource !== 'skill' || !['view', 'invoke'].includes(policy.scope)) {
-      throw new ApiError(
-        'Catalog API keys are not authorized for this route.',
-        403,
-        'CATALOG_KEY_NOT_ALLOWED',
-        'pdp_denied',
-        'contact_admin'
-      );
-    }
-  } else if (process.env.NODE_ENV !== 'test' || session.accessToken) {
+  if (session.principalType === 'catalog_api_key' || session.principalType === 'skills_api_key') {
+    throw new ApiError(
+      'Scoped catalog credentials are not authorized for this route.',
+      403,
+      'SCOPED_CREDENTIAL_NOT_ALLOWED',
+      'pdp_denied',
+      'contact_admin'
+    );
+  }
+  if (process.env.NODE_ENV !== 'test' || session.accessToken) {
     await requireRbacPermission(session, policy.resource, policy.scope);
   }
   return handler(request, user, session);
@@ -570,14 +576,39 @@ export async function getAuthFromBearerOrSession(
   const authHeader = request.headers.get('Authorization');
   const catalogKey = request.headers.get('X-Caipe-Catalog-Key');
 
-  // Path 0: Catalog API key (BFF-minted, read-only skills access)
+  const pathname = new URL(request.url).pathname.replace(/\/+$/, '') || '/';
+  const isCatalogRead = request.method.toUpperCase() === 'GET' && pathname === '/api/skills';
+
+  // Path 0: Catalog API key (database-verified, read-only skills access)
   if (catalogKey) {
+    const ownerSub = await verifyCatalogApiKey(catalogKey);
+    if (!ownerSub) {
+      throw new ApiError(
+        'The catalog API key is invalid, expired, or revoked.',
+        401,
+        'CATALOG_KEY_INVALID',
+        'bearer_invalid',
+        'sign_in'
+      );
+    }
+    if (!isCatalogRead) {
+      throw new ApiError(
+        'Catalog API keys are only authorized for catalog reads.',
+        403,
+        'CATALOG_KEY_NOT_ALLOWED',
+        'pdp_denied',
+        'contact_admin'
+      );
+    }
     return {
-      user: { email: 'catalog-key-user@local', name: 'Catalog API Key', role: 'user' },
-      // sub must be present so filterSkillsByOpenFga does not short-circuit to [].
-      // The synthetic subject is used only for OpenFGA read checks on global skills;
-      // it never appears in audit logs for user-owned resources.
-      session: { role: 'user', canViewAdmin: false, catalogKey, sub: 'catalog-key-user@local' },
+      user: { email: ownerSub, name: 'Catalog API Key', role: 'user' },
+      session: {
+        role: 'user',
+        canViewAdmin: false,
+        sub: ownerSub,
+        principalType: 'catalog_api_key',
+        authScopes: ['catalog:read'],
+      },
     };
   }
 
@@ -586,12 +617,41 @@ export async function getAuthFromBearerOrSession(
     const token = authHeader.slice(7);
 
     // Try local skills API token first (fast HS256, no network)
-    const localIdentity = await validateLocalSkillsJWT(token);
+    let localIdentity: Awaited<ReturnType<typeof validateLocalSkillsJWT>>;
+    try {
+      localIdentity = await validateLocalSkillsJWT(token);
+    } catch (err) {
+      if (err instanceof LocalSkillsJWTValidationError) {
+        throw new ApiError(
+          err.reason === 'expired'
+            ? 'The skills API token has expired.'
+            : 'The bearer token could not be verified.',
+          401,
+          err.reason === 'expired' ? 'SKILLS_TOKEN_EXPIRED' : 'BEARER_INVALID',
+          err.reason === 'expired' ? 'session_expired' : 'bearer_invalid',
+          'sign_in'
+        );
+      }
+      throw err;
+    }
     if (localIdentity) {
+      if (!isCatalogRead) {
+        throw new ApiError(
+          'Skills API tokens are only authorized for catalog reads.',
+          403,
+          'SKILLS_TOKEN_NOT_ALLOWED',
+          'pdp_denied',
+          'contact_admin'
+        );
+      }
       return {
         user: { email: localIdentity.email, name: localIdentity.name, role: 'user' },
-        // sub must be present so filterSkillsByOpenFga resolves the caller's identity.
-        session: { role: 'user', sub: localIdentity.email },
+        session: {
+          role: 'user',
+          sub: localIdentity.sub,
+          principalType: 'skills_api_key',
+          authScopes: localIdentity.scopes,
+        },
       };
     }
 
@@ -621,6 +681,7 @@ export async function getAuthFromBearerOrSession(
       // first-party service callers (e.g. the Slack bot) as
       // `service_account:<sub>` rather than `user:<sub>`.
       isServiceAccount: identity.isServiceAccount === true,
+      principalType: identity.isServiceAccount === true ? 'service_account' as const : 'oidc_user' as const,
       user: { email: identity.email, name: identity.name },
     };
     if (process.env.NODE_ENV !== 'test') {
@@ -823,13 +884,30 @@ async function legacyTestPdpDecision(
  * fallback while the first durable `admin organization:<org>` tuple is seeded.
  */
 export async function requireRbacPermission(
-  session: { accessToken?: string; sub?: string; org?: string; role?: string; user?: { email?: string } },
+  session: {
+    accessToken?: string;
+    sub?: string;
+    org?: string;
+    role?: string;
+    user?: { email?: string };
+    principalType?: SessionAuthSession['principalType'];
+  },
   resource: RbacResource,
   scope: RbacScope,
 ): Promise<void> {
   const accessToken = session.accessToken;
   const email = session.user?.email;
   const subject = session.sub;
+
+  if (session.principalType === 'catalog_api_key' || session.principalType === 'skills_api_key') {
+    throw new ApiError(
+      'Scoped catalog credentials cannot be used for RBAC-protected resources.',
+      403,
+      'SCOPED_CREDENTIAL_NOT_ALLOWED',
+      'pdp_denied',
+      'contact_admin'
+    );
+  }
 
   if (isUnsafeRbacBypassEnabled()) {
     warnUnsafeRbacBypassEnabled(`${resource}#${scope}`);

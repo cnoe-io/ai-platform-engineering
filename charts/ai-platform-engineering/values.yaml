@@ -37,6 +37,18 @@ global:
     # Set to `pre-release` or `release` to force either repository channel.
     channel: ""
 
+  # -- Shared object storage for CAIPE. Set the bucket ONCE here and every
+  # subchart that needs durable object storage derives from it:
+  #   * audit-service writes audit logs under its `audit` prefix
+  #   * dynamic-agents writes multimodal attachment blobs under `attachments`
+  # Same bucket/region, ambient (IRSA) credentials via each subchart's
+  # serviceAccount role-arn. A subchart's own storage value still wins when set.
+  storage:
+    s3:
+      bucket: ""        # empty => each subchart falls back to its own value / local disk
+      region: ""        # applies to all subcharts; a subchart's own region is used only when this is empty
+      endpointUrl: ""   # S3-compatible endpoint (MinIO/localstack); empty = real AWS S3
+
   # Scheduled Dynamic Agent runs. Enabling this installs the scheduler service,
   # cron runner integration, scheduler MCP, and UI server-side token wiring.
   # Dynamic Agents and Keycloak must also be enabled for executions to run.
@@ -421,7 +433,7 @@ mcp-confluence:
   mcp:
     image:
       repository: "ghcr.io/sooperset/mcp-atlassian"
-      tag: "latest"
+      tag: "0.23.0"
       pullPolicy: "IfNotPresent"
     mode: "http" # Options: stdio, http
     port: 8000
@@ -458,7 +470,7 @@ mcp-gitlab:
   mcp:
     image:
       repository: "zereight050/gitlab-mcp"
-      tag: "latest"
+      tag: "2.1.46"
       pullPolicy: "IfNotPresent"
     mode: "http" # Options: stdio, http
     port: 8000

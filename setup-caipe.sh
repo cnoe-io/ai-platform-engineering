@@ -8652,7 +8652,7 @@ Examples:
   $(basename "$0") --non-interactive --graph-rag --tracing # Claude + Graph RAG + tracing
   $(basename "$0") --corporate-ca --rag                   # RAG behind corporate TLS proxy
   $(basename "$0") --rag --tracing                        # full stack (auto-heal on by default)
-  $(basename "$0") --non-interactive --rag --ingest-url=https://cnoe-io.github.io/ai-platform-engineering/  # RAG + ingest CAIPE docs
+  $(basename "$0") --non-interactive --rag --ingest-url=https://caipe.io/  # RAG + ingest CAIPE docs
   $(basename "$0") --upgrade                              # re-run: upgrade existing deployment
   $(basename "$0") --upgrade --non-interactive             # unattended upgrade (no prompts)
   $(basename "$0")                                        # re-run: offers monitor/upgrade/full menu

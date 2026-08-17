@@ -8,6 +8,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { apiClient } from "@/lib/api-client";
 import { resolveUsableChatAgent } from "@/lib/chat-agent-selection";
 import { getConfig } from "@/lib/config";
+import { pushWithNavigationProgress } from "@/lib/navigation-progress";
 import { getMarkdownComponents } from "@/lib/markdown-components";
 import { createStreamAdapter,type StreamAdapter,type StreamCallbacks } from "@/lib/streaming";
 import type { InputFieldDefinition } from "@/lib/streaming/types";
@@ -1517,7 +1518,7 @@ export function SkillsRunner({
           <Button 
             variant="ghost" 
             size="icon" 
-            onClick={() => router.push('/')}
+            onClick={() => pushWithNavigationProgress(router,'/')}
             title="Go to home page"
           >
             <LayoutGrid className="h-5 w-5" />
@@ -1526,7 +1527,7 @@ export function SkillsRunner({
           <Button 
             variant="ghost" 
             size="icon" 
-            onClick={() => router.push('/skills')}
+            onClick={() => pushWithNavigationProgress(router,'/skills')}
             title="Back to Skills"
           >
             <ArrowLeft className="h-5 w-5" />

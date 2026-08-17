@@ -10,7 +10,7 @@
  */
 
 import React from 'react'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 
 // ============================================================================
 // Mocks — must be before imports
@@ -54,6 +54,7 @@ let mockActiveConversationId: string | null = null
 const mockSetActiveConversation = jest.fn()
 const mockCreateConversation = jest.fn(() => 'new-conv-id')
 const mockDeleteConversation = jest.fn()
+const mockUpdateConversationTitle = jest.fn().mockResolvedValue(undefined)
 const mockLoadConversationsFromServer = jest.fn().mockResolvedValue(undefined)
 const mockLoadMessagesFromServer = jest.fn().mockResolvedValue(undefined)
 const mockIsConversationStreaming = jest.fn(() => false)
@@ -73,6 +74,7 @@ jest.mock('@/store/chat-store', () => {
       setActiveConversation: mockSetActiveConversation,
       createConversation: mockCreateConversation,
       deleteConversation: mockDeleteConversation,
+      updateConversationTitle: mockUpdateConversationTitle,
       loadConversationsFromServer: mockLoadConversationsFromServer,
       loadMessagesFromServer: mockLoadMessagesFromServer,
       isConversationStreaming: mockIsConversationStreaming,
@@ -97,8 +99,10 @@ jest.mock('lucide-react', () => ({
   Plus: (props: unknown) => <span data-testid="icon-plus" {...props} />,
   Archive: (props: unknown) => <span data-testid="icon-archive" {...props} />,
   ArchiveRestore: (props: unknown) => <span data-testid="icon-archive-restore" {...props} />,
+  Check: (props: unknown) => <span data-testid="icon-check" {...props} />,
   ChevronLeft: (props: unknown) => <span data-testid="icon-chevron-left" {...props} />,
   ChevronRight: (props: unknown) => <span data-testid="icon-chevron-right" {...props} />,
+  Pencil: (props: unknown) => <span data-testid="icon-pencil" {...props} />,
   Sparkles: (props: unknown) => <span data-testid="icon-sparkles" {...props} />,
   Zap: (props: unknown) => <span data-testid="icon-zap" {...props} />,
   Database: (props: unknown) => <span data-testid="icon-database" {...props} />,
@@ -109,6 +113,7 @@ jest.mock('lucide-react', () => ({
   Users: (props: unknown) => <span data-testid="icon-users" {...props} />,
   TrendingUp: (props: unknown) => <span data-testid="icon-trending-up" {...props} />,
   RefreshCw: (props: unknown) => <span data-testid="icon-refresh" {...props} />,
+  X: (props: unknown) => <span data-testid="icon-x" {...props} />,
 }))
 
 jest.mock('@/components/ui/button', () => ({
@@ -126,8 +131,9 @@ jest.mock('@/components/ui/tooltip', () => ({
   TooltipTrigger: ({ children }: unknown) => <>{children}</>,
 }))
 
+const mockToast = jest.fn()
 jest.mock('@/components/ui/toast', () => ({
-  useToast: () => ({ toast: jest.fn() }),
+  useToast: () => ({ toast: mockToast }),
 }))
 
 jest.mock('@/lib/storage-config', () => ({
@@ -614,6 +620,104 @@ describe('Sidebar — Live Status Indicator', () => {
       fireEvent.click(screen.getByText('Clickable Chat'))
 
       expect(mockSetActiveConversation).toHaveBeenCalledWith('conv-click')
+    })
+
+    it('renames a conversation from the action buttons', async () => {
+      mockConversations = [
+        makeConv('conv-rename', 'Original Title', {
+          owner_id: 'test@test.com',
+        }),
+      ]
+
+      render(<Sidebar {...defaultProps} />)
+
+      fireEvent.click(screen.getByRole('button', { name: 'Rename conversation' }))
+      const titleInput = screen.getByRole('textbox', { name: 'Conversation title' })
+      fireEvent.change(titleInput, { target: { value: 'Updated Title' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Save title' }))
+
+      await waitFor(() => {
+        expect(mockUpdateConversationTitle).toHaveBeenCalledWith('conv-rename', 'Updated Title')
+        expect(screen.queryByRole('textbox', { name: 'Conversation title' })).not.toBeInTheDocument()
+      })
+    })
+
+    it('cancels title editing without saving', () => {
+      mockConversations = [
+        makeConv('conv-rename', 'Original Title', {
+          owner_id: 'test@test.com',
+        }),
+      ]
+
+      render(<Sidebar {...defaultProps} />)
+
+      fireEvent.click(screen.getByRole('button', { name: 'Rename conversation' }))
+      fireEvent.change(screen.getByRole('textbox', { name: 'Conversation title' }), {
+        target: { value: 'Discarded Title' },
+      })
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel rename' }))
+
+      expect(screen.queryByRole('textbox', { name: 'Conversation title' })).not.toBeInTheDocument()
+      expect(screen.getByText('Original Title')).toBeInTheDocument()
+      expect(mockUpdateConversationTitle).not.toHaveBeenCalled()
+    })
+  })
+
+  // --------------------------------------------------------------------------
+  // Archive failures
+  // --------------------------------------------------------------------------
+
+  describe('archive failure handling', () => {
+    /** Clicks the archive action on the first conversation in the list. */
+    function clickArchive() {
+      const archiveButton = screen.getAllByTestId('icon-archive')[0].closest('button')
+      expect(archiveButton).not.toBeNull()
+      fireEvent.click(archiveButton as HTMLButtonElement)
+    }
+
+    it('reports the failure instead of claiming the conversation was archived', async () => {
+      // The store restores the conversation when the server refuses (e.g. 403 on
+      // a conversation shared with, but not owned by, the viewer).
+      mockDeleteConversation.mockRejectedValue(new Error('Forbidden'))
+      mockConversations = [
+        makeConv('conv-shared', 'Shared Chat', { owner_id: 'owner@test.com' }),
+        makeConv('conv-mine', 'My Chat', { owner_id: 'test@test.com' }),
+      ]
+
+      render(<Sidebar {...defaultProps} />)
+      clickArchive()
+
+      await waitFor(() => {
+        expect(mockToast).toHaveBeenCalledWith(
+          expect.stringContaining("Couldn't archive \"Shared Chat\""),
+          'error',
+          expect.any(Number),
+        )
+      })
+      expect(mockToast).not.toHaveBeenCalledWith(
+        expect.stringContaining('moved to Archive'),
+        'success',
+        expect.any(Number),
+      )
+    })
+
+    it('confirms the archive when the server accepts it', async () => {
+      mockDeleteConversation.mockResolvedValue(undefined)
+      mockConversations = [
+        makeConv('conv-mine', 'My Chat', { owner_id: 'test@test.com' }),
+        makeConv('conv-other', 'Other Chat', { owner_id: 'test@test.com' }),
+      ]
+
+      render(<Sidebar {...defaultProps} />)
+      clickArchive()
+
+      await waitFor(() => {
+        expect(mockToast).toHaveBeenCalledWith(
+          '"My Chat" moved to Archive',
+          'success',
+          expect.any(Number),
+        )
+      })
     })
   })
 

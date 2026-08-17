@@ -98,7 +98,7 @@ export interface Config {
    */
   workflowRunnerEnabled: boolean;
   /**
-   * Whether the Workflows tab is shown in the top navigation.
+   * Whether Workflows is shown in application navigation.
    * Set WORKFLOWS_ENABLED=true to enable.
    */
   workflowsEnabled: boolean;

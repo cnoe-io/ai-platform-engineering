@@ -33,6 +33,10 @@ agentRowPermissionsOrDefault,
 resolveAgentListPermissions,
 } from "@/lib/rbac/resource-authz";
 import { resolveShareableOwnershipWrite } from "@/lib/rbac/shareable-resource";
+import {
+  resolveUnlinkedServiceAccountSub,
+  resolveUnlinkedServiceAccountGrantState,
+} from "@/lib/rbac/unlinked-service-account";
 import type {
 DynamicAgentConfig,
 DynamicAgentConfigWithPermissions,
@@ -44,9 +48,9 @@ import { Collection,ObjectId } from "mongodb";
 import { NextRequest } from "next/server";
 
 const PLATFORM_DEFAULT_VISIBILITY_ERROR =
-  "This agent is currently the platform default for new chats. Open Admin → Settings and change the platform default before changing this agent's visibility.";
+  "This agent is currently the platform default for new chats. Open Settings → Platform settings → Defaults and change the platform default before changing this agent's visibility.";
 const PLATFORM_DEFAULT_DELETE_ERROR =
-  "This agent is currently the platform default for new chats. Open Admin → Settings and change the platform default before deleting this agent.";
+  "This agent is currently the platform default for new chats. Open Settings → Platform settings → Defaults and change the platform default before deleting this agent.";
 
 const COLLECTION_NAME = "dynamic_agents";
 
@@ -618,6 +622,11 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       updated_at: now.toISOString(),
     };
 
+    // Only resolve the unlinked SA sub when it's actually needed — avoids a
+    // Mongo lookup on every non-global agent create.
+    const unlinkedServiceAccountSub =
+      visibility === "global" ? await resolveUnlinkedServiceAccountSub() : null;
+
     await reconcileAgentRelationships({
       agentId,
       previousAllowedTools: {},
@@ -632,6 +641,9 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       // every member without waiting for the list-time repair in
       // available/route.ts. Fresh create has no previous state to revoke.
       globalUserAccess: visibility === "global",
+      // Also grant the unlinked SA `can_use` so callers with no linked user
+      // identity (Slack/Webex bots) are treated as "everyone" too.
+      unlinkedServiceAccountSub,
     });
 
     try {
@@ -707,7 +719,7 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     // Platform-default invariant: an agent can't be demoted from `global`
     // → `team` while it's the configured platform default — that would
     // silently strip the wildcard `user:*` grant new users rely on.
-    // Force the admin to change the platform default in Admin → Settings
+    // Force the admin to change the platform default in Settings → Platform settings → Defaults
     // first. We only block the demote case; promoting team → global is
     // always fine.
     const currentVisibility = agent.visibility as VisibilityType | "private" | undefined;
@@ -814,6 +826,17 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     const finalAllowedTools = (updateData.allowed_tools ??
       agent.allowed_tools ??
       {}) as Record<string, string[]>;
+    // Resolve the unlinked SA grant state whenever the wildcard grant is being
+    // written OR revoked — the delete path needs the exact sub too, so we
+    // can't skip resolution just because the agent is being demoted.
+    // `explicitAgentIds` lets a `global → team` demote preserve an explicit
+    // admin grant: the admin changed the agent's visibility, not the panel
+    // override, so the unlinked SA keeps `can_use` on an agent it was
+    // explicitly granted.
+    const { sub: unlinkedServiceAccountSub, explicitAgentIds } =
+      finalVisibility === "global" || currentVisibility === "global"
+        ? await resolveUnlinkedServiceAccountGrantState()
+        : { sub: null, explicitAgentIds: new Set<string>() };
     await reconcileAgentRelationships({
       agentId: id,
       previousAllowedTools: allowedToolsFromAgent(agent),
@@ -832,6 +855,11 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
       // only an exact 'global' match counts as a previous wildcard grant.
       globalUserAccess: finalVisibility === "global",
       previousGlobalUserAccess: currentVisibility === "global",
+      // Keep the unlinked SA's grant in sync with the same promote/demote
+      // transition so callers with no linked user identity gain/lose
+      // access exactly when "everyone" does.
+      unlinkedServiceAccountSub,
+      unlinkedGrantIsExplicit: explicitAgentIds.has(id),
     });
 
     const updated = await collection.findOneAndUpdate(
@@ -890,7 +918,7 @@ export const DELETE = withErrorHandler(async (request: NextRequest) => {
 
     // Platform-default invariant: deleting the currently configured
     // default would yank the public `user:*` grant new users rely on
-    // and leave Admin → Settings pointing at a tombstone. Force the
+    // and leave Settings → Platform settings → Defaults pointing at a tombstone. Force the
     // admin to clear/change the platform default first.
     if (await isPlatformDefaultAgent(id)) {
       throw new ApiError(

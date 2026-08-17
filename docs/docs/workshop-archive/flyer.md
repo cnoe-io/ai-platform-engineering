@@ -5,7 +5,7 @@
 
 ![Workshop Flyer](images/workshop_flyer.svg)
 
-Get ready to ⚡ level up with [CAIPE (Community AI Platform Engineering)](https://cnoe-io.github.io/ai-platform-engineering/) in this hands-on workshop where you'll explore, run, modify, deploy, and master an open-source, secure, enterprise-ready, distributed multi-agent system — all while gaining practical experience in building and deploying a production-ready community AI platform.
+Get ready to ⚡ level up with [CAIPE (Community AI Platform Engineering)](https://caipe.io/) in this hands-on workshop where you'll explore, run, modify, deploy, and master an open-source, secure, enterprise-ready, distributed multi-agent system — all while gaining practical experience in building and deploying a production-ready community AI platform.
 
 
 *You'll:*

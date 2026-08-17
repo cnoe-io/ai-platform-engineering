@@ -2,7 +2,7 @@
 # CAIPE DOCKER COMPOSE CONFIGURATION
 # ============================================================================
 # For setup instructions and agent orchestration details, refer to:
-#   https://cnoe-io.github.io/ai-platform-engineering/getting-started/quick-start
+#   https://caipe.io/docs/getting-started/quick-start
 #
 # The UI proxies chat and streaming requests to the Dynamic Agents runtime.
 # Agent selection and configuration are controlled through environment variables
@@ -394,6 +394,7 @@ services:
         required: false
     profiles:
       - caipe-ui
+      - caipe-ui-prod
 
   ####################################################################################################
   #                                      Audit Service                                               #

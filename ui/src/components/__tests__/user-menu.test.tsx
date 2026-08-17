@@ -75,7 +75,6 @@ jest.mock("lucide-react", () => ({
   ChevronUp: () => <span data-testid="icon-chevron-up" />,
   ChevronRight: () => <span data-testid="icon-chevron-right" />,
   Shield: () => <span data-testid="icon-shield" />,
-  Settings: () => <span data-testid="icon-settings" />,
   Lightbulb: () => <span data-testid="icon-lightbulb" />,
   FileText: () => <span data-testid="icon-filetext" />,
   Tag: () => <span data-testid="icon-tag" />,
@@ -99,6 +98,7 @@ jest.mock("lucide-react", () => ({
   Eye: () => <span data-testid="icon-eye" />,
   ArrowDownToLine: () => <span data-testid="icon-arrowdown" />,
   Info: () => <span data-testid="icon-info" />,
+  Loader2: () => <span data-testid="icon-loader" />,
 }));
 
 jest.mock("@/store/feature-flag-store", () => ({
@@ -217,7 +217,7 @@ describe("UserMenu", () => {
     expect(screen.getByText("john@example.com")).toBeInTheDocument();
     expect(screen.getByText("User")).toBeInTheDocument();
     expect(screen.getByText("Authenticated via SSO")).toBeInTheDocument();
-    expect(screen.getByText("Settings")).toBeInTheDocument();
+    expect(screen.queryByText("Settings")).not.toBeInTheDocument();
     expect(screen.getByText("About")).toBeInTheDocument();
     expect(screen.getByText("Sign Out")).toBeInTheDocument();
   });

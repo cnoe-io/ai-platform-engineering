@@ -559,7 +559,7 @@ class WorkerSpider(Spider):
       return
     self.visited_urls.add(response.url)
 
-    # Update effective domain after following redirects (e.g., caipe.io -> cnoe-io.github.io)
+    # Update effective domain after following redirects (e.g., legacy.example.com -> docs.example.com)
     # This ensures that in recursive mode, we follow links on the actual domain we landed on
     if self.effective_domain is None:
       response_domain = urlparse(response.url).netloc

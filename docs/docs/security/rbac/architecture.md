@@ -439,6 +439,8 @@ Routes that have not yet been rewritten inline no longer remain session-only: th
 
 **Skill authoring is a member self-service surface (2026-06-04 fix).** The coarse `withAuth` gate for the Skill Builder CRUD (`/api/skills/configs` POST/PUT/DELETE) and for minting the caller's own read-only catalog API keys (`/api/catalog-api-keys`) maps every `skill` capability — `skill#view`, `skill#invoke`, `skill#configure`, and `skill#delete` — to the member-level organization relation **`can_use`** (`member or admin`), not the admin-only `can_manage`. Per-skill mutation and deletion of an *existing* skill are still constrained per-resource by ownership inside the route handlers via `requireResourcePermission({ type: "skill", action: "write" | "delete" })`; the org gate only asserts "the Skill Builder exists for you at all." Before this fix `skill#configure`/`skill#delete` fell through `organizationRelationFor` to `can_manage`, so generic members hit `403 "You do not have permission to perform this action."` when creating a skill. Sharing a skill with a team in the builder uses the same member-accessible `GET /api/dynamic-agents/teams` "teams available for sharing" endpoint as the RAG KB / MCP / Dynamic-Agent editors; members pick from their own teams (org admins from all teams) and the save writes `team:<slug>#member user skill:<id>` grants.
 
+**Catalog credentials are catalog-read principals, not general user sessions.** The BFF accepts a catalog API key only after verifying that it is active, unexpired, has `catalog:read`, and resolves to an existing owner. Locally signed skills JWTs must carry the exact token type, `skills:read` scope, issuer, audience, and subject claims. Both principal types are restricted to `GET /api/skills`; shared RBAC and resource-authorization helpers reject them on all other routes. Catalog results use the credential owner's normal OpenFGA visibility instead of a synthetic-user bypass. `POST /api/skills/token` accepts only an active cookie-backed NextAuth session and requires the member-level `skill#invoke` capability before minting a caller-bound local token.
+
 Credential APIs additionally keep concrete `secret_ref` checks for payload and metadata operations. `credential_vault#use` only opens the credential surface; it does not authorize retrieving or using a specific secret. Slack and Webex runtime access-check APIs likewise require `slack_channel:<workspace>--<channel>#can_read` or `webex_space:<workspace>--<space>#can_read` before they evaluate the requested channel/space grant and target user grant, preventing those endpoints from becoming permission oracles for messaging resources the caller cannot inspect. Platform org admins use the standard resource-authz admin bypass because they already hold global `organization:<org_key>#can_manage`.
 
 For a route-by-route breakdown of which BFF `/api/*` endpoints use resource-scoped PDP, which still rely on the legacy `withAuth` wrapper, and which have a `user.role === 'admin'` bypass, see the [PDP Coverage Audit](./pdp-coverage-audit.md). The audit also documents how to read `audit_event_id` rows and how to add explicit route capabilities.
@@ -779,10 +781,10 @@ picker instead of starting a chat (no default-agent OpenFGA tuple is produced).
 The Slack bot honors the same
 `platform_config.default_agent_id` at runtime (via its
 `PlatformSettingsReader`, with `SLACK_INTEGRATION_DEFAULT_AGENT_ID` as the
-env/YAML fallback), so the one Admin → Settings → Default Agent value governs
+env/YAML fallback), so the one Settings → Platform → Defaults value governs
 the Web UI, Slack channel fallback, and Slack DMs. The backfill is still the bulk repair path
 for existing environments, but the Web UI also reconciles this typed-wildcard
-grant when an admin saves a default Dynamic Agent, when an admitted user logs in,
+grant when an admin confirms a default Dynamic Agent, when an admitted user logs in,
 and before the chat-available Dynamic Agent picker filters candidates through
 OpenFGA. The picker now also repairs the same typed-wildcard grant for every
 enabled Dynamic Agent with `visibility: "global"` before filtering. That keeps the
@@ -812,13 +814,13 @@ which is why removing an agent as the platform default correctly restricted it.
 
 #### Default agent is public by design
 
-Selecting an agent in **Admin → Settings → Default Agent** writes the
+Selecting an agent in **Settings → Platform → Defaults** writes the
 `user:* user agent:<id>` tuple shown above. Every signed-in user (Web UI and
 Slack/Webex DMs) is then allowed to `can_use` that agent, regardless of their
 team memberships. To keep that contract visible and reversible:
 
-- The Admin Settings picker shows a persistent banner explaining the
-  consequence and a confirmation modal on save. `PATCH /api/admin/platform-config`
+- The platform Defaults picker shows a persistent banner explaining the
+  consequence and a confirmation modal before it persists. `PATCH /api/admin/platform-config`
   rejects requests with `400 / PUBLIC_ACCESS_NOT_ACKNOWLEDGED` unless
   `acknowledge_public_access: true` is included alongside a non-null
   `default_agent_id`. Clearing the default (`null`) does not require the ack —
@@ -829,8 +831,8 @@ team memberships. To keep that contract visible and reversible:
 - `PUT /api/dynamic-agents` rejects demoting `visibility: global → team` on the
   current platform default with `409 / AGENT_IS_PLATFORM_DEFAULT`, and
   `DELETE /api/dynamic-agents` rejects deleting it with the same code. Both
-  paths surface a plain-English message pointing the admin back to Admin →
-  Settings to change the platform default first. The per-agent edit page mirrors
+  paths surface a plain-English message pointing the admin back to Settings →
+  Platform → Defaults first. The per-agent edit page mirrors
   this by disabling the visibility selector with an inline note when an agent
   is the current platform default.
 - The single source of truth for the invariant is
@@ -1050,7 +1052,7 @@ Legacy Keycloak realm roles may still appear in old local data, but they are not
 | `DISCOVERY_CACHE_TTL_MINUTES`                                 | Bootstrap default for the in-process cache TTL on `/api/admin/slack/available-channels`, `/api/admin/slack/users/lookup`, `/api/admin/slack/emoji`, and `/api/admin/webex/available-spaces`; defaults to `60` and is overridden at runtime by `platform_config.discovery_cache_ttl_minutes`     | Admins set the live value via the **Discovery cache** popover next to the connector discovery button on `Admin → Integrations → Slack` and `Admin → Integrations → Webex` (range `0`–`1440`; `0` disables caching). The env var only sets the bootstrap value when no DB override exists. The same popover exposes a per-provider *Refresh from Slack/Webex now* button that drops the snapshot immediately for ad-hoc bot-membership changes. |
 | `SLACK_AGENT_ROUTES_ENABLED`                                  | Legacy rollout alias; when `true` and `SLACK_AGENT_ROUTES_MODE` is unset, behaves as `SLACK_AGENT_ROUTES_MODE=db_prefer`                                           | Prefer `SLACK_AGENT_ROUTES_MODE` for new deployments so the fallback behavior is explicit.                                                                                                                                                       |
 | `SLACK_AGENT_ROUTES_TTL_SECONDS`                              | Slack bot in-process cache TTL for OpenFGA-backed channel agent routes; defaults to `60`                                                                           | Short TTLs make UI route changes visible faster at the cost of more OpenFGA reads and Mongo metadata joins.                                                                                                                                      |
-| `SLACK_INTEGRATION_DEFAULT_AGENT_ID` / `SLACK_INTEGRATION_DM_AGENT_ID` | Env/YAML fallback for the Slack bot's channel fallback and DM agent. Overridden at runtime by `platform_config.default_agent_id` (Admin → Settings → Default Agent) | These are now bootstrap fallbacks only — the platform default agent set in the UI takes precedence so the same value governs Web UI and Slack. |
+| `SLACK_INTEGRATION_DEFAULT_AGENT_ID` / `SLACK_INTEGRATION_DM_AGENT_ID` | Env/YAML fallback for the Slack bot's channel fallback and DM agent. Overridden at runtime by `platform_config.default_agent_id` (Settings → Platform → Defaults) | These are now bootstrap fallbacks only — the platform default agent set in the UI takes precedence so the same value governs Web UI and Slack. |
 | `SLACK_INTEGRATION_VICTOROPS_AGENT_ID`                        | Env/YAML fallback for the agent the Slack bot queries for VictorOps on-call lookups; overridden at runtime by `platform_config.slack_victorops_escalation_agent_id` | Superadmins set the live value in **Admin → Integrations → Slack → Advanced**. The env var only applies when no DB value is saved. |
 | `SLACK_PLATFORM_SETTINGS_TTL_SECONDS`                         | Slack bot in-process cache TTL for `platform_config` settings (default + VictorOps agents); defaults to `60`                                                       | Short TTLs surface UI setting changes faster at the cost of more Mongo reads. |
 | `CAIPE_PLATFORM_AUDIENCE`                                     | Audience requested by Slack/Webex OBO exchanges for bot → CAIPE UI BFF access checks; defaults to `caipe-platform`                                                | Keep this aligned with the Keycloak client accepted by the Web UI backend. Do not use `agentgateway` for bot pre-dispatch access checks because the next hop is the BFF.                                                                          |

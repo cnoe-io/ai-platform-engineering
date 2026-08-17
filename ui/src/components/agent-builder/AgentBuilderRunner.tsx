@@ -8,6 +8,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { apiClient } from "@/lib/api-client";
 import { resolveUsableChatAgent } from "@/lib/chat-agent-selection";
 import { getConfig } from "@/lib/config";
+import { pushWithNavigationProgress } from "@/lib/navigation-progress";
 import { getMarkdownComponents } from "@/lib/markdown-components";
 import { createStreamAdapter,type StreamAdapter,type StreamCallbacks } from "@/lib/streaming";
 import type { InputFieldDefinition } from "@/lib/streaming/types";
@@ -726,6 +727,7 @@ export function AgentBuilderRunner({
   config,
   onComplete,
 }: AgentBuilderRunnerProps) {
+  const router = useRouter();
   // Workflow state
   const [status, setStatus] = useState<
     "idle" | "running" | "completed" | "failed" | "cancelled"
@@ -758,7 +760,6 @@ export function AgentBuilderRunner({
   const accessToken = ssoEnabled ? session?.accessToken : undefined;
 
   // Router for navigation
-  const router = useRouter();
 
   // Stream adapter ref
   const clientRef = useRef<StreamAdapter | null>(null);
@@ -1503,7 +1504,7 @@ export function AgentBuilderRunner({
           <Button 
             variant="ghost" 
             size="icon" 
-            onClick={() => router.push('/')}
+            onClick={() => pushWithNavigationProgress(router,'/')}
             title="Go to home page"
           >
             <LayoutGrid className="h-5 w-5" />
@@ -1512,7 +1513,7 @@ export function AgentBuilderRunner({
           <Button 
             variant="ghost" 
             size="icon" 
-            onClick={() => router.push('/agent-builder/history')} 
+            onClick={() => pushWithNavigationProgress(router,'/agent-builder/history')}
             title="View workflow history"
           >
             <ArrowLeft className="h-5 w-5" />
