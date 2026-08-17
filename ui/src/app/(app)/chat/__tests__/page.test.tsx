@@ -2,8 +2,8 @@
  * Unit tests for Chat redirect page (/chat)
  *
  * Tests:
- * - Renders branded CAIPESpinner while resolving which conversation to load
- * - Shows correct loading message
+ * - Renders a chat-shaped skeleton while resolving which conversation to load
+ * - Keeps an accessible loading message
  */
 
 import React from "react";
@@ -106,14 +106,12 @@ describe("Chat Redirect Page", () => {
     mockSessionStatus = "authenticated";
   });
 
-  it("renders CAIPESpinner with branded loading message", () => {
+  it("renders a chat skeleton with an accessible loading message", () => {
     render(<Chat />);
 
+    expect(screen.getByTestId("chat-loading-skeleton")).toBeInTheDocument();
     expect(screen.getByText("Loading conversations...")).toBeInTheDocument();
-    // Verify it's the CAIPESpinner (renders an img with the logo)
-    const logo = screen.getByRole("img", { name: "Test App" });
-    expect(logo).toBeInTheDocument();
-    expect(logo).toHaveAttribute("src", "/logo.svg");
+    expect(screen.queryByRole("img", { name: "Test App" })).not.toBeInTheDocument();
   });
 
   it("does not render the old Loader2 spinner", () => {

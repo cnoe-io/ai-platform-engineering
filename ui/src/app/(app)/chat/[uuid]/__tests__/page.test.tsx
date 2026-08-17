@@ -2,9 +2,9 @@
  * Unit tests for ChatUUID page (/chat/[uuid])
  *
  * Tests cover:
- * - Branded spinner while loading from MongoDB
- * - Spinner persists until messages actually arrive (prevents Welcome screen flash)
- * - Spinner for metadata-only stubs (Sidebar race condition)
+ * - Chat-shaped skeleton while loading from MongoDB
+ * - Loading state persists until messages actually arrive
+ * - Loading state for metadata-only stubs (Sidebar race condition)
  * - Instant render when messages already in store
  * - No spinner in localStorage mode
  * - 404 fallback to empty conversation
@@ -185,28 +185,29 @@ describe("ChatContainer", () => {
     }) as unknown as typeof fetch;
   });
 
-  it("renders CAIPESpinner with branded loading message while fetching from MongoDB", () => {
+  it("renders a chat skeleton while fetching from MongoDB", () => {
     render(<ChatContainer />);
 
+    expect(screen.getByTestId("chat-loading-skeleton")).toBeInTheDocument();
     expect(screen.getByText("Loading conversation...")).toBeInTheDocument();
-    const logo = screen.getByRole("img", { name: "Test App" });
-    expect(logo).toBeInTheDocument();
-    expect(logo).toHaveAttribute("src", "/logo.svg");
+    expect(screen.queryByRole("img", { name: "Test App" })).not.toBeInTheDocument();
   });
 
-  it("shows only spinner during loading (sidebar is in layout, not page)", () => {
+  it("shows only the chat skeleton during loading (sidebar is in layout, not page)", () => {
     render(<ChatContainer />);
 
     // Sidebar is now rendered by the layout, not the page
-    // The page should only show the spinner during loading
+    // The page should only show the skeleton during loading.
     expect(screen.queryByTestId("sidebar")).not.toBeInTheDocument();
+    expect(screen.getByTestId("chat-loading-skeleton")).toBeInTheDocument();
     expect(screen.getByText("Loading conversation...")).toBeInTheDocument();
   });
 
   it("shows chat panel with loading state while messages load from MongoDB", async () => {
     render(<ChatContainer />);
 
-    // Initial render - no conversation in store, so spinner shows
+    // Initial render - no conversation in store, so the skeleton shows.
+    expect(screen.getByTestId("chat-loading-skeleton")).toBeInTheDocument();
     expect(screen.getByText("Loading conversation...")).toBeInTheDocument();
 
     // Resolve the conversation metadata — now conversation is in store

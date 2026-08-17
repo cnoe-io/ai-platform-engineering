@@ -3,7 +3,7 @@
 import { getErrorMessage } from "@/lib/error-utils";
 
 import { ChatView } from "@/components/chat/DynamicAgentChatView";
-import { CAIPESpinner } from "@/components/ui/caipe-spinner";
+import { ChatLoadingSkeleton } from "@/components/chat/ChatLoadingSkeleton";
 import { apiClient } from "@/lib/api-client";
 import { getStorageMode } from "@/lib/storage-config";
 import { useChatStore } from "@/store/chat-store";
@@ -329,14 +329,10 @@ export function ChatContainer() {
     return null;
   }
 
-  // Show loading spinner only for initial load
+  // Show the chat-shaped placeholder only for the initial load.
   const isInitialLoad = fetchInProgress && !conversation;
   if (isInitialLoad) {
-    return (
-      <div className="flex-1 flex w-full items-center justify-center">
-        <CAIPESpinner size="lg" message="Loading conversation..." />
-      </div>
-    );
+    return <ChatLoadingSkeleton />;
   }
 
   if (error) {

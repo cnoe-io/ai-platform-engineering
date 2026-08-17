@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { WorkspacePageActions } from "@/components/layout/WorkspacePageActions";
 import { Card,CardContent } from "@/components/ui/card";
 import { toYaml } from "@/lib/yaml-serializer";
+import { useChatStore } from "@/store/chat-store";
 import type { DynamicAgentConfigWithPermissions } from "@/types/dynamic-agent";
 import {
 Bot,
@@ -21,6 +22,7 @@ Download,
 Globe,
 Loader2,
 Lock,
+MessageSquare,
 Plus,
 RefreshCw,
 Search,
@@ -29,9 +31,11 @@ ToggleRight,
 Trash2,
 Users,
 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import React from "react";
 import { Input } from "@/components/ui/input";
 import { AgentAvatar } from "./AgentAvatar";
+import { AgentEditorSkeleton,AgentsListSkeleton } from "./AgentsLoadingSkeleton";
 import { DynamicAgentEditor } from "./DynamicAgentEditor";
 import type { AgentSetupStep } from "./deep-linking";
 
@@ -67,6 +71,8 @@ export function DynamicAgentsTab({
   onSelectedAgentChange,
   onStepChange,
 }: DynamicAgentsTabProps = {}) {
+  const router = useRouter();
+  const createConversation = useChatStore((state) => state.createConversation);
   const [agents, setAgents] = React.useState<DynamicAgentConfigWithPermissions[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
@@ -79,6 +85,7 @@ export function DynamicAgentsTab({
   const [cloningAgent, setCloningAgent] = React.useState<DynamicAgentConfigWithPermissions | null>(null);
   const [pendingDeleteAgentId, setPendingDeleteAgentId] = React.useState<string | null>(null);
   const [deletingAgentId, setDeletingAgentId] = React.useState<string | null>(null);
+  const [startingChatAgentId, setStartingChatAgentId] = React.useState<string | null>(null);
   const [rowActionErrors, setRowActionErrors] = React.useState<Record<string, string>>({});
   const [search, setSearch] = React.useState("");
   const [searchInput, setSearchInput] = React.useState("");
@@ -244,6 +251,23 @@ export function DynamicAgentsTab({
     }
   };
 
+  const handleStartChat = async (agent: DynamicAgentConfigWithPermissions) => {
+    if (!agent.enabled || startingChatAgentId) return;
+    setStartingChatAgentId(agent._id);
+    clearRowActionError(agent._id);
+    try {
+      const conversationId = await createConversation(agent._id);
+      router.push(`/chat/${conversationId}`);
+    } catch (err: unknown) {
+      setRowActionErrors((prev) => ({
+        ...prev,
+        [agent._id]: errorMessage(err, "Failed to start chat"),
+      }));
+    } finally {
+      setStartingChatAgentId(null);
+    }
+  };
+
   /**
    * Export agent configuration as YAML file.
    */
@@ -332,13 +356,7 @@ export function DynamicAgentsTab({
   const hasMatchingSelectedAgent = editingAgent?._id === selectedAgentId;
 
   if (selectedAgentId && selectionLoading && !hasMatchingSelectedAgent) {
-    return (
-      <Card>
-        <CardContent className="flex items-center justify-center py-12">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-        </CardContent>
-      </Card>
-    );
+    return <AgentEditorSkeleton />;
   }
 
   if (selectedAgentId && selectionError && !hasMatchingSelectedAgent) {
@@ -399,9 +417,7 @@ export function DynamicAgentsTab({
       <Card className="rounded-none border-0 bg-transparent shadow-none">
         <CardContent className="px-0 pt-0">
         {loading ? (
-          <div className="flex items-center justify-center py-12">
-            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-          </div>
+          <AgentsListSkeleton />
         ) : error ? (
           <div className="text-center py-12">
             <p className="text-destructive">{error}</p>
@@ -536,6 +552,21 @@ export function DynamicAgentsTab({
                 </div>
 
                 <div className="col-span-2 flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8"
+                    onClick={() => void handleStartChat(agent)}
+                    aria-label={`Chat with ${agent.name}`}
+                    title={agent.enabled ? `Chat with ${agent.name}` : "This agent is disabled"}
+                    disabled={!agent.enabled || startingChatAgentId !== null}
+                  >
+                    {startingChatAgentId === agent._id ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <MessageSquare className="h-4 w-4" />
+                    )}
+                  </Button>
                   <Button
                     variant="ghost"
                     size="icon"
