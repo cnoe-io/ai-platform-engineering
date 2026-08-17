@@ -16,6 +16,7 @@ import { getCollection,isMongoDBConfigured } from "@/lib/mongodb";
 import { getRbacCollection } from "@/lib/rbac/mongo-collections";
 import { writeOpenFgaTupleDiff } from "@/lib/rbac/openfga";
 import { requireResourcePermission } from "@/lib/rbac/resource-authz";
+import { requireReservedTeamMutationPermission } from "@/lib/rbac/team-admin-guards";
 import { webexSpaceSubjectId,webexWorkspaceRef } from "@/lib/rbac/webex-space-grant-store";
 import type { Team } from "@/types/teams";
 import { ObjectId } from "mongodb";
@@ -202,6 +203,7 @@ export const PUT = withErrorHandler(
     const team = await teamsCol.findOne({ _id: teamId } as never);
     if (!team) throw new ApiError("Team not found", 404);
     const ownerTeamSlug = teamSlug(team, teamIdStr);
+    await requireReservedTeamMutationPermission(session, { slug: ownerTeamSlug });
     await requireResourcePermission(session, { type: "team", id: ownerTeamSlug, action: "manage" }, { bypassForOrgAdmin: true });
 
     const teamCol = await getRbacCollection<WebexSpaceTeamMappingDoc>("webexSpaceTeamMappings");

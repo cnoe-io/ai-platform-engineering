@@ -107,6 +107,13 @@ helm show values oci://ghcr.io/cnoe-io/charts/rag-stack --version 0.5.68
 | global.llmSecrets.externalSecrets.secretStoreRef.name | string | `""` |  |
 | global.llmSecrets.secretName | string | `"llm-secret"` |  |
 | global.rag.enableGraphRag | bool | `true` |  |
+| global.rag.ingestorOidc.clientId | string | `""` |  |
+| global.rag.ingestorOidc.clientSecretRef.key | string | `"INGESTOR_OIDC_CLIENT_SECRET"` |  |
+| global.rag.ingestorOidc.clientSecretRef.name | string | `""` |  |
+| global.rag.ingestorOidc.discoveryUrl | string | `""` |  |
+| global.rag.ingestorOidc.issuer | string | `""` |  |
+| global.rag.ingestorOidc.jwksUrl | string | `""` |  |
+| global.rag.ingestorOidc.scope | string | `""` |  |
 | global.rag.neo4j.host | string | `"rag-neo4j"` |  |
 | global.rag.neo4j.password | string | `"dummy_password"` |  |
 | global.rag.neo4j.port | int | `7687` |  |
@@ -152,8 +159,19 @@ helm show values oci://ghcr.io/cnoe-io/charts/rag-stack --version 0.5.68
 | neo4j.services.neo4j.enabled | bool | `false` |  |
 | neo4j.volumes.data.dynamic.storageClassName | string | `"gp2"` |  |
 | neo4j.volumes.data.mode | string | `"dynamic"` |  |
-| rag-ingestors.enabled | bool | `false` |  |
-| rag-ingestors.ingestors | list | `[]` |  |
+| rag-ingestors.enabled | bool | `true` |  |
+| rag-ingestors.ingestors[0].env.WEBLOADER_MAX_INGESTION_TASKS | string | `"5"` |  |
+| rag-ingestors.ingestors[0].envFrom | list | `[]` |  |
+| rag-ingestors.ingestors[0].initDelaySeconds | int | `0` |  |
+| rag-ingestors.ingestors[0].logLevel | string | `"INFO"` |  |
+| rag-ingestors.ingestors[0].name | string | `"webloader"` |  |
+| rag-ingestors.ingestors[0].resources.limits.cpu | string | `"500m"` |  |
+| rag-ingestors.ingestors[0].resources.limits.ephemeral-storage | string | `"1Gi"` |  |
+| rag-ingestors.ingestors[0].resources.limits.memory | string | `"1Gi"` |  |
+| rag-ingestors.ingestors[0].resources.requests.cpu | string | `"100m"` |  |
+| rag-ingestors.ingestors[0].resources.requests.ephemeral-storage | string | `"256Mi"` |  |
+| rag-ingestors.ingestors[0].resources.requests.memory | string | `"256Mi"` |  |
+| rag-ingestors.ingestors[0].type | string | `"webloader"` |  |
 | rag-ingestors.ragServerUrl | string | `"http://rag-server:9446"` |  |
 | rag-redis.enabled | bool | `true` |  |
 | rag-redis.fullnameOverride | string | `"rag-redis"` |  |
@@ -205,21 +223,6 @@ helm show values oci://ghcr.io/cnoe-io/charts/rag-stack --version 0.5.68
 | rag-server.resources.requests.memory | string | `"128Mi"` |  |
 | rag-server.service.port | int | `9446` |  |
 | rag-server.service.type | string | `"ClusterIP"` |  |
-| rag-server.webIngestor.enabled | bool | `true` |  |
-| rag-server.webIngestor.env.LOG_LEVEL | string | `"INFO"` |  |
-| rag-server.webIngestor.env.WEBLOADER_MAX_CONCURRENCY | string | `"10"` |  |
-| rag-server.webIngestor.env.WEBLOADER_MAX_INGESTION_TASKS | string | `"5"` |  |
-| rag-server.webIngestor.env.WEBLOADER_RELOAD_INTERVAL | string | `"86400"` |  |
-| rag-server.webIngestor.envFrom | list | `[]` |  |
-| rag-server.webIngestor.image.pullPolicy | string | `"Always"` |  |
-| rag-server.webIngestor.image.repository | string | `"ghcr.io/cnoe-io/caipe-rag-ingestors"` |  |
-| rag-server.webIngestor.image.tag | string | `""` |  |
-| rag-server.webIngestor.resources.limits.cpu | string | `"500m"` |  |
-| rag-server.webIngestor.resources.limits.ephemeral-storage | string | `"1Gi"` |  |
-| rag-server.webIngestor.resources.limits.memory | string | `"1Gi"` |  |
-| rag-server.webIngestor.resources.requests.cpu | string | `"100m"` |  |
-| rag-server.webIngestor.resources.requests.ephemeral-storage | string | `"256Mi"` |  |
-| rag-server.webIngestor.resources.requests.memory | string | `"256Mi"` |  |
 | sunnyTesting | bool | `true` |  |
 
 ## Dependencies

@@ -10,7 +10,7 @@
  */
 
 import React from 'react'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react'
 
 // ============================================================================
 // Mocks — must be before imports
@@ -232,11 +232,73 @@ const defaultProps = {
 describe('Sidebar — Live Status Indicator', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mockLoadConversationsFromServer.mockReturnValue(new Promise<void>(() => {}))
+    global.fetch = jest.fn(
+      () => new Promise<Response>(() => {}),
+    ) as unknown as typeof fetch
     mockConversations = []
     mockActiveConversationId = null
     mockIsConversationStreaming.mockImplementation(() => false)
     mockHasUnviewedMessages.mockImplementation(() => false)
     mockIsConversationInputRequired.mockImplementation(() => false)
+  })
+
+  describe('loading placeholders', () => {
+    it('shows conversation-shaped rows while the initial history loads', async () => {
+      let resolveConversations!: () => void
+      mockLoadConversationsFromServer.mockReturnValueOnce(
+        new Promise<void>((resolve) => {
+          resolveConversations = resolve
+        }),
+      )
+
+      render(<Sidebar {...defaultProps} />)
+
+      expect(screen.getByTestId('conversation-list-skeleton')).toBeInTheDocument()
+      expect(screen.queryByText('No conversations yet')).not.toBeInTheDocument()
+
+      await act(async () => {
+        resolveConversations()
+      })
+
+      await waitFor(() => {
+        expect(screen.queryByTestId('conversation-list-skeleton')).not.toBeInTheDocument()
+      })
+      expect(screen.getByText('No conversations yet')).toBeInTheDocument()
+    })
+
+    it('shows the date immediately and skeleton-loads the agent name independently', async () => {
+      let resolveAgents!: (response: Response) => void
+      global.fetch = jest.fn(
+        () => new Promise<Response>((resolve) => {
+          resolveAgents = resolve
+        }),
+      ) as unknown as typeof fetch
+      mockConversations = [
+        makeConv('conv-1', 'Agent Chat', {
+          participants: [{ type: 'agent', id: 'agent-1' }],
+        }),
+      ]
+
+      render(<Sidebar {...defaultProps} />)
+
+      expect(screen.getByText('Jan 1, 2026')).toBeInTheDocument()
+      expect(screen.getByTestId('agent-name-skeleton')).toBeInTheDocument()
+
+      await act(async () => {
+        resolveAgents({
+          json: async () => ({
+            success: true,
+            data: [{ _id: 'agent-1', name: 'Agent One' }],
+          }),
+        } as Response)
+      })
+
+      await waitFor(() => {
+        expect(screen.queryByTestId('agent-name-skeleton')).not.toBeInTheDocument()
+      })
+      expect(screen.getByText(/Agent One/)).toBeInTheDocument()
+    })
   })
 
   // --------------------------------------------------------------------------
@@ -726,12 +788,13 @@ describe('Sidebar — Live Status Indicator', () => {
   // --------------------------------------------------------------------------
 
   describe('empty state', () => {
-    it('shows empty state message when no conversations exist', () => {
+    it('shows empty state message after loading when no conversations exist', async () => {
       mockConversations = []
+      mockLoadConversationsFromServer.mockResolvedValueOnce(undefined)
 
       render(<Sidebar {...defaultProps} />)
 
-      expect(screen.getByText('No conversations yet')).toBeInTheDocument()
+      expect(await screen.findByText('No conversations yet')).toBeInTheDocument()
       expect(screen.getByText('Start a new chat to begin')).toBeInTheDocument()
     })
   })

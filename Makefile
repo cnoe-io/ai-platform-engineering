@@ -634,7 +634,7 @@ test-rbac-pytest: ## Run RBAC pytest helper-unit + matrix-driver tests. Pass --r
 	   KEYCLOAK_URL=$(E2E_KC_URL) \
 	   KEYCLOAK_REALM=$(E2E_KC_REALM) \
 	   KEYCLOAK_RESOURCE_SERVER_ID=$(E2E_KC_RESOURCE_SERVER_ID) \
-	   uv run pytest $(RBAC_PYTEST_DIRS) -v \
+	   uv run --group unittest pytest $(RBAC_PYTEST_DIRS) -v \
 	     --junitxml=test-results/rbac-pytest.xml \
 	     $(PYTEST_ARGS)
 

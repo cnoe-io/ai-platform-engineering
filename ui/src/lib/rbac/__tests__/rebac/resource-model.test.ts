@@ -41,6 +41,7 @@ describe("universal ReBAC resource model", () => {
       "mcp_gateway",
       "mcp_server",
       "tool",
+      "rag_collection",
       "knowledge_base",
       "data_source",
       "mcp_tool",
