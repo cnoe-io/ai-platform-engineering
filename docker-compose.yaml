@@ -538,6 +538,7 @@ services:
       # Dedicated /metrics port. 0 (default) serves metrics on the main API
       # port — current behavior, unchanged.
       - METRICS_PORT=${DYNAMIC_AGENTS_METRICS_PORT:-0}
+      - DEBUG=${DYNAMIC_AGENTS_DEBUG:-false}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
       interval: 30s
