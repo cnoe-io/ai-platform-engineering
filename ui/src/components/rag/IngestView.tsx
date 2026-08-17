@@ -7,16 +7,6 @@ import {
   type RagIngestorLimits,
 } from "@/lib/rag-ingestor-limits";
 
-/**
- * IngestView - Data Sources Management
- *
- * Redesigned with:
- * - shadcn/ui components (Button, Input, Badge)
- * - Framer Motion animations
- * - Modern styling consistent with SearchView and UseCasesGallery
- * - Information-dense layout with metrics placeholders
- */
-
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -29,6 +19,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Skeleton } from "@/components/ui/skeleton";
 import { TeamMultiPicker, TeamPicker } from "@/components/ui/team-picker";
 import { useToast } from "@/components/ui/toast";
 import { Permission, useRagPermissions } from "@/hooks/useRagPermissions";
@@ -226,6 +217,40 @@ const StatusBadge = ({ status }: { status: string }) => {
     </span>
   );
 };
+
+const DataSourceListSkeleton = ({ rows = 6 }: { rows?: number }) => (
+  <div
+    className="space-y-2"
+    data-testid="datasource-list-skeleton"
+    role="status"
+    aria-label="Loading data sources"
+  >
+    <span className="sr-only">Loading data sources</span>
+    {Array.from({ length: rows }, (_, index) => (
+      <div
+        key={index}
+        className="flex min-h-[58px] items-center gap-3 rounded-lg border border-border px-4 py-3"
+      >
+        <Skeleton className="h-4 w-4 shrink-0 rounded-sm" />
+        <Skeleton className="h-5 w-5 shrink-0 rounded-full" />
+        <div className="min-w-0 flex-1 space-y-2">
+          <div className="flex items-center gap-2">
+            <Skeleton className="h-4 w-[min(16rem,45%)]" />
+            <Skeleton className="h-5 w-24 rounded-full" />
+            <Skeleton className="hidden h-5 w-28 rounded-full sm:block" />
+          </div>
+          <div className="flex items-center gap-3">
+            <Skeleton className="h-3 w-36" />
+            <Skeleton className="hidden h-3 w-24 sm:block" />
+          </div>
+        </div>
+        <Skeleton className="hidden h-3 w-32 md:block" />
+        <Skeleton className="h-5 w-20 shrink-0 rounded-full" />
+        <Skeleton className="h-8 w-8 shrink-0 rounded-md" />
+      </div>
+    ))}
+  </div>
+);
 
 // Progress bar component with gradient
 const ProgressBar = ({
@@ -435,9 +460,15 @@ export default function IngestView() {
   const [ingestionSourceConfigs, setIngestionSourceConfigs] = useState<
     Map<string, IngestionSourceConfigWithPermissions>
   >(new Map());
+  const [loadingIngestionSourceConfigs, setLoadingIngestionSourceConfigs] =
+    useState(true);
   const [pendingPublicationRequests, setPendingPublicationRequests] = useState<
     Map<string, PendingPublicationRequestView>
   >(new Map());
+  const [
+    loadingPendingPublicationRequests,
+    setLoadingPendingPublicationRequests,
+  ] = useState(true);
 
   // DataSources state
   const [dataSources, setDataSources] = useState<DataSourceInfo[]>([]);
@@ -447,6 +478,8 @@ export default function IngestView() {
   const [dataSourceJobs, setDataSourceJobs] = useState<
     Record<string, IngestionJob[]>
   >({});
+  const [loadingInitialDataSourceJobs, setLoadingInitialDataSourceJobs] =
+    useState(true);
   const [expandedJobs, setExpandedJobs] = useState<Set<string>>(new Set());
 
   // Ingestors state
@@ -795,7 +828,10 @@ export default function IngestView() {
 
       previousDataSourceIds.current = currentIds;
 
-      if (newDataSources.length === 0) return;
+      if (newDataSources.length === 0) {
+        if (!loadingDataSources) setLoadingInitialDataSourceJobs(false);
+        return;
+      }
 
       // Use bulk API instead of per-datasource fetches to reduce server load
       // Batch in chunks of 100 (server limit)
@@ -829,12 +865,14 @@ export default function IngestView() {
         });
       } catch (error) {
         console.error("Failed to batch fetch jobs for new datasources:", error);
+      } finally {
+        setLoadingInitialDataSourceJobs(false);
       }
     };
-    if (dataSources.length > 0) {
-      fetchJobsForNewDataSources();
+    if (!loadingDataSources) {
+      void fetchJobsForNewDataSources();
     }
-  }, [dataSources]);
+  }, [dataSources, loadingDataSources]);
 
   useEffect(() => {
     const interval = setInterval(async () => {
@@ -1047,6 +1085,8 @@ export default function IngestView() {
       setIngestionSourceConfigs(new Map(sources.map((s) => [s.source_id, s])));
     } catch (error) {
       console.error("Failed to fetch ingestion source configs", error);
+    } finally {
+      setLoadingIngestionSourceConfigs(false);
     }
   };
 
@@ -1142,6 +1182,8 @@ export default function IngestView() {
       setPendingPublicationRequests(next);
     } catch (error) {
       console.error("Failed to fetch pending publication requests", error);
+    } finally {
+      setLoadingPendingPublicationRequests(false);
     }
   };
 
@@ -2556,13 +2598,19 @@ export default function IngestView() {
                 >
                   <HelpCircle className="h-4 w-4" />
                 </button>
-                <Badge variant="secondary" className="text-xs">
-                  {filteredDataSources.length +
-                    filteredPendingSourceConfigs.length}
-                  {hasDatasourceFilters
-                    ? ` of ${dataSources.length + pendingSourceConfigs.length}`
-                    : ""}
-                </Badge>
+                {loadingDataSources || loadingIngestionSourceConfigs ? (
+                  <span role="status" aria-label="Loading data source count">
+                    <Skeleton className="h-5 w-8 rounded-full" />
+                  </span>
+                ) : (
+                  <Badge variant="secondary" className="text-xs">
+                    {filteredDataSources.length +
+                      filteredPendingSourceConfigs.length}
+                    {hasDatasourceFilters
+                      ? ` of ${dataSources.length + pendingSourceConfigs.length}`
+                      : ""}
+                  </Badge>
+                )}
               </div>
 
               {/* Source actions - Right Aligned */}
@@ -2700,14 +2748,9 @@ export default function IngestView() {
             )}
 
             {/* Data Sources List */}
-            <div className="p-5">
-              {loadingDataSources &&
-              dataSources.length === 0 &&
-              pendingSourceConfigs.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-                  <Loader2 className="h-8 w-8 animate-spin mb-3" />
-                  <p>Loading data sources...</p>
-                </div>
+            <div className="p-5" aria-busy={loadingDataSources}>
+              {loadingDataSources && dataSources.length === 0 ? (
+                <DataSourceListSkeleton />
               ) : dataSources.length === 0 &&
                 pendingSourceConfigs.length === 0 ? (
                 // Empty State
@@ -2810,6 +2853,10 @@ export default function IngestView() {
                         ].some((key) =>
                           Object.prototype.hasOwnProperty.call(ds, key),
                         );
+                      const loadingAccessDetails =
+                        loadingIngestionSourceConfigs && !accessDetailsKnown;
+                      const loadingJobs =
+                        loadingInitialDataSourceJobs && jobs.length === 0;
                       const supportsReload = supportsScheduledReload(
                         ds.source_type,
                       );
@@ -2982,25 +3029,39 @@ export default function IngestView() {
                                     )}
                                   </Button>
                                 )}
-                                <DatasourceAccessBadges
-                                  ownerTeamSlug={ownerTeamSlug}
-                                  ownerSubject={ownerSubject}
-                                  ownerDisplayName={
-                                    sourceConfig?.owner_display_name ??
-                                    ds.owner_display_name
-                                  }
-                                  searchTeamSlugs={searchTeamSlugs}
-                                  searchUserDisplayNames={
-                                    sourceConfig?.search_user_display_names ??
-                                    ds.search_user_display_names
-                                  }
-                                  ragCollections={
-                                    ragCollections
-                                  }
-                                  pendingPublicationRequest={pendingPublicationRequests.get(ds.datasource_id)}
-                                  detailsKnown={accessDetailsKnown}
-                                  canReadContent={canReadContent}
-                                />
+                                {loadingAccessDetails ? (
+                                  <span
+                                    className="flex items-center gap-2"
+                                    role="status"
+                                    aria-label="Loading datasource access"
+                                  >
+                                    <Skeleton className="h-5 w-28 rounded-full" />
+                                    <Skeleton className="h-5 w-32 rounded-full" />
+                                  </span>
+                                ) : (
+                                  <DatasourceAccessBadges
+                                    ownerTeamSlug={ownerTeamSlug}
+                                    ownerSubject={ownerSubject}
+                                    ownerDisplayName={
+                                      sourceConfig?.owner_display_name ??
+                                      ds.owner_display_name
+                                    }
+                                    searchTeamSlugs={searchTeamSlugs}
+                                    searchUserDisplayNames={
+                                      sourceConfig?.search_user_display_names ??
+                                      ds.search_user_display_names
+                                    }
+                                    ragCollections={ragCollections}
+                                    pendingPublicationRequest={pendingPublicationRequests.get(
+                                      ds.datasource_id,
+                                    )}
+                                    detailsKnown={accessDetailsKnown}
+                                    canReadContent={canReadContent}
+                                  />
+                                )}
+                                {loadingPendingPublicationRequests && (
+                                  <Skeleton className="h-5 w-20 rounded-full" />
+                                )}
                               </div>
                               <div className="flex items-center gap-3 text-xs text-muted-foreground mt-0.5">
                                 {displayName && (
@@ -3036,20 +3097,33 @@ export default function IngestView() {
                             </div>
 
                             <div className="flex items-center gap-3 shrink-0">
-                              {/* Metrics from latest completed job */}
-                              {hasMetrics && (
-                                <span className="text-xs text-muted-foreground">
-                                  {completedJob.document_count} documents,{" "}
-                                  {completedJob.chunk_count} chunks
+                              {loadingJobs ? (
+                                <span
+                                  className="flex items-center gap-3"
+                                  role="status"
+                                  aria-label="Loading ingestion status"
+                                >
+                                  <Skeleton className="h-3 w-32" />
+                                  <Skeleton className="h-5 w-20 rounded-full" />
                                 </span>
-                              )}
-
-                              {latestJob ? (
-                                <StatusBadge status={latestJob.status} />
                               ) : (
-                                <span className="text-xs text-muted-foreground">
-                                  No jobs
-                                </span>
+                                <>
+                                  {/* Metrics from latest completed job */}
+                                  {hasMetrics && (
+                                    <span className="text-xs text-muted-foreground">
+                                      {completedJob.document_count} documents,{" "}
+                                      {completedJob.chunk_count} chunks
+                                    </span>
+                                  )}
+
+                                  {latestJob ? (
+                                    <StatusBadge status={latestJob.status} />
+                                  ) : (
+                                    <span className="text-xs text-muted-foreground">
+                                      No jobs
+                                    </span>
+                                  )}
+                                </>
                               )}
 
                               {(canRunLifecycle || canManageDatasource) && (
@@ -3065,13 +3139,16 @@ export default function IngestView() {
                                         setShowReIngestConfirm(ds.datasource_id)
                                       }
                                       disabled={
+                                        loadingJobs ||
                                         hasActiveJob ||
                                         !supportsReload ||
                                         isConfigDriven
                                       }
                                       className="h-7 w-7 p-0"
                                       title={
-                                        isConfigDriven
+                                        loadingJobs
+                                          ? "Loading job status"
+                                          : isConfigDriven
                                           ? "Managed by ingestor config"
                                           : !supportsReload
                                             ? "Re-ingest not supported"
