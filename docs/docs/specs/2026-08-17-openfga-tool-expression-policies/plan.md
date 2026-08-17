@@ -1,10 +1,10 @@
 ---
 sidebar_label: Implementation Plan
-title: OpenFGA Tool Expression Policies - Implementation Plan
-description: Phased implementation plan for typed, argument-aware MCP authorization in CAIPE.
+title: Central Authorization Service and Expression Policies - Implementation Plan
+description: Phased plan to extract CAS from the BFF and add OpenFGA-native expression policies.
 ---
 
-# Implementation Plan: OpenFGA Tool Expression Policies
+# Implementation Plan: Central Authorization Service and Expression Policies
 
 - **Branch:** `prebuild/docs/openfga-tool-expression-policies`
 - **Date:** 2026-08-17
@@ -12,428 +12,343 @@ description: Phased implementation plan for typed, argument-aware MCP authorizat
 - **Architecture:** [architecture.md](./architecture.md)
 - **Research:** [research.md](./research.md)
 
-## Summary
+## Outcome
 
-Add argument-aware authorization to exact AgentGateway MCP tools by combining:
+Deliver one standalone Central Authorization Service (CAS) with:
 
-- Reviewed native OpenFGA condition templates.
-- Conditional `tool#conditional_caller` tuples.
-- Typed request context projected by the OpenFGA bridge.
-- MCP schema-backed policy authoring in the Admin UI.
-- Shadow-first, selected-tool rollout with fail-closed drift handling.
+- HTTP and batch HTTP for BFF, Dynamic Agents, RAG, bots, and services.
+- Envoy `ext_authz` v3 gRPC for AgentGateway.
+- One canonical decision core and trusted-context pipeline.
+- A provider registry with `openfga-cel` as the only v1 runtime provider.
+- Typed, versioned expression templates compiled to OpenFGA-native CEL.
+- Disabled extension points for future Cedar and OPA providers.
 
-The first release supports bounded scalar templates and excludes arbitrary CEL,
-wildcard conditions, and bulk mutation payloads.
+Exact MCP tool arguments are the first conditional-policy slice. The CAS
+contract applies to every CAIPE resource type; expressions are enabled per
+`(resource_type, action)` registry entry.
 
-## Technical Context
+## Technical Decisions
 
-| Area | Technology |
+| Layer | Choice |
 |---|---|
-| Authorization model | OpenFGA schema 1.1, CEL conditions, PostgreSQL datastore |
-| Enforcement | AgentGateway ext_authz and Python OpenFGA bridge |
-| Control plane | Next.js App Router, TypeScript, MongoDB, existing OpenFGA HTTP client |
-| Schema source | MCP `tools/list`, existing `mcp_tool_catalog` |
-| UI | React Admin Security and Policy surfaces |
-| Audit | Existing audit service and OpenFGA ReBAC events |
-| Tests | Jest, pytest, OpenFGA integration/model parity, Docusaurus build |
+| Universal entry point | One standalone CAS |
+| Application transport | HTTP and batch HTTP |
+| Gateway transport | Envoy `ext_authz` gRPC |
+| Relationship authorization | OpenFGA |
+| Conditional expressions | OpenFGA-native CEL |
+| Context construction | CAS |
+| Policy authoring | Typed, versioned templates |
+| Cedar | Future optional provider, not v1 |
+| OPA | Future optional provider, not v1 |
 
 Constraints:
 
-- No raw expression evaluation.
-- No fail-open path.
-- No real or deployment-specific identifiers in fixtures or examples.
-- OpenFGA remains authoritative for effective access.
-- Authored DSL and deployed chart JSON remain in parity.
-- Existing unrelated grants are unchanged until explicit migration.
+- No caller-selected provider.
+- No standalone CEL evaluator in CAS.
+- No permissive `OR` composition across providers.
+- No fail-open authorization path.
+- No raw CEL, Cedar, or Rego authoring in the Admin UI.
+- Existing decisions remain authoritative until shadow parity gates pass.
 
-## Constitution and Repository Gate Check
-
-| Principle | Assessment |
-|---|---|
-| Reading is as hard as writing | PASS - separate spec, research, architecture, and phased plan; diagrams for request flow. |
-| Prefer diagrams and bullets | PASS - architecture carries control/data-plane diagrams; requirements are tabular or enumerated. |
-| Security by default | PASS - typed templates, schema pinning, mandatory caller check, HMAC, and fail-closed errors. |
-| OpenFGA source of truth | PASS - metadata is intent/status; effective grant must exist in OpenFGA. |
-| Model parity | PASS planned - DSL and chart JSON updated and drift-tested together. |
-| Test data neutrality | PASS - examples use `primary`, `example-user`, and reserved-style generic services. |
-| CI gates | PASS planned - targeted Python/UI tests plus model and docs builds. |
-
-## Project Structure
-
-### Documentation in this change
+## Target Project Structure
 
 ```text
-docs/docs/specs/2026-08-17-openfga-tool-expression-policies/
-├── architecture.md
-├── plan.md
-├── research.md
-└── spec.md
+ai_platform_engineering/cas/
+├── api/
+│   ├── http.py                     # decision and batch HTTP
+│   └── ext_authz.py                # Envoy v3 gRPC adapter
+├── core/
+│   ├── contract.py                 # canonical request/result
+│   ├── decision.py                 # one decision pipeline
+│   ├── context.py                  # trusted context construction
+│   ├── registry.py                 # resource/action bindings
+│   └── reasons.py                  # stable reason codes
+├── providers/
+│   ├── base.py                     # provider protocol
+│   └── openfga.py                  # v1 OpenFGA + native CEL
+├── policy/
+│   ├── templates.py                # typed template registry
+│   └── reconciliation.py
+└── tests/
+    ├── contract/
+    ├── integration/
+    └── conformance/
+
+charts/ai-platform-engineering/charts/caipe-cas/
+docker-compose/
+ui/src/lib/authz/                    # CAS client after extraction
+deploy/openfga/bridge/               # temporary parity oracle, then removed
 ```
 
-### Expected implementation touchpoints
+The exact module layout may follow repository packaging conventions during
+implementation. The ownership boundary is normative: transports and providers
+must call one decision core.
 
-```text
-deploy/openfga/
-├── model.fga
-└── bridge/
-    ├── main.py
-    └── tests/test_grpc_bridge.py
-
-charts/ai-platform-engineering/charts/
-├── openfga/authorization-model.json
-└── openfga-authz-bridge/
-    ├── templates/deployment.yaml
-    └── values.yaml
-
-ui/src/lib/rbac/
-├── openfga.ts
-├── mcp-tool-catalog.ts
-└── tool-expression-policy.ts              # new
-
-ui/src/app/api/admin/tool-expression-policies/
-├── route.ts                               # list, put, delete
-├── schema/route.ts
-└── evaluate/route.ts
-
-ui/src/components/admin/security/
-└── ToolExpressionPolicyEditor.tsx          # new
-
-docs/docs/security/rbac/
-├── architecture.md
-└── workflows.md
-```
-
-## Data Changes
-
-### MongoDB
-
-Extend `mcp_tool_catalog`:
-
-- `input_schema`
-- `input_schema_hash`
-- `policy_eligible_fields`
-- `schema_status`
-
-Add `tool_expression_policies`:
-
-- Unique `binding_key` for subject plus exact tool.
-- Canonical expression and hash.
-- Schema hash and condition projection.
-- Revision and reconciliation state.
-- Actor and timestamps.
-
-Indexes:
-
-```text
-unique(binding_key)
-index(tool_ref, status)
-index(schema_hash, status)
-```
-
-Mongo migration is additive. Existing catalog rows without a sanitized schema
-remain usable for tool selection but cannot author an expression until the tool
-is probed again.
-
-### OpenFGA
-
-- Add immutable named conditions.
-- Add `tool#conditional_caller` type restrictions for supported subjects.
-- Change target `tool#can_call` to `caller or conditional_caller`.
-- Preserve all existing condition versions referenced by stored tuples.
-- Store one conditional tuple per subject and exact tool policy.
-
-No conditional tuple backfill occurs automatically.
-
-## Phase 0 - Tests and Model Contracts
+## Phase 0 - Contract and Decision Inventory
 
 ### Tasks
 
-1. Pin or assert the minimum OpenFGA version that supports required condition
-   types and conflict behavior.
-2. Add condition templates to `deploy/openfga/model.fga`.
-3. Generate/update chart authorization JSON.
-4. Add `conditional_caller` to the runtime `tool` type.
-5. Add an active model descriptor contract:
-   - `store_id`
-   - `authorization_model_id`
-   - model SHA-256
-   - template-registry version
-6. Add model tests before changing runtime code.
+1. Freeze canonical subject, action, resource, context, decision, batch, and
+   explanation schemas.
+2. Inventory every BFF, Dynamic Agents, RAG, bot, and gateway check.
+3. Record action-to-relation and resource-to-object mappings.
+4. Define stable allow, deny, invalid-request, and unavailable reason codes.
+5. Capture golden decision fixtures from the BFF engine and current bridge.
+6. Define the provider protocol and server-owned resource/action binding.
 
-### Required tests
+### Tests and exit criteria
 
-- Authored DSL/chart JSON parity.
-- Every condition name and parameter type matches the TypeScript registry.
-- Default-deny for a subject with no tuple.
-- Conditional direct-user allow/deny.
-- Conditional team-userset allow/deny.
-- Persisted constants override duplicate request keys.
-- Schema-hash match and mismatch.
-- CEL evaluation cost stays within the configured limit.
+- Golden fixtures contain no real or deployment-specific identifiers.
+- HTTP and gRPC requests can normalize to the same canonical fixture.
+- Existing callers and rollout flags have an explicit migration owner.
+- No authoritative runtime behavior changes.
 
-### Exit criteria
-
-- Model is accepted by the pinned OpenFGA server.
-- Existing unconditional model tests remain green.
-- No tuple is migrated and no production decision changes.
-
-## Phase 1 - OpenFGA Client Condition Support
+## Phase 1 - Standalone CAS Skeleton
 
 ### Tasks
 
-1. Extend `OpenFgaTupleKey` with an optional relationship condition for writes
-   and reads while keeping delete keys condition-free.
-2. Add typed Check context to single and BatchCheck helpers.
-3. Require an explicit authorization-model ID for condition writes and checks.
-4. Add exact conditional tuple read-back verification.
-5. Add a dedicated conditional tuple replacement helper:
-   - Read and preserve previous tuple.
-   - Delete old tuple.
-   - Write replacement.
-   - Verify.
-   - Compensate on failure.
-6. Ensure existing generic tuple diff code does not silently compare only the
-   triple when condition context matters.
+1. Create the CAS service, health/readiness endpoints, and configuration model.
+2. Add single and batch HTTP APIs.
+3. Add the Envoy v3 `Authorization/Check` gRPC listener.
+4. Implement one transport-neutral decision function.
+5. Add subject binding, trusted-context namespaces, stable reasons, audit, and
+   bounded metrics.
+6. Add a provider registry with only `openfga-cel` enabled.
+7. Add disabled Cedar and OPA provider identifiers that return configuration
+   errors if selected without an installed implementation.
+8. Add Helm and Docker Compose packaging without routing production traffic.
 
-### Required tests
+### Tests and exit criteria
 
-- Conditional tuple serialization and read parsing.
-- Check and BatchCheck context serialization.
-- Duplicate tuple conflict.
-- Successful replacement.
-- Replacement failure with successful compensation.
-- Replacement and compensation failure state.
-- Explicit model-ID mismatch.
+- HTTP, batch, and gRPC contract tests pass.
+- Equivalent HTTP and gRPC inputs yield identical normalized provider inputs.
+- A public provider override is rejected.
+- Unknown, Cedar, and OPA providers cannot affect a v1 decision.
+- Listener readiness and saturation are independently observable.
 
-### Exit criteria
-
-- BFF can round-trip a conditional tuple without losing context.
-- Existing unconditional tuple APIs remain backward compatible.
-
-## Phase 2 - MCP Schema Catalog and Compiler
+## Phase 2 - Extract the BFF Decision Engine
 
 ### Tasks
 
-1. Sanitize and canonicalize MCP input schemas during tool probe.
-2. Store bounded schema plus hash in `mcp_tool_catalog`.
-3. Derive policy-eligible JSON Pointer fields.
-4. Implement a TypeScript template registry mirroring OpenFGA conditions.
-5. Implement canonical expression parsing and hashing.
-6. Reject unsupported schemas, operators, secret fields, invalid pointers,
-   excess fields, excess values, and unsafe sizes.
-7. Implement schema-drift detection and affected-policy status updates.
-8. Add an authenticated internal projection endpoint for the bridge.
+1. Move OpenFGA mapping, model selection, Check/BatchCheck, reasons, audit, and
+   cache semantics from `ui/src/lib/authz/` into CAS.
+2. Implement the BFF CAS HTTP and batch client.
+3. Preserve current BFF API routes as a temporary compatibility facade.
+4. Shadow-call standalone CAS and compare decisions, reasons, and revisions.
+5. Migrate Dynamic Agents and other current CAS consumers to the stable CAS
+   service address.
+6. Remove the BFF in-process evaluator after parity and availability gates.
 
-### Required tests
+### Tests and exit criteria
 
-- Stable canonical schema hashes across key-order differences.
-- JSON Pointer escaping and normalization.
-- Supported scalar field extraction.
-- Secret/free-text/binary/union exclusion.
-- CEL-like literal treated as data.
-- Schema drift marks policies stale.
-- Size, depth, field-count, and allowlist-count limits.
+- Existing BFF authorization tests run as CAS client/provider conformance tests.
+- Shadow mismatch rate is zero for required golden and integration cases.
+- BFF routes cannot directly invoke the runtime OpenFGA decision adapter.
+- CAS outage fails closed with a stable retriable reason.
 
-### Exit criteria
-
-- Every authorable field maps to exactly one supported typed context shape.
-- No secret fixture value appears in logs or serialized policy metadata.
-
-## Phase 3 - Bridge Context Projection in Shadow Mode
+## Phase 3 - Refactor the Gateway Bridge into CAS
 
 ### Tasks
 
-1. Require AgentGateway to send a complete bounded `tools/call` body to
-   ext_authz.
-2. Parse JSON with duplicate-key detection and bounded nesting.
-3. Project approved scalar values into typed maps keyed by JSON Pointer.
-4. Add trusted server time and current schema hash.
-5. Always send empty typed maps when no eligible argument exists.
-6. Send identical context to caller and agent exact-tool checks.
-7. Move caller exact-tool checking outside the branch that controls whether a
-   separate agent check is needed.
-8. Add shadow decision and timing telemetry without changing enforcement.
+1. Move JWT binding, signed agent-context verification, MCP parsing, gateway
+   gates, and tool mapping from the bridge into the CAS `ext_authz` adapter and
+   decision registry.
+2. Configure AgentGateway to call CAS gRPC.
+3. Run the existing bridge and CAS in shadow comparison mode.
+4. Verify bounded request-body forwarding and duplicate-key-safe JSON parsing.
+5. Define independent gRPC timeout, concurrency, and fail-closed readiness.
+6. Remove the direct OpenFGA bridge after parity, latency, and rollback gates.
 
-### Required tests
+### Tests and exit criteria
 
-- Matching, non-matching, missing, and wrong-type arguments.
-- Nested JSON Pointer.
-- Malformed, duplicate-key, truncated, deep, and oversized bodies.
-- Dynamic-agent and local-agent contexts.
-- Caller and agent receive byte-equivalent normalized context.
-- Cache hit, cache miss, stale hash, and policy-schema endpoint outage.
-- Argument values absent from logs and audit payloads.
+- Existing bridge tests pass against the CAS gRPC adapter.
+- CAS and the old bridge produce identical decisions for the migration matrix.
+- AgentGateway does not call BFF on the authorization hot path.
+- AgentGateway and BFF now use the same CAS decision core.
 
-### Exit criteria
-
-- Shadow results match expected OpenFGA condition decisions.
-- Context projection is under 2 ms p95 for the benchmark payload.
-- Existing authoritative decisions are unchanged.
-
-## Phase 4 - Policy API and Reconciliation
+## Phase 4 - OpenFGA Condition and Client Support
 
 ### Tasks
 
-1. Add Mongo schema and indexes for policy metadata.
-2. Implement list/schema/put/delete/evaluate routes.
-3. Bind caller identity and authorize tool plus target-subject management.
-4. Add optimistic revision checks.
-5. Detect known unconditional exact and wildcard conflicts.
-6. Implement create, replacement, delete, read-back, and compensation flows.
-7. Emit immutable policy mutation audits.
-8. Add a drift reconciler and health status.
+1. Pin the OpenFGA version and CEL evaluation-cost limit.
+2. Add reviewed condition templates to `deploy/openfga/model.fga`.
+3. Generate the chart authorization-model JSON and enforce parity.
+4. Add `tool#conditional_caller` and separate invocation from management.
+5. Add condition-aware tuple read/write and context-aware Check/BatchCheck to
+   the CAS OpenFGA provider.
+6. Add an active descriptor containing store ID, model ID, model hash, and
+   template-registry version.
+7. Implement safe conditional-tuple replacement, verification, and
+   compensation.
 
-### Required tests
+### Tests and exit criteria
 
-- Authentication and subject binding.
-- Tool manager without subject authority is denied.
-- Subject manager without tool authority is denied.
-- Revision conflict.
-- Additive policy save.
-- Exclusive save accepted without conflict.
-- Exclusive save rejected with exact or wildcard conflict.
-- Evaluate endpoint never invokes MCP.
-- OpenFGA failure, read-back mismatch, and compensation behavior.
+- DSL and generated model JSON are identical.
+- Direct user and team-userset condition tests pass.
+- Persisted constants override duplicate request context keys.
+- Model mismatch, condition error, and OpenFGA outage fail closed.
+- No conditional tuple is created automatically.
 
-### Exit criteria
-
-- `ACTIVE` always corresponds to a verified conditional tuple.
-- Delete is not reported complete until the tuple is absent.
-
-## Phase 5 - Admin UI
+## Phase 5 - Resource Schema and Typed Policy Compiler
 
 ### Tasks
 
-1. Add exact tool selector backed by the catalog.
-2. Add target-subject selector constrained by caller authority.
-3. Render field/operator/value editors from template metadata.
-4. Render a read-only human expression preview.
-5. Show schema hash and stale-schema state.
-6. Show additive/exclusive mode and every known shadowing path.
-7. Add dry-run evaluation with clearly synthetic input.
-8. Add reconciliation failure and retry controls.
+1. Define a registry keyed by `(resource_type, action)` with context schema,
+   allowed sources, provider binding, and revision.
+2. Extend the MCP tool catalog with bounded sanitized input schemas and hashes.
+3. Derive policy-eligible RFC 6901 JSON Pointer fields.
+4. Implement the reviewed template registry and canonical policy hashing.
+5. Reject unsupported, secret, binary, ambiguous, deep, or oversized inputs.
+6. Implement schema-drift detection and stale-policy status.
+7. Keep CEL source server-owned; public policies contain template plus literals.
 
-### Required tests
+### Tests and exit criteria
 
-- Keyboard-accessible field and operator controls.
-- Unsupported fields never render.
-- Stale schema blocks save until revalidation.
-- Shadowing warnings cannot be dismissed as exclusive.
-- Raw CEL text has no executable editor path.
-- API errors preserve unsaved form state.
+- Schema hashing is stable across key ordering.
+- JSON Pointer escaping and normalization are covered.
+- CEL-like text in a literal is treated only as data.
+- No secret fixture appears in logs, audit, or policy metadata.
+- Every authorable field maps to one typed OpenFGA context shape.
 
-### Exit criteria
+## Phase 6 - Context-Aware Shadow Evaluation
 
-- An administrator can create and explain one exact-tool expression without
-  understanding OpenFGA tuple JSON or CEL.
+### Tasks
 
-## Phase 6 - Selected-Tool Enforcement
+1. Project eligible MCP arguments into typed context maps in CAS.
+2. Add trusted server time, schema hash, identity, and resource context.
+3. Send byte-equivalent context to caller and dynamic-agent checks.
+4. Record conditional shadow results without changing enforcement.
+5. Benchmark HTTP, batch, gRPC, context projection, and OpenFGA Check latency.
+
+### Tests and exit criteria
+
+- Matching, non-matching, missing, wrong-type, stale, malformed, truncated,
+  deep, and oversized cases are covered.
+- Context projection is below 2 ms p95 for the benchmark payload.
+- Argument values never appear in logs or decision events.
+- Existing authoritative decisions remain unchanged.
+
+## Phase 7 - Policy API and Admin UI
+
+### Tasks
+
+1. Add policy metadata, indexes, optimistic concurrency, and reconciliation.
+2. Add schema, list, put, delete, evaluate, and explain operations.
+3. Require authority over both resource and target subject.
+4. Detect unconditional exact, wildcard, and known computed shadowing paths.
+5. Add typed field/operator/value editors and read-only previews.
+6. Show additive/exclusive, stale schema, policy/provider revision, and
+   reconciliation state.
+7. Ensure dry-run calls CAS but never invokes the protected resource.
+
+### Tests and exit criteria
+
+- Raw CEL, Cedar, and Rego have no executable authoring path.
+- Exclusive policy save fails while a known broader path remains.
+- Active metadata always corresponds to a verified OpenFGA tuple.
+- Delete is not complete until the tuple is absent.
+
+## Phase 8 - Selected-Tool Enforcement
 
 ### Preconditions
 
-- Caller-tool checking is mandatory and no longer default-off.
-- Agent-context HMAC is configured and bridge readiness verifies it.
-- Active model descriptor is consistent across writer and bridge.
-- Shadow telemetry is stable.
-- Audit and rollback procedures are exercised.
+- BFF and AgentGateway use standalone CAS.
+- The old BFF engine and gateway decision bridge are removed or disabled.
+- Caller-tool checking is mandatory.
+- Signed agent context, active model descriptor, audit, and rollback are ready.
+- Shadow parity and latency objectives are met.
 
 ### Tasks
 
-1. Inventory exact, wildcard, manager-derived, and transitive grants for the
-   selected tool.
-2. Convert compatibility-required manager invocation to explicit caller grants.
+1. Select one exact, non-bulk mutation tool with one flat string argument.
+2. Inventory exact, wildcard, manager-derived, and transitive grants.
 3. Remove broader grants for subjects requiring exclusive restriction.
-4. Write conditional exact grants.
-5. Enable authoritative context-aware caller and agent checks for the selected
-   tool.
+4. Write and verify the conditional tuple.
+5. Enable authoritative expression evaluation for the selected resource/action.
 6. Monitor denies, unavailable results, latency, and schema drift.
-
-### Initial scope
-
-- One exact mutation tool.
-- One flat string argument.
-- No batch or embedded-list mutations.
-- No conditional wildcard.
 
 ### Exit criteria
 
-- Matching calls reach MCP; non-matching calls never reach MCP.
-- No subject retains an unintended broader path.
-- Rollback can revoke the conditional grant without unsafe bypass.
+- Matching calls reach MCP; non-matching calls do not.
+- No subject retains an unintended broader allow path.
+- Rollback revokes the conditional grant without unsafe bypass.
 
-## Phase 7 - Documentation and Operations
+## Phase 9 - Future Provider Evaluation
 
-### Tasks
+Cedar or OPA work requires a separate approved proposal. It must include:
 
-1. Update `docs/docs/security/rbac/architecture.md` with component ownership and
-   configuration.
-2. Update `docs/docs/security/rbac/workflows.md` with the context-aware sequence.
-3. Document policy authoring, schema drift, shadowing, rollback, and audit.
-4. Add dashboards and alerts for decision reasons and reconcile failures.
-5. Document the provider-side defense-in-depth recommendation.
+- Concrete use cases that OpenFGA-native CEL cannot safely satisfy.
+- Policy and schema storage, distribution, versioning, and rollback.
+- Trusted entity/data synchronization.
+- Restrictive composition and failure semantics.
+- Explanation and audit normalization.
+- Evaluation limits, sandboxing, latency, availability, and conformance tests.
+
+No future provider may be enabled merely because its identifier exists in the
+CAS registry.
+
+## Rollout Controls
+
+```text
+CAIPE_CAS_MODE=shadow|enforce
+CAIPE_CAS_HTTP_ENABLED=true
+CAIPE_CAS_EXT_AUTHZ_ENABLED=true
+CAIPE_CAS_PROVIDER=openfga-cel
+CAIPE_TOOL_EXPRESSION_POLICY_MODE=off|shadow|enforce
+CAIPE_TOOL_EXPRESSION_ENFORCED_REFS=issue_tracker/create_item,...
+CAIPE_TOOL_POLICY_MAX_BODY_BYTES=65536
+CAIPE_TOOL_POLICY_MAX_CONTEXT_BYTES=16384
+```
+
+- Provider selection is deployment policy, not a request parameter.
+- `shadow` records comparisons but does not alter the authoritative result.
+- Expression enforcement applies only to listed exact resources during rollout.
+- Required dependency failure denies.
+- Unsafe RBAC bypass is never a rollout or rollback mechanism.
+
+## Rollback
+
+1. Stop new expression-policy authoring.
+2. Return selected expression bindings to shadow or off.
+3. Delete conditional tuples to revoke expression-derived grants.
+4. Restore unconditional grants only through explicit audited changes.
+5. During CAS migration, restore the previous transport target only while its
+   decision implementation remains version-compatible and tested.
+6. Never fall back silently from CAS to an older independent evaluator.
+
+Rollback favors denial over temporary broad access.
 
 ## Quality Gates
 
-Run relevant checks from the repository root unless noted:
-
 ```bash
-uv run ruff check deploy/openfga/bridge
-uv run pytest deploy/openfga/bridge/tests
+uv run ruff check ai_platform_engineering/cas
+uv run pytest ai_platform_engineering/cas/tests
 cd ui && npm run lint
 cd ui && npm run build
 cd docs && npm run build
 ```
 
-Also run:
+Also require:
 
-- OpenFGA DSL-to-JSON parity test.
-- RBAC default-deny and coverage tests.
-- Conditional Check integration suite against the pinned OpenFGA image.
-- Focused policy API and UI Jest suites.
-- Secret-value scan over test audit/log output.
-
-## Rollout Controls
-
-Proposed configuration:
-
-```text
-CAIPE_TOOL_EXPRESSION_POLICY_MODE=off|shadow|enforce
-CAIPE_TOOL_EXPRESSION_ENFORCED_REFS=issue_tracker/create_item,...
-CAIPE_TOOL_POLICY_SCHEMA_CACHE_TTL_SECONDS=60
-CAIPE_TOOL_POLICY_MAX_BODY_BYTES=65536
-CAIPE_TOOL_POLICY_MAX_CONTEXT_BYTES=16384
-```
-
-Rules:
-
-- Default `off` until model, bridge, and caller checks are ready.
-- `shadow` records but never changes the existing decision.
-- `enforce` applies only to explicitly listed exact refs during rollout.
-- Missing HMAC or caller-tool enforcement makes enforce readiness fail.
-- The unsafe RBAC bypass is never a rollout or rollback mechanism.
-
-## Rollback Plan
-
-1. Stop new policy authoring.
-2. Return selected refs to shadow or off mode.
-3. Delete conditional tuples to revoke expression-derived grants.
-4. Restore unconditional grants only through explicit audited change requests.
-5. Keep condition definitions in the model while any tuple or rollback window
-   references them.
-6. Revert the active model descriptor only after compatibility validation.
-
-Rollback favors denial over temporary broad access.
+- CAS HTTP/gRPC normalization conformance.
+- BFF-to-CAS and bridge-to-CAS migration parity.
+- OpenFGA DSL-to-JSON parity.
+- Conditional Check integration against the pinned OpenFGA image.
+- Default-deny, provider-error, and timeout coverage.
+- Audit/log secret-value scan.
 
 ## Delivery Slices
 
 | Slice | Deliverable | Independent value |
 |---|---|---|
-| A | Model templates and parity tests | Proves native OpenFGA feasibility. |
-| B | Client tuple/context support | Enables condition round-trip and test tools. |
-| C | Schema compiler and catalog | Enables safe policy validation. |
-| D | Bridge shadow context | Proves real request extraction without enforcement risk. |
-| E | Policy API and UI | Enables reviewed authoring and drift visibility. |
-| F | One selected-tool enforcement | Delivers the first argument-aware security boundary. |
+| A | Canonical CAS contract and golden fixtures | Freezes behavior before extraction |
+| B | Standalone HTTP/gRPC CAS skeleton | Proves one multi-transport core |
+| C | BFF extraction | Removes the UI process as PDP |
+| D | Gateway bridge migration | Unifies application and gateway decisions |
+| E | OpenFGA CEL model and provider support | Proves native conditions |
+| F | Schema compiler and typed authoring | Enables safe policy creation |
+| G | Shadow context evaluation | Proves real request semantics |
+| H | One selected-tool enforcement | Delivers the first conditional boundary |
 
-Each slice should be independently reviewable. Enforcement must not be bundled
-with the first model/client refactor.
+Each slice is independently reviewable. Provider experiments must not be bundled
+with v1 CAS extraction or expression enforcement.

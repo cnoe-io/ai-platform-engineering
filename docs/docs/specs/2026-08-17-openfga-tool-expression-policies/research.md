@@ -1,25 +1,47 @@
 ---
 sidebar_label: Research
-title: OpenFGA Tool Expression Policies - Research
-description: Findings and decisions behind CAIPE argument-aware MCP tool authorization.
+title: Central Authorization Service and Expression Policies - Research
+description: Findings behind a standalone CAIPE authorization service and its policy-provider model.
 ---
 
-# Research: OpenFGA Tool Expression Policies
+# Research: Central Authorization Service and Expression Policies
 
 - **Status:** Complete for specification
 - **Date:** 2026-08-17
 
 ## Decision Summary
 
+Extract CAS from the BFF into a standalone microservice with HTTP, batch HTTP,
+and Envoy `ext_authz` gRPC adapters over one decision core. Refactor the direct
+OpenFGA bridge into the CAS gRPC adapter.
+
 Use a constrained CAIPE policy document that selects a reviewed template. Map
 the template to a versioned native OpenFGA condition and store its constants on
-a conditional relationship tuple. At call time, the bridge projects selected
-MCP arguments into typed OpenFGA Check context.
+a conditional relationship tuple. At call time, CAS projects selected MCP
+arguments into typed OpenFGA Check context.
+
+Define a policy-provider contract, but implement only `openfga-cel` in v1.
+Cedar and OPA remain disabled future providers. Provider composition, if added,
+is restrictive and can never broaden OpenFGA access.
 
 Do not evaluate raw expressions, generate a new authorization model for every
 policy, or fork OpenFGA.
 
 ## Current Repository Findings
+
+### Split decision architecture
+
+- `ui/src/lib/authz/` contains the current CAS contract and an in-process
+  OpenFGA decision engine.
+- `ui/src/app/api/authz/v1/decisions/` exposes the BFF-hosted decision API.
+- Dynamic Agents already call that HTTP API as a thin enforcement point.
+- AgentGateway calls `deploy/openfga/bridge/main.py` over `ext_authz`; the bridge
+  evaluates OpenFGA directly instead of using the BFF CAS decision core.
+- The existing centralized-BFF proposal intentionally keeps BFF off the
+  AgentGateway hot path, but that leaves two decision implementations.
+
+The standalone service resolves both concerns: AgentGateway does not call BFF,
+and BFF plus gateway traffic share one decision core.
 
 ### Runtime object type
 
@@ -30,7 +52,7 @@ policy, or fork OpenFGA.
 - A design that modifies only `mcp_tool` would not constrain AgentGateway's
   normal MCP tool-call path.
 
-### Bridge behavior
+### Bridge behavior to migrate
 
 - `deploy/openfga/bridge/main.py` parses MCP `tools/call` requests.
 - It extracts the MCP target from the path and tool name from `params.name`.
@@ -141,18 +163,93 @@ and model ID. Safe activation requires:
 - Retention of condition versions referenced by active tuples.
 - One active model descriptor shared by writers and checkers.
 - Explicit model IDs on Write and Check.
-- Deployment ordering that upgrades model and bridge compatibility before
+- Deployment ordering that upgrades model and CAS compatibility before
   writing a tuple that uses the new template.
+
+## CAS Deployment Decision
+
+### One logical service, multiple transports
+
+Envoy `ext_authz` is a transport protocol, not a policy engine. The same CAS
+service can expose:
+
+- HTTP for single application decisions.
+- Batch HTTP for filtering and list views.
+- Envoy v3 authorization gRPC for AgentGateway.
+
+Every adapter must call one canonical function after transport-specific
+authentication and parsing. One binary may serve both listeners. Production may
+scale them separately to isolate gateway latency from application batch load.
+
+Routing AgentGateway through BFF HTTP was rejected because it couples the MCP
+data plane to the UI/BFF availability and latency envelope. Keeping the direct
+bridge indefinitely was also rejected because it preserves duplicated mapping,
+context, error, and audit semantics.
+
+### BFF extraction
+
+The extraction unit is the decision behavior, not merely the HTTP routes. CAS
+must receive:
+
+- Subject binding and canonical resource/action mapping.
+- Trusted-context rules.
+- OpenFGA store/model selection and Check/BatchCheck behavior.
+- Stable reasons, explanations, audit, timeouts, and cache rules.
+
+The BFF retains session authentication, UI orchestration, and compatibility
+routes. It becomes a CAS client and no longer serves as a PDP.
+
+## Policy Provider Findings
+
+### OpenFGA-native CEL
+
+OpenFGA already evaluates typed CEL conditions as part of relationship graph
+resolution. Therefore `openfga-cel` is one provider, not an OpenFGA provider
+followed by a second CAS CEL evaluator. This gives v1 one PDP, one context merge,
+and one policy revision.
+
+### Cedar
+
+Cedar provides `permit` and `forbid` policies, default deny, and forbid-overrides-
+permit semantics. It is attractive for future explicit guardrails, but adding it
+would introduce a second policy store, entity projection, schema lifecycle,
+explanation model, and operational dependency.
+
+### OPA
+
+OPA can evaluate Rego over structured input and is suitable for broad contextual
+or compliance guardrails. It also requires a defined bundle lifecycle, data
+synchronization, output schema, decision logging, and evaluation limits.
+
+### Provider composition
+
+| Option | Result | Decision |
+|---|---|---|
+| OpenFGA-native CEL only | OpenFGA evaluates ReBAC and conditions together | Selected for v1 |
+| Standalone CEL in CAS plus OpenFGA | Duplicate evaluators and context semantics | Rejected |
+| Cedar or OPA instead of OpenFGA for selected bindings | Possible future provider migration | Deferred |
+| OpenFGA plus required Cedar/OPA guardrail | `allow = OpenFGA AND all guardrails` | Deferred |
+| OpenFGA OR another provider | A secondary engine can broaden access | Rejected |
+
+Provider selection must come from a server-owned, versioned resource/action
+binding. A public request must never select a provider or composition rule.
+Timeout, malformed output, `INDETERMINATE`, or outage from a required provider
+must fail closed.
 
 ## Options Considered
 
 | Option | Benefits | Costs and risks | Decision |
 |---|---|---|---|
 | Reviewed native condition templates | One PDP, typed, bounded, testable | New template requires release | Selected |
+| Standalone CAS with HTTP and gRPC adapters | One decision core, transport-specific SLOs | New service and migration | Selected |
+| Route AgentGateway through BFF CAS | Reuses current HTTP API | BFF on data-plane hot path | Rejected |
+| Keep BFF CAS and direct bridge | Lowest migration effort | Two decision implementations persist | Rejected target state |
 | Raw CEL authored in UI | Flexible | Injection, hard review, unsafe cost, schema ambiguity | Rejected |
 | Store `$expression` on tuple | Simple-looking data model | OpenFGA cannot execute it | Rejected |
 | Generate model condition per policy | Native execution | Global model churn, growth, rollback complexity | Deferred |
-| Evaluate CEL in Python bridge | Highly dynamic | Second PDP, semantic drift, new runtime dependency | Rejected |
+| Evaluate CEL directly in CAS | Highly dynamic | Second PDP, semantic drift, new runtime dependency | Rejected |
+| Cedar provider | Explicit forbid and rich attributes | Second policy/entity lifecycle | Future optional |
+| OPA provider | Flexible Rego guardrails | Bundle/data/output lifecycle and second PDP | Future optional |
 | Evaluate expression inside every MCP server | Strong local context | Duplicated policy and inconsistent UX | Defense in depth only |
 | Fork OpenFGA for schema/expression APIs | Full control | Permanent upstream maintenance burden | Rejected |
 
@@ -182,7 +279,7 @@ small set of compound templates instead of a recursive user-authored AST.
 
 ## Trusted Context Decision
 
-The bridge creates separate typed maps:
+CAS creates separate typed maps:
 
 ```text
 string_arguments
@@ -200,7 +297,7 @@ Reasons:
 - Permit field-level privacy controls.
 - Make wrong-type and missing-value behavior explicit.
 
-The bridge projects only catalog-approved fields. It supplies empty typed maps
+CAS projects only catalog-approved fields. It supplies empty typed maps
 when no eligible values exist so unconditional graph paths can still evaluate
 while conditional paths return false.
 
@@ -216,7 +313,7 @@ The catalog will retain:
 - Source, timestamps, and drift status.
 
 Each policy stores the hash used at validation. Every argument condition also
-compares the persisted expected hash with the current bridge-provided hash.
+compares the persisted expected hash with the current CAS-provided hash.
 This makes drift fail closed immediately, even before a reconciler deletes or
 marks the stale policy.
 
@@ -254,7 +351,7 @@ reconciliation intent while OpenFGA remains the authorization truth.
 
 ## Runtime Dependency Decision
 
-The bridge caches policy-eligible field projections and current schema hashes
+CAS caches policy-eligible field projections and current schema hashes
 from an authenticated internal endpoint.
 
 - Cached metadata is bounded and asynchronously refreshed.
@@ -281,13 +378,19 @@ Production readiness therefore requires:
 - Caller-to-tool checking is mandatory.
 - Caller checking is outside the branch that controls the separate agent check.
 - Agent-context HMAC signing is configured and required for dynamic-agent calls.
-- The bridge and policy writer use the same explicit model descriptor.
+- CAS and the policy writer use the same explicit model descriptor.
 - Exact and wildcard results are audited separately.
 
 ## Resolved Questions
 
 | Question | Resolution |
 |---|---|
+| Is CAS the same for applications and AgentGateway? | Yes; HTTP and `ext_authz` gRPC call one standalone decision core. |
+| Does AgentGateway call the BFF? | No; it calls the standalone CAS gRPC listener. |
+| What is the v1 provider? | `openfga-cel`; OpenFGA evaluates relationships and native CEL conditions. |
+| Are Cedar and OPA implemented in v1? | No; the contract permits future adapters, but they remain disabled. |
+| Can a caller select a provider? | No; a trusted versioned resource/action binding selects it. |
+| How would multiple providers compose? | Restrictive `AND`; any required deny, error, or indeterminate result denies. |
 | Where are expressions evaluated? | OpenFGA only. |
 | Can administrators write CEL? | No. |
 | Which resource type is enforced? | Exact runtime `tool`. |
@@ -307,6 +410,9 @@ No research item remains in `NEEDS CLARIFICATION` state.
 - [OpenFGA MCP authorization](https://openfga.dev/docs/modeling/agents/mcp-authorization)
 - [OpenFGA Check](https://openfga.dev/docs/getting-started/perform-check)
 - [OpenFGA contextual authorization](https://openfga.dev/docs/modeling/contextual-time-based-authorization)
+- [Envoy external authorization](https://www.envoyproxy.io/docs/envoy/latest/configuration/http/http_filters/ext_authz_filter.html)
+- [Cedar authorization](https://docs.cedarpolicy.com/auth/authorization.html)
+- [OPA policy language](https://www.openpolicyagent.org/docs/policy-language)
 - [Architecture](./architecture.md)
 - [Specification](./spec.md)
 - [Implementation plan](./plan.md)
