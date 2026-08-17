@@ -432,7 +432,7 @@ mcp-confluence:
   mcp:
     image:
       repository: "ghcr.io/sooperset/mcp-atlassian"
-      tag: "latest"
+      tag: "0.23.0"
       pullPolicy: "IfNotPresent"
     mode: "http" # Options: stdio, http
     port: 8000
@@ -469,7 +469,7 @@ mcp-gitlab:
   mcp:
     image:
       repository: "zereight050/gitlab-mcp"
-      tag: "latest"
+      tag: "2.1.46"
       pullPolicy: "IfNotPresent"
     mode: "http" # Options: stdio, http
     port: 8000
