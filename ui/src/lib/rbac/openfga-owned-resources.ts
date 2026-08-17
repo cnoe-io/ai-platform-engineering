@@ -55,12 +55,6 @@ export interface McpServerRelationshipInput extends OwnedResourceInput {
   serverId: string;
   nextSharedTeamSlugs?: readonly string[] | null;
   previousSharedTeamSlugs?: readonly string[] | null;
-  /**
-   * Whether the prior MCP projection included `private_marker`. Defaults to
-   * `previousPersonalOwnerAccess` for normal visibility transitions. Legacy
-   * migrations can override this because owner tuples predate the marker.
-   */
-  previousPrivateMarkerPresent?: boolean;
   /** Grant organization members discovery/use access to a global server. */
   globalOrganizationAccess?: boolean;
   /** Revoke the prior organization-member grant when demoting from global. */
@@ -396,15 +390,6 @@ export function buildMcpServerRelationshipTupleDiff(
   const object = `mcp_server:${input.serverId}`;
   const ownerUser = ownerPrincipal(input.ownerSubject, input.ownerSubjectKind);
   const legacyDirectOwnerAccess = input.personalOwnerAccess === undefined;
-  const privateMarker = {
-    user: organizationObjectId(),
-    relation: "private_marker",
-    object,
-  };
-  if (input.personalOwnerAccess) writes.push(privateMarker);
-  else if (input.previousPrivateMarkerPresent ?? input.previousPersonalOwnerAccess) {
-    deletes.push(privateMarker);
-  }
   if (input.creatorSubject && isValidOpenFgaId(input.creatorSubject)) {
     writes.push({ user: `user:${input.creatorSubject}`, relation: "creator", object });
   }

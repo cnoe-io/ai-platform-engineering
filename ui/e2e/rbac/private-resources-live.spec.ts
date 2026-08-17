@@ -19,7 +19,11 @@ async function jsonRequest(
 
 test.describe("RBAC live e2e — private resources", () => {
   test("a private resource chain is manageable and authorized from the web UI", async ({ page }) => {
-    const env = rbacEnvOrSkip({ requireUserSub: true });
+    const env = rbacEnvOrSkip({
+      requireUserSub: true,
+      requireNoAccess: true,
+      requireNoAccessSub: true,
+    });
     await installTestSession(page, env, {
       email: env.user.email,
       subject: env.user.sub!,
@@ -136,10 +140,53 @@ test.describe("RBAC live e2e — private resources", () => {
       expect(unsignedSlackMcpUse.status, JSON.stringify(unsignedSlackMcpUse.body)).toBe(403);
 
       await installTestSession(page, env, {
-        email: "other-user@example.com",
-        subject: `other-user-${suffix}`,
-        role: "user",
+        email: env.noAccess!.email,
+        subject: env.noAccess!.sub!,
+        role: "admin",
       });
+      const outsiderAgentList = await jsonRequest(
+        page,
+        "/api/dynamic-agents?page=1&page_size=100",
+        { method: "GET" },
+      );
+      expect(outsiderAgentList.status, JSON.stringify(outsiderAgentList.body)).toBe(200);
+      const outsiderItems = ((outsiderAgentList.body.data as Record<string, unknown>)?.items ?? []) as Array<{
+        _id?: string;
+      }>;
+      expect(outsiderItems.some((item) => item._id === agentId)).toBe(false);
+
+      const outsiderDirectRead = await jsonRequest(
+        page,
+        `/api/dynamic-agents/agents/${encodeURIComponent(agentId)}`,
+        { method: "GET" },
+      );
+      expect(outsiderDirectRead.status, JSON.stringify(outsiderDirectRead.body)).toBe(404);
+
+      const outsiderMcpList = await jsonRequest(
+        page,
+        "/api/mcp-servers?page=1&page_size=100",
+        { method: "GET" },
+      );
+      expect(outsiderMcpList.status, JSON.stringify(outsiderMcpList.body)).toBe(200);
+      const outsiderMcpItems = ((outsiderMcpList.body.data as Record<string, unknown>)?.items ?? []) as Array<{
+        _id?: string;
+      }>;
+      expect(outsiderMcpItems.some((item) => item._id === mcpId)).toBe(false);
+
+      const outsiderMcpDirectRead = await jsonRequest(
+        page,
+        `/api/mcp-servers?id=${encodeURIComponent(mcpId)}`,
+        { method: "GET" },
+      );
+      expect(outsiderMcpDirectRead.status, JSON.stringify(outsiderMcpDirectRead.body)).toBe(404);
+
+      const outsiderCredentialRead = await jsonRequest(
+        page,
+        `/api/credentials/secrets/${encodeURIComponent(secretId)}`,
+        { method: "GET" },
+      );
+      expect([403, 404], JSON.stringify(outsiderCredentialRead.body)).toContain(outsiderCredentialRead.status);
+
       const outsiderAgentUse = await jsonRequest(page, "/api/user/check_agent_access", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

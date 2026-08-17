@@ -408,13 +408,13 @@ export interface DynamicAgentConfig {
   enabled: boolean;
   owner_id: string;
   owner_subject?: string;
+  /** Immutable creator identity. Server-controlled; never accepted from clients. */
+  creator_id?: string;
+  creator_subject?: string;
   /**
-   * Every dynamic agent is owned by a team (visibility was either `team`
-   * or `global`). `owner_team_slug` is the source of truth; `owner_team_id`
-   * is the matching Mongo ObjectId string for legacy lookups. Both are
-   * effectively required from 2026-05-22 onward — the BFF rejects writes
-   * that omit them. They remain optional on the type only so the legacy
-   * coercion path (`normalizeLegacyVisibility`) can flag drift.
+   * Team/global agents are owned by a team; private agents intentionally
+   * omit team ownership. `owner_team_slug` is the source of truth and
+   * `owner_team_id` is retained for legacy lookups.
    */
   owner_team_slug?: string;
   owner_team_id?: string;
@@ -444,9 +444,24 @@ export interface AgentRowPermissions {
   can_discover: boolean;
 }
 
-export interface DynamicAgentConfigWithPermissions extends DynamicAgentConfig {
-  permissions: AgentRowPermissions;
+/** Directory-resolved identity safe to return to browser clients. */
+export interface AgentIdentityDisplay {
+  label: string;
+  name?: string;
+  email?: string;
 }
+
+export type DynamicAgentBrowserConfig = Omit<
+  DynamicAgentConfig,
+  "owner_subject" | "creator_subject"
+> & {
+  owner?: AgentIdentityDisplay;
+  creator?: AgentIdentityDisplay;
+};
+
+export type DynamicAgentConfigWithPermissions = DynamicAgentBrowserConfig & {
+  permissions: AgentRowPermissions;
+};
 
 export interface DynamicAgentConfigCreate {
   id: string;  // Required: User-friendly slug ID derived from name

@@ -14,6 +14,7 @@ successResponse,
 withErrorHandler,
 } from "@/lib/api-middleware";
 import { getCollection } from "@/lib/mongodb";
+import { dynamicAgentForBrowser,dynamicAgentsForBrowser } from "@/lib/dynamic-agent-response";
 import { trustedInteractionFromRequest } from "@/lib/authz/trusted-interaction";
 import { isPrivateResourcesEnabled } from "@/lib/feature-flags/private-resources";
 import {
@@ -21,7 +22,10 @@ allowedToolsFromAgent,
 deleteAllAgentToolTuples,
 reconcileAgentRelationships,
 } from "@/lib/rbac/openfga-agent-tools";
-import { filterAgentsByOwnershipScopeForSession } from "@/lib/rbac/agent-ownership-scope";
+import {
+filterAgentsByOwnershipScopeForSession,
+isPrivateAgentOwner,
+} from "@/lib/rbac/agent-ownership-scope";
 import { caipeOrgKey } from "@/lib/rbac/organization";
 import { getPlatformDefaultAgentId,isPlatformDefaultAgent } from "@/lib/rbac/platform-default";
 import {
@@ -53,6 +57,17 @@ const PLATFORM_DEFAULT_DELETE_ERROR =
   "This agent is currently the platform default for new chats. Open Admin → Settings and change the platform default before deleting this agent.";
 
 const COLLECTION_NAME = "dynamic_agents";
+
+type AgentSortField = "name" | "visibility" | "tools" | "grade" | "status";
+type SortDirection = "asc" | "desc";
+
+const AGENT_SORT_FIELDS = new Set<AgentSortField>([
+  "name",
+  "visibility",
+  "tools",
+  "grade",
+  "status",
+]);
 
 interface TeamOwnershipDoc {
   _id?: unknown;
@@ -245,12 +260,88 @@ function normalizeString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+function agentToolCount(agent: DynamicAgentConfig): number {
+  return Object.keys(agent.allowed_tools ?? {}).length;
+}
+
+function compareOptionalNumbers(
+  left: number | undefined,
+  right: number | undefined,
+  direction: SortDirection,
+): number {
+  if (left === undefined && right === undefined) return 0;
+  if (left === undefined) return 1;
+  if (right === undefined) return -1;
+  return (left - right) * (direction === "asc" ? 1 : -1);
+}
+
+function sortAgents(
+  agents: DynamicAgentConfig[],
+  field: AgentSortField,
+  direction: SortDirection,
+  pinnedAgentId: string | null,
+): DynamicAgentConfig[] {
+  const multiplier = direction === "asc" ? 1 : -1;
+  return [...agents].sort((left, right) => {
+    const leftPinned = pinnedAgentId !== null && String(left._id) === pinnedAgentId;
+    const rightPinned = pinnedAgentId !== null && String(right._id) === pinnedAgentId;
+    if (leftPinned !== rightPinned) return leftPinned ? -1 : 1;
+
+    let comparison = 0;
+    switch (field) {
+      case "name":
+        comparison = left.name.localeCompare(right.name, undefined, {
+          numeric: true,
+          sensitivity: "base",
+        });
+        break;
+      case "visibility":
+        comparison = left.visibility.localeCompare(right.visibility);
+        break;
+      case "tools":
+        comparison = agentToolCount(left) - agentToolCount(right);
+        break;
+      case "grade":
+        comparison = compareOptionalNumbers(
+          left.last_review?.score,
+          right.last_review?.score,
+          direction,
+        );
+        if (comparison !== 0) {
+          return comparison;
+        }
+        break;
+      case "status":
+        comparison = Number(left.enabled) - Number(right.enabled);
+        break;
+    }
+
+    if (comparison !== 0) return comparison * multiplier;
+    return left.name.localeCompare(right.name, undefined, {
+      numeric: true,
+      sensitivity: "base",
+    });
+  });
+}
+
 function requireStableSubject(session: { sub?: unknown }): string {
   const subject = normalizeString(session.sub);
   if (!subject) {
     throw new ApiError("A stable user subject is required for dynamic agent ownership.", 401, "NO_SUBJECT");
   }
   return subject;
+}
+
+function requirePrivateAgentOwner(
+  agent: Pick<DynamicAgentConfig, "visibility" | "owner_id" | "owner_subject">,
+  session: { sub?: unknown },
+): void {
+  if (agent.visibility !== "private") return;
+  const userSub = normalizeString(session.sub);
+  if (!userSub || !isPrivateAgentOwner(agent, userSub)) {
+    // Private resources are non-discoverable to non-owners, including org admins.
+    throw new ApiError("Agent not found", 404);
+  }
 }
 
 function teamIdString(team: TeamOwnershipDoc): string | undefined {
@@ -397,6 +488,8 @@ async function validateMcpVisibility(
  * Query params:
  * - enabled_only=true: Only return enabled agents (useful for subagent selection)
  * - search=<string>: Filter agents by name or description (case-insensitive)
+ * - sort_by=name|visibility|tools|grade|status: Sort the full visible result set
+ * - sort_order=asc|desc: Sort direction (defaults to asc when sort_by is present)
  */
 export const GET = withErrorHandler(async (request: NextRequest) => {
   const { session } = await getAuthFromBearerOrSession(request);
@@ -407,6 +500,16 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     const { searchParams } = new URL(request.url);
     const enabledOnly = searchParams.get("enabled_only") === "true";
     const search = searchParams.get("search")?.trim() || "";
+    const requestedSortField = searchParams.get("sort_by") as AgentSortField | null;
+    const hasValidSortField = Boolean(
+      requestedSortField && AGENT_SORT_FIELDS.has(requestedSortField),
+    );
+    const sortField: AgentSortField = hasValidSortField
+      ? requestedSortField as AgentSortField
+      : "name";
+    const sortDirection: SortDirection = hasValidSortField && searchParams.get("sort_order") === "desc"
+      ? "desc"
+      : "asc";
 
     const query: Record<string, unknown> = enabledOnly
       ? { $or: [{ enabled: true }, { enabled: { $exists: false } }] }
@@ -451,14 +554,21 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       listTarget,
       permissionOptions,
     );
-    const pageItems = visibleItems.slice(skip, skip + pageSize);
+    const sortedItems = sortAgents(
+      visibleItems,
+      sortField,
+      sortDirection,
+      platformDefaultAgentId,
+    );
+    const pageItems = sortedItems.slice(skip, skip + pageSize);
     const { rows } = await resolveAgentListPermissions(
       session,
       pageItems.map((agent) => String(agent._id)),
       permissionOptions,
     );
-    const items: DynamicAgentConfigWithPermissions[] = pageItems.map((agent) => ({
-      ...(agent as DynamicAgentConfig),
+    const browserItems = await dynamicAgentsForBrowser(pageItems);
+    const items: DynamicAgentConfigWithPermissions[] = browserItems.map((agent) => ({
+      ...agent,
       permissions: agentRowPermissionsOrDefault(rows, String(agent._id)),
     }));
 
@@ -631,6 +741,8 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       // Server-controlled fields — never from request body
       owner_id: user.email,
       owner_subject: ownerSubject,
+      creator_id: user.email,
+      creator_subject: ownerSubject,
       is_system: false,
       config_driven: false,
       created_at: now.toISOString(),
@@ -649,7 +761,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       previousAllowedTools: {},
       nextAllowedTools: doc.allowed_tools,
       ownerSubject: doc.owner_subject,
-      creatorSubject: doc.owner_subject,
+      creatorSubject: doc.creator_subject,
       personalOwnerAccess: visibility === "private",
       organizationId: caipeOrgKey(),
       ownerTeamSlug,
@@ -674,7 +786,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       throw error;
     }
 
-    return successResponse(doc, 201);
+    return successResponse(await dynamicAgentForBrowser(doc), 201);
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -704,6 +816,7 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
     if (!agent) {
       throw new ApiError("Agent not found", 404);
     }
+    requirePrivateAgentOwner(agent, session);
     await requireAgentWritePermission(session, id);
 
     // Config-driven guard
@@ -725,7 +838,7 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
       normalizeString(body.owner_team_slug) !== normalizeString(agent.owner_team_slug);
     if (Object.keys(updateData).length === 0 && !isTransferRequest) {
       // No fields to update — return current state
-      return successResponse(agent);
+      return successResponse(await dynamicAgentForBrowser(agent));
     }
 
     // Subagent visibility validation (using merged final values)
@@ -735,6 +848,7 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
       agent.subagents ??
       []) as SubAgentRef[];
     const stableOwnerSubject = normalizeString(agent.owner_subject) ?? requireStableSubject(session);
+    const stableCreatorSubject = normalizeString(agent.creator_subject) ?? stableOwnerSubject;
     if (finalVisibility === "private" && session.isServiceAccount === true) {
       throw new ApiError("Service accounts cannot own private agents", 403, "PRIVATE_OWNER_MUST_BE_USER");
     }
@@ -882,7 +996,7 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
       previousAllowedTools: allowedToolsFromAgent(agent),
       nextAllowedTools: finalAllowedTools,
       ownerSubject: agent.owner_subject ?? agent.owner_id,
-      creatorSubject: stableOwnerSubject,
+      creatorSubject: stableCreatorSubject,
       personalOwnerAccess: finalVisibility === "private",
       previousPersonalOwnerAccess: currentVisibility === "private",
       organizationId: caipeOrgKey(),
@@ -916,7 +1030,9 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
       throw new ApiError("Failed to update agent", 500);
     }
 
-    return successResponse(normalizeAgentDoc(updated as unknown as Record<string, unknown>));
+    return successResponse(await dynamicAgentForBrowser(
+      normalizeAgentDoc(updated as unknown as Record<string, unknown>) as unknown as DynamicAgentConfig,
+    ));
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -937,7 +1053,6 @@ export const DELETE = withErrorHandler(async (request: NextRequest) => {
   }
 
   const { session } = await getAuthFromBearerOrSession(request);
-  await requireAgentPermission(session, id, "delete");
 
     const collection = await getCollection<DynamicAgentConfig>(COLLECTION_NAME);
 
@@ -946,6 +1061,8 @@ export const DELETE = withErrorHandler(async (request: NextRequest) => {
     if (!agent) {
       throw new ApiError("Agent not found", 404);
     }
+    requirePrivateAgentOwner(agent, session);
+    await requireAgentPermission(session, id, "delete");
 
     // System agent guard
     if (agent.is_system) {

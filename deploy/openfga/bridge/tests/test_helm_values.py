@@ -41,6 +41,8 @@ def test_parent_chart_renders_bridge_token_validation_env() -> None:
             "openfga-authz-bridge.tokenValidation.audiences[1]=caipe-platform",
             "--set",
             "openfga-authz-bridge.audit.serviceUrl=http://audit-service:8010",
+            "--set",
+            "openfga-authz-bridge.restrictedMcpServers[0]=scheduler",
         ],
         check=True,
         cwd=_repo_root(),
@@ -242,6 +244,36 @@ def test_openfga_helm_model_is_the_single_json_artifact() -> None:
     helm_model = root / "charts/ai-platform-engineering/charts/openfga/authorization-model.json"
     assert helm_model.exists()
     assert not (root / "deploy/openfga/init/authorization-model.json").exists()
+
+
+def test_bridge_has_no_subject_bypass_or_runtime_private_marker_dependency() -> None:
+    root = _repo_root()
+    bridge_values = (
+        root / "charts/ai-platform-engineering/charts/openfga-authz-bridge/values.yaml"
+    ).read_text()
+    bridge_deployment = (
+        root
+        / "charts/ai-platform-engineering/charts/openfga-authz-bridge/templates/deployment.yaml"
+    ).read_text()
+    bridge_source = (root / "deploy/openfga/bridge/main.py").read_text()
+    model_dsl = (root / "deploy/openfga/model.fga").read_text()
+    model_json = json.loads(
+        (
+            root / "charts/ai-platform-engineering/charts/openfga/authorization-model.json"
+        ).read_text()
+    )
+
+    assert "bypassSubs" not in bridge_values
+    assert "OPENFGA_BYPASS_SUBS" not in bridge_deployment
+    assert "private_marker" not in bridge_source
+    assert "Deprecated compatibility stub" in model_dsl
+    mcp_server = next(
+        definition
+        for definition in model_json["type_definitions"]
+        if definition["type"] == "mcp_server"
+    )
+    assert "private_marker" in mcp_server["relations"]
+    assert "private_marker" in mcp_server["metadata"]["relations"]
 
 
 def test_keycloak_renders_webex_bot_client_secret_when_enabled() -> None:

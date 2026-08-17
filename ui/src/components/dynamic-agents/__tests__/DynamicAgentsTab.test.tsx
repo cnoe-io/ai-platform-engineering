@@ -48,6 +48,12 @@ function makeAgent(overrides: Partial<DynamicAgentConfigWithPermissions> = {}): 
     ui: { gradient_theme: "default" },
     enabled: true,
     owner_id: "user-1",
+    creator_id: "creator@example.test",
+    creator: {
+      label: "Example Creator",
+      name: "Example Creator",
+      email: "creator@example.test",
+    },
     is_system: false,
     created_at: "2026-05-01T00:00:00Z",
     updated_at: "2026-05-01T00:00:00Z",
@@ -92,6 +98,14 @@ describe("DynamicAgentsTab search + pagination", () => {
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith("/api/dynamic-agents?page=1&page_size=20");
     });
+  });
+
+  it("shows who created each agent without exposing an identity subject", async () => {
+    render(<DynamicAgentsTab />);
+
+    expect(await screen.findByText("Created by")).toBeInTheDocument();
+    expect(await screen.findByText("Example Creator")).toBeInTheDocument();
+    expect(await screen.findByText("creator@example.test")).toBeInTheDocument();
   });
 
   it("debounces search input and calls fetch with the search param after 300ms", async () => {
@@ -185,6 +199,73 @@ describe("DynamicAgentsTab search + pagination", () => {
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith("/api/dynamic-agents?page=2&page_size=20");
     });
+  });
+
+  it.each([
+    ["Name", "name", "desc"],
+    ["Visibility", "visibility", "asc"],
+    ["Tools", "tools", "asc"],
+    ["Grade", "grade", "asc"],
+    ["Status", "status", "asc"],
+  ])(
+    "sorts by %s across the server-side result set",
+    async (label, sortBy, sortOrder) => {
+      render(<DynamicAgentsTab />);
+
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      fetchMock.mockClear();
+      fireEvent.click(screen.getByRole("button", {
+        name: `Sort by ${label} ${sortOrder === "asc" ? "ascending" : "descending"}`,
+      }));
+
+      await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalledWith(
+          `/api/dynamic-agents?page=1&page_size=20&sort_by=${sortBy}&sort_order=${sortOrder}`,
+        );
+      });
+    },
+  );
+
+  it("toggles the active sort direction and exposes it to assistive technology", async () => {
+    render(<DynamicAgentsTab />);
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(await screen.findByRole("columnheader", { name: /Name/ })).toHaveAttribute(
+      "aria-sort",
+      "ascending",
+    );
+
+    fetchMock.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "Sort by Name descending" }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/dynamic-agents?page=1&page_size=20&sort_by=name&sort_order=desc",
+      );
+    });
+    expect(await screen.findByRole("columnheader", { name: /Name/ })).toHaveAttribute(
+      "aria-sort",
+      "descending",
+    );
+
+    fetchMock.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "Sort by Name ascending" }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/dynamic-agents?page=1&page_size=20",
+      );
+    });
+    expect(await screen.findByRole("columnheader", { name: /Name/ })).toHaveAttribute(
+      "aria-sort",
+      "ascending",
+    );
   });
 
   it("calls fetch with the updated page_size and resets to page 1 when rows-per-page changes", async () => {

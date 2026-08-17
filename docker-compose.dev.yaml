@@ -2265,8 +2265,6 @@ services:
       OPENFGA_STORE_NAME: caipe-openfga
       OPENFGA_RELATION: can_call
       OPENFGA_OBJECT: mcp_gateway:list
-      OPENFGA_BYPASS_SUBS: ${OPENFGA_BYPASS_SUBS:-}
-      CAIPE_ORG_KEY: ${CAIPE_ORG_KEY:-caipe}
       PRIVATE_RESOURCES_ENABLED: ${PRIVATE_RESOURCES_ENABLED:-false}
       # JWT validation config so the bridge can DECODE the caller's bearer and
       # detect service accounts (preferred_username starts "service-account-", T002)

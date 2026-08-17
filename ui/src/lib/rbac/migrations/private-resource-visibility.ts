@@ -169,7 +169,6 @@ export async function applyPrivateResourceVisibilityMigration(input: {
           creatorSubject: doc.creator_subject?.trim() || ownerSubject,
           personalOwnerAccess: false,
           previousPersonalOwnerAccess: Boolean(ownerSubject),
-          previousPrivateMarkerPresent: false,
           previousOwnerTeamSlug: ownerTeamSlug,
           nextSharedTeamSlugs: [],
           previousSharedTeamSlugs,
@@ -194,7 +193,6 @@ export async function applyPrivateResourceVisibilityMigration(input: {
         creatorSubject: doc.creator_subject?.trim() || ownerSubject,
         personalOwnerAccess: update.visibility === "private",
         previousPersonalOwnerAccess: Boolean(ownerSubject),
-        previousPrivateMarkerPresent: false,
         nextSharedTeamSlugs: update.visibility === "team" ? doc.shared_with_teams ?? [] : [],
         previousSharedTeamSlugs: doc.shared_with_teams ?? [],
       }, {

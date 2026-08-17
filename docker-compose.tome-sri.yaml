@@ -81,7 +81,6 @@ services:
   openfga-authz-bridge:
     environment:
       - PRIVATE_RESOURCES_ENABLED=${PRIVATE_RESOURCES_ENABLED:-true}
-      - CAIPE_ORG_KEY=${CAIPE_ORG_KEY:-caipe}
 
   # langfuse-web also maps 3000:3000 — remap to 3001 to avoid collision with
   # caipe-ui. `ports` is a merge-by-union list in Compose, so a plain override

@@ -43,6 +43,16 @@ import { NextRequest, NextResponse } from "next/server";
 
 const COLLECTION_NAME = "mcp_servers";
 
+type McpServerSortField = "name" | "transport" | "endpoint" | "status";
+type SortDirection = "asc" | "desc";
+
+const MCP_SERVER_SORT_FIELDS = new Set<McpServerSortField>([
+  "name",
+  "transport",
+  "endpoint",
+  "status",
+]);
+
 // ═══════════════════════════════════════════════════════════════
 // Helpers
 // ═══════════════════════════════════════════════════════════════
@@ -90,6 +100,17 @@ function normalizedMcpServerVisibility(
 
 function normalizedMcpServerScope(server: MCPServerConfig): MCPServerConfig {
   return { ...server, visibility: normalizedMcpServerVisibility(server) };
+}
+
+function isPrivateMcpServerVisibleToSession(
+  server: MCPServerConfig,
+  session: { sub?: unknown; isServiceAccount?: boolean },
+): boolean {
+  if (normalizedMcpServerVisibility(server) !== "private") return true;
+  return session.isServiceAccount !== true
+    && typeof session.sub === "string"
+    && session.sub.trim().length > 0
+    && server.owner_subject === session.sub.trim();
 }
 
 async function validateCredentialScopes(input: {
@@ -151,6 +172,64 @@ async function requireOwnerTeamMembership(session: Parameters<typeof requireReso
 
 function normalizeString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function mcpServerAddress(server: MCPServerConfig): string | undefined {
+  const value = server.transport === "stdio" ? server.command : server.endpoint;
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function compareOptionalStrings(
+  left: string | undefined,
+  right: string | undefined,
+  direction: SortDirection,
+): number {
+  if (left === undefined && right === undefined) return 0;
+  if (left === undefined) return 1;
+  if (right === undefined) return -1;
+  return left.localeCompare(right, undefined, {
+    numeric: true,
+    sensitivity: "base",
+  }) * (direction === "asc" ? 1 : -1);
+}
+
+function sortMcpServers(
+  servers: MCPServerConfig[],
+  field: McpServerSortField,
+  direction: SortDirection,
+): MCPServerConfig[] {
+  const multiplier = direction === "asc" ? 1 : -1;
+  return [...servers].sort((left, right) => {
+    let comparison = 0;
+    switch (field) {
+      case "name":
+        comparison = left.name.localeCompare(right.name, undefined, {
+          numeric: true,
+          sensitivity: "base",
+        });
+        break;
+      case "transport":
+        comparison = left.transport.localeCompare(right.transport);
+        break;
+      case "endpoint":
+        comparison = compareOptionalStrings(
+          mcpServerAddress(left),
+          mcpServerAddress(right),
+          direction,
+        );
+        if (comparison !== 0) return comparison;
+        break;
+      case "status":
+        comparison = Number(left.enabled) - Number(right.enabled);
+        break;
+    }
+
+    if (comparison !== 0) return comparison * multiplier;
+    return left.name.localeCompare(right.name, undefined, {
+      numeric: true,
+      sensitivity: "base",
+    });
+  });
 }
 
 function requireStableSubject(session: { sub?: unknown }): string {
@@ -324,6 +403,10 @@ async function selfHealAgentGatewayMcpServersForList(
 /**
  * GET /api/mcp-servers
  * List MCP server configurations visible to the current user.
+ *
+ * Query params:
+ * - sort_by=name|transport|endpoint|status: Sort the full visible result set
+ * - sort_order=asc|desc: Sort direction (defaults to name ascending)
  */
 export const GET = withErrorHandler(async (request: NextRequest) => {
   const { session } = await getAuthFromBearerOrSession(request);
@@ -340,11 +423,15 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       bypassForOrgAdmin: true as const,
       trustedContext: { interaction: trustedInteractionFromRequest(request) },
     };
-    const requestedId = new URL(request.url).searchParams.get("id")?.trim();
+    const { searchParams } = new URL(request.url);
+    const requestedId = searchParams.get("id")?.trim();
 
     if (requestedId) {
       const server = await collection.findOne({ _id: requestedId });
       if (!server) throw new ApiError("MCP server not found", 404);
+      if (!isPrivateMcpServerVisibleToSession(server, session)) {
+        throw new ApiError("MCP server not found", 404);
+      }
 
       const visibleItems = await filterResourcesByPermission(
         session,
@@ -367,9 +454,24 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     }
 
     const { page, pageSize, skip } = getPaginationParams(request);
+    const requestedSortField = searchParams.get("sort_by") as McpServerSortField | null;
+    const hasValidSortField = Boolean(
+      requestedSortField && MCP_SERVER_SORT_FIELDS.has(requestedSortField),
+    );
+    const sortField: McpServerSortField = hasValidSortField
+      ? requestedSortField as McpServerSortField
+      : "name";
+    const sortDirection: SortDirection = hasValidSortField && searchParams.get("sort_order") === "desc"
+      ? "desc"
+      : "asc";
     const allItems = await collection.find({}).sort({ name: 1 }).toArray();
-    const visibleItems = await filterResourcesByPermission(session, allItems, listTarget, permissionOptions);
-    const pageItems = visibleItems.slice(skip, skip + pageSize);
+    // The org-admin bypass is intentionally retained for healthy shared and
+    // global MCP inventory. Private MCPs are non-discoverable to every
+    // non-owner, including org admins, so scope them out before that bypass.
+    const scopedItems = allItems.filter((server) => isPrivateMcpServerVisibleToSession(server, session));
+    const visibleItems = await filterResourcesByPermission(session, scopedItems, listTarget, permissionOptions);
+    const sortedItems = sortMcpServers(visibleItems, sortField, sortDirection);
+    const pageItems = sortedItems.slice(skip, skip + pageSize);
     const { rows, capabilities } = await resolveMcpServerListPermissions(
       session,
       pageItems.map((server) => String(server._id)),

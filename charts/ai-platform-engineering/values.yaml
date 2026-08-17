@@ -1512,7 +1512,6 @@ openfga-authz-bridge:
       key: CAIPE_AGENT_CONTEXT_HMAC_SECRET
   privateResources:
     enabled: false
-    organizationKey: caipe
   tokenValidation:
     jwksUrl: ""
     issuer: ""
