@@ -95,6 +95,7 @@ import {
   datasourceTypeLabel,
   matchesDatasourceFilters,
   parseDatasourceViewState,
+  searchAccessFilterLabel,
   sameDatasourceViewState,
   serializeDatasourceViewState,
   sourceConfigFilterProjection,
@@ -2564,6 +2565,7 @@ export default function IngestView() {
                   updateViewState({ searchAccess, page: 1 })
                 }
                 placeholder="All search access"
+                formatOption={searchAccessFilterLabel}
                 searchPlaceholder="Search people or teams..."
                 emptyLabel="No search access matches"
                 badgeLabel="access grants"
@@ -2710,6 +2712,10 @@ export default function IngestView() {
                         (sourceConfig?.search_owner_team_slug
                           ? [sourceConfig.search_owner_team_slug]
                           : ds.search_with_teams);
+                      const ragCollections =
+                        sourceConfig?.rag_collections ??
+                        ds.rag_collections ??
+                        [];
                       const accessDetailsKnown =
                         Boolean(sourceConfig) ||
                         [
@@ -2900,8 +2906,7 @@ export default function IngestView() {
                                     ds.search_user_display_names
                                   }
                                   ragCollections={
-                                    sourceConfig?.rag_collections ??
-                                    ds.rag_collections
+                                    ragCollections
                                   }
                                   pendingPublicationRequest={pendingPublicationRequests.get(ds.datasource_id)}
                                   detailsKnown={accessDetailsKnown}
@@ -3114,6 +3119,26 @@ export default function IngestView() {
                                       <p className="text-sm text-foreground bg-muted/50 p-3 rounded-lg">
                                         {displayDescription}
                                       </p>
+                                    </div>
+                                  )}
+
+                                  {ragCollections.length > 0 && (
+                                    <div>
+                                      <p className="text-xs font-medium text-muted-foreground mb-1">
+                                        Collections
+                                      </p>
+                                      <div className="flex flex-wrap gap-2">
+                                        {ragCollections.map((collection) => (
+                                          <Badge
+                                            key={collection.id}
+                                            variant="outline"
+                                            title={collection.name}
+                                          >
+                                            <Layers className="mr-1 h-3 w-3" />
+                                            {collection.name}
+                                          </Badge>
+                                        ))}
+                                      </div>
                                     </div>
                                   )}
 

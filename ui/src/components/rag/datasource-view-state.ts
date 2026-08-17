@@ -1,5 +1,6 @@
 import type { DataSourceInfo } from "./Models";
 import type { IngestionSourceConfigWithPermissions } from "@/types/ingestion-source";
+import type { RagCollectionMembershipLabel } from "@/types/rag-collection";
 
 export const DEFAULT_INGEST_TYPE = "file";
 
@@ -35,6 +36,26 @@ interface SearchParamsReader {
 
 function unique(values: readonly string[]): string[] {
   return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
+}
+
+export function effectiveSearchTeamSlugs(input: {
+  searchTeamSlugs?: readonly string[] | null;
+  ragCollections?: readonly RagCollectionMembershipLabel[] | null;
+}): string[] {
+  return unique([
+    ...(input.searchTeamSlugs ?? []),
+    ...(input.ragCollections ?? []).flatMap(
+      (collection) => collection.reader_team_slugs ?? [],
+    ),
+  ]);
+}
+
+export function searchTeamLabel(teamSlug: string): string {
+  return teamSlug.toLowerCase() === "everyone" ? "Everyone" : teamSlug;
+}
+
+export function searchAccessFilterLabel(value: string): string {
+  return value.toLowerCase() === "team: everyone" ? "Team: Everyone" : value;
 }
 
 export function normalizeDatasourceType(sourceType: string): string {
@@ -80,12 +101,17 @@ export function searchAccessFilterValues(input: {
   ownerDisplayName?: string | null;
   searchTeamSlugs?: readonly string[] | null;
   searchUserDisplayNames?: readonly string[] | null;
+  ragCollections?: readonly RagCollectionMembershipLabel[] | null;
 }): string[] {
+  const effectiveTeams = effectiveSearchTeamSlugs({
+    searchTeamSlugs: input.searchTeamSlugs,
+    ragCollections: input.ragCollections,
+  });
   const values = [
     ...(input.ownerSubject && !input.ownerTeamSlug && input.ownerDisplayName
       ? [`Person: ${input.ownerDisplayName.trim()}`]
       : []),
-    ...(input.searchTeamSlugs ?? []).map((slug) => `Team: ${slug.trim()}`),
+    ...effectiveTeams.map((slug) => `Team: ${slug}`),
     ...(input.searchUserDisplayNames ?? []).map((name) => `Person: ${name.trim()}`),
   ];
   return unique(values);
@@ -114,6 +140,7 @@ export function dataSourceFilterProjection(
       ownerDisplayName,
       searchTeamSlugs,
       searchUserDisplayNames,
+      ragCollections: source?.rag_collections ?? datasource.rag_collections,
     }),
     searchableText: [
       datasource.name,
@@ -145,6 +172,7 @@ export function sourceConfigFilterProjection(
       searchTeamSlugs: source.search_with_teams
         ?? (source.search_owner_team_slug ? [source.search_owner_team_slug] : []),
       searchUserDisplayNames: source.search_user_display_names,
+      ragCollections: source.rag_collections,
     }),
     searchableText: [source.name, source.source_id, source.source_type, source.description]
       .filter((value): value is string => Boolean(value))

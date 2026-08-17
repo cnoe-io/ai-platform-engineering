@@ -14,6 +14,7 @@ import { useToast } from "@/components/ui/toast";
 import { AlertTriangle, Layers3, UserRound } from "lucide-react";
 import React from "react";
 import type { RagCollectionMembershipLabel } from "@/types/rag-collection";
+import { searchTeamLabel } from "./datasource-view-state";
 import type {
   PendingPublicationRequestView,
   PublicationRequestDocument,
@@ -377,7 +378,7 @@ export function KbSharingPanel({ knowledgeBaseId, onSaved, onCancel }: KbSharing
               <Badge key={collection.id} variant="outline">
                 {collection.name}
                 {collection.reader_team_slugs.length > 0
-                  ? ` · ${collection.reader_team_slugs.join(", ")}`
+                  ? ` · ${collection.reader_team_slugs.map(searchTeamLabel).join(", ")}`
                   : ""}
               </Badge>
             ))}

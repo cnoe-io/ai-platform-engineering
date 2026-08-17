@@ -2,6 +2,10 @@ import { Badge } from "@/components/ui/badge";
 import { Clock3, Search, User, Users } from "lucide-react";
 import type { RagCollectionMembershipLabel } from "@/types/rag-collection";
 import type { PendingPublicationRequestView } from "@/types/publication-approval";
+import {
+  effectiveSearchTeamSlugs,
+  searchTeamLabel,
+} from "./datasource-view-state";
 
 interface DatasourceAccessBadgesProps {
   ownerTeamSlug?: string | null;
@@ -38,19 +42,15 @@ export function DatasourceAccessBadges({
   canReadContent = false,
 }: DatasourceAccessBadgesProps) {
   const ownerTeam = ownerTeamSlug?.trim();
-  const searchTeams = normalizedTeams(searchTeamSlugs);
+  const searchTeams = effectiveSearchTeamSlugs({
+    searchTeamSlugs,
+    ragCollections,
+  }).map(searchTeamLabel);
   const personal = !ownerTeam && Boolean(ownerSubject?.trim());
   const personalLabel = ownerDisplayName?.trim() || "Unknown user";
   const searchUsers = Array.from(
     new Set((searchUserDisplayNames ?? []).map((label) => label.trim()).filter(Boolean)),
   );
-  const collectionLabels = (ragCollections ?? []).map((collection) => {
-    const searchTeams = normalizedTeams(collection.reader_team_slugs);
-    return searchTeams.length > 0
-      ? `${collection.name} · ${searchTeams.join(", ")}`
-      : collection.name;
-  });
-
   const ownerLabel = ownerTeam
     ? ownerTeam
     : personal
@@ -70,7 +70,6 @@ export function DatasourceAccessBadges({
     ...(personal ? [personalLabel] : []),
     ...searchTeams,
     ...searchUsers,
-    ...collectionLabels,
   ];
   const searchLabel = searchLabels.length > 0
       ? compactList(searchLabels)

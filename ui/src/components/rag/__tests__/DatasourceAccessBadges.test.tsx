@@ -18,6 +18,27 @@ describe("DatasourceAccessBadges", () => {
     expect(screen.getByTitle("Search: reader-team, secondary-team")).toBeInTheDocument();
   });
 
+  it("shows effective team access without presenting collections as audiences", () => {
+    render(
+      <DatasourceAccessBadges
+        ownerTeamSlug="management-team"
+        searchTeamSlugs={[]}
+        ragCollections={[
+          {
+            id: "platform-rag",
+            name: "Platform RAG",
+            is_platform: true,
+            reader_team_slugs: ["everyone"],
+          },
+        ]}
+        detailsKnown
+      />,
+    );
+
+    expect(screen.getByText("Search: Everyone")).toBeInTheDocument();
+    expect(screen.queryByText(/Platform RAG/)).not.toBeInTheDocument();
+  });
+
   it("labels a personal source as personally owned and searchable", () => {
     render(
       <DatasourceAccessBadges

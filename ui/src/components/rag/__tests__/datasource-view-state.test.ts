@@ -60,4 +60,30 @@ describe("datasource view state", () => {
     expect(projection.searchAccess).toContain("Person: test-user@example.com");
     expect(JSON.stringify(projection)).not.toContain("test-user-subject");
   });
+
+  it("includes collection-derived teams in Search filters without using collection names", () => {
+    const projection = dataSourceFilterProjection(datasource({
+      search_with_teams: [],
+      rag_collections: [
+        {
+          id: "platform-rag",
+          name: "Platform RAG",
+          is_platform: true,
+          reader_team_slugs: ["everyone"],
+        },
+        {
+          id: "secondary-collection",
+          name: "Secondary collection",
+          is_platform: false,
+          reader_team_slugs: ["primary", "everyone"],
+        },
+      ],
+    }));
+
+    expect(projection.searchAccess).toEqual([
+      "Team: everyone",
+      "Team: primary",
+    ]);
+    expect(JSON.stringify(projection.searchAccess)).not.toContain("Platform RAG");
+  });
 });
