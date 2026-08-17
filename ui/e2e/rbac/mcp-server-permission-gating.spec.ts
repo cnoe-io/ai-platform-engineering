@@ -318,7 +318,7 @@ test.describe("RBAC e2e — MCP server permission gating", () => {
     await expect(page.getByRole("button", { name: /Probe tools for Argocd/i })).toBeVisible();
   });
 
-  test("shows repair AgentGateway only when list capability is granted", async ({ page }) => {
+  test("never exposes global AgentGateway repair from the MCP list", async ({ page }) => {
     await installMcpPermissionMocks(page, {
       servers: [
         {
@@ -334,7 +334,7 @@ test.describe("RBAC e2e — MCP server permission gating", () => {
     });
 
     await page.goto("/dynamic-agents?tab=mcp-servers", { waitUntil: "domcontentloaded" });
-    await expect(page.getByRole("button", { name: /Repair AgentGateway/i })).toBeVisible();
+    await expect(page.getByRole("button", { name: /Repair AgentGateway/i })).toHaveCount(0);
     await expect(page.getByRole("button", { name: /Delete Managed MCP/i })).toBeVisible();
   });
 

@@ -27,6 +27,7 @@ import { RbacSelfCheckTab } from "@/components/admin/security/RbacSelfCheckTab";
 import { UnifiedAuditTab } from "@/components/admin/security/UnifiedAuditTab";
 import { ImportAgentsFromConfigCard } from "@/components/admin/settings/ImportAgentsFromConfigCard";
 import { MCPCatalogSettingsCard } from "@/components/admin/settings/MCPCatalogSettingsCard";
+import { AgentGatewayRepairCard } from "@/components/admin/settings/AgentGatewayRepairCard";
 import { PlatformSettingsTab } from "@/components/admin/settings/PlatformSettingsTab";
 import { ReleaseNotesSettingsTab } from "@/components/admin/settings/ReleaseNotesSettingsTab";
 import { ReviewConfigsTab } from "@/components/admin/settings/ReviewConfigsTab";
@@ -1994,6 +1995,10 @@ function AdminPage() {
               {tabGateValues.mcp && (
                 <TabsContent value="mcp" className="space-y-4">
                   <MCPCatalogSettingsCard
+                    isAdmin={effectiveOrganizationAdmin}
+                    readOnly={isSimulationActive}
+                  />
+                  <AgentGatewayRepairCard
                     isAdmin={effectiveOrganizationAdmin}
                     readOnly={isSimulationActive}
                   />

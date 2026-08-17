@@ -299,10 +299,9 @@ describe("AgentGateway MCP server discovery API", () => {
       }),
       insertOne,
       updateOne,
-      findOne: jest.fn().mockImplementation(async ({ _id }: { _id: string }) => ({
-        _id,
-        source: "agentgateway",
-      })),
+      findOne: jest.fn().mockImplementation(async ({ _id }: { _id: string }) =>
+        _id === "mcp-tome" ? null : { _id, source: "agentgateway" },
+      ),
     });
     const { POST } = await import("../sync/route");
 
@@ -341,7 +340,7 @@ describe("AgentGateway MCP server discovery API", () => {
     });
   });
 
-  it("repairs the stale provider connection on an existing discovered Tome target", async () => {
+  it("does not rewrite credentials on an existing AgentGateway target", async () => {
     const updateOne = jest.fn();
     const existingTome = {
       _id: "mcp-tome",
@@ -350,7 +349,6 @@ describe("AgentGateway MCP server discovery API", () => {
       endpoint: "http://agentgateway:4000/mcp",
       enabled: true,
       source: "agentgateway",
-      agentgateway_discovered: true,
       credential_sources: [
         {
           kind: "provider_connection",
@@ -391,19 +389,15 @@ describe("AgentGateway MCP server discovery API", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(updateOne).toHaveBeenCalledWith(
-      { _id: "mcp-tome" },
+    expect(updateOne).not.toHaveBeenCalled();
+    expect(existingTome.credential_sources).toEqual([
       {
-        $set: expect.objectContaining({
-          credential_sources: [{
-            kind: "caller_token",
-            name: "X-CAIPE-Provider-Token",
-            target: "header",
-          }],
-          updated_at: expect.any(String),
-        }),
+        kind: "provider_connection",
+        name: "X-CAIPE-Provider-Token",
+        provider: "tome",
+        target: "header",
       },
-    );
+    ]);
   });
 
   it("preserves an explicit global sharing policy during AgentGateway sync", async () => {

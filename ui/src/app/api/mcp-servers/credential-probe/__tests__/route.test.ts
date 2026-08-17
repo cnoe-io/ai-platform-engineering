@@ -8,13 +8,18 @@ const mockGetAuthFromBearerOrSession = jest.fn();
 const mockRequireResourcePermission = jest.fn();
 const mockResolveMcpHeaderCredentials = jest.fn();
 const mockIsAgentGatewayEndpoint = jest.fn();
+const mockListHttpMcpTools = jest.fn();
+const mockGetCollection = jest.fn();
 
 jest.mock("@/lib/api-middleware", () => {
   class ApiError extends Error {
     status: number;
-    constructor(message: string, status = 500) {
+    code?: string;
+
+    constructor(message: string, status = 500, code?: string) {
       super(message);
       this.status = status;
+      this.code = code;
     }
   }
   return {
@@ -39,8 +44,16 @@ jest.mock("@/lib/api-middleware", () => {
   };
 });
 
+jest.mock("@/lib/mongodb", () => ({
+  getCollection: (...args: unknown[]) => mockGetCollection(...args),
+}));
+
 jest.mock("@/lib/rbac/resource-authz", () => ({
   requireResourcePermission: (...args: unknown[]) => mockRequireResourcePermission(...args),
+}));
+
+jest.mock("@/lib/authz/trusted-interaction", () => ({
+  trustedInteractionFromRequest: () => ({ source: "web", conversationKind: "personal" }),
 }));
 
 jest.mock("@/lib/mcp-credential-headers", () => ({
@@ -51,14 +64,30 @@ jest.mock("@/lib/mcp-credential-headers", () => ({
 
 jest.mock("@/lib/mcp-http-server-client", () => ({
   isAgentGatewayEndpoint: (...args: unknown[]) => mockIsAgentGatewayEndpoint(...args),
+  listHttpMcpTools: (...args: unknown[]) => mockListHttpMcpTools(...args),
 }));
 
-function request(): NextRequest {
+const savedServer = {
+  _id: "mcp-example",
+  name: "Example",
+  endpoint: "http://agentgateway:4000/mcp/mcp-example",
+  agentgateway_target_endpoint: "https://upstream.example.test/mcp",
+  source: "agentgateway" as const,
+  transport: "http" as const,
+  credential_sources: [],
+  enabled: true,
+  created_at: "2026-08-15T00:00:00.000Z",
+  updated_at: "2026-08-15T00:00:00.000Z",
+};
+
+function request(body: Record<string, unknown> = {}): NextRequest {
   return new NextRequest("http://localhost:3000/api/mcp-servers/credential-probe", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
-      url: "http://agentgateway:4000/mcp/example",
+      server_id: "mcp-example",
+      // A client-supplied URL must never select the probe destination.
+      url: "https://untrusted.example.test/mcp",
       credential_sources: [
         {
           kind: "provider_connection",
@@ -67,6 +96,7 @@ function request(): NextRequest {
           provider: "example",
         },
       ],
+      ...body,
     }),
   });
 }
@@ -78,6 +108,9 @@ describe("POST /api/mcp-servers/credential-probe", () => {
       session: { sub: "test-user", accessToken: "caller-token" },
     });
     mockRequireResourcePermission.mockResolvedValue(undefined);
+    mockGetCollection.mockResolvedValue({
+      findOne: jest.fn().mockResolvedValue(savedServer),
+    });
     mockIsAgentGatewayEndpoint.mockReturnValue(true);
     mockResolveMcpHeaderCredentials.mockResolvedValue({
       headers: {
@@ -93,74 +126,74 @@ describe("POST /api/mcp-servers/credential-probe", () => {
         },
       ],
     });
+    mockListHttpMcpTools.mockResolvedValue({
+      tools: [{ name: "example_search", namespaced_name: "example_search" }],
+      sessionId: "session-123",
+    });
   });
 
-  it("performs a real MCP initialize request through AgentGateway", async () => {
-    global.fetch = jest.fn().mockResolvedValue(
-      Response.json({
-        jsonrpc: "2.0",
-        id: "credential-probe-initialize",
-        result: {
-          protocolVersion: "2025-06-18",
-          capabilities: {},
-          serverInfo: { name: "example", version: "1.0.0" },
-        },
-      }),
-    ) as unknown as typeof fetch;
+  it("tests the saved server through its AgentGateway route", async () => {
     const { POST } = await import("../route");
 
     const response = await POST(request());
     const body = await response.json();
 
+    expect(response.status).toBe(200);
     expect(body.data).toMatchObject({ ok: true, status: 200, missingCredentials: [] });
-    expect(mockResolveMcpHeaderCredentials).toHaveBeenCalledWith(
-      expect.objectContaining({ viaAgentGateway: true }),
+    expect(mockRequireResourcePermission).toHaveBeenCalledWith(
+      { sub: "test-user", accessToken: "caller-token" },
+      { type: "mcp_server", id: "mcp-example", action: "manage" },
+      { trustedContext: { interaction: { source: "web", conversationKind: "personal" } } },
     );
-    expect(global.fetch).toHaveBeenCalledWith(
-      "http://agentgateway:4000/mcp/example",
+    expect(mockResolveMcpHeaderCredentials).toHaveBeenCalledWith(
       expect.objectContaining({
-        method: "POST",
-        body: expect.stringContaining('"method":"initialize"'),
+        viaAgentGateway: true,
+        server: expect.objectContaining({
+          endpoint: "http://agentgateway:4000/mcp/mcp-example",
+          agentgateway_target_endpoint: "https://upstream.example.test/mcp",
+          credential_sources: [expect.objectContaining({ provider: "example" })],
+        }),
       }),
     );
-    const fetchHeaders = (global.fetch as jest.Mock).mock.calls[0][1].headers as Headers;
-    expect(fetchHeaders.get("authorization")).toBe("Bearer caller-token");
-    expect(fetchHeaders.get("x-caipe-provider-token")).toBe("provider-token");
+    expect(mockListHttpMcpTools).toHaveBeenCalledWith(
+      expect.objectContaining({
+        serverId: "mcp-example",
+        server: expect.objectContaining({
+          endpoint: "http://agentgateway:4000/mcp/mcp-example",
+        }),
+        credentialResolution: expect.objectContaining({
+          headers: expect.objectContaining({ Authorization: "Bearer caller-token" }),
+        }),
+      }),
+    );
   });
 
-  it("does not treat an HTTP 405 response as connected", async () => {
-    global.fetch = jest.fn().mockResolvedValue(
-      new Response("Method Not Allowed", { status: 405 }),
-    ) as unknown as typeof fetch;
+  it("requires the server to be saved before testing", async () => {
+    const { POST } = await import("../route");
+
+    const response = await POST(request({ server_id: "" }));
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body.error).toMatch(/save the MCP server/i);
+    expect(mockGetCollection).not.toHaveBeenCalled();
+    expect(mockListHttpMcpTools).not.toHaveBeenCalled();
+  });
+
+  it("rejects a saved HTTP server that has no AgentGateway route", async () => {
+    mockIsAgentGatewayEndpoint.mockReturnValue(false);
     const { POST } = await import("../route");
 
     const response = await POST(request());
     const body = await response.json();
 
-    expect(body.data).toMatchObject({
-      ok: false,
-      status: 405,
-      error: "MCP initialize failed with HTTP 405",
-    });
+    expect(response.status).toBe(409);
+    expect(body.error).toMatch(/registered AgentGateway route/i);
+    expect(mockResolveMcpHeaderCredentials).not.toHaveBeenCalled();
+    expect(mockListHttpMcpTools).not.toHaveBeenCalled();
   });
 
-  it("rejects a successful HTTP response without an initialize result", async () => {
-    global.fetch = jest.fn().mockResolvedValue(
-      Response.json({ jsonrpc: "2.0", id: "credential-probe-initialize" }),
-    ) as unknown as typeof fetch;
-    const { POST } = await import("../route");
-
-    const response = await POST(request());
-    const body = await response.json();
-
-    expect(body.data).toMatchObject({
-      ok: false,
-      status: 200,
-      error: "MCP initialize returned an invalid JSON-RPC response",
-    });
-  });
-
-  it("does not probe the network when a credential is unresolved", async () => {
+  it("does not contact AgentGateway when a credential is unresolved", async () => {
     mockResolveMcpHeaderCredentials.mockResolvedValue({
       headers: { Authorization: "Bearer caller-token" },
       sources: [
@@ -172,7 +205,6 @@ describe("POST /api/mcp-servers/credential-probe", () => {
         },
       ],
     });
-    global.fetch = jest.fn() as unknown as typeof fetch;
     const { POST } = await import("../route");
 
     const response = await POST(request());
@@ -182,6 +214,6 @@ describe("POST /api/mcp-servers/credential-probe", () => {
       ok: false,
       missingCredentials: ["X-CAIPE-Provider-Token"],
     });
-    expect(global.fetch).not.toHaveBeenCalled();
+    expect(mockListHttpMcpTools).not.toHaveBeenCalled();
   });
 });

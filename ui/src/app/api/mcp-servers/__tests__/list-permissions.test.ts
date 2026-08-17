@@ -58,11 +58,6 @@ jest.mock("@/lib/rbac/openfga-owned-resources-reconcile", () => ({
   deleteAllMcpServerRelationshipTuples: jest.fn(),
 }));
 
-jest.mock("../agentgateway/_lib", () => ({
-  repairKnownAgentGatewayMcpServers: jest.fn(),
-  syncSelectedAgentGatewayMcpServers: jest.fn(),
-}));
-
 function request(path: string): NextRequest {
   return new NextRequest(new URL(path, "http://localhost:3000"));
 }

@@ -10,13 +10,16 @@ import {
   successResponse,
   withErrorHandler,
 } from "@/lib/api-middleware";
-import { caipeOrgKey } from "@/lib/rbac/organization";
-import { requireResourcePermission } from "@/lib/rbac/resource-authz";
 import { isMcpCredentialUnavailableError, resolveMcpHeaderCredentials } from "@/lib/mcp-credential-headers";
-import { isAgentGatewayEndpoint } from "@/lib/mcp-http-server-client";
+import { isAgentGatewayEndpoint, listHttpMcpTools } from "@/lib/mcp-http-server-client";
+import { getCollection } from "@/lib/mongodb";
+import { trustedInteractionFromRequest } from "@/lib/authz/trusted-interaction";
+import { requireResourcePermission } from "@/lib/rbac/resource-authz";
 import type { McpCredentialResolution } from "@/lib/mcp-credential-headers";
-import type { MCPCredentialSource } from "@/types/dynamic-agent";
+import type { MCPCredentialSource, MCPServerConfig } from "@/types/dynamic-agent";
 import { NextRequest } from "next/server";
+
+const COLLECTION_NAME = "mcp_servers";
 
 interface CredentialProbeResult {
   ok: boolean;
@@ -26,83 +29,53 @@ interface CredentialProbeResult {
   missingCredentials: string[];
 }
 
-function normalizedUrl(value: unknown): string {
+function requiredServerId(value: unknown): string {
   if (typeof value !== "string" || !value.trim()) {
-    throw new ApiError("Endpoint URL is required", 400);
+    throw new ApiError(
+      "Save the MCP server before testing its AgentGateway connection",
+      400,
+      "MCP_SERVER_SAVE_REQUIRED",
+    );
   }
-  let parsed: URL;
-  try {
-    parsed = new URL(value.trim());
-  } catch {
-    throw new ApiError("Endpoint URL must be a valid URL", 400);
-  }
-  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-    throw new ApiError("Endpoint URL must use http or https", 400);
-  }
-  return parsed.toString().replace(/\/$/, "");
-}
-
-function parseSseJson(text: string): unknown | null {
-  for (const line of text.split(/\r?\n/)) {
-    if (!line.startsWith("data:")) continue;
-    const data = line.slice("data:".length).trim();
-    if (!data || data === "[DONE]") continue;
-    try {
-      return JSON.parse(data);
-    } catch {
-      continue;
-    }
-  }
-  return null;
-}
-
-async function readJsonOrSse(response: Response): Promise<unknown> {
-  const contentType = response.headers.get("content-type") ?? "";
-  if (contentType.includes("application/json")) return response.json();
-  const text = await response.text();
-  if (contentType.includes("text/event-stream")) {
-    const payload = parseSseJson(text);
-    if (payload !== null) return payload;
-  }
-  try {
-    return JSON.parse(text);
-  } catch {
-    return text;
-  }
-}
-
-function initializeError(payload: unknown): string | null {
-  if (!payload || typeof payload !== "object") return "MCP initialize returned an invalid response";
-  const message = (payload as { error?: { message?: unknown } }).error?.message;
-  if (typeof message === "string" && message.trim()) return message.trim();
-  const result = (payload as { result?: unknown }).result;
-  return result && typeof result === "object"
-    ? null
-    : "MCP initialize returned an invalid JSON-RPC response";
+  return value.trim();
 }
 
 export const POST = withErrorHandler(async (request: NextRequest) => {
   const { session } = await getAuthFromBearerOrSession(request);
+  const body = await request.json();
+  const serverId = requiredServerId(body.server_id);
+  const interaction = trustedInteractionFromRequest(request);
+
   await requireResourcePermission(
     session,
-    { type: "organization", id: caipeOrgKey(), action: "use" },
-    { bypassForOrgAdmin: true },
+    { type: "mcp_server", id: serverId, action: "manage" },
+    { trustedContext: { interaction } },
   );
 
-  const body = await request.json();
-  const url = normalizedUrl(body.url);
-  const credentialSources = (body.credential_sources ?? []) as MCPCredentialSource[];
+  const collection = await getCollection<MCPServerConfig>(COLLECTION_NAME);
+  const server = await collection.findOne({ _id: serverId });
+  if (!server) throw new ApiError("MCP server not found", 404);
+  if (!server.enabled) throw new ApiError("MCP server is disabled", 400);
+  if (server.transport !== "http" || !server.endpoint) {
+    throw new ApiError(
+      "Connection testing requires a saved Streamable HTTP MCP server",
+      400,
+      "MCP_PROBE_UNSUPPORTED_TRANSPORT",
+    );
+  }
+  if (!isAgentGatewayEndpoint(server)) {
+    throw new ApiError(
+      "Connection testing requires a registered AgentGateway route",
+      409,
+      "MCP_GATEWAY_ROUTE_REQUIRED",
+    );
+  }
 
-  // Build a minimal MCPServerConfig shape for credential resolution
-  const fakeServer = {
-    _id: "probe",
-    name: "probe",
-    endpoint: url,
-    transport: "http" as const,
+  const credentialSources = (body.credential_sources ?? []) as MCPCredentialSource[];
+  const diagnosticServer: MCPServerConfig & { endpoint: string } = {
+    ...server,
+    endpoint: server.endpoint,
     credential_sources: credentialSources,
-    enabled: true,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
   };
 
   let resolution: McpCredentialResolution;
@@ -110,8 +83,8 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     resolution = await resolveMcpHeaderCredentials({
       request,
       session,
-      server: fakeServer,
-      viaAgentGateway: isAgentGatewayEndpoint(fakeServer),
+      server: diagnosticServer,
+      viaAgentGateway: true,
       retrievalCaller: "mcp-credential-probe",
     });
   } catch (error) {
@@ -144,58 +117,18 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     });
   }
 
-  // A GET 405 is valid for Streamable HTTP servers that do not expose an SSE
-  // listener, so it cannot prove the MCP connection works. Perform the actual
-  // protocol initialize exchange with the same resolved headers instead.
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 8000);
-  let probeResult: CredentialProbeResult;
-  try {
-    const headers = new Headers({
-      accept: "application/json, text/event-stream;q=0.9, */*;q=0.1",
-      "content-type": "application/json",
-    });
-    for (const [key, value] of Object.entries(resolution.headers)) {
-      headers.set(key, value);
-    }
-    const response = await fetch(url, {
-      method: "POST",
-      signal: controller.signal,
-      headers,
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: "credential-probe-initialize",
-        method: "initialize",
-        params: {
-          protocolVersion: "2025-06-18",
-          capabilities: {},
-          clientInfo: { name: "caipe-ui-credential-probe", version: "1.0.0" },
-        },
-      }),
-    });
-    const payload = await readJsonOrSse(response);
-    const protocolError = response.ok ? initializeError(payload) : null;
-    probeResult = {
-      ok: response.ok && protocolError === null,
-      status: response.status,
-      ...(!response.ok
-        ? { error: `MCP initialize failed with HTTP ${response.status}` }
-        : protocolError
-          ? { error: protocolError }
-          : {}),
-      credentialOrigins,
-      missingCredentials,
-    };
-  } catch (error) {
-    probeResult = {
-      ok: false,
-      error: error instanceof Error ? error.message : "Could not connect",
-      credentialOrigins,
-      missingCredentials,
-    };
-  } finally {
-    clearTimeout(timeout);
-  }
+  await listHttpMcpTools({
+    request,
+    session,
+    server: diagnosticServer,
+    serverId,
+    credentialResolution: resolution,
+  });
 
-  return successResponse(probeResult);
+  return successResponse<CredentialProbeResult>({
+    ok: true,
+    status: 200,
+    credentialOrigins,
+    missingCredentials,
+  });
 });
