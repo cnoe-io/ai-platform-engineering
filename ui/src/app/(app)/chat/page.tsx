@@ -1,7 +1,7 @@
 "use client";
 
 import { AuthGuard } from "@/components/auth-guard";
-import { ChatLoadingSkeleton } from "@/components/chat/ChatLoadingSkeleton";
+import { CAIPESpinner } from "@/components/ui/caipe-spinner";
 import { resolveUsableChatAgentId } from "@/lib/chat-agent-selection";
 import { getStorageMode } from "@/lib/storage-config";
 import { getLastActiveConversationId,useChatStore } from "@/store/chat-store";
@@ -105,7 +105,9 @@ function ChatRedirectPage() {
   }
 
   return (
-    <ChatLoadingSkeleton label="Loading conversations..." />
+    <div className="flex-1 flex items-center justify-center h-full bg-background">
+      <CAIPESpinner size="lg" message="Loading conversations..." />
+    </div>
   );
 }
 

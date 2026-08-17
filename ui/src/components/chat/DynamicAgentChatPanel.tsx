@@ -1,7 +1,6 @@
 "use client";
 
 import { AgentAvatar } from "@/components/dynamic-agents/AgentAvatar";
-import { ChatMessagesSkeleton } from "@/components/chat/ChatLoadingSkeleton";
 import type { TaskItem } from "@/components/shared/timeline";
 import { MarkdownRenderer } from "@/components/shared/timeline";
 import { Button } from "@/components/ui/button";
@@ -1719,34 +1718,44 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
         <ScrollArea className="flex-1" viewportRef={scrollViewportRef}>
           <div className="max-w-7xl mx-auto pl-1 pr-1 py-4 space-y-6">
             {!conversation?.messages.length && (
-              isLoadingMessages ? (
-                <ChatMessagesSkeleton />
-              ) : (
-                <div className="text-center py-20">
-                  <AgentAvatar
-                    agent={agent}
-                    rounded="rounded-2xl"
-                    size="w-16 h-16 mx-auto mb-6"
-                    iconSize="h-8 w-8"
-                    icon={Sparkles}
-                  />
-                  <h2 className="text-2xl font-bold mb-4">Welcome to {getConfig('appName')}</h2>
-                  <p className="text-muted-foreground mb-3">
-                    Start your conversation with
-                  </p>
-                  <div className="flex items-center justify-center gap-3">
+              <div className="text-center py-20">
+                {isLoadingMessages ? (
+                  <>
+                    <div className="w-16 h-16 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center">
+                      <Loader2 className="h-8 w-8 text-white animate-spin" />
+                    </div>
+                    <h2 className="text-2xl font-bold mb-2">Loading conversation...</h2>
+                    <p className="text-muted-foreground max-w-md mx-auto mb-1">
+                      Retrieving your conversation history
+                    </p>
+                  </>
+                ) : (
+                  <>
                     <AgentAvatar
                       agent={agent}
-                      rounded="rounded-lg"
-                      size="w-8 h-8"
-                      iconSize="h-4 w-4"
+                      rounded="rounded-2xl"
+                      size="w-16 h-16 mx-auto mb-6"
+                      iconSize="h-8 w-8"
+                      icon={Sparkles}
                     />
-                    <span className="text-lg font-semibold">
-                      {agentName || "your agent"}
-                    </span>
-                  </div>
-                </div>
-              )
+                    <h2 className="text-2xl font-bold mb-4">Welcome to {getConfig('appName')}</h2>
+                    <p className="text-muted-foreground mb-3">
+                      Start your conversation with
+                    </p>
+                    <div className="flex items-center justify-center gap-3">
+                      <AgentAvatar
+                        agent={agent}
+                        rounded="rounded-lg"
+                        size="w-8 h-8"
+                        iconSize="h-4 w-4"
+                      />
+                      <span className="text-lg font-semibold">
+                        {agentName || "your agent"}
+                      </span>
+                    </div>
+                  </>
+                )}
+              </div>
             )}
 
             <AnimatePresence mode="popLayout">
