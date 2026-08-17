@@ -104,7 +104,7 @@ See [Skills → Overview](./skills/) for the full checklist.
 
 | Channel | What to post |
 |---|---|
-| `#cnoe-sig-agentic-ai` Slack | Link to release blog post + one-line highlight |
+| CAIPE community Slack channel | Link to release blog post + one-line highlight |
 | GitHub Discussions | Announce new release with upgrade notes link |
 | Weekly community meeting | Demo new features if significant |
 

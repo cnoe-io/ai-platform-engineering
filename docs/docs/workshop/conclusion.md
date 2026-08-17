@@ -78,6 +78,6 @@ Run 1–4 in the CAIPE UI (and optionally in the agent-chat CLI). In Langfuse yo
 
 - Explore more agents and MCP servers in the [CAIPE repo](https://github.com/cnoe-io/ai-platform-engineering).
 - Read the [KinD setup](/docs/getting-started/kind/setup) and [LLM configuration](/docs/getting-started/kind/configure-llms) docs for production-like options.
-- Join the [CNOE community](https://github.com/cnoe-io/ai-platform-engineering#community) for support and roadmap updates.
+- Join the [CAIPE community](https://caipe.io/community) for support and roadmap updates.
 
 Thank you for completing CAIPE Labs.
