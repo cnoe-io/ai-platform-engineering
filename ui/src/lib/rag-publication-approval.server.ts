@@ -180,29 +180,17 @@ export function approvalGatedSourceUpdate(
   );
 }
 
-function normalizedWebPublicationSettings(value: unknown): Record<string, unknown> {
+function normalizedApprovalGatedWebSettings(value: unknown): Record<string, unknown> {
   const settings = value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
     : {};
-  const nullableString = (candidate: unknown): string | null =>
-    typeof candidate === "string" && candidate.trim()
-      ? candidate.trim()
-      : null;
   return {
     crawl_mode: settings.crawl_mode ?? "single",
     max_depth: settings.max_depth ?? 2,
     max_pages: settings.max_pages ?? 2000,
-    render_javascript: settings.render_javascript === true,
-    wait_for_selector: nullableString(settings.wait_for_selector),
-    page_load_timeout: settings.page_load_timeout ?? 15,
     follow_external_links: settings.follow_external_links === true,
     allowed_url_patterns: strings(settings.allowed_url_patterns),
     denied_url_patterns: strings(settings.denied_url_patterns),
-    download_delay: settings.download_delay ?? 0.05,
-    concurrent_requests: settings.concurrent_requests ?? 30,
-    respect_robots_txt: settings.respect_robots_txt !== false,
-    user_agent: nullableString(settings.user_agent),
-    allow_non_public_urls: settings.allow_non_public_urls === true,
   };
 }
 
@@ -222,7 +210,12 @@ function normalizedApprovalGatedValue(field: string, value: unknown): unknown {
         ? value
         : {};
     case "settings":
-      return normalizedWebPublicationSettings(value);
+      // Publication review covers settings that select which content enters
+      // a broadly shared datasource. Runtime mechanics such as JavaScript
+      // rendering, selectors, timeouts, concurrency, request identity, and
+      // internal-network reachability remain governed by connector policy and
+      // do not change the datasource's approved audience or declared scope.
+      return normalizedApprovalGatedWebSettings(value);
     case "jql":
       return typeof value === "string" ? value.trim() : value;
     default:

@@ -269,4 +269,78 @@ describe("datasource publication change detection", () => {
       denied_title_patterns: [],
     })).toEqual({ get_child_pages: true });
   });
+
+  const webSource: IngestionSourceConfig = {
+    source_id: "src_https___docs_example_test__primary",
+    source_type: "web_url",
+    name: "Example documentation",
+    description: "",
+    status: "active",
+    default_chunk_size: 10000,
+    default_chunk_overlap: 2000,
+    reload_interval: 86400,
+    config_driven: false,
+    config_import_adopted: false,
+    visibility: "team",
+    shared_with_teams: [],
+    url: "https://docs.example.test/",
+    settings: {
+      crawl_mode: "sitemap",
+      max_depth: 2,
+      max_pages: 2000,
+      follow_external_links: false,
+      allowed_url_patterns: [],
+      denied_url_patterns: [],
+      allow_non_public_urls: false,
+    },
+    created_at: "2026-01-01T00:00:00.000Z",
+    updated_at: "2026-01-01T00:00:00.000Z",
+  };
+
+  it("does not require publication review to allow an existing internal URL", () => {
+    const settings = {
+      ...webSource.settings,
+      allow_non_public_urls: true,
+    };
+
+    expect(changedApprovalGatedSourceUpdate(webSource, { settings })).toEqual({});
+  });
+
+  it("does not review web crawler runtime changes", () => {
+    const settings = {
+      ...webSource.settings,
+      render_javascript: true,
+      wait_for_selector: "#content",
+      page_load_timeout: 30,
+      download_delay: 0.25,
+      concurrent_requests: 10,
+      respect_robots_txt: true,
+      user_agent: "Example crawler",
+    };
+
+    expect(changedApprovalGatedSourceUpdate(webSource, { settings })).toEqual({});
+  });
+
+  it("still reviews web crawl-scope changes", () => {
+    const settings = {
+      ...webSource.settings,
+      max_pages: 4000,
+      allow_non_public_urls: true,
+    };
+
+    expect(changedApprovalGatedSourceUpdate(webSource, { settings })).toEqual({
+      settings,
+    });
+  });
+
+  it("still reviews web URL-filter changes", () => {
+    const settings = {
+      ...webSource.settings,
+      allowed_url_patterns: ["^https://docs\\.example\\.test/guides/"],
+    };
+
+    expect(changedApprovalGatedSourceUpdate(webSource, { settings })).toEqual({
+      settings,
+    });
+  });
 });
