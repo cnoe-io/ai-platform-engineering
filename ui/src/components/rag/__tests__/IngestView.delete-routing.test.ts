@@ -61,8 +61,16 @@ describe("IngestView delete routing", () => {
     );
     expect(source).toContain('title="Manage Datasource"');
     expect(source).toMatch(
-      /if\s*\(\s*canManageSourceConfig\s*&&\s*sourceConfig\s*\)/,
+      /if\s*\(\s*cachedConfig\s*&&\s*canManageConfig\s*\)/,
     );
-    expect(source).toContain("setSharingDatasource(ds)");
+    expect(source).toMatch(
+      /datasource\.has_source_config\s*&&\s*datasource\._permissions\?\.can_manage_source/,
+    );
+    expect(source).toMatch(
+      /if\s*\(\s*!shouldLoadConfig\s*\)\s*{\s*setSharingDatasource\(datasource\)/,
+    );
+    expect(source).toMatch(
+      /if\s*\(\s*!body\.data\?\._permissions\.can_manage\s*\)\s*{\s*setSharingDatasource\(datasource\)/,
+    );
   });
 });
