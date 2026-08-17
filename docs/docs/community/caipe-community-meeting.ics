@@ -28,7 +28,7 @@ RRULE:FREQ=WEEKLY;BYDAY=TH
 SUMMARY:CAIPE Community Weekly Meeting
 DESCRIPTION:Join the CAIPE community for weekly discussions on multi-agent systems, platform engineering, and project updates.\n\nLinks:\n- Getting Started: https://caipe.io/docs/getting-started/quick-start\n- Meeting Recordings: https://caipe.io/docs/community/meeting-recordings\n- Governance: https://github.com/caipe-io/governance\n- Roadmap: https://github.com/orgs/cnoe-io/projects/9\n\nJoin Webex: https://go.webex.com/meet/cnoe
 LOCATION:https://go.webex.com/meet/cnoe
-ORGANIZER;CN=CAIPE Community:MAILTO:community@caipe.io
+ORGANIZER;CN=CAIPE Community:MAILTO:caipe-community@googlegroups.com
 UID:caipe-community-meeting@caipe.io
 SEQUENCE:0
 STATUS:CONFIRMED
