@@ -276,6 +276,7 @@ export function calculateRubrics(policy: RubricPolicy, input: RubricInput): Rubr
   const byId: Record<TomeRubricId, RubricResult> = {
     atomic_claim_inventory: metric("atomic_claim_inventory", policy, {
       score: ratio(claims.length - invalidClaimSpans.length, claims.length),
+      count: claims.length,
       numerator: claims.length - invalidClaimSpans.length,
       denominator: claims.length,
       findings: invalidClaimSpans.map(
@@ -379,7 +380,9 @@ export function qualityGateDecision(
         .filter((rubric) => rubric.enabled && rubric.blocking && rubric.passed !== true)
         .map((rubric) => rubric.id)
     : ["Evaluation is missing."];
-  if (evaluation?.status === "error") blockers.unshift(evaluation.error || "Evaluation failed.");
+  if (evaluation?.status === "error" || evaluation?.status === "partial") {
+    blockers.unshift(evaluation.error || "Evaluation is incomplete.");
+  }
   if (evaluation?.blocking_findings.length) blockers.push(...evaluation.blocking_findings);
   const enforced = policy.mode === "enforce";
   return {
@@ -416,24 +419,27 @@ function variance(values: number[]): number | null {
   return average === null ? null : mean(values.map((value) => (value - average) ** 2));
 }
 
+export function evaluationQualityScore(evaluation: ArtifactEvaluation): number {
+  return mean(evaluation.rubrics.filter((rubric) =>
+    rubric.passed !== null
+    && rubric.score !== undefined
+    && !["cost_efficiency", "latency_efficiency"].includes(rubric.id)
+  ).map((rubric) => rubric.score!)) ?? 0;
+}
+
 export function aggregateExperiment(
   experiment: TomeExperiment,
   artifacts: ExperimentArtifact[],
   evaluations: ArtifactEvaluation[],
 ): ExperimentAggregate[] {
-  const scoreFor = (evaluation: ArtifactEvaluation): number =>
-    mean(evaluation.rubrics.filter((rubric) =>
-      rubric.passed !== null
-      && rubric.score !== undefined
-      && !["cost_efficiency", "latency_efficiency"].includes(rubric.id)
-    ).map((rubric) => rubric.score!)) ?? 0;
-  const validEvaluations = evaluations.filter((evaluation) => evaluation.status !== "error");
+  const validEvaluations = evaluations.filter((evaluation) =>
+    evaluation.status === "passed" || evaluation.status === "failed");
   const paired = new Map<number, Partial<Record<"a" | "b", number>>>();
   for (const artifact of artifacts) {
     const evaluation = validEvaluations.find((value) => value.artifact_id === artifact._id);
     if (!evaluation) continue;
     const row = paired.get(artifact.trial) ?? {};
-    row[artifact.candidate] = scoreFor(evaluation);
+    row[artifact.candidate] = evaluationQualityScore(evaluation);
     paired.set(artifact.trial, row);
   }
   return (["a", "b"] as const).map((candidate) => {
@@ -441,10 +447,9 @@ export function aggregateExperiment(
     const allCandidateEvaluations = evaluations.filter((evaluation) =>
       candidateArtifacts.some((artifact) => artifact._id === evaluation.artifact_id),
     );
-    const candidateEvaluations = allCandidateEvaluations.filter(
-      (evaluation) => evaluation.status !== "error",
-    );
-    const scores = candidateEvaluations.map(scoreFor);
+    const candidateEvaluations = allCandidateEvaluations.filter((evaluation) =>
+      evaluation.status === "passed" || evaluation.status === "failed");
+    const scores = candidateEvaluations.map(evaluationQualityScore);
     let wins = 0;
     let ties = 0;
     let losses = 0;

@@ -190,4 +190,34 @@ describe("internal pages POST — FGA enforcement for chat-initiated writes", ()
     );
     expect(mockWritePage).not.toHaveBeenCalled();
   });
+
+  it("rejects quick-evaluation writes outside the selected pages", async () => {
+    mockGetExperiment.mockResolvedValue({
+      _id: "experiment-1",
+      project_id: "proj-1",
+      config: {
+        evaluation_mode: "quick",
+        evaluation_page_scope: { mode: "selected", paths: ["overview.md"] },
+      },
+    });
+    mockGetExperimentArtifact.mockResolvedValue({
+      _id: "artifact-1",
+      experiment_id: "experiment-1",
+      project_id: "proj-1",
+    });
+
+    const { POST } = await import("../route");
+    const res = await POST(postRequest({
+      path: "status.md",
+      body: "# Out of scope",
+      experiment_id: "experiment-1",
+      artifact_id: "artifact-1",
+    }), ctx());
+
+    expect(res.status).toBe(403);
+    await expect(res.json()).resolves.toMatchObject({
+      code: "QUICK_EVALUATION_PAGE_SCOPE",
+    });
+    expect(mockWriteExperimentArtifactPage).not.toHaveBeenCalled();
+  });
 });

@@ -5,11 +5,17 @@ import { NextRequest, NextResponse } from "next/server";
 import { authOptions } from "@/lib/auth-config";
 import { getCollection } from "@/lib/mongodb";
 import { isTomeAdmin } from "@/lib/rbac/tome-admin";
-import { listExperiments } from "@/lib/tome/evaluation-store";
+import { auditTome } from "@/lib/tome/audit";
+import { deleteTerminalExperiments, listExperiments } from "@/lib/tome/evaluation-store";
 import { startExperiment } from "@/lib/tome/experiment-runner";
 import { isTomeServerEnabled } from "@/lib/tome/guard";
 import type { ProjectDocument } from "@/types/projects";
-import type { ExperimentOperation, RubricPolicy } from "@/types/tome-evaluation";
+import type {
+  ExperimentEvaluationMode,
+  ExperimentOperation,
+  ExperimentPageScope,
+  RubricPolicy,
+} from "@/types/tome-evaluation";
 
 export const dynamic = "force-dynamic";
 
@@ -31,6 +37,35 @@ export async function GET() {
   return NextResponse.json({ data: await listExperiments() });
 }
 
+export async function DELETE(request: NextRequest) {
+  if (!isTomeServerEnabled()) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const session = await adminSession();
+  if (!session) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (request.nextUrl.searchParams.get("scope") !== "terminal") {
+    return NextResponse.json(
+      { error: "scope=terminal is required; active experiments are never deleted" },
+      { status: 400 },
+    );
+  }
+  try {
+    const result = await deleteTerminalExperiments({ actor: session.user.email });
+    auditTome({
+      action: "tome.experiment.delete_terminal_runs",
+      actor: { type: "user", id: session.sub || session.user.email },
+      projectSlug: result.project_slugs.length === 1
+        ? result.project_slugs[0]
+        : "model-evaluations",
+      metadata: { ...result },
+    });
+    return NextResponse.json({ data: result });
+  } catch (error) {
+    return NextResponse.json(
+      { error: String((error as Error)?.message ?? error) },
+      { status: 409 },
+    );
+  }
+}
+
 export async function POST(request: NextRequest) {
   if (!isTomeServerEnabled()) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const session = await adminSession();
@@ -48,6 +83,8 @@ export async function POST(request: NextRequest) {
     turn_limit?: number;
     seed?: number;
     instruction?: string | null;
+    evaluation_page_scope?: ExperimentPageScope;
+    evaluation_mode?: ExperimentEvaluationMode;
   } | null;
   if (!body?.entity_id || !body.model_a || !body.model_b || !body.evaluator_model) {
     return NextResponse.json(
@@ -96,6 +133,8 @@ export async function POST(request: NextRequest) {
       turnLimit: body.turn_limit,
       seed: body.seed,
       instruction: body.instruction,
+      evaluationPageScope: body.evaluation_page_scope,
+      evaluationMode: body.evaluation_mode,
     });
     return NextResponse.json({ data: experiment }, { status: 202 });
   } catch (error) {

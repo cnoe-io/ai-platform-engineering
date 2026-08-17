@@ -282,6 +282,13 @@ async def stream_synthesis(
             "Use TBD/unknown/not found for evidence gaps. Manifest:\n"
             f"{manifest or '- no non-page evidence items'}"
         )
+        if experiment.evaluation_mode == "quick":
+            targets = ", ".join(f"`{path}`" for path in experiment.evaluation_page_paths)
+            system_prompt += (
+                "\n\nQUICK PAGE EVALUATION: synthesize only "
+                f"{targets}. Read only the frozen inputs needed for those pages, do not "
+                "edit any other page, and stop when the selected pages are complete."
+            )
     options = build_agent_options(
         snapshot=snapshot,
         system_prompt=system_prompt,
@@ -292,24 +299,35 @@ async def stream_synthesis(
         on_write=on_write,
         extra_read_dirs=child_read_dirs,
         offline=experiment is not None,
+        max_budget_usd=experiment.max_budget_usd if experiment is not None else None,
     )
 
     entity_kind = "Area" if snapshot.project_type == "area" else "BHAG"
-    prompt_parts = [
-        (
-            f"Run a {'GREENFIELD' if is_greenfield else 'INCREMENTAL'} "
-            f'{entity_kind} synthesis for "{snapshot.name}". Begin by reading '
-            "your own existing wiki pages, then read the wikis of the child "
-            "projects at the paths listed in the system prompt, investigate the "
-            + (
-                "frozen child and source evidence, and synthesize this "
-                if experiment is not None
-                else "directly attached sources, and synthesize this "
+    if experiment is not None and experiment.evaluation_mode == "quick":
+        targets = ", ".join(f"`{path}`" for path in experiment.evaluation_page_paths)
+        prompt_parts = [
+            (
+                f'Synthesize only {targets} for "{snapshot.name}". Read only the frozen '
+                "project and child evidence needed for those pages. Do not inspect or edit "
+                "unrelated pages, and stop when the targets are complete. Ground every claim."
             )
-            + f"{entity_kind}'s "
-            "pages. Ground everything in those inputs — do not invent."
-        )
-    ]
+        ]
+    else:
+        prompt_parts = [
+            (
+                f"Run a {'GREENFIELD' if is_greenfield else 'INCREMENTAL'} "
+                f'{entity_kind} synthesis for "{snapshot.name}". Begin by reading '
+                "your own existing wiki pages, then read the wikis of the child "
+                "projects at the paths listed in the system prompt, investigate the "
+                + (
+                    "frozen child and source evidence, and synthesize this "
+                    if experiment is not None
+                    else "directly attached sources, and synthesize this "
+                )
+                + f"{entity_kind}'s "
+                "pages. Ground everything in those inputs — do not invent."
+            )
+        ]
     if experiment is not None:
         prompt_parts.append(
             "\n\nREPRODUCIBLE RUN IDENTITY: "

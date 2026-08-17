@@ -429,6 +429,7 @@ def build_agent_options(
     on_write: Callable[[str, int], Any] | None = None,
     extra_read_dirs: list[Path] | None = None,
     offline: bool = False,
+    max_budget_usd: float | None = None,
 ) -> ClaudeAgentOptions:
     """Compose ClaudeAgentOptions for chat and ingest in the agent
     container. MCP servers are scoped to the snapshot's sources.
@@ -552,6 +553,7 @@ def build_agent_options(
         debug_stderr=True,
         include_partial_messages=include_partial_messages,
         max_turns=max_turns,
+        max_budget_usd=max_budget_usd,
         hooks={
             "PreToolUse": [
                 HookMatcher(

@@ -15,6 +15,7 @@ const EXPERIMENT_ID = "model-label-experiment";
 const MODEL_A = "provider/model-alpha";
 const MODEL_B = "provider/model-beta";
 const SONNET_5_MODEL = "bedrock/global.anthropic.claude-sonnet-5";
+const OPUS_48_MODEL = "bedrock/global.anthropic.claude-opus-4-8";
 const OPUS_5_MODEL = "bedrock/global.anthropic.claude-opus-5";
 
 const RUBRIC_IDS = [
@@ -151,6 +152,18 @@ test.describe("TOME model evaluations default-off behavior (mocked)", () => {
         await fulfillJson(route, { data: [] });
         return true;
       }
+      if (path === "/api/tome/admin/experiments/page-manifest" && method === "GET") {
+        await fulfillJson(route, {
+          data: {
+            entity_id: PROJECT_ID,
+            paths: [
+              { path: "overview.md", characters: 1200, origin: "wiki", exists: true },
+              { path: "status.md", characters: 800, origin: "wiki", exists: true },
+            ],
+          },
+        });
+        return true;
+      }
       if (path === "/api/tome/admin/experiments" && method === "POST") {
         startRequests += 1;
         await fulfillJson(route, { data: { _id: "unexpected-run" } }, 202);
@@ -203,15 +216,32 @@ test.describe("TOME model evaluations default-off behavior (mocked)", () => {
     const modelBPicker = page.getByRole("combobox", { name: "Model B", exact: true });
     await modelBPicker.selectOption(OPUS_5_MODEL);
     await expect(modelBPicker).toHaveValue(OPUS_5_MODEL);
-    await modelBPicker.selectOption({ label: "Custom…" });
-    const customModelInput = page.getByRole("textbox", {
-      name: "Model B custom model id",
-      exact: true,
-    });
-    await customModelInput.fill("provider/custom-model");
-    await expect(customModelInput).toHaveValue("provider/custom-model");
-    await modelBPicker.selectOption(OPUS_5_MODEL);
-    await expect(customModelInput).toHaveCount(0);
+    await expect(page.getByText(
+      "The evaluator must be strictly more capable than the strongest candidate.",
+      { exact: true },
+    )).toBeVisible();
+    await expect(page.getByRole("button", { name: "Run model evaluation" })).toBeDisabled();
+    await modelBPicker.selectOption(SONNET_5_MODEL);
+    await page.getByRole("button", { name: "Use recommended evaluator" }).click();
+    await expect(page.getByRole("combobox", { name: "Evaluator model", exact: true }))
+      .toHaveValue(OPUS_48_MODEL);
+    await expect(page.getByText(/Upper-bound judge/)).toBeVisible();
+    await expect(page.getByRole("button", { name: "Run model evaluation" })).toBeDisabled();
+    await page.getByRole("checkbox", { name: /overview\.md/ }).check();
+    await expect(page.getByText(
+      "1 page × 2 candidates × 1 trial = 2 judge calls + 2 targeted candidate runs",
+      { exact: true },
+    ))
+      .toBeVisible();
+    await expect(page.getByRole("button", { name: "Run model evaluation" })).toBeEnabled();
+
+    await page.getByRole("combobox", { name: "Evaluation type" }).selectOption("all_pages");
+    await expect(page.getByText("All-pages audits are expensive and slow", { exact: true }))
+      .toBeVisible();
+    await page.getByRole("button", { name: "Run model evaluation" }).click();
+    await expect(page.getByRole("dialog")).toContainText("Run an all-pages evaluation?");
+    await expect(page.getByRole("dialog")).toContainText("4 judge calls");
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
 
     const newEvaluationToggle = page.getByRole("button", {
       name: "New paired model evaluation",
@@ -550,6 +580,17 @@ test.describe("TOME model evaluations default-off behavior (mocked)", () => {
     await expect(page.getByText(MODEL_B, { exact: true }).first()).toBeVisible();
     await expect(page.getByText("candidate-x", { exact: true })).toHaveCount(0);
     await expect(page.getByText("candidate-y", { exact: true })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Decision summary", exact: true }))
+      .toBeVisible();
+    await expect(page.getByText("No recommendation yet", { exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Paired-trial quality", exact: true }))
+      .toBeVisible();
+    await expect(page.getByRole("heading", { name: "Claim outcomes", exact: true }))
+      .toBeVisible();
+    await expect(page.getByRole("heading", { name: "File quality differences", exact: true }))
+      .toBeVisible();
+    await expect(page.getByRole("heading", { name: "Quality, cost, and latency", exact: true }))
+      .toBeVisible();
 
     const pageSelect = page.getByRole("combobox", {
       name: "Evaluation page",
@@ -558,8 +599,12 @@ test.describe("TOME model evaluations default-off behavior (mocked)", () => {
     await pageSelect.selectOption("foo.md");
     await expect(page.getByRole("heading", { name: "Selected file · foo.md", exact: true }))
       .toBeVisible();
-    await expect(page.getByText("Contradicted 1", { exact: true })).toHaveCount(1);
-    await expect(page.getByText("Supported 1", { exact: true })).toHaveCount(1);
+    const selectedFile = page.getByRole("heading", {
+      name: "Selected file · foo.md",
+      exact: true,
+    }).locator("../..");
+    await expect(selectedFile.getByText("Contradicted 1", { exact: true })).toHaveCount(1);
+    await expect(selectedFile.getByText("Supported 1", { exact: true })).toHaveCount(1);
     await expect(page.getByText("Alpha foo", { exact: true })).toBeVisible();
     await expect(page.getByText("Beta foo", { exact: true })).toBeVisible();
     await expect(page.locator('svg[role="img"][aria-label^="Rubric radar"]')).toBeVisible();
@@ -578,6 +623,9 @@ test.describe("TOME model evaluations default-off behavior (mocked)", () => {
       .toBeGreaterThan(detailRequestsBeforeRefresh);
     await expect(pageSelect).toHaveValue("foo.md");
     await expect(page.getByRole("heading", { name: "Selected file · foo.md", exact: true }))
+      .toBeVisible();
+    await page.getByRole("button", { name: /^activity\.md, Claim Evidence:/ }).click();
+    await expect(page.getByRole("heading", { name: "Selected file · activity.md", exact: true }))
       .toBeVisible();
 
     await page.getByRole("button", { name: "Stop evaluation", exact: true }).click();
@@ -620,8 +668,8 @@ test.describe("TOME model evaluations default-off behavior (mocked)", () => {
       artifact_id: artifact._id,
       blind_label: artifact.blind_label,
       status: "error",
-      error: `Judge request failed for ${artifact.model}`,
-      blocking_findings: [`Judge request failed for ${artifact.model}`],
+      error: 'Evaluator failed (502): {"detail":"error_max_turns"}',
+      blocking_findings: ['Evaluator failed (502): {"detail":"error_max_turns"}'],
       rubrics: [],
       claims: [],
     }));
@@ -684,16 +732,29 @@ test.describe("TOME model evaluations default-off behavior (mocked)", () => {
     await page.goto("/projects/admin?tab=experiments", { waitUntil: "domcontentloaded" });
     await page.getByText(`${PROJECT_SLUG} · ingest`, { exact: true }).click();
 
-    await expect(page.getByText("Evaluator failed for 2 candidate outputs", { exact: true }))
+    await expect(page.getByText("No scores were produced", { exact: true }))
       .toBeVisible();
+    await expect(page.getByText("2 of 2 judge calls failed.", { exact: false })).toBeVisible();
+    await expect(page.getByText("Evaluator turn budget exceeded", { exact: true })).toBeVisible();
+    await expect(page.getByText("2 calls", { exact: true })).toBeVisible();
+    await expect(page.getByText("Evaluation Failed", { exact: true })).toBeVisible();
+    await expect(page.getByText("2/2 judge calls failed", { exact: true })).toBeVisible();
+    const rawErrors = page.getByText(
+      'Evaluator failed (502): {"detail":"error_max_turns"}',
+      { exact: false },
+    );
+    await expect(rawErrors).toHaveCount(2);
+    for (const rawError of await rawErrors.all()) await expect(rawError).not.toBeVisible();
+    await page.getByText("Technical details (2)", { exact: true }).click();
+    for (const rawError of await rawErrors.all()) await expect(rawError).toBeVisible();
     await expect(page.getByText(
       "Radar unavailable because the evaluator failed for this trial. Review the error above and rerun the evaluation.",
       { exact: true },
     )).toBeVisible();
     await expect(page.locator('svg[role="img"][aria-label^="Rubric radar"]')).toHaveCount(0);
-    await expect(page.getByText("Mean — · median — · variance —", { exact: true }))
+    await expect(page.getByText("Mean quality", { exact: true })).toHaveCount(2);
+    await expect(page.getByText("W/T/L 0/0/0 · pass — · variance —", { exact: true }))
       .toHaveCount(2);
-    await expect(page.getByText("W/T/L 0/0/0 · pass —", { exact: true })).toHaveCount(2);
     const winnerButtons = page.getByRole("button", {
       name: "Select winner for draft review",
       exact: true,
@@ -702,6 +763,264 @@ test.describe("TOME model evaluations default-off behavior (mocked)", () => {
     for (const button of await winnerButtons.all()) {
       await expect(button).toBeDisabled();
     }
+  });
+
+  test("preserves partial file results and retries only failed checkpoints", async ({ page }) => {
+    let retryRequests = 0;
+    const experiment = {
+      _id: "partial-file-experiment",
+      project_id: PROJECT_ID,
+      project_slug: PROJECT_SLUG,
+      evidence_bundle_id: "example-evidence-bundle",
+      evidence_hash: "example-evidence-hash",
+      config: {
+        operation: "ingest",
+        model_a: MODEL_A,
+        model_b: MODEL_B,
+        evaluator_model: "provider/model-judge",
+        repeat_count: 1,
+        evaluation_suite_id: "live-entity",
+        evaluation_suite_version: 1,
+        prompt_hash: "example-prompt-hash",
+        tool_contract_version: "example-tool-contract",
+        rubric_policy: globalOffPolicy.rubrics,
+      },
+      status: "completed_with_errors",
+      trials: [],
+      created_at: "2026-01-01T00:00:00.000Z",
+      created_by: "tome-admin@example.test",
+    };
+    const artifacts = [
+      {
+        _id: "artifact-partial-a",
+        trial: 1,
+        candidate: "a",
+        blind_label: "candidate-x",
+        model: MODEL_A,
+        pages: [
+          { path: "complete.md", markdown: "Complete", content_hash: "complete-content-hash" },
+          { path: "broken.md", markdown: "Broken", content_hash: "broken-content-hash" },
+        ],
+      },
+    ];
+    const evaluations = [{
+      _id: "evaluation-partial-a",
+      artifact_id: "artifact-partial-a",
+      blind_label: "candidate-x",
+      status: "partial",
+      error: "1 file evaluation(s) failed; successful file results were preserved.",
+      blocking_findings: ["1 of 2 files could not be evaluated."],
+      rubrics: [],
+      claims: [],
+      evaluated_files: 1,
+      total_files: 2,
+      failed_files: ["broken.md"],
+    }];
+    const fileEvaluations = [
+      {
+        _id: "checkpoint-complete",
+        experiment_id: experiment._id,
+        artifact_id: "artifact-partial-a",
+        blind_label: "candidate-x",
+        path: "complete.md",
+        content_hash: "complete-content-hash",
+        status: "succeeded",
+        claims: [],
+        signals: {},
+        chunk_count: 1,
+        completed_chunks: 1,
+        attempts: 1,
+        started_at: "2026-01-01T00:00:00.000Z",
+        updated_at: "2026-01-01T00:00:01.000Z",
+      },
+      {
+        _id: "checkpoint-broken",
+        experiment_id: experiment._id,
+        artifact_id: "artifact-partial-a",
+        blind_label: "candidate-x",
+        path: "broken.md",
+        content_hash: "broken-content-hash",
+        status: "error",
+        claims: [],
+        signals: {},
+        chunk_count: 1,
+        completed_chunks: 0,
+        attempts: 3,
+        retryable: true,
+        error: "Evaluator failed (503): temporarily unavailable",
+        started_at: "2026-01-01T00:00:00.000Z",
+        updated_at: "2026-01-01T00:00:01.000Z",
+      },
+    ];
+    const handler: MockRouteHandler = async ({ route, path, method, url }) => {
+      if (path === "/api/tome/admin" && method === "GET") {
+        await fulfillJson(route, { isTomeAdmin: true });
+        return true;
+      }
+      if (path === "/api/projects" && method === "GET" && url.searchParams.has("type")) {
+        await fulfillJson(route, { success: true, data: { projects: [project] } });
+        return true;
+      }
+      if (path === "/api/tome/admin/experiments" && method === "GET") {
+        await fulfillJson(route, { data: [experiment] });
+        return true;
+      }
+      if (path === `/api/tome/admin/experiments/${experiment._id}` && method === "GET") {
+        await fulfillJson(route, {
+          data: {
+            experiment,
+            artifacts,
+            evaluations,
+            file_evaluations: fileEvaluations,
+            aggregates: ["a", "b"].map((candidate) => ({
+              candidate,
+              wins: 0,
+              ties: 0,
+              losses: 0,
+              pass_rate: null,
+              mean_score: null,
+              median_score: null,
+              variance: null,
+              generation_cost_usd: 1,
+              evaluation_cost_usd: 0.1,
+              cost_per_supported_claim: null,
+              median_generation_latency_ms: 10,
+              median_evaluation_latency_ms: 20,
+            })),
+            warnings: [],
+          },
+        });
+        return true;
+      }
+      if (path === `/api/tome/admin/experiments/${experiment._id}/retry-files`
+        && method === "POST") {
+        retryRequests += 1;
+        await fulfillJson(route, { data: { ...experiment, status: "evaluating" } }, 202);
+        return true;
+      }
+      if (path === "/api/tome/admin/quality-policies" && method === "GET") {
+        await fulfillJson(route, { data: [globalOffPolicy] });
+        return true;
+      }
+      return false;
+    };
+
+    await installMockedRbacApp(page, {
+      isAdmin: true,
+      session: {
+        email: "tome-admin@example.test",
+        name: "Example TOME Admin",
+        role: "admin",
+        canViewAdmin: true,
+      },
+      handlers: [handler],
+    });
+    await page.goto("/projects/admin?tab=experiments", { waitUntil: "domcontentloaded" });
+    await page.getByText(`${PROJECT_SLUG} · ingest`, { exact: true }).click();
+
+    const partialAlert = page.getByRole("alert").filter({ hasText: "Partial results" });
+    await expect(partialAlert.getByText("Partial results · 1 failed file", { exact: true }))
+      .toBeVisible();
+    await expect(partialAlert.getByText("broken.md", { exact: true })).toBeVisible();
+    await expect(partialAlert.getByText("0/1 chunks checkpointed", { exact: false }))
+      .toBeVisible();
+    await expect(page.getByText("Evaluator failed (503): temporarily unavailable", { exact: true }))
+      .not.toBeVisible();
+    await page.getByRole("button", { name: "Retry 1 incomplete file", exact: true }).click();
+    await expect.poll(() => retryRequests).toBe(1);
+    await expect(page.getByText(
+      "Retrying failed files; completed file checkpoints were preserved",
+      { exact: true },
+    )).toBeVisible();
+  });
+
+  test("deletes terminal evaluation runs while protecting active work", async ({ page }) => {
+    let deleteRequests = 0;
+    const terminalExperiment = {
+      _id: "terminal-experiment",
+      project_id: PROJECT_ID,
+      project_slug: PROJECT_SLUG,
+      evidence_bundle_id: "terminal-evidence",
+      evidence_hash: "terminal-evidence-hash",
+      config: {
+        operation: "ingest",
+        model_a: MODEL_A,
+        model_b: MODEL_B,
+        evaluator_model: "provider/model-judge",
+        repeat_count: 1,
+        evaluation_suite_id: "live-entity",
+        evaluation_suite_version: 1,
+        prompt_hash: "example-prompt-hash",
+        tool_contract_version: "example-tool-contract",
+        rubric_policy: globalOffPolicy.rubrics,
+      },
+      status: "completed",
+      trials: [],
+      created_at: "2026-01-01T00:00:00.000Z",
+      created_by: "tome-admin@example.test",
+    };
+    const handler: MockRouteHandler = async ({ route, path, method, url }) => {
+      if (path === "/api/tome/admin" && method === "GET") {
+        await fulfillJson(route, { isTomeAdmin: true });
+        return true;
+      }
+      if (path === "/api/projects" && method === "GET" && url.searchParams.has("type")) {
+        await fulfillJson(route, { success: true, data: { projects: [project] } });
+        return true;
+      }
+      if (path === "/api/tome/admin/experiments" && method === "GET") {
+        await fulfillJson(route, {
+          data: [
+            terminalExperiment,
+            { ...terminalExperiment, _id: "active-experiment", status: "running" },
+          ],
+        });
+        return true;
+      }
+      if (path === "/api/tome/admin/experiments" && method === "DELETE") {
+        deleteRequests += 1;
+        expect(url.searchParams.get("scope")).toBe("terminal");
+        await fulfillJson(route, {
+          data: {
+            deleted_experiments: 1,
+            deleted_run_ids: [terminalExperiment._id],
+          },
+        });
+        return true;
+      }
+      if (path === "/api/tome/admin/quality-policies" && method === "GET") {
+        await fulfillJson(route, { data: [globalOffPolicy] });
+        return true;
+      }
+      return false;
+    };
+
+    await installMockedRbacApp(page, {
+      isAdmin: true,
+      session: {
+        email: "tome-admin@example.test",
+        name: "Example TOME Admin",
+        role: "admin",
+        canViewAdmin: true,
+      },
+      handlers: [handler],
+    });
+    await page.goto("/projects/admin?tab=experiments", { waitUntil: "domcontentloaded" });
+
+    await page.getByRole("button", { name: "Delete old runs", exact: true }).click();
+    await expect(page.getByRole("heading", {
+      name: "Delete all old evaluation runs?",
+      exact: true,
+    })).toBeVisible();
+    await expect(page.getByText("Active runs are protected.", { exact: false })).toBeVisible();
+    await expect(page.getByText(
+      "Draft-review runs already created from a selected winner are not deleted.",
+      { exact: true },
+    )).toBeVisible();
+    await page.getByRole("button", { name: "Delete all old runs", exact: true }).click();
+
+    await expect.poll(() => deleteRequests).toBe(1);
+    await expect(page.getByText("1 evaluation run deleted", { exact: true })).toBeVisible();
   });
 
   test("keeps normal draft approval unchanged when the quality policy is Off", async ({

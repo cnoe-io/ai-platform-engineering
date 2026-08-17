@@ -24,7 +24,7 @@ from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 # ---------- shared identity / project snapshot ----------
 
@@ -160,6 +160,9 @@ class ExperimentRunContext(BaseModel):
     frozen_child_pages: dict[str, dict[str, str]] = Field(default_factory=dict)
     frozen_evidence: list[FrozenEvidenceItem] = Field(default_factory=list)
     template_overrides: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
+    evaluation_mode: Literal["quick", "deep", "all_pages"] = "deep"
+    evaluation_page_paths: list[str] = Field(default_factory=list)
+    max_budget_usd: float | None = Field(default=None, gt=0)
 
 
 class IngestRequest(BaseModel):
@@ -312,6 +315,12 @@ class EvaluationClaim(BaseModel):
     fabricated_entities: list[str] = Field(default_factory=list)
     fabricated_quantitative_details: list[str] = Field(default_factory=list)
 
+    @field_validator("critical_kind", mode="before")
+    @classmethod
+    def normalize_legacy_null_critical_kind(cls, value: Any) -> Any:
+        """Accept the quoted null sentinel emitted against the v1 prompt."""
+        return None if value == "null" else value
+
 
 class EvaluationSignal(BaseModel):
     passed: int = Field(ge=0)
@@ -326,15 +335,28 @@ class EvaluatorPromptContract(BaseModel):
     editable: bool = False
 
 
+class EvaluatorModelProfile(BaseModel):
+    model_id: str
+    profile_version: int = Field(ge=1)
+    capability_rank: int = Field(ge=1)
+    context_window_tokens: int = Field(ge=1)
+    max_output_tokens: int = Field(ge=1)
+    supports_structured_output: bool
+
+
 class ArtifactEvaluationRequest(BaseModel):
     blind_label: str
     evaluator_model: str
+    evaluator_profile: EvaluatorModelProfile | None = None
     evaluator_prompt_version: str | None = None
+    evaluation_mode: Literal["quick", "deep"] = "deep"
+    max_claims: int | None = Field(default=None, ge=1, le=50)
     entity_type: Literal["project", "area", "bhag"]
     candidate_pages: dict[str, str]
     evidence: list[EvaluationEvidenceItem]
     required_template_paths: list[str] = Field(default_factory=list)
     live_stable_pages: dict[str, str] = Field(default_factory=dict)
+    max_cost_usd: float | None = Field(default=None, gt=0)
 
 
 class ArtifactEvaluationResponse(BaseModel):
@@ -343,6 +365,11 @@ class ArtifactEvaluationResponse(BaseModel):
     tokens: dict[str, int] = Field(default_factory=dict)
     turns: int = 1
     cost_usd: float | None = None
+    batches: int = Field(default=1, ge=1)
+    attempts: int = Field(default=1, ge=1)
+    input_budget_tokens: int | None = Field(default=None, ge=1)
+    output_budget_tokens: int | None = Field(default=None, ge=1)
+    peak_estimated_input_tokens: int | None = Field(default=None, ge=1)
 
 
 # ---------- agent /healthz, /readyz ----------
@@ -367,8 +394,9 @@ __all__ = [
     "EvaluationClaim",
     "EvaluationClaimEvidence",
     "EvaluationEvidenceItem",
-    "EvaluatorPromptContract",
     "EvaluationSignal",
+    "EvaluatorModelProfile",
+    "EvaluatorPromptContract",
     "ExperimentRunContext",
     "FrozenEvidenceItem",
     "HealthResponse",

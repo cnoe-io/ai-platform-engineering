@@ -7,6 +7,7 @@ import type { ProjectType } from "@/types/projects";
 import {
   TOME_RUBRIC_IDS,
   type ArtifactEvaluation,
+  type ArtifactFileEvaluation,
   type EvidenceBundle,
   type ExperimentArtifact,
   type ExperimentArtifactPage,
@@ -23,8 +24,34 @@ export const TOME_EVIDENCE_BUNDLES_COLLECTION = "tome_evidence_bundles";
 export const TOME_EXPERIMENTS_COLLECTION = "tome_experiments";
 export const TOME_EXPERIMENT_ARTIFACTS_COLLECTION = "tome_experiment_artifacts";
 export const TOME_ARTIFACT_EVALUATIONS_COLLECTION = "tome_artifact_evaluations";
+export const TOME_ARTIFACT_FILE_EVALUATIONS_COLLECTION = "tome_artifact_file_evaluations";
 export const TOME_QUALITY_POLICIES_COLLECTION = "tome_quality_policies";
 export const TOME_QUALITY_GATE_OVERRIDES_COLLECTION = "tome_quality_gate_overrides";
+
+export const TERMINAL_EXPERIMENT_STATUSES: TomeExperiment["status"][] = [
+  "stopped_by_user",
+  "completed",
+  "completed_with_errors",
+  "stopped_cost_ceiling",
+  "failed",
+];
+
+interface DeletionLockedExperiment extends TomeExperiment {
+  deletion_token?: string;
+  deletion_started_at?: string;
+  deletion_started_by?: string;
+  deletion_failed_at?: string;
+}
+
+export interface ExperimentDeletionSummary {
+  deleted_experiments: number;
+  deleted_artifacts: number;
+  deleted_evaluations: number;
+  deleted_file_evaluations: number;
+  deleted_evidence_bundles: number;
+  deleted_run_ids: string[];
+  project_slugs: string[];
+}
 
 export function sha256(value: string): string {
   return createHash("sha256").update(value, "utf8").digest("hex");
@@ -200,15 +227,158 @@ export async function requestExperimentCancellation(input: {
   return result.modifiedCount === 1;
 }
 
+export async function claimExperimentFileRetry(input: {
+  id: string;
+  actor: string;
+}): Promise<boolean> {
+  const col = await getCollection<DeletionLockedExperiment>(TOME_EXPERIMENTS_COLLECTION);
+  const now = new Date().toISOString();
+  const result = await col.updateOne(
+    {
+      _id: input.id,
+      status: { $in: ["completed", "completed_with_errors", "failed"] },
+      deletion_token: { $exists: false },
+      deletion_started_at: { $exists: false },
+    },
+    {
+      $set: {
+        status: "evaluating",
+        last_file_retry_at: now,
+        last_file_retry_by: input.actor,
+      },
+      $unset: {
+        finished_at: "",
+        error: "",
+        cancel_requested_at: "",
+        cancel_requested_by: "",
+      },
+    },
+  );
+  return result.modifiedCount === 1;
+}
+
+export async function deleteTerminalExperiments(input: {
+  actor: string;
+  experimentId?: string;
+}): Promise<ExperimentDeletionSummary> {
+  const experiments = await getCollection<DeletionLockedExperiment>(TOME_EXPERIMENTS_COLLECTION);
+  const selector = {
+    ...(input.experimentId ? { _id: input.experimentId } : {}),
+    status: { $in: TERMINAL_EXPERIMENT_STATUSES },
+    deletion_token: { $exists: false },
+  };
+  const candidates = await experiments.find(selector).toArray();
+  if (input.experimentId && candidates.length === 0) {
+    const existing = await experiments.findOne({ _id: input.experimentId });
+    if (!existing) throw new Error("Experiment not found.");
+    if (existing.deletion_token) {
+      throw new Error("Experiment deletion is already in progress; refresh and try again.");
+    }
+    throw new Error("Active experiments must be stopped before deletion.");
+  }
+  if (candidates.length === 0) {
+    return {
+      deleted_experiments: 0,
+      deleted_artifacts: 0,
+      deleted_evaluations: 0,
+      deleted_file_evaluations: 0,
+      deleted_evidence_bundles: 0,
+      deleted_run_ids: [],
+      project_slugs: [],
+    };
+  }
+
+  const deletionToken = randomUUID();
+  const candidateIds = candidates.map((experiment) => experiment._id);
+  await experiments.updateMany(
+    { ...selector, _id: { $in: candidateIds } },
+    {
+      $set: {
+        deletion_token: deletionToken,
+        deletion_started_at: new Date().toISOString(),
+        deletion_started_by: input.actor,
+      },
+      $unset: { deletion_failed_at: "" },
+    },
+  );
+  const locked = await experiments.find({ deletion_token: deletionToken }).toArray();
+  const experimentIds = locked.map((experiment) => experiment._id);
+  if (experimentIds.length === 0) {
+    throw new Error("The selected experiments changed before deletion; refresh and try again.");
+  }
+
+  try {
+    const [artifacts, evaluations, fileEvaluations] = await Promise.all([
+      getCollection<ExperimentArtifact>(TOME_EXPERIMENT_ARTIFACTS_COLLECTION),
+      getCollection<ArtifactEvaluation>(TOME_ARTIFACT_EVALUATIONS_COLLECTION),
+      getCollection<ArtifactFileEvaluation>(TOME_ARTIFACT_FILE_EVALUATIONS_COLLECTION),
+    ]);
+    const [artifactResult, evaluationResult, fileEvaluationResult] = await Promise.all([
+      artifacts.deleteMany({ experiment_id: { $in: experimentIds } }),
+      evaluations.deleteMany({ experiment_id: { $in: experimentIds } }),
+      fileEvaluations.deleteMany({ experiment_id: { $in: experimentIds } }),
+    ]);
+    const experimentResult = await experiments.deleteMany({
+      _id: { $in: experimentIds },
+      deletion_token: deletionToken,
+    });
+
+    const evidenceBundles = await getCollection<EvidenceBundle>(TOME_EVIDENCE_BUNDLES_COLLECTION);
+    let deletedEvidenceBundles = 0;
+    for (const evidenceBundleId of new Set(locked.map((experiment) => experiment.evidence_bundle_id))) {
+      if (await experiments.countDocuments({ evidence_bundle_id: evidenceBundleId }) === 0) {
+        try {
+          deletedEvidenceBundles += (await evidenceBundles.deleteOne({ _id: evidenceBundleId }))
+            .deletedCount;
+        } catch (error) {
+          // The run-owned records are already gone. Leave an unreferenced
+          // evidence bundle for later cleanup instead of reporting that the
+          // requested deletion failed after it actually succeeded.
+          console.warn("[tome-evaluations] orphan evidence cleanup failed", {
+            evidenceBundleId,
+            error,
+          });
+        }
+      }
+    }
+    return {
+      deleted_experiments: experimentResult.deletedCount,
+      deleted_artifacts: artifactResult.deletedCount,
+      deleted_evaluations: evaluationResult.deletedCount,
+      deleted_file_evaluations: fileEvaluationResult.deletedCount,
+      deleted_evidence_bundles: deletedEvidenceBundles,
+      deleted_run_ids: experimentIds,
+      project_slugs: [...new Set(locked.map((experiment) => experiment.project_slug))],
+    };
+  } catch (error) {
+    await experiments.updateMany(
+      { deletion_token: deletionToken },
+      {
+        $set: { deletion_failed_at: new Date().toISOString() },
+        $unset: {
+          deletion_token: "",
+          deletion_started_by: "",
+        },
+      },
+    );
+    throw error;
+  }
+}
+
 export async function claimExperimentPromotion(input: {
   experimentId: string;
   candidate: ExperimentCandidate;
   artifactId: string;
   runId: string;
 }): Promise<boolean> {
-  const col = await getCollection<TomeExperiment>(TOME_EXPERIMENTS_COLLECTION);
+  const col = await getCollection<DeletionLockedExperiment>(TOME_EXPERIMENTS_COLLECTION);
   const result = await col.updateOne(
-    { _id: input.experimentId, promoted_run_id: { $exists: false } },
+    {
+      _id: input.experimentId,
+      promoted_run_id: { $exists: false },
+      deletion_token: { $exists: false },
+      deletion_started_at: { $exists: false },
+    },
     {
       $set: {
         selected_winner: input.candidate,
@@ -302,6 +472,15 @@ export async function insertArtifactEvaluation(evaluation: ArtifactEvaluation): 
   await col.insertOne(evaluation);
 }
 
+export async function upsertArtifactEvaluation(evaluation: ArtifactEvaluation): Promise<void> {
+  const col = await getCollection<ArtifactEvaluation>(TOME_ARTIFACT_EVALUATIONS_COLLECTION);
+  await col.replaceOne(
+    { experiment_id: evaluation.experiment_id, artifact_id: evaluation.artifact_id },
+    evaluation,
+    { upsert: true },
+  );
+}
+
 export async function getArtifactEvaluation(id: string): Promise<ArtifactEvaluation | null> {
   const col = await getCollection<ArtifactEvaluation>(TOME_ARTIFACT_EVALUATIONS_COLLECTION);
   return col.findOne({ _id: id });
@@ -310,6 +489,28 @@ export async function getArtifactEvaluation(id: string): Promise<ArtifactEvaluat
 export async function listArtifactEvaluations(experimentId: string): Promise<ArtifactEvaluation[]> {
   const col = await getCollection<ArtifactEvaluation>(TOME_ARTIFACT_EVALUATIONS_COLLECTION);
   return col.find({ experiment_id: experimentId }).sort({ created_at: 1 }).toArray();
+}
+
+export async function upsertArtifactFileEvaluation(
+  evaluation: ArtifactFileEvaluation,
+): Promise<void> {
+  const col = await getCollection<ArtifactFileEvaluation>(
+    TOME_ARTIFACT_FILE_EVALUATIONS_COLLECTION,
+  );
+  await col.replaceOne({ _id: evaluation._id }, evaluation, { upsert: true });
+}
+
+export async function listArtifactFileEvaluations(
+  experimentId: string,
+  artifactId?: string,
+): Promise<ArtifactFileEvaluation[]> {
+  const col = await getCollection<ArtifactFileEvaluation>(
+    TOME_ARTIFACT_FILE_EVALUATIONS_COLLECTION,
+  );
+  return col.find({
+    experiment_id: experimentId,
+    ...(artifactId ? { artifact_id: artifactId } : {}),
+  }).sort({ artifact_id: 1, path: 1 }).toArray();
 }
 
 export async function insertQualityGateOverride(

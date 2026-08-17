@@ -128,6 +128,13 @@ async def stream_compaction(
             "\n\nFROZEN EXPERIMENT: use only the materialized workspace. "
             "Live web, connector, Feed, and cross-project services are disabled."
         )
+        if experiment.evaluation_mode == "quick":
+            targets = ", ".join(f"`{path}`" for path in experiment.evaluation_page_paths)
+            system_prompt += (
+                "\n\nQUICK PAGE EVALUATION: inspect and compact only "
+                f"{targets}. Do not Glob the full tree and do not edit any other page. "
+                "Stop as soon as those selected pages are complete."
+            )
     options = build_agent_options(
         snapshot=snapshot,
         system_prompt=system_prompt,
@@ -138,17 +145,28 @@ async def stream_compaction(
         on_write=on_write,
         extra_read_dirs=child_read_dirs,
         offline=experiment is not None,
+        max_budget_usd=experiment.max_budget_usd if experiment is not None else None,
     )
 
-    prompt_parts = [
-        (
-            "Run a compaction pass over this wiki. Glob the page tree, then tighten the "
-            "prose of the dynamic pages and fix any stale tome:// links. Preserve all "
-            "facts, citations, and frontmatter. Leave stable/hidden/report pages alone "
-            "and add/remove no pages. If the wiki is already tight and its links "
-            "resolve, make no edits."
-        )
-    ]
+    if experiment is not None and experiment.evaluation_mode == "quick":
+        targets = ", ".join(f"`{path}`" for path in experiment.evaluation_page_paths)
+        prompt_parts = [
+            (
+                f"Compact only {targets}. Preserve facts, citations, frontmatter, and "
+                "page kind. Do not Glob the full tree or inspect/edit unrelated pages. "
+                "Stop when the selected pages are complete."
+            )
+        ]
+    else:
+        prompt_parts = [
+            (
+                "Run a compaction pass over this wiki. Glob the page tree, then tighten the "
+                "prose of the dynamic pages and fix any stale tome:// links. Preserve all "
+                "facts, citations, and frontmatter. Leave stable/hidden/report pages alone "
+                "and add/remove no pages. If the wiki is already tight and its links "
+                "resolve, make no edits."
+            )
+        ]
     if experiment is not None:
         prompt_parts.append(
             "\n\nREPRODUCIBLE RUN IDENTITY: "

@@ -121,4 +121,23 @@ describe("experiment progress", () => {
       active: false,
     });
   });
+
+  it("reports partially successful experiments as completed with errors", () => {
+    const progress = buildExperimentProgress(
+      experiment("completed_with_errors", [
+        trial({ candidate: "a", status: "succeeded" }),
+        trial({ candidate: "b", status: "failed" }),
+      ]),
+      [],
+      [],
+    );
+
+    expect(progress).toMatchObject({
+      completedSteps: 4,
+      totalSteps: 4,
+      percent: 100,
+      title: "Evaluation completed with errors",
+      active: false,
+    });
+  });
 });

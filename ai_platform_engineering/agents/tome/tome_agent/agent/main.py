@@ -31,6 +31,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Literal
 
 from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query
 from fastapi import FastAPI, HTTPException, Response
@@ -190,11 +191,13 @@ async def evaluate_endpoint(
 
 
 @app.get("/evaluate/prompt", response_model=EvaluatorPromptContract)
-async def evaluator_prompt_endpoint() -> EvaluatorPromptContract:
+async def evaluator_prompt_endpoint(
+    mode: Literal["quick", "deep"] = "deep",
+) -> EvaluatorPromptContract:
     """Expose the versioned evaluator prompt contract for immutable run snapshots."""
     if not _state.ready:
         raise HTTPException(503, "agent not ready")
-    return evaluator_prompt_contract()
+    return evaluator_prompt_contract(mode)
 
 
 # ---------- chat ----------

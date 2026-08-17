@@ -136,9 +136,17 @@ export type ExperimentStatus =
   | "evaluating"
   | "stopped_by_user"
   | "completed"
+  | "completed_with_errors"
   | "stopped_cost_ceiling"
   | "failed";
 export type ExperimentCandidate = "a" | "b";
+
+export interface ExperimentPageScope {
+  /** Legacy experiments without this field evaluate every generated page. */
+  mode: "selected" | "all";
+  /** Frozen, normalized paths. Empty when mode=all. */
+  paths: string[];
+}
 
 export interface EvaluatorPromptContract {
   version: string;
@@ -147,12 +155,24 @@ export interface EvaluatorPromptContract {
   editable: false;
 }
 
+export interface EvaluatorModelProfile {
+  id: string;
+  capability_rank: number;
+  context_window_tokens: number;
+  max_output_tokens: number;
+  supports_structured_output: boolean;
+  profile_version: number;
+}
+
+export type ExperimentEvaluationMode = "quick" | "deep" | "all_pages";
+
 export interface ExperimentConfig {
   evaluation_suite_id: string;
   evaluation_suite_version: number;
   model_a: string;
   model_b: string;
   evaluator_model: string;
+  evaluator_model_profile?: EvaluatorModelProfile;
   operation: ExperimentOperation;
   entity_type: ProjectType;
   entity_id: string;
@@ -173,6 +193,14 @@ export interface ExperimentConfig {
   turn_limit: number;
   seed: number;
   instruction?: string | null;
+  evaluation_concurrency?: number;
+  evaluation_retry_limit?: number;
+  evaluation_request_timeout_ms?: number;
+  evaluation_call_budget_usd?: number;
+  evaluation_page_scope?: ExperimentPageScope;
+  /** Legacy runs infer deep/all-pages behavior from evaluation_page_scope. */
+  evaluation_mode?: ExperimentEvaluationMode;
+  quick_max_claims?: number;
 }
 
 export interface ExperimentTrial {
@@ -209,6 +237,8 @@ export interface TomeExperiment {
   finished_at?: string;
   cancel_requested_at?: string;
   cancel_requested_by?: string;
+  last_file_retry_at?: string;
+  last_file_retry_by?: string;
   error?: string;
 }
 
@@ -288,7 +318,7 @@ export interface ArtifactEvaluation {
   blind_label: string;
   evaluator_model: string;
   evaluator_is_candidate: boolean;
-  status: "passed" | "failed" | "error";
+  status: "passed" | "failed" | "partial" | "error";
   claims: ClaimFinding[];
   rubrics: RubricResult[];
   blocking_findings: string[];
@@ -296,8 +326,53 @@ export interface ArtifactEvaluation {
   evaluation_turns?: number;
   evaluation_latency_ms?: number;
   evaluation_cost_usd?: number;
+  /** Conservative budget consumed, including failed calls without usage telemetry. */
+  evaluation_budget_usd?: number;
+  evaluation_batches?: number;
+  evaluation_attempts?: number;
+  evaluation_input_budget_tokens?: number;
+  evaluation_output_budget_tokens?: number;
+  evaluation_peak_estimated_input_tokens?: number;
+  evaluated_files?: number;
+  total_files?: number;
+  failed_files?: string[];
   created_at: string;
   error?: string;
+}
+
+export interface ArtifactFileEvaluation {
+  _id: string;
+  experiment_id: string;
+  artifact_id: string;
+  blind_label: string;
+  path: string;
+  content_hash: string;
+  status: "running" | "succeeded" | "error";
+  claims: ClaimFinding[];
+  signals: Partial<Record<
+    | "semantic_fidelity"
+    | "conflict_disclosure"
+    | "source_freshness"
+    | "material_coverage"
+    | "scope_fidelity"
+    | "stable_page_preservation"
+    | "explicit_gaps",
+    { passed: number; total: number; findings?: string[] }
+  >>;
+  chunk_count: number;
+  completed_chunks: number;
+  attempts: number;
+  evaluation_tokens?: { input: number; output: number };
+  evaluation_turns?: number;
+  evaluation_latency_ms?: number;
+  evaluation_cost_usd?: number;
+  /** Budget charged when a failed request has no exact usage telemetry. */
+  evaluation_budget_usd?: number;
+  retryable?: boolean;
+  error?: string;
+  started_at: string;
+  updated_at: string;
+  completed_at?: string;
 }
 
 export interface ExperimentAggregate {

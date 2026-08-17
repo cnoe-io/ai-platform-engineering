@@ -79,6 +79,16 @@ export const POST = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
         "EXPERIMENT_ARTIFACT_NOT_FOUND",
       );
     }
+    if (experiment.config?.evaluation_mode === "quick") {
+      const allowedPaths = new Set(experiment.config.evaluation_page_scope?.paths ?? []);
+      if (!allowedPaths.has(body.path)) {
+        throw new ApiError(
+          `Quick evaluation writes are limited to selected pages; rejected ${body.path}`,
+          403,
+          "QUICK_EVALUATION_PAGE_SCOPE",
+        );
+      }
+    }
     await writeExperimentArtifactPage(body.artifact_id, body.path, body.body);
     return Response.json({ ok: true, isolated: true });
   }

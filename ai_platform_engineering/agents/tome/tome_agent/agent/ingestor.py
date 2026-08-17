@@ -487,19 +487,30 @@ async def stream_ingest(
         report_id=report_id,
         on_write=on_write,
         offline=experiment is not None,
+        max_budget_usd=experiment.max_budget_usd if experiment is not None else None,
     )
 
-    prompt_parts = [
-        (
-            f"Run a {'GREENFIELD' if is_greenfield else 'INCREMENTAL'} ingest "
-            f'for "{snapshot.name}". Begin by reading the existing wiki pages, '
-            + (
-                "then update pages using only the frozen evidence bundle."
-                if experiment is not None
-                else "then fetch recent activity and update pages per the system prompt."
+    if experiment is not None and experiment.evaluation_mode == "quick":
+        targets = ", ".join(f"`{path}`" for path in experiment.evaluation_page_paths)
+        prompt_parts = [
+            (
+                f'Run a targeted ingest for "{snapshot.name}". Read and update only '
+                f"{targets}, using only the frozen evidence needed for those pages. "
+                "Do not inspect or edit unrelated pages, and stop when the targets are complete."
             )
-        )
-    ]
+        ]
+    else:
+        prompt_parts = [
+            (
+                f"Run a {'GREENFIELD' if is_greenfield else 'INCREMENTAL'} ingest "
+                f'for "{snapshot.name}". Begin by reading the existing wiki pages, '
+                + (
+                    "then update pages using only the frozen evidence bundle."
+                    if experiment is not None
+                    else "then fetch recent activity and update pages per the system prompt."
+                )
+            )
+        ]
     if experiment is not None:
         prompt_parts.append(
             "\n\nREPRODUCIBLE RUN IDENTITY: "

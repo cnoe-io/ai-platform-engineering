@@ -196,6 +196,21 @@ describe("TOME promotion gate", () => {
     });
   });
 
+  it("fails closed when an artifact evaluation is only partial", () => {
+    const policy = { ...fallbackQualityPolicy(), mode: "enforce" as const };
+    const evaluation = {
+      status: "partial",
+      error: "One file failed; successful file results were preserved.",
+      rubrics: [],
+      blocking_findings: [],
+    } as unknown as ArtifactEvaluation;
+    expect(qualityGateDecision(policy, evaluation)).toMatchObject({
+      allowed: false,
+      blockers: ["One file failed; successful file results were preserved."],
+      requires_override: true,
+    });
+  });
+
   it("does not auto-promote an enforced overdue draft when review or a passing gate is required", () => {
     const policy = { ...fallbackQualityPolicy(), mode: "enforce" as const };
     expect(canAutoPromoteOverdue(policy, null)).toBe(false);
@@ -314,5 +329,18 @@ describe("TOME experiment aggregation", () => {
     });
     expect(a.absolute_scores).toEqual({});
     expect(b).toMatchObject({ wins: 0, ties: 0, losses: 0, mean_score: 0.7 });
+
+    const [partial] = aggregateExperiment(experiment, artifacts, [
+      evaluation("artifact-a", "partial", 0.95),
+      evaluation("artifact-b", "passed", 0.7),
+    ]);
+    expect(partial).toMatchObject({
+      wins: 0,
+      ties: 0,
+      losses: 0,
+      pass_rate: null,
+      mean_score: null,
+      evaluation_cost_usd: 0.2,
+    });
   });
 });

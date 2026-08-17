@@ -12,6 +12,7 @@ import {
 } from "@/lib/tome/evaluation-store";
 import { isIngestRunning, setProjectLocked } from "@/lib/tome/ingest-runner";
 import { getTomeIngestRunsCollection, getTomeReportsCollection } from "@/lib/tome/mongo-collections";
+import { isSelectedPageEvaluation } from "@/lib/tome/experiment-page-scope";
 import { getPageStore } from "@/lib/tome/page-store";
 import type { IngestRun, Report } from "@/types/tome";
 
@@ -32,13 +33,22 @@ export async function promoteExperimentWinner(input: {
   if (!experiment || !artifact || artifact.experiment_id !== experiment._id) {
     throw new Error("Experiment artifact not found.");
   }
-  if (!["completed", "stopped_cost_ceiling", "stopped_by_user"].includes(experiment.status)) {
+  if (isSelectedPageEvaluation(experiment.config)) {
+    throw new Error(
+      "Selected-page evaluations cannot promote a project-wide winner. Run an all-pages evaluation first.",
+    );
+  }
+  if (!["completed", "completed_with_errors", "stopped_cost_ceiling", "stopped_by_user"]
+    .includes(experiment.status)) {
     throw new Error("The experiment must finish before a winner can be selected.");
   }
   if (experiment.promoted_run_id) throw new Error("This experiment already has a promoted winner.");
   const evaluations = await listArtifactEvaluations(experiment._id);
   const evaluation = evaluations.find((value) => value.artifact_id === artifact._id);
   if (!evaluation) throw new Error("The selected artifact has not been evaluated.");
+  if (evaluation.status === "error" || evaluation.status === "partial") {
+    throw new Error("The selected artifact must have a complete evaluation.");
+  }
   if (await isIngestRunning(experiment.project_id)) {
     throw new Error("This entity already has a run in progress or awaiting review.");
   }

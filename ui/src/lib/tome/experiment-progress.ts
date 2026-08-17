@@ -65,7 +65,9 @@ export function buildExperimentProgress(
     }
   }
 
-  if (experiment.status === "completed") completedSteps = totalSteps;
+  if (["completed", "completed_with_errors"].includes(experiment.status)) {
+    completedSteps = totalSteps;
+  }
   completedSteps = Math.min(completedSteps, totalSteps);
   const percent = totalSteps === 0 ? 0 : Math.round((completedSteps / totalSteps) * 100);
   const active = ["queued", "running", "evaluating"].includes(experiment.status);
@@ -123,6 +125,7 @@ export function buildExperimentProgress(
 
   const terminalTitles: Record<Exclude<ExperimentStatus, "queued" | "running" | "evaluating">, string> = {
     completed: "Evaluation completed",
+    completed_with_errors: "Evaluation completed with errors",
     stopped_by_user: "Evaluation stopped by user",
     stopped_cost_ceiling: "Evaluation stopped at cost ceiling",
     failed: "Evaluation failed",

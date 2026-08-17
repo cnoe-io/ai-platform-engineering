@@ -24,6 +24,18 @@ Candidate workspaces are reconstructed from this bundle and run without live con
 The run records model provenance, prompt/template hashes, policy version, token usage, turns, cost,
 and latency. Repeats use deterministic run identifiers and deterministic-but-balanced blind labels.
 
+## Evaluator safeguards
+
+- Candidate models and the evaluator must have versioned TOME capability profiles.
+- The evaluator must be independent, support schema-constrained output, and rank above both candidates.
+- TOME snapshots the evaluator's context window, output ceiling, and profile version with the run.
+- Evaluations are packed into output-aware page batches with a context safety margin.
+- Every batch receives the complete frozen evidence bundle. Evidence is never silently truncated.
+- Transient provider failures receive bounded retries. Schema failures, refusals, and capacity failures
+  remain visible and disable winner selection.
+- If no strictly stronger evaluator is configured, the experiment fails preflight instead of using a
+  candidate as its own judge.
+
 ## Rubrics
 
 Each rubric can be enabled, disabled, blocking, or observational. Ratio rubrics accept a minimum;

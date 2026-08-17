@@ -197,6 +197,9 @@ export interface AgentExperimentRunContext {
     content: string;
   }>;
   template_overrides: Record<string, Array<Record<string, unknown>>>;
+  evaluation_mode: "quick" | "deep" | "all_pages";
+  evaluation_page_paths: string[];
+  max_budget_usd?: number;
 }
 
 function toWebexRoomSnapshot(
