@@ -275,7 +275,7 @@ data/
 !.claude/skills
 !.claude/skills/**
 
-# .agents/skills symlinks to .claude/skills for ~/.agents/skills compatibility
+# Codex project skills: .agents/skills symlinks to .claude/skills for shared discovery
 !.agents/
 !.agents/skills
 
