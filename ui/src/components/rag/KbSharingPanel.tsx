@@ -7,19 +7,21 @@ import {
   type AccessSubjectRef,
 } from "@/components/ui/access-subject-picker";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { type TeamPickerOption } from "@/components/ui/team-picker";
 import { useToast } from "@/components/ui/toast";
-import { AlertTriangle, Layers3, UserRound } from "lucide-react";
+import { AlertTriangle, UserRound } from "lucide-react";
 import React from "react";
 import type { RagCollectionMembershipLabel } from "@/types/rag-collection";
-import { searchTeamLabel } from "./datasource-view-state";
 import type {
   PendingPublicationRequestView,
   PublicationRequestDocument,
 } from "@/types/publication-approval";
 import { PendingPublicationRequestNotice } from "./PendingPublicationRequestNotice";
+import {
+  CollectionSearchAccessNotice,
+  collectionDerivedSearchAccess,
+} from "./CollectionSearchAccess";
 
 interface KbSharingPanelProps {
   knowledgeBaseId: string;
@@ -289,6 +291,16 @@ export function KbSharingPanel({ knowledgeBaseId, onSaved, onCancel }: KbSharing
   const creatorLabel = creator
     ? creator.name || creator.email || "Unknown user"
     : null;
+  const collectionSearchAccess = collectionDerivedSearchAccess(ragCollections);
+  const implicitSearchAccess = [
+    ...(owner?.kind === "user" ? [owner] : []),
+    ...collectionSearchAccess.selections,
+  ].filter(
+    (ref, index, refs) =>
+      refs.findIndex(
+        (candidate) => candidate.kind === ref.kind && candidate.id === ref.id,
+      ) === index,
+  );
 
   return (
     <div className="space-y-5">
@@ -338,8 +350,12 @@ export function KbSharingPanel({ knowledgeBaseId, onSaved, onCancel }: KbSharing
           onChange={setSearchAccess}
           teams={teams}
           knownUsers={knownUsers}
-          implicitSelections={owner?.kind === "user" ? [owner] : []}
-          implicitSelectionLabel="Included through ownership"
+          implicitSelections={implicitSearchAccess}
+          implicitSelectionLabel={(ref) =>
+            owner?.kind === "user" && sameRef(ref, owner)
+              ? "Included through ownership"
+              : collectionSearchAccess.labelFor(ref)
+          }
           disabled={loading || saving}
           placeholder={owner?.kind === "user"
             ? "Only the Owner can search — add others"
@@ -362,29 +378,7 @@ export function KbSharingPanel({ knowledgeBaseId, onSaved, onCancel }: KbSharing
         )}
       </section>
 
-      {ragCollections.length > 0 && (
-        <section className="space-y-2 rounded-lg border border-primary/20 bg-primary/5 p-3">
-          <div className="flex items-center gap-2 text-sm font-medium">
-            <Layers3 className="h-4 w-4 text-primary" />
-            Search from collections
-          </div>
-          <p className="text-xs text-muted-foreground">
-            These collections also grant Search access. Change a collection&apos;s
-            Search teams or remove this datasource from the collection to revoke
-            that access.
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {ragCollections.map((collection) => (
-              <Badge key={collection.id} variant="outline">
-                {collection.name}
-                {collection.reader_team_slugs.length > 0
-                  ? ` · ${collection.reader_team_slugs.map(searchTeamLabel).join(", ")}`
-                  : ""}
-              </Badge>
-            ))}
-          </div>
-        </section>
-      )}
+      <CollectionSearchAccessNotice collections={ragCollections} />
 
       {ownerChanged && (
         <div className="flex gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-foreground">

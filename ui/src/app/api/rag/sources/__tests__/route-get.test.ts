@@ -187,6 +187,34 @@ describe("GET /api/rag/sources", () => {
     expect(sources.find).toHaveBeenCalledWith(expect.objectContaining({ source_type: "web_url" }));
   });
 
+  it("returns pagination metadata and advances the Mongo cursor", async () => {
+    const cursor = {
+      sort: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
+      toArray: jest
+        .fn()
+        .mockResolvedValue([teamARecord, teamASharedRecord]),
+    };
+    sources.find.mockReturnValue(cursor);
+    mockFilterResourcesByPermission.mockImplementation(
+      async (_session, items) => items,
+    );
+    const { GET } = await import("../route");
+
+    const response = await GET(request("/api/rag/sources?limit=2&offset=2"));
+    const json = await response.json();
+
+    expect(cursor.skip).toHaveBeenCalledWith(2);
+    expect(cursor.limit).toHaveBeenCalledWith(2);
+    expect(json.data.pagination).toEqual({
+      offset: 2,
+      limit: 2,
+      has_more: true,
+      next_offset: 4,
+    });
+  });
+
   it("adds _permissions.can_manage per record, true for an org admin bypass", async () => {
     mockFilterResourcesByPermission.mockImplementation(async (_session, items) => items);
     mockRequireResourcePermission.mockResolvedValue(undefined);

@@ -53,6 +53,10 @@ import { Eye, Loader2 } from "lucide-react";
 import { useEffect,useState } from "react";
 import { DatasourceAccessFields } from "./DatasourceAccessFields";
 import { PendingPublicationRequestNotice } from "./PendingPublicationRequestNotice";
+import {
+  CollectionSearchAccessNotice,
+  collectionDerivedSearchAccess,
+} from "./CollectionSearchAccess";
 
 const DEFAULT_CHUNK_SIZE = 10000;
 const DEFAULT_CHUNK_OVERLAP = 2000;
@@ -861,6 +865,18 @@ export function IngestionSourceForm({
     ...values.search_team_slugs.map((id) => ({ kind: "team" as const, id })),
     ...values.search_user_subjects.map((id) => ({ kind: "user" as const, id })),
   ];
+  const collectionSearchAccess = collectionDerivedSearchAccess(
+    initial?.rag_collections ?? [],
+  );
+  const implicitSearchAccess = [
+    ...(ownerAccessRef?.kind === "user" ? [ownerAccessRef] : []),
+    ...collectionSearchAccess.selections,
+  ].filter(
+    (ref, index, refs) =>
+      refs.findIndex(
+        (candidate) => candidate.kind === ref.kind && candidate.id === ref.id,
+      ) === index,
+  );
 
   const handleOwnerTeamChange = (slug: string) => {
     setValues((current) => ({ ...current, owner_team_slug: slug, owner_subject: "" }));
@@ -1533,8 +1549,14 @@ export function IngestionSourceForm({
               <AccessSubjectMultiPicker
                 teams={searchTeamOptions}
                 knownUsers={knownAccessUsers}
-                implicitSelections={ownerAccessRef?.kind === "user" ? [ownerAccessRef] : []}
-                implicitSelectionLabel="Included through ownership"
+                implicitSelections={implicitSearchAccess}
+                implicitSelectionLabel={(ref) =>
+                  ownerAccessRef?.kind === "user" &&
+                  ref.kind === ownerAccessRef.kind &&
+                  ref.id === ownerAccessRef.id
+                    ? "Included through ownership"
+                    : collectionSearchAccess.labelFor(ref)
+                }
                 selected={searchAccessRefs.filter((ref) =>
                   ownerAccessRef?.kind !== "user" ||
                   ref.kind !== ownerAccessRef.kind ||
@@ -1563,14 +1585,21 @@ export function IngestionSourceForm({
                 manage it.
               </>
             }
-            searchDetails={pendingPublicationRequest ? (
-              <PendingPublicationRequestNotice
-                request={pendingPublicationRequest}
-                teams={searchTeamOptions}
-                knownUsers={knownAccessUsers}
-                onWithdrawn={onPublicationRequestWithdrawn}
-              />
-            ) : undefined}
+            searchDetails={(
+              <div className="space-y-2">
+                {pendingPublicationRequest && (
+                  <PendingPublicationRequestNotice
+                    request={pendingPublicationRequest}
+                    teams={searchTeamOptions}
+                    knownUsers={knownAccessUsers}
+                    onWithdrawn={onPublicationRequestWithdrawn}
+                  />
+                )}
+                <CollectionSearchAccessNotice
+                  collections={initial?.rag_collections ?? []}
+                />
+              </div>
+            )}
           />
         </div>
 

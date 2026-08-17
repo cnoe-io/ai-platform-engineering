@@ -30,7 +30,9 @@ interface CommonProps {
   knownUsers?: AccessSubjectOption[];
   /** Subjects whose access is inherited and therefore cannot be toggled here. */
   implicitSelections?: AccessSubjectRef[];
-  implicitSelectionLabel?: string;
+  implicitSelectionLabel?:
+    | string
+    | ((selection: AccessSubjectRef) => string | undefined);
   placeholder: string;
   searchPlaceholder?: string;
   emptyLabel?: string;
@@ -180,6 +182,26 @@ function AccessSubjectPickerBase({
       name: ref.kind === "team" ? "Unknown team" : "Unknown user",
     },
   );
+  const implicitOptions = implicitSelections
+    .filter((ref) => !selected.some((selection) => sameRef(selection, ref)))
+    .map(
+      (ref) =>
+        optionByKey.get(refKey(ref)) ?? {
+          ...ref,
+          name: ref.kind === "team" ? ref.id : "Unknown user",
+        },
+    );
+  const displayedOptions = multiple
+    ? [...selectedOptions, ...implicitOptions]
+    : selectedOptions;
+
+  const implicitLabelFor = React.useCallback(
+    (ref: AccessSubjectRef) =>
+      typeof implicitSelectionLabel === "function"
+        ? implicitSelectionLabel(ref)
+        : implicitSelectionLabel,
+    [implicitSelectionLabel],
+  );
 
   const filtered = React.useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -215,8 +237,13 @@ function AccessSubjectPickerBase({
   };
 
   const pick = (option: AccessSubjectOption) => {
-    if (implicitSelections.some((ref) => sameRef(ref, option))) return;
     const isSelected = selected.some((ref) => sameRef(ref, option));
+    if (
+      !isSelected &&
+      implicitSelections.some((ref) => sameRef(ref, option))
+    ) {
+      return;
+    }
     if (option.kind === "user") {
       setCachedUsers((current) => {
         const withoutCurrent = current.filter((user) => user.id !== option.id);
@@ -256,15 +283,32 @@ function AccessSubjectPickerBase({
           )}
         >
           <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
-            {selectedOptions.length === 0 ? (
+            {displayedOptions.length === 0 ? (
               <span className="text-muted-foreground">{placeholder}</span>
             ) : multiple ? (
               <>
-                {selectedOptions.slice(0, 2).map((option) => (
-                  <Badge key={refKey(option)} variant="secondary" className="max-w-52 gap-1">
+                {displayedOptions.slice(0, 2).map((option) => {
+                  const isImplicit = implicitOptions.some((candidate) =>
+                    sameRef(candidate, option),
+                  );
+                  const inheritedFrom = isImplicit
+                    ? implicitLabelFor(option)
+                    : undefined;
+                  return (
+                  <Badge
+                    key={refKey(option)}
+                    variant={isImplicit ? "outline" : "secondary"}
+                    className="max-w-72 gap-1"
+                    title={inheritedFrom}
+                  >
                     {option.kind === "user" ? <User className="h-3 w-3" /> : <Users className="h-3 w-3" />}
                     <span className="truncate">{displayName(option)}</span>
-                    {!disabled && (
+                    {inheritedFrom && (
+                      <span className="truncate text-[10px] text-muted-foreground">
+                        · {inheritedFrom}
+                      </span>
+                    )}
+                    {!disabled && !isImplicit && (
                       <X
                         role="button"
                         aria-label={`Remove ${displayName(option)}`}
@@ -273,9 +317,10 @@ function AccessSubjectPickerBase({
                       />
                     )}
                   </Badge>
-                ))}
-                {selectedOptions.length > 2 && (
-                  <span className="text-xs text-muted-foreground">+{selectedOptions.length - 2} more</span>
+                  );
+                })}
+                {displayedOptions.length > 2 && (
+                  <span className="text-xs text-muted-foreground">+{displayedOptions.length - 2} more</span>
                 )}
               </>
             ) : (
@@ -318,20 +363,21 @@ function AccessSubjectPickerBase({
             filtered.map((option) => {
               const isSelected = selected.some((ref) => sameRef(ref, option));
               const isImplicit = implicitSelections.some((ref) => sameRef(ref, option));
+              const isImplicitOnly = isImplicit && !isSelected;
               const Icon = option.kind === "user" ? User : Users;
               return (
                 <button
                   type="button"
                   role="option"
                   aria-selected={isSelected || isImplicit}
-                  aria-disabled={isImplicit}
-                  disabled={isImplicit}
+                  aria-disabled={isImplicitOnly}
+                  disabled={isImplicitOnly}
                   key={refKey(option)}
                   onClick={() => pick(option)}
                   className={cn(
                     "flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted/50 focus:bg-muted/50 focus:outline-none",
                     (isSelected || isImplicit) && "bg-muted/30",
-                    isImplicit && "cursor-not-allowed",
+                    isImplicitOnly && "cursor-not-allowed",
                   )}
                 >
                   <Check className={cn("h-4 w-4 shrink-0", isSelected || isImplicit ? "text-primary" : "text-transparent")} />
@@ -340,7 +386,7 @@ function AccessSubjectPickerBase({
                     <p className="truncate text-sm">{displayName(option)}</p>
                     <p className="truncate text-[11px] text-muted-foreground">
                       {isImplicit
-                        ? implicitSelectionLabel
+                        ? `${isSelected ? "Also " : ""}${implicitLabelFor(option) ?? "Included automatically"}`
                         : option.kind === "team"
                           ? `Team · ${option.id}`
                           : option.email ?? "Person"}

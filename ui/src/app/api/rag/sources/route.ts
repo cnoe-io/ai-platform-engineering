@@ -842,6 +842,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   const ownerTeamSlug = searchParams.get("owner_team_slug");
   const limitParam = Number.parseInt(searchParams.get("limit") ?? "", 10);
   const limit = Number.isFinite(limitParam) && limitParam > 0 ? limitParam : 200;
+  const offsetParam = Number.parseInt(searchParams.get("offset") ?? "", 10);
+  const offset = Number.isFinite(offsetParam) && offsetParam > 0 ? offsetParam : 0;
 
   // Recognized ingestor service accounts (RAG_INGESTOR_SERVICE_ACCOUNTS) are
   // scoped by identity, not by OpenFGA per-resource tuples: force
@@ -864,11 +866,11 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
   if (ownerTeamSlug) query.owner_team_slug = ownerTeamSlug;
 
   const collection = await getCollection<IngestionSourceConfig>(COLLECTION_NAME);
-  const results = await collection
+  const cursor = collection
     .find(query as never)
-    .sort({ updated_at: -1 })
-    .limit(limit)
-    .toArray();
+    .sort({ updated_at: -1, source_id: 1 });
+  if (offset > 0) cursor.skip(offset);
+  const results = await cursor.limit(limit).toArray();
 
   const visibleResults = ingestorAllowedTypes
     ? results
@@ -930,6 +932,12 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
       ...source,
       rag_collections: collectionLabels.get(source.source_id) ?? [],
     })),
+    pagination: {
+      offset,
+      limit,
+      has_more: results.length === limit,
+      next_offset: results.length === limit ? offset + limit : null,
+    },
   });
 });
 

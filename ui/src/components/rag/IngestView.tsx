@@ -312,6 +312,9 @@ export default function IngestView() {
   const [sourceDialogOpen, setSourceDialogOpen] = useState(false);
   const [editingSourceConfig, setEditingSourceConfig] =
     useState<IngestionSourceConfigWithPermissions | null>(null);
+  const [openingSourceConfigId, setOpeningSourceConfigId] = useState<
+    string | null
+  >(null);
 
   // Legacy/direct datasource whose unified management/access dialog is open.
   const [sharingDatasource, setSharingDatasource] =
@@ -1014,18 +1017,100 @@ export default function IngestView() {
 
   const fetchIngestionSourceConfigs = async () => {
     try {
-      const res = await fetch("/api/rag/sources");
-      if (!res.ok) return;
-      const body = (await res.json()) as {
-        success?: boolean;
-        data?: { sources: IngestionSourceConfigWithPermissions[] };
-      };
-      const sources = body?.data?.sources ?? [];
+      const sources: IngestionSourceConfigWithPermissions[] = [];
+      const pageSize = 200;
+      let offset = 0;
+      while (true) {
+        const res = await fetch(
+          `/api/rag/sources?limit=${pageSize}&offset=${offset}`,
+        );
+        if (!res.ok) return;
+        const body = (await res.json()) as {
+          success?: boolean;
+          data?: {
+            sources: IngestionSourceConfigWithPermissions[];
+            pagination?: {
+              has_more?: boolean;
+              next_offset?: number | null;
+            };
+          };
+        };
+        const page = body?.data?.sources ?? [];
+        sources.push(...page);
+        if (!body?.data?.pagination?.has_more) break;
+        const nextOffset = body.data.pagination.next_offset;
+        if (typeof nextOffset !== "number" || nextOffset <= offset) {
+          throw new Error("Datasource settings pagination did not advance");
+        }
+        offset = nextOffset;
+      }
       setIngestionSourceConfigs(new Map(sources.map((s) => [s.source_id, s])));
     } catch (error) {
       console.error("Failed to fetch ingestion source configs", error);
     }
   };
+
+  const openDatasourceManager = useCallback(
+    async (
+      datasource: DataSourceInfo,
+      cachedConfig: IngestionSourceConfigWithPermissions | undefined,
+      canManageConfig: boolean,
+    ) => {
+      if (cachedConfig && canManageConfig) {
+        setEditingSourceConfig(cachedConfig);
+        setSourceDialogOpen(true);
+        return;
+      }
+
+      const shouldLoadConfig = Boolean(
+        datasource.has_source_config &&
+          datasource._permissions?.can_manage_source,
+      );
+      if (!shouldLoadConfig) {
+        setSharingDatasource(datasource);
+        return;
+      }
+
+      setOpeningSourceConfigId(datasource.datasource_id);
+      try {
+        const response = await fetch(
+          `/api/rag/sources/${encodeURIComponent(datasource.datasource_id)}`,
+        );
+        if (!response.ok) {
+          throw new Error(`Failed to load datasource settings (${response.status})`);
+        }
+        const body = (await response.json()) as {
+          data?: IngestionSourceConfigWithPermissions;
+        };
+        if (!body.data?._permissions.can_manage) {
+          setSharingDatasource(datasource);
+          return;
+        }
+        const config = {
+          ...body.data,
+          owner_display_name:
+            body.data.owner_display_name ?? datasource.owner_display_name,
+          rag_collections:
+            body.data.rag_collections ?? datasource.rag_collections ?? [],
+        };
+        setIngestionSourceConfigs((current) => {
+          const next = new Map(current);
+          next.set(config.source_id, config);
+          return next;
+        });
+        setEditingSourceConfig(config);
+        setSourceDialogOpen(true);
+      } catch (error) {
+        toast(
+          getErrorMessage(error, "Failed to load datasource settings"),
+          "error",
+        );
+      } finally {
+        setOpeningSourceConfigId(null);
+      }
+    },
+    [toast],
+  );
 
   const fetchPendingPublicationRequests = async () => {
     try {
@@ -2877,20 +2962,24 @@ export default function IngestView() {
                                     className="h-5 w-5 p-0 text-muted-foreground hover:text-foreground shrink-0"
                                     title="Manage Datasource"
                                     aria-label="Manage Datasource"
+                                    disabled={
+                                      openingSourceConfigId === ds.datasource_id
+                                    }
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      if (
-                                        canManageSourceConfig &&
-                                        sourceConfig
-                                      ) {
-                                        setEditingSourceConfig(sourceConfig);
-                                        setSourceDialogOpen(true);
-                                      } else {
-                                        setSharingDatasource(ds);
-                                      }
+                                      void openDatasourceManager(
+                                        ds,
+                                        sourceConfig,
+                                        canManageSourceConfig,
+                                      );
                                     }}
                                   >
-                                    <Settings className="h-3.5 w-3.5" />
+                                    {openingSourceConfigId ===
+                                    ds.datasource_id ? (
+                                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                    ) : (
+                                      <Settings className="h-3.5 w-3.5" />
+                                    )}
                                   </Button>
                                 )}
                                 <DatasourceAccessBadges
