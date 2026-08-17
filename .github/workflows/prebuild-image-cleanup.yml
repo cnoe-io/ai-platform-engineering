@@ -1,0 +1,86 @@
+name: "[Prebuild] Docker Image Cleanup"
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  load-packages:
+    runs-on: ubuntu-latest
+    if: startsWith(github.event.pull_request.head.ref, 'prebuild/')
+    outputs:
+      packages: ${{ steps.packages.outputs.packages }}
+    steps:
+      - name: Checkout head package configuration
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: head
+          sparse-checkout: .github/agents.json
+          sparse-checkout-cone-mode: false
+
+      - name: Checkout base package configuration
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base
+          sparse-checkout: .github/agents.json
+          sparse-checkout-cone-mode: false
+
+      - name: Load every Docker prebuild package
+        id: packages
+        shell: bash
+        run: |
+          packages=$(jq -sc '
+            (
+              [
+                "prebuild/caipe-audit-service",
+                "prebuild/caipe-ui",
+                "prebuild/caipe-dynamic-agents",
+                "prebuild/openfga-authz-bridge",
+                "prebuild/caipe-rag-agent-ontology",
+                "prebuild/caipe-rag-ingestors",
+                "prebuild/caipe-rag-server",
+                "prebuild/caipe-scheduler",
+                "prebuild/caipe-cron-runner",
+                "prebuild/skill-scanner",
+                "prebuild/caipe-slack-bot",
+                "prebuild/caipe-webex-bot"
+              ] + ([.[].mcp_agents[]] | unique | map("prebuild/mcp-\(.)"))
+              | unique
+            )
+          ' head/.github/agents.json base/.github/agents.json)
+          echo "packages=${packages}" >> "$GITHUB_OUTPUT"
+
+  cleanup-images:
+    runs-on: ubuntu-latest
+    needs: load-packages
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      max-parallel: 10
+      matrix:
+        package: ${{ fromJson(needs.load-packages.outputs.packages) }}
+    steps:
+      - name: Checkout cleanup action
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Delete prebuild images for branch
+        uses: ./.github/actions/cleanup-prebuild-images
+        with:
+          owner: ${{ github.repository_owner }}
+          package_name: ${{ matrix.package }}
+          head_ref: ${{ github.event.pull_request.head.ref }}
+          registry_username: ${{ github.actor }}
+          registry_token: ${{ github.token }}

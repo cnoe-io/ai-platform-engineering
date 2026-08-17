@@ -112,6 +112,7 @@ jobs:
         env:
           TAG_VERSION: ${{ steps.version.outputs.tag_version }}
           EVENT_NAME: ${{ github.event_name }}
+          HEAD_REF: ${{ github.head_ref }}
           FORCE_BUILD: ${{ inputs.force_build }}
           ALL_COMPONENTS: ${{ needs.load-config.outputs.rag_components }}
           SHARED_CHANGED: ${{ steps.filter.outputs.shared }}
@@ -121,8 +122,15 @@ jobs:
         with:
           script: |
             const allComponents = JSON.parse(process.env.ALL_COMPONENTS);
-            // Extra image variants per component (must mirror the build matrix below).
-            const variantMap = {
+            // Prebuild publishes the default variants on prebuild/* PRs, so CI
+            // validates only variants that do not have a prebuild image.
+            const isPrebuildPr = process.env.EVENT_NAME === 'pull_request' &&
+              (process.env.HEAD_REF || '').startsWith('prebuild/');
+            const variantMap = isPrebuildPr ? {
+              'agent-ontology': [],
+              'server': ['huggingface'],
+              'ingestors': ['slim'],
+            } : {
               'agent-ontology': ['default'],
               'server': ['default', 'huggingface'],
               'ingestors': ['default', 'slim'],
@@ -192,10 +200,12 @@ jobs:
               }
             }
 
-            core.setOutput('build_matrix', JSON.stringify({ include: expandPlatforms(buildComponents) }));
-            core.setOutput('build_groups', JSON.stringify({ include: expand(buildComponents) }));
+            const buildMatrix = expandPlatforms(buildComponents);
+            const buildGroups = expand(buildComponents);
+            core.setOutput('build_matrix', JSON.stringify({ include: buildMatrix }));
+            core.setOutput('build_groups', JSON.stringify({ include: buildGroups }));
             core.setOutput('retag_matrix', JSON.stringify({ include: expand(retagComponents) }));
-            core.setOutput('should_build', String(buildComponents.length > 0));
+            core.setOutput('should_build', String(buildGroups.length > 0));
             core.setOutput('should_retag', String(retagComponents.length > 0));
             core.setOutput('image_prefix', imagePrefix);
 
