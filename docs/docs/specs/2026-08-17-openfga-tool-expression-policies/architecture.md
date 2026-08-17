@@ -1,34 +1,34 @@
 ---
 sidebar_label: Architecture
-title: Central Authorization Service and Expression Policies
+title: CAIPE Authorization Service and Expression Policies
 description: Architecture for a standalone CAIPE authorization service with OpenFGA-native CEL and future Cedar or OPA providers.
 ---
 
-# Central Authorization Service and Expression Policies
+# CAIPE Authorization Service and Expression Policies
 
 - **Status:** Draft for review
 - **Date:** 2026-08-17
 - **Scope:** One authorization service for CAIPE application and gateway
   enforcement, with exact MCP tool expressions as the first delivery slice.
-- **Decision:** Extract CAS from the BFF into a standalone microservice. Expose
-  HTTP, batch HTTP, and Envoy `ext_authz` gRPC transports over one decision
-  core. Use OpenFGA-native CEL in v1 and retain provider interfaces for future
-  Cedar and OPA adapters.
+- **Decision:** Extract authorization decisions from the BFF into the standalone
+  `caipe-authz` service. Expose HTTP, batch HTTP, and Envoy `ext_authz` gRPC
+  transports over one decision core. Use OpenFGA-native CEL in v1 and retain
+  provider interfaces for future Cedar and OPA adapters.
 
 ## Executive Decision
 
-CAIPE will use one logical Central Authorization Service (CAS) for every
-authorization enforcement point. `ext_authz` is a gateway transport into CAS;
-it is not a separate authorization service.
+CAIPE will use one logical CAIPE Authorization Service (`caipe-authz`, or Authz
+Service) for every authorization enforcement point. `ext_authz` is a gateway
+transport into the Authz Service; it is not a separate authorization service.
 
 | Layer | Choice |
 |---|---|
-| Universal entry point | One standalone CAS |
+| Universal entry point | One standalone Authz Service |
 | Application transport | HTTP and batch HTTP |
 | Gateway transport | Envoy `ext_authz` gRPC |
 | Relationship authorization | OpenFGA |
 | Conditional expressions | OpenFGA-native CEL |
-| Context construction | CAS |
+| Context construction | Authz Service |
 | Policy authoring | Typed, versioned templates |
 | Cedar | Future optional provider, not v1 |
 | OPA | Future optional provider, not v1 |
@@ -43,33 +43,33 @@ values. They will not submit executable CEL text.
 
 At runtime:
 
-1. An application calls CAS over HTTP, or AgentGateway calls the same CAS over
-   Envoy `ext_authz` gRPC.
+1. An application calls the Authz Service over HTTP, or AgentGateway calls the
+   same service over Envoy `ext_authz` gRPC.
 2. The transport adapter produces the same canonical decision request.
-3. CAS binds the verified subject and constructs trusted identity, request, and
-   resource context.
+3. The Authz Service binds the verified subject and constructs trusted identity,
+   request, and resource context.
 4. The `openfga-cel` provider asks OpenFGA to evaluate relationships and native
    CEL conditions in one Check request.
-5. CAS returns one normalized decision and audit record.
+5. The Authz Service returns one normalized decision and audit record.
 6. Missing, invalid, stale, or unavailable required input denies the request.
 
 The design does **not** add `$expression` to the OpenFGA model, add a
 `/condition-schema` endpoint to OpenFGA, or evaluate arbitrary policy text in
-CAS. Those would create a second policy language or require maintaining an
-OpenFGA fork.
+the Authz Service. Those would create a second policy language or require
+maintaining an OpenFGA fork.
 
 ## Goals
 
 - Authorize an exact MCP tool using selected request arguments.
-- Use one CAS decision core for BFF, Dynamic Agents, RAG, bots, and
+- Use one Authz Service decision core for BFF, Dynamic Agents, RAG, bots, and
   AgentGateway.
 - Remove policy decisions and direct OpenFGA access from the BFF and gateway
   bridge after migration.
 - Keep transport-specific parsing outside provider evaluation.
 - Preserve user, service-account, team, channel, and agent relationships.
 - Keep OpenFGA as the Policy Decision Point (PDP).
-- Define a provider contract that can add Cedar or OPA without changing CAS
-  clients.
+- Define a provider contract that can add Cedar or OPA without changing Authz
+  Service clients.
 - Validate policy fields and values against the MCP tool input schema.
 - Support a safe UI without exposing raw CEL authoring.
 - Fail closed on missing context, schema drift, invalid types, and PDP errors.
@@ -291,12 +291,12 @@ contains request-derived values:
 
 ```mermaid
 flowchart LR
-    BFF["BFF routes"] --> HTTP["CAS HTTP API"]
+    BFF["BFF routes"] --> HTTP["Authz Service HTTP API"]
     DA["Dynamic Agents"] --> HTTP
     Services["RAG, MCP services, and bots"] --> HTTP
-    AGW["AgentGateway"] --> GRPC["CAS ext_authz gRPC"]
+    AGW["AgentGateway"] --> GRPC["Authz Service ext_authz gRPC"]
 
-    HTTP --> Core["CAS decision core"]
+    HTTP --> Core["Authz Service decision core"]
     GRPC --> Core
     Core --> Context["Trusted context resolvers"]
     Core --> Registry["Resource/action and provider registry"]
@@ -306,7 +306,7 @@ flowchart LR
     Core --> Audit["Audit and decision reasons"]
 
     Admin["Administrator"] --> UI["Security and Policy UI"]
-    UI --> Policy["CAS policy administration API"]
+    UI --> Policy["Authz Service policy administration API"]
     Policy --> Catalog["Resource schema catalog"]
     Policy --> Compiler["Typed policy compiler"]
     Compiler --> OFGA
@@ -318,22 +318,23 @@ flowchart LR
 | Component | Owns | Does not own |
 |---|---|---|
 | Security and Policy UI | Typed policy authoring, preview, effective-access warnings | CEL execution or authorization decisions |
-| CAS transports | HTTP, batch HTTP, and `ext_authz` protocol adaptation | Provider-specific policy semantics |
-| CAS decision core | Subject binding, canonical requests, context construction, provider selection, composition, reasons, audit | Business validation or provider credentials |
-| CAS policy administration API | Authorization, schema validation, canonicalization, compilation, and reconciliation | Accepting arbitrary policy source |
+| Authz Service transports | HTTP, batch HTTP, and `ext_authz` protocol adaptation | Provider-specific policy semantics |
+| Authz Service decision core | Subject binding, canonical requests, context construction, provider selection, composition, reasons, audit | Business validation or provider credentials |
+| Authz Service policy administration API | Authorization, schema validation, canonicalization, compilation, and reconciliation | Accepting arbitrary policy source |
 | Resource Schema Catalog | Sanitized schemas, schema hashes, resource attributes, last-seen state | Access decisions |
 | Typed Policy Compiler | Expression-to-template mapping and tuple construction | Arbitrary code execution |
 | `openfga-cel` provider | OpenFGA relationship checks, conditional tuples, native CEL context | Standalone CEL execution |
-| Cedar/OPA providers | Future policy evaluation behind the CAS provider contract | v1 production decisions |
+| Cedar/OPA providers | Future policy evaluation behind the Authz Service provider contract | v1 production decisions |
 | MCP server | Business validation and provider call | Trusting the gateway as its only security layer |
 
-## Standalone CAS Microservice
+## CAIPE Authorization Service
 
 ### Extraction boundary
 
-The current BFF CAS implementation becomes a client of the standalone service.
-The new service owns the reusable decision behavior currently split between the
-BFF authorization library and the direct OpenFGA gateway bridge:
+The current BFF-hosted authorization implementation becomes a client of
+`caipe-authz`. The new service owns the reusable decision behavior currently
+split between the BFF authorization library and the direct OpenFGA gateway
+bridge:
 
 - Canonical subject, action, resource, and context contracts.
 - Subject binding and trusted-context construction.
@@ -344,14 +345,14 @@ BFF authorization library and the direct OpenFGA gateway bridge:
 - Stable reason codes, audit, metrics, timeouts, and bounded caches.
 
 After migration, BFF routes do not import an in-process OpenFGA decision engine.
-They call CAS HTTP or batch HTTP. The existing bridge is refactored into the CAS
-`ext_authz` transport adapter and no longer contains an independent decision
-implementation.
+They call Authz Service HTTP or batch HTTP. The existing bridge is refactored
+into the Authz Service `ext_authz` transport adapter and no longer contains an
+independent decision implementation.
 
-CAS may run one binary with separate HTTP and gRPC listeners. Production can
-scale the listeners in separate pools while deploying the same artifact and
-decision core. This preserves one logical service without forcing application
-and gateway traffic to share the same capacity or latency budget.
+`caipe-authz` may run one binary with separate HTTP and gRPC listeners.
+Production can scale the listeners in separate pools while deploying the same
+artifact and decision core. This preserves one logical service without forcing
+application and gateway traffic to share the same capacity or latency budget.
 
 ### Canonical decision contract
 
@@ -368,8 +369,8 @@ and gateway traffic to share the same capacity or latency budget.
 }
 ```
 
-CAS clients provide identifiers and advisory inputs. Only CAS transport adapters
-and trusted resolvers may populate authoritative context:
+Authz Service clients provide identifiers and advisory inputs. Only its
+transport adapters and trusted resolvers may populate authoritative context:
 
 - `identity`: verified token claims and signed workload or agent identity.
 - `request`: method, route metadata, bounded MCP arguments, network, and server
@@ -378,7 +379,7 @@ and trusted resolvers may populate authoritative context:
   loaded from trusted catalogs.
 
 Client-supplied advisory context may narrow a decision but must never create a
-new allow. CAS validates the canonical request against a registry keyed by
+new allow. The Authz Service validates the canonical request against a registry keyed by
 `(resource_type, action)` before invoking a provider.
 
 ### Transport adapters
@@ -395,8 +396,8 @@ responses and headers, but cannot change provider semantics.
 
 ### Policy provider contract
 
-The internal provider interface is intentionally smaller than the public CAS
-API:
+The internal provider interface is intentionally smaller than the public Authz
+Service API:
 
 ```text
 evaluate(canonical_request, trusted_context, policy_binding)
@@ -415,9 +416,9 @@ request field.
 | `cedar` | Future optional | Attribute policies and explicit `forbid` guardrails |
 | `opa` | Future optional | Rego policies for approved cross-resource guardrails |
 
-CEL is not a separate CAS provider in v1. CEL source is compiled into reviewed
-OpenFGA named conditions and evaluated by OpenFGA. CAS must not embed a second
-general-purpose CEL runtime.
+CEL is not a separate Authz Service provider in v1. CEL source is compiled into
+reviewed OpenFGA named conditions and evaluated by OpenFGA. The Authz Service
+must not embed a second general-purpose CEL runtime.
 
 ### Provider composition
 
@@ -435,7 +436,7 @@ final_allow = openfga_allow
   OpenFGA access.
 - One versioned policy binding records provider order, revisions, schemas, and
   composition mode.
-- CAS emits one result with provider-specific sub-decisions for explanation.
+- Authz Service emits one result with provider-specific sub-decisions for explanation.
 
 This contract does not commit v1 to operating Cedar or OPA. Adding either
 requires a separate implementation proposal, threat model, conformance suite,
@@ -568,7 +569,7 @@ claim that the policy is active or deleted.
 
 ### Trusted context projection
 
-The CAS `ext_authz` adapter parses only MCP `tools/call` requests. It converts eligible scalar
+The Authz Service `ext_authz` adapter parses only MCP `tools/call` requests. It converts eligible scalar
 arguments into typed maps keyed by normalized JSON Pointer:
 
 ```json
@@ -586,19 +587,19 @@ Rules:
   ext_authz within the configured size limit; an absent or truncated body denies.
 - Identity comes only from a verified JWT or trusted AgentGateway metadata.
 - Agent identity comes only from the verified HMAC-signed agent context.
-- Time comes from the CAS clock, never the MCP payload.
+- Time comes from the Authz Service clock, never the MCP payload.
 - Only policy-eligible fields are projected.
 - Objects, binaries, secrets, and unrestricted free text are not projected.
-- Missing fields remain missing; defaults are not invented by CAS.
+- Missing fields remain missing; defaults are not invented by the Authz Service.
 - Duplicate JSON keys, invalid JSON, excessive depth, and oversized bodies deny.
 - Context values are never copied from headers supplied by the end user.
 
-CAS maintains a bounded cache of policy-eligible field projections and schema
-hashes. It refreshes them through an internal trusted resolver. Cache expiry or
-an unavailable projection for a condition-dependent tool denies the conditional
-path.
+The Authz Service maintains a bounded cache of policy-eligible field projections
+and schema hashes. It refreshes them through an internal trusted resolver. Cache
+expiry or an unavailable projection for a condition-dependent tool denies the
+conditional path.
 
-CAS always sends every typed context map, using an empty map when no
+The Authz Service always sends every typed context map, using an empty map when no
 eligible values were projected. This lets unconditional relationship paths
 continue to evaluate while conditional paths return false instead of failing
 because a map parameter is absent. It sends an empty `schema_hash` when no
@@ -612,29 +613,29 @@ sequenceDiagram
     autonumber
     participant Caller as Agent or local caller
     participant AGW as AgentGateway
-    participant CAS as Central Authorization Service
+    participant Authz as CAIPE Authorization Service
     participant FGA as OpenFGA
     participant MCP as MCP server
     participant Audit as Audit service
 
     Caller->>AGW: tools/call with JWT, signed agent context, and arguments
     AGW->>AGW: Verify JWT and route
-    AGW->>CAS: ext_authz CheckRequest
-    CAS->>CAS: Bind subject and verify agent context
-    CAS->>CAS: Parse and project eligible arguments
-    CAS->>FGA: Check gateway and optional server access
-    CAS->>FGA: Check caller can_call exact tool with context
+    AGW->>Authz: ext_authz CheckRequest
+    Authz->>Authz: Bind subject and verify agent context
+    Authz->>Authz: Parse and project eligible arguments
+    Authz->>FGA: Check gateway and optional server access
+    Authz->>FGA: Check caller can_call exact tool with context
     opt Dynamic agent context
-        CAS->>FGA: Check caller can_use agent
-        CAS->>FGA: Check agent can_call exact tool with context
+        Authz->>FGA: Check caller can_use agent
+        Authz->>FGA: Check agent can_call exact tool with context
     end
     alt Every required check allows
-        CAS->>Audit: Record allow, policy hash, and context field names
-        CAS-->>AGW: ALLOW
+        Authz->>Audit: Record allow, policy hash, and context field names
+        Authz-->>AGW: ALLOW
         AGW->>MCP: Forward unchanged MCP request
     else Condition false, missing context, or PDP failure
-        CAS->>Audit: Record deny and reason without argument values
-        CAS-->>AGW: DENY
+        Authz->>Audit: Record deny and reason without argument values
+        Authz-->>AGW: DENY
         AGW--xMCP: Block request
     end
 ```
@@ -647,7 +648,7 @@ Expression policies initially target exact objects only:
 tool:<server>/<tool>
 ```
 
-CAS must not describe a conditional deny as authoritative when a valid
+The Authz Service must not describe a conditional deny as authoritative when a valid
 wildcard allow exists. The control plane detects known wildcard conflicts before
 save, and the audit record identifies the allow path as exact or wildcard.
 
@@ -659,7 +660,7 @@ design because different tools expose different schemas.
 Every policy pins the tool schema hash used for validation.
 
 Every argument condition compares that persisted hash with the current trusted
-hash sent by CAS. A mismatch makes the condition false immediately,
+hash sent by the Authz Service. A mismatch makes the condition false immediately,
 independent of asynchronous reconciliation.
 
 When a probe discovers a different schema hash:
@@ -683,13 +684,13 @@ type restrictions therefore require coordinated model activation.
 - Model initialization records an active descriptor containing `store_id`,
   `authorization_model_id`, model SHA-256, and template-registry version.
 - The policy API writes tuples using the descriptor's explicit model ID.
-- CAS includes the same explicit model ID in Check requests.
-- CAS keeps its previous descriptor until it recognizes the new
+- Authz Service includes the same explicit model ID in Check requests.
+- Authz Service keeps its previous descriptor until it recognizes the new
   template-registry version and can project every required context shape.
 - A condition version is removed only after tuple reads prove that no stored
   tuple references it and its rollback retention window has expired.
 
-Activation order is model, CAS compatibility, active descriptor, then policy
+Activation order is model, Authz Service compatibility, active descriptor, then policy
 tuple. If any step fails, the previous descriptor remains active.
 
 ## Security Requirements
@@ -754,7 +755,7 @@ Metric labels must not contain user IDs, tool arguments, or unbounded policy IDs
 
 - Expression evaluation remains part of the existing OpenFGA Check; it does not
   add a second evaluator hop.
-- Context projection targets less than 2 ms p95 in CAS.
+- Context projection targets less than 2 ms p95 in the Authz Service.
 - HTTP and gRPC adapters have separate concurrency, timeout, and saturation
   metrics even when they share a deployment.
 - `ext_authz` uses a bounded hot-path timeout and fails closed.
@@ -767,7 +768,7 @@ Metric labels must not contain user IDs, tool arguments, or unbounded policy IDs
 
 ## Rollout
 
-### Phase 0 - CAS contract and conformance harness
+### Phase 0 - Authorization contract and conformance harness
 
 - Freeze the canonical decision, batch, explanation, and provider contracts.
 - Add transport-neutral conformance tests and stable reason codes.
@@ -776,20 +777,20 @@ Metric labels must not contain user IDs, tool arguments, or unbounded policy IDs
 
 No enforcement path changes in this phase.
 
-### Phase 1 - Standalone CAS and BFF extraction
+### Phase 1 - `caipe-authz` and BFF extraction
 
-- Create the CAS service with HTTP and batch HTTP listeners.
+- Create `caipe-authz` with HTTP and batch HTTP listeners.
 - Move the BFF decision engine, OpenFGA adapter, trusted-context rules, audit,
   and caches into the service.
-- Replace BFF in-process decisions with a CAS HTTP client.
+- Replace BFF in-process decisions with an Authz Service HTTP client.
 - Shadow-compare old and new decisions before removing the in-process engine.
 
-### Phase 2 - CAS `ext_authz` migration
+### Phase 2 - `caipe-authz` gateway migration
 
-- Move the existing Python bridge parsing and checks into the CAS gRPC adapter.
-- Route AgentGateway `ext_authz` to CAS.
+- Move the existing Python bridge parsing and checks into the Authz Service gRPC adapter.
+- Route AgentGateway `ext_authz` to Authz Service.
 - Parse and project eligible MCP arguments.
-- Shadow-compare the existing bridge and CAS results.
+- Shadow-compare the existing bridge and Authz Service results.
 - Remove the direct bridge decision path only after parity and latency gates.
 
 ### Phase 3 - OpenFGA model and expression contracts
@@ -797,7 +798,7 @@ No enforcement path changes in this phase.
 - Add reviewed condition templates to `deploy/openfga/model.fga` and chart JSON.
 - Add `conditional_caller` to `tool`.
 - Add parity and default-deny tests.
-- Add conditional tuple and Check-context support to the CAS OpenFGA provider.
+- Add conditional tuple and Check-context support to the Authz Service OpenFGA provider.
 
 No existing tuple changes or authoritative decision changes in this phase.
 
@@ -810,7 +811,7 @@ No existing tuple changes or authoritative decision changes in this phase.
 ### Phase 5 - Selected-tool enforcement
 
 - Make caller tool checking mandatory and remove its default-off behavior.
-- Require the agent-context HMAC secret; report CAS unready for expression
+- Require the agent-context HMAC secret; report Authz Service unready for expression
   enforcement when it is absent.
 - Run the caller expression check outside any branch that merely decides whether
   a separate agent check is applicable.
@@ -841,19 +842,19 @@ No existing tuple changes or authoritative decision changes in this phase.
 
 | Area | Expected change |
 |---|---|
-| `ai_platform_engineering/cas/` | New decision core, HTTP/batch APIs, `ext_authz` gRPC adapter, trusted context, provider registry, and audit. |
-| CAS Helm chart and Compose service | Deployment, health, listener, OpenFGA, timeout, and scaling configuration. |
+| `ai_platform_engineering/authz/` | New decision core, HTTP/batch APIs, `ext_authz` gRPC adapter, trusted context, provider registry, and audit. |
+| `caipe-authz` Helm chart and Compose service | Deployment, health, listener, OpenFGA, timeout, and scaling configuration. |
 | `deploy/openfga/model.fga` | Add conditions, `conditional_caller`, and invocation/management separation. |
 | `charts/ai-platform-engineering/charts/openfga/authorization-model.json` | Generated model parity. |
-| `deploy/openfga/bridge/main.py` | Migrated into CAS `ext_authz`; retained temporarily for shadow comparison, then removed. |
-| `ui/src/lib/authz/` | Replace in-process engine with CAS HTTP and batch client. |
-| `ui/src/app/api/authz/v1/` | Compatibility facade or direct CAS proxy during migration. |
-| `ui/src/lib/rbac/openfga.ts` | Move runtime decision behavior to CAS; retain only transitional/admin helpers. |
+| `deploy/openfga/bridge/main.py` | Migrated into Authz Service `ext_authz`; retained temporarily for shadow comparison, then removed. |
+| `ui/src/lib/authz/` | Replace in-process engine with Authz Service HTTP and batch client. |
+| `ui/src/app/api/authz/v1/` | Compatibility facade or direct Authz Service proxy during migration. |
+| `ui/src/lib/rbac/openfga.ts` | Move runtime decision behavior to Authz Service; retain only transitional/admin helpers. |
 | `ui/src/lib/rbac/mcp-tool-catalog.ts` | Sanitized schema, eligible fields, and schema drift. |
 | `ui/src/lib/rbac/tool-expression-policy.ts` | Canonical expression, compiler, validation, and reconciliation. |
 | `ui/src/app/api/admin/tool-expression-policies/` | Policy CRUD, schema, and dry-run evaluation. |
 | Admin Security and Policy UI | Typed policy builder and effective-access warnings. |
-| CAS, bridge, and RBAC tests | Transport conformance, parity, condition, context, shadowing, drift, and fail-closed coverage. |
+| Authz Service, bridge, and RBAC tests | Transport conformance, parity, condition, context, shadowing, drift, and fail-closed coverage. |
 
 ## Required Test Matrix
 
@@ -883,7 +884,7 @@ End-to-end tests must run against the pinned OpenFGA image, not only mocks.
 ## Acceptance Criteria
 
 - An administrator can create a typed exact-tool expression without writing CEL.
-- BFF and AgentGateway use the same CAS decision core through different
+- BFF and AgentGateway use the same Authz Service decision core through different
   transports.
 - A matching request is allowed and a non-matching request is blocked before the
   MCP server receives it.
@@ -903,13 +904,13 @@ End-to-end tests must run against the pinned OpenFGA image, not only mocks.
 | Alternative | Decision | Reason |
 |---|---|---|
 | Native named OpenFGA conditions with typed CAIPE templates | Selected | One PDP, typed inputs, bounded CEL, no arbitrary eval. |
-| Standalone CAS with HTTP and `ext_authz` adapters | Selected | One logical decision service without putting BFF on the gateway hot path. |
-| Keep CAS inside BFF and route gateway through BFF | Rejected | Couples data-plane availability and latency to the UI/BFF deployment. |
-| Keep BFF CAS and direct OpenFGA bridge indefinitely | Rejected target state | Preserves two decision implementations and semantic drift. |
+| Standalone Authz Service with HTTP and `ext_authz` adapters | Selected | One logical decision service without putting BFF on the gateway hot path. |
+| Keep Authz Service inside BFF and route gateway through BFF | Rejected | Couples data-plane availability and latency to the UI/BFF deployment. |
+| Keep BFF-hosted authorization and direct OpenFGA bridge indefinitely | Rejected target state | Preserves two decision implementations and semantic drift. |
 | Cedar or OPA in v1 | Deferred | Requires a second policy lifecycle, conformance semantics, and operational ownership. |
 | Raw CEL stored per tuple as `$expression` | Rejected | OpenFGA does not evaluate a stored expression string; unsafe authoring surface. |
 | Dynamically generate an OpenFGA model for every expression | Deferred | Global immutable model churn, condition-name growth, and difficult rollback. |
-| Evaluate CEL directly in CAS | Rejected | Creates a second PDP and duplicated policy semantics. |
+| Evaluate CEL directly in Authz Service | Rejected | Creates a second PDP and duplicated policy semantics. |
 | Fork OpenFGA and add `/condition-schema` | Rejected | Long-term maintenance and compatibility burden. |
 | Enforce only inside each MCP server | Rejected as the platform design | Duplicates enforcement; retained as defense in depth for business constraints. |
 

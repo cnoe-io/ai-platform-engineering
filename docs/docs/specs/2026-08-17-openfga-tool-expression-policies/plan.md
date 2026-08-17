@@ -1,10 +1,10 @@
 ---
 sidebar_label: Implementation Plan
-title: Central Authorization Service and Expression Policies - Implementation Plan
-description: Phased plan to extract CAS from the BFF and add OpenFGA-native expression policies.
+title: CAIPE Authorization Service and Expression Policies - Implementation Plan
+description: Phased plan to extract authorization from the BFF into caipe-authz and add OpenFGA-native expression policies.
 ---
 
-# Implementation Plan: Central Authorization Service and Expression Policies
+# Implementation Plan: CAIPE Authorization Service and Expression Policies
 
 - **Branch:** `prebuild/docs/openfga-tool-expression-policies`
 - **Date:** 2026-08-17
@@ -14,7 +14,8 @@ description: Phased plan to extract CAS from the BFF and add OpenFGA-native expr
 
 ## Outcome
 
-Deliver one standalone Central Authorization Service (CAS) with:
+Deliver one standalone CAIPE Authorization Service (`caipe-authz`, or Authz
+Service) with:
 
 - HTTP and batch HTTP for BFF, Dynamic Agents, RAG, bots, and services.
 - Envoy `ext_authz` v3 gRPC for AgentGateway.
@@ -23,20 +24,20 @@ Deliver one standalone Central Authorization Service (CAS) with:
 - Typed, versioned expression templates compiled to OpenFGA-native CEL.
 - Disabled extension points for future Cedar and OPA providers.
 
-Exact MCP tool arguments are the first conditional-policy slice. The CAS
-contract applies to every CAIPE resource type; expressions are enabled per
+Exact MCP tool arguments are the first conditional-policy slice. The Authz
+Service contract applies to every CAIPE resource type; expressions are enabled per
 `(resource_type, action)` registry entry.
 
 ## Technical Decisions
 
 | Layer | Choice |
 |---|---|
-| Universal entry point | One standalone CAS |
+| Universal entry point | One standalone Authz Service |
 | Application transport | HTTP and batch HTTP |
 | Gateway transport | Envoy `ext_authz` gRPC |
 | Relationship authorization | OpenFGA |
 | Conditional expressions | OpenFGA-native CEL |
-| Context construction | CAS |
+| Context construction | Authz Service |
 | Policy authoring | Typed, versioned templates |
 | Cedar | Future optional provider, not v1 |
 | OPA | Future optional provider, not v1 |
@@ -44,7 +45,7 @@ contract applies to every CAIPE resource type; expressions are enabled per
 Constraints:
 
 - No caller-selected provider.
-- No standalone CEL evaluator in CAS.
+- No standalone CEL evaluator in Authz Service.
 - No permissive `OR` composition across providers.
 - No fail-open authorization path.
 - No raw CEL, Cedar, or Rego authoring in the Admin UI.
@@ -53,7 +54,7 @@ Constraints:
 ## Target Project Structure
 
 ```text
-ai_platform_engineering/cas/
+ai_platform_engineering/authz/
 ├── api/
 │   ├── http.py                     # decision and batch HTTP
 │   └── ext_authz.py                # Envoy v3 gRPC adapter
@@ -74,9 +75,9 @@ ai_platform_engineering/cas/
     ├── integration/
     └── conformance/
 
-charts/ai-platform-engineering/charts/caipe-cas/
+charts/ai-platform-engineering/charts/caipe-authz/
 docker-compose/
-ui/src/lib/authz/                    # CAS client after extraction
+ui/src/lib/authz/                    # Authz Service client after extraction
 deploy/openfga/bridge/               # temporary parity oracle, then removed
 ```
 
@@ -103,11 +104,11 @@ must call one decision core.
 - Existing callers and rollout flags have an explicit migration owner.
 - No authoritative runtime behavior changes.
 
-## Phase 1 - Standalone CAS Skeleton
+## Phase 1 - Standalone `caipe-authz` Skeleton
 
 ### Tasks
 
-1. Create the CAS service, health/readiness endpoints, and configuration model.
+1. Create `caipe-authz`, health/readiness endpoints, and its configuration model.
 2. Add single and batch HTTP APIs.
 3. Add the Envoy v3 `Authorization/Check` gRPC listener.
 4. Implement one transport-neutral decision function.
@@ -131,40 +132,42 @@ must call one decision core.
 ### Tasks
 
 1. Move OpenFGA mapping, model selection, Check/BatchCheck, reasons, audit, and
-   cache semantics from `ui/src/lib/authz/` into CAS.
-2. Implement the BFF CAS HTTP and batch client.
+   cache semantics from `ui/src/lib/authz/` into `caipe-authz`.
+2. Implement the BFF client for Authz Service HTTP and batch HTTP.
 3. Preserve current BFF API routes as a temporary compatibility facade.
-4. Shadow-call standalone CAS and compare decisions, reasons, and revisions.
-5. Migrate Dynamic Agents and other current CAS consumers to the stable CAS
-   service address.
+4. Shadow-call `caipe-authz` and compare decisions, reasons, and revisions.
+5. Migrate Dynamic Agents and other current authorization consumers to the
+   stable `caipe-authz` service address.
 6. Remove the BFF in-process evaluator after parity and availability gates.
 
 ### Tests and exit criteria
 
-- Existing BFF authorization tests run as CAS client/provider conformance tests.
+- Existing BFF authorization tests run as Authz Service client/provider
+  conformance tests.
 - Shadow mismatch rate is zero for required golden and integration cases.
 - BFF routes cannot directly invoke the runtime OpenFGA decision adapter.
-- CAS outage fails closed with a stable retriable reason.
+- Authz Service outage fails closed with a stable retriable reason.
 
-## Phase 3 - Refactor the Gateway Bridge into CAS
+## Phase 3 - Refactor the Gateway Bridge into `caipe-authz`
 
 ### Tasks
 
 1. Move JWT binding, signed agent-context verification, MCP parsing, gateway
-   gates, and tool mapping from the bridge into the CAS `ext_authz` adapter and
-   decision registry.
-2. Configure AgentGateway to call CAS gRPC.
-3. Run the existing bridge and CAS in shadow comparison mode.
+   gates, and tool mapping from the bridge into the Authz Service `ext_authz`
+   adapter and decision registry.
+2. Configure AgentGateway to call `caipe-authz` over gRPC.
+3. Run the existing bridge and `caipe-authz` in shadow comparison mode.
 4. Verify bounded request-body forwarding and duplicate-key-safe JSON parsing.
 5. Define independent gRPC timeout, concurrency, and fail-closed readiness.
 6. Remove the direct OpenFGA bridge after parity, latency, and rollback gates.
 
 ### Tests and exit criteria
 
-- Existing bridge tests pass against the CAS gRPC adapter.
-- CAS and the old bridge produce identical decisions for the migration matrix.
+- Existing bridge tests pass against the Authz Service gRPC adapter.
+- The Authz Service and old bridge produce identical decisions for the
+  migration matrix.
 - AgentGateway does not call BFF on the authorization hot path.
-- AgentGateway and BFF now use the same CAS decision core.
+- AgentGateway and BFF now use the same Authz Service decision core.
 
 ## Phase 4 - OpenFGA Condition and Client Support
 
@@ -175,7 +178,7 @@ must call one decision core.
 3. Generate the chart authorization-model JSON and enforce parity.
 4. Add `tool#conditional_caller` and separate invocation from management.
 5. Add condition-aware tuple read/write and context-aware Check/BatchCheck to
-   the CAS OpenFGA provider.
+   the Authz Service OpenFGA provider.
 6. Add an active descriptor containing store ID, model ID, model hash, and
    template-registry version.
 7. Implement safe conditional-tuple replacement, verification, and
@@ -214,7 +217,7 @@ must call one decision core.
 
 ### Tasks
 
-1. Project eligible MCP arguments into typed context maps in CAS.
+1. Project eligible MCP arguments into typed context maps in the Authz Service.
 2. Add trusted server time, schema hash, identity, and resource context.
 3. Send byte-equivalent context to caller and dynamic-agent checks.
 4. Record conditional shadow results without changing enforcement.
@@ -239,7 +242,7 @@ must call one decision core.
 5. Add typed field/operator/value editors and read-only previews.
 6. Show additive/exclusive, stale schema, policy/provider revision, and
    reconciliation state.
-7. Ensure dry-run calls CAS but never invokes the protected resource.
+7. Ensure dry-run calls Authz Service but never invokes the protected resource.
 
 ### Tests and exit criteria
 
@@ -252,7 +255,7 @@ must call one decision core.
 
 ### Preconditions
 
-- BFF and AgentGateway use standalone CAS.
+- BFF and AgentGateway use `caipe-authz`.
 - The old BFF engine and gateway decision bridge are removed or disabled.
 - Caller-tool checking is mandatory.
 - Signed agent context, active model descriptor, audit, and rollback are ready.
@@ -285,15 +288,15 @@ Cedar or OPA work requires a separate approved proposal. It must include:
 - Evaluation limits, sandboxing, latency, availability, and conformance tests.
 
 No future provider may be enabled merely because its identifier exists in the
-CAS registry.
+Authz Service registry.
 
 ## Rollout Controls
 
 ```text
-CAIPE_CAS_MODE=shadow|enforce
-CAIPE_CAS_HTTP_ENABLED=true
-CAIPE_CAS_EXT_AUTHZ_ENABLED=true
-CAIPE_CAS_PROVIDER=openfga-cel
+CAIPE_AUTHZ_MODE=shadow|enforce
+CAIPE_AUTHZ_HTTP_ENABLED=true
+CAIPE_AUTHZ_EXT_AUTHZ_ENABLED=true
+CAIPE_AUTHZ_PROVIDER=openfga-cel
 CAIPE_TOOL_EXPRESSION_POLICY_MODE=off|shadow|enforce
 CAIPE_TOOL_EXPRESSION_ENFORCED_REFS=issue_tracker/create_item,...
 CAIPE_TOOL_POLICY_MAX_BODY_BYTES=65536
@@ -312,17 +315,18 @@ CAIPE_TOOL_POLICY_MAX_CONTEXT_BYTES=16384
 2. Return selected expression bindings to shadow or off.
 3. Delete conditional tuples to revoke expression-derived grants.
 4. Restore unconditional grants only through explicit audited changes.
-5. During CAS migration, restore the previous transport target only while its
-   decision implementation remains version-compatible and tested.
-6. Never fall back silently from CAS to an older independent evaluator.
+5. During Authz Service migration, restore the previous transport target only
+   while its decision implementation remains version-compatible and tested.
+6. Never fall back silently from the Authz Service to an older independent
+   evaluator.
 
 Rollback favors denial over temporary broad access.
 
 ## Quality Gates
 
 ```bash
-uv run ruff check ai_platform_engineering/cas
-uv run pytest ai_platform_engineering/cas/tests
+uv run ruff check ai_platform_engineering/authz
+uv run pytest ai_platform_engineering/authz/tests
 cd ui && npm run lint
 cd ui && npm run build
 cd docs && npm run build
@@ -330,8 +334,8 @@ cd docs && npm run build
 
 Also require:
 
-- CAS HTTP/gRPC normalization conformance.
-- BFF-to-CAS and bridge-to-CAS migration parity.
+- Authz Service HTTP/gRPC normalization conformance.
+- BFF-to-`caipe-authz` and bridge-to-`caipe-authz` migration parity.
 - OpenFGA DSL-to-JSON parity.
 - Conditional Check integration against the pinned OpenFGA image.
 - Default-deny, provider-error, and timeout coverage.
@@ -341,8 +345,8 @@ Also require:
 
 | Slice | Deliverable | Independent value |
 |---|---|---|
-| A | Canonical CAS contract and golden fixtures | Freezes behavior before extraction |
-| B | Standalone HTTP/gRPC CAS skeleton | Proves one multi-transport core |
+| A | Canonical Authz Service contract and golden fixtures | Freezes behavior before extraction |
+| B | Standalone HTTP/gRPC `caipe-authz` skeleton | Proves one multi-transport core |
 | C | BFF extraction | Removes the UI process as PDP |
 | D | Gateway bridge migration | Unifies application and gateway decisions |
 | E | OpenFGA CEL model and provider support | Proves native conditions |
@@ -351,4 +355,4 @@ Also require:
 | H | One selected-tool enforcement | Delivers the first conditional boundary |
 
 Each slice is independently reviewable. Provider experiments must not be bundled
-with v1 CAS extraction or expression enforcement.
+with v1 `caipe-authz` extraction or expression enforcement.
