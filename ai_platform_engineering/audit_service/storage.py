@@ -32,6 +32,9 @@ _PARQUET_INDEX_FIELDS = (
     "agent_name",
     "tool_name",
     "user_email",
+    "rollout_revision",
+    "authoritative_path",
+    "mismatch_class",
 )
 _AUDIT_KEY_TS_RE = re.compile(r"audit-(\d{8}T\d{6}Z)-")
 _KEY_TIME_PRUNE_TOLERANCE = timedelta(minutes=2)
@@ -152,6 +155,9 @@ def _record_matches(record: dict[str, Any], query: "AuditQuery") -> bool:
         "reason_code",
         "agent_name",
         "tool_name",
+        "rollout_revision",
+        "authoritative_path",
+        "mismatch_class",
     ):
         expected = getattr(query, field)
         if expected is not None:
@@ -189,6 +195,9 @@ class AuditQuery:
     agent_name: str | None = None
     tool_name: str | None = None
     user_email: str | None = None
+    rollout_revision: str | None = None
+    authoritative_path: str | None = None
+    mismatch_class: str | None = None
 
 
 @dataclass(frozen=True)

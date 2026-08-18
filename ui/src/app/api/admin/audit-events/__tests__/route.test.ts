@@ -98,6 +98,15 @@ interface TestAuditDoc {
   decision_via?: string;
   component?: string;
   pdp?: string;
+  rollout_revision?: string;
+  authoritative_path?: string;
+  mismatch_class?: string;
+  legacy_outcome?: "allow" | "deny";
+  legacy_reason_code?: string;
+  legacy_duration_ms?: number;
+  authz_outcome?: "allow" | "deny";
+  authz_reason_code?: string;
+  authz_duration_ms?: number;
 }
 
 const SUBJECT_SALT = process.env.AUDIT_SUBJECT_SALT ?? "caipe-098-audit";
@@ -193,6 +202,26 @@ const docs: TestAuditDoc[] = [
     pdp: "openfga",
   },
   {
+    ts: new Date("2026-05-17T16:59:31.000Z"),
+    type: "authz_migration_comparison",
+    tenant_id: "default",
+    subject_hash: "not-applicable",
+    action: "invoke",
+    outcome: "error",
+    correlation_id: "comparison-correlation",
+    source: "bff",
+    resource_ref: "tool:issue_tracker/create_item",
+    rollout_revision: "revision-1",
+    authoritative_path: "LEGACY",
+    mismatch_class: "ALLOW_DENY",
+    legacy_outcome: "allow",
+    legacy_reason_code: "ALLOW_RELATIONSHIP",
+    legacy_duration_ms: 2,
+    authz_outcome: "deny",
+    authz_reason_code: "DENY_NO_RELATIONSHIP",
+    authz_duration_ms: 4,
+  },
+  {
     ts: new Date("2026-05-17T16:59:29.000Z"),
     type: "cas_grant",
     tenant_id: "acme",
@@ -241,12 +270,18 @@ function applyServiceFilter(params: URLSearchParams): TestAuditDoc[] {
     const userEmail = params.get("user_email");
     const agentName = params.get("agent_name");
     const toolName = params.get("tool_name");
+    const rolloutRevision = params.get("rollout_revision");
+    const authoritativePath = params.get("authoritative_path");
+    const mismatchClass = params.get("mismatch_class");
     if (type && doc.type !== type) return false;
     if (tenantId && doc.tenant_id !== tenantId) return false;
     if (outcome && doc.outcome !== outcome) return false;
     if (userEmail && doc.user_email !== userEmail) return false;
     if (agentName && doc.agent_name !== agentName) return false;
     if (toolName && doc.tool_name !== toolName) return false;
+    if (rolloutRevision && doc.rollout_revision !== rolloutRevision) return false;
+    if (authoritativePath && doc.authoritative_path !== authoritativePath) return false;
+    if (mismatchClass && doc.mismatch_class !== mismatchClass) return false;
     return true;
   });
 }
@@ -310,6 +345,7 @@ describe("GET /api/admin/audit-events", () => {
       "delegate_to_argocd",
       "agent#use",
       "use",
+      "invoke",
       "use",
       "use",
     ]);
@@ -321,6 +357,7 @@ describe("GET /api/admin/audit-events", () => {
       "agent_delegation",
       "openfga_rebac",
       "cas_decision",
+      "authz_migration_comparison",
       "cas_grant",
       "cas_grant",
     ]);
@@ -460,6 +497,31 @@ describe("GET /api/admin/audit-events", () => {
       subject_ref: "user:workflow-owner",
     });
     expect(body.records[0].user_email).toBeUndefined();
+  });
+
+  it("filters and preserves migration comparison evidence", async () => {
+    const { GET } = await import("../route");
+
+    const response = await GET(request(
+      "/api/admin/audit-events?type=authz_migration_comparison&mismatch_class=ALLOW_DENY&authoritative_path=LEGACY&rollout_revision=revision-1",
+    ));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.records).toHaveLength(1);
+    expect(body.records[0]).toMatchObject({
+      rollout_revision: "revision-1",
+      authoritative_path: "LEGACY",
+      mismatch_class: "ALLOW_DENY",
+      legacy_outcome: "allow",
+      legacy_duration_ms: 2,
+      authz_outcome: "deny",
+      authz_duration_ms: 4,
+    });
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining("mismatch_class=ALLOW_DENY"),
+      expect.objectContaining({ cache: "no-store" }),
+    );
   });
 
   it("returns an empty warning response when audit-service is unavailable", async () => {

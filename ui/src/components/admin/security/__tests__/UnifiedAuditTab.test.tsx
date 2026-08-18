@@ -74,6 +74,80 @@ describe('UnifiedAuditTab', () => {
     expect(screen.queryByText(/^bff$/i)).not.toBeInTheDocument();
   });
 
+  it('shows filtered side-by-side migration comparisons and promotion evidence', async () => {
+    (global.fetch as jest.Mock).mockImplementation((input: RequestInfo | URL) => {
+      const url = input instanceof URL ? input.toString() : typeof input === 'string' ? input : input.url;
+      if (url.includes('/comparison-summary')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            comparison_count: 100,
+            semantic_mismatch_count: 1,
+            provider_error_count: 0,
+            provider_error_rate: 0,
+            p99_authz_latency_ms: 12,
+            latest_rollout_revision: 'revision-1',
+            truncated: false,
+            evidence_ready: false,
+            mismatch_counts: { ALLOW_DENY: 1, NONE: 99 },
+            authoritative_counts: { LEGACY: 100 },
+            gates: [{ id: 'semantics', label: 'Semantic parity', passed: false, detail: '1 mismatch' }],
+          }),
+        });
+      }
+      if (url.includes('/api/audit/config')) {
+        return Promise.resolve({ ok: true, json: async () => ({ readsAvailable: true }) });
+      }
+      if (url.includes('/api/admin/audit-storage')) {
+        return Promise.resolve({ ok: true, json: async () => ({ storage: null, retention: null, verbosity: null, errors: [] }) });
+      }
+      const comparisonSelected = url.includes('type=authz_migration_comparison');
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          records: comparisonSelected ? [{
+            ts: '2026-08-18T00:00:00Z',
+            type: 'authz_migration_comparison',
+            outcome: 'error',
+            action: 'invoke',
+            tenant_id: 'example',
+            subject_hash: 'not-applicable',
+            correlation_id: 'comparison-1',
+            source: 'bff',
+            resource_ref: 'tool:issue_tracker/create_item',
+            rollout_revision: 'revision-1',
+            authoritative_path: 'LEGACY',
+            mismatch_class: 'ALLOW_DENY',
+            legacy_outcome: 'allow',
+            legacy_reason_code: 'ALLOW_RELATIONSHIP',
+            legacy_duration_ms: 2,
+            authz_outcome: 'deny',
+            authz_reason_code: 'DENY_NO_RELATIONSHIP',
+            authz_duration_ms: 4,
+          }] : [],
+          total: comparisonSelected ? 1 : 0,
+          page: 1,
+          limit: 30,
+        }),
+      });
+    });
+
+    render(<UnifiedAuditTab isAdmin />);
+    fireEvent.change(screen.getByLabelText('Audit event type'), {
+      target: { value: 'authz_migration_comparison' },
+    });
+
+    expect(await screen.findByText('Traffic evidence blocked')).toBeInTheDocument();
+    expect(screen.getByLabelText('Comparison mismatch class')).toBeInTheDocument();
+    expect(await screen.findByText(/Compared legacy and caipe-authz/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText(/Compared legacy and caipe-authz/));
+    expect(await screen.findByText('Legacy evaluator')).toBeInTheDocument();
+    expect(screen.getByText('caipe-authz')).toBeInTheDocument();
+    expect(screen.getAllByText('Authoritative')).toHaveLength(1);
+    expect(screen.getByText(/Legacy was authoritative; comparison result was allow deny/i)).toBeInTheDocument();
+  });
+
   it('shows where audit log storage is coming from', async () => {
     (global.fetch as jest.Mock).mockImplementation((input: RequestInfo | URL) => {
       const url = input instanceof URL ? input.toString() : typeof input === 'string' ? input : input.url;

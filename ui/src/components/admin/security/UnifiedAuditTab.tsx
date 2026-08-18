@@ -8,6 +8,8 @@ import { Card,CardContent,CardDescription,CardHeader,CardTitle } from "@/compone
 import { Input } from "@/components/ui/input";
 import { Popover,PopoverContent,PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip,TooltipContent,TooltipProvider,TooltipTrigger } from "@/components/ui/tooltip";
+import { MigrationComparisonSummary } from "@/components/admin/audit/MigrationComparisonSummary";
+import type { MigrationComparisonSummary as MigrationSummary } from "@/lib/authz/comparison-summary";
 import type { AuditEventType,UnifiedAuditEvent,UnifiedAuditOutcome } from "@/lib/rbac/types";
 import {
   ChevronDown,
@@ -497,6 +499,7 @@ function subjectLabel(evt: UnifiedAuditEvent): string {
 }
 
 function decisionPathLabel(evt: UnifiedAuditEvent): string {
+  if (evt.authoritative_path) return `${evt.authoritative_path} authoritative`;
   const via = evt.decision_via;
   if (via === "tuple") return "OpenFGA tuple";
   if (via === "org_admin") return "Organization admin";
@@ -512,6 +515,9 @@ function decisionPathLabel(evt: UnifiedAuditEvent): string {
 function requestStory(evt: UnifiedAuditEvent): string {
   const resource = getResourceParts(evt).label;
   const action = humanizeToken(evt.action);
+  if (evt.type === "authz_migration_comparison") {
+    return `Compared legacy and caipe-authz for ${action} ${resource}`;
+  }
   if (evt.type === "cas_grant" || evt.type === "authz_policy_change" || evt.type === "authz_relationship_change") {
     const op = evt.operation === "revoke" ? "Revoked" : "Granted";
     return `${op} ${action} on ${resource}`;
@@ -527,6 +533,10 @@ function requestStory(evt: UnifiedAuditEvent): string {
 
 function reasonPhrase(evt: UnifiedAuditEvent): string {
   const reason = evt.reason_code ? humanizeToken(evt.reason_code) : "no reason code";
+  if (evt.type === "authz_migration_comparison") {
+    const mismatch = humanizeToken(evt.mismatch_class ?? "NONE");
+    return `${evt.authoritative_path ?? "Unknown"} was authoritative; comparison result was ${mismatch}.`;
+  }
   if (evt.type === "cas_decision" || evt.type === "authz_decision") {
     const service = evt.component === "cas" || evt.source === "cas" ? "CAS" : displaySource(evt.source);
     const decision = evt.outcome === "allow" ? "allowed" : "denied";
@@ -584,6 +594,9 @@ export function UnifiedAuditTab({ isAdmin }: UnifiedAuditTabProps) {
 
   const [typeFilter, setTypeFilter] = useState("");
   const [outcomeFilter, setOutcomeFilter] = useState("");
+  const [mismatchFilter, setMismatchFilter] = useState("");
+  const [authoritativePathFilter, setAuthoritativePathFilter] = useState("");
+  const [rolloutRevisionFilter, setRolloutRevisionFilter] = useState("");
   const [userEmail, setUserEmail] = useState("");
   const [agentName, setAgentName] = useState("");
   const [dateFrom, setDateFrom] = useState("");
@@ -598,6 +611,9 @@ export function UnifiedAuditTab({ isAdmin }: UnifiedAuditTabProps) {
   const [retentionInput, setRetentionInput] = useState("");
   const [retentionSaving, setRetentionSaving] = useState(false);
   const [retentionSaveMsg, setRetentionSaveMsg] = useState<string | null>(null);
+  const [comparisonSummary, setComparisonSummary] = useState<MigrationSummary | null>(null);
+  const [comparisonSummaryLoading, setComparisonSummaryLoading] = useState(false);
+  const [comparisonSummaryError, setComparisonSummaryError] = useState<string | null>(null);
   const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const auditConfigRetryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -613,12 +629,15 @@ export function UnifiedAuditTab({ isAdmin }: UnifiedAuditTabProps) {
     }
     if (typeFilter) params.set("type", typeFilter);
     if (outcomeFilter) params.set("outcome", outcomeFilter);
+    if (mismatchFilter) params.set("mismatch_class", mismatchFilter);
+    if (authoritativePathFilter) params.set("authoritative_path", authoritativePathFilter);
+    if (rolloutRevisionFilter.trim()) params.set("rollout_revision", rolloutRevisionFilter.trim());
     if (userEmail.trim()) params.set("user_email", userEmail.trim());
     if (agentName.trim()) params.set("agent_name", agentName.trim());
     if (timeWindow === "custom" && dateFrom) params.set("from", new Date(dateFrom).toISOString());
     if (timeWindow === "custom" && dateTo) params.set("to", new Date(dateTo).toISOString());
     return params;
-  }, [timeWindow, typeFilter, outcomeFilter, userEmail, agentName, dateFrom, dateTo]);
+  }, [timeWindow, typeFilter, outcomeFilter, mismatchFilter, authoritativePathFilter, rolloutRevisionFilter, userEmail, agentName, dateFrom, dateTo]);
 
   const fetchEvents = useCallback(async (p = 1) => {
     setLoading(true);
@@ -665,6 +684,40 @@ export function UnifiedAuditTab({ isAdmin }: UnifiedAuditTabProps) {
       }, 5_000);
     }
   }, [isAdmin]);
+
+  const fetchComparisonSummary = useCallback(async () => {
+    if (!isAdmin || typeFilter !== "authz_migration_comparison") {
+      setComparisonSummary(null);
+      setComparisonSummaryError(null);
+      return;
+    }
+    setComparisonSummaryLoading(true);
+    setComparisonSummaryError(null);
+    try {
+      const params = new URLSearchParams({ window: timeWindow });
+      if (timeWindow === "custom") {
+        if (!dateFrom || !dateTo) {
+          setComparisonSummary(null);
+          setComparisonSummaryError("Select both custom range timestamps to summarize comparisons.");
+          return;
+        }
+        params.set("from", new Date(dateFrom).toISOString());
+        params.set("to", new Date(dateTo).toISOString());
+      }
+      if (mismatchFilter) params.set("mismatch_class", mismatchFilter);
+      if (authoritativePathFilter) params.set("authoritative_path", authoritativePathFilter);
+      if (rolloutRevisionFilter.trim()) params.set("rollout_revision", rolloutRevisionFilter.trim());
+      const response = await fetch(`/api/admin/audit-events/comparison-summary?${params.toString()}`);
+      const body = (await response.json()) as MigrationSummary & { error?: string; message?: string };
+      if (!response.ok) throw new Error(body.error ?? body.message ?? `HTTP ${response.status}`);
+      setComparisonSummary(body);
+    } catch (err) {
+      setComparisonSummaryError(err instanceof Error ? err.message : "Failed to summarize comparisons");
+      setComparisonSummary(null);
+    } finally {
+      setComparisonSummaryLoading(false);
+    }
+  }, [isAdmin, typeFilter, timeWindow, dateFrom, dateTo, mismatchFilter, authoritativePathFilter, rolloutRevisionFilter]);
 
   const fetchStorageInfo = useCallback(async () => {
     if (!isAdmin) return;
@@ -764,6 +817,10 @@ export function UnifiedAuditTab({ isAdmin }: UnifiedAuditTabProps) {
   }, [fetchEvents]);
 
   useEffect(() => {
+    fetchComparisonSummary().catch(() => undefined);
+  }, [fetchComparisonSummary]);
+
+  useEffect(() => {
     if (!isAdmin) return;
     fetchAuditConfig().catch(() => undefined);
     fetchStorageInfo().catch(() => undefined);
@@ -798,6 +855,9 @@ export function UnifiedAuditTab({ isAdmin }: UnifiedAuditTabProps) {
   const handleReset = () => {
     setTypeFilter("");
     setOutcomeFilter("");
+    setMismatchFilter("");
+    setAuthoritativePathFilter("");
+    setRolloutRevisionFilter("");
     setUserEmail("");
     setAgentName("");
     setDateFrom("");
@@ -1024,6 +1084,13 @@ export function UnifiedAuditTab({ isAdmin }: UnifiedAuditTabProps) {
       )}
 
       <CardContent>
+        {typeFilter === "authz_migration_comparison" && (
+          <MigrationComparisonSummary
+            summary={comparisonSummary}
+            loading={comparisonSummaryLoading}
+            error={comparisonSummaryError}
+          />
+        )}
         {/* Filters */}
         <div className="flex flex-wrap gap-3 mb-4">
           <div className="flex items-center gap-0.5">
@@ -1059,6 +1126,41 @@ export function UnifiedAuditTab({ isAdmin }: UnifiedAuditTabProps) {
               </TooltipContent>
             </Tooltip>
           </div>
+          {typeFilter === "authz_migration_comparison" && (
+            <>
+              <select
+                aria-label="Comparison mismatch class"
+                value={mismatchFilter}
+                onChange={(event) => setMismatchFilter(event.target.value)}
+                className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+              >
+                <option value="">All comparison results</option>
+                <option value="NONE">Equivalent</option>
+                <option value="ALLOW_DENY">Legacy allow / Authz deny</option>
+                <option value="DENY_ALLOW">Legacy deny / Authz allow</option>
+                <option value="REASON_ONLY">Reason mismatch</option>
+                <option value="ERROR_RESULT">Provider error</option>
+                <option value="LATENCY">Latency only</option>
+              </select>
+              <select
+                aria-label="Comparison authoritative path"
+                value={authoritativePathFilter}
+                onChange={(event) => setAuthoritativePathFilter(event.target.value)}
+                className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+              >
+                <option value="">All authoritative paths</option>
+                <option value="LEGACY">Legacy authoritative</option>
+                <option value="AUTHZ">caipe-authz authoritative</option>
+              </select>
+              <Input
+                aria-label="Comparison rollout revision"
+                placeholder="Rollout revision..."
+                value={rolloutRevisionFilter}
+                onChange={(event) => setRolloutRevisionFilter(event.target.value)}
+                className="h-9 w-48"
+              />
+            </>
+          )}
           <div className="flex items-center gap-0.5">
             <select
               aria-label="Audit event type"
@@ -1205,6 +1307,9 @@ export function UnifiedAuditTab({ isAdmin }: UnifiedAuditTabProps) {
 	                    const actor = actorLabel(evt);
 	                    const subject = subjectLabel(evt);
 	                    const path = decisionPathLabel(evt);
+	                    const displayedDuration = evt.type === "authz_migration_comparison"
+	                      ? evt.authz_duration_ms
+	                      : evt.duration_ms;
 	                    return (
 	                      <React.Fragment key={rowKey}>
                         <tr
@@ -1244,13 +1349,13 @@ export function UnifiedAuditTab({ isAdmin }: UnifiedAuditTabProps) {
 	                            {displaySource(evt.source)}
 	                          </td>
 	                          <td className="px-3 py-2 text-xs text-muted-foreground whitespace-nowrap">
-                            {evt.duration_ms != null && (
+                            {displayedDuration != null && (
                               <span className="flex items-center gap-1">
                                 <Clock className="h-3 w-3" />
-                                {formatDuration(evt.duration_ms)}
+                                {formatDuration(displayedDuration)}
                               </span>
                             )}
-                            {evt.duration_ms == null && "—"}
+                            {displayedDuration == null && "—"}
                           </td>
                         </tr>
                         {isExpanded && (
@@ -1261,6 +1366,28 @@ export function UnifiedAuditTab({ isAdmin }: UnifiedAuditTabProps) {
 	                                <div className="text-sm font-medium">{story}</div>
 	                                <div className="text-xs text-muted-foreground mt-1">{reasonPhrase(evt)}</div>
 	                              </div>
+	                              {evt.type === "authz_migration_comparison" && (
+	                                <div className="mb-4 grid gap-3 md:grid-cols-2">
+	                                  <ComparisonDecisionCard
+	                                    label="Legacy evaluator"
+	                                    authoritative={evt.authoritative_path === "LEGACY"}
+	                                    outcome={evt.legacy_outcome}
+	                                    reason={evt.legacy_reason_code}
+	                                    durationMs={evt.legacy_duration_ms}
+	                                    error={evt.legacy_error}
+	                                    code={evt.legacy_code}
+	                                  />
+	                                  <ComparisonDecisionCard
+	                                    label="caipe-authz"
+	                                    authoritative={evt.authoritative_path === "AUTHZ"}
+	                                    outcome={evt.authz_outcome}
+	                                    reason={evt.authz_reason_code}
+	                                    durationMs={evt.authz_duration_ms}
+	                                    error={evt.authz_error}
+	                                    code={evt.authz_code}
+	                                  />
+	                                </div>
+	                              )}
 	                              <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-xs">
 	                                <DetailField label="Actor" value={actor} />
 	                                <DetailField label="Subject" value={subject} />
@@ -1285,6 +1412,9 @@ export function UnifiedAuditTab({ isAdmin }: UnifiedAuditTabProps) {
                                 <DetailField label="Actor Hash" value={hasReadableActor(evt) ? undefined : evt.actor_hash} mono />
                                 <DetailField label="Subject Hash" value={hasReadableSubject(evt) ? undefined : evt.subject_hash} mono />
                                 <DetailField label="Tenant" value={evt.tenant_id} />
+	                                <DetailField label="Rollout Revision" value={evt.rollout_revision} />
+	                                <DetailField label="Authoritative Path" value={evt.authoritative_path} />
+	                                <DetailField label="Mismatch Class" value={evt.mismatch_class} />
                               </div>
                             </td>
                           </tr>
@@ -1344,6 +1474,39 @@ function DetailField({
     <div>
       <span className="text-muted-foreground">{label}:</span>{" "}
       <span className={mono ? "font-mono break-all" : ""}>{value}</span>
+    </div>
+  );
+}
+
+function ComparisonDecisionCard({
+  label,
+  authoritative,
+  outcome,
+  reason,
+  durationMs,
+  error,
+  code,
+}: {
+  label: string;
+  authoritative: boolean;
+  outcome?: "allow" | "deny";
+  reason?: string;
+  durationMs?: number;
+  error?: boolean;
+  code?: number;
+}) {
+  return (
+    <div className={`rounded-md border p-3 ${authoritative ? "border-primary/50 bg-primary/5" : "bg-background/60"}`}>
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-sm font-medium">{label}</div>
+        {authoritative && <Badge variant="outline">Authoritative</Badge>}
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+        {outcome ? <OutcomeBadge outcome={outcome} /> : <Badge variant="outline">Unknown</Badge>}
+        {error && <Badge variant="destructive">Error</Badge>}
+        <span className="text-muted-foreground">{reason ? humanizeToken(reason) : code != null ? `gRPC ${code}` : "No reason reported"}</span>
+        {durationMs != null && <span className="ml-auto tabular-nums text-muted-foreground">{formatDuration(durationMs)}</span>}
+      </div>
     </div>
   );
 }

@@ -85,7 +85,7 @@ SHADOW while unrelated scopes and tuples remain unchanged.
 - [x] T042 [US0] Add BFF rollout values, revision checks, and canary seed reference in charts/ai-platform-engineering/charts/caipe-ui/values.yaml and charts/ai-platform-engineering/charts/caipe-ui/templates/deployment.yaml.
 - [x] T043 [US0] Add gateway bridge rollout values and Authz target while keeping legacy authority in charts/ai-platform-engineering/charts/openfga-authz-bridge/values.yaml and charts/ai-platform-engineering/charts/openfga-authz-bridge/templates/deployment.yaml.
 - [x] T044 [US0] Add rollout revision, authoritative path, mismatch, error, timeout, and latency metrics in ai_platform_engineering/authz/metrics.py.
-- [ ] T045 [US0] Add comparison filters and promotion-gate summaries to the existing Audit UI in ui/src/components/admin/audit/ and ui/src/app/api/admin/audit/.
+- [x] T045 [US0] Add comparison filters and promotion-gate summaries to the existing Audit UI in ui/src/components/admin/audit/ and ui/src/app/api/admin/audit/.
 - [ ] T046 [US0] Add end-to-end replay tests proving independent BFF and gateway scopes and no tuple mutation on rollback in tests/authz/test_parallel_migration.py.
 - [x] T047 [US0] Document the operator mode transitions, gates, and emergency rollback in ai_platform_engineering/authz/README.md and deploy/openfga/bridge/README.md.
 
@@ -165,10 +165,10 @@ exact or wildcard grant already permits the subject.
 
 ### Implementation
 
-- [ ] T074 [US3] Implement known broader-path analysis and exclusive-save rejection in ai_platform_engineering/authz/policy/shadowing.py.
-- [ ] T075 [US3] Implement bounded read-only effective-access simulation in ai_platform_engineering/authz/inspection/simulation.py.
-- [ ] T076 [US3] Return additive/exclusive, wildcard, drift, and known transitive warnings from ai_platform_engineering/authz/api/policy.py.
-- [ ] T077 [US3] Display policy effectiveness and derived-access disclaimers in ui/src/components/admin/rebac/policy-effectiveness.tsx.
+- [x] T074 [US3] Implement known broader-path analysis and exclusive-save rejection in ai_platform_engineering/authz/policy/shadowing.py.
+- [x] T075 [US3] Implement bounded read-only effective-access simulation in ai_platform_engineering/authz/inspection/simulation.py.
+- [x] T076 [US3] Return additive/exclusive, wildcard, drift, and known transitive warnings from ai_platform_engineering/authz/api/policy.py.
+- [x] T077 [US3] Display policy effectiveness and derived-access disclaimers in ui/src/components/admin/rebac/policy-effectiveness.tsx.
 
 Checkpoint: the control plane cannot claim a condition is restrictive while a
 known broader allow remains.

@@ -160,6 +160,18 @@ Confirm:
 - Conditional edges show only sanitized metadata.
 - Unauthorized, oversized, and truncated inspection cases are audited.
 
+In **Admin → RBAC Audit Log**, select **Migration comparisons** to inspect:
+
+- legacy and caipe-authz outcomes, reason codes, errors, and latency side by side;
+- authoritative path, rollout revision, and mismatch class;
+- filters for mismatch class, authoritative path, and rollout revision;
+- bounded comparison count, semantic mismatch, provider error-rate, and Authz
+  p99 latency evidence gates.
+
+The UI labels this as traffic evidence, not final promotion approval. Model
+descriptor, audit backlog, owner, and rollback-drill gates must also pass the
+privileged caipe-authz promotion endpoint before authority changes.
+
 ## 9. Enforce One Exact Tool
 
 Proceed only after the caller and agent checks for the exact scope are

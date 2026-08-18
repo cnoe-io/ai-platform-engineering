@@ -255,6 +255,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         agent_name: str | None = Query(default=None),
         tool_name: str | None = Query(default=None),
         user_email: str | None = Query(default=None),
+        rollout_revision: str | None = Query(default=None),
+        authoritative_path: str | None = Query(default=None),
+        mismatch_class: str | None = Query(default=None),
     ) -> QueryResponse:
         store: LocalAuditStore | S3AuditStore = request.app.state.audit_store
         current_settings: Settings = request.app.state.audit_settings
@@ -291,6 +294,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             agent_name=agent_name,
             tool_name=tool_name,
             user_email=user_email,
+            rollout_revision=rollout_revision,
+            authoritative_path=authoritative_path,
+            mismatch_class=mismatch_class,
         )
         result = await asyncio.to_thread(store.query, audit_query)
         return QueryResponse(records=result.records, total=result.total, limit=query_limit, truncated=result.truncated)

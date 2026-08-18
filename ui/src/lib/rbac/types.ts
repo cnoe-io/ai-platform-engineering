@@ -199,6 +199,16 @@ export interface UnifiedAuditEvent {
   rollout_revision?: string;
   authoritative_path?: string;
   mismatch_class?: string;
+  legacy_outcome?: "allow" | "deny";
+  legacy_reason_code?: string;
+  legacy_duration_ms?: number;
+  legacy_error?: boolean;
+  legacy_code?: number;
+  authz_outcome?: "allow" | "deny";
+  authz_reason_code?: string;
+  authz_duration_ms?: number;
+  authz_error?: boolean;
+  authz_code?: number;
   policy_id?: string;
   status?: string;
   template_id?: string;

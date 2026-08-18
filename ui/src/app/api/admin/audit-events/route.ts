@@ -21,8 +21,22 @@ const VALID_TYPES: string[] = [
   "cas_grant",
   "cas_reconcile",
   "credential_action",
+  "authz_decision",
+  "authz_migration_comparison",
+  "authz_migration_revision",
+  "authz_policy_change",
+  "authz_relationship_change",
 ];
 const VALID_OUTCOMES: UnifiedAuditOutcome[] = ["allow", "deny", "success", "error"];
+const VALID_AUTHORITATIVE_PATHS = new Set(["LEGACY", "AUTHZ"]);
+const VALID_MISMATCH_CLASSES = new Set([
+  "NONE",
+  "ALLOW_DENY",
+  "DENY_ALLOW",
+  "ERROR_RESULT",
+  "REASON_ONLY",
+  "LATENCY",
+]);
 const VALID_WINDOWS = new Map<string, number>([
   ["5m", 5 * 60 * 1000],
   ["15m", 15 * 60 * 1000],
@@ -69,6 +83,19 @@ interface AuditEventDocument {
   caller_ref?: string;
   grantee_ref?: string;
   operation?: "grant" | "revoke";
+  rollout_revision?: string;
+  authoritative_path?: string;
+  mismatch_class?: string;
+  legacy_outcome?: "allow" | "deny";
+  legacy_reason_code?: string;
+  legacy_duration_ms?: number;
+  legacy_error?: boolean;
+  legacy_code?: number;
+  authz_outcome?: "allow" | "deny";
+  authz_reason_code?: string;
+  authz_duration_ms?: number;
+  authz_error?: boolean;
+  authz_code?: number;
 }
 
 interface CurrentPrincipal {
@@ -372,6 +399,19 @@ function documentToEvent(doc: AuditEventDocument): UnifiedAuditEvent {
     caller_ref: doc.caller_ref,
     grantee_ref: doc.grantee_ref,
     operation: doc.operation,
+    rollout_revision: doc.rollout_revision,
+    authoritative_path: doc.authoritative_path,
+    mismatch_class: doc.mismatch_class,
+    legacy_outcome: doc.legacy_outcome,
+    legacy_reason_code: doc.legacy_reason_code,
+    legacy_duration_ms: doc.legacy_duration_ms,
+    legacy_error: doc.legacy_error,
+    legacy_code: doc.legacy_code,
+    authz_outcome: doc.authz_outcome,
+    authz_reason_code: doc.authz_reason_code,
+    authz_duration_ms: doc.authz_duration_ms,
+    authz_error: doc.authz_error,
+    authz_code: doc.authz_code,
     trace_id: doc.trace_id,
     span_id: doc.span_id,
   };
@@ -449,6 +489,9 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
   const userEmail = url.searchParams.get("user_email")?.trim();
   const component = url.searchParams.get("component")?.trim();
   const correlationId = url.searchParams.get("correlation_id")?.trim();
+  const rolloutRevision = url.searchParams.get("rollout_revision")?.trim();
+  const authoritativePath = url.searchParams.get("authoritative_path")?.trim().toUpperCase();
+  const mismatchClass = url.searchParams.get("mismatch_class")?.trim().toUpperCase();
 
   if (typeParam && !VALID_TYPES.includes(typeParam)) {
     throw new ApiError(
@@ -461,6 +504,20 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
   if (outcomeParam && !VALID_OUTCOMES.includes(outcomeParam as UnifiedAuditOutcome)) {
     throw new ApiError(
       `\`outcome\` must be one of: ${VALID_OUTCOMES.join(", ")}`,
+      400,
+      "VALIDATION_ERROR",
+    );
+  }
+  if (authoritativePath && !VALID_AUTHORITATIVE_PATHS.has(authoritativePath)) {
+    throw new ApiError(
+      "`authoritative_path` must be LEGACY or AUTHZ",
+      400,
+      "VALIDATION_ERROR",
+    );
+  }
+  if (mismatchClass && !VALID_MISMATCH_CLASSES.has(mismatchClass)) {
+    throw new ApiError(
+      "`mismatch_class` is not recognized",
       400,
       "VALIDATION_ERROR",
     );
@@ -495,6 +552,9 @@ export const GET = withErrorHandler(async (request: NextRequest): Promise<NextRe
   if (userEmail) serviceParams.set("user_email", userEmail);
   if (component) serviceParams.set("component", component);
   if (correlationId) serviceParams.set("correlation_id", correlationId);
+  if (rolloutRevision) serviceParams.set("rollout_revision", rolloutRevision);
+  if (authoritativePath) serviceParams.set("authoritative_path", authoritativePath);
+  if (mismatchClass) serviceParams.set("mismatch_class", mismatchClass);
 
   const { records: docs, total, warning } = await queryAuditService(serviceParams);
   const offset = (page - 1) * limit;

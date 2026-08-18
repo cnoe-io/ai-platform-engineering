@@ -432,6 +432,49 @@ def test_normalized_authz_events_are_flattened_idempotently_with_legacy_query_al
         assert "payload" not in records[0]
 
 
+def test_migration_comparisons_filter_by_revision_authority_and_mismatch(tmp_path: Path) -> None:
+    app = create_app(_settings(tmp_path, flush_batch_size=1))
+    event = {
+        "ts": "2026-06-20T01:00:00Z",
+        "type": "authz_migration_comparison",
+        "outcome": "error",
+        "correlation_id": "comparison-example",
+        "rollout_revision": "revision-1",
+        "authoritative_path": "LEGACY",
+        "mismatch_class": "ALLOW_DENY",
+        "legacy_outcome": "allow",
+        "authz_outcome": "deny",
+    }
+    with TestClient(app) as client:
+        assert client.post("/v1/audit/events", json={"events": [event]}).status_code == 202
+        _wait_for_flushed(client, 1)
+
+        result = client.get(
+            "/v1/audit/events",
+            params={
+                "since": "2026-06-20T00:00:00Z",
+                "until": "2026-06-20T02:00:00Z",
+                "type": "authz_migration_comparison",
+                "rollout_revision": "revision-1",
+                "authoritative_path": "LEGACY",
+                "mismatch_class": "ALLOW_DENY",
+            },
+        )
+        assert result.status_code == 200
+        assert result.json()["total"] == 1
+        assert result.json()["records"][0]["authz_outcome"] == "deny"
+
+        no_match = client.get(
+            "/v1/audit/events",
+            params={
+                "since": "2026-06-20T00:00:00Z",
+                "until": "2026-06-20T02:00:00Z",
+                "mismatch_class": "NONE",
+            },
+        )
+        assert no_match.json()["total"] == 0
+
+
 def test_verbosity_allowed_types_standard() -> None:
     types = allowed_types("standard")
     assert types == frozenset(
