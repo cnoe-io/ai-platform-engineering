@@ -205,6 +205,14 @@ describe("DynamicAgentEditor — platform default grant preview", () => {
     expect(screen.getByLabelText("Operator profile")).toHaveValue("safe");
     expect(screen.getByLabelText("Maximum turns")).toHaveValue(20);
     expect(screen.getByText(/browser never receives credentials/)).toBeInTheDocument();
+
+    fireEvent.focus(screen.getByRole("button", { name: "About operator profiles" }));
+    expect(screen.getByRole("tooltip")).toHaveTextContent(
+      "An operator profile is an administrator-managed execution configuration",
+    );
+    expect(screen.getByRole("tooltip")).toHaveTextContent(
+      "without exposing credentials or infrastructure identifiers",
+    );
   });
 
   it("labels the compatibility harness as LangChain Deep Agents while preserving its ID", async () => {

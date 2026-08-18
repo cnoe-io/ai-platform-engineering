@@ -25,6 +25,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { type TeamPickerOption } from "@/components/ui/team-picker";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useToast } from "@/components/ui/toast";
 import { useEditorDirtyTracking } from "@/hooks/use-editor-dirty-tracking";
 import { gradientThemes } from "@/lib/gradient-themes";
@@ -54,6 +60,7 @@ import {
   Eye,
   Globe,
   GripHorizontal,
+  Info,
   Loader2,
   Pencil,
   Sparkles,
@@ -1579,7 +1586,32 @@ export function DynamicAgentEditor({
                     </select>
                     {selectedHarness && (
                       <div className="space-y-2">
-                        <Label htmlFor="harnessProfile">Operator profile</Label>
+                        <div className="flex items-center gap-1.5">
+                          <Label htmlFor="harnessProfile">Operator profile</Label>
+                          <TooltipProvider delayDuration={0}>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  type="button"
+                                  aria-label="About operator profiles"
+                                  className="rounded p-0.5 text-muted-foreground/60 transition-colors hover:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                >
+                                  <Info className="h-3.5 w-3.5" aria-hidden="true" />
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent
+                                side="top"
+                                sideOffset={6}
+                                className="max-w-xs whitespace-normal px-3 py-2 text-left text-xs font-normal leading-relaxed"
+                              >
+                                An operator profile is an administrator-managed execution
+                                configuration. It selects approved provider resources,
+                                security settings, and limits without exposing credentials or
+                                infrastructure identifiers to agent authors.
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        </div>
                         <select
                           id="harnessProfile"
                           value={harnessProfileId}
