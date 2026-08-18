@@ -18,6 +18,7 @@ jest.mock("lucide-react", () => ({
   Bot: () => <span data-testid="bot-icon" />,
   Loader2: () => <span data-testid="loader-icon" />,
   Search: () => <span data-testid="search-icon" />,
+  Cpu: () => <span data-testid="cpu-icon" />,
 }));
 
 const mockFetch = jest.fn();
@@ -39,9 +40,15 @@ function mockFetchByUrl(opts: {
   prefsAgentId?: string | null;
   platformAgentId?: string | null;
   agentNames?: Record<string, string>;
+  agentHarnesses?: Record<string, string>;
   prefsPromise?: Promise<Response>;
 }) {
-  const { prefsAgentId = null, platformAgentId = null, agentNames = {} } = opts;
+  const {
+    prefsAgentId = null,
+    platformAgentId = null,
+    agentNames = {},
+    agentHarnesses = {},
+  } = opts;
   mockFetch.mockImplementation((url: string) => {
     if (url === "/api/user/preferences") {
       if (opts.prefsPromise) return opts.prefsPromise;
@@ -61,7 +68,14 @@ function mockFetchByUrl(opts: {
       const id = decodeURIComponent(match[1]);
       return Promise.resolve({
         ok: true,
-        json: async () => ({ success: true, data: { _id: id, name: agentNames[id] ?? id } }),
+        json: async () => ({
+          success: true,
+          data: {
+            _id: id,
+            name: agentNames[id] ?? id,
+            execution_harness_id: agentHarnesses[id],
+          },
+        }),
       } as Response);
     }
     return Promise.resolve({ ok: false, json: async () => ({ success: false }) } as Response);
@@ -107,11 +121,13 @@ describe("NewChatButton", () => {
     mockFetchByUrl({
       platformAgentId: "agent-default",
       agentNames: { "agent-default": "Platform Helper" },
+      agentHarnesses: { "agent-default": "agentcore" },
     });
 
     render(<NewChatButton collapsed={false} onNewChat={jest.fn()} />);
 
     expect(await screen.findByText("Platform Helper")).toBeInTheDocument();
+    expect(screen.getByLabelText("Execution harness: Amazon Bedrock AgentCore")).toBeInTheDocument();
     expect(mockFetch).toHaveBeenCalledWith("/api/dynamic-agents/agents/agent-default");
   });
 

@@ -95,6 +95,9 @@ jest.mock('lucide-react', () => ({
   MessageSquare: (props: unknown) => <span data-testid="icon-message-square" {...props} />,
   MessageCircleQuestion: (props: unknown) => <span data-testid="icon-message-circle-question" {...props} />,
   Radio: (props: unknown) => <span data-testid="icon-radio" {...props} />,
+  Bot: (props: unknown) => <span data-testid="icon-bot" {...props} />,
+  Loader2: (props: unknown) => <span data-testid="icon-loader" {...props} />,
+  Cpu: (props: unknown) => <span data-testid="icon-cpu" {...props} />,
   History: (props: unknown) => <span data-testid="icon-history" {...props} />,
   Plus: (props: unknown) => <span data-testid="icon-plus" {...props} />,
   Archive: (props: unknown) => <span data-testid="icon-archive" {...props} />,
@@ -289,7 +292,7 @@ describe('Sidebar — Live Status Indicator', () => {
         resolveAgents({
           json: async () => ({
             success: true,
-            data: [{ _id: 'agent-1', name: 'Agent One' }],
+            data: [{ _id: 'agent-1', name: 'Agent One', execution_harness_id: 'agentcore' }],
           }),
         } as Response)
       })
@@ -298,6 +301,7 @@ describe('Sidebar — Live Status Indicator', () => {
         expect(screen.queryByTestId('agent-name-skeleton')).not.toBeInTheDocument()
       })
       expect(screen.getByText(/Agent One/)).toBeInTheDocument()
+      expect(screen.getByLabelText('Execution harness: Amazon Bedrock AgentCore')).toBeInTheDocument()
     })
   })
 

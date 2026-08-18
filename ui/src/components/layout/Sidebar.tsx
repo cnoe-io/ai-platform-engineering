@@ -3,9 +3,11 @@
 // assisted-by Codex Codex-sonnet-4-6
 
 import { NewChatButton } from "@/components/chat/NewChatButton";
+import { AgentHarnessBadge } from "@/components/chat/AgentHarnessBadge";
 import { ConversationListSkeleton } from "@/components/chat/ConversationListSkeleton";
 import { RecycleBinDialog } from "@/components/chat/RecycleBinDialog";
 import { ShareButton } from "@/components/chat/ShareButton";
+import { AgentAvatar } from "@/components/dynamic-agents/AgentAvatar";
 import { UseCaseBuilderDialog } from "@/components/gallery/UseCaseBuilder";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -19,6 +21,7 @@ import { cn,formatDate,truncateText } from "@/lib/utils";
 import { useChatStore } from "@/store/chat-store";
 import type { Conversation } from "@/types/a2a";
 import { getAgentId } from "@/types/a2a";
+import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 import { AnimatePresence,motion } from "framer-motion";
 import {
 Archive,
@@ -57,6 +60,11 @@ interface SidebarProps {
   onCollapse: (collapsed: boolean) => void;
   onUseCaseSaved?: () => void;
 }
+
+type SidebarAgent = Pick<
+  DynamicAgentConfig,
+  "_id" | "name" | "execution_harness_id" | "ui"
+>;
 
 function getScheduleBadge(conv: Conversation): { label: string; title: string } | null {
   const scheduleId = conv.metadata?.schedule_id;
@@ -114,7 +122,7 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
   const { toast } = useToast();
 
   // Agent name lookup for dynamic agent conversations
-  const [agentNameMap, setAgentNameMap] = useState<Record<string, string>>({});
+  const [agentMap, setAgentMap] = useState<Record<string, SidebarAgent>>({});
   const [agentNamesLoading, setAgentNamesLoading] = useState(true);
 
   // Load conversations from server when sidebar mounts (MongoDB mode only)
@@ -162,11 +170,11 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
         const response = await fetch("/api/dynamic-agents/available");
         const data = await response.json();
         if (!cancelled && data.success && Array.isArray(data.data)) {
-          const map: Record<string, string> = {};
-          data.data.forEach((agent: { _id: string; name: string }) => {
-            map[agent._id] = agent.name;
+          const map: Record<string, SidebarAgent> = {};
+          data.data.forEach((agent: SidebarAgent) => {
+            map[agent._id] = agent;
           });
-          setAgentNameMap(map);
+          setAgentMap(map);
         }
       } catch (err) {
         console.error('[Sidebar] Failed to fetch agents for name lookup:', err);
@@ -486,6 +494,10 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
                   const scheduleBadge = getScheduleBadge(conv);
                   const isEditingTitle = editingConversationId === conv.id;
                   const isSavingTitle = renameSavingId === conv.id;
+                  const conversationAgentId = getAgentId(conv);
+                  const conversationAgent = conversationAgentId
+                    ? agentMap[conversationAgentId]
+                    : undefined;
 
                   return (
                   <div
@@ -518,50 +530,58 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
                         });
                       }}
                     >
-                    <div className={cn(
-                      "shrink-0 w-8 h-8 rounded-md flex items-center justify-center relative",
-                      isLive
-                        ? "bg-emerald-500/20"
-                        : isInputRequired
-                          ? "bg-amber-500/20"
-                          : isUnviewed
-                            ? "bg-blue-500/15"
-                            : activeConversationId === conv.id
-                              ? "bg-primary/20"
-                              : "bg-muted"
-                    )}>
-                      {isLive ? (
-                        <>
-                          <Radio className="h-4 w-4 text-emerald-500 animate-pulse" />
-                          <span className="absolute -top-0.5 -right-0.5 flex h-2.5 w-2.5">
-                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
-                          </span>
-                        </>
-                      ) : isInputRequired ? (
-                        <>
-                          <MessageCircleQuestion className="h-4 w-4 text-amber-500 animate-pulse" />
-                          <span className="absolute -top-0.5 -right-0.5 flex h-2.5 w-2.5">
-                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
-                            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500" />
-                          </span>
-                        </>
-                      ) : (
-                        <>
-                          <MessageSquare className={cn(
-                            "h-4 w-4",
-                            isUnviewed
-                              ? "text-blue-500"
-                              : activeConversationId === conv.id
-                                ? "text-primary"
-                                : "text-muted-foreground"
-                          )} />
-                          {isUnviewed && (
-                            <span className="absolute -top-0.5 -right-0.5 flex h-2.5 w-2.5">
-                              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-blue-500" />
-                            </span>
+                    <div className="relative shrink-0">
+                      {conversationAgentId ? (
+                        <AgentAvatar
+                          agent={conversationAgent ?? { _id: conversationAgentId }}
+                          agentId={conversationAgentId}
+                          rounded="rounded-md"
+                          size="h-8 w-8"
+                          iconSize="h-4 w-4"
+                          icon={isLive ? Radio : isInputRequired ? MessageCircleQuestion : MessageSquare}
+                          className={cn(
+                            isLive && "ring-2 ring-emerald-500/60",
+                            isInputRequired && "ring-2 ring-amber-500/60",
+                            isUnviewed && "ring-2 ring-blue-500/60",
+                            activeConversationId === conv.id && !isLive && !isInputRequired && !isUnviewed && "ring-2 ring-primary/50",
                           )}
-                        </>
+                        />
+                      ) : (
+                        <div className={cn(
+                          "flex h-8 w-8 items-center justify-center rounded-md",
+                          isLive
+                            ? "bg-emerald-500/20"
+                            : isInputRequired
+                              ? "bg-amber-500/20"
+                              : isUnviewed
+                                ? "bg-blue-500/15"
+                                : "bg-muted",
+                        )}>
+                          {isLive ? (
+                            <Radio className="h-4 w-4 animate-pulse text-emerald-500" />
+                          ) : isInputRequired ? (
+                            <MessageCircleQuestion className="h-4 w-4 animate-pulse text-amber-500" />
+                          ) : (
+                            <MessageSquare className={cn(
+                              "h-4 w-4",
+                              isUnviewed ? "text-blue-500" : "text-muted-foreground",
+                            )} />
+                          )}
+                        </div>
+                      )}
+                      {(isLive || isInputRequired || isUnviewed) && (
+                        <span className="absolute -right-0.5 -top-0.5 flex h-2.5 w-2.5">
+                          {(isLive || isInputRequired) && (
+                            <span className={cn(
+                              "absolute inline-flex h-full w-full animate-ping rounded-full opacity-75",
+                              isLive ? "bg-emerald-400" : "bg-amber-400",
+                            )} />
+                          )}
+                          <span className={cn(
+                            "relative inline-flex h-2.5 w-2.5 rounded-full",
+                            isLive ? "bg-emerald-500" : isInputRequired ? "bg-amber-500" : "bg-blue-500",
+                          )} />
+                        </span>
                       )}
                     </div>
 
@@ -619,10 +639,8 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
                             </span>
                             {/* Dynamic Agent indicator */}
                             {(() => {
-                              const agId = getAgentId(conv);
-                              if (!agId) return null;
-                              const agentName = agentNameMap[agId];
-                              if (!agentName && agentNamesLoading) {
+                              if (!conversationAgentId) return null;
+                              if (!conversationAgent && agentNamesLoading) {
                                 return (
                                   <>
                                     <span className="ml-1.5 text-[10px] text-purple-500 dark:text-purple-400">•</span>
@@ -634,9 +652,21 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
                                 );
                               }
                               return (
-                                <span className="ml-1.5 truncate text-[10px] text-purple-500 dark:text-purple-400" title={agentName || 'Unknown Agent'}>
-                                  • {truncateText(agentName || 'Unknown', 20)}
-                                </span>
+                                <>
+                                  <span
+                                    className="ml-1.5 truncate text-[10px] text-foreground/75"
+                                    title={conversationAgent?.name || 'Unknown Agent'}
+                                  >
+                                    • {truncateText(conversationAgent?.name || 'Unknown', 20)}
+                                  </span>
+                                  {conversationAgent && (
+                                    <AgentHarnessBadge
+                                      harnessId={conversationAgent.execution_harness_id}
+                                      compact
+                                      className="ml-1"
+                                    />
+                                  )}
+                                </>
                               );
                             })()}
                           </div>

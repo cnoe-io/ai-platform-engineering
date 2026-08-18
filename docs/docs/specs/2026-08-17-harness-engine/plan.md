@@ -206,6 +206,8 @@ ai_platform_engineering/harness_engine/
 ui/src/
 ├── app/api/harness-engine/             # catalog, overlay, run, replay, SSE
 ├── app/api/v1/chat/                    # Harness Gateway compatibility routes
+├── components/chat/AgentHarnessBadge.tsx
+├── lib/agent-presentation.ts           # labels + deterministic agent colors
 ├── lib/harness-gateway.ts              # routing + canonical wire encoders
 ├── lib/harness-engine-proxy.ts         # internal-credential proxy
 ├── lib/harness-engine-session-client.ts
@@ -229,6 +231,9 @@ The dependency-ordered implementation backlog, independent story checkpoints, ex
 - Human-input resume and file attachments remain capability-gated for the
   initial AgentCore/Claude adapters; the gateway returns an explicit `409`
   instead of silently switching harnesses.
+- Chat renders a persistent agent/harness identity header. Sidebar history and
+  new-chat choices reuse the same accessible harness badges and deterministic
+  per-agent fallback themes; explicit author-selected themes still win.
 
 ## Key Technical Decisions
 

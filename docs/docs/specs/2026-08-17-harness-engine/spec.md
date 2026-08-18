@@ -78,6 +78,8 @@ As an end user, I want chat, tools, files, subagents, and human approvals to beh
 3. **Given** MCP and built-in tools with user-scoped credentials, **When** the agent invokes a tool, **Then** allowlists, credential delegation, policy checks, error isolation, retries, and result limits are enforced consistently.
 4. **Given** supported image or document attachments, **When** the user sends a multimodal turn, **Then** limits, durable references, provider compatibility checks, and degradation warnings remain consistent.
 5. **Given** nested subagents and skills, **When** the parent delegates work, **Then** subagent identity, permissions, tool scope, skill content, streaming attribution, and interrupt/resume behavior are preserved.
+6. **Given** a user opens an existing conversation, **When** the chat loads, **Then** a persistent identity header names the selected agent and its execution harness before the user sends a message.
+7. **Given** several conversations or selectable agents, **When** the sidebar or new-chat picker renders them, **Then** each agent has a stable, visually distinct fallback color and every harness is identified by both text and color.
 
 ---
 
@@ -306,6 +308,12 @@ As an agent builder, I want the existing agent-creation wizard to adapt to the s
 - **FR-073**: Unknown, disabled, misconfigured, unhealthy, experimental, and blocked harness states MUST remain distinguishable and accessible. An existing stored value MUST never be silently coerced to the default harness.
 - **FR-074**: Save blockers MUST be summarized once, mapped to stable wizard steps and field paths, focus the first actionable control, and be announced accessibly without relying on color alone.
 
+#### Chat identity experience
+
+- **FR-075**: Chat MUST show a persistent agent identity header containing the selected agent name, avatar, and human-readable execution-harness label. Legacy or absent harness metadata MUST display as LangChain Deep Agents.
+- **FR-076**: Conversation history and agent-selection surfaces MUST reuse the same harness labels and agent avatar colors. Agents without an explicit theme MUST receive a deterministic theme derived from their stable id; explicit themes MUST continue to take precedence.
+- **FR-077**: Harness and agent identity MUST remain understandable without color through visible text, accessible labels, and tooltips. Live, input-required, and unread states MUST remain visually separate from agent identity.
+
 ### Non-Functional Requirements
 
 - **NFR-001**: The compatibility harness MUST add no more than 10% p95 latency to first response or total turn duration compared with the current Dynamic Agents runtime under the same workload.
@@ -324,6 +332,7 @@ As an agent builder, I want the existing agent-creation wizard to adapt to the s
 - **NFR-014**: Trace, log, and metric export MUST remain bounded during collector outage and MUST shed telemetry according to policy without exhausting worker or control-plane memory.
 - **NFR-015**: Harness-dependent editor controls MUST remain keyboard operable and screen-reader labeled at all supported viewport sizes, including selector cards, capability badges, compatibility dialogs, disabled reasons, and error navigation.
 - **NFR-016**: The editor MUST remain usable while optional catalog or validation dependencies are unavailable: stored data remains inspectable, unsaved draft data remains recoverable, and save fails closed with a retryable explanation.
+- **NFR-017**: Chat identity labels and harness badges MUST remain readable at the supported collapsed sidebar and narrow chat widths without hiding the conversation title or status.
 
 ### Key Entities
 
@@ -358,7 +367,7 @@ As an agent builder, I want the existing agent-creation wizard to adapt to the s
 ## Out of Scope
 
 - Replacing the UI/BFF as the owner of agent and MCP configuration writes.
-- Redesigning the chat UI, workflow system, scheduler, OpenFGA model, credential service, AgentGateway, MCP servers, skill catalog, or audit service.
+- Wholesale redesign of the chat UI, workflow system, scheduler, OpenFGA model, credential service, AgentGateway, MCP servers, skill catalog, or audit service. Additive agent/harness identity affordances are in scope.
 - Automatically translating arbitrary provider-native memory, checkpoints, plugins, middleware, or filesystem state between harnesses.
 - Silent routing based on cost, model availability, or quality scores.
 - Allowing untrusted runtime code to load dynamically into the main service process.

@@ -413,3 +413,6 @@ not complete or modify tasks targeting `ai_platform_engineering/dynamic_agents/`
 - [x] T149 Implement `CAIPEAgentSessionManager` for binding identity, ownership, immutable version pinning, durable lookup, provider event persistence, clear, and epoch rotation.
 - [x] T150 Implement the provider-specific `ProviderSessionManager` contract and AgentCore deterministic plus Claude event-assigned strategies.
 - [x] T151 Add authorized session-clear API/BFF routes and tests proving active-run cancellation, owner isolation, provider close, new binding identity, and adoption of the current agent version after clear.
+- [x] T152 Add shared, accessible harness presentation metadata for LangChain Deep Agents, AgentCore, Claude SDK, and unknown adapters.
+- [x] T153 Add a persistent chat identity header plus harness badges and deterministic agent colors in history and new-chat selection while preserving live/input/unread states.
+- [x] T154 Add unit and component coverage for harness labels, deterministic themes, sidebar identity, and new-chat harness display.
