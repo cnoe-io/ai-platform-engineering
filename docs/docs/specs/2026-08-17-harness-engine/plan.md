@@ -208,6 +208,7 @@ ui/src/
 ├── app/api/v1/chat/                    # Harness Gateway compatibility routes
 ├── components/chat/AgentHarnessBadge.tsx
 ├── lib/agent-presentation.ts           # labels + deterministic agent colors
+├── lib/chat-agent-metadata.ts          # use-authorized identity + tab title
 ├── lib/harness-gateway.ts              # routing + canonical wire encoders
 ├── lib/harness-engine-proxy.ts         # internal-credential proxy
 ├── lib/harness-engine-session-client.ts
@@ -233,7 +234,10 @@ The dependency-ordered implementation backlog, independent story checkpoints, ex
   instead of silently switching harnesses.
 - Chat renders a persistent agent/harness identity header. Sidebar history and
   new-chat choices reuse the same accessible harness badges and deterministic
-  per-agent fallback themes; explicit author-selected themes still win.
+  per-agent fallback themes; explicit author-selected themes still win. The
+  active browser tab includes the friendly agent name, with metadata falling
+  back to the `agent#use`-authorized available-agent catalog when the richer
+  detail route is unavailable to a chat-only caller.
 
 ## Key Technical Decisions
 

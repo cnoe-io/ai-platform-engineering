@@ -313,6 +313,7 @@ As an agent builder, I want the existing agent-creation wizard to adapt to the s
 - **FR-075**: Chat MUST show a persistent agent identity header containing the selected agent name, avatar, and human-readable execution-harness label. Legacy or absent harness metadata MUST display as LangChain Deep Agents.
 - **FR-076**: Conversation history and agent-selection surfaces MUST reuse the same harness labels and agent avatar colors. Agents without an explicit theme MUST receive a deterministic theme derived from their stable id; explicit themes MUST continue to take precedence.
 - **FR-077**: Harness and agent identity MUST remain understandable without color through visible text, accessible labels, and tooltips. Live, input-required, and unread states MUST remain visually separate from agent identity.
+- **FR-078**: The browser tab title for an active agent conversation MUST include the selected agent's friendly name. Chat identity metadata MUST be resolvable for callers with `agent#use` even when a richer management/detail endpoint is unavailable to them.
 
 ### Non-Functional Requirements
 
