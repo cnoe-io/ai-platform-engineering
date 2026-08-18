@@ -31,6 +31,9 @@ def test_preview_overlay_adds_harness_engine_without_overriding_dynamic_agents()
     assert services["harness-engine"]["environment"]["HARNESS_ENGINE_STORAGE_BACKEND"] == (
         "mongodb"
     )
+    assert services["harness-engine"]["tmpfs"] == [
+        "/workspace:rw,nosuid,nodev,mode=1777,size=512m"
+    ]
     assert services["caipe-ui"]["environment"]["HARNESS_ENGINE_URL"] == (
         "http://harness-engine:8010"
     )
