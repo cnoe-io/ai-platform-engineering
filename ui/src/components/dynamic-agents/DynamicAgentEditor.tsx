@@ -1488,7 +1488,8 @@ export function DynamicAgentEditor({
   // the first wizard step but the button lives below step 5's content).
   //
   // assisted-by Cursor claude-opus-4-7
-  const ownerTeamMissing = !isEditing && !ownerTeamSlug;
+  const ownerTeamMissing =
+    !isEditing && visibility === "team" && !ownerTeamSlug;
 
   const blockers: { field: string; label: string; step: StepId }[] =
     React.useMemo(() => {
@@ -2192,7 +2193,7 @@ export function DynamicAgentEditor({
                   ownerTeamSlug={ownerTeamSlug}
                   sharedTeamSlugs={sharedWithTeams}
                   isEditing={isEditing}
-                  ownerRequired
+                  ownerRequired={visibility === "team"}
                   allowTransfer={isEditing}
                   resourceNoun="agent"
                   disabled={loading || !!readOnly}
@@ -2252,7 +2253,9 @@ export function DynamicAgentEditor({
                     </>
                   }
                   ownerExtra={
-                    !isEditing && availableTeams.length === 0 ? (
+                    !isEditing &&
+                    visibility === "team" &&
+                    availableTeams.length === 0 ? (
                       <p className="text-xs text-destructive">
                         You must belong to at least one team to create a
                         team-owned agent.
