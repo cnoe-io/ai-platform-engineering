@@ -14,7 +14,14 @@ import type {
   Subject,
 } from "./contract";
 import { compose } from "./compose";
-import { emitDecisionAudit, emitGrantAudit } from "./audit";
+import { emitDecisionAudit, emitGrantAudit, emitMigrationComparison } from "./audit";
+import { checkAuthz, checkAuthzBatch, type TimedAuthorizeResult } from "./client";
+import {
+  currentMigrationRevision,
+  modeFor,
+  routeAuthorization,
+  type MigrationMode,
+} from "./migration-router";
 import { createOpenFgaEngine, createOpenFgaAdmin } from "./engines/openfga";
 import { workflowDelegationPreCheck } from "./domains/workflow";
 
@@ -36,9 +43,25 @@ export async function authorize(
   req: AuthorizeRequest,
   ctx: DecisionContext = {},
 ): Promise<AuthorizeResult> {
-  const result = await engine.check(req);
-  emitDecisionAudit(req.subject, req.resource, req.action, result, ctx, req.trustedContext);
-  return result;
+  const routed = await routeAuthorization(
+    req,
+    () => engine.check(req),
+    (purpose, timeoutMs) => checkAuthz(req, purpose, timeoutMs),
+    (comparison) => emitMigrationComparison({
+      revision: comparison.revision,
+      authoritativePath: comparison.authoritativePath,
+      surface: "bff",
+      resourceType: req.resource.type,
+      action: req.action,
+      legacy: comparison.legacy,
+      authz: comparison.authz,
+      correlationId: ctx.correlationId,
+    }),
+  );
+  if (routed.authoritativePath === "LEGACY") {
+    emitDecisionAudit(req.subject, req.resource, req.action, routed.result, ctx, req.trustedContext);
+  }
+  return routed.result;
 }
 
 /**
@@ -52,11 +75,114 @@ export async function authorizeMany(
   ids: string[],
   ctx: DecisionContext = {},
 ): Promise<Map<string, AuthorizeResult>> {
-  const results = await engine.batchCheck(subject, action, resourceType, ids);
-  for (const [id, result] of results) {
-    emitDecisionAudit(subject, { type: resourceType, id }, action, result, ctx);
+  if (ids.length === 0) return new Map();
+  const requests = ids.map((id): AuthorizeRequest => ({
+    subject,
+    action,
+    resource: { type: resourceType, id },
+  }));
+  const revision = currentMigrationRevision();
+  const modes = requests.map((request) => modeFor(revision, request));
+  const legacyIndexes = modes
+    .map((mode, index) => mode !== "AUTHZ_ONLY" ? index : -1)
+    .filter((index) => index >= 0);
+  const legacyStartedAt = performance.now();
+  const legacyPromise = legacyIndexes.length > 0
+    ? engine.batchCheck(
+        subject,
+        action,
+        resourceType,
+        legacyIndexes.map((index) => ids[index]),
+      )
+    : Promise.resolve(new Map<string, AuthorizeResult>());
+  const authoritativeIndexes = modes
+    .map((mode, index) => mode === "AUTHZ" || mode === "AUTHZ_ONLY" ? index : -1)
+    .filter((index) => index >= 0);
+  const shadowIndexes = modes
+    .map((mode, index) => mode === "SHADOW" ? index : -1)
+    .filter((index) => index >= 0);
+
+  const authoritativePromise = authoritativeIndexes.length > 0
+    ? checkAuthzBatch(
+        authoritativeIndexes.map((index) => requests[index]),
+        "authoritative",
+      )
+    : Promise.resolve([]);
+  const shadowPromise = shadowIndexes.length > 0
+    ? checkAuthzBatch(
+        shadowIndexes.map((index) => requests[index]),
+        "shadow",
+        revision.shadow_timeout_ms ?? 100,
+      )
+    : Promise.resolve([]);
+  const [legacyResults, authoritativeResults] = await Promise.all([
+    legacyPromise,
+    authoritativePromise,
+  ]);
+  const legacyDurationMs = performance.now() - legacyStartedAt;
+  const authzByIndex = new Map<number, TimedAuthorizeResult>();
+  authoritativeIndexes.forEach((index, offset) => authzByIndex.set(index, authoritativeResults[offset]));
+
+  void shadowPromise.then((shadowResults) => {
+    shadowIndexes.forEach((index, offset) => {
+      const legacy = legacyResults.get(ids[index]);
+      if (!legacy) return;
+      emitBatchComparison(
+        requests[index],
+        modes[index],
+        legacy,
+        legacyDurationMs,
+        shadowResults[offset],
+        ctx,
+      );
+    });
+  });
+
+  const results = new Map<string, AuthorizeResult>();
+  for (const [index, request] of requests.entries()) {
+    const mode = modes[index];
+    const authoritativePath = mode === "AUTHZ" || mode === "AUTHZ_ONLY" ? "AUTHZ" : "LEGACY";
+    const result = authoritativePath === "AUTHZ"
+      ? authzByIndex.get(index)?.result
+      : legacyResults.get(ids[index]);
+    const failClosed = result ?? { decision: "DENY" as const, reason: "AUTHZ_UNAVAILABLE" as const, retriable: true };
+    results.set(ids[index], failClosed);
+    if (authoritativePath === "LEGACY") {
+      emitDecisionAudit(subject, request.resource, action, failClosed, ctx);
+    } else if (mode === "AUTHZ") {
+      const legacy = legacyResults.get(ids[index]);
+      const authz = authzByIndex.get(index);
+      if (legacy && authz) {
+        emitBatchComparison(request, mode, legacy, legacyDurationMs, authz, ctx);
+      }
+    }
   }
   return results;
+}
+
+function emitBatchComparison(
+  request: AuthorizeRequest,
+  mode: MigrationMode,
+  legacyResult: AuthorizeResult,
+  legacyDurationMs: number,
+  authz: TimedAuthorizeResult,
+  ctx: DecisionContext,
+): void {
+  const revision = currentMigrationRevision();
+  emitMigrationComparison({
+    revision: revision.revision,
+    authoritativePath: mode === "SHADOW" ? "LEGACY" : "AUTHZ",
+    surface: "bff",
+    resourceType: request.resource.type,
+    action: request.action,
+    legacy: {
+      result: legacyResult,
+      durationMs: legacyDurationMs,
+      error: legacyResult.reason === "AUTHZ_UNAVAILABLE",
+    },
+    authz,
+    correlationId: ctx.correlationId,
+  });
 }
 
 /**

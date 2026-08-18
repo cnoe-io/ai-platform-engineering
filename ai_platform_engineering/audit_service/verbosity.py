@@ -7,12 +7,12 @@ from __future__ import annotations
 
 # Empty frozenset means "allow all types" (no filter applied).
 PRESET_TYPES: dict[str, frozenset[str]] = {
-    "minimal": frozenset({"cas_grant", "cas_reconcile"}),
-    "standard": frozenset({"auth", "cas_grant", "cas_reconcile", "cas_decision", "credential_action"}),
+    "minimal": frozenset({"cas_grant", "cas_reconcile", "authz_policy_change", "authz_relationship_change", "authz_migration_revision"}),
+    "standard": frozenset({"auth", "cas_grant", "cas_reconcile", "cas_decision", "credential_action", "authz_decision", "authz_migration_comparison", "authz_migration_revision", "authz_policy_change", "authz_relationship_change"}),
     "verbose": frozenset(),
-    "il2": frozenset({"auth", "cas_grant", "cas_decision", "credential_action"}),
+    "il2": frozenset({"auth", "cas_grant", "cas_decision", "credential_action", "authz_decision", "authz_policy_change", "authz_relationship_change"}),
     "il5": frozenset(),
-    "soc2": frozenset({"auth", "cas_grant", "cas_decision", "credential_action", "agent_delegation"}),
+    "soc2": frozenset({"auth", "cas_grant", "cas_decision", "credential_action", "agent_delegation", "authz_decision", "authz_migration_comparison", "authz_migration_revision", "authz_policy_change", "authz_relationship_change"}),
 }
 
 PRESET_LABELS: dict[str, str] = {

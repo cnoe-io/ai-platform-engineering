@@ -15,6 +15,9 @@ export interface McpToolCatalogEntry {
   display_name: string;
   description?: string;
   input_schema_hash?: string;
+  input_schema_legacy_hash?: string;
+  input_schema?: Record<string, unknown>;
+  eligible_policy_fields?: EligiblePolicyField[];
   enabled: boolean;
   kind?: "tool" | "server_catalog";
   source: "probe" | "agentgateway" | "static";
@@ -28,6 +31,22 @@ export interface CachedMcpToolItem {
   ref: string;
   name: string;
   description?: string;
+  input_schema_hash?: string;
+  input_schema?: Record<string, unknown>;
+  eligible_policy_fields?: EligiblePolicyField[];
+}
+
+export interface EligiblePolicyField {
+  pointer: string;
+  type: "string" | "integer" | "boolean";
+  required: boolean;
+}
+
+export interface SanitizedMcpSchema {
+  schema: Record<string, unknown>;
+  schemaHash: string;
+  legacyHash: string;
+  eligibleFields: EligiblePolicyField[];
 }
 
 export interface CachedMcpToolCatalog {
@@ -39,9 +58,76 @@ function isValidToolName(value: string): boolean {
   return /^[A-Za-z0-9._-]+$/.test(value);
 }
 
-function hashSchema(schema: unknown): string | undefined {
-  if (schema === undefined || schema === null) return undefined;
-  return createHash("sha256").update(JSON.stringify(schema)).digest("hex");
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function pointerEscape(value: string): string {
+  return value.replaceAll("~", "~0").replaceAll("/", "~1");
+}
+
+export function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (isRecord(value)) {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function isSensitiveField(name: string, schema: Record<string, unknown>): boolean {
+  const normalized = name.toLowerCase().replaceAll(/[^a-z0-9]+/g, "_");
+  return /(^|_)(password|passwd|secret|token|credential|authorization|private_key)($|_)/.test(normalized) ||
+    schema.format === "password" || schema.writeOnly === true;
+}
+
+export function sanitizeMcpInputSchema(input: unknown): SanitizedMcpSchema | undefined {
+  if (!isRecord(input)) return undefined;
+  let fields = 0;
+  const eligibleFields: EligiblePolicyField[] = [];
+
+  function visit(schema: Record<string, unknown>, pointer: string, required: boolean, depth: number): Record<string, unknown> | undefined {
+    if (depth > 8 || fields > 64) return undefined;
+    const type = schema.type;
+    if (type === "string" || type === "integer" || type === "boolean") {
+      fields += 1;
+      if (fields > 64) return undefined;
+      eligibleFields.push({ pointer, type, required });
+      const result: Record<string, unknown> = { type };
+      if (Array.isArray(schema.enum) && schema.enum.length <= 50) {
+        const values = schema.enum.filter((value) => {
+          if (type === "integer") return typeof value === "number" && Number.isInteger(value);
+          return typeof value === type && (typeof value !== "string" || value.length <= 256);
+        });
+        if (values.length) result.enum = values;
+      }
+      return result;
+    }
+    if (type !== "object" && !isRecord(schema.properties)) return undefined;
+    const properties = isRecord(schema.properties) ? schema.properties : {};
+    const requiredNames = new Set(Array.isArray(schema.required) ? schema.required.filter((value): value is string => typeof value === "string") : []);
+    const cleanProperties: Record<string, unknown> = {};
+    for (const name of Object.keys(properties).sort()) {
+      const child = properties[name];
+      if (!isRecord(child) || isSensitiveField(name, child)) continue;
+      const clean = visit(child, `${pointer}/${pointerEscape(name)}`, requiredNames.has(name), depth + 1);
+      if (clean) cleanProperties[name] = clean;
+    }
+    const result: Record<string, unknown> = { type: "object", properties: cleanProperties };
+    const cleanRequired = [...requiredNames].filter((name) => name in cleanProperties).sort();
+    if (cleanRequired.length) result.required = cleanRequired;
+    return result;
+  }
+
+  const schema = visit(input, "", false, 0);
+  if (!schema || eligibleFields.length === 0) return undefined;
+  const canonical = canonicalJson(schema);
+  if (new TextEncoder().encode(canonical).length > 16_384) return undefined;
+  return {
+    schema,
+    schemaHash: `sha256:${createHash("sha256").update(canonical).digest("hex")}`,
+    legacyHash: createHash("sha256").update(JSON.stringify(input)).digest("hex"),
+    eligibleFields: eligibleFields.sort((left, right) => left.pointer.localeCompare(right.pointer)),
+  };
 }
 
 function displayNameForTool(serverId: string, toolName: string, tool: Partial<MCPToolInfo>): string {
@@ -88,7 +174,7 @@ export async function cacheMcpToolCatalog(input: {
     const toolName = toToolName(serverId, tool);
     if (!toolName) continue;
     const ref = `${serverId}/${toolName}`;
-    const inputSchemaHash = hashSchema(tool.input_schema);
+    const sanitized = sanitizeMcpInputSchema(tool.input_schema);
     entries.push({
       _id: ref,
       server_id: serverId,
@@ -96,7 +182,12 @@ export async function cacheMcpToolCatalog(input: {
       ref,
       display_name: displayNameForTool(serverId, toolName, tool),
       ...(tool.description ? { description: tool.description } : {}),
-      ...(inputSchemaHash ? { input_schema_hash: inputSchemaHash } : {}),
+      ...(sanitized ? {
+        input_schema_hash: sanitized.schemaHash,
+        input_schema_legacy_hash: sanitized.legacyHash,
+        input_schema: sanitized.schema,
+        eligible_policy_fields: sanitized.eligibleFields,
+      } : {}),
       enabled: true,
       kind: "tool",
       source,
@@ -121,6 +212,9 @@ export async function cacheMcpToolCatalog(input: {
             display_name: entry.display_name,
             description: entry.description,
             input_schema_hash: entry.input_schema_hash,
+            input_schema_legacy_hash: entry.input_schema_legacy_hash,
+            input_schema: entry.input_schema,
+            eligible_policy_fields: entry.eligible_policy_fields,
             enabled: entry.enabled,
             kind: entry.kind ?? "tool",
             source: entry.source,
@@ -146,7 +240,7 @@ export async function listCachedMcpTools(serverIds: string[]): Promise<CachedMcp
   const rows = await collection
     .find(
       { server_id: { $in: validServerIds } } as never,
-      { projection: { server_id: 1, tool_id: 1, ref: 1, display_name: 1, description: 1, enabled: 1, kind: 1 } },
+      { projection: { server_id: 1, tool_id: 1, ref: 1, display_name: 1, description: 1, input_schema_hash: 1, input_schema: 1, eligible_policy_fields: 1, enabled: 1, kind: 1 } },
     )
     .sort({ server_id: 1, display_name: 1 })
     .toArray();
@@ -163,6 +257,9 @@ export async function listCachedMcpTools(serverIds: string[]): Promise<CachedMcp
       ref: row.ref,
       name: row.display_name,
       ...(row.description ? { description: row.description } : {}),
+      ...(row.input_schema_hash ? { input_schema_hash: row.input_schema_hash } : {}),
+      ...(row.input_schema ? { input_schema: row.input_schema } : {}),
+      ...(row.eligible_policy_fields ? { eligible_policy_fields: row.eligible_policy_fields } : {}),
     };
     const list = toolsByServer.get(row.server_id) ?? [];
     list.push(item);

@@ -65,6 +65,49 @@ function writeAuditEvent(event: Record<string, unknown>): void {
   }
 }
 
+export function emitMigrationComparison(input: {
+  revision: string;
+  authoritativePath: "LEGACY" | "AUTHZ";
+  surface: "bff";
+  resourceType: string;
+  action: string;
+  legacy: { result: AuthorizeResult; durationMs: number; error: boolean };
+  authz: { result: AuthorizeResult; durationMs: number; error: boolean };
+  correlationId?: string;
+}): void {
+  const outcome = (result: AuthorizeResult) => result.decision.toLowerCase();
+  const mismatch = input.legacy.error || input.authz.error
+    ? "ERROR_RESULT"
+    : input.legacy.result.decision !== input.authz.result.decision
+      ? `${input.legacy.result.decision}_${input.authz.result.decision}`
+      : input.legacy.result.reason !== input.authz.result.reason
+        ? "REASON_ONLY"
+        : Math.abs(input.legacy.durationMs - input.authz.durationMs) > 100 ? "LATENCY" : "NONE";
+  writeAuditEvent({
+    audit_event_id: randomUUID(),
+    ts: new Date(),
+    type: "authz_migration_comparison",
+    correlation_id: input.correlationId ?? randomUUID(),
+    component: "caipe-authz-migration",
+    source: "bff",
+    rollout_revision: input.revision,
+    authoritative_path: input.authoritativePath,
+    resource_type: input.resourceType,
+    action: input.action,
+    mismatch_class: mismatch,
+    outcome: mismatch === "NONE" ? "success" : "error",
+    subject_hash: "not-applicable",
+    tenant_id: process.env.TENANT_ID ?? "default",
+    resource_ref: `${input.resourceType}:migration-scope`,
+    legacy_outcome: outcome(input.legacy.result),
+    legacy_reason_code: input.legacy.result.reason,
+    legacy_duration_ms: input.legacy.durationMs,
+    authz_outcome: outcome(input.authz.result),
+    authz_reason_code: input.authz.result.reason,
+    authz_duration_ms: input.authz.durationMs,
+  });
+}
+
 export function buildDecisionEvent(
   subject: Subject,
   resource: Resource,

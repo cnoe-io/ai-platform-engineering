@@ -22,6 +22,12 @@ jest.mock("../engines/openfga", () => {
 // Audit is a no-op in tests (Mongo unconfigured).
 jest.mock("@/lib/mongodb", () => ({ getCollection: jest.fn(), isMongoDBConfigured: false }));
 
+const mockCheckAuthzBatch = jest.fn();
+jest.mock("../client", () => ({
+  checkAuthz: jest.fn(),
+  checkAuthzBatch: (...args: unknown[]) => mockCheckAuthzBatch(...args),
+}));
+
 const mockEmitGrantAudit = jest.fn();
 jest.mock("../audit", () => {
   const actual = jest.requireActual("../audit");
@@ -53,7 +59,10 @@ import {
 const ALLOW: AuthorizeResult = { decision: "ALLOW", reason: "OK", retriable: false };
 const DENY: AuthorizeResult = { decision: "DENY", reason: "NO_CAPABILITY", retriable: false };
 
-beforeEach(() => jest.clearAllMocks());
+beforeEach(() => {
+  jest.clearAllMocks();
+  delete process.env.AUTHZ_ROLLOUT_JSON;
+});
 
 describe("authorize", () => {
   it("returns the engine's decision", async () => {
@@ -97,6 +106,37 @@ describe("authorizeMany", () => {
     const r = await authorizeMany({ type: "user", id: "u" }, "read", "task", ["a"]);
     expect(r.get("a")?.decision).toBe("ALLOW");
     expect(mockBatch).toHaveBeenCalledWith({ type: "user", id: "u" }, "read", "task", ["a"]);
+  });
+
+  it("uses one canonical batch request for an AUTHZ_ONLY scope and never calls legacy", async () => {
+    process.env.AUTHZ_ROLLOUT_JSON = JSON.stringify({
+      revision: "batch-authz-only",
+      default_mode: "AUTHZ_ONLY",
+      canary_seed: "example-canary-seed-2026",
+      scopes: [],
+    });
+    mockCheckAuthzBatch.mockResolvedValue([
+      { result: ALLOW, durationMs: 2, error: false },
+      { result: DENY, durationMs: 2, error: false },
+    ]);
+
+    const result = await authorizeMany(
+      { type: "user", id: "u" },
+      "read",
+      "task",
+      ["a", "b"],
+    );
+
+    expect(result).toEqual(new Map([["a", ALLOW], ["b", DENY]]));
+    expect(mockCheckAuthzBatch).toHaveBeenCalledTimes(1);
+    expect(mockCheckAuthzBatch).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({ resource: { type: "task", id: "a" } }),
+        expect.objectContaining({ resource: { type: "task", id: "b" } }),
+      ],
+      "authoritative",
+    );
+    expect(mockBatch).not.toHaveBeenCalled();
   });
 });
 

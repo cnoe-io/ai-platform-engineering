@@ -212,6 +212,11 @@ dependencies:
   - name: openfga-authz-bridge
     version: 0.5.68-dev.6-chart.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
     condition: openfgaAuthzBridge.enabled
+  # Canonical authorization service. It deploys dark by default and does not
+  # receive traffic until a deployment-owned rollout revision selects it.
+  - name: caipe-authz
+    version: 0.5.68-dev.6-chart.1 # Do NOT bump this. It will be updated automatically using the PR or release workflow
+    condition: caipeAuthz.enabled
   # AgentGateway standalone proxy for RBAC-protected MCP routing.
   # Intentional local subchart for this release: this deploys the standalone
   # static-config proxy with CAIPE's OpenFGA ext_authz config. The upstream

@@ -136,6 +136,31 @@ const TYPE_FILTER_GROUPS: {
         description:
           "Allow/deny results when the Centralized Authorization Service evaluates whether a subject may act on a resource.",
       },
+      {
+        value: "authz_decision",
+        label: "Authz decisions",
+        description: "Authoritative or shadow decisions emitted by the standalone caipe-authz service.",
+      },
+      {
+        value: "authz_migration_comparison",
+        label: "Migration comparisons",
+        description: "Legacy versus caipe-authz outcomes, latency, errors, and mismatch classification.",
+      },
+      {
+        value: "authz_migration_revision",
+        label: "Rollout revisions",
+        description: "Deployment-controlled authorization rollout revision changes.",
+      },
+      {
+        value: "authz_policy_change",
+        label: "Expression policies",
+        description: "Typed expression-policy create, update, status, and delete operations.",
+      },
+      {
+        value: "authz_relationship_change",
+        label: "Relationship changes",
+        description: "Condition-preserving OpenFGA relationship reconciliation operations.",
+      },
     ],
   },
   {
@@ -286,6 +311,7 @@ function TypeBadge({ type }: { type: AuditEventType }) {
       );
       break;
     case "cas_decision":
+    case "authz_decision":
       badge = (
         <Badge variant="outline" className="text-indigo-600 border-indigo-300 bg-indigo-50 dark:bg-indigo-950 dark:text-indigo-400 dark:border-indigo-800 gap-1">
           <KeyRound className="h-3 w-3" />
@@ -294,10 +320,21 @@ function TypeBadge({ type }: { type: AuditEventType }) {
       );
       break;
     case "cas_grant":
+    case "authz_policy_change":
+    case "authz_relationship_change":
       badge = (
         <Badge variant="outline" className="text-violet-600 border-violet-300 bg-violet-50 dark:bg-violet-950 dark:text-violet-400 dark:border-violet-800 gap-1">
           <UserPlus className="h-3 w-3" />
           Policy change
+        </Badge>
+      );
+      break;
+    case "authz_migration_comparison":
+    case "authz_migration_revision":
+      badge = (
+        <Badge variant="outline" className="text-amber-700 border-amber-300 bg-amber-50 dark:bg-amber-950 dark:text-amber-400 dark:border-amber-800 gap-1">
+          <GitBranch className="h-3 w-3" />
+          {type === "authz_migration_comparison" ? "Migration comparison" : "Rollout revision"}
         </Badge>
       );
       break;
@@ -475,7 +512,7 @@ function decisionPathLabel(evt: UnifiedAuditEvent): string {
 function requestStory(evt: UnifiedAuditEvent): string {
   const resource = getResourceParts(evt).label;
   const action = humanizeToken(evt.action);
-  if (evt.type === "cas_grant") {
+  if (evt.type === "cas_grant" || evt.type === "authz_policy_change" || evt.type === "authz_relationship_change") {
     const op = evt.operation === "revoke" ? "Revoked" : "Granted";
     return `${op} ${action} on ${resource}`;
   }
@@ -490,14 +527,14 @@ function requestStory(evt: UnifiedAuditEvent): string {
 
 function reasonPhrase(evt: UnifiedAuditEvent): string {
   const reason = evt.reason_code ? humanizeToken(evt.reason_code) : "no reason code";
-  if (evt.type === "cas_decision") {
+  if (evt.type === "cas_decision" || evt.type === "authz_decision") {
     const service = evt.component === "cas" || evt.source === "cas" ? "CAS" : displaySource(evt.source);
     const decision = evt.outcome === "allow" ? "allowed" : "denied";
     const pdp = evt.pdp === "openfga" ? "OpenFGA" : evt.pdp ? sentenceCase(evt.pdp) : "the policy engine";
     const via = evt.decision_via ? ` via ${decisionPathLabel(evt)}` : "";
     return `${service} ${decision} this request because ${pdp} returned ${reason}${via}.`;
   }
-  if (evt.type === "cas_grant") {
+  if (evt.type === "cas_grant" || evt.type === "authz_policy_change" || evt.type === "authz_relationship_change") {
     const op = evt.operation === "revoke" ? "revoke" : "grant";
     return `CAS recorded a ${op} attempt with result ${evt.outcome}.`;
   }

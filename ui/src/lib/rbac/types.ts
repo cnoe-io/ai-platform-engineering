@@ -128,7 +128,12 @@ export type AuditEventType =
   | "agent_delegation"
   | "openfga_rebac"
   | "cas_decision"
-  | "cas_grant";
+  | "cas_grant"
+  | "authz_decision"
+  | "authz_migration_comparison"
+  | "authz_migration_revision"
+  | "authz_policy_change"
+  | "authz_relationship_change";
 
 /** Unified audit event outcome — superset of AuditOutcome for tool/delegation */
 export type UnifiedAuditOutcome = "allow" | "deny" | "success" | "error";
@@ -141,7 +146,8 @@ export type AuditEventSource =
   | "webex"
   | "dynamic_agents"
   | "openfga_authz_bridge"
-  | "cas";
+  | "cas"
+  | "caipe-authz";
 
 /** Unified audit event emitted to audit-service (FR-037) */
 export interface UnifiedAuditEvent {
@@ -190,6 +196,13 @@ export interface UnifiedAuditEvent {
   grantee_display?: string;
   /** CAS grant/revoke: grant | revoke. */
   operation?: "grant" | "revoke";
+  rollout_revision?: string;
+  authoritative_path?: string;
+  mismatch_class?: string;
+  policy_id?: string;
+  status?: string;
+  template_id?: string;
+  authorization_model_id?: string;
 }
 
 /** Admin dashboard tab keys for RBAC-based visibility */

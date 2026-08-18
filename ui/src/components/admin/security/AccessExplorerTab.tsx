@@ -76,6 +76,16 @@ interface GraphEdge {
     label: string;
     readonly: true;
   };
+  conditional?: boolean;
+  condition_name?: string;
+  policy?: {
+    policy_id: string;
+    status: string;
+    template: string;
+    field: string;
+    schema_hash: string;
+    version: number;
+  };
 }
 
 
@@ -1462,8 +1472,19 @@ function GraphDetails({ graph }: { graph: { nodes: GraphNode[]; edges: GraphEdge
                         routing metadata
                       </Badge>
                     )}
+                    {edge.conditional && (
+                      <Badge variant="outline" className="mb-1 mr-1">
+                        {edge.condition_name ?? "conditional"}
+                      </Badge>
+                    )}
+                    {edge.policy && (
+                      <Badge variant={edge.policy.status === "ACTIVE" ? "secondary" : "destructive"} className="mb-1">
+                        {edge.policy.policy_id} v{edge.policy.version} · {edge.policy.status}
+                      </Badge>
+                    )}
                     <code>{edge.from}</code> <span className="text-muted-foreground">{edge.relation}</span>{" "}
                     <code>{edge.to}</code>
+                    {edge.policy && <div className="mt-1 text-muted-foreground">{edge.policy.field} · schema {edge.policy.schema_hash.slice(0, 18)}…</div>}
                   </div>
                 ))
               )}
@@ -1730,8 +1751,8 @@ function buildFlowEdges(
         id: edge.id,
         source: edge.from,
         target: edge.to,
-        label: isMetadata ? `${edge.relation} (metadata)` : isEffective ? edge.relation : edge.relation,
-        data: { metadata: edge.metadata },
+        label: isMetadata ? `${edge.relation} (metadata)` : edge.conditional ? `${edge.relation} (${edge.condition_name ?? "condition"})` : edge.relation,
+        data: { metadata: edge.metadata, conditional: edge.conditional, policy: edge.policy },
         labelStyle: { fontSize: 11, fill: "hsl(var(--foreground))" },
         labelBgStyle: { fill: "hsl(var(--card))", fillOpacity: 0.95 },
         labelBgPadding: [6, 3] as [number, number],
@@ -1742,7 +1763,9 @@ function buildFlowEdges(
             ? { stroke: "#10b981", strokeWidth: 2.5 }
             : isModel
               ? { stroke: "#60a5fa", strokeWidth: 2, strokeDasharray: "3 3" }
-              : { stroke: "hsl(var(--primary))", strokeWidth: 2 }),
+              : edge.conditional
+                ? { stroke: "#f59e0b", strokeWidth: 2.5, strokeDasharray: "7 4" }
+                : { stroke: "hsl(var(--primary))", strokeWidth: 2 }),
       } satisfies Edge<RebacEdgeData>;
     });
 

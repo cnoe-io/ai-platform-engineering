@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "caipe-authz.fullname" . }}
+  labels:
+    {{- include "caipe-authz.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - {name: http, port: {{ .Values.service.httpPort }}, targetPort: http, protocol: TCP}
+    - {name: grpc, port: {{ .Values.service.grpcPort }}, targetPort: grpc, protocol: TCP}
+  selector:
+    {{- include "caipe-authz.selectorLabels" . | nindent 4 }}

@@ -1,0 +1,1 @@
+"""CAIPE authorization service tests."""

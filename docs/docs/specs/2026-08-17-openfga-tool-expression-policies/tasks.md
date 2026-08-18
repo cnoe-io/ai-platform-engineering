@@ -18,36 +18,36 @@ description: Dependency-ordered, test-first tasks for parallel migration and exp
 
 ## Phase 1 - Setup and Current-Behavior Inventory
 
-- [ ] T001 Create the Authz package skeleton and ownership README in ai_platform_engineering/authz/__init__.py and ai_platform_engineering/authz/README.md.
-- [ ] T002 [P] Inventory BFF decisions, mappings, reasons, timeouts, caches, flags, and owners in docs/docs/specs/2026-08-17-openfga-tool-expression-policies/inventory-bff.md.
-- [ ] T003 [P] Inventory gateway, agent-use, server, exact/wildcard tool checks, flags, and owners in docs/docs/specs/2026-08-17-openfga-tool-expression-policies/inventory-gateway.md.
-- [ ] T004 [P] Capture neutral BFF golden requests/results in ai_platform_engineering/authz/tests/fixtures/bff_decisions.json.
-- [ ] T005 [P] Capture neutral bridge golden CheckRequest/results in ai_platform_engineering/authz/tests/fixtures/gateway_decisions.json.
-- [ ] T006 Record active OpenFGA store/model/hash and action-to-relation mappings in ai_platform_engineering/authz/tests/fixtures/model_descriptor.json.
-- [ ] T007 Add Authz test configuration and neutral fixture factories in ai_platform_engineering/authz/tests/conftest.py.
-- [ ] T008 Add the feature validation commands and coverage gate to ai_platform_engineering/authz/README.md.
+- [x] T001 Create the Authz package skeleton and ownership README in ai_platform_engineering/authz/__init__.py and ai_platform_engineering/authz/README.md.
+- [x] T002 [P] Inventory BFF decisions, mappings, reasons, timeouts, caches, flags, and owners in docs/docs/specs/2026-08-17-openfga-tool-expression-policies/inventory-bff.md.
+- [x] T003 [P] Inventory gateway, agent-use, server, exact/wildcard tool checks, flags, and owners in docs/docs/specs/2026-08-17-openfga-tool-expression-policies/inventory-gateway.md.
+- [x] T004 [P] Capture neutral BFF golden requests/results in ai_platform_engineering/authz/tests/fixtures/bff_decisions.json.
+- [x] T005 [P] Capture neutral bridge golden CheckRequest/results in ai_platform_engineering/authz/tests/fixtures/gateway_decisions.json.
+- [x] T006 Record active OpenFGA store/model/hash and action-to-relation mappings in ai_platform_engineering/authz/tests/fixtures/model_descriptor.json.
+- [x] T007 Add Authz test configuration and neutral fixture factories in ai_platform_engineering/authz/tests/conftest.py.
+- [x] T008 Add the feature validation commands and coverage gate to ai_platform_engineering/authz/README.md.
 
 Checkpoint: the existing behavior and ownership surface are reviewable; no
 runtime code path has changed.
 
 ## Phase 2 - Foundational Canonical Service
 
-- [ ] T009 [P] Add failing canonical request/result and unknown-field contract tests in ai_platform_engineering/authz/tests/contract/test_contract.py.
-- [ ] T010 [P] Add failing stable reason-code and fail-closed mapping tests in ai_platform_engineering/authz/tests/contract/test_reasons.py.
-- [ ] T011 Implement typed canonical request/result models in ai_platform_engineering/authz/core/contract.py.
-- [ ] T012 Implement stable allow/deny/invalid/unavailable reason mapping in ai_platform_engineering/authz/core/reasons.py.
-- [ ] T013 [P] Add failing provider selection and disabled Cedar/OPA tests in ai_platform_engineering/authz/tests/contract/test_registry.py.
-- [ ] T014 Define the provider protocol and server-owned resource/action registry in ai_platform_engineering/authz/providers/base.py and ai_platform_engineering/authz/core/registry.py.
-- [ ] T015 Implement only the openfga-cel runtime binding and reject public provider overrides in ai_platform_engineering/authz/providers/openfga.py and ai_platform_engineering/authz/core/registry.py.
-- [ ] T016 [P] Add failing trusted identity/request/resource context tests in ai_platform_engineering/authz/tests/contract/test_context.py.
-- [ ] T017 Implement trusted context construction and advisory-context narrowing rules in ai_platform_engineering/authz/core/context.py.
-- [ ] T018 [P] Add failing transport-neutral decision and fail-closed dependency tests in ai_platform_engineering/authz/tests/contract/test_decision.py.
-- [ ] T019 Implement the single canonical decision pipeline in ai_platform_engineering/authz/core/decision.py.
-- [ ] T020 [P] Add failing HTTP single/batch normalization tests in ai_platform_engineering/authz/tests/contract/test_http.py.
-- [ ] T021 [P] Add failing Envoy Check normalization tests in ai_platform_engineering/authz/tests/contract/test_ext_authz.py.
-- [ ] T022 Implement single/batch HTTP adapters in ai_platform_engineering/authz/api/http.py.
-- [ ] T023 Implement Envoy v3 ext_authz adapter in ai_platform_engineering/authz/api/ext_authz.py.
-- [ ] T024 Add independent HTTP/gRPC health, readiness, timeout, saturation, and bounded-concurrency configuration in ai_platform_engineering/authz/config.py and ai_platform_engineering/authz/main.py.
+- [x] T009 [P] Add failing canonical request/result and unknown-field contract tests in ai_platform_engineering/authz/tests/contract/test_contract.py.
+- [x] T010 [P] Add failing stable reason-code and fail-closed mapping tests in ai_platform_engineering/authz/tests/contract/test_reasons.py.
+- [x] T011 Implement typed canonical request/result models in ai_platform_engineering/authz/core/contract.py.
+- [x] T012 Implement stable allow/deny/invalid/unavailable reason mapping in ai_platform_engineering/authz/core/reasons.py.
+- [x] T013 [P] Add failing provider selection and disabled Cedar/OPA tests in ai_platform_engineering/authz/tests/contract/test_registry.py.
+- [x] T014 Define the provider protocol and server-owned resource/action registry in ai_platform_engineering/authz/providers/base.py and ai_platform_engineering/authz/core/registry.py.
+- [x] T015 Implement only the openfga-cel runtime binding and reject public provider overrides in ai_platform_engineering/authz/providers/openfga.py and ai_platform_engineering/authz/core/registry.py.
+- [x] T016 [P] Add failing trusted identity/request/resource context tests in ai_platform_engineering/authz/tests/contract/test_context.py.
+- [x] T017 Implement trusted context construction and advisory-context narrowing rules in ai_platform_engineering/authz/core/context.py.
+- [x] T018 [P] Add failing transport-neutral decision and fail-closed dependency tests in ai_platform_engineering/authz/tests/contract/test_decision.py.
+- [x] T019 Implement the single canonical decision pipeline in ai_platform_engineering/authz/core/decision.py.
+- [x] T020 [P] Add failing HTTP single/batch normalization tests in ai_platform_engineering/authz/tests/contract/test_http.py.
+- [x] T021 [P] Add failing Envoy Check normalization tests in ai_platform_engineering/authz/tests/contract/test_ext_authz.py.
+- [x] T022 Implement single/batch HTTP adapters in ai_platform_engineering/authz/api/http.py.
+- [x] T023 Implement Envoy v3 ext_authz adapter in ai_platform_engineering/authz/api/ext_authz.py.
+- [x] T024 Add independent HTTP/gRPC health, readiness, timeout, saturation, and bounded-concurrency configuration in ai_platform_engineering/authz/config.py and ai_platform_engineering/authz/main.py.
 
 Checkpoint: HTTP, batch HTTP, and gRPC call one decision core, but no current
 enforcement point routes traffic to it.
@@ -67,27 +67,27 @@ SHADOW while unrelated scopes and tuples remain unchanged.
 - [ ] T027 [P] [US0] Add failing comparison classification tests for NONE, ALLOW_DENY, DENY_ALLOW, ERROR_RESULT, REASON_ONLY, and LATENCY in ai_platform_engineering/authz/tests/contract/test_comparator.py.
 - [ ] T028 [P] [US0] Add failing authority/no-fallback/mode-transition tests in ai_platform_engineering/authz/tests/integration/test_migration_authority.py.
 - [ ] T029 [P] [US0] Add failing exactly-one-decision/at-most-one-comparison event tests in ai_platform_engineering/authz/tests/integration/test_migration_events.py.
-- [ ] T030 [US0] Add failing BFF LEGACY/SHADOW/CANARY/router rollback tests in ui/src/lib/authz/__tests__/migration-router.test.ts.
-- [ ] T031 [US0] Add failing bridge shadow/canary/timeout/body-limit tests in deploy/openfga/bridge/tests/test_migration_router.py.
+- [x] T030 [US0] Add failing BFF LEGACY/SHADOW/CANARY/router rollback tests in ui/src/lib/authz/__tests__/migration-router.test.ts.
+- [x] T031 [US0] Add failing bridge shadow/canary/timeout/body-limit tests in deploy/openfga/bridge/tests/test_migration_router.py.
 
 ### Implementation
 
-- [ ] T032 [US0] Implement immutable rollout revision parsing and scope selection in ai_platform_engineering/authz/migration/config.py.
-- [ ] T033 [US0] Implement language-neutral keyed cohort selection matching canary_vectors.json in ai_platform_engineering/authz/migration/cohort.py.
-- [ ] T034 [US0] Implement canonical comparison and mismatch classification in ai_platform_engineering/authz/migration/comparator.py.
-- [ ] T035 [US0] Implement decision/comparison/revision event construction without sensitive values in ai_platform_engineering/authz/migration/events.py.
-- [ ] T036 [US0] Implement BFF Authz HTTP client with bounded shadow timeout in ui/src/lib/authz/client.ts.
-- [ ] T037 [US0] Implement the deployment-controlled BFF migration router while preserving current endpoints in ui/src/lib/authz/migration-router.ts and ui/src/lib/authz/index.ts.
-- [ ] T038 [US0] Implement the bridge Authz CheckRequest client and migration router without changing the external gRPC response contract in deploy/openfga/bridge/authz_client.py and deploy/openfga/bridge/main.py.
-- [ ] T039 [US0] Strip/reject untrusted migration/provider fields at BFF and Authz boundaries in ui/src/lib/authz/http.ts and ai_platform_engineering/authz/api/http.py.
-- [ ] T040 [P] [US0] Create the caipe-authz Helm chart defaulting all routing to LEGACY in charts/ai-platform-engineering/charts/caipe-authz/Chart.yaml, charts/ai-platform-engineering/charts/caipe-authz/values.yaml, and charts/ai-platform-engineering/charts/caipe-authz/templates/.
-- [ ] T041 [P] [US0] Add dark Authz deployment to Docker Compose without changing current traffic targets in docker-compose/docker-compose.dev.yaml and docker-compose/.env.example.
-- [ ] T042 [US0] Add BFF rollout values, revision checks, and canary seed reference in charts/ai-platform-engineering/charts/caipe-ui/values.yaml and charts/ai-platform-engineering/charts/caipe-ui/templates/deployment.yaml.
-- [ ] T043 [US0] Add gateway bridge rollout values and Authz target while keeping legacy authority in charts/ai-platform-engineering/charts/openfga-authz-bridge/values.yaml and charts/ai-platform-engineering/charts/openfga-authz-bridge/templates/deployment.yaml.
-- [ ] T044 [US0] Add rollout revision, authoritative path, mismatch, error, timeout, and latency metrics in ai_platform_engineering/authz/metrics.py.
+- [x] T032 [US0] Implement immutable rollout revision parsing and scope selection in ai_platform_engineering/authz/migration/config.py.
+- [x] T033 [US0] Implement language-neutral keyed cohort selection matching canary_vectors.json in ai_platform_engineering/authz/migration/cohort.py.
+- [x] T034 [US0] Implement canonical comparison and mismatch classification in ai_platform_engineering/authz/migration/comparator.py.
+- [x] T035 [US0] Implement decision/comparison/revision event construction without sensitive values in ai_platform_engineering/authz/migration/events.py.
+- [x] T036 [US0] Implement BFF Authz HTTP client with bounded shadow timeout in ui/src/lib/authz/client.ts.
+- [x] T037 [US0] Implement the deployment-controlled BFF migration router while preserving current endpoints in ui/src/lib/authz/migration-router.ts and ui/src/lib/authz/index.ts.
+- [x] T038 [US0] Implement the bridge Authz CheckRequest client and migration router without changing the external gRPC response contract in deploy/openfga/bridge/authz_client.py and deploy/openfga/bridge/main.py.
+- [x] T039 [US0] Strip/reject untrusted migration/provider fields at BFF and Authz boundaries in ui/src/lib/authz/http.ts and ai_platform_engineering/authz/api/http.py.
+- [x] T040 [P] [US0] Create the caipe-authz Helm chart defaulting all routing to LEGACY in charts/ai-platform-engineering/charts/caipe-authz/Chart.yaml, charts/ai-platform-engineering/charts/caipe-authz/values.yaml, and charts/ai-platform-engineering/charts/caipe-authz/templates/.
+- [x] T041 [P] [US0] Add dark Authz deployment to Docker Compose without changing current traffic targets in docker-compose/docker-compose.dev.yaml and docker-compose/.env.example.
+- [x] T042 [US0] Add BFF rollout values, revision checks, and canary seed reference in charts/ai-platform-engineering/charts/caipe-ui/values.yaml and charts/ai-platform-engineering/charts/caipe-ui/templates/deployment.yaml.
+- [x] T043 [US0] Add gateway bridge rollout values and Authz target while keeping legacy authority in charts/ai-platform-engineering/charts/openfga-authz-bridge/values.yaml and charts/ai-platform-engineering/charts/openfga-authz-bridge/templates/deployment.yaml.
+- [x] T044 [US0] Add rollout revision, authoritative path, mismatch, error, timeout, and latency metrics in ai_platform_engineering/authz/metrics.py.
 - [ ] T045 [US0] Add comparison filters and promotion-gate summaries to the existing Audit UI in ui/src/components/admin/audit/ and ui/src/app/api/admin/audit/.
 - [ ] T046 [US0] Add end-to-end replay tests proving independent BFF and gateway scopes and no tuple mutation on rollback in tests/authz/test_parallel_migration.py.
-- [ ] T047 [US0] Document the operator mode transitions, gates, and emergency rollback in ai_platform_engineering/authz/README.md and deploy/openfga/bridge/README.md.
+- [x] T047 [US0] Document the operator mode transitions, gates, and emergency rollback in ai_platform_engineering/authz/README.md and deploy/openfga/bridge/README.md.
 
 Checkpoint: the parallel-migration MVP is independently deployable. Legacy is
 still available, and one cohort can be promoted or rolled back explicitly.
@@ -102,20 +102,20 @@ missing, wrong-type, stale, malformed, and oversized inputs deny before MCP.
 
 ### Tests first
 
-- [ ] T048 [P] [US1] Add failing model DSL/JSON parity and backward-compatibility tests in deploy/openfga/tests/test_model_conditions.py.
-- [ ] T049 [P] [US1] Add failing condition-context Check/BatchCheck tests against the pinned OpenFGA image in ai_platform_engineering/authz/tests/integration/test_openfga_conditions.py.
-- [ ] T050 [P] [US1] Add failing condition-aware tuple read/write/replacement/compensation tests in ai_platform_engineering/authz/tests/integration/test_conditional_tuples.py.
-- [ ] T051 [P] [US1] Add failing MCP argument parsing, duplicate-key, truncation, size, JSON Pointer, and typed-projection tests in ai_platform_engineering/authz/tests/contract/test_tool_context.py.
+- [x] T048 [P] [US1] Add failing model DSL/JSON parity and backward-compatibility tests in deploy/openfga/tests/test_model_conditions.py.
+- [x] T049 [P] [US1] Add failing condition-context Check/BatchCheck tests against the pinned OpenFGA image in ai_platform_engineering/authz/tests/integration/test_openfga_conditions.py.
+- [x] T050 [P] [US1] Add failing condition-aware tuple read/write/replacement/compensation tests in ai_platform_engineering/authz/tests/integration/test_conditional_tuples.py.
+- [x] T051 [P] [US1] Add failing MCP argument parsing, duplicate-key, truncation, size, JSON Pointer, and typed-projection tests in ai_platform_engineering/authz/tests/contract/test_tool_context.py.
 
 ### Implementation
 
 - [x] T052 [US1] Add versioned named conditions and conditional_caller while preserving existing grants in deploy/openfga/model.fga.
-- [ ] T053 [US1] Generate the matching model artifact and pin compatible OpenFGA configuration in charts/ai-platform-engineering/charts/openfga/authorization-model.json and charts/ai-platform-engineering/charts/openfga/values.yaml.
-- [ ] T054 [US1] Add active store/model/hash/template descriptors in ai_platform_engineering/authz/providers/openfga.py and ai_platform_engineering/authz/core/registry.py.
-- [ ] T055 [US1] Implement context-aware Check/BatchCheck and condition-preserving tuple reads/writes in ai_platform_engineering/authz/providers/openfga.py.
-- [ ] T056 [US1] Implement verified delete/write/verify/compensate tuple replacement in ai_platform_engineering/authz/policy/reconciliation.py.
-- [ ] T057 [US1] Implement bounded duplicate-key-safe MCP parsing and typed argument projection in ai_platform_engineering/authz/core/tool_context.py.
-- [ ] T058 [US1] Send byte-equivalent trusted context to required caller and agent tool checks in ai_platform_engineering/authz/api/ext_authz.py.
+- [x] T053 [US1] Generate the matching model artifact and pin compatible OpenFGA configuration in charts/ai-platform-engineering/charts/openfga/authorization-model.json and charts/ai-platform-engineering/charts/openfga/values.yaml.
+- [x] T054 [US1] Add active store/model/hash/template descriptors in ai_platform_engineering/authz/providers/openfga.py and ai_platform_engineering/authz/core/registry.py.
+- [x] T055 [US1] Implement context-aware Check/BatchCheck and condition-preserving tuple reads/writes in ai_platform_engineering/authz/providers/openfga.py.
+- [x] T056 [US1] Implement verified delete/write/verify/compensate tuple replacement in ai_platform_engineering/authz/policy/reconciliation.py.
+- [x] T057 [US1] Implement bounded duplicate-key-safe MCP parsing and typed argument projection in ai_platform_engineering/authz/core/tool_context.py.
+- [x] T058 [US1] Send byte-equivalent trusted context to required caller and agent tool checks in ai_platform_engineering/authz/api/ext_authz.py.
 - [ ] T059 [US1] Add exact-tool matching/non-matching end-to-end tests proving denied calls do not reach MCP in tests/authz/test_exact_tool_expression.py.
 
 Checkpoint: native OpenFGA conditions work in an isolated fixture scope; no
@@ -131,20 +131,20 @@ CEL-like literals as data, and marks schema drift stale.
 
 ### Tests first
 
-- [ ] T060 [P] [US2] Add failing schema sanitization/hash/eligibility/JSON Pointer tests in ui/src/lib/rbac/__tests__/mcp-tool-catalog-policy.test.ts.
-- [ ] T061 [P] [US2] Add failing template canonicalization, bounds, and code-like-literal tests in ai_platform_engineering/authz/tests/contract/test_templates.py.
-- [ ] T062 [P] [US2] Add failing policy CRUD, optimistic concurrency, authorization, and reconciliation tests in ai_platform_engineering/authz/tests/integration/test_policy_api.py.
-- [ ] T063 [P] [US2] Add failing typed editor and stale-schema UI tests in ui/src/components/admin/rebac/__tests__/expression-policy-editor.test.tsx.
+- [x] T060 [P] [US2] Add failing schema sanitization/hash/eligibility/JSON Pointer tests in ui/src/lib/rbac/__tests__/mcp-tool-catalog-policy.test.ts.
+- [x] T061 [P] [US2] Add failing template canonicalization, bounds, and code-like-literal tests in ai_platform_engineering/authz/tests/contract/test_templates.py.
+- [x] T062 [P] [US2] Add failing policy CRUD, optimistic concurrency, authorization, and reconciliation tests in ai_platform_engineering/authz/tests/integration/test_policy_api.py.
+- [x] T063 [P] [US2] Add failing typed editor and stale-schema UI tests in ui/src/components/admin/rebac/__tests__/expression-policy-editor.test.tsx.
 
 ### Implementation
 
-- [ ] T064 [US2] Extend the tool catalog with bounded sanitized schemas, hashes, eligible fields, and drift status in ui/src/lib/rbac/mcp-tool-catalog.ts.
-- [ ] T065 [US2] Implement the reviewed template registry and canonical policy hashing in ai_platform_engineering/authz/policy/templates.py.
-- [ ] T066 [US2] Add MongoDB policy metadata models/indexes and optimistic versions in ai_platform_engineering/authz/policy/models.py and ai_platform_engineering/authz/policy/repository.py.
-- [ ] T067 [US2] Implement schema, validate, CRUD, explain, and evaluate admin operations in ai_platform_engineering/authz/api/policy.py.
-- [ ] T068 [US2] Implement the BFF policy administration client/routes in ui/src/lib/authz/policy-client.ts and ui/src/app/api/admin/openfga/policies/.
-- [ ] T069 [US2] Implement typed field/operator/value controls and read-only preview in ui/src/components/admin/rebac/expression-policy-editor.tsx.
-- [ ] T070 [US2] Implement schema-drift refresh and fail-closed policy status in ai_platform_engineering/authz/policy/reconciliation.py.
+- [x] T064 [US2] Extend the tool catalog with bounded sanitized schemas, hashes, eligible fields, and drift status in ui/src/lib/rbac/mcp-tool-catalog.ts.
+- [x] T065 [US2] Implement the reviewed template registry and canonical policy hashing in ai_platform_engineering/authz/policy/templates.py.
+- [x] T066 [US2] Add MongoDB policy metadata models/indexes and optimistic versions in ai_platform_engineering/authz/policy/models.py and ai_platform_engineering/authz/policy/repository.py.
+- [x] T067 [US2] Implement schema, validate, CRUD, explain, and evaluate admin operations in ai_platform_engineering/authz/api/policy.py.
+- [x] T068 [US2] Implement the BFF policy administration client/routes in ui/src/lib/authz/policy-client.ts and ui/src/app/api/admin/openfga/policies/.
+- [x] T069 [US2] Implement typed field/operator/value controls and read-only preview in ui/src/components/admin/rebac/expression-policy-editor.tsx.
+- [x] T070 [US2] Implement schema-drift refresh and fail-closed policy status in ai_platform_engineering/authz/policy/reconciliation.py.
 
 Checkpoint: a typed policy can be created and reconciled in a test scope without
 exposing CEL, Cedar, or Rego.
@@ -183,22 +183,22 @@ Service, recover delivery idempotently, and inspect sanitized graph/history.
 
 ### Tests first
 
-- [ ] T078 [P] [US4] Add failing event schema, redaction, and one-event-per-decision tests in ai_platform_engineering/authz/tests/contract/test_audit_events.py.
-- [ ] T079 [P] [US4] Add failing outbox capacity/strict-mode/retry/idempotency/recovery tests in ai_platform_engineering/authz/tests/integration/test_audit_outbox.py.
-- [ ] T080 [P] [US4] Add failing model/relationship/graph pagination/truncation/authz tests in ai_platform_engineering/authz/tests/integration/test_inspection_api.py.
-- [ ] T081 [P] [US4] Add failing legacy cas_* query compatibility tests in ai_platform_engineering/audit_service/test_audit_service.py.
+- [x] T078 [P] [US4] Add failing event schema, redaction, and one-event-per-decision tests in ai_platform_engineering/authz/tests/contract/test_audit_events.py.
+- [x] T079 [P] [US4] Add failing outbox capacity/strict-mode/retry/idempotency/recovery tests in ai_platform_engineering/authz/tests/integration/test_audit_outbox.py.
+- [x] T080 [P] [US4] Add failing model/relationship/graph pagination/truncation/authz tests in ai_platform_engineering/authz/tests/integration/test_inspection_api.py.
+- [x] T081 [P] [US4] Add failing legacy cas_* query compatibility tests in ai_platform_engineering/audit_service/test_audit_service.py.
 - [ ] T082 [P] [US4] Add failing conditional-edge and audit-overlay UI tests in ui/src/components/admin/rebac/__tests__/authz-graph-layers.test.tsx.
 
 ### Implementation
 
-- [ ] T083 [US4] Implement normalized decision, comparison, policy, relationship, and revision event models in ai_platform_engineering/authz/audit/events.py.
-- [ ] T084 [US4] Implement bounded durable outbox with strict allow semantics in ai_platform_engineering/authz/audit/outbox.py.
-- [ ] T085 [US4] Implement idempotent batch publishing to POST /v1/audit/events in ai_platform_engineering/authz/audit/publisher.py.
-- [ ] T086 [US4] Add normalized event validation and legacy query mapping in ai_platform_engineering/audit_service/models.py and ai_platform_engineering/audit_service/storage.py.
-- [ ] T087 [US4] Implement privileged bounded model, relationship, graph, Check, policy, and simulation projections in ai_platform_engineering/authz/inspection/ and ai_platform_engineering/authz/api/inspection.py.
-- [ ] T088 [US4] Replace direct BFF OpenFGA admin reads with the Authz inspection client in ui/src/lib/rbac/rebac-graph.ts and ui/src/app/api/admin/openfga/.
+- [x] T083 [US4] Implement normalized decision, comparison, policy, relationship, and revision event models in ai_platform_engineering/authz/audit/events.py.
+- [x] T084 [US4] Implement bounded durable outbox with strict allow semantics in ai_platform_engineering/authz/audit/outbox.py.
+- [x] T085 [US4] Implement idempotent batch publishing to POST /v1/audit/events in ai_platform_engineering/authz/audit/publisher.py.
+- [x] T086 [US4] Add normalized event validation and legacy query mapping in ai_platform_engineering/audit_service/models.py and ai_platform_engineering/audit_service/storage.py.
+- [x] T087 [US4] Implement privileged bounded model, relationship, graph, Check, policy, and simulation projections in ai_platform_engineering/authz/inspection/ and ai_platform_engineering/authz/api/inspection.py.
+- [x] T088 [US4] Replace direct BFF OpenFGA admin reads with the Authz inspection client in ui/src/lib/rbac/rebac-graph.ts and ui/src/app/api/admin/openfga/.
 - [ ] T089 [US4] Add conditional edges, revisions, drift, shadowing, migration comparison, and history layers in ui/src/components/admin/rebac/.
-- [ ] T090 [US4] Add separate inspection concurrency/size budgets and outbox backlog metrics in ai_platform_engineering/authz/config.py and ai_platform_engineering/authz/metrics.py.
+- [x] T090 [US4] Add separate inspection concurrency/size budgets and outbox backlog metrics in ai_platform_engineering/authz/config.py and ai_platform_engineering/authz/metrics.py.
 - [ ] T091 [US4] Add a sensitive-value scan over logs/events/graph fixtures in tests/authz/test_authz_redaction.py.
 
 Checkpoint: decisions, migrations, policies, and relationships are auditable;
@@ -222,10 +222,10 @@ policy back without restoring broad access.
 
 ### Implementation
 
-- [ ] T096 [US5] Add deployment validation that blocks expression enforcement before required caller/agent scopes are Authz-authoritative in ai_platform_engineering/authz/migration/config.py.
-- [ ] T097 [US5] Add exact-resource expression off/shadow/enforce controls separate from migration mode in charts/ai-platform-engineering/charts/caipe-authz/values.yaml.
-- [ ] T098 [US5] Implement promotion-gate reporting from comparison, SLO, descriptor, audit, rollback, and owner signals in ai_platform_engineering/authz/migration/gates.py.
-- [ ] T099 [US5] Add the selected exact-tool rollout and both rollback runbooks in docs/docs/specs/2026-08-17-openfga-tool-expression-policies/quickstart.md.
+- [x] T096 [US5] Add deployment validation that blocks expression enforcement before required caller/agent scopes are Authz-authoritative in ai_platform_engineering/authz/migration/config.py.
+- [x] T097 [US5] Add exact-resource expression off/shadow/enforce controls separate from migration mode in charts/ai-platform-engineering/charts/caipe-authz/values.yaml.
+- [x] T098 [US5] Implement promotion-gate reporting from comparison, SLO, descriptor, audit, rollback, and owner signals in ai_platform_engineering/authz/migration/gates.py.
+- [x] T099 [US5] Add the selected exact-tool rollout and both rollback runbooks in docs/docs/specs/2026-08-17-openfga-tool-expression-policies/quickstart.md.
 - [ ] T100 [US5] Switch AgentGateway directly to Authz ext_authz only after all gateway cohorts reach AUTHZ_ONLY in charts/ai-platform-engineering/charts/agentgateway/templates/configmap.yaml.
 - [ ] T101 [US5] Remove the BFF in-process evaluator only after all BFF-backed callers pass AUTHZ_ONLY retention in ui/src/lib/authz/engines/openfga.ts and ui/src/lib/authz/index.ts.
 - [ ] T102 [US5] Remove independent policy evaluation from the old bridge only after gateway retention in deploy/openfga/bridge/main.py.
@@ -235,11 +235,11 @@ removal is a final consequence of completed migration rather than a prerequisite
 
 ## Phase 9 - Cross-Cutting Quality and Documentation
 
-- [ ] T103 [P] Run and fix uv run ruff check ai_platform_engineering/authz.
-- [ ] T104 [P] Run and fix uv run pytest ai_platform_engineering/authz/tests with at least 80 percent coverage for new modules.
-- [ ] T105 [P] Run and fix bridge tests in deploy/openfga/bridge using its uv project.
-- [ ] T106 [P] Run and fix UI lint and unit tests from ui/.
-- [ ] T107 Run and fix the UI production build from ui/.
+- [x] T103 [P] Run and fix uv run ruff check ai_platform_engineering/authz.
+- [x] T104 [P] Run and fix uv run pytest ai_platform_engineering/authz/tests with at least 80 percent coverage for new modules.
+- [x] T105 [P] Run and fix bridge tests in deploy/openfga/bridge using its uv project.
+- [x] T106 [P] Run and fix UI lint and unit tests from ui/.
+- [x] T107 Run and fix the UI production build from ui/.
 - [x] T108 Run and fix the Docusaurus build from docs/.
 - [ ] T109 Validate the full LEGACY to SHADOW to CANARY to AUTHZ to AUTHZ_ONLY sequence and both rollback paths using docs/docs/specs/2026-08-17-openfga-tool-expression-policies/quickstart.md.
 - [x] T110 Update architecture, configuration, and operator documentation in docs/docs/specs/2026-08-17-openfga-tool-expression-policies/ and the component READMEs with verified implementation details.

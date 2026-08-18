@@ -38,8 +38,51 @@ class AuditEvent(BaseModel):
     pdp: str | None = None
     source: str | None = None
 
+    # Normalized caipe-authz envelope. Legacy producers continue using the
+    # flat fields above during migration.
+    event_id: str | None = None
+    event_type: str | None = None
+    occurred_at: datetime | str | None = None
+    producer: str | None = None
+    schema_version: str | None = None
+    payload: dict[str, Any] | None = None
+
     def to_record(self) -> dict[str, Any]:
         record = self.model_dump(mode="json", exclude_none=True)
+        if self.event_id and self.event_type:
+            envelope_fields = {
+                "event_id",
+                "event_type",
+                "occurred_at",
+                "producer",
+                "schema_version",
+                "payload",
+            }
+            extras = {key: value for key, value in record.items() if key not in envelope_fields}
+            record = {
+                **(self.payload or {}),
+                **extras,
+                "audit_event_id": self.event_id,
+                "ts": self.occurred_at or utc_now_iso(),
+                "type": self.event_type,
+                "component": self.producer or "caipe-authz",
+                "source": self.producer or "caipe-authz",
+                "schema_version": self.schema_version or "1",
+            }
+            outcome = record.get("outcome")
+            if isinstance(outcome, str):
+                record["outcome"] = outcome.lower()
+            elif self.event_type == "authz_migration_comparison":
+                record["outcome"] = (
+                    "success" if record.get("mismatch_class") in {None, "NONE"} else "error"
+                )
+            else:
+                record["outcome"] = "error" if record.get("failure_reason") else "success"
+            record.setdefault("tenant_id", "default")
+            record.setdefault("subject_hash", record.get("actor_hash", "not-applicable"))
+            record.setdefault("action", record.get("operation", self.event_type))
+            if "provider" in record and "pdp" not in record:
+                record["pdp"] = record["provider"]
         record.setdefault("audit_event_id", str(uuid4()))
         record.setdefault("ts", utc_now_iso())
         return record

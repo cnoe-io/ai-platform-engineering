@@ -1,6 +1,7 @@
 import { successResponse,withErrorHandler } from "@/lib/api-middleware";
 import { logOpenFgaRebacAuditEvent } from "@/lib/rbac/audit";
 import { queryRebacGraph } from "@/lib/rbac/rebac-graph";
+import { getAuthzGraph } from "@/lib/authz/inspection-client";
 import { NextRequest } from "next/server";
 import { withOpenFgaViewAuth } from "../_lib";
 
@@ -13,7 +14,11 @@ export const GET = withErrorHandler(async (request: NextRequest) =>
       Math.max(Number.parseInt(request.nextUrl.searchParams.get("limit") || "1000", 10), 1),
       1000
     );
-    const graph = await queryRebacGraph({ team: teamSlug, subject, layer, limit: maxTuples });
+    const useAuthz = process.env.AUTHZ_INSPECTION_ENABLED === "true" &&
+      !teamSlug && !subject && (!layer || layer === "tuples");
+    const graph = useAuthz
+      ? await getAuthzGraph(maxTuples)
+      : await queryRebacGraph({ team: teamSlug, subject, layer, limit: maxTuples });
     logOpenFgaRebacAuditEvent({
       tenantId: session?.org ?? "default",
       sub: session?.sub ?? user.email,

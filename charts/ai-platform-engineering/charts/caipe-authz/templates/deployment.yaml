@@ -1,0 +1,132 @@
+{{- if and (not .Values.auth.allowInsecureHeaders) (not .Values.auth.existingSecret.name) -}}
+{{- fail "caipe-authz requires auth.existingSecret.name for Envoy ext_authz" -}}
+{{- end -}}
+{{- range .Values.rollout.scopes -}}
+{{- $expressionMode := lower (default "off" .expression_mode | toString) -}}
+{{- if ne $expressionMode "off" -}}
+{{- if not $.Values.openfga.authorizationModelId -}}
+{{- fail "expression rollout scopes require openfga.authorizationModelId" -}}
+{{- end -}}
+{{- if not $.Values.openfga.modelSha256 -}}
+{{- fail "expression rollout scopes require openfga.modelSha256" -}}
+{{- end -}}
+{{- range .exact_resources -}}
+{{- if not (hasKey $.Values.expressionPolicies.schemaHashes .) -}}
+{{- fail (printf "expression rollout resource %s requires a trusted schema hash" .) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "caipe-authz.fullname" . }}
+  labels:
+    {{- include "caipe-authz.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
+  selector:
+    matchLabels:
+      {{- include "caipe-authz.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/rollout: {{ toJson .Values.rollout | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "caipe-authz.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "caipe-authz.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: caipe-authz
+          image: {{ include "caipe-authz.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          ports:
+            - {name: http, containerPort: {{ .Values.service.httpPort }}, protocol: TCP}
+            - {name: grpc, containerPort: {{ .Values.service.grpcPort }}, protocol: TCP}
+          env:
+            - {name: AUTHZ_HTTP_PORT, value: {{ .Values.service.httpPort | quote }}}
+            - {name: AUTHZ_GRPC_BIND, value: {{ printf "0.0.0.0:%v" .Values.service.grpcPort | quote }}}
+            - {name: OPENFGA_HTTP, value: {{ .Values.openfga.httpUrl | quote }}}
+            - {name: OPENFGA_STORE_NAME, value: {{ .Values.openfga.storeName | quote }}}
+            - {name: OPENFGA_STORE_ID, value: {{ .Values.openfga.storeId | quote }}}
+            - {name: OPENFGA_AUTHORIZATION_MODEL_ID, value: {{ .Values.openfga.authorizationModelId | quote }}}
+            - {name: OPENFGA_MODEL_SHA256, value: {{ .Values.openfga.modelSha256 | quote }}}
+            - {name: AUTHZ_PROVIDER_TIMEOUT_SECONDS, value: {{ .Values.limits.providerTimeoutSeconds | quote }}}
+            - {name: AUTHZ_DECISION_CONCURRENCY, value: {{ .Values.limits.decisionConcurrency | quote }}}
+            - {name: AUTHZ_INSPECTION_CONCURRENCY, value: {{ .Values.limits.inspectionConcurrency | quote }}}
+            - {name: AUTHZ_BATCH_LIMIT, value: {{ .Values.limits.batch | quote }}}
+            - {name: CAIPE_TOOL_POLICY_MAX_BODY_BYTES, value: {{ .Values.limits.toolPolicyMaxBodyBytes | quote }}}
+            - {name: CAIPE_RESTRICTED_MCP_SERVERS, value: {{ join "," .Values.gateway.restrictedMcpServers | quote }}}
+            - {name: AUTHZ_ALLOW_INSECURE_HEADERS, value: {{ .Values.auth.allowInsecureHeaders | quote }}}
+            - {name: JWT_JWKS_URL, value: {{ .Values.auth.jwt.jwksUrl | quote }}}
+            - {name: JWT_ISSUER, value: {{ .Values.auth.jwt.issuer | quote }}}
+            - {name: JWT_AUDIENCES, value: {{ join "," .Values.auth.jwt.audiences | quote }}}
+            - {name: AUDIT_SERVICE_URL, value: {{ .Values.audit.serviceUrl | quote }}}
+            - {name: AUDIT_SUBJECT_SALT, value: {{ .Values.audit.subjectSalt | quote }}}
+            - {name: AUTHZ_AUDIT_STRICT_ALLOWS, value: {{ .Values.audit.strictAllows | quote }}}
+            - {name: AUTHZ_AUDIT_OUTBOX_CAPACITY, value: {{ .Values.audit.outboxCapacity | quote }}}
+            - {name: AUTHZ_AUDIT_OUTBOX_PATH, value: /var/lib/caipe-authz/audit-outbox.db}
+            - {name: AUTHZ_MONGODB_DATABASE, value: {{ .Values.mongodb.database | quote }}}
+            - {name: AUTHZ_ROLLOUT_JSON, value: {{ toJson .Values.rollout | quote }}}
+            - {name: CAIPE_TOOL_SCHEMA_HASHES_JSON, value: {{ toJson .Values.expressionPolicies.schemaHashes | quote }}}
+            {{- if not .Values.mongodb.existingSecret.name }}
+            - {name: MONGODB_URI, value: {{ .Values.mongodb.uri | quote }}}
+            {{- end }}
+            {{- if .Values.auth.existingSecret.name }}
+            - name: AUTHZ_SERVICE_TOKEN
+              valueFrom: {secretKeyRef: {name: {{ .Values.auth.existingSecret.name | quote }}, key: {{ .Values.auth.existingSecret.serviceTokenKey | quote }}}}
+            - name: AUTHZ_ADMIN_TOKEN
+              valueFrom: {secretKeyRef: {name: {{ .Values.auth.existingSecret.name | quote }}, key: {{ .Values.auth.existingSecret.adminTokenKey | quote }}}}
+            {{- end }}
+            {{- if .Values.mongodb.existingSecret.name }}
+            - name: MONGODB_URI
+              valueFrom: {secretKeyRef: {name: {{ .Values.mongodb.existingSecret.name | quote }}, key: {{ .Values.mongodb.existingSecret.key | quote }}}}
+            {{- end }}
+            {{- if .Values.agentContext.existingSecret.name }}
+            - name: CAIPE_AGENT_CONTEXT_HMAC_SECRET
+              valueFrom: {secretKeyRef: {name: {{ .Values.agentContext.existingSecret.name | quote }}, key: {{ .Values.agentContext.existingSecret.key | quote }}}}
+            {{- end }}
+          volumeMounts:
+            - {name: audit-outbox, mountPath: /var/lib/caipe-authz}
+          startupProbe:
+            {{- toYaml .Values.startupProbe | nindent 12 }}
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        - name: audit-outbox
+          {{- if .Values.audit.persistence.enabled }}
+          persistentVolumeClaim: {claimName: {{ include "caipe-authz.fullname" . }}-audit}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

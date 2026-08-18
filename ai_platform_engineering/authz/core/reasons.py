@@ -1,0 +1,37 @@
+"""Stable external reason codes and fail-closed mappings."""
+
+from __future__ import annotations
+
+from enum import StrEnum
+
+
+class ReasonCode(StrEnum):
+    ALLOW_RELATIONSHIP = "ALLOW_RELATIONSHIP"
+    DENY_NO_RELATIONSHIP = "DENY_NO_RELATIONSHIP"
+    DENY_INVALID_REQUEST = "DENY_INVALID_REQUEST"
+    DENY_MISSING_CONTEXT = "DENY_MISSING_CONTEXT"
+    DENY_CONTEXT_SCHEMA_MISMATCH = "DENY_CONTEXT_SCHEMA_MISMATCH"
+    DENY_PROVIDER_UNAVAILABLE = "DENY_PROVIDER_UNAVAILABLE"
+    DENY_PROVIDER_TIMEOUT = "DENY_PROVIDER_TIMEOUT"
+    DENY_PROVIDER_INDETERMINATE = "DENY_PROVIDER_INDETERMINATE"
+    DENY_AUDIT_UNAVAILABLE = "DENY_AUDIT_UNAVAILABLE"
+    DENY_SATURATED = "DENY_SATURATED"
+    DENY_NOT_AUTHENTICATED = "DENY_NOT_AUTHENTICATED"
+    DENY_FORBIDDEN = "DENY_FORBIDDEN"
+
+
+RETRIABLE_REASONS = frozenset(
+    {
+        ReasonCode.DENY_PROVIDER_UNAVAILABLE,
+        ReasonCode.DENY_PROVIDER_TIMEOUT,
+        ReasonCode.DENY_SATURATED,
+        ReasonCode.DENY_AUDIT_UNAVAILABLE,
+    }
+)
+
+
+def is_retriable(reason: ReasonCode | str) -> bool:
+    try:
+        return ReasonCode(reason) in RETRIABLE_REASONS
+    except ValueError:
+        return False

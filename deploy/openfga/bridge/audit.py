@@ -81,3 +81,51 @@ def log_authz_decision(
     print(json.dumps(event, separators=(",", ":")), file=sys.stderr)
     _post_to_audit_service(event)
     return event
+
+
+def log_migration_comparison(
+    *,
+    correlation_id: str | None,
+    rollout_revision: str,
+    authoritative_path: str,
+    resource_type: str,
+    action: str,
+    legacy_code: int,
+    authz_code: int,
+    legacy_duration_ms: float,
+    authz_duration_ms: float,
+) -> dict[str, Any]:
+    """Submit one value-free bridge migration comparison event."""
+    error_codes = {14}
+    if legacy_code in error_codes or authz_code in error_codes:
+        mismatch = "ERROR_RESULT"
+    elif (legacy_code == 0) != (authz_code == 0):
+        mismatch = "ALLOW_DENY" if legacy_code == 0 else "DENY_ALLOW"
+    elif abs(legacy_duration_ms - authz_duration_ms) > 100:
+        mismatch = "LATENCY"
+    else:
+        mismatch = "NONE"
+    event: dict[str, Any] = {
+        "audit_event_id": str(uuid.uuid4()),
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "type": "authz_migration_comparison",
+        "tenant_id": os.getenv("TENANT_ID", "default"),
+        "correlation_id": correlation_id or str(uuid.uuid4()),
+        "component": "caipe-authz-migration",
+        "source": "agentgateway",
+        "rollout_revision": rollout_revision,
+        "authoritative_path": authoritative_path,
+        "resource_type": resource_type,
+        "action": action,
+        "mismatch_class": mismatch,
+        "outcome": "success" if mismatch == "NONE" else "error",
+        "subject_hash": "not-applicable",
+        "resource_ref": f"{resource_type}:migration-scope",
+        "legacy_code": legacy_code,
+        "authz_code": authz_code,
+        "legacy_duration_ms": round(legacy_duration_ms, 2),
+        "authz_duration_ms": round(authz_duration_ms, 2),
+    }
+    print(json.dumps(event, separators=(",", ":")), file=sys.stderr)
+    _post_to_audit_service(event)
+    return event

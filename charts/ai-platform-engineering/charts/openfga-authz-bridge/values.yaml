@@ -55,6 +55,20 @@ toolPolicy:
   maxBodyBytes: 65536
   maxContextBytes: 16384
 
+# Temporary router configuration while AgentGateway still targets this bridge.
+# Every scope is legacy unless an immutable deployment revision says otherwise.
+authz:
+  grpcTarget: caipe-authz:9191
+  existingSecret:
+    name: ""
+    serviceTokenKey: AUTHZ_SERVICE_TOKEN
+  rollout:
+    revision: legacy-default
+    default_mode: LEGACY
+    canary_seed: replace-before-canary
+    shadow_timeout_ms: 100
+    scopes: []
+
 # MCP server IDs that require the caller to hold `can_invoke` on the matching
 # OpenFGA `mcp_server:<id>` object. This is independent of callerToolCheck.
 restrictedMcpServers: []

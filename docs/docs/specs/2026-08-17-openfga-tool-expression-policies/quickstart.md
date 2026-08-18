@@ -6,8 +6,31 @@ description: Review and test sequence for dark deployment, shadowing, canary, ro
 
 # Parallel Migration Validation
 
-This guide defines the required implementation validation sequence. Commands and
-configuration names are illustrative until the corresponding tasks land.
+This guide defines the implemented validation and rollout sequence. The default
+configuration is non-authoritative and keeps both legacy paths available.
+
+## Deploy Dark
+
+Docker Compose starts `caipe-authz` with the `rbac` profile. The Helm parent
+chart keeps `caipeAuthz.enabled: false` until an operator enables it.
+
+~~~json
+{
+  "revision": "authz-dark-1",
+  "default_mode": "LEGACY",
+  "canary_seed": "replace-with-a-secret-seed",
+  "scopes": []
+}
+~~~
+
+Required production secrets:
+
+- `AUTHZ_SERVICE_TOKEN` for BFF, bridge, and Envoy gRPC calls.
+- `AUTHZ_ADMIN_TOKEN` for policy and inspection APIs.
+- `CAIPE_AGENT_CONTEXT_HMAC_SECRET` when dynamic-agent identity is enforced.
+
+Keep `AUTHZ_INSPECTION_ENABLED=false` until the Authz inspection projection is
+approved as the UI tuple-graph source.
 
 ## 1. Freeze a Neutral Fixture Matrix
 
@@ -80,6 +103,28 @@ Verify:
 - An explicit CANARY-to-SHADOW revision restores legacy authority.
 - Rollback does not create, delete, or modify a tuple.
 
+Example exact-tool canary:
+
+~~~json
+{
+  "revision": "tool-canary-1",
+  "default_mode": "LEGACY",
+  "canary_seed": "replace-with-a-secret-seed",
+  "scopes": [
+    {
+      "surface": "agentgateway",
+      "resource_type": "tool",
+      "action": "invoke",
+      "exact_resources": ["issue_tracker/create_item"],
+      "mode": "CANARY",
+      "canary_percent": 5,
+      "expression_mode": "off",
+      "owner": "authorization-operations"
+    }
+  ]
+}
+~~~
+
 ## 6. Add Conditions Without Grants
 
 Publish the backward-compatible OpenFGA model containing named conditions and
@@ -126,6 +171,25 @@ Authz-authoritative and promotion gates pass.
 4. Enable expression enforcement for the exact resource/action.
 5. Confirm a matching call reaches MCP and a non-matching call does not.
 
+The enforcing revision must use an exact scope:
+
+~~~json
+{
+  "surface": "agentgateway",
+  "resource_type": "tool",
+  "action": "invoke",
+  "exact_resources": ["issue_tracker/create_item"],
+  "mode": "AUTHZ",
+  "expression_mode": "enforce",
+  "owner": "authorization-operations"
+}
+~~~
+
+Also pin `OPENFGA_AUTHORIZATION_MODEL_ID` and configure the exact resource in
+`CAIPE_TOOL_SCHEMA_HASHES_JSON`. Startup and Helm rendering fail when these
+prerequisites are incomplete. Policy creation before this revision stores a
+`DRAFT` and does not write OpenFGA.
+
 ## 10. Test Both Rollbacks
 
 Routing rollback:
@@ -146,8 +210,13 @@ The two rollback procedures must remain independent.
 
 ~~~bash
 uv run ruff check ai_platform_engineering/authz
-uv run pytest ai_platform_engineering/authz/tests
+RUN_OPENFGA_E2E=1 uv run --project ai_platform_engineering/authz pytest \
+  --cov=ai_platform_engineering.authz --cov-fail-under=80 \
+  ai_platform_engineering/authz/tests
+uv run --project deploy/openfga/bridge pytest deploy/openfga/bridge/tests
 cd ui && npm run lint
 cd ui && npm run build
 cd docs && npm run build
+helm lint charts/ai-platform-engineering/charts/caipe-authz \
+  --set auth.allowInsecureHeaders=true
 ~~~

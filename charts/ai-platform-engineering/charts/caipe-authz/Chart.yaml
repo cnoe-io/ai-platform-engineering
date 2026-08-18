@@ -1,0 +1,6 @@
+apiVersion: v2
+name: caipe-authz
+description: Canonical CAIPE authorization decision, policy, audit, and inspection service
+type: application
+version: 0.5.68-dev.6-chart.1
+appVersion: 0.5.68-dev.6

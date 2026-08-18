@@ -14,9 +14,11 @@ import json
 import os
 import signal
 import sys
+import threading
 import time
 import uuid
 from concurrent import futures
+from contextlib import contextmanager
 from pathlib import Path
 from typing import NamedTuple
 import importlib.util
@@ -27,7 +29,7 @@ import jwt
 from google.protobuf import descriptor_pb2, descriptor_pool, message_factory
 
 try:
-    from audit import log_authz_decision
+    from audit import log_authz_decision, log_migration_comparison
 except ModuleNotFoundError:
     audit_spec = importlib.util.spec_from_file_location(
         "openfga_bridge_audit",
@@ -38,6 +40,23 @@ except ModuleNotFoundError:
     audit_module = importlib.util.module_from_spec(audit_spec)
     audit_spec.loader.exec_module(audit_module)
     log_authz_decision = audit_module.log_authz_decision
+    log_migration_comparison = audit_module.log_migration_comparison
+
+try:
+    from authz_client import AuthzGrpcClient, MigrationRouter, Selection
+except ModuleNotFoundError:
+    authz_client_spec = importlib.util.spec_from_file_location(
+        "openfga_bridge_authz_client",
+        Path(__file__).with_name("authz_client.py"),
+    )
+    if authz_client_spec is None or authz_client_spec.loader is None:
+        raise
+    authz_client_module = importlib.util.module_from_spec(authz_client_spec)
+    sys.modules[authz_client_spec.name] = authz_client_module
+    authz_client_spec.loader.exec_module(authz_client_module)
+    AuthzGrpcClient = authz_client_module.AuthzGrpcClient
+    MigrationRouter = authz_client_module.MigrationRouter
+    Selection = authz_client_module.Selection
 
 OPENFGA_HTTP = os.environ.get("OPENFGA_HTTP", "http://openfga:8080").rstrip("/")
 OPENFGA_STORE_NAME = os.environ.get("OPENFGA_STORE_NAME", "caipe-openfga").strip()
@@ -45,6 +64,8 @@ OPENFGA_AUTHORIZATION_MODEL_ID = os.environ.get(
     "OPENFGA_AUTHORIZATION_MODEL_ID", ""
 ).strip()
 GRPC_BIND = os.environ.get("EXT_AUTHZ_GRPC_BIND", "0.0.0.0:9100")
+AUTHZ_GRPC_TARGET = os.environ.get("AUTHZ_GRPC_TARGET", "caipe-authz:9191").strip()
+AUTHZ_SERVICE_TOKEN = os.environ.get("AUTHZ_SERVICE_TOKEN", "").strip()
 JWT_JWKS_URL = os.environ.get("JWT_JWKS_URL", "").strip()
 JWT_ISSUER = os.environ.get("JWT_ISSUER", "").strip()
 JWT_AUDIENCES = tuple(
@@ -863,6 +884,8 @@ def _audit_decision(
     pdp: str = "openfga",
     duration_ms: float | None = None,
 ) -> None:
+    if getattr(_AUDIT_STATE, "suppressed", False):
+        return
     resource_ref = f"{user} {relation} {obj}" if user else f"{relation} {obj}"
     log_authz_decision(
         subject=subject,
@@ -876,6 +899,19 @@ def _audit_decision(
         source="openfga_authz_bridge",
         duration_ms=duration_ms,
     )
+
+
+_AUDIT_STATE = threading.local()
+
+
+@contextmanager
+def _suppress_audit():
+    previous = getattr(_AUDIT_STATE, "suppressed", False)
+    _AUDIT_STATE.suppressed = True
+    try:
+        yield
+    finally:
+        _AUDIT_STATE.suppressed = previous
 
 
 class OpenFgaAuthorizationService:
@@ -1161,8 +1197,60 @@ class OpenFgaAuthorizationService:
 
 
 def _add_authorization_service(server: grpc.Server) -> None:
+    legacy = OpenFgaAuthorizationService()
+    authz = AuthzGrpcClient(
+        AUTHZ_GRPC_TARGET,
+        CheckResponse,
+        service_token=AUTHZ_SERVICE_TOKEN,
+    )
+
+    def selection(request: CheckRequest) -> Selection:
+        headers = _headers_from_check_request(request)
+        sub = subject_from_check_request(request) or "anonymous"
+        subject_type = (
+            "service_account" if request_caller_is_service_account(request, headers) else "user"
+        )
+        try:
+            tool_call = mcp_tool_call_from_request(request)
+        except InvalidMcpRequest:
+            tool_call = None
+        if tool_call:
+            resource_type = "tool"
+            resource_id = f"{tool_call.target}/{tool_call.name}"
+        else:
+            resource_type = "mcp_gateway"
+            resource_id = "list"
+        return Selection(
+            surface="agentgateway",
+            subject=f"{subject_type}:{sub}",
+            resource_type=resource_type,
+            resource_id=resource_id,
+            action="invoke",
+            correlation_id=_request_correlation_id(request),
+        )
+
+    def legacy_shadow(request: CheckRequest, context: grpc.ServicerContext) -> CheckResponse:
+        with _suppress_audit():
+            return legacy.Check(request, context)
+
+    router = MigrationRouter(
+        legacy=legacy.Check,
+        legacy_shadow=legacy_shadow,
+        authz=lambda request, purpose, timeout: authz.check(
+            request,
+            purpose=purpose,
+            timeout_seconds=timeout,
+        ),
+        select=selection,
+        unavailable=lambda: build_check_response(
+            allowed=False,
+            code=UNAVAILABLE,
+            message="caipe-authz unavailable",
+        ),
+        compare=log_migration_comparison,
+    )
     handler = grpc.unary_unary_rpc_method_handler(
-        OpenFgaAuthorizationService().Check,
+        router.Check,
         request_deserializer=CheckRequest.FromString,
         response_serializer=lambda response: response.SerializeToString(),
     )

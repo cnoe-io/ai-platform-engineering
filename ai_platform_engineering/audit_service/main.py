@@ -223,9 +223,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         events = filter_records(events, current_settings.verbosity)
         if not events:
             return IngestResponse(accepted=0, queued=service.queue.qsize())
+        accepted_before = service.accepted_events
         if not service.enqueue_many(events):
             raise HTTPException(status_code=503, detail="audit queue full")
-        return IngestResponse(accepted=len(events), queued=service.queue.qsize())
+        return IngestResponse(
+            accepted=service.accepted_events - accepted_before,
+            queued=service.queue.qsize(),
+        )
 
     @app.get("/v1/audit/events", response_model=QueryResponse)
     async def read_events(

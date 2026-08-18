@@ -35,6 +35,11 @@ _PARQUET_INDEX_FIELDS = (
 )
 _AUDIT_KEY_TS_RE = re.compile(r"audit-(\d{8}T\d{6}Z)-")
 _KEY_TIME_PRUNE_TOLERANCE = timedelta(minutes=2)
+_LEGACY_TYPE_ALIASES: dict[str, frozenset[str]] = {
+    "cas_decision": frozenset({"cas_decision", "authz_decision"}),
+    "cas_grant": frozenset({"cas_grant", "authz_policy_change", "authz_relationship_change"}),
+    "cas_reconcile": frozenset({"cas_reconcile", "authz_relationship_change"}),
+}
 
 
 def _format_bytes(value: int) -> str:
@@ -149,8 +154,12 @@ def _record_matches(record: dict[str, Any], query: "AuditQuery") -> bool:
         "tool_name",
     ):
         expected = getattr(query, field)
-        if expected is not None and record.get(field) != expected:
-            return False
+        if expected is not None:
+            if field == "type" and expected in _LEGACY_TYPE_ALIASES:
+                if record.get(field) not in _LEGACY_TYPE_ALIASES[expected]:
+                    return False
+            elif record.get(field) != expected:
+                return False
     if query.capability is not None and (record.get("capability") or record.get("action")) != query.capability:
         return False
     if query.user_email is not None:

@@ -297,6 +297,8 @@ config:
   # OpenFGA authorization service
   OPENFGA_HTTP: ""
   OPENFGA_STORE_NAME: "caipe-openfga"
+  AUTHZ_SERVICE_URL: ""
+  AUTHZ_INSPECTION_ENABLED: "false"
   # OIDC group required for basic Web UI admission. Set per deployment; empty disables the group gate.
   OIDC_REQUIRED_GROUP: ""
   # Deprecated: admin access is granted through Identity Group Sync + OpenFGA organization admin relationships.
@@ -392,6 +394,15 @@ credentialSecretRefs: []
 # Slack bot admin sync/reload uses OIDC_CLIENT_ID/OIDC_CLIENT_SECRET. Webex bot
 # admin sync/reload still requires WEBEX_BOT_ADMIN_CLIENT_SECRET when enabled.
 existingSecret: ""
+
+# BFF migration router. AUTHZ_SERVICE_TOKEN remains secret material and must be
+# supplied through existingSecret/externalSecrets before non-LEGACY routing.
+authzMigration:
+  revision: legacy-default
+  default_mode: LEGACY
+  canary_seed: replace-before-canary
+  shadow_timeout_ms: 100
+  scopes: []
 
 # ---------- Keycloak Admin REST client wiring ----------
 #

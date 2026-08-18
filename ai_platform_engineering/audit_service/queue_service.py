@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections import deque
 from abc import abstractmethod
 from datetime import datetime, timezone
 from typing import Any, Protocol
@@ -58,6 +59,10 @@ class AuditQueueService:
         self.last_received_at: str | None = None
         self.last_flush_at: str | None = None
         self.last_error: str | None = None
+        self.deduplicated_events = 0
+        self._seen_event_ids: set[str] = set()
+        self._seen_order: deque[str] = deque()
+        self._seen_capacity = max(queue_max_size * 10, 10_000)
         self._task: asyncio.Task[None] | None = None
         self._stopping = False
 
@@ -86,13 +91,29 @@ class AuditQueueService:
         if self._stopping:
             self.rejected_events += len(records)
             return False
-        remaining = self.queue.maxsize - self.queue.qsize()
-        if len(records) > remaining:
-            self.rejected_events += len(records)
-            return False
+        unique: list[dict[str, Any]] = []
+        batch_ids: set[str] = set()
         for record in records:
+            event_id = record.get("audit_event_id")
+            if isinstance(event_id, str) and (event_id in self._seen_event_ids or event_id in batch_ids):
+                self.deduplicated_events += 1
+                continue
+            unique.append(record)
+            if isinstance(event_id, str):
+                batch_ids.add(event_id)
+        remaining = self.queue.maxsize - self.queue.qsize()
+        if len(unique) > remaining:
+            self.rejected_events += len(unique)
+            return False
+        for record in unique:
             self.queue.put_nowait(record)
-        self.accepted_events += len(records)
+            event_id = record.get("audit_event_id")
+            if isinstance(event_id, str):
+                self._seen_event_ids.add(event_id)
+                self._seen_order.append(event_id)
+        while len(self._seen_order) > self._seen_capacity:
+            self._seen_event_ids.discard(self._seen_order.popleft())
+        self.accepted_events += len(unique)
         self.last_received_at = _utc_now_iso()
         return True
 
@@ -106,6 +127,7 @@ class AuditQueueService:
             "flush_interval_seconds": self.flush_interval_seconds,
             "accepted_events": self.accepted_events,
             "rejected_events": self.rejected_events,
+            "deduplicated_events": self.deduplicated_events,
             "flushed_events": self.flushed_events,
             "failed_flushes": self.failed_flushes,
             "last_received_at": self.last_received_at,

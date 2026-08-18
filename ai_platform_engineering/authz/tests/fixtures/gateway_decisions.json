@@ -1,0 +1,43 @@
+{
+  "schema_version": "1",
+  "cases": [
+    {
+      "name": "coarse_gateway_allow",
+      "path": "/mcp/issue_tracker",
+      "subject": "example-user",
+      "checks": [["user:example-user", "can_call", "mcp_gateway:list"]],
+      "grpc_code": 0
+    },
+    {
+      "name": "conditional_exact_allow",
+      "path": "/mcp/issue_tracker",
+      "subject": "example-user",
+      "body": {
+        "jsonrpc": "2.0",
+        "method": "tools/call",
+        "params": {
+          "name": "create_item",
+          "arguments": {"project_key": "PRIMARY"}
+        }
+      },
+      "context": {
+        "schema_hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "string_arguments": {"/project_key": "PRIMARY"},
+        "integer_arguments": {},
+        "boolean_arguments": {}
+      },
+      "grpc_code": 0
+    },
+    {
+      "name": "missing_tool_grant_denies",
+      "path": "/mcp/issue_tracker",
+      "subject": "example-user",
+      "body": {
+        "jsonrpc": "2.0",
+        "method": "tools/call",
+        "params": {"name": "delete_item", "arguments": {}}
+      },
+      "grpc_code": 7
+    }
+  ]
+}

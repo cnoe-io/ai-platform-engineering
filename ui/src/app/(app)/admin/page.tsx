@@ -32,6 +32,7 @@ import { SkillHubsSection } from "@/components/admin/platform/SkillHubsSection";
 import { SlackStatsSection } from "@/components/admin/platform/SlackStatsSection";
 import { SlackChannelRebacPanel } from "@/components/admin/rebac/SlackChannelRebacPanel";
 import { WebexSpaceRebacPanel } from "@/components/admin/rebac/WebexSpaceRebacPanel";
+import { ExpressionPolicyAdmin } from "@/components/admin/rebac/ExpressionPolicyAdmin";
 import { AuditLogsTab } from "@/components/admin/security/AuditLogsTab";
 import { KeycloakMigrationHealthPanel } from "@/components/admin/security/KeycloakMigrationHealthPanel";
 import { MigrationTab } from "@/components/admin/security/MigrationTab";
@@ -3107,6 +3108,7 @@ function AdminPage() {
               {tabGateValues.openfga && (
                 <TabsContent value="access-explorer" className="space-y-4">
                   <AccessExplorerTab isAdmin={canMutateAdminData} />
+                  <ExpressionPolicyAdmin isAdmin={canMutateAdminData} />
                 </TabsContent>
               )}
 

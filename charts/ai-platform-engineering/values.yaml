@@ -1479,6 +1479,21 @@ openfga:
 openfgaAuthzBridge:
   enabled: false
 
+######### Canonical CAIPE Authorization Service #########
+# Deploys beside the BFF evaluator and gateway bridge. Routing remains LEGACY
+# until an explicit rollout revision promotes a bounded scope.
+caipeAuthz:
+  enabled: false
+
+caipe-authz:
+  rollout:
+    revision: legacy-default
+    default_mode: LEGACY
+    canary_seed: replace-before-canary
+    scopes: []
+  expressionPolicies:
+    schemaHashes: {}
+
 # Values for the openfga-authz-bridge subchart. The separate camelCase block
 # above is kept as the dependency condition flag.
 openfga-authz-bridge:

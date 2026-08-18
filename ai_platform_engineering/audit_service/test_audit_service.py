@@ -375,12 +375,79 @@ def test_verbosity_endpoint_verbose(tmp_path: Path) -> None:
 
 def test_verbosity_allowed_types_minimal() -> None:
     types = allowed_types("minimal")
-    assert types == frozenset({"cas_grant", "cas_reconcile"})
+    assert types == frozenset(
+        {
+            "cas_grant",
+            "cas_reconcile",
+            "authz_policy_change",
+            "authz_relationship_change",
+            "authz_migration_revision",
+        }
+    )
+
+
+def test_normalized_authz_events_are_flattened_idempotently_with_legacy_query_alias(
+    tmp_path: Path,
+) -> None:
+    app = create_app(_settings(tmp_path, flush_batch_size=1))
+    event = {
+        "event_id": "event-example-1",
+        "event_type": "authz_decision",
+        "occurred_at": "2026-06-20T01:00:00Z",
+        "producer": "caipe-authz",
+        "schema_version": "1",
+        "correlation_id": "correlation-example",
+        "payload": {
+            "outcome": "ALLOW",
+            "reason_code": "ALLOW_RELATIONSHIP",
+            "resource_ref": "agent:primary",
+            "subject_hash": "sha256:example",
+        },
+    }
+    with TestClient(app) as client:
+        first = client.post("/v1/audit/events", json={"events": [event]})
+        assert first.status_code == 202
+        assert first.json()["accepted"] == 1
+        _wait_for_flushed(client, 1)
+
+        duplicate = client.post("/v1/audit/events", json={"events": [event]})
+        assert duplicate.status_code == 202
+        assert duplicate.json()["accepted"] == 0
+        assert client.get("/v1/audit/status").json()["deduplicated_events"] == 1
+
+        result = client.get(
+            "/v1/audit/events",
+            params={
+                "since": "2026-06-20T00:00:00Z",
+                "until": "2026-06-20T02:00:00Z",
+                "type": "cas_decision",
+            },
+        )
+        assert result.status_code == 200
+        records = result.json()["records"]
+        assert len(records) == 1
+        assert records[0]["audit_event_id"] == "event-example-1"
+        assert records[0]["type"] == "authz_decision"
+        assert records[0]["component"] == "caipe-authz"
+        assert "payload" not in records[0]
 
 
 def test_verbosity_allowed_types_standard() -> None:
     types = allowed_types("standard")
-    assert types == frozenset({"auth", "cas_grant", "cas_reconcile", "cas_decision", "credential_action"})
+    assert types == frozenset(
+        {
+            "auth",
+            "cas_grant",
+            "cas_reconcile",
+            "cas_decision",
+            "credential_action",
+            "authz_decision",
+            "authz_migration_comparison",
+            "authz_migration_revision",
+            "authz_policy_change",
+            "authz_relationship_change",
+        }
+    )
 
 
 def test_verbosity_allowed_types_il2() -> None:

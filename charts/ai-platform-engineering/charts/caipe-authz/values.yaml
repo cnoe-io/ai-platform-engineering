@@ -1,0 +1,128 @@
+replicaCount: 1
+revisionHistoryLimit: 3
+
+image:
+  repository: ghcr.io/cnoe-io/caipe-authz
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+service:
+  type: ClusterIP
+  httpPort: 8090
+  grpcPort: 9191
+
+openfga:
+  httpUrl: http://openfga:8080
+  storeName: caipe-openfga
+  storeId: ""
+  authorizationModelId: ""
+  modelSha256: "sha256:42259bb25e67cedc2b71baa8b8b2dc3d7c5db793d726ff850b699b135f8d6c81"
+
+mongodb:
+  uri: mongodb://mongodb:27017/caipe
+  database: caipe
+  existingSecret:
+    name: ""
+    key: MONGODB_URI
+
+audit:
+  serviceUrl: http://audit-service:8010
+  subjectSalt: caipe-authz
+  strictAllows: true
+  outboxCapacity: 10000
+  persistence:
+    enabled: true
+    storageClass: ""
+    accessModes:
+      - ReadWriteOnce
+    size: 2Gi
+
+auth:
+  # Production deployments should use a service token secret or configure JWKS.
+  allowInsecureHeaders: false
+  existingSecret:
+    name: ""
+    serviceTokenKey: AUTHZ_SERVICE_TOKEN
+    adminTokenKey: AUTHZ_ADMIN_TOKEN
+  jwt:
+    jwksUrl: ""
+    issuer: ""
+    audiences: []
+
+agentContext:
+  existingSecret:
+    name: ""
+    key: CAIPE_AGENT_CONTEXT_HMAC_SECRET
+
+rollout:
+  revision: legacy-default
+  default_mode: LEGACY
+  canary_seed: replace-before-canary
+  scopes: []
+
+expressionPolicies:
+  schemaHashes: {}
+
+gateway:
+  restrictedMcpServers: []
+
+limits:
+  providerTimeoutSeconds: 2
+  decisionConcurrency: 128
+  inspectionConcurrency: 8
+  batch: 200
+  toolPolicyMaxBodyBytes: 65536
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 1
+    memory: 1Gi
+
+serviceAccount:
+  create: true
+  automount: false
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1001
+  runAsGroup: 1001
+  fsGroup: 1001
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+  runAsNonRoot: true
+  runAsUser: 1001
+  runAsGroup: 1001
+  capabilities:
+    drop: ["ALL"]
+  seccompProfile:
+    type: RuntimeDefault
+
+startupProbe:
+  httpGet: {path: /readyz, port: http}
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 36
+livenessProbe:
+  httpGet: {path: /healthz, port: http}
+  periodSeconds: 20
+  timeoutSeconds: 3
+readinessProbe:
+  httpGet: {path: /readyz, port: http}
+  periodSeconds: 10
+  timeoutSeconds: 3
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

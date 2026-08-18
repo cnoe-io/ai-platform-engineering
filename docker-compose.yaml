@@ -267,6 +267,7 @@ services:
       start_period: 40s
     profiles:
       - caipe-mongodb
+      - rbac
 
   # MongoDB Admin UI (optional)
   caipe-ui-mongo-express:
@@ -282,6 +283,7 @@ services:
     depends_on:
       caipe-mongodb:
         condition: service_healthy
+        required: false
     profiles:
       - caipe-ui-mongo-express
 
@@ -331,6 +333,11 @@ services:
       # OpenFGA ReBAC reconciliation for the local RBAC profile.
       - OPENFGA_HTTP=${OPENFGA_HTTP:-http://openfga:8080}
       - OPENFGA_STORE_NAME=${OPENFGA_STORE_NAME:-caipe-openfga}
+      - AUTHZ_SERVICE_URL=${AUTHZ_SERVICE_URL:-http://caipe-authz:8090}
+      - AUTHZ_SERVICE_TOKEN=${AUTHZ_SERVICE_TOKEN:-caipe-authz-dev-token}
+      - AUTHZ_ADMIN_TOKEN=${AUTHZ_ADMIN_TOKEN:-caipe-authz-admin-dev-token}
+      - AUTHZ_INSPECTION_ENABLED=${AUTHZ_INSPECTION_ENABLED:-false}
+      - AUTHZ_ROLLOUT_JSON=${AUTHZ_ROLLOUT_JSON:-}
       # SSO Configuration - set NEXT_PUBLIC_SSO_ENABLED=true to enable
       - NEXT_PUBLIC_SSO_ENABLED=${NEXT_PUBLIC_SSO_ENABLED:-false}
       - OIDC_ISSUER=${OIDC_ISSUER:-}
@@ -444,6 +451,59 @@ services:
       - slack-bot
       - webex-bot
       - rbac
+
+  # Canonical authorization service. This starts dark under the RBAC profile;
+  # the BFF and AgentGateway bridge remain authoritative until rollout config
+  # explicitly promotes a scope.
+  caipe-authz:
+    build:
+      context: .
+      dockerfile: ai_platform_engineering/authz/Dockerfile
+    image: ghcr.io/cnoe-io/caipe-authz:${IMAGE_TAG:-0.5.16}
+    container_name: caipe-authz
+    restart: unless-stopped
+    profiles:
+      - rbac
+    ports:
+      - "127.0.0.1:${AUTHZ_HTTP_PORT:-18090}:8090"
+      - "127.0.0.1:${AUTHZ_GRPC_PORT:-19191}:9191"
+    environment:
+      OPENFGA_HTTP: http://openfga:8080
+      OPENFGA_STORE_NAME: ${OPENFGA_STORE_NAME:-caipe-openfga}
+      OPENFGA_AUTHORIZATION_MODEL_ID: ${OPENFGA_AUTHORIZATION_MODEL_ID:-}
+      OPENFGA_MODEL_SHA256: ${OPENFGA_MODEL_SHA256:-sha256:42259bb25e67cedc2b71baa8b8b2dc3d7c5db793d726ff850b699b135f8d6c81}
+      "MONGODB_URI": "mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-mongodb:27017/${MONGODB_DATABASE:-caipe}?authSource=admin"
+      AUTHZ_MONGODB_DATABASE: ${MONGODB_DATABASE:-caipe}
+      AUDIT_SERVICE_URL: ${AUDIT_SERVICE_URL:-http://audit-service:8010}
+      AUTHZ_AUDIT_OUTBOX_PATH: /var/lib/caipe-authz/audit-outbox.db
+      AUTHZ_ALLOW_INSECURE_HEADERS: ${AUTHZ_ALLOW_INSECURE_HEADERS:-true}
+      AUTHZ_SERVICE_TOKEN: ${AUTHZ_SERVICE_TOKEN:-caipe-authz-dev-token}
+      AUTHZ_ADMIN_TOKEN: ${AUTHZ_ADMIN_TOKEN:-caipe-authz-admin-dev-token}
+      AUTHZ_ROLLOUT_JSON: ${AUTHZ_ROLLOUT_JSON:-}
+      CAIPE_TOOL_SCHEMA_HASHES_JSON: ${CAIPE_TOOL_SCHEMA_HASHES_JSON:-{}}
+      CAIPE_AGENT_CONTEXT_HMAC_SECRET: ${CAIPE_AGENT_CONTEXT_HMAC_SECRET:-}
+      CAIPE_RESTRICTED_MCP_SERVERS: ${CAIPE_RESTRICTED_MCP_SERVERS:-}
+      CAIPE_TOOL_POLICY_MAX_BODY_BYTES: ${CAIPE_TOOL_POLICY_MAX_BODY_BYTES:-65536}
+    volumes:
+      - caipe_authz_data:/var/lib/caipe-authz
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import json,urllib.request,sys; r=urllib.request.urlopen('http://127.0.0.1:8090/readyz',timeout=3); sys.exit(0 if r.status==200 and json.load(r).get('status')=='ready' else 1)"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+    depends_on:
+      openfga-init:
+        condition: service_completed_successfully
+      caipe-mongodb:
+        condition: service_healthy
+      audit-service:
+        condition: service_healthy
+        required: false
 
   ####################################################################################################
   #                                      RAG Services                                                #
@@ -1266,6 +1326,9 @@ services:
       OPENFGA_AUTHORIZATION_MODEL_ID: ${OPENFGA_AUTHORIZATION_MODEL_ID:-}
       OPENFGA_RELATION: can_call
       OPENFGA_OBJECT: mcp_gateway:list
+      AUTHZ_GRPC_TARGET: caipe-authz:9191
+      AUTHZ_SERVICE_TOKEN: ${AUTHZ_SERVICE_TOKEN:-caipe-authz-dev-token}
+      AUTHZ_ROLLOUT_JSON: ${AUTHZ_ROLLOUT_JSON:-}
       OPENFGA_BYPASS_SUBS: ${OPENFGA_BYPASS_SUBS:-}
       # JWT validation config so the bridge can DECODE the caller's bearer and
       # detect service accounts (preferred_username starts "service-account-", T002)
@@ -1435,6 +1498,8 @@ volumes:
   agentgateway_config:
     driver: local
   audit_service_data:
+    driver: local
+  caipe_authz_data:
     driver: local
   keycloak_postgres_data:
     driver: local

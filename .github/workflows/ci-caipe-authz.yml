@@ -1,0 +1,154 @@
+name: "[CI] CAIPE Authorization Service"
+
+on:
+  push:
+    tags: ['**']
+  pull_request:
+    paths:
+      - 'ai_platform_engineering/authz/**'
+      - 'ai_platform_engineering/audit_service/**'
+      - 'charts/ai-platform-engineering/charts/caipe-authz/**'
+      - '.github/workflows/ci-caipe-authz.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
+        with:
+          egress-policy: audit
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+      - name: Set up uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+      - name: Lint authorization service
+        run: uv run --project ai_platform_engineering/authz ruff check ai_platform_engineering/authz
+      - name: Validate authored OpenFGA model
+        run: >-
+          docker run --rm
+          -v "$PWD:/repo:ro"
+          openfga/cli@sha256:26acde96d90420e53fe361a740dcceba4b67f1c49e4f35117cd0c19c83ac5068
+          model validate --file /repo/deploy/openfga/model.fga
+      - name: Test authorization service with coverage
+        env:
+          RUN_OPENFGA_E2E: "1"
+        run: >-
+          uv run --project ai_platform_engineering/authz pytest
+          --cov=ai_platform_engineering.authz
+          --cov-report=term-missing
+          --cov-fail-under=80
+          ai_platform_engineering/authz/tests
+      - name: Lint Helm chart
+        run: helm lint charts/ai-platform-engineering/charts/caipe-authz --set auth.allowInsecureHeaders=true
+
+  build:
+    needs: test
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+            arch: amd64
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            arch: arm64
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE: ghcr.io/${{ github.repository_owner }}/caipe-authz
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
+        with:
+          egress-policy: audit
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
+      - name: Log in to GHCR
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Build and optionally push by digest
+        id: image
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        with:
+          context: .
+          file: ai_platform_engineering/authz/Dockerfile
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=${{ startsWith(github.ref, 'refs/tags/') }}
+          cache-from: type=gha,scope=caipe-authz-${{ matrix.arch }}
+          cache-to: type=gha,mode=min,scope=caipe-authz-${{ matrix.arch }}
+          provenance: false
+          sbom: false
+      - name: Export digest
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          mkdir -p /tmp/digests
+          touch "/tmp/digests/${DIGEST#sha256:}"
+      - name: Upload digest
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: digests-caipe-authz-${{ matrix.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE: ghcr.io/${{ github.repository_owner }}/caipe-authz
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
+        with:
+          egress-policy: audit
+      - name: Download digests
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: digests-caipe-authz-*
+          path: /tmp/digests
+          merge-multiple: true
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Publish multi-architecture manifest
+        working-directory: /tmp/digests
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          DIGEST_ARGS=()
+          for digest in *; do DIGEST_ARGS+=("${IMAGE}@sha256:${digest}"); done
+          docker buildx imagetools create -t "${IMAGE}:${TAG}" "${DIGEST_ARGS[@]}"
+      - name: Inspect image
+        env:
+          TAG: ${{ github.ref_name }}
+        run: docker buildx imagetools inspect "${IMAGE}:${TAG}"

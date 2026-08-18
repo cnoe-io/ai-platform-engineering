@@ -1,0 +1,35 @@
+{
+  "schema_version": "1",
+  "store_name": "caipe-openfga",
+  "store_id_source": "OPENFGA_STORE_ID or unique store-name discovery",
+  "authorization_model_id_source": "OPENFGA_AUTHORIZATION_MODEL_ID",
+  "authorization_model_sha256": "sha256:03b365a7c1b5c310bc67a153748cd7394ad02479a0092a98b0256a8312e4700c",
+  "authorization_model_canonical_sha256": "sha256:42259bb25e67cedc2b71baa8b8b2dc3d7c5db793d726ff850b699b135f8d6c81",
+  "model_artifact": "charts/ai-platform-engineering/charts/openfga/authorization-model.json",
+  "provider": "openfga-cel",
+  "condition_templates": ["string_argument_in_v1"],
+  "mapping_revision": "universal-rebac-v1",
+  "action_to_check_relation": {
+    "discover": "can_discover",
+    "read": "can_read",
+    "use": "can_use",
+    "write": "can_write",
+    "create": "can_manage",
+    "delete": "can_delete",
+    "manage": "can_manage",
+    "administer": "can_admin",
+    "audit": "can_audit",
+    "approve": "can_approve",
+    "share": "can_share",
+    "call": "can_call",
+    "invoke": "can_invoke",
+    "map": "can_map",
+    "ingest": "can_ingest",
+    "read-metadata": "can_read_metadata"
+  },
+  "resource_action_overrides": {
+    "mcp_gateway.invoke": "can_call",
+    "mcp_tool.invoke": "can_call",
+    "tool.invoke": "can_call"
+  }
+}

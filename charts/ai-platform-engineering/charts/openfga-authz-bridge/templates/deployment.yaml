@@ -56,6 +56,17 @@ spec:
               value: {{ .Values.openfga.relation | quote }}
             - name: OPENFGA_OBJECT
               value: {{ .Values.openfga.object | quote }}
+            - name: AUTHZ_GRPC_TARGET
+              value: {{ tpl .Values.authz.grpcTarget . | quote }}
+            - name: AUTHZ_ROLLOUT_JSON
+              value: {{ toJson .Values.authz.rollout | quote }}
+            {{- if .Values.authz.existingSecret.name }}
+            - name: AUTHZ_SERVICE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.authz.existingSecret.name | quote }}
+                  key: {{ .Values.authz.existingSecret.serviceTokenKey | quote }}
+            {{- end }}
             {{- if .Values.openfga.bypassSubs }}
             - name: OPENFGA_BYPASS_SUBS
               value: {{ .Values.openfga.bypassSubs | quote }}

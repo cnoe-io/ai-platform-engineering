@@ -1,0 +1,17 @@
+{{- if .Values.audit.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "caipe-authz.fullname" . }}-audit
+  labels:
+    {{- include "caipe-authz.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    {{- toYaml .Values.audit.persistence.accessModes | nindent 4 }}
+  {{- if .Values.audit.persistence.storageClass }}
+  storageClassName: {{ .Values.audit.persistence.storageClass | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.audit.persistence.size | quote }}
+{{- end }}

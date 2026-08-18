@@ -1,0 +1,41 @@
+{
+  "schema_version": "1",
+  "cases": [
+    {
+      "name": "reader_allows_read",
+      "request": {
+        "surface": "bff",
+        "transport": "http",
+        "subject": {"type": "user", "id": "example-user"},
+        "action": "read",
+        "resource": {"type": "agent", "id": "primary"}
+      },
+      "legacy": {"decision": "ALLOW", "reason": "OK"},
+      "canonical": {"outcome": "ALLOW", "reason_code": "ALLOW_RELATIONSHIP"}
+    },
+    {
+      "name": "missing_capability_denies",
+      "request": {
+        "surface": "bff",
+        "transport": "http",
+        "subject": {"type": "user", "id": "example-user"},
+        "action": "manage",
+        "resource": {"type": "agent", "id": "primary"}
+      },
+      "legacy": {"decision": "DENY", "reason": "NO_CAPABILITY"},
+      "canonical": {"outcome": "DENY", "reason_code": "DENY_NO_RELATIONSHIP"}
+    },
+    {
+      "name": "provider_failure_denies",
+      "request": {
+        "surface": "bff",
+        "transport": "http",
+        "subject": {"type": "service_account", "id": "example-client"},
+        "action": "use",
+        "resource": {"type": "agent", "id": "primary"}
+      },
+      "legacy": {"decision": "DENY", "reason": "AUTHZ_UNAVAILABLE"},
+      "canonical": {"outcome": "DENY", "reason_code": "DENY_PROVIDER_UNAVAILABLE"}
+    }
+  ]
+}

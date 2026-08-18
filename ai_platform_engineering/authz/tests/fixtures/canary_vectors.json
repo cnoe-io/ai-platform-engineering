@@ -1,0 +1,24 @@
+{
+  "algorithm": "hmac-sha256-uint64-be-mod-10000",
+  "seed": "example-canary-seed-2026",
+  "vectors": [
+    {
+      "revision": "revision-1",
+      "surface": "bff",
+      "subject": "user:example-user",
+      "resource_type": "agent",
+      "resource_id": "primary",
+      "action": "read",
+      "bucket": 947
+    },
+    {
+      "revision": "revision-1",
+      "surface": "agentgateway",
+      "subject": "service_account:example-client",
+      "resource_type": "tool",
+      "resource_id": "issue_tracker/create_item",
+      "action": "invoke",
+      "bucket": 5955
+    }
+  ]
+}

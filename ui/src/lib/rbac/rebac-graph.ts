@@ -44,6 +44,16 @@ export interface RebacGraphEdge {
     status: RebacRelationshipDocument["status"];
   } | null;
   timestamp?: string;
+  conditional?: boolean;
+  condition_name?: string;
+  policy?: {
+    policy_id: string;
+    status: string;
+    template: string;
+    field: string;
+    schema_hash: string;
+    version: number;
+  };
 }
 
 export interface RebacGraphResult {
