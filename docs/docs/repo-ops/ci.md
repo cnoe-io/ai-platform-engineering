@@ -17,7 +17,7 @@ All workflows live in `.github/workflows/`. The table below is the quick referen
 | `ci-rag.yml` | PR / push to `main` | Tests the RAG ingestor and query pipeline |
 | `ci-mcp-sub-agent.yml` | PR / push to `main` | Tests packaged MCP servers |
 | `ci-dynamic-agents.yml` | PR / push to `main` | Tests the dynamic-agents Helm chart and operator |
-| `ci-caipe-ui.yml` | PR / push to `main` | Builds and lints the CAIPE web UI |
+| `ci-caipe-ui.yml` | PR / coordinated Tome dispatch | Validates the UI image on PRs and publishes the coordinated multi-arch release image |
 | `caipe-ui-tests.yml` | PR / push to `main` | Jest unit tests and mocked RBAC Playwright regression for the UI |
 | `ci-helm.yml` | PR / push to `main` | Helm chart lint and template validation |
 | `helm-chart-test.yml` | PR / push to `main` | Full Helm chart install test on a Kind cluster |
@@ -45,7 +45,6 @@ All workflows live in `.github/workflows/`. The table below is the quick referen
 | `auto-tag.yml` | Push to `main` / `release/*` | Computes and pushes the next semver tag (`x.y.z-dev.N`, `x.y.z-rc.N`) |
 | `release-finalize.yml` | Manual dispatch | Promotes an RC tag to a final `x.y.z` release; publishes Helm chart to GHCR |
 | `release-manual.yml` | Manual dispatch | Emergency manual release path (hotfixes) |
-| `sync-release-branches.yml` | Push to `main` | Keeps `release/x.y.z` branches in sync with `main` cherry-picks |
 | `docs-release.yml` | Semver tag push | Generates release blog post via Claude Code CLI, opens docs PR |
 | `publish-gh-pages.yml` | Push to `main` | Builds Docusaurus and deploys to GitHub Pages |
 | `docs-build-check.yml` | PR touching `docs/` | Verifies `npm run build` passes before merge |

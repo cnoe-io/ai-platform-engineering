@@ -1,5 +1,4 @@
 name: "[Release] Pre-release Build"
-description: "Create an rc/hotfix tag on a release/* branch and trigger a coordinated build of all containers and the Helm chart."
 
 # Usage:
 #   GitHub UI → Actions → "[Release] Pre-release Build" → Run workflow
@@ -258,7 +257,6 @@ jobs:
           ## What happens next
 
           The tag push triggers these required CI workflows automatically:
-          - \`ci-caipe-ui\`
           - \`ci-dynamic-agents\`
           - \`ci-slack-bot\`
           - \`ci-webex-bot\`
@@ -266,6 +264,8 @@ jobs:
           - \`ci-mcp-sub-agent\`
           - \`ci-rag\`
           - \`ci-helm\` (also dispatched explicitly with \`force_build=true\`)
+
+          The mirror UI image is published by the coordinated Tome release workflow.
 
           > To force-rebuild every image fresh (bypass retag for unchanged components),
           > run each \`ci-*.yml\` manually via **workflow_dispatch** with

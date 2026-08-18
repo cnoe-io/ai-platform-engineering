@@ -1,14 +1,11 @@
 name: "[CI] CAIPE UI Build and Push"
-description: "Build and push CAIPE UI Docker image"
 
 on:
-  push:
-    tags:
-      - '**'
   pull_request:
     paths:
       - 'ui/**'
       - 'build/Dockerfile.caipe-ui'
+      - '.github/workflows/ci-caipe-ui.yml'
   workflow_dispatch:
     inputs:
       tag_version:
@@ -42,6 +39,7 @@ jobs:
       should_retag: ${{ steps.set-outputs.outputs.should_retag }}
       tag_version: ${{ steps.version.outputs.tag_version }}
       image_prefix: ${{ steps.set-outputs.outputs.image_prefix }}
+      build_matrix: ${{ steps.set-outputs.outputs.build_matrix }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
@@ -65,6 +63,7 @@ jobs:
             ui:
               - 'ui/**'
               - 'build/Dockerfile.caipe-ui'
+              - '.github/workflows/ci-caipe-ui.yml'
 
       - name: Set Outputs
         id: set-outputs
@@ -73,6 +72,12 @@ jobs:
           TAG_VERSION: ${{ steps.version.outputs.tag_version }}
           FORCE_BUILD: ${{ inputs.force_build }}
         run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo 'build_matrix={"include":[{"platform":"linux/amd64","runner":"ubuntu-latest","arch":"amd64"},{"platform":"linux/arm64","runner":"ubuntu-24.04-arm","arch":"arm64"}]}' >> "$GITHUB_OUTPUT"
+          else
+            echo 'build_matrix={"include":[{"platform":"linux/amd64","runner":"ubuntu-latest","arch":"amd64"}]}' >> "$GITHUB_OUTPUT"
+          fi
+
           SHOULD_BUILD="false"
           SHOULD_RETAG="false"
 
@@ -142,14 +147,7 @@ jobs:
 
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - platform: linux/amd64
-            runner: ubuntu-latest
-            arch: amd64
-          - platform: linux/arm64
-            runner: ubuntu-24.04-arm
-            arch: arm64
+      matrix: ${{ fromJSON(needs.determine-changes.outputs.build_matrix) }}
 
     env:
       REGISTRY: ghcr.io
@@ -212,9 +210,8 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=latest,enable=${{ (github.event_name == 'workflow_dispatch' && inputs.source_sha == '') || (startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-rc.') && !contains(github.ref_name, '-hotfix.') && !contains(github.ref_name, '-chart.')) }}
+            type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' && inputs.source_sha == '' }}
             type=raw,value=${{ needs.determine-changes.outputs.tag_version }},enable=${{ needs.determine-changes.outputs.tag_version != '' }}
-            type=ref,event=tag,prefix=
             type=sha,format=short,prefix=,enable=${{ inputs.source_sha == '' }}
 
       - name: Build and push by digest
@@ -228,7 +225,7 @@ jobs:
           labels: |
             ${{ steps.meta.outputs.labels }}
             org.opencontainers.image.revision=${{ inputs.source_sha || github.sha }}
-          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=${{ github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/') }}
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=${{ github.event_name == 'workflow_dispatch' }}
           cache-from: type=gha,scope=${{ matrix.arch }}
           cache-to: type=gha,mode=min,scope=${{ matrix.arch }}
           build-args: |
@@ -241,14 +238,14 @@ jobs:
           sbom: false
 
       - name: Export digest
-        if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
+        if: github.event_name == 'workflow_dispatch'
         run: |
           mkdir -p /tmp/digests
           digest="${{ steps.build.outputs.digest }}"
           touch "/tmp/digests/${digest#sha256:}"
 
       - name: Upload digest
-        if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
+        if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: digests-${{ matrix.arch }}
@@ -262,7 +259,7 @@ jobs:
     needs: [determine-changes, build-and-push]
     if: |
       needs.determine-changes.outputs.should_build == 'true' &&
-      (github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/'))
+      github.event_name == 'workflow_dispatch'
     permissions:
       contents: read
       packages: write
@@ -298,9 +295,8 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=latest,enable=${{ (github.event_name == 'workflow_dispatch' && inputs.source_sha == '') || (startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-rc.') && !contains(github.ref_name, '-hotfix.') && !contains(github.ref_name, '-chart.')) }}
+            type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' && inputs.source_sha == '' }}
             type=raw,value=${{ needs.determine-changes.outputs.tag_version }},enable=${{ needs.determine-changes.outputs.tag_version != '' }}
-            type=ref,event=tag,prefix=
             type=sha,format=short,prefix=,enable=${{ inputs.source_sha == '' }}
 
       - name: Create manifest list and push
