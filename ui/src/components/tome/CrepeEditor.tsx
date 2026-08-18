@@ -5,6 +5,7 @@
 import { Crepe } from "@milkdown/crepe";
 import "@milkdown/crepe/theme/common/style.css";
 import "./crepe-theme.css";
+import { editorViewCtx } from "@milkdown/kit/core";
 import { linkAttr } from "@milkdown/kit/preset/commonmark";
 import { replaceAll } from "@milkdown/utils";
 import { Minus, Plus } from "lucide-react";
@@ -87,6 +88,24 @@ const MERMAID_ZOOM_MAX = 200;
 const MERMAID_ZOOM_STEP = 25;
 
 /**
+ * Delete the top-level document node that contains `dom` (an image block or
+ * an embed/mermaid code block). Editing-only: callers must gate on
+ * `!readonly` first, since Crepe still resolves DOM positions in a read-only
+ * view even though the transaction would be inert there.
+ */
+function deleteTopLevelBlockAtDom(crepe: Crepe, dom: Element): void {
+  crepe.editor.action((ctx) => {
+    const view = ctx.get(editorViewCtx);
+    const pos = view.posAtDOM(dom, 0);
+    const $pos = view.state.doc.resolve(pos);
+    if ($pos.depth < 1) return;
+    const start = $pos.before(1);
+    const node = $pos.node(1);
+    view.dispatch(view.state.tr.delete(start, start + node.nodeSize));
+  });
+}
+
+/**
  * Thin wrapper around Crepe. Mounts on the host div, exposes a ref handle
  * the parent can call to read the current markdown out (for save).
  *
@@ -123,6 +142,10 @@ export const CrepeEditor = forwardRef<CrepeEditorHandle, Props>(function CrepeEd
   useEffect(() => {
     glossaryPreviewRef.current = glossaryPreview;
   }, [glossaryPreview]);
+  const readonlyRef = useRef(readonly);
+  useEffect(() => {
+    readonlyRef.current = readonly;
+  }, [readonly]);
 
   useEffect(() => {
     if (!hostRef.current) return;
@@ -217,6 +240,33 @@ export const CrepeEditor = forwardRef<CrepeEditorHandle, Props>(function CrepeEd
     return () => observer.disconnect();
   }, []);
 
+  // Crepe's image block has no built-in delete affordance, so decorate every
+  // rendered image with a remove button (edit mode only — view mode never
+  // mounts an editable ProseMirror doc to delete from).
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
+    const decorate = () => {
+      if (readonlyRef.current) return;
+      host
+        .querySelectorAll<HTMLElement>(".milkdown-image-block:not([data-remove-decorated])")
+        .forEach((block) => {
+          block.dataset.removeDecorated = "true";
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "tome-image-remove";
+          button.setAttribute("aria-label", "Remove image");
+          button.title = "Remove image";
+          button.innerHTML = '<span aria-hidden="true">×</span>';
+          block.appendChild(button);
+        });
+    };
+    decorate();
+    const observer = new MutationObserver(decorate);
+    observer.observe(host, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, []);
+
   // Stream new content into the live editor when liveUpdate is on. We
   // dedupe against the editor's current markdown to avoid no-op replaceAll
   // calls during user-typed edits.
@@ -237,6 +287,19 @@ export const CrepeEditor = forwardRef<CrepeEditorHandle, Props>(function CrepeEd
     if (!host) return;
     const onClick = (e: Event) => {
       const target = e.target as HTMLElement | null;
+      const removeButton = target?.closest?.("button.tome-embed-remove, button.tome-image-remove");
+      if (removeButton) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (readonlyRef.current) return;
+        const crepe = crepeRef.current;
+        const block = removeButton.closest<HTMLElement>(
+          ".tome-embed-preview, .tome-embed-error, .milkdown-image-block",
+        );
+        if (!crepe || !block) return;
+        deleteTopLevelBlockAtDom(crepe, block);
+        return;
+      }
       const expandButton = target?.closest?.("button.tome-mermaid-expand");
       if (expandButton) {
         const svg = expandButton

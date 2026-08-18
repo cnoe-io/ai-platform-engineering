@@ -216,6 +216,7 @@
 /* External embed blocks are hydrated after Crepe sanitizes their inert
    placeholders. The iframe itself is always created by trusted renderer code. */
 .tome-embed-preview {
+  position: relative;
   display: grid;
   gap: 0.625rem;
 }
@@ -254,11 +255,58 @@
 }
 
 .tome-embed-error {
+  position: relative;
   border: 1px solid var(--crepe-color-error);
   border-radius: 0.375rem;
   color: var(--crepe-color-error);
   padding: 0.75rem;
+  padding-right: 2.5rem;
   white-space: pre-wrap;
+}
+
+/* Remove buttons for embeds/images: editing only. Crepe marks its
+   ProseMirror root non-editable in view mode, so hide there regardless of
+   whether the decoration effect already ran. */
+.tome-embed-remove,
+.tome-image-remove {
+  position: absolute;
+  top: 0.375rem;
+  right: 0.375rem;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: 9999px;
+  background: hsl(var(--background) / 0.92);
+  color: hsl(var(--foreground));
+  font-size: 1rem;
+  line-height: 1;
+  box-shadow: 0 1px 2px hsl(var(--background) / 0.3);
+  cursor: pointer;
+}
+
+.tome-embed-remove:hover,
+.tome-image-remove:hover {
+  background: hsl(var(--destructive) / 0.12);
+  color: hsl(var(--destructive));
+}
+
+.tome-embed-remove:focus-visible,
+.tome-image-remove:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+.milkdown-image-block {
+  position: relative;
+}
+
+.ProseMirror[contenteditable="false"] .tome-embed-remove,
+.ProseMirror[contenteditable="false"] .tome-image-remove {
+  display: none;
 }
 
 @media (max-width: 40rem) {

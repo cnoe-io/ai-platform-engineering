@@ -52,6 +52,11 @@ jest.mock(
   () => ({ linkAttr: { key: "link-attr" } }),
   { virtual: true },
 );
+jest.mock(
+  "@milkdown/kit/core",
+  () => ({ editorViewCtx: "editor-view-ctx" }),
+  { virtual: true },
+);
 jest.mock("@milkdown/utils", () => ({ replaceAll: jest.fn() }), { virtual: true });
 jest.mock("@/lib/tome/citations", () => ({ classifyCitationHref: jest.fn() }));
 jest.mock("@/components/shared/timeline/MarkdownRenderer", () => ({
@@ -169,5 +174,57 @@ describe("CrepeEditor media configuration", () => {
       "https://www.youtube-nocookie.com/embed/M7lc1UVf-VE",
     );
     expect(iframe).toHaveAttribute("title", "Example video");
+  });
+
+  it("deletes the underlying block when an embed's remove button is clicked in edit mode", () => {
+    const dispatch = jest.fn();
+    const node = { nodeSize: 4 };
+    const deleteTr = { name: "delete-tr" };
+    const tr = { delete: jest.fn().mockReturnValue(deleteTr) };
+    const view = {
+      posAtDOM: jest.fn().mockReturnValue(10),
+      state: {
+        doc: {
+          resolve: jest.fn().mockReturnValue({
+            depth: 1,
+            before: jest.fn().mockReturnValue(5),
+            node: jest.fn().mockReturnValue(node),
+          }),
+        },
+        tr,
+      },
+      dispatch,
+    };
+    mockEditorAction.mockImplementation((fn: (ctx: { get: () => unknown }) => void) =>
+      fn({ get: () => view }),
+    );
+
+    const { container } = render(<CrepeEditor initialMarkdown="# Example" />);
+    const host = container.querySelector(".milkdown-host") as HTMLDivElement;
+    host.innerHTML = [
+      '<div class="tome-embed-preview tome-youtube-preview">',
+      '<button type="button" class="tome-embed-remove" aria-label="Remove YouTube embed"></button>',
+      "</div>",
+    ].join("");
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove YouTube embed" }));
+
+    expect(view.posAtDOM).toHaveBeenCalled();
+    expect(tr.delete).toHaveBeenCalledWith(5, 9);
+    expect(dispatch).toHaveBeenCalledWith(deleteTr);
+  });
+
+  it("does not delete an embed's block when clicked in read-only view mode", () => {
+    const { container } = render(<CrepeEditor initialMarkdown="# Example" readonly />);
+    const host = container.querySelector(".milkdown-host") as HTMLDivElement;
+    host.innerHTML = [
+      '<div class="tome-embed-preview tome-youtube-preview">',
+      '<button type="button" class="tome-embed-remove" aria-label="Remove YouTube embed"></button>',
+      "</div>",
+    ].join("");
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove YouTube embed" }));
+
+    expect(mockEditorAction).not.toHaveBeenCalled();
   });
 });
