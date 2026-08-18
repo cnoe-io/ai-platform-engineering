@@ -30,6 +30,38 @@ This amendment supersedes any task below that edits `ai_platform_engineering/dyn
 - [x] T129 Add stable provider thread identity plus validated W3C tracing storage/propagation for AgentCore runs — done when repeated conversation turns share a `runtimeSessionId` and the trace reaches the allowlisted runtime payload.
 - [ ] T130 Add the provider-neutral long-term MemoryBroker with explicit user/agent/organization scopes — future phase after the AgentCore session slice.
 
+## 2026-08-18 Harness Gateway Vertical Slice
+
+- [x] T136 [US1] Persist an allowlisted `execution_harness_id` in the BFF-owned
+  `dynamic_agents` record and default missing legacy records to Dynamic Agents —
+  done when create/edit payloads retain the selected runtime without changing
+  Dynamic Agents source.
+- [x] T137 [US1] Implement deterministic target resolution in
+  `ui/src/lib/harness-gateway.ts` — done when the selected marker routes to
+  Harness Engine and missing/default markers preserve the existing DA proxy.
+- [x] T138 [US3] Implement canonical-to-AG-UI and canonical-to-custom SSE
+  translation in `ui/src/lib/harness-gateway.ts` — done when lifecycle and text
+  frames are consumed unchanged by existing clients.
+- [x] T139 [US1] Route the existing BFF start, invoke, cancel, and resume paths
+  through Harness Gateway while preserving existing authentication, OpenFGA,
+  and conversation checks — done without changes under
+  `ai_platform_engineering/dynamic_agents/`.
+- [x] T140 [US7] Add caller/agent/conversation-scoped active-run cancellation
+  to Harness Engine without clearing the durable session binding — done when a
+  follow-up run reuses the binding after cancellation.
+- [x] T141 [US3] Add BFF compatibility coverage proving browser, Slack, and
+  Webex AG-UI traffic routes through AgentCore and add Harness Engine cancel
+  coverage — done when targeted Jest and pytest pass.
+- [x] T142 Document the Harness Gateway boundary, routing marker, disconnect
+  behavior, and current capability gates in the spec, plan, tasks,
+  architecture, and Harness Engine README.
+- [ ] T143 [US3] Add provider-neutral interrupt resume to the adapter contract
+  and Harness Gateway — blocked as a capability for the initial adapters, not
+  silently delegated to Dynamic Agents.
+- [ ] T144 [US3] Add attachment normalization/storage references to Harness
+  Engine — blocked as a capability for the initial adapters with explicit
+  `HARNESS_CAPABILITY_UNSUPPORTED` responses.
+
 **Current gate**: `git diff main...HEAD --name-only | rg '^ai_platform_engineering/dynamic_agents/'` produces no output; Harness Engine pytest/ruff, BFF Jest, editor Jest, ESLint, and TypeScript checks pass.
 
 ## Phase 1: Setup and Compatibility Freeze

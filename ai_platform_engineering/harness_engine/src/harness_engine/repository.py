@@ -62,6 +62,10 @@ class RunRepository(Protocol):
 
     async def get_run(self, run_id: str) -> RunRecord | None: ...
 
+    async def get_active_run(
+        self, owner_subject: str, agent_id: str, conversation_id: str
+    ) -> RunRecord | None: ...
+
     async def update_run_provider_id(self, run_id: str, provider_session_id: str) -> None: ...
 
     async def append_event(
@@ -206,6 +210,20 @@ class InMemoryRunRepository:
     async def get_run(self, run_id: str) -> RunRecord | None:
         run = self._runs.get(run_id)
         return run.model_copy(deep=True) if run else None
+
+    async def get_active_run(
+        self, owner_subject: str, agent_id: str, conversation_id: str
+    ) -> RunRecord | None:
+        matches = [
+            run
+            for run in self._runs.values()
+            if run.owner_subject == owner_subject
+            and run.agent_id == agent_id
+            and run.conversation_id == conversation_id
+            and run.status not in {RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED}
+        ]
+        latest = max(matches, key=lambda run: run.created_at) if matches else None
+        return latest.model_copy(deep=True) if latest else None
 
     async def update_run_provider_id(self, run_id: str, provider_session_id: str) -> None:
         async with self._lock:
@@ -385,6 +403,7 @@ class MongoRunRepository:
                 "$set": {"provider_session_id": provider_session_id, "updated_at": utc_now()},
                 "$inc": {"revision": 1},
             },
+            projection={"_id": 0},
             return_document=ReturnDocument.AFTER,
         )
         if not doc:
@@ -396,6 +415,7 @@ class MongoRunRepository:
             self._db.harness_sessions.find_one_and_update,
             {"binding_id": binding_id, "status": {"$ne": "closed"}},
             {"$set": {"status": "closed", "updated_at": utc_now()}, "$inc": {"revision": 1}},
+            projection={"_id": 0},
             return_document=ReturnDocument.AFTER,
         )
         if doc:
@@ -414,6 +434,22 @@ class MongoRunRepository:
 
     async def get_run(self, run_id: str) -> RunRecord | None:
         doc = await asyncio.to_thread(self._db.harness_runs.find_one, {"run_id": run_id}, {"_id": 0})
+        return RunRecord.model_validate(doc) if doc else None
+
+    async def get_active_run(
+        self, owner_subject: str, agent_id: str, conversation_id: str
+    ) -> RunRecord | None:
+        doc = await asyncio.to_thread(
+            self._db.harness_runs.find_one,
+            {
+                "owner_subject": owner_subject,
+                "agent_id": agent_id,
+                "conversation_id": conversation_id,
+                "status": {"$in": [RunStatus.QUEUED.value, RunStatus.RUNNING.value]},
+            },
+            {"_id": 0},
+            sort=[("created_at", DESCENDING)],
+        )
         return RunRecord.model_validate(doc) if doc else None
 
     async def update_run_provider_id(self, run_id: str, provider_session_id: str) -> None:

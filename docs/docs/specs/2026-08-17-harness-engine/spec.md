@@ -6,6 +6,14 @@
 > session bindings, runs, and canonical events in separate collections. AgentCore
 > and Claude Agent SDK are the first contract probes. Migration and compatibility
 > remain separate opt-in phases. See [Portable abstractions](portable-abstractions.md).
+>
+> **Harness Gateway amendment (2026-08-18):** The existing BFF
+> `/api/v1/chat/stream/start`, `resume`, `cancel`, and `invoke` routes are the
+> channel-neutral Harness Gateway. A BFF-owned `execution_harness_id` marker
+> selects Dynamic Agents or the independent Harness Engine. Missing legacy
+> markers resolve to Dynamic Agents. The gateway preserves authentication,
+> OpenFGA, conversation authorization, and existing AG-UI/custom SSE contracts;
+> provider execution and durable sessions never live in the BFF.
 
 **Feature Branch**: `2026-08-17-harness-engine`
 **Created**: 2026-08-17
@@ -191,6 +199,10 @@ As an agent builder, I want the existing agent-creation wizard to adapt to the s
 - A builder switches away from a harness after entering unsaved harness-specific options and later switches back.
 - An existing agent's harness is unknown to the current deployment, while its configuration still needs to remain inspectable and exportable.
 - A clone is created from an agent whose harness is unavailable or whose active-conversation metadata must not be copied.
+- A legacy agent has no `execution_harness_id`; Harness Gateway routes it to
+  Dynamic Agents without depending on Harness Engine availability.
+- A non-default harness is unavailable; Harness Gateway fails that request and
+  never silently runs the same agent through Dynamic Agents.
 
 ## Requirements *(mandatory)*
 

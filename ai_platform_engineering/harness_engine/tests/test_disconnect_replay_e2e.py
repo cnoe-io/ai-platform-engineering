@@ -217,6 +217,49 @@ def test_session_clear_cancels_an_active_run(settings) -> None:
         assert events["events"][-1]["event_type"] == "run.cancelled"
 
 
+def test_cancel_active_preserves_the_session_binding(settings) -> None:
+    app = create_app(
+        settings=settings,
+        repository=InMemoryRunRepository(),
+        adapters=[FakeHarnessAdapter(chunks=["late"], delay=0.2)],
+    )
+    with TestClient(app) as client:
+        configure_agent(client)
+        started = client.post(
+            "/api/v1/runs",
+            headers=auth_headers(),
+            json={
+                "agent_id": "agent-example",
+                "conversation_id": "conversation-example",
+                "message": "one",
+            },
+        )
+        cancelled = client.post(
+            "/api/v1/runs/cancel-active",
+            headers=auth_headers(),
+            json={
+                "agent_id": "agent-example",
+                "conversation_id": "conversation-example",
+            },
+        )
+        continued = client.post(
+            "/api/v1/runs",
+            headers=auth_headers(),
+            json={
+                "agent_id": "agent-example",
+                "conversation_id": "conversation-example",
+                "message": "two",
+            },
+        )
+
+        assert cancelled.status_code == 200
+        assert cancelled.json()["data"] == {
+            "cancelled": True,
+            "run_id": started.json()["data"]["run_id"],
+        }
+        assert continued.json()["data"]["binding_id"] == started.json()["data"]["binding_id"]
+
+
 def test_run_is_hidden_from_other_subjects(settings) -> None:
     app = create_app(
         settings=settings,
