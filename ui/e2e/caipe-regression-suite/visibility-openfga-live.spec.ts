@@ -74,8 +74,20 @@ test.describe("CAIPE Regression Suite visibility and OpenFGA projection", () => 
 
         const mcpObject = `mcp_server:${mcp.id}`;
         const agentObject = `agent:${agent.id}`;
-        await expectTuple(page, { user: `user:${env.admin.subject}`, relation: "owner", object: mcpObject });
-        await expectTuple(page, { user: `user:${env.admin.subject}`, relation: "owner", object: agentObject });
+        const personalOwnerTupleExpected = visibility === "private";
+        // Team/global resources are owned by their team/organization policy.
+        // Keeping a direct personal owner grant would bypass later membership
+        // revocation, so the regression must assert that it is absent.
+        await expectTuple(
+          page,
+          { user: `user:${env.admin.subject}`, relation: "owner", object: mcpObject },
+          personalOwnerTupleExpected,
+        );
+        await expectTuple(
+          page,
+          { user: `user:${env.admin.subject}`, relation: "owner", object: agentObject },
+          personalOwnerTupleExpected,
+        );
         await expectTuple(page, { user: `agent:${agent.id}`, relation: "caller", object: `tool:${mcp.id}/*` });
 
         if (visibility === "private") {

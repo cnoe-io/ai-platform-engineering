@@ -165,6 +165,46 @@ async function wait(delayMs: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, delayMs));
 }
 
+async function initializeMcpSession(input: {
+  endpoint: string;
+  headers: Record<string, string>;
+  agentGatewayManaged: boolean;
+  timeoutMs?: number;
+}): Promise<{ sessionId: string }> {
+  const initialize = () => mcpJsonRpc({
+    endpoint: input.endpoint,
+    headers: input.headers,
+    payload: {
+      jsonrpc: "2.0",
+      id: `initialize-${Date.now()}`,
+      method: "initialize",
+      params: {
+        protocolVersion: "2024-11-05",
+        capabilities: {},
+        clientInfo: { name: "caipe-ui", version: "0.5.16" },
+      },
+    },
+    timeoutMs: input.timeoutMs ?? 5_000,
+  });
+
+  let initialized = await initialize();
+  if (input.agentGatewayManaged) {
+    for (const delayMs of AGENT_GATEWAY_ROUTE_RETRY_DELAYS_MS) {
+      if (initialized.status !== 404) break;
+      await wait(delayMs);
+      initialized = await initialize();
+    }
+  }
+  if (!initialized.ok || !initialized.sessionId) {
+    throw new ApiError(
+      `MCP initialize failed with HTTP ${initialized.status}`,
+      502,
+      "MCP_INIT_FAILED",
+    );
+  }
+  return { sessionId: initialized.sessionId };
+}
+
 function normalizeTool(tool: unknown): MCPToolInfo | null {
   if (!tool || typeof tool !== "object") return null;
   const candidate = tool as {
@@ -261,32 +301,11 @@ export async function listHttpMcpTools(input: {
     credentialResolution: input.credentialResolution,
   });
 
-  const initialize = () => mcpJsonRpc({
+  const initialized = await initializeMcpSession({
     endpoint,
     headers,
-    payload: {
-      jsonrpc: "2.0",
-      id: `initialize-${Date.now()}`,
-      method: "initialize",
-      params: {
-        protocolVersion: "2024-11-05",
-        capabilities: {},
-        clientInfo: { name: "caipe-ui", version: "0.5.16" },
-      },
-    },
-    timeoutMs: 5_000,
+    agentGatewayManaged,
   });
-  let initialized = await initialize();
-  if (agentGatewayManaged) {
-    for (const delayMs of AGENT_GATEWAY_ROUTE_RETRY_DELAYS_MS) {
-      if (initialized.status !== 404) break;
-      await wait(delayMs);
-      initialized = await initialize();
-    }
-  }
-  if (!initialized.ok || !initialized.sessionId) {
-    throw new ApiError(`MCP initialize failed with HTTP ${initialized.status}`, 502, "MCP_INIT_FAILED");
-  }
 
   const listed = await mcpJsonRpc({
     endpoint,
@@ -308,6 +327,52 @@ export async function listHttpMcpTools(input: {
     throw new ApiError("MCP tools/list returned an unexpected payload", 502, "MCP_LIST_INVALID");
   }
   return { tools, sessionId: initialized.sessionId };
+}
+
+export async function invokeHttpMcpTool(input: {
+  request: NextRequest;
+  session: AuthSession;
+  server: MCPServerConfig & { endpoint: string };
+  serverId: string;
+  toolName: string;
+  params: Record<string, unknown>;
+  credentialResolution?: McpCredentialResolution;
+}): Promise<{ ok: boolean; status: number; payload: unknown }> {
+  const agentGatewayManaged = isAgentGatewayEndpoint(input.server);
+  const endpoint = input.server.endpoint.trim();
+  if (agentGatewayManaged && !isAgentGatewayRouteEndpoint(endpoint)) {
+    throw new ApiError(
+      "AgentGateway-managed MCP server is missing its Gateway route",
+      502,
+      "MCP_GATEWAY_ROUTE_MISSING",
+    );
+  }
+  const headers = await buildMcpRequestHeaders({
+    request: input.request,
+    session: input.session,
+    server: input.server,
+    viaAgentGateway: agentGatewayManaged,
+    serverId: input.serverId,
+    credentialResolution: input.credentialResolution,
+  });
+  const initialized = await initializeMcpSession({
+    endpoint,
+    headers,
+    agentGatewayManaged,
+    timeoutMs: 15_000,
+  });
+  const invoked = await mcpJsonRpc({
+    endpoint,
+    headers,
+    sessionId: initialized.sessionId,
+    payload: {
+      jsonrpc: "2.0",
+      id: `tools-call-${Date.now()}`,
+      method: "tools/call",
+      params: { name: input.toolName, arguments: input.params },
+    },
+  });
+  return { ok: invoked.ok, status: invoked.status, payload: invoked.payload };
 }
 
 export async function listDirectHttpMcpTools(input: {
