@@ -112,6 +112,110 @@ def test_session_pins_agent_version_across_agent_updates(settings) -> None:
         assert first.json()["data"]["agent_version"] == 1
         assert continued.json()["data"]["agent_version"] == 1
 
+        cleared = client.post(
+            "/api/v1/sessions/clear",
+            headers=auth_headers(),
+            json={
+                "agent_id": "agent-example",
+                "conversation_id": "conversation-example",
+            },
+        )
+        assert cleared.status_code == 200
+        assert cleared.json()["data"]["cleared"] is True
+        assert cleared.json()["data"]["next_epoch"] == 1
+
+        fresh = client.post(
+            "/api/v1/runs",
+            headers=auth_headers(),
+            json={
+                "agent_id": "agent-example",
+                "conversation_id": "conversation-example",
+                "message": "three",
+            },
+        )
+        assert fresh.status_code == 202
+        assert fresh.json()["data"]["agent_version"] == 2
+        assert fresh.json()["data"]["binding_id"] != first.json()["data"]["binding_id"]
+        assert fresh.json()["data"]["provider_session_id"] != (
+            first.json()["data"]["provider_session_id"]
+        )
+
+
+def test_session_clear_is_scoped_to_the_authenticated_owner(settings) -> None:
+    app = create_app(
+        settings=settings,
+        repository=InMemoryRunRepository(),
+        adapters=[FakeHarnessAdapter()],
+    )
+    with TestClient(app) as client:
+        configure_agent(client)
+        started = client.post(
+            "/api/v1/runs",
+            headers=auth_headers(),
+            json={
+                "agent_id": "agent-example",
+                "conversation_id": "conversation-example",
+                "message": "one",
+            },
+        )
+        clear_other = client.post(
+            "/api/v1/sessions/clear",
+            headers=auth_headers("different-user"),
+            json={
+                "agent_id": "agent-example",
+                "conversation_id": "conversation-example",
+            },
+        )
+        assert clear_other.status_code == 200
+        assert clear_other.json()["data"]["cleared"] is False
+
+        continued = client.post(
+            "/api/v1/runs",
+            headers=auth_headers(),
+            json={
+                "agent_id": "agent-example",
+                "conversation_id": "conversation-example",
+                "message": "two",
+            },
+        )
+        assert continued.json()["data"]["binding_id"] == started.json()["data"]["binding_id"]
+
+
+def test_session_clear_cancels_an_active_run(settings) -> None:
+    app = create_app(
+        settings=settings,
+        repository=InMemoryRunRepository(),
+        adapters=[FakeHarnessAdapter(chunks=["late"], delay=0.2)],
+    )
+    with TestClient(app) as client:
+        configure_agent(client)
+        started = client.post(
+            "/api/v1/runs",
+            headers=auth_headers(),
+            json={
+                "agent_id": "agent-example",
+                "conversation_id": "conversation-example",
+                "message": "one",
+            },
+        )
+        run_id = started.json()["data"]["run_id"]
+
+        cleared = client.post(
+            "/api/v1/sessions/clear",
+            headers=auth_headers(),
+            json={
+                "agent_id": "agent-example",
+                "conversation_id": "conversation-example",
+            },
+        )
+        events = client.get(
+            f"/api/v1/runs/{run_id}/events", headers=auth_headers()
+        ).json()["data"]
+
+        assert cleared.json()["data"]["cleared"] is True
+        assert events["run"]["status"] == "cancelled"
+        assert events["events"][-1]["event_type"] == "run.cancelled"
+
 
 def test_run_is_hidden_from_other_subjects(settings) -> None:
     app = create_app(

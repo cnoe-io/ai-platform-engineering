@@ -22,6 +22,7 @@ from harness_engine.models import (
     RunContext,
     ValidationIssue,
 )
+from harness_engine.sessions import DeterministicProviderSessionManager, ProviderSessionManager
 
 
 class AgentCoreDataClient(Protocol):
@@ -50,10 +51,19 @@ class AgentCoreAdapter:
         self._settings = settings
         self._targets = settings.agentcore_targets()
         self._clients = clients or {}
+        self._session_manager = DeterministicProviderSessionManager(
+            "agentcore",
+            prefix="harness-session-",
+            checkpoint_strategy="remote_managed",
+        )
 
     @property
     def configured_aliases(self) -> list[str]:
         return sorted(self._targets)
+
+    @property
+    def session_manager(self) -> ProviderSessionManager:
+        return self._session_manager
 
     @property
     def descriptor(self) -> HarnessDescriptor:
@@ -125,12 +135,7 @@ class AgentCoreAdapter:
                     message="AgentCore does not accept user-owned runtime options",
                 )
             )
-        return AdapterEvaluation(
-            normalized_options={}, checkpoint_strategy="remote_managed", issues=issues
-        )
-
-    def initial_provider_session_id(self, binding_id: str) -> str:
-        return f"harness-session-{binding_id.removeprefix('binding-')}"
+        return AdapterEvaluation(normalized_options={}, issues=issues)
 
     def _target(self, alias: str) -> AgentCoreRuntimeTarget:
         try:
@@ -150,6 +155,8 @@ class AgentCoreAdapter:
 
     async def stream(self, context: RunContext) -> AsyncIterator[CanonicalEventDraft]:
         target = self._target(context.binding.profile_id)
+        if not context.binding.provider_session_id:
+            raise RuntimeError("AgentCore session manager did not assign a runtime session ID")
         request_body = {
             "prompt": context.turn.message,
             "system_prompt": context.prompt.system,

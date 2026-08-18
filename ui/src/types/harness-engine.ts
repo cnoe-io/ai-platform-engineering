@@ -105,3 +105,23 @@ export interface HarnessEventPage {
   events: HarnessRunEvent[];
   next_cursor: number;
 }
+
+export interface HarnessSessionBinding {
+  binding_id: string;
+  agent_id: string;
+  agent_version: number;
+  conversation_id: string;
+  harness_id: string;
+  profile_id: string;
+  provider_session_id?: string | null;
+  checkpoint_strategy: "langgraph" | "adapter_store" | "remote_managed" | "ephemeral";
+  epoch: number;
+  revision: number;
+  status: "active" | "degraded" | "closed";
+}
+
+export interface ClearHarnessSessionResult {
+  cleared: boolean;
+  closed_binding_id?: string | null;
+  next_epoch: number;
+}

@@ -16,7 +16,7 @@ from harness_engine.models import (
 )
 
 
-class HarnessNotFoundError(Exception):
+class HarnessNotFoundError(KeyError):
     """A blueprint selected an unknown harness."""
 
 
@@ -25,6 +25,15 @@ class HarnessRegistry:
         self._adapters = {adapter.descriptor.id: adapter for adapter in adapters}
         if len(self._adapters) != len(adapters):
             raise ValueError("Harness IDs must be unique")
+        mismatched = [
+            adapter.descriptor.id
+            for adapter in adapters
+            if adapter.session_manager.harness_id != adapter.descriptor.id
+        ]
+        if mismatched:
+            raise ValueError(
+                f"Provider session manager harness ID mismatch: {', '.join(mismatched)}"
+            )
 
     @property
     def catalog_revision(self) -> str:

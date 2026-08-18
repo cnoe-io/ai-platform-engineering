@@ -21,6 +21,7 @@ from harness_engine.models import (
     RunContext,
     ValidationIssue,
 )
+from harness_engine.sessions import EventAssignedProviderSessionManager, ProviderSessionManager
 
 
 class ClaudeHarnessOptions(BaseModel):
@@ -44,6 +45,13 @@ class ClaudeSDKAdapter:
     ) -> None:
         self._profiles = settings.claude_sdk_profiles()
         self._query = query_fn
+        self._session_manager = EventAssignedProviderSessionManager(
+            "claude_agent_sdk", checkpoint_strategy="adapter_store"
+        )
+
+    @property
+    def session_manager(self) -> ProviderSessionManager:
+        return self._session_manager
 
     @property
     def descriptor(self) -> HarnessDescriptor:
@@ -132,7 +140,6 @@ class ClaudeSDKAdapter:
         except ValidationError as exc:
             return AdapterEvaluation(
                 normalized_options={},
-                checkpoint_strategy="adapter_store",
                 issues=[
                     ValidationIssue(
                         path="harness.options",
@@ -148,7 +155,6 @@ class ClaudeSDKAdapter:
         if options.permission_mode and profile and options.permission_mode != profile.permission_mode:
             return AdapterEvaluation(
                 normalized_options=options.model_dump(exclude_none=True),
-                checkpoint_strategy="adapter_store",
                 issues=[
                     ValidationIssue(
                         path="harness.options.permission_mode",
@@ -161,11 +167,7 @@ class ClaudeSDKAdapter:
             )
         return AdapterEvaluation(
             normalized_options=options.model_dump(exclude_none=True),
-            checkpoint_strategy="adapter_store",
         )
-
-    def initial_provider_session_id(self, binding_id: str) -> None:
-        return None
 
     async def stream(self, context: RunContext) -> AsyncIterator[CanonicalEventDraft]:
         profile = self._profile(context.binding.profile_id)

@@ -7,6 +7,7 @@ import { NextRequest } from "next/server";
 import { POST as startRun } from "../runs/route";
 import { GET as streamRun } from "../runs/[runId]/events/stream/route";
 import { POST as validateDraft } from "../agent-drafts/validate/route";
+import { POST as clearSession } from "../sessions/clear/route";
 
 const mockAuthenticateRequest = jest.fn();
 const mockRequireAgentUsePermission = jest.fn();
@@ -121,6 +122,40 @@ describe("Harness Engine BFF session routes", () => {
           "X-Harness-Engine-Subject": "test-user",
         }),
       }),
+    );
+  });
+
+  it("authorizes and clears a CAIPE-managed agent session", async () => {
+    const fetchMock = jest.spyOn(global, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ success: true, data: { cleared: true } }), {
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    const request = new NextRequest(
+      "http://localhost/api/harness-engine/sessions/clear",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          agent_id: "agent-example",
+          conversation_id: "conversation-example",
+        }),
+      },
+    );
+
+    const response = await clearSession(request);
+
+    expect(response.status).toBe(200);
+    expect(mockRequireAgentUsePermission).toHaveBeenCalledWith(
+      expect.objectContaining({ agentId: "agent-example", subject: "test-user" }),
+    );
+    expect(mockRequireConversationWriteAccess).toHaveBeenCalledWith(
+      expect.objectContaining({ subject: "test-user" }),
+      "conversation-example",
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://harness-engine:8010/api/v1/sessions/clear",
+      expect.objectContaining({ method: "POST" }),
     );
   });
 

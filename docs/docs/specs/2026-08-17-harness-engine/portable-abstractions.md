@@ -109,18 +109,17 @@ class HarnessAdapter(Protocol):
     @property
     def descriptor(self) -> HarnessDescriptor: ...
 
-    def evaluate(self, blueprint: AgentBlueprint) -> AdapterEvaluation: ...
+    @property
+    def session_manager(self) -> ProviderSessionManager: ...
 
-    def initial_provider_session_id(self, binding_id: str) -> str | None: ...
+    def evaluate(self, blueprint: AgentBlueprint) -> AdapterEvaluation: ...
 
     def stream(self, context: RunContext) -> AsyncIterator[CanonicalEventDraft]: ...
 ```
 
-- `evaluate` validates and normalizes only safe harness options and declares the
-  checkpoint strategy.
-- `initial_provider_session_id` supports providers such as AgentCore that need a
-  client-defined stable ID. It returns `None` for providers such as Claude that
-  issue the native ID in their result.
+- `evaluate` validates and normalizes only safe harness options.
+- `session_manager` handles only native provider session mechanics. It cannot
+  choose the owner, agent version, conversation identity, or epoch.
 - `stream` receives the validated blueprint, pinned binding, compiled prompt,
   message, and trace context. It emits canonical events only.
 - Provider errors are translated to sanitized terminal events by the coordinator.
@@ -131,6 +130,44 @@ on the next turn, maps `TextBlock` to `content.delta`, and maps usage to
 `usage.updated`. The SDK profile, not the draft, controls model, working
 directory, and permission mode.
 
+## CAIPE and provider session managers
+
+Session ownership is two-layered:
+
+```python
+class ProviderSessionManager(Protocol):
+    async def open(self, context: ProviderSessionContext) -> ProviderSessionState: ...
+    async def observe(self, binding: SessionBinding, event: CanonicalEventDraft) -> str | None: ...
+    async def close(self, binding: SessionBinding) -> None: ...
+```
+
+`CAIPEAgentSessionManager` owns:
+
+- keyed opaque binding identity;
+- authenticated owner + agent + conversation lookup;
+- immutable agent-version pinning for an active epoch;
+- durable binding creation and optimistic revision;
+- routing to the selected adapter's provider session manager;
+- persistence of validated native session updates;
+- close and monotonic epoch rotation.
+
+Provider session managers own only provider mechanics:
+
+| Provider style | Open | Observe | Close |
+|---|---|---|---|
+| AgentCore | Derive a stable `runtimeSessionId` from the opaque binding | Ignore unrelated events | Hook for provider cleanup |
+| Claude Agent SDK | Start without a native ID or resume the stored one | Capture validated `ResultMessage.session_id` | Hook for SDK session cleanup |
+| Future sandbox SDK | Allocate/restore native checkpoint handle | Capture native checkpoint/session changes | Flush and release provider state |
+
+Clearing a session cancels active runs owned by the receiving coordinator,
+invokes provider close, marks the binding closed, and returns `next_epoch`.
+Another replica fences a stale run at its next canonical event or terminal
+commit because every event path rechecks the durable binding status. A future
+distributed cancellation signal can reduce that bounded delay. The next turn
+creates a new opaque binding on the current agent version. A clear by another
+subject finds no binding because owner identity is part of the lookup and keyed
+binding digest.
+
 ## Platform broker boundaries
 
 SDK code must not directly own authorization, secrets, shared memory, or
@@ -140,7 +177,8 @@ Kubernetes lifecycle. These narrow interfaces make policy reusable:
 |---|---|
 | `ThreadStateStore` | Harness-native checkpoint blobs, compare-and-set heads, restore |
 | `MemoryBroker` | Authorized long-term retrieval/write with scope and provenance |
-| `SessionManager` | Binding identity, epochs, native session IDs, version pinning |
+| `CAIPEAgentSessionManager` | Binding identity, ownership, epochs, persistence, version pinning |
+| `ProviderSessionManager` | Harness-native session open/update/close mechanics |
 | `ToolBroker` | Authorization, approval, credential injection, invocation, audit |
 | `SandboxManager` | Exclusive claim/lease, fencing, health, replacement, release |
 | `PromptCompiler` | Portable variables/context into a rendered system prompt |
@@ -337,7 +375,7 @@ Deferred and reported as unavailable:
 - sandbox pod worker protocol and `SandboxManager` implementation;
 - portable ToolBroker, MemoryBroker, and DelegationBroker implementations;
 - process-failure takeover of an in-flight call;
-- clear/new-epoch API, interrupts, reasoning/tool translation breadth;
+- interrupts and reasoning/tool translation breadth;
 - full OpenTelemetry sink and provider trace links;
 - atomic coordination with the existing Dynamic Agents authoring write;
 - Strands/Deep Agents adapters and conformance certification.

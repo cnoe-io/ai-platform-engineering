@@ -11,6 +11,9 @@ and Claude Agent SDK exercise the same portable blueprint and adapter contract.
 - Durable `harness_sessions` bind an owner, agent version, and conversation to
   one native provider session. Existing conversations remain pinned when an
   agent is edited.
+- `CAIPEAgentSessionManager` owns opaque binding IDs, ownership, version pinning,
+  epochs, persistence, and clear. Each adapter supplies a narrow
+  `ProviderSessionManager` for native open/observe/close behavior.
 - Runs and replayable events are stored in `harness_runs` and `harness_events`.
 - The same caller/agent/conversation tuple receives the same opaque binding.
   AgentCore derives a stable `runtimeSessionId`; Claude persists the SDK result
@@ -61,6 +64,8 @@ is not implemented yet; completed event replay and subsequent thread resume are.
 - `HarnessRegistry` validates and normalizes a draft, returns a catalog revision
   and configuration fingerprint, then resolves the selected adapter at run time.
 - Adapters receive `RunContext` and emit canonical events only.
+- Adapters expose a provider-specific session manager; they do not persist or
+  derive CAIPE binding ownership themselves.
 - Broker protocols isolate thread state, memory, tools, sandboxes, prompts,
   delegation, and telemetry from SDK-specific code.
 

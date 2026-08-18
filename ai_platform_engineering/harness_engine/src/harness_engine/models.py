@@ -202,7 +202,6 @@ class AdapterEvaluation(StrictModel):
     """Adapter-specific compilation result used by the registry."""
 
     normalized_options: dict[str, Any]
-    checkpoint_strategy: Literal["langgraph", "adapter_store", "remote_managed", "ephemeral"]
     issues: list[ValidationIssue] = Field(default_factory=list)
 
 
@@ -214,13 +213,24 @@ class SessionBinding(StrictModel):
     conversation_id: str
     harness_id: str
     profile_id: str
-    provider_session_id: str | None = None
+    provider_session_id: str | None = Field(None, max_length=1024)
     checkpoint_strategy: Literal["langgraph", "adapter_store", "remote_managed", "ephemeral"]
     epoch: int = Field(0, ge=0)
     revision: int = Field(1, ge=1)
     status: Literal["active", "degraded", "closed"] = "active"
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
+
+
+class ClearAgentSessionRequest(StrictModel):
+    agent_id: str = Field(..., min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_.-]+$")
+    conversation_id: str = Field(..., min_length=1, max_length=256)
+
+
+class ClearAgentSessionResult(StrictModel):
+    cleared: bool
+    closed_binding_id: str | None = None
+    next_epoch: int = Field(0, ge=0)
 
 
 class CreateRunRequest(StrictModel):
