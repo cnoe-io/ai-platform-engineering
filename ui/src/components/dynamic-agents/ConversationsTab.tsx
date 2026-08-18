@@ -2,7 +2,8 @@
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card,CardContent,CardHeader } from "@/components/ui/card";
+import { WorkspacePageActions } from "@/components/layout/WorkspacePageActions";
+import { Card,CardContent } from "@/components/ui/card";
 import {
 Dialog,
 DialogContent,
@@ -216,16 +217,15 @@ export function ConversationsTab() {
   };
 
   return (
-    <Card className="rounded-none border-0 bg-transparent shadow-none">
-      <CardHeader className="px-0 pb-5 pt-0">
-        <div className="flex justify-end">
-          <Button variant="outline" size="sm" onClick={fetchConversations} disabled={loading}>
-            <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
-            Refresh
-          </Button>
-        </div>
-      </CardHeader>
-      <CardContent className="px-0 pt-6">
+    <>
+      <WorkspacePageActions>
+        <Button variant="outline" size="sm" onClick={fetchConversations} disabled={loading}>
+          <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+          Refresh
+        </Button>
+      </WorkspacePageActions>
+      <Card className="rounded-none border-0 bg-transparent shadow-none">
+        <CardContent className="px-0 pt-0">
         {/* Search and Filters */}
         <div className="flex items-center gap-4 mb-4">
           <form onSubmit={handleSearch} className="flex-1 flex gap-2">
@@ -483,7 +483,7 @@ export function ConversationsTab() {
             )}
           </>
         )}
-      </CardContent>
+        </CardContent>
 
       {/* Conversation Detail Modal */}
       <Dialog open={!!selectedConversation} onOpenChange={(open) => { if (!open) setSelectedConversation(null); }}>
@@ -676,6 +676,7 @@ export function ConversationsTab() {
           )}
         </DialogContent>
       </Dialog>
-    </Card>
+      </Card>
+    </>
   );
 }

@@ -3,11 +3,13 @@
 // assisted-by Codex Codex-sonnet-4-6
 
 import { NewChatButton } from "@/components/chat/NewChatButton";
+import { ConversationListSkeleton } from "@/components/chat/ConversationListSkeleton";
 import { RecycleBinDialog } from "@/components/chat/RecycleBinDialog";
 import { ShareButton } from "@/components/chat/ShareButton";
 import { UseCaseBuilderDialog } from "@/components/gallery/UseCaseBuilder";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/toast";
 import { Tooltip,TooltipContent,TooltipProvider,TooltipTrigger } from "@/components/ui/tooltip";
 import { resolveUsableChatAgentId } from "@/lib/chat-agent-selection";
@@ -98,6 +100,9 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
   const { data: session } = useSession();
   const [useCaseBuilderOpen, setUseCaseBuilderOpen] = useState(false);
   const storageMode = getStorageMode(); // Exclusive storage mode
+  const [isLoadingConversations, setIsLoadingConversations] = useState(
+    activeTab === "chat" && storageMode === "mongodb",
+  );
   const [, startTransition] = useTransition();
   const [sidebarWidth, setSidebarWidth] = useState(320); // Track sidebar width
   const [isResizing, setIsResizing] = useState(false);
@@ -110,16 +115,25 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
 
   // Agent name lookup for dynamic agent conversations
   const [agentNameMap, setAgentNameMap] = useState<Record<string, string>>({});
+  const [agentNamesLoading, setAgentNamesLoading] = useState(true);
 
   // Load conversations from server when sidebar mounts (MongoDB mode only)
   // Also re-sync when tab becomes visible (user switches back from another browser/tab)
   useEffect(() => {
+    let cancelled = false;
     if (activeTab === "chat" && storageMode === 'mongodb') {
       // Always load from server - the loadConversationsFromServer function
       // will merge server data with local cache intelligently
-      loadConversationsFromServer().catch((error) => {
-        console.error('[Sidebar] Failed to load conversations:', error);
-      });
+      setIsLoadingConversations(true);
+      void loadConversationsFromServer()
+        .catch((error) => {
+          console.error('[Sidebar] Failed to load conversations:', error);
+        })
+        .finally(() => {
+          if (!cancelled) setIsLoadingConversations(false);
+        });
+    } else {
+      setIsLoadingConversations(false);
     }
 
     // Re-sync when user returns to this tab (catches cross-browser deletes)
@@ -133,17 +147,21 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      cancelled = true;
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, storageMode]); // Intentionally exclude loadConversationsFromServer to prevent re-runs
 
   // Fetch dynamic agents for name lookup in conversation list
   useEffect(() => {
+    let cancelled = false;
     const fetchAgents = async () => {
       try {
         const response = await fetch("/api/dynamic-agents/available");
         const data = await response.json();
-        if (data.success && Array.isArray(data.data)) {
+        if (!cancelled && data.success && Array.isArray(data.data)) {
           const map: Record<string, string> = {};
           data.data.forEach((agent: { _id: string; name: string }) => {
             map[agent._id] = agent.name;
@@ -152,9 +170,14 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
         }
       } catch (err) {
         console.error('[Sidebar] Failed to fetch agents for name lookup:', err);
+      } finally {
+        if (!cancelled) setAgentNamesLoading(false);
       }
     };
-    fetchAgents();
+    void fetchAgents();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Handle mouse move for resizing
@@ -425,8 +448,11 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
 
           <ScrollArea className="flex-1 min-w-0">
             <div className="px-2 space-y-1 pb-4">
-              <AnimatePresence mode="popLayout">
-                {conversations.map((conv, index) => {
+              {isLoadingConversations && conversations.length === 0 ? (
+                <ConversationListSkeleton collapsed={collapsed} />
+              ) : (
+                <AnimatePresence mode="popLayout">
+                  {conversations.map((conv, index) => {
                   const currentUserEmail = session?.user?.email?.trim().toLowerCase();
                   const ownerEmail = conv.owner_id?.trim().toLowerCase();
                   const viewerIsKnownOwner =
@@ -578,8 +604,8 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
                               </>
                             )}
                           </div>
-                          <p className={cn(
-                            "text-xs truncate",
+                          <div className={cn(
+                            "flex min-w-0 items-center text-xs",
                             isLive
                               ? "text-emerald-600 dark:text-emerald-400 font-medium"
                               : isInputRequired
@@ -588,18 +614,32 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
                                   ? "text-blue-600 dark:text-blue-400 font-medium"
                                   : "text-muted-foreground"
                           )}>
-                            {isLive ? "Live" : isInputRequired ? "Input needed" : isUnviewed ? "New response" : formatDate(conv.updatedAt)}
+                            <span className="shrink-0">
+                              {isLive ? "Live" : isInputRequired ? "Input needed" : isUnviewed ? "New response" : formatDate(conv.updatedAt)}
+                            </span>
                             {/* Dynamic Agent indicator */}
                             {(() => {
                               const agId = getAgentId(conv);
                               if (!agId) return null;
+                              const agentName = agentNameMap[agId];
+                              if (!agentName && agentNamesLoading) {
+                                return (
+                                  <>
+                                    <span className="ml-1.5 text-[10px] text-purple-500 dark:text-purple-400">•</span>
+                                    <Skeleton
+                                      className="ml-1 h-2.5 w-16 shrink-0 rounded-full"
+                                      data-testid="agent-name-skeleton"
+                                    />
+                                  </>
+                                );
+                              }
                               return (
-                                <span className="ml-1.5 text-[10px] text-purple-500 dark:text-purple-400" title={agentNameMap[agId] || 'Unknown Agent'}>
-                                  • {truncateText(agentNameMap[agId] || 'Unknown', 20)}
+                                <span className="ml-1.5 truncate text-[10px] text-purple-500 dark:text-purple-400" title={agentName || 'Unknown Agent'}>
+                                  • {truncateText(agentName || 'Unknown', 20)}
                                 </span>
                               );
                             })()}
-                          </p>
+                          </div>
                         </div>
 
                         <div className="flex items-center gap-0.5 shrink-0">
@@ -771,11 +811,12 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
                     )}
                   </motion.div>
                   </div>
-                  );
-                })}
-              </AnimatePresence>
+                    );
+                  })}
+                </AnimatePresence>
+              )}
 
-              {conversations.length === 0 && !collapsed && (
+              {!isLoadingConversations && conversations.length === 0 && !collapsed && (
                 <div className="text-center py-8 px-4">
                   <div className="w-12 h-12 mx-auto mb-3 rounded-xl bg-muted flex items-center justify-center">
                     <Sparkles className="h-5 w-5 text-muted-foreground" />

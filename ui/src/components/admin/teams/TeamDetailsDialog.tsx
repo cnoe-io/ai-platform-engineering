@@ -8,6 +8,10 @@ import { SearchCapabilityToggle } from "@/components/admin/shared/SearchCapabili
 import { AutomationCapabilityToggle } from "@/components/admin/shared/AutomationCapabilityToggle";
 import { TeamKbAssignmentPanel } from "@/components/admin/teams/TeamKbAssignmentPanel";
 import { Badge } from "@/components/ui/badge";
+import {
+  BuiltInResourceHint,
+  builtInTeamHelpText,
+} from "@/components/ui/built-in-resource-hint";
 import { Button } from "@/components/ui/button";
 import {
 Dialog,
@@ -142,6 +146,7 @@ interface TeamDetailsDialogProps {
   team: Team | null;
   mode: DialogMode;
   open: boolean;
+  canManageOrganization?: boolean;
   onOpenChange: (open: boolean) => void;
   onTeamUpdated: () => void;
   /**
@@ -233,6 +238,7 @@ export function TeamDetailsDialog({
   team,
   mode,
   open,
+  canManageOrganization = false,
   onOpenChange,
   onTeamUpdated,
   onTeamMutated,
@@ -351,7 +357,7 @@ export function TeamDetailsDialog({
   // takes long enough for this to matter, but it keeps stale results
   // from clobbering newer ones when the admin types quickly.
   useEffect(() => {
-    if (!open || activeMode !== "members") return;
+    if (!open || activeMode !== "members" || currentTeam?.can_manage !== true) return;
     const query = newMemberEmail.trim();
     if (query.length < 2) {
       setMemberSearchResults([]);
@@ -398,7 +404,7 @@ export function TeamDetailsDialog({
     return () => {
       clearTimeout(handle);
     };
-  }, [open, activeMode, newMemberEmail]);
+  }, [open, activeMode, currentTeam?.can_manage, newMemberEmail]);
 
   // Membership sources are loaded together with openfga_sync from the
   // canonical GET /api/admin/teams/[id] effect above — no separate fetch.
@@ -523,7 +529,7 @@ export function TeamDetailsDialog({
   };
 
   const handleSaveChannels = async () => {
-    if (!currentTeam) return;
+    if (!currentTeam || currentTeam.can_manage !== true) return;
     setChannelsSaving(true);
     setError(null);
     setChannelsNotice(null);
@@ -560,7 +566,7 @@ export function TeamDetailsDialog({
   };
 
   const handleSaveWebexSpaces = async () => {
-    if (!currentTeam) return;
+    if (!currentTeam || currentTeam.can_manage !== true) return;
     setWebexSpacesSaving(true);
     setError(null);
     setWebexSpacesNotice(null);
@@ -605,7 +611,7 @@ export function TeamDetailsDialog({
   const toggleTool = (id: string) => toggleSet(setSelectedTools, id);
 
   const handleSaveResources = async () => {
-    if (!currentTeam) return;
+    if (!currentTeam || currentTeam.can_manage !== true) return;
     setResourcesSaving(true);
     setError(null);
     setResourcesNotice(null);
@@ -657,7 +663,10 @@ export function TeamDetailsDialog({
       }
       const payload = data.data ?? {};
       if (payload.team) {
-        setCurrentTeam(payload.team);
+        setCurrentTeam((previous) => ({
+          ...payload.team,
+          can_manage: previous?.can_manage === true,
+        }));
       }
     } catch (err) {
       console.error("[TeamDetails] Failed to refresh team:", err);
@@ -726,7 +735,7 @@ export function TeamDetailsDialog({
   }, [currentTeam?._id, fetchMembersPage, memberPageNum, memberSearch]);
 
   const handleSaveEdit = async () => {
-    if (!currentTeam) return;
+    if (!currentTeam || currentTeam.can_manage !== true) return;
     setLoading(true);
     setError(null);
 
@@ -746,7 +755,7 @@ export function TeamDetailsDialog({
       }
 
       const updatedTeam = data.data.team as Team;
-      setCurrentTeam(updatedTeam);
+      setCurrentTeam({ ...updatedTeam, can_manage: true });
       setIsEditing(false);
       if (onTeamMutated) {
         onTeamMutated(updatedTeam);
@@ -762,7 +771,7 @@ export function TeamDetailsDialog({
 
   const handleAddMember = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!currentTeam || !newMemberEmail.trim()) return;
+    if (!currentTeam || currentTeam.can_manage !== true || !newMemberEmail.trim()) return;
 
     setAddingMember(true);
     setError(null);
@@ -783,7 +792,7 @@ export function TeamDetailsDialog({
       }
 
       const updatedTeam = data.data.team as Team;
-      setCurrentTeam(updatedTeam);
+      setCurrentTeam({ ...updatedTeam, can_manage: true });
       setNewMemberEmail("");
       setNewMemberRole("member");
       setMemberSearchResults([]);
@@ -819,7 +828,7 @@ export function TeamDetailsDialog({
   };
 
   const handleRemoveMember = async (email: string) => {
-    if (!currentTeam) return;
+    if (!currentTeam || currentTeam.can_manage !== true) return;
 
     setRemovingMember(email);
     setPendingRemoveMember(null);
@@ -837,7 +846,7 @@ export function TeamDetailsDialog({
       }
 
       const updatedTeam = data.data.team as Team;
-      setCurrentTeam(updatedTeam);
+      setCurrentTeam({ ...updatedTeam, can_manage: true });
       // Optimistically drop the removed row, then reload the page so a member
       // from the next page backfills the slot and the total stays correct.
       setMemberPage((prev) =>
@@ -860,6 +869,11 @@ export function TeamDetailsDialog({
 
   if (!currentTeam) return null;
 
+  const canManageTeam = currentTeam.can_manage === true;
+  const builtInHelp = builtInTeamHelpText(currentTeam.slug);
+  const createdByLabel =
+    currentTeam.created_by === "bootstrap" ? "System" : currentTeam.owner_id;
+
   // Member count for the tab/Details badges. Prefer the server total from the
   // paginated members endpoint once loaded; fall back to the count decorated
   // onto the team by GET /api/admin/teams before the first page loads.
@@ -871,6 +885,9 @@ export function TeamDetailsDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             {isEditing ? "Edit Team" : currentTeam.name}
+            {!isEditing && builtInHelp && (
+              <BuiltInResourceHint text={builtInHelp} />
+            )}
           </DialogTitle>
           <DialogDescription>
             {isEditing
@@ -1046,8 +1063,8 @@ export function TeamDetailsDialog({
                     <span className="text-sm">{currentTeam.description || "—"}</span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">Owner</span>
-                    <span className="text-sm">{currentTeam.owner_id}</span>
+                    <span className="text-sm text-muted-foreground">Created by</span>
+                    <span className="text-sm">{createdByLabel}</span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-muted-foreground">Members</span>
@@ -1061,15 +1078,17 @@ export function TeamDetailsDialog({
                   </div>
                 </div>
 
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setIsEditing(true)}
-                  className="gap-1"
-                >
-                  <Pencil className="h-3.5 w-3.5" />
-                  Edit
-                </Button>
+                {canManageTeam && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setIsEditing(true)}
+                    className="gap-1"
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                    Edit
+                  </Button>
+                )}
               </>
             )}
           </div>
@@ -1083,12 +1102,13 @@ export function TeamDetailsDialog({
                 the literal text in the input as `user_id`, so admins can
                 provision a not-yet-Keycloak user by typing their full
                 email. */}
-            <form
-              onSubmit={handleAddMember}
-              className="flex gap-2 relative"
-              autoComplete="off"
-            >
-              <div className="flex-1 relative">
+            {canManageTeam && (
+              <form
+                onSubmit={handleAddMember}
+                className="flex gap-2 relative"
+                autoComplete="off"
+              >
+                <div className="flex-1 relative">
                 <Search className="h-3.5 w-3.5 text-muted-foreground absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                 <Input
                   placeholder="Search by name or email..."
@@ -1186,30 +1206,31 @@ export function TeamDetailsDialog({
                     )}
                   </div>
                 )}
-              </div>
-              <select
-                value={newMemberRole}
-                onChange={(e) => setNewMemberRole(e.target.value as "member" | "admin")}
-                disabled={addingMember}
-                className="h-9 rounded-md border bg-background px-3 text-sm"
-              >
-                <option value="member">Member</option>
-                <option value="admin">Admin</option>
-              </select>
-              <Button
-                type="submit"
-                size="sm"
-                disabled={addingMember || !newMemberEmail.trim()}
-                className="gap-1 h-9"
-              >
-                {addingMember ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <UserPlus className="h-4 w-4" />
-                )}
-                Add
-              </Button>
-            </form>
+                </div>
+                <select
+                  value={newMemberRole}
+                  onChange={(e) => setNewMemberRole(e.target.value as "member" | "admin")}
+                  disabled={addingMember}
+                  className="h-9 rounded-md border bg-background px-3 text-sm"
+                >
+                  <option value="member">Member</option>
+                  <option value="admin">Admin</option>
+                </select>
+                <Button
+                  type="submit"
+                  size="sm"
+                  disabled={addingMember || !newMemberEmail.trim()}
+                  className="gap-1 h-9"
+                >
+                  {addingMember ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <UserPlus className="h-4 w-4" />
+                  )}
+                  Add
+                </Button>
+              </form>
+            )}
 
             {/* Filter the roster by email. Debounced into a server-side
                 query so it works regardless of how large the team is. */}
@@ -1236,7 +1257,9 @@ export function TeamDetailsDialog({
                   <p className="text-sm text-muted-foreground text-center py-8">
                     {memberSearch.trim()
                       ? `No members match "${memberSearch.trim()}".`
-                      : "No members yet. Add members above."}
+                      : canManageTeam
+                        ? "No members yet. Add members above."
+                        : "No members."}
                   </p>
                 ) : (
                   memberPage.map((member) => {
@@ -1295,7 +1318,7 @@ export function TeamDetailsDialog({
                             {getRoleIcon(member.role)}
                             {member.role}
                           </Badge>
-                          {member.role !== "owner" && (
+                          {canManageTeam && member.role !== "owner" && (
                             member.idp_managed ? (
                               <span
                                 title="Managed by identity sync — edit membership in your IDP"
@@ -1454,20 +1477,23 @@ export function TeamDetailsDialog({
                   selectedAdmins={selectedAgentAdmins}
                   onToggleUser={toggleAgent}
                   onToggleAdmin={toggleAgentAdmin}
+                  readOnly={!canManageTeam}
                 />
               </div>
             )}
 
-            <div className="flex justify-end gap-2 pt-2 border-t">
-              <SaveButton
-                onSave={handleSaveResources}
-                saving={resourcesSaving}
-                dirty
-                hideDirtyBadge
-                disabled={resourcesLoading || !resourcesData}
-                ariaLabel="Save agent access"
-              />
-            </div>
+            {canManageTeam && (
+              <div className="flex justify-end gap-2 pt-2 border-t">
+                <SaveButton
+                  onSave={handleSaveResources}
+                  saving={resourcesSaving}
+                  dirty
+                  hideDirtyBadge
+                  disabled={resourcesLoading || !resourcesData}
+                  ariaLabel="Save agent access"
+                />
+              </div>
+            )}
           </div>
         )}
 
@@ -1500,20 +1526,23 @@ export function TeamDetailsDialog({
                   onToggle={toggleTool}
                   wildcard={toolWildcard}
                   onWildcardChange={setToolWildcard}
+                  readOnly={!canManageTeam}
                 />
               </div>
             )}
 
-            <div className="flex justify-end gap-2 pt-2 border-t">
-              <SaveButton
-                onSave={handleSaveResources}
-                saving={resourcesSaving}
-                dirty
-                hideDirtyBadge
-                disabled={resourcesLoading || !resourcesData}
-                ariaLabel="Save MCP access"
-              />
-            </div>
+            {canManageTeam && (
+              <div className="flex justify-end gap-2 pt-2 border-t">
+                <SaveButton
+                  onSave={handleSaveResources}
+                  saving={resourcesSaving}
+                  dirty
+                  hideDirtyBadge
+                  disabled={resourcesLoading || !resourcesData}
+                  ariaLabel="Save MCP access"
+                />
+              </div>
+            )}
           </div>
         )}
 
@@ -1564,19 +1593,22 @@ export function TeamDetailsDialog({
               <SlackChannelsPanel
                 assigned={editedChannels}
                 onRemove={handleRemoveChannel}
+                readOnly={!canManageTeam}
               />
             )}
 
-            <div className="flex justify-end gap-2 pt-2 border-t">
-              <SaveButton
-                onSave={handleSaveChannels}
-                saving={channelsSaving}
-                dirty
-                hideDirtyBadge
-                disabled={channelsLoading || !channelsData}
-                ariaLabel="Save channels"
-              />
-            </div>
+            {canManageTeam && (
+              <div className="flex justify-end gap-2 pt-2 border-t">
+                <SaveButton
+                  onSave={handleSaveChannels}
+                  saving={channelsSaving}
+                  dirty
+                  hideDirtyBadge
+                  disabled={channelsLoading || !channelsData}
+                  ariaLabel="Save channels"
+                />
+              </div>
+            )}
           </div>
         )}
 
@@ -1604,19 +1636,22 @@ export function TeamDetailsDialog({
               <WebexSpacesPanel
                 assigned={editedWebexSpaces}
                 onRemove={handleRemoveWebexSpace}
+                readOnly={!canManageTeam}
               />
             )}
 
-            <div className="flex justify-end gap-2 pt-2 border-t">
-              <SaveButton
-                onSave={handleSaveWebexSpaces}
-                saving={webexSpacesSaving}
-                dirty
-                hideDirtyBadge
-                disabled={webexSpacesLoading || !webexSpacesData}
-                ariaLabel="Save spaces"
-              />
-            </div>
+            {canManageTeam && (
+              <div className="flex justify-end gap-2 pt-2 border-t">
+                <SaveButton
+                  onSave={handleSaveWebexSpaces}
+                  saving={webexSpacesSaving}
+                  dirty
+                  hideDirtyBadge
+                  disabled={webexSpacesLoading || !webexSpacesData}
+                  ariaLabel="Save spaces"
+                />
+              </div>
+            )}
           </div>
         )}
 
@@ -1629,6 +1664,7 @@ export function TeamDetailsDialog({
             <IngestCapabilityToggle
               teamId={currentTeam._id}
               teamName={currentTeam.name}
+              readOnly={!canManageOrganization}
             />
 
             {/* Explicit "search" capability (spec
@@ -1638,12 +1674,13 @@ export function TeamDetailsDialog({
             <SearchCapabilityToggle
               teamId={currentTeam._id}
               teamName={currentTeam.name}
+              readOnly={!canManageOrganization}
             />
 
             <TeamKbAssignmentPanel
               teamId={currentTeam._id}
               teamName={currentTeam.name}
-              isAdmin={true}
+              isAdmin={canManageTeam}
             />
           </div>
         )}
@@ -1717,12 +1754,14 @@ function AgentList({
   selectedAdmins,
   onToggleUser,
   onToggleAdmin,
+  readOnly,
 }: {
   options: ResourceOption[];
   selectedUsers: Set<string>;
   selectedAdmins: Set<string>;
   onToggleUser: (id: string) => void;
   onToggleAdmin: (id: string) => void;
+  readOnly: boolean;
 }) {
   const handleAdminClick = (id: string, currentlyAdmin: boolean) => {
     onToggleAdmin(id);
@@ -1786,7 +1825,7 @@ function AgentList({
                         // user from accidentally creating an "admin but no
                         // use" state that authz actually allows but is
                         // confusing. They can untick Manage first.
-                        disabled={isAdmin}
+                        disabled={readOnly || isAdmin}
                       />
                     </label>
                     <label
@@ -1797,6 +1836,7 @@ function AgentList({
                         type="checkbox"
                         checked={isAdmin}
                         onChange={() => handleAdminClick(opt.id, isAdmin)}
+                        disabled={readOnly}
                       />
                     </label>
                   </div>
@@ -1822,12 +1862,14 @@ function ToolList({
   onToggle,
   wildcard,
   onWildcardChange,
+  readOnly,
 }: {
   options: ResourceOption[];
   selected: Set<string>;
   onToggle: (id: string) => void;
   wildcard: boolean;
   onWildcardChange: (v: boolean) => void;
+  readOnly: boolean;
 }) {
   return (
     <div className="rounded-md border flex flex-col min-h-0">
@@ -1851,6 +1893,7 @@ function ToolList({
             className="mt-0.5"
             checked={wildcard}
             onChange={(e) => onWildcardChange(e.target.checked)}
+            disabled={readOnly}
           />
           <span className="min-w-0 flex-1">
             <span className="block text-sm font-medium">All MCP servers (wildcard)</span>
@@ -1881,6 +1924,7 @@ function ToolList({
                       className="mt-0.5"
                       checked={checked}
                       onChange={() => onToggle(opt.id)}
+                      disabled={readOnly}
                     />
                     <span className="min-w-0 flex-1">
                       <span className="block text-sm font-mono truncate">{opt.name}</span>
@@ -1911,9 +1955,11 @@ function ToolList({
 function SlackChannelsPanel({
   assigned,
   onRemove,
+  readOnly,
 }: {
   assigned: TeamSlackChannel[];
   onRemove: (id: string) => void;
+  readOnly: boolean;
 }) {
   return (
     <div className="rounded-md border flex flex-col min-h-0 flex-1">
@@ -1944,15 +1990,17 @@ function SlackChannelsPanel({
                       {c.slack_channel_id}
                     </div>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive shrink-0"
-                    onClick={() => onRemove(c.slack_channel_id)}
-                    title="Remove from team"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
+                  {!readOnly && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive shrink-0"
+                      onClick={() => onRemove(c.slack_channel_id)}
+                      title="Remove from team"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
                 </div>
               </li>
             ))}
@@ -1971,9 +2019,11 @@ function SlackChannelsPanel({
 function WebexSpacesPanel({
   assigned,
   onRemove,
+  readOnly,
 }: {
   assigned: TeamWebexSpace[];
   onRemove: (id: string) => void;
+  readOnly: boolean;
 }) {
   return (
     <div className="rounded-md border flex flex-col min-h-0 flex-1">
@@ -2002,15 +2052,17 @@ function WebexSpacesPanel({
                       {space.webex_space_id}
                     </div>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive shrink-0"
-                    onClick={() => onRemove(space.webex_space_id)}
-                    title="Remove from team"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
+                  {!readOnly && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive shrink-0"
+                      onClick={() => onRemove(space.webex_space_id)}
+                      title="Remove from team"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
                 </div>
               </li>
             ))}

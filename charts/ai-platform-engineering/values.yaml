@@ -69,6 +69,20 @@ global:
     enableGraphRag: true
     openfga:
       httpUrl: ""
+    # The standalone RAG ingestors use the existing caipe-platform client for
+    # their narrow heartbeat/job/document transport. `tpl` is evaluated by the
+    # RAG subcharts so the bundled Keycloak service follows the release name.
+    # Operators that rename keycloak.platformClient.secretRef must update this
+    # Secret name as well.
+    ingestorOidc:
+      issuer: ""
+      discoveryUrl: "http://{{ .Release.Name }}-keycloak:8080/realms/caipe/.well-known/openid-configuration"
+      jwksUrl: "http://{{ .Release.Name }}-keycloak:8080/realms/caipe/protocol/openid-connect/certs"
+      clientId: "caipe-platform"
+      scope: ""
+      clientSecretRef:
+        name: "caipe-platform-secret"
+        key: "OIDC_CLIENT_SECRET"
 
   metrics:
     enabled: true
@@ -1562,6 +1576,8 @@ openfga-authz-bridge:
     repository: ghcr.io/cnoe-io/openfga-authz-bridge
     tag: ""
     pullPolicy: IfNotPresent
+  # Must match caipe-ui.config.CAIPE_ORG_KEY.
+  organizationKey: caipe
   openfga:
     httpUrl: ""
     storeName: caipe-openfga
@@ -1605,7 +1621,6 @@ rag-stack:
       tag: ""
       pullPolicy: "IfNotPresent"
     env:
-      RBAC_TEAM_SCOPE_ENABLED: "true"
       OPENFGA_STORE_NAME: "caipe-openfga"
       CAIPE_UNSAFE_RBAC_BYPASS: "false"
 

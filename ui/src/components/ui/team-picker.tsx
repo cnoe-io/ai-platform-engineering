@@ -346,6 +346,8 @@ interface TeamMultiPickerProps extends CommonPickerProps {
   /** When true, render a "Clear all" button at the bottom of the
    *  popover whenever any teams are selected. */
   allowClearAll?: boolean;
+  /** Maximum number of selected teams. Existing selections stay removable. */
+  maxSelections?: number;
 }
 
 export function TeamMultiPicker({
@@ -362,9 +364,11 @@ export function TeamMultiPicker({
   ariaLabel,
   hideSlugSuffix = false,
   portalled = true,
+  contentSide = "bottom",
   triggerChipCap = 2,
   helperText,
   allowClearAll = true,
+  maxSelections,
 }: TeamMultiPickerProps) {
   const [open, setOpen] = React.useState(false);
   const [query, setQuery] = React.useState("");
@@ -422,6 +426,7 @@ export function TeamMultiPicker({
         ),
       );
     } else {
+      if (maxSelections !== undefined && selected.length >= maxSelections) return;
       onChange([...selected, option.slug]);
     }
   };
@@ -502,6 +507,7 @@ export function TeamMultiPicker({
       </PopoverTrigger>
       <PopoverContent
         align="start"
+        side={contentSide}
         className={cn("w-[min(360px,90vw)] p-0", contentClassName)}
         portalled={portalled}
       >
@@ -556,7 +562,11 @@ export function TeamMultiPicker({
               {filtered.otherHits.map((option) => (
                 <OptionRow
                   key={`o-${option.slug}`}
-                  option={option}
+                  option={
+                    maxSelections !== undefined && selected.length >= maxSelections
+                      ? { ...option, disabled: true }
+                      : option
+                  }
                   selected={false}
                   onToggle={() => toggle(option)}
                   hideSlugSuffix={hideSlugSuffix}

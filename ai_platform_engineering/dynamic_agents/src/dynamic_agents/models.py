@@ -546,6 +546,24 @@ class DynamicAgentConfigBase(BaseModel):
         default_factory=list,
         description="Skill document IDs from agent_skills collection",
     )
+    datasource_ids: list[str] | None = Field(
+        None,
+        description=(
+            "RAG datasource ids (== source_id == knowledge_base_id) this agent's "
+            "search tool is pinned to. Narrows, never widens: the runtime "
+            "intersects this list with the caller's RBAC-accessible datasources, "
+            "so None preserves the legacy 'search everything the caller can see' "
+            "behavior, while an explicit empty list disables RAG tools."
+        ),
+    )
+    rag_collection_ids: list[str] | None = Field(
+        None,
+        description=(
+            "RAG collection ids expanded from MongoDB at tool-call time. "
+            "The resulting datasource ids are unioned with datasource_ids; "
+            "the RAG server still intersects them with caller authorization."
+        ),
+    )
     builtin_tools: BuiltinToolsConfig | None = Field(
         None,
         description="Configuration for built-in tools (fetch_url, etc.)",

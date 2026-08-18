@@ -603,8 +603,8 @@ appConfig:
   #   channel_id: "C1234567890"
   #   name: "eng-general"
   #   description: "Engineering general channel"
-  #   owner_team: "team-example"          # optional — omit for a global, unowned source
-  #   shared_with_teams: []
+  #   owner_team: "team-example"          # optional management owner
+  #   search_with_teams: ["search-team"]  # optional, independent Search & Ingest access
   #   visibility: "global"                 # optional, defaults to "global" for config-driven sources
   #   default_chunk_size: 10000
   #   default_chunk_overlap: 2000

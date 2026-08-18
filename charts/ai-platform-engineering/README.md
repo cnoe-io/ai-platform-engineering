@@ -250,6 +250,13 @@ helm show values oci://ghcr.io/cnoe-io/charts/ai-platform-engineering --version 
 | global.openfga.httpUrl | string | `""` |  |
 | global.openfga.storeName | string | `"caipe-openfga"` |  |
 | global.rag.enableGraphRag | bool | `true` |  |
+| global.rag.ingestorOidc.clientId | string | `"caipe-platform"` |  |
+| global.rag.ingestorOidc.clientSecretRef.key | string | `"OIDC_CLIENT_SECRET"` |  |
+| global.rag.ingestorOidc.clientSecretRef.name | string | `"caipe-platform-secret"` |  |
+| global.rag.ingestorOidc.discoveryUrl | string | `"http://{{ .Release.Name }}-keycloak:8080/realms/caipe/.well-known/openid-configuration"` |  |
+| global.rag.ingestorOidc.issuer | string | `""` |  |
+| global.rag.ingestorOidc.jwksUrl | string | `"http://{{ .Release.Name }}-keycloak:8080/realms/caipe/protocol/openid-connect/certs"` |  |
+| global.rag.ingestorOidc.scope | string | `""` |  |
 | global.rag.openfga.httpUrl | string | `""` |  |
 | global.scheduler.enabled | bool | `false` |  |
 | global.scheduler.serviceTokenSecretKey | string | `"token"` |  |
@@ -543,6 +550,7 @@ helm show values oci://ghcr.io/cnoe-io/charts/ai-platform-engineering --version 
 | openfga-authz-bridge.openfga.object | string | `"mcp_gateway:list"` |  |
 | openfga-authz-bridge.openfga.relation | string | `"can_call"` |  |
 | openfga-authz-bridge.openfga.storeName | string | `"caipe-openfga"` |  |
+| openfga-authz-bridge.organizationKey | string | `"caipe"` |  |
 | openfga-authz-bridge.restrictedMcpServers | list | `[]` |  |
 | openfga-authz-bridge.tokenValidation.algorithms[0] | string | `"RS256"` |  |
 | openfga-authz-bridge.tokenValidation.audiences | list | `[]` |  |
@@ -576,7 +584,6 @@ helm show values oci://ghcr.io/cnoe-io/charts/ai-platform-engineering --version 
 | rag-stack.rag-server.enabled | bool | `true` |  |
 | rag-stack.rag-server.env.CAIPE_UNSAFE_RBAC_BYPASS | string | `"false"` |  |
 | rag-stack.rag-server.env.OPENFGA_STORE_NAME | string | `"caipe-openfga"` |  |
-| rag-stack.rag-server.env.RBAC_TEAM_SCOPE_ENABLED | string | `"true"` |  |
 | rag-stack.rag-server.image.pullPolicy | string | `"IfNotPresent"` |  |
 | rag-stack.rag-server.image.repository | string | `"ghcr.io/cnoe-io/caipe-rag-server"` |  |
 | rag-stack.rag-server.image.tag | string | `""` |  |

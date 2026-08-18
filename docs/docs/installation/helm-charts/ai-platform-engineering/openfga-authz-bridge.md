@@ -77,6 +77,7 @@ helm show values oci://ghcr.io/cnoe-io/charts/openfga-authz-bridge --version 0.5
 | openfga.relation | string | `"can_call"` |  |
 | openfga.storeId | string | `""` |  |
 | openfga.storeName | string | `"caipe-openfga"` |  |
+| organizationKey | string | `"caipe"` |  |
 | podAnnotations | object | `{}` |  |
 | podSecurityContext.fsGroup | int | `1001` |  |
 | podSecurityContext.runAsGroup | int | `1001` |  |

@@ -12,7 +12,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { useApplicationNavigation } from "@/components/layout/ApplicationNavigationContext";
-import { NavigationProgressLink } from "@/components/layout/NavigationProgressLink";
+import { GuardedNavigationLink } from "@/components/layout/GuardedNavigationLink";
 import { useWorkspaceRail } from "@/components/layout/WorkspaceRailContext";
 import { pushWithNavigationProgress } from "@/lib/navigation-progress";
 import { cn } from "@/lib/utils";
@@ -235,7 +235,7 @@ function NavigationItem({
       {contents}
     </span>
   ) : item.href ? (
-    <NavigationProgressLink
+    <GuardedNavigationLink
       aria-current={active ? "page" : undefined}
       aria-label={collapsed ? item.label : undefined}
       className={itemClassName}
@@ -243,9 +243,10 @@ function NavigationItem({
       data-testid={item.testId}
       href={item.href}
       onClick={handleNavigate}
+      prefetch={item.prefetch}
     >
       {contents}
-    </NavigationProgressLink>
+    </GuardedNavigationLink>
   ) : (
     <button
       aria-current={active ? "page" : undefined}
@@ -263,10 +264,8 @@ function NavigationItem({
     </button>
   );
 
-  if (!collapsed && !item.disabled) return control;
-
   return (
-    <Tooltip>
+    <Tooltip className="block w-full">
       <TooltipTrigger asChild>{control}</TooltipTrigger>
       <TooltipContent className="max-w-xs whitespace-normal" side="right" sideOffset={8}>
         {item.disabled ? item.disabledReason ?? `${item.label} is unavailable` : item.label}
@@ -364,46 +363,53 @@ export function WorkspaceNavigationList({
                   }
                   return (
                     <div className="space-y-2" key={item.id}>
-                      <button
-                        aria-controls={childrenId}
-                        aria-expanded={expanded}
-                        className={cn(
-                          "group flex w-full items-center gap-3 rounded-xl border border-transparent px-2.5 py-2 text-left text-muted-foreground outline-none transition-colors",
-                          "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
-                          density === "descriptive" ? "min-h-14" : "min-h-12",
-                          active
-                            ? "bg-muted/50 font-medium text-foreground"
-                            : "hover:bg-muted/60 hover:text-foreground",
-                        )}
-                        onClick={() => {
-                          setExpandedItemIds((current) => {
-                            const next = new Set(current);
-                            if (next.has(item.id)) {
-                              next.delete(item.id);
-                            } else {
-                              next.add(item.id);
-                            }
-                            return next;
-                          });
-                        }}
-                        type="button"
-                      >
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-sm font-medium">{item.label}</span>
-                          {density === "descriptive" && item.description ? (
-                            <span className="block truncate text-xs font-normal text-muted-foreground">
-                              {item.description}
+                      <Tooltip className="block w-full">
+                        <TooltipTrigger asChild>
+                          <button
+                            aria-controls={childrenId}
+                            aria-expanded={expanded}
+                            className={cn(
+                              "group flex w-full items-center gap-3 rounded-xl border border-transparent px-2.5 py-2 text-left text-muted-foreground outline-none transition-colors",
+                              "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+                              density === "descriptive" ? "min-h-14" : "min-h-12",
+                              active
+                                ? "bg-muted/50 font-medium text-foreground"
+                                : "hover:bg-muted/60 hover:text-foreground",
+                            )}
+                            onClick={() => {
+                              setExpandedItemIds((current) => {
+                                const next = new Set(current);
+                                if (next.has(item.id)) {
+                                  next.delete(item.id);
+                                } else {
+                                  next.add(item.id);
+                                }
+                                return next;
+                              });
+                            }}
+                            type="button"
+                          >
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-sm font-medium">{item.label}</span>
+                              {density === "descriptive" && item.description ? (
+                                <span className="block truncate text-xs font-normal text-muted-foreground">
+                                  {item.description}
+                                </span>
+                              ) : null}
                             </span>
-                          ) : null}
-                        </span>
-                        <ChevronDown
-                          aria-hidden="true"
-                          className={cn(
-                            "h-4 w-4 shrink-0 transition-transform",
-                            expanded && "rotate-180",
-                          )}
-                        />
-                      </button>
+                            <ChevronDown
+                              aria-hidden="true"
+                              className={cn(
+                                "h-4 w-4 shrink-0 transition-transform",
+                                expanded && "rotate-180",
+                              )}
+                            />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-xs whitespace-normal" side="right" sideOffset={8}>
+                          {item.label}
+                        </TooltipContent>
+                      </Tooltip>
 
                       {expanded ? (
                         <div
@@ -693,7 +699,12 @@ export function WorkspaceHierarchicalNavigationList({
           );
           return (
             <section className="space-y-2" key={category.id}>
-              {categoryControl}
+              <Tooltip className="block w-full">
+                <TooltipTrigger asChild>{categoryControl}</TooltipTrigger>
+                <TooltipContent className="max-w-xs whitespace-normal" side="right" sideOffset={8}>
+                  {category.label}
+                </TooltipContent>
+              </Tooltip>
 
               {expanded ? (
                 <div

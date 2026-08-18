@@ -342,6 +342,9 @@ class TestWorkerSpiderRedirectHandling:
   async def test_async_start_uses_mode_specific_start_requests(self):
     """WorkerSpider should not let Scrapy default to parse() for start URLs."""
     spider = self._make_worker_spider(start_url="https://example.com/", crawl_mode="sitemap")
+    # URL safety has dedicated tests below. Keep this request-generation test
+    # deterministic and independent from live DNS/network access.
+    spider._is_safe_crawl_url = Mock(return_value=True)
 
     requests = [request async for request in spider.start()]
 
@@ -664,6 +667,59 @@ class TestParseSitemapFlatUrlset:
 
     assert len(requests) == 3
     assert spider.total_pages_to_crawl == 3
+
+
+class TestParseSitemapFilteringOrder:
+  """Regression coverage for applying sitemap URL filters before page limits."""
+
+  def test_allow_pattern_can_select_urls_after_preview_limit(self):
+    """A route later in a sitemap remains previewable when earlier routes do not match."""
+    from multiprocessing import Queue
+    from unittest.mock import patch
+
+    from ingestors.webloader.loader.scrapy_worker import WorkerSpider
+    from ingestors.webloader.loader.worker_types import CrawlRequest
+
+    excluded_urls = "".join(
+      f"<url><loc>https://docs.example.com/blog/post-{index}</loc></url>"
+      for index in range(100)
+    )
+    matching_urls = "".join(
+      f"<url><loc>https://docs.example.com/docs/1.2/page-{index}</loc></url>"
+      for index in range(3)
+    )
+    sitemap = f"<urlset>{excluded_urls}{matching_urls}</urlset>"
+    request = CrawlRequest(
+      job_id="test-job",
+      url="https://docs.example.com/",
+      datasource_id="test-ds",
+      crawl_mode="sitemap",
+      max_pages=2,
+      allowed_url_patterns=[r"^https://docs\.example\.com/docs/1\.2/.*$"],
+    )
+    spider = WorkerSpider(request=request, result_queue=Queue())
+    response = Mock(
+      url="https://docs.example.com/sitemap.xml",
+      status=200,
+      text=sitemap,
+      meta={},
+      request=Mock(url="https://docs.example.com/sitemap.xml"),
+    )
+
+    with patch(
+      "ingestors.webloader.loader.scrapy_worker.is_publicly_routable_url",
+      return_value=(True, ""),
+    ):
+      requests = list(spider.parse_sitemap(response))
+
+    assert [request.url for request in requests] == [
+      "https://docs.example.com/docs/1.2/page-0",
+      "https://docs.example.com/docs/1.2/page-1",
+    ]
+    assert spider.urls_found_in_sitemap == 103
+    assert spider.urls_matched_in_sitemap == 3
+    assert spider.urls_filtered_pattern == 100
+    assert spider.urls_filtered_max_pages == 1
 
 
 # ============================================================================
