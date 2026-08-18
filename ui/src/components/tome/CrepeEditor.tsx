@@ -252,13 +252,15 @@ export const CrepeEditor = forwardRef<CrepeEditorHandle, Props>(function CrepeEd
         .querySelectorAll<HTMLElement>(".milkdown-image-block:not([data-remove-decorated])")
         .forEach((block) => {
           block.dataset.removeDecorated = "true";
+          const toolbar = document.createElement("div");
+          toolbar.className = "tome-embed-toolbar";
           const button = document.createElement("button");
           button.type = "button";
           button.className = "tome-image-remove";
           button.setAttribute("aria-label", "Remove image");
-          button.title = "Remove image";
-          button.innerHTML = '<span aria-hidden="true">×</span>';
-          block.appendChild(button);
+          button.innerHTML = '<span aria-hidden="true">✕</span><span>Remove image</span>';
+          toolbar.appendChild(button);
+          block.prepend(toolbar);
         });
     };
     decorate();

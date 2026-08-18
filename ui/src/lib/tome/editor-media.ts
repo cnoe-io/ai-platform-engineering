@@ -21,9 +21,12 @@ function mermaidPreviewMarkup(svg: string): string {
 
 function embedRemoveButtonMarkup(label: string): string {
   return [
-    `<button type="button" class="tome-embed-remove" aria-label="Remove ${label} embed" title="Remove embed">`,
-    '<span aria-hidden="true">×</span>',
+    '<div class="tome-embed-toolbar">',
+    `<button type="button" class="tome-embed-remove" aria-label="Remove ${label} embed">`,
+    '<span aria-hidden="true">✕</span>',
+    "<span>Remove embed</span>",
     "</button>",
+    "</div>",
   ].join("");
 }
 
@@ -60,10 +63,10 @@ export function createEmbedError(provider: string, message: string): HTMLElement
   const node = document.createElement("div");
   node.className = `tome-embed-error tome-${provider}-error`;
   node.setAttribute("role", "alert");
+  node.insertAdjacentHTML("beforeend", embedRemoveButtonMarkup(embedProviderLabel(provider)));
   const text = document.createElement("span");
   text.textContent = message;
   node.append(text);
-  node.insertAdjacentHTML("beforeend", embedRemoveButtonMarkup(embedProviderLabel(provider)));
   return node;
 }
 
