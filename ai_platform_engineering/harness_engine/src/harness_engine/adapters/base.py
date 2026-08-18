@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from harness_engine.models import (
     AdapterEvaluation,
@@ -13,13 +13,17 @@ from harness_engine.models import (
     RunContext,
 )
 
+if TYPE_CHECKING:
+    from harness_engine.sessions import ProviderSessionManager
+
 
 class HarnessAdapter(Protocol):
     @property
     def descriptor(self) -> HarnessDescriptor: ...
 
-    def evaluate(self, blueprint: AgentBlueprint) -> AdapterEvaluation: ...
+    @property
+    def session_manager(self) -> ProviderSessionManager: ...
 
-    def initial_provider_session_id(self, binding_id: str) -> str | None: ...
+    def evaluate(self, blueprint: AgentBlueprint) -> AdapterEvaluation: ...
 
     def stream(self, context: RunContext) -> AsyncIterator[CanonicalEventDraft]: ...

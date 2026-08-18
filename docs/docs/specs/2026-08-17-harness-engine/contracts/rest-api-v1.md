@@ -2,7 +2,8 @@
 
 > **Vertical-slice mapping:** The independent service currently exposes
 > `/api/v1/harnesses`, `/api/v1/agent-drafts/validate`, `/api/v1/agents/{id}`,
-> and detached `/api/v1/runs` plus replay/event-stream routes. The compatibility
+> detached `/api/v1/runs` plus replay/event-stream routes, and
+> `POST /api/v1/sessions/clear`. The compatibility
 > API below remains future replacement work and Dynamic Agents is unchanged.
 
 ## Compatibility rule

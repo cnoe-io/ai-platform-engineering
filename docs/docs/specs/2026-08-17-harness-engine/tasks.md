@@ -378,3 +378,6 @@ not complete or modify tasks targeting `ai_platform_engineering/dynamic_agents/`
 - [x] T146 Document the portable contracts, session/thread/memory model, sandbox-pod target, UI contract, current limitations, and research in `portable-abstractions.md` and the component README.
 - [ ] T147 Move Harness Engine validation before the legacy Dynamic Agents write and provide atomic/recoverable dual-save coordination.
 - [ ] T148 Implement claim-exclusive Agent Sandbox pods, worker fencing, external checkpoint state, and tool/memory broker capability tokens for local SDK harnesses.
+- [x] T149 Implement `CAIPEAgentSessionManager` for binding identity, ownership, immutable version pinning, durable lookup, provider event persistence, clear, and epoch rotation.
+- [x] T150 Implement the provider-specific `ProviderSessionManager` contract and AgentCore deterministic plus Claude event-assigned strategies.
+- [x] T151 Add authorized session-clear API/BFF routes and tests proving active-run cancellation, owner isolation, provider close, new binding identity, and adoption of the current agent version after clear.

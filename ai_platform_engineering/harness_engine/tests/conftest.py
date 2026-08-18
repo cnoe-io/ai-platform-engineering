@@ -19,6 +19,7 @@ from harness_engine.models import (
     RunContext,
 )
 from harness_engine.repository import InMemoryRunRepository
+from harness_engine.sessions import DeterministicProviderSessionManager, ProviderSessionManager
 
 
 class FakeHarnessAdapter:
@@ -26,6 +27,13 @@ class FakeHarnessAdapter:
         self.chunks = chunks or ["hello", " world"]
         self.delay = delay
         self.calls: list[RunContext] = []
+        self._session_manager = DeterministicProviderSessionManager(
+            "agentcore", prefix="provider-", checkpoint_strategy="remote_managed"
+        )
+
+    @property
+    def session_manager(self) -> ProviderSessionManager:
+        return self._session_manager
 
     @property
     def descriptor(self) -> HarnessDescriptor:
@@ -54,10 +62,7 @@ class FakeHarnessAdapter:
         )
 
     def evaluate(self, blueprint: AgentBlueprint) -> AdapterEvaluation:
-        return AdapterEvaluation(normalized_options={}, checkpoint_strategy="remote_managed")
-
-    def initial_provider_session_id(self, binding_id: str) -> str:
-        return f"provider-{binding_id}"
+        return AdapterEvaluation(normalized_options={})
 
     async def stream(self, context: RunContext) -> AsyncIterator[CanonicalEventDraft]:
         self.calls.append(context)

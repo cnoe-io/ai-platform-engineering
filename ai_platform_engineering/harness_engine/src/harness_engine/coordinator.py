@@ -3,22 +3,25 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
-import hmac
 from contextlib import suppress
 from uuid import uuid4
 
 from harness_engine.brokers import PromptCompiler
 from harness_engine.models import (
+    ClearAgentSessionResult,
     CreateRunRequest,
     RunContext,
     RunRecord,
     RunStatus,
-    SessionBinding,
     TurnInput,
 )
 from harness_engine.registry import HarnessRegistry
 from harness_engine.repository import RunRepository
+from harness_engine.sessions import (
+    AgentSessionClosedError,
+    AgentSessionNotRunnableError,
+    CAIPEAgentSessionManager,
+)
 
 
 class AgentNotRunnableError(Exception):
@@ -32,19 +35,15 @@ class RunCoordinator:
         self,
         repository: RunRepository,
         registry: HarnessRegistry,
+        session_manager: CAIPEAgentSessionManager,
         prompt_compiler: PromptCompiler,
-        session_key: bytes,
     ) -> None:
         self._repository = repository
         self._registry = registry
+        self._session_manager = session_manager
         self._prompt_compiler = prompt_compiler
-        self._session_key = session_key
         self._tasks: dict[str, asyncio.Task[None]] = {}
-
-    def _binding_id(self, owner_subject: str, agent_id: str, conversation_id: str) -> str:
-        identity = "\0".join((owner_subject, agent_id, conversation_id, "0")).encode()
-        digest = hmac.new(self._session_key, identity, hashlib.sha256).hexdigest()
-        return f"binding-{digest}"
+        self._run_bindings: dict[str, str] = {}
 
     async def start_run(
         self,
@@ -52,36 +51,12 @@ class RunCoordinator:
         owner_subject: str,
         traceparent: str | None = None,
     ) -> RunRecord:
-        record = await self._repository.get_agent(request.agent_id)
-        if not record or not record.enabled:
-            raise AgentNotRunnableError(request.agent_id)
-
-        binding_id = self._binding_id(owner_subject, request.agent_id, request.conversation_id)
-        binding = await self._repository.get_session(binding_id)
-        version_number = binding.agent_version if binding else record.current_version
-        version = await self._repository.get_agent_version(request.agent_id, version_number)
-        if version is None:
-            raise AgentNotRunnableError(request.agent_id)
         try:
-            adapter = self._registry.adapter(version.blueprint.harness.id)
-        except Exception as exc:
-            raise AgentNotRunnableError(version.blueprint.harness.id) from exc
-        evaluation = adapter.evaluate(version.blueprint)
-
-        if binding is None:
-            binding = await self._repository.create_session(
-                SessionBinding(
-                    binding_id=binding_id,
-                    owner_subject=owner_subject,
-                    agent_id=request.agent_id,
-                    agent_version=version.version,
-                    conversation_id=request.conversation_id,
-                    harness_id=version.blueprint.harness.id,
-                    profile_id=version.blueprint.harness.profile_id,
-                    provider_session_id=adapter.initial_provider_session_id(binding_id),
-                    checkpoint_strategy=evaluation.checkpoint_strategy,
-                )
+            binding, version = await self._session_manager.resolve(
+                owner_subject, request.agent_id, request.conversation_id
             )
+        except AgentSessionNotRunnableError as exc:
+            raise AgentNotRunnableError(request.agent_id) from exc
 
         run = RunRecord(
             run_id=f"run-{uuid4().hex}",
@@ -105,7 +80,13 @@ class RunCoordinator:
         )
         task = asyncio.create_task(self._pump(run, context), name=f"harness-run:{run.run_id}")
         self._tasks[run.run_id] = task
-        task.add_done_callback(lambda _: self._tasks.pop(run.run_id, None))
+        self._run_bindings[run.run_id] = binding.binding_id
+
+        def forget(_: asyncio.Task[None]) -> None:
+            self._tasks.pop(run.run_id, None)
+            self._run_bindings.pop(run.run_id, None)
+
+        task.add_done_callback(forget)
         return run
 
     async def _pump(self, run: RunRecord, context: RunContext) -> None:
@@ -122,18 +103,19 @@ class RunCoordinator:
             )
             adapter = self._registry.adapter(run.harness_id)
             async for event in adapter.stream(context):
-                if event.event_type == "session.updated":
-                    provider_session_id = str(event.data.get("provider_session_id", ""))
-                    if provider_session_id:
-                        await self._repository.update_session_provider_id(
-                            run.binding_id, provider_session_id
-                        )
+                updated_binding = await self._session_manager.observe_provider_event(
+                    context.binding, event
+                )
+                if updated_binding.provider_session_id != context.binding.provider_session_id:
+                    context = context.model_copy(update={"binding": updated_binding})
+                    if updated_binding.provider_session_id:
                         await self._repository.update_run_provider_id(
-                            run.run_id, provider_session_id
+                            run.run_id, updated_binding.provider_session_id
                         )
                 await self._repository.append_event(
                     run.run_id, event.event_type, event.data
                 )
+            await self._session_manager.ensure_active(context.binding)
             await self._repository.append_event(
                 run.run_id, "run.completed", {}, RunStatus.COMPLETED
             )
@@ -142,6 +124,10 @@ class RunCoordinator:
                 run.run_id, "run.cancelled", {}, RunStatus.CANCELLED
             )
             raise
+        except AgentSessionClosedError:
+            await self._repository.append_event(
+                run.run_id, "run.cancelled", {}, RunStatus.CANCELLED
+            )
         except Exception:
             await self._repository.append_event(
                 run.run_id,
@@ -160,6 +146,24 @@ class RunCoordinator:
             with suppress(asyncio.CancelledError):
                 await task
         return await self._repository.get_run(run_id)
+
+    async def clear_session(
+        self, owner_subject: str, agent_id: str, conversation_id: str
+    ) -> ClearAgentSessionResult:
+        binding = await self._session_manager.current(
+            owner_subject, agent_id, conversation_id
+        )
+        if binding is not None and binding.status == "active":
+            run_ids = [
+                run_id
+                for run_id, binding_id in self._run_bindings.items()
+                if binding_id == binding.binding_id
+            ]
+            for run_id in run_ids:
+                await self.cancel(run_id)
+        return await self._session_manager.clear(
+            owner_subject, agent_id, conversation_id
+        )
 
     async def shutdown(self) -> None:
         tasks = list(self._tasks.values())

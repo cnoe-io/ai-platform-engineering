@@ -6,7 +6,7 @@ import asyncio
 from collections import defaultdict
 from typing import Protocol
 
-from pymongo import ASCENDING, MongoClient, ReturnDocument
+from pymongo import ASCENDING, DESCENDING, MongoClient, ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
 from harness_engine.models import (
@@ -46,11 +46,17 @@ class RunRepository(Protocol):
 
     async def get_session(self, binding_id: str) -> SessionBinding | None: ...
 
+    async def get_latest_session(
+        self, owner_subject: str, agent_id: str, conversation_id: str
+    ) -> SessionBinding | None: ...
+
     async def create_session(self, binding: SessionBinding) -> SessionBinding: ...
 
     async def update_session_provider_id(
         self, binding_id: str, provider_session_id: str
     ) -> SessionBinding: ...
+
+    async def close_session(self, binding_id: str) -> SessionBinding: ...
 
     async def create_run(self, run: RunRecord) -> RunRecord: ...
 
@@ -137,6 +143,19 @@ class InMemoryRunRepository:
         session = self._sessions.get(binding_id)
         return session.model_copy(deep=True) if session else None
 
+    async def get_latest_session(
+        self, owner_subject: str, agent_id: str, conversation_id: str
+    ) -> SessionBinding | None:
+        matches = [
+            session
+            for session in self._sessions.values()
+            if session.owner_subject == owner_subject
+            and session.agent_id == agent_id
+            and session.conversation_id == conversation_id
+        ]
+        latest = max(matches, key=lambda session: session.epoch) if matches else None
+        return latest.model_copy(deep=True) if latest else None
+
     async def create_session(self, binding: SessionBinding) -> SessionBinding:
         async with self._lock:
             current = self._sessions.get(binding.binding_id)
@@ -150,9 +169,26 @@ class InMemoryRunRepository:
     ) -> SessionBinding:
         async with self._lock:
             session = self._sessions[binding_id]
+            if session.status != "active":
+                raise RevisionConflictError(binding_id)
             stored = session.model_copy(
                 update={
                     "provider_session_id": provider_session_id,
+                    "revision": session.revision + 1,
+                    "updated_at": utc_now(),
+                }
+            )
+            self._sessions[binding_id] = stored
+            return stored.model_copy(deep=True)
+
+    async def close_session(self, binding_id: str) -> SessionBinding:
+        async with self._lock:
+            session = self._sessions[binding_id]
+            if session.status == "closed":
+                return session.model_copy(deep=True)
+            stored = session.model_copy(
+                update={
+                    "status": "closed",
                     "revision": session.revision + 1,
                     "updated_at": utc_now(),
                 }
@@ -224,6 +260,15 @@ class MongoRunRepository:
                 [("agent_id", ASCENDING), ("version", ASCENDING)], unique=True
             )
             self._db.harness_sessions.create_index("binding_id", unique=True)
+            self._db.harness_sessions.create_index(
+                [
+                    ("owner_subject", ASCENDING),
+                    ("agent_id", ASCENDING),
+                    ("conversation_id", ASCENDING),
+                    ("epoch", ASCENDING),
+                ],
+                unique=True,
+            )
             self._db.harness_runs.create_index("run_id", unique=True)
             self._db.harness_runs.create_index([("owner_subject", ASCENDING), ("created_at", ASCENDING)])
             self._db.harness_events.create_index([("run_id", ASCENDING), ("sequence", ASCENDING)], unique=True)
@@ -303,6 +348,21 @@ class MongoRunRepository:
         )
         return SessionBinding.model_validate(doc) if doc else None
 
+    async def get_latest_session(
+        self, owner_subject: str, agent_id: str, conversation_id: str
+    ) -> SessionBinding | None:
+        doc = await asyncio.to_thread(
+            self._db.harness_sessions.find_one,
+            {
+                "owner_subject": owner_subject,
+                "agent_id": agent_id,
+                "conversation_id": conversation_id,
+            },
+            {"_id": 0},
+            sort=[("epoch", DESCENDING)],
+        )
+        return SessionBinding.model_validate(doc) if doc else None
+
     async def create_session(self, binding: SessionBinding) -> SessionBinding:
         try:
             await asyncio.to_thread(
@@ -320,7 +380,7 @@ class MongoRunRepository:
     ) -> SessionBinding:
         doc = await asyncio.to_thread(
             self._db.harness_sessions.find_one_and_update,
-            {"binding_id": binding_id},
+            {"binding_id": binding_id, "status": "active"},
             {
                 "$set": {"provider_session_id": provider_session_id, "updated_at": utc_now()},
                 "$inc": {"revision": 1},
@@ -328,8 +388,22 @@ class MongoRunRepository:
             return_document=ReturnDocument.AFTER,
         )
         if not doc:
-            raise KeyError(binding_id)
+            raise RevisionConflictError(binding_id)
         return SessionBinding.model_validate(doc)
+
+    async def close_session(self, binding_id: str) -> SessionBinding:
+        doc = await asyncio.to_thread(
+            self._db.harness_sessions.find_one_and_update,
+            {"binding_id": binding_id, "status": {"$ne": "closed"}},
+            {"$set": {"status": "closed", "updated_at": utc_now()}, "$inc": {"revision": 1}},
+            return_document=ReturnDocument.AFTER,
+        )
+        if doc:
+            return SessionBinding.model_validate(doc)
+        current = await self.get_session(binding_id)
+        if current is None:
+            raise KeyError(binding_id)
+        return current
 
     async def create_run(self, run: RunRecord) -> RunRecord:
         try:

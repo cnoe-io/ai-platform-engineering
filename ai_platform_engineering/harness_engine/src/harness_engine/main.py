@@ -20,6 +20,7 @@ from harness_engine.config import Settings
 from harness_engine.coordinator import AgentNotRunnableError, RunCoordinator
 from harness_engine.models import (
     TERMINAL_RUN_STATUSES,
+    ClearAgentSessionRequest,
     CreateRunRequest,
     EventPage,
     RunRecord,
@@ -33,6 +34,7 @@ from harness_engine.repository import (
     RevisionConflictError,
     RunRepository,
 )
+from harness_engine.sessions import CAIPEAgentSessionManager
 
 
 def _repository(settings: Settings) -> RunRepository:
@@ -56,11 +58,16 @@ def create_app(
         ClaudeSDKAdapter(resolved_settings),
     ]
     registry = HarnessRegistry(resolved_adapters)
+    session_manager = CAIPEAgentSessionManager(
+        resolved_repository,
+        registry,
+        resolved_settings.internal_token.encode(),
+    )
     coordinator = RunCoordinator(
         resolved_repository,
         registry,
+        session_manager,
         DefaultPromptCompiler(),
-        resolved_settings.internal_token.encode(),
     )
 
     @asynccontextmanager
@@ -74,6 +81,7 @@ def create_app(
     app.state.settings = resolved_settings
     app.state.repository = resolved_repository
     app.state.registry = registry
+    app.state.session_manager = session_manager
     app.state.coordinator = coordinator
 
     async def caller_subject(
@@ -184,6 +192,16 @@ def create_app(
                 status.HTTP_409_CONFLICT, "Agent has no runnable harness version"
             ) from exc
         return {"success": True, "data": run}
+
+    @app.post("/api/v1/sessions/clear")
+    async def clear_session(
+        body: ClearAgentSessionRequest,
+        subject: str = Depends(caller_subject),
+    ) -> dict[str, object]:
+        result = await coordinator.clear_session(
+            subject, body.agent_id, body.conversation_id
+        )
+        return {"success": True, "data": result}
 
     @app.get("/api/v1/runs/{run_id}")
     async def get_run(run_id: str, subject: str = Depends(caller_subject)) -> dict[str, object]:
