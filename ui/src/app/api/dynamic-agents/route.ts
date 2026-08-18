@@ -962,9 +962,6 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
       },
     );
     const nextOwnerTeamSlug = resolvedOwnership.ownerTeamSlug;
-    const transferPreviousOwner = resolvedOwnership.transferred
-      ? resolvedOwnership.previousOwnerTeamSlug ?? undefined
-      : undefined;
     if (resolvedOwnership.transferred) {
       if (nextOwnerTeamSlug) {
         const destinationTeam = await loadOwnerTeam({ slug: nextOwnerTeamSlug });
@@ -1001,7 +998,10 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
       previousPersonalOwnerAccess: currentVisibility === "private",
       organizationId: caipeOrgKey(),
       ownerTeamSlug: nextOwnerTeamSlug,
-      previousOwnerTeamSlug: transferPreviousOwner,
+      // Always supply persisted ownership to the tuple reconciler. It uses the
+      // previous/current comparison to remain a no-op when unchanged and to
+      // revoke every stale team grant when an agent becomes private.
+      previousOwnerTeamSlug: previousOwnerTeamSlug ?? undefined,
       nextSharedTeamSlugs: sharedTeamSlugs,
       previousSharedTeamSlugs,
       // Keep the wildcard `user:* user agent:<id>` grant in sync with

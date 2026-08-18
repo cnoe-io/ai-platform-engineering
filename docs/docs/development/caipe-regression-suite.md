@@ -39,6 +39,13 @@ The suite never deploys, upgrades, synchronizes ArgoCD, publishes or repairs an 
 
 Run the matrix mode before touching the target. `REL-01` analyzes the full reachable commit graph from `CAIPE_REGRESSION_SUITE_RELEASE_BASE_REF` through `CAIPE_REGRESSION_SUITE_RELEASE_HEAD_REF`, attaches a commit-level JSON ledger, and fails when any commit has no mapped test domain. Do not reduce this to first-parent or non-merge history.
 
+Live MCP and agent execution also require an approved deployed tool and model:
+
+- `CAIPE_REGRESSION_SUITE_MCP_TOOL_NAME` and `CAIPE_REGRESSION_SUITE_MCP_TOOL_PARAMS`
+- `CAIPE_REGRESSION_SUITE_AGENT_MODEL_ID` and `CAIPE_REGRESSION_SUITE_AGENT_MODEL_PROVIDER`
+
+The suite intentionally has no reusable model default. Each environment must name a model its configured key is allowed to use.
+
 For the 0.5 release line, use:
 
 ```bash

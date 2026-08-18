@@ -194,6 +194,26 @@ describe("DynamicAgentEditor — required-field enforcement", () => {
     ).toBeInTheDocument();
   });
 
+  it("does not require an Owner Team for a global agent", async () => {
+    render(<DynamicAgentEditor onCancel={jest.fn()} onSave={jest.fn()} />);
+    await flushAsync();
+
+    fireEvent.change(screen.getByPlaceholderText(/Code Review Agent/i), {
+      target: { value: "global-agent" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^Global/i }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("create-agent-blocker-hint")).not.toHaveTextContent(
+        "Owner Team is required",
+      );
+      expect(screen.getByRole("button", { name: /Create Agent/i })).not.toHaveAttribute(
+        "title",
+        expect.stringContaining("Owner Team is required") as unknown as string,
+      );
+    });
+  });
+
   it("buzzes Next, focuses the first required field, and explains why navigation stopped", async () => {
     render(<DynamicAgentEditor onCancel={jest.fn()} onSave={jest.fn()} />);
     await flushAsync();

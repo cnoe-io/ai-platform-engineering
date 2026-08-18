@@ -791,7 +791,9 @@ export function DynamicAgentEditor({
     snapshotKey,
   });
 
-  const ownerTeamMissing = visibility !== "private" && !ownerTeamSlug;
+  // Team-scoped agents need an owning team. Global agents are governed by
+  // organization policy and deliberately do not require team ownership.
+  const ownerTeamMissing = visibility === "team" && !ownerTeamSlug;
   const blockers: FormBlocker[] = React.useMemo(() => {
     const list: FormBlocker[] = [];
     if (!name.trim()) {

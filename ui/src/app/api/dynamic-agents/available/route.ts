@@ -22,17 +22,11 @@ import { baselineBootstrapTuples,getBaselineFgaProfile } from "@/lib/rbac/baseli
 import { writeOpenFgaTuples } from "@/lib/rbac/openfga";
 import { filterResourcesByPermission } from "@/lib/rbac/resource-authz";
 import { trustedInteractionFromRequest } from "@/lib/authz/trusted-interaction";
-import {
-createJsonResponseCacheStore,
-envTtlMs,
-withJsonResponseCache,
-} from "@/lib/server-response-cache";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 import { NextRequest } from "next/server";
 
 const COLLECTION_NAME = "dynamic_agents";
 const OPENFGA_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._~@|*+=,/-]{0,191}$/;
-const availableAgentsCache = createJsonResponseCacheStore();
 
 function normalizeDefaultAgentId(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -132,10 +126,11 @@ async function ensureAllUsersAgentGrants(
  * List dynamic agents available for the current user to chat with.
  */
 export const GET = withErrorHandler(async (request: NextRequest) => {
-  return withJsonResponseCache(request, availableAgentsCache, () => getAvailableAgents(request), {
-    ttlMs: envTtlMs("DYNAMIC_AGENTS_AVAILABLE_CACHE_TTL_MS", 10_000),
-    maxEntries: 512,
-  });
+  // Availability is security-sensitive and changes immediately after create,
+  // share, revoke, and visibility transitions. A process-local response cache
+  // can return stale access decisions (and differs across replicas), so always
+  // evaluate the current Mongo/OpenFGA state.
+  return getAvailableAgents(request);
 });
 
 async function getAvailableAgents(request: NextRequest) {

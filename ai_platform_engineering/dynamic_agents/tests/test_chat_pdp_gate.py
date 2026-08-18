@@ -150,7 +150,53 @@ async def test_start_route_preserves_authz_failure_shape(monkeypatch, authz, sta
 
 
 @pytest.mark.asyncio
-async def test_start_route_passes_internal_interaction_proof_to_authz(monkeypatch):
+@pytest.mark.parametrize(
+    ("handler", "chat_request"),
+    [
+        (
+            chat.chat_start_stream,
+            ChatRequest(
+                message="hi",
+                conversation_id="conv-1",
+                agent_id="agent-1",
+                client_context=ClientContext(
+                    source="webui",
+                    _caipe_trusted_interaction="signed-payload",
+                    _caipe_trusted_interaction_signature="signed-hash",
+                ),
+            ),
+        ),
+        (
+            chat.chat_invoke,
+            ChatRequest(
+                message="hi",
+                conversation_id="conv-1",
+                agent_id="agent-1",
+                client_context=ClientContext(
+                    source="webui",
+                    _caipe_trusted_interaction="signed-payload",
+                    _caipe_trusted_interaction_signature="signed-hash",
+                ),
+            ),
+        ),
+        (
+            chat.chat_resume_stream,
+            chat.ResumeStreamRequest(
+                conversation_id="conv-1",
+                agent_id="agent-1",
+                resume_data="{}",
+                client_context={
+                    "source": "webui",
+                    "_caipe_trusted_interaction": "signed-payload",
+                    "_caipe_trusted_interaction_signature": "signed-hash",
+                },
+            ),
+        ),
+    ],
+)
+async def test_protected_routes_pass_internal_interaction_proof_to_authz(
+    monkeypatch, handler, chat_request
+):
     captured: dict[str, object] = {}
 
     async def capture(agent_id: str, trusted_interaction: object | None = None) -> None:
@@ -159,19 +205,8 @@ async def test_start_route_passes_internal_interaction_proof_to_authz(monkeypatc
         raise HTTPException(status_code=418, detail="captured")
 
     monkeypatch.setattr(chat, "require_agent_use_permission", capture, raising=False)
-    request = ChatRequest(
-        message="hi",
-        conversation_id="conv-1",
-        agent_id="agent-1",
-        client_context=ClientContext(
-            source="webui",
-            _caipe_trusted_interaction="signed-payload",
-            _caipe_trusted_interaction_signature="signed-hash",
-        ),
-    )
-
     with pytest.raises(HTTPException) as exc:
-        await chat.chat_start_stream(request, _user(), _FakeMongo())
+        await handler(chat_request, _user(), _FakeMongo())
 
     assert exc.value.status_code == 418
     assert captured == {

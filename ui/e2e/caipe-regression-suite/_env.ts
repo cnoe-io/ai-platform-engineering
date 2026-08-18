@@ -9,6 +9,9 @@ export type CaipeTapEnv = {
   runId: string;
   prefix: string;
   mcpEndpoint: string;
+  mcpToolName: string;
+  mcpToolParams: Record<string, unknown>;
+  agentModel: { id: string; provider: string };
 };
 
 function slug(value: string): string {
@@ -30,6 +33,10 @@ export function caipeTapEnvOrSkip(): CaipeTapEnv {
     "CAIPE_REGRESSION_SUITE_TEAM_SLUG",
     "CAIPE_REGRESSION_SUITE_ORG_KEY",
     "CAIPE_REGRESSION_SUITE_MCP_ENDPOINT",
+    "CAIPE_REGRESSION_SUITE_MCP_TOOL_NAME",
+    "CAIPE_REGRESSION_SUITE_MCP_TOOL_PARAMS",
+    "CAIPE_REGRESSION_SUITE_AGENT_MODEL_ID",
+    "CAIPE_REGRESSION_SUITE_AGENT_MODEL_PROVIDER",
     "NEXTAUTH_SECRET",
   ] as const;
   const missing = required.filter((key) => !process.env[key]?.trim());
@@ -45,6 +52,18 @@ export function caipeTapEnvOrSkip(): CaipeTapEnv {
 
   const release = slug(process.env.CAIPE_REGRESSION_SUITE_RELEASE || "release");
   const runId = slug(process.env.CAIPE_REGRESSION_SUITE_RUN_ID || new Date().toISOString());
+  let mcpToolParams: Record<string, unknown>;
+  try {
+    const parsed = JSON.parse(process.env.CAIPE_REGRESSION_SUITE_MCP_TOOL_PARAMS!);
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      throw new Error("not an object");
+    }
+    mcpToolParams = parsed as Record<string, unknown>;
+  } catch (error) {
+    throw new Error(
+      `CAIPE_REGRESSION_SUITE_MCP_TOOL_PARAMS must be a JSON object: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
   return {
     baseUrl,
     admin: { email: process.env.CAIPE_REGRESSION_SUITE_ADMIN_EMAIL!, subject: process.env.CAIPE_REGRESSION_SUITE_ADMIN_SUB! },
@@ -54,5 +73,11 @@ export function caipeTapEnvOrSkip(): CaipeTapEnv {
     runId,
     prefix: `caipe-regression-suite-${release}-${runId}`.slice(0, 96),
     mcpEndpoint: process.env.CAIPE_REGRESSION_SUITE_MCP_ENDPOINT!,
+    mcpToolName: process.env.CAIPE_REGRESSION_SUITE_MCP_TOOL_NAME!,
+    mcpToolParams,
+    agentModel: {
+      id: process.env.CAIPE_REGRESSION_SUITE_AGENT_MODEL_ID!,
+      provider: process.env.CAIPE_REGRESSION_SUITE_AGENT_MODEL_PROVIDER!,
+    },
   };
 }

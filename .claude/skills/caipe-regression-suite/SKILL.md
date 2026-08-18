@@ -71,6 +71,10 @@ Required for deterministic Playwright/API mode:
 - `CAIPE_REGRESSION_SUITE_TEAM_SLUG` (the canonical hyphenated slug returned by the Teams API, not an OIDC display name)
 - `CAIPE_REGRESSION_SUITE_ORG_KEY`
 - `CAIPE_REGRESSION_SUITE_MCP_ENDPOINT` (a harmless endpoint approved for the run)
+- `CAIPE_REGRESSION_SUITE_MCP_TOOL_NAME` and `CAIPE_REGRESSION_SUITE_MCP_TOOL_PARAMS`
+  (a harmless tool exposed by the approved endpoint and its JSON arguments)
+- `CAIPE_REGRESSION_SUITE_AGENT_MODEL_ID` and `CAIPE_REGRESSION_SUITE_AGENT_MODEL_PROVIDER`
+  (an enabled model that the target deployment permits)
 - `CAIPE_REGRESSION_SUITE_APPROVED_HOST` (must exactly match the hostname in `CAIPE_REGRESSION_SUITE_BASE_URL`)
 - `NEXTAUTH_SECRET`
 

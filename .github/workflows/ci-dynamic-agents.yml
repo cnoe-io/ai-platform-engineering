@@ -14,6 +14,10 @@ on:
         description: 'Version tag to apply (e.g., 0.3.0-dev.5)'
         required: false
         type: string
+      source_sha:
+        description: 'Exact source commit to build (used by coordinated Tome builds)'
+        required: false
+        type: string
       force_build:
         description: 'Force a fresh build of all components (bypass change-detection/retag). Use for coordinated releases.'
         required: false
@@ -41,25 +45,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
+          ref: ${{ inputs.source_sha || github.sha }}
           fetch-depth: 0
-
-      - name: 🔑 Generate GitHub App token
-        id: app-token
-        if: ${{ github.event_name != 'pull_request' }}
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
-        with:
-          app-id: ${{ secrets.CI_BUILD_APP_ID }}
-          private-key: ${{ secrets.CI_BUILD_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-          repositories: ${{ github.event.repository.name }}
-          permission-contents: read
 
       - name: Determine Tag
         id: version
         uses: ./.github/actions/determine-release-tag
         with:
           manual_tag: ${{ inputs.tag_version }}
-          token: ${{ steps.app-token.outputs.token || github.token }}
+          token: ${{ github.token }}
 
       - name: Detect changed paths
         id: filter
@@ -166,19 +160,10 @@ jobs:
         with:
           egress-policy: audit
 
-      - name: 🔑 Generate GitHub App token
-        id: app-token
-        if: ${{ github.event_name != 'pull_request' }}
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
-        with:
-          app-id: ${{ secrets.CI_BUILD_APP_ID }}
-          private-key: ${{ secrets.CI_BUILD_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-          repositories: ${{ github.event.repository.name }}
-          permission-packages: write
-
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
       - name: Log in to GitHub Container Registry
@@ -194,10 +179,10 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' || (startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-rc.') && !contains(github.ref_name, '-hotfix.') && !contains(github.ref_name, '-chart.')) }}
+            type=raw,value=latest,enable=${{ (github.event_name == 'workflow_dispatch' && inputs.source_sha == '') || (startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-rc.') && !contains(github.ref_name, '-hotfix.') && !contains(github.ref_name, '-chart.')) }}
             type=raw,value=${{ needs.determine-changes.outputs.tag_version }},enable=${{ needs.determine-changes.outputs.tag_version != '' }}
             type=ref,event=tag,prefix=
-            type=sha,format=short,prefix=
+            type=sha,format=short,prefix=,enable=${{ inputs.source_sha == '' }}
 
       - name: Build and push by digest
         id: build
@@ -206,7 +191,9 @@ jobs:
           context: ai_platform_engineering/dynamic_agents
           file: ${{ env.DOCKERFILE }}
           platforms: ${{ matrix.platform }}
-          labels: ${{ steps.meta.outputs.labels }}
+          labels: |
+            ${{ steps.meta.outputs.labels }}
+            org.opencontainers.image.revision=${{ inputs.source_sha || github.sha }}
           outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=${{ github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/') }}
           cache-from: type=gha,scope=${{ matrix.arch }}
           cache-to: type=gha,mode=min,scope=${{ matrix.arch }}
@@ -271,10 +258,10 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=latest,enable=${{ github.event_name == 'workflow_dispatch' || (startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-rc.') && !contains(github.ref_name, '-hotfix.') && !contains(github.ref_name, '-chart.')) }}
+            type=raw,value=latest,enable=${{ (github.event_name == 'workflow_dispatch' && inputs.source_sha == '') || (startsWith(github.ref, 'refs/tags/') && !contains(github.ref_name, '-rc.') && !contains(github.ref_name, '-hotfix.') && !contains(github.ref_name, '-chart.')) }}
             type=raw,value=${{ needs.determine-changes.outputs.tag_version }},enable=${{ needs.determine-changes.outputs.tag_version != '' }}
             type=ref,event=tag,prefix=
-            type=sha,format=short,prefix=
+            type=sha,format=short,prefix=,enable=${{ inputs.source_sha == '' }}
 
       - name: Create manifest list and push
         working-directory: /tmp/digests
@@ -306,16 +293,6 @@ jobs:
         with:
           egress-policy: audit
 
-      - name: 🔑 Generate GitHub App token
-        id: app-token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
-        with:
-          app-id: ${{ secrets.CI_BUILD_APP_ID }}
-          private-key: ${{ secrets.CI_BUILD_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-          repositories: ${{ github.event.repository.name }}
-          permission-packages: write
-
       - name: 📦 Install crane
         run: |
           VERSION="v0.20.2"
@@ -324,7 +301,7 @@ jobs:
 
       - name: 🔐 Log in to registry
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ github.token }}
           GH_ACTOR: ${{ github.actor }}
         run: |
           echo "$GH_TOKEN" | crane auth login ghcr.io -u "$GH_ACTOR" --password-stdin
@@ -391,6 +368,8 @@ jobs:
       - name: Checkout repository
         if: steps.retag-or-build.outputs.needs_build == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
       - name: Set up Docker Buildx
         if: steps.retag-or-build.outputs.needs_build == 'true'
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
@@ -436,19 +415,9 @@ jobs:
       needs.determine-changes.outputs.tag_version != '' &&
       !contains(needs.determine-changes.outputs.tag_version, '-')
     steps:
-      - name: 🔑 Generate GitHub App token
-        id: app-token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
-        with:
-          app-id: ${{ secrets.CI_BUILD_APP_ID }}
-          private-key: ${{ secrets.CI_BUILD_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-          repositories: ${{ github.event.repository.name }}
-          permission-contents: write
-
       - name: 🔔 Notify release finalize
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ github.token }}
           TAG_VERSION: ${{ needs.determine-changes.outputs.tag_version }}
           BUILD_PUSH_RESULT: ${{ needs.build-and-push.result }}
           MERGE_RESULT: ${{ needs.merge-manifests.result }}

@@ -15,19 +15,30 @@ import {
 } from "./_helpers";
 
 type Visibility = "private" | "team" | "global";
+type AllowedTools = Record<string, string[] | boolean>;
+
+type AgentExecution = {
+  status: number;
+  contentType: string;
+  body: string;
+};
 
 async function createAgent(
   page: Parameters<typeof api>[0],
   name: string,
   visibility: Visibility,
   teamSlug: string,
-  allowedTools: Record<string, boolean> = {},
+  model: { id: string; provider: string },
+  allowedTools: AllowedTools = {},
+  invocation?: { toolName: string; params: Record<string, unknown> },
 ) {
   const result = await api(page, "/api/dynamic-agents", json("POST", {
     name,
     description: "CAIPE Regression Suite release fixture",
-    system_prompt: "Return a short CAIPE Regression Suite acknowledgement.",
-    model: { id: "gpt-4o-mini", provider: "openai" },
+    system_prompt: invocation
+      ? `For every request, call the configured MCP tool whose name ends with "${invocation.toolName}" exactly once with these arguments: ${JSON.stringify(invocation.params)}. Do not answer from memory. After the tool returns, respond CAIPE REGRESSION AGENT INVOKED.`
+      : "Return a short CAIPE Regression Suite acknowledgement.",
+    model,
     visibility,
     ...(visibility === "team" ? { owner_team_slug: teamSlug } : {}),
     enabled: true,
@@ -35,6 +46,81 @@ async function createAgent(
   }));
   expect(result.status, JSON.stringify(result.body)).toBe(201);
   return { result, id: idFrom(result, ["_id", "id"]) };
+}
+
+async function createConversation(
+  page: Parameters<typeof api>[0],
+  title: string,
+  agentId: string,
+  runId: string,
+): Promise<string> {
+  const result = await api(page, "/api/chat/conversations", json("POST", {
+    title,
+    client_type: "webui",
+    agent_id: agentId,
+    metadata: { caipe_regression_suite_run: runId },
+  }));
+  expect(result.status, JSON.stringify(result.body)).toBe(201);
+  const data = dataRecord(result);
+  const nested = typeof data.conversation === "object" && data.conversation !== null
+    ? data.conversation as Record<string, unknown>
+    : data;
+  const id = String(nested._id || nested.id || "");
+  expect(id).not.toBe("");
+  return id;
+}
+
+async function invokeMcpTool(
+  page: Parameters<typeof api>[0],
+  serverId: string,
+  toolName: string,
+  params: Record<string, unknown>,
+) {
+  return api(page, "/api/mcp-servers/test-tool", json("POST", { serverId, toolName, params }));
+}
+
+async function invokeAgent(
+  page: Parameters<typeof api>[0],
+  agentId: string,
+  conversationId: string,
+  toolName: string,
+  params: Record<string, unknown>,
+): Promise<AgentExecution> {
+  return page.evaluate(async (input) => {
+    const response = await fetch("/api/v1/chat/stream/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message: `Call ${input.toolName} now with exactly these arguments: ${JSON.stringify(input.params)}. Return CAIPE REGRESSION AGENT INVOKED after the result.`,
+        conversation_id: input.conversationId,
+        agent_id: input.agentId,
+        protocol: "custom",
+        client_context: { source: "webui" },
+      }),
+    });
+    return {
+      status: response.status,
+      contentType: response.headers.get("content-type") || "",
+      body: await response.text(),
+    };
+  }, { agentId, conversationId, toolName, params });
+}
+
+function expectSuccessfulDirectInvocation(result: Awaited<ReturnType<typeof invokeMcpTool>>): void {
+  const data = dataRecord(result);
+  expect(result.status, JSON.stringify(result.body)).toBe(200);
+  expect(data.success, JSON.stringify(result.body)).toBe(true);
+  expect(data.application_success, JSON.stringify(result.body)).toBe(true);
+}
+
+function expectSuccessfulAgentInvocation(result: AgentExecution, toolName: string): void {
+  expect(result.status, result.body).toBe(200);
+  expect(result.contentType, result.body).toContain("text/event-stream");
+  expect(result.body, result.body).toMatch(/event:\s*tool_start/i);
+  expect(result.body, result.body).toContain(toolName);
+  expect(result.body, result.body).toMatch(/event:\s*tool_end/i);
+  expect(result.body, result.body).toMatch(/event:\s*done/i);
+  expect(result.body, result.body).not.toMatch(/event:\s*error/i);
 }
 
 async function createMcp(page: Parameters<typeof api>[0], input: { slug: string; name: string; visibility: Visibility; teamSlug: string; endpoint: string }) {
@@ -55,9 +141,12 @@ async function createMcp(page: Parameters<typeof api>[0], input: { slug: string;
 
 test.describe("CAIPE Regression Suite visibility and OpenFGA projection", () => {
   for (const visibility of ["private", "team", "global"] as const) {
-    test(`@smoke ${visibility} MCP and agent have exact OpenFGA grants`, async ({ page }, testInfo) => {
+    test(`@smoke ${visibility} MCP and agent execute with exact OpenFGA grants`, async ({ page, browser }, testInfo) => {
       const env = caipeTapEnvOrSkip();
       await installPersona(page, env, "admin");
+      const memberContext = await browser.newContext();
+      const memberPage = await memberContext.newPage();
+      await installPersona(memberPage, env, "member");
       const token = `${env.prefix}-${visibility}-${testInfo.retry}`.slice(0, 110);
       const cleanup: string[] = [];
       try {
@@ -69,11 +158,59 @@ test.describe("CAIPE Regression Suite visibility and OpenFGA projection", () => 
           endpoint: env.mcpEndpoint,
         });
         cleanup.push(`/api/mcp-servers?id=${encodeURIComponent(mcp.id)}`);
-        const agent = await createAgent(page, `${token}-agent`, visibility, env.teamSlug, { [mcp.id]: true });
+        const agent = await createAgent(page, `${token}-agent`, visibility, env.teamSlug, env.agentModel, {
+          [mcp.id]: [env.mcpToolName],
+        }, {
+          toolName: env.mcpToolName,
+          params: env.mcpToolParams,
+        });
         cleanup.push(`/api/dynamic-agents?id=${encodeURIComponent(agent.id)}`);
 
         const mcpObject = `mcp_server:${mcp.id}`;
         const agentObject = `agent:${agent.id}`;
+        const executionEvidence: Record<string, unknown> = {};
+        const adminDirect = await invokeMcpTool(page, mcp.id, env.mcpToolName, env.mcpToolParams);
+        executionEvidence.admin_direct_mcp = adminDirect;
+        expectSuccessfulDirectInvocation(adminDirect);
+
+        const memberDirect = await invokeMcpTool(memberPage, mcp.id, env.mcpToolName, env.mcpToolParams);
+        executionEvidence.member_direct_mcp = memberDirect;
+        if (visibility === "team") {
+          expectSuccessfulDirectInvocation(memberDirect);
+        } else {
+          expect([403, 404], JSON.stringify(memberDirect.body)).toContain(memberDirect.status);
+        }
+
+        if (visibility === "private") {
+          const conversationId = await createConversation(page, `${token}-admin-execution`, agent.id, env.runId);
+          cleanup.push(`/api/chat/conversations/${encodeURIComponent(conversationId)}`);
+          const adminAgent = await invokeAgent(page, agent.id, conversationId, env.mcpToolName, env.mcpToolParams);
+          executionEvidence.admin_agent = { ...adminAgent, body: adminAgent.body.slice(0, 2_000) };
+          expectSuccessfulAgentInvocation(adminAgent, env.mcpToolName);
+
+          const deniedAgent = await invokeAgent(memberPage, agent.id, conversationId, env.mcpToolName, env.mcpToolParams);
+          executionEvidence.member_agent = { ...deniedAgent, body: deniedAgent.body.slice(0, 2_000) };
+          expect([403, 404], deniedAgent.body).toContain(deniedAgent.status);
+        } else {
+          const conversationId = await createConversation(
+            memberPage,
+            `${token}-member-execution`,
+            agent.id,
+            env.runId,
+          );
+          const memberAgent = await invokeAgent(
+            memberPage,
+            agent.id,
+            conversationId,
+            env.mcpToolName,
+            env.mcpToolParams,
+          );
+          executionEvidence.member_agent = { ...memberAgent, body: memberAgent.body.slice(0, 2_000) };
+          expectSuccessfulAgentInvocation(memberAgent, env.mcpToolName);
+          await bestEffortDelete(memberPage, [`/api/chat/conversations/${encodeURIComponent(conversationId)}`]);
+        }
+        await attachEvidence(testInfo, "execution-evidence", executionEvidence);
+
         const personalOwnerTupleExpected = visibility === "private";
         // Team/global resources are owned by their team/organization policy.
         // Keeping a direct personal owner grant would bypass later membership
@@ -88,7 +225,11 @@ test.describe("CAIPE Regression Suite visibility and OpenFGA projection", () => 
           { user: `user:${env.admin.subject}`, relation: "owner", object: agentObject },
           personalOwnerTupleExpected,
         );
-        await expectTuple(page, { user: `agent:${agent.id}`, relation: "caller", object: `tool:${mcp.id}/*` });
+        await expectTuple(page, {
+          user: `agent:${agent.id}`,
+          relation: "caller",
+          object: `tool:${mcp.id}/${env.mcpToolName}`,
+        });
 
         if (visibility === "private") {
           await expectTuple(page, { user: `team:${env.teamSlug}#member`, relation: "user", object: mcpObject }, false);
@@ -115,9 +256,10 @@ test.describe("CAIPE Regression Suite visibility and OpenFGA projection", () => 
         await attachEvidence(testInfo, "resource-manifest", { visibility, mcp, agent });
         await page.goto("/dynamic-agents", { waitUntil: "domcontentloaded" });
         await evidenceScreenshot(page, testInfo, `${visibility}-resources`);
+        await evidenceScreenshot(memberPage, testInfo, `${visibility}-member-resources`);
       } finally {
-        await installPersona(page, env, "admin");
         await bestEffortDelete(page, cleanup);
+        await memberContext.close();
       }
     });
   }
@@ -126,7 +268,7 @@ test.describe("CAIPE Regression Suite visibility and OpenFGA projection", () => 
     const env = caipeTapEnvOrSkip();
     await installPersona(page, env, "admin");
     const token = `${env.prefix}-transition-${testInfo.retry}`.slice(0, 110);
-    const agent = await createAgent(page, `${token}-agent`, "private", env.teamSlug);
+    const agent = await createAgent(page, `${token}-agent`, "private", env.teamSlug, env.agentModel);
     const cleanup = [`/api/dynamic-agents?id=${encodeURIComponent(agent.id)}`];
     const object = `agent:${agent.id}`;
     try {
@@ -301,14 +443,17 @@ test.describe("CAIPE Regression Suite visibility and OpenFGA projection", () => 
     }
   });
 
-  test("new chat team share writes reader/writer tuples and revoke removes them", async ({ page }, testInfo) => {
+  test("new chat team share writes reader/writer tuples and revoke removes them", async ({ page, browser }, testInfo) => {
     const env = caipeTapEnvOrSkip();
     await installPersona(page, env, "admin");
+    const memberContext = await browser.newContext();
+    const memberPage = await memberContext.newPage();
+    await installPersona(memberPage, env, "member");
     const token = `${env.prefix}-chat-${testInfo.retry}`.slice(0, 110);
     let agentId = "";
     let conversationId = "";
     try {
-      const agent = await createAgent(page, `${token}-agent`, "team", env.teamSlug);
+      const agent = await createAgent(page, `${token}-agent`, "team", env.teamSlug, env.agentModel);
       agentId = agent.id;
       const conversation = await api(page, "/api/chat/conversations", json("POST", {
         title: token,
@@ -332,29 +477,26 @@ test.describe("CAIPE Regression Suite visibility and OpenFGA projection", () => 
       expect(shared.status, JSON.stringify(shared.body)).toBe(200);
       await expectTuple(page, { user: `team:${env.teamSlug}#member`, relation: "reader", object });
       await expectTuple(page, { user: `team:${env.teamSlug}#member`, relation: "writer", object });
-      await installPersona(page, env, "member");
-      const memberRead = await api(page, `/api/chat/conversations/${conversationId}`);
+      const memberRead = await api(memberPage, `/api/chat/conversations/${conversationId}`);
       expect(memberRead.status, JSON.stringify(memberRead.body)).toBe(200);
-      await page.goto(`/chat/${conversationId}`, { waitUntil: "domcontentloaded" });
-      await evidenceScreenshot(page, testInfo, "chat-team-shared");
+      await memberPage.goto(`/chat/${conversationId}`, { waitUntil: "domcontentloaded" });
+      await evidenceScreenshot(memberPage, testInfo, "chat-team-shared");
 
-      await installPersona(page, env, "admin");
       const revoked = await api(page, `/api/chat/conversations/${conversationId}/share`, json("DELETE", { team_id: env.teamSlug }));
       expect(revoked.status, JSON.stringify(revoked.body)).toBe(200);
       await expectTuple(page, { user: `team:${env.teamSlug}#member`, relation: "reader", object }, false);
       await expectTuple(page, { user: `team:${env.teamSlug}#member`, relation: "writer", object }, false);
-      await installPersona(page, env, "member");
-      const denied = await api(page, `/api/chat/conversations/${conversationId}`);
+      const denied = await api(memberPage, `/api/chat/conversations/${conversationId}`);
       expect([403, 404], JSON.stringify(denied.body)).toContain(denied.status);
       await attachEvidence(testInfo, "chat-share-revoke", { conversationId, agentId, team: env.teamSlug });
-      await evidenceScreenshot(page, testInfo, "chat-team-revoked");
+      await evidenceScreenshot(memberPage, testInfo, "chat-team-revoked");
     } finally {
-      await installPersona(page, env, "admin");
       const paths = [
         ...(agentId ? [`/api/dynamic-agents?id=${encodeURIComponent(agentId)}`] : []),
         ...(conversationId ? [`/api/chat/conversations/${encodeURIComponent(conversationId)}`] : []),
       ];
       await bestEffortDelete(page, paths);
+      await memberContext.close();
     }
   });
 });

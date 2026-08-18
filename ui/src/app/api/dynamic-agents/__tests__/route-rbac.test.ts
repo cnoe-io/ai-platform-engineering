@@ -1478,6 +1478,58 @@ describe("dynamic agents RBAC routes", () => {
     );
   });
 
+  it("demoting global → private revokes every persisted team grant", async () => {
+    const existingAgent = {
+      _id: "agent-private-again",
+      name: "Private Again",
+      visibility: "global",
+      owner_team_slug: "team-a",
+      owner_team_id: "team-a-id",
+      owner_subject: "alice-sub",
+      shared_with_teams: [],
+      allowed_tools: {},
+    };
+    const findOneAndUpdate = jest.fn().mockResolvedValue({
+      ...existingAgent,
+      visibility: "private",
+      owner_team_slug: undefined,
+      owner_team_id: undefined,
+    });
+    mockGetCollection.mockResolvedValue({
+      findOne: jest.fn().mockResolvedValue(existingAgent),
+      findOneAndUpdate,
+    });
+    mockIsPlatformDefaultAgent.mockResolvedValue(false);
+    const { PUT } = await import("../route");
+
+    const response = await PUT(
+      request("/api/dynamic-agents?id=agent-private-again", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ visibility: "private", shared_with_teams: [] }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockReconcileAgentRelationships).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentId: "agent-private-again",
+        ownerTeamSlug: null,
+        previousOwnerTeamSlug: "team-a",
+        personalOwnerAccess: true,
+        globalUserAccess: false,
+        previousGlobalUserAccess: true,
+      }),
+    );
+    expect(findOneAndUpdate).toHaveBeenCalledWith(
+      { _id: "agent-private-again" },
+      expect.objectContaining({
+        $unset: { owner_team_slug: "", owner_team_id: "" },
+      }),
+      expect.any(Object),
+    );
+  });
+
   it("promoting team → global passes a null unlinked SA sub when it isn't bootstrapped yet", async () => {
     mockResolveUnlinkedServiceAccountGrantState.mockResolvedValue({
       sub: null,
