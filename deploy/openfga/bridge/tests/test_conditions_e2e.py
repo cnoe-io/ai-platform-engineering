@@ -74,6 +74,7 @@ def openfga_url() -> Iterator[str]:
                 if httpx.get(f"{url}/healthz", timeout=1).status_code == 200:
                     break
             except httpx.HTTPError:
+                # Connection failures are expected while the container starts.
                 pass
             time.sleep(0.25)
         else:
