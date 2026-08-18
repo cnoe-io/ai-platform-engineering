@@ -75,6 +75,7 @@ def real_openfga() -> Iterator[str]:
                 if httpx.get(f"{url}/healthz", timeout=1).status_code == 200:
                     break
             except httpx.HTTPError:
+                # OpenFGA may refuse connections while its listener is starting.
                 pass
             time.sleep(0.25)
         else:
