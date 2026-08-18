@@ -5,17 +5,21 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from typing import Protocol
 
+from harness_engine.models import (
+    AdapterEvaluation,
+    AgentBlueprint,
+    CanonicalEventDraft,
+    HarnessDescriptor,
+    RunContext,
+)
+
 
 class HarnessAdapter(Protocol):
-    harness_id: str
+    @property
+    def descriptor(self) -> HarnessDescriptor: ...
 
-    async def stream(
-        self,
-        *,
-        runtime_alias: str,
-        provider_session_id: str,
-        agent_id: str,
-        conversation_id: str,
-        message: str,
-        traceparent: str | None,
-    ) -> AsyncIterator[str]: ...
+    def evaluate(self, blueprint: AgentBlueprint) -> AdapterEvaluation: ...
+
+    def initial_provider_session_id(self, binding_id: str) -> str | None: ...
+
+    def stream(self, context: RunContext) -> AsyncIterator[CanonicalEventDraft]: ...

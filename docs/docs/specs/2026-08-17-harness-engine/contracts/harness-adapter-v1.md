@@ -1,5 +1,11 @@
 # Harness Adapter Contract v1
 
+> **Vertical-slice mapping:** The independent implementation uses the smaller
+> `descriptor` / `evaluate` / `initial_provider_session_id` / `stream(RunContext)`
+> protocol documented in [Portable abstractions](../portable-abstractions.md).
+> The lifecycle-rich runtime protocol below is the certification target for
+> interrupts, restart, cleanup, and sandbox workers.
+
 ## Purpose
 
 This contract isolates provider SDKs from the Harness Engine control plane. Local adapters implement it inside a sandbox worker; provider-managed adapters implement it behind the control-plane remote client. It is intentionally small and async. Concrete Python names may change during implementation, but behavior and ownership are normative.

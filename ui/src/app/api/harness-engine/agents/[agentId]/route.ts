@@ -24,7 +24,7 @@ async function authorize(request: NextRequest, agentId: string, write: boolean):
 async function proxy(
   request: NextRequest,
   context: Context,
-  method: "GET" | "PUT" | "DELETE",
+  method: "GET" | "PUT",
 ): Promise<Response> {
   const { agentId } = await context.params;
   try {
@@ -35,7 +35,7 @@ async function proxy(
     return proxyHarnessEngine(
       config,
       auth,
-      `/api/v1/agents/${encodeURIComponent(agentId)}/harness`,
+      `/api/v1/agents/${encodeURIComponent(agentId)}`,
       { method, body },
     );
   } catch (error) {
@@ -49,4 +49,3 @@ async function proxy(
 
 export const GET = (request: NextRequest, context: Context) => proxy(request, context, "GET");
 export const PUT = (request: NextRequest, context: Context) => proxy(request, context, "PUT");
-export const DELETE = (request: NextRequest, context: Context) => proxy(request, context, "DELETE");

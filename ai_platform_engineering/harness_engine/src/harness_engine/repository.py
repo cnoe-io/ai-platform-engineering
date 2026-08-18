@@ -1,4 +1,4 @@
-"""Run persistence abstractions and memory/Mongo implementations."""
+"""Agent, session, run, and canonical event persistence."""
 
 from __future__ import annotations
 
@@ -9,11 +9,20 @@ from typing import Protocol
 from pymongo import ASCENDING, MongoClient, ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
-from harness_engine.models import AgentHarnessConfig, RunEvent, RunRecord, RunStatus, utc_now
+from harness_engine.models import (
+    AgentBlueprint,
+    AgentRecord,
+    AgentVersion,
+    RunEvent,
+    RunRecord,
+    RunStatus,
+    SessionBinding,
+    utc_now,
+)
 
 
 class RevisionConflictError(Exception):
-    """Optimistic harness-overlay update failed."""
+    """An optimistic agent update or unique insert failed."""
 
 
 class RunRepository(Protocol):
@@ -21,17 +30,33 @@ class RunRepository(Protocol):
 
     async def close(self) -> None: ...
 
-    async def get_agent_config(self, agent_id: str) -> AgentHarnessConfig | None: ...
+    async def get_agent(self, agent_id: str) -> AgentRecord | None: ...
 
-    async def put_agent_config(
-        self, config: AgentHarnessConfig, expected_revision: int | None
-    ) -> AgentHarnessConfig: ...
+    async def get_agent_version(
+        self, agent_id: str, version: int | None = None
+    ) -> AgentVersion | None: ...
 
-    async def delete_agent_config(self, agent_id: str) -> bool: ...
+    async def save_agent(
+        self,
+        blueprint: AgentBlueprint,
+        config_fingerprint: str,
+        catalog_revision: str,
+        expected_revision: int | None,
+    ) -> tuple[AgentRecord, AgentVersion]: ...
+
+    async def get_session(self, binding_id: str) -> SessionBinding | None: ...
+
+    async def create_session(self, binding: SessionBinding) -> SessionBinding: ...
+
+    async def update_session_provider_id(
+        self, binding_id: str, provider_session_id: str
+    ) -> SessionBinding: ...
 
     async def create_run(self, run: RunRecord) -> RunRecord: ...
 
     async def get_run(self, run_id: str) -> RunRecord | None: ...
+
+    async def update_run_provider_id(self, run_id: str, provider_session_id: str) -> None: ...
 
     async def append_event(
         self, run_id: str, event_type: str, data: dict[str, object], status: RunStatus | None = None
@@ -46,7 +71,9 @@ class InMemoryRunRepository:
     """Deterministic repository for local development and tests."""
 
     def __init__(self) -> None:
-        self._configs: dict[str, AgentHarnessConfig] = {}
+        self._agents: dict[str, AgentRecord] = {}
+        self._versions: dict[tuple[str, int], AgentVersion] = {}
+        self._sessions: dict[str, SessionBinding] = {}
         self._runs: dict[str, RunRecord] = {}
         self._events: dict[str, list[RunEvent]] = defaultdict(list)
         self._conditions: dict[str, asyncio.Condition] = defaultdict(asyncio.Condition)
@@ -58,25 +85,80 @@ class InMemoryRunRepository:
     async def close(self) -> None:
         return None
 
-    async def get_agent_config(self, agent_id: str) -> AgentHarnessConfig | None:
-        config = self._configs.get(agent_id)
-        return config.model_copy(deep=True) if config else None
+    async def get_agent(self, agent_id: str) -> AgentRecord | None:
+        record = self._agents.get(agent_id)
+        return record.model_copy(deep=True) if record else None
 
-    async def put_agent_config(
-        self, config: AgentHarnessConfig, expected_revision: int | None
-    ) -> AgentHarnessConfig:
+    async def get_agent_version(
+        self, agent_id: str, version: int | None = None
+    ) -> AgentVersion | None:
+        if version is None:
+            record = self._agents.get(agent_id)
+            version = record.current_version if record else None
+        stored = self._versions.get((agent_id, version)) if version else None
+        return stored.model_copy(deep=True) if stored else None
+
+    async def save_agent(
+        self,
+        blueprint: AgentBlueprint,
+        config_fingerprint: str,
+        catalog_revision: str,
+        expected_revision: int | None,
+    ) -> tuple[AgentRecord, AgentVersion]:
         async with self._lock:
-            current = self._configs.get(config.agent_id)
-            if expected_revision is not None and (current is None or current.revision != expected_revision):
-                raise RevisionConflictError(config.agent_id)
-            next_revision = (current.revision + 1) if current else 1
-            stored = config.model_copy(update={"revision": next_revision, "updated_at": utc_now()})
-            self._configs[stored.agent_id] = stored
+            current = self._agents.get(blueprint.id)
+            if expected_revision is not None and (
+                current is None or current.revision != expected_revision
+            ):
+                raise RevisionConflictError(blueprint.id)
+            now = utc_now()
+            version_number = current.current_version + 1 if current else 1
+            version = AgentVersion(
+                agent_id=blueprint.id,
+                version=version_number,
+                blueprint=blueprint,
+                config_fingerprint=config_fingerprint,
+                catalog_revision=catalog_revision,
+                created_at=now,
+            )
+            record = AgentRecord(
+                agent_id=blueprint.id,
+                current_version=version_number,
+                revision=(current.revision + 1) if current else 1,
+                enabled=current.enabled if current else True,
+                created_at=current.created_at if current else now,
+                updated_at=now,
+            )
+            self._versions[(record.agent_id, version_number)] = version
+            self._agents[record.agent_id] = record
+            return record.model_copy(deep=True), version.model_copy(deep=True)
+
+    async def get_session(self, binding_id: str) -> SessionBinding | None:
+        session = self._sessions.get(binding_id)
+        return session.model_copy(deep=True) if session else None
+
+    async def create_session(self, binding: SessionBinding) -> SessionBinding:
+        async with self._lock:
+            current = self._sessions.get(binding.binding_id)
+            if current:
+                return current.model_copy(deep=True)
+            self._sessions[binding.binding_id] = binding
+            return binding.model_copy(deep=True)
+
+    async def update_session_provider_id(
+        self, binding_id: str, provider_session_id: str
+    ) -> SessionBinding:
+        async with self._lock:
+            session = self._sessions[binding_id]
+            stored = session.model_copy(
+                update={
+                    "provider_session_id": provider_session_id,
+                    "revision": session.revision + 1,
+                    "updated_at": utc_now(),
+                }
+            )
+            self._sessions[binding_id] = stored
             return stored.model_copy(deep=True)
-
-    async def delete_agent_config(self, agent_id: str) -> bool:
-        async with self._lock:
-            return self._configs.pop(agent_id, None) is not None
 
     async def create_run(self, run: RunRecord) -> RunRecord:
         async with self._lock:
@@ -88,6 +170,13 @@ class InMemoryRunRepository:
     async def get_run(self, run_id: str) -> RunRecord | None:
         run = self._runs.get(run_id)
         return run.model_copy(deep=True) if run else None
+
+    async def update_run_provider_id(self, run_id: str, provider_session_id: str) -> None:
+        async with self._lock:
+            run = self._runs[run_id]
+            self._runs[run_id] = run.model_copy(
+                update={"provider_session_id": provider_session_id, "updated_at": utc_now()}
+            )
 
     async def append_event(
         self, run_id: str, event_type: str, data: dict[str, object], status: RunStatus | None = None
@@ -121,7 +210,7 @@ class InMemoryRunRepository:
 
 
 class MongoRunRepository:
-    """Mongo-backed replay store; long polls work across Harness Engine replicas."""
+    """Mongo-backed repository supporting replay and cross-replica sessions."""
 
     def __init__(self, uri: str, database: str, retention_seconds: int) -> None:
         self._client = MongoClient(uri, tz_aware=True)
@@ -130,44 +219,117 @@ class MongoRunRepository:
 
     async def initialize(self) -> None:
         def ensure_indexes() -> None:
-            self._db.harness_agent_configs.create_index("agent_id", unique=True)
+            self._db.harness_agents.create_index("agent_id", unique=True)
+            self._db.harness_agent_versions.create_index(
+                [("agent_id", ASCENDING), ("version", ASCENDING)], unique=True
+            )
+            self._db.harness_sessions.create_index("binding_id", unique=True)
             self._db.harness_runs.create_index("run_id", unique=True)
             self._db.harness_runs.create_index([("owner_subject", ASCENDING), ("created_at", ASCENDING)])
             self._db.harness_events.create_index([("run_id", ASCENDING), ("sequence", ASCENDING)], unique=True)
-            self._db.harness_events.create_index(
-                "created_at", expireAfterSeconds=self._retention_seconds
-            )
+            self._db.harness_events.create_index("created_at", expireAfterSeconds=self._retention_seconds)
 
         await asyncio.to_thread(ensure_indexes)
 
     async def close(self) -> None:
         await asyncio.to_thread(self._client.close)
 
-    async def get_agent_config(self, agent_id: str) -> AgentHarnessConfig | None:
-        doc = await asyncio.to_thread(self._db.harness_agent_configs.find_one, {"agent_id": agent_id}, {"_id": 0})
-        return AgentHarnessConfig.model_validate(doc) if doc else None
+    async def get_agent(self, agent_id: str) -> AgentRecord | None:
+        doc = await asyncio.to_thread(self._db.harness_agents.find_one, {"agent_id": agent_id}, {"_id": 0})
+        return AgentRecord.model_validate(doc) if doc else None
 
-    async def put_agent_config(
-        self, config: AgentHarnessConfig, expected_revision: int | None
-    ) -> AgentHarnessConfig:
-        def write() -> dict[str, object]:
-            current = self._db.harness_agent_configs.find_one({"agent_id": config.agent_id})
-            if expected_revision is not None and (current is None or current.get("revision") != expected_revision):
-                raise RevisionConflictError(config.agent_id)
-            revision = int(current.get("revision", 0)) + 1 if current else 1
-            stored = config.model_copy(update={"revision": revision, "updated_at": utc_now()})
-            self._db.harness_agent_configs.replace_one(
-                {"agent_id": config.agent_id}, stored.model_dump(mode="python"), upsert=True
-            )
-            return stored.model_dump(mode="python")
-
-        return AgentHarnessConfig.model_validate(await asyncio.to_thread(write))
-
-    async def delete_agent_config(self, agent_id: str) -> bool:
-        result = await asyncio.to_thread(
-            self._db.harness_agent_configs.delete_one, {"agent_id": agent_id}
+    async def get_agent_version(
+        self, agent_id: str, version: int | None = None
+    ) -> AgentVersion | None:
+        if version is None:
+            record = await self.get_agent(agent_id)
+            version = record.current_version if record else None
+        if version is None:
+            return None
+        doc = await asyncio.to_thread(
+            self._db.harness_agent_versions.find_one,
+            {"agent_id": agent_id, "version": version},
+            {"_id": 0},
         )
-        return result.deleted_count == 1
+        return AgentVersion.model_validate(doc) if doc else None
+
+    async def save_agent(
+        self,
+        blueprint: AgentBlueprint,
+        config_fingerprint: str,
+        catalog_revision: str,
+        expected_revision: int | None,
+    ) -> tuple[AgentRecord, AgentVersion]:
+        def write() -> tuple[dict[str, object], dict[str, object]]:
+            current_doc = self._db.harness_agents.find_one({"agent_id": blueprint.id})
+            current = AgentRecord.model_validate(current_doc) if current_doc else None
+            if expected_revision is not None and (
+                current is None or current.revision != expected_revision
+            ):
+                raise RevisionConflictError(blueprint.id)
+            now = utc_now()
+            number = current.current_version + 1 if current else 1
+            version = AgentVersion(
+                agent_id=blueprint.id,
+                version=number,
+                blueprint=blueprint,
+                config_fingerprint=config_fingerprint,
+                catalog_revision=catalog_revision,
+                created_at=now,
+            )
+            record = AgentRecord(
+                agent_id=blueprint.id,
+                current_version=number,
+                revision=(current.revision + 1) if current else 1,
+                enabled=current.enabled if current else True,
+                created_at=current.created_at if current else now,
+                updated_at=now,
+            )
+            try:
+                self._db.harness_agent_versions.insert_one(version.model_dump(mode="python"))
+                self._db.harness_agents.replace_one(
+                    {"agent_id": blueprint.id}, record.model_dump(mode="python"), upsert=True
+                )
+            except DuplicateKeyError as exc:
+                raise RevisionConflictError(blueprint.id) from exc
+            return record.model_dump(mode="python"), version.model_dump(mode="python")
+
+        record_doc, version_doc = await asyncio.to_thread(write)
+        return AgentRecord.model_validate(record_doc), AgentVersion.model_validate(version_doc)
+
+    async def get_session(self, binding_id: str) -> SessionBinding | None:
+        doc = await asyncio.to_thread(
+            self._db.harness_sessions.find_one, {"binding_id": binding_id}, {"_id": 0}
+        )
+        return SessionBinding.model_validate(doc) if doc else None
+
+    async def create_session(self, binding: SessionBinding) -> SessionBinding:
+        try:
+            await asyncio.to_thread(
+                self._db.harness_sessions.insert_one, binding.model_dump(mode="python")
+            )
+            return binding
+        except DuplicateKeyError:
+            current = await self.get_session(binding.binding_id)
+            if current is None:
+                raise
+            return current
+
+    async def update_session_provider_id(
+        self, binding_id: str, provider_session_id: str
+    ) -> SessionBinding:
+        doc = await asyncio.to_thread(
+            self._db.harness_sessions.find_one_and_update,
+            {"binding_id": binding_id},
+            {
+                "$set": {"provider_session_id": provider_session_id, "updated_at": utc_now()},
+                "$inc": {"revision": 1},
+            },
+            return_document=ReturnDocument.AFTER,
+        )
+        if not doc:
+            raise KeyError(binding_id)
+        return SessionBinding.model_validate(doc)
 
     async def create_run(self, run: RunRecord) -> RunRecord:
         try:
@@ -179,6 +341,13 @@ class MongoRunRepository:
     async def get_run(self, run_id: str) -> RunRecord | None:
         doc = await asyncio.to_thread(self._db.harness_runs.find_one, {"run_id": run_id}, {"_id": 0})
         return RunRecord.model_validate(doc) if doc else None
+
+    async def update_run_provider_id(self, run_id: str, provider_session_id: str) -> None:
+        await asyncio.to_thread(
+            self._db.harness_runs.update_one,
+            {"run_id": run_id},
+            {"$set": {"provider_session_id": provider_session_id, "updated_at": utc_now()}},
+        )
 
     async def append_event(
         self, run_id: str, event_type: str, data: dict[str, object], status: RunStatus | None = None

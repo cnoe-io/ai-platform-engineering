@@ -11,6 +11,7 @@ import {
   useAiReview,
 } from "@/components/ai-review";
 import { TeamOwnershipFields } from "@/components/rbac/TeamOwnershipFields";
+import { HarnessOptionsForm } from "@/components/harness-engine/HarnessOptionsForm";
 import { UnsavedChangesDialog } from "@/components/shared/UnsavedChangesDialog";
 import { Button } from "@/components/ui/button";
 import {
@@ -46,6 +47,7 @@ import type {
   SubAgentRef,
   VisibilityType,
 } from "@/types/dynamic-agent";
+import type { AgentBlueprint, HarnessDescriptor } from "@/types/harness-engine";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   ArrowLeft,
@@ -539,14 +541,26 @@ export function DynamicAgentEditor({
       },
     );
   const [showCustomPicker, setShowCustomPicker] = React.useState(false);
-  // Harness selection is an independent Harness Engine overlay. It is never
-  // added to the Dynamic Agents document, so the legacy runtime and schema
-  // remain unchanged while AgentCore can be adopted per agent.
-  const [harnessId, setHarnessId] = React.useState<"dynamic_agents" | "agentcore">("dynamic_agents");
-  const [runtimeAlias, setRuntimeAlias] = React.useState("");
-  const [runtimeAliases, setRuntimeAliases] = React.useState<string[]>([]);
+  // Harness Engine persists a complete, immutable blueprint independently of
+  // the legacy Dynamic Agents document. The catalog drives this form.
+  const [harnessId, setHarnessId] = React.useState("dynamic_agents");
+  const [harnessProfileId, setHarnessProfileId] = React.useState("");
+  const [harnessOptions, setHarnessOptions] = React.useState<Record<string, unknown>>({});
+  const [harnessDescriptors, setHarnessDescriptors] = React.useState<HarnessDescriptor[]>([]);
+  const [catalogRevision, setCatalogRevision] = React.useState<string | null>(null);
   const [harnessRevision, setHarnessRevision] = React.useState<number | null>(null);
   const [harnessLoading, setHarnessLoading] = React.useState(true);
+  const selectedHarness = React.useMemo(
+    () => harnessDescriptors.find((descriptor) => descriptor.id === harnessId),
+    [harnessDescriptors, harnessId],
+  );
+
+  const selectHarness = React.useCallback((nextHarnessId: string) => {
+    setHarnessId(nextHarnessId);
+    setHarnessOptions({});
+    const descriptor = harnessDescriptors.find((item) => item.id === nextHarnessId);
+    setHarnessProfileId(descriptor?.profiles.find((profile) => profile.available)?.id ?? "");
+  }, [harnessDescriptors]);
 
   // Sync request_user_input interrupt rule with builtin tool enabled state
   const hasRequestUserInputInterrupt =
@@ -769,15 +783,12 @@ export function DynamicAgentEditor({
       try {
         const catalogResponse = await fetch("/api/harness-engine/harnesses");
         const catalog = await catalogResponse.json();
-        const agentCore = catalog.data?.harnesses?.find(
-          (entry: { id?: string }) => entry.id === "agentcore",
-        );
-        const aliases = Array.isArray(agentCore?.runtime_aliases)
-          ? agentCore.runtime_aliases as string[]
+        const descriptors = Array.isArray(catalog.data?.harnesses)
+          ? catalog.data.harnesses as HarnessDescriptor[]
           : [];
         if (cancelled) return;
-        setRuntimeAliases(aliases);
-        setRuntimeAlias((current) => current || aliases[0] || "");
+        setHarnessDescriptors(descriptors);
+        setCatalogRevision(catalog.data?.catalog_revision ?? null);
 
         if (source?._id) {
           const overlayResponse = await fetch(
@@ -785,10 +796,12 @@ export function DynamicAgentEditor({
           );
           if (overlayResponse.ok) {
             const overlay = await overlayResponse.json();
-            if (!cancelled && overlay.data?.harness_id === "agentcore") {
-              setHarnessId("agentcore");
-              setRuntimeAlias(overlay.data.runtime_alias);
-              setHarnessRevision(overlay.data.revision);
+            const saved = overlay.data?.version?.blueprint;
+            if (!cancelled && saved?.harness?.id) {
+              setHarnessId(saved.harness.id);
+              setHarnessProfileId(saved.harness.profile_id);
+              setHarnessOptions(saved.harness.options ?? {});
+              setHarnessRevision(overlay.data.record?.revision ?? null);
             }
           }
         }
@@ -953,7 +966,8 @@ export function DynamicAgentEditor({
       reasoningEffort,
       gradientTheme,
       harnessId,
-      runtimeAlias,
+      harnessProfileId,
+      harnessOptions,
     }),
     [
       name,
@@ -976,7 +990,8 @@ export function DynamicAgentEditor({
       reasoningEffort,
       gradientTheme,
       harnessId,
-      runtimeAlias,
+      harnessProfileId,
+      harnessOptions,
     ],
   );
 
@@ -1269,8 +1284,8 @@ export function DynamicAgentEditor({
           ? { datasource_ids: null, rag_collection_ids: null }
           : {};
 
-      if (harnessId === "agentcore" && !runtimeAlias) {
-        throw new Error("Select an AgentCore runtime before saving");
+      if (harnessId !== "dynamic_agents" && !harnessProfileId) {
+        throw new Error("Select an operator profile for the execution harness before saving");
       }
 
       if (isEditing) {
@@ -1364,35 +1379,62 @@ export function DynamicAgentEditor({
       }
 
       const targetAgentId = isEditing ? agent._id : generatedId;
-      if (harnessId === "agentcore") {
-        const overlayResponse = await fetch(
+      if (harnessId !== "dynamic_agents") {
+        const toolBindings = Object.entries(allowedTools).flatMap(([serverId, tools]) =>
+          Array.isArray(tools)
+            ? tools.map((toolName) => ({ tool_id: `${serverId}.${toolName}` }))
+            : [],
+        );
+        const blueprint: AgentBlueprint = {
+          id: targetAgentId,
+          name,
+          description,
+          harness: { id: harnessId, profile_id: harnessProfileId, options: harnessOptions },
+          prompt: { system: systemPrompt, variables: {}, context_sources: [] },
+          // The selected operator profile owns the provider model in this
+          // vertical slice. Model compatibility/filtering is a follow-up.
+          model: { policy: "harness_default" },
+          tools: { bindings: toolBindings, approval_policy: "sensitive_only" },
+          thread: { persistence: "durable" },
+          memory: { enabled: false },
+          workspace: { persistence: "none" },
+          streaming: { protocol: "canonical", replay: "required" },
+          delegation: {
+            agents: subagents.map((subagent) => subagent.agent_id),
+            max_depth: subagents.length > 0 ? 1 : 0,
+            max_parallel: 1,
+          },
+        };
+        const validationResponse = await fetch("/api/harness-engine/agent-drafts/validate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ blueprint, catalog_revision: catalogRevision }),
+        });
+        const validation = await validationResponse.json();
+        if (!validationResponse.ok || !validation.data?.valid) {
+          const reason = validation.data?.issues?.map((issue: { message: string }) => issue.message).join("; ");
+          throw new Error(`The agent was saved, but its harness blueprint is invalid: ${reason || validation.error || "unknown error"}`);
+        }
+        const harnessResponse = await fetch(
           `/api/harness-engine/agents/${encodeURIComponent(targetAgentId)}`,
           {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              harness_id: "agentcore",
-              runtime_alias: runtimeAlias,
+              blueprint: validation.data.normalized_blueprint,
+              catalog_revision: validation.data.catalog_revision,
+              config_fingerprint: validation.data.config_fingerprint,
               ...(harnessRevision ? { expected_revision: harnessRevision } : {}),
             }),
           },
         );
-        const overlay = await overlayResponse.json();
-        if (!overlayResponse.ok || !overlay.success) {
+        const harness = await harnessResponse.json();
+        if (!harnessResponse.ok || !harness.success) {
           throw new Error(
-            `The agent was saved, but its AgentCore harness was not: ${overlay.error || "unknown error"}`,
+            `The agent was saved, but its harness blueprint was not: ${harness.error || "unknown error"}`,
           );
         }
-        setHarnessRevision(overlay.data.revision);
-      } else if (harnessRevision !== null) {
-        const overlayResponse = await fetch(
-          `/api/harness-engine/agents/${encodeURIComponent(targetAgentId)}`,
-          { method: "DELETE" },
-        );
-        if (!overlayResponse.ok) {
-          throw new Error("The agent was saved, but its prior harness overlay could not be removed");
-        }
-        setHarnessRevision(null);
+        setHarnessRevision(harness.data.record.revision);
       }
 
       // Clear unsaved-changes state BEFORE calling onSave(): the parent will
@@ -1584,47 +1626,56 @@ export function DynamicAgentEditor({
             />
           </div>
 
-          <fieldset
-            className={cn("space-y-4 min-w-0", readOnly && "opacity-70")}
-          >
-            {/* Basic Info Step */}
-            {activeStep === "basic" && (
-              <div className="space-y-4 pt-2">
-                <div className="space-y-2">
-                  <Label htmlFor="harnessId">Execution harness</Label>
-                  <div className="p-3 rounded-lg border-2 border-primary/20 bg-primary/5 space-y-3">
-                    <select
-                      id="harnessId"
-                      value={harnessId}
-                      onChange={(event) => setHarnessId(event.target.value as "dynamic_agents" | "agentcore")}
-                      disabled={loading || harnessLoading || !!readOnly}
-                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-medium shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      <option value="dynamic_agents">Dynamic Agents (existing runtime)</option>
-                      <option value="agentcore" disabled={runtimeAliases.length === 0}>
-                        Amazon Bedrock AgentCore
+          <fieldset className={cn("space-y-4 min-w-0", readOnly && "opacity-70")}>
+
+          {/* Basic Info Step */}
+          {activeStep === "basic" && (
+            <div className="space-y-4 pt-2">
+              <div className="space-y-2">
+                <Label htmlFor="harnessId">Execution harness</Label>
+                <div className="p-3 rounded-lg border-2 border-primary/20 bg-primary/5 space-y-3">
+                  <select
+                    id="harnessId"
+                    value={harnessId}
+                    onChange={(event) => selectHarness(event.target.value)}
+                    disabled={loading || harnessLoading || !!readOnly}
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-medium shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <option value="dynamic_agents">Dynamic Agents (existing runtime)</option>
+                    {harnessDescriptors.map((descriptor) => (
+                      <option
+                        key={descriptor.id}
+                        value={descriptor.id}
+                        disabled={descriptor.availability !== "available" || descriptor.certification === "blocked"}
+                      >
+                        {descriptor.display_name}
                       </option>
-                    </select>
-                    {harnessId === "agentcore" && (
-                      <div className="space-y-2">
-                        <Label htmlFor="runtimeAlias">AgentCore runtime</Label>
-                        <select
-                          id="runtimeAlias"
-                          value={runtimeAlias}
-                          onChange={(event) => setRuntimeAlias(event.target.value)}
-                          disabled={loading || !!readOnly}
-                          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                        >
-                          {runtimeAliases.map((alias) => <option key={alias} value={alias}>{alias}</option>)}
-                        </select>
-                        <p className="text-xs text-muted-foreground">
-                          The alias maps to an operator-managed runtime ARN; users cannot provide images, commands, or AWS resource identifiers.
-                        </p>
-                      </div>
-                    )}
-                    {harnessId === "dynamic_agents" && (
+                    ))}
+                  </select>
+                  {selectedHarness && (
+                    <div className="space-y-2">
+                      <Label htmlFor="harnessProfile">Operator profile</Label>
+                      <select
+                        id="harnessProfile"
+                        value={harnessProfileId}
+                        onChange={(event) => setHarnessProfileId(event.target.value)}
+                        disabled={loading || !!readOnly}
+                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      >
+                        {selectedHarness.profiles.map((profile) => (
+                          <option key={profile.id} value={profile.id} disabled={!profile.available}>
+                            {profile.display_name}
+                          </option>
+                        ))}
+                      </select>
+                      <HarnessOptionsForm
+                        schema={selectedHarness.options_schema}
+                        value={harnessOptions}
+                        onChange={setHarnessOptions}
+                        disabled={loading || !!readOnly}
+                      />
                       <p className="text-xs text-muted-foreground">
-                        Uses the existing Dynamic Agents runtime without changing its stored document or execution path.
+                        {selectedHarness.execution_mode.replaceAll("_", " ")} · {selectedHarness.certification}. Profiles map to operator-managed resources; the browser never receives credentials, commands, images, or provider resource IDs.
                       </p>
                     )}
                   </div>

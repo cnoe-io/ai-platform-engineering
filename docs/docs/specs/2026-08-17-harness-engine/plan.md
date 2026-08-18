@@ -1,5 +1,10 @@
 # Implementation Plan: Harness Engine
 
+> **Independent track (2026-08-18):** The current implementation follows the
+> standalone control-plane slice in [Portable abstractions](portable-abstractions.md).
+> Tasks that name `ai_platform_engineering/dynamic_agents/` remain future
+> replacement work and are intentionally untouched.
+
 **Branch**: `2026-08-17-harness-engine` | **Date**: 2026-08-17 | **Spec**: [spec.md](./spec.md)
 **Input**: Feature specification from `docs/docs/specs/2026-08-17-harness-engine/spec.md`
 
@@ -15,7 +20,9 @@ Common platform policy remains outside adapters: authentication and OpenFGA chec
 
 **Language/Version**: Python 3.13 for the runtime; TypeScript/Next.js 16 and React 19 for additive builder UI fields
 **Primary Dependencies**: Independent FastAPI/Pydantic service, boto3 AgentCore client, PyMongo, and the existing Next.js BFF/authz libraries
-**Storage**: Independent `harness_agent_configs`, `harness_runs`, and `harness_events` MongoDB collections; AgentCore owns native provider session state
+**Storage**: Independent `harness_agents`, `harness_agent_versions`,
+`harness_sessions`, `harness_runs`, and `harness_events` MongoDB collections;
+each adapter owns its native checkpoint/session representation
 **Testing**: pytest/pytest-asyncio disconnect/replay E2E and adapter tests; BFF Jest route tests; existing Dynamic Agents tests remain unchanged
 **Target Platform**: Independent Linux control-plane container calling the managed AgentCore Runtime plane; local memory repository is test/development only
 **Project Type**: New backend service plus additive Next.js BFF routes and agent-editor overlay

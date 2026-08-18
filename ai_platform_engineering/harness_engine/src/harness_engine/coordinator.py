@@ -8,13 +8,21 @@ import hmac
 from contextlib import suppress
 from uuid import uuid4
 
-from harness_engine.adapters.base import HarnessAdapter
-from harness_engine.models import CreateRunRequest, RunRecord, RunStatus
+from harness_engine.brokers import PromptCompiler
+from harness_engine.models import (
+    CreateRunRequest,
+    RunContext,
+    RunRecord,
+    RunStatus,
+    SessionBinding,
+    TurnInput,
+)
+from harness_engine.registry import HarnessRegistry
 from harness_engine.repository import RunRepository
 
 
-class AgentHarnessNotConfiguredError(Exception):
-    """The requested agent has no enabled Harness Engine overlay."""
+class AgentNotRunnableError(Exception):
+    """The requested agent or pinned version cannot be executed."""
 
 
 class RunCoordinator:
@@ -23,20 +31,20 @@ class RunCoordinator:
     def __init__(
         self,
         repository: RunRepository,
-        adapters: dict[str, HarnessAdapter],
+        registry: HarnessRegistry,
+        prompt_compiler: PromptCompiler,
         session_key: bytes,
     ) -> None:
         self._repository = repository
-        self._adapters = adapters
+        self._registry = registry
+        self._prompt_compiler = prompt_compiler
         self._session_key = session_key
         self._tasks: dict[str, asyncio.Task[None]] = {}
 
-    def _provider_session_id(
-        self, owner_subject: str, agent_id: str, conversation_id: str
-    ) -> str:
-        identity = "\0".join((owner_subject, agent_id, conversation_id)).encode()
+    def _binding_id(self, owner_subject: str, agent_id: str, conversation_id: str) -> str:
+        identity = "\0".join((owner_subject, agent_id, conversation_id, "0")).encode()
         digest = hmac.new(self._session_key, identity, hashlib.sha256).hexdigest()
-        return f"harness-session-{digest}"
+        return f"binding-{digest}"
 
     async def start_run(
         self,
@@ -44,58 +52,104 @@ class RunCoordinator:
         owner_subject: str,
         traceparent: str | None = None,
     ) -> RunRecord:
-        config = await self._repository.get_agent_config(request.agent_id)
-        if not config or not config.enabled:
-            raise AgentHarnessNotConfiguredError(request.agent_id)
-        adapter = self._adapters.get(config.harness_id)
-        if adapter is None:
-            raise AgentHarnessNotConfiguredError(config.harness_id)
+        record = await self._repository.get_agent(request.agent_id)
+        if not record or not record.enabled:
+            raise AgentNotRunnableError(request.agent_id)
+
+        binding_id = self._binding_id(owner_subject, request.agent_id, request.conversation_id)
+        binding = await self._repository.get_session(binding_id)
+        version_number = binding.agent_version if binding else record.current_version
+        version = await self._repository.get_agent_version(request.agent_id, version_number)
+        if version is None:
+            raise AgentNotRunnableError(request.agent_id)
+        try:
+            adapter = self._registry.adapter(version.blueprint.harness.id)
+        except Exception as exc:
+            raise AgentNotRunnableError(version.blueprint.harness.id) from exc
+        evaluation = adapter.evaluate(version.blueprint)
+
+        if binding is None:
+            binding = await self._repository.create_session(
+                SessionBinding(
+                    binding_id=binding_id,
+                    owner_subject=owner_subject,
+                    agent_id=request.agent_id,
+                    agent_version=version.version,
+                    conversation_id=request.conversation_id,
+                    harness_id=version.blueprint.harness.id,
+                    profile_id=version.blueprint.harness.profile_id,
+                    provider_session_id=adapter.initial_provider_session_id(binding_id),
+                    checkpoint_strategy=evaluation.checkpoint_strategy,
+                )
+            )
 
         run = RunRecord(
             run_id=f"run-{uuid4().hex}",
             owner_subject=owner_subject,
             agent_id=request.agent_id,
+            agent_version=version.version,
             conversation_id=request.conversation_id,
-            harness_id=config.harness_id,
-            runtime_alias=config.runtime_alias,
-            provider_session_id=self._provider_session_id(
-                owner_subject, request.agent_id, request.conversation_id
-            ),
+            binding_id=binding.binding_id,
+            harness_id=binding.harness_id,
+            profile_id=binding.profile_id,
+            provider_session_id=binding.provider_session_id,
             client_request_id=request.client_request_id,
             traceparent=traceparent,
         )
         await self._repository.create_run(run)
-        task = asyncio.create_task(self._pump(run, request.message, adapter), name=f"harness-run:{run.run_id}")
+        context = RunContext(
+            blueprint=version.blueprint,
+            binding=binding,
+            prompt=await self._prompt_compiler.compile(version.blueprint),
+            turn=TurnInput(run_id=run.run_id, message=request.message, traceparent=traceparent),
+        )
+        task = asyncio.create_task(self._pump(run, context), name=f"harness-run:{run.run_id}")
         self._tasks[run.run_id] = task
         task.add_done_callback(lambda _: self._tasks.pop(run.run_id, None))
         return run
 
-    async def _pump(self, run: RunRecord, message: str, adapter: HarnessAdapter) -> None:
+    async def _pump(self, run: RunRecord, context: RunContext) -> None:
         try:
             await self._repository.append_event(
                 run.run_id,
                 "run.started",
-                {"harness_id": run.harness_id, "provider_session_id": run.provider_session_id},
+                {
+                    "harness_id": run.harness_id,
+                    "agent_version": run.agent_version,
+                    "binding_id": run.binding_id,
+                },
                 RunStatus.RUNNING,
             )
-            async for text in adapter.stream(
-                runtime_alias=run.runtime_alias,
-                provider_session_id=run.provider_session_id,
-                agent_id=run.agent_id,
-                conversation_id=run.conversation_id,
-                message=message,
-                traceparent=run.traceparent,
-            ):
-                await self._repository.append_event(run.run_id, "content.delta", {"text": text})
-            await self._repository.append_event(run.run_id, "run.completed", {}, RunStatus.COMPLETED)
+            adapter = self._registry.adapter(run.harness_id)
+            async for event in adapter.stream(context):
+                if event.event_type == "session.updated":
+                    provider_session_id = str(event.data.get("provider_session_id", ""))
+                    if provider_session_id:
+                        await self._repository.update_session_provider_id(
+                            run.binding_id, provider_session_id
+                        )
+                        await self._repository.update_run_provider_id(
+                            run.run_id, provider_session_id
+                        )
+                await self._repository.append_event(
+                    run.run_id, event.event_type, event.data
+                )
+            await self._repository.append_event(
+                run.run_id, "run.completed", {}, RunStatus.COMPLETED
+            )
         except asyncio.CancelledError:
-            await self._repository.append_event(run.run_id, "run.cancelled", {}, RunStatus.CANCELLED)
+            await self._repository.append_event(
+                run.run_id, "run.cancelled", {}, RunStatus.CANCELLED
+            )
             raise
-        except Exception as exc:
+        except Exception:
             await self._repository.append_event(
                 run.run_id,
                 "run.failed",
-                {"code": "provider_error", "message": str(exc)},
+                {
+                    "code": "provider_error",
+                    "message": "Harness execution failed; inspect the correlated server trace",
+                },
                 RunStatus.FAILED,
             )
 

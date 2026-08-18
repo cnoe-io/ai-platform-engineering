@@ -1,13 +1,20 @@
 # Harness Engine
 
-Independent execution control plane for non-Dynamic-Agents harnesses. The first adapter invokes an operator-allowlisted Amazon Bedrock AgentCore runtime.
+Independent execution control plane for non-Dynamic-Agents harnesses. AgentCore
+and Claude Agent SDK exercise the same portable blueprint and adapter contract.
 
 ## Boundary
 
 - Dynamic Agents source, API, database documents, and streams are unchanged.
-- Harness selection is stored separately in `harness_agent_configs`.
+- Complete agent blueprints and immutable versions are stored separately in
+  `harness_agents` and `harness_agent_versions`.
+- Durable `harness_sessions` bind an owner, agent version, and conversation to
+  one native provider session. Existing conversations remain pinned when an
+  agent is edited.
 - Runs and replayable events are stored in `harness_runs` and `harness_events`.
-- The same caller/agent/conversation tuple receives the same opaque AgentCore `runtimeSessionId`, preserving provider thread context across turns without exposing identity values.
+- The same caller/agent/conversation tuple receives the same opaque binding.
+  AgentCore derives a stable `runtimeSessionId`; Claude persists the SDK result
+  session ID and supplies it through `resume` on the next turn.
 - The Next.js BFF authenticates and authorizes callers, then uses an internal service credential. User bearer tokens never reach Harness Engine or AgentCore.
 - A provider invocation belongs to Harness Engine, not to an SSE subscriber. Closing a browser or BFF connection only removes that subscription.
 
@@ -23,9 +30,9 @@ sequenceDiagram
 
     Browser->>BFF: POST /api/harness-engine/runs
     BFF->>HE: POST /api/v1/runs (internal token + subject)
-    HE->>MongoDB: create queued run + provider session ID
+    HE->>MongoDB: resolve binding + create queued run
     HE-->>BFF: 202 run_id
-    HE->>AC: InvokeAgentRuntime(runtimeSessionId)
+    HE->>AC: invoke/resume native session
     AC-->>HE: streaming chunks
     HE->>MongoDB: append sequenced events
     Browser->>BFF: GET events/stream?after=N
@@ -38,7 +45,27 @@ sequenceDiagram
     HE-->>Browser: remaining replay + live SSE
 ```
 
-The BFF remains horizontally stateless. `run_id`, an event cursor, MongoDB, and AgentCore's stable `runtimeSessionId` form the session contract. W3C `traceparent` is validated, stored with the run, and included in the AgentCore request payload for runtime-side continuation. This avoids sticky sessions and losing work when a particular BFF replica disappears. A Harness Engine process failure is a separate recovery problem; this initial slice guarantees client-disconnect survival, not provider invocation takeover by another engine replica.
+The BFF remains horizontally stateless. Harness Engine is session-aware through
+durable bindings and owns each provider task after returning `202`. `run_id`, an
+event cursor, MongoDB, and the provider session ID form the reconnect contract.
+This avoids sticky BFF sessions and keeps execution alive when a browser or BFF
+subscriber disconnects. Process-failure takeover of an in-flight provider call
+is not implemented yet; completed event replay and subsequent thread resume are.
+
+## Portable contract
+
+- `AgentBlueprint` owns portable prompt, model, tool, thread, memory, workspace,
+  streaming, delegation, and run-limit policy.
+- `HarnessDescriptor` advertises sanitized operator profiles, a bounded JSON
+  Schema, and `native`/`emulated`/`unsupported`/`unavailable` capabilities.
+- `HarnessRegistry` validates and normalizes a draft, returns a catalog revision
+  and configuration fingerprint, then resolves the selected adapter at run time.
+- Adapters receive `RunContext` and emit canonical events only.
+- Broker protocols isolate thread state, memory, tools, sandboxes, prompts,
+  delegation, and telemetry from SDK-specific code.
+
+See [Portable abstractions](../../docs/docs/specs/2026-08-17-harness-engine/portable-abstractions.md)
+for the full contract, UI flow, persistence model, and sandbox target architecture.
 
 ## Configuration
 
@@ -48,6 +75,8 @@ Harness Engine variables use the `HARNESS_ENGINE_` prefix:
 - `HARNESS_ENGINE_STORAGE_BACKEND`: `mongodb` for durable/replayable production sessions; `memory` for tests and local development.
 - `HARNESS_ENGINE_MONGODB_URI` and `HARNESS_ENGINE_MONGODB_DATABASE`.
 - `HARNESS_ENGINE_AGENTCORE_RUNTIMES_JSON`: alias-to-operator-owned target map, for example `{"primary":{"arn":"arn:aws:bedrock-agentcore:us-east-1:111122223333:runtime/example","qualifier":"DEFAULT","region":"us-east-1"}}`.
+- `HARNESS_ENGINE_CLAUDE_SDK_PROFILES_JSON`: alias-to-operator-owned Claude
+  policy, for example `{"safe":{"model":"claude-example","cwd":"/workspace","permission_mode":"dontAsk"}}`.
 - `HARNESS_ENGINE_EVENT_RETENTION_SECONDS`: TTL for replay events.
 
 The UI BFF requires:

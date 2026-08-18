@@ -1,6 +1,11 @@
 # Feature Specification: Harness Engine
 
-> **Implementation amendment (2026-08-18):** The first AgentCore slice is an independent service deployed beside Dynamic Agents. It does not replace or modify the existing implementation. Agent selection is an external overlay, and migration/compatibility work is deferred to a separate opt-in phase. The requirements below remain the target architecture unless this amendment narrows the initial release.
+> **Implementation amendment (2026-08-18):** Harness Engine is an independent
+> service deployed beside Dynamic Agents. It does not import, replace, or modify
+> Dynamic Agents. It owns complete portable agent blueprints, immutable versions,
+> session bindings, runs, and canonical events in separate collections. AgentCore
+> and Claude Agent SDK are the first contract probes. Migration and compatibility
+> remain separate opt-in phases. See [Portable abstractions](portable-abstractions.md).
 
 **Feature Branch**: `2026-08-17-harness-engine`
 **Created**: 2026-08-17
