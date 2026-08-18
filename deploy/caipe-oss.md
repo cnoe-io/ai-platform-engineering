@@ -41,6 +41,9 @@ Configure one execution provider before testing runs:
 ANTHROPIC_API_KEY=<provider-secret>
 HARNESS_ENGINE_CLAUDE_SDK_PROFILES_JSON={"primary":{"model":"<operator-approved-model>","cwd":"/tmp","permission_mode":"dontAsk","description":"CAIPE OSS preview"}}
 
+# To use the host's AWS role instead of an Anthropic API key:
+CLAUDE_CODE_USE_BEDROCK=1
+
 # Or an operator-allowlisted AgentCore Runtime
 HARNESS_ENGINE_AGENTCORE_RUNTIMES_JSON={"primary":{"arn":"<runtime-arn>","qualifier":"DEFAULT","region":"<aws-region>"}}
 ```
