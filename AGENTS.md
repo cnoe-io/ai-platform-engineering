@@ -99,8 +99,8 @@ Do not add Slack/Webex bots to that default path.
 - Python + Slack Bolt, Slack SDK, httpx (SSE streaming), Pydantic (config models), requests, loguru, PyYAML — no new dependencies (100-slack-agui-migration)
 - MongoDB (LangGraph checkpointer on dynamic agents side; Slack bot is stateless beyond in-memory TTL caches) (100-slack-agui-migration)
 - Service accounts: dynamic Keycloak confidential clients + OpenFGA `service_account` tuples + Mongo `service_accounts` collection; BFF (Next.js) orchestrates create/rotate/revoke/scope; caller-keyed tool authz added to the OpenFGA ext_authz bridge (2026-06-05-service-accounts)
-- Python 3.13 control plane and sandbox workers; Kubernetes Agent Sandbox CRDs/controller with certified gVisor or Kata RuntimeClasses; separate Deep Agents, Claude Agent SDK, and Strands worker images; managed AgentCore remote adapter (2026-08-17-harness-engine)
-- Existing MongoDB/LangGraph checkpoints, GridFS, and local/S3 attachments; additive `harness_sessions` stores durable thread heads and Sandbox leases; additive `harness_memories` stores scoped/revisioned/provenance-bearing long-term memory; W3C/OpenTelemetry traces span control plane and workers (2026-08-17-harness-engine)
+- Independent Python 3.13 Harness Engine with a managed AgentCore adapter; Dynamic Agents remains unchanged and additional local/sandbox harnesses are future adapters (2026-08-17-harness-engine)
+- Separate MongoDB `harness_agent_configs`, `harness_runs`, and `harness_events` collections provide overlays and cursor replay; stable AgentCore session IDs preserve thread context while scoped long-term memory remains future work (2026-08-17-harness-engine)
 
 ## Recent Changes
-- 2026-08-17-harness-engine: Designed a compatible Harness Engine with claim-exclusive sandbox workers, external thread persistence, governed agent memory, and distributed tracing
+- 2026-08-17-harness-engine: Added an independent AgentCore Harness Engine with detached runs, replayable sessions, and W3C trace propagation
