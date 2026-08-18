@@ -11,6 +11,12 @@
 #     -f docker-compose.caipe-oss.yaml up -d --build
 
 services:
+  # Keep the Langfuse dashboard available for host-local diagnostics without
+  # competing with the CAIPE UI for the public port exposed by the base file.
+  langfuse-web:
+    ports: !override
+      - "127.0.0.1:3001:3000"
+
   caipe-nginx:
     image: nginx:1.27-alpine
     container_name: caipe-oss-nginx

@@ -8,8 +8,21 @@ OVERLAY = ROOT / "docker-compose.caipe-oss.yaml"
 NGINX = ROOT / "deploy" / "caipe-oss-nginx.conf"
 
 
+class ComposeLoader(yaml.SafeLoader):
+    """Load Compose merge tags while preserving their underlying value."""
+
+
+ComposeLoader.add_constructor(
+    "!override",
+    lambda loader, node: loader.construct_sequence(node),
+)
+
+
 def test_preview_overlay_adds_harness_engine_without_overriding_dynamic_agents() -> None:
-    services = yaml.safe_load(OVERLAY.read_text(encoding="utf-8"))["services"]
+    services = yaml.load(
+        OVERLAY.read_text(encoding="utf-8"),
+        Loader=ComposeLoader,
+    )["services"]
 
     assert "dynamic-agents" not in services
     assert services["harness-engine"]["build"]["dockerfile"] == (
@@ -21,6 +34,7 @@ def test_preview_overlay_adds_harness_engine_without_overriding_dynamic_agents()
     assert services["caipe-ui"]["environment"]["HARNESS_ENGINE_URL"] == (
         "http://harness-engine:8010"
     )
+    assert services["langfuse-web"]["ports"] == ["127.0.0.1:3001:3000"]
 
 
 def test_preview_nginx_exposes_ui_but_not_harness_engine_directly() -> None:
@@ -29,4 +43,3 @@ def test_preview_nginx_exposes_ui_but_not_harness_engine_directly() -> None:
     assert "server_name caipe-oss.outshift.io;" in config
     assert "proxy_pass http://caipe-ui:3000;" in config
     assert "proxy_pass http://harness-engine:8010;" not in config
-
