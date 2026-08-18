@@ -55,10 +55,7 @@ services:
       USE_PIPELINE: "true"
       GITLAB_API_URL: https://${GITLAB_HOST:-gitlab.com}/api/v4
       GITLAB_PERSONAL_ACCESS_TOKEN: ${GITLAB_PERSONAL_ACCESS_TOKEN:-${GITLAB_TOKEN:-}}
-      # The source preview has a deployment token but no per-user GitLab
-      # connection. Use that token by default here; operators can opt back in
-      # to forwarded per-user credentials after linking GitLab in the UI.
-      REMOTE_AUTHORIZATION: ${GITLAB_MCP_REMOTE_AUTHORIZATION:-false}
+      REMOTE_AUTHORIZATION: ${GITLAB_MCP_REMOTE_AUTHORIZATION:-true}
       GITLAB_READ_ONLY_MODE: ${GITLAB_READ_ONLY_MODE:-true}
     healthcheck:
       test:
