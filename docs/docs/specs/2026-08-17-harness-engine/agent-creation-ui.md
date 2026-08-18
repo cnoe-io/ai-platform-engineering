@@ -1,5 +1,13 @@
 # Agent Creation UI Architecture
 
+> **Implemented vertical slice (2026-08-18):** The existing editor now fetches
+> descriptors from the independent Harness Engine, renders sanitized operator
+> profiles and primitive JSON-Schema options, performs server-side draft
+> validation, and saves a separate immutable blueprint. Dynamic Agents remains
+> the default and its stored document/runtime is unchanged. Compatibility diffs,
+> typed complex panels, memory policy controls, and pre-Dynamic-Agent atomic save
+> coordination remain follow-up work.
+
 ## Goal
 
 Evolve the existing `DynamicAgentEditor` into a Harness Engine agent builder. The selected harness controls compatibility, available models, field behavior, validation, and operator context without changing the existing five-step navigation or default Deep Agents experience.

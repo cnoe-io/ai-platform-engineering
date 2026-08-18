@@ -96,7 +96,7 @@ const editAgent = {
   updated_at: "2026-04-29T00:00:00Z",
 };
 
-function mockFetch(platformDefaultId: string | null, runtimeAliases: string[] = []) {
+function mockFetch(platformDefaultId: string | null, includeHarnesses = false) {
   const fetchMock = jest.fn(async (url: RequestInfo | URL) => {
     const u = typeof url === "string" ? url : url.toString();
     if (u.includes("/api/dynamic-agents/models")) {
@@ -122,7 +122,33 @@ function mockFetch(platformDefaultId: string | null, runtimeAliases: string[] = 
     if (u.endsWith("/api/harness-engine/harnesses")) {
       return jsonResponse({
         success: true,
-        data: { harnesses: [{ id: "agentcore", runtime_aliases: runtimeAliases }] },
+        data: {
+          catalog_revision: "catalog-1",
+          harnesses: includeHarnesses ? [{
+            id: "claude_agent_sdk",
+            display_name: "Claude Agent SDK",
+            adapter_version: "1.0.0",
+            contract_version: 1,
+            execution_mode: "in_process",
+            availability: "available",
+            certification: "experimental",
+            profiles: [{
+              id: "safe",
+              harness_id: "claude_agent_sdk",
+              display_name: "Safe",
+              description: "",
+              available: true,
+            }],
+            options_schema: {
+              type: "object",
+              properties: {
+                max_turns: { type: "integer", title: "Maximum turns", default: 20 },
+              },
+            },
+            ui_schema: {},
+            capabilities: {},
+          }] : [],
+        },
       });
     }
     return jsonResponse({ success: true, data: {} });
@@ -167,16 +193,17 @@ describe("DynamicAgentEditor — platform default grant preview", () => {
     expect(preview).not.toHaveTextContent("OpenFGA");
   });
 
-  it("reveals AgentCore-specific runtime fields only after that harness is selected", async () => {
-    mockFetch(null, ["primary"]);
+  it("renders provider options from the selected harness descriptor", async () => {
+    mockFetch(null, true);
     render(<DynamicAgentEditor agent={editAgent} onCancel={jest.fn()} onSave={jest.fn()} />);
     await flushAsync();
 
     fireEvent.change(screen.getByLabelText("Execution harness"), {
-      target: { value: "agentcore" },
+      target: { value: "claude_agent_sdk" },
     });
 
-    expect(screen.getByLabelText("AgentCore runtime")).toHaveValue("primary");
-    expect(screen.getByText(/operator-managed runtime ARN/)).toBeInTheDocument();
+    expect(screen.getByLabelText("Operator profile")).toHaveValue("safe");
+    expect(screen.getByLabelText("Maximum turns")).toHaveValue(20);
+    expect(screen.getByText(/browser never receives credentials/)).toBeInTheDocument();
   });
 });

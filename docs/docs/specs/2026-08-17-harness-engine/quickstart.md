@@ -1,5 +1,40 @@
 # Quickstart: Validate Harness Engine
 
+## Implemented independent slice
+
+The current code is validated without starting or modifying Dynamic Agents:
+
+```bash
+cd ai_platform_engineering/harness_engine
+uv sync --all-extras
+uv run ruff check src tests
+uv run pytest -q
+
+cd ../../../ui
+npx eslint \
+  src/types/harness-engine.ts \
+  src/components/harness-engine/HarnessOptionsForm.tsx \
+  src/components/dynamic-agents/DynamicAgentEditor.tsx \
+  src/app/api/harness-engine
+npx tsc --noEmit
+npx jest \
+  src/components/dynamic-agents/__tests__/DynamicAgentEditor.platform-default.test.tsx \
+  src/app/api/harness-engine/__tests__/routes.test.ts \
+  --runInBand
+```
+
+Configure at least one operator profile:
+
+```bash
+export HARNESS_ENGINE_INTERNAL_TOKEN=local-development-only
+export HARNESS_ENGINE_AGENTCORE_RUNTIMES_JSON='{"primary":{"arn":"arn:aws:bedrock-agentcore:us-east-1:111122223333:runtime/example"}}'
+export HARNESS_ENGINE_CLAUDE_SDK_PROFILES_JSON='{"safe":{"model":"claude-example","cwd":"/workspace","permission_mode":"dontAsk"}}'
+uv run uvicorn harness_engine.main:app --host 0.0.0.0 --port 8010
+```
+
+The remaining sections are target-architecture release gates and are not claims
+about the current experimental adapters.
+
 This is the release-validation runbook for the planned implementation. Commands that reference new test directories become executable as the corresponding phase lands.
 
 ## 1. Verify worktree and artifacts

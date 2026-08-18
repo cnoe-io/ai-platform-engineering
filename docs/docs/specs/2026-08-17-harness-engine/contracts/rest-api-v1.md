@@ -1,5 +1,10 @@
 # REST API Contract: Harness Engine v1
 
+> **Vertical-slice mapping:** The independent service currently exposes
+> `/api/v1/harnesses`, `/api/v1/agent-drafts/validate`, `/api/v1/agents/{id}`,
+> and detached `/api/v1/runs` plus replay/event-stream routes. The compatibility
+> API below remains future replacement work and Dynamic Agents is unchanged.
+
 ## Compatibility rule
 
 Harness Engine serves the existing Dynamic Agents API unchanged. The implementation must freeze the current generated OpenAPI document and black-box behavior before refactoring. Existing fields remain optional/required exactly as today; additive fields and routes below do not change old clients.

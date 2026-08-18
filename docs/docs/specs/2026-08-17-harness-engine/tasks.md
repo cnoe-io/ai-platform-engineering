@@ -357,3 +357,24 @@ flowchart TD
 - Do not acknowledge durable completion before native state and the binding head are committed.
 - Do not persist parked UI options, browser capability claims, or stale validation results.
 - Preserve the original Dynamic Agents rollback path until Phase 11 completes.
+
+---
+
+## Phase 12: Independent Portable Abstraction Slice (Implemented)
+
+This phase supersedes the earlier AgentCore-only overlay. It intentionally does
+not complete or modify tasks targeting `ai_platform_engineering/dynamic_agents/`.
+
+- [x] T136 Define provider-neutral `AgentBlueprint`, `HarnessDescriptor`, capability levels, validation results, sessions, runs, and canonical events in `ai_platform_engineering/harness_engine/src/harness_engine/models.py`.
+- [x] T137 Define broker boundaries for thread state, memory, tools, sandboxes, prompts, delegation, and telemetry in `ai_platform_engineering/harness_engine/src/harness_engine/brokers.py`.
+- [x] T138 Implement the registry, catalog revision, normalized fingerprint, profile validation, and required-capability rejection in `ai_platform_engineering/harness_engine/src/harness_engine/registry.py`.
+- [x] T139 Refactor AgentCore to the portable adapter contract with operator profiles, native session persistence, sanitized descriptor, and canonical events.
+- [x] T140 Add a Claude Agent SDK adapter with operator profiles, safe option schema, native SDK session resume, text/usage translation, and injected-query tests.
+- [x] T141 Replace overlay persistence with independent immutable agent versions, durable session bindings, runs, and replay events in memory and Mongo repositories.
+- [x] T142 Refactor run coordination to pin sessions to agent versions, compile prompts, own provider tasks after disconnect, update native session IDs, and sanitize failures.
+- [x] T143 Add catalog, draft validation, full agent save/get, detached run, replay, and cancellation APIs without importing or editing Dynamic Agents.
+- [x] T144 Refactor the CAIPE editor and BFF to consume descriptors, render primitive JSON-Schema options, validate drafts server-side, and save independent blueprints.
+- [x] T145 Add AgentCore, Claude SDK, immutable-version/session, ownership, disconnect/replay, schema-driven UI, and BFF tests.
+- [x] T146 Document the portable contracts, session/thread/memory model, sandbox-pod target, UI contract, current limitations, and research in `portable-abstractions.md` and the component README.
+- [ ] T147 Move Harness Engine validation before the legacy Dynamic Agents write and provide atomic/recoverable dual-save coordination.
+- [ ] T148 Implement claim-exclusive Agent Sandbox pods, worker fencing, external checkpoint state, and tool/memory broker capability tokens for local SDK harnesses.

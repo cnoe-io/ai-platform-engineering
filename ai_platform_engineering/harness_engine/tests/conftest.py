@@ -1,49 +1,89 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import AsyncIterator
 
 import pytest
 
 from harness_engine.config import Settings
+from harness_engine.models import (
+    AdapterEvaluation,
+    AgentBlueprint,
+    CanonicalEventDraft,
+    CapabilityLevel,
+    CapabilityResult,
+    ExecutionMode,
+    HarnessDescriptor,
+    HarnessProfile,
+    RunContext,
+)
 from harness_engine.repository import InMemoryRunRepository
 
 
-class FakeAgentCoreAdapter:
-    harness_id = "agentcore"
-    configured_aliases = ["primary"]
-
+class FakeHarnessAdapter:
     def __init__(self, chunks: list[str] | None = None, delay: float = 0.0) -> None:
         self.chunks = chunks or ["hello", " world"]
         self.delay = delay
-        self.calls: list[dict[str, str]] = []
+        self.calls: list[RunContext] = []
 
-    async def stream(
-        self,
-        *,
-        runtime_alias: str,
-        provider_session_id: str,
-        agent_id: str,
-        conversation_id: str,
-        message: str,
-        traceparent: str | None,
-    ) -> AsyncIterator[str]:
-        import asyncio
-
-        self.calls.append(
-            {
-                "runtime_alias": runtime_alias,
-                "provider_session_id": provider_session_id,
-                "agent_id": agent_id,
-                "conversation_id": conversation_id,
-                "message": message,
-                "traceparent": traceparent or "",
-            }
+    @property
+    def descriptor(self) -> HarnessDescriptor:
+        return HarnessDescriptor(
+            id="agentcore",
+            display_name="Fake AgentCore",
+            adapter_version="test",
+            execution_mode=ExecutionMode.PROVIDER_MANAGED,
+            availability="available",
+            profiles=[
+                HarnessProfile(
+                    id="primary",
+                    harness_id="agentcore",
+                    display_name="Primary",
+                )
+            ],
+            options_schema={"type": "object", "properties": {}, "additionalProperties": False},
+            capabilities={
+                "stream.replay": CapabilityResult(level=CapabilityLevel.EMULATED),
+                "thread.persistence": CapabilityResult(level=CapabilityLevel.NATIVE),
+                "memory.long_term": CapabilityResult(level=CapabilityLevel.UNAVAILABLE),
+                "tools.broker": CapabilityResult(level=CapabilityLevel.UNAVAILABLE),
+                "sandbox.workspace": CapabilityResult(level=CapabilityLevel.UNAVAILABLE),
+                "multi_agent.delegation": CapabilityResult(level=CapabilityLevel.UNAVAILABLE),
+            },
         )
+
+    def evaluate(self, blueprint: AgentBlueprint) -> AdapterEvaluation:
+        return AdapterEvaluation(normalized_options={}, checkpoint_strategy="remote_managed")
+
+    def initial_provider_session_id(self, binding_id: str) -> str:
+        return f"provider-{binding_id}"
+
+    async def stream(self, context: RunContext) -> AsyncIterator[CanonicalEventDraft]:
+        self.calls.append(context)
         for chunk in self.chunks:
             if self.delay:
                 await asyncio.sleep(self.delay)
-            yield chunk
+            yield CanonicalEventDraft(event_type="content.delta", data={"text": chunk})
+
+
+def blueprint(
+    *,
+    harness_id: str = "agentcore",
+    profile_id: str = "primary",
+    options: dict[str, object] | None = None,
+) -> dict[str, object]:
+    return {
+        "id": "agent-example",
+        "name": "Example agent",
+        "description": "Portable test agent",
+        "harness": {
+            "id": harness_id,
+            "profile_id": profile_id,
+            "options": options or {},
+        },
+        "prompt": {"system": "Be helpful to {{audience}}.", "variables": {"audience": "users"}},
+    }
 
 
 @pytest.fixture
@@ -57,6 +97,15 @@ def settings() -> Settings:
                 "primary": {
                     "arn": "arn:aws:bedrock-agentcore:us-east-1:111122223333:runtime/example",
                     "qualifier": "DEFAULT",
+                }
+            }
+        ),
+        claude_sdk_profiles_json=json.dumps(
+            {
+                "safe": {
+                    "model": "claude-example",
+                    "cwd": "/workspace",
+                    "permission_mode": "dontAsk",
                 }
             }
         ),

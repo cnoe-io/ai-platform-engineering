@@ -1,5 +1,10 @@
 # Research: Harness Engine
 
+> **2026-08-18 implementation update:** The original replacement decision below
+> remains future migration research. The approved current slice is the
+> independent service described in [Portable abstractions](portable-abstractions.md),
+> and no Dynamic Agents source is changed.
+
 **Date**: 2026-08-17
 **Scope**: Dynamic Agents compatibility surface, multi-harness architecture, and first-party adapter feasibility
 

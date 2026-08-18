@@ -16,6 +16,15 @@ class AgentCoreRuntimeTarget(BaseModel):
     region: str | None = Field(None, pattern=r"^[a-z]{2}(?:-gov)?-[a-z]+-\d$")
 
 
+class ClaudeSDKProfile(BaseModel):
+    """Operator-owned Claude Agent SDK process profile."""
+
+    model: str = Field(..., min_length=1, max_length=128)
+    cwd: str = Field("/workspace", min_length=1, max_length=1024)
+    permission_mode: str = Field("dontAsk", pattern=r"^(default|acceptEdits|plan|dontAsk)$")
+    description: str = Field("", max_length=512)
+
+
 class Settings(BaseSettings):
     """Environment-only service settings."""
 
@@ -31,6 +40,7 @@ class Settings(BaseSettings):
     long_poll_seconds: float = Field(15.0, ge=0.1, le=30.0)
     agentcore_runtimes_json: str = "{}"
     agentcore_endpoint_url: str | None = None
+    claude_sdk_profiles_json: str = "{}"
 
     def agentcore_targets(self) -> dict[str, AgentCoreRuntimeTarget]:
         """Parse the operator allowlist without exposing raw settings to clients."""
@@ -42,3 +52,14 @@ class Settings(BaseSettings):
             return {alias: AgentCoreRuntimeTarget.model_validate(value) for alias, value in raw.items()}
         except (json.JSONDecodeError, ValidationError, ValueError) as exc:
             raise ValueError("HARNESS_ENGINE_AGENTCORE_RUNTIMES_JSON is invalid") from exc
+
+    def claude_sdk_profiles(self) -> dict[str, ClaudeSDKProfile]:
+        """Parse safe aliases for Claude SDK model/workspace policy."""
+
+        try:
+            raw = json.loads(self.claude_sdk_profiles_json)
+            if not isinstance(raw, dict):
+                raise ValueError("must be a JSON object")
+            return {alias: ClaudeSDKProfile.model_validate(value) for alias, value in raw.items()}
+        except (json.JSONDecodeError, ValidationError, ValueError) as exc:
+            raise ValueError("HARNESS_ENGINE_CLAUDE_SDK_PROFILES_JSON is invalid") from exc

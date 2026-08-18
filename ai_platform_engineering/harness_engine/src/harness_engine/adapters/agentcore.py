@@ -10,6 +10,18 @@ from typing import Any, Protocol
 import boto3
 
 from harness_engine.config import AgentCoreRuntimeTarget, Settings
+from harness_engine.models import (
+    AdapterEvaluation,
+    AgentBlueprint,
+    CanonicalEventDraft,
+    CapabilityLevel,
+    CapabilityResult,
+    ExecutionMode,
+    HarnessDescriptor,
+    HarnessProfile,
+    RunContext,
+    ValidationIssue,
+)
 
 
 class AgentCoreDataClient(Protocol):
@@ -29,8 +41,6 @@ def _next_or_end(iterator: Iterator[bytes]) -> bytes | object:
 class AgentCoreAdapter:
     """Invoke allowlisted AgentCore runtimes without forwarding user credentials."""
 
-    harness_id = "agentcore"
-
     def __init__(
         self,
         settings: Settings,
@@ -44,6 +54,83 @@ class AgentCoreAdapter:
     @property
     def configured_aliases(self) -> list[str]:
         return sorted(self._targets)
+
+    @property
+    def descriptor(self) -> HarnessDescriptor:
+        profiles = [
+            HarnessProfile(
+                id=alias,
+                harness_id="agentcore",
+                display_name=alias.replace("-", " ").replace("_", " ").title(),
+                description="Operator-managed AgentCore runtime",
+            )
+            for alias in self.configured_aliases
+        ]
+        return HarnessDescriptor(
+            id="agentcore",
+            display_name="Amazon Bedrock AgentCore",
+            adapter_version="1.0.0",
+            execution_mode=ExecutionMode.PROVIDER_MANAGED,
+            availability="available" if profiles else "misconfigured",
+            certification="experimental",
+            profiles=profiles,
+            options_schema={
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+            capabilities={
+                "stream.text": CapabilityResult(level=CapabilityLevel.NATIVE),
+                "stream.replay": CapabilityResult(
+                    level=CapabilityLevel.EMULATED,
+                    explanation="Harness Engine persists the canonical event log",
+                ),
+                "thread.persistence": CapabilityResult(
+                    level=CapabilityLevel.NATIVE,
+                    explanation="A stable runtimeSessionId resumes the AgentCore session",
+                ),
+                "session.cross_replica": CapabilityResult(level=CapabilityLevel.NATIVE),
+                "sandbox.isolation": CapabilityResult(
+                    level=CapabilityLevel.NATIVE,
+                    explanation="AgentCore provides provider-managed microVM isolation",
+                ),
+                "sandbox.workspace": CapabilityResult(
+                    level=CapabilityLevel.UNAVAILABLE,
+                    explanation="Persistent workspaces are not connected in this adapter",
+                ),
+                "memory.long_term": CapabilityResult(
+                    level=CapabilityLevel.UNAVAILABLE,
+                    explanation="AgentCore Memory is not connected to the memory broker yet",
+                ),
+                "tools.broker": CapabilityResult(
+                    level=CapabilityLevel.UNAVAILABLE,
+                    explanation="Portable tool bindings are not connected yet",
+                ),
+                "multi_agent.delegation": CapabilityResult(
+                    level=CapabilityLevel.UNAVAILABLE,
+                    explanation="Cross-harness delegation is not connected yet",
+                ),
+            },
+        )
+
+    def evaluate(self, blueprint: AgentBlueprint) -> AdapterEvaluation:
+        issues: list[ValidationIssue] = []
+        if blueprint.harness.options:
+            issues.append(
+                ValidationIssue(
+                    path="harness.options",
+                    capability="configuration",
+                    level=CapabilityLevel.UNSUPPORTED,
+                    severity="error",
+                    message="AgentCore does not accept user-owned runtime options",
+                )
+            )
+        return AdapterEvaluation(
+            normalized_options={}, checkpoint_strategy="remote_managed", issues=issues
+        )
+
+    def initial_provider_session_id(self, binding_id: str) -> str:
+        return f"harness-session-{binding_id.removeprefix('binding-')}"
 
     def _target(self, alias: str) -> AgentCoreRuntimeTarget:
         try:
@@ -61,24 +148,16 @@ class AgentCoreAdapter:
             )
         return self._clients[key]
 
-    async def stream(
-        self,
-        *,
-        runtime_alias: str,
-        provider_session_id: str,
-        agent_id: str,
-        conversation_id: str,
-        message: str,
-        traceparent: str | None,
-    ) -> AsyncIterator[str]:
-        target = self._target(runtime_alias)
+    async def stream(self, context: RunContext) -> AsyncIterator[CanonicalEventDraft]:
+        target = self._target(context.binding.profile_id)
         request_body = {
-            "prompt": message,
-            "agent_id": agent_id,
-            "conversation_id": conversation_id,
+            "prompt": context.turn.message,
+            "system_prompt": context.prompt.system,
+            "agent_id": context.blueprint.id,
+            "conversation_id": context.binding.conversation_id,
         }
-        if traceparent:
-            request_body["traceparent"] = traceparent
+        if context.turn.traceparent:
+            request_body["traceparent"] = context.turn.traceparent
         payload = json.dumps(
             request_body,
             separators=(",", ":"),
@@ -86,7 +165,7 @@ class AgentCoreAdapter:
         response = await asyncio.to_thread(
             self._client(target).invoke_agent_runtime,
             agentRuntimeArn=target.arn,
-            runtimeSessionId=provider_session_id,
+            runtimeSessionId=context.binding.provider_session_id,
             qualifier=target.qualifier,
             contentType="application/json",
             accept="text/event-stream, application/json",
@@ -109,7 +188,7 @@ class AgentCoreAdapter:
                 if line.startswith("data:"):
                     line = line[5:].lstrip()
                 if line:
-                    yield line
+                    yield CanonicalEventDraft(event_type="content.delta", data={"text": line})
             return
 
         chunks: list[bytes] = []
@@ -124,6 +203,7 @@ class AgentCoreAdapter:
             return
         try:
             parsed = json.loads(decoded)
-            yield str(parsed.get("result") or parsed.get("response") or decoded)
+            text = str(parsed.get("result") or parsed.get("response") or decoded)
         except json.JSONDecodeError:
-            yield decoded
+            text = decoded
+        yield CanonicalEventDraft(event_type="content.delta", data={"text": text})

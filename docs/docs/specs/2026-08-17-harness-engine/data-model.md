@@ -1,5 +1,12 @@
 # Data Model: Harness Engine
 
+> **Independent implementation note (2026-08-18):** The implemented vertical
+> slice does not add fields to `dynamic_agents`. It stores `AgentRecord` in
+> `harness_agents`, immutable `AgentVersion` documents in
+> `harness_agent_versions`, and session bindings in `harness_sessions`. The
+> additive Dynamic Agents model below is a possible future migration design,
+> not the current implementation.
+
 ## Principles
 
 - Existing documents remain valid without a backfill.

@@ -6,6 +6,7 @@ import { NextRequest } from "next/server";
 
 import { POST as startRun } from "../runs/route";
 import { GET as streamRun } from "../runs/[runId]/events/stream/route";
+import { POST as validateDraft } from "../agent-drafts/validate/route";
 
 const mockAuthenticateRequest = jest.fn();
 const mockRequireAgentUsePermission = jest.fn();
@@ -90,6 +91,36 @@ describe("Harness Engine BFF session routes", () => {
     expect(fetchMock).toHaveBeenCalledWith(
       "http://harness-engine:8010/api/v1/runs/run-1/events/stream?after=7",
       expect.objectContaining({ method: "GET" }),
+    );
+  });
+
+  it("validates portable blueprints with the service identity", async () => {
+    const fetchMock = jest.spyOn(global, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ success: true, data: { valid: true } }), {
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    const request = new NextRequest(
+      "http://localhost/api/harness-engine/agent-drafts/validate",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ blueprint: { id: "agent-example" } }),
+      },
+    );
+
+    const response = await validateDraft(request);
+
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://harness-engine:8010/api/v1/agent-drafts/validate",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          Authorization: "Bearer internal-test-token",
+          "X-Harness-Engine-Subject": "test-user",
+        }),
+      }),
     );
   });
 
