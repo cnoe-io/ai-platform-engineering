@@ -17,6 +17,48 @@ services:
     ports: !override
       - "127.0.0.1:3001:3000"
 
+  # The previous Kubernetes deployment used an in-cluster Ollama endpoint.
+  # Preserve that local-provider behavior in Compose instead of depending on
+  # the deleted *.svc.cluster.local DNS name.
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  ollama-models:
+    image: ollama/ollama:latest
+    container_name: ollama-models
+    restart: "no"
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - ollama pull qwen3:0.6b && ollama pull snowflake-arctic-embed2
+    depends_on:
+      ollama:
+        condition: service_healthy
+
+  rag-server:
+    environment:
+      EMBEDDINGS_PROVIDER: ollama
+      EMBEDDINGS_MODEL: snowflake-arctic-embed2
+      OLLAMA_BASE_URL: http://ollama:11434
+      OPENAI_BASE_URL: http://ollama:11434/v1
+      OPENAI_ENDPOINT: http://ollama:11434/v1
+    depends_on:
+      ollama-models:
+        condition: service_completed_successfully
+
   caipe-nginx:
     image: nginx:1.27-alpine
     container_name: caipe-oss-nginx
@@ -99,3 +141,6 @@ services:
       KC_PROXY_HEADERS: xforwarded
       KC_HOSTNAME_STRICT: "false"
       KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+
+volumes:
+  ollama_data:
