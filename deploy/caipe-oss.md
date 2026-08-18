@@ -44,8 +44,8 @@ HARNESS_ENGINE_CLAUDE_SDK_PROFILES_JSON={"primary":{"model":"<operator-approved-
 # To use the host's AWS role instead of an Anthropic API key:
 CLAUDE_CODE_USE_BEDROCK=1
 
-# Or an operator-allowlisted AgentCore Runtime
-HARNESS_ENGINE_AGENTCORE_RUNTIMES_JSON={"primary":{"arn":"<runtime-arn>","qualifier":"DEFAULT","region":"<aws-region>"}}
+# Or an operator-allowlisted managed AgentCore Harness (custom Runtime ARNs are also supported)
+HARNESS_ENGINE_AGENTCORE_RUNTIMES_JSON={"primary":{"arn":"<harness-or-runtime-arn>","qualifier":"DEFAULT","region":"<aws-region>"}}
 ```
 
 Prefer an instance role for AWS access. Do not place provider credentials in
