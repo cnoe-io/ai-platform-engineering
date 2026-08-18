@@ -1626,56 +1626,79 @@ export function DynamicAgentEditor({
             />
           </div>
 
-          <fieldset className={cn("space-y-4 min-w-0", readOnly && "opacity-70")}>
-
-          {/* Basic Info Step */}
-          {activeStep === "basic" && (
-            <div className="space-y-4 pt-2">
-              <div className="space-y-2">
-                <Label htmlFor="harnessId">Execution harness</Label>
-                <div className="p-3 rounded-lg border-2 border-primary/20 bg-primary/5 space-y-3">
-                  <select
-                    id="harnessId"
-                    value={harnessId}
-                    onChange={(event) => selectHarness(event.target.value)}
-                    disabled={loading || harnessLoading || !!readOnly}
-                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-medium shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <option value="dynamic_agents">Dynamic Agents (existing runtime)</option>
-                    {harnessDescriptors.map((descriptor) => (
-                      <option
-                        key={descriptor.id}
-                        value={descriptor.id}
-                        disabled={descriptor.availability !== "available" || descriptor.certification === "blocked"}
-                      >
-                        {descriptor.display_name}
+          <fieldset
+            className={cn("space-y-4 min-w-0", readOnly && "opacity-70")}
+          >
+            {/* Basic Info Step */}
+            {activeStep === "basic" && (
+              <div className="space-y-4 pt-2">
+                <div className="space-y-2">
+                  <Label htmlFor="harnessId">Execution harness</Label>
+                  <div className="p-3 rounded-lg border-2 border-primary/20 bg-primary/5 space-y-3">
+                    <select
+                      id="harnessId"
+                      value={harnessId}
+                      onChange={(event) => selectHarness(event.target.value)}
+                      disabled={loading || harnessLoading || !!readOnly}
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-medium shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <option value="dynamic_agents">
+                        LangChain Deep Agents (default)
                       </option>
-                    ))}
-                  </select>
-                  {selectedHarness && (
-                    <div className="space-y-2">
-                      <Label htmlFor="harnessProfile">Operator profile</Label>
-                      <select
-                        id="harnessProfile"
-                        value={harnessProfileId}
-                        onChange={(event) => setHarnessProfileId(event.target.value)}
-                        disabled={loading || !!readOnly}
-                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                      >
-                        {selectedHarness.profiles.map((profile) => (
-                          <option key={profile.id} value={profile.id} disabled={!profile.available}>
-                            {profile.display_name}
-                          </option>
-                        ))}
-                      </select>
-                      <HarnessOptionsForm
-                        schema={selectedHarness.options_schema}
-                        value={harnessOptions}
-                        onChange={setHarnessOptions}
-                        disabled={loading || !!readOnly}
-                      />
+                      {harnessDescriptors.map((descriptor) => (
+                        <option
+                          key={descriptor.id}
+                          value={descriptor.id}
+                          disabled={
+                            descriptor.availability !== "available" ||
+                            descriptor.certification === "blocked"
+                          }
+                        >
+                          {descriptor.display_name}
+                        </option>
+                      ))}
+                    </select>
+                    {selectedHarness && (
+                      <div className="space-y-2">
+                        <Label htmlFor="harnessProfile">Operator profile</Label>
+                        <select
+                          id="harnessProfile"
+                          value={harnessProfileId}
+                          onChange={(event) =>
+                            setHarnessProfileId(event.target.value)
+                          }
+                          disabled={loading || !!readOnly}
+                          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        >
+                          {selectedHarness.profiles.map((profile) => (
+                            <option
+                              key={profile.id}
+                              value={profile.id}
+                              disabled={!profile.available}
+                            >
+                              {profile.display_name}
+                            </option>
+                          ))}
+                        </select>
+                        <HarnessOptionsForm
+                          schema={selectedHarness.options_schema}
+                          value={harnessOptions}
+                          onChange={setHarnessOptions}
+                          disabled={loading || !!readOnly}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          {selectedHarness.execution_mode.replaceAll("_", " ")}{" "}
+                          · {selectedHarness.certification}. Profiles map to
+                          operator-managed resources; the browser never receives
+                          credentials, commands, images, or provider resource
+                          IDs.
+                        </p>
+                      </div>
+                    )}
+                    {harnessId === "dynamic_agents" && (
                       <p className="text-xs text-muted-foreground">
-                        {selectedHarness.execution_mode.replaceAll("_", " ")} · {selectedHarness.certification}. Profiles map to operator-managed resources; the browser never receives credentials, commands, images, or provider resource IDs.
+                        Uses the existing LangChain Deep Agents runtime without
+                        changing its stored document or execution path.
                       </p>
                     )}
                   </div>
