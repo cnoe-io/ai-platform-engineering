@@ -20,6 +20,7 @@ from harness_engine.config import Settings
 from harness_engine.coordinator import AgentNotRunnableError, RunCoordinator
 from harness_engine.models import (
     TERMINAL_RUN_STATUSES,
+    CancelActiveRunRequest,
     ClearAgentSessionRequest,
     CreateRunRequest,
     EventPage,
@@ -272,6 +273,16 @@ def create_app(
     ) -> dict[str, object]:
         ensure_owner(await resolved_repository.get_run(run_id), subject)
         return {"success": True, "data": await coordinator.cancel(run_id)}
+
+    @app.post("/api/v1/runs/cancel-active")
+    async def cancel_active_run(
+        body: CancelActiveRunRequest,
+        subject: str = Depends(caller_subject),
+    ) -> dict[str, object]:
+        result = await coordinator.cancel_active(
+            subject, body.agent_id, body.conversation_id
+        )
+        return {"success": True, "data": result}
 
     return app
 

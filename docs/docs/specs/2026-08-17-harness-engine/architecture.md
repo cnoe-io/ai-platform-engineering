@@ -8,9 +8,11 @@ Replace Dynamic Agents without changing its external architecture, then make the
 
 ```mermaid
 flowchart LR
-    UI["Next.js UI/BFF"] -->|"existing REST + SSE"| HE["Harness Engine\nexisting dynamic-agents address"]
-    WF["Workflows / scheduler"] -->|"existing invoke API"| HE
-    BOT["Slack / Webex"] -->|"existing chat API"| HE
+    UI["Web UI"] --> HG["Harness Gateway\nNext.js BFF"]
+    WF["Workflows / scheduler"] --> HG
+    BOT["Slack / Webex"] --> HG
+    HG -->|"default / legacy"| DA["Dynamic Agents\nunchanged"]
+    HG -->|"opt-in harness"| HE["Harness Engine"]
     HE --> DB["MongoDB / GridFS"]
     HE --> OBJ["Local or S3 attachments"]
     HE --> FGA["OpenFGA / authz bridge"]
@@ -25,7 +27,31 @@ flowchart LR
     HE --> AC["Managed AgentCore Harness"]
 ```
 
-The Next.js BFF remains the configuration writer. Harness Engine remains the runtime reader and executor.
+The Next.js BFF remains the configuration writer and hosts Harness Gateway.
+Harness Gateway owns channel-neutral authentication, authorization, runtime
+selection, and wire compatibility. Harness Engine remains the durable runtime
+reader and executor for explicitly selected non-default harnesses. Dynamic
+Agents remains the unchanged default runtime.
+
+## Harness Gateway boundary
+
+```mermaid
+flowchart LR
+    C["Web UI / Slack / Webex"] --> R["Existing /api/v1/chat routes"]
+    R --> A["Authn + OpenFGA + conversation authz"]
+    A --> S["Read execution_harness_id"]
+    S -->|"missing or dynamic_agents"| DA["Existing DA proxy"]
+    S -->|"non-default"| START["Detached Harness Engine run"]
+    START --> LOG["Durable canonical event log"]
+    LOG --> ENC["AG-UI / custom SSE encoder"]
+    ENC --> C
+```
+
+The marker is stored with the BFF-owned agent configuration. It is not a
+provider option and cannot be overridden per request. Missing values mean
+Dynamic Agents, preserving all pre-Harness-Gateway agents. Once a non-default
+run starts, provider failure never triggers an automatic Dynamic Agents
+fallback.
 
 ## Agent creation control flow
 

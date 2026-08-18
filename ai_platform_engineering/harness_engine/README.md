@@ -20,6 +20,9 @@ and Claude Agent SDK exercise the same portable blueprint and adapter contract.
   session ID and supplies it through `resume` on the next turn.
 - The Next.js BFF authenticates and authorizes callers, then uses an internal service credential. User bearer tokens never reach Harness Engine or AgentCore.
 - A provider invocation belongs to Harness Engine, not to an SSE subscriber. Closing a browser or BFF connection only removes that subscription.
+- The existing BFF `/api/v1/chat/*` routes form Harness Gateway. They read the
+  BFF-owned `execution_harness_id`, preserve Dynamic Agents for missing/default
+  values, and translate Harness Engine canonical events for existing clients.
 
 ## Session flow
 
@@ -31,7 +34,8 @@ sequenceDiagram
     participant MongoDB
     participant AC as AgentCore Runtime
 
-    Browser->>BFF: POST /api/harness-engine/runs
+    Browser->>BFF: POST /api/v1/chat/stream/start
+    Note over BFF: Harness Gateway resolves execution_harness_id
     BFF->>HE: POST /api/v1/runs (internal token + subject)
     HE->>MongoDB: resolve binding + create queued run
     HE-->>BFF: 202 run_id
@@ -47,6 +51,12 @@ sequenceDiagram
     BFF->>HE: subscribe after last event
     HE-->>Browser: remaining replay + live SSE
 ```
+
+Web UI, Slack, and Webex use the same gateway routes and AG-UI contract. They
+do not load provider SDKs or implement harness-specific routing. Current
+non-default adapters support start, detached execution, replay, invoke, and
+active-run cancellation. Human-input resume and attachments return an explicit
+capability error until their portable contracts are implemented.
 
 The BFF remains horizontally stateless. Harness Engine is session-aware through
 durable bindings and owns each provider task after returning `202`. `run_id`, an

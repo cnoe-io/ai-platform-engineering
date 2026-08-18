@@ -240,6 +240,16 @@ class CreateRunRequest(StrictModel):
     client_request_id: str | None = Field(None, min_length=1, max_length=128)
 
 
+class CancelActiveRunRequest(StrictModel):
+    agent_id: str = Field(..., min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_.-]+$")
+    conversation_id: str = Field(..., min_length=1, max_length=256)
+
+
+class CancelActiveRunResult(StrictModel):
+    cancelled: bool
+    run_id: str | None = None
+
+
 class RunStatus(StrEnum):
     QUEUED = "queued"
     RUNNING = "running"

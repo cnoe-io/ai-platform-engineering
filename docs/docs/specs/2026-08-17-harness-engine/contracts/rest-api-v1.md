@@ -3,8 +3,11 @@
 > **Vertical-slice mapping:** The independent service currently exposes
 > `/api/v1/harnesses`, `/api/v1/agent-drafts/validate`, `/api/v1/agents/{id}`,
 > detached `/api/v1/runs` plus replay/event-stream routes, and
-> `POST /api/v1/sessions/clear`. The compatibility
-> API below remains future replacement work and Dynamic Agents is unchanged.
+> `POST /api/v1/sessions/clear`. Harness Gateway now implements the existing
+> BFF chat compatibility routes and selects this service only for agents with a
+> non-default `execution_harness_id`; Dynamic Agents source remains unchanged.
+> Full compatibility for resume, attachments, tools, and interrupts remains
+> capability-gated as described below.
 
 ## Compatibility rule
 

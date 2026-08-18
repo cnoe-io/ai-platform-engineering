@@ -12,7 +12,15 @@
 
 Build Harness Engine as an independent service and adopt it beside Dynamic Agents. The first vertical slice supports an operator-allowlisted Amazon Bedrock AgentCore runtime. No source file, route, database schema, stream, or execution behavior in `ai_platform_engineering/dynamic_agents/` changes.
 
-The Next.js BFF remains horizontally stateless. It starts a detached Harness Engine run, returns a durable `run_id`, and proxies replay/live subscriptions by cursor. Harness Engine owns the provider task, AgentCore `runtimeSessionId`, run status, and sequenced event log, so a browser or BFF disconnect cannot cancel execution. Later harnesses use the same independent adapter/run contract; migration of existing Dynamic Agents is a separate opt-in phase.
+The Next.js BFF remains horizontally stateless. Its existing chat endpoints now
+form the **Harness Gateway**: they resolve the BFF-owned
+`execution_harness_id`, preserve Dynamic Agents as the legacy/default target,
+and route opted-in agents to detached Harness Engine runs. The gateway converts
+canonical events to the existing AG-UI or custom SSE wire format. Harness Engine
+owns the provider task, AgentCore `runtimeSessionId`, run status, and sequenced
+event log, so a browser or BFF disconnect cannot cancel execution. Later
+harnesses use the same independent adapter/run contract; replacement of Dynamic
+Agents remains a separate opt-in phase.
 
 Common platform policy remains outside adapters: authentication and OpenFGA checks stay in the BFF; operator-owned runtime allowlists, session ownership, persistence, event ordering, and provider credentials stay in Harness Engine. Adapters own provider invocation and native stream translation only.
 
@@ -56,14 +64,14 @@ Before enabling an adapter, record its exact locked version, license/terms, tran
 
 ```mermaid
 flowchart TB
-    C["Browser/client"] --> BFF["Stateless Next.js BFF"]
-    BFF -->|"legacy routes unchanged"| DA["Dynamic Agents"]
-    BFF -->|"internal token + caller subject"| HE["Independent Harness Engine"]
+    C["Web UI / Slack / Webex"] --> HG["Harness Gateway\nexisting BFF chat routes"]
+    HG -->|"missing/default marker"| DA["Dynamic Agents"]
+    HG -->|"non-default marker\ninternal token + subject"| HE["Independent Harness Engine"]
     HE --> CFG["Independent harness overlays"]
     HE --> RUNS["Mongo runs + ordered event log"]
     HE --> AC["AgentCore adapter"]
     AC --> AWS["Operator-allowlisted AgentCore Runtime"]
-    C -. "reconnect run_id + cursor" .-> BFF
+    C -. "reconnect run_id + cursor" .-> HG
 ```
 
 ### Ownership boundary
@@ -197,12 +205,30 @@ ai_platform_engineering/harness_engine/
 
 ui/src/
 ├── app/api/harness-engine/             # catalog, overlay, run, replay, SSE
+├── app/api/v1/chat/                    # Harness Gateway compatibility routes
+├── lib/harness-gateway.ts              # routing + canonical wire encoders
 ├── lib/harness-engine-proxy.ts         # internal-credential proxy
 ├── lib/harness-engine-session-client.ts
 └── types/harness-engine.ts
 ```
 
 The dependency-ordered implementation backlog, independent story checkpoints, exact file targets, and release gates are defined in [tasks.md](./tasks.md), generated as the Spec Kit Phase 2 deliverable.
+
+### Harness Gateway vertical slice
+
+- `dynamic_agents.execution_harness_id` is routing metadata owned by the BFF;
+  absent values preserve the legacy Dynamic Agents path.
+- Web UI, Slack, and Webex keep calling `/api/v1/chat/*`; no provider SDK or
+  harness-specific logic is added to those clients.
+- Non-default `start` creates a detached run and streams a translation of the
+  durable canonical event log. Client disconnect closes only the subscription.
+- Non-default `invoke` waits on the durable event log and accumulates the same
+  JSON response shape.
+- Non-default `cancel` addresses the active run by caller, agent, and
+  conversation while preserving its session binding.
+- Human-input resume and file attachments remain capability-gated for the
+  initial AgentCore/Claude adapters; the gateway returns an explicit `409`
+  instead of silently switching harnesses.
 
 ## Key Technical Decisions
 

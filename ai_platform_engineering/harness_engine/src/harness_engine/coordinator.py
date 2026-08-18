@@ -8,6 +8,7 @@ from uuid import uuid4
 
 from harness_engine.brokers import PromptCompiler
 from harness_engine.models import (
+    CancelActiveRunResult,
     ClearAgentSessionResult,
     CreateRunRequest,
     RunContext,
@@ -146,6 +147,20 @@ class RunCoordinator:
             with suppress(asyncio.CancelledError):
                 await task
         return await self._repository.get_run(run_id)
+
+    async def cancel_active(
+        self, owner_subject: str, agent_id: str, conversation_id: str
+    ) -> CancelActiveRunResult:
+        run = await self._repository.get_active_run(
+            owner_subject, agent_id, conversation_id
+        )
+        if run is None:
+            return CancelActiveRunResult(cancelled=False)
+        cancelled = await self.cancel(run.run_id)
+        return CancelActiveRunResult(
+            cancelled=cancelled is not None and cancelled.status == RunStatus.CANCELLED,
+            run_id=run.run_id,
+        )
 
     async def clear_session(
         self, owner_subject: str, agent_id: str, conversation_id: str

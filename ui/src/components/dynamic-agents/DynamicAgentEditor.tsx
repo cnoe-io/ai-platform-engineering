@@ -494,7 +494,9 @@ export function DynamicAgentEditor({
 
   // Harness Engine persists a complete, immutable blueprint independently of
   // the legacy Dynamic Agents document. The catalog drives this form.
-  const [harnessId, setHarnessId] = React.useState("dynamic_agents");
+  const [harnessId, setHarnessId] = React.useState(
+    source?.execution_harness_id || "dynamic_agents",
+  );
   const [harnessProfileId, setHarnessProfileId] = React.useState("");
   const [harnessOptions, setHarnessOptions] = React.useState<
     Record<string, unknown>
@@ -730,7 +732,9 @@ export function DynamicAgentEditor({
         setHarnessDescriptors(descriptors);
         setCatalogRevision(catalog.data?.catalog_revision ?? null);
 
-        if (source?._id) {
+        const persistedHarnessId = source?.execution_harness_id;
+        if (persistedHarnessId) setHarnessId(persistedHarnessId);
+        if (source?._id && persistedHarnessId !== "dynamic_agents") {
           const overlayResponse = await fetch(
             `/api/harness-engine/agents/${encodeURIComponent(source._id)}`,
           );
@@ -760,7 +764,7 @@ export function DynamicAgentEditor({
     return () => {
       cancelled = true;
     };
-  }, [source?._id]);
+  }, [source?._id, source?.execution_harness_id]);
 
   // Fetch available models on mount
   React.useEffect(() => {
@@ -1226,6 +1230,7 @@ export function DynamicAgentEditor({
           owner_team_slug?: string;
           confirm_not_member?: boolean;
         } = {
+          execution_harness_id: harnessId,
           name,
           description: description || undefined,
           system_prompt: systemPrompt,
@@ -1280,6 +1285,7 @@ export function DynamicAgentEditor({
         // Create new agent
         const createData: DynamicAgentConfigCreate = {
           id: generatedId,
+          execution_harness_id: harnessId,
           name,
           description: description || undefined,
           system_prompt: systemPrompt,

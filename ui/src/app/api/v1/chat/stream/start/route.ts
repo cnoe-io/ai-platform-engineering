@@ -1,5 +1,5 @@
 /**
- * POST /api/v1/chat/stream/start — transparent proxy to Dynamic Agents.
+ * POST /api/v1/chat/stream/start — Harness Gateway streaming entry point.
  *
  * Body: { message, conversation_id, agent_id, protocol?, trace_id?, client_context? }
  * Response: SSE stream (text/event-stream)
@@ -7,6 +7,10 @@
 
 import { createAuthzTraceContext } from "@/lib/rbac/authz-tracing";
 import { requireAgentUsePermission } from "@/lib/rbac/openfga-agent-authz";
+import {
+resolveHarnessGatewayTarget,
+streamHarnessGatewayRun,
+} from "@/lib/harness-gateway";
 import { NextRequest,NextResponse } from "next/server";
 import { requireConversationWriteAccess } from "../../_conversation-authz";
 import {
@@ -22,10 +26,6 @@ export async function POST(request: NextRequest): Promise<Response> {
   // Authenticate caller (session cookie or Bearer token)
   const authResult = await authenticateRequest(request);
   if (authResult instanceof NextResponse) return authResult;
-
-  // Check dynamic agents config
-  const daConfig = getDynamicAgentsConfig();
-  if (daConfig instanceof NextResponse) return daConfig;
 
   // Parse body
   let body: Record<string, unknown>;
@@ -64,7 +64,15 @@ export async function POST(request: NextRequest): Promise<Response> {
   );
   if (conversationAuthzResponse) return conversationAuthzResponse;
 
-  // Forward body as-is to DA backend (same path, same body format)
+  const target = await resolveHarnessGatewayTarget(String(body.agent_id));
+  if (target instanceof NextResponse) return target;
+  if (target.kind === "harness_engine") {
+    return streamHarnessGatewayRun(body, authResult, request.signal);
+  }
+
+  // Preserve the existing Dynamic Agents path byte-for-byte for default agents.
+  const daConfig = getDynamicAgentsConfig();
+  if (daConfig instanceof NextResponse) return daConfig;
   const backendUrl = `${daConfig.dynamicAgentsUrl}/api/v1/chat/stream/start`;
 
   return proxySSEStream(

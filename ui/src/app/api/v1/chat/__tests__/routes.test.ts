@@ -80,6 +80,8 @@ describe("Dynamic Agent chat Web UI backend routes", () => {
       bearerToken: "token",
     });
     mockGetDynamicAgentsConfig.mockReturnValue({ dynamicAgentsUrl: "http://dynamic-agents:8000" });
+    process.env.HARNESS_ENGINE_URL = "http://harness-engine:8010";
+    process.env.HARNESS_ENGINE_INTERNAL_TOKEN = "internal-test-token";
     mockRequireAgentUsePermission.mockResolvedValue(null);
     mockRequireResourcePermission.mockResolvedValue(undefined);
     mockRequireConversationResourcePermission.mockResolvedValue(undefined);
@@ -180,6 +182,149 @@ describe("Dynamic Agent chat Web UI backend routes", () => {
       expect.objectContaining({ _id: "conv-1" }),
       "write",
     );
+  });
+
+  it.each(["browser", "slack", "webex"])(
+    "routes %s AG-UI clients through Harness Engine when the agent selects AgentCore",
+    async (clientSource) => {
+      mockGetCollection.mockImplementation(async (name: string) => ({
+        findOne: jest.fn(async () => name === "dynamic_agents"
+          ? { _id: "agent-1", execution_harness_id: "agentcore" }
+          : {
+              _id: "conv-1",
+              owner_id: "alice@example.com",
+              owner_subject: "alice-sub",
+              client_type: clientSource,
+            }),
+      }));
+      const fetchMock = jest.spyOn(global, "fetch")
+        .mockResolvedValueOnce(new Response(JSON.stringify({
+          success: true,
+          data: {
+            run_id: "run-1",
+            agent_id: "agent-1",
+            conversation_id: "conv-1",
+            agent_version: 1,
+            binding_id: "binding-1",
+            harness_id: "agentcore",
+            profile_id: "primary",
+            status: "queued",
+            last_sequence: 0,
+          },
+        }), { status: 202, headers: { "Content-Type": "application/json" } }))
+        .mockResolvedValueOnce(new Response(
+          "id: 1\nevent: run.started\ndata: {}\n\n" +
+          "id: 2\nevent: content.delta\ndata: {\"text\":\"hello\"}\n\n" +
+          "id: 3\nevent: run.completed\ndata: {}\n\n",
+          { status: 200, headers: { "Content-Type": "text/event-stream" } },
+        ));
+
+      const response = await startPost(jsonRequest(
+        "/api/v1/chat/stream/start",
+        { message: "hi", conversation_id: "conv-1", agent_id: "agent-1", protocol: "agui" },
+        { "X-Client-Source": clientSource },
+      ));
+      const stream = await response.text();
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("X-Harness-ID")).toBe("agentcore");
+      expect(stream).toContain("event: RUN_STARTED");
+      expect(stream).toContain("event: TEXT_MESSAGE_CONTENT");
+      expect(stream).toContain('"delta":"hello"');
+      expect(stream).toContain("event: RUN_FINISHED");
+      expect(mockProxySSEStream).not.toHaveBeenCalled();
+      expect(fetchMock).toHaveBeenNthCalledWith(
+        1,
+        "http://harness-engine:8010/api/v1/runs",
+        expect.objectContaining({
+          method: "POST",
+          headers: expect.objectContaining({
+            Authorization: "Bearer internal-test-token",
+            "X-Harness-Engine-Subject": "alice-sub",
+          }),
+        }),
+      );
+    },
+  );
+
+  it("accumulates a Harness Engine run through the existing invoke contract", async () => {
+    mockGetCollection.mockImplementation(async (name: string) => ({
+      findOne: jest.fn(async () => name === "dynamic_agents"
+        ? { _id: "agent-1", execution_harness_id: "claude_agent_sdk" }
+        : { _id: "conv-1", owner_id: "alice@example.com", owner_subject: "alice-sub" }),
+    }));
+    jest.spyOn(global, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        success: true,
+        data: {
+          run_id: "run-2",
+          agent_id: "agent-1",
+          conversation_id: "conv-1",
+          agent_version: 1,
+          binding_id: "binding-1",
+          harness_id: "claude_agent_sdk",
+          profile_id: "safe",
+          status: "queued",
+          last_sequence: 0,
+        },
+      }), { status: 202, headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        success: true,
+        data: {
+          run: { status: "completed" },
+          events: [
+            { run_id: "run-2", sequence: 1, event_type: "content.delta", data: { text: "hello" } },
+            { run_id: "run-2", sequence: 2, event_type: "content.delta", data: { text: " world" } },
+            { run_id: "run-2", sequence: 3, event_type: "run.completed", data: {} },
+          ],
+          next_cursor: 3,
+        },
+      }), { status: 200, headers: { "Content-Type": "application/json" } }));
+
+    const response = await invokePost(jsonRequest("/api/v1/chat/invoke", {
+      message: "hi",
+      conversation_id: "conv-1",
+      agent_id: "agent-1",
+    }));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      success: true,
+      content: "hello world",
+      run_id: "run-2",
+      agent_id: "agent-1",
+      conversation_id: "conv-1",
+    });
+    expect(mockProxyJSONRequest).not.toHaveBeenCalled();
+  });
+
+  it("cancels the active harness run without clearing its session", async () => {
+    mockGetCollection.mockImplementation(async (name: string) => ({
+      findOne: jest.fn(async () => name === "dynamic_agents"
+        ? { _id: "agent-1", execution_harness_id: "agentcore" }
+        : { _id: "conv-1", owner_id: "alice@example.com", owner_subject: "alice-sub" }),
+    }));
+    const fetchMock = jest.spyOn(global, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      success: true,
+      data: { cancelled: true, run_id: "run-3" },
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+
+    const response = await cancelPost(jsonRequest("/api/v1/chat/stream/cancel", {
+      conversation_id: "conv-1",
+      agent_id: "agent-1",
+    }));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      success: true,
+      cancelled: true,
+      run_id: "run-3",
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://harness-engine:8010/api/v1/runs/cancel-active",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(mockProxyJSONRequest).not.toHaveBeenCalled();
   });
 
   it("bypasses the conversation#write check for Slack conversations so any thread participant can invoke", async () => {
@@ -350,7 +495,14 @@ describe("Dynamic Agent chat Web UI backend routes", () => {
     const findOne = jest.fn(async () => null);
     const updateOne = jest.fn(async () => ({ acknowledged: true }));
     const countDocuments = jest.fn(async () => 1);
-    mockGetCollection.mockResolvedValue({ findOne, updateOne, countDocuments });
+    mockGetCollection.mockImplementation(async (name: string) => name === "dynamic_agents"
+      ? {
+          findOne: jest.fn(async () => ({
+            _id: "agent-persisted",
+            execution_harness_id: "dynamic_agents",
+          })),
+        }
+      : { findOne, updateOne, countDocuments });
 
     const response = await invokePost(
       jsonRequest(
