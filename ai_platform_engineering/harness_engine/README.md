@@ -23,6 +23,8 @@ and Claude Agent SDK exercise the same portable blueprint and adapter contract.
 - The existing BFF `/api/v1/chat/*` routes form Harness Gateway. They read the
   BFF-owned `execution_harness_id`, preserve Dynamic Agents for missing/default
   values, and translate Harness Engine canonical events for existing clients.
+- If Harness Engine is not configured, Harness Gateway does not add an agent
+  runtime lookup to the legacy Dynamic Agents chat path.
 
 ## Session flow
 
@@ -57,6 +59,11 @@ do not load provider SDKs or implement harness-specific routing. Current
 non-default adapters support start, detached execution, replay, invoke, and
 active-run cancellation. Human-input resume and attachments return an explicit
 capability error until their portable contracts are implemented.
+
+CAIPE CLI `0.2.24` also uses the AG-UI gateway contract. Harness Gateway emits
+camel-case `toolCallId` fields expected by that release and carries its optional
+per-turn `context` into the provider system prompt without modifying the saved
+agent blueprint.
 
 The BFF remains horizontally stateless. Harness Engine is session-aware through
 durable bindings and owns each provider task after returning `202`. `run_id`, an

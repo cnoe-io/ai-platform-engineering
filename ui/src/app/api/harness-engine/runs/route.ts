@@ -1,4 +1,4 @@
-import { requireConversationWriteAccess } from "@/app/api/v1/chat/_conversation-authz";
+import { authorizeConversationWriteAccess, resolveConversationRuntimeId } from "@/app/api/v1/chat/_conversation-authz";
 import { authenticateRequest } from "@/lib/da-proxy";
 import { getHarnessEngineConfig, proxyHarnessEngine } from "@/lib/harness-engine-proxy";
 import { createAuthzTraceContext } from "@/lib/rbac/authz-tracing";
@@ -33,16 +33,19 @@ export async function POST(request: NextRequest): Promise<Response> {
       { status: 400 },
     );
   }
-  const conversationAuthz = await requireConversationWriteAccess(
+  const conversationAuthz = await authorizeConversationWriteAccess(
     auth,
     String(body.conversation_id),
   );
-  if (conversationAuthz) return conversationAuthz;
+  if (conversationAuthz.denial) return conversationAuthz.denial;
 
   const config = getHarnessEngineConfig();
   if (config instanceof NextResponse) return config;
   return proxyHarnessEngine(config, auth, "/api/v1/runs", {
     method: "POST",
-    body: JSON.stringify(body),
+    body: JSON.stringify({
+      ...body,
+      conversation_id: await resolveConversationRuntimeId(conversationAuthz.conversation),
+    }),
   });
 }

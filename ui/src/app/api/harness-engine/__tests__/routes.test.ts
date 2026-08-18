@@ -2,7 +2,7 @@
  * @jest-environment node
  */
 
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
 import { POST as startRun } from "../runs/route";
 import { GET as streamRun } from "../runs/[runId]/events/stream/route";
@@ -11,7 +11,7 @@ import { POST as clearSession } from "../sessions/clear/route";
 
 const mockAuthenticateRequest = jest.fn();
 const mockRequireAgentUsePermission = jest.fn();
-const mockRequireConversationWriteAccess = jest.fn();
+const mockAuthorizeConversationWriteAccess = jest.fn();
 
 jest.mock("@/lib/da-proxy", () => ({
   authenticateRequest: (...args: unknown[]) => mockAuthenticateRequest(...args),
@@ -20,7 +20,8 @@ jest.mock("@/lib/rbac/openfga-agent-authz", () => ({
   requireAgentUsePermission: (...args: unknown[]) => mockRequireAgentUsePermission(...args),
 }));
 jest.mock("@/app/api/v1/chat/_conversation-authz", () => ({
-  requireConversationWriteAccess: (...args: unknown[]) => mockRequireConversationWriteAccess(...args),
+  authorizeConversationWriteAccess: (...args: unknown[]) => mockAuthorizeConversationWriteAccess(...args),
+  resolveConversationRuntimeId: async (conversation: { _id: string }) => conversation._id,
 }));
 
 describe("Harness Engine BFF session routes", () => {
@@ -35,7 +36,10 @@ describe("Harness Engine BFF session routes", () => {
       bearerToken: "must-not-leave-bff",
     });
     mockRequireAgentUsePermission.mockResolvedValue(null);
-    mockRequireConversationWriteAccess.mockResolvedValue(null);
+    mockAuthorizeConversationWriteAccess.mockResolvedValue({
+      conversation: { _id: "conversation-example" },
+      denial: null,
+    });
   });
 
   afterEach(() => {
@@ -149,7 +153,7 @@ describe("Harness Engine BFF session routes", () => {
     expect(mockRequireAgentUsePermission).toHaveBeenCalledWith(
       expect.objectContaining({ agentId: "agent-example", subject: "test-user" }),
     );
-    expect(mockRequireConversationWriteAccess).toHaveBeenCalledWith(
+    expect(mockAuthorizeConversationWriteAccess).toHaveBeenCalledWith(
       expect.objectContaining({ subject: "test-user" }),
       "conversation-example",
     );
@@ -157,6 +161,26 @@ describe("Harness Engine BFF session routes", () => {
       "http://harness-engine:8010/api/v1/sessions/clear",
       expect.objectContaining({ method: "POST" }),
     );
+  });
+
+  it.each([
+    ["runs", startRun],
+    ["sessions/clear", clearSession],
+  ])("preserves conversation write denials for %s", async (path, handler) => {
+    const denial = NextResponse.json(
+      { success: false, error: "Automated history is read-only" },
+      { status: 409 },
+    );
+    mockAuthorizeConversationWriteAccess.mockResolvedValue({ conversation: null, denial });
+    const fetchMock = jest.spyOn(global, "fetch");
+    const response = await handler(new NextRequest(`http://localhost/api/harness-engine/${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ agent_id: "agent-example", conversation_id: "conversation-example" }),
+    }));
+
+    expect(response).toBe(denial);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("fails closed when the independent service is not configured", async () => {

@@ -76,6 +76,42 @@ def test_run_continues_without_attached_event_client_and_replays_from_cursor(set
         assert second.json()["data"]["agent_version"] == 1
 
 
+def test_run_applies_optional_cli_context_without_changing_the_saved_blueprint(settings) -> None:
+    adapter = FakeHarnessAdapter(chunks=["done"])
+    app = create_app(
+        settings=settings, repository=InMemoryRunRepository(), adapters=[adapter]
+    )
+
+    with TestClient(app) as client:
+        configure_agent(client)
+        started = client.post(
+            "/api/v1/runs",
+            headers=auth_headers(),
+            json={
+                "agent_id": "agent-example",
+                "conversation_id": "conversation-example",
+                "message": "inspect this repository",
+                "context": "Repository: example-project\nSkill: code-review",
+            },
+        )
+        assert started.status_code == 202, started.text
+
+        for _ in range(50):
+            if adapter.calls:
+                break
+            time.sleep(0.01)
+
+        assert len(adapter.calls) == 1
+        run_context = adapter.calls[0]
+        assert run_context.blueprint.prompt.system == "Be helpful to {{audience}}."
+        assert run_context.prompt.system == (
+            "Be helpful to users.\n\n"
+            "<client-system-context>\n"
+            "Repository: example-project\nSkill: code-review\n"
+            "</client-system-context>"
+        )
+
+
 def test_session_pins_agent_version_across_agent_updates(settings) -> None:
     adapter = FakeHarnessAdapter()
     app = create_app(

@@ -4,6 +4,7 @@ import type { AuthResult } from "@/lib/da-proxy";
 import {
   buildHarnessEngineHeaders,
   getHarnessEngineConfig,
+  isHarnessEngineConfigured,
   type HarnessEngineConfig,
 } from "@/lib/harness-engine-proxy";
 import { getCollection } from "@/lib/mongodb";
@@ -66,6 +67,13 @@ function normalizedHarnessId(value: unknown): string {
 export async function resolveHarnessGatewayTarget(
   agentId: string,
 ): Promise<HarnessGatewayTarget | NextResponse> {
+  // Preserve the pre-Harness-Engine deployment path exactly when the optional
+  // service is not configured. In particular, legacy/default deployments do
+  // not gain an additional MongoDB lookup on every chat request.
+  if (!isHarnessEngineConfigured()) {
+    return { kind: "dynamic_agents", harnessId: DEFAULT_HARNESS_ID };
+  }
+
   try {
     const agents = await getCollection<AgentRuntimeRecord>("dynamic_agents");
     const agent = await agents.findOne(
@@ -148,6 +156,9 @@ async function startRun(
       agent_id: body.agent_id,
       conversation_id: body.conversation_id,
       message: body.message,
+      ...(typeof body.context === "string" && body.context.trim() && {
+        context: body.context,
+      }),
       ...(typeof body.client_request_id === "string" && {
         client_request_id: body.client_request_id,
       }),
@@ -255,7 +266,7 @@ function aguiFrames(
         sseFrame("TOOL_CALL_RESULT", {
           type: "TOOL_CALL_RESULT",
           messageId: `${state.messageId}-tool-${toolCallId}`,
-          tool_call_id: toolCallId,
+          toolCallId,
           role: "tool",
           content: typeof result === "string" ? result : JSON.stringify(result),
         }, sequence),
