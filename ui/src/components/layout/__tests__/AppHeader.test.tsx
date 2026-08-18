@@ -60,6 +60,15 @@ jest.mock('@/hooks/use-admin-role', () => ({
   }),
 }))
 
+let mockCanUseAutonomous = false
+let mockAutonomousAgentsEnabled = true
+jest.mock('@/hooks/use-autonomous-capability', () => ({
+  useAutonomousCapability: () => ({
+    canUseAutonomous: mockCanUseAutonomous,
+    loading: false,
+  }),
+}))
+
 jest.mock('@/hooks/useAdminTabGates', () => ({
   useAdminTabGates: () => ({
     gates: { dynamic_agent_conversations: false },
@@ -177,6 +186,8 @@ jest.mock('@/lib/config', () => ({
     oktaSyncEnabled: true,
     get storageMode() { return mockStorageMode },
     get ragEnabled() { return mockRagEnabled },
+    get reportProblemEnabled() { return mockReportProblemEnabled },
+    get autonomousAgentsEnabled() { return mockAutonomousAgentsEnabled },
   },
   getConfig: jest.fn((key: string) => {
     const configs: Record<string, unknown> = {
@@ -380,6 +391,8 @@ describe('AppHeader — application chrome', () => {
     mockPathname = '/chat'
     mockIsAdmin = false
     mockCanAccessDynamicAgents = false
+    mockCanUseAutonomous = false
+    mockAutonomousAgentsEnabled = true
     mockRagEnabled = false
     mockEnvBadge = ''
     mockStreamingConversations = new Map()
@@ -392,6 +405,19 @@ describe('AppHeader — application chrome', () => {
     mockReleasePrompt.releaseVersion = null
     mockReleasePrompt.release = null
     mockReleasePrompt.releaseMarkdown = null
+  })
+
+  describe('Autonomous navigation', () => {
+    it('hides Autonomous for a user without the capability', () => {
+      render(<AppHeader />)
+      expect(within(applicationNavigation()).queryByRole('link', { name: 'Autonomous' })).not.toBeInTheDocument()
+    })
+
+    it('shows Autonomous for an eligible user when the feature is enabled', () => {
+      mockCanUseAutonomous = true
+      render(<AppHeader />)
+      expect(applicationLink('Autonomous')).toHaveAttribute('href', '/autonomous')
+    })
   })
 
   describe('Insights tab removed from nav', () => {

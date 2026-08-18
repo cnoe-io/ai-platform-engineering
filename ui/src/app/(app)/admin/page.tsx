@@ -11,6 +11,7 @@ TopCreatorsCard,
 VisibilityBreakdown,
 } from "@/components/admin/insights/SkillMetricsCards";
 import { AsyncStatsCard } from "@/components/admin/insights/AsyncStatsCard";
+import { AutonomousOversightTab } from "@/components/admin/autonomous/AutonomousOversightTab";
 import { ReviewConfigsTab } from "@/components/admin/settings/ReviewConfigsTab";
 import {
   AdminNavigation,
@@ -508,6 +509,7 @@ function AdminPage() {
       // Agents subtab (Import Agents from Config) is an admin-only action.
       agents: effectiveOrganizationAdmin,
       mcp: effectiveOrganizationAdmin,
+      autonomous: effectiveOrganizationAdmin && Boolean(getConfig('autonomousAgentsEnabled')),
       rag: effectiveOrganizationAdmin,
       // Identity Sync tab: superadmin-only (reuses the identity_group_sync
       // OpenFGA surface) AND only when an IdP directory connector is enabled.
@@ -1675,6 +1677,12 @@ function AdminPage() {
                     isAdmin={effectiveOrganizationAdmin}
                     readOnly={isSimulationActive}
                   />
+                </TabsContent>
+              )}
+
+              {tabGateValues.autonomous && (
+                <TabsContent value="autonomous" className="space-y-4">
+                  <AutonomousOversightTab />
                 </TabsContent>
               )}
 

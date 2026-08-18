@@ -35,6 +35,7 @@ export type AdminDestinationId =
   | "defaults"
   | "announcements"
   | "agents"
+  | "autonomous"
   | "mcp"
   | "rag"
   | "skills"
@@ -143,6 +144,14 @@ export const ADMIN_CATEGORIES: AdminCategoryDefinition[] = [
         description: "Import and reconcile agents from platform configuration.",
         icon: Bot,
         gateKey: "agents",
+      },
+      {
+        id: "autonomous",
+        href: "/admin/platform/autonomous",
+        label: "Autonomous",
+        description: "Monitor and manage autonomous agent task execution.",
+        icon: Bot,
+        gateKey: "autonomous",
       },
       {
         id: "mcp",

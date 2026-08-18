@@ -25,6 +25,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useAdminRole } from "@/hooks/use-admin-role";
+import { useAutonomousCapability } from "@/hooks/use-autonomous-capability";
 import { useHydrated } from "@/hooks/use-hydrated";
 import { config,getLogoFilterClass } from "@/lib/config";
 import { cn } from "@/lib/utils";
@@ -40,6 +41,7 @@ import {
   MessageCircle,
   Shield,
   SlidersHorizontal,
+  Sparkles,
   Workflow,
   Zap,
   type LucideIcon,
@@ -68,6 +70,7 @@ function activeAreaForPath(pathname: string | null): string | null {
     return "skills";
   }
   if (pathname?.startsWith("/dynamic-agents")) return "dynamic-agents";
+  if (pathname?.startsWith("/autonomous")) return "autonomous";
   if (pathname?.startsWith("/schedules")) return "schedules";
   if (pathname?.startsWith("/admin")) return "admin";
   if (pathname?.startsWith("/settings")) return "settings";
@@ -122,6 +125,7 @@ function ApplicationNavigationContents({
   const hydrated = useHydrated();
   const { data: session } = useSession();
   const { isAdmin } = useAdminRole();
+  const { canUseAutonomous } = useAutonomousCapability();
   const applicationNavigation = useApplicationNavigation();
   const {
     activeConversationId,
@@ -188,6 +192,12 @@ function ApplicationNavigationContents({
       href: "/dynamic-agents",
       label: "Agents",
       icon: Bot,
+    },
+    config.autonomousAgentsEnabled && canUseAutonomous && {
+      key: "autonomous",
+      href: "/autonomous",
+      label: "Autonomous",
+      icon: Sparkles,
     },
     storageMode === "mongodb"
       && config.dynamicAgentsEnabled

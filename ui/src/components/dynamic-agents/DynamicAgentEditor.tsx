@@ -84,7 +84,6 @@ interface DynamicAgentEditorProps {
   onSave: () => void;
   onCancel: () => void;
 }
-
 /**
  * Generate a URL-safe slug from an agent name with agent- prefix.
  * e.g., "Knowledge Agent" -> "agent-knowledge-agent"

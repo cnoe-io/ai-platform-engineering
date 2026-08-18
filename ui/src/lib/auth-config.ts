@@ -910,7 +910,15 @@ export const authOptions: NextAuthOptions = {
         httpOnly: true,
         sameSite: 'lax',
         path: '/',
-        secure: process.env.NODE_ENV === 'production',
+        // Mark the session cookie `Secure` only when the site is actually
+        // served over HTTPS. Keying this off NODE_ENV alone breaks local
+        // installs: the prod UI image runs NODE_ENV=production but is browsed
+        // over http://localhost, and browsers silently drop a `Secure` cookie
+        // on plain http — causing an infinite SSO sign-in loop. Prod
+        // deployments set NEXTAUTH_URL to their https URL, so this stays true.
+        secure:
+          process.env.NODE_ENV === 'production' &&
+          (process.env.NEXTAUTH_URL ?? '').startsWith('https://'),
         // Reduce session cookie size by not storing everything in cookie
         maxAge: 24 * 60 * 60, // 24 hours
       },

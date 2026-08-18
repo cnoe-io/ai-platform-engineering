@@ -79,6 +79,7 @@ export const UNIVERSAL_REBAC_RESOURCE_TYPES: readonly UniversalRebacResourceType
         "create",
         "manage",
         "audit",
+        "schedule",
       ],
       description: "Agent execution and configuration resource.",
     },
@@ -240,7 +241,6 @@ const RESOURCE_TYPES_BY_NAME = new Map(
 export function listResourceTypeDefinitions(): readonly UniversalRebacResourceTypeDefinition[] {
   return UNIVERSAL_REBAC_RESOURCE_TYPES;
 }
-
 export function getResourceTypeDefinition(
   type: UniversalRebacResourceType,
 ): UniversalRebacResourceTypeDefinition | undefined {
