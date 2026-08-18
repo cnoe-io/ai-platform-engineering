@@ -11,6 +11,31 @@
 #     -f docker-compose.caipe-oss.yaml up -d --build
 
 services:
+  # mcp-atlassian 0.22+ defaults to stdio and exits when Compose does not
+  # attach stdin. Run its streamable HTTP transport so AgentGateway can keep
+  # the existing /mcp/confluence target healthy.
+  mcp-confluence:
+    command:
+      - --transport
+      - streamable-http
+      - --stateless
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --path
+      - /mcp
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import socket; s=socket.socket(); s.settimeout(2); raise SystemExit(s.connect_ex(('127.0.0.1', 8000)))"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
   # Keep the Langfuse dashboard available for host-local diagnostics without
   # competing with the CAIPE UI for the public port exposed by the base file.
   langfuse-web:
@@ -154,8 +179,11 @@ services:
       NEXTAUTH_URL: https://caipe-oss.outshift.io
       OIDC_ISSUER: https://caipe-oss.outshift.io/realms/caipe
       INTERNAL_BASE_URL: http://localhost:3000
+      APP_CONFIG_PATH: /app/config/app-config.yaml
       HARNESS_ENGINE_URL: http://harness-engine:8010
       HARNESS_ENGINE_INTERNAL_TOKEN: ${HARNESS_ENGINE_INTERNAL_TOKEN:?set HARNESS_ENGINE_INTERNAL_TOKEN}
+    volumes:
+      - ./config/app-config.caipe-oss.yaml:/app/config/app-config.yaml:ro
     depends_on:
       harness-engine:
         condition: service_healthy
