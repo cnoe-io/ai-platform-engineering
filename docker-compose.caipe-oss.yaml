@@ -36,6 +36,66 @@ services:
       retries: 12
       start_period: 20s
 
+  # These targets already exist in the shared AgentGateway configuration but
+  # are defined only by docker-compose.dev.yaml upstream. Supply published
+  # services for this production-style preview so catalog entries are usable.
+  mcp-gitlab:
+    image: zereight050/gitlab-mcp:latest
+    container_name: mcp-gitlab
+    restart: unless-stopped
+    env_file: [.env]
+    ports:
+      - "18010:8000"
+    environment:
+      STREAMABLE_HTTP: "true"
+      HOST: 0.0.0.0
+      PORT: "8000"
+      MAX_SESSIONS: ${GITLAB_MCP_MAX_SESSIONS:-1000}
+      MAX_REQUESTS_PER_MINUTE: ${GITLAB_MCP_MAX_REQUESTS_PER_MINUTE:-60}
+      USE_PIPELINE: "true"
+      GITLAB_API_URL: https://${GITLAB_HOST:-gitlab.com}/api/v4
+      GITLAB_PERSONAL_ACCESS_TOKEN: ${GITLAB_PERSONAL_ACCESS_TOKEN:-${GITLAB_TOKEN:-}}
+      REMOTE_AUTHORIZATION: ${GITLAB_MCP_REMOTE_AUTHORIZATION:-true}
+      GITLAB_READ_ONLY_MODE: ${GITLAB_READ_ONLY_MODE:-true}
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "const s=require('net').connect(8000,'127.0.0.1',()=>{s.end();process.exit(0)});s.on('error',()=>process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    profiles:
+      - gitlab
+      - mcp-servers
+
+  mcp-victorops:
+    image: ghcr.io/cnoe-io/mcp-victorops:${IMAGE_TAG:-0.5.66}
+    container_name: mcp-victorops
+    restart: unless-stopped
+    env_file: [.env]
+    ports:
+      - "18012:8000"
+    environment:
+      MCP_MODE: http
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: "8000"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import socket; s=socket.socket(); s.settimeout(2); raise SystemExit(s.connect_ex(('127.0.0.1', 8000)))"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    profiles:
+      - victorops
+      - mcp-servers
+
   # Keep the Langfuse dashboard available for host-local diagnostics without
   # competing with the CAIPE UI for the public port exposed by the base file.
   langfuse-web:
