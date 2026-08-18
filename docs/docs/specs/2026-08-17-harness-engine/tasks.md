@@ -416,3 +416,4 @@ not complete or modify tasks targeting `ai_platform_engineering/dynamic_agents/`
 - [x] T152 Add shared, accessible harness presentation metadata for LangChain Deep Agents, AgentCore, Claude SDK, and unknown adapters.
 - [x] T153 Add a persistent chat identity header plus harness badges and deterministic agent colors in history and new-chat selection while preserving live/input/unread states.
 - [x] T154 Add unit and component coverage for harness labels, deterministic themes, sidebar identity, and new-chat harness display.
+- [x] T155 Resolve chat identity through a use-authorized metadata fallback and include the friendly agent name in the browser tab title.
