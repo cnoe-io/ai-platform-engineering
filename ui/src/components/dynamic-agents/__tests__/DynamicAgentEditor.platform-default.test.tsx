@@ -206,4 +206,18 @@ describe("DynamicAgentEditor — platform default grant preview", () => {
     expect(screen.getByLabelText("Maximum turns")).toHaveValue(20);
     expect(screen.getByText(/browser never receives credentials/)).toBeInTheDocument();
   });
+
+  it("labels the compatibility harness as LangChain Deep Agents while preserving its ID", async () => {
+    mockFetch(null);
+    render(<DynamicAgentEditor agent={editAgent} onCancel={jest.fn()} onSave={jest.fn()} />);
+    await flushAsync();
+
+    expect(
+      screen.getByRole("option", { name: "LangChain Deep Agents (default)" }),
+    ).toHaveValue("dynamic_agents");
+    expect(screen.getByLabelText("Execution harness")).toHaveValue("dynamic_agents");
+    expect(
+      screen.getByText(/Uses the existing LangChain Deep Agents runtime/),
+    ).toBeInTheDocument();
+  });
 });

@@ -1562,7 +1562,7 @@ export function DynamicAgentEditor({
                       className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-medium shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <option value="dynamic_agents">
-                        Dynamic Agents (existing runtime)
+                        LangChain Deep Agents (default)
                       </option>
                       {harnessDescriptors.map((descriptor) => (
                         <option
@@ -1616,7 +1616,7 @@ export function DynamicAgentEditor({
                     )}
                     {harnessId === "dynamic_agents" && (
                       <p className="text-xs text-muted-foreground">
-                        Uses the existing Dynamic Agents runtime without
+                        Uses the existing LangChain Deep Agents runtime without
                         changing its stored document or execution path.
                       </p>
                     )}
