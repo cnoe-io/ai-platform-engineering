@@ -7,6 +7,13 @@ export interface HarnessEngineConfig {
   internalToken: string;
 }
 
+export function isHarnessEngineConfigured(): boolean {
+  return Boolean(
+    process.env.HARNESS_ENGINE_URL?.trim() &&
+      process.env.HARNESS_ENGINE_INTERNAL_TOKEN?.trim(),
+  );
+}
+
 export function getHarnessEngineConfig(): HarnessEngineConfig | NextResponse {
   const url = process.env.HARNESS_ENGINE_URL?.trim().replace(/\/$/, "");
   const internalToken = process.env.HARNESS_ENGINE_INTERNAL_TOKEN?.trim();

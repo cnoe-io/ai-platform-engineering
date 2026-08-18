@@ -155,6 +155,7 @@ function mockFetch(platformDefaultId: string | null, includeHarnesses = false) {
   });
   // @ts-expect-error test override
   global.fetch = fetchMock;
+  return fetchMock;
 }
 
 async function flushAsync() {
@@ -213,6 +214,98 @@ describe("DynamicAgentEditor — platform default grant preview", () => {
     expect(screen.getByRole("tooltip")).toHaveTextContent(
       "without exposing credentials or infrastructure identifiers",
     );
+  });
+
+  it("validates a provider blueprint before updating existing agent metadata", async () => {
+    const fetchMock = mockFetch(null, true);
+    render(<DynamicAgentEditor agent={editAgent} onCancel={jest.fn()} onSave={jest.fn()} />);
+    await flushAsync();
+
+    fireEvent.change(screen.getByLabelText("Execution harness"), {
+      target: { value: "claude_agent_sdk" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Save Changes/i }));
+    await flushAsync();
+
+    const validationCallIndex = fetchMock.mock.calls.findIndex(
+      ([url, init]) =>
+        String(url).endsWith("/api/harness-engine/agent-drafts/validate") &&
+        init?.method === "POST",
+    );
+    const metadataMutationIndex = fetchMock.mock.calls.findIndex(
+      ([url, init]) =>
+        String(url).startsWith("/api/dynamic-agents?id=") &&
+        init?.method === "PUT",
+    );
+
+    expect(validationCallIndex).toBeGreaterThanOrEqual(0);
+    expect(metadataMutationIndex).toBe(-1);
+    expect(await screen.findByText(/agent was not saved/i)).toBeInTheDocument();
+  });
+
+  it("rolls back a newly created agent when its provider blueprint cannot be persisted", async () => {
+    mockFetch(null, true);
+    const onSave = jest.fn();
+    render(<DynamicAgentEditor onCancel={jest.fn()} onSave={onSave} />);
+    await flushAsync();
+
+    fireEvent.change(screen.getByPlaceholderText(/Code Review Agent/i), {
+      target: { value: "Provider Agent" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^Global/ }));
+    fireEvent.change(screen.getByLabelText("Execution harness"), {
+      target: { value: "claude_agent_sdk" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Instructions/i }));
+    fireEvent.change(await screen.findByTestId("codemirror-mock"), {
+      target: { value: "You are a provider-backed agent." },
+    });
+
+    const saveFetch = jest.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(url);
+      if (path.endsWith("/api/harness-engine/agent-drafts/validate")) {
+        const request = JSON.parse(String(init?.body)) as { blueprint: AgentBlueprint };
+        return jsonResponse({
+          success: true,
+          data: {
+            valid: true,
+            normalized_blueprint: request.blueprint,
+            catalog_revision: "catalog-1",
+            config_fingerprint: "fingerprint-1",
+          },
+        });
+      }
+      if (path === "/api/dynamic-agents" && init?.method === "POST") {
+        return jsonResponse({ success: true, data: { _id: "agent-provider-agent" } });
+      }
+      if (path.includes("/api/harness-engine/agents/") && init?.method === "PUT") {
+        return {
+          ok: false,
+          status: 503,
+          json: async () => ({ success: false, error: "provider unavailable" }),
+          text: async () => "provider unavailable",
+        };
+      }
+      if (path.startsWith("/api/dynamic-agents?id=") && init?.method === "DELETE") {
+        return jsonResponse({ success: true });
+      }
+      return jsonResponse({ success: true, data: {} });
+    });
+    // @ts-expect-error test override
+    global.fetch = saveFetch;
+
+    fireEvent.click(screen.getByRole("button", { name: /Create Agent/i }));
+    await flushAsync();
+
+    const writes = saveFetch.mock.calls.map(([url, init]) => [String(url), init?.method]);
+    expect(writes).toEqual([
+      ["/api/harness-engine/agent-drafts/validate", "POST"],
+      ["/api/dynamic-agents", "POST"],
+      ["/api/harness-engine/agents/agent-provider-agent", "PUT"],
+      ["/api/dynamic-agents?id=agent-provider-agent", "DELETE"],
+    ]);
+    expect(await screen.findByText(/creation was rolled back/i)).toBeInTheDocument();
+    expect(onSave).not.toHaveBeenCalled();
   });
 
   it("labels the compatibility harness as LangChain Deep Agents while preserving its ID", async () => {

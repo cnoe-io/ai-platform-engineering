@@ -237,6 +237,7 @@ class CreateRunRequest(StrictModel):
     agent_id: str = Field(..., min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_.-]+$")
     conversation_id: str = Field(..., min_length=1, max_length=256)
     message: str = Field(..., min_length=1, max_length=1_000_000)
+    context: str | None = Field(None, max_length=500_000)
     client_request_id: str | None = Field(None, min_length=1, max_length=128)
 
 
