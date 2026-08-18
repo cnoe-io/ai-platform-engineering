@@ -2,16 +2,34 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 
+import { AutonomousTeamAccessPanel } from "@/components/admin/autonomous/AutonomousTeamAccessPanel";
 import { OversightGrid } from "@/components/autonomous/oversight/OversightGrid";
 import { TeamTaskPanel } from "@/components/autonomous/oversight/TeamTaskPanel";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { OversightResult } from "@/lib/autonomous/oversight-grouping";
 
 /**
- * Admin autonomous oversight -- team > person > task, with pause/resume.
- * the underlying /api/autonomous/oversight route still requires admin_ui#view.
+ * Central admin workspace for team entitlement and task oversight.
  */
 export function AutonomousOversightTab() {
+  return (
+    <Tabs defaultValue="team-access" className="space-y-4">
+      <TabsList>
+        <TabsTrigger value="team-access">Team access</TabsTrigger>
+        <TabsTrigger value="task-oversight">Task oversight</TabsTrigger>
+      </TabsList>
+      <TabsContent value="team-access">
+        <AutonomousTeamAccessPanel />
+      </TabsContent>
+      <TabsContent value="task-oversight">
+        <TaskOversightPanel />
+      </TabsContent>
+    </Tabs>
+  );
+}
+
+function TaskOversightPanel() {
   const [data, setData] = useState<OversightResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);

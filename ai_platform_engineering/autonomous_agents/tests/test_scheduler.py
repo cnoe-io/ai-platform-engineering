@@ -851,15 +851,14 @@ class TestHotReload:
         assert scheduler.running is True
 
 
-class TestAutoPauseOnScheduleRevoke:
-    """A scheduled run denied with agent#schedule (owner's autonomous grant
-    revoked) fails the run AND auto-pauses the task"""
+class TestAutoPauseOnAuthorizationRevoke:
+    """A run denied after entitlement/access revocation auto-pauses the task."""
 
-    async def test_schedule_revoked_disables_task_and_fails_run(
+    async def test_authorization_revoked_disables_task_and_fails_run(
         self, store: _DictRunStore, task: TaskDefinition
     ):
         from autonomous_agents.services.dynamic_agents_client import (
-            DynamicAgentsScheduleRevokedError,
+            DynamicAgentsAuthorizationRevokedError,
         )
 
         updated: dict = {}
@@ -874,7 +873,7 @@ class TestAutoPauseOnScheduleRevoke:
             patch(
                 "autonomous_agents.services.task_runner.invoke_dynamic_agent_streaming",
                 new=AsyncMock(
-                    side_effect=DynamicAgentsScheduleRevokedError(
+                    side_effect=DynamicAgentsAuthorizationRevokedError(
                         "autonomous access revoked for agent 'agent-x'"
                     )
                 ),

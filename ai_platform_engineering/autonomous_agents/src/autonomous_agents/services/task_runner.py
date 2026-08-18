@@ -33,7 +33,7 @@ from autonomous_agents.services.chat_history import (
     conversation_id_for_task,
 )
 from autonomous_agents.services.dynamic_agents_client import (
-    DynamicAgentsScheduleRevokedError,
+    DynamicAgentsAuthorizationRevokedError,
     invoke_dynamic_agent_streaming,
 )
 from autonomous_agents.services.mongo import RunStore
@@ -392,17 +392,18 @@ async def execute_task(
             f"({len(events)} events, {len(response)} chars). "
             f"Preview: {response[:120]}..."
         )
-    except DynamicAgentsScheduleRevokedError as exc:
-        # The owner's autonomous grant (team eligibility or per-agent enablement)
-        # was revoked. Fail this run AND auto-pause the task so it stops firing
-        # until a team admin re-enables autonomous for the agent.
+    except DynamicAgentsAuthorizationRevokedError as exc:
+        # The owner lost team entitlement or access to the selected agent. Fail
+        # this run and auto-pause the task so it stops firing until access is
+        # restored and the owner explicitly re-enables it.
         error_text = (
             f"{exc} — autonomous execution was disabled for this task. "
-            "Ask a team admin to re-enable autonomous for this agent."
+            "Ask a platform admin to enable Autonomous for one of your teams, "
+            "or restore your access to this agent."
         )
         run.status = TaskStatus.FAILED
         run.error = error_text
-        logger.warning("[%s] Run %s denied (schedule revoked); auto-pausing task", task.id, run_id)
+        logger.warning("[%s] Run %s denied (authorization revoked); auto-pausing task", task.id, run_id)
         try:
             # Lazy import avoids a circular import (task_lifecycle imports task_runner).
             from autonomous_agents.services.task_lifecycle import get_task_store

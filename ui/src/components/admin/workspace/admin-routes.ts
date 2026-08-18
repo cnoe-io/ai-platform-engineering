@@ -149,7 +149,7 @@ export const ADMIN_CATEGORIES: AdminCategoryDefinition[] = [
         id: "autonomous",
         href: "/admin/platform/autonomous",
         label: "Autonomous",
-        description: "Monitor and manage autonomous agent task execution.",
+        description: "Manage team access and monitor autonomous task execution.",
         icon: Bot,
         gateKey: "autonomous",
       },
