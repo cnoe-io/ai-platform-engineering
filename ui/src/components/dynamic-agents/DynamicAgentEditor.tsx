@@ -421,6 +421,14 @@ export function DynamicAgentEditor({
     source?.ui?.custom_theme_config || { gradient_from: "#6366f1", gradient_to: "#1e1b4b", accent_color: "#ffffff" }
   );
   const [showCustomPicker, setShowCustomPicker] = React.useState(false);
+  // Harness selection is an independent Harness Engine overlay. It is never
+  // added to the Dynamic Agents document, so the legacy runtime and schema
+  // remain unchanged while AgentCore can be adopted per agent.
+  const [harnessId, setHarnessId] = React.useState<"dynamic_agents" | "agentcore">("dynamic_agents");
+  const [runtimeAlias, setRuntimeAlias] = React.useState("");
+  const [runtimeAliases, setRuntimeAliases] = React.useState<string[]>([]);
+  const [harnessRevision, setHarnessRevision] = React.useState<number | null>(null);
+  const [harnessLoading, setHarnessLoading] = React.useState(true);
 
   // Sync request_user_input interrupt rule with builtin tool enabled state
   const hasRequestUserInputInterrupt = !!interruptOn?.builtin?.request_user_input;
@@ -583,6 +591,47 @@ export function DynamicAgentEditor({
     fetchExistingIds();
   }, [isEditing]);
 
+  React.useEffect(() => {
+    let cancelled = false;
+    async function fetchHarnessConfiguration() {
+      try {
+        const catalogResponse = await fetch("/api/harness-engine/harnesses");
+        const catalog = await catalogResponse.json();
+        const agentCore = catalog.data?.harnesses?.find(
+          (entry: { id?: string }) => entry.id === "agentcore",
+        );
+        const aliases = Array.isArray(agentCore?.runtime_aliases)
+          ? agentCore.runtime_aliases as string[]
+          : [];
+        if (cancelled) return;
+        setRuntimeAliases(aliases);
+        setRuntimeAlias((current) => current || aliases[0] || "");
+
+        if (source?._id) {
+          const overlayResponse = await fetch(
+            `/api/harness-engine/agents/${encodeURIComponent(source._id)}`,
+          );
+          if (overlayResponse.ok) {
+            const overlay = await overlayResponse.json();
+            if (!cancelled && overlay.data?.harness_id === "agentcore") {
+              setHarnessId("agentcore");
+              setRuntimeAlias(overlay.data.runtime_alias);
+              setHarnessRevision(overlay.data.revision);
+            }
+          }
+        }
+      } catch (err) {
+        // Harness Engine is opt-in. Its absence must not affect the existing
+        // Dynamic Agents creation/edit path.
+        console.info("Harness Engine is unavailable; using Dynamic Agents", err);
+      } finally {
+        if (!cancelled) setHarnessLoading(false);
+      }
+    }
+    void fetchHarnessConfiguration();
+    return () => { cancelled = true; };
+  }, [source?._id]);
+
   // Fetch available models on mount
   React.useEffect(() => {
     async function fetchModels() {
@@ -720,6 +769,8 @@ export function DynamicAgentEditor({
       modelId,
       modelProvider,
       gradientTheme,
+      harnessId,
+      runtimeAlias,
     }),
     [
       name,
@@ -736,6 +787,8 @@ export function DynamicAgentEditor({
       modelId,
       modelProvider,
       gradientTheme,
+      harnessId,
+      runtimeAlias,
     ]
   );
 
@@ -1002,6 +1055,10 @@ export function DynamicAgentEditor({
       // overwrite a prior `last_review` with null.
       const lastReview = buildLastReview(reviewResult, "agent-system-prompt");
 
+      if (harnessId === "agentcore" && !runtimeAlias) {
+        throw new Error("Select an AgentCore runtime before saving");
+      }
+
       if (isEditing) {
         // Update existing agent
         const updateData: DynamicAgentConfigUpdate & {
@@ -1082,6 +1139,38 @@ export function DynamicAgentEditor({
         if (!data.success) {
           throw new Error(data.error || "Failed to create agent");
         }
+      }
+
+      const targetAgentId = isEditing ? agent._id : generatedId;
+      if (harnessId === "agentcore") {
+        const overlayResponse = await fetch(
+          `/api/harness-engine/agents/${encodeURIComponent(targetAgentId)}`,
+          {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              harness_id: "agentcore",
+              runtime_alias: runtimeAlias,
+              ...(harnessRevision ? { expected_revision: harnessRevision } : {}),
+            }),
+          },
+        );
+        const overlay = await overlayResponse.json();
+        if (!overlayResponse.ok || !overlay.success) {
+          throw new Error(
+            `The agent was saved, but its AgentCore harness was not: ${overlay.error || "unknown error"}`,
+          );
+        }
+        setHarnessRevision(overlay.data.revision);
+      } else if (harnessRevision !== null) {
+        const overlayResponse = await fetch(
+          `/api/harness-engine/agents/${encodeURIComponent(targetAgentId)}`,
+          { method: "DELETE" },
+        );
+        if (!overlayResponse.ok) {
+          throw new Error("The agent was saved, but its prior harness overlay could not be removed");
+        }
+        setHarnessRevision(null);
       }
 
       // Clear unsaved-changes state BEFORE calling onSave(): the parent will
@@ -1232,6 +1321,45 @@ export function DynamicAgentEditor({
           {/* Basic Info Step */}
           {activeStep === "basic" && (
             <div className="space-y-4 pt-2">
+              <div className="space-y-2">
+                <Label htmlFor="harnessId">Execution harness</Label>
+                <div className="p-3 rounded-lg border-2 border-primary/20 bg-primary/5 space-y-3">
+                  <select
+                    id="harnessId"
+                    value={harnessId}
+                    onChange={(event) => setHarnessId(event.target.value as "dynamic_agents" | "agentcore")}
+                    disabled={loading || harnessLoading || !!readOnly}
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-medium shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <option value="dynamic_agents">Dynamic Agents (existing runtime)</option>
+                    <option value="agentcore" disabled={runtimeAliases.length === 0}>
+                      Amazon Bedrock AgentCore
+                    </option>
+                  </select>
+                  {harnessId === "agentcore" && (
+                    <div className="space-y-2">
+                      <Label htmlFor="runtimeAlias">AgentCore runtime</Label>
+                      <select
+                        id="runtimeAlias"
+                        value={runtimeAlias}
+                        onChange={(event) => setRuntimeAlias(event.target.value)}
+                        disabled={loading || !!readOnly}
+                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      >
+                        {runtimeAliases.map((alias) => <option key={alias} value={alias}>{alias}</option>)}
+                      </select>
+                      <p className="text-xs text-muted-foreground">
+                        The alias maps to an operator-managed runtime ARN; users cannot provide images, commands, or AWS resource identifiers.
+                      </p>
+                    </div>
+                  )}
+                  {harnessId === "dynamic_agents" && (
+                    <p className="text-xs text-muted-foreground">
+                      Uses the existing Dynamic Agents runtime without changing its stored document or execution path.
+                    </p>
+                  )}
+                </div>
+              </div>
               <div className="space-y-2">
                 <Label htmlFor="name">
                   Agent Name <span className="text-destructive">*</span>

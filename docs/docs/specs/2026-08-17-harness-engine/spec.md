@@ -1,5 +1,7 @@
 # Feature Specification: Harness Engine
 
+> **Implementation amendment (2026-08-18):** The first AgentCore slice is an independent service deployed beside Dynamic Agents. It does not replace or modify the existing implementation. Agent selection is an external overlay, and migration/compatibility work is deferred to a separate opt-in phase. The requirements below remain the target architecture unless this amendment narrows the initial release.
+
 **Feature Branch**: `2026-08-17-harness-engine`
 **Created**: 2026-08-17
 **Status**: Draft

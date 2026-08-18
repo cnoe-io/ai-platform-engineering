@@ -11,6 +11,27 @@
 - `[USn]` maps directly to User Story `n` in [spec.md](./spec.md).
 - A task is complete only when its stated test or observable condition passes. Do not mark implementation tasks complete from code review alone.
 
+## 2026-08-18 Implementation Amendment: Independent AgentCore Slice
+
+This amendment supersedes any task below that edits `ai_platform_engineering/dynamic_agents/` for the first implementation slice. Those tasks remain future migration backlog only. The current release gate is zero changed paths under that package.
+
+- [x] T117 Create the independent Python package, locked dependencies, and non-root container in `ai_platform_engineering/harness_engine/` — done when the service imports and its image has an isolated entrypoint.
+- [x] T118 Add operator-owned AgentCore runtime aliases and reject arbitrary runtime identifiers in `src/harness_engine/config.py`, `models.py`, and `adapters/agentcore.py` — done when adapter tests prove the exact AWS request and bearer-token non-propagation.
+- [x] T119 Add independent harness overlays, owned runs, ordered events, optimistic revisions, indexes, and TTL in `src/harness_engine/repository.py` — done for memory and Mongo repositories.
+- [x] T120 Implement detached provider tasks and stable AgentCore `runtimeSessionId` ownership in `src/harness_engine/coordinator.py` — done when provider work is not scoped to an SSE request.
+- [x] T121 Implement catalog, overlay, run, cancel, cursor replay, and SSE endpoints in `src/harness_engine/main.py` — done when internal credential and owner isolation tests pass.
+- [x] T122 Add disconnect/replay E2E in `tests/test_disconnect_replay_e2e.py` — done when a run completes with no event subscriber and later replays from a cursor.
+- [x] T123 Add stateless BFF proxies under `ui/src/app/api/harness-engine/` with internal-service authentication and existing OpenFGA/conversation checks — done when Jest proves the user bearer is not forwarded and `Last-Event-ID` resumes a subscription.
+- [x] T124 Add browser run/replay/subscribe helpers in `ui/src/lib/harness-engine-session-client.ts` — done when the public client contract separates start from subscription.
+- [x] T125 Add harness-first Agent Creation UI selection and AgentCore runtime alias fields in `DynamicAgentEditor.tsx`, persisting only an independent overlay — done when existing editor tests and the AgentCore conditional-field test pass.
+- [x] T126 Document service boundaries, configuration, and disconnect semantics in `ai_platform_engineering/harness_engine/README.md` and update this plan — done when limitations distinguish client disconnect survival from engine-process failover.
+- [ ] T127 Add deployment manifests and production secret wiring for the independent service without placing it in the default first-install profile — deferred until the deployment target is selected.
+- [ ] T128 Add engine-process takeover/reconciliation for in-flight provider invocations — future reliability phase; browser/BFF disconnect survival is complete without it.
+- [x] T129 Add stable provider thread identity plus validated W3C tracing storage/propagation for AgentCore runs — done when repeated conversation turns share a `runtimeSessionId` and the trace reaches the allowlisted runtime payload.
+- [ ] T130 Add the provider-neutral long-term MemoryBroker with explicit user/agent/organization scopes — future phase after the AgentCore session slice.
+
+**Current gate**: `git diff main...HEAD --name-only | rg '^ai_platform_engineering/dynamic_agents/'` produces no output; Harness Engine pytest/ruff, BFF Jest, editor Jest, ESLint, and TypeScript checks pass.
+
 ## Phase 1: Setup and Compatibility Freeze
 
 **Purpose**: Establish a measurable Dynamic Agents oracle before changing runtime behavior.
