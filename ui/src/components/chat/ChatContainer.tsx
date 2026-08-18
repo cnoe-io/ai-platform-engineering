@@ -86,7 +86,7 @@ export function ChatContainer() {
     return () => {
       document.title = defaultTitle;
     };
-  }, [agentInfo?.name]);
+  }, [agentInfo?.name, uuid]);
 
   // Reset state when uuid changes (conversation switch)
   useEffect(() => {
