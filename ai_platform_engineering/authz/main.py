@@ -105,7 +105,7 @@ def create_app(
             await publisher.stop()
             publisher_task.cancel()
             with suppress(asyncio.CancelledError):
-                await publisher_task
+                _ = await publisher_task
             await grpc_server.stop(grace=5)
             await provider.close()
 

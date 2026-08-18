@@ -43,14 +43,16 @@ class AuthorizationProvider(Protocol):
         request: CanonicalDecisionRequest,
         *,
         context: dict[str, object] | None = None,
-    ) -> ProviderResult: ...
+    ) -> ProviderResult:
+        raise NotImplementedError
 
     async def batch_check(
         self,
         requests: list[CanonicalDecisionRequest],
         *,
         contexts: list[dict[str, object] | None] | None = None,
-    ) -> list[ProviderResult]: ...
+    ) -> list[ProviderResult]:
+        raise NotImplementedError
 
     async def read_tuples(
         self,
@@ -60,12 +62,17 @@ class AuthorizationProvider(Protocol):
         object_ref: str | None = None,
         page_size: int = 100,
         continuation_token: str | None = None,
-    ) -> tuple[list[ConditionalTuple], str | None]: ...
+    ) -> tuple[list[ConditionalTuple], str | None]:
+        raise NotImplementedError
 
-    async def write_tuples(self, tuples: list[ConditionalTuple]) -> None: ...
+    async def write_tuples(self, tuples: list[ConditionalTuple]) -> None:
+        raise NotImplementedError
 
-    async def delete_tuples(self, tuples: list[ConditionalTuple]) -> None: ...
+    async def delete_tuples(self, tuples: list[ConditionalTuple]) -> None:
+        raise NotImplementedError
 
-    async def get_model(self) -> dict[str, Any]: ...
+    async def get_model(self) -> dict[str, Any]:
+        raise NotImplementedError
 
-    async def ready(self) -> bool: ...
+    async def ready(self) -> bool:
+        raise NotImplementedError

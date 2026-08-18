@@ -17,27 +17,33 @@ class PolicyConflict(RuntimeError):
 
 
 class PolicyRepository(Protocol):
-    async def get(self, policy_id: str) -> ExpressionPolicy | None: ...
+    async def get(self, policy_id: str) -> ExpressionPolicy | None:
+        raise NotImplementedError
 
     async def list(
         self,
         *,
         resource_type: str | None = None,
         resource_id: str | None = None,
-    ) -> list[ExpressionPolicy]: ...
+    ) -> list[ExpressionPolicy]:
+        raise NotImplementedError
 
     async def put(
         self,
         policy: ExpressionPolicy,
         *,
         expected_version: int | None,
-    ) -> ExpressionPolicy: ...
+    ) -> ExpressionPolicy:
+        raise NotImplementedError
 
-    async def delete(self, policy_id: str, *, expected_version: int) -> ExpressionPolicy | None: ...
+    async def delete(self, policy_id: str, *, expected_version: int) -> ExpressionPolicy | None:
+        raise NotImplementedError
 
-    async def get_schema(self, resource_type: str, resource_id: str) -> SanitizedSchema | None: ...
+    async def get_schema(self, resource_type: str, resource_id: str) -> SanitizedSchema | None:
+        raise NotImplementedError
 
-    async def put_schema(self, schema: SanitizedSchema) -> SanitizedSchema: ...
+    async def put_schema(self, schema: SanitizedSchema) -> SanitizedSchema:
+        raise NotImplementedError
 
 
 class InMemoryPolicyRepository:

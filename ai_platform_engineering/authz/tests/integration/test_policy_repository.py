@@ -40,4 +40,5 @@ async def test_policy_delete_requires_current_version() -> None:
     await repository.put(policy(), expected_version=0)
     with pytest.raises(PolicyConflict):
         await repository.delete("policy-primary", expected_version=2)
-    assert await repository.delete("policy-primary", expected_version=1) is not None
+    deleted = await repository.delete("policy-primary", expected_version=1)
+    assert deleted is not None
