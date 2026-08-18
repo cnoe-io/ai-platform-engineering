@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Iterator
 
 from harness_engine.adapters.agentcore import AgentCoreAdapter
@@ -33,6 +34,24 @@ class FakeClient:
         return {
             "contentType": "text/event-stream",
             "response": StreamingBody([b"data: first", b"", b"data: second"]),
+        }
+
+
+class FakeManagedHarnessClient:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
+    def invoke_harness(self, **kwargs: object) -> dict[str, object]:
+        self.calls.append(kwargs)
+        return {
+            "stream": iter(
+                [
+                    {"messageStart": {"role": "assistant"}},
+                    {"contentBlockDelta": {"delta": {"text": "managed"}}},
+                    {"contentBlockDelta": {"delta": {"text": " harness"}}},
+                    {"metadata": {"usage": {"inputTokens": 3, "outputTokens": 2}}},
+                ]
+            )
         }
 
 
@@ -93,3 +112,43 @@ async def test_agentcore_adapter_rejects_non_allowlisted_profile(settings: Setti
         assert "not configured" in str(exc)
     else:
         raise AssertionError("expected the profile to be rejected")
+
+
+async def test_agentcore_adapter_invokes_managed_harness() -> None:
+    client = FakeManagedHarnessClient()
+    settings = Settings(
+        internal_token="test-internal-token-value",
+        agentcore_runtimes_json=json.dumps(
+            {
+                "primary": {
+                    "arn": (
+                        "arn:aws:bedrock-agentcore:us-east-2:111122223333:"
+                        "harness/example-harness"
+                    ),
+                    "qualifier": "DEFAULT",
+                    "region": "us-east-2",
+                }
+            }
+        ),
+    )
+    adapter = AgentCoreAdapter(settings, clients={"us-east-2": client})
+
+    events = [event async for event in adapter.stream(context())]
+
+    assert [event.event_type for event in events] == [
+        "content.delta",
+        "content.delta",
+        "usage.updated",
+    ]
+    assert [event.data.get("text") for event in events[:2]] == ["managed", " harness"]
+    call = client.calls[0]
+    assert call["harnessArn"] == (
+        "arn:aws:bedrock-agentcore:us-east-2:111122223333:harness/example-harness"
+    )
+    assert call["messages"] == [{"role": "user", "content": [{"text": "hello"}]}]
+    assert call["systemPrompt"] == [{"text": "Be helpful."}]
+    assert call["traceParent"] == (
+        "00-11111111111111111111111111111111-2222222222222222-01"
+    )
+    assert call["runtimeUserId"] != "test-user"
+    assert "Authorization" not in call

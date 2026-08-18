@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 from collections.abc import AsyncIterator, Iterator
 from typing import Any, Protocol
@@ -28,11 +29,13 @@ from harness_engine.sessions import DeterministicProviderSessionManager, Provide
 class AgentCoreDataClient(Protocol):
     def invoke_agent_runtime(self, **kwargs: Any) -> dict[str, Any]: ...
 
+    def invoke_harness(self, **kwargs: Any) -> dict[str, Any]: ...
+
 
 _END = object()
 
 
-def _next_or_end(iterator: Iterator[bytes]) -> bytes | object:
+def _next_or_end(iterator: Iterator[Any]) -> Any:
     try:
         return next(iterator)
     except StopIteration:
@@ -72,7 +75,11 @@ class AgentCoreAdapter:
                 id=alias,
                 harness_id="agentcore",
                 display_name=alias.replace("-", " ").replace("_", " ").title(),
-                description="Operator-managed AgentCore runtime",
+                description=(
+                    "Operator-managed AgentCore Harness"
+                    if self._targets[alias].is_managed_harness
+                    else "Operator-managed AgentCore Runtime"
+                ),
             )
             for alias in self.configured_aliases
         ]
@@ -155,6 +162,72 @@ class AgentCoreAdapter:
 
     async def stream(self, context: RunContext) -> AsyncIterator[CanonicalEventDraft]:
         target = self._target(context.binding.profile_id)
+        if not context.binding.provider_session_id:
+            raise RuntimeError("AgentCore session manager did not assign a runtime session ID")
+        if target.is_managed_harness:
+            async for event in self._stream_managed_harness(context, target):
+                yield event
+            return
+
+        async for event in self._stream_custom_runtime(context, target):
+            yield event
+
+    async def _stream_managed_harness(
+        self, context: RunContext, target: AgentCoreRuntimeTarget
+    ) -> AsyncIterator[CanonicalEventDraft]:
+        if not context.binding.provider_session_id:
+            raise RuntimeError("AgentCore session manager did not assign a runtime session ID")
+        request: dict[str, Any] = {
+            "harnessArn": target.arn,
+            "runtimeSessionId": context.binding.provider_session_id,
+            "runtimeUserId": (
+                "caipe-user-"
+                + hashlib.sha256(context.binding.owner_subject.encode()).hexdigest()[:32]
+            ),
+            "qualifier": target.qualifier,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [{"text": context.turn.message}],
+                }
+            ],
+            "systemPrompt": [{"text": context.prompt.system}],
+        }
+        if context.turn.traceparent:
+            request["traceParent"] = context.turn.traceparent
+        if context.blueprint.model.policy == "configured" and context.blueprint.model.id:
+            request["model"] = {
+                "bedrockModelConfig": {"modelId": context.blueprint.model.id}
+            }
+
+        response = await asyncio.to_thread(self._client(target).invoke_harness, **request)
+        body = response.get("stream")
+        if body is None:
+            raise RuntimeError("AgentCore Harness returned no response stream")
+
+        iterator = iter(body)
+        while True:
+            raw = await asyncio.to_thread(_next_or_end, iterator)
+            if raw is _END:
+                break
+            if not isinstance(raw, dict):
+                continue
+            delta = raw.get("contentBlockDelta", {}).get("delta", {})
+            text = delta.get("text")
+            if text:
+                yield CanonicalEventDraft(event_type="content.delta", data={"text": str(text)})
+            reasoning = delta.get("reasoningContent", {}).get("text")
+            if reasoning:
+                yield CanonicalEventDraft(
+                    event_type="reasoning.delta", data={"text": str(reasoning)}
+                )
+            usage = raw.get("metadata", {}).get("usage")
+            if usage:
+                yield CanonicalEventDraft(event_type="usage.updated", data={"usage": usage})
+
+    async def _stream_custom_runtime(
+        self, context: RunContext, target: AgentCoreRuntimeTarget
+    ) -> AsyncIterator[CanonicalEventDraft]:
         if not context.binding.provider_session_id:
             raise RuntimeError("AgentCore session manager did not assign a runtime session ID")
         request_body = {

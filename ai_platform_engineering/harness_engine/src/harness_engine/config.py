@@ -9,11 +9,27 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class AgentCoreRuntimeTarget(BaseModel):
-    """Operator-owned AgentCore target; ARNs never come from agent drafts."""
+    """Operator-owned AgentCore target; ARNs never come from agent drafts.
 
-    arn: str = Field(..., min_length=20, pattern=r"^arn:aws[a-z-]*:bedrock-agentcore:")
+    The legacy model name is retained for configuration compatibility, but a
+    target can be either a custom AgentCore Runtime or a managed AgentCore
+    Harness. The adapter selects the correct data-plane operation from the ARN.
+    """
+
+    arn: str = Field(
+        ...,
+        min_length=20,
+        pattern=(
+            r"^arn:aws[a-z-]*:bedrock-agentcore:[a-z0-9-]+:\d{12}:"
+            r"(?:runtime|harness)/[A-Za-z0-9_.-]+$"
+        ),
+    )
     qualifier: str = Field("DEFAULT", min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_.-]+$")
     region: str | None = Field(None, pattern=r"^[a-z]{2}(?:-gov)?-[a-z]+-\d$")
+
+    @property
+    def is_managed_harness(self) -> bool:
+        return ":harness/" in self.arn
 
 
 class ClaudeSDKProfile(BaseModel):
