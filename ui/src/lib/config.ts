@@ -160,6 +160,8 @@ export interface Config {
   schedulerAdminOnly: boolean;
   /** Whether Jira ticket creation from feedback/report is enabled */
   jiraTicketEnabled: boolean;
+  /** Jira instance base URL. */
+  jiraBaseUrl: string | null;
   /** Jira project key for ticket creation (e.g., "OPENSD") */
   jiraTicketProject: string | null;
   /** Custom label applied to Jira tickets for filtering (e.g., "caipe-reported") */
@@ -170,6 +172,8 @@ export interface Config {
   githubTicketRepo: string | null;
   /** Custom label applied to GitHub issues for filtering (e.g., "caipe-reported") */
   githubTicketLabel: string;
+  /** Optional repository used to host report screenshots. */
+  githubScreenshotsRepo: string | null;
   /**
    * Streaming protocol used by agent servers: "custom" (default) or "agui".
    * Controls the ?protocol= query param sent to the backend streaming endpoints.
@@ -269,11 +273,13 @@ const DEFAULT_CONFIG: Config = {
   agentProtocol: 'agui',
   reportProblemEnabled: true,
   jiraTicketEnabled: false,
+  jiraBaseUrl: null,
   jiraTicketProject: null,
   jiraTicketLabel: 'caipe-reported',
   githubTicketEnabled: false,
   githubTicketRepo: null,
   githubTicketLabel: 'caipe-reported',
+  githubScreenshotsRepo: null,
   ticketEnabled: false,
   ticketProvider: null,
   userInfoToolEnabled: false,
@@ -400,12 +406,17 @@ export function getServerConfig(): Config {
   const agentProtocol: 'custom' | 'agui' = agentProtocolEnv === 'custom' ? 'custom' : 'agui';
 
   const reportProblemEnabled = env('REPORT_PROBLEM_ENABLED') !== 'false';
-  const jiraTicketEnabled = env('JIRA_TICKET_ENABLED') === 'true';
+  const jiraBaseUrl = env('JIRA_BASE_URL') || null;
+  const jiraEmail = env('JIRA_EMAIL') || null;
+  const jiraToken = env('REPORT_PROBLEM_JIRA_TOKEN') || env('JIRA_TICKET_TOKEN') || null;
+  const jiraTicketEnabled = env('JIRA_TICKET_ENABLED') === 'true'
+    || !!(jiraBaseUrl && jiraEmail && jiraToken);
   const jiraTicketProject = env('JIRA_TICKET_PROJECT') || null;
   const jiraTicketLabel = env('JIRA_TICKET_LABEL') || 'caipe-reported';
   const githubTicketEnabled = env('GITHUB_TICKET_ENABLED') === 'true';
   const githubTicketRepo = env('GITHUB_TICKET_REPO') || null;
   const githubTicketLabel = env('GITHUB_TICKET_LABEL') || 'caipe-reported';
+  const githubScreenshotsRepo = env('GITHUB_SCREENSHOTS_REPO') || null;
   const ticketEnabled = jiraTicketEnabled || githubTicketEnabled;
   const ticketProvider: 'jira' | 'github' | null = jiraTicketEnabled ? 'jira' : githubTicketEnabled ? 'github' : null;
 
@@ -461,11 +472,13 @@ export function getServerConfig(): Config {
     agentProtocol,
     reportProblemEnabled,
     jiraTicketEnabled,
+    jiraBaseUrl,
     jiraTicketProject,
     jiraTicketLabel,
     githubTicketEnabled,
     githubTicketRepo,
     githubTicketLabel,
+    githubScreenshotsRepo,
     ticketEnabled,
     ticketProvider,
     userInfoToolEnabled,
