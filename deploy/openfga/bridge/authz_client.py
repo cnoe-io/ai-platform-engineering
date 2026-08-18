@@ -276,3 +276,7 @@ class MigrationRouter:
     started = time.perf_counter()
     result = self.legacy_shadow(request, context)
     return result, (time.perf_counter() - started) * 1000
+
+  def close(self) -> None:
+    """Release bounded shadow workers during shutdown and test reconfiguration."""
+    self._executor.shutdown(wait=True, cancel_futures=True)

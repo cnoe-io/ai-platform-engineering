@@ -26,6 +26,28 @@ def project_graph(
     }
     selected = tuples[:limit]
     node_ids = sorted({value.user for value in selected} | {value.object for value in selected})
+
+    def shadow_warnings(policy: ExpressionPolicy) -> list[str]:
+        warnings: list[str] = []
+        if any(
+            value.user == policy.subject.openfga_ref
+            and value.object == policy.resource_ref
+            and value.relation in {"caller", "manager"}
+            and not value.condition_name
+            for value in tuples
+        ):
+            warnings.append("unconditional_exact_allow")
+        server = policy.resource_id.split("/", 1)[0]
+        if any(
+            value.user == policy.subject.openfga_ref
+            and value.object == f"{policy.resource_type}:{server}/*"
+            for value in tuples
+        ):
+            warnings.append("wildcard_allow")
+        if policy.subject.type.value in {"team", "channel"}:
+            warnings.append("known_transitive_subject")
+        return warnings
+
     return {
         "nodes": [
             {"id": node_id, "type": node_id.split(":", 1)[0]}
@@ -47,6 +69,9 @@ def project_graph(
                         "field": policy.expression.field,
                         "schema_hash": policy.input_schema_sha256,
                         "version": policy.version,
+                        "exclusive": policy.exclusive,
+                        "schema_drift": policy.status.value == "STALE",
+                        "shadow_warnings": shadow_warnings(policy),
                     }
                     if (policy := policy_by_key.get((value.user, value.relation, value.object)))
                     else None

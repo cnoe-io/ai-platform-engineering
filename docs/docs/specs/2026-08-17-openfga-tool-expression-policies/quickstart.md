@@ -232,3 +232,26 @@ cd docs && npm run build
 helm lint charts/ai-platform-engineering/charts/caipe-authz \
   --set auth.allowInsecureHeaders=true
 ~~~
+
+## Live Migration Verification
+
+Run the pinned OpenFGA migration test explicitly:
+
+~~~bash
+RUN_AUTHZ_MIGRATION_E2E=1 \
+uv run --project ai_platform_engineering/authz python -m pytest -q \
+  tests/authz/test_live_migration_sequence.py
+~~~
+
+The test starts `openfga/openfga:v1.15.1`, installs the production model and a
+conditional exact-tool tuple, starts the real caipe-authz gRPC transport, and
+routes requests through the gateway migration router. It verifies:
+
+- `LEGACY -> SHADOW -> CANARY -> AUTHZ -> AUTHZ_ONLY` authority changes;
+- Authz deny never falls back to a legacy allow;
+- `AUTHZ_ONLY` never calls legacy;
+- routing rollback restores legacy authority without changing tuples;
+- policy rollback deletes only the conditional tuple, stays Authz-authoritative,
+  denies the formerly matching request, and does not restore a broad grant;
+- the privileged graph reads the live OpenFGA store with sanitized conditional
+  metadata.

@@ -15,6 +15,8 @@ class PromotionSignals:
     descriptor_matches: bool
     rollback_tested: bool
     owner: str
+    context_schema_matches: bool
+    audit_delivery_healthy: bool
 
 
 @dataclass(frozen=True)
@@ -44,6 +46,10 @@ def evaluate_promotion(
         blockers.append("audit_backlog")
     if not signals.descriptor_matches:
         blockers.append("model_descriptor_mismatch")
+    if not signals.context_schema_matches:
+        blockers.append("context_schema_mismatch")
+    if not signals.audit_delivery_healthy:
+        blockers.append("audit_delivery_unhealthy")
     if not signals.rollback_tested:
         blockers.append("rollback_not_tested")
     if not signals.owner:

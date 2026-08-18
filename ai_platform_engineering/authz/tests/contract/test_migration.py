@@ -96,6 +96,8 @@ def test_promotion_gate_reports_every_blocker() -> None:
             descriptor_matches=False,
             rollback_tested=False,
             owner="",
+            context_schema_matches=False,
+            audit_delivery_healthy=False,
         )
     )
     assert result.ready is False

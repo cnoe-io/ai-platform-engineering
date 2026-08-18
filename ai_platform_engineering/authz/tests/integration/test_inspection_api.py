@@ -95,6 +95,8 @@ def test_promotion_gate_reports_explicit_blockers(tmp_path: Path) -> None:
                 "descriptor_matches": True,
                 "rollback_tested": False,
                 "owner": "example-owner",
+                "context_schema_matches": True,
+                "audit_delivery_healthy": True,
             },
         )
 
@@ -105,6 +107,26 @@ def test_promotion_gate_reports_explicit_blockers(tmp_path: Path) -> None:
         "semantic_mismatch",
         "rollback_not_tested",
     ]
+
+
+def test_promotion_gate_requires_context_and_audit_delivery_evidence(tmp_path: Path) -> None:
+    with TestClient(_app(tmp_path, FakeProvider())) as client:
+        response = client.post(
+            "/v1/admin/promotion-gates",
+            headers={"authorization": "Bearer admin-example-token"},
+            json={
+                "comparison_count": 100,
+                "semantic_mismatches": 0,
+                "provider_error_rate": 0,
+                "p99_latency_ms": 20,
+                "audit_backlog": 0,
+                "descriptor_matches": True,
+                "rollback_tested": True,
+                "owner": "example-owner",
+            },
+        )
+
+    assert response.status_code == 422
 
 
 def test_relationship_inspection_redacts_condition_constants(tmp_path: Path) -> None:

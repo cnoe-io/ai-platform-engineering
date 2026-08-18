@@ -17,6 +17,9 @@ interface AuthzGraph {
       field: string;
       schema_hash: string;
       version: number;
+      exclusive?: boolean;
+      schema_drift?: boolean;
+      shadow_warnings?: string[];
     } | null;
   }>;
   truncated: boolean;

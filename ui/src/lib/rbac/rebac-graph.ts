@@ -53,6 +53,9 @@ export interface RebacGraphEdge {
     field: string;
     schema_hash: string;
     version: number;
+    exclusive?: boolean;
+    schema_drift?: boolean;
+    shadow_warnings?: string[];
   };
 }
 

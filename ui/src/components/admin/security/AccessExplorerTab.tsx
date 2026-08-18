@@ -51,6 +51,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { RebacGraphFilters, subjectPrefix, type RebacGraphUserOption } from "../rebac/RebacGraphFilters";
+import { AuthzGraphLayers } from "../rebac/authz-graph-layers";
 
 type GraphLayer = "tuples" | "effective" | "model";
 type ExplorerMode = "relationships" | "feature-check";
@@ -85,6 +86,9 @@ interface GraphEdge {
     field: string;
     schema_hash: string;
     version: number;
+    exclusive?: boolean;
+    schema_drift?: boolean;
+    shadow_warnings?: string[];
   };
 }
 
@@ -1034,6 +1038,7 @@ export function AccessExplorerTab({ isAdmin }: { isAdmin: boolean }) {
               />
             )}
             <GraphSummary graph={graph} />
+            <AuthzGraphLayers graph={graph} />
             <OpenFgaGraphViewer
               graph={graph}
               graphLayer="effective"

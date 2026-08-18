@@ -157,3 +157,46 @@ def test_canary_matches_cross_language_vector() -> None:
     )
 
     assert rollout.mode(selection(module)) == "AUTHZ"
+
+
+def test_full_gateway_replay_and_routing_rollback_do_not_mutate_tuples() -> None:
+    module = load_module()
+    policy_tuples = [
+        {
+            "user": "user:example-user",
+            "relation": "conditional_caller",
+            "object": "tool:issue_tracker/create_item",
+        }
+    ]
+    snapshot = [dict(item) for item in policy_tuples]
+    phases = (
+        ("legacy", "LEGACY", 0),
+        ("shadow", "SHADOW", 0),
+        ("canary", "CANARY", 7),
+        ("authz", "AUTHZ", 7),
+        ("authz-only", "AUTHZ_ONLY", 7),
+        ("routing-rollback", "SHADOW", 0),
+    )
+
+    for name, mode, expected_code in phases:
+        if mode == "CANARY":
+            scopes = (
+                module.Scope(
+                    surface="agentgateway",
+                    resource_type="tool",
+                    action="invoke",
+                    mode="CANARY",
+                    exact_resources=("issue_tracker/create_item",),
+                    canary_percent=100,
+                ),
+            )
+            rollout = module.Rollout(name, "LEGACY", "example-canary-seed-2026", 100, scopes)
+        else:
+            rollout = module.Rollout(name, mode, "example-canary-seed-2026", 100, ())
+        value, _, comparisons = router(module, rollout=rollout)
+
+        result = value.Check(object(), None)
+        wait_for_comparison(comparisons)
+
+        assert result.status.code == expected_code
+        assert policy_tuples == snapshot

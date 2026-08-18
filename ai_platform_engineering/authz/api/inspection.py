@@ -48,6 +48,8 @@ class PromotionGateBody(StrictModel):
     descriptor_matches: bool
     rollback_tested: bool
     owner: str = Field(max_length=256)
+    context_schema_matches: bool
+    audit_delivery_healthy: bool
 
 
 def create_inspection_router(

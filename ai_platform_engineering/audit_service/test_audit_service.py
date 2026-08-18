@@ -475,6 +475,55 @@ def test_migration_comparisons_filter_by_revision_authority_and_mismatch(tmp_pat
         assert no_match.json()["total"] == 0
 
 
+def test_normalized_migration_comparison_flattens_both_evaluators(tmp_path: Path) -> None:
+    app = create_app(_settings(tmp_path, flush_batch_size=1))
+    event = {
+        "event_id": "comparison-normalized-1",
+        "event_type": "authz_migration_comparison",
+        "occurred_at": "2026-06-20T01:00:00Z",
+        "producer": "caipe-authz",
+        "schema_version": "1",
+        "correlation_id": "comparison-normalized",
+        "payload": {
+            "rollout_revision": "revision-1",
+            "authoritative_path": "LEGACY",
+            "mismatch_class": "ALLOW_DENY",
+            "scope": {"resource_type": "tool", "action": "invoke"},
+            "legacy": {
+                "outcome": "ALLOW",
+                "reason_code": "ALLOW_RELATIONSHIP",
+                "duration_ms": 2,
+                "error": False,
+            },
+            "authz": {
+                "outcome": "DENY",
+                "reason_code": "DENY_NO_RELATIONSHIP",
+                "duration_ms": 4,
+                "error": False,
+            },
+        },
+    }
+    with TestClient(app) as client:
+        assert client.post("/v1/audit/events", json={"events": [event]}).status_code == 202
+        _wait_for_flushed(client, 1)
+        response = client.get(
+            "/v1/audit/events",
+            params={
+                "type": "authz_migration_comparison",
+                "since": "2026-06-20T00:00:00Z",
+                "until": "2026-06-20T02:00:00Z",
+            },
+        )
+
+    record = response.json()["records"][0]
+    assert record["legacy_outcome"] == "allow"
+    assert record["authz_outcome"] == "deny"
+    assert record["legacy_reason_code"] == "ALLOW_RELATIONSHIP"
+    assert record["authz_duration_ms"] == 4
+    assert record["resource_type"] == "tool"
+    assert "legacy" not in record and "authz" not in record
+
+
 def test_verbosity_allowed_types_standard() -> None:
     types = allowed_types("standard")
     assert types == frozenset(

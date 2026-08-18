@@ -83,6 +83,22 @@ class AuditEvent(BaseModel):
             record.setdefault("action", record.get("operation", self.event_type))
             if "provider" in record and "pdp" not in record:
                 record["pdp"] = record["provider"]
+            if self.event_type == "authz_migration_comparison":
+                for evaluator in ("legacy", "authz"):
+                    nested = record.pop(evaluator, None)
+                    if not isinstance(nested, dict):
+                        continue
+                    outcome = nested.get("outcome")
+                    if isinstance(outcome, str):
+                        record[f"{evaluator}_outcome"] = outcome.lower()
+                    for field in ("reason_code", "duration_ms", "error", "code"):
+                        if field in nested:
+                            record[f"{evaluator}_{field}"] = nested[field]
+                scope = record.pop("scope", None)
+                if isinstance(scope, dict):
+                    for field in ("resource_type", "action"):
+                        if field in scope and field not in record:
+                            record[field] = scope[field]
         record.setdefault("audit_event_id", str(uuid4()))
         record.setdefault("ts", utc_now_iso())
         return record

@@ -26,6 +26,11 @@ Batch calls use the same deployment router as single calls. `SHADOW` preserves
 legacy authority; `AUTHZ` compares legacy asynchronously but never falls back;
 `AUTHZ_ONLY` does not invoke legacy.
 
+Removing a legacy evaluator is a separate deployment decision. Use
+`migration.retirement.evaluate_legacy_retirement` to require every surface
+scope to remain `AUTHZ_ONLY` for the approved retention interval and to verify
+that a compatible Authz release rollback is available.
+
 ## Expression activation
 
 Policy CRUD is available before enforcement, but an expression policy remains

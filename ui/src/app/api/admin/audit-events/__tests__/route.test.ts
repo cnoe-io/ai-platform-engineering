@@ -524,6 +524,45 @@ describe("GET /api/admin/audit-events", () => {
     );
   });
 
+  it("preserves sanitized policy and rollout history fields for graph overlays", async () => {
+    global.fetch = jest.fn(async () => new Response(JSON.stringify({
+      records: [{
+        ts: "2026-05-17T16:59:32.000Z",
+        type: "authz_policy_change",
+        tenant_id: "default",
+        subject_hash: "sha256:actor",
+        action: "update",
+        outcome: "success",
+        correlation_id: "policy-history-correlation",
+        source: "caipe-authz",
+        resource_ref: "tool:issue_tracker/create_item",
+        operation: "update",
+        policy_id: "policy-example",
+        template_id: "string_argument_in_v1",
+        condition_name: "string_argument_in_v1",
+        before_revision: 1,
+        after_revision: 2,
+        expression_sha256: `sha256:${"b".repeat(64)}`,
+        input_schema_sha256: `sha256:${"a".repeat(64)}`,
+      }],
+      total: 1,
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+    const { GET } = await import("../route");
+
+    const response = await GET(request("/api/admin/audit-events?type=authz_policy_change"));
+    const body = await response.json();
+
+    expect(body.records[0]).toMatchObject({
+      policy_id: "policy-example",
+      template_id: "string_argument_in_v1",
+      condition_name: "string_argument_in_v1",
+      before_revision: 1,
+      after_revision: 2,
+      resource_ref: "tool:issue_tracker/create_item",
+    });
+    expect(JSON.stringify(body.records[0])).not.toContain("allowed_values");
+  });
+
   it("returns an empty warning response when audit-service is unavailable", async () => {
     global.fetch = jest.fn(async () => new Response("unavailable", { status: 503 }));
     const { GET } = await import("../route");

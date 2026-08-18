@@ -82,7 +82,7 @@ interface AuditEventDocument {
   actor_ref?: string;
   caller_ref?: string;
   grantee_ref?: string;
-  operation?: "grant" | "revoke";
+  operation?: "grant" | "revoke" | "create" | "update" | "delete" | "write";
   rollout_revision?: string;
   authoritative_path?: string;
   mismatch_class?: string;
@@ -96,6 +96,17 @@ interface AuditEventDocument {
   authz_duration_ms?: number;
   authz_error?: boolean;
   authz_code?: number;
+  policy_id?: string;
+  status?: string;
+  template_id?: string;
+  condition_name?: string;
+  before_revision?: number;
+  after_revision?: number;
+  default_mode?: string;
+  scopes?: Array<Record<string, unknown>>;
+  expression_sha256?: string;
+  input_schema_sha256?: string;
+  failure_reason?: string;
 }
 
 interface CurrentPrincipal {
@@ -412,6 +423,17 @@ function documentToEvent(doc: AuditEventDocument): UnifiedAuditEvent {
     authz_duration_ms: doc.authz_duration_ms,
     authz_error: doc.authz_error,
     authz_code: doc.authz_code,
+    policy_id: doc.policy_id,
+    status: doc.status,
+    template_id: doc.template_id,
+    condition_name: doc.condition_name,
+    before_revision: doc.before_revision,
+    after_revision: doc.after_revision,
+    default_mode: doc.default_mode,
+    scopes: doc.scopes,
+    expression_sha256: doc.expression_sha256,
+    input_schema_sha256: doc.input_schema_sha256,
+    failure_reason: doc.failure_reason,
     trace_id: doc.trace_id,
     span_id: doc.span_id,
   };

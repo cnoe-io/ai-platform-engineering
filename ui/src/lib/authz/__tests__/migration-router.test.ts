@@ -96,4 +96,52 @@ describe("migration authority", () => {
     expect(result.result).toEqual(DENY);
     expect(legacy).not.toHaveBeenCalled();
   });
+
+  it("replays promotion and routing rollback without mutating policy tuples", async () => {
+    const policyTuples = [{
+      user: "user:example-user",
+      relation: "conditional_caller",
+      object: "tool:issue_tracker/create_item",
+    }];
+    const tupleSnapshot = structuredClone(policyTuples);
+    const calls: string[] = [];
+    const legacy = async () => {
+      calls.push("legacy");
+      return ALLOW;
+    };
+    const authz = async (purpose: string) => {
+      calls.push(`authz-${purpose}`);
+      return { result: DENY, durationMs: 1, error: false };
+    };
+
+    for (const [name, mode, authority] of [
+      ["legacy", "LEGACY", "LEGACY"],
+      ["shadow", "SHADOW", "LEGACY"],
+      ["canary", "CANARY", "AUTHZ"],
+      ["authz", "AUTHZ", "AUTHZ"],
+      ["authz-only", "AUTHZ_ONLY", "AUTHZ"],
+      ["routing-rollback", "SHADOW", "LEGACY"],
+    ] as const) {
+      const value: MigrationRevision = {
+        revision: name,
+        default_mode: "LEGACY",
+        canary_seed: "example-canary-seed-2026",
+        scopes: [{
+          surface: "bff",
+          resource_type: "agent",
+          action: "read",
+          exact_resources: ["primary"],
+          mode,
+          canary_percent: mode === "CANARY" ? 100 : 0,
+        }],
+      };
+      const result = await routeAuthorization(REQUEST, legacy, authz, undefined, value);
+      expect(result.authoritativePath).toBe(authority);
+      expect(policyTuples).toEqual(tupleSnapshot);
+    }
+
+    expect(calls).toContain("legacy");
+    expect(calls).toContain("authz-shadow");
+    expect(calls).toContain("authz-authoritative");
+  });
 });

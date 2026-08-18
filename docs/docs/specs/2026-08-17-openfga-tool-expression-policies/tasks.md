@@ -86,7 +86,7 @@ SHADOW while unrelated scopes and tuples remain unchanged.
 - [x] T043 [US0] Add gateway bridge rollout values and Authz target while keeping legacy authority in charts/ai-platform-engineering/charts/openfga-authz-bridge/values.yaml and charts/ai-platform-engineering/charts/openfga-authz-bridge/templates/deployment.yaml.
 - [x] T044 [US0] Add rollout revision, authoritative path, mismatch, error, timeout, and latency metrics in ai_platform_engineering/authz/metrics.py.
 - [x] T045 [US0] Add comparison filters and promotion-gate summaries to the existing Audit UI in ui/src/components/admin/audit/ and ui/src/app/api/admin/audit/.
-- [ ] T046 [US0] Add end-to-end replay tests proving independent BFF and gateway scopes and no tuple mutation on rollback in tests/authz/test_parallel_migration.py.
+- [x] T046 [US0] Add end-to-end replay tests proving independent BFF and gateway scopes and no tuple mutation on rollback in tests/authz/test_parallel_migration.py.
 - [x] T047 [US0] Document the operator mode transitions, gates, and emergency rollback in ai_platform_engineering/authz/README.md and deploy/openfga/bridge/README.md.
 
 Checkpoint: the parallel-migration MVP is independently deployable. Legacy is
@@ -116,7 +116,7 @@ missing, wrong-type, stale, malformed, and oversized inputs deny before MCP.
 - [x] T056 [US1] Implement verified delete/write/verify/compensate tuple replacement in ai_platform_engineering/authz/policy/reconciliation.py.
 - [x] T057 [US1] Implement bounded duplicate-key-safe MCP parsing and typed argument projection in ai_platform_engineering/authz/core/tool_context.py.
 - [x] T058 [US1] Send byte-equivalent trusted context to required caller and agent tool checks in ai_platform_engineering/authz/api/ext_authz.py.
-- [ ] T059 [US1] Add exact-tool matching/non-matching end-to-end tests proving denied calls do not reach MCP in tests/authz/test_exact_tool_expression.py.
+- [x] T059 [US1] Add exact-tool matching/non-matching end-to-end tests proving denied calls do not reach MCP in tests/authz/test_exact_tool_expression.py.
 
 Checkpoint: native OpenFGA conditions work in an isolated fixture scope; no
 production expression grant is enabled.
@@ -187,7 +187,7 @@ Service, recover delivery idempotently, and inspect sanitized graph/history.
 - [x] T079 [P] [US4] Add failing outbox capacity/strict-mode/retry/idempotency/recovery tests in ai_platform_engineering/authz/tests/integration/test_audit_outbox.py.
 - [x] T080 [P] [US4] Add failing model/relationship/graph pagination/truncation/authz tests in ai_platform_engineering/authz/tests/integration/test_inspection_api.py.
 - [x] T081 [P] [US4] Add failing legacy cas_* query compatibility tests in ai_platform_engineering/audit_service/test_audit_service.py.
-- [ ] T082 [P] [US4] Add failing conditional-edge and audit-overlay UI tests in ui/src/components/admin/rebac/__tests__/authz-graph-layers.test.tsx.
+- [x] T082 [P] [US4] Add failing conditional-edge and audit-overlay UI tests in ui/src/components/admin/rebac/__tests__/authz-graph-layers.test.tsx.
 
 ### Implementation
 
@@ -197,9 +197,9 @@ Service, recover delivery idempotently, and inspect sanitized graph/history.
 - [x] T086 [US4] Add normalized event validation and legacy query mapping in ai_platform_engineering/audit_service/models.py and ai_platform_engineering/audit_service/storage.py.
 - [x] T087 [US4] Implement privileged bounded model, relationship, graph, Check, policy, and simulation projections in ai_platform_engineering/authz/inspection/ and ai_platform_engineering/authz/api/inspection.py.
 - [x] T088 [US4] Replace direct BFF OpenFGA admin reads with the Authz inspection client in ui/src/lib/rbac/rebac-graph.ts and ui/src/app/api/admin/openfga/.
-- [ ] T089 [US4] Add conditional edges, revisions, drift, shadowing, migration comparison, and history layers in ui/src/components/admin/rebac/.
+- [x] T089 [US4] Add conditional edges, revisions, drift, shadowing, migration comparison, and history layers in ui/src/components/admin/rebac/.
 - [x] T090 [US4] Add separate inspection concurrency/size budgets and outbox backlog metrics in ai_platform_engineering/authz/config.py and ai_platform_engineering/authz/metrics.py.
-- [ ] T091 [US4] Add a sensitive-value scan over logs/events/graph fixtures in tests/authz/test_authz_redaction.py.
+- [x] T091 [US4] Add a sensitive-value scan over logs/events/graph fixtures in tests/authz/test_authz_redaction.py.
 
 Checkpoint: decisions, migrations, policies, and relationships are auditable;
 current graph state is separate from historical evidence.
@@ -215,10 +215,10 @@ policy back without restoring broad access.
 
 ### Tests first
 
-- [ ] T092 [P] [US5] Add failing no-conditional-tuple/no-behavior-change tests in tests/authz/test_expression_rollout.py.
-- [ ] T093 [P] [US5] Add failing promotion-gate tests for model/context mismatch, audit loss, semantic mismatch, and missing ownership in tests/authz/test_promotion_gates.py.
-- [ ] T094 [P] [US5] Add failing independent routing-versus-policy rollback tests in tests/authz/test_rollback_separation.py.
-- [ ] T095 [P] [US5] Add failing AUTHZ_ONLY retention and legacy-removal precondition tests in tests/authz/test_legacy_retirement.py.
+- [x] T092 [P] [US5] Add failing no-conditional-tuple/no-behavior-change tests in tests/authz/test_expression_rollout.py.
+- [x] T093 [P] [US5] Add failing promotion-gate tests for model/context mismatch, audit loss, semantic mismatch, and missing ownership in tests/authz/test_promotion_gates.py.
+- [x] T094 [P] [US5] Add failing independent routing-versus-policy rollback tests in tests/authz/test_rollback_separation.py.
+- [x] T095 [P] [US5] Add failing AUTHZ_ONLY retention and legacy-removal precondition tests in tests/authz/test_legacy_retirement.py.
 
 ### Implementation
 
@@ -241,7 +241,7 @@ removal is a final consequence of completed migration rather than a prerequisite
 - [x] T106 [P] Run and fix UI lint and unit tests from ui/.
 - [x] T107 Run and fix the UI production build from ui/.
 - [x] T108 Run and fix the Docusaurus build from docs/.
-- [ ] T109 Validate the full LEGACY to SHADOW to CANARY to AUTHZ to AUTHZ_ONLY sequence and both rollback paths using docs/docs/specs/2026-08-17-openfga-tool-expression-policies/quickstart.md.
+- [x] T109 Validate the full LEGACY to SHADOW to CANARY to AUTHZ to AUTHZ_ONLY sequence and both rollback paths using docs/docs/specs/2026-08-17-openfga-tool-expression-policies/quickstart.md.
 - [x] T110 Update architecture, configuration, and operator documentation in docs/docs/specs/2026-08-17-openfga-tool-expression-policies/ and the component READMEs with verified implementation details.
 
 ## Dependencies

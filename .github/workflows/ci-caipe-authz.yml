@@ -7,6 +7,8 @@ on:
     paths:
       - 'ai_platform_engineering/authz/**'
       - 'ai_platform_engineering/audit_service/**'
+      - 'deploy/openfga/bridge/authz_client.py'
+      - 'tests/authz/**'
       - 'charts/ai-platform-engineering/charts/caipe-authz/**'
       - '.github/workflows/ci-caipe-authz.yml'
   workflow_dispatch:
@@ -31,7 +33,7 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
       - name: Lint authorization service
-        run: uv run --project ai_platform_engineering/authz ruff check ai_platform_engineering/authz
+        run: uv run --project ai_platform_engineering/authz ruff check ai_platform_engineering/authz tests/authz
       - name: Validate authored OpenFGA model
         run: >-
           docker run --rm
@@ -41,12 +43,16 @@ jobs:
       - name: Test authorization service with coverage
         env:
           RUN_OPENFGA_E2E: "1"
+          RUN_AUTHZ_MIGRATION_E2E: "1"
         run: >-
-          uv run --project ai_platform_engineering/authz pytest
+          uv run --project ai_platform_engineering/authz python -m pytest
           --cov=ai_platform_engineering.authz
           --cov-report=term-missing
           --cov-fail-under=80
           ai_platform_engineering/authz/tests
+          tests/authz
+      - name: Test normalized Audit Service events
+        run: uv run pytest -q ai_platform_engineering/audit_service/test_audit_service.py
       - name: Lint Helm chart
         run: helm lint charts/ai-platform-engineering/charts/caipe-authz --set auth.allowInsecureHeaders=true
 

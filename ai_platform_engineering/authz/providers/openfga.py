@@ -189,7 +189,9 @@ class OpenFgaProvider:
             for key, value in {"user": user, "relation": relation, "object": object_ref}.items()
             if value
         }
-        body: dict[str, Any] = {"tuple_key": tuple_key, "page_size": min(page_size, 500)}
+        body: dict[str, Any] = {"page_size": min(page_size, 100)}
+        if tuple_key:
+            body["tuple_key"] = tuple_key
         if continuation_token:
             body["continuation_token"] = continuation_token
         response = await self.client.post(f"{self.base_url}/stores/{store_id}/read", json=body)

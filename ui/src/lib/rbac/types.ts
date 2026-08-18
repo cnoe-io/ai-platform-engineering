@@ -195,7 +195,7 @@ export interface UnifiedAuditEvent {
   /** Canonical grantee label for display. */
   grantee_display?: string;
   /** CAS grant/revoke: grant | revoke. */
-  operation?: "grant" | "revoke";
+  operation?: "grant" | "revoke" | "create" | "update" | "delete" | "write";
   rollout_revision?: string;
   authoritative_path?: string;
   mismatch_class?: string;
@@ -212,6 +212,14 @@ export interface UnifiedAuditEvent {
   policy_id?: string;
   status?: string;
   template_id?: string;
+  condition_name?: string;
+  before_revision?: number;
+  after_revision?: number;
+  default_mode?: string;
+  scopes?: Array<Record<string, unknown>>;
+  expression_sha256?: string;
+  input_schema_sha256?: string;
+  failure_reason?: string;
   authorization_model_id?: string;
 }
 
