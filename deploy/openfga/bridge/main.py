@@ -12,7 +12,6 @@ import hashlib
 import hmac
 import json
 import os
-import re
 import signal
 import sys
 import time
@@ -53,10 +52,6 @@ JWT_ALGORITHMS = tuple(
 )
 # Optional explicit store id (skips discovery)
 STORE_ID: str = os.environ.get("OPENFGA_STORE_ID", "").strip()
-# Optional: if set, only these subs get 200 without calling OpenFGA (escape hatch)
-BYPASS_SUBS = frozenset(
-    s.strip() for s in os.environ.get("OPENFGA_BYPASS_SUBS", "").split(",") if s.strip()
-)
 AGENT_CONTEXT_HMAC_SECRET = os.environ.get("CAIPE_AGENT_CONTEXT_HMAC_SECRET", "").strip()
 PRIVATE_RESOURCES_ENABLED = os.environ.get("PRIVATE_RESOURCES_ENABLED", "").strip().lower() in {
     "1",
@@ -64,10 +59,6 @@ PRIVATE_RESOURCES_ENABLED = os.environ.get("PRIVATE_RESOURCES_ENABLED", "").stri
     "yes",
     "on",
 }
-_ORG_KEY_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
-_configured_org_key = os.environ.get("CAIPE_ORG_KEY", "").strip()
-CAIPE_ORG_KEY = _configured_org_key if _ORG_KEY_PATTERN.fullmatch(_configured_org_key) else "caipe"
-PRIVATE_MARKER_SUBJECT = f"organization:{CAIPE_ORG_KEY}"
 AGENT_CONTEXT_MAX_AGE_SECONDS = int(os.environ.get("CAIPE_AGENT_CONTEXT_MAX_AGE_SECONDS", "300"))
 # "local" contexts (minted by /api/mcp-servers/agent-context for CLI/local
 # callers, see ui/src/lib/mcp-http-server-client.ts) get a longer max age than
@@ -781,34 +772,6 @@ class OpenFgaAuthorizationService:
             )
 
         mcp_target = _mcp_target_from_path(request.attributes.request.http.path)
-        private_target = False
-        if PRIVATE_RESOURCES_ENABLED and sub in BYPASS_SUBS and mcp_target:
-            try:
-                private_target = _check_openfga(
-                    PRIVATE_MARKER_SUBJECT,
-                    "private_marker",
-                    f"mcp_server:{mcp_target}",
-                )
-            except Exception as exc:
-                # A bypass identity must not skip private-resource policy merely
-                # because the marker lookup is unavailable. Continue through
-                # the normal fail-closed OpenFGA path instead.
-                print(f"[bridge] private MCP marker check failed: {exc}", file=sys.stderr)
-                private_target = True
-        if sub in BYPASS_SUBS and not private_target:
-            _audit_decision(
-                request=request,
-                subject=sub,
-                user=f"user:{sub}",
-                relation=relation,
-                obj=obj,
-                outcome="allow",
-                reason_code="OK_BYPASS",
-                pdp="agent_gateway",
-                duration_ms=0,
-            )
-            return build_check_response(allowed=True)
-
         # Namespace the caller subject. Service-account tokens (Keycloak
         # client-credentials) are graphed as `service_account:<sub>`; everything
         # else stays `user:<sub>`. The rule (preferred_username startsWith
@@ -822,15 +785,47 @@ class OpenFgaAuthorizationService:
         start = time.perf_counter()
         try:
             allowed = _check_openfga(user, relation, obj)
-            if PRIVATE_RESOURCES_ENABLED and allowed and mcp_target:
+            tool_call = mcp_tool_call_from_request(request)
+            server_allowed = False
+            if allowed and mcp_target:
                 mcp_server_obj = f"mcp_server:{mcp_target}"
-                if sub not in BYPASS_SUBS:
-                    private_target = _check_openfga(
-                        PRIVATE_MARKER_SUBJECT, "private_marker", mcp_server_obj
+                server_allowed = _check_openfga(user, "can_invoke", mcp_server_obj)
+                service_account_caller = user.startswith("service_account:")
+                if not service_account_caller:
+                    server_discoverable = server_allowed or (
+                        mcp_target not in RESTRICTED_MCP_SERVERS
+                        and _check_openfga(user, "can_discover", mcp_server_obj)
                     )
-                if private_target and (
-                    not _check_openfga(user, "owner", mcp_server_obj)
-                    or not _has_permitted_private_interaction(headers)
+                    if (
+                        not server_discoverable
+                        and mcp_target not in RESTRICTED_MCP_SERVERS
+                    ):
+                        _audit_decision(
+                            request=request,
+                            subject=sub,
+                            user=user,
+                            relation="can_discover",
+                            obj=mcp_server_obj,
+                            outcome="deny",
+                            reason_code="DENY_MCP_SERVER_DISCOVERY",
+                            duration_ms=(time.perf_counter() - start) * 1000,
+                        )
+                        return build_check_response(
+                            allowed=False,
+                            code=PERMISSION_DENIED,
+                            message="caller cannot access MCP server",
+                        )
+
+                direct_owner = server_allowed and _check_openfga(
+                    user, "owner", mcp_server_obj
+                )
+                if (
+                    PRIVATE_RESOURCES_ENABLED
+                    and direct_owner
+                    and (
+                        service_account_caller
+                        or not _has_permitted_private_interaction(headers)
+                    )
                 ):
                     _audit_decision(
                         request=request,
@@ -849,7 +844,6 @@ class OpenFgaAuthorizationService:
                     )
             if allowed and mcp_target in RESTRICTED_MCP_SERVERS:
                 mcp_server_obj = f"mcp_server:{mcp_target}"
-                server_allowed = _check_openfga(user, "can_invoke", mcp_server_obj)
                 if not server_allowed:
                     _audit_decision(
                         request=request,
@@ -876,7 +870,6 @@ class OpenFgaAuthorizationService:
                     reason_code="OK_MCP_SERVER_INVOKE",
                     duration_ms=(time.perf_counter() - start) * 1000,
                 )
-            tool_call = mcp_tool_call_from_request(request)
             if allowed and tool_call and AGENT_CONTEXT_HMAC_SECRET:
                 agent_context = _agent_context_from_headers(headers)
                 if not agent_context:

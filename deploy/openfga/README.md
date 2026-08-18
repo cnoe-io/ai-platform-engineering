@@ -29,6 +29,28 @@ authorized by AgentGateway `extAuthz`:
 The AgentGateway path no longer maintains CEL `mcpAuthorization` rules or a
 Mongo-backed config bridge.
 
+The bridge has no subject allowlist. For a concrete human MCP target it checks
+the existing `mcp_server#can_invoke` capability, falls back to
+`mcp_server#can_discover` for agent-mediated global access, and treats a direct
+`owner` grant as private for trusted personal/DM context enforcement. Restricted
+targets still require `can_invoke`. Service accounts keep their explicit
+gateway, agent, and caller-tool grants; a service-account owner cannot execute a
+private MCP server.
+
+Application routes use the Centralized Authorization Service (CAS), which can
+combine persisted Mongo visibility, trusted interaction context, and OpenFGA.
+The AgentGateway bridge remains a separate Python enforcement point because the
+gateway may consume the bearer token and provide only verified JWT metadata to
+`ext_authz`; it therefore cannot securely call the public subject-bound CAS API
+as the end user. Moving this check behind CAS requires a dedicated authenticated
+internal CAS protocol, not a caller-supplied subject header.
+
+`mcp_server#private_marker` remains in the authorization model as an inert,
+deprecated compatibility stub for one rolling upgrade. New code never checks or
+writes it. Keeping the relation temporarily prevents old bridge replicas from
+failing while a new model is activated; it can be deleted after every bridge is
+on the capability-based implementation.
+
 ## ReBAC model
 
 The model is intentionally richer than the current coarse AGW check:
@@ -96,16 +118,6 @@ APPLY=true SOURCE_ID=backfill-universal-rebac MONGODB_URI='mongodb://...' MONGOD
    ```
 
 3. **Exercise MCP through AGW** as usual (`http://localhost:4000`). If OpenFGA denies, you get **403** before the request reaches the MCP backend.
-
-## Escape hatch (bypass OpenFGA only)
-
-If you need to prove the wire without tuples, set subs that always get an allow response from the bridge:
-
-```bash
-export OPENFGA_BYPASS_SUBS="<sub1>,<sub2>"
-```
-
-Restart `openfga-authz-bridge` with that env.
 
 ## Security warnings
 

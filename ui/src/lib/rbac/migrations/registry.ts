@@ -466,7 +466,7 @@ export const MIGRATION_DEFINITIONS: MigrationDefinition[] = [
     kind: "explicit",
     title: "Private-resource visibility classification",
     description:
-      "Classifies legacy personal/team MCP servers and credentials, then reconciles their owner/team OpenFGA tuples before PRIVATE_RESOURCES_ENABLED is turned on.",
+      "Preserves legacy MCP servers as global, classifies credentials, and reconciles OpenFGA tuples before PRIVATE_RESOURCES_ENABLED is turned on.",
     confirmation: PRIVATE_RESOURCE_VISIBILITY_CONFIRMATION,
     required: false,
     blocking: false,

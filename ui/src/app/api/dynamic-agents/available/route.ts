@@ -16,6 +16,7 @@ successResponse,
 withErrorHandler,
 } from "@/lib/api-middleware";
 import { getCollection } from "@/lib/mongodb";
+import { dynamicAgentsForBrowser } from "@/lib/dynamic-agent-response";
 import { filterAgentsByOwnershipScopeForSession } from "@/lib/rbac/agent-ownership-scope";
 import { baselineBootstrapTuples,getBaselineFgaProfile } from "@/lib/rbac/baseline-access";
 import { writeOpenFgaTuples } from "@/lib/rbac/openfga";
@@ -181,5 +182,7 @@ async function getAvailableAgents(request: NextRequest) {
     return doc;
   });
 
-  return successResponse(normalizedAgents);
+  return successResponse(await dynamicAgentsForBrowser(
+    normalizedAgents as unknown as DynamicAgentConfig[],
+  ));
 }

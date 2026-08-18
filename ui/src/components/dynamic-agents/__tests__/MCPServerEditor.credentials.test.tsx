@@ -91,7 +91,7 @@ describe("MCPServerEditor credential sources", () => {
     }) as jest.Mock;
   });
 
-  it("shows spaced Private, Team, and Global access choices and preserves global edit state", () => {
+  it("places Private, Team, and Global access choices below Credentials and preserves global edit state", () => {
     render(
       <MCPServerEditor
         server={{
@@ -106,7 +106,11 @@ describe("MCPServerEditor credential sources", () => {
       />,
     );
 
-    expect(screen.getByText("Access and visibility")).toBeInTheDocument();
+    const credentialsHeading = screen.getByRole("heading", { name: "Credentials" });
+    const accessHeading = screen.getByRole("heading", { name: "Access and Visibility" });
+    expect(credentialsHeading.compareDocumentPosition(accessHeading)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
     expect(screen.getByRole("button", { name: /^private/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^team/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^global/i })).toHaveClass("border-primary");

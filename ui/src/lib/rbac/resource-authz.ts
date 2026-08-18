@@ -287,10 +287,10 @@ export async function requireSkillPermission(
 }
 
 /**
- * Per-agent OpenFGA gate for Dynamic Agent routes. Organization admins
- * (including Super Admins team members with `organization#admin`) may
- * read, write, manage, or delete any agent without a per-resource tuple;
- * everyone else is checked against `agent:<id>#can_*`.
+ * Per-agent OpenFGA gate for Dynamic Agent routes. Every caller, including
+ * organization admins, is checked against `agent:<id>#can_*`. Team/global
+ * agents grant organization admins a manager relationship during reconcile;
+ * private agents deliberately do not.
  */
 export async function requireAgentPermission(
   session: ResourceAuthzSession,
@@ -308,10 +308,6 @@ export async function requireAgentPermission(
       "session_expired",
       "sign_in",
     );
-  }
-
-  if (!isOrgAdminBypassKillSwitchEnabled() && (await isOrgAdmin(subject, casSubject, options))) {
-    return;
   }
 
   await requireResourcePermission(session, { type: "agent", id: agentId, action }, options);

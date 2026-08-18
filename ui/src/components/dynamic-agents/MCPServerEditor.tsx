@@ -672,59 +672,6 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel, initialVal
           <div className="space-y-4">
             <h3 className="text-sm font-medium">Basic Information</h3>
 
-            <div className="space-y-3">
-              <Label>Access and visibility</Label>
-              <div className="grid gap-3 sm:grid-cols-3">
-                {(["private", "team", "global"] as const)
-                  .filter((option) => option !== "private" || privateResourcesEnabled || visibility === "private")
-                  .map((option) => (
-                  <button
-                    key={option}
-                    type="button"
-                    onClick={() => setVisibility(option)}
-                    disabled={loading || readOnly}
-                    className={`rounded-lg border p-3 text-left text-sm capitalize ${
-                      visibility === option ? "border-primary bg-primary/5" : "border-muted"
-                    }`}
-                  >
-                    {option}
-                    <span className="mt-1 block text-xs normal-case text-muted-foreground">
-                      {option === "private"
-                        ? "Only you and your private agents."
-                        : option === "team"
-                          ? "Owner team and shared teams."
-                          : "Every signed-in user."}
-                    </span>
-                  </button>
-                ))}
-              </div>
-              {visibility === "team" && (
-                <div className="grid gap-4 pt-1 lg:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="mcp-owner-team">Owner team</Label>
-                    <TeamPicker
-                      id="mcp-owner-team"
-                      value={ownerTeamSlug}
-                      onChange={setOwnerTeamSlug}
-                      options={availableTeams}
-                      placeholder="Select an owner team"
-                      disabled={loading || readOnly}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Share with teams</Label>
-                    <TeamMultiPicker
-                      selected={sharedTeamSlugs}
-                      onChange={setSharedTeamSlugs}
-                      options={availableTeams.filter((team) => team.slug !== ownerTeamSlug)}
-                      placeholder="Select additional teams"
-                      disabled={loading || readOnly}
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
-
             <div className="space-y-2">
               <Label htmlFor="mcp-display-name">
                 Display Name <span className="text-destructive">*</span>
@@ -1260,6 +1207,59 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel, initialVal
                   </div>
                   );
                 })}
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-4 border-t border-border/60 pt-6">
+            <h3 className="text-sm font-medium">Access and Visibility</h3>
+            <div className="grid gap-3 sm:grid-cols-3">
+              {(["private", "team", "global"] as const)
+                .filter((option) => option !== "private" || privateResourcesEnabled || visibility === "private")
+                .map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() => setVisibility(option)}
+                  disabled={loading || readOnly}
+                  className={`rounded-lg border p-3 text-left text-sm capitalize ${
+                    visibility === option ? "border-primary bg-primary/5" : "border-muted"
+                  }`}
+                >
+                  {option}
+                  <span className="mt-1 block text-xs normal-case text-muted-foreground">
+                    {option === "private"
+                      ? "Only you and your private agents."
+                      : option === "team"
+                        ? "Owner team and shared teams."
+                        : "Every signed-in user."}
+                  </span>
+                </button>
+              ))}
+            </div>
+            {visibility === "team" && (
+              <div className="grid gap-4 pt-1 lg:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="mcp-owner-team">Owner team</Label>
+                  <TeamPicker
+                    id="mcp-owner-team"
+                    value={ownerTeamSlug}
+                    onChange={setOwnerTeamSlug}
+                    options={availableTeams}
+                    placeholder="Select an owner team"
+                    disabled={loading || readOnly}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Share with teams</Label>
+                  <TeamMultiPicker
+                    selected={sharedTeamSlugs}
+                    onChange={setSharedTeamSlugs}
+                    options={availableTeams.filter((team) => team.slug !== ownerTeamSlug)}
+                    placeholder="Select additional teams"
+                    disabled={loading || readOnly}
+                  />
+                </div>
               </div>
             )}
           </div>

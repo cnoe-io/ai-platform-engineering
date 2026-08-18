@@ -390,13 +390,6 @@ export function buildMcpServerRelationshipTupleDiff(
   const object = `mcp_server:${input.serverId}`;
   const ownerUser = ownerPrincipal(input.ownerSubject, input.ownerSubjectKind);
   const legacyDirectOwnerAccess = input.personalOwnerAccess === undefined;
-  const privateMarker = {
-    user: organizationObjectId(),
-    relation: "private_marker",
-    object,
-  };
-  if (input.personalOwnerAccess) writes.push(privateMarker);
-  else if (input.previousPersonalOwnerAccess) deletes.push(privateMarker);
   if (input.creatorSubject && isValidOpenFgaId(input.creatorSubject)) {
     writes.push({ user: `user:${input.creatorSubject}`, relation: "creator", object });
   }
