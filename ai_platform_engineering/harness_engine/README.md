@@ -63,7 +63,10 @@ capability error until their portable contracts are implemented.
 CAIPE CLI `0.2.24` also uses the AG-UI gateway contract. Harness Gateway emits
 camel-case `toolCallId` fields expected by that release and carries its optional
 per-turn `context` into the provider system prompt without modifying the saved
-agent blueprint.
+agent blueprint. The additive accessible-agents response includes `harness_id`
+and `harness_name` for newer CLIs. Those clients retain `X-Harness-Run-ID` and
+the SSE cursor so a dropped connection resumes the detached run through the
+canonical replay endpoint without resubmitting the prompt.
 
 The BFF remains horizontally stateless. Harness Engine is session-aware through
 durable bindings and owns each provider task after returning `202`. `run_id`, an
