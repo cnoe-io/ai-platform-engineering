@@ -258,6 +258,81 @@ describe("OAuth connector env bootstrap", () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
+  it("preserves connector service method context during MCP DCR bootstrap", async () => {
+    const service = {
+      connectors: [] as OAuthConnectorMetadata[],
+      upsertConnector: jest.fn<UpsertConnector>(),
+      async listConnectors() {
+        return this.connectors;
+      },
+      async createConnector(input: CreateConnectorInput) {
+        const connector = connectorMetadata(input);
+        this.connectors.push(connector);
+        return connector;
+      },
+    };
+    const response = (
+      body: unknown,
+      status = 200,
+      headers: Record<string, string> = {},
+    ): Response => ({
+      ok: status >= 200 && status < 300,
+      status,
+      headers: {
+        get: (name: string) => headers[name.toLowerCase()] ?? null,
+      } as Headers,
+      json: async () => body,
+    }) as Response;
+    const fetchImpl = jest
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        response(null, 401, {
+          "www-authenticate":
+            'Bearer resource_metadata="https://mcp.example.com/.well-known/oauth-protected-resource/api/mcp"',
+        }),
+      )
+      .mockResolvedValueOnce(
+        response({
+          resource: "https://mcp.example.com/api/mcp",
+          authorization_servers: ["https://identity.example.com"],
+          scopes_supported: ["openid", "offline_access"],
+        }),
+      )
+      .mockResolvedValueOnce(
+        response({
+          issuer: "https://identity.example.com",
+          authorization_endpoint: "https://identity.example.com/oauth/authorize",
+          token_endpoint: "https://identity.example.com/oauth/token",
+          registration_endpoint: "https://identity.example.com/oauth/register",
+          scopes_supported: ["openid", "offline_access"],
+          code_challenge_methods_supported: ["S256"],
+        }),
+      )
+      .mockResolvedValueOnce(response({ client_id: "generated-client" }));
+
+    await expect(
+      bootstrapOAuthConnectorsFromEnv({
+        env: {
+          NEXTAUTH_URL: "https://caipe.example.com",
+          CREDENTIAL_BOOTSTRAP_OAUTH_CONNECTORS_JSON: JSON.stringify([
+            {
+              provider: "example-mcp",
+              name: "Example MCP",
+              mcpUrl: "https://mcp.example.com/api/mcp",
+            },
+          ]),
+        },
+        service,
+        fetchImpl,
+      }),
+    ).resolves.toBe(1);
+
+    expect(service.connectors).toEqual([
+      expect.objectContaining({ provider: "example-mcp", clientId: "generated-client" }),
+    ]);
+    expect(fetchImpl).toHaveBeenCalledTimes(4);
+  });
+
   it("lets deploy-configured connectors override legacy bootstrap for the same provider", () => {
     const inputs = buildOAuthConnectorBootstrapInputs({
       WEBEX_CLIENT_ID: "legacy-webex-client",
