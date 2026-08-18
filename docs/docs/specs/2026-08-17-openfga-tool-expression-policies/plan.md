@@ -64,12 +64,20 @@ ai_platform_engineering/authz/
 │   ├── context.py                  # trusted context construction
 │   ├── registry.py                 # resource/action bindings
 │   └── reasons.py                  # stable reason codes
+├── audit/
+│   ├── events.py                   # normalized authz_* event contracts
+│   ├── outbox.py                   # durable journal and retry
+│   └── publisher.py                # Audit Service batch delivery
 ├── providers/
 │   ├── base.py                     # provider protocol
 │   └── openfga.py                  # v1 OpenFGA + native CEL
 ├── policy/
 │   ├── templates.py                # typed template registry
 │   └── reconciliation.py
+├── inspection/
+│   ├── graph.py                    # bounded graph projection
+│   ├── model.py                    # active model projection
+│   └── simulation.py               # read-only Check/simulation
 └── tests/
     ├── contract/
     ├── integration/
@@ -113,11 +121,12 @@ must call one decision core.
 3. Add the Envoy v3 `Authorization/Check` gRPC listener.
 4. Implement one transport-neutral decision function.
 5. Add subject binding, trusted-context namespaces, stable reasons, audit, and
-   bounded metrics.
-6. Add a provider registry with only `openfga-cel` enabled.
-7. Add disabled Cedar and OPA provider identifiers that return configuration
+  bounded metrics.
+6. Add normalized `authz_*` event contracts and a bounded durable audit outbox.
+7. Add a provider registry with only `openfga-cel` enabled.
+8. Add disabled Cedar and OPA provider identifiers that return configuration
    errors if selected without an installed implementation.
-8. Add Helm and Docker Compose packaging without routing production traffic.
+9. Add Helm and Docker Compose packaging without routing production traffic.
 
 ### Tests and exit criteria
 
@@ -126,6 +135,7 @@ must call one decision core.
 - A public provider override is rejected.
 - Unknown, Cedar, and OPA providers cannot affect a v1 decision.
 - Listener readiness and saturation are independently observable.
+- Decision and mutation events can be journaled without a remote Audit Service.
 
 ## Phase 2 - Extract the BFF Decision Engine
 
@@ -138,7 +148,8 @@ must call one decision core.
 4. Shadow-call `caipe-authz` and compare decisions, reasons, and revisions.
 5. Migrate Dynamic Agents and other current authorization consumers to the
    stable `caipe-authz` service address.
-6. Remove the BFF in-process evaluator after parity and availability gates.
+6. Rename BFF `cas_*` audit events and sources to normalized `authz_*` events.
+7. Remove the BFF in-process evaluator after parity and availability gates.
 
 ### Tests and exit criteria
 
@@ -159,7 +170,8 @@ must call one decision core.
 3. Run the existing bridge and `caipe-authz` in shadow comparison mode.
 4. Verify bounded request-body forwarding and duplicate-key-safe JSON parsing.
 5. Define independent gRPC timeout, concurrency, and fail-closed readiness.
-6. Remove the direct OpenFGA bridge after parity, latency, and rollback gates.
+6. Move bridge audit emission into the shared Authz decision event pipeline.
+7. Remove the direct OpenFGA bridge after parity, latency, and rollback gates.
 
 ### Tests and exit criteria
 
@@ -251,7 +263,38 @@ must call one decision core.
 - Active metadata always corresponds to a verified OpenFGA tuple.
 - Delete is not complete until the tuple is absent.
 
-## Phase 8 - Selected-Tool Enforcement
+## Phase 8 - Audit Service and OpenFGA Visualization
+
+### Tasks
+
+1. Batch-deliver the Authz outbox to `POST /v1/audit/events` with retry,
+   backlog, capacity, and oldest-event metrics.
+2. Preserve Audit Service ownership of local/S3 storage, retention, querying,
+   and export.
+3. Add privileged bounded Authz APIs for model, relationships, graph, Check,
+   policy projection, and simulation.
+4. Move direct OpenFGA reads from BFF admin routes and `rebac-graph.ts` behind
+   Authz inspection clients.
+5. Extend the existing Admin visualization with conditional edges, model/policy
+   revisions, drift, wildcard shadowing, and additive/exclusive status.
+6. Query Audit Service separately and overlay decisions and mutations by
+   decision, operation, correlation, resource, and revision identifiers.
+7. Authorize and audit every graph, relationship, simulation, and export action.
+8. Add pagination, traversal bounds, response limits, truncation markers, and
+   separate inspection concurrency limits.
+
+### Tests and exit criteria
+
+- Equivalent HTTP and gRPC decisions produce exactly one normalized event.
+- Remote Audit Service outage drains after recovery without duplicate events.
+- Strict mode denies an allow when the local outbox cannot journal it.
+- Policy mutations do not report success without a durable event record.
+- Current graph state matches OpenFGA even when audit history is stale.
+- Unauthorized inspection and simulation are denied and audited.
+- Large graphs paginate or truncate without affecting decision latency.
+- Conditional-edge fixtures contain no argument values or sensitive literals.
+
+## Phase 9 - Selected-Tool Enforcement
 
 ### Preconditions
 
@@ -276,7 +319,7 @@ must call one decision core.
 - No subject retains an unintended broader allow path.
 - Rollback revokes the conditional grant without unsafe bypass.
 
-## Phase 9 - Future Provider Evaluation
+## Phase 10 - Future Provider Evaluation
 
 Cedar or OPA work requires a separate approved proposal. It must include:
 
@@ -297,6 +340,10 @@ CAIPE_AUTHZ_MODE=shadow|enforce
 CAIPE_AUTHZ_HTTP_ENABLED=true
 CAIPE_AUTHZ_EXT_AUTHZ_ENABLED=true
 CAIPE_AUTHZ_PROVIDER=openfga-cel
+CAIPE_AUTHZ_AUDIT_OUTBOX_PATH=/var/lib/caipe-authz/audit-outbox
+CAIPE_AUTHZ_AUDIT_STRICT=true
+CAIPE_AUTHZ_GRAPH_MAX_NODES=1000
+CAIPE_AUTHZ_GRAPH_MAX_EDGES=2000
 CAIPE_TOOL_EXPRESSION_POLICY_MODE=off|shadow|enforce
 CAIPE_TOOL_EXPRESSION_ENFORCED_REFS=issue_tracker/create_item,...
 CAIPE_TOOL_POLICY_MAX_BODY_BYTES=65536
@@ -307,6 +354,8 @@ CAIPE_TOOL_POLICY_MAX_CONTEXT_BYTES=16384
 - `shadow` records comparisons but does not alter the authoritative result.
 - Expression enforcement applies only to listed exact resources during rollout.
 - Required dependency failure denies.
+- Remote Audit Service outage retries through the local outbox.
+- Inspection traffic cannot consume decision-path concurrency.
 - Unsafe RBAC bypass is never a rollout or rollback mechanism.
 
 ## Rollback
@@ -319,6 +368,8 @@ CAIPE_TOOL_POLICY_MAX_CONTEXT_BYTES=16384
    while its decision implementation remains version-compatible and tested.
 6. Never fall back silently from the Authz Service to an older independent
    evaluator.
+7. Preserve the audit outbox across Authz Service rollback and drain it only
+   with a compatible event schema.
 
 Rollback favors denial over temporary broad access.
 
@@ -340,6 +391,8 @@ Also require:
 - Conditional Check integration against the pinned OpenFGA image.
 - Default-deny, provider-error, and timeout coverage.
 - Audit/log secret-value scan.
+- Audit outbox failure, retry, idempotency, recovery, and strict-mode coverage.
+- Inspection authorization, pagination, truncation, redaction, and isolation.
 
 ## Delivery Slices
 
@@ -352,7 +405,9 @@ Also require:
 | E | OpenFGA CEL model and provider support | Proves native conditions |
 | F | Schema compiler and typed authoring | Enables safe policy creation |
 | G | Shadow context evaluation | Proves real request semantics |
-| H | One selected-tool enforcement | Delivers the first conditional boundary |
+| H | Audit outbox and normalized events | Provides correlated durable evidence |
+| I | OpenFGA inspection and visualization | Explains current and historical access |
+| J | One selected-tool enforcement | Delivers the first conditional boundary |
 
 Each slice is independently reviewable. Provider experiments must not be bundled
 with v1 `caipe-authz` extraction or expression enforcement.

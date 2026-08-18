@@ -44,6 +44,35 @@ policy, or fork OpenFGA.
 The standalone service resolves both concerns: AgentGateway does not call BFF,
 and BFF plus gateway traffic share one decision core.
 
+### Existing Audit Service
+
+- `ai_platform_engineering/audit_service/` already exposes asynchronous event
+  ingestion at `POST /v1/audit/events`.
+- Audit Service owns local or S3 storage, retention, filtering, querying, and
+  export.
+- The current BFF authorization engine emits `cas_decision` and `cas_grant`
+  events through the shared audit backend.
+- The current OpenFGA bridge has a separate best-effort HTTP audit writer.
+- Separate emitters can create inconsistent event types, reasons, and duplicate
+  records for one logical decision.
+
+The Authz Service should emit one normalized `authz_decision` event after the
+canonical result is known. Policy and relationship changes use separate
+`authz_policy_change` and `authz_relationship_change` event types.
+
+### Existing OpenFGA visualization
+
+- `ui/src/lib/rbac/rebac-graph.ts` already projects model, tuple, effective, and
+  metadata graph layers.
+- `/api/admin/openfga/graph`, `/tuples`, and `/check` expose current BFF-hosted
+  administration APIs.
+- `ui/src/components/admin/rebac/` provides graph filters and access-check UI.
+- These paths currently read OpenFGA from the BFF and would bypass the target
+  Authz Service ownership boundary after extraction.
+
+The rendering components can remain in the UI. OpenFGA reads, bounded graph
+projection, and simulation should move behind privileged Authz inspection APIs.
+
 ### Runtime object type
 
 - AgentGateway authorization checks `tool:<server>/<tool>`.
@@ -361,6 +390,40 @@ from an authenticated internal endpoint.
 - Unconditional checks do not need the schema service.
 - Policy revocation remains immediate through OpenFGA tuple deletion.
 
+## Audit Delivery Decision
+
+Do not add remote Audit Service latency to every authorization decision. The
+Authz Service journals one normalized event in a bounded durable outbox, then
+delivers batches to the existing Audit Service with retry and idempotent event
+IDs.
+
+- Audit Service remains the storage, retention, query, and export owner.
+- OpenFGA remains the current authorization-state owner.
+- Audit history is evidence, not an input to a decision.
+- Providers and transports return diagnostics to the decision core instead of
+  emitting independent events.
+- Policy and relationship mutations require a durable mutation event before
+  reporting success.
+- Strict production mode fails an allow closed if it cannot be journaled
+  locally; remote delivery can recover asynchronously.
+
+## Visualization Decision
+
+Retain the current Admin graph rendering, filters, and investigation experience,
+but move direct OpenFGA access and graph projection behind the Authz Service.
+
+The visualization uses separate layers:
+
+- Active model and named conditions from the model descriptor.
+- Current direct and conditional relationships from OpenFGA tuples.
+- Derived effective access from bounded Authz checks.
+- Sanitized expression metadata from policy records and conditional tuples.
+- Historical decisions and mutations queried separately from Audit Service.
+
+The BFF joins current state and history for display. The Authz Service does not
+call Audit Service to determine or visualize current access. Inspection is
+privileged, audited, paginated, bounded, and isolated from decision concurrency.
+
 ## Privacy Decision
 
 - Never project declared secrets, credentials, passwords, tokens, binaries, or
@@ -393,6 +456,10 @@ Production readiness therefore requires:
 | Can a caller select a provider? | No; a trusted versioned resource/action binding selects it. |
 | How would multiple providers compose? | Restrictive `AND`; any required deny, error, or indeterminate result denies. |
 | Where are expressions evaluated? | OpenFGA only. |
+| Who emits authorization audit events? | The Authz Service decision core, once per canonical decision or mutation. |
+| Does Audit Service participate in decisions? | No; it stores and serves historical evidence. |
+| Where does the OpenFGA graph API live? | Behind privileged Authz Service inspection APIs. |
+| Is audit history the current graph source? | No; OpenFGA and active policy metadata are authoritative. |
 | Can administrators write CEL? | No. |
 | Which resource type is enforced? | Exact runtime `tool`. |
 | Where is tool schema validated? | CAIPE policy control plane and schema catalog. |

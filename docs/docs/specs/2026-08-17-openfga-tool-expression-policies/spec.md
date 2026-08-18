@@ -197,6 +197,12 @@ verify only that tool uses expression enforcement.
 - A required provider times out, returns malformed output, or is unconfigured.
 - A future guardrail provider denies while OpenFGA allows.
 - Authz Service HTTP traffic is healthy while the `ext_authz` listener is saturated.
+- Audit Service is unavailable while the local Authz outbox remains healthy.
+- The Authz outbox is full or cannot journal an allow event.
+- A batch decision partially succeeds and requires one event per item.
+- A graph query exceeds tuple scan, node, edge, time, or response-size limits.
+- An unauthorized viewer requests model, tuple, simulation, or audit history.
+- Historical audit events disagree with current OpenFGA state.
 - MCP body is absent, truncated, malformed, too large, or contains duplicate
   JSON keys.
 - `params.name` is valid but `params.arguments` is not an object.
@@ -279,6 +285,55 @@ verify only that tool uses expression enforcement.
   broaden a decision.
 - **FR-CTX-006:** Each `(resource_type, action)` registry entry MUST declare its
   context schema, allowed sources, provider binding, and revision.
+
+### Audit Service integration
+
+- **FR-AUDIT-001:** The Authz Service MUST emit exactly one `authz_decision`
+  event for each canonical single decision and each item in a batch decision.
+- **FR-AUDIT-002:** Policy and relationship mutations MUST emit
+  `authz_policy_change` or `authz_relationship_change` events.
+- **FR-AUDIT-003:** Every event MUST include a unique event ID, correlation ID,
+  resource/action, outcome, reason, provider, and applicable model and policy
+  revisions.
+- **FR-AUDIT-004:** Audit events MUST NOT contain credentials, tokens, raw
+  request bodies, tool argument values, or raw policy source.
+- **FR-AUDIT-005:** Runtime events MUST be appended to a bounded durable outbox
+  before asynchronous batch delivery to CAIPE Audit Service.
+- **FR-AUDIT-006:** A remote Audit Service outage MUST NOT add a synchronous
+  network dependency to the decision path while the local outbox is healthy.
+- **FR-AUDIT-007:** Strict production mode MUST fail an allow closed when its
+  event cannot be journaled locally; an existing deny MUST remain deny.
+- **FR-AUDIT-008:** Policy and relationship mutations MUST NOT report success
+  until the mutation and durable outbox record commit or are compensated.
+- **FR-AUDIT-009:** Audit Service MUST own event retention, local/S3 storage,
+  querying, and export; it MUST NOT participate in authorization evaluation.
+- **FR-AUDIT-010:** Legacy `cas_*` event types and sources MUST migrate to the
+  normalized `authz_*` contract without losing historical query compatibility.
+
+### OpenFGA visualization and inspection
+
+- **FR-VIZ-001:** The Authz Service MUST expose privileged bounded APIs for the
+  active model, relationships, graph projection, Check, and simulation.
+- **FR-VIZ-002:** The BFF and Admin UI MUST NOT read OpenFGA directly after the
+  Authz Service migration.
+- **FR-VIZ-003:** Visualization MUST distinguish model, relationship,
+  effective-access, expression, and audit-history layers.
+- **FR-VIZ-004:** Current graph state MUST come from OpenFGA and active policy
+  metadata, not from replaying Audit Service events.
+- **FR-VIZ-005:** Effective-access edges MUST be labeled as derived decisions
+  rather than provider proof traces.
+- **FR-VIZ-006:** Graph, relationship, and simulation operations MUST be
+  authorized and audited.
+- **FR-VIZ-007:** Tuple reads and traversal MUST be paginated and bounded by
+  scan, node, edge, time, and response-size limits.
+- **FR-VIZ-008:** An incomplete graph response MUST declare truncation and
+  provide a continuation mechanism where supported.
+- **FR-VIZ-009:** Conditional edges MUST expose only sanitized template,
+  condition, schema, revision, drift, and shadowing metadata.
+- **FR-VIZ-010:** Simulation MUST NOT write a relationship or invoke a protected
+  resource.
+- **FR-VIZ-011:** Visualization and audit-query traffic MUST have concurrency
+  and latency budgets separate from authorization decisions.
 
 ### Expression and schema
 
@@ -380,6 +435,14 @@ verify only that tool uses expression enforcement.
   `openfga-cel` is the only v1 implementation.
 - **Policy binding:** Versioned server-owned mapping from resource/action to
   context schema, provider pipeline, and policy/model revisions.
+- **Audit outbox:** Bounded durable Authz Service journal used to decouple
+  authorization latency from Audit Service delivery.
+- **Authorization audit event:** Normalized decision, policy-change, or
+  relationship-change record correlated with model and policy revisions.
+- **Inspection API:** Privileged bounded Authz Service read interface for model,
+  relationship, graph, Check, and simulation data.
+- **Authorization graph:** Layered projection of model, tuples, derived access,
+  expression metadata, and separately queried audit history.
 - **Expression policy:** Canonical field/operator/value document authored for
   one subject and one exact tool.
 - **Conditional relationship tuple:** Effective OpenFGA grant containing a
@@ -404,6 +467,18 @@ verify only that tool uses expression enforcement.
 - **SC-AUTHZ-003:** No caller can select or bypass a provider through decision
   context or transport metadata.
 - **SC-AUTHZ-004:** Cedar and OPA cannot affect an enforced v1 decision.
+- **SC-AUDIT-001:** Every required decision and mutation produces exactly one
+  normalized correlated audit event in end-to-end tests.
+- **SC-AUDIT-002:** Remote Audit Service outage adds no remote call to decision
+  latency while the local outbox accepts events.
+- **SC-AUDIT-003:** Audit fixtures and exports contain zero tool argument values,
+  credentials, tokens, or raw policy source.
+- **SC-VIZ-001:** The Admin UI renders model, relationship, effective-access,
+  expression, and history layers through Authz Service and Audit Service APIs.
+- **SC-VIZ-002:** Oversized graph requests truncate or paginate without
+  affecting decision-service latency objectives.
+- **SC-VIZ-003:** Unauthorized inspection and simulation requests are denied and
+  audited in all required cases.
 - **SC-002:** Missing, wrong-type, stale-schema, malformed-body, and PDP-error
   cases fail closed in 100% of tests.
 - **SC-003:** No UI or API path can submit executable CEL text.

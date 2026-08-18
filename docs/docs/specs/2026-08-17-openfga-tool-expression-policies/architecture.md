@@ -303,10 +303,18 @@ flowchart LR
     Registry --> OFGA["OpenFGA + native CEL"]
     Registry -. "future" .-> Cedar["Cedar provider"]
     Registry -. "future" .-> OPA["OPA provider"]
-    Core --> Audit["Audit and decision reasons"]
+    Core --> Outbox["Durable audit outbox"]
+    Outbox --> Audit["CAIPE Audit Service"]
+    Audit --> Storage["Local or S3 audit storage"]
 
     Admin["Administrator"] --> UI["Security and Policy UI"]
-    UI --> Policy["Authz Service policy administration API"]
+    UI --> BFFAdmin["Admin BFF"]
+    BFFAdmin --> Policy["Authz Service policy administration API"]
+    BFFAdmin --> Inspect["Authz inspection APIs"]
+    BFFAdmin --> AuditQuery["Audit query APIs"]
+    Inspect --> OFGA
+    Inspect --> Metadata
+    AuditQuery --> Audit
     Policy --> Catalog["Resource schema catalog"]
     Policy --> Compiler["Typed policy compiler"]
     Compiler --> OFGA
@@ -321,6 +329,10 @@ flowchart LR
 | Authz Service transports | HTTP, batch HTTP, and `ext_authz` protocol adaptation | Provider-specific policy semantics |
 | Authz Service decision core | Subject binding, canonical requests, context construction, provider selection, composition, reasons, audit | Business validation or provider credentials |
 | Authz Service policy administration API | Authorization, schema validation, canonicalization, compilation, and reconciliation | Accepting arbitrary policy source |
+| Audit outbox | Bounded durable buffering, batching, retry, and delivery status | Audit retention or authorization decisions |
+| CAIPE Audit Service | Event ingestion, retention, local/S3 storage, querying, and export | Current authorization state or policy evaluation |
+| Authz inspection API | Bounded model, relationship, policy, simulation, and graph projections | Rendering the graph or mutating through read APIs |
+| Admin BFF and UI | Authorization visualization, audit timeline, filters, and investigation workflows | Direct OpenFGA access after migration |
 | Resource Schema Catalog | Sanitized schemas, schema hashes, resource attributes, last-seen state | Access decisions |
 | Typed Policy Compiler | Expression-to-template mapping and tuple construction | Arbitrary code execution |
 | `openfga-cel` provider | OpenFGA relationship checks, conditional tuples, native CEL context | Standalone CEL execution |
@@ -441,6 +453,139 @@ final_allow = openfga_allow
 This contract does not commit v1 to operating Cedar or OPA. Adding either
 requires a separate implementation proposal, threat model, conformance suite,
 and operational readiness review.
+
+## Audit Service Integration
+
+### Ownership and event flow
+
+The Authz Service is the authoritative producer of authorization events. A
+transport adapter or provider returns bounded diagnostics to the decision core;
+it does not emit an independent event. This prevents duplicate or contradictory
+records for one decision.
+
+The Authz Service emits three event families:
+
+| Event type | Trigger |
+|---|---|
+| `authz_decision` | One canonical HTTP, batch-item, or `ext_authz` decision |
+| `authz_policy_change` | Policy binding or typed template created, changed, disabled, or revalidated |
+| `authz_relationship_change` | OpenFGA grant, revoke, migration, or reconciliation attempt |
+
+Every event carries a generated `event_id` and `decision_id` or `operation_id`.
+`correlation_id`, `trace_id`, resource reference, model ID, provider revision,
+and policy-binding revision connect the authorization event to application and
+gateway activity.
+
+```json
+{
+  "event_type": "authz_decision",
+  "decision_id": "example-decision-id",
+  "correlation_id": "example-correlation-id",
+  "subject_hash": "sha256:example",
+  "action": "invoke",
+  "resource_ref": "tool:issue_tracker/create_item",
+  "transport": "ext_authz",
+  "outcome": "deny",
+  "reason_code": "DENY_EXPRESSION",
+  "provider": "openfga-cel",
+  "authorization_model_id": "example-model-id",
+  "policy_binding_revision": "7",
+  "template_id": "string_argument_in_v1",
+  "context_fields": ["/project_key"],
+  "duration_ms": 4.2
+}
+```
+
+Events never contain bearer tokens, credentials, raw request bodies, tool
+argument values, or raw CEL, Cedar, or Rego source. Context field names and
+types may be recorded; values may not.
+
+### Delivery and failure semantics
+
+Runtime authorization does not synchronously depend on the remote Audit
+Service:
+
+1. The decision core appends one event to a bounded local durable outbox.
+2. A worker batches events to `POST /v1/audit/events`.
+3. Failed delivery retries with bounded exponential backoff.
+4. Audit Service owns retention, local/S3 storage, queries, and exports.
+5. Backlog age, dropped events, retry count, and outbox capacity are monitored.
+
+A remote Audit Service outage does not change a decision while the local outbox
+accepts the event. If the outbox cannot journal an allow, strict production mode
+fails the request closed; a deny remains a deny. Policy and relationship
+mutations are not reported successful until their mutation and durable outbox
+record are committed or compensated.
+
+Audit Service data is historical evidence. It must not be consulted to decide
+current access; OpenFGA and the active policy binding remain authoritative.
+
+## OpenFGA Visualization and Inspection
+
+### Read architecture
+
+The Admin UI retains its graph rendering and investigation workflow, but the
+BFF no longer reads OpenFGA directly after Authz Service extraction. It calls
+privileged, bounded inspection endpoints on `caipe-authz`:
+
+```http
+GET  /v1/admin/model
+GET  /v1/admin/graph
+GET  /v1/admin/relationships
+GET  /v1/admin/policies/{resource_type}/{resource_id}
+POST /v1/admin/check
+POST /v1/admin/simulate
+```
+
+The BFF queries Audit Service separately for history and joins records by
+`decision_id`, `operation_id`, `correlation_id`, resource reference, and
+revision. The Authz Service never depends on Audit Service to build the current
+graph.
+
+### Visualization layers
+
+| Layer | Authoritative source | Shows |
+|---|---|---|
+| Model | Active OpenFGA model descriptor | Object types, relations, permissions, and named conditions |
+| Relationships | OpenFGA tuples | Direct grants, usersets, wildcards, and conditional relationships |
+| Effective access | Bounded Authz Service checks | Derived subject/action/resource results and reason codes |
+| Expressions | Policy metadata plus conditional tuples | Template, schema hash, condition version, drift, additive/exclusive status |
+| History | CAIPE Audit Service | Decisions, grants, revocations, reconciliation, and policy changes over time |
+
+Conditional graph edges expose only sanitized metadata:
+
+```json
+{
+  "from": "team:primary#member",
+  "to": "tool:issue_tracker/create_item",
+  "relation": "conditional_caller",
+  "condition": {
+    "template": "string_argument_in_v1",
+    "schema_hash": "sha256:example",
+    "status": "ACTIVE"
+  },
+  "shadowed_by_broader_grant": false
+}
+```
+
+The UI displays conditional-edge badges, additive/exclusive warnings, wildcard
+shadowing, model and policy revisions, schema drift, and an audit timeline. A
+simulation uses synthetic context and may call Check only; it never writes a
+tuple or invokes the protected resource.
+
+### Visualization security and scale
+
+- Authz Service authorizes inspection and simulation requests before reading
+  policy data.
+- V1 graph/model access is limited to organization administrators and auditors.
+- Every graph query, tuple inspection, simulation, and export is audited.
+- Tuple reads and traversals are paginated, bounded, and explicitly marked
+  `truncated` when incomplete.
+- Sensitive tuple constants, subject labels, and policy literals are redacted
+  according to the viewer's scope.
+- Current graph state comes from OpenFGA, not from replaying audit events.
+- Effective-access edges are labeled as derived results, not OpenFGA proof
+  traces.
 
 ## Control Plane
 
@@ -721,19 +866,21 @@ Additional limits:
 
 ## Audit and Observability
 
-Policy mutation events include:
+Policy and relationship mutation events include:
 
-- Actor subject.
+- Event ID, operation ID, actor subject, and correlation/trace IDs.
 - Target subject and exact tool reference.
-- Template ID, expression hash, schema hash, revision, and enforcement mode.
+- Provider, model, policy-binding, template, expression, and schema revisions.
 - Before/after status.
 - Reconciliation and compensation outcome.
 
 Call-time decision events include:
 
-- Caller type, hashed subject, agent ID when present, and exact tool reference.
+- Decision ID, transport, caller type, hashed subject, agent ID when present,
+  and exact tool reference.
 - Checked gate and relation.
-- Policy template ID and expression hash when known.
+- Provider sub-decisions, model ID, policy-binding revision, template ID, and
+  expression hash when known.
 - Context field names and types, never values.
 - `ALLOW`, `DENY_EXPRESSION`, `DENY_MISSING_CONTEXT`,
   `DENY_STALE_SCHEMA`, or `AUTHZ_UNAVAILABLE`.
@@ -747,9 +894,15 @@ caipe_tool_policy_context_projection_seconds
 caipe_tool_policy_reconcile_total{outcome}
 caipe_tool_policy_schema_stale_total
 caipe_openfga_condition_check_seconds{template,outcome}
+caipe_authz_audit_outbox_events{state}
+caipe_authz_audit_outbox_oldest_seconds
+caipe_authz_inspection_requests_total{operation,outcome}
+caipe_authz_graph_response_nodes{layer,truncated}
 ```
 
 Metric labels must not contain user IDs, tool arguments, or unbounded policy IDs.
+Audit query and graph visualization latency are measured separately from the
+authorization decision SLO.
 
 ## Availability and Performance
 
@@ -762,8 +915,10 @@ Metric labels must not contain user IDs, tool arguments, or unbounded policy IDs
 - The policy-schema cache is bounded and refreshed asynchronously.
 - A cache miss for an unconditional tool does not block authorization.
 - A cache miss required by a conditional policy fails closed.
-- Check and audit timeouts remain separately bounded; audit failure does not
-  turn a deny into an allow.
+- Remote audit delivery is outside the decision latency path after the event is
+  journaled locally.
+- Inspection, graph, audit query, and export traffic use separate concurrency
+  limits from decision traffic.
 - OpenFGA condition expressions stay under its configured CEL cost limit.
 
 ## Rollout
@@ -782,6 +937,7 @@ No enforcement path changes in this phase.
 - Create `caipe-authz` with HTTP and batch HTTP listeners.
 - Move the BFF decision engine, OpenFGA adapter, trusted-context rules, audit,
   and caches into the service.
+- Add the durable audit outbox and normalized `authz_*` event contracts.
 - Replace BFF in-process decisions with an Authz Service HTTP client.
 - Shadow-compare old and new decisions before removing the in-process engine.
 
@@ -808,7 +964,17 @@ No existing tuple changes or authoritative decision changes in this phase.
 - Add compiler, policy metadata, reconciliation, preview, and drift detection.
 - Add the field/operator/value UI and effective-access warnings.
 
-### Phase 5 - Selected-tool enforcement
+### Phase 5 - Audit and OpenFGA inspection
+
+- Route Authz Service events through the outbox to CAIPE Audit Service.
+- Add bounded model, relationship, graph, Check, and simulation APIs.
+- Migrate existing BFF OpenFGA graph reads to Authz Service inspection APIs.
+- Add conditional edges, revisions, drift, shadowing, and audit-timeline layers
+  to the existing Admin visualization.
+- Exercise Audit Service outage, outbox recovery, pagination, truncation,
+  redaction, and inspection authorization.
+
+### Phase 6 - Selected-tool enforcement
 
 - Make caller tool checking mandatory and remove its default-off behavior.
 - Require the agent-context HMAC secret; report Authz Service unready for expression
@@ -820,7 +986,7 @@ No existing tuple changes or authoritative decision changes in this phase.
 - Enforce exact caller and agent checks with the same request context.
 - Start with low-risk, scalar selectors on non-bulk mutation tools.
 
-### Phase 6 - Broader templates and provider experiments
+### Phase 7 - Broader templates and provider experiments
 
 - Add reviewed compound templates based on demonstrated use cases.
 - Consider verified request-time, network, and identity attributes.
@@ -842,7 +1008,8 @@ No existing tuple changes or authoritative decision changes in this phase.
 
 | Area | Expected change |
 |---|---|
-| `ai_platform_engineering/authz/` | New decision core, HTTP/batch APIs, `ext_authz` gRPC adapter, trusted context, provider registry, and audit. |
+| `ai_platform_engineering/authz/` | Decision core, HTTP/batch APIs, `ext_authz` gRPC adapter, trusted context, provider registry, audit outbox, and inspection APIs. |
+| `ai_platform_engineering/audit_service/` | Accept normalized `authz_*` events; retain existing local/S3 query and export ownership. |
 | `caipe-authz` Helm chart and Compose service | Deployment, health, listener, OpenFGA, timeout, and scaling configuration. |
 | `deploy/openfga/model.fga` | Add conditions, `conditional_caller`, and invocation/management separation. |
 | `charts/ai-platform-engineering/charts/openfga/authorization-model.json` | Generated model parity. |
@@ -850,6 +1017,10 @@ No existing tuple changes or authoritative decision changes in this phase.
 | `ui/src/lib/authz/` | Replace in-process engine with Authz Service HTTP and batch client. |
 | `ui/src/app/api/authz/v1/` | Compatibility facade or direct Authz Service proxy during migration. |
 | `ui/src/lib/rbac/openfga.ts` | Move runtime decision behavior to Authz Service; retain only transitional/admin helpers. |
+| `ui/src/lib/rbac/rebac-graph.ts` | Move OpenFGA graph projection behind Authz inspection APIs; retain UI-facing graph types as needed. |
+| `ui/src/app/api/admin/openfga/` | Replace direct OpenFGA reads with authenticated Authz Service inspection clients. |
+| `ui/src/components/admin/rebac/` | Render conditional edges, policy/model revisions, shadowing, drift, and audit timeline. |
+| `ui/src/lib/audit/` | Rename legacy `cas_*` events and sources to normalized `authz_*` contracts. |
 | `ui/src/lib/rbac/mcp-tool-catalog.ts` | Sanitized schema, eligible fields, and schema drift. |
 | `ui/src/lib/rbac/tool-expression-policy.ts` | Canonical expression, compiler, validation, and reconciliation. |
 | `ui/src/app/api/admin/tool-expression-policies/` | Policy CRUD, schema, and dry-run evaluation. |
@@ -878,6 +1049,13 @@ No existing tuple changes or authoritative decision changes in this phase.
 | Same canonical request over HTTP and gRPC | Same provider request, result, and reason. |
 | Client requests `cedar` or `opa` provider | Rejected; provider selection is server-owned. |
 | Configured required provider is unavailable | Deny with bounded `AUTHZ_UNAVAILABLE` reason. |
+| Equivalent HTTP and gRPC decision | Exactly one correlated `authz_decision` event. |
+| Remote Audit Service unavailable | Decision continues after local journal; outbox retries and reports degraded delivery. |
+| Audit outbox cannot journal allow in strict mode | Deny before forwarding. |
+| Graph request exceeds bounds | Paginated or truncated response; decision traffic remains unaffected. |
+| Unauthorized graph or simulation request | Deny and audit the attempt. |
+| Conditional graph edge | Sanitized template and revision shown; argument values absent. |
+| Audit timeline selection | Events correlate by decision/operation/resource revision. |
 
 End-to-end tests must run against the pinned OpenFGA image, not only mocks.
 
@@ -897,6 +1075,14 @@ End-to-end tests must run against the pinned OpenFGA image, not only mocks.
 - OpenFGA remains the only runtime expression evaluator.
 - Effective tuples and conditions can be inspected and explained operationally.
 - Audit records contain policy identity and outcomes but no argument values.
+- Each canonical decision emits exactly one correlated audit event through the
+  durable outbox.
+- Audit Service outage does not add a remote network dependency to decision
+  latency while the local outbox is healthy.
+- The Admin UI visualizes current model, relationship, effective-access, and
+  expression layers through Authz Service inspection APIs.
+- Audit history can be overlaid without treating historical events as current
+  authorization state.
 - Cedar and OPA are disabled in v1 and cannot be selected by a caller.
 
 ## Alternatives Considered
