@@ -5,9 +5,17 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Callable
 from typing import Any
 
-from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, ResultMessage, TextBlock, query
+from claude_agent_sdk import (
+    AssistantMessage,
+    ClaudeAgentOptions,
+    ResultMessage,
+    SessionStore,
+    TextBlock,
+    query,
+)
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from harness_engine.claude_session_store import MongoClaudeSessionStore
 from harness_engine.config import ClaudeSDKProfile, Settings
 from harness_engine.models import (
     AdapterEvaluation,
@@ -42,9 +50,16 @@ class ClaudeSDKAdapter:
         settings: Settings,
         *,
         query_fn: ClaudeQuery = query,
+        transcript_store: SessionStore | None = None,
     ) -> None:
         self._profiles = settings.claude_sdk_profiles()
         self._query = query_fn
+        self._transcript_store = transcript_store
+        if self._transcript_store is None and settings.storage_backend == "mongodb":
+            self._transcript_store = MongoClaudeSessionStore(
+                settings.mongodb_uri,
+                settings.mongodb_database,
+            )
         self._session_manager = EventAssignedProviderSessionManager(
             "claude_agent_sdk", checkpoint_strategy="adapter_store"
         )
@@ -102,8 +117,16 @@ class ClaudeSDKAdapter:
                     explanation="Claude session IDs are persisted and supplied through resume",
                 ),
                 "session.cross_replica": CapabilityResult(
-                    level=CapabilityLevel.EMULATED,
-                    explanation="A shared Harness Engine session store carries the Claude session ID",
+                    level=(
+                        CapabilityLevel.NATIVE
+                        if self._transcript_store is not None
+                        else CapabilityLevel.UNAVAILABLE
+                    ),
+                    explanation=(
+                        "Claude transcripts and the provider session ID are stored in shared MongoDB"
+                        if self._transcript_store is not None
+                        else "A shared Claude transcript store is not configured"
+                    ),
                 ),
                 "sandbox.isolation": CapabilityResult(
                     level=CapabilityLevel.UNAVAILABLE,
@@ -180,6 +203,11 @@ class ClaudeSDKAdapter:
             permission_mode=profile.permission_mode,  # type: ignore[arg-type]
             resume=context.binding.provider_session_id,
             setting_sources=[],
+            # Claude Code writes a local working copy before mirroring it to
+            # SessionStore. /tmp is writable even in the non-root image.
+            env={"CLAUDE_CONFIG_DIR": "/tmp/claude-agent-sdk"},
+            session_store=self._transcript_store,
+            session_store_flush="eager",
         )
         async for message in self._query(prompt=context.turn.message, options=sdk_options):
             if isinstance(message, AssistantMessage):

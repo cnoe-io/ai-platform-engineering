@@ -94,6 +94,14 @@ Harness Engine variables use the `HARNESS_ENGINE_` prefix:
   policy, for example `{"safe":{"model":"claude-example","cwd":"/workspace","permission_mode":"dontAsk"}}`.
 - `HARNESS_ENGINE_EVENT_RETENTION_SECONDS`: TTL for replay events.
 
+With the MongoDB backend, the Claude adapter mirrors the SDK's provider
+transcript into `claude_session_transcripts`. CAIPE stores the opaque Claude
+session ID in `harness_sessions`; the transcript is the other half of the
+resume contract. Keeping both in shared storage lets another Harness Engine
+replica resume the thread without depending on a container's local
+`~/.claude` directory. The SDK's local working copy lives under `/tmp` and is
+disposable.
+
 The UI BFF requires:
 
 - `HARNESS_ENGINE_URL`, for example `http://harness-engine:8010`.
