@@ -109,7 +109,7 @@ missing, wrong-type, stale, malformed, and oversized inputs deny before MCP.
 
 ### Implementation
 
-- [ ] T052 [US1] Add versioned named conditions and conditional_caller while preserving existing grants in deploy/openfga/model.fga.
+- [x] T052 [US1] Add versioned named conditions and conditional_caller while preserving existing grants in deploy/openfga/model.fga.
 - [ ] T053 [US1] Generate the matching model artifact and pin compatible OpenFGA configuration in charts/ai-platform-engineering/charts/openfga/authorization-model.json and charts/ai-platform-engineering/charts/openfga/values.yaml.
 - [ ] T054 [US1] Add active store/model/hash/template descriptors in ai_platform_engineering/authz/providers/openfga.py and ai_platform_engineering/authz/core/registry.py.
 - [ ] T055 [US1] Implement context-aware Check/BatchCheck and condition-preserving tuple reads/writes in ai_platform_engineering/authz/providers/openfga.py.
@@ -240,9 +240,9 @@ removal is a final consequence of completed migration rather than a prerequisite
 - [ ] T105 [P] Run and fix bridge tests in deploy/openfga/bridge using its uv project.
 - [ ] T106 [P] Run and fix UI lint and unit tests from ui/.
 - [ ] T107 Run and fix the UI production build from ui/.
-- [ ] T108 Run and fix the Docusaurus build from docs/.
+- [x] T108 Run and fix the Docusaurus build from docs/.
 - [ ] T109 Validate the full LEGACY to SHADOW to CANARY to AUTHZ to AUTHZ_ONLY sequence and both rollback paths using docs/docs/specs/2026-08-17-openfga-tool-expression-policies/quickstart.md.
-- [ ] T110 Update architecture, configuration, and operator documentation in docs/docs/specs/2026-08-17-openfga-tool-expression-policies/ and the component READMEs with verified implementation details.
+- [x] T110 Update architecture, configuration, and operator documentation in docs/docs/specs/2026-08-17-openfga-tool-expression-policies/ and the component READMEs with verified implementation details.
 
 ## Dependencies
 

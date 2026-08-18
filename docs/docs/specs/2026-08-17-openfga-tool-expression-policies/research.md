@@ -122,6 +122,65 @@ projection, and simulation should move behind privileged Authz inspection APIs.
 
 ## OpenFGA Capability Findings
 
+### Policy construction happens at three different times
+
+The question "build time or runtime?" has a split answer:
+
+- At build/release time, CAIPE developers define reviewed named CEL conditions
+  in `deploy/openfga/model.fga`, regenerate the deployed model JSON, and publish
+  matching typed template metadata and tests.
+- At policy-administration runtime, an administrator selects an existing
+  template, field, and typed constants. The control plane validates and
+  canonicalizes the document, persists reconciliation metadata, and writes a
+  conditional relationship tuple. It does not generate a new model.
+- At protected-request runtime, the enforcement adapter constructs trusted
+  typed context from the observed request. OpenFGA merges request context with
+  tuple constants and evaluates the named CEL condition.
+
+This split permits field/value changes without a software release while keeping
+new executable expression shapes behind code review and model deployment. Raw
+CEL never enters the runtime policy API.
+
+### Both the authored model and bridge change
+
+The initial implementation must change both components, for different reasons:
+
+- `deploy/openfga/model.fga` gains versioned conditions and a
+  `tool#conditional_caller` relation. The corresponding generated condition and
+  relation fragment is applied to the chart JSON. The first change remains
+  additive: no conditional tuple means no new grant, and current
+  unconditional/manager-derived access stays intact.
+- The current bridge gains bounded, duplicate-key-safe argument parsing and
+  typed OpenFGA Check context for exact tool checks. It does not compile or
+  evaluate CEL. Wildcard and coarse checks remain context-free.
+- The bridge has no existing trusted schema-catalog client. The initial vertical
+  slice therefore uses a deployment-owned exact-tool schema-hash map and fails
+  the conditional path closed when it is absent. Caller-provided schema hashes
+  and direct bridge-to-Mongo coupling were rejected.
+- Schema mappings fail startup or Helm rendering unless caller exact-tool
+  checks, signed agent context, and an explicit model pin are also configured.
+  This prevents policy-shaped configuration from being silently non-enforcing.
+- Projection limits return trusted schema context with empty typed maps. That
+  makes condition-only grants false without blocking a pre-existing
+  unconditional grant during the parallel migration.
+- During extraction, this bridge behavior moves into the `caipe-authz`
+  `ext_authz` adapter. The bridge first remains as the legacy/shadow comparison
+  boundary and is retired only after gateway cohorts reach `AUTHZ_ONLY`.
+
+An implementation that changes only the model cannot evaluate request
+arguments because current Check calls contain no context. An implementation
+that changes only the bridge has no named condition or conditional relation to
+evaluate. Both changes are therefore required for the first vertical slice.
+
+The implemented slice proves this contract at the gateway boundary against a
+real pinned OpenFGA server. It does not claim that the future Authz control
+plane, policy authoring API, or BFF migration is complete.
+
+The authored DSL and deployed chart JSON also have pre-existing full-model
+parity drift outside this condition fragment. Both complete artifacts validate,
+and the new fragment is exercised against the deployed JSON, but full canonical
+regeneration remains open as T053 rather than being hidden by this slice.
+
 ### Native conditions are sufficient for reviewed templates
 
 [OpenFGA conditions](https://openfga.dev/docs/modeling/conditions) provide:

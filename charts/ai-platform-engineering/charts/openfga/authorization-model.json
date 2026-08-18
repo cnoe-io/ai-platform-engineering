@@ -2106,6 +2106,11 @@
               },
               {
                 "computedUserset": {
+                  "relation": "conditional_caller"
+                }
+              },
+              {
+                "computedUserset": {
                   "relation": "can_manage"
                 }
               }
@@ -2132,6 +2137,9 @@
               }
             ]
           }
+        },
+        "conditional_caller": {
+          "this": {}
         }
       },
       "metadata": {
@@ -2248,6 +2256,45 @@
               {
                 "type": "team",
                 "relation": "admin"
+              }
+            ]
+          },
+          "conditional_caller": {
+            "directly_related_user_types": [
+              {
+                "type": "user",
+                "condition": "string_argument_in_v1"
+              },
+              {
+                "type": "service_account",
+                "condition": "string_argument_in_v1"
+              },
+              {
+                "type": "team",
+                "relation": "member",
+                "condition": "string_argument_in_v1"
+              },
+              {
+                "type": "team",
+                "relation": "admin",
+                "condition": "string_argument_in_v1"
+              },
+              {
+                "type": "external_group",
+                "relation": "member",
+                "condition": "string_argument_in_v1"
+              },
+              {
+                "type": "slack_channel",
+                "condition": "string_argument_in_v1"
+              },
+              {
+                "type": "webex_space",
+                "condition": "string_argument_in_v1"
+              },
+              {
+                "type": "agent",
+                "condition": "string_argument_in_v1"
               }
             ]
           }
@@ -4827,5 +4874,38 @@
         }
       }
     }
-  ]
+  ],
+  "conditions": {
+    "string_argument_in_v1": {
+      "name": "string_argument_in_v1",
+      "expression": "schema_hash == expected_schema_hash && field in string_arguments && string_arguments[field] in allowed_values",
+      "parameters": {
+        "field": {
+          "type_name": "TYPE_NAME_STRING"
+        },
+        "allowed_values": {
+          "type_name": "TYPE_NAME_LIST",
+          "generic_types": [
+            {
+              "type_name": "TYPE_NAME_STRING"
+            }
+          ]
+        },
+        "expected_schema_hash": {
+          "type_name": "TYPE_NAME_STRING"
+        },
+        "schema_hash": {
+          "type_name": "TYPE_NAME_STRING"
+        },
+        "string_arguments": {
+          "type_name": "TYPE_NAME_MAP",
+          "generic_types": [
+            {
+              "type_name": "TYPE_NAME_STRING"
+            }
+          ]
+        }
+      }
+    }
+  }
 }

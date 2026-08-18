@@ -997,3 +997,194 @@ def test_check_namespaces_service_account_from_metadata(monkeypatch: pytest.Monk
     # The caller was graphed as service_account:, NOT user: — the #49 fix.
     assert ("service_account:sa-sub", "can_call", "tool:jira/search") in checks
     assert not any(u.startswith("user:sa-sub") for (u, _, _) in checks)
+
+
+def test_tool_condition_context_projects_typed_json_pointers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bridge = _load_bridge_module()
+    monkeypatch.setattr(
+        bridge,
+        "TOOL_SCHEMA_HASHES",
+        {"issue_tracker/create_item": "sha256:example-schema"},
+    )
+    request = bridge.build_check_request(
+        headers={},
+        path="/mcp/issue_tracker",
+        method="POST",
+        body=json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "method": "tools/call",
+                "params": {
+                    "name": "create_item",
+                    "arguments": {
+                        "project_key": "PRIMARY",
+                        "metadata": {"path/name": "example", "enabled": True},
+                        "priority": 2,
+                    },
+                },
+            }
+        ),
+    )
+
+    tool_call = bridge.mcp_tool_call_from_request(request)
+
+    assert tool_call is not None
+    assert bridge.tool_condition_context(tool_call) == {
+        "schema_hash": "sha256:example-schema",
+        "string_arguments": {
+            "/metadata/path~1name": "example",
+            "/project_key": "PRIMARY",
+        },
+        "integer_arguments": {"/priority": 2},
+        "boolean_arguments": {"/metadata/enabled": True},
+    }
+
+
+def test_tool_condition_context_requires_trusted_schema_hash() -> None:
+    bridge = _load_bridge_module()
+    tool_call = bridge.McpToolCall(
+        target="issue_tracker",
+        name="create_item",
+        arguments={"project_key": "PRIMARY"},
+    )
+
+    assert bridge.tool_condition_context(tool_call) is None
+
+
+def test_duplicate_mcp_json_keys_fail_closed_without_logging_key(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    bridge = _load_bridge_module()
+    events: list[dict] = []
+    monkeypatch.setattr(bridge, "_decode_verified_bearer_subject", lambda _header: "example-user")
+    monkeypatch.setattr(bridge, "_check_openfga", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(bridge, "log_authz_decision", lambda **event: events.append(event), raising=False)
+    monkeypatch.setattr(bridge, "BYPASS_SUBS", frozenset())
+    request = bridge.build_check_request(
+        headers={"authorization": "Bearer valid-token"},
+        path="/mcp/issue_tracker",
+        method="POST",
+        body='{"secret-marker\\n":1,"secret-marker\\n":2}',
+    )
+
+    response = bridge.OpenFgaAuthorizationService().Check(request, None)
+
+    assert response.status.code == bridge.PERMISSION_DENIED
+    assert response.status.message == "invalid MCP tool request"
+    assert events[-1]["reason_code"] == "DENY_INVALID_MCP_REQUEST"
+    assert "secret-marker" not in capsys.readouterr().err
+
+
+def test_tool_policy_configuration_fails_fast_when_prerequisites_are_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bridge = _load_bridge_module()
+    monkeypatch.setattr(
+        bridge,
+        "TOOL_SCHEMA_HASHES",
+        {"issue_tracker/create_item": "sha256:example-schema"},
+    )
+    monkeypatch.setattr(bridge, "CALLER_TOOL_CHECK_ENABLED", False)
+    monkeypatch.setattr(bridge, "AGENT_CONTEXT_HMAC_SECRET", "")
+    monkeypatch.setattr(bridge, "OPENFGA_AUTHORIZATION_MODEL_ID", "")
+
+    with pytest.raises(ValueError) as exc_info:
+        bridge._validate_tool_policy_config()
+
+    message = str(exc_info.value)
+    assert "CAIPE_CALLER_TOOL_CHECK_ENABLED=true" in message
+    assert "CAIPE_AGENT_CONTEXT_HMAC_SECRET" in message
+    assert "OPENFGA_AUTHORIZATION_MODEL_ID" in message
+
+
+def test_tool_policy_configuration_accepts_complete_prerequisites(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bridge = _load_bridge_module()
+    monkeypatch.setattr(
+        bridge,
+        "TOOL_SCHEMA_HASHES",
+        {"issue_tracker/create_item": "sha256:example-schema"},
+    )
+    monkeypatch.setattr(bridge, "CALLER_TOOL_CHECK_ENABLED", True)
+    monkeypatch.setattr(bridge, "AGENT_CONTEXT_HMAC_SECRET", "test-secret")
+    monkeypatch.setattr(bridge, "OPENFGA_AUTHORIZATION_MODEL_ID", "example-model")
+
+    bridge._validate_tool_policy_config()
+
+
+def test_agent_and_caller_exact_checks_receive_identical_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bridge = _load_bridge_module()
+    checks: list[tuple[str, str, str, dict[str, object] | None]] = []
+
+    def _fake_check_openfga(
+        user: str,
+        relation: str,
+        obj: str,
+        *,
+        context: dict[str, object] | None = None,
+    ) -> bool:
+        checks.append((user, relation, obj, context))
+        return True
+
+    monkeypatch.setattr(bridge, "_decode_verified_bearer_subject", lambda _header: "example-user")
+    monkeypatch.setattr(bridge, "_check_openfga", _fake_check_openfga)
+    monkeypatch.setattr(bridge, "log_authz_decision", lambda **_event: None, raising=False)
+    monkeypatch.setattr(bridge, "BYPASS_SUBS", frozenset())
+    monkeypatch.setattr(bridge, "AGENT_CONTEXT_HMAC_SECRET", "test-secret")
+    monkeypatch.setattr(bridge, "CALLER_TOOL_CHECK_ENABLED", True)
+    monkeypatch.setattr(
+        bridge,
+        "TOOL_SCHEMA_HASHES",
+        {"issue_tracker/create_item": "sha256:example-schema"},
+    )
+    context_header, signature = bridge.build_agent_context_header(
+        "example-agent",
+        secret="test-secret",
+    )
+    request = bridge.build_check_request(
+        headers={
+            "authorization": "Bearer valid-token",
+            "x-caipe-agent-context": context_header,
+            "x-caipe-agent-context-signature": signature,
+        },
+        path="/mcp/issue_tracker",
+        method="POST",
+        body=(
+            '{"jsonrpc":"2.0","method":"tools/call","params":'
+            '{"name":"create_item","arguments":{"project_key":"PRIMARY"}}}'
+        ),
+    )
+
+    response = bridge.OpenFgaAuthorizationService().Check(request, None)
+
+    assert response.status.code == bridge.OK
+    exact_contexts = [
+        context
+        for _user, _relation, obj, context in checks
+        if obj == "tool:issue_tracker/create_item"
+    ]
+    assert exact_contexts == [
+        {
+            "schema_hash": "sha256:example-schema",
+            "string_arguments": {"/project_key": "PRIMARY"},
+            "integer_arguments": {},
+            "boolean_arguments": {},
+        },
+        {
+            "schema_hash": "sha256:example-schema",
+            "string_arguments": {"/project_key": "PRIMARY"},
+            "integer_arguments": {},
+            "boolean_arguments": {},
+        },
+    ]
+    assert all(
+        context is None
+        for _user, _relation, obj, context in checks
+        if obj != "tool:issue_tracker/create_item"
+    )

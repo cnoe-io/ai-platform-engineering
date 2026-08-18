@@ -202,6 +202,103 @@ def test_helm_openfga_model_includes_webex_space_type() -> None:
     assert "webex_workspace" in types
 
 
+def test_helm_openfga_model_includes_tool_expression_condition() -> None:
+    root = _repo_root()
+    authored_model = (root / "deploy/openfga/model.fga").read_text()
+    model_path = root / "charts/ai-platform-engineering/charts/openfga/authorization-model.json"
+    model = json.loads(model_path.read_text())
+    assert "condition string_argument_in_v1(" in authored_model
+    assert "define conditional_caller:" in authored_model
+    assert "define can_call: caller or conditional_caller or can_manage" in authored_model
+    condition = model["conditions"]["string_argument_in_v1"]
+    assert condition["expression"] == (
+        "schema_hash == expected_schema_hash && field in string_arguments "
+        "&& string_arguments[field] in allowed_values"
+    )
+    tool = next(item for item in model["type_definitions"] if item["type"] == "tool")
+    can_call_children = tool["relations"]["can_call"]["union"]["child"]
+    assert {child["computedUserset"]["relation"] for child in can_call_children} == {
+        "caller",
+        "conditional_caller",
+        "can_manage",
+    }
+    conditional_types = tool["metadata"]["relations"]["conditional_caller"][
+        "directly_related_user_types"
+    ]
+    assert conditional_types
+    assert {item["condition"] for item in conditional_types} == {
+        "string_argument_in_v1"
+    }
+
+
+def test_bridge_subchart_renders_tool_policy_context_env() -> None:
+    if shutil.which("helm") is None:
+        pytest.skip("helm is required for chart render assertions")
+
+    chart = (
+        _repo_root()
+        / "charts/ai-platform-engineering/charts/openfga-authz-bridge"
+    )
+    result = subprocess.run(
+        [
+            "helm",
+            "template",
+            "caipe",
+            str(chart),
+            "--namespace",
+            "caipe",
+            "--set",
+            "openfga.authorizationModelId=example-model-id",
+            "--set",
+            "callerToolCheck.enabled=true",
+            "--set",
+            "agentContext.existingSecret.name=example-agent-context",
+            "--set-json",
+            'toolPolicy.schemaHashes={"issue_tracker/create_item":"sha256:example-schema"}',
+        ],
+        check=True,
+        cwd=_repo_root(),
+        text=True,
+        capture_output=True,
+    )
+
+    rendered = result.stdout
+    assert "name: OPENFGA_AUTHORIZATION_MODEL_ID" in rendered
+    assert 'value: "example-model-id"' in rendered
+    assert "name: CAIPE_TOOL_SCHEMA_HASHES_JSON" in rendered
+    assert 'issue_tracker/create_item' in rendered
+    assert 'sha256:example-schema' in rendered
+    assert "name: CAIPE_TOOL_POLICY_MAX_BODY_BYTES" in rendered
+    assert "name: CAIPE_TOOL_POLICY_MAX_CONTEXT_BYTES" in rendered
+
+
+def test_bridge_subchart_rejects_incomplete_tool_policy_configuration() -> None:
+    if shutil.which("helm") is None:
+        pytest.skip("helm is required for chart render assertions")
+
+    chart = (
+        _repo_root()
+        / "charts/ai-platform-engineering/charts/openfga-authz-bridge"
+    )
+    result = subprocess.run(
+        [
+            "helm",
+            "template",
+            "caipe",
+            str(chart),
+            "--set-json",
+            'toolPolicy.schemaHashes={"issue_tracker/create_item":"sha256:example-schema"}',
+        ],
+        check=False,
+        cwd=_repo_root(),
+        text=True,
+        capture_output=True,
+    )
+
+    assert result.returncode != 0
+    assert "requires callerToolCheck.enabled=true" in result.stderr
+
+
 def test_webex_bot_configmap_includes_in_cluster_service_urls() -> None:
     rendered = _helm_template_webex_bot()
     for key in (

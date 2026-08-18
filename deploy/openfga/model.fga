@@ -222,12 +222,13 @@ type tool
     define reader: [user, service_account, team#member, team#admin, external_group#member, slack_channel, webex_space]
     define user: [user, service_account, team#member, team#admin, external_group#member, slack_channel, webex_space]
     define caller: [user, service_account, team#member, team#admin, external_group#member, slack_channel, webex_space, agent]
+    define conditional_caller: [user with string_argument_in_v1, service_account with string_argument_in_v1, team#member with string_argument_in_v1, team#admin with string_argument_in_v1, external_group#member with string_argument_in_v1, slack_channel with string_argument_in_v1, webex_space with string_argument_in_v1, agent with string_argument_in_v1]
     define manager: [user, service_account, team#admin]
     define auditor: [user, service_account, team#admin]
     define can_discover: can_read
     define can_read: reader or can_use or can_manage
     define can_use: user or can_call or can_manage
-    define can_call: caller or can_manage
+    define can_call: caller or conditional_caller or can_manage
     define can_manage: manager
     define can_audit: auditor or can_manage
 
@@ -466,3 +467,10 @@ type system_config
     define can_write: writer or can_manage
     define can_manage: manager
     define can_audit: auditor or can_manage
+
+# Reviewed build-time template for exact tool policies. The tuple supplies
+# field, allowed_values, and expected_schema_hash. The trusted enforcement
+# adapter supplies schema_hash and string_arguments at request time.
+condition string_argument_in_v1(field: string, allowed_values: list<string>, expected_schema_hash: string, schema_hash: string, string_arguments: map<string>) {
+  schema_hash == expected_schema_hash && field in string_arguments && string_arguments[field] in allowed_values
+}

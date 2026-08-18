@@ -187,6 +187,67 @@ manager-derived invocation must be measured and replaced with explicit
 
 ## Expression Model
 
+### Construction and evaluation lifecycle
+
+Conditional policy construction is split across three times; it is neither
+entirely build-time nor entirely request-time.
+
+| Time | Owner | Artifact |
+|---|---|---|
+| Build and release | CAIPE developers | Reviewed named CEL conditions in `deploy/openfga/model.fga`, generated chart JSON, template registry, and test vectors |
+| Policy administration runtime | Authz control plane | A typed template instance validated against the resource schema, plus an OpenFGA conditional tuple containing administrator-controlled constants |
+| Protected-request runtime | `caipe-authz` | Trusted typed context projected from the observed request and sent to OpenFGA Check |
+
+Creating a new policy with an existing template does not generate an
+authorization model or require a build. Adding a new operator, parameter shape,
+or CEL expression requires a reviewed source/model change and deployment.
+OpenFGA evaluates the named condition at request time; neither the bridge nor
+`caipe-authz` executes CEL source.
+
+The first implementation slice uses the current bridge as a transitional
+context adapter while the standalone Authz Service is extracted. The bridge
+parses bounded MCP `params.arguments`, projects typed maps, and passes them as
+OpenFGA Check context. That logic moves unchanged behind the Authz Service
+`ext_authz` adapter; it is not a second policy evaluator.
+
+Until the Authz catalog resolver is available, the bridge accepts only a
+deployment-owned exact-tool-to-schema-hash map. A request cannot provide or
+override the current schema hash. A missing mapping yields no conditional
+context, so the conditional allow path fails closed. This transitional mapping
+does not replace the target sanitized schema catalog and authenticated resolver.
+Configuring any mapping also requires caller exact-tool checks, signed agent
+context, and an explicit OpenFGA model ID; startup and Helm rendering fail when
+those prerequisites are absent instead of silently skipping enforcement.
+
+If bounded projection fails for a configured request, the bridge supplies the
+trusted schema hash with empty typed argument maps. The condition evaluates
+false, while an existing unconditional relationship remains evaluable. This is
+required for the additive parallel-migration guarantee.
+
+### Required model and bridge changes
+
+| Component | Initial additive change | Target state |
+|---|---|---|
+| `deploy/openfga/model.fga` | Add versioned named conditions and `tool#conditional_caller`; keep current unconditional and manager-derived paths for compatibility | Authz releases own compatible model/template descriptors; invocation/management separation is a later measured migration |
+| Chart authorization-model JSON | Regenerate from the authored DSL and validate exact parity | Remains the single deployed model artifact |
+| Current OpenFGA bridge | Accept bounded request context and include it only on exact tool checks; continue using OpenFGA as PDP | Becomes a temporary migration router, then is retired |
+| `caipe-authz` | Receive the same context contract during extraction | Own HTTP and `ext_authz` context construction and OpenFGA invocation |
+
+With no conditional tuple, the additive model and bridge changes preserve
+existing decisions. A policy begins enforcing only after an administrator
+writes a verified conditional tuple and the exact resource/action scope is
+Authz-authoritative.
+
+### Initial vertical-slice boundary
+
+This specification's first executable slice includes the named OpenFGA
+condition, conditional relationship, trusted bridge context, Helm wiring, and
+real OpenFGA end-to-end tests. It intentionally does not yet include the
+standalone `caipe-authz` deployment, administrator policy API, condition-aware
+tuple reconciler, or BFF HTTP adapter. Those control-plane and extraction tasks
+remain staged migration work; production conditional tuples must not be enabled
+until their owning scope has shadow parity and an authenticated policy writer.
+
 ### Public representation
 
 The UI and API use a versioned, declarative expression document:

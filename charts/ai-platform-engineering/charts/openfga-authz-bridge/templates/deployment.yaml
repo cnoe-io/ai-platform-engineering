@@ -1,3 +1,17 @@
+{{- if .Values.toolPolicy.schemaHashes }}
+{{- if not .Values.callerToolCheck.enabled }}
+{{- fail "toolPolicy.schemaHashes requires callerToolCheck.enabled=true" }}
+{{- end }}
+{{- if not .Values.agentContext.existingSecret.name }}
+{{- fail "toolPolicy.schemaHashes requires agentContext.existingSecret.name" }}
+{{- end }}
+{{- if not .Values.agentContext.existingSecret.key }}
+{{- fail "toolPolicy.schemaHashes requires agentContext.existingSecret.key" }}
+{{- end }}
+{{- if not .Values.openfga.authorizationModelId }}
+{{- fail "toolPolicy.schemaHashes requires openfga.authorizationModelId" }}
+{{- end }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -33,6 +47,10 @@ spec:
             {{- if .Values.openfga.storeId }}
             - name: OPENFGA_STORE_ID
               value: {{ .Values.openfga.storeId | quote }}
+            {{- end }}
+            {{- if .Values.openfga.authorizationModelId }}
+            - name: OPENFGA_AUTHORIZATION_MODEL_ID
+              value: {{ .Values.openfga.authorizationModelId | quote }}
             {{- end }}
             - name: OPENFGA_RELATION
               value: {{ .Values.openfga.relation | quote }}
@@ -74,6 +92,14 @@ spec:
             {{- if .Values.callerToolCheck.enabled }}
             - name: CAIPE_CALLER_TOOL_CHECK_ENABLED
               value: "true"
+            {{- end }}
+            - name: CAIPE_TOOL_POLICY_MAX_BODY_BYTES
+              value: {{ .Values.toolPolicy.maxBodyBytes | quote }}
+            - name: CAIPE_TOOL_POLICY_MAX_CONTEXT_BYTES
+              value: {{ .Values.toolPolicy.maxContextBytes | quote }}
+            {{- if .Values.toolPolicy.schemaHashes }}
+            - name: CAIPE_TOOL_SCHEMA_HASHES_JSON
+              value: {{ .Values.toolPolicy.schemaHashes | toJson | quote }}
             {{- end }}
             {{- if .Values.restrictedMcpServers }}
             - name: CAIPE_RESTRICTED_MCP_SERVERS

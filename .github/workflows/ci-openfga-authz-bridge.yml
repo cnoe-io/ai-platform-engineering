@@ -1,5 +1,5 @@
 name: "[CI] OpenFGA Authz Bridge Build and Push"
-description: "Build and push OpenFGA ext_authz bridge Docker image"
+# Build, test, and publish the OpenFGA ext_authz bridge image.
 
 on:
   push:
@@ -8,6 +8,9 @@ on:
   pull_request:
     paths:
       - 'deploy/openfga/bridge/**'
+      - 'deploy/openfga/model.fga'
+      - 'charts/ai-platform-engineering/charts/openfga/authorization-model.json'
+      - 'charts/ai-platform-engineering/charts/openfga-authz-bridge/**'
       - '.github/workflows/ci-openfga-authz-bridge.yml'
   workflow_dispatch:
     inputs:
@@ -20,6 +23,38 @@ permissions:
   contents: read
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40  # v2.20.1
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+
+      - name: Validate authored OpenFGA model
+        run: >-
+          docker run --rm
+          -v "$PWD:/repo:ro"
+          openfga/cli@sha256:26acde96d90420e53fe361a740dcceba4b67f1c49e4f35117cd0c19c83ac5068
+          model validate --file /repo/deploy/openfga/model.fga
+
+      - name: Run bridge unit and real OpenFGA E2E tests
+        env:
+          RUN_OPENFGA_E2E: "1"
+        run: >-
+          uv run --project deploy/openfga/bridge pytest
+          deploy/openfga/bridge/tests/test_grpc_bridge.py
+          deploy/openfga/bridge/tests/test_conditions_e2e.py
+          deploy/openfga/bridge/tests/test_helm_values.py::test_helm_openfga_model_includes_tool_expression_condition
+          deploy/openfga/bridge/tests/test_helm_values.py::test_bridge_subchart_renders_tool_policy_context_env
+          deploy/openfga/bridge/tests/test_helm_values.py::test_bridge_subchart_rejects_incomplete_tool_policy_configuration
+
   determine-changes:
     runs-on: ubuntu-latest
     outputs:
@@ -45,7 +80,6 @@ jobs:
           TAG_VERSION: ${{ steps.version.outputs.tag_version }}
         run: |
           SHOULD_BUILD="true"
-          TAG_VERSION="${TAG_VERSION}"
 
           if [[ "$TAG_VERSION" =~ -chart\.[0-9]+$ ]]; then
             SHOULD_BUILD="false"
@@ -65,7 +99,7 @@ jobs:
   # was introduced to fix (QEMU-emulated arm64 timing out/OOMing).
   build-and-push:
     runs-on: ${{ matrix.runner }}
-    needs: determine-changes
+    needs: [test, determine-changes]
     if: |
       needs.determine-changes.outputs.should_build == 'true' &&
       (github.event_name != 'pull_request' || !startsWith(github.head_ref, 'prebuild/'))
@@ -196,9 +230,18 @@ jobs:
       - name: Create manifest list and push
         working-directory: /tmp/digests
         run: |
-          docker buildx imagetools create \
-            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
-            $(printf '${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@sha256:%s ' *)
+          mapfile -t METADATA_TAGS < <(jq -r '.tags[]' <<< "$DOCKER_METADATA_OUTPUT_JSON")
+          TAG_ARGS=()
+          for tag in "${METADATA_TAGS[@]}"; do
+            TAG_ARGS+=("-t" "$tag")
+          done
+
+          DIGEST_ARGS=()
+          for digest in *; do
+            DIGEST_ARGS+=("${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@sha256:$digest")
+          done
+
+          docker buildx imagetools create "${TAG_ARGS[@]}" "${DIGEST_ARGS[@]}"
 
       - name: Inspect image
         run: |

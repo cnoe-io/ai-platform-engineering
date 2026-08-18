@@ -21,6 +21,8 @@ openfga:
   httpUrl: "http://openfga:8080"
   storeName: caipe-openfga
   storeId: ""
+  # Optional explicit model ID pins bridge checks during model migrations.
+  authorizationModelId: ""
   relation: can_call
   object: mcp_gateway:list
   bypassSubs: ""
@@ -45,6 +47,13 @@ callerToolCheck:
   # When enabled, the bridge additionally verifies that the calling user/team
   # holds an explicit grant for the tool being invoked (dual-gate).
   enabled: false
+
+toolPolicy:
+  # Transitional trusted schema registry used only by the bridge while context
+  # construction moves to caipe-authz. Keys are exact <server>/<tool> refs.
+  schemaHashes: {}
+  maxBodyBytes: 65536
+  maxContextBytes: 16384
 
 # MCP server IDs that require the caller to hold `can_invoke` on the matching
 # OpenFGA `mcp_server:<id>` object. This is independent of callerToolCheck.

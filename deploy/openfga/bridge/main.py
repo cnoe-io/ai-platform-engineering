@@ -41,6 +41,9 @@ except ModuleNotFoundError:
 
 OPENFGA_HTTP = os.environ.get("OPENFGA_HTTP", "http://openfga:8080").rstrip("/")
 OPENFGA_STORE_NAME = os.environ.get("OPENFGA_STORE_NAME", "caipe-openfga").strip()
+OPENFGA_AUTHORIZATION_MODEL_ID = os.environ.get(
+    "OPENFGA_AUTHORIZATION_MODEL_ID", ""
+).strip()
 GRPC_BIND = os.environ.get("EXT_AUTHZ_GRPC_BIND", "0.0.0.0:9100")
 JWT_JWKS_URL = os.environ.get("JWT_JWKS_URL", "").strip()
 JWT_ISSUER = os.environ.get("JWT_ISSUER", "").strip()
@@ -86,6 +89,55 @@ RESTRICTED_MCP_SERVERS = frozenset(
     for server_id in os.environ.get("CAIPE_RESTRICTED_MCP_SERVERS", "").split(",")
     if server_id.strip()
 )
+TOOL_POLICY_MAX_BODY_BYTES = int(
+    os.environ.get("CAIPE_TOOL_POLICY_MAX_BODY_BYTES", "65536")
+)
+TOOL_POLICY_MAX_CONTEXT_BYTES = int(
+    os.environ.get("CAIPE_TOOL_POLICY_MAX_CONTEXT_BYTES", "16384")
+)
+
+
+def _load_tool_schema_hashes(raw: str) -> dict[str, str]:
+    if not raw.strip():
+        return {}
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError("CAIPE_TOOL_SCHEMA_HASHES_JSON must be valid JSON") from exc
+    if not isinstance(value, dict):
+        raise ValueError("CAIPE_TOOL_SCHEMA_HASHES_JSON must be a JSON object")
+    hashes: dict[str, str] = {}
+    for tool_ref, schema_hash in value.items():
+        if not isinstance(tool_ref, str) or not tool_ref or "/" not in tool_ref:
+            raise ValueError("tool schema hash keys must be <server>/<tool>")
+        if not isinstance(schema_hash, str) or not schema_hash.startswith("sha256:"):
+            raise ValueError("tool schema hashes must use the sha256: prefix")
+        hashes[tool_ref] = schema_hash
+    return hashes
+
+
+TOOL_SCHEMA_HASHES = _load_tool_schema_hashes(
+    os.environ.get("CAIPE_TOOL_SCHEMA_HASHES_JSON", "")
+)
+
+
+def _validate_tool_policy_config() -> None:
+    if TOOL_POLICY_MAX_BODY_BYTES <= 0 or TOOL_POLICY_MAX_CONTEXT_BYTES <= 0:
+        raise ValueError("tool policy byte limits must be positive")
+    if not TOOL_SCHEMA_HASHES:
+        return
+    missing: list[str] = []
+    if not CALLER_TOOL_CHECK_ENABLED:
+        missing.append("CAIPE_CALLER_TOOL_CHECK_ENABLED=true")
+    if not AGENT_CONTEXT_HMAC_SECRET:
+        missing.append("CAIPE_AGENT_CONTEXT_HMAC_SECRET")
+    if not OPENFGA_AUTHORIZATION_MODEL_ID:
+        missing.append("OPENFGA_AUTHORIZATION_MODEL_ID")
+    if missing:
+        raise ValueError("conditional tool policies require " + ", ".join(missing))
+
+
+_validate_tool_policy_config()
 _JWKS_CLIENT: jwt.PyJWKClient | None = None
 OK = 0
 PERMISSION_DENIED = 7
@@ -325,7 +377,13 @@ def discover_store_id() -> str:
     return STORE_ID
 
 
-def _check_openfga(user: str, relation: str, obj: str) -> bool:
+def _check_openfga(
+    user: str,
+    relation: str,
+    obj: str,
+    *,
+    context: dict[str, object] | None = None,
+) -> bool:
     store_id = discover_store_id()
     if not store_id:
         return False
@@ -333,6 +391,10 @@ def _check_openfga(user: str, relation: str, obj: str) -> bool:
     body: dict = {
         "tuple_key": {"user": user, "relation": relation, "object": obj},
     }
+    if context is not None:
+        body["context"] = context
+    if OPENFGA_AUTHORIZATION_MODEL_ID:
+        body["authorization_model_id"] = OPENFGA_AUTHORIZATION_MODEL_ID
     with httpx.Client(timeout=10.0) as client:
         r = client.post(url, json=body)
         r.raise_for_status()
@@ -555,8 +617,15 @@ def _agent_context_from_headers(
 def _request_body_text(request: CheckRequest) -> str:
     http_request = request.attributes.request.http
     if http_request.raw_body:
-        return http_request.raw_body.decode("utf-8", errors="replace")
-    return http_request.body or ""
+        raw_body = bytes(http_request.raw_body)
+    else:
+        raw_body = (http_request.body or "").encode("utf-8")
+    if len(raw_body) > TOOL_POLICY_MAX_BODY_BYTES:
+        raise InvalidMcpRequest("MCP request body exceeds the authorization limit")
+    try:
+        return raw_body.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise InvalidMcpRequest("MCP request body must be valid UTF-8") from exc
 
 
 def _mcp_target_from_path(path: str) -> str | None:
@@ -566,8 +635,27 @@ def _mcp_target_from_path(path: str) -> str | None:
     return None
 
 
-def mcp_tool_call_from_request(request: CheckRequest) -> tuple[str, str] | None:
-    """Return ``(target, tool_name)`` for MCP tools/call requests, if available."""
+class InvalidMcpRequest(ValueError):
+    """A malformed or unsafe MCP request that must fail closed."""
+
+
+class McpToolCall(NamedTuple):
+    target: str
+    name: str
+    arguments: dict[str, object]
+
+
+def _reject_duplicate_json_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    value: dict[str, object] = {}
+    for key, item in pairs:
+        if key in value:
+            raise InvalidMcpRequest("MCP request body contains a duplicate JSON key")
+        value[key] = item
+    return value
+
+
+def mcp_tool_call_from_request(request: CheckRequest) -> McpToolCall | None:
+    """Return a validated MCP tools/call request, or None for another method."""
     target = _mcp_target_from_path(request.attributes.request.http.path)
     if not target:
         return None
@@ -575,18 +663,108 @@ def mcp_tool_call_from_request(request: CheckRequest) -> tuple[str, str] | None:
     if not body:
         return None
     try:
-        payload = json.loads(body)
-    except Exception:
-        return None
+        payload = json.loads(body, object_pairs_hook=_reject_duplicate_json_keys)
+    except InvalidMcpRequest:
+        raise
+    except json.JSONDecodeError as exc:
+        raise InvalidMcpRequest("MCP request body must be valid JSON") from exc
+    if not isinstance(payload, dict):
+        raise InvalidMcpRequest("MCP request body must be a JSON object")
     if payload.get("method") != "tools/call":
         return None
     params = payload.get("params")
     if not isinstance(params, dict):
-        return None
+        raise InvalidMcpRequest("MCP tools/call params must be an object")
     name = params.get("name")
     if not isinstance(name, str) or not name:
+        raise InvalidMcpRequest("MCP tools/call name must be a non-empty string")
+    arguments = params.get("arguments", {})
+    if not isinstance(arguments, dict):
+        raise InvalidMcpRequest("MCP tools/call arguments must be an object")
+    return McpToolCall(target=target, name=name, arguments=arguments)
+
+
+def _json_pointer_escape(value: str) -> str:
+    return value.replace("~", "~0").replace("/", "~1")
+
+
+def _project_argument_maps(
+    arguments: dict[str, object],
+) -> tuple[dict[str, str], dict[str, int], dict[str, bool]]:
+    string_arguments: dict[str, str] = {}
+    integer_arguments: dict[str, int] = {}
+    boolean_arguments: dict[str, bool] = {}
+    field_count = 0
+
+    def visit(value: object, pointer: str, depth: int) -> None:
+        nonlocal field_count
+        if depth > 8:
+            raise InvalidMcpRequest("MCP arguments exceed the maximum policy depth")
+        if isinstance(value, dict):
+            for key in sorted(value):
+                if not isinstance(key, str):
+                    raise InvalidMcpRequest("MCP argument object keys must be strings")
+                visit(value[key], f"{pointer}/{_json_pointer_escape(key)}", depth + 1)
+            return
+        if isinstance(value, list) or value is None or isinstance(value, float):
+            return
+        field_count += 1
+        if field_count > 64:
+            raise InvalidMcpRequest("MCP arguments exceed the maximum policy field count")
+        if isinstance(value, bool):
+            boolean_arguments[pointer] = value
+        elif isinstance(value, int):
+            integer_arguments[pointer] = value
+        elif isinstance(value, str):
+            string_arguments[pointer] = value
+
+    visit(arguments, "", 0)
+    return string_arguments, integer_arguments, boolean_arguments
+
+
+def tool_condition_context(tool_call: McpToolCall) -> dict[str, object] | None:
+    """Build trusted typed Check context for a configured exact tool."""
+    schema_hash = TOOL_SCHEMA_HASHES.get(f"{tool_call.target}/{tool_call.name}")
+    if not schema_hash:
         return None
-    return target, name
+    try:
+        string_arguments, integer_arguments, boolean_arguments = _project_argument_maps(
+            tool_call.arguments
+        )
+        context: dict[str, object] = {
+            "schema_hash": schema_hash,
+            "string_arguments": string_arguments,
+            "integer_arguments": integer_arguments,
+            "boolean_arguments": boolean_arguments,
+        }
+        encoded = json.dumps(context, separators=(",", ":"), sort_keys=True).encode(
+            "utf-8"
+        )
+        if len(encoded) > TOOL_POLICY_MAX_CONTEXT_BYTES:
+            raise InvalidMcpRequest("MCP policy context exceeds the authorization limit")
+        return context
+    except InvalidMcpRequest:
+        # Keep additive rollout semantics: a projection that is unusable for a
+        # conditional tuple must not suppress a pre-existing unconditional
+        # grant. Well-typed empty maps make the current condition false while
+        # allowing OpenFGA to continue resolving unconditional relations.
+        print("[bridge] conditional tool context unavailable", file=sys.stderr)
+        return {
+            "schema_hash": schema_hash,
+            "string_arguments": {},
+            "integer_arguments": {},
+            "boolean_arguments": {},
+        }
+
+
+def _check_exact_tool(
+    user: str,
+    obj: str,
+    context: dict[str, object] | None,
+) -> bool:
+    if context is None:
+        return _check_openfga(user, "can_call", obj)
+    return _check_openfga(user, "can_call", obj, context=context)
 
 
 def _subject_from_metadata(request: CheckRequest) -> str | None:
@@ -788,7 +966,26 @@ class OpenFgaAuthorizationService:
                     reason_code="OK_MCP_SERVER_INVOKE",
                     duration_ms=(time.perf_counter() - start) * 1000,
                 )
-            tool_call = mcp_tool_call_from_request(request)
+            try:
+                tool_call = mcp_tool_call_from_request(request)
+                tool_context = tool_condition_context(tool_call) if tool_call else None
+            except InvalidMcpRequest as exc:
+                print(f"[bridge] invalid MCP request: {exc}", file=sys.stderr)
+                _audit_decision(
+                    request=request,
+                    subject=sub,
+                    user=user,
+                    relation="can_call",
+                    obj=f"tool:{mcp_target or 'unknown'}/unknown",
+                    outcome="deny",
+                    reason_code="DENY_INVALID_MCP_REQUEST",
+                    duration_ms=(time.perf_counter() - start) * 1000,
+                )
+                return build_check_response(
+                    allowed=False,
+                    code=PERMISSION_DENIED,
+                    message="invalid MCP tool request",
+                )
             if allowed and tool_call and AGENT_CONTEXT_HMAC_SECRET:
                 agent_context = _agent_context_from_headers(headers)
                 if not agent_context:
@@ -797,7 +994,7 @@ class OpenFgaAuthorizationService:
                         subject=sub,
                         user=user,
                         relation="can_call",
-                        obj=f"tool:{tool_call[0]}/{tool_call[1]}",
+                        obj=f"tool:{tool_call.target}/{tool_call.name}",
                         outcome="deny",
                         reason_code="DENY_NO_AGENT_CONTEXT",
                         duration_ms=(time.perf_counter() - start) * 1000,
@@ -829,17 +1026,17 @@ class OpenFgaAuthorizationService:
                 # agent/tool relations.
                 if agent_context.kind != AGENT_CONTEXT_KIND_LOCAL:
                     agent_allowed = _check_openfga(user, "can_use", f"agent:{agent_id}")
-                    exact_tool_allowed = _check_openfga(
+                    exact_tool_allowed = _check_exact_tool(
                         f"agent:{agent_id}",
-                        "can_call",
-                        f"tool:{tool_call[0]}/{tool_call[1]}",
+                        f"tool:{tool_call.target}/{tool_call.name}",
+                        tool_context,
                     )
                     wildcard_tool_allowed = False
                     if not exact_tool_allowed:
                         wildcard_tool_allowed = _check_openfga(
                             f"agent:{agent_id}",
                             "can_call",
-                            f"tool:{tool_call[0]}/*",
+                            f"tool:{tool_call.target}/*",
                         )
                     if not agent_allowed:
                         _audit_decision(
@@ -863,7 +1060,7 @@ class OpenFgaAuthorizationService:
                             subject=sub,
                             user=f"agent:{agent_id}",
                             relation="can_call",
-                            obj=f"tool:{tool_call[0]}/{tool_call[1]}",
+                            obj=f"tool:{tool_call.target}/{tool_call.name}",
                             outcome="deny",
                             reason_code="DENY_AGENT_TOOL",
                             duration_ms=(time.perf_counter() - start) * 1000,
@@ -879,7 +1076,7 @@ class OpenFgaAuthorizationService:
                         subject=sub,
                         user=user,
                         relation="can_call",
-                        obj=f"tool:{tool_call[0]}/{tool_call[1]}",
+                        obj=f"tool:{tool_call.target}/{tool_call.name}",
                         outcome="allow",
                         reason_code="OK_LOCAL_AGENT_CONTEXT",
                         duration_ms=(time.perf_counter() - start) * 1000,
@@ -892,14 +1089,14 @@ class OpenFgaAuthorizationService:
                 # Applies to all subjects; gated behind a config flag for safe
                 # rollout (FR-012c, see CALLER_TOOL_CHECK_ENABLED).
                 if CALLER_TOOL_CHECK_ENABLED:
-                    caller_tool_obj = f"tool:{tool_call[0]}/{tool_call[1]}"
-                    caller_exact = _check_openfga(user, "can_call", caller_tool_obj)
+                    caller_tool_obj = f"tool:{tool_call.target}/{tool_call.name}"
+                    caller_exact = _check_exact_tool(user, caller_tool_obj, tool_context)
                     caller_wildcard = False
                     if not caller_exact:
                         caller_wildcard = _check_openfga(
                             user,
                             "can_call",
-                            f"tool:{tool_call[0]}/*",
+                            f"tool:{tool_call.target}/*",
                         )
                     if not (caller_exact or caller_wildcard):
                         _audit_decision(
