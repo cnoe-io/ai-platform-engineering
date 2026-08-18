@@ -8,6 +8,7 @@ This is the release-validation runbook for the planned implementation. Commands 
 git branch --show-current
 test -f docs/docs/specs/2026-08-17-harness-engine/spec.md
 test -f docs/docs/specs/2026-08-17-harness-engine/plan.md
+test -f docs/docs/specs/2026-08-17-harness-engine/tasks.md
 test -f docs/docs/specs/2026-08-17-harness-engine/contracts/harness-adapter-v1.md
 test -f docs/docs/specs/2026-08-17-harness-engine/contracts/canonical-events-v1.md
 test -f docs/docs/specs/2026-08-17-harness-engine/contracts/sandbox-worker-v1.md

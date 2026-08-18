@@ -105,6 +105,7 @@ docs/docs/specs/2026-08-17-harness-engine/
 ├── data-model.md
 ├── quickstart.md
 ├── mongodb-migration.md
+├── tasks.md
 ├── contracts/
 │   ├── rest-api-v1.md
 │   ├── harness-adapter-v1.md
@@ -181,6 +182,8 @@ charts/ai-platform-engineering/charts/dynamic-agents/
 ```
 
 **Structure Decision**: Keep the `dynamic_agents` package, image/service aliases, and chart during the compatibility period. Add the Harness Engine abstraction under `services/harnesses/`; do not copy the service into a second source tree. Rename packages and deployment objects only in a later, separately specified cleanup after rollback is no longer required.
+
+The dependency-ordered implementation backlog, independent story checkpoints, exact file targets, and release gates are defined in [tasks.md](./tasks.md), generated as the Spec Kit Phase 2 deliverable.
 
 ## Key Technical Decisions
 
