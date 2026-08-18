@@ -5,21 +5,23 @@
 
 ## Summary
 
-Evolve the existing Dynamic Agents service in place into the trusted Harness Engine control plane using a strangler migration. Keep the current package, service name, BFF/runtime ownership split, MongoDB data, routes, authorization, SSE/AG-UI protocols, deployment, and rollback path stable during adoption. Move each local harness conversation into a claim-exclusive Kubernetes Agent Sandbox pod, wrap the current Deep Agents/LangGraph implementation as the default `deepagents` compatibility worker, then add certified worker images for Claude Agent SDK and Strands Agents plus a managed-remote AgentCore adapter.
+Build Harness Engine as an independent service and adopt it beside Dynamic Agents. The first vertical slice supports an operator-allowlisted Amazon Bedrock AgentCore runtime. No source file, route, database schema, stream, or execution behavior in `ai_platform_engineering/dynamic_agents/` changes.
 
-Common platform policy remains outside adapters: authentication and OpenFGA checks, agent configuration, prompt rendering, MCP credential resolution, tool policy, built-in tools, skills scanning, attachment limits/storage, subagent authorization, thread persistence, long-term agent memory, runtime capacity, canonical event validation, trace propagation/redaction, protocol encoding, metrics, and audit. Adapters own only provider lifecycle translation, native thread codec integration, model invocation, and provider-specific configuration.
+The Next.js BFF remains horizontally stateless. It starts a detached Harness Engine run, returns a durable `run_id`, and proxies replay/live subscriptions by cursor. Harness Engine owns the provider task, AgentCore `runtimeSessionId`, run status, and sequenced event log, so a browser or BFF disconnect cannot cancel execution. Later harnesses use the same independent adapter/run contract; migration of existing Dynamic Agents is a separate opt-in phase.
+
+Common platform policy remains outside adapters: authentication and OpenFGA checks stay in the BFF; operator-owned runtime allowlists, session ownership, persistence, event ordering, and provider credentials stay in Harness Engine. Adapters own provider invocation and native stream translation only.
 
 ## Technical Context
 
 **Language/Version**: Python 3.13 for the runtime; TypeScript/Next.js 16 and React 19 for additive builder UI fields
-**Primary Dependencies**: Existing FastAPI, Pydantic, Deep Agents 0.6.4, LangGraph, LangChain MCP adapters, PyMongo, Prometheus, and cnoe-agent-utils; Kubernetes Agent Sandbox CRDs/controller and Python client; pinned worker dependencies for Claude Agent SDK and Strands Agents; existing boto3 client for AgentCore control/runtime APIs
-**Storage**: Existing MongoDB/LangGraph checkpoint collections; existing GridFS and local/S3 attachments; additive `harness_sessions` for binding, durable thread head, opaque provider state, and Sandbox lease; additive `harness_memories` metadata with existing object storage for large bodies; optional profile-owned PVCs only where certified
-**Testing**: pytest/pytest-asyncio/pytest-cov, existing Dynamic Agents suite unchanged, canonical event and worker-protocol state-machine tests, adapter/sandbox conformance, BFF Jest tests, Helm/controller tests, pod-escape tests, fault injection, and mixed-harness integration tests
-**Target Platform**: Linux control-plane containers on Kubernetes; claim-exclusive Agent Sandbox worker pods using certified gVisor or Kata RuntimeClasses; Docker Compose retains explicit in-process compatibility for local development; AgentCore calls managed AWS planes
-**Project Type**: Existing backend web service plus existing Next.js BFF/admin UI
+**Primary Dependencies**: Independent FastAPI/Pydantic service, boto3 AgentCore client, PyMongo, and the existing Next.js BFF/authz libraries
+**Storage**: Independent `harness_agent_configs`, `harness_runs`, and `harness_events` MongoDB collections; AgentCore owns native provider session state
+**Testing**: pytest/pytest-asyncio disconnect/replay E2E and adapter tests; BFF Jest route tests; existing Dynamic Agents tests remain unchanged
+**Target Platform**: Independent Linux control-plane container calling the managed AgentCore Runtime plane; local memory repository is test/development only
+**Project Type**: New backend service plus additive Next.js BFF routes and agent-editor overlay
 **Performance Goals**: Compatibility control-plane overhead within 10% excluding declared sandbox startup; canonical translation under 25 ms p95 per event batch; warm worker readiness under 5 seconds p95 and cold readiness under 30 seconds p95; no more than 20% control-plane memory growth
-**Constraints**: Zero breaking client or stored-data change; runtime remains read-only for agent/MCP configuration; fail closed before provider invocation; no automatic fallback after side effects; no arbitrary images or Kubernetes objects from agent config; no raw credentials in workers; existing `dynamic-agents` service alias retained
-**Scale/Scope**: Current 20-runtime logical cache per control-plane replica, bounded pending claims and warm pools per harness, horizontally scaled control plane, isolated local workers plus managed-remote traffic, all existing clients, four first-party adapters
+**Constraints**: Zero Dynamic Agents implementation changes; fail closed before provider invocation; no arbitrary AgentCore ARN from browser/agent data; no user bearer propagation; no BFF affinity; no automatic fallback after side effects
+**Scale/Scope**: AgentCore first; horizontally scaled BFF and Harness Engine readers over a shared Mongo event log; additional harnesses and sandbox workers follow the same boundary
 
 ## Constitution Check
 
@@ -37,7 +39,7 @@ Common platform policy remains outside adapters: authentication and OpenFGA chec
 
 ### Architecture decision amendment
 
-`.specify/ARCHITECTURE.md` currently states that all agents use LangGraph. Implementation must amend that decision to: “all agents execute through Harness Engine; Deep Agents/LangGraph is the default compatibility harness.” LangGraph remains supported and is not removed. This is an architecture update, not a constitutional exception.
+`.specify/ARCHITECTURE.md` continues to describe the existing LangGraph-based Dynamic Agents system. Harness Engine is a separate execution plane for opt-in agents. No claim is made that all existing agents already execute through Harness Engine.
 
 ### Supply-chain gate
 
@@ -47,27 +49,14 @@ Before enabling an adapter, record its exact locked version, license/terms, tran
 
 ```mermaid
 flowchart TB
-    C["Existing clients: UI, workflows, scheduler, Slack, Webex, API"] --> BFF["Existing Next.js BFF and configuration owner"]
-    BFF --> API["Harness Engine compatibility API"]
-    API --> AUTH["JWT, OpenFGA, audit, request validation"]
-    AUTH --> ORCH["Runtime coordinator and bounded cache"]
-    ORCH --> PREP["Prompt, skills, attachments, tools, credentials, policy"]
-    PREP --> REG["Static harness registry and capability validator"]
-    REG --> LEASE["Sandbox lease manager"]
-    LEASE --> CLAIM["SandboxClaim + warm pool"]
-    CLAIM --> DA["Exclusive Deep Agents worker pod"]
-    CLAIM --> CLAUDE["Exclusive Claude SDK worker pod"]
-    CLAIM --> STRANDS["Exclusive Strands worker pod"]
-    REG --> AC["Provider-managed AgentCore adapter"]
-    DA --> CE["Worker protocol canonical events"]
-    CLAUDE --> CE
-    STRANDS --> CE
-    AC --> CE
-    CE --> VALIDATE["Event state-machine validator"]
-    VALIDATE --> CUSTOM["Existing custom SSE encoder"]
-    VALIDATE --> AGUI["Existing AG-UI encoder"]
-    ORCH --> SESSION["Mongo checkpoints, harness session bindings, GridFS, attachments"]
-    PREP --> MCP["MCP and built-in tool broker"]
+    C["Browser/client"] --> BFF["Stateless Next.js BFF"]
+    BFF -->|"legacy routes unchanged"| DA["Dynamic Agents"]
+    BFF -->|"internal token + caller subject"| HE["Independent Harness Engine"]
+    HE --> CFG["Independent harness overlays"]
+    HE --> RUNS["Mongo runs + ordered event log"]
+    HE --> AC["AgentCore adapter"]
+    AC --> AWS["Operator-allowlisted AgentCore Runtime"]
+    C -. "reconnect run_id + cursor" .-> BFF
 ```
 
 ### Ownership boundary
@@ -181,7 +170,30 @@ charts/ai-platform-engineering/charts/dynamic-agents/
 └── templates/                           # control plane, RBAC, policies, profiles/pools
 ```
 
-**Structure Decision**: Keep the `dynamic_agents` package, image/service aliases, and chart during the compatibility period. Add the Harness Engine abstraction under `services/harnesses/`; do not copy the service into a second source tree. Rename packages and deployment objects only in a later, separately specified cleanup after rollback is no longer required.
+**Structure Decision**: Create `ai_platform_engineering/harness_engine/` as a separate package, image, API, persistence boundary, and test suite. Add only new `/api/harness-engine/*` BFF routes and a UI overlay. Do not modify `ai_platform_engineering/dynamic_agents/`; future migration is separately specified and reversible.
+
+### Implemented vertical-slice structure
+
+```text
+ai_platform_engineering/harness_engine/
+├── build/Dockerfile
+├── pyproject.toml
+├── src/harness_engine/
+│   ├── adapters/agentcore.py
+│   ├── coordinator.py
+│   ├── main.py
+│   ├── models.py
+│   └── repository.py
+└── tests/
+    ├── test_agentcore_adapter.py
+    └── test_disconnect_replay_e2e.py
+
+ui/src/
+├── app/api/harness-engine/             # catalog, overlay, run, replay, SSE
+├── lib/harness-engine-proxy.ts         # internal-credential proxy
+├── lib/harness-engine-session-client.ts
+└── types/harness-engine.ts
+```
 
 The dependency-ordered implementation backlog, independent story checkpoints, exact file targets, and release gates are defined in [tasks.md](./tasks.md), generated as the Spec Kit Phase 2 deliverable.
 

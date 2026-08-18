@@ -3,7 +3,7 @@
  */
 
 import React from "react";
-import { render, screen, act } from "@testing-library/react";
+import { render, screen, act, fireEvent } from "@testing-library/react";
 
 jest.mock("@uiw/react-codemirror", () => ({
   __esModule: true,
@@ -96,7 +96,7 @@ const editAgent = {
   updated_at: "2026-04-29T00:00:00Z",
 };
 
-function mockFetch(platformDefaultId: string | null) {
+function mockFetch(platformDefaultId: string | null, runtimeAliases: string[] = []) {
   const fetchMock = jest.fn(async (url: RequestInfo | URL) => {
     const u = typeof url === "string" ? url : url.toString();
     if (u.includes("/api/dynamic-agents/models")) {
@@ -117,6 +117,12 @@ function mockFetch(platformDefaultId: string | null) {
       return jsonResponse({
         success: true,
         data: platformDefaultId ? { default_agent_id: platformDefaultId } : {},
+      });
+    }
+    if (u.endsWith("/api/harness-engine/harnesses")) {
+      return jsonResponse({
+        success: true,
+        data: { harnesses: [{ id: "agentcore", runtime_aliases: runtimeAliases }] },
       });
     }
     return jsonResponse({ success: true, data: {} });
@@ -159,5 +165,18 @@ describe("DynamicAgentEditor — platform default grant preview", () => {
     // Backend implementation details must not leak into the UX.
     expect(preview).not.toHaveTextContent("user:*");
     expect(preview).not.toHaveTextContent("OpenFGA");
+  });
+
+  it("reveals AgentCore-specific runtime fields only after that harness is selected", async () => {
+    mockFetch(null, ["primary"]);
+    render(<DynamicAgentEditor agent={editAgent} onCancel={jest.fn()} onSave={jest.fn()} />);
+    await flushAsync();
+
+    fireEvent.change(screen.getByLabelText("Execution harness"), {
+      target: { value: "agentcore" },
+    });
+
+    expect(screen.getByLabelText("AgentCore runtime")).toHaveValue("primary");
+    expect(screen.getByText(/operator-managed runtime ARN/)).toBeInTheDocument();
   });
 });
