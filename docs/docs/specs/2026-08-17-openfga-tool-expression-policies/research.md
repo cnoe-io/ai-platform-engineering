@@ -198,6 +198,40 @@ and model ID. Safe activation requires:
 
 ## CAIPE Authorization Service Deployment Decision
 
+### Parallel migration beside the current architecture
+
+`caipe-authz` must be deployable without becoming authoritative. The current
+BFF decision engine and direct gateway bridge remain the production paths while
+the new service is introduced, observed, and promoted by bounded cohort.
+
+The migration unit is an enforcement surface plus resource/action scope. BFF,
+Dynamic Agents, bots, RAG, and AgentGateway do not share one global cutover.
+Each current enforcement boundary owns a temporary migration router with five
+deployment-controlled modes: `LEGACY`, `SHADOW`, `CANARY`, `AUTHZ`, and
+`AUTHZ_ONLY`.
+
+The router must not accept mode, cohort, or rollout revision from a caller. A
+version-controlled deployment revision determines routing. Canary membership is
+stable for the same normalized subject, resource, action, and revision.
+
+Both implementations initially use the same OpenFGA store and explicit model
+descriptor. This avoids tuple replication and makes comparisons measure the
+behavior that is actually being extracted: normalization, trusted context,
+mapping, errors, reasons, and transport semantics. A second OpenFGA store was
+rejected because it would turn migration parity into a data-replication test and
+could produce false mismatches from lag.
+
+When the legacy path is authoritative, a new-path timeout or mismatch is only
+telemetry. When Authz is authoritative, legacy evaluation may continue for
+comparison, but its result can never override Authz. Rollback is an explicit,
+audited deployment revision; it is not per-request fallback.
+
+Conditional model definitions can be deployed before conditional tuples because
+unused conditions do not change existing decisions. Conditional tuples and
+broader-grant removal occur only after the corresponding caller and agent checks
+are Authz-authoritative. Routing rollback and policy rollback remain separate so
+an operational transport rollback cannot silently broaden access.
+
 ### One logical service, multiple transports
 
 Envoy `ext_authz` is a transport protocol, not a policy engine. The same Authz
@@ -274,6 +308,11 @@ must fail closed.
 | Standalone Authz Service with HTTP and gRPC adapters | One decision core, transport-specific SLOs | New service and migration | Selected |
 | Route AgentGateway through BFF-hosted authorization | Reuses current HTTP API | BFF on data-plane hot path | Rejected |
 | Keep BFF-hosted authorization and direct bridge | Lowest migration effort | Two decision implementations persist | Rejected target state |
+| Big-bang replacement of both current paths | Short migration calendar | High access, outage, and rollback risk; no production parity evidence | Rejected |
+| Run both paths with legacy authority, then promote bounded cohorts | Preserves current behavior and produces parity evidence | Temporary duplicate evaluation and migration-router code | Selected |
+| Use one OpenFGA store during comparison | No tuple replication; comparisons isolate decision semantics | Both paths share an infrastructure dependency | Selected |
+| Duplicate OpenFGA stores during migration | Strong infrastructure isolation | Replication lag obscures parity and complicates rollback | Rejected for v1 |
+| Automatic fallback to legacy when Authz denies or errors | Appears availability-friendly | Converts deny/error into a possible allow and masks regressions | Rejected |
 | Raw CEL authored in UI | Flexible | Injection, hard review, unsafe cost, schema ambiguity | Rejected |
 | Store `$expression` on tuple | Simple-looking data model | OpenFGA cannot execute it | Rejected |
 | Generate model condition per policy | Native execution | Global model churn, growth, rollback complexity | Deferred |
@@ -450,6 +489,11 @@ Production readiness therefore requires:
 | Question | Resolution |
 |---|---|
 | Is the Authz Service the same for applications and AgentGateway? | Yes; HTTP and `ext_authz` gRPC call one standalone decision core. |
+| Does deploying Authz transfer authority? | No; every scope starts in `LEGACY` and advances through reviewed routing revisions. |
+| Is migration a global switch? | No; BFF, Dynamic Agents, RAG, bots, services, and AgentGateway advance by surface/resource/action cohort. |
+| Do the paths use separate OpenFGA stores? | No; v1 comparisons use one store and explicit model descriptor to isolate decision-semantic differences. |
+| Can Authz fall back to a legacy allow? | No; after Authz becomes authoritative, error and timeout fail closed. Rollback is an explicit routing revision. |
+| Does routing rollback change policies or tuples? | No; routing and expression-policy rollback are separate operations. |
 | Does AgentGateway call the BFF? | No; it calls the `caipe-authz` gRPC listener. |
 | What is the v1 provider? | `openfga-cel`; OpenFGA evaluates relationships and native CEL conditions. |
 | Are Cedar and OPA implemented in v1? | No; the contract permits future adapters, but they remain disabled. |

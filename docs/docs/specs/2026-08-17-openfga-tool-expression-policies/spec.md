@@ -43,30 +43,36 @@ extensions and are not enabled in v1.
 
 ## User Scenarios and Testing
 
-### User Story 0 - Receive the same decision through `caipe-authz` (Priority: P1)
+### User Story 0 - Migrate without changing current access (Priority: P1)
 
-An application and AgentGateway submit equivalent authorization requests over
-their native transports and receive the same decision, reason, and policy
-revision from one Authz Service decision core.
+An operator deploys `caipe-authz` beside the existing BFF authorization engine
+and gateway bridge, observes side-by-side results, and transfers authority one
+approved resource/action cohort at a time.
 
-**Why this priority:** A universal contract is not sufficient while BFF and
-gateway traffic execute different decision implementations.
+**Why this priority:** A big-bang replacement creates unacceptable access and
+rollback risk. Current behavior must remain authoritative until parity is
+measured and an operator explicitly promotes a cohort.
 
-**Independent test:** Send one canonical request through Authz Service HTTP and
-an equivalent Envoy `CheckRequest` through Authz Service gRPC. Assert that both
-normalize to the same provider input and result.
+**Independent test:** Put one test resource in `SHADOW`, replay allow, deny, and
+error cases, verify the legacy outcome remains authoritative, promote only that
+resource to `CANARY`, and roll it back without changing another resource.
 
 **Acceptance scenarios:**
 
-1. **Given** a BFF route, **when** it authorizes over HTTP, **then** the BFF does
-   not evaluate OpenFGA policy in process.
-2. **Given** an MCP call, **when** AgentGateway invokes `ext_authz`, **then** the
-   Authz Service gRPC adapter calls the same decision core used by HTTP.
-3. **Given** an unavailable required provider, **when** either transport calls
-   the Authz Service, **then** it fails closed with a stable reason.
-4. **Given** an untrusted request names `cedar`, `opa`, or another provider,
-   **when** the Authz Service validates it, **then** it rejects that provider
-   override.
+1. **Given** mode `LEGACY`, **when** a request is authorized, **then** only the
+   current implementation determines the production result.
+2. **Given** mode `SHADOW`, **when** legacy and Authz disagree, **then** the
+   legacy result remains authoritative and one comparison event records the
+   mismatch.
+3. **Given** an approved canary cohort, **when** mode becomes `CANARY`, **then**
+   Authz is authoritative only for that deterministic cohort.
+4. **Given** Authz is authoritative, **when** Authz denies or errors and legacy
+   allows, **then** legacy does not override the result.
+5. **Given** a canary regression, **when** an operator applies an audited
+   rollback revision, **then** the cohort returns to `SHADOW` or `LEGACY`
+   without an automatic tuple or grant change.
+6. **Given** a caller supplies migration metadata, **when** the router selects a
+   path, **then** caller input cannot affect mode or cohort membership.
 
 ### User Story 1 - Restrict a tool by an argument (Priority: P1)
 
@@ -171,9 +177,9 @@ existing grant, observe decisions, and enable selected exact tools incrementally
 **Why this priority:** Authorization changes must not silently remove or broaden
 existing production access.
 
-**Independent test:** Deploy phases 0 and 1 with no conditional tuples and
-verify that existing decisions are unchanged; then migrate one exact tool and
-verify only that tool uses expression enforcement.
+**Independent test:** Deploy `caipe-authz` in `LEGACY`, advance one exact tool
+through `SHADOW` and `CANARY`, and verify only that tool uses expression
+enforcement after its Authz promotion gate passes.
 
 **Acceptance scenarios:**
 
@@ -191,6 +197,15 @@ verify only that tool uses expression enforcement.
 ## Edge Cases
 
 - HTTP and gRPC requests normalize differently.
+- Legacy and Authz outcomes disagree in shadow or canary mode.
+- The shadow path times out after the authoritative legacy result is ready.
+- A routing revision changes while requests are in flight.
+- The same subject hashes into different canary cohorts after configuration
+  reload or service restart.
+- Authz denies or errors while authoritative and legacy returns allow.
+- An operator rolls routing back while conditional tuples remain active.
+- A caller attempts to select `LEGACY`, `SHADOW`, or `CANARY` through request
+  metadata.
 - The BFF compatibility facade and `caipe-authz` versions are temporarily
   incompatible.
 - An untrusted caller attempts to select or skip a policy provider.
@@ -221,6 +236,43 @@ verify only that tool uses expression enforcement.
 - Audit delivery fails after the authorization decision is complete.
 
 ## Functional Requirements
+
+### Parallel migration
+
+- **FR-MIG-001:** `caipe-authz` MUST deploy beside the current BFF authorization
+  engine and gateway bridge without becoming authoritative automatically.
+- **FR-MIG-002:** Each current enforcement point MUST support `LEGACY`,
+  `SHADOW`, `CANARY`, `AUTHZ`, and `AUTHZ_ONLY` migration modes.
+- **FR-MIG-003:** `LEGACY` and `SHADOW` MUST preserve the current implementation
+  as the sole authoritative result.
+- **FR-MIG-004:** Shadow failure, timeout, or mismatch MUST NOT change the
+  authoritative legacy outcome.
+- **FR-MIG-005:** `CANARY` selection MUST be deterministic for the normalized
+  subject, resource, action, and rollout revision.
+- **FR-MIG-006:** Routing configuration MUST be deployment-owned, versioned,
+  audited, and scoped by enforcement surface and resource/action cohort.
+- **FR-MIG-007:** A request or caller MUST NOT select migration mode, authority,
+  cohort, or rollout revision.
+- **FR-MIG-008:** The router MUST normalize both paths into the canonical
+  decision contract before comparison.
+- **FR-MIG-009:** Comparison MUST classify outcome, error, reason, and latency
+  differences using stable mismatch codes.
+- **FR-MIG-010:** Exactly one authoritative decision event and at most one
+  migration-comparison event MUST be emitted per request.
+- **FR-MIG-011:** When Authz is authoritative, a legacy allow MUST NOT override
+  an Authz deny, error, timeout, or missing-context result.
+- **FR-MIG-012:** Rollback MUST require an explicit audited routing revision;
+  the system MUST NOT perform per-request automatic fallback.
+- **FR-MIG-013:** Routing rollback and policy/tuple rollback MUST be separate
+  operations.
+- **FR-MIG-014:** A cohort MUST NOT advance without passing contract, replay,
+  semantic mismatch, error, latency, audit, and rollback gates.
+- **FR-MIG-015:** Expression enforcement for a resource MUST NOT begin until its
+  required caller and agent decisions are Authz-authoritative.
+- **FR-MIG-016:** Legacy evaluators MUST remain deployable through the approved
+  rollback-retention window and MUST be removed only in `AUTHZ_ONLY`.
+- **FR-MIG-017:** BFF, Dynamic Agents, bots, RAG, and AgentGateway MUST be
+  independently migratable; no global cutover switch is permitted.
 
 ### CAIPE Authorization Service
 
@@ -309,6 +361,10 @@ verify only that tool uses expression enforcement.
   querying, and export; it MUST NOT participate in authorization evaluation.
 - **FR-AUDIT-010:** Legacy `cas_*` event types and sources MUST migrate to the
   normalized `authz_*` contract without losing historical query compatibility.
+- **FR-AUDIT-011:** A dual evaluation MUST emit at most one
+  `authz_migration_comparison` event linked to the authoritative decision ID.
+- **FR-AUDIT-012:** Activating a routing revision MUST emit an
+  `authz_migration_revision` event without exposing the canary seed.
 
 ### OpenFGA visualization and inspection
 
@@ -435,6 +491,12 @@ verify only that tool uses expression enforcement.
   `openfga-cel` is the only v1 implementation.
 - **Policy binding:** Versioned server-owned mapping from resource/action to
   context schema, provider pipeline, and policy/model revisions.
+- **Migration routing revision:** Immutable deployment-owned selection of mode
+  and cohort rules for one enforcement surface and resource/action scope.
+- **Migration comparison:** Correlated legacy/Authz outcomes, reasons, errors,
+  latencies, authority, routing revision, and mismatch classification.
+- **Canary cohort:** Deterministic subset selected from normalized decision
+  identifiers and a routing revision; never from caller-provided mode data.
 - **Audit outbox:** Bounded durable Authz Service journal used to decouple
   authorization latency from Audit Service delivery.
 - **Authorization audit event:** Normalized decision, policy-change, or
@@ -467,6 +529,18 @@ verify only that tool uses expression enforcement.
 - **SC-AUTHZ-003:** No caller can select or bypass a provider through decision
   context or transport metadata.
 - **SC-AUTHZ-004:** Cedar and OPA cannot affect an enforced v1 decision.
+- **SC-MIG-001:** Deploying `caipe-authz` in `LEGACY` changes zero authoritative
+  decisions in required regression and production-replay cases.
+- **SC-MIG-002:** `SHADOW` records 100% of completed comparison attempts without
+  changing a legacy allow or deny.
+- **SC-MIG-003:** Canary selection is stable across replicas, restarts, and
+  configuration reloads for the same routing revision.
+- **SC-MIG-004:** No unexplained `ALLOW_DENY` or `DENY_ALLOW` mismatch remains
+  when a cohort is promoted.
+- **SC-MIG-005:** A canary routing rollback completes without tuple mutation and
+  restores legacy authority for 100% of that cohort.
+- **SC-MIG-006:** Once Authz is authoritative, zero requests fall back to a
+  legacy allow after an Authz deny or error.
 - **SC-AUDIT-001:** Every required decision and mutation produces exactly one
   normalized correlated audit event in end-to-end tests.
 - **SC-AUDIT-002:** Remote Audit Service outage adds no remote call to decision
@@ -489,8 +563,8 @@ verify only that tool uses expression enforcement.
 - **SC-006:** Audit fixtures contain zero tool argument values.
 - **SC-007:** Context projection adds less than 2 ms p95 under the benchmark
   payload and adds no second expression-evaluator network hop.
-- **SC-008:** Phases 0 and 1 change zero authoritative decisions when no
-  conditional tuple exists.
+- **SC-008:** `LEGACY` and `SHADOW` change zero authoritative decisions when no
+  cohort has been explicitly promoted.
 - **SC-009:** The Docusaurus build, Authz Service transport/provider conformance
   tests, OpenFGA model parity test, migration parity tests, and UI RBAC tests
   pass.
@@ -526,3 +600,9 @@ verify only that tool uses expression enforcement.
 - [Architecture](./architecture.md)
 - [Research](./research.md)
 - [Implementation plan](./plan.md)
+- [Data model](./data-model.md)
+- [HTTP and gRPC contracts](./contracts/rest-api.md)
+- [Audit event contracts](./contracts/events.md)
+- [Data and model migration](./db-migration.md)
+- [Validation guide](./quickstart.md)
+- [Execution tasks](./tasks.md)

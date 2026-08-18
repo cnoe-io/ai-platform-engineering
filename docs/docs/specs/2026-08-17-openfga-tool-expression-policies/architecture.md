@@ -63,6 +63,8 @@ maintaining an OpenFGA fork.
 - Authorize an exact MCP tool using selected request arguments.
 - Use one Authz Service decision core for BFF, Dynamic Agents, RAG, bots, and
   AgentGateway.
+- Run beside the current BFF engine and gateway bridge, then transfer authority
+  one approved surface/resource/action cohort at a time.
 - Remove policy decisions and direct OpenFGA access from the BFF and gateway
   bridge after migration.
 - Keep transport-specific parsing outside provider evaluation.
@@ -321,6 +323,99 @@ flowchart LR
     Policy --> Metadata["Policy metadata and reconciliation state"]
 ```
 
+## Parallel Migration Architecture
+
+`caipe-authz` is introduced beside today's BFF in-process engine and direct
+OpenFGA gateway bridge. Deployment does not transfer decision authority. Each
+existing enforcement point adds a deployment-controlled migration router that
+can evaluate legacy and Authz Service paths and choose exactly one authoritative
+result.
+
+```mermaid
+flowchart LR
+    Request["Protected request"] --> PEP["Existing enforcement point"]
+    PEP --> Router["Migration router"]
+
+    Router --> Legacy["Current BFF engine or gateway bridge"]
+    Router --> New["caipe-authz HTTP or ext_authz"]
+
+    Legacy --> Compare["Decision comparator"]
+    New --> Compare
+    Router --> Selected["Authoritative decision"]
+    Compare --> MigrationAudit["authz_migration_comparison"]
+    MigrationAudit --> AuditService["CAIPE Audit Service"]
+
+    Selected --> AllowDeny["Allow or deny request"]
+```
+
+The migration router exists only at current enforcement boundaries:
+
+- BFF authorization wrapper: current in-process engine plus Authz HTTP client.
+- Dynamic Agents and other current BFF API consumers: existing endpoint remains
+  stable while its BFF implementation runs the router.
+- AgentGateway: current Python bridge adds an Authz shadow client before gateway
+  traffic is routed directly to the Authz `ext_authz` listener.
+
+### Migration modes
+
+| Mode | Authoritative path | Comparison path | Purpose |
+|---|---|---|---|
+| `LEGACY` | Current implementation | None | Initial deployment and emergency rollback target |
+| `SHADOW` | Current implementation | Authz Service | Measure semantic and latency parity without changing access |
+| `CANARY` | Authz Service for selected cohort; legacy elsewhere | Non-authoritative path | Move bounded resource/action cohorts |
+| `AUTHZ` | Authz Service | Legacy implementation | Confirm production behavior while rollback remains available |
+| `AUTHZ_ONLY` | Authz Service | None | Remove legacy evaluator after exit criteria |
+
+Routing configuration is versioned, deployment-owned, and keyed by enforcement
+surface, resource type, action, optional exact resource allowlist, and a
+deterministic cohort. A caller cannot select a mode, provider, or cohort through
+headers, body, token claims, or request context.
+
+### Comparison semantics
+
+The router normalizes both results into the same decision contract and records:
+
+- `ALLOW_DENY`: legacy allows and Authz denies.
+- `DENY_ALLOW`: legacy denies and Authz allows.
+- `ERROR_RESULT`: one path errors while the other returns a decision.
+- `REASON_ONLY`: outcome matches but stable reason differs.
+- `LATENCY`: outcome matches but latency exceeds the rollout threshold.
+
+Shadow evaluation never changes the authoritative result. It also never writes
+relationships, invokes a protected resource, or enables an expression policy.
+Exactly one authoritative `authz_decision` event and at most one
+`authz_migration_comparison` event are emitted for a request.
+
+### Authority and fallback rules
+
+- `LEGACY` and `SHADOW` preserve current production behavior exactly.
+- In `CANARY`, cohort selection is deterministic for the same normalized
+  subject, resource, action, and rollout revision.
+- When Authz Service is authoritative, a legacy allow cannot override an Authz
+  deny, error, timeout, or missing context.
+- There is no per-request fallback. Rollback is an explicit, audited routing
+  revision from `CANARY` or `AUTHZ` back to `SHADOW` or `LEGACY`.
+- Routing rollback does not restore deleted tuples or broaden grants. Policy and
+  routing changes are separate operations.
+- Legacy code remains deployable until the cohort reaches `AUTHZ_ONLY` and its
+  rollback retention window expires.
+
+### Promotion gates
+
+A cohort advances only when all gates pass:
+
+- Contract and replay suites have zero unexplained allow/deny mismatches.
+- Production shadowing has zero unexplained `ALLOW_DENY` or `DENY_ALLOW`
+  mismatches for the approved observation window.
+- Authz error, timeout, and latency objectives meet the surface-specific SLO.
+- Audit comparison delivery, dashboards, and rollback have been exercised.
+- OpenFGA store/model descriptors and context schemas match both paths.
+- The cohort has an owner and an approved routing revision.
+
+Promotion proceeds by enforcement surface and resource/action cohort, not by a
+single global switch. Exact tool-expression enforcement starts only after that
+tool's caller and agent checks are Authz-authoritative.
+
 ### Component ownership
 
 | Component | Owns | Does not own |
@@ -333,6 +428,8 @@ flowchart LR
 | CAIPE Audit Service | Event ingestion, retention, local/S3 storage, querying, and export | Current authorization state or policy evaluation |
 | Authz inspection API | Bounded model, relationship, policy, simulation, and graph projections | Rendering the graph or mutating through read APIs |
 | Admin BFF and UI | Authorization visualization, audit timeline, filters, and investigation workflows | Direct OpenFGA access after migration |
+| Migration router | Versioned mode/cohort selection, dual evaluation, authoritative result selection, and comparison event | Policy evaluation or caller-controlled routing |
+| Decision comparator | Normalized mismatch classification and rollout telemetry | Changing the authoritative result |
 | Resource Schema Catalog | Sanitized schemas, schema hashes, resource attributes, last-seen state | Access decisions |
 | Typed Policy Compiler | Expression-to-template mapping and tuple construction | Arbitrary code execution |
 | `openfga-cel` provider | OpenFGA relationship checks, conditional tuples, native CEL context | Standalone CEL execution |
@@ -463,11 +560,13 @@ transport adapter or provider returns bounded diagnostics to the decision core;
 it does not emit an independent event. This prevents duplicate or contradictory
 records for one decision.
 
-The Authz Service emits three event families:
+The Authz Service emits five event families:
 
 | Event type | Trigger |
 |---|---|
 | `authz_decision` | One canonical HTTP, batch-item, or `ext_authz` decision |
+| `authz_migration_comparison` | One side-by-side legacy/Authz comparison, when both paths run |
+| `authz_migration_revision` | A deployment activates a reviewed routing revision |
 | `authz_policy_change` | Policy binding or typed template created, changed, disabled, or revalidated |
 | `authz_relationship_change` | OpenFGA grant, revoke, migration, or reconciliation attempt |
 
@@ -923,86 +1022,115 @@ authorization decision SLO.
 
 ## Rollout
 
-### Phase 0 - Authorization contract and conformance harness
+### Phase 0 - Freeze current behavior
 
-- Freeze the canonical decision, batch, explanation, and provider contracts.
-- Add transport-neutral conformance tests and stable reason codes.
-- Implement the `openfga-cel` provider behind the new interface.
-- Preserve existing BFF and bridge decisions as comparison oracles.
+- Inventory every current decision surface, flag, mapping, timeout, and owner.
+- Freeze canonical contracts, reasons, neutral golden fixtures, and model
+  descriptors.
+- Preserve the BFF engine and bridge as comparison oracles.
 
-No enforcement path changes in this phase.
+No runtime path changes.
 
-### Phase 1 - `caipe-authz` and BFF extraction
+### Phase 1 - Deploy Authz dark
 
-- Create `caipe-authz` with HTTP and batch HTTP listeners.
-- Move the BFF decision engine, OpenFGA adapter, trusted-context rules, audit,
-  and caches into the service.
-- Add the durable audit outbox and normalized `authz_*` event contracts.
-- Replace BFF in-process decisions with an Authz Service HTTP client.
-- Shadow-compare old and new decisions before removing the in-process engine.
+- Create HTTP, batch HTTP, and ext_authz listeners over one decision core.
+- Add the openfga-cel provider, audit outbox, and deployment packaging.
+- Use the current OpenFGA store/model descriptor; do not replicate tuples.
+- Default every migration scope to LEGACY.
 
-### Phase 2 - `caipe-authz` gateway migration
+Starting or stopping Authz changes no authoritative decision.
 
-- Move the existing Python bridge parsing and checks into the Authz Service gRPC adapter.
-- Route AgentGateway `ext_authz` to Authz Service.
-- Parse and project eligible MCP arguments.
-- Shadow-compare the existing bridge and Authz Service results.
-- Remove the direct bridge decision path only after parity and latency gates.
+### Phase 2 - Shadow the BFF
 
-### Phase 3 - OpenFGA model and expression contracts
+- Add a temporary migration router around the current BFF decision wrapper.
+- Keep existing BFF/Dynamic Agents endpoints stable.
+- Run Authz HTTP as the bounded non-authoritative path in SHADOW.
+- Compare canonical outcomes, reasons, errors, revisions, and latency.
 
-- Add reviewed condition templates to `deploy/openfga/model.fga` and chart JSON.
-- Add `conditional_caller` to `tool`.
-- Add parity and default-deny tests.
-- Add conditional tuple and Check-context support to the Authz Service OpenFGA provider.
+Do not remove the BFF evaluator.
 
-No existing tuple changes or authoritative decision changes in this phase.
+### Phase 3 - Shadow AgentGateway
 
-### Phase 4 - Policy API and UI
+- Add an Authz shadow client to the current Python bridge.
+- Forward a bounded copy of the Envoy CheckRequest to Authz.
+- Preserve the bridge response as authoritative.
+- Compare gateway, agent, server, exact-tool, body, and failure cases.
 
-- Extend the MCP tool catalog with sanitized schemas and hashes.
-- Add compiler, policy metadata, reconciliation, preview, and drift detection.
-- Add the field/operator/value UI and effective-access warnings.
+Do not point AgentGateway directly at Authz yet.
 
-### Phase 5 - Audit and OpenFGA inspection
+### Phase 4 - Promote bounded cohorts
 
-- Route Authz Service events through the outbox to CAIPE Audit Service.
-- Add bounded model, relationship, graph, Check, and simulation APIs.
-- Migrate existing BFF OpenFGA graph reads to Authz Service inspection APIs.
-- Add conditional edges, revisions, drift, shadowing, and audit-timeline layers
-  to the existing Admin visualization.
-- Exercise Audit Service outage, outbox recovery, pagination, truncation,
-  redaction, and inspection authorization.
+- Promote one low-risk surface/resource/action scope to deterministic CANARY.
+- Keep the non-authoritative path for comparison, never fallback.
+- Exercise explicit CANARY to SHADOW routing rollback.
+- Advance BFF, Dynamic Agents, RAG, bots, services, and gateway independently.
+- Move a scope to AUTHZ only after all promotion gates pass.
 
-### Phase 6 - Selected-tool enforcement
+### Phase 5 - Add OpenFGA conditions
 
-- Make caller tool checking mandatory and remove its default-off behavior.
-- Require the agent-context HMAC secret; report Authz Service unready for expression
-  enforcement when it is absent.
-- Run the caller expression check outside any branch that merely decides whether
-  a separate agent check is applicable.
-- Replace selected unconditional grants with conditional grants.
-- Remove conflicting wildcard grants for subjects requiring exclusive policy.
-- Enforce exact caller and agent checks with the same request context.
-- Start with low-risk, scalar selectors on non-bulk mutation tools.
+- Add versioned conditions and conditional_caller additively.
+- Add context-aware Check/BatchCheck and condition-preserving tuple operations.
+- Deploy the model before writing any conditional tuple.
+- Preserve existing unconditional behavior.
 
-### Phase 7 - Broader templates and provider experiments
+### Phase 6 - Add policy control plane
 
-- Add reviewed compound templates based on demonstrated use cases.
-- Consider verified request-time, network, and identity attributes.
-- Consider custom RAG `mcp_tool` policies as a separate enforcement surface.
-- Build non-production Cedar and OPA provider conformance adapters only after a
-  separate approved proposal defines their policy lifecycle and operations.
+- Retain sanitized schemas/hashes and eligible JSON Pointer fields.
+- Add typed templates, metadata, reconciliation, compensation, and drift.
+- Add policy APIs/UI and additive/exclusive warnings.
+
+### Phase 7 - Complete audit and visualization
+
+- Deliver decision, migration, policy, and relationship events to Audit Service.
+- Add bounded Authz model, relationship, graph, Check, and simulation APIs.
+- Move BFF OpenFGA reads behind Authz.
+- Add condition, revision, drift, shadowing, comparison, and history layers.
+
+### Phase 8 - Shadow expression context
+
+- Parse and project eligible MCP arguments without changing enforcement.
+- Use byte-equivalent context for required caller and agent checks.
+- Exercise missing, wrong-type, stale, malformed, and oversized cases.
+- Verify that argument values never reach logs, events, or visualization.
+
+### Phase 9 - Enforce one exact tool
+
+- Require that the exact scope is already Authz-authoritative.
+- Make caller tool checking and signed agent context mandatory for that scope.
+- Remove conflicting broader grants only through explicit audited changes.
+- Write and verify one conditional tuple for a low-risk non-bulk mutation.
+- Enable expression enforcement for that exact resource/action only.
+
+### Phase 10 - Retire legacy paths
+
+- Enter AUTHZ_ONLY per cohort after its rollback-retention window.
+- Point AgentGateway directly at Authz only after no bridge cohort needs legacy.
+- Remove the BFF evaluator only after all BFF-backed consumers finish migration.
+- Remove old flags and compatibility code in separate reviewable changes.
+
+### Phase 11 - Future providers
+
+- Evaluate broader templates, Cedar, or OPA only in separate approved proposals.
+- Require policy lifecycle, data synchronization, restrictive composition,
+  sandboxing, operations, and conformance designs before implementation.
 
 ## Rollback
 
-- Disable policy authoring while leaving model conditions in place; unused
-  conditions have no effect.
-- Delete selected conditional tuples to revoke their grants.
-- Restore an unconditional grant only through an explicit, audited action.
-- Re-enable the previous authorization model only if all tuples referenced by
-  it remain valid.
-- Never use the unsafe RBAC bypass as a policy rollback mechanism.
+Routing rollback:
+
+- Apply an audited revision from CANARY or AUTHZ to SHADOW or LEGACY.
+- Verify authoritative-path metrics and preserve comparison evidence.
+- Do not change tuples, policy metadata, or grants.
+- Never perform per-request fallback from Authz to a legacy allow.
+
+Expression-policy rollback:
+
+- Disable policy authoring while leaving unused model conditions in place.
+- Delete the selected conditional tuple to revoke its grant.
+- Restore an unconditional grant only through a separate audited action.
+- Re-enable an older model only if every referenced tuple remains compatible.
+
+Neither rollback may use the unsafe RBAC bypass.
 
 ## Implementation Touchpoints
 
@@ -1064,6 +1192,12 @@ End-to-end tests must run against the pinned OpenFGA image, not only mocks.
 - An administrator can create a typed exact-tool expression without writing CEL.
 - BFF and AgentGateway use the same Authz Service decision core through different
   transports.
+- Deploying Authz in `LEGACY` changes no authoritative result.
+- BFF and gateway can run in `SHADOW` independently, and shadow errors cannot
+  change the legacy result.
+- A deterministic canary can be promoted and explicitly rolled back without
+  mutating policies or tuples.
+- Once Authz is authoritative, no legacy allow overrides its deny or error.
 - A matching request is allowed and a non-matching request is blocked before the
   MCP server receives it.
 - The same context constrains both caller and dynamic-agent tool grants.
@@ -1091,6 +1225,10 @@ End-to-end tests must run against the pinned OpenFGA image, not only mocks.
 |---|---|---|
 | Native named OpenFGA conditions with typed CAIPE templates | Selected | One PDP, typed inputs, bounded CEL, no arbitrary eval. |
 | Standalone Authz Service with HTTP and `ext_authz` adapters | Selected | One logical decision service without putting BFF on the gateway hot path. |
+| Parallel `LEGACY`/`SHADOW`/`CANARY` migration by bounded cohort | Selected | Preserves current behavior, produces parity evidence, and limits rollback scope. |
+| Big-bang replacement of BFF and gateway authorization | Rejected | Transfers access authority without production parity evidence or bounded rollback. |
+| A second OpenFGA store for migration | Rejected for v1 | Tuple replication lag would obscure decision-semantic comparisons. |
+| Automatic per-request fallback to a legacy allow | Rejected | Can turn Authz deny/error into allow and hide regressions. |
 | Keep Authz Service inside BFF and route gateway through BFF | Rejected | Couples data-plane availability and latency to the UI/BFF deployment. |
 | Keep BFF-hosted authorization and direct OpenFGA bridge indefinitely | Rejected target state | Preserves two decision implementations and semantic drift. |
 | Cedar or OPA in v1 | Deferred | Requires a second policy lifecycle, conformance semantics, and operational ownership. |
