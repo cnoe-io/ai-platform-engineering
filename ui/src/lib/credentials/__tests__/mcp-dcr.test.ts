@@ -22,7 +22,7 @@ function mockResponse(
 }
 
 const resourceMetadata = {
-  resource: "https://grid.example.test/api/tome/mcp",
+  resource: "https://grid.example.test/api/example/mcp",
   authorization_servers: ["https://grid.example.test/realms/example"],
   scopes_supported: ["openid", "profile", "offline_access"],
 };
@@ -42,7 +42,7 @@ describe("MCP OAuth dynamic client registration", () => {
       .mockResolvedValueOnce(
         mockResponse(null, 401, {
           "www-authenticate":
-            'Bearer resource_metadata="https://grid.example.test/.well-known/oauth-protected-resource/api/tome/mcp"',
+            'Bearer resource_metadata="https://grid.example.test/.well-known/oauth-protected-resource/api/example/mcp"',
         }),
       )
       .mockResolvedValueOnce(mockResponse(resourceMetadata))
@@ -50,13 +50,13 @@ describe("MCP OAuth dynamic client registration", () => {
 
     await expect(
       discoverMcpOAuth(
-        { mcpUrl: "https://grid.example.test/api/tome/mcp" },
+        { mcpUrl: "https://grid.example.test/api/example/mcp" },
         fetchImpl,
       ),
     ).resolves.toEqual({
-      resource: "https://grid.example.test/api/tome/mcp",
+      resource: "https://grid.example.test/api/example/mcp",
       resourceMetadataUrl:
-        "https://grid.example.test/.well-known/oauth-protected-resource/api/tome/mcp",
+        "https://grid.example.test/.well-known/oauth-protected-resource/api/example/mcp",
       issuer: "https://grid.example.test/realms/example",
       authorizationEndpoint:
         "https://grid.example.test/realms/example/protocol/openid-connect/auth",
@@ -86,13 +86,13 @@ describe("MCP OAuth dynamic client registration", () => {
       );
     const metadata: OAuthConnectorMetadata = {
       id: "connector-1",
-      name: "Tome MCP",
-      provider: "tome-mcp",
+      name: "Example MCP",
+      provider: "example-mcp",
       clientId: "generated-client",
       authorizationUrl: authorizationMetadata.authorization_endpoint,
       tokenUrl: authorizationMetadata.token_endpoint,
       scopes: resourceMetadata.scopes_supported,
-      redirectUri: "https://grid-client.example.test/api/credentials/oauth/tome-mcp/callback",
+      redirectUri: "https://grid-client.example.test/api/credentials/oauth/example-mcp/callback",
       resource: resourceMetadata.resource,
       source: "mcp_dcr",
       registrationEndpoint: authorizationMetadata.registration_endpoint,
@@ -112,11 +112,11 @@ describe("MCP OAuth dynamic client registration", () => {
     await expect(
       registerMcpDcrConnector({
         input: {
-          name: "Tome MCP",
-          provider: "tome-mcp",
-          mcpUrl: "https://grid.example.test/api/tome/mcp",
+          name: "Example MCP",
+          provider: "example-mcp",
+          mcpUrl: "https://grid.example.test/api/example/mcp",
           redirectUri:
-            "https://grid-client.example.test/api/credentials/oauth/tome-mcp/callback",
+            "https://grid-client.example.test/api/credentials/oauth/example-mcp/callback",
         },
         connectorService,
         fetchImpl,
@@ -127,7 +127,7 @@ describe("MCP OAuth dynamic client registration", () => {
       expect.objectContaining({
         clientId: "generated-client",
         pkce: true,
-        resource: "https://grid.example.test/api/tome/mcp",
+        resource: "https://grid.example.test/api/example/mcp",
         source: "mcp_dcr",
         registrationAccessToken: "registration-token",
       }),
@@ -138,7 +138,7 @@ describe("MCP OAuth dynamic client registration", () => {
       token_endpoint_auth_method: "none",
       grant_types: ["authorization_code", "refresh_token"],
       redirect_uris: [
-        "https://grid-client.example.test/api/credentials/oauth/tome-mcp/callback",
+        "https://grid-client.example.test/api/credentials/oauth/example-mcp/callback",
       ],
     });
   });
@@ -156,7 +156,7 @@ describe("MCP OAuth dynamic client registration", () => {
 
     await expect(
       discoverMcpOAuth(
-        { mcpUrl: "https://grid.example.test/api/tome/mcp" },
+        { mcpUrl: "https://grid.example.test/api/example/mcp" },
         fetchImpl,
       ),
     ).rejects.toMatchObject({ code: "MCP_OAUTH_PKCE_UNSUPPORTED" });
