@@ -96,6 +96,18 @@ services:
       - victorops
       - mcp-servers
 
+  # Browser-issued Keycloak tokens carry the public HTTPS issuer. Keep JWKS
+  # retrieval on the Docker network, but validate the issuer embedded in the
+  # token so AgentGateway and its OpenFGA authorization bridge agree.
+  agentgateway-config-bridge:
+    environment:
+      AGENTGATEWAY_JWT_ISSUER: https://caipe-oss.outshift.io/realms/caipe
+      AGENTGATEWAY_JWKS_URL: http://keycloak:7080/realms/caipe/protocol/openid-connect/certs
+
+  openfga-authz-bridge:
+    environment:
+      JWT_ISSUER: https://caipe-oss.outshift.io/realms/caipe
+
   # Keep the Langfuse dashboard available for host-local diagnostics without
   # competing with the CAIPE UI for the public port exposed by the base file.
   langfuse-web:
