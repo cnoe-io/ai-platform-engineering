@@ -1,10 +1,10 @@
 // MongoDB collection type definitions
 
-import type { StreamEvent } from '@/lib/streaming/types';
-import type { TimelineSegment } from '@/types/dynamic-agent-timeline';
-import { ObjectId } from 'mongodb';
+import type { StreamEvent } from "@/lib/streaming/types";
+import type { TimelineSegment } from "@/types/dynamic-agent-timeline";
+import { ObjectId } from "mongodb";
 
-export type StoredStreamEvent = Omit<StreamEvent, 'raw' | 'timestamp'> & {
+export type StoredStreamEvent = Omit<StreamEvent, "raw" | "timestamp"> & {
   raw?: unknown;
   timestamp: Date | string;
 };
@@ -27,7 +27,7 @@ export interface User {
     sso_provider: string;
     sso_id: string;
     keycloak_sub?: string;
-    role: 'user' | 'admin';
+    role: "user" | "admin";
   };
 }
 
@@ -35,6 +35,8 @@ export interface UserPublicInfo {
   email: string;
   name: string;
   avatar_url?: string;
+  /** Immutable Keycloak subject used for direct OpenFGA grants. */
+  subject?: string;
 }
 
 // ============================================================================
@@ -42,10 +44,14 @@ export interface UserPublicInfo {
 // ============================================================================
 
 /** Valid client types for conversation creation. */
-export type ClientType = 'webui' | 'slack' | 'webex';
+export type ClientType = "webui" | "slack" | "webex";
 
 /** All valid client_type values — used for runtime validation. */
-export const VALID_CLIENT_TYPES: readonly ClientType[] = ['webui', 'slack', 'webex'] as const;
+export const VALID_CLIENT_TYPES: readonly ClientType[] = [
+  "webui",
+  "slack",
+  "webex",
+] as const;
 
 /**
  * A conversation participant — either an agent or a user.
@@ -54,7 +60,7 @@ export const VALID_CLIENT_TYPES: readonly ClientType[] = ['webui', 'slack', 'web
  * In the future this can grow to multiple agents or collaborating users.
  */
 export interface Participant {
-  type: 'agent' | 'user';
+  type: "agent" | "user";
   id: string; // agent config ID (for agents) or user email (for users)
 }
 
@@ -83,17 +89,17 @@ export interface Conversation {
       migration_id: string;
       migrated_at: string;
       migrated_by: string;
-      source_field: 'owner_id';
+      source_field: "owner_id";
     };
   };
   sharing: {
     /** @deprecated Public/everyone conversation sharing is retired; kept for old records only. */
     is_public: boolean;
     /** @deprecated Public/everyone conversation sharing is retired; kept for old records only. */
-    public_permission?: 'view' | 'comment';
+    public_permission?: "view" | "comment";
     shared_with: string[]; // Array of user emails
     shared_with_teams: string[]; // Array of team IDs
-    team_permissions?: Record<string, 'view' | 'comment'>; // Per-team permission
+    team_permissions?: Record<string, "view" | "comment">; // Per-team permission
     share_link_enabled: boolean;
     share_link_expires?: Date;
   };
@@ -102,11 +108,24 @@ export interface Conversation {
   viewer_has_shared_access?: boolean;
   // assisted-by Codex Codex-sonnet-4-6
   // Response-only: current viewer's effective access level for UI affordances.
-  access_level?: 'owner' | 'shared' | 'shared_readonly' | 'admin_audit';
+  access_level?: "owner" | "shared" | "shared_readonly" | "admin_audit";
   tags: string[];
   is_archived: boolean;
   is_pinned: boolean;
   deleted_at?: Date | null; // Soft-delete timestamp; null = not deleted; auto-purged after 7 days
+  // Origin marker. The chat sidebar's "All" view shows both human-typed
+  // and autonomous conversations; only `slack` is excluded from the
+  // default listing because Slack threads have their own dedicated UI.
+  // The autonomous_agents service writes conversations with
+  // `source: 'autonomous'` so operators can also pivot the sidebar to
+  // "what did the autonomous agent do today?" via the Autonomous filter
+  // chip. Undefined = legacy human-typed conversation.
+  source?: 'web' | 'slack' | 'autonomous';
+  // Set when `source === 'autonomous'`: the upstream autonomous task
+  // and the specific run that produced this conversation. Lets the
+  // run-history UI deep-link from a run row into the chat thread.
+  task_id?: string;
+  run_id?: string;
   /**
    * Set ONLY when the conversation was created by a service account (session.isServiceAccount).
    * Stores the SA's Keycloak sub (session.sub). Used by the audit/reconcile step to
@@ -125,7 +144,7 @@ export interface Message {
   message_id?: string; // Client-generated ID for cross-reference
   conversation_id: string;
   owner_id?: string; // User email — denormalized from conversation for analytics queries
-  role: 'user' | 'assistant' | 'system';
+  role: "user" | "assistant" | "system";
   content: string;
   created_at: Date;
   // Sender identity — tracks who actually typed this message.
@@ -167,7 +186,7 @@ export interface Artifact {
 }
 
 export interface MessageFeedback {
-  rating: 'positive' | 'negative';
+  rating: "positive" | "negative";
   comment?: string;
   submitted_at: Date;
 }
@@ -186,9 +205,9 @@ export interface MessageFeedback {
  */
 export interface Turn {
   _id?: ObjectId;
-  conversation_id: string;      // = LangGraph thread_id
-  turn_id: string;              // Client-generated turn identifier
-  client_type: string;          // "ui" | "slack" | "webex" | ...
+  conversation_id: string; // = LangGraph thread_id
+  turn_id: string; // Client-generated turn identifier
+  client_type: string; // "ui" | "slack" | "webex" | ...
   payload: Record<string, unknown>; // Opaque, client-specific
   created_at: Date;
   updated_at: Date;
@@ -245,21 +264,24 @@ export interface UserSettings {
 }
 
 // Default settings for new users
-export const DEFAULT_USER_SETTINGS: Omit<UserSettings, '_id' | 'user_id' | 'updated_at'> = {
+export const DEFAULT_USER_SETTINGS: Omit<
+  UserSettings,
+  "_id" | "user_id" | "updated_at"
+> = {
   preferences: {
-    theme: 'dark',
-    gradient_theme: 'default',
-    font_family: 'inter',
-    font_size: 'medium',
+    theme: "dark",
+    gradient_theme: "default",
+    font_family: "inter",
+    font_size: "medium",
     sidebar_collapsed: false,
     context_panel_visible: true,
     debug_mode: false,
-    code_theme: 'onedark',
-    memory_enabled: 'true',
-    debug_mode_enabled: 'false',
-    show_thinking_enabled: 'true',
-    auto_scroll_enabled: 'true',
-    show_timestamps_enabled: 'false',
+    code_theme: "onedark",
+    memory_enabled: "true",
+    debug_mode_enabled: "false",
+    show_thinking_enabled: "true",
+    auto_scroll_enabled: "true",
+    show_timestamps_enabled: "false",
     releaseNotesNotificationsEnabled: true,
   },
   notifications: {
@@ -269,8 +291,8 @@ export const DEFAULT_USER_SETTINGS: Omit<UserSettings, '_id' | 'user_id' | 'upda
     weekly_summary: false,
   },
   defaults: {
-    default_model: 'gpt-4o',
-    default_agent_mode: 'auto',
+    default_model: "gpt-4o",
+    default_agent_mode: "auto",
     auto_title_conversations: true,
   },
 };
@@ -297,7 +319,7 @@ export interface SharingAccess {
   conversation_id: string;
   granted_by: string;
   granted_to: string;
-  permission: 'view' | 'comment';
+  permission: "view" | "comment";
   granted_at: Date;
   accessed_at?: Date;
   revoked_at?: Date;
@@ -340,19 +362,19 @@ export interface PatchConversationMetadataRequest {
 export interface ShareConversationRequest {
   user_emails?: string[];
   team_ids?: string[];
-  permission?: 'view' | 'comment';
+  permission?: "view" | "comment";
   enable_link?: boolean;
   link_expires?: string; // ISO date string
   /** @deprecated Only is_public=false is accepted to clear legacy public state. */
   is_public?: boolean;
   /** @deprecated Public/everyone conversation sharing is rejected by the API. */
-  public_permission?: 'view' | 'comment';
+  public_permission?: "view" | "comment";
 }
 
 // Message API
 export interface AddMessageRequest {
   message_id?: string; // Client-generated ID for cross-reference
-  role: 'user' | 'assistant' | 'system';
+  role: "user" | "assistant" | "system";
   // Optional: integration turns (e.g. the Slack bot) persist metadata only and
   // omit content to avoid duplicating content that already lives in Slack.
   content?: string;
@@ -398,7 +420,7 @@ export interface UpdateMessageRequest {
     turn_id?: string;
   };
   /** Update message feedback (rating + optional comment) */
-  feedback?: Pick<MessageFeedback, 'rating' | 'comment'>;
+  feedback?: Pick<MessageFeedback, "rating" | "comment">;
 }
 
 // Bookmark API
@@ -416,9 +438,9 @@ export interface UpdateUserRequest {
 
 // Settings API
 export interface UpdateSettingsRequest {
-  preferences?: Partial<UserSettings['preferences']>;
-  notifications?: Partial<UserSettings['notifications']>;
-  defaults?: Partial<UserSettings['defaults']>;
+  preferences?: Partial<UserSettings["preferences"]>;
+  notifications?: Partial<UserSettings["notifications"]>;
+  defaults?: Partial<UserSettings["defaults"]>;
 }
 
 // ============================================================================
@@ -451,7 +473,7 @@ export interface UserStats {
 export interface UserActivity {
   timestamp: Date;
   action: string;
-  resource_type: 'conversation' | 'message' | 'settings' | 'share';
+  resource_type: "conversation" | "message" | "settings" | "share";
   resource_id: string;
   details?: Record<string, unknown>;
 }
@@ -463,7 +485,7 @@ export interface UserActivity {
 export interface AuditConversation extends Conversation {
   message_count: number;
   last_message_at?: Date;
-  status: 'active' | 'archived' | 'deleted';
+  status: "active" | "archived" | "deleted";
 }
 
 export interface AuditLogFilters {
@@ -472,7 +494,7 @@ export interface AuditLogFilters {
   date_from?: string;
   date_to?: string;
   include_deleted?: boolean;
-  status?: 'active' | 'archived' | 'deleted';
+  status?: "active" | "archived" | "deleted";
 }
 
 // ============================================================================
@@ -513,11 +535,11 @@ export interface WebexUserMetrics {
 // hash (contrast catalog_api_keys, which stores a hash). Keycloak owns the
 // secret entirely and shows it once.
 
-/** A single agent/tool grant snapshot. Display cache only — OpenFGA tuples are
+/** A single agent/tool/knowledge grant snapshot. Display cache only — OpenFGA tuples are
  *  the source of truth for access. */
 export interface ServiceAccountScope {
-  type: 'agent' | 'tool';
-  /** For agent: the agent id. For tool: "<server>/<toolname>" or "<server>/*". */
+  type: "agent" | "tool" | "datasource" | "collection";
+  /** Agent, datasource, or collection id; tools use their catalog ref. */
   ref: string;
   added_by: string; // Keycloak sub of who added this scope (audit).
   added_at: Date;
@@ -535,7 +557,7 @@ export interface ServiceAccount {
   owning_team_id: string; // The single owning team (team slug/id used in OpenFGA team:<id>).
   created_by: string; // Keycloak sub of the creating user (audit/display).
   created_at: Date;
-  status: 'active' | 'revoked';
+  status: "active" | "revoked";
   revoked_at?: Date | null;
   // Display cache ONLY — not authoritative. OpenFGA tuples are the source of truth for access.
   scopes_snapshot?: ServiceAccountScope[];

@@ -112,7 +112,7 @@ Get Redis URL combining host, port and db index
             {{- end -}}
         {{- end -}}
     {{- end -}}
-    {{- printf "redis://%s:%s/%d" $host ($port | toString) $db -}}
+    {{- printf "redis://%s:%s/%v" $host ($port | toString) $db -}}
 {{- end -}}
 
 {{/*
@@ -257,4 +257,3 @@ Explicit non-CAIPE repositories are left unchanged.
 {{- $repository -}}
 {{- end -}}
 {{- end -}}
-

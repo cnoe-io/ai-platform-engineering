@@ -197,8 +197,8 @@ export function UnlinkedServiceAccountModal({
           </DialogTitle>
           <DialogDescription>
             Set the starting access for people who message the platform from Slack or Webex
-            before they have signed in to the web UI. Agents and tools granted here are
-            available to every unlinked caller and bot.
+            before they have signed in to the web UI. Access granted here applies to every
+            unlinked caller. Knowledge shared with Everyone appears automatically.
             {!isAdmin && (
               <span className="block mt-1 font-medium text-amber-600 dark:text-amber-400">
                 Read-only: platform admin access required to edit.
@@ -240,7 +240,7 @@ export function UnlinkedServiceAccountModal({
                   <span className="text-sm font-medium">Current scopes</span>
                   {sa.scopes.length === 0 ? (
                     <p className="text-sm text-muted-foreground">
-                      No scopes — unlinked callers cannot use any agent or tool yet.
+                      No access has been granted to unlinked callers yet.
                     </p>
                   ) : (
                     <ul className="space-y-1">
@@ -263,7 +263,7 @@ export function UnlinkedServiceAccountModal({
                               <span
                                 className="inline-flex shrink-0 items-center gap-1 rounded-full border border-input px-2 py-0.5 text-[11px] text-muted-foreground"
                                 data-testid={`scope-source-everyone-${scope.ref}`}
-                                title="Shared with Everyone. Managed by the agent's visibility — change the agent to revoke."
+                                title="Shared with Everyone. Change the resource's sharing settings to revoke."
                               >
                                 <Lock className="h-3 w-3" />
                                 Everyone

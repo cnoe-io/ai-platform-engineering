@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { TeamPicker,type TeamPickerOption } from "@/components/ui/team-picker";
 import { useToast } from "@/components/ui/toast";
 import { Tooltip,TooltipContent,TooltipTrigger } from "@/components/ui/tooltip";
+import { getConfig } from "@/lib/config";
 import { cn } from "@/lib/utils";
 import type { DynamicAgentOption,ItemAgentRoute,ItemSummary,TeamOption,SlackRouteExecutionIdentity } from "../connector-admin-adapter";
 import { SlackEmojiCombobox } from "./SlackEmojiCombobox";
@@ -540,6 +541,7 @@ export function SlackConfiguredChannelDetail({
   routesFor: (workspaceId: string, itemId: string) => string;
   listApi: string;
 }) {
+  const appName = getConfig("appName");
   const { toast } = useToast();
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingRoute, setEditingRoute] = useState<ItemAgentRoute | null>(null);
@@ -593,7 +595,7 @@ export function SlackConfiguredChannelDetail({
       });
       if (!res.ok) throw new Error(await res.text());
       setChannelDeleteOpen(false);
-      toast(`Removed ${selected.item_name || selected.item_id} from CAIPE.`, "success");
+      toast(`Removed ${selected.item_name || selected.item_id} from ${appName}.`, "success");
       // Close the detail panel before reloading so it doesn't briefly render
       // for a channel that no longer exists.
       onDeselect();
@@ -655,7 +657,7 @@ export function SlackConfiguredChannelDetail({
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
             <div className="text-xs font-medium uppercase tracking-wide text-destructive">Danger zone</div>
-            <p className="text-sm text-muted-foreground">Remove this channel from CAIPE entirely. Deletes its team assignment, every agent route, and all OpenFGA tuples.</p>
+            <p className="text-sm text-muted-foreground">Remove this channel from {appName} entirely. Deletes its team assignment and every agent route.</p>
           </div>
           <Button type="button" variant="destructive" size="sm" onClick={() => setChannelDeleteOpen(true)} disabled={disabled || !selectedCanManage || loading} aria-label={`Delete channel ${selected.item_name || selected.item_id}`}>Delete channel</Button>
         </div>
@@ -679,15 +681,15 @@ export function SlackConfiguredChannelDetail({
       <Dialog open={channelDeleteOpen} onOpenChange={(open) => { if (!open && !loading) setChannelDeleteOpen(false); }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Delete channel from CAIPE?</DialogTitle>
-            <DialogDescription>This removes {selected.item_name || selected.item_id} and everything CAIPE stores about it.</DialogDescription>
+            <DialogTitle>Delete channel from {appName}?</DialogTitle>
+            <DialogDescription>This removes {selected.item_name || selected.item_id} and everything {appName} stores about it.</DialogDescription>
           </DialogHeader>
           <div className="space-y-2 text-sm text-muted-foreground">
             <p>The following are permanently deleted:</p>
             <ul className="list-disc space-y-1 pl-5">
               <li>Its team assignment{selected.team_slug ? ` (team:${selected.team_slug})` : ""}.</li>
               <li>{routes.length > 0 ? `${routes.length} agent route${routes.length === 1 ? "" : "s"}` : "All agent routes"} and their settings.</li>
-              <li>All OpenFGA tuples granting access through this channel.</li>
+              <li>All access rules for this channel.</li>
             </ul>
             <p>The Slack bot stops responding here once its route cache expires. Re-onboard the channel from the Onboard tab to set it up again.</p>
           </div>

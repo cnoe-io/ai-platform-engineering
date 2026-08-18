@@ -1,5 +1,6 @@
 "use client";
 
+import { WorkspacePageActions } from "@/components/layout/WorkspacePageActions";
 import { TeamOwnershipFields } from "@/components/rbac/TeamOwnershipFields";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -698,13 +699,12 @@ function ToolFormDialog({ open, onClose, onSave, initial, isEdit }: ToolFormDial
             }}
             shareHelpText={
               <>
-                Teams you share with can invoke this tool. Each selected team
-                gets <code>can_call</code> on the tool in OpenFGA.
+                Teams you share with can invoke this tool.
               </>
             }
             renderGrantDetail={(slug) => (
               <>
-                members of <code>team:{slug}</code> can call this tool.
+                Members of <strong>{slug}</strong> can invoke this tool.
               </>
             )}
           />
@@ -738,9 +738,8 @@ function ToolFormDialog({ open, onClose, onSave, initial, isEdit }: ToolFormDial
                 Share with the whole organization
               </Label>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Every organization member gets <code>can_call</code> on this tool
-                (grants <code>organization#member</code> reader/user/caller in OpenFGA).
-                Useful for shared knowledge-base search tools.
+                Every organization member can invoke this tool. This is useful
+                for shared knowledge-base search tools.
               </p>
             </div>
           </div>
@@ -1252,8 +1251,8 @@ export default function MCPToolsView() {
   };
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex shrink-0 justify-end border-b border-border/50 px-6 py-4">
+    <div className="flex h-full min-h-0 flex-col">
+      <WorkspacePageActions>
         <Button
           variant="outline"
           size="sm"
@@ -1264,11 +1263,11 @@ export default function MCPToolsView() {
           <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
           Refresh
         </Button>
-      </div>
+      </WorkspacePageActions>
 
       {/* Body */}
-      <ScrollArea className="flex-1">
-        <div className="px-6 py-4 space-y-6 max-w-2xl">
+      <ScrollArea className="min-h-0 flex-1">
+        <div className="max-w-2xl space-y-6 px-6 py-4">
           {loading && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />

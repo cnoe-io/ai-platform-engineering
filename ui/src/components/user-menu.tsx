@@ -1,6 +1,7 @@
 "use client";
 
 import type { ChangelogRelease } from "@/app/api/changelog/route";
+import { ReportProblemDialog } from "@/components/ticket/ReportProblemDialog";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -12,7 +13,7 @@ import {
 import { config } from "@/lib/config";
 import { cn } from "@/lib/utils";
 import { AnimatePresence,motion } from "framer-motion";
-import { ChevronDown,ChevronRight,ExternalLink,Info,Lightbulb,Loader2,LogIn,LogOut,Shield,Tag } from "lucide-react";
+import { Bug,ChevronDown,ChevronRight,ExternalLink,Info,Lightbulb,Loader2,LogIn,LogOut,Shield,Tag } from "lucide-react";
 import { signIn,signOut,useSession } from "next-auth/react";
 import Image from "next/image";
 import { NavigationProgressLink } from "@/components/layout/NavigationProgressLink";
@@ -24,6 +25,7 @@ export function UserMenu(): React.ReactElement | null {
   const { data: session,status } = useSession();
   const [open,setOpen] = useState(false);
   const [aboutOpen,setAboutOpen] = useState(false);
+  const [reportDialogOpen,setReportDialogOpen] = useState(false);
   const [releases,setReleases] = useState<ChangelogRelease[]>([]);
   const [changelogLoading,setChangelogLoading] = useState(false);
   const [changelogError,setChangelogError] = useState<string | null>(null);
@@ -181,6 +183,25 @@ export function UserMenu(): React.ReactElement | null {
               </div>
             ) : null}
 
+            {config.reportProblemEnabled ? (
+              <div className="border-b border-border">
+                <button
+                  className="flex w-full items-center justify-between px-4 py-2 text-xs font-medium transition-colors hover:bg-muted/50"
+                  onClick={() => {
+                    setReportDialogOpen(true);
+                    setOpen(false);
+                  }}
+                  type="button"
+                >
+                  <span className="flex items-center gap-2">
+                    <Bug className="h-3.5 w-3.5" />
+                    Report a Problem
+                  </span>
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ) : null}
+
             <div className="border-b border-border">
               <button
                 className="flex w-full items-center justify-between px-4 py-2 text-xs font-medium transition-colors hover:bg-muted/50"
@@ -212,6 +233,11 @@ export function UserMenu(): React.ReactElement | null {
           </motion.div>
         ) : null}
       </AnimatePresence>
+
+      <ReportProblemDialog
+        onOpenChange={setReportDialogOpen}
+        open={reportDialogOpen}
+      />
 
       <Dialog onOpenChange={setAboutOpen} open={aboutOpen}>
         <DialogContent className="max-h-[85vh] max-w-3xl p-0">

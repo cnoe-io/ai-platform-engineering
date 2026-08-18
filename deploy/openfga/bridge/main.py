@@ -78,6 +78,11 @@ AGENT_CONTEXT_LOCAL_MAX_AGE_SECONDS = int(
 CALLER_TOOL_CHECK_ENABLED = os.environ.get(
     "CAIPE_CALLER_TOOL_CHECK_ENABLED", ""
 ).strip().lower() in ("1", "true", "yes", "on")
+# The Knowledge Base target owns caller authorization: organization Search,
+# custom-tool grants, and readable datasources. Mirror its feature gate here
+# instead of requiring a second generic MCP assignment.
+CAIPE_ORG_KEY = os.environ.get("CAIPE_ORG_KEY", "caipe").strip() or "caipe"
+SEARCH_CAPABILITY_MCP_SERVERS = frozenset({"knowledge-base"})
 # MCP targets in this set require the caller to hold `can_invoke` on the
 # corresponding `mcp_server:<target>` object. This supports selectively
 # restricted servers without enabling caller-keyed checks for every MCP tool.
@@ -893,41 +898,61 @@ class OpenFgaAuthorizationService:
                 # rollout (FR-012c, see CALLER_TOOL_CHECK_ENABLED).
                 if CALLER_TOOL_CHECK_ENABLED:
                     caller_tool_obj = f"tool:{tool_call[0]}/{tool_call[1]}"
-                    caller_exact = _check_openfga(user, "can_call", caller_tool_obj)
-                    caller_wildcard = False
-                    if not caller_exact:
-                        caller_wildcard = _check_openfga(
+                    if tool_call[0] in SEARCH_CAPABILITY_MCP_SERVERS:
+                        caller_relation = "can_search"
+                        caller_obj = f"organization:{CAIPE_ORG_KEY}"
+                        caller_allowed = _check_openfga(
                             user,
-                            "can_call",
-                            f"tool:{tool_call[0]}/*",
+                            caller_relation,
+                            caller_obj,
                         )
-                    if not (caller_exact or caller_wildcard):
+                        deny_reason = "DENY_CALLER_SEARCH"
+                        allow_reason = "OK_CALLER_SEARCH"
+                        deny_message = "caller lacks Knowledge Base search access"
+                    else:
+                        caller_relation = "can_call"
+                        caller_obj = caller_tool_obj
+                        caller_exact = _check_openfga(
+                            user,
+                            caller_relation,
+                            caller_obj,
+                        )
+                        caller_wildcard = False
+                        if not caller_exact:
+                            caller_wildcard = _check_openfga(
+                                user,
+                                caller_relation,
+                                f"tool:{tool_call[0]}/*",
+                            )
+                        caller_allowed = caller_exact or caller_wildcard
+                        deny_reason = "DENY_CALLER_TOOL"
+                        allow_reason = "OK_CALLER_TOOL"
+                        deny_message = "caller lacks tool grant"
+                    if not caller_allowed:
                         _audit_decision(
                             request=request,
                             subject=sub,
                             user=user,
-                            relation="can_call",
-                            obj=caller_tool_obj,
+                            relation=caller_relation,
+                            obj=caller_obj,
                             outcome="deny",
-                            reason_code="DENY_CALLER_TOOL",
+                            reason_code=deny_reason,
                             duration_ms=(time.perf_counter() - start) * 1000,
                         )
                         return build_check_response(
                             allowed=False,
                             code=PERMISSION_DENIED,
-                            message="caller lacks tool grant",
+                            message=deny_message,
                         )
-                    # Caller-keyed tool grant confirmed — audit the allow so every
-                    # call-time decision under any credential is recorded
-                    # (FR-027/SC-009), not only denials.
+                    # Audit the caller-side allow as well as denials.
                     _audit_decision(
                         request=request,
                         subject=sub,
                         user=user,
-                        relation="can_call",
-                        obj=caller_tool_obj,
+                        relation=caller_relation,
+                        obj=caller_obj,
                         outcome="allow",
-                        reason_code="OK_CALLER_TOOL",
+                        reason_code=allow_reason,
                         duration_ms=(time.perf_counter() - start) * 1000,
                     )
         except Exception as e:
