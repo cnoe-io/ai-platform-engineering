@@ -79,7 +79,7 @@ Harness Engine variables use the `HARNESS_ENGINE_` prefix:
 - `HARNESS_ENGINE_INTERNAL_TOKEN`: required BFF-to-engine credential.
 - `HARNESS_ENGINE_STORAGE_BACKEND`: `mongodb` for durable/replayable production sessions; `memory` for tests and local development.
 - `HARNESS_ENGINE_MONGODB_URI` and `HARNESS_ENGINE_MONGODB_DATABASE`.
-- `HARNESS_ENGINE_AGENTCORE_RUNTIMES_JSON`: alias-to-operator-owned target map, for example `{"primary":{"arn":"arn:aws:bedrock-agentcore:us-east-1:111122223333:runtime/example","qualifier":"DEFAULT","region":"us-east-1"}}`.
+- `HARNESS_ENGINE_AGENTCORE_RUNTIMES_JSON`: alias-to-operator-owned target map. Targets can be custom AgentCore Runtime ARNs or managed AgentCore Harness ARNs. Example: `{"primary":{"arn":"arn:aws:bedrock-agentcore:us-east-1:111122223333:harness/example-AbCdEf1234","qualifier":"DEFAULT","region":"us-east-1"}}`.
 - `HARNESS_ENGINE_CLAUDE_SDK_PROFILES_JSON`: alias-to-operator-owned Claude
   policy, for example `{"safe":{"model":"claude-example","cwd":"/workspace","permission_mode":"dontAsk"}}`.
 - `HARNESS_ENGINE_EVENT_RETENTION_SECONDS`: TTL for replay events.
