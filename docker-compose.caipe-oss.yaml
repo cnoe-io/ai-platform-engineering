@@ -59,6 +59,24 @@ services:
       ollama-models:
         condition: service_completed_successfully
 
+  keycloak-ui-client-config:
+    image: quay.io/keycloak/keycloak:26.3
+    container_name: caipe-oss-keycloak-ui-client-config
+    restart: "no"
+    entrypoint: ["/bin/sh", "/scripts/configure-keycloak-ui-client.sh"]
+    environment:
+      KEYCLOAK_URL: http://keycloak:7080
+      KEYCLOAK_REALM: caipe
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      KEYCLOAK_UI_CLIENT_ID: caipe-ui
+      KEYCLOAK_UI_BASE_URL: https://caipe-oss.outshift.io
+    volumes:
+      - ./deploy/configure-keycloak-ui-client.sh:/scripts/configure-keycloak-ui-client.sh:ro
+    depends_on:
+      keycloak:
+        condition: service_healthy
+
   caipe-nginx:
     image: nginx:1.27-alpine
     container_name: caipe-oss-nginx
@@ -74,6 +92,8 @@ services:
         condition: service_healthy
       keycloak:
         condition: service_healthy
+      keycloak-ui-client-config:
+        condition: service_completed_successfully
 
   harness-engine:
     build:
