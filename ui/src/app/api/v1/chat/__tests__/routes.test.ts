@@ -155,6 +155,59 @@ describe("Dynamic Agent chat Web UI backend routes", () => {
     );
   });
 
+  it("keeps the legacy Dynamic Agents path free of harness lookups when Harness Engine is disabled", async () => {
+    delete process.env.HARNESS_ENGINE_URL;
+    delete process.env.HARNESS_ENGINE_INTERNAL_TOKEN;
+    const requestedCollections: string[] = [];
+    mockGetCollection.mockImplementation(async (name: string) => {
+      requestedCollections.push(name);
+      return {
+        findOne: jest.fn(async () => ({
+          _id: "conv-1",
+          owner_id: "alice@example.com",
+          owner_subject: "alice-sub",
+        })),
+      };
+    });
+
+    const response = await startPost(jsonRequest("/api/v1/chat/stream/start", {
+      message: "hi",
+      conversation_id: "conv-1",
+      agent_id: "legacy-agent",
+    }));
+
+    expect(response.status).toBe(200);
+    expect(requestedCollections).not.toContain("dynamic_agents");
+    expect(mockProxySSEStream).toHaveBeenCalledWith(
+      "http://dynamic-agents:8000/api/v1/chat/stream/start",
+      expect.any(String),
+      expect.any(Object),
+      "[stream/start]",
+    );
+  });
+
+  it("routes a legacy agent document without a harness marker to Dynamic Agents", async () => {
+    mockGetCollection.mockImplementation(async (name: string) => ({
+      findOne: jest.fn(async () => name === "dynamic_agents"
+        ? { _id: "legacy-agent" }
+        : {
+            _id: "conv-1",
+            owner_id: "alice@example.com",
+            owner_subject: "alice-sub",
+          }),
+    }));
+
+    const response = await startPost(jsonRequest("/api/v1/chat/stream/start", {
+      message: "hi",
+      conversation_id: "conv-1",
+      agent_id: "legacy-agent",
+    }));
+
+    expect(response.status).toBe(200);
+    expect(mockProxySSEStream).toHaveBeenCalledTimes(1);
+    expect(mockProxyJSONRequest).not.toHaveBeenCalled();
+  });
+
   it("threads isServiceAccount into the conversation write check so SA callers graph as service_account:<sub>", async () => {
     // Regression: requireConversationWriteAccess dropped isServiceAccount, so an
     // SA-routed Slack request was graphed as user:<sub> and 403'd conversation#write
@@ -246,6 +299,53 @@ describe("Dynamic Agent chat Web UI backend routes", () => {
       );
     },
   );
+
+  it("preserves CAIPE CLI context and AG-UI tool-result fields for provider harnesses", async () => {
+    mockGetCollection.mockImplementation(async (name: string) => ({
+      findOne: jest.fn(async () => name === "dynamic_agents"
+        ? { _id: "agent-1", execution_harness_id: "claude_agent_sdk" }
+        : { _id: "conv-1", owner_id: "alice@example.com", owner_subject: "alice-sub" }),
+    }));
+    const fetchMock = jest.spyOn(global, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        success: true,
+        data: {
+          run_id: "run-cli",
+          agent_id: "agent-1",
+          conversation_id: "conv-1",
+          agent_version: 1,
+          binding_id: "binding-cli",
+          harness_id: "claude_agent_sdk",
+          profile_id: "safe",
+          status: "queued",
+          last_sequence: 0,
+        },
+      }), { status: 202, headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(
+        "id: 1\nevent: run.started\ndata: {}\n\n" +
+        "id: 2\nevent: tool.started\ndata: {\"tool_call_id\":\"tool-1\",\"tool_name\":\"search\",\"arguments\":{\"q\":\"hello\"}}\n\n" +
+        "id: 3\nevent: tool.completed\ndata: {\"tool_call_id\":\"tool-1\",\"result\":\"found\"}\n\n" +
+        "id: 4\nevent: run.completed\ndata: {}\n\n",
+        { status: 200, headers: { "Content-Type": "text/event-stream" } },
+      ));
+
+    const response = await startPost(jsonRequest("/api/v1/chat/stream/start", {
+      message: "hi",
+      context: "repository context from caipe-cli",
+      conversation_id: "conv-1",
+      agent_id: "agent-1",
+      protocol: "agui",
+    }));
+    const stream = await response.text();
+    const createRunBody = JSON.parse(
+      String((fetchMock.mock.calls[0]?.[1] as RequestInit | undefined)?.body),
+    ) as Record<string, unknown>;
+
+    expect(createRunBody.context).toBe("repository context from caipe-cli");
+    expect(stream).toContain("event: TOOL_CALL_RESULT");
+    expect(stream).toContain('"toolCallId":"tool-1"');
+    expect(stream).not.toContain('"tool_call_id":"tool-1"');
+  });
 
   it("accumulates a Harness Engine run through the existing invoke contract", async () => {
     mockGetCollection.mockImplementation(async (name: string) => ({

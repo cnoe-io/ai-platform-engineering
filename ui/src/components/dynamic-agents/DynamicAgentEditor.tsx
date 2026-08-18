@@ -1179,7 +1179,7 @@ export function DynamicAgentEditor({
       setLoading(false);
       return;
     }
-    if (!isEditing && !ownerTeamSlug) {
+    if (!isEditing && visibility === "team" && !ownerTeamSlug) {
       setError("Owner team is required");
       setLoading(false);
       return;
@@ -1222,6 +1222,76 @@ export function DynamicAgentEditor({
         throw new Error(
           "Select an operator profile for the execution harness before saving",
         );
+      }
+
+      const targetAgentId = isEditing ? agent._id : generatedId;
+      let preparedHarnessSave: {
+        blueprint: AgentBlueprint;
+        catalog_revision: string;
+        config_fingerprint: string;
+      } | null = null;
+
+      // Validate the independent blueprint before mutating the legacy agent
+      // document. This keeps an invalid provider configuration from changing
+      // an existing Dynamic Agent or creating a half-configured new one.
+      if (harnessId !== "dynamic_agents") {
+        const toolBindings = Object.entries(allowedTools).flatMap(
+          ([serverId, tools]) =>
+            Array.isArray(tools)
+              ? tools.map((toolName) => ({
+                  tool_id: `${serverId}.${toolName}`,
+                }))
+              : [],
+        );
+        const blueprint: AgentBlueprint = {
+          id: targetAgentId,
+          name,
+          description,
+          harness: {
+            id: harnessId,
+            profile_id: harnessProfileId,
+            options: harnessOptions,
+          },
+          prompt: { system: systemPrompt, variables: {}, context_sources: [] },
+          // The selected operator profile owns the provider model in this
+          // vertical slice. Model compatibility/filtering is a follow-up.
+          model: { policy: "harness_default" },
+          tools: { bindings: toolBindings, approval_policy: "sensitive_only" },
+          thread: { persistence: "durable" },
+          memory: { enabled: false },
+          workspace: { persistence: "none" },
+          streaming: { protocol: "canonical", replay: "required" },
+          delegation: {
+            agents: subagents.map((subagent) => subagent.agent_id),
+            max_depth: subagents.length > 0 ? 1 : 0,
+            max_parallel: 1,
+          },
+        };
+        const validationResponse = await fetch(
+          "/api/harness-engine/agent-drafts/validate",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              blueprint,
+              catalog_revision: catalogRevision,
+            }),
+          },
+        );
+        const validation = await validationResponse.json();
+        if (!validationResponse.ok || !validation.data?.valid) {
+          const reason = validation.data?.issues
+            ?.map((issue: { message: string }) => issue.message)
+            .join("; ");
+          throw new Error(
+            `Harness blueprint is invalid; the agent was not saved: ${reason || validation.error || "unknown error"}`,
+          );
+        }
+        preparedHarnessSave = {
+          blueprint: validation.data.normalized_blueprint,
+          catalog_revision: validation.data.catalog_revision,
+          config_fingerprint: validation.data.config_fingerprint,
+        };
       }
 
       if (isEditing) {
@@ -1321,82 +1391,62 @@ export function DynamicAgentEditor({
         }
       }
 
-      const targetAgentId = isEditing ? agent._id : generatedId;
-      if (harnessId !== "dynamic_agents") {
-        const toolBindings = Object.entries(allowedTools).flatMap(
-          ([serverId, tools]) =>
-            Array.isArray(tools)
-              ? tools.map((toolName) => ({
-                  tool_id: `${serverId}.${toolName}`,
-                }))
-              : [],
-        );
-        const blueprint: AgentBlueprint = {
-          id: targetAgentId,
-          name,
-          description,
-          harness: {
-            id: harnessId,
-            profile_id: harnessProfileId,
-            options: harnessOptions,
-          },
-          prompt: { system: systemPrompt, variables: {}, context_sources: [] },
-          // The selected operator profile owns the provider model in this
-          // vertical slice. Model compatibility/filtering is a follow-up.
-          model: { policy: "harness_default" },
-          tools: { bindings: toolBindings, approval_policy: "sensitive_only" },
-          thread: { persistence: "durable" },
-          memory: { enabled: false },
-          workspace: { persistence: "none" },
-          streaming: { protocol: "canonical", replay: "required" },
-          delegation: {
-            agents: subagents.map((subagent) => subagent.agent_id),
-            max_depth: subagents.length > 0 ? 1 : 0,
-            max_parallel: 1,
-          },
-        };
-        const validationResponse = await fetch(
-          "/api/harness-engine/agent-drafts/validate",
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              blueprint,
-              catalog_revision: catalogRevision,
-            }),
-          },
-        );
-        const validation = await validationResponse.json();
-        if (!validationResponse.ok || !validation.data?.valid) {
-          const reason = validation.data?.issues
-            ?.map((issue: { message: string }) => issue.message)
-            .join("; ");
-          throw new Error(
-            `The agent was saved, but its harness blueprint is invalid: ${reason || validation.error || "unknown error"}`,
+      if (preparedHarnessSave) {
+        let harnessSaveError: string | null = null;
+        let savedHarnessRevision: number | null = null;
+        try {
+          const harnessResponse = await fetch(
+            `/api/harness-engine/agents/${encodeURIComponent(targetAgentId)}`,
+            {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                ...preparedHarnessSave,
+                ...(harnessRevision
+                  ? { expected_revision: harnessRevision }
+                  : {}),
+              }),
+            },
+          );
+          const harness = await harnessResponse.json();
+          if (!harnessResponse.ok || !harness.success) {
+            harnessSaveError = harness.error || "unknown error";
+          } else {
+            savedHarnessRevision = harness.data.record.revision;
+          }
+        } catch (harnessError) {
+          harnessSaveError = getErrorMessage(
+            harnessError,
+            "Harness Engine is unavailable",
           );
         }
-        const harnessResponse = await fetch(
-          `/api/harness-engine/agents/${encodeURIComponent(targetAgentId)}`,
-          {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              blueprint: validation.data.normalized_blueprint,
-              catalog_revision: validation.data.catalog_revision,
-              config_fingerprint: validation.data.config_fingerprint,
-              ...(harnessRevision
-                ? { expected_revision: harnessRevision }
-                : {}),
-            }),
-          },
-        );
-        const harness = await harnessResponse.json();
-        if (!harnessResponse.ok || !harness.success) {
+
+        if (harnessSaveError) {
+          if (!isEditing) {
+            let rollbackSucceeded = false;
+            try {
+              const rollbackResponse = await fetch(
+                `/api/dynamic-agents?id=${encodeURIComponent(targetAgentId)}`,
+                { method: "DELETE" },
+              );
+              rollbackSucceeded = rollbackResponse.ok;
+              const rollback = await rollbackResponse.json();
+              rollbackSucceeded = rollbackResponse.ok && rollback.success !== false;
+            } catch {
+              // The error below explicitly tells the operator that manual
+              // cleanup may be required when compensation cannot complete.
+            }
+            throw new Error(
+              rollbackSucceeded
+                ? `Agent creation was rolled back because its harness blueprint could not be saved: ${harnessSaveError}`
+                : `Harness blueprint save failed and the newly created agent could not be rolled back: ${harnessSaveError}`,
+            );
+          }
           throw new Error(
-            `The agent was saved, but its harness blueprint was not: ${harness.error || "unknown error"}`,
+            `The agent was saved, but its harness blueprint was not: ${harnessSaveError}`,
           );
         }
-        setHarnessRevision(harness.data.record.revision);
+        setHarnessRevision(savedHarnessRevision);
       }
 
       // Clear unsaved-changes state BEFORE calling onSave(): the parent will

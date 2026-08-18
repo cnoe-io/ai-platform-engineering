@@ -73,10 +73,21 @@ class RunCoordinator:
             traceparent=traceparent,
         )
         await self._repository.create_run(run)
+        rendered_prompt = await self._prompt_compiler.compile(version.blueprint)
+        if request.context:
+            rendered_prompt = rendered_prompt.model_copy(
+                update={
+                    "system": (
+                        f"{rendered_prompt.system}\n\n"
+                        f"<client-system-context>\n{request.context}\n"
+                        "</client-system-context>"
+                    )
+                }
+            )
         context = RunContext(
             blueprint=version.blueprint,
             binding=binding,
-            prompt=await self._prompt_compiler.compile(version.blueprint),
+            prompt=rendered_prompt,
             turn=TurnInput(run_id=run.run_id, message=request.message, traceparent=traceparent),
         )
         task = asyncio.create_task(self._pump(run, context), name=f"harness-run:{run.run_id}")

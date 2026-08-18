@@ -16,6 +16,12 @@ Harness Engine serves the existing Dynamic Agents API unchanged. The implementat
 Base runtime prefix: `/api/v1`
 Streaming media type: `text/event-stream`
 
+The detached `POST /api/v1/runs` request accepts the required `agent_id`,
+`conversation_id`, and `message`, plus optional `client_request_id` and
+`context`. `context` is bounded to 500,000 characters and augments the rendered
+system prompt for that turn only; it is not written into the immutable agent
+blueprint. This preserves the context contract used by CAIPE CLI.
+
 ## Preserved endpoints
 
 | Method | Path | Contract |
