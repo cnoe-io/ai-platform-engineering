@@ -82,6 +82,11 @@ services:
     image: caipe-harness-engine:${HARNESS_ENGINE_IMAGE_TAG:-preview}
     container_name: harness-engine
     restart: unless-stopped
+    # Operator profiles use /workspace as their SDK working directory. This is
+    # intentionally ephemeral until the sandbox lease abstraction is wired to
+    # isolated pods.
+    tmpfs:
+      - /workspace:rw,nosuid,nodev,mode=1777,size=512m
     environment:
       HARNESS_ENGINE_INTERNAL_TOKEN: ${HARNESS_ENGINE_INTERNAL_TOKEN:?set HARNESS_ENGINE_INTERNAL_TOKEN}
       HARNESS_ENGINE_STORAGE_BACKEND: mongodb
