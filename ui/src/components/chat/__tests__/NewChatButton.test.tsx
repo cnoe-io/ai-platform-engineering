@@ -36,6 +36,7 @@ jest.mock("lucide-react", () => ({
   Loader2: () => <span data-testid="loader-icon" />,
   Search: () => <span data-testid="search-icon" />,
   Star: () => <span data-testid="star-icon" />,
+  Cpu: () => <span data-testid="cpu-icon" />,
 }));
 
 const mockFetch = jest.fn();
@@ -84,10 +85,19 @@ describe("NewChatButton", () => {
       name: "Platform Helper",
       source: "platform-default",
     });
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        success: true,
+        data: { _id: "agent-default", name: "Platform Helper", execution_harness_id: "agentcore" },
+      }),
+    });
 
     render(<NewChatButton collapsed={false} onNewChat={jest.fn()} />);
 
     expect(await screen.findByText("Platform Helper")).toBeInTheDocument();
+    expect(await screen.findByLabelText("Execution harness: Amazon Bedrock AgentCore")).toBeInTheDocument();
+    expect(mockFetch).toHaveBeenCalledWith("/api/dynamic-agents/agents/agent-default");
   });
 
   it("prefers the user's web default over the platform default", async () => {
