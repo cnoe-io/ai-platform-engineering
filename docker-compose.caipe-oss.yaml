@@ -214,10 +214,9 @@ services:
       HARNESS_ENGINE_CLAUDE_SDK_PROFILES_JSON: ${HARNESS_ENGINE_CLAUDE_SDK_PROFILES_JSON:-{}}
       AWS_REGION: ${AWS_REGION:-}
       AWS_DEFAULT_REGION: ${AWS_REGION:-}
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
-      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # Preview hosts use their EC2 instance profile. Do not copy ambient
+      # developer credentials or an Anthropic key into this container: either
+      # would override the Bedrock credential provider chain used by Claude SDK.
       CLAUDE_CODE_USE_BEDROCK: ${CLAUDE_CODE_USE_BEDROCK:-}
     depends_on:
       caipe-mongodb:
