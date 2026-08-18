@@ -42,6 +42,12 @@ def test_preview_overlay_adds_harness_engine_without_overriding_dynamic_agents()
     assert services["rag-server"]["depends_on"]["ollama-models"]["condition"] == (
         "service_completed_successfully"
     )
+    assert services["keycloak-ui-client-config"]["environment"][
+        "KEYCLOAK_UI_BASE_URL"
+    ] == "https://caipe-oss.outshift.io"
+    assert services["caipe-nginx"]["depends_on"]["keycloak-ui-client-config"][
+        "condition"
+    ] == "service_completed_successfully"
 
 
 def test_preview_nginx_exposes_ui_but_not_harness_engine_directly() -> None:
