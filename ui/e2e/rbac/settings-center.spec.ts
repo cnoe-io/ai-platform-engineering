@@ -292,6 +292,9 @@ test.describe("mocked routed Settings browser regression",() => {
     await expect.poll(() => page.evaluate(() => (
       getComputedStyle(document.documentElement).colorScheme
     ))).toBe("light");
+    await expect(page.getByRole("link",{ name: "Appearance settings" })).toContainText(
+      "Legacy Light",
+    );
     expect(
       renderingErrors.filter((message) => /hydration|script tag while rendering/i.test(message)),
     ).toEqual([]);

@@ -136,6 +136,12 @@ export function AppearanceSettings(): React.ReactElement {
     };
   }, []);
 
+  useEffect(() => {
+    if (loading) return;
+    applyColorTheme(preferences.theme);
+    setTheme(preferences.theme);
+  }, [loading,preferences.theme,setTheme]);
+
   const changeFontSize = (value: FontSize) => {
     markAppearanceInteraction("fontSize");
     setPreferences((current) => ({ ...current,fontSize: value }));
