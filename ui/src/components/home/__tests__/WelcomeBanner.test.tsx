@@ -20,8 +20,11 @@ import { render, screen } from '@testing-library/react'
 // ============================================================================
 
 jest.mock('lucide-react', () => ({
-  Sparkles: (props: unknown) => <svg data-testid="icon-sparkles" {...props} />,
+  MoonStar: (props: unknown) => <svg data-testid="icon-moon-star" {...props} />,
   Settings: (props: unknown) => <svg data-testid="icon-settings" {...props} />,
+  Sun: (props: unknown) => <svg data-testid="icon-sun" {...props} />,
+  Sunrise: (props: unknown) => <svg data-testid="icon-sunrise" {...props} />,
+  Sunset: (props: unknown) => <svg data-testid="icon-sunset" {...props} />,
 }))
 
 jest.mock('@/lib/utils', () => ({
@@ -37,7 +40,7 @@ jest.mock('next-auth/react', () => ({
 // Imports — after mocks
 // ============================================================================
 
-import { WelcomeBanner, getGreeting } from '../WelcomeBanner'
+import { WelcomeBanner, getGreeting, getSunPhase } from '../WelcomeBanner'
 
 // ============================================================================
 // Tests
@@ -85,18 +88,26 @@ describe('WelcomeBanner', () => {
     expect(screen.getByTestId('welcome-banner')).toBeInTheDocument()
   })
 
-  it('uses the breathing gradient without pointer-position overrides', () => {
+  it('exposes the local sun phase without pointer-position overrides', () => {
     mockSession = { data: { user: { name: 'Test' } } }
     render(<WelcomeBanner />)
     const banner = screen.getByTestId('welcome-banner')
     expect(banner).toHaveClass('welcome-banner')
+    expect(banner).toHaveAttribute('data-sun-phase')
     expect(banner.style.getPropertyValue('--welcome-pointer-x')).toBe('')
     expect(banner.style.getPropertyValue('--welcome-pointer-y')).toBe('')
   })
 
-  it('renders the sparkles icon', () => {
+  it('renders the icon for the current sun phase', () => {
     render(<WelcomeBanner />)
-    expect(screen.getByTestId('icon-sparkles')).toBeInTheDocument()
+    const phase = screen.getByTestId('welcome-banner').getAttribute('data-sun-phase')
+    const expectedIcon = {
+      dawn: 'icon-sunrise',
+      day: 'icon-sun',
+      sunset: 'icon-sunset',
+      night: 'icon-moon-star',
+    }[phase || 'night']
+    expect(screen.getByTestId(expectedIcon)).toBeInTheDocument()
   })
 
   it('keeps the personalized greeting in one compact row', () => {
@@ -107,7 +118,7 @@ describe('WelcomeBanner', () => {
     expect(screen.getByRole('heading')).toHaveTextContent(
       /^(Good morning|Good afternoon|Good evening), Test\.$/
     )
-    expect(copy).toContainElement(screen.getByTestId('icon-sparkles'))
+    expect(copy.querySelector('svg')).toBeInTheDocument()
     expect(copy).toHaveClass('flex', 'items-center')
     expect(screen.queryByText(/Welcome back/)).not.toBeInTheDocument()
   })
@@ -174,11 +185,11 @@ describe('getGreeting', () => {
     expect(getGreeting()).toBe('Good evening')
   })
 
-  it('returns "Good morning" at hour 0 (midnight)', () => {
+  it('returns "Good evening" at hour 0 (midnight)', () => {
     jest.spyOn(global, 'Date').mockImplementation(
       () => ({ getHours: () => 0 }) as unknown
     )
-    expect(getGreeting()).toBe('Good morning')
+    expect(getGreeting()).toBe('Good evening')
   })
 
   it('returns "Good morning" at hour 11', () => {
@@ -214,5 +225,29 @@ describe('getGreeting', () => {
       () => ({ getHours: () => 23 }) as unknown
     )
     expect(getGreeting()).toBe('Good evening')
+  })
+})
+
+describe('getSunPhase', () => {
+  const originalDate = global.Date
+
+  afterEach(() => {
+    global.Date = originalDate
+  })
+
+  it.each([
+    [5, 'dawn'],
+    [8, 'dawn'],
+    [9, 'day'],
+    [16, 'day'],
+    [17, 'sunset'],
+    [19, 'sunset'],
+    [20, 'night'],
+    [0, 'night'],
+  ])('maps hour %i to the %s palette', (hour, expected) => {
+    jest.spyOn(global, 'Date').mockImplementation(
+      () => ({ getHours: () => hour }) as unknown
+    )
+    expect(getSunPhase()).toBe(expected)
   })
 })
