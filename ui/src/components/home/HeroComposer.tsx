@@ -52,7 +52,9 @@ export function HeroComposer() {
 
   return (
     <div data-testid="hero-composer" className="home-hero-surface rounded-xl border border-border/50 bg-card/40 p-6">
-      <h1 className="text-xl font-bold text-foreground">What would you like to do today?</h1>
+      <h1 className="home-composer-prompt text-xl font-semibold tracking-tight text-foreground">
+        What would you like to do today?
+      </h1>
       <div className="home-composer-field mt-4 rounded-lg border border-border/60 bg-background/60 p-3">
         <textarea
           value={text}
