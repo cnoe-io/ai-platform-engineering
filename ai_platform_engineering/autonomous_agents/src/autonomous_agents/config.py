@@ -85,6 +85,14 @@ class Settings(BaseSettings):
     # Per-task secrets always win when both are configured.
     webhook_secret: str | None = None
 
+    # Per-task webhook secrets use the same envelope-encryption scheme as the
+    # UI credential store (including UI-managed Webex OAuth secrets): a fresh
+    # AES-256-GCM data key per write, wrapped by this AWS KMS CMK. When the CMK
+    # is unset, tasks without per-task secrets still work, but persisting or
+    # reading a per-task secret fails closed instead of writing plaintext.
+    credential_kms_cmk_id: str | None = None
+    credential_kms_region: str | None = None
+
     # IMP-07 — webhook replay protection.
     #
     # When > 0, signed webhooks must additionally carry an

@@ -19,6 +19,8 @@ imagePullSecrets: []
 serviceAccount:
   create: true
   automount: true
+  # On EKS, annotate this service account with an IRSA role allowed to call
+  # kms:GenerateDataKey and kms:Decrypt on config.CREDENTIAL_KMS_CMK_ID.
   annotations: {}
   name: ""
 
@@ -162,6 +164,12 @@ config:
   # server-side proxy, so browsers never hit it directly). Note: the service
   # rejects "*" at startup by design.
   CORS_ORIGINS: ""
+  # Per-task webhook secrets use the same AWS KMS envelope-encryption format
+  # as UI-managed integration credentials (including Webex OAuth secrets).
+  # Leave blank only when every task uses no per-task secret (or relies on the
+  # global WEBHOOK_SECRET fallback). Never put the plaintext secret here.
+  CREDENTIAL_KMS_CMK_ID: ""
+  CREDENTIAL_KMS_REGION: ""
 
 # OAuth client used by Autonomous Agents to authenticate its calls to Dynamic
 # Agents. The standalone chart keeps this disabled because it cannot assume an

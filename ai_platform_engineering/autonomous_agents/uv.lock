@@ -64,7 +64,9 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "apscheduler" },
+    { name = "boto3" },
     { name = "cnoe-agent-utils" },
+    { name = "cryptography" },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "motor" },
@@ -90,7 +92,9 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "apscheduler", specifier = "==3.11.0" },
+    { name = "boto3", specifier = "==1.42.87" },
     { name = "cnoe-agent-utils", specifier = "==0.3.15" },
+    { name = "cryptography", specifier = "==46.0.7" },
     { name = "fastapi", specifier = "==0.115.12" },
     { name = "httpx", specifier = "==0.28.1" },
     { name = "mongomock-motor", marker = "extra == 'dev'", specifier = "==0.0.36" },

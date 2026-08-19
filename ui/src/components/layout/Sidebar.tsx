@@ -58,12 +58,37 @@ interface SidebarProps {
   onUseCaseSaved?: () => void;
 }
 
-function getScheduleBadge(conv: Conversation): { label: string; title: string } | null {
+interface ConversationTitleBadge {
+  kind: "autonomous" | "scheduled";
+  label: string;
+  title: string;
+}
+
+function getAutonomousBadge(conv: Conversation): ConversationTitleBadge | null {
+  if (conv.source !== "autonomous") return null;
+
+  const metadataTaskName = conv.metadata?.task_name;
+  const titleTaskName = conv.title.replace(/^\[Autonomous\]\s*/i, "").trim();
+  const taskId = conv.task_id?.trim();
+  const label =
+    typeof metadataTaskName === "string" && metadataTaskName.trim()
+      ? metadataTaskName.trim()
+      : titleTaskName || taskId || "Autonomous";
+
+  return {
+    kind: "autonomous",
+    label,
+    title: taskId ? `Autonomous task ${taskId}: ${label}` : `Autonomous task: ${label}`,
+  };
+}
+
+function getScheduleBadge(conv: Conversation): ConversationTitleBadge | null {
   const scheduleId = conv.metadata?.schedule_id;
   const scheduleTitle = conv.metadata?.schedule_title;
   if (typeof scheduleTitle === "string" && scheduleTitle.trim()) {
     const label = scheduleTitle.trim();
     return {
+      kind: "scheduled",
       label,
       title: typeof scheduleId === "string" && scheduleId.trim()
         ? `Scheduled run ${scheduleId.trim()}: ${label}`
@@ -73,13 +98,17 @@ function getScheduleBadge(conv: Conversation): { label: string; title: string } 
 
   if (typeof scheduleId === "string" && scheduleId.trim()) {
     const label = scheduleId.trim();
-    return { label, title: `Scheduled run ${label}` };
+    return { kind: "scheduled", label, title: `Scheduled run ${label}` };
   }
 
   const legacyMatch = conv.id.match(/sched_[a-z0-9]+/i);
   if (!legacyMatch) return null;
 
-  return { label: legacyMatch[0], title: `Scheduled run ${legacyMatch[0]}` };
+  return {
+    kind: "scheduled",
+    label: legacyMatch[0],
+    title: `Scheduled run ${legacyMatch[0]}`,
+  };
 }
 
 export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: SidebarProps) {
@@ -483,7 +512,7 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
                   const isLive = isConversationStreaming(conv.id);
                   const isInputRequired = !isLive && isConversationInputRequired(conv.id);
                   const isUnviewed = !isLive && !isInputRequired && hasUnviewedMessages(conv.id);
-                  const scheduleBadge = getScheduleBadge(conv);
+                  const titleBadge = getAutonomousBadge(conv) ?? getScheduleBadge(conv);
                   const isEditingTitle = editingConversationId === conv.id;
                   const isSavingTitle = renameSavingId === conv.id;
 
@@ -593,12 +622,17 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
                                 <p className="text-sm font-medium truncate flex-1" title={conv.title}>
                                   {truncateText(conv.title, sidebarWidth > 350 ? 40 : sidebarWidth > 320 ? 25 : 20)}
                                 </p>
-                                {scheduleBadge && (
+                                {titleBadge && (
                                   <span
-                                    className="shrink-0 max-w-[132px] truncate rounded border border-cyan-500/30 bg-cyan-500/10 px-1.5 py-0.5 text-[10px] font-medium normal-case tracking-normal text-cyan-700 dark:text-cyan-300"
-                                    title={scheduleBadge.title}
+                                    className={cn(
+                                      "shrink-0 max-w-[132px] truncate rounded border px-1.5 py-0.5 text-[10px] font-medium normal-case tracking-normal",
+                                      titleBadge.kind === "autonomous"
+                                        ? "border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-300"
+                                        : "border-cyan-500/30 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300",
+                                    )}
+                                    title={titleBadge.title}
                                   >
-                                    {truncateText(scheduleBadge.label, sidebarWidth > 350 ? 24 : 18)}
+                                    {truncateText(titleBadge.label, sidebarWidth > 350 ? 24 : 18)}
                                   </span>
                                 )}
                               </>

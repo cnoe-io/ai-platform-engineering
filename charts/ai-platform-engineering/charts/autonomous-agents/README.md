@@ -55,6 +55,8 @@ helm show values oci://ghcr.io/cnoe-io/charts/autonomous-agents --version 0.4.10
 | config.CHAT_HISTORY_OWNER_EMAIL | string | `"autonomous@system"` |  |
 | config.CHAT_HISTORY_PUBLISH_ENABLED | string | `"false"` |  |
 | config.CORS_ORIGINS | string | `""` |  |
+| config.CREDENTIAL_KMS_CMK_ID | string | `""` |  |
+| config.CREDENTIAL_KMS_REGION | string | `""` |  |
 | config.DYNAMIC_AGENTS_URL | string | `""` |  |
 | config.MONGODB_DATABASE | string | `"caipe"` |  |
 | config.SUPERVISOR_URL | string | `""` |  |

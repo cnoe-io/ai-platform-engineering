@@ -159,6 +159,8 @@ tasks:
 | `HOST` | `0.0.0.0` | Server bind host |
 | `PORT` | `8002` | Server port |
 | `WEBHOOK_SECRET` | `None` | Global HMAC secret for webhook validation |
+| `CREDENTIAL_KMS_CMK_ID` | `None` | AWS KMS CMK id/ARN/alias used to envelope-encrypt per-task webhook secrets. Required when any task has its own HMAC secret. |
+| `CREDENTIAL_KMS_REGION` | AWS SDK default | AWS region for the KMS client. The pod also needs `kms:GenerateDataKey` and `kms:Decrypt`, normally through IRSA. |
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
 | `MONGODB_URI` | `None` | Optional. Enables MongoDB-backed run history. See *Run History Persistence*. |
 | `MONGODB_DATABASE` | `None` | Optional. MongoDB database name. Required together with `MONGODB_URI`. |
@@ -170,6 +172,21 @@ tasks:
 | `CHAT_HISTORY_CONVERSATIONS_COLLECTION` | `conversations` | Collection that the UI sidebar reads. |
 | `CHAT_HISTORY_MESSAGES_COLLECTION` | `messages` | Collection that the UI message panel reads. |
 | `CHAT_HISTORY_INCLUDE_CONTEXT` | `false` | When `true`, inlines raw webhook context payloads into the published prompt. **Default off** because autonomous chat rows are read-accessible to all authenticated UI users (audit visibility); inlining payloads risks leaking customer/internal data. With this off, the published prompt records `Context: <redacted N keys>` so debugging "did the webhook fire?" is still possible. |
+
+---
+
+### Per-task webhook secret storage
+
+Per-task HMAC secrets use the same envelope-encryption pattern as the UI
+credential store used by integrations such as Webex OAuth. Mongo stores an
+AES-256-GCM ciphertext and a KMS-wrapped, one-time data key; it never stores
+the plaintext secret. The task id is bound into both AES additional
+authenticated data and the KMS encryption context, so an envelope cannot be
+moved to another task.
+
+If KMS is not configured or is unavailable, reads/writes involving a per-task
+secret fail closed. Tasks that use no per-task secret (including those using
+the global `WEBHOOK_SECRET`) continue to work without KMS.
 
 ---
 

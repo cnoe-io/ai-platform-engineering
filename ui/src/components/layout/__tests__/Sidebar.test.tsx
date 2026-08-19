@@ -509,6 +509,42 @@ describe('Sidebar — Live Status Indicator', () => {
       expect(screen.getByText('sched_ec7107dfab744ddd')).toBeInTheDocument()
     })
 
+    it('shows an autonomous task title badge with distinct violet styling', () => {
+      mockConversations = [
+        makeConv('conv-1', '[Autonomous] Review open pull requests', {
+          source: 'autonomous',
+          task_id: 'review-open-prs-a1b2',
+          metadata: { task_name: 'Review open pull requests' },
+        }),
+      ]
+
+      render(<Sidebar {...defaultProps} />)
+
+      const badge = screen.getByText('Review open pull requests')
+      expect(badge).toHaveClass(
+        'border-violet-500/30',
+        'bg-violet-500/10',
+        'text-violet-700',
+      )
+      expect(badge).toHaveAttribute(
+        'title',
+        'Autonomous task review-open-prs-a1b2: Review open pull requests',
+      )
+    })
+
+    it('uses the conversation title for existing autonomous conversations', () => {
+      mockConversations = [
+        makeConv('conv-1', '[Autonomous] Legacy task title', {
+          source: 'autonomous',
+          task_id: 'legacy-task-a1b2',
+        }),
+      ]
+
+      render(<Sidebar {...defaultProps} />)
+
+      expect(screen.getByText('Legacy task title')).toHaveClass('border-violet-500/30')
+    })
+
     it('does not show "Live" or "New response" for normal conversations', () => {
       mockConversations = [makeConv('conv-1', 'Test Chat')]
 
