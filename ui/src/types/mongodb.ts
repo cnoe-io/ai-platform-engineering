@@ -260,6 +260,10 @@ export interface UserSettings {
     in_app_enabled: boolean;
     conversation_shared: boolean;
     weekly_summary: boolean;
+    /** Show an OS-level alert when an agent turn completes in the background. */
+    agent_completion_browser_enabled: boolean;
+    /** Play the optional completion chime with a background completion alert. */
+    agent_completion_chime_enabled: boolean;
   };
   defaults: {
     default_model: string;
@@ -295,6 +299,8 @@ export const DEFAULT_USER_SETTINGS: Omit<
     in_app_enabled: true,
     conversation_shared: true,
     weekly_summary: false,
+    agent_completion_browser_enabled: false,
+    agent_completion_chime_enabled: false,
   },
   defaults: {
     default_model: "gpt-4o",
