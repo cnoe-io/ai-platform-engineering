@@ -1,6 +1,6 @@
 "use client";
 
-import { MessageSquare,Plus } from "lucide-react";
+import { MessageSquare, Plus } from "lucide-react";
 import { NavigationProgressLink } from "@/components/layout/NavigationProgressLink";
 import { apiClient } from "@/lib/api-client";
 import { getStorageMode } from "@/lib/storage-config";
@@ -22,9 +22,10 @@ interface HomeConversation {
 
 interface RecentChatsProps {
   maxItems?: number;
+  compact?: boolean;
 }
 
-export function RecentChats({ maxItems = 6 }: RecentChatsProps = {}) {
+export function RecentChats({ maxItems = 6, compact = false }: RecentChatsProps = {}) {
   const { status } = useSession();
   const isAuthenticated = status === "authenticated";
   const isMongoMode = getStorageMode() === "mongodb";
@@ -95,6 +96,9 @@ export function RecentChats({ maxItems = 6 }: RecentChatsProps = {}) {
   }, [isAuthenticated, isMongoMode, localConversations]);
 
   const items = conversations.slice(0, maxItems);
+  const gridClassName = compact
+    ? "grid grid-cols-1 gap-3 xl:grid-cols-2"
+    : "grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3";
 
   return (
     <div data-testid="recent-chats">
@@ -113,7 +117,7 @@ export function RecentChats({ maxItems = 6 }: RecentChatsProps = {}) {
       </div>
 
       {loading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+        <div className={gridClassName}>
           {Array.from({ length: 3 }).map((_, i) => (
             <div
               key={i}
@@ -141,7 +145,7 @@ export function RecentChats({ maxItems = 6 }: RecentChatsProps = {}) {
           </NavigationProgressLink>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+        <div className={gridClassName}>
           {items.map((conv) => (
             <ConversationCard
               key={conv.id}

@@ -6,8 +6,9 @@
  * - Clicking the toggle switches the experience back to "classic"
  * - No content widgets render when none are enabled
  * - Enabled widget ids render their registered component, wrapped for removal
- * - "Add widget" control lists only widgets not yet enabled
- * - Clicking an "Add widget" entry calls addWidget with that id
+ * - "Customize" control lists only widgets not yet enabled
+ * - Clicking a widget entry calls addWidget with that id
+ * - Full-width and compact widgets share a responsive two-column grid
  */
 
 import React from 'react'
@@ -53,7 +54,14 @@ function mockStoreStateBase() {
 jest.mock('@/store/home-widgets-store', () => {
   const useHomeWidgetsStore = (selector: (state: unknown) => unknown) => selector(mockStoreStateBase())
   useHomeWidgetsStore.getState = () => mockStoreStateBase()
-  return { useHomeWidgetsStore }
+  return {
+    getHomeWidgetDefinition: (id: string) => ({
+      id,
+      label: id,
+      width: ['recentChats', 'insights', 'sharedConversations'].includes(id) ? 'half' : 'full',
+    }),
+    useHomeWidgetsStore,
+  }
 })
 
 let capturedOnDragEnd: ((event: { active: { id: string }; over: { id: string } | null }) => void) | null = null
@@ -81,7 +89,7 @@ jest.mock('@dnd-kit/sortable', () => ({
     isDragging: false,
   }),
   sortableKeyboardCoordinates: jest.fn(),
-  verticalListSortingStrategy: 'vertical',
+  rectSortingStrategy: 'rect',
 }))
 
 jest.mock('@dnd-kit/utilities', () => ({
@@ -122,6 +130,14 @@ describe('NewHomePage', () => {
     expect(mockSetExperience).toHaveBeenCalledWith('classic')
   })
 
+  it('keeps Classic Home and Customize in the same compact toolbar', () => {
+    render(<NewHomePage />)
+    const toolbar = screen.getByTestId('home-toolbar')
+    expect(toolbar).toContainElement(screen.getByTestId('switch-to-classic-home'))
+    expect(toolbar).toContainElement(screen.getByTestId('add-widget-trigger'))
+    expect(screen.getByTestId('add-widget-trigger')).toHaveTextContent('Customize')
+  })
+
   describe('widgets', () => {
     it('renders no content blocks when all widgets are disabled', () => {
       mockWidgets = []
@@ -141,6 +157,15 @@ describe('NewHomePage', () => {
       expect(screen.getByTestId('widget-body-recentChats')).toBeInTheDocument()
     })
 
+    it('uses two columns while keeping primary widgets full width', () => {
+      mockWidgets = ['heroComposer', 'recentChats']
+      render(<NewHomePage />)
+
+      expect(screen.getByTestId('home-widget-grid')).toHaveClass('lg:grid-cols-2')
+      expect(screen.getByTestId('home-widget-heroComposer')).toHaveClass('lg:col-span-2')
+      expect(screen.getByTestId('home-widget-recentChats')).not.toHaveClass('lg:col-span-2')
+    })
+
     it('removes any content widget through the shared frame control', () => {
       render(<NewHomePage />)
       fireEvent.click(screen.getByTestId('home-widget-remove-heroComposer'))
@@ -153,6 +178,7 @@ describe('NewHomePage', () => {
       const order = screen
         .getAllByTestId(/^home-widget-(?!remove-|drag-)/)
         .map((el) => el.dataset.testid)
+        .filter((testId) => testId !== 'home-widget-grid')
       expect(order).toEqual(['home-widget-recentChats', 'home-widget-shortcuts'])
     })
 

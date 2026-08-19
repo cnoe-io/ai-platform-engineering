@@ -3,9 +3,9 @@
 import { apiClient } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
 import type { Conversation as MongoConversation } from "@/types/mongodb";
-import { Users,Users2 } from "lucide-react";
+import { Users, Users2 } from "lucide-react";
 import { useSession } from "next-auth/react";
-import React,{ useEffect,useState } from "react";
+import React, { useEffect, useState } from "react";
 import { ConversationCard } from "./ConversationCard";
 
 type TabId = "shared-with-me" | "team";
@@ -34,7 +34,11 @@ const tabs: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: "team", label: "Team", icon: Users },
 ];
 
-export function SharedConversations() {
+interface SharedConversationsProps {
+  compact?: boolean;
+}
+
+export function SharedConversations({ compact = false }: SharedConversationsProps = {}) {
   const { status } = useSession();
   const isAuthenticated = status === "authenticated";
   const [activeTab, setActiveTab] = useState<TabId>("shared-with-me");
@@ -92,6 +96,9 @@ export function SharedConversations() {
   };
 
   const activeItems = getActiveItems();
+  const gridClassName = compact
+    ? "grid grid-cols-1 gap-3 xl:grid-cols-2"
+    : "grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3";
 
   return (
     <div data-testid="shared-conversations">
@@ -121,7 +128,7 @@ export function SharedConversations() {
 
       {/* Content */}
       {loading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+        <div className={gridClassName}>
           {Array.from({ length: 3 }).map((_, i) => (
             <div
               key={i}
@@ -141,7 +148,7 @@ export function SharedConversations() {
           <p className="text-sm text-muted-foreground">{getEmptyMessage()}</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+        <div className={gridClassName}>
           {activeItems.map((conv) => (
             <ConversationCard
               key={conv.id}

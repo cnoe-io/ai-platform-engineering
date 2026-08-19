@@ -23,6 +23,7 @@ import {
   DEFAULT_HOME_WIDGETS,
   HOME_WIDGET_DEFINITIONS,
   HOME_WIDGETS_SCHEMA_VERSION,
+  getHomeWidgetDefinition,
   useHomeWidgetsStore,
 } from "@/store/home-widgets-store";
 
@@ -42,6 +43,14 @@ describe("home widgets store",() => {
   it("starts with the composer and quick start widgets enabled",() => {
     expect(useHomeWidgetsStore.getState().widgets).toEqual(["heroComposer", "quickStart"]);
     expect(useHomeWidgetsStore.getState().isEnabled("heroComposer")).toBe(true);
+  });
+
+  it("defines primary widgets as full width and dashboard widgets as half width",() => {
+    expect(getHomeWidgetDefinition("heroComposer")?.width).toBe("full");
+    expect(getHomeWidgetDefinition("quickStart")?.width).toBe("full");
+    expect(getHomeWidgetDefinition("recentChats")?.width).toBe("half");
+    expect(getHomeWidgetDefinition("insights")?.width).toBe("half");
+    expect(getHomeWidgetDefinition("sharedConversations")?.width).toBe("half");
   });
 
   it("addWidget enables a widget and persists it to localStorage immediately",() => {

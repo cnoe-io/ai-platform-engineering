@@ -11,7 +11,7 @@ export const HOME_WIDGET_COMPONENTS: Record<string, ComponentType> = {
   heroComposer: HeroComposer,
   quickStart: QuickStartSection,
   shortcuts: CapabilityCards,
-  recentChats: RecentChats,
+  recentChats: () => <RecentChats compact maxItems={4} />,
   insights: InsightsWidget,
-  sharedConversations: SharedConversations,
+  sharedConversations: () => <SharedConversations compact />,
 };
