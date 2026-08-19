@@ -1,89 +1,94 @@
 "use client";
 
-import type { ThemeProviderProps,UseThemeProps } from "next-themes";
+import type { ThemeProviderProps, UseThemeProps } from "next-themes";
 import {
-  createContext,
   useCallback,
-  useContext,
   useEffect,
   useMemo,
-  useState,
+  useSyncExternalStore,
   type SetStateAction,
 } from "react";
 
-const CaipeThemeContext = createContext<UseThemeProps | undefined>(undefined);
+const THEME_EVENT = "caipe:theme-change";
+const CAIPE_THEMES = [
+  "light",
+  "legacy-light",
+  "dark",
+  "midnight",
+  "nord",
+  "tokyo",
+  "cyberpunk",
+  "tron",
+  "matrix",
+  "system",
+];
+
+function readThemePreference(): string | undefined {
+  return document.documentElement.getAttribute("data-theme-preference") ?? undefined;
+}
+
+function readSystemTheme(): "dark" | "light" {
+  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
+function subscribeTheme(onStoreChange: () => void): () => void {
+  const media = window.matchMedia("(prefers-color-scheme: dark)");
+  const onStorage = (event: StorageEvent) => {
+    if (event.key === "theme") onStoreChange();
+  };
+  window.addEventListener(THEME_EVENT, onStoreChange);
+  window.addEventListener("storage", onStorage);
+  media.addEventListener("change", onStoreChange);
+  return () => {
+    window.removeEventListener(THEME_EVENT, onStoreChange);
+    window.removeEventListener("storage", onStorage);
+    media.removeEventListener("change", onStoreChange);
+  };
+}
+
+function applyThemePreference(theme: string): void {
+  const root = document.documentElement;
+  const resolved = theme === "system" ? readSystemTheme() : theme;
+  localStorage.setItem("theme",theme);
+  root.setAttribute("data-theme-preference",theme);
+  root.setAttribute("data-theme",resolved);
+  root.style.removeProperty("color-scheme");
+  window.dispatchEvent(new Event(THEME_EVENT));
+}
 
 export function useTheme(): UseThemeProps {
-  const theme = useContext(CaipeThemeContext);
-  if (!theme) throw new Error("useTheme must be used within ThemeProvider");
-  return theme;
+  const theme = useSyncExternalStore(subscribeTheme, readThemePreference, () => undefined);
+  const systemTheme = useSyncExternalStore(subscribeTheme, readSystemTheme, () => undefined);
+  const resolvedTheme = theme === "system" ? systemTheme : theme;
+  const setTheme = useCallback((value: SetStateAction<string>) => {
+    const current = readThemePreference() ?? "system";
+    applyThemePreference(typeof value === "function" ? value(current) : value);
+  }, []);
+
+  useEffect(() => {
+    if (!resolvedTheme) return;
+    const root = document.documentElement;
+    root.setAttribute("data-theme",resolvedTheme);
+    root.style.removeProperty("color-scheme");
+  }, [resolvedTheme]);
+
+  return useMemo<UseThemeProps>(() => ({
+    resolvedTheme,
+    setTheme,
+    systemTheme,
+    theme,
+    themes: CAIPE_THEMES,
+  }), [resolvedTheme, setTheme, systemTheme, theme]);
 }
 
 export function ThemeProvider({
   children,
   defaultTheme = "system",
-  enableSystem = true,
-  forcedTheme,
-  storageKey = "theme",
-  themes = ["light","dark"],
 }: ThemeProviderProps): React.ReactElement {
-  // Keep the first render deterministic. The root layout applies browser
-  // storage before paint; this state owns the palette after hydration and when
-  // account preferences arrive.
-  const [theme,setThemeState] = useState<string>();
-  const [systemTheme,setSystemTheme] = useState<"dark" | "light">();
-
   useEffect(() => {
-    let cancelled = false;
-    const media = window.matchMedia("(prefers-color-scheme: dark)");
-    const updateSystemTheme = () => setSystemTheme(media.matches ? "dark" : "light");
-    const updateStoredTheme = (event: StorageEvent) => {
-      if (event.key === storageKey) setThemeState(event.newValue ?? defaultTheme);
-    };
-    media.addEventListener("change",updateSystemTheme);
-    window.addEventListener("storage",updateStoredTheme);
-    void Promise.resolve().then(() => {
-      if (cancelled) return;
-      updateSystemTheme();
-      setThemeState(localStorage.getItem(storageKey) ?? defaultTheme);
-    });
-    return () => {
-      cancelled = true;
-      media.removeEventListener("change",updateSystemTheme);
-      window.removeEventListener("storage",updateStoredTheme);
-    };
-  }, [defaultTheme,storageKey]);
+    if (readThemePreference()) return;
+    applyThemePreference(localStorage.getItem("theme") ?? defaultTheme);
+  }, [defaultTheme]);
 
-  const setTheme = useCallback((value: SetStateAction<string>) => {
-    setThemeState((current) => {
-      const next = typeof value === "function" ? value(current ?? defaultTheme) : value;
-      localStorage.setItem(storageKey,next);
-      return next;
-    });
-  }, [defaultTheme,storageKey]);
-
-  const resolvedTheme = theme === "system" ? systemTheme : theme;
-  const appliedTheme = forcedTheme ?? resolvedTheme;
-
-  useEffect(() => {
-    if (!appliedTheme) return;
-    const root = document.documentElement;
-    root.setAttribute("data-theme",appliedTheme);
-    root.style.removeProperty("color-scheme");
-  }, [appliedTheme]);
-
-  const contextValue = useMemo<UseThemeProps>(() => ({
-    forcedTheme,
-    resolvedTheme,
-    setTheme,
-    systemTheme: enableSystem ? systemTheme : undefined,
-    theme,
-    themes: enableSystem ? [...themes,"system"] : themes,
-  }), [enableSystem,forcedTheme,resolvedTheme,setTheme,systemTheme,theme,themes]);
-
-  return (
-    <CaipeThemeContext.Provider value={contextValue}>
-      {children}
-    </CaipeThemeContext.Provider>
-  );
+  return <>{children}</>;
 }
