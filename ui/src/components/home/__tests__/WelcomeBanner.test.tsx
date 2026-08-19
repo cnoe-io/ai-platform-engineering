@@ -2,9 +2,8 @@
  * Unit tests for WelcomeBanner component
  *
  * Tests:
- * - Renders personalized greeting with user's first name
- * - Renders generic greeting when no name provided
- * - Renders generic greeting when name is null
+ * - Renders personalized greeting with user's first name (from useSession)
+ * - Renders generic greeting when no session/name
  * - Uses "Good morning" before noon
  * - Uses "Good afternoon" between noon and 5pm
  * - Uses "Good evening" after 5pm
@@ -28,6 +27,11 @@ jest.mock('@/lib/utils', () => ({
   cn: (...args: unknown[]) => args.filter(Boolean).join(' '),
 }))
 
+let mockSession: { data: { user?: { name?: string | null } } | null } = { data: null }
+jest.mock('next-auth/react', () => ({
+  useSession: () => mockSession,
+}))
+
 // ============================================================================
 // Imports — after mocks
 // ============================================================================
@@ -39,33 +43,42 @@ import { WelcomeBanner, getGreeting } from '../WelcomeBanner'
 // ============================================================================
 
 describe('WelcomeBanner', () => {
+  beforeEach(() => {
+    mockSession = { data: null }
+  })
+
   it('renders personalized greeting with first name', () => {
-    render(<WelcomeBanner userName="Alice Johnson" />)
+    mockSession = { data: { user: { name: 'Alice Johnson' } } }
+    render(<WelcomeBanner />)
     expect(screen.getByText('Welcome back, Alice')).toBeInTheDocument()
   })
 
   it('renders personalized greeting for single name', () => {
-    render(<WelcomeBanner userName="Bob" />)
+    mockSession = { data: { user: { name: 'Bob' } } }
+    render(<WelcomeBanner />)
     expect(screen.getByText('Welcome back, Bob')).toBeInTheDocument()
   })
 
-  it('renders generic greeting when no name provided', () => {
+  it('renders generic greeting when no session', () => {
     render(<WelcomeBanner />)
     expect(screen.getByText('Welcome to CAIPE')).toBeInTheDocument()
   })
 
   it('renders generic greeting when name is null', () => {
-    render(<WelcomeBanner userName={null} />)
+    mockSession = { data: { user: { name: null } } }
+    render(<WelcomeBanner />)
     expect(screen.getByText('Welcome to CAIPE')).toBeInTheDocument()
   })
 
   it('renders the data-testid', () => {
-    render(<WelcomeBanner userName="Test" />)
+    mockSession = { data: { user: { name: 'Test' } } }
+    render(<WelcomeBanner />)
     expect(screen.getByTestId('welcome-banner')).toBeInTheDocument()
   })
 
   it('uses the breathing gradient without pointer-position overrides', () => {
-    render(<WelcomeBanner userName="Test" />)
+    mockSession = { data: { user: { name: 'Test' } } }
+    render(<WelcomeBanner />)
     const banner = screen.getByTestId('welcome-banner')
     expect(banner).toHaveClass('welcome-banner')
     expect(banner.style.getPropertyValue('--welcome-pointer-x')).toBe('')
@@ -86,7 +99,8 @@ describe('WelcomeBanner', () => {
 
   it('renders preferences shortcut when callback provided', () => {
     const handler = jest.fn()
-    render(<WelcomeBanner userName="Test" onOpenPreferences={handler} />)
+    mockSession = { data: { user: { name: 'Test' } } }
+    render(<WelcomeBanner onOpenPreferences={handler} />)
     const btn = screen.getByTestId('preferences-shortcut')
     expect(btn).toBeInTheDocument()
     btn.click()
@@ -94,7 +108,8 @@ describe('WelcomeBanner', () => {
   })
 
   it('does not render preferences shortcut when no callback', () => {
-    render(<WelcomeBanner userName="Test" />)
+    mockSession = { data: { user: { name: 'Test' } } }
+    render(<WelcomeBanner />)
     expect(screen.queryByTestId('preferences-shortcut')).not.toBeInTheDocument()
   })
 

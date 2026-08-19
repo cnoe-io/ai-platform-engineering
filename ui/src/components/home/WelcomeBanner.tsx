@@ -1,13 +1,15 @@
 "use client";
 
 import { Settings,Sparkles } from "lucide-react";
+import { useSession } from "next-auth/react";
 
 interface WelcomeBannerProps {
-  userName?: string | null;
   onOpenPreferences?: () => void;
 }
 
-export function WelcomeBanner({ userName, onOpenPreferences }: WelcomeBannerProps) {
+export function WelcomeBanner({ onOpenPreferences }: WelcomeBannerProps = {}) {
+  const { data: session } = useSession();
+  const userName = session?.user?.name;
   const greeting = getGreeting();
   const displayName = userName?.split(" ")[0] || userName;
 
