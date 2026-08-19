@@ -1731,7 +1731,7 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
   return (
     <div className="h-full w-full flex flex-col bg-background relative">
       <div
-        className="flex min-h-14 shrink-0 items-center gap-3 border-b border-border/70 bg-background/95 px-4 py-2 backdrop-blur supports-[backdrop-filter]:bg-background/80"
+        className="flex min-h-14 shrink-0 items-center gap-3 bg-gradient-to-r from-primary/[0.06] via-background/70 to-background px-4 py-2"
         aria-label={`Talking to ${agentName || agentId}`}
       >
         <AgentAvatar
