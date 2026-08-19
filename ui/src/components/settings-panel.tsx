@@ -11,9 +11,9 @@ import {
 } from "@/lib/appearance-preferences";
 import { apiClient } from "@/lib/api-client";
 import { GuardedNavigationLink } from "@/components/layout/GuardedNavigationLink";
+import { useTheme } from "@/components/theme-provider";
 import { useHydrated } from "@/hooks/use-hydrated";
 import { Palette } from "lucide-react";
-import { useTheme } from "next-themes";
 import { useEffect,useRef } from "react";
 
 /**

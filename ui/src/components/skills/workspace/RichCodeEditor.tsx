@@ -48,7 +48,7 @@ type Extension,
 type ReactCodeMirrorRef,
 } from "@uiw/react-codemirror";
 import { isLightColorTheme } from "@/lib/color-theme";
-import { useTheme } from "next-themes";
+import { useTheme } from "@/components/theme-provider";
 import React,{
 useCallback,
 useEffect,
