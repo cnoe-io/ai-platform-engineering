@@ -28,8 +28,8 @@ import {
 import { gradientThemes } from "@/lib/gradient-themes";
 import { cn } from "@/lib/utils";
 import { useKeyedAutoSave } from "@/hooks/use-keyed-auto-save";
+import { useTheme } from "@/components/theme-provider";
 import { Check,Monitor,Palette,Type } from "lucide-react";
-import { useTheme } from "next-themes";
 import { useEffect,useState } from "react";
 
 const THEME_SWATCHES: Record<ColorTheme,string> = {

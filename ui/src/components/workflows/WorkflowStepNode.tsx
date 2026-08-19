@@ -5,7 +5,7 @@ import { isLightColorTheme } from "@/lib/color-theme";
 import { cn } from "@/lib/utils";
 import { Handle,Position,type NodeProps } from "@xyflow/react";
 import { Plus } from "lucide-react";
-import { useTheme } from "next-themes";
+import { useTheme } from "@/components/theme-provider";
 import { memo } from "react";
 
 export interface WorkflowStepNodeData {
