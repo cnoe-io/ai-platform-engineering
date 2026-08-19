@@ -59,11 +59,8 @@ export function HeroComposer() {
         >
           <Sparkles className="h-4 w-4" />
         </span>
-        <h1
-          aria-label="What would you like to do today?"
-          className="text-xl font-semibold tracking-tight text-foreground"
-        >
-          What would you like to do <span className="text-gradient-primary">today?</span>
+        <h1 className="home-composer-prompt text-xl font-semibold tracking-tight text-foreground">
+          What would you like to do today?
         </h1>
       </div>
       <div className="home-composer-field mt-4 rounded-lg border border-border/60 bg-background/60 p-3">
