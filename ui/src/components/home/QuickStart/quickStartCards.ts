@@ -18,6 +18,7 @@ export interface QuickStartCard {
   description: string;
   icon: LucideIcon;
   iconClassName: string;
+  accentColor: string;
   ctaLabel: string;
   href: string;
 }
@@ -41,6 +42,7 @@ export const QUICK_START_TABS: QuickStartTab[] = [
         description: "Build agents and choose the instructions, tools, skills, and model they use.",
         icon: Bot,
         iconClassName: "from-violet-500 to-fuchsia-500",
+        accentColor: "#8b5cf6",
         ctaLabel: "Start building",
         href: "/dynamic-agents",
       },
@@ -50,6 +52,7 @@ export const QUICK_START_TABS: QuickStartTab[] = [
         description: "Configure MCP server connections so agents can reach approved tools.",
         icon: Server,
         iconClassName: "from-sky-500 to-cyan-500",
+        accentColor: "#06b6d4",
         ctaLabel: "Add MCP server",
         href: "/dynamic-agents?tab=mcp-servers",
       },
@@ -59,6 +62,7 @@ export const QUICK_START_TABS: QuickStartTab[] = [
         description: "Build reusable skills and templates for common tasks.",
         icon: Zap,
         iconClassName: "from-amber-400 to-orange-500",
+        accentColor: "#f59e0b",
         ctaLabel: "Create Skills",
         href: "/skills/workspace/new",
       },
@@ -68,6 +72,7 @@ export const QUICK_START_TABS: QuickStartTab[] = [
         description: "Ingest and manage the sources your agents can search.",
         icon: Database,
         iconClassName: "from-emerald-500 to-teal-500",
+        accentColor: "#10b981",
         ctaLabel: "Add Knowledge Base",
         href: "/knowledge-bases/ingest",
       },
@@ -77,6 +82,7 @@ export const QUICK_START_TABS: QuickStartTab[] = [
         description: "Register the LLM models available for agents to use.",
         icon: Cpu,
         iconClassName: "from-rose-500 to-pink-500",
+        accentColor: "#ec4899",
         ctaLabel: "Add Model",
         href: "/dynamic-agents?tab=llm-models",
       },
@@ -92,6 +98,7 @@ export const QUICK_START_TABS: QuickStartTab[] = [
         description: "Chain multiple agents together into automated, multi-step workflows.",
         icon: Workflow,
         iconClassName: "from-indigo-500 to-violet-500",
+        accentColor: "#6366f1",
         ctaLabel: "Build Workflow",
         href: "/workflows",
       },
@@ -101,6 +108,7 @@ export const QUICK_START_TABS: QuickStartTab[] = [
         description: "Set up recurring agent jobs for your account.",
         icon: CalendarClock,
         iconClassName: "from-orange-500 to-red-500",
+        accentColor: "#f97316",
         ctaLabel: "Create Schedules",
         href: "/schedules",
       },
@@ -116,6 +124,7 @@ export const QUICK_START_TABS: QuickStartTab[] = [
         description: "Connect apps like Atlassian so agents can use approved account access.",
         icon: Link2,
         iconClassName: "from-blue-500 to-indigo-500",
+        accentColor: "#3b82f6",
         ctaLabel: "Connect Apps",
         href: "/credentials/connections",
       },
@@ -125,6 +134,7 @@ export const QUICK_START_TABS: QuickStartTab[] = [
         description: "Store secrets that agents and services can use without showing the value again.",
         icon: KeyRound,
         iconClassName: "from-red-500 to-rose-500",
+        accentColor: "#f43f5e",
         ctaLabel: "Add Secrets",
         href: "/credentials/secrets",
       },
@@ -140,6 +150,7 @@ export const QUICK_START_TABS: QuickStartTab[] = [
         description: "Chat with platform and dynamic agents.",
         icon: MessageSquare,
         iconClassName: "from-teal-500 to-cyan-500",
+        accentColor: "#14b8a6",
         ctaLabel: "Start chat",
         href: "/chat",
       },

@@ -47,6 +47,7 @@ import CodeMirror,{
 type Extension,
 type ReactCodeMirrorRef,
 } from "@uiw/react-codemirror";
+import { isLightColorTheme } from "@/lib/color-theme";
 import { useTheme } from "next-themes";
 import React,{
 useCallback,
@@ -222,8 +223,7 @@ export function RichCodeEditor({
   editorRef,
 }: RichCodeEditorProps) {
   const { resolvedTheme } = useTheme();
-  const isDark =
-    resolvedTheme != null && resolvedTheme !== "light";
+  const isDark = resolvedTheme != null && !isLightColorTheme(resolvedTheme);
   const [langSupport, setLangSupport] = useState<LanguageSupport | null>(null);
   const useContainerHeight = fillContainer || height === "100%";
 

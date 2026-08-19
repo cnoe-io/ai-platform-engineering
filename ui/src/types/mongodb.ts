@@ -228,7 +228,7 @@ export interface UserSettings {
   _id?: ObjectId;
   user_id: string; // User email
   preferences: {
-    theme: 'light' | 'dark' | 'system' | 'midnight' | 'nord' | 'tokyo' | 'cyberpunk' | 'tron' | 'matrix';
+    theme: 'light' | 'legacy-light' | 'dark' | 'system' | 'midnight' | 'nord' | 'tokyo' | 'cyberpunk' | 'tron' | 'matrix';
     gradient_theme: 'default' | 'minimal' | 'professional' | 'ocean' | 'sunset' | 'cyberpunk' | 'tron' | 'matrix';
     font_family: 'inter' | 'source-sans' | 'ibm-plex' | 'system';
     font_size: 'small' | 'medium' | 'large' | 'x-large';
