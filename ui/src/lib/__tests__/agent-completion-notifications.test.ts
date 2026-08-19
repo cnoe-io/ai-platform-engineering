@@ -49,6 +49,10 @@ describe("agent completion notifications",() => {
       configurable: true,
       value: MockNotification,
     });
+    Object.defineProperty(navigator,"serviceWorker",{
+      configurable: true,
+      value: undefined,
+    });
     Object.defineProperty(document,"hidden",{ configurable: true,value: true });
     Object.defineProperty(document,"hasFocus",{
       configurable: true,
@@ -113,6 +117,37 @@ describe("agent completion notifications",() => {
       body: "Your response is ready.",
       tag: "caipe-agent-completion-conversation-primary",
     });
+  });
+
+  it("prefers persistent service-worker notification delivery",async () => {
+    const showNotification = jest.fn(async () => undefined);
+    const register = jest.fn(async () => ({ showNotification }));
+    Object.defineProperty(navigator,"serviceWorker",{
+      configurable: true,
+      value: { register },
+    });
+
+    const result = await deliverAgentCompletionAlert(
+      {
+        agentName: "Example agent",
+        conversationId: "conversation-primary",
+        messageId: "message-primary",
+      },
+      {
+        preferences: { browserEnabled: true,chimeEnabled: false },
+      },
+    );
+
+    expect(result).toEqual({ chimePlayed: false,notificationShown: true });
+    expect(register).toHaveBeenCalledWith("/caipe-notification-sw.js",{ scope: "/" });
+    expect(showNotification).toHaveBeenCalledWith(
+      "Example agent finished",
+      expect.objectContaining({
+        body: "Your response is ready.",
+        tag: "caipe-agent-completion-conversation-primary",
+      }),
+    );
+    expect(notifications).toHaveLength(0);
   });
 
   it("does not interrupt a user who is already looking at CAIPE",async () => {
