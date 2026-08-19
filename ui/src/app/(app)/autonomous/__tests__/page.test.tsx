@@ -47,6 +47,18 @@ it("renders my tasks for a non-admin without redirecting", async () => {
   expect(await screen.findByTestId("my-tasks")).toHaveTextContent("deploy-agent");
 });
 
+it("scrolls when the agent list exceeds the application viewport", async () => {
+  render(<Page />);
+  await screen.findByTestId("my-tasks");
+
+  const heading = screen.getByRole("heading", { name: "Autonomous" });
+  expect(heading.parentElement?.parentElement).toHaveClass(
+    "min-h-0",
+    "flex-1",
+    "overflow-y-auto",
+  );
+});
+
 it("still renders for an eligible team member with no enabled agents", async () => {
   (global.fetch as jest.Mock).mockResolvedValue({
     ok: true,

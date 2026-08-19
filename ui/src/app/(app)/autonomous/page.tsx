@@ -54,7 +54,7 @@ function AutonomousWorkspace() {
   }
 
   return (
-    <div className="space-y-4 p-6">
+    <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-6">
       <div>
         <h1 className="text-lg font-semibold">Autonomous</h1>
         <p className="text-sm text-muted-foreground">
