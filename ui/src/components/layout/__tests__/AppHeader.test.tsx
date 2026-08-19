@@ -311,6 +311,7 @@ jest.mock('@/lib/utils', () => ({
 
 import { AppHeader } from '../AppHeader'
 import { ApplicationNavigationRail } from '../ApplicationNavigation'
+import { HeaderBreadcrumbSlotProvider } from '../HeaderBreadcrumbSlot'
 import {
   ApplicationNavigationProvider,
   useRegisterApplicationNavigation,
@@ -470,6 +471,37 @@ describe('AppHeader — application chrome', () => {
       expect(pill).not.toHaveAttribute('aria-current')
     })
 
+  })
+
+  describe('header breadcrumbs', () => {
+    it('provides a section breadcrumb for routes without a page-specific trail', () => {
+      mockPathname = '/skills/workspace/new'
+
+      render(
+        <HeaderBreadcrumbSlotProvider>
+          <AppHeader />
+        </HeaderBreadcrumbSlotProvider>,
+      )
+
+      const slot = screen.getByTestId('app-header-breadcrumb-slot')
+      const breadcrumb = within(slot).getByRole('navigation', { name: 'Breadcrumb' })
+      expect(within(breadcrumb).getByText('Home')).toHaveAttribute('href', '/')
+      expect(within(breadcrumb).getByText('Skills')).toHaveAttribute('href', '/skills')
+    })
+
+    it('does not repeat Home as a breadcrumb on the Home route', () => {
+      mockPathname = '/'
+
+      render(
+        <HeaderBreadcrumbSlotProvider>
+          <AppHeader />
+        </HeaderBreadcrumbSlotProvider>,
+      )
+
+      expect(
+        within(screen.getByTestId('app-header-breadcrumb-slot')).queryByRole('navigation'),
+      ).not.toBeInTheDocument()
+    })
   })
 
   describe('core tabs', () => {
