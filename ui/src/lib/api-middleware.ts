@@ -495,9 +495,7 @@ function resolveLegacyWithAuthRbacPolicy(request: NextRequest): RouteRbacPolicy 
   // service (`_assert_task_access`) and per-agent authorization by
   // dynamic-agents/CAS (`can_use` / organization `can_automate`). Without this mapping the
   // default below admin-gates every non-GET call, 403ing regular users before
-  // the request ever reaches the backend. The admin-only oversight surface
-  // (`/api/autonomous/oversight`) is unaffected — it does not use withAuth
-  // and enforces `admin_ui#view` itself.
+  // the request ever reaches the backend.
   if (pathname.startsWith('/api/autonomous')) {
     return { resource: 'chat', scope: 'invoke' };
   }

@@ -3,7 +3,7 @@
  *
  * Tests for the user-facing autonomous page (spec 2026-07-28). Every user
  * sees their own tasks grouped by usable agent. Team entitlement is managed
- * centrally from the Admin Autonomous workspace.
+ * centrally from Security & Policy → Autonomous Enablement.
  */
 import { render, screen } from "@testing-library/react";
 

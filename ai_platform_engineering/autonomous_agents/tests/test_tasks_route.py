@@ -1019,7 +1019,7 @@ class TestTaskOwnership:
         headers = {**_user_headers("alice@example.com"), "X-Authenticated-User-Sub": "alice-uuid"}
         resp = client.post("/api/v1/tasks", json=_cron_task("t1"), headers=headers)
         assert resp.status_code == 201
-        # owner_sub is exposed read-only on the wire (admin oversight join key).
+        # owner_sub is exposed read-only on the wire as the stable owner identity.
         assert resp.json()["owner_sub"] == "alice-uuid"
         tid = resp.json()["id"]
 

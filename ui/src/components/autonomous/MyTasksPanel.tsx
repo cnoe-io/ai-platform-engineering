@@ -52,9 +52,8 @@ export function MyTasksPanel({ agents, currentUserEmail }: MyTasksPanelProps) {
     if (!options.silent) setLoading(true);
     try {
       const all = await autonomousApi.listTasks();
-      // The proxy stamps X-Authenticated-User-Is-Admin, so an admin receives
-      // EVERY user's tasks here. This page is "my tasks" for everyone --
-      // admins get the global view from Admin > Autonomous instead.
+      // This page is always "my tasks", including for admins, so keep only
+      // tasks owned by the signed-in user if the backend returns a wider set.
       const mine = currentUserEmail
         ? all.filter((t) => t.owner_id === currentUserEmail)
         : all;

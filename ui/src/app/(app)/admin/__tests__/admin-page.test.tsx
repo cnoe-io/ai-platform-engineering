@@ -130,6 +130,12 @@ jest.mock('@/components/admin/settings/ImportAgentsFromConfigCard', () => ({
   ),
 }));
 
+jest.mock('@/components/admin/autonomous/AutonomousTeamAccessPanel', () => ({
+  AutonomousTeamAccessPanel: () => (
+    <div data-testid="autonomous-enablement-panel">Autonomous team access</div>
+  ),
+}));
+
 jest.mock('@/components/admin/ServiceAccountsTab', () => ({
   ServiceAccountsTab: (props: { readOnly?: boolean }) => (
     <div data-testid="service-accounts-tab" data-read-only={String(Boolean(props.readOnly))}>
@@ -1003,6 +1009,20 @@ describe('Admin Dashboard Page', () => {
       );
     });
 
+    it('renders Autonomous Enablement as its own Security & Policy page', async () => {
+      mockIsAdmin = true;
+      currentPathname = '/admin/security/autonomous-enablement';
+      setupFetchMock();
+
+      render(<AdminPage />);
+
+      expect(await screen.findByTestId('autonomous-enablement-panel')).toBeInTheDocument();
+      const navigation = screen.getByRole('navigation', { name: 'Admin sections' });
+      expect(
+        within(navigation).getByRole('link', { name: /^Autonomous Enablement$/i }),
+      ).toHaveAttribute('aria-current', 'page');
+    });
+
     it('orders Security & Policy destinations and omits Permissions Tool', async () => {
       currentPathname = '/admin/security/rbac-audit';
 
@@ -1012,6 +1032,7 @@ describe('Admin Dashboard Page', () => {
       const destinationLabels = [
         'Access before sign-in',
         'AI Review',
+        'Autonomous Enablement',
         'RBAC Audit',
         'Approvals',
         'Access Explorer',

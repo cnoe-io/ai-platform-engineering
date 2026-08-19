@@ -125,9 +125,9 @@ export interface AutonomousTask {
    */
   owner_id?: string | null;
   /**
-   * Owner's Keycloak subject (UUID). Stable across email changes, so the admin
-   * oversight view prefers it over ``owner_id`` when joining tasks to team
-   * members. May be absent for tasks created before it was exposed on the wire.
+   * Owner's Keycloak subject (UUID). Stable across email changes and used for
+   * authorization when available. May be absent for tasks created before it
+   * was exposed on the wire.
    */
   owner_sub?: string | null;
 }

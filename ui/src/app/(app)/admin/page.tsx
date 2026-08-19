@@ -11,7 +11,7 @@ TopCreatorsCard,
 VisibilityBreakdown,
 } from "@/components/admin/insights/SkillMetricsCards";
 import { AsyncStatsCard } from "@/components/admin/insights/AsyncStatsCard";
-import { AutonomousOversightTab } from "@/components/admin/autonomous/AutonomousOversightTab";
+import { AutonomousTeamAccessPanel } from "@/components/admin/autonomous/AutonomousTeamAccessPanel";
 import { ReviewConfigsTab } from "@/components/admin/settings/ReviewConfigsTab";
 import {
   AdminNavigation,
@@ -1682,7 +1682,7 @@ function AdminPage() {
 
               {tabGateValues.autonomous && (
                 <TabsContent value="autonomous" className="space-y-4">
-                  <AutonomousOversightTab />
+                  <AutonomousTeamAccessPanel />
                 </TabsContent>
               )}
 

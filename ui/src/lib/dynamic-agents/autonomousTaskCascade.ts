@@ -6,8 +6,7 @@
  * Its tasks must be hard-deleted too, otherwise a later agent recreated with
  * the same id silently re-adopts the orphaned, still-scheduled task.
  *
- * Calls the autonomous-agents service directly, the same way
- * `ui/src/app/api/autonomous/oversight/route.ts` does: no
+ * Calls the autonomous-agents service directly with no
  * `X-Authenticated-User-*` headers, which the service treats as a trusted
  * "direct service call without gateway" and answers with the full
  * unfiltered task list / unconditional per-task access (see

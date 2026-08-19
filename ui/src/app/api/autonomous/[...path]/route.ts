@@ -131,8 +131,7 @@ async function forward(
       throw new ApiError('Your team is not enabled for Autonomous', 403);
     }
 
-    // Entitled callers reach the per-user backend, which enforces task
-    // ownership. Admin-only oversight remains on /api/autonomous/oversight.
+    // Entitled callers reach the per-user backend, which enforces task ownership.
     const targetUrl = buildTargetUrl(request, pathSegments);
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
