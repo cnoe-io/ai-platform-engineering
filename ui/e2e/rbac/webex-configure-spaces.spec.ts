@@ -584,17 +584,30 @@ test.describe("mocked Webex Configure spaces UI", () => {
     expect(JSON.stringify(state.onboardingRequests)).not.toContain("direct-sri");
   });
 
-  test("loads page 2 agents in the Webex 1:1 routing picker", async ({
+  test("searches page 2 agents in the Webex 1:1 routing picker", async ({
     page,
   }) => {
     const state = await installWebexConfigureApp(page);
     await gotoConfigureSpaces(page);
 
     await page.getByRole("tab", { name: "1:1 Messages" }).click();
-    const selector = page.getByRole("combobox", {
+    await page.getByRole("checkbox", {
+      name: "Allow direct messages for user@example.com",
+    }).check();
+    const picker = page.getByRole("button", {
       name: "Agent for user@example.com",
     });
-    await expect(selector).toContainText("Personal Assistant");
+    await picker.click();
+    await page.getByRole("textbox", { name: "Search agents..." }).fill(
+      "personal assistant",
+    );
+    const matchingOptions = page.getByRole("listbox", {
+      name: "Agent for user@example.com",
+    }).getByRole("option");
+    await expect(matchingOptions).toHaveCount(1);
+    await expect(matchingOptions).toContainText("Personal Assistant");
+    await matchingOptions.click();
+    await expect(picker).toContainText("Personal Assistant");
     await expect
       .poll(() =>
         state.dynamicAgentRequests.some(

@@ -3,6 +3,7 @@
 import { Loader2, RefreshCw, RotateCcw, Save } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { AgentPicker, type AgentPickerOption } from "@/components/ui/agent-picker";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CAIPESpinner } from "@/components/ui/caipe-spinner";
@@ -147,6 +148,14 @@ export function WebexDirectUsersPanel({ disabled = false }: { disabled?: boolean
     if (!query) return rows;
     return rows.filter((row) => `${row.display_name} ${row.email}`.toLowerCase().includes(query));
   }, [rows, search]);
+
+  const agentOptions = useMemo(
+    () => agents.map<AgentPickerOption>((agent) => ({
+      value: agent._id,
+      label: agent.name || agent._id,
+    })),
+    [agents],
+  );
 
   const updateRow = (userId: string, patch: Partial<DirectUserRow>) => {
     setRows((current) => current.map((row) => row.keycloak_user_id === userId ? { ...row, ...patch } : row));
@@ -312,16 +321,16 @@ export function WebexDirectUsersPanel({ disabled = false }: { disabled?: boolean
                         <div className="mt-1 text-xs text-muted-foreground">{row.webex_user_id ? "Linked" : "Not linked yet"}</div>
                       </td>
                       <td className="px-3 py-2">
-                        <select
-                          className="h-8 min-w-56 rounded-md border bg-background px-2 text-sm"
+                        <AgentPicker
+                          ariaLabel={`Agent for ${row.email}`}
+                          triggerClassName="h-8 min-w-56 px-2 py-1 text-sm"
                           value={row.agent_id}
-                          onChange={(event) => updateRow(row.keycloak_user_id, { agent_id: event.target.value })}
+                          onChange={(agentId) => updateRow(row.keycloak_user_id, { agent_id: agentId })}
                           disabled={disabled || modeDisabled || saving || (!row.enabled && data?.dm_access_mode === "allowlist")}
-                          aria-label={`Agent for ${row.email}`}
-                        >
-                          <option value="">{data?.dm_access_mode === "all_users" ? "Deployment default" : "Select an agent"}</option>
-                          {agents.map((agent) => <option key={agent._id} value={agent._id}>{agent.name || agent._id}</option>)}
-                        </select>
+                          placeholder={data?.dm_access_mode === "all_users" ? "Deployment default" : "Select an agent"}
+                          searchPlaceholder="Search agents..."
+                          options={agentOptions}
+                        />
                       </td>
                       <td className="px-3 py-2">
                         <Badge variant={row.state === "denied" || row.state === "disabled" ? "outline" : "secondary"}>
