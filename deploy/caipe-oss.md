@@ -72,6 +72,8 @@ docker compose --env-file .env \
 ```bash
 curl --fail https://caipe-oss.outshift.io/
 curl --fail https://caipe-oss.outshift.io/realms/caipe/.well-known/openid-configuration
+curl --fail https://caipe-oss.outshift.io/admin/people/users
+curl --fail https://caipe-oss.outshift.io/admin/people/teams
 
 docker compose --env-file .env \
   -f docker-compose.yaml \
