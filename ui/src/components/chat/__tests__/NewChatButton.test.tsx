@@ -131,6 +131,27 @@ describe("NewChatButton", () => {
     expect(mockFetch).toHaveBeenCalledWith("/api/dynamic-agents/agents/agent-default");
   });
 
+  it("labels the collapsed action and reveals its default agent on hover", async () => {
+    mockFetchByUrl({
+      platformAgentId: "agent-default",
+      agentNames: { "agent-default": "Platform Helper" },
+      agentHarnesses: { "agent-default": "agentcore" },
+    });
+
+    render(<NewChatButton collapsed={true} onNewChat={jest.fn()} />);
+
+    const button = await screen.findByRole("button", {
+      name: "New chat with Platform Helper",
+    });
+    fireEvent.mouseEnter(button);
+
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("New chat");
+    expect(screen.getByRole("tooltip")).toHaveTextContent("Platform Helper");
+    expect(
+      screen.getByLabelText("Execution harness: Amazon Bedrock AgentCore"),
+    ).toBeInTheDocument();
+  });
+
   it("prefers the user's web default over the platform default", async () => {
     mockFetchByUrl({
       prefsAgentId: "agent-user",
