@@ -89,11 +89,7 @@ export function GistsPanel({
         <PanelHeader
           title="Gists"
           description="Quick, non-committal context saved outside the wiki."
-          action={
-            canEdit ? (
-              <GistEditorDialog slug={slug} onSaved={(gist) => onOpenGist(gist.id)} />
-            ) : undefined
-          }
+          action={<GistEditorDialog slug={slug} onSaved={(gist) => onOpenGist(gist.id)} />}
         />
       </div>
 

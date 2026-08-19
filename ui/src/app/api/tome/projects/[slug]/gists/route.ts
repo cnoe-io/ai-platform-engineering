@@ -10,7 +10,7 @@
 import { NextRequest } from "next/server";
 
 import { ApiError, successResponse, withErrorHandler } from "@/lib/api-middleware";
-import { loadTomeProject, requireTomeEditor } from "@/lib/tome/tome-api";
+import { loadTomeProject } from "@/lib/tome/tome-api";
 import { auditTome, tomeActorFromAuth } from "@/lib/tome/audit";
 import { normalizeGistTags } from "@/lib/tome/gists";
 import { getTomeGistsCollection } from "@/lib/tome/mongo-collections";
@@ -51,7 +51,10 @@ export const GET = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
 export const POST = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
   const { slug } = await ctx.params;
   const tctx = await loadTomeProject(request, slug);
-  requireTomeEditor(tctx);
+
+  // Gists are project conversation, not curated wiki content. Any caller who
+  // can read the project may contribute one, matching the Feed's write model.
+  // Existing gist updates and deletes remain steward/admin-only.
 
   const body = (await request.json().catch(() => ({}))) as {
     title?: string;
