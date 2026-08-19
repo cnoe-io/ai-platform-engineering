@@ -29,7 +29,6 @@ jest.mock('@/components/home/QuickStart/QuickStartSection', () => ({
 
 jest.mock('@/components/home/widget-registry', () => ({
   HOME_WIDGET_COMPONENTS: {
-    welcomeBanner: () => <div data-testid="widget-body-welcomeBanner" />,
     shortcuts: () => <div data-testid="widget-body-shortcuts" />,
     recentChats: () => <div data-testid="widget-body-recentChats" />,
   },
@@ -39,7 +38,6 @@ const mockAddWidget = jest.fn()
 const mockSetExperience = jest.fn()
 let mockWidgets: string[] = []
 let mockAvailableToAdd: Array<{ id: string; label: string }> = [
-  { id: 'welcomeBanner', label: 'Welcome Banner' },
   { id: 'shortcuts', label: 'Shortcuts' },
   { id: 'recentChats', label: 'Recent Chats' },
 ]
@@ -101,7 +99,6 @@ describe('NewHomePage', () => {
     jest.clearAllMocks()
     mockWidgets = []
     mockAvailableToAdd = [
-      { id: 'welcomeBanner', label: 'Welcome Banner' },
       { id: 'shortcuts', label: 'Shortcuts' },
       { id: 'recentChats', label: 'Recent Chats' },
     ]
@@ -128,7 +125,6 @@ describe('NewHomePage', () => {
   describe('optional widgets', () => {
     it('renders no optional widgets when none are enabled', () => {
       render(<NewHomePage />)
-      expect(screen.queryByTestId('widget-body-welcomeBanner')).not.toBeInTheDocument()
       expect(screen.queryByTestId('widget-body-shortcuts')).not.toBeInTheDocument()
       expect(screen.queryByTestId('widget-body-recentChats')).not.toBeInTheDocument()
     })
@@ -140,7 +136,6 @@ describe('NewHomePage', () => {
       expect(screen.getByTestId('widget-body-shortcuts')).toBeInTheDocument()
       expect(screen.getByTestId('home-widget-recentChats')).toBeInTheDocument()
       expect(screen.getByTestId('widget-body-recentChats')).toBeInTheDocument()
-      expect(screen.queryByTestId('widget-body-welcomeBanner')).not.toBeInTheDocument()
     })
 
     it('renders enabled widgets in the order they were added', () => {
@@ -162,12 +157,12 @@ describe('NewHomePage', () => {
 
   describe('drag to reorder', () => {
     it('reorders widgets when a drag ends over a different widget', () => {
-      mockWidgets = ['recentChats', 'shortcuts', 'welcomeBanner']
+      mockWidgets = ['recentChats', 'shortcuts']
       render(<NewHomePage />)
 
-      capturedOnDragEnd?.({ active: { id: 'recentChats' }, over: { id: 'welcomeBanner' } })
+      capturedOnDragEnd?.({ active: { id: 'recentChats' }, over: { id: 'shortcuts' } })
 
-      expect(mockReorderWidgets).toHaveBeenCalledWith(['shortcuts', 'welcomeBanner', 'recentChats'])
+      expect(mockReorderWidgets).toHaveBeenCalledWith(['shortcuts', 'recentChats'])
     })
 
     it('does not reorder when dropped on itself or outside a droppable', () => {
@@ -185,12 +180,10 @@ describe('NewHomePage', () => {
     it('lists only widgets not yet enabled', () => {
       mockWidgets = ['shortcuts']
       mockAvailableToAdd = [
-        { id: 'welcomeBanner', label: 'Welcome Banner' },
         { id: 'recentChats', label: 'Recent Chats' },
       ]
       render(<NewHomePage />)
       fireEvent.click(screen.getByTestId('add-widget-trigger'))
-      expect(screen.getByTestId('add-widget-welcomeBanner')).toBeInTheDocument()
       expect(screen.getByTestId('add-widget-recentChats')).toBeInTheDocument()
       expect(screen.queryByTestId('add-widget-shortcuts')).not.toBeInTheDocument()
     })

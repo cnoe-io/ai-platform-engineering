@@ -8,7 +8,8 @@
  * - Uses "Good afternoon" between noon and 5pm
  * - Uses "Good evening" after 5pm
  * - Renders the data-testid for the banner
- * - Renders the tagline text
+ * - Keeps the greeting and welcome text in one compact row
+ * - Omits the previous question prompt
  */
 
 import React from 'react'
@@ -90,11 +91,19 @@ describe('WelcomeBanner', () => {
     expect(screen.getByTestId('icon-sparkles')).toBeInTheDocument()
   })
 
-  it('renders the tagline', () => {
+  it('keeps the greeting and welcome text in the same row', () => {
+    mockSession = { data: { user: { name: 'Test User' } } }
     render(<WelcomeBanner />)
-    expect(
-      screen.getByText('What do you want to get done today?'),
-    ).toBeInTheDocument()
+    const copy = screen.getByTestId('welcome-banner-copy')
+    expect(copy).toContainElement(screen.getByText('Welcome back, Test'))
+    expect(copy).toContainElement(screen.getByTestId('icon-sparkles'))
+    expect(copy).toHaveClass('flex', 'items-center')
+  })
+
+  it('uses compact padding and omits the previous question prompt', () => {
+    render(<WelcomeBanner />)
+    expect(screen.getByTestId('welcome-banner')).toHaveClass('px-5', 'py-3')
+    expect(screen.queryByText('What do you want to get done today?')).not.toBeInTheDocument()
   })
 
   it('renders preferences shortcut when callback provided', () => {

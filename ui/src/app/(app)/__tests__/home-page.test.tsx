@@ -10,6 +10,7 @@
  * - AuthGuard: wraps page in AuthGuard
  * - Page structure: data-testid
  * - Calls home-widgets-store initialize() on mount
+ * - Always renders the shared welcome banner
  * - Renders NewHomePage when experience is "new" (the default)
  * - Renders ClassicHomePage when experience is "classic"
  */
@@ -33,6 +34,10 @@ jest.mock('@/components/home/NewHomePage', () => ({
 
 jest.mock('@/components/home/ClassicHomePage', () => ({
   ClassicHomePage: () => <div data-testid="classic-home-page-stub" />,
+}))
+
+jest.mock('@/components/home/WelcomeBanner', () => ({
+  WelcomeBanner: () => <div data-testid="welcome-banner" />,
 }))
 
 const mockInitialize = jest.fn()
@@ -70,6 +75,7 @@ describe('HomePage', () => {
     mockExperience = 'new'
     render(<HomePage />)
     expect(screen.getByTestId('new-home-page-stub')).toBeInTheDocument()
+    expect(screen.getByTestId('welcome-banner')).toBeInTheDocument()
     expect(screen.queryByTestId('classic-home-page-stub')).not.toBeInTheDocument()
   })
 
@@ -77,6 +83,7 @@ describe('HomePage', () => {
     mockExperience = 'classic'
     render(<HomePage />)
     expect(screen.getByTestId('classic-home-page-stub')).toBeInTheDocument()
+    expect(screen.getByTestId('welcome-banner')).toBeInTheDocument()
     expect(screen.queryByTestId('new-home-page-stub')).not.toBeInTheDocument()
   })
 })

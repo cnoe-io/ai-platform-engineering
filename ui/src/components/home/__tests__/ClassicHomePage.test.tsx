@@ -5,7 +5,6 @@
  * Tests:
  * - Renders "Powered by caipe.io" footer
  * - Renders a toggle to switch to the new experience
- * - Welcome banner: personalized greeting, generic greeting with no session
  * - Capability cards: shows/hides Knowledge Bases based on RAG flag
  * - Recent chats (MongoDB): fetches and displays conversations
  * - Shared conversations (MongoDB): fetches from getSharedConversations API
@@ -21,12 +20,11 @@ import { render, screen, waitFor } from '@testing-library/react'
 // Mocks
 // ============================================================================
 
-let mockSession: { data: unknown; status: string } = {
-  data: { user: { name: 'Test User', email: 'test@test.com' } },
-  status: 'authenticated',
-}
 jest.mock('next-auth/react', () => ({
-  useSession: () => mockSession,
+  useSession: () => ({
+    data: { user: { name: 'Test User', email: 'test@example.com' } },
+    status: 'authenticated',
+  }),
 }))
 
 jest.mock('next/link', () => {
@@ -130,7 +128,6 @@ function setupMockAPIs(opts: { conversations?: unknown[]; shared?: unknown[]; st
 describe('ClassicHomePage', () => {
   beforeEach(() => {
     jest.clearAllMocks()
-    mockSession = { data: { user: { name: 'Test User', email: 'test@test.com' } }, status: 'authenticated' }
     mockStorageMode = 'mongodb'
     mockRagEnabled = true
     mockLocalConversations.length = 0
@@ -148,21 +145,6 @@ describe('ClassicHomePage', () => {
     render(<ClassicHomePage />)
     screen.getByTestId('switch-to-new-home').click()
     expect(mockSetExperience).toHaveBeenCalledWith('new')
-  })
-
-  describe('Welcome banner', () => {
-    it('shows personalized greeting with user name', () => {
-      setupMockAPIs()
-      render(<ClassicHomePage />)
-      expect(screen.getByText('Welcome back, Test')).toBeInTheDocument()
-    })
-
-    it('shows generic greeting when no session', () => {
-      mockSession = { data: null, status: 'unauthenticated' }
-      setupMockAPIs()
-      render(<ClassicHomePage />)
-      expect(screen.getByText('Welcome to CAIPE')).toBeInTheDocument()
-    })
   })
 
   describe('Capability cards', () => {

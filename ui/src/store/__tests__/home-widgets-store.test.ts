@@ -122,6 +122,20 @@ describe("home widgets store",() => {
     });
   });
 
+  it("filters the retired welcome banner widget from saved preferences",async () => {
+    localStorage.setItem("caipe-home-widgets", JSON.stringify(["welcomeBanner", "shortcuts"]));
+    getSettingsMock.mockResolvedValue({
+      preferences: { home_widgets: ["welcomeBanner", "recentChats"] },
+    });
+
+    act(() => useHomeWidgetsStore.getState().initialize());
+
+    expect(useHomeWidgetsStore.getState().widgets).toEqual(["shortcuts"]);
+    await waitFor(() => {
+      expect(useHomeWidgetsStore.getState().widgets).toEqual(["recentChats"]);
+    });
+  });
+
   it("does not let late hydration overwrite a newer interaction",async () => {
     let resolveSettings!: (value: unknown) => void;
     getSettingsMock.mockReturnValue(new Promise((resolve) => {

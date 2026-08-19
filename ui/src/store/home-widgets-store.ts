@@ -15,7 +15,6 @@ export interface HomeWidgetDefinition {
 }
 
 export const HOME_WIDGET_DEFINITIONS: HomeWidgetDefinition[] = [
-  { id: "welcomeBanner", label: "Welcome Banner" },
   { id: "shortcuts", label: "Shortcuts" },
   { id: "recentChats", label: "Recent Chats" },
   { id: "insights", label: "Your Insights", requiresMongo: true },
