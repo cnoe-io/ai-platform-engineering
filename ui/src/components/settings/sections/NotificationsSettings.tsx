@@ -10,6 +10,7 @@ import {
   cacheAgentCompletionPreferences,
   deliverAgentCompletionAlert,
   getBrowserNotificationCapability,
+  prepareBrowserNotificationDelivery,
   primeCompletionChime,
   requestBrowserNotificationPermission,
   type BrowserNotificationCapability,
@@ -169,6 +170,7 @@ export function NotificationsSettings(): React.ReactElement {
     const permission = await requestBrowserNotificationPermission();
     setCapability(permission);
     if (permission !== "granted") return;
+    await prepareBrowserNotificationDelivery();
     setPreference("browser-completions",true);
   };
 
@@ -199,8 +201,14 @@ export function NotificationsSettings(): React.ReactElement {
         },
       },
     );
-    if (result.notificationShown || result.chimePlayed) {
-      setTestMessage("Test alert sent.");
+    if (result.notificationShown && result.chimePlayed) {
+      setTestMessage("Browser notification accepted and chime played. If no banner appeared, check system notifications for this browser.");
+    } else if (result.notificationShown) {
+      setTestMessage("Browser notification accepted. If no banner appeared, check system notifications for this browser.");
+    } else if (result.chimePlayed && preferences.browserEnabled) {
+      setTestMessage("Chime played, but the browser notification could not be shown. Check this site's notification permission.");
+    } else if (result.chimePlayed) {
+      setTestMessage("Chime played. Browser notifications are turned off.");
     } else if (preferences.browserEnabled && currentCapability !== "granted") {
       setTestMessage(permissionDescription(currentCapability));
     } else {
