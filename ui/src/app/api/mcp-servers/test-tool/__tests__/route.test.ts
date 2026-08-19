@@ -152,6 +152,9 @@ describe("POST /api/mcp-servers/test-tool", () => {
           }),
           { status: 200, headers: { "content-type": "application/json" } },
         ),
+      )
+      .mockResolvedValueOnce(
+        new Response(null, { status: 204 }),
       ) as unknown as typeof fetch;
 
     const { POST } = await import("../route");
@@ -204,6 +207,10 @@ describe("POST /api/mcp-servers/test-tool", () => {
       initializeHeaders["X-CAIPE-Trusted-Interaction-Signature"],
     );
     expect(invokeHeaders["mcp-session-id"]).toBe("mcp-session-1");
+    expect((global.fetch as jest.Mock).mock.calls[2][1]).toMatchObject({
+      method: "DELETE",
+      headers: expect.objectContaining({ "mcp-session-id": "mcp-session-1" }),
+    });
     expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
       writes: [
         expect.objectContaining({ user: "user:user-sub", relation: "user" }),
@@ -228,7 +235,7 @@ describe("POST /api/mcp-servers/test-tool", () => {
     });
   });
 
-  it("retries tool invocation while a new AgentGateway route is reconciling", async () => {
+  it("retries tool invocation while a new AgentGateway route and upstream are reconciling", async () => {
     mockGetCollection.mockResolvedValue({
       findOne: jest.fn().mockResolvedValue({
         _id: "example-weather",
@@ -245,6 +252,12 @@ describe("POST /api/mcp-servers/test-tool", () => {
       .mockResolvedValueOnce(
         new Response("route not found", {
           status: 404,
+          headers: { "content-type": "text/plain" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response("upstream cluster not ready", {
+          status: 503,
           headers: { "content-type": "text/plain" },
         }),
       )
@@ -266,6 +279,9 @@ describe("POST /api/mcp-servers/test-tool", () => {
           status: 200,
           headers: { "content-type": "application/json" },
         }),
+      )
+      .mockResolvedValueOnce(
+        new Response(null, { status: 204 }),
       ) as unknown as typeof fetch;
 
     const { POST } = await import("../route");
@@ -276,10 +292,15 @@ describe("POST /api/mcp-servers/test-tool", () => {
 
     expect(response.status).toBe(200);
     expect(body.data.success).toBe(true);
-    expect(global.fetch).toHaveBeenCalledTimes(3);
+    expect(global.fetch).toHaveBeenCalledTimes(5);
     expect(JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body).method).toBe("initialize");
     expect(JSON.parse((global.fetch as jest.Mock).mock.calls[1][1].body).method).toBe("initialize");
-    expect(JSON.parse((global.fetch as jest.Mock).mock.calls[2][1].body).method).toBe("tools/call");
+    expect(JSON.parse((global.fetch as jest.Mock).mock.calls[2][1].body).method).toBe("initialize");
+    expect(JSON.parse((global.fetch as jest.Mock).mock.calls[3][1].body).method).toBe("tools/call");
+    expect((global.fetch as jest.Mock).mock.calls[4][1]).toMatchObject({
+      method: "DELETE",
+      headers: expect.objectContaining({ "mcp-session-id": "mcp-session-2" }),
+    });
   });
 
   it("strips an accidental Bearer prefix before forwarding provider credentials through AgentGateway", async () => {

@@ -45,22 +45,28 @@ describe("listHttpMcpTools", () => {
 
   it("retries a transient AgentGateway route-registration 404", async () => {
     process.env.AGENT_GATEWAY_URL = "http://gateway:4000";
+    const gatewaySessionId = Buffer.from(JSON.stringify({
+      t: "mcp",
+      s: [{ t: "example", s: "upstream-session-1" }],
+    })).toString("base64url");
     const fetchMock = jest.fn()
       .mockResolvedValueOnce(response({ status: 404, body: "route not found" }))
       .mockResolvedValueOnce(response({
         status: 200,
-        sessionId: "session-1",
+        sessionId: gatewaySessionId,
         body: { jsonrpc: "2.0", id: "initialize", result: { protocolVersion: "2024-11-05" } },
       }))
       .mockResolvedValueOnce(response({
         status: 200,
-        sessionId: "session-1",
+        sessionId: gatewaySessionId,
         body: {
           jsonrpc: "2.0",
           id: "tools-list",
           result: { tools: [{ name: "echo", description: "Harmless test tool" }] },
         },
-      }));
+      }))
+      .mockResolvedValueOnce(response({ status: 200, body: "" }))
+      .mockResolvedValueOnce(response({ status: 204, body: "" }));
     global.fetch = fetchMock as unknown as typeof fetch;
 
     const result = await listHttpMcpTools({
@@ -71,6 +77,7 @@ describe("listHttpMcpTools", () => {
         name: "Example",
         transport: "http",
         endpoint: "http://gateway:4000/mcp/example",
+        agentgateway_target_endpoint: "http://example-mcp:8000/mcp",
         enabled: true,
         source: "agentgateway",
       } as never,
@@ -81,7 +88,18 @@ describe("listHttpMcpTools", () => {
       },
     });
 
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+    expect(fetchMock.mock.calls[3]).toEqual([
+      "http://example-mcp:8000/mcp",
+      expect.objectContaining({
+        method: "DELETE",
+        headers: expect.objectContaining({ "mcp-session-id": "upstream-session-1" }),
+      }),
+    ]);
+    expect(fetchMock.mock.calls[4][1]).toMatchObject({
+      method: "DELETE",
+      headers: expect.objectContaining({ "mcp-session-id": gatewaySessionId }),
+    });
     expect(result.tools).toEqual([
       expect.objectContaining({ name: "echo", namespaced_name: "echo" }),
     ]);

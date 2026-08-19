@@ -110,6 +110,10 @@ jest.mock("@/lib/rbac/platform-default", () => ({
 jest.mock("@/lib/rbac/agent-ownership-scope", () => ({
   filterAgentsByOwnershipScopeForSession: (...args: unknown[]) =>
     mockFilterAgentsByOwnershipScopeForSession(...args),
+  isPrivateAgentOwner: (
+    agent: { owner_subject?: string; owner_id?: string },
+    subject: string,
+  ) => agent.owner_subject === subject || agent.owner_id === subject,
 }));
 
 jest.mock("@/lib/rbac/unlinked-service-account", () => ({
@@ -819,6 +823,74 @@ describe("dynamic agents RBAC routes", () => {
         ownerTeamSlug: "data-eng",
         previousOwnerTeamSlug: "platform",
       }),
+    );
+  });
+
+  it("persists the first owner team when promoting a private agent to team visibility", async () => {
+    const existingAgent = {
+      _id: "agent-first-owner",
+      name: "First Owner",
+      owner_subject: "alice-sub",
+      shared_with_teams: [],
+      allowed_tools: {},
+      visibility: "private",
+    };
+    const findOneAndUpdate = jest.fn().mockResolvedValue({
+      ...existingAgent,
+      visibility: "team",
+      owner_team_slug: "primary",
+      owner_team_id: "primary-id",
+    });
+    const dynamicAgents = {
+      findOne: jest.fn().mockResolvedValue(existingAgent),
+      findOneAndUpdate,
+    };
+    const teams = {
+      findOne: jest.fn().mockResolvedValue({
+        _id: "primary-id",
+        slug: "primary",
+      }),
+    };
+    mockGetCollection.mockImplementation(async (name: string) => {
+      if (name === "dynamic_agents") return dynamicAgents;
+      if (name === "teams") return teams;
+      throw new Error(`unexpected collection ${name}`);
+    });
+    mockIsPlatformDefaultAgent.mockResolvedValue(false);
+
+    const { PUT } = await import("../route");
+    const response = await PUT(
+      request("/api/dynamic-agents?id=agent-first-owner", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          visibility: "team",
+          owner_team_slug: "primary",
+          shared_with_teams: [],
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockReconcileAgentRelationships).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentId: "agent-first-owner",
+        ownerTeamSlug: "primary",
+        previousOwnerTeamSlug: undefined,
+        personalOwnerAccess: false,
+        previousPersonalOwnerAccess: true,
+      }),
+    );
+    expect(findOneAndUpdate).toHaveBeenCalledWith(
+      { _id: "agent-first-owner" },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          visibility: "team",
+          owner_team_slug: "primary",
+          owner_team_id: "primary-id",
+        }),
+      }),
+      expect.any(Object),
     );
   });
 

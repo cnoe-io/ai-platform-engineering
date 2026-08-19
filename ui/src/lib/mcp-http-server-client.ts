@@ -33,9 +33,11 @@ const AGENT_CONTEXT_TTL_SECONDS: Record<AgentContextKind, number> = {
 
 // Saved AgentGateway routes are reconciled asynchronously by the config
 // bridge. A connection test can therefore reach the Gateway just before the
-// new route is installed and receive a transient 404. Retry only that status;
+// new route is installed (404) or after the route exists but before its
+// upstream cluster is ready (503). Both are bounded readiness states. Other
 // upstream failures and authorization denials must still fail immediately.
 const AGENT_GATEWAY_ROUTE_RETRY_DELAYS_MS = [250, 500, 1_000, 1_500, 2_500] as const;
+const AGENT_GATEWAY_READINESS_STATUSES = new Set([404, 503]);
 
 type AuthSession = {
   sub?: string;
@@ -190,7 +192,7 @@ async function initializeMcpSession(input: {
   let initialized = await initialize();
   if (input.agentGatewayManaged) {
     for (const delayMs of AGENT_GATEWAY_ROUTE_RETRY_DELAYS_MS) {
-      if (initialized.status !== 404) break;
+      if (!AGENT_GATEWAY_READINESS_STATUSES.has(initialized.status)) break;
       await wait(delayMs);
       initialized = await initialize();
     }
@@ -203,6 +205,73 @@ async function initializeMcpSession(input: {
     );
   }
   return { sessionId: initialized.sessionId };
+}
+
+async function deleteMcpSession(input: {
+  endpoint: string;
+  headers: Record<string, string>;
+  sessionId: string;
+}): Promise<void> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 2_000);
+  try {
+    const response = await fetch(input.endpoint, {
+      method: "DELETE",
+      signal: controller.signal,
+      headers: {
+        accept: "application/json, text/event-stream;q=0.9, */*;q=0.1",
+        ...input.headers,
+        "mcp-session-id": input.sessionId,
+      },
+    });
+    // Streamable HTTP servers may decline client-requested termination with
+    // 405. A 404 means the session already disappeared. Neither should mask
+    // the completed probe/tool call.
+    if (!response.ok && response.status !== 404 && response.status !== 405) {
+      console.warn(`[mcp-http] session termination returned HTTP ${response.status}`);
+    }
+  } catch (error) {
+    console.warn(
+      "[mcp-http] session termination failed",
+      error instanceof Error ? error.message : String(error),
+    );
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function terminateMcpSession(input: {
+  endpoint: string;
+  headers: Record<string, string>;
+  sessionId: string;
+  upstream?: { endpoint: string; targetId: string };
+}): Promise<void> {
+  if (input.upstream) {
+    try {
+      const gatewaySession = JSON.parse(
+        Buffer.from(input.sessionId, "base64url").toString("utf8"),
+      ) as { s?: Array<{ t?: unknown; s?: unknown }> };
+      const upstreamSessionIds = Array.isArray(gatewaySession.s)
+        ? gatewaySession.s
+            .filter(
+              (session): session is { t: string; s: string } =>
+                session.t === input.upstream?.targetId && typeof session.s === "string",
+            )
+            .map((session) => session.s)
+        : [];
+      for (const sessionId of upstreamSessionIds) {
+        await deleteMcpSession({
+          endpoint: input.upstream.endpoint,
+          headers: {},
+          sessionId,
+        });
+      }
+    } catch {
+      // Older gateways may return an opaque session ID. Deleting that ID from
+      // the gateway below is still the correct best-effort cleanup.
+    }
+  }
+  await deleteMcpSession(input);
 }
 
 function normalizeTool(tool: unknown): MCPToolInfo | null {
@@ -307,26 +376,42 @@ export async function listHttpMcpTools(input: {
     agentGatewayManaged,
   });
 
-  const listed = await mcpJsonRpc({
-    endpoint,
-    headers,
-    sessionId: initialized.sessionId,
-    payload: {
-      jsonrpc: "2.0",
-      id: `tools-list-${Date.now()}`,
-      method: "tools/list",
-      params: {},
-    },
-    timeoutMs: 5_000,
-  });
-  if (!listed.ok) {
-    throw new ApiError(`MCP tools/list failed with HTTP ${listed.status}`, 502, "MCP_LIST_FAILED");
+  try {
+    const listed = await mcpJsonRpc({
+      endpoint,
+      headers,
+      sessionId: initialized.sessionId,
+      payload: {
+        jsonrpc: "2.0",
+        id: `tools-list-${Date.now()}`,
+        method: "tools/list",
+        params: {},
+      },
+      timeoutMs: 5_000,
+    });
+    if (!listed.ok) {
+      throw new ApiError(`MCP tools/list failed with HTTP ${listed.status}`, 502, "MCP_LIST_FAILED");
+    }
+    const tools = extractTools(listed.payload);
+    if (!tools) {
+      throw new ApiError("MCP tools/list returned an unexpected payload", 502, "MCP_LIST_INVALID");
+    }
+    return { tools };
+  } finally {
+    await terminateMcpSession({
+      endpoint,
+      headers,
+      sessionId: initialized.sessionId,
+      ...(agentGatewayManaged && input.server.agentgateway_target_endpoint
+        ? {
+            upstream: {
+              endpoint: input.server.agentgateway_target_endpoint,
+              targetId: input.serverId,
+            },
+          }
+        : {}),
+    });
   }
-  const tools = extractTools(listed.payload);
-  if (!tools) {
-    throw new ApiError("MCP tools/list returned an unexpected payload", 502, "MCP_LIST_INVALID");
-  }
-  return { tools, sessionId: initialized.sessionId };
 }
 
 export async function invokeHttpMcpTool(input: {
@@ -361,18 +446,34 @@ export async function invokeHttpMcpTool(input: {
     agentGatewayManaged,
     timeoutMs: 15_000,
   });
-  const invoked = await mcpJsonRpc({
-    endpoint,
-    headers,
-    sessionId: initialized.sessionId,
-    payload: {
-      jsonrpc: "2.0",
-      id: `tools-call-${Date.now()}`,
-      method: "tools/call",
-      params: { name: input.toolName, arguments: input.params },
-    },
-  });
-  return { ok: invoked.ok, status: invoked.status, payload: invoked.payload };
+  try {
+    const invoked = await mcpJsonRpc({
+      endpoint,
+      headers,
+      sessionId: initialized.sessionId,
+      payload: {
+        jsonrpc: "2.0",
+        id: `tools-call-${Date.now()}`,
+        method: "tools/call",
+        params: { name: input.toolName, arguments: input.params },
+      },
+    });
+    return { ok: invoked.ok, status: invoked.status, payload: invoked.payload };
+  } finally {
+    await terminateMcpSession({
+      endpoint,
+      headers,
+      sessionId: initialized.sessionId,
+      ...(agentGatewayManaged && input.server.agentgateway_target_endpoint
+        ? {
+            upstream: {
+              endpoint: input.server.agentgateway_target_endpoint,
+              targetId: input.serverId,
+            },
+          }
+        : {}),
+    });
+  }
 }
 
 export async function listDirectHttpMcpTools(input: {
@@ -396,7 +497,23 @@ export async function listDirectHttpMcpTools(input: {
   });
   if (first.ok) {
     const tools = extractTools(first.payload);
-    if (tools) return { tools, sessionId: first.sessionId };
+    if (tools) {
+      if (first.sessionId) {
+        await terminateMcpSession({
+          endpoint: input.endpoint,
+          headers,
+          sessionId: first.sessionId,
+        });
+      }
+      return { tools };
+    }
+  }
+  if (first.sessionId) {
+    await terminateMcpSession({
+      endpoint: input.endpoint,
+      headers,
+      sessionId: first.sessionId,
+    });
   }
 
   const initialized = await mcpJsonRpc({
@@ -418,25 +535,33 @@ export async function listDirectHttpMcpTools(input: {
     throw new ApiError(`MCP initialize failed with HTTP ${initialized.status}`, 502, "MCP_INIT_FAILED");
   }
 
-  const listed = await mcpJsonRpc({
-    endpoint: input.endpoint,
-    headers,
-    sessionId: initialized.sessionId,
-    payload: {
-      jsonrpc: "2.0",
-      id: `tools-list-${Date.now()}`,
-      method: "tools/list",
-      params: {},
-    },
-    timeoutMs: input.timeoutMs,
-  });
-  if (!listed.ok) {
-    throw new ApiError(`MCP tools/list failed with HTTP ${listed.status}`, 502, "MCP_LIST_FAILED");
-  }
+  try {
+    const listed = await mcpJsonRpc({
+      endpoint: input.endpoint,
+      headers,
+      sessionId: initialized.sessionId,
+      payload: {
+        jsonrpc: "2.0",
+        id: `tools-list-${Date.now()}`,
+        method: "tools/list",
+        params: {},
+      },
+      timeoutMs: input.timeoutMs,
+    });
+    if (!listed.ok) {
+      throw new ApiError(`MCP tools/list failed with HTTP ${listed.status}`, 502, "MCP_LIST_FAILED");
+    }
 
-  const tools = extractTools(listed.payload);
-  if (!tools) {
-    throw new ApiError("MCP tools/list returned an unexpected payload", 502, "MCP_LIST_INVALID");
+    const tools = extractTools(listed.payload);
+    if (!tools) {
+      throw new ApiError("MCP tools/list returned an unexpected payload", 502, "MCP_LIST_INVALID");
+    }
+    return { tools };
+  } finally {
+    await terminateMcpSession({
+      endpoint: input.endpoint,
+      headers,
+      sessionId: initialized.sessionId,
+    });
   }
-  return { tools, sessionId: initialized.sessionId };
 }

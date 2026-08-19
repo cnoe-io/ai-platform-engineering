@@ -281,6 +281,9 @@ describe("POST /api/mcp-servers/probe", () => {
           id: "tools-list",
           result: { tools: [{ name: "example_search", description: "Search" }] },
         }),
+      )
+      .mockResolvedValueOnce(
+        new Response(null, { status: 204 }),
       ) as unknown as typeof fetch;
     const { POST } = await import("../route");
 
@@ -290,7 +293,7 @@ describe("POST /api/mcp-servers/probe", () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(global.fetch).toHaveBeenCalledTimes(2);
+    expect(global.fetch).toHaveBeenCalledTimes(3);
     expect(global.fetch).toHaveBeenNthCalledWith(
       1,
       "http://agentgateway:4000/mcp/mcp-example",
@@ -310,6 +313,14 @@ describe("POST /api/mcp-servers/probe", () => {
       expect.objectContaining({
         headers: expect.objectContaining({ "mcp-session-id": "session-123" }),
         body: expect.stringContaining('"method":"tools/list"'),
+      }),
+    );
+    expect(global.fetch).toHaveBeenNthCalledWith(
+      3,
+      "http://agentgateway:4000/mcp/mcp-example",
+      expect.objectContaining({
+        method: "DELETE",
+        headers: expect.objectContaining({ "mcp-session-id": "session-123" }),
       }),
     );
     expect(global.fetch).not.toHaveBeenCalledWith("https://example.test/mcp", expect.anything());
@@ -390,6 +401,9 @@ describe("POST /api/mcp-servers/probe", () => {
             },
           },
         ),
+      )
+      .mockResolvedValueOnce(
+        new Response(null, { status: 204 }),
       ) as unknown as typeof fetch;
     const { POST } = await import("../route");
 
@@ -414,6 +428,14 @@ describe("POST /api/mcp-servers/probe", () => {
         method: "POST",
         headers: expect.objectContaining({ "mcp-session-id": "session-123" }),
         body: expect.stringContaining('"method":"tools/list"'),
+      }),
+    );
+    expect(global.fetch).toHaveBeenNthCalledWith(
+      4,
+      "http://mcp-argocd:8000/mcp",
+      expect.objectContaining({
+        method: "DELETE",
+        headers: expect.objectContaining({ "mcp-session-id": "session-123" }),
       }),
     );
     expect(mockBuildBackendHeaders).not.toHaveBeenCalled();

@@ -962,15 +962,18 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
       },
     );
     const nextOwnerTeamSlug = resolvedOwnership.ownerTeamSlug;
-    if (resolvedOwnership.transferred) {
-      if (nextOwnerTeamSlug) {
-        const destinationTeam = await loadOwnerTeam({ slug: nextOwnerTeamSlug });
-        if (!destinationTeam) {
-          throw new ApiError("Destination team not found", 404, "OWNER_TEAM_NOT_FOUND");
-        }
-        updateData.owner_team_slug = nextOwnerTeamSlug;
-        updateData.owner_team_id = teamIdString(destinationTeam) ?? undefined;
+    // Persist both a first owner-team assignment (private -> team/global) and
+    // a true team-to-team transfer. The shared ownership resolver deliberately
+    // reports first-set as `transferred: false`; keying persistence only on
+    // that flag left Mongo ownerless while OpenFGA already contained the team
+    // grants, which made a later demotion unable to revoke the stale tuples.
+    if (nextOwnerTeamSlug && nextOwnerTeamSlug !== previousOwnerTeamSlug) {
+      const destinationTeam = await loadOwnerTeam({ slug: nextOwnerTeamSlug });
+      if (!destinationTeam) {
+        throw new ApiError("Destination team not found", 404, "OWNER_TEAM_NOT_FOUND");
       }
+      updateData.owner_team_slug = nextOwnerTeamSlug;
+      updateData.owner_team_id = teamIdString(destinationTeam) ?? undefined;
     }
 
     const finalAllowedTools = (updateData.allowed_tools ??
