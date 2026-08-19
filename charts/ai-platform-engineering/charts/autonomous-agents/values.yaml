@@ -149,6 +149,8 @@ config:
   # whose dynamic_agent_id is set through the user's custom agent. Only
   # uncomment when the dynamic-agents subchart is enabled (tags.dynamic-agents).
   DYNAMIC_AGENTS_URL: ""
+  # Minimum gap between cron/interval fires. Webhook triggers are exempt.
+  MINIMUM_SCHEDULE_INTERVAL_SECONDS: "1800"
   # MongoDB database name (uses same DB as CAIPE UI so the Autonomous tab's
   # task list and run history come from the same source of truth)
   MONGODB_DATABASE: "caipe"

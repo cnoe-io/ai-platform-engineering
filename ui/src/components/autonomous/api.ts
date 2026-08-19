@@ -1,7 +1,7 @@
 // Copyright CNOE Contributors (https://cnoe.io)
 // SPDX-License-Identifier: Apache-2.0
 
-import type { AutonomousTask, TaskRun } from './types';
+import type { AutonomousRuntimeSettings, AutonomousTask, TaskRun } from './types';
 // Note: ``TaskRun`` is exported because consumers like ``RunHistory``
 // type-narrow on it. Keep this barrel-style re-export below in mind
 // when adjusting the API surface.
@@ -79,6 +79,7 @@ async function request<T>(
 }
 
 export const autonomousApi = {
+  getSettings: (): Promise<AutonomousRuntimeSettings> => request('/settings'),
   listTasks: (): Promise<AutonomousTask[]> => request('/tasks'),
   getTask: (id: string): Promise<AutonomousTask> => request(`/tasks/${encodeURIComponent(id)}`),
   createTask: (task: AutonomousTask): Promise<AutonomousTask> =>

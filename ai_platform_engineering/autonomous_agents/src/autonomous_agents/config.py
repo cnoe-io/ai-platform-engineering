@@ -48,6 +48,10 @@ class Settings(BaseSettings):
     # dynamic agent's own model config governs execution).
     llm_provider: str = "anthropic-claude"
 
+    # Cron and interval tasks may not fire more frequently than this. Webhook
+    # tasks are event-driven and deliberately exempt.
+    minimum_schedule_interval_seconds: int = Field(default=1800, ge=1)
+
     # Dynamic-agents runtime — the single execution backend for autonomous
     # tasks. Every task targets a dynamic_agent_id and runs through this
     # service (its tools / system prompt / model / middleware).

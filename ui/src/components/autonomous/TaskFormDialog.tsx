@@ -16,7 +16,12 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 
 import type { AutonomousTask, TaskFormState, TriggerType } from "./types";
-import { fromFormState, toFormState } from "./formState";
+import {
+  DEFAULT_MINIMUM_SCHEDULE_INTERVAL_SECONDS,
+  formatScheduleInterval,
+  fromFormState,
+  toFormState,
+} from "./formState";
 
 const WEBHOOK_PROVIDER_OPTIONS = [
   { value: "generic_hmac", label: "Generic HMAC" },
@@ -43,6 +48,7 @@ interface TaskFormDialogProps {
    * without preventing.
    */
   existingNames?: string[];
+  minimumScheduleIntervalSeconds?: number;
   onSubmit: (task: AutonomousTask) => Promise<void>;
 }
 
@@ -57,7 +63,15 @@ function seededFormState(
   return state;
 }
 
-export function TaskFormDialog({ open, onOpenChange, task, initialAgentId, existingNames = [], onSubmit }: TaskFormDialogProps) {
+export function TaskFormDialog({
+  open,
+  onOpenChange,
+  task,
+  initialAgentId,
+  existingNames = [],
+  minimumScheduleIntervalSeconds = DEFAULT_MINIMUM_SCHEDULE_INTERVAL_SECONDS,
+  onSubmit,
+}: TaskFormDialogProps) {
   const isEdit = Boolean(task);
   const [form, setForm] = useState<TaskFormState>(() => seededFormState(task, initialAgentId));
   const [submitting, setSubmitting] = useState(false);
@@ -100,7 +114,7 @@ export function TaskFormDialog({ open, onOpenChange, task, initialAgentId, exist
       );
       return;
     }
-    const result = fromFormState(form);
+    const result = fromFormState(form, minimumScheduleIntervalSeconds);
     if ("error" in result) {
       setError(result.error);
       return;
@@ -237,7 +251,8 @@ export function TaskFormDialog({ open, onOpenChange, task, initialAgentId, exist
                   required
                 />
                 <p className="text-[11px] text-muted-foreground">
-                  Standard 5-field cron expression (minute hour dom month dow).
+                  Standard 5-field cron expression (minute hour dom month dow). Runs
+                  must be at least {formatScheduleInterval(minimumScheduleIntervalSeconds)} apart.
                 </p>
               </div>
             )}
@@ -278,7 +293,8 @@ export function TaskFormDialog({ open, onOpenChange, task, initialAgentId, exist
                 </div>
                 <p className="text-[11px] text-muted-foreground">
                   Fill in at least one field; empty fields count as 0. Values
-                  add up (e.g. 1 hour + 30 minutes = every 90 minutes).
+                  add up (e.g. 1 hour + 30 minutes = every 90 minutes). Minimum: {" "}
+                  {formatScheduleInterval(minimumScheduleIntervalSeconds)}.
                 </p>
               </div>
             )}

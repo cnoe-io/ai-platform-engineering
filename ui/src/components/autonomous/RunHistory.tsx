@@ -9,13 +9,15 @@ import { RefreshCw, ChevronDown, ChevronRight, MessageSquare } from "lucide-reac
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { MarkdownRenderer } from "@/components/shared/timeline/MarkdownRenderer";
 import { cn } from "@/lib/utils";
 
 import { autonomousApi, AutonomousApiError } from "./api";
-import type { TaskRun } from "./types";
+import type { TaskRun, TriggerType } from "./types";
 
 interface RunHistoryProps {
   taskId: string;
+  triggerType?: TriggerType;
   /**
    * Refresh trigger — bump this counter from the parent (e.g. right
    * after manually firing a task) to force a reload without waiting
@@ -75,7 +77,7 @@ function formatDuration(start: string, end: string | null | undefined): string {
   }
 }
 
-export function RunHistory({ taskId, refreshKey = 0 }: RunHistoryProps) {
+export function RunHistory({ taskId, triggerType, refreshKey = 0 }: RunHistoryProps) {
   const [runs, setRuns] = useState<TaskRun[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -166,6 +168,10 @@ export function RunHistory({ taskId, refreshKey = 0 }: RunHistoryProps) {
       <ul className="flex flex-col gap-1">
         {runs.map((run) => {
           const isOpen = expanded.has(run.run_id);
+          const response =
+            triggerType === "webhook"
+              ? run.response_full ?? run.response_preview
+              : run.response_preview;
           return (
             <li
               key={run.run_id}
@@ -243,15 +249,26 @@ export function RunHistory({ taskId, refreshKey = 0 }: RunHistoryProps) {
                       </pre>
                     </div>
                   )}
-                  {run.response_preview && (
+                  {response && (
                     <div>
-                      <div className="font-medium text-foreground mb-1">Response preview</div>
-                      <pre className="whitespace-pre-wrap break-words rounded bg-muted p-2 text-foreground">
-                        {run.response_preview}
-                      </pre>
+                      <div className="font-medium text-foreground mb-1">
+                        {triggerType === "webhook" ? "Result" : "Response preview"}
+                      </div>
+                      {triggerType === "webhook" ? (
+                        <div
+                          className="min-w-0 overflow-hidden rounded bg-muted p-3"
+                          data-testid="webhook-run-result"
+                        >
+                          <MarkdownRenderer content={response} variant="final" />
+                        </div>
+                      ) : (
+                        <pre className="whitespace-pre-wrap break-words rounded bg-muted p-2 text-foreground">
+                          {response}
+                        </pre>
+                      )}
                     </div>
                   )}
-                  {!run.error && !run.response_preview && (
+                  {!run.error && !response && (
                     <div className="text-muted-foreground italic">
                       No response captured.
                     </div>

@@ -6,6 +6,16 @@ import pytest
 from autonomous_agents.config import Settings
 
 
+def test_minimum_schedule_interval_defaults_to_thirty_minutes() -> None:
+    assert Settings().minimum_schedule_interval_seconds == 1800
+
+
+def test_minimum_schedule_interval_is_configurable_and_positive() -> None:
+    assert Settings(minimum_schedule_interval_seconds=600).minimum_schedule_interval_seconds == 600
+    with pytest.raises(pydantic.ValidationError):
+        Settings(minimum_schedule_interval_seconds=0)
+
+
 class TestDynamicAgentsTimeoutSettings:
     """Defaults and bounds for the dynamic-agents timeout fields."""
 

@@ -155,6 +155,7 @@ tasks:
 | `DYNAMIC_AGENTS_TIMEOUT_SECONDS` | `300` | Per-call timeout for the dynamic-agents streaming call. Overridable per task via `timeout_seconds`. |
 | `DYNAMIC_AGENTS_PREFLIGHT_TIMEOUT_SECONDS` | `10` | Timeout budget for the preflight check. |
 | `DYNAMIC_AGENTS_SYSTEM_EMAIL` | `autonomous@system` | Fallback identity for tasks created before per-user ownership existed. |
+| `MINIMUM_SCHEDULE_INTERVAL_SECONDS` | `1800` | Minimum allowed gap between cron/interval fires. Webhook triggers are exempt. |
 | `LLM_PROVIDER` | `anthropic-claude` | Informational default; the dynamic agent's own model config governs execution. |
 | `HOST` | `0.0.0.0` | Server bind host |
 | `PORT` | `8002` | Server port |
@@ -166,7 +167,7 @@ tasks:
 | `MONGODB_DATABASE` | `None` | Optional. MongoDB database name. Required together with `MONGODB_URI`. |
 | `MONGODB_COLLECTION` | `autonomous_runs` | MongoDB collection name for run history. |
 | `RUN_HISTORY_MAXLEN` | `500` | Max runs retained by the in-memory store when MongoDB is not configured. |
-| `CHAT_HISTORY_PUBLISH_ENABLED` | `false` | Master switch for publishing autonomous runs into the UI's `conversations` / `messages` collections. Requires `MONGODB_URI`. See *Chat History Integration*. |
+| `CHAT_HISTORY_PUBLISH_ENABLED` | `false` | Publishes cron and interval task activity into the UI's `conversations` / `messages` collections. Webhook tasks are always excluded. Requires `MONGODB_URI`. See *Chat History Integration*. |
 | `CHAT_HISTORY_OWNER_EMAIL` | `autonomous@system` | Synthetic owner stamped on every autonomous conversation. Used as a sentinel — UI access is granted to authenticated users via the `source: 'autonomous'` flag, not by matching this email. |
 | `CHAT_HISTORY_DATABASE` | `None` | Optional override of the chat database name when the UI's chat data lives in a different database than `MONGODB_DATABASE`. |
 | `CHAT_HISTORY_CONVERSATIONS_COLLECTION` | `conversations` | Collection that the UI sidebar reads. |

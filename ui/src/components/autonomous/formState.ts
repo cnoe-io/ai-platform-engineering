@@ -12,6 +12,14 @@
 
 import type { AutonomousTask, TaskFormState } from "./types";
 
+export const DEFAULT_MINIMUM_SCHEDULE_INTERVAL_SECONDS = 30 * 60;
+
+export function formatScheduleInterval(seconds: number): string {
+  if (seconds % 3600 === 0) return `${seconds / 3600} hour${seconds === 3600 ? "" : "s"}`;
+  if (seconds % 60 === 0) return `${seconds / 60} minutes`;
+  return `${seconds} seconds`;
+}
+
 export const EMPTY_FORM: TaskFormState = {
   id: "",
   name: "",
@@ -83,7 +91,10 @@ export type FormConversionResult =
  * Convert form state -> API model. Returns ``{ error }`` when inputs
  * are invalid so the caller can surface a human-readable message.
  */
-export function fromFormState(form: TaskFormState): FormConversionResult {
+export function fromFormState(
+  form: TaskFormState,
+  minimumScheduleIntervalSeconds = DEFAULT_MINIMUM_SCHEDULE_INTERVAL_SECONDS,
+): FormConversionResult {
   const id = form.id.trim();
   const name = form.name.trim();
   const agent = form.agent.trim();
@@ -117,6 +128,12 @@ export function fromFormState(form: TaskFormState): FormConversionResult {
     }
     if (seconds == null && minutes == null && hours == null) {
       return { error: "Interval requires at least one of seconds / minutes / hours." };
+    }
+    const totalSeconds = (seconds ?? 0) + (minutes ?? 0) * 60 + (hours ?? 0) * 3600;
+    if (totalSeconds < minimumScheduleIntervalSeconds) {
+      return {
+        error: `Interval must be at least ${formatScheduleInterval(minimumScheduleIntervalSeconds)}.`,
+      };
     }
     trigger = {
       type: "interval",

@@ -11,6 +11,7 @@ import { AgentTaskAccordion } from "./AgentTaskAccordion";
 import { autonomousApi, AutonomousApiError } from "./api";
 import { isTaskOwnedByAgent } from "./taskOwnership";
 import { TaskFormDialog } from "./TaskFormDialog";
+import { DEFAULT_MINIMUM_SCHEDULE_INTERVAL_SECONDS } from "./formState";
 import type { AutonomousTask } from "./types";
 
 export interface MyTasksAgent {
@@ -43,6 +44,9 @@ export function MyTasksPanel({ agents, currentUserEmail }: MyTasksPanelProps) {
   const [dialogAgentId, setDialogAgentId] = useState<string | null>(null);
   const [runHistoryRefreshKey, setRunHistoryRefreshKey] = useState(0);
   const [lastCreatedId, setLastCreatedId] = useState<string | null>(null);
+  const [minimumScheduleIntervalSeconds, setMinimumScheduleIntervalSeconds] = useState(
+    DEFAULT_MINIMUM_SCHEDULE_INTERVAL_SECONDS,
+  );
   // Sections start COLLAPSED: the page can list many agents, and a wall of
   // expanded task lists buries the one the user came for. The header carries a
   // task count so nothing is hidden without a signal.
@@ -72,6 +76,18 @@ export function MyTasksPanel({ agents, currentUserEmail }: MyTasksPanelProps) {
   useEffect(() => {
     void fetchTasks();
   }, [fetchTasks]);
+
+  useEffect(() => {
+    void autonomousApi
+      .getSettings()
+      .then((settings) => {
+        setMinimumScheduleIntervalSeconds(settings.minimum_schedule_interval_seconds);
+      })
+      .catch(() => {
+        // Keep the chart default in the form. The backend remains authoritative
+        // and returns its configured limit if the save is attempted.
+      });
+  }, []);
 
   const hasPendingAck = useMemo(
     () => tasks.some((task) => task.last_ack?.ack_status === "pending"),
@@ -274,6 +290,7 @@ export function MyTasksPanel({ agents, currentUserEmail }: MyTasksPanelProps) {
         existingNames={tasks
           .filter((t) => t.id !== editingTask?.id)
           .map((t) => t.name)}
+        minimumScheduleIntervalSeconds={minimumScheduleIntervalSeconds}
         onSubmit={handleSubmitTask}
       />
     </div>

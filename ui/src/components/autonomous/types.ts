@@ -13,6 +13,10 @@ export type TriggerType = 'cron' | 'interval' | 'webhook';
 
 export type TaskStatus = 'pending' | 'running' | 'success' | 'failed' | 'skipped';
 
+export interface AutonomousRuntimeSettings {
+  minimum_schedule_interval_seconds: number;
+}
+
 export interface CronTrigger {
   type: 'cron';
   schedule: string;

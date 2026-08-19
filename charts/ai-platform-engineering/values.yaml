@@ -1203,6 +1203,8 @@ autonomous-agents:
     # Dynamic-agents runtime endpoint -- every autonomous task runs against a
     # dynamic agent selected by the task's dynamic_agent_id.
     DYNAMIC_AGENTS_URL: ""
+    # Minimum gap between cron/interval fires. Webhook triggers are exempt.
+    MINIMUM_SCHEDULE_INTERVAL_SECONDS: "1800"
     # MongoDB configuration (uses same database as CAIPE UI)
     MONGODB_DATABASE: "caipe"
   # Pre-existing secret with MONGODB_URI (required), WEBHOOK_SECRET, and

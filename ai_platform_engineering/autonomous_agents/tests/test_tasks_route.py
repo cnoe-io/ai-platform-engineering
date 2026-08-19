@@ -28,6 +28,7 @@ from autonomous_agents.models import (
     TaskDefinition,
     TaskRun,
     TaskStatus,
+    WebhookTrigger,
 )
 from autonomous_agents.routes import tasks as tasks_route
 from autonomous_agents.routes.tasks import (
@@ -278,6 +279,12 @@ def client():
 class TestListAndGet:
     """``GET /tasks`` and ``GET /tasks/{id}``."""
 
+    def test_settings_exposes_schedule_frequency_floor(self, client: TestClient):
+        response = client.get("/api/v1/settings")
+
+        assert response.status_code == 200
+        assert response.json() == {"minimum_schedule_interval_seconds": 1800}
+
     def test_list_tasks_initially_empty(self, client: TestClient):
         """Empty store returns an empty list."""
         response = client.get("/api/v1/tasks")
@@ -410,6 +417,25 @@ class TestCreate:
         fixed = _cron_task("bad-cron")
         retry = client.post("/api/v1/tasks", json=fixed)
         assert retry.status_code == 201, "rollback must clear the way for retry"
+
+    @pytest.mark.parametrize(
+        "trigger",
+        [
+            {"type": "cron", "schedule": "*/5 * * * *"},
+            {"type": "interval", "minutes": 29},
+        ],
+    )
+    def test_rejects_schedules_faster_than_configured_minimum(
+        self, client: TestClient, trigger: dict
+    ):
+        payload = _cron_task("too-fast")
+        payload["trigger"] = trigger
+
+        response = client.post("/api/v1/tasks", json=payload)
+
+        assert response.status_code == 400
+        assert "configured minimum" in response.json()["detail"]
+        assert client.get("/api/v1/tasks").json() == []
 
 
 class TestUpdate:
@@ -613,16 +639,16 @@ class TestDelete:
 
     def test_round_trip_create_get_update_delete(self, client: TestClient):
         """Sanity smoke covering the full UI flow in one shot."""
-        tid = _create_task(client, _interval_task("t1", seconds=15))
+        tid = _create_task(client, _interval_task("t1", seconds=1800))
 
         got = client.get(f"/api/v1/tasks/{tid}")
         assert got.status_code == 200
-        assert got.json()["trigger"]["seconds"] == 15
+        assert got.json()["trigger"]["seconds"] == 1800
 
-        updated_payload = _interval_task("t1", seconds=60)
+        updated_payload = _interval_task("t1", seconds=3600)
         updated = client.put(f"/api/v1/tasks/{tid}", json=updated_payload)
         assert updated.status_code == 200
-        assert updated.json()["trigger"]["seconds"] == 60
+        assert updated.json()["trigger"]["seconds"] == 3600
 
         deleted = client.delete(f"/api/v1/tasks/{tid}")
         assert deleted.status_code == 204
@@ -684,7 +710,7 @@ class TestRunHistory:
         await _seed_tasks([_make_task("t1")])
 
         with patch.object(
-            tasks_route, "chat_history_publishing_enabled", return_value=False
+            tasks_route, "task_chat_history_publishing_enabled", return_value=False
         ):
             runs = await get_task_runs("t1", _fake_request())
 
@@ -904,7 +930,7 @@ class TestDynamicAgentRouting:
         )
 
         with patch.object(
-            tasks_route, "chat_history_publishing_enabled", return_value=False
+            tasks_route, "task_chat_history_publishing_enabled", return_value=False
         ):
             serialized = _serialize_task(task, next_run_iso=None)
 
@@ -921,11 +947,45 @@ class TestDynamicAgentRouting:
         )
 
         with patch.object(
-            tasks_route, "chat_history_publishing_enabled", return_value=True
+            tasks_route, "task_chat_history_publishing_enabled", return_value=True
         ):
             serialized = _serialize_task(task, next_run_iso=None)
 
         assert serialized["chat_conversation_id"] == conversation_id_for_task(task.id)
+
+    def test_serialize_webhook_task_never_exposes_chat_link(self):
+        task = TaskDefinition(
+            id="webhook-task",
+            name="Webhook Task",
+            dynamic_agent_id="agent-x",
+            prompt="handle event",
+            trigger=WebhookTrigger(),
+        )
+
+        serialized = _serialize_task(task, next_run_iso=None)
+
+        assert serialized["chat_conversation_id"] is None
+
+    async def test_webhook_task_lifecycle_never_publishes_chat_messages(self):
+        task = TaskDefinition(
+            id="webhook-task",
+            name="Webhook Task",
+            dynamic_agent_id="agent-x",
+            prompt="handle event",
+            trigger=WebhookTrigger(),
+        )
+        publisher = AsyncMock()
+
+        with patch.object(
+            task_lifecycle,
+            "get_chat_history_publisher",
+            return_value=publisher,
+        ):
+            await task_lifecycle.publish_creation_intent_safely(task)
+            await task_lifecycle._safe_publish_preflight_ack(task, _ok_ack())
+
+        publisher.publish_creation_intent.assert_not_awaited()
+        publisher.publish_preflight_ack.assert_not_awaited()
 
 
 def test_task_route_uses_lifecycle_task_store() -> None:

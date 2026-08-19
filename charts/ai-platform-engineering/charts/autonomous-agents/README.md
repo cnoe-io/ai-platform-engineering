@@ -58,6 +58,7 @@ helm show values oci://ghcr.io/cnoe-io/charts/autonomous-agents --version 0.4.10
 | config.CREDENTIAL_KMS_CMK_ID | string | `""` |  |
 | config.CREDENTIAL_KMS_REGION | string | `""` |  |
 | config.DYNAMIC_AGENTS_URL | string | `""` |  |
+| config.MINIMUM_SCHEDULE_INTERVAL_SECONDS | string | `"1800"` |  |
 | config.MONGODB_DATABASE | string | `"caipe"` |  |
 | config.SUPERVISOR_URL | string | `""` |  |
 | dynamicAgentsAuth.clientId | string | `"caipe-platform"` |  |

@@ -11,6 +11,7 @@ import logging
 
 from fastapi import APIRouter, HTTPException, Request, status
 
+from autonomous_agents.config import get_settings
 from autonomous_agents.models import (
     Acknowledgement,
     TaskCreate,
@@ -38,6 +39,7 @@ from autonomous_agents.services.task_runner import (
     chat_history_publishing_enabled,
     execute_task,
     get_run_store,
+    task_chat_history_publishing_enabled,
 )
 
 logger = logging.getLogger("autonomous_agents")
@@ -170,7 +172,7 @@ def _serialize_task(task: TaskDefinition, next_run_iso: str | None) -> dict:
         "last_ack": ack_dump,
         "chat_conversation_id": (
             conversation_id_for_task(task.id)
-            if chat_history_publishing_enabled()
+            if task_chat_history_publishing_enabled(task)
             else None
         ),
         "owner_id": task.owner_id,
@@ -179,6 +181,16 @@ def _serialize_task(task: TaskDefinition, next_run_iso: str | None) -> dict:
         # than mutable email. Still never trusted as *input* (create/update
         # scrub any client-supplied owner_sub).
         "owner_sub": task.owner_sub,
+    }
+
+
+@router.get("/settings", response_model=dict)
+async def get_public_settings() -> dict:
+    """Return non-sensitive runtime constraints needed by the task form."""
+    return {
+        "minimum_schedule_interval_seconds": (
+            get_settings().minimum_schedule_interval_seconds
+        )
     }
 
 
@@ -232,7 +244,7 @@ async def create_task(payload: TaskCreate, request: Request) -> dict:
         )
 
     # The server owns the id. Whatever the client sent is discarded
-    
+
     task = payload.model_copy(update={"id": generate_task_id(payload.name)})
 
     # last_ack is server-managed
