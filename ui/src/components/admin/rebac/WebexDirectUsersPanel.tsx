@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { CAIPESpinner } from "@/components/ui/caipe-spinner";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
+import { loadAllDynamicAgents } from "@/lib/dynamic-agent-list";
 import type { DynamicAgentOption } from "./connector-admin-adapter";
 
 type DmAccessMode = "disabled" | "allowlist" | "all_users";
@@ -56,31 +57,6 @@ async function responseError(response: Response, fallback: string): Promise<stri
   }
 }
 
-async function loadEnabledAgents(): Promise<DynamicAgentOption[]> {
-  const items: DynamicAgentOption[] = [];
-  let page = 1;
-  let hasMore = true;
-
-  while (hasMore) {
-    const response = await fetch(
-      `/api/dynamic-agents?enabled_only=true&page=${page}&page_size=100`,
-      { cache: "no-store" },
-    );
-    if (!response.ok) {
-      throw new Error(await responseError(response, "Failed to load agents"));
-    }
-    const data = apiData<{
-      items: DynamicAgentOption[];
-      has_more?: boolean;
-    }>(await response.json());
-    items.push(...(data.items ?? []));
-    hasMore = Boolean(data.has_more);
-    page += 1;
-  }
-
-  return items;
-}
-
 export function WebexDirectUsersPanel({ disabled = false }: { disabled?: boolean }) {
   const { toast } = useToast();
   const [bots, setBots] = useState<BotOption[]>([]);
@@ -97,7 +73,7 @@ export function WebexDirectUsersPanel({ disabled = false }: { disabled?: boolean
     let active = true;
     void Promise.all([
       fetch("/api/admin/webex/bots", { cache: "no-store" }),
-      loadEnabledAgents(),
+      loadAllDynamicAgents<DynamicAgentOption>({ enabledOnly: true }),
     ]).then(async ([botsResponse, nextAgents]) => {
       if (!botsResponse.ok) throw new Error(await responseError(botsResponse, "Failed to load Webex bots"));
       const botData = apiData<{ bots: BotOption[] }>(await botsResponse.json());
