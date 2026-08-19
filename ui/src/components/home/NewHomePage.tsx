@@ -54,7 +54,8 @@ export function NewHomePage() {
   return (
     <div className="space-y-6">
       <HomeExperienceToggle
-        label="Go back to the previous Home experience"
+        label="Classic Home"
+        ariaLabel="Switch to classic Home"
         onClick={() => setExperience("classic")}
         testId="switch-to-classic-home"
       />

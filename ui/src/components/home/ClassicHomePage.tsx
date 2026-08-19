@@ -20,7 +20,8 @@ export function ClassicHomePage() {
   return (
     <div className="space-y-6">
       <HomeExperienceToggle
-        label="Try the new Home experience"
+        label="New Home"
+        ariaLabel="Switch to customizable Home"
         onClick={() => setExperience("new")}
         testId="switch-to-new-home"
       />
