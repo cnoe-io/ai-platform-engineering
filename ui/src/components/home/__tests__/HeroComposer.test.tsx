@@ -98,7 +98,7 @@ describe('HeroComposer', () => {
 
   it('renders the heading and input', () => {
     render(<HeroComposer />)
-    expect(screen.getByText('What would you like to do today?')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'What would you like to do today?' })).toBeInTheDocument()
     expect(screen.getByTestId('hero-composer-input')).toBeInTheDocument()
   })
 

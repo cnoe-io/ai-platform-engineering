@@ -929,18 +929,19 @@ pre code.hljs {
   box-shadow: inset 0 1px rgb(255 255 255 / 72%);
 }
 
-/* Give the primary home prompt a quiet visual anchor without motion. The
-   short gradient rule follows the active palette and works in every theme. */
-.home-composer-prompt::after {
-  content: "";
-  display: block;
-  width: 3rem;
-  height: 2px;
-  margin-top: 0.45rem;
-  border-radius: 999px;
-  background: linear-gradient(90deg, var(--gradient-from), var(--gradient-to));
-  opacity: 0.78;
-  box-shadow: 0 0 12px color-mix(in srgb, var(--gradient-from) 22%, transparent);
+/* A static, palette-aware AI cue gives the primary home prompt enough visual
+   weight to lead the page without competing with the greeting banner. */
+.home-composer-prompt-icon {
+  color: color-mix(in srgb, var(--gradient-from) 82%, hsl(var(--foreground)));
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--gradient-from) 18%, transparent),
+      color-mix(in srgb, var(--gradient-to) 14%, transparent)
+    ),
+    hsl(var(--card) / 72%);
+  border: 1px solid color-mix(in srgb, var(--gradient-from) 24%, hsl(var(--border)));
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--gradient-from) 14%, transparent);
 }
 
 [data-theme="light"] .home-quick-start-tabs {

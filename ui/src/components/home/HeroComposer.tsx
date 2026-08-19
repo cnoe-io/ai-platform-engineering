@@ -6,7 +6,7 @@ import { resolveUsableChatAgent,resolveUsableChatAgentId } from "@/lib/chat-agen
 import { setPendingFirstMessage } from "@/lib/pending-first-message";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/store/chat-store";
-import { Plus,Send } from "lucide-react";
+import { Plus,Send,Sparkles } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect,useState,useTransition } from "react";
 
@@ -52,9 +52,20 @@ export function HeroComposer() {
 
   return (
     <div data-testid="hero-composer" className="home-hero-surface rounded-xl border border-border/50 bg-card/40 p-6">
-      <h1 className="home-composer-prompt text-xl font-semibold tracking-tight text-foreground">
-        What would you like to do today?
-      </h1>
+      <div className="flex items-center gap-2.5">
+        <span
+          aria-hidden="true"
+          className="home-composer-prompt-icon flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
+        >
+          <Sparkles className="h-4 w-4" />
+        </span>
+        <h1
+          aria-label="What would you like to do today?"
+          className="text-xl font-semibold tracking-tight text-foreground"
+        >
+          What would you like to do <span className="text-gradient-primary">today?</span>
+        </h1>
+      </div>
       <div className="home-composer-field mt-4 rounded-lg border border-border/60 bg-background/60 p-3">
         <textarea
           value={text}
