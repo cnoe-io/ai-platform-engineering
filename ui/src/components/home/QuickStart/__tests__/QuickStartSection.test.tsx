@@ -55,6 +55,24 @@ describe('QuickStartSection', () => {
     expect(screen.getByTestId('quick-start-card-add-model')).toBeInTheDocument()
   })
 
+  it('uses a distinct icon accent for every Quick Start action', () => {
+    const iconAccents = QUICK_START_TABS.flatMap((tab) =>
+      tab.cards.map((card) => card.iconClassName),
+    )
+
+    expect(new Set(iconAccents).size).toBe(iconAccents.length)
+
+    render(<QuickStartSection />)
+    expect(screen.getByTestId('quick-start-icon-build-agent')).toHaveClass(
+      'from-violet-500',
+      'to-fuchsia-500',
+    )
+    expect(screen.getByTestId('quick-start-icon-create-skills')).toHaveClass(
+      'from-amber-400',
+      'to-orange-500',
+    )
+  })
+
   it('switches to the Automate tab and shows its cards', () => {
     render(<QuickStartSection />)
     fireEvent.mouseDown(screen.getByTestId('quick-start-tab-automate'), { button: 0 })
