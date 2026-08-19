@@ -23,6 +23,7 @@ const DEFAULT_PREFERENCES: AgentCompletionPreferences = {
 
 let settingsLoadPromise: Promise<AgentCompletionPreferences> | null = null;
 let audioContext: AudioContext | null = null;
+let notificationServiceWorkerPromise: Promise<ServiceWorkerRegistration | null> | null = null;
 
 function readBoolean(key: string): boolean | undefined {
   if (typeof window === "undefined") return undefined;
@@ -71,6 +72,7 @@ export async function loadAgentCompletionPreferences(): Promise<AgentCompletionP
 
 export function resetAgentCompletionPreferenceLoad(): void {
   settingsLoadPromise = null;
+  notificationServiceWorkerPromise = null;
 }
 
 export function getBrowserNotificationCapability(): BrowserNotificationCapability {
@@ -81,6 +83,27 @@ export function getBrowserNotificationCapability(): BrowserNotificationCapabilit
 export async function requestBrowserNotificationPermission(): Promise<BrowserNotificationCapability> {
   if (typeof window === "undefined" || !("Notification" in window)) return "unsupported";
   return window.Notification.requestPermission();
+}
+
+async function getNotificationServiceWorker(): Promise<ServiceWorkerRegistration | null> {
+  if (
+    typeof navigator === "undefined"
+    || !("serviceWorker" in navigator)
+    || !navigator.serviceWorker
+  ) return null;
+  if (!notificationServiceWorkerPromise) {
+    notificationServiceWorkerPromise = navigator.serviceWorker
+      .register("/caipe-notification-sw.js",{ scope: "/" })
+      .catch(() => null);
+  }
+  return notificationServiceWorkerPromise;
+}
+
+/** Prepare persistent notification delivery while the page is active. */
+export async function prepareBrowserNotificationDelivery(): Promise<boolean> {
+  if (getBrowserNotificationCapability() !== "granted") return false;
+  if (await getNotificationServiceWorker()) return true;
+  return typeof window !== "undefined" && "Notification" in window;
 }
 
 function getAudioContext(): AudioContext | null {
@@ -140,20 +163,33 @@ export function shouldAlertForCurrentPage(): boolean {
   return document.hidden || !document.hasFocus();
 }
 
-function showBrowserNotification(alert: AgentCompletionAlert): boolean {
+async function showBrowserNotification(alert: AgentCompletionAlert): Promise<boolean> {
   if (getBrowserNotificationCapability() !== "granted") return false;
 
+  const agentLabel = alert.agentName?.trim() || "Agent";
+  const title = `${agentLabel} finished`;
+  const options: NotificationOptions = {
+    body: "Your response is ready.",
+    data: {
+      conversationId: alert.conversationId,
+      messageId: alert.messageId,
+    },
+    icon: "/icon.ico",
+    tag: `caipe-agent-completion-${alert.conversationId}`,
+  };
+
+  const registration = await getNotificationServiceWorker();
+  if (registration) {
+    try {
+      await registration.showNotification(title,options);
+      return true;
+    } catch {
+      // Fall back to the page Notification API below.
+    }
+  }
+
   try {
-    const agentLabel = alert.agentName?.trim() || "Agent";
-    const notification = new window.Notification(`${agentLabel} finished`,{
-      body: "Your response is ready.",
-      data: {
-        conversationId: alert.conversationId,
-        messageId: alert.messageId,
-      },
-      icon: "/icon.ico",
-      tag: `caipe-agent-completion-${alert.conversationId}`,
-    });
+    const notification = new window.Notification(title,options);
     notification.onclick = () => {
       window.focus();
       window.location.assign(`/chat/${encodeURIComponent(alert.conversationId)}`);
@@ -178,7 +214,7 @@ export async function deliverAgentCompletionAlert(
   const preferences = options.preferences ?? await loadAgentCompletionPreferences();
   const [chimePlayed,notificationShown] = await Promise.all([
     preferences.chimeEnabled ? playCompletionChime() : Promise.resolve(false),
-    Promise.resolve(preferences.browserEnabled ? showBrowserNotification(alert) : false),
+    preferences.browserEnabled ? showBrowserNotification(alert) : Promise.resolve(false),
   ]);
   return { chimePlayed,notificationShown };
 }

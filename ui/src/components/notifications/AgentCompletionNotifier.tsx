@@ -3,6 +3,7 @@
 import {
   deliverAgentCompletionAlert,
   loadAgentCompletionPreferences,
+  prepareBrowserNotificationDelivery,
   primeCompletionChime,
 } from "@/lib/agent-completion-notifications";
 import { useChatStore } from "@/store/chat-store";
@@ -27,7 +28,9 @@ export function AgentCompletionNotifier(): null {
     let removeUnlockListeners: (() => void) | undefined;
 
     void loadAgentCompletionPreferences().then((preferences) => {
-      if (disposed || !preferences.chimeEnabled) return;
+      if (disposed) return;
+      if (preferences.browserEnabled) void prepareBrowserNotificationDelivery();
+      if (!preferences.chimeEnabled) return;
       const unlock = () => {
         void primeCompletionChime();
         removeUnlockListeners?.();

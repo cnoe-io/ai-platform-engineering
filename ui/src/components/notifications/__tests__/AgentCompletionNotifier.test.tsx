@@ -21,6 +21,7 @@ let mockChatState: {
 jest.mock("@/lib/agent-completion-notifications",() => ({
   deliverAgentCompletionAlert: (...args: unknown[]) => mockDeliverAgentCompletionAlert(...args),
   loadAgentCompletionPreferences: () => mockLoadPreferences(),
+  prepareBrowserNotificationDelivery: jest.fn(async () => true),
   primeCompletionChime: jest.fn(async () => true),
 }));
 
