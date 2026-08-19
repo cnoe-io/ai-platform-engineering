@@ -919,9 +919,12 @@ export function SkillsGallery({
 
   return (
     <div className="flex flex-col h-full">
-      {/* Header + filter panel — z-40 + overflow-visible so category popover stacks above skill cards */}
-      <div className="relative z-40 overflow-visible border-b border-border/60 mb-5 -mx-4 sm:-mx-6 px-4 sm:px-6 pt-0 pb-4">
-        <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-transparent pointer-events-none" />
+      {/* Header + filter panel — the shallow card-to-transparent wash continues
+          AppHeader's surface into the page instead of introducing a second,
+          bordered header directly beneath it. z-40 + overflow-visible keep the
+          category popover above skill cards. */}
+      <div className="relative z-40 -mx-4 -mt-3 overflow-visible px-4 pb-4 pt-3 sm:-mx-6 sm:px-6">
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-card/45 via-card/15 to-transparent" />
         <div className="relative space-y-4">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div className="flex items-start gap-3 min-w-0">
@@ -1059,7 +1062,7 @@ export function SkillsGallery({
               On narrow viewports the row wraps naturally; the search
               input keeps `flex-1` so it always claims the leftover
               width when groups wrap. */}
-          <div className="rounded-xl border border-border/50 bg-muted/25 p-3">
+          <div className="rounded-xl bg-card/20 p-2.5 backdrop-blur-sm">
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
               <div className="relative flex-1 min-w-[12rem]">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
