@@ -783,6 +783,44 @@ it("onboards deployment users independently for the bot selected above the table
   })).toBe(true));
 });
 
+it("loads every enabled-agent page for 1:1 routing", async () => {
+  const baseFetch = fetchMock.getMockImplementation();
+  const firstPage = Array.from({ length: 100 }, (_, index) => ({
+    _id: `agent-${index + 1}`,
+    name: `Agent ${index + 1}`,
+  }));
+  fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+    const parsed = new URL(String(url), "http://localhost");
+    if (parsed.pathname === "/api/dynamic-agents") {
+      const page = Number(parsed.searchParams.get("page") ?? "1");
+      return response({
+        data: page === 1
+          ? { items: firstPage, has_more: true }
+          : {
+              items: [{ _id: "agent-personal-assistant", name: "Personal Assistant" }],
+              has_more: false,
+            },
+      });
+    }
+    return baseFetch?.(url, init) ?? response({});
+  });
+
+  render(<WebexSpaceRebacPanel />);
+
+  fireEvent.click(await screen.findByRole("tab", { name: "1:1 Messages" }));
+  const agentSelector = await screen.findByRole("combobox", {
+    name: "Agent for user@example.com",
+  });
+
+  await waitFor(() => {
+    expect(agentSelector).toHaveTextContent("Personal Assistant");
+  });
+  expect(fetchMock).toHaveBeenCalledWith(
+    "/api/dynamic-agents?enabled_only=true&page=2&page_size=100",
+    { cache: "no-store" },
+  );
+});
+
 it("shows inherited defaults and allows overrides in all-users mode", async () => {
   const baseFetch = fetchMock.getMockImplementation();
   fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
