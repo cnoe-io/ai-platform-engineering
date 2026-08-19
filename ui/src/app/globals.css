@@ -923,12 +923,6 @@ pre code.hljs {
   border-color: color-mix(in srgb, var(--gradient-from) 10%, hsl(var(--border)));
 }
 
-[data-theme="light"] .home-composer-field {
-  background: hsl(var(--card) / 90%);
-  border-color: hsl(var(--border));
-  box-shadow: inset 0 1px rgb(255 255 255 / 72%);
-}
-
 /* A static, palette-aware AI cue gives the primary home prompt enough visual
    weight to lead the page without competing with the greeting banner. */
 .home-composer-prompt-icon {
@@ -942,6 +936,45 @@ pre code.hljs {
     hsl(var(--card) / 72%);
   border: 1px solid color-mix(in srgb, var(--gradient-from) 24%, hsl(var(--border)));
   box-shadow: 0 4px 14px color-mix(in srgb, var(--gradient-from) 14%, transparent);
+}
+
+.home-composer-prompt::after {
+  content: "";
+  display: block;
+  width: 3.25rem;
+  height: 2px;
+  margin-top: 0.4rem;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--gradient-from), var(--gradient-to));
+  opacity: 0.82;
+  box-shadow: 0 0 12px color-mix(in srgb, var(--gradient-from) 20%, transparent);
+}
+
+/* Give the primary action field a clear, static focus without turning the
+   whole prompt block into another banner. */
+.home-composer-field {
+  background: linear-gradient(
+    140deg,
+    color-mix(in srgb, var(--gradient-from) 6%, hsl(var(--background))),
+    color-mix(in srgb, var(--gradient-to) 5%, hsl(var(--background)))
+  );
+  border-color: color-mix(in srgb, var(--gradient-from) 45%, hsl(var(--border)));
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--gradient-from) 8%, transparent),
+    0 12px 28px color-mix(in srgb, var(--gradient-to) 8%, transparent);
+}
+
+[data-theme="light"] .home-composer-field {
+  background: linear-gradient(
+    140deg,
+    color-mix(in srgb, var(--gradient-from) 7%, hsl(var(--card))),
+    color-mix(in srgb, var(--gradient-to) 5%, hsl(var(--card)))
+  );
+  border-color: color-mix(in srgb, var(--gradient-from) 48%, hsl(var(--border)));
+  box-shadow:
+    inset 0 1px rgb(255 255 255 / 72%),
+    0 0 0 3px color-mix(in srgb, var(--gradient-from) 8%, transparent),
+    0 12px 28px color-mix(in srgb, var(--gradient-to) 8%, transparent);
 }
 
 [data-theme="light"] .home-quick-start-tabs {
