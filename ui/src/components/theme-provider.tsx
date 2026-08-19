@@ -1,7 +1,6 @@
 "use client";
 
 import type { ThemeProviderProps,UseThemeProps } from "next-themes";
-import { ThemeProvider as NextThemesProvider,useTheme as useNextTheme } from "next-themes";
 import {
   createContext,
   useCallback,
@@ -16,8 +15,8 @@ const CaipeThemeContext = createContext<UseThemeProps | undefined>(undefined);
 
 export function useTheme(): UseThemeProps {
   const theme = useContext(CaipeThemeContext);
-  const fallback = useNextTheme();
-  return theme ?? fallback;
+  if (!theme) throw new Error("useTheme must be used within ThemeProvider");
+  return theme;
 }
 
 export function ThemeProvider({
@@ -27,11 +26,10 @@ export function ThemeProvider({
   forcedTheme,
   storageKey = "theme",
   themes = ["light","dark"],
-  ...props
 }: ThemeProviderProps): React.ReactElement {
-  // Keep the first render deterministic. The nested next-themes script applies
-  // browser storage before paint; this controlled state takes ownership after
-  // hydration and when account preferences arrive.
+  // Keep the first render deterministic. The root layout applies browser
+  // storage before paint; this state owns the palette after hydration and when
+  // account preferences arrive.
   const [theme,setThemeState] = useState<string>();
   const [systemTheme,setSystemTheme] = useState<"dark" | "light">();
 
@@ -84,17 +82,8 @@ export function ThemeProvider({
   }), [enableSystem,forcedTheme,resolvedTheme,setTheme,systemTheme,theme,themes]);
 
   return (
-    <NextThemesProvider
-      {...props}
-      defaultTheme={defaultTheme}
-      enableSystem={enableSystem}
-      forcedTheme={appliedTheme}
-      storageKey={storageKey}
-      themes={themes}
-    >
-      <CaipeThemeContext.Provider value={contextValue}>
-        {children}
-      </CaipeThemeContext.Provider>
-    </NextThemesProvider>
+    <CaipeThemeContext.Provider value={contextValue}>
+      {children}
+    </CaipeThemeContext.Provider>
   );
 }

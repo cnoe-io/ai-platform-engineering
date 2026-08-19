@@ -11,7 +11,7 @@ import { oneDark } from "@codemirror/theme-one-dark";
 let mockResolvedTheme: string | undefined = "light";
 let lastCodeMirrorProps: Record<string, unknown> = {};
 
-jest.mock("next-themes", () => ({
+jest.mock("@/components/theme-provider", () => ({
   useTheme: () => ({ resolvedTheme: mockResolvedTheme }),
 }));
 

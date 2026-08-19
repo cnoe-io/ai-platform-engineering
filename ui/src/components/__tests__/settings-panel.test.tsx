@@ -11,7 +11,7 @@ let mockSetThemeVersion: (theme: string) => void = mockSetTheme;
 let mockTheme = "dark";
 let mockConfig: Record<string,string> = {};
 
-jest.mock("next-themes",() => ({
+jest.mock("@/components/theme-provider",() => ({
   useTheme: () => ({ theme: mockTheme,setTheme: mockSetThemeVersion }),
 }));
 
