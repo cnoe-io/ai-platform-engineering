@@ -4,36 +4,112 @@ import { ReleaseNotesPreview } from "@/components/settings/ReleaseNotesPreview";
 import { AutoSaveStatus } from "@/components/settings/shared/AutoSaveStatus";
 import { SettingsCard } from "@/components/settings/shared/SettingsCard";
 import { SettingsSwitch } from "@/components/settings/shared/SettingsSwitch";
+import { Button } from "@/components/ui/button";
 import { useKeyedAutoSave } from "@/hooks/use-keyed-auto-save";
-import { Bell,Loader2 } from "lucide-react";
+import {
+  cacheAgentCompletionPreferences,
+  deliverAgentCompletionAlert,
+  getBrowserNotificationCapability,
+  primeCompletionChime,
+  requestBrowserNotificationPermission,
+  type BrowserNotificationCapability,
+} from "@/lib/agent-completion-notifications";
+import { Bell,BellRing,Loader2,Volume2 } from "lucide-react";
 import { useEffect,useRef,useState } from "react";
 
-type NotificationKey = "release-notes";
+type NotificationKey = "release-notes" | "browser-completions" | "completion-chime";
 
-async function persistReleaseNotesPreference(_: NotificationKey,value: boolean): Promise<void> {
-  const response = await fetch("/api/settings/preferences",{
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ releaseNotesNotificationsEnabled: value }),
-  });
+interface NotificationPreferences {
+  browserEnabled: boolean;
+  chimeEnabled: boolean;
+  releaseNotesEnabled: boolean;
+}
+
+async function persistNotificationPreference(key: NotificationKey,value: boolean): Promise<void> {
+  const isReleaseNotes = key === "release-notes";
+  const response = await fetch(
+    isReleaseNotes ? "/api/settings/preferences" : "/api/settings/notifications",
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(
+        isReleaseNotes
+          ? { releaseNotesNotificationsEnabled: value }
+          : key === "browser-completions"
+            ? { agent_completion_browser_enabled: value }
+            : { agent_completion_chime_enabled: value },
+      ),
+    },
+  );
   const data = await response.json();
   if (!response.ok || !data.success) {
-    throw new Error(data.error || "Could not save the release-notes preference");
+    throw new Error(data.error || "Could not save the notification preference");
+  }
+}
+
+function permissionDescription(capability: BrowserNotificationCapability): string {
+  switch (capability) {
+    case "granted":
+      return "Allowed by this browser. Alerts appear only when CAIPE is hidden or unfocused.";
+    case "denied":
+      return "Blocked by this browser. Allow notifications for this site in browser settings to enable alerts.";
+    case "unsupported":
+      return "This browser does not support desktop notifications.";
+    default:
+      return "Your browser will ask for permission when you turn this on.";
   }
 }
 
 export function NotificationsSettings(): React.ReactElement {
-  const [enabled,setEnabled] = useState(true);
+  const [preferences,setPreferences] = useState<NotificationPreferences>({
+    browserEnabled: false,
+    chimeEnabled: false,
+    releaseNotesEnabled: true,
+  });
+  const [capability,setCapability] = useState<BrowserNotificationCapability>(() => (
+    getBrowserNotificationCapability()
+  ));
   const [loading,setLoading] = useState(true);
   const [loadError,setLoadError] = useState<string | null>(null);
-  const committedRef = useRef(true);
+  const [testMessage,setTestMessage] = useState<string | null>(null);
+  const committedRef = useRef(preferences);
+
+  const cacheCompletionPreferences = (next: NotificationPreferences): void => {
+    cacheAgentCompletionPreferences({
+      browserEnabled: next.browserEnabled,
+      chimeEnabled: next.chimeEnabled,
+    });
+  };
+
   const autoSave = useKeyedAutoSave<NotificationKey,boolean>({
-    persist: persistReleaseNotesPreference,
-    onSuccess: (_,value) => {
-      committedRef.current = value;
+    persist: persistNotificationPreference,
+    onSuccess: (key,value) => {
+      const next = {
+        ...committedRef.current,
+        ...(key === "release-notes" ? { releaseNotesEnabled: value } : {}),
+        ...(key === "browser-completions" ? { browserEnabled: value } : {}),
+        ...(key === "completion-chime" ? { chimeEnabled: value } : {}),
+      };
+      committedRef.current = next;
+      cacheCompletionPreferences(next);
     },
-    onError: () => {
-      setEnabled(committedRef.current);
+    onError: (key) => {
+      setPreferences((current) => {
+        const next = {
+          ...current,
+          ...(key === "release-notes"
+            ? { releaseNotesEnabled: committedRef.current.releaseNotesEnabled }
+            : {}),
+          ...(key === "browser-completions"
+            ? { browserEnabled: committedRef.current.browserEnabled }
+            : {}),
+          ...(key === "completion-chime"
+            ? { chimeEnabled: committedRef.current.chimeEnabled }
+            : {}),
+        };
+        cacheCompletionPreferences(next);
+        return next;
+      });
     },
   });
 
@@ -46,9 +122,15 @@ export function NotificationsSettings(): React.ReactElement {
           throw new Error(data.error || "Could not load notification preferences");
         }
         if (cancelled) return;
-        const value = data.data?.preferences?.releaseNotesNotificationsEnabled !== false;
-        committedRef.current = value;
-        setEnabled(value);
+        const next = {
+          browserEnabled: data.data?.notifications?.agent_completion_browser_enabled === true,
+          chimeEnabled: data.data?.notifications?.agent_completion_chime_enabled === true,
+          releaseNotesEnabled: data.data?.preferences?.releaseNotesNotificationsEnabled !== false,
+        };
+        committedRef.current = next;
+        setPreferences(next);
+        cacheCompletionPreferences(next);
+        setCapability(getBrowserNotificationCapability());
       })
       .catch((reason: unknown) => {
         if (!cancelled) {
@@ -63,33 +145,166 @@ export function NotificationsSettings(): React.ReactElement {
     };
   }, []);
 
-  const change = (value: boolean) => {
-    setEnabled(value);
-    autoSave.enqueue("release-notes",value);
-  };
-  const retry = () => {
-    const pendingValue = autoSave.pendingValueFor("release-notes");
-    if (pendingValue !== undefined) setEnabled(pendingValue);
-    autoSave.retry("release-notes");
+  const setPreference = (key: NotificationKey,value: boolean): void => {
+    setPreferences((current) => {
+      const next = {
+        ...current,
+        ...(key === "release-notes" ? { releaseNotesEnabled: value } : {}),
+        ...(key === "browser-completions" ? { browserEnabled: value } : {}),
+        ...(key === "completion-chime" ? { chimeEnabled: value } : {}),
+      };
+      cacheCompletionPreferences(next);
+      return next;
+    });
+    autoSave.enqueue(key,value);
   };
 
+  const changeBrowserNotifications = async (value: boolean): Promise<void> => {
+    setTestMessage(null);
+    if (!value) {
+      setPreference("browser-completions",false);
+      return;
+    }
+
+    const permission = await requestBrowserNotificationPermission();
+    setCapability(permission);
+    if (permission !== "granted") return;
+    setPreference("browser-completions",true);
+  };
+
+  const changeCompletionChime = (value: boolean): void => {
+    setTestMessage(null);
+    if (value) void primeCompletionChime();
+    setPreference("completion-chime",value);
+  };
+
+  const testCompletionAlert = async (): Promise<void> => {
+    setTestMessage("Sending test alert…");
+    let currentCapability = getBrowserNotificationCapability();
+    if (preferences.browserEnabled && currentCapability === "default") {
+      currentCapability = await requestBrowserNotificationPermission();
+      setCapability(currentCapability);
+    }
+    const result = await deliverAgentCompletionAlert(
+      {
+        agentName: "Example agent",
+        conversationId: "example",
+        messageId: `test-${Date.now()}`,
+      },
+      {
+        force: true,
+        preferences: {
+          browserEnabled: preferences.browserEnabled,
+          chimeEnabled: preferences.chimeEnabled,
+        },
+      },
+    );
+    if (result.notificationShown || result.chimePlayed) {
+      setTestMessage("Test alert sent.");
+    } else if (preferences.browserEnabled && currentCapability !== "granted") {
+      setTestMessage(permissionDescription(currentCapability));
+    } else {
+      setTestMessage("The browser blocked the test alert. Check this site's notification and audio permissions.");
+    }
+  };
+
+  const retry = (key: NotificationKey): void => {
+    const pendingValue = autoSave.pendingValueFor(key);
+    if (pendingValue !== undefined) {
+      setPreferences((current) => ({
+        ...current,
+        ...(key === "release-notes" ? { releaseNotesEnabled: pendingValue } : {}),
+        ...(key === "browser-completions" ? { browserEnabled: pendingValue } : {}),
+        ...(key === "completion-chime" ? { chimeEnabled: pendingValue } : {}),
+      }));
+    }
+    autoSave.retry(key);
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center gap-2 py-4 text-sm text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        Loading notification preferences…
+      </div>
+    );
+  }
+
   return (
-    <SettingsCard
-      description="Choose whether CAIPE announces a new release after you sign in."
-      title={<span className="flex items-center gap-2"><Bell className="h-5 w-5 text-primary" />Release notes</span>}
-    >
-      {loading ? (
-        <div className="flex items-center gap-2 py-4 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          Loading notification preferences…
+    <div className="space-y-6">
+      {loadError ? (
+        <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+          {loadError}
         </div>
-      ) : (
-        <div className="space-y-4">
-          {loadError ? (
-            <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
-              {loadError}
+      ) : null}
+
+      <SettingsCard
+        description="Get a quiet signal when a background agent turn finishes. No message content is included in the desktop alert."
+        title={<span className="flex items-center gap-2"><BellRing className="h-5 w-5 text-primary" />Agent completions</span>}
+      >
+        <div className="space-y-3">
+          <div className="flex items-center gap-4 rounded-lg border border-border/70 p-4">
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium">Browser notifications</p>
+              <p className="text-xs text-muted-foreground">{permissionDescription(capability)}</p>
+              <AutoSaveStatus
+                className="mt-1"
+                onRetry={() => retry("browser-completions")}
+                state={autoSave.stateFor("browser-completions")}
+              />
             </div>
-          ) : null}
+            <SettingsSwitch
+              checked={preferences.browserEnabled}
+              disabled={capability === "unsupported"}
+              label="Browser notifications for agent completions"
+              onCheckedChange={(value) => { void changeBrowserNotifications(value); }}
+              testId="agent-completion-browser-toggle"
+            />
+          </div>
+
+          <div className="flex items-center gap-4 rounded-lg border border-border/70 p-4">
+            <div className="min-w-0 flex-1">
+              <p className="flex items-center gap-1.5 text-sm font-medium"><Volume2 className="h-4 w-4" />Completion chime</p>
+              <p className="text-xs text-muted-foreground">Play a short two-note chime with background completion alerts.</p>
+              <AutoSaveStatus
+                className="mt-1"
+                onRetry={() => retry("completion-chime")}
+                state={autoSave.stateFor("completion-chime")}
+              />
+            </div>
+            <SettingsSwitch
+              checked={preferences.chimeEnabled}
+              label="Completion chime"
+              onCheckedChange={changeCompletionChime}
+              testId="agent-completion-chime-toggle"
+            />
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
+              disabled={!preferences.browserEnabled && !preferences.chimeEnabled}
+              onClick={() => { void testCompletionAlert(); }}
+              size="sm"
+              type="button"
+              variant="secondary"
+            >
+              <BellRing className="mr-2 h-4 w-4" />
+              Send test alert
+            </Button>
+            {testMessage ? <p aria-live="polite" className="text-xs text-muted-foreground">{testMessage}</p> : null}
+          </div>
+
+          <p className="text-xs text-muted-foreground">
+            Alerts work while a CAIPE tab remains open. They are independent of the selected agent harness.
+          </p>
+        </div>
+      </SettingsCard>
+
+      <SettingsCard
+        description="Choose whether CAIPE announces a new release after you sign in."
+        title={<span className="flex items-center gap-2"><Bell className="h-5 w-5 text-primary" />Release notes</span>}
+      >
+        <div className="space-y-4">
           <div className="flex items-center gap-4 rounded-lg border border-border/70 p-4">
             <div className="min-w-0 flex-1">
               <p className="text-sm font-medium">Notify me about new releases</p>
@@ -98,20 +313,20 @@ export function NotificationsSettings(): React.ReactElement {
               </p>
               <AutoSaveStatus
                 className="mt-1"
-                onRetry={retry}
+                onRetry={() => retry("release-notes")}
                 state={autoSave.stateFor("release-notes")}
               />
             </div>
             <SettingsSwitch
-              checked={enabled}
+              checked={preferences.releaseNotesEnabled}
               label="Notify me about new releases"
-              onCheckedChange={change}
+              onCheckedChange={(value) => setPreference("release-notes",value)}
               testId="release-notes-user-pref-toggle"
             />
           </div>
           <ReleaseNotesPreview isAdmin={false} />
         </div>
-      )}
-    </SettingsCard>
+      </SettingsCard>
+    </div>
   );
 }
