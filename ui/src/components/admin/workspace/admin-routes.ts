@@ -35,7 +35,9 @@ export type AdminDestinationId =
   | "defaults"
   | "announcements"
   | "agents"
+  | "autonomous"
   | "mcp"
+  | "rag"
   | "skills"
   | "service-accounts"
   | "credentials"
@@ -51,6 +53,7 @@ export type AdminDestinationId =
   | "access-before-sign-in"
   | "ai-review"
   | "action-audit"
+  | "approvals"
   | "access-explorer"
   | "rbac-self-check"
   | "audit-logs"
@@ -143,12 +146,28 @@ export const ADMIN_CATEGORIES: AdminCategoryDefinition[] = [
         gateKey: "agents",
       },
       {
+        id: "autonomous",
+        href: "/admin/platform/autonomous",
+        label: "Autonomous",
+        description: "Monitor and manage autonomous agent task execution.",
+        icon: Bot,
+        gateKey: "autonomous",
+      },
+      {
         id: "mcp",
         href: "/admin/platform/mcp-catalog",
         label: "MCP Catalog",
         description: "Manage the remote MCP providers available to users.",
         icon: Plug,
         gateKey: "mcp",
+      },
+      {
+        id: "rag",
+        href: "/admin/platform/rag",
+        label: "RAG",
+        description: "Configure knowledge base defaults, ingestion, and publication review.",
+        icon: Database,
+        gateKey: "rag",
       },
       {
         id: "skills",
@@ -275,6 +294,15 @@ export const ADMIN_CATEGORIES: AdminCategoryDefinition[] = [
         description: "Review authorization mutations and administrative actions.",
         icon: Shield,
         gateKey: "action_audit",
+        subgroup: "Authorization",
+      },
+      {
+        id: "approvals",
+        href: "/admin/security/approvals",
+        label: "Approvals",
+        description: "Review publication requests and your request history.",
+        icon: ShieldCheck,
+        gateKey: "approvals",
         subgroup: "Authorization",
       },
       {

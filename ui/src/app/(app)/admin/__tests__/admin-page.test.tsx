@@ -114,6 +114,14 @@ jest.mock('@/components/admin/settings/ReviewConfigsTab', () => ({
   ),
 }));
 
+jest.mock('@/components/admin/settings/RagSettingsTab', () => ({
+  RagSettingsTab: (props: { readOnly?: boolean }) => (
+    <div data-testid="rag-settings-tab" data-read-only={String(Boolean(props.readOnly))}>
+      RagSettingsTab
+    </div>
+  ),
+}));
+
 jest.mock('@/components/admin/settings/ImportAgentsFromConfigCard', () => ({
   ImportAgentsFromConfigCard: (props: { readOnly?: boolean }) => (
     <div data-testid="import-agents-card" data-read-only={String(Boolean(props.readOnly))}>
@@ -544,12 +552,14 @@ describe('Admin Dashboard Page', () => {
       });
     });
 
-    it('shows Read-Only badge', async () => {
+    it('does not label the self-service admin view as read-only', async () => {
       render(<AdminPage />);
 
       await waitFor(() => {
-        expect(screen.getByText('Read-Only')).toBeInTheDocument();
+        expect(screen.getByRole('heading', { name: 'Users' })).toBeInTheDocument();
       });
+
+      expect(screen.queryByText('Read-Only')).not.toBeInTheDocument();
     });
 
     it('shows read-only description text', async () => {
@@ -852,6 +862,7 @@ describe('Admin Dashboard Page', () => {
       for (const label of [
         'Agent configuration',
         'MCP Catalog',
+        'RAG',
         'Skill Hubs',
         'Service Accounts',
         'Credentials',
@@ -1002,6 +1013,7 @@ describe('Admin Dashboard Page', () => {
         'Access before sign-in',
         'AI Review',
         'RBAC Audit',
+        'Approvals',
         'Access Explorer',
         'Self Check',
         'Chat Audit',
@@ -1020,6 +1032,9 @@ describe('Admin Dashboard Page', () => {
       expect(
         within(navigation).queryByRole('link', { name: /^Permissions Tool$/i }),
       ).not.toBeInTheDocument();
+      for (const subgroup of ['Policy', 'Authorization', 'Audit', 'Identity & maintenance']) {
+        expect(within(navigation).queryByText(subgroup)).not.toBeInTheDocument();
+      }
     });
 
     it('does not show Keycloak role badges for listed users', async () => {
@@ -1037,9 +1052,10 @@ describe('Admin Dashboard Page', () => {
       expect(within(table).queryByText('user')).not.toBeInTheDocument();
     });
 
-    it("discloses another category without navigating to its first destination", async () => {
+    it("discloses categories manually and collapses the previous category after navigation", async () => {
       currentPathname = "/admin/people/users";
-      render(<AdminPage />);
+      setupFetchMock();
+      const { rerender } = render(<AdminPage />);
 
       const navigation = await screen.findByRole("navigation", { name: "Admin sections" });
       const peopleCategory = within(navigation).getByRole("button", { name: "Teams & Users" });
@@ -1057,6 +1073,22 @@ describe('Admin Dashboard Page', () => {
       expect(peopleCategory).toHaveAttribute("aria-expanded", "true");
       expect(within(navigation).getByRole("link", { name: "Users" })).toBeInTheDocument();
       expect(replaceMock).not.toHaveBeenCalled();
+
+      currentPathname = "/admin/integrations/slack";
+      rerender(<AdminPage />);
+
+      expect(
+        await screen.findByRole("heading", { level: 1, name: "Slack" }),
+      ).toBeInTheDocument();
+      const updatedNavigation = screen.getByRole("navigation", { name: "Admin sections" });
+      await waitFor(() => {
+        expect(
+          within(updatedNavigation).getByRole("button", { name: "Teams & Users" }),
+        ).toHaveAttribute("aria-expanded", "false");
+      });
+      expect(
+        within(updatedNavigation).getByRole("button", { name: "Integrations" }),
+      ).toHaveAttribute("aria-expanded", "true");
     });
 
     it("defaults bare Admin to the canonical Users route", async () => {
@@ -1081,12 +1113,13 @@ describe('Admin Dashboard Page', () => {
         within(screen.getByRole("navigation", { name: "Admin sections" }))
           .getByRole("link", { name: "Users" }),
       ).toHaveAttribute("aria-current", "page");
-      expect(screen.getByText("admin@example.com")).toBeInTheDocument();
+      expect(await screen.findByText("admin@example.com")).toBeInTheDocument();
       expect(replaceMock).toHaveBeenCalledWith("/admin/people/users", { scroll: false });
       expect(screen.queryByText("Settings")).not.toBeInTheDocument();
     });
 
     it.each([
+      ["/admin/platform/rag", "RAG"],
       ["/admin/integrations/slack", "Slack"],
       ["/admin/integrations/webex", "Webex"],
       ["/admin/security/access-explorer", "Access Explorer"],
@@ -1131,6 +1164,45 @@ describe('Admin Dashboard Page', () => {
       });
 
       confirmSpy.mockRestore();
+    });
+
+    it('marks the Everyone and Super Admins teams as built in', async () => {
+      currentPathname = '/admin/people/teams';
+      currentSearchParams = new URLSearchParams();
+      setupFetchMock({
+        teams: {
+          success: true,
+          data: {
+            teams: [
+              {
+                _id: 'team-everyone',
+                name: 'Everyone',
+                slug: 'everyone',
+                owner_id: 'admin@example.com',
+                member_count: 2,
+              },
+              {
+                _id: 'team-super-admins',
+                name: 'Super Admins',
+                slug: 'super-admins',
+                owner_id: 'admin@example.com',
+                member_count: 1,
+              },
+            ],
+          },
+        },
+      });
+
+      render(<AdminPage />);
+
+      expect(
+        await screen.findByLabelText(
+          'Built-in team for organization-wide access.',
+        ),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByLabelText('Built-in team for platform administrators.'),
+      ).toBeInTheDocument();
     });
 
     // The team card was decluttered to four high-signal chips (Members,

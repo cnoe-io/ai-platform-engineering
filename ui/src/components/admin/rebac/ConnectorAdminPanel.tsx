@@ -498,33 +498,46 @@ function enrichDiscoveredRows(
   return rows.map((row) => {
     const existing = sources.configuredItemsById.get(row.id);
     const legacyAgent = sources.legacyChannelAgents[row.id];
+    const pending = row.pendingApproval;
     // assisted-by Codex Codex-sonnet-4-6: 1:1 Webex rooms are personal bot DMs, not team-assigned spaces.
     const teamRequired = row.teamRequired !== false;
-    const selectable = row.selectable !== false && teamRequired;
+    const configured = row.configured === true || Boolean(existing);
+    const selectable =
+      row.selectable !== false &&
+      teamRequired &&
+      !configured &&
+      (!pending || (pending.requesterIsViewer && pending.status === "pending"));
     const teamSlug =
-      teamRequired
+      pending
+        ? row.team_slug
+        : teamRequired
         ? row.team_slug ||
           existing?.team_slug ||
           sources.globalDefaults.team_slug ||
           ""
         : "";
     const agentId =
-      selectable
+      pending
+        ? row.agent_id
+        : configured
+        ? row.agent_id || existing?.primary_agent_id || ""
+        : selectable
         ? row.agent_id ||
           existing?.primary_agent_id ||
           legacyAgent ||
           sources.globalDefaults.agent_id ||
           ""
         : "";
-    const isSetupComplete = teamRequired && Boolean(existing?.team_slug && (existing?.active_grants ?? 0) > 0);
     return {
       ...row,
       teamRequired,
       selectable,
+      configured,
+      configuredBy: row.configuredBy ?? existing?.team_slug,
       selected: selectable ? row.selected : false,
       team_slug: teamSlug,
       agent_id: agentId,
-      is_existing: row.is_existing || isSetupComplete,
+      is_existing: row.is_existing || configured,
     };
   });
 }
@@ -534,6 +547,8 @@ function itemsToDiscovered(items: ItemSummary[]): DiscoveredItem[] {
     id: item.item_id,
     name: item.item_name,
     secondary: item.item_id,
+    workspaceId: item.workspace_id,
+    configured: true,
     botId: item.bot_id,
     availableBotIds: item.bot_id ? [item.bot_id] : undefined,
   }));
@@ -651,17 +666,22 @@ export function ConnectorAdminPanel({
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   // Sub-tab (Configured / Onboard / Advanced) is mirrored to the `subtab` URL
-  // param so admins can deep-link and refresh without losing their place. In
-  // self-service mode there is no tab bar — the configured table always shows —
-  // so `view` stays local there and the URL is left untouched.
+  // param so administrators and self-service users can deep-link and refresh
+  // without losing their place. Self-service only exposes Configured and
+  // Onboard; platform-wide and destructive operations remain hidden.
   const [view, setView] = useSubtabParam(PANEL_VIEWS, "channels");
   const singlePanelView = selfService ? undefined : adapter.singlePanelView;
   // When a singlePanelView is set (e.g. Webex → "onboard"), allow toggling
   // between that view and the configured-channels view via a compact 2-tab bar.
   const [localSingleView, setLocalSingleView] = useState<PanelView>(singlePanelView ?? "channels");
-  const panelView: PanelView = selfService ? "channels" : singlePanelView ? localSingleView : view;
+  const panelView: PanelView = selfService
+    ? (view === "onboard" ? "onboard" : "channels")
+    : singlePanelView
+      ? localSingleView
+      : view;
   const previousPanelViewRef = useRef(panelView);
   const showTabBar = !selfService && !singlePanelView;
+  const showSelfServiceSwitcher = selfService;
   const showSinglePanelSwitcher = !selfService && Boolean(singlePanelView);
   const hasAdvancedView = !selfService && (!singlePanelView || singlePanelView === "advanced");
   const configuredSearchFromUrl = configuredSearchParam
@@ -685,7 +705,8 @@ export function ConnectorAdminPanel({
   }, [configuredSearchParam, updateUrlFilters]);
   const [discoverySearch, setDiscoverySearch] = useState("");
   const switchPanelView = (next: PanelView) => {
-    if (singlePanelView) setLocalSingleView(next);
+    if (selfService) setView(next);
+    else if (singlePanelView) setLocalSingleView(next);
     else setView(next);
   };
 
@@ -715,8 +736,19 @@ export function ConnectorAdminPanel({
     [dynamicAgents],
   );
   const discoveredNewCount = useMemo(
-    () => discoveredItems.filter((item) => !configuredItemIds.has(item.id)).length,
+    () => discoveredItems.filter(
+      (item) => item.configured !== true && !configuredItemIds.has(item.id),
+    ).length,
     [configuredItemIds, discoveredItems],
+  );
+  const discoveredConfiguredCount = useMemo(
+    () => new Set([
+      ...items.map((item) => item.item_id),
+      ...discoveredItems
+        .filter((item) => item.configured === true)
+        .map((item) => item.id),
+    ]).size,
+    [discoveredItems, items],
   );
   const selectedDiscoveredRows = useMemo(
     () =>
@@ -911,7 +943,7 @@ export function ConnectorAdminPanel({
       setRuntimeSyncSummary(summary); setRuntimeSyncModalStatus("success");
       if (!dryRun) {
         toast(
-          `Config sync applied: upserted ${summary.routes_upserted} routes and wrote ${summary.openfga_tuples_written} OpenFGA tuples.`,
+          `Config sync applied: upserted ${summary.routes_upserted} routes and wrote ${summary.openfga_tuples_written} access grants.`,
           "success"
         );
       }
@@ -941,9 +973,8 @@ export function ConnectorAdminPanel({
       setMessage(e instanceof Error ? e.message : "Failed to load Dynamic Agents"));
   }, [loadDynamicAgents]);
   useEffect(() => {
-    if (selfService) return;
     void loadTeams().catch((e) => setMessage(e instanceof Error ? e.message : "Failed to load teams"));
-  }, [loadTeams, selfService]);
+  }, [loadTeams]);
   useEffect(() => {
     if (!adapter.api.discoveryIdentities) return;
     void loadDiscoveryIdentities();
@@ -1025,37 +1056,89 @@ export function ConnectorAdminPanel({
       const built = discovered.map((item) => {
         const prev = prevById.get(item.id);
         const existing = configuredItemsById.get(item.id);
-        const isExisting = configuredItemIds.has(item.id);
+        const isExisting = item.configured === true || configuredItemIds.has(item.id);
+        const pending = isExisting ? undefined : item.pendingApproval;
+        const pendingOwnedByViewer = pending?.requesterIsViewer === true;
         const teamRequired = item.teamRequired !== false;
-        const selectable = item.selectable !== false && teamRequired;
-        const isSetupComplete = teamRequired && Boolean(existing?.team_slug && (existing.active_grants ?? 0) > 0);
+        const selectable =
+          item.selectable !== false &&
+          teamRequired &&
+          !isExisting &&
+          (!pending || (pendingOwnedByViewer && pending.status === "pending"));
+        const existingTeamName = existing?.team_slug
+          ? teams.find((team) => team.slug === existing.team_slug)?.name
+          : undefined;
+        const configuredBy =
+          item.configuredBy || existingTeamName || existing?.team_slug;
+        const configuredTeamSlug =
+          existing?.team_slug || item.configuredTeamSlug || "";
+        const configuredAgentId =
+          existing?.primary_agent_id || item.configuredAgentId || "";
         const autoSelect = adapter.discoveryAutoSelectNewItems
           ? selectable && !isExisting
           : false;
         if (prev) {
+          const samePendingRequest =
+            Boolean(pending) &&
+            prev.pendingApproval?.requestId === pending?.requestId;
           return {
             ...prev,
             name: item.name,
             secondary: item.secondary,
             teamRequired,
             selectable,
-            selected: selectable ? prev.selected : false,
-            team_slug: teamRequired ? prev.team_slug || existing?.team_slug || "" : "",
-            agent_id: selectable ? prev.agent_id || existing?.primary_agent_id || "" : "",
-            botId: prev.botId || existing?.bot_id || item.botId || "",
+            configured: isExisting,
+            configuredBy,
+            pendingApproval: pending,
+            selected: selectable
+              ? pendingOwnedByViewer && !samePendingRequest
+                ? true
+                : prev.selected
+              : false,
+            team_slug: teamRequired
+              ? pending
+                ? samePendingRequest
+                  ? prev.team_slug
+                  : pending.teamSlug
+                : prev.team_slug || configuredTeamSlug
+              : "",
+            agent_id: isExisting
+              ? prev.agent_id || configuredAgentId
+              : pending
+                ? samePendingRequest
+                  ? prev.agent_id
+                  : pending.agentId
+              : selectable
+                ? prev.agent_id || ""
+                : "",
+            botId: pending
+              ? samePendingRequest
+                ? prev.botId
+                : pending.botId || item.botId || ""
+              : prev.botId || existing?.bot_id || item.botId || "",
             availableBotIds: item.availableBotIds,
-            is_existing: isSetupComplete || prev.is_existing,
+            is_existing: isExisting || prev.is_existing,
           };
         }
         return {
           ...item,
-          selected: autoSelect,
+          selected: pendingOwnedByViewer || autoSelect,
           teamRequired,
           selectable,
-          team_slug: teamRequired ? existing?.team_slug ?? "" : "",
-          agent_id: selectable ? existing?.primary_agent_id ?? "" : "",
-          botId: existing?.bot_id || item.botId || "",
-          is_existing: isSetupComplete,
+          configured: isExisting,
+          configuredBy,
+          team_slug: teamRequired
+            ? pending?.teamSlug || configuredTeamSlug
+            : "",
+          agent_id: isExisting
+            ? configuredAgentId
+            : pending
+              ? pending.agentId
+            : selectable
+              ? existing?.primary_agent_id ?? ""
+              : "",
+          botId: pending?.botId || existing?.bot_id || item.botId || "",
+          is_existing: isExisting,
         };
       });
       return enrichDiscoveredRows(built, {
@@ -1070,6 +1153,7 @@ export function ConnectorAdminPanel({
       configuredItemsById,
       effectiveOnboardingDefaults,
       legacyChannelAgents,
+      teams,
     ],
   );
 
@@ -1130,6 +1214,7 @@ export function ConnectorAdminPanel({
                 secondary: row.secondary,
                 teamRequired: row.teamRequired,
                 selectable: row.selectable,
+                pendingApproval: row.pendingApproval,
                 botId: row.botId,
                 availableBotIds: row.availableBotIds,
               })),
@@ -1268,28 +1353,111 @@ export function ConnectorAdminPanel({
   const applyOnboarding = async () => {
     setLoading(true); setMessage(null);
     try {
-      const result = await adapter.applyOnboarding({
+      const pendingChanged = (row: DiscoveredRow) => Boolean(
+        row.pendingApproval && (
+          row.team_slug !== row.pendingApproval.teamSlug ||
+          row.agent_id !== row.pendingApproval.agentId ||
+          (row.botId ?? "") !== (row.pendingApproval.botId ?? "")
+        ),
+      );
+      const withdrawalRows = discoveredRows.filter((row) =>
+        row.selected &&
+        row.selectable !== false &&
+        row.pendingApproval?.requesterIsViewer === true &&
+        row.pendingApproval.status === "pending" &&
+        !row.team_slug &&
+        !row.agent_id
+      );
+      const submissionRows = discoveredRows.filter((row) =>
+        row.selected &&
+        row.selectable !== false &&
+        Boolean(row.team_slug) &&
+        Boolean(row.agent_id) &&
+        (!row.pendingApproval || pendingChanged(row))
+      );
+      const submissionIds = new Set(submissionRows.map((row) => row.id));
+      let result: Awaited<ReturnType<typeof adapter.applyOnboarding>> = {
+        toastMessage: "",
+        appliedItemIds: [],
+        pendingItemIds: [],
+      };
+      if (submissionRows.length > 0) result = await adapter.applyOnboarding({
         rows: discoveredRows.map((r) => ({
           id: r.id,
           name: r.name,
           teamSlug: r.team_slug,
           agentId: r.agent_id,
-          selected: r.selected,
+          selected: submissionIds.has(r.id),
           teamRequired: r.teamRequired,
           selectable: r.selectable,
           botId: r.botId || (!adapter.discoveryIdentityPerItem ? selectedDiscoveryIdentityId : ""),
+          workspaceId: r.workspaceId,
+          memberCount: r.memberCount,
         })),
         defaultTeamSlug: effectiveOnboardingDefaults.team_slug,
         defaultAgentId: effectiveOnboardingDefaults.agent_id,
         createDefaultRoutes: true,
         fetchFn: fetch,
       });
+      if (withdrawalRows.length > 0) {
+        await Promise.all(withdrawalRows.map(async (row) => {
+          const response = await fetch(
+            `/api/publication-requests/${encodeURIComponent(row.pendingApproval!.requestId)}/cancel`,
+            { method: "POST" },
+          );
+          if (!response.ok) throw new Error(await response.text());
+        }));
+      }
       await Promise.all([loadItems(), loadRoutes(), loadDiagnostics()]);
-      const appliedIds = new Set(
-        discoveredRows.filter((r) => r.selected && r.selectable !== false).map((r) => r.id),
-      );
-      setDiscoveredRows((rows) => rows.map((row) => appliedIds.has(row.id) ? { ...row, is_existing: true, selected: false } : row));
-      toast(result.toastMessage, "success");
+      if (paginatedDiscovery) {
+        await fetchDiscoveryPage({
+          append: false,
+          q: discoverySearch.trim(),
+          toastOnSuccess: false,
+        });
+      } else {
+        await discoverItems();
+      }
+      const appliedIds = new Set(result.appliedItemIds ?? []);
+      if (appliedIds.size > 0) {
+        setDiscoveredRows((rows) => rows.map((row) =>
+          appliedIds.has(row.id)
+            ? {
+                ...row,
+                configured: true,
+                configuredBy:
+                  teams.find((team) => team.slug === row.team_slug)?.name ||
+                  row.team_slug,
+                is_existing: true,
+                selectable: false,
+                selected: false,
+                pendingApproval: undefined,
+              }
+            : row
+        ));
+      }
+      const pendingIds = result.pendingItemIds ?? [];
+      if (pendingIds.length > 0) {
+        const approvers = (result.pendingApproverTeamSlugs ?? []).map(
+          (slug) => teams.find((team) => team.slug === slug)?.name || slug,
+        );
+        const itemLabel = pendingIds.length === 1
+          ? adapter.itemSingular[0].toUpperCase() + adapter.itemSingular.slice(1)
+          : `${pendingIds.length} ${adapter.itemPlural}`;
+        toast(
+          `${itemLabel} submitted. Awaiting approval from ${approvers.join(", ") || "platform administrators"}.`,
+          "warning",
+          7000,
+        );
+      } else if (withdrawalRows.length > 0 && submissionRows.length === 0) {
+        toast(
+          `${withdrawalRows.length === 1 ? "Request" : `${withdrawalRows.length} requests`} withdrawn.`,
+          "success",
+        );
+      } else {
+        toast(result.toastMessage, "success");
+      }
+      window.dispatchEvent(new Event("in-app-notifications:refresh"));
     } catch (err) {
       const msg = err instanceof Error ? err.message : `Failed to apply ${adapter.connectorName} onboarding`;
       setMessage(msg); toast(msg, "error");
@@ -1301,7 +1469,7 @@ export function ConnectorAdminPanel({
   const discoveryStatusText = adapter.discoveryStatusText({
     discoveredCount: discoveredItems.length,
     newCount: discoveredNewCount,
-    configuredCount: items.length,
+    configuredCount: discoveredConfiguredCount,
     unassignedCount: unassignedCount,
   });
   const showConfiguredLoading = itemsLoading || !hasLoadedItemsOnce;
@@ -1337,21 +1505,23 @@ export function ConnectorAdminPanel({
       <h3 className="truncate text-base font-semibold tracking-tight">
         {viewTitle.onboard}
       </h3>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            type="button"
-            aria-label={`${adapter.connectorName} ${adapter.itemPlural} setup details`}
-            className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            <HelpCircle className="h-4 w-4" aria-hidden="true" />
-          </button>
-        </TooltipTrigger>
-        <TooltipContent side="bottom" className="max-w-xl space-y-2 whitespace-normal text-xs">
-          <p>{viewDescription.onboard}</p>
-          <div className="space-y-2">{adapter.authzDisclaimer}</div>
-        </TooltipContent>
-      </Tooltip>
+      {adapter.authzDisclaimer && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              aria-label={`${adapter.connectorName} ${adapter.itemPlural} setup details`}
+              className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <HelpCircle className="h-4 w-4" aria-hidden="true" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" className="max-w-xl space-y-2 whitespace-normal text-xs">
+            <p>{viewDescription.onboard}</p>
+            <div className="space-y-2">{adapter.authzDisclaimer}</div>
+          </TooltipContent>
+        </Tooltip>
+      )}
     </div>
   ) : showSinglePanelSwitcher ? (
     // The tab switcher already labels the active view; suppress the wizard's
@@ -1381,6 +1551,24 @@ export function ConnectorAdminPanel({
                 {viewTitle[key]}
               </Button>
             ))}
+          </div>
+        )}
+
+        {showSelfServiceSwitcher && (
+          <div role="tablist" aria-label={adapter.ariaLabels.tablist}
+            className="flex flex-wrap gap-1 rounded-md border bg-muted/30 p-1">
+            <Button role="tab" type="button" size="sm"
+              variant={panelView === "channels" ? "default" : "ghost"}
+              aria-selected={panelView === "channels"}
+              onClick={() => switchPanelView("channels")}>
+              {viewTitle.channels}
+            </Button>
+            <Button role="tab" type="button" size="sm"
+              variant={panelView === "onboard" ? "default" : "ghost"}
+              aria-selected={panelView === "onboard"}
+              onClick={() => switchPanelView("onboard")}>
+              {viewTitle.onboard}
+            </Button>
           </div>
         )}
 
@@ -1423,7 +1611,7 @@ export function ConnectorAdminPanel({
         {!selfService && panelView === "migration" && adapter.migrationPanel?.render({ disabled })}
 
         {/* Auth disclaimer */}
-        {(selfService || (panelView === "onboard" && !showCompactOnboardingHeader)) && (
+        {adapter.authzDisclaimer && panelView === "onboard" && !showCompactOnboardingHeader && (
           <div className="space-y-2 rounded-md border p-3 text-sm text-muted-foreground">
             {adapter.authzDisclaimer}
           </div>
@@ -1520,7 +1708,7 @@ export function ConnectorAdminPanel({
                   <div className="rounded-md border p-3"><div className="text-xs text-muted-foreground">{adapter.syncSummaryItemsLabel}</div><div className="font-medium">{pluralize(runtimeSyncSummary.items_seen, adapter.itemSingular)} scanned</div></div>
                   <div className="rounded-md border p-3"><div className="text-xs text-muted-foreground">Planned routes</div><div className="font-medium">{pluralize(runtimeSyncSummary.routes_planned, "route")} planned</div></div>
                   <div className="rounded-md border p-3"><div className="text-xs text-muted-foreground">MongoDB route metadata</div><div className="font-medium">{pluralize(runtimeSyncSummary.routes_upserted, "route")} upserted</div></div>
-                  <div className="rounded-md border p-3"><div className="text-xs text-muted-foreground">OpenFGA tuples</div><div className="font-medium">{pluralize(runtimeSyncSummary.openfga_tuples_written, "OpenFGA tuple")} written</div></div>
+                  <div className="rounded-md border p-3"><div className="text-xs text-muted-foreground">Access grants</div><div className="font-medium">{pluralize(runtimeSyncSummary.openfga_tuples_written, "access grant")} written</div></div>
                 </div>
               )}
               {runtimeSyncSummary?.channels && runtimeSyncSummary.channels.length > 0 && (
@@ -1536,8 +1724,8 @@ export function ConnectorAdminPanel({
           </DialogContent>
         </Dialog>
 
-        {/* Configured / self-service channels — one slot: loading, empty, or table */}
-        {(selfService || panelView === "channels") && (
+        {/* Configured channels — one slot: loading, empty, or table */}
+        {panelView === "channels" && (
           <div aria-busy={showConfiguredLoading} className="min-h-[12rem]">
             <div className="mb-3 flex justify-end gap-2">
               {adapter.discoveryIdentity && !adapter.discoveryIdentityPerItem && (
@@ -1578,7 +1766,7 @@ export function ConnectorAdminPanel({
               selfService ? (
                 <div className="flex min-h-[12rem] flex-col items-center justify-center rounded-md border border-dashed bg-muted/20 p-6 text-center text-sm text-muted-foreground">
                   <p className="font-medium text-foreground">No {adapter.itemPlural} shared with your team yet.</p>
-                  <p className="mt-1">Ask a platform admin to assign {adapter.connectorName} {adapter.itemPlural} to your team.</p>
+                  <p className="mt-1">Onboard one here, or ask a platform admin to assign one to your team.</p>
                 </div>
               ) : (
                 <div className="flex min-h-[12rem] flex-col items-center justify-center rounded-md border border-dashed bg-muted/20 p-6 text-center text-sm text-muted-foreground">
@@ -1725,7 +1913,7 @@ export function ConnectorAdminPanel({
         )}
 
         {/* Onboarding wizard */}
-        {!selfService && panelView === "onboard" && (
+        {panelView === "onboard" && (
           <ConnectorOnboardingWizard
             connectorName={adapter.connectorName}
             provider={adapter.discoveryCacheProvider}
@@ -1756,17 +1944,22 @@ export function ConnectorAdminPanel({
             description={adapter.copy.discoveryDescription}
             discoveryStatusText={discoveryStatusText}
             discoveredCount={discoveredItems.length}
-            configuredCount={items.length}
+            configuredCount={discoveredConfiguredCount}
             newCount={discoveredNewCount}
             selectedCount={selectedDiscoveredRows.length}
             rows={discoveredRows.map((row) => ({
               id: row.id,
               name: row.name,
               secondary: row.secondary,
+              workspaceId: row.workspaceId,
+              memberCount: row.memberCount,
               selected: row.selected,
               teamSlug: row.team_slug,
               agentId: row.agent_id,
               isExisting: row.is_existing,
+              configuredBy: row.configuredBy,
+              configuredAgentName: row.configuredAgentName,
+              pendingApproval: row.pendingApproval,
               teamRequired: row.teamRequired,
               selectable: row.selectable,
               importLabel: `Import ${row.name}`,
@@ -1801,7 +1994,7 @@ export function ConnectorAdminPanel({
             searchDisabled={discoverLoading || discoveryLoadingMore}
             searchValue={discoverySearch}
             onSearchChange={setDiscoverySearch}
-            enableBulkApply
+            enableBulkApply={!selfService}
             onDiscover={() => void discoverItems()}
             onSelectAll={() => setAllRowsSelected(true)}
             onClearSelection={() => setAllRowsSelected(false)}

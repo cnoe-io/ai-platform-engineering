@@ -40,20 +40,13 @@ function destinationGroups(
   searchParams: URLSearchParams,
   activeDestinationId: AdminDestinationDefinition["id"],
 ): WorkspaceNavigationGroup[] {
-  const groups = new Map<string, AdminDestinationDefinition[]>();
-  for (const destination of category.destinations) {
-    const key = destination.subgroup ?? "destinations";
-    groups.set(key, [...(groups.get(key) ?? []), destination]);
-  }
-
-  return [...groups.entries()].map(([key, destinations]) => ({
-    id: `${category.id}-${key.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
-    label: key === "destinations" ? undefined : key,
-    items: destinations.map((destination) => ({
+  return [{
+    id: `${category.id}-destinations`,
+    items: category.destinations.map((destination) => ({
       ...destination,
       href: adminDestinationHref(destination, searchParams, activeDestinationId),
     })),
-  }));
+  }];
 }
 
 export function AdminNavigation({
@@ -88,6 +81,7 @@ export function AdminNavigation({
       }
       activeItemId={activeDestination?.id ?? ""}
       categories={navigationCategories}
+      key={activeCategory?.id ?? ""}
       navigationLabel="Admin sections"
     />
   );

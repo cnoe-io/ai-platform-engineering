@@ -6,6 +6,7 @@ import { AlertTriangle,CheckCircle2,KeyRound,Loader2,Settings } from "lucide-rea
 import React from "react";
 
 import { Button } from "@/components/ui/button";
+import { WorkspacePageActions } from "@/components/layout/WorkspacePageActions";
 import { Card,CardContent,CardDescription,CardHeader,CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -241,16 +242,14 @@ export function LLMProvidersTab() {
 
   return (
     <section className="space-y-6">
+      <WorkspacePageActions>
+        <Button type="button" variant="outline" size="sm" onClick={() => void load()} disabled={loading}>
+          {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Settings className="mr-2 h-4 w-4" />}
+          Refresh
+        </Button>
+      </WorkspacePageActions>
       <Card className="rounded-none border-0 bg-transparent shadow-none">
-        <CardHeader className="px-0 pb-5 pt-0">
-          <div className="flex justify-end">
-            <Button type="button" variant="outline" size="sm" onClick={() => void load()} disabled={loading}>
-              {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Settings className="mr-2 h-4 w-4" />}
-              Refresh
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-4 px-0 pt-6">
+        <CardContent className="space-y-4 px-0 pt-0">
           {error && (
             <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-3">
               <AlertTriangle className="mt-0.5 h-4 w-4 text-destructive" />

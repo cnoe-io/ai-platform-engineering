@@ -74,6 +74,27 @@ describe("GuardedNavigationLink", () => {
     expect(document.documentElement).toHaveAttribute("data-navigation-pending","true");
   });
 
+  it("on collection editing with unsaved changes: click is intercepted", () => {
+    mockPathname = "/knowledge-bases/collections";
+    (useUnsavedChangesStore as unknown as jest.Mock).mockReturnValue({
+      hasUnsavedChanges: true,
+      requestNavigation: mockRequestNavigation,
+    });
+
+    const { getByRole } = render(
+      <GuardedNavigationLink href="/chat">Chat</GuardedNavigationLink>,
+    );
+    const link = getByRole("link", { name: "Chat" });
+
+    const event = new MouseEvent("click", { bubbles: true, cancelable: true });
+    const preventSpy = jest.spyOn(event, "preventDefault");
+    link.dispatchEvent(event);
+
+    expect(preventSpy).toHaveBeenCalled();
+    expect(mockRequestNavigation).toHaveBeenCalledWith("/chat");
+    expect(document.documentElement).not.toHaveAttribute("data-navigation-pending");
+  });
+
   it("on an unrelated path with unsaved changes: click is NOT intercepted", () => {
     mockPathname = "/some-other-page";
     (useUnsavedChangesStore as unknown as jest.Mock).mockReturnValue({

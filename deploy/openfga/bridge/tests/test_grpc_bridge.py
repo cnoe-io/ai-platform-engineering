@@ -433,7 +433,13 @@ def test_tools_call_denies_when_agent_tool_grant_is_missing(monkeypatch: pytest.
     assert "agent tool grant" in response.status.message
 
 
-def _tools_call_request(bridge, *, tool_name: str, agent_id: str = "agent-test-april-2025"):
+def _tools_call_request(
+    bridge,
+    *,
+    tool_name: str,
+    agent_id: str = "agent-test-april-2025",
+    server_id: str = "jira",
+) -> object:
     """Build a signed tools/call CheckRequest for the caller-keyed tests."""
     context_header, signature = bridge.build_agent_context_header(
         agent_id,
@@ -445,7 +451,7 @@ def _tools_call_request(bridge, *, tool_name: str, agent_id: str = "agent-test-a
             "x-caipe-agent-context": context_header,
             "x-caipe-agent-context-signature": signature,
         },
-        path="/mcp/jira",
+        path=f"/mcp/{server_id}",
         method="POST",
         body=f'{{"jsonrpc":"2.0","method":"tools/call","params":{{"name":"{tool_name}"}}}}',
     )
@@ -479,7 +485,7 @@ def test_caller_keyed_denies_user_with_agent_tool_but_no_caller_tool(
     bridge = _load_bridge_module()
     events: list[dict] = []
 
-    def _fake_check_openfga(user: str, relation: str, obj: str):
+    def _fake_check_openfga(user: str, relation: str, obj: str) -> bool:
         # Everything the AGENT-keyed path needs is granted; the only thing
         # missing is the CALLER's own tool grant.
         return (user, relation, obj) in {
@@ -504,6 +510,92 @@ def test_caller_keyed_denies_user_with_agent_tool_but_no_caller_tool(
     assert events[-1]["outcome"] == "deny"
     assert events[-1]["reason_code"] == "DENY_CALLER_TOOL"
     assert events[-1]["resource_ref"] == "user:user-sub-123 can_call tool:jira/search"
+
+
+def test_knowledge_base_caller_uses_search_capability(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bridge = _load_bridge_module()
+    checks: list[tuple[str, str, str]] = []
+    events: list[dict] = []
+
+    def _fake_check_openfga(user: str, relation: str, obj: str) -> bool:
+        checks.append((user, relation, obj))
+        return (user, relation, obj) in {
+            ("user:user-sub-123", "can_call", "mcp_gateway:list"),
+            ("user:user-sub-123", "can_use", "agent:agent-test-april-2025"),
+            (
+                "agent:agent-test-april-2025",
+                "can_call",
+                "tool:knowledge-base/search",
+            ),
+            ("user:user-sub-123", "can_search", "organization:example-org"),
+        }
+
+    monkeypatch.setattr(bridge, "_decode_verified_bearer_subject", lambda _header: "user-sub-123")
+    monkeypatch.setattr(bridge, "_check_openfga", _fake_check_openfga)
+    monkeypatch.setattr(bridge, "log_authz_decision", lambda **event: events.append(event))
+    monkeypatch.setattr(bridge, "BYPASS_SUBS", frozenset())
+    monkeypatch.setattr(bridge, "AGENT_CONTEXT_HMAC_SECRET", "test-secret")
+    monkeypatch.setattr(bridge, "CALLER_TOOL_CHECK_ENABLED", True)
+    monkeypatch.setattr(bridge, "CAIPE_ORG_KEY", "example-org")
+
+    request = _tools_call_request(
+        bridge,
+        tool_name="search",
+        server_id="knowledge-base",
+    )
+    response = bridge.OpenFgaAuthorizationService().Check(request, None)
+
+    assert response.status.code == bridge.OK
+    assert ("user:user-sub-123", "can_search", "organization:example-org") in checks
+    assert (
+        "user:user-sub-123",
+        "can_call",
+        "tool:knowledge-base/search",
+    ) not in checks
+    assert any(event["reason_code"] == "OK_CALLER_SEARCH" for event in events)
+
+
+def test_knowledge_base_caller_cannot_replace_search_with_mcp_grant(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bridge = _load_bridge_module()
+    events: list[dict] = []
+
+    def _fake_check_openfga(user: str, relation: str, obj: str) -> bool:
+        return (user, relation, obj) in {
+            ("user:user-sub-123", "can_call", "mcp_gateway:list"),
+            ("user:user-sub-123", "can_use", "agent:agent-test-april-2025"),
+            (
+                "agent:agent-test-april-2025",
+                "can_call",
+                "tool:knowledge-base/search",
+            ),
+            ("user:user-sub-123", "can_call", "tool:knowledge-base/search"),
+        }
+
+    monkeypatch.setattr(bridge, "_decode_verified_bearer_subject", lambda _header: "user-sub-123")
+    monkeypatch.setattr(bridge, "_check_openfga", _fake_check_openfga)
+    monkeypatch.setattr(bridge, "log_authz_decision", lambda **event: events.append(event))
+    monkeypatch.setattr(bridge, "BYPASS_SUBS", frozenset())
+    monkeypatch.setattr(bridge, "AGENT_CONTEXT_HMAC_SECRET", "test-secret")
+    monkeypatch.setattr(bridge, "CALLER_TOOL_CHECK_ENABLED", True)
+    monkeypatch.setattr(bridge, "CAIPE_ORG_KEY", "example-org")
+
+    request = _tools_call_request(
+        bridge,
+        tool_name="search",
+        server_id="knowledge-base",
+    )
+    response = bridge.OpenFgaAuthorizationService().Check(request, None)
+
+    assert response.status.code == bridge.PERMISSION_DENIED
+    assert "Knowledge Base search access" in response.status.message
+    assert events[-1]["reason_code"] == "DENY_CALLER_SEARCH"
+    assert events[-1]["resource_ref"] == (
+        "user:user-sub-123 can_search organization:example-org"
+    )
 
 
 def test_caller_keyed_allows_service_account_with_both_grants(
