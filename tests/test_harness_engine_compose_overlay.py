@@ -56,3 +56,5 @@ def test_preview_nginx_exposes_ui_but_not_harness_engine_directly() -> None:
     assert "server_name caipe-oss.outshift.io;" in config
     assert "proxy_pass http://caipe-ui:3000;" in config
     assert "proxy_pass http://harness-engine:8010;" not in config
+    assert "location ~ ^/(realms|resources|js|welcome-content)/" in config
+    assert "location ~ ^/(realms|resources|admin|js|welcome-content)/" not in config
