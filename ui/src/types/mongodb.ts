@@ -248,6 +248,10 @@ export interface UserSettings {
     releaseNotesNotificationsEnabled?: boolean;
     releaseNotesDismissedVersions?: string[];
     releaseNotesDismissedAnnouncementIds?: string[];
+    /** Ids of optional Home page widgets the user has added, in display order. */
+    home_widgets?: string[];
+    /** Which Home page layout the user sees — the new default, or the previous fixed layout. */
+    home_experience?: "new" | "classic";
   };
   notifications: {
     email_enabled: boolean;

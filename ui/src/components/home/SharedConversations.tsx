@@ -1,8 +1,11 @@
 "use client";
 
+import { apiClient } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
+import type { Conversation as MongoConversation } from "@/types/mongodb";
 import { Users,Users2 } from "lucide-react";
-import React,{ useState } from "react";
+import { useSession } from "next-auth/react";
+import React,{ useEffect,useState } from "react";
 import { ConversationCard } from "./ConversationCard";
 
 type TabId = "shared-with-me" | "team";
@@ -16,10 +19,14 @@ interface SharedConversation {
   teamName?: string;
 }
 
-interface SharedConversationsProps {
-  sharedWithMe: SharedConversation[];
-  sharedWithTeam: SharedConversation[];
-  loading: boolean;
+function mapSharedConversation(conv: MongoConversation): SharedConversation {
+  return {
+    id: conv._id,
+    title: conv.title,
+    updatedAt: conv.updated_at,
+    totalMessages: conv.metadata?.total_messages,
+    sharedBy: conv.owner_id,
+  };
 }
 
 const tabs: { id: TabId; label: string; icon: React.ElementType }[] = [
@@ -27,12 +34,40 @@ const tabs: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: "team", label: "Team", icon: Users },
 ];
 
-export function SharedConversations({
-  sharedWithMe,
-  sharedWithTeam,
-  loading,
-}: SharedConversationsProps) {
+export function SharedConversations() {
+  const { status } = useSession();
+  const isAuthenticated = status === "authenticated";
   const [activeTab, setActiveTab] = useState<TabId>("shared-with-me");
+  const [sharedWithMe, setSharedWithMe] = useState<SharedConversation[]>([]);
+  const [sharedWithTeam, setSharedWithTeam] = useState<SharedConversation[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setLoading(false);
+      return;
+    }
+
+    const load = async () => {
+      setLoading(true);
+      try {
+        const response = await apiClient.getSharedConversations({ page_size: 20 });
+        const all = response.items.map(mapSharedConversation);
+        setSharedWithMe(all);
+        setSharedWithTeam(
+          response.items
+            .filter((c) => (c.sharing?.shared_with_teams?.length ?? 0) > 0)
+            .map(mapSharedConversation),
+        );
+      } catch (err) {
+        console.error("[SharedConversations] Failed to load shared conversations:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    load();
+  }, [isAuthenticated]);
 
   const getActiveItems = (): SharedConversation[] => {
     switch (activeTab) {
