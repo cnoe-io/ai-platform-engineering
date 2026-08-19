@@ -31,7 +31,8 @@ export interface MemoryFile {
   path: string;
   text: string;
   etag?: string;
-  scope: "global" | "agent" | "namespace";
+  scope: "global" | "agent" | "project";
+  metadata?: Record<string, string>;
   records: MemoryRecord[];
   preamble?: string;
   char_count: number;
@@ -45,25 +46,25 @@ interface MemoryDialogProps {
   onOpenChange: (open: boolean) => void;
   focusIds: string[];
   agentId: string;
-  memoryNamespace?: string | null;
+  projectId?: string | null;
 }
 
 const EMPTY_TEXT: Record<MemoryFile["scope"], string> = {
   global: "<!-- caipe-memory:file v=1 scope=global -->\n_No memories saved here yet._\n",
   agent: "<!-- caipe-memory:file v=1 scope=agent -->\n_No memories saved here yet._\n",
-  namespace: "<!-- caipe-memory:file v=1 scope=namespace -->\n_No memories saved here yet._\n",
+  project: "<!-- caipe-memory:file v=1 scope=project -->\n_No memories saved here yet._\n",
 };
 
 function scopeForPath(path: string): MemoryFile["scope"] {
   if (path === "/memories/global/AGENTS.md") return "global";
-  return path.startsWith("/memories/agents/") ? "agent" : "namespace";
+  return path.startsWith("/memories/agents/") ? "agent" : "project";
 }
 
 function labelForFile(file: MemoryFile, agentId: string): string {
   if (file.scope === "global") return "Global";
   const key = file.path.split("/")[3] || "unknown";
   if (file.scope === "agent") return `Agent: ${key === agentId ? "this agent" : key}`;
-  return `NS: ${key}`;
+  return `Project: ${file.metadata?.project_name || key}`;
 }
 
 function virtualFile(path: string, maxChars: number): MemoryFile {
@@ -130,7 +131,7 @@ export function MemoryDialog({
   onOpenChange,
   focusIds,
   agentId,
-  memoryNamespace,
+  projectId,
 }: MemoryDialogProps) {
   const [files, setFiles] = useState<MemoryFile[]>([]);
   const [selectedPath, setSelectedPath] = useState("");
@@ -153,9 +154,9 @@ export function MemoryDialog({
       "/memories/global/AGENTS.md",
       `/memories/agents/${agentId}/AGENTS.md`,
     ];
-    if (memoryNamespace) paths.push(`/memories/namespaces/${memoryNamespace}/AGENTS.md`);
+    if (projectId) paths.push(`/memories/projects/${projectId}/AGENTS.md`);
     return paths;
-  }, [agentId, memoryNamespace]);
+  }, [agentId, projectId]);
 
   const selected = files.find((file) => file.path === selectedPath);
   const maxChars = selected?.max_chars ?? 8000;

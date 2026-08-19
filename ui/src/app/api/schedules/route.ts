@@ -14,7 +14,7 @@ interface RawSchedule {
   schedule_id: string;
   owner_user_id: string;
   agent_id: string;
-  memory_namespace?: string | null;
+  project_id?: string | null;
   edit_agent_id?: string | null;
   title?: string | null;
   message_template: string;
@@ -70,7 +70,7 @@ interface RawScheduleVersion {
   changed_fields?: string[];
   title?: string | null;
   agent_id?: string;
-  memory_namespace?: string | null;
+  project_id?: string | null;
   edit_agent_id?: string | null;
   message_template?: string;
   attributes?: Record<string, unknown> | null;
@@ -246,7 +246,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
         schedule_id: doc.schedule_id,
         owner_user_id: doc.owner_user_id,
         agent_id: doc.agent_id,
-        memory_namespace: doc.memory_namespace || null,
+        project_id: doc.project_id || null,
         edit_agent_id: doc.edit_agent_id || null,
         agent_name: agentNames.get(doc.agent_id) || doc.agent_id,
         title: doc.title || null,
@@ -266,7 +266,7 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
             changed_fields: version.changed_fields || [],
             title: version.title || null,
             agent_id: version.agent_id || doc.agent_id,
-            memory_namespace: version.memory_namespace || null,
+            project_id: version.project_id || null,
             edit_agent_id: version.edit_agent_id || null,
             message_template: version.message_template || "",
             attributes: version.attributes || {},

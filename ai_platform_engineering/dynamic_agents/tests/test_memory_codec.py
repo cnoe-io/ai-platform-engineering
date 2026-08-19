@@ -144,3 +144,26 @@ def test_seed_and_clear_are_identical_and_visible() -> None:
     assert seed == f"<!-- caipe-memory:file v=1 scope=global -->\n{SEED_STUB}\n"
     assert not _strip_html_comments("<!-- only bookkeeping -->").strip()
     assert SEED_STUB in _strip_html_comments(seed)
+
+
+def test_agent_edit_cannot_change_immutable_project_marker() -> None:
+    before = MemoryFile(
+        scope="project",
+        records=[_record(body="before")],
+        extra={"project_id": "project_a", "project_name": "Project A"},
+    )
+    after = MemoryFile(
+        scope="global",
+        records=[_record(body="after")],
+        extra={"project_id": "other", "project_name": "Other"},
+    )
+
+    reconciled, _, _ = reconcile_after_agent_edit(
+        before,
+        after,
+        actor_agent_id="agent-a",
+        now="2026-08-13T00:00:00Z",
+    )
+
+    assert reconciled.scope == "project"
+    assert reconciled.extra == {"project_id": "project_a", "project_name": "Project A"}

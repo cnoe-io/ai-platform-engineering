@@ -80,7 +80,13 @@ from dynamic_agents.services.mcp_client import (
     wrap_tools_with_error_handling,
 )
 from dynamic_agents.services.memory_middleware import CaipeMemoryMiddleware
-from dynamic_agents.services.memory_paths import memory_owner_key, memory_store_ns, mounted_sources, seed_content
+from dynamic_agents.services.memory_paths import (
+    memory_owner_key,
+    memory_store_ns,
+    mounted_sources,
+    project_source,
+    seed_content,
+)
 from dynamic_agents.services.middleware import (
     TEXT_DOCUMENT_MIME_TYPES,
     ToolResultInvariantMiddleware,
@@ -91,6 +97,8 @@ from dynamic_agents.services.model_capabilities import (
     ModelCapabilities,
     get_model_capabilities,
 )
+from dynamic_agents.services.project_tools import create_project_tools
+from dynamic_agents.services.projects import get_project
 from dynamic_agents.services.skills import build_skills_files, detect_missing_skills, load_skills
 
 if TYPE_CHECKING:
@@ -623,7 +631,8 @@ class AgentRuntime:
         session_id: str | None = None,
         mongo_client: MongoClient | None = None,
         ephemeral: bool = False,
-        memory_namespace: str | None = None,
+        project_id: str | None = None,
+        projects_enabled: bool = False,
     ):
         self.config = config
         self.mcp_servers = mcp_servers
@@ -656,7 +665,9 @@ class AgentRuntime:
                 config.name,
             )
         self._session_id = session_id
-        self._memory_namespace = memory_namespace
+        self._project_id = project_id
+        self._projects_enabled = projects_enabled
+        self._active_project = None
         self._graph = None
         # Attachment blob store, built lazily on first use (see
         # ``attachment_store``). Shared between the write path (upload bytes,
@@ -667,6 +678,8 @@ class AgentRuntime:
         self._attachment_store_built = False
         self._memory_store: MongoDBGridFSStore | None = None
         self._memory_owner: str | None = None
+        self._project_store: MongoDBGridFSStore | None = None
+        self._project_owner: str | None = None
         self._owns_memory_mongo_client = False
         self._memory_mongo_client: MongoClient | None = None
 
@@ -706,22 +719,29 @@ class AgentRuntime:
                 ttl_seconds=fs_ttl,
             )
         memory_config = config.builtin_tools.memory if config.builtin_tools else None
-        if memory_config and memory_config.enabled and user:
+        memory_enabled = bool(memory_config and memory_config.enabled)
+        if user and (memory_enabled or projects_enabled):
             try:
-                self._memory_owner = memory_owner_key(user, self.settings)
+                owner = memory_owner_key(user, self.settings)
                 shared_memory_client = mongo_client or getattr(mongo_service, "_client", None)
                 if shared_memory_client is None:
                     shared_memory_client = MongoClient(self.settings.mongodb_uri, tz_aware=True)
                     self._owns_memory_mongo_client = True
                 self._memory_mongo_client = shared_memory_client
-                self._memory_store = MongoDBGridFSStore(
+                shared_store = MongoDBGridFSStore(
                     db=shared_memory_client[self.settings.mongodb_database],
                     bucket_name=self.settings.memory_gridfs_bucket_name,
                     ttl_seconds=0,
                 )
-                assert self._memory_store._ttl_seconds == 0
-            except Exception as exc:  # noqa: BLE001 - fail closed to memory, not chat
-                logger.warning("User memory is unavailable: %s", exc)
+                assert shared_store._ttl_seconds == 0
+                if memory_enabled:
+                    self._memory_owner = owner
+                    self._memory_store = shared_store
+                if projects_enabled:
+                    self._project_owner = owner
+                    self._project_store = shared_store
+            except Exception as exc:  # noqa: BLE001 - fail closed to optional state, not chat
+                logger.warning("User memory/Projects storage is unavailable: %s", exc)
         self._memory_enabled_for_run = True
         self._pending_memory_updates: list[tuple[list[str], str]] = []
         self._pending_memory_injections: list[list[str]] = []
@@ -834,6 +854,8 @@ class AgentRuntime:
         if self.config.backend and self.config.backend.config and self.config.backend.config.fs_namespace:
             ns = self.config.backend.config.fs_namespace
             return (ns[0], ns[1], ns[2])
+        if self._project_id:
+            return (self.config.id, self._project_id, "filesystem")
         return (self.config.id, self._session_id, "filesystem")
 
     def _resolve_fs_ttl(self) -> int:
@@ -842,8 +864,12 @@ class AgentRuntime:
         Returns 0 for infinite. Validates against max_fs_ttl_seconds.
         """
         ttl = None
+        has_explicit_namespace = False
         if self.config.backend and self.config.backend.config:
             ttl = self.config.backend.config.fs_ttl_seconds
+            has_explicit_namespace = bool(self.config.backend.config.fs_namespace)
+        if self._project_id and not has_explicit_namespace:
+            return 0
         if ttl is None:
             ttl = self.settings.default_fs_ttl_seconds
 
@@ -959,7 +985,6 @@ class AgentRuntime:
 
                 # 1b. Filter MCP tools by allowlist
                 tools, missing = filter_tools_by_allowed(all_tools, self.config.allowed_tools)
-                tools = self._apply_namespace_scoped_tools(tools)
 
                 # Only report missing tools for servers that connected successfully
                 # (tools from failed servers are expected to be missing)
@@ -999,6 +1024,51 @@ class AgentRuntime:
         except SystemPromptRenderError as exc:
             logger.error(f"Agent '{self.config.name}' failed to initialize: {exc}")
             raise RuntimeError(f"Agent '{self.config.name}' failed to initialize: {exc}") from exc
+
+        memory_config = self.config.builtin_tools.memory if self.config.builtin_tools else None
+        project_creation_config = self.config.builtin_tools.create_project if self.config.builtin_tools else None
+        if (
+            self._projects_enabled
+            and self._project_store
+            and self._project_owner
+        ):
+            self._active_project = (
+                get_project(self._project_store, self._project_owner, self._project_id)
+                if self._project_id
+                else None
+            )
+            if self._project_id and self._active_project is None:
+                raise RuntimeError("Selected Project is unavailable")
+            if self._active_project:
+                memory_line = (
+                    f"Project memory: {project_source(self._active_project.id)}\n"
+                    if memory_config and memory_config.enabled
+                    else ""
+                )
+                system_prompt += (
+                    "\n\n## Active Project\n"
+                    f"Active project: {self._active_project.name}\n"
+                    f"Project ID: {self._active_project.id}\n"
+                    f"{memory_line}\n"
+                    "This conversation is permanently scoped to this Project. Project files are shared "
+                    "with other chats using this same agent and Project. Past Project chats are available "
+                    "through the Project history tools. Do not access or claim access to another Project. "
+                    "When structured external data is relevant, use available tools to find a record matching "
+                    "the active Project name; do not assume every Project belongs to a particular MCP server."
+                )
+            else:
+                create_instruction = (
+                    " You may also create a new named Project after checking for an existing match."
+                    if project_creation_config and project_creation_config.enabled
+                    else " You cannot create Projects; the user can create one from the sidebar."
+                )
+                system_prompt += (
+                    "\n\n## Projects\n"
+                    "You may list this user's Project names."
+                    f"{create_instruction} Project contents are not accessible in "
+                    "this chat. After creating or finding the relevant Project, ask the user to start a new "
+                    "chat with that Project selected."
+                )
 
         # A scoped-chat handoff may carry exactly the authorized pod record
         # that triggered it. It is data, not prior conversation history.
@@ -1255,19 +1325,21 @@ class AgentRuntime:
             # the ordinary conversation filesystem.
             permissions = _memory_deny_permissions()
         if memory_config and memory_config.enabled and self._memory_store and self._memory_owner:
-            memory_namespace = memory_store_ns(self._memory_owner)
+            memory_store_namespace = memory_store_ns(self._memory_owner)
             memory_backend = StoreBackend(
                 store=self._memory_store,
-                namespace=lambda runtime: memory_namespace,
+                namespace=lambda runtime: memory_store_namespace,
             )
             backend = CompositeBackend(
                 default=default_backend,
                 routes={"/memories/": memory_backend},
             )
-            sources = mounted_sources(self.config.id, self._memory_namespace)
+            sources = mounted_sources(self.config.id, self._project_id)
             for source in sources:
                 response = (await backend.adownload_files([source]))[0]
                 if response.error == "file_not_found":
+                    if source.startswith("/memories/projects/"):
+                        raise RuntimeError("Selected Project memory file is unavailable")
                     await backend.aupload_files([(source, seed_content(source).encode("utf-8"))])
                 elif response.error is not None:
                     logger.warning("Could not seed memory file %s: %s", source, response.error)
@@ -1337,6 +1409,8 @@ class AgentRuntime:
         config_summary: dict[str, Any] = {}
 
         if not config.builtin_tools:
+            if agent_config is None:
+                tools.extend(self._build_project_tools(config))
             return tools
 
         # fetch_url tool (disabled by default)
@@ -1410,86 +1484,42 @@ class AgentRuntime:
             )
             config_summary["format_file"] = {}
 
+        if agent_config is None:
+            project_tools = self._build_project_tools(config)
+            tools.extend(project_tools)
+            if project_tools:
+                config_summary["create_project"] = {
+                    "enabled": any(tool.name == "create_project" for tool in project_tools),
+                    "active_project": self._project_id,
+                }
+
         if tools:
             logger.info(f"Agent '{config.name}': added built-in tools: {config_summary}")
 
         return tools
 
+    def _build_project_tools(self, config: DynamicAgentConfig) -> list:
+        """Build platform Project tools; only creation is configurable per agent."""
+
+        project_db_client = self._mongo_client or self._memory_mongo_client
+        if not (
+            self._projects_enabled
+            and self._project_store
+            and self._project_owner
+            and project_db_client
+        ):
+            return []
+        create_config = config.builtin_tools.create_project if config.builtin_tools else None
+        return create_project_tools(
+            store=self._project_store,
+            owner_subject=self._project_owner,
+            db=project_db_client[self.settings.mongodb_database],
+            project_id=self._project_id,
+            allow_create=bool(create_config and create_config.enabled),
+        )
+
     def _memory_enabled(self) -> bool:
         return bool(getattr(self, "_memory_enabled_for_run", True))
-
-    def _apply_namespace_scoped_tools(self, tools: list) -> list:
-        """Bind configured MCP tool namespace arguments to the trusted context."""
-
-        memory_config = self.config.builtin_tools.memory if self.config.builtin_tools else None
-        bindings = memory_config.namespace_scoped_tools if memory_config and memory_config.enabled else []
-        if not bindings:
-            return tools
-
-        from copy import deepcopy
-
-        from langchain_core.tools import StructuredTool
-        from pydantic import create_model
-
-        by_name = {
-            f"{binding.server}_{tool_name}": binding
-            for binding in bindings
-            for tool_name in binding.tools
-        }
-        wrapped: list = []
-        for tool in tools:
-            binding = by_name.get(getattr(tool, "name", ""))
-            if binding is None:
-                wrapped.append(tool)
-                continue
-            if self._memory_namespace is None and binding.require_namespace:
-                logger.info(
-                    "Agent '%s': hiding namespace-required tool '%s' in unscoped chat",
-                    self.config.name,
-                    tool.name,
-                )
-                continue
-
-            original_coro = getattr(tool, "coroutine", None)
-            original_schema = getattr(tool, "args_schema", None)
-            if original_coro is None or original_schema is None or not hasattr(original_schema, "model_fields"):
-                logger.warning("Cannot bind namespace for tool '%s': unsupported tool schema", tool.name)
-                continue
-
-            fields = {
-                field_name: (field.annotation, deepcopy(field))
-                for field_name, field in original_schema.model_fields.items()
-                if field_name != binding.bind_arg
-            }
-            bound_schema = create_model(f"{tool.name.title().replace('_', '')}BoundInput", **fields)
-            response_format = getattr(tool, "response_format", "content")
-
-            async def _bound_coro(
-                *args: Any,
-                _orig: Any = original_coro,
-                _arg: str = binding.bind_arg,
-                _namespace: str | None = self._memory_namespace,
-                **kwargs: Any,
-            ) -> Any:
-                kwargs.pop(_arg, None)
-                # The trusted value is always supplied by the runtime. For an
-                # optional unscoped binding that value is explicitly None;
-                # omitting the argument would break tools whose schema still
-                # requires the nullable field.
-                kwargs[_arg] = _namespace
-                return await _orig(*args, **kwargs)
-
-            wrapped.append(
-                StructuredTool(
-                    name=tool.name,
-                    description=tool.description or "",
-                    args_schema=bound_schema,
-                    coroutine=_bound_coro,
-                    response_format=response_format,
-                    metadata=getattr(tool, "metadata", None),
-                )
-            )
-        return wrapped
 
     def _build_interrupt_config(
         self,
@@ -1716,6 +1746,9 @@ class AgentRuntime:
             self._memory_mongo_client.close()
         self._memory_mongo_client = None
         self._memory_store = None
+        self._project_store = None
+        self._memory_owner = None
+        self._project_owner = None
 
         # 3. Graph — release compiled LangGraph to free tool references
         self._graph = None

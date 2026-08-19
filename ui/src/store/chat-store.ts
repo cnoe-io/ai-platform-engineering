@@ -92,7 +92,7 @@ interface ChatState {
   createConversation: (
     agentId: string,
     options?: {
-      memoryNamespace?: string;
+      projectId?: string;
       continuedFrom?: string;
       openingContext?: Record<string, unknown>;
     },
@@ -232,9 +232,9 @@ const storeImplementation: StateCreator<ChatState> = (set, get) => ({
             title: 'New Conversation',
             client_type: 'webui',
             agent_id: normalizedAgentId,
-            ...((options?.memoryNamespace || options?.continuedFrom || options?.openingContext) && {
+            ...((options?.projectId || options?.continuedFrom || options?.openingContext) && {
               metadata: {
-                ...(options.memoryNamespace && { memory_namespace: options.memoryNamespace }),
+                ...(options.projectId && { project_id: options.projectId }),
                 ...(options.continuedFrom && { continued_from: options.continuedFrom }),
                 ...(options.openingContext && { opening_context: options.openingContext }),
               },
@@ -254,9 +254,9 @@ const storeImplementation: StateCreator<ChatState> = (set, get) => ({
           messages: [],
           streamEvents: [],
           participants: buildParticipants(normalizedAgentId),
-          ...((options?.memoryNamespace || options?.continuedFrom || options?.openingContext) && {
+          ...((options?.projectId || options?.continuedFrom || options?.openingContext) && {
             metadata: {
-              ...(options.memoryNamespace && { memory_namespace: options.memoryNamespace }),
+              ...(options.projectId && { project_id: options.projectId }),
               ...(options.continuedFrom && { continued_from: options.continuedFrom }),
               ...(options.openingContext && { opening_context: options.openingContext }),
             },

@@ -351,42 +351,21 @@ class SelfIdentityToolConfig(BaseModel):
     enabled: bool = Field(True, description="Whether the tool is enabled")
 
 
-class MemoryNamespaceConfig(BaseModel):
-    """A statically configured memory working context."""
-
-    key: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]{0,63}$")
-    label: str = Field(min_length=1)
-
-
-class MemoryNamespaceSourceConfig(BaseModel):
-    """An MCP tool whose result supplies available memory namespaces."""
-
-    server: str = Field(min_length=1)
-    tool: str = Field(min_length=1)
-    args: dict[str, Any] = Field(default_factory=dict)
-    key_path: str = Field(min_length=1)
-    label_path: str = Field(min_length=1)
-
-
-class NamespaceScopedToolsConfig(BaseModel):
-    """Tools whose namespace argument is bound by the trusted runtime."""
-
-    server: str = Field(min_length=1)
-    tools: list[str] = Field(default_factory=list, min_length=1)
-    bind_arg: str = Field(min_length=1)
-    require_namespace: bool = True
-
-
 class MemoryToolConfig(BaseModel):
     """Configuration for deepagents-backed user memory."""
 
     enabled: bool = Field(False, description="Whether memory files and injection are enabled")
-    namespaces: list[MemoryNamespaceConfig] = Field(default_factory=list)
-    namespace_source: MemoryNamespaceSourceConfig | None = None
-    allow_custom: bool = False
-    namespace_scoped_tools: list[NamespaceScopedToolsConfig] = Field(default_factory=list)
     # Accepted and ignored for one release so existing agent documents load.
     context_providers: list[dict[str, Any]] = Field(default_factory=list, exclude=True)
+
+
+class CreateProjectToolConfig(BaseModel):
+    """Per-agent permission for the model to call ``create_project``."""
+
+    enabled: bool = Field(
+        False,
+        description="Allow this agent to create Projects; selection and use are platform-wide",
+    )
 
 
 class BuiltinToolsConfig(BaseModel):
@@ -427,6 +406,10 @@ class BuiltinToolsConfig(BaseModel):
         None,
         description="Configuration for the memory built-in tool group",
     )
+    create_project: CreateProjectToolConfig | None = Field(
+        None,
+        description="Allow this agent to call create_project when Projects are enabled platform-wide",
+    )
     workflows: list[str] | None = Field(
         None,
         description="List of workflow config IDs this agent can interact with. "
@@ -435,12 +418,12 @@ class BuiltinToolsConfig(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def _migrate_sleep_to_wait(cls, data: Any) -> Any:
-        """Backward-compat: migrate legacy ``sleep`` field to ``wait``.
+    def _migrate_legacy_builtin_tools(cls, data: Any) -> Any:
+        """Migrate legacy built-in tool keys to their precise names.
 
-        Existing MongoDB documents may still contain ``builtin_tools.sleep``
-        from before the rename.  This validator transparently migrates them
-        so the rest of the codebase only needs to know about ``wait``.
+        Existing MongoDB documents may contain ``sleep`` or the overly broad
+        ``projects`` capability. Keep those records readable while serializing
+        only ``wait`` and ``create_project``.
         """
         if isinstance(data, dict) and "sleep" in data:
             if "wait" not in data or data["wait"] is None:
@@ -450,6 +433,15 @@ class BuiltinToolsConfig(BaseModel):
                 # Both present — drop the legacy field, keep explicit 'wait'
                 data.pop("sleep")
                 logger.warning("Dropped deprecated 'builtin_tools.sleep' (explicit 'wait' already set)")
+        if isinstance(data, dict) and "projects" in data:
+            if "create_project" not in data or data["create_project"] is None:
+                data["create_project"] = data.pop("projects")
+                logger.warning("Migrated deprecated 'builtin_tools.projects' → 'create_project'")
+            else:
+                data.pop("projects")
+                logger.warning(
+                    "Dropped deprecated 'builtin_tools.projects' (explicit 'create_project' already set)"
+                )
         return data
 
 
@@ -692,9 +684,9 @@ class ChatRequest(BaseModel):
     trace_id: str | None = Field(None, description="Optional trace ID for Langfuse tracing")
     client_context: ClientContext | None = Field(None, description="Opaque client context for system prompt rendering")
     memory_enabled: bool = Field(True, description="Whether memory retrieval/tools are enabled for this run")
-    memory_namespace: str | None = Field(
+    project_id: str | None = Field(
         None,
-        description="Immutable memory working context selected when the conversation is created",
+        description="Immutable Project selected when the conversation is created",
     )
     config_override: dict | None = Field(
         None,

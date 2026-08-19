@@ -2,140 +2,200 @@
 sidebar_position: 2
 ---
 
-# User Memory
+# User Memory and Projects
 
-User Memory gives a Dynamic Agent durable Markdown notes that carry across
-conversations. Memory belongs to the signed-in user, is separate from chat
-history, and is opt-in for each agent.
+User Memory gives a Dynamic Agent durable notes that carry across
+conversations. Projects group chats, memory, and files around a named body of
+work. They are related at runtime, but they are configured independently:
 
-:::info Private global memory
-Global memory is available to the current user's memory-enabled agents. It is
-never shared with another user, team, or organization.
-:::
+- **Projects** are enabled once for the whole platform.
+- **Memory** is enabled separately on each agent.
+- **Create Project** only decides whether that agent may create a Project from
+  chat. It does not enable Projects or control Project access.
+
+Memory is private to the signed-in user and is separate from chat history.
+
+## Controls at a glance
+
+| Control | Set by | Effect |
+| --- | --- | --- |
+| **Enable Projects** | Administrator, in Platform Settings | Shows Projects for every user and agent |
+| **Memory** | Agent author | Mounts durable Global and Agent memory, plus Project memory in a Project chat |
+| **Create Project** | Agent author | Gives only that agent's model the `create_project` tool |
+| **Project** on a new chat | User | Permanently scopes that conversation to one Project |
+| **Memory** on a turn | User | Suppresses memory injection and memory writes for that turn only |
+
+The persisted Platform Settings value overrides the deployment default:
+
+```yaml
+PROJECTS_ENABLED: "true"
+```
+
+The optional agent capability is deliberately named after the one action it
+grants:
+
+```yaml
+builtin_tools:
+  create_project:
+    enabled: true
+```
+
+## End-to-end flow
+
+```mermaid
+flowchart TD
+  Platform{Projects enabled platform-wide?}
+  Platform -- No --> Hidden[Project controls are unavailable]
+  Platform -- Yes --> Catalog[User sees the Project catalog]
+  Catalog --> Need{Need a new Project?}
+  Need -- Create in sidebar --> Created[Create immutable Project name and ID]
+  Need -- Agent has Create Project --> Tool[Agent may call create_project]
+  Need -- Use existing --> NewChat[Start a new chat]
+  Created --> NewChat
+  Tool --> NewChat
+  Hidden --> Unscoped[Create unscoped conversation]
+  NewChat --> Pick{Select a Project in the new-chat picker?}
+  Pick -- No project --> Unscoped
+  Pick -- Project selected --> Scoped[Validate ownership and persist immutable project_id]
+
+  Unscoped --> UM{Agent Memory enabled?}
+  UM -- Yes --> GA[Inject Global and Agent memory]
+  UM -- No --> UN[Inject no memory]
+  Unscoped --> UF[Conversation-scoped files with configured expiry]
+
+  Scoped --> PM{Agent Memory enabled?}
+  PM -- Yes --> GAP[Inject Global, Agent, and selected Project memory]
+  PM -- No --> PN[Inject no memory]
+  Scoped --> PF[Files shared by this agent and Project, without expiry]
+  Scoped --> PH[Project chat history available on demand]
+```
+
+Memory injection, shared files, and history access are resolved from the
+conversation's stored scope. The model cannot supply a different user or
+Project ID.
 
 ## Memory scopes
 
-| Scope | Applies to | File |
+| Scope | Used by | File |
 | --- | --- | --- |
-| `global` | All memory-enabled agents used by one user | `/memories/global/AGENTS.md` |
-| `agent` | One user and one Dynamic Agent | `/memories/agents/<agent-id>/AGENTS.md` |
-| `namespace` | One working context selected for a conversation | `/memories/namespaces/<key>/AGENTS.md` |
+| Global | All memory-enabled agents used by one user | `/memories/global/AGENTS.md` |
+| Agent | One user and one Dynamic Agent | `/memories/agents/<agent-id>/AGENTS.md` |
+| Project | Memory-enabled chats in one selected Project | `/memories/projects/<project-id>/AGENTS.md` |
 
-A chat always mounts global and current-agent memory. It mounts one namespace
-file only when the conversation was created with a namespace. The namespace is
-immutable: start a new chat to work in another context.
+Every memory-enabled chat mounts Global and current-Agent memory. A Project
+chat additionally mounts exactly its selected Project. Other Project memory is
+not mounted, searchable, or exposed to that agent.
 
-## Using memory in chat
+Projects are private to the user's immutable Keycloak subject. A Project has
+an immutable display name and an ID generated from that name, such as
+`Project A` → `project_a`. Case- or spacing-equivalent duplicates are rejected
+without overwriting the existing Project or its memory. Project names and IDs
+cannot currently be renamed.
 
-The **Memory** control appears beside the composer when the agent enables
-memory. You can turn memory on or off until the first user message. After that,
-the setting is locked for the conversation.
+## Project catalog versus chat selection
 
-If the agent declares working contexts, a namespace picker also appears. A tool
-result such as a pod record may offer **Work on this pod**. Selecting it opens a
-new scoped chat with:
+The two Project controls have different jobs:
 
-- the selected namespace;
-- a link to the previous conversation; and
-- the selected record as opening context.
+- The **Projects list above History** is catalog and history navigation. It
+  lets the user create a Project or filter History to one Project. Clicking a
+  Project there does not rescope the active conversation. Use **Back to all
+  chats** to clear that filter.
+- The **Project picker on a new chat** selects the actual conversation scope.
+  **No project** creates an unscoped chat. Once the conversation is created,
+  its Project cannot change; switching Projects always starts a new chat and
+  does not copy the old transcript.
 
-Previous messages are not copied. Ignoring the button leaves the current chat
-unscoped and usable.
+When Projects are disabled platform-wide, the catalog, picker, Project memory,
+shared Project workspace, and Project history are unavailable to every agent.
+Global and Agent memory continue to work normally.
 
-The agent reads and maintains memory with the standard `read_file`, `edit_file`,
-and `grep` tools. There are no separate remember, recall, update, list, or forget
-tools. Transcript badges show when memory was injected or changed.
+There is no MCP server mapping, key path, label path, bind argument, static
+context, dynamic context, or custom namespace setting. A Project is a generic
+CAIPE working context. An agent may independently use an MCP tool to find
+structured external data with a matching name, but the Project does not become
+or duplicate that external record.
+
+## Memory records
+
+A memory file contains individually addressable records. Each record has:
+
+- a required, free-form title;
+- a required Markdown body;
+- a hidden stable record ID;
+- provenance shown as **Added by you** or **Added by agent**; and
+- created and updated timestamps.
+
+Titles must be unique after case and punctuation normalization within the same
+memory file. Adding `Release preference` when an equivalent title already
+exists returns a duplicate error and offers the existing record for editing;
+records are never silently merged.
+
+When a user adds a record, the title and body are stored as entered. The UI
+does not ask AI to generate or rewrite either field. When an agent saves a new
+fact, it must create a new uniquely titled `##` section. It may update an
+existing section only when changing that same fact.
+
+`General memory` is a compatibility record created only when existing
+heading-less Markdown is imported. Agents cannot append to or modify it. New
+agent-authored facts must receive their own titles. A user may edit or delete
+the imported record through **Memories**.
+
+The stable ID is internal bookkeeping. It lets edits, transcript badges, and
+deep-links continue targeting the same record even if its title changes.
 
 ## Manage Memory
 
-Select the book icon beside the composer to open **Manage Memory**. The rail
-separates files active in this chat from other agent and namespace files owned
-by the user.
+Select the book icon beside the composer to open **Manage Memory**. The left
+rail separates files **Active in this chat** from **Other** memory files and
+shows the number of records in each file.
 
-- **Memories** shows parsed `## Heading` records and whether each was added by the
-  user or the agent.
-- **Edit** changes one record by its hidden ID using required title and body
-  fields. The title can change without changing the record's identity.
-- **Source** shows the complete `AGENTS.md` read-only, with Copy and Download.
-  Raw source cannot be saved or overwritten from the UI or API.
-- **Add memory** requires a unique title and body without exposing bookkeeping
-  markers. A conflicting title offers Edit existing instead of silently
-  merging records.
-- **Clear** resets a mounted file to its visible empty stub.
-- **Delete** removes an unmounted file.
+The dialog has exactly two views:
 
-If the agent changes a file during a structured edit, the dialog keeps the
-fields and asks the user to reload before retrying. A file is limited to 8,000
-characters. Existing over-budget files remain readable but must be pruned
-before they can grow.
+- **Memories** lists titled records and supports Add, Edit, and Delete.
+- **Source** displays the complete internal `AGENTS.md` read-only, with Copy
+  and Download.
 
-Deleting is the only removal mechanism. Records no longer have a category or
-an enabled/disabled state.
+Raw Markdown cannot be overwritten through the UI or memory API. Source is
+available for inspection and export, while all user edits go through the
+structured record operations. ETags prevent an agent's concurrent update from
+being silently overwritten; the UI asks the user to reload on conflict.
 
-## Enabling memory for an agent
+Clearing Project memory preserves its immutable Project marker and empty
+placeholder. It does not delete the Project. Transcript badges identify
+records injected or changed during a turn and open Manage Memory focused on
+those records.
 
-```yaml
-builtin_tools:
-  memory:
-    enabled: true
-    namespaces:
-      - key: payments
-        label: Payments
-    allow_custom: false
-```
+The per-turn Memory toggle suppresses both memory injection and memory writes
+for that turn. It does not change the active Project, shared workspace, or
+Project history scope.
 
-Namespaces can also come from an MCP list tool:
+## Files and Project history
 
-```yaml
-builtin_tools:
-  memory:
-    enabled: true
-    namespace_source:
-      server: pod_meeting
-      tool: list_pods
-      args:
-        reason: populate memory namespace picker
-      key_path: pods[].pod_id
-      label_path: pods[].pod_name
-    namespace_scoped_tools:
-      - server: pod_meeting
-        tools: [resolve_owners, do_final_task_check]
-        bind_arg: pod_id
-        require_namespace: true
-```
+Unscoped files use `(agent_id, conversation_id, "filesystem")` and retain the
+configured expiry. Project files use `(agent_id, project_id, "filesystem")`
+and do not expire. Therefore:
 
-The namespace-source tool runs as the current user, so its own authorization
-decides which keys appear. At conversation creation CAIPE validates the key
-again. For a bound tool, CAIPE removes `bind_arg` from the model-visible schema
-and injects the validated conversation namespace. The model cannot redirect the
-tool to a different namespace.
+- two chats using the same agent and Project share files;
+- different agents do not share Project files, even in the same Project; and
+- unscoped chats remain isolated.
 
-The agent editor provides a wizard to select the source tool, sample its
-response, choose key and label fields, and confirm suggested bindings.
+The server derives the namespace from the owned conversation. Clients cannot
+construct or redirect Project filesystem namespaces.
 
-## Storage, retention, and privacy
+A Project chat can list, search, and read bounded user/assistant content from
+the user's past chats in that Project. Past chats are fetched only when the
+agent needs them; they are never injected wholesale. System messages, hidden
+reasoning, traces, and file contents are excluded from history results.
 
-Memory files are stored in the dedicated `agent_memory` GridFS bucket under the
-two-part namespace `(Keycloak sub, "memory")`. They have no TTL. Ordinary agent
-files remain in the separate `agent_files` bucket and retain their configured
-TTL.
+## Storage and privacy
+
+Memory files use the non-expiring `agent_memory` GridFS bucket under
+`(Keycloak sub, "memory")`. Project metadata is stored in the Project memory
+file, while chat metadata and messages remain in the conversation collections.
 
 Memory text is sent to the configured model provider when mounted. Do not save
 passwords, tokens, API keys, regulated secrets, or data the model provider must
 not receive.
 
-## Troubleshooting
-
-**No Memory control:** the agent does not enable `builtin_tools.memory`.
-
-**Namespace list unavailable:** the configured MCP is unreachable or the user
-cannot call its source tool. Choosing no namespace still starts a chat.
-
-**Namespace cannot be changed:** this is intentional after conversation
-creation. Start a new chat or use a **Work on this…** action.
-
-**Save conflict:** reload the agent's latest version, then retry the structured
-Add, Edit, or Delete operation.
-
-See [User Memory Architecture](../architecture/user-memory-design) for storage,
-permissions, concurrency, and request flow.
+See [User Memory Architecture](../architecture/user-memory-design) for the
+storage, authorization, and request sequence.

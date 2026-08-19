@@ -153,7 +153,8 @@ class AgentRuntimeCache:
         session_id: str,
         user: UserContext | None = None,
         client_context: ClientContext | None = None,
-        memory_namespace: str | None = None,
+        project_id: str | None = None,
+        projects_enabled: bool = False,
     ) -> "AgentRuntime":
         """Get an existing runtime or create a new one.
 
@@ -191,14 +192,23 @@ class AgentRuntimeCache:
                 del self._cache[key]
                 prom_metrics.runtime_cache_evictions_total.labels(reason="user_change").inc()
                 self._update_metrics()
-            elif getattr(runtime, "_memory_namespace", None) != memory_namespace:
+            elif getattr(runtime, "_project_id", None) != project_id:
                 logger.info(
-                    "Runtime cache invalidated due to immutable memory namespace change for agent %s",
+                    "Runtime cache invalidated due to immutable Project change for agent %s",
                     agent_config.id,
                 )
                 await runtime.cleanup()
                 del self._cache[key]
-                prom_metrics.runtime_cache_evictions_total.labels(reason="memory_namespace_change").inc()
+                prom_metrics.runtime_cache_evictions_total.labels(reason="project_change").inc()
+                self._update_metrics()
+            elif getattr(runtime, "_projects_enabled", False) != projects_enabled:
+                logger.info(
+                    "Runtime cache invalidated due to platform Projects setting change for agent %s",
+                    agent_config.id,
+                )
+                await runtime.cleanup()
+                del self._cache[key]
+                prom_metrics.runtime_cache_evictions_total.labels(reason="config_change").inc()
                 self._update_metrics()
             elif runtime.idle_seconds >= self._ttl:
                 logger.info(
@@ -233,7 +243,8 @@ class AgentRuntimeCache:
                 session_id,
                 user,
                 client_context,
-                memory_namespace,
+                project_id,
+                projects_enabled,
             )
             self._cache[key] = runtime
             self._update_metrics()
@@ -262,7 +273,8 @@ class AgentRuntimeCache:
         *,
         user: "UserContext | None" = None,
         client_context: "ClientContext | None" = None,
-        memory_namespace: str | None = None,
+        project_id: str | None = None,
+        projects_enabled: bool = False,
     ):
         """Async context manager: create a throwaway runtime, cleaned up on exit. Not cached.
 
@@ -276,7 +288,8 @@ class AgentRuntimeCache:
             client_context=client_context,
             session_id=session_id,
             ephemeral=True,
-            memory_namespace=memory_namespace,
+            project_id=project_id,
+            projects_enabled=projects_enabled,
         )
         try:
             await runtime.initialize()
@@ -300,7 +313,8 @@ class AgentRuntimeCache:
         *,
         user: "UserContext | None" = None,
         client_context: "ClientContext | None" = None,
-        memory_namespace: str | None = None,
+        project_id: str | None = None,
+        projects_enabled: bool = False,
     ):
         """Create a non-cached Mongo-backed runtime and clean it up on exit.
 
@@ -315,7 +329,8 @@ class AgentRuntimeCache:
             user=user,
             client_context=client_context,
             session_id=session_id,
-            memory_namespace=memory_namespace,
+            project_id=project_id,
+            projects_enabled=projects_enabled,
         )
         try:
             await runtime.initialize()
@@ -344,7 +359,8 @@ class AgentRuntimeCache:
         session_id: str,
         user: UserContext | None,
         client_context: ClientContext | None,
-        memory_namespace: str | None,
+        project_id: str | None,
+        projects_enabled: bool,
     ) -> "AgentRuntime":
         """Create and initialize a new runtime. Called under single-flight guard."""
 
@@ -367,7 +383,8 @@ class AgentRuntimeCache:
             client_context=client_context,
             session_id=session_id,
             mongo_client=self._shared_mongo_client,
-            memory_namespace=memory_namespace,
+            project_id=project_id,
+            projects_enabled=projects_enabled,
         )
         try:
             await runtime.initialize()

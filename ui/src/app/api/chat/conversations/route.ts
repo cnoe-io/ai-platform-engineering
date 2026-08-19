@@ -13,6 +13,7 @@ import {
 } from '@/lib/api-middleware';
 import type { ConversationAccessLevel } from '@/lib/api-middleware';
 import { getCollection, isMongoDBConfigured } from '@/lib/mongodb';
+import { getProjectsEnabled } from '@/lib/projects-config';
 import {
   annotateConversationsWithViewerSharing,
   conversationVisibilityCandidateQuery,
@@ -316,56 +317,56 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     return denial;
   }
 
-  const requestedMemoryNamespace = body.metadata?.memory_namespace;
-  if (requestedMemoryNamespace !== undefined) {
+  const requestedProjectId = body.metadata?.project_id;
+  if (requestedProjectId !== undefined) {
+    if (!(await getProjectsEnabled())) {
+      throw new ApiError('Projects are not enabled on this platform', 400);
+    }
     if (
-      typeof requestedMemoryNamespace !== 'string' ||
-      !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(requestedMemoryNamespace)
+      typeof requestedProjectId !== 'string' ||
+      !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(requestedProjectId)
     ) {
-      throw new ApiError('memory_namespace must be a valid lowercase namespace key', 400);
+      throw new ApiError('project_id must be a valid lowercase Project ID', 400);
     }
     const auth = await authenticateRequest(request);
     if (auth instanceof NextResponse) return auth;
     const daConfig = getDynamicAgentsConfig();
     if (daConfig instanceof NextResponse) return daConfig;
-    let namespaceResponse: Response;
+    let projectsResponse: Response;
     try {
-      namespaceResponse = await fetch(
-        `${daConfig.dynamicAgentsUrl}/api/v1/agents/${encodeURIComponent(body.agent_id)}/memory-namespaces?refresh=true`,
+      projectsResponse = await fetch(
+        `${daConfig.dynamicAgentsUrl}/api/v1/projects`,
         { headers: buildBackendHeaders('application/json', auth), cache: 'no-store' },
       );
     } catch {
       return NextResponse.json(
-        { success: false, error: 'Memory namespace could not be validated' },
+        { success: false, error: 'Project could not be validated' },
         { status: 503 },
       );
     }
-    if (!namespaceResponse.ok) {
+    if (!projectsResponse.ok) {
       return NextResponse.json(
-        { success: false, error: 'Memory namespace could not be validated' },
-        { status: namespaceResponse.status === 503 ? 503 : 400 },
+        { success: false, error: 'Project could not be validated' },
+        { status: projectsResponse.status === 503 ? 503 : 400 },
       );
     }
-    let namespacePayload: Record<string, unknown>;
+    let projectsPayload: Record<string, unknown>;
     try {
-      namespacePayload = await namespaceResponse.json() as Record<string, unknown>;
+      projectsPayload = await projectsResponse.json() as Record<string, unknown>;
     } catch {
       return NextResponse.json(
-        { success: false, error: 'Memory namespace could not be validated' },
+        { success: false, error: 'Project could not be validated' },
         { status: 503 },
       );
     }
-    const namespaceData = namespacePayload.data as
-      | { items?: unknown; allow_custom?: unknown }
-      | undefined;
-    const namespaceItems = namespaceData?.items;
+    const projectData = projectsPayload.data as { items?: unknown } | undefined;
+    const projectItems = projectData?.items;
     if (
-      namespaceData?.allow_custom !== true &&
-      (!Array.isArray(namespaceItems) ||
-        !namespaceItems.some((item: { key?: unknown }) => item.key === requestedMemoryNamespace))
+      !Array.isArray(projectItems) ||
+      !projectItems.some((item: { id?: unknown }) => item.id === requestedProjectId)
     ) {
       return NextResponse.json(
-        { success: false, error: 'Memory namespace is not available to this user' },
+        { success: false, error: 'Project is not available to this user' },
         { status: 400 },
       );
     }
@@ -392,13 +393,13 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
       idempotency_key: body.idempotency_key,
     });
     if (existing) {
-      const existingNamespace = existing.metadata?.memory_namespace;
+      const existingProjectId = existing.metadata?.project_id;
       if (
-        requestedMemoryNamespace !== undefined &&
-        existingNamespace !== requestedMemoryNamespace
+        requestedProjectId !== undefined &&
+        existingProjectId !== requestedProjectId
       ) {
         throw new ApiError(
-          "An idempotent conversation's memory namespace is immutable",
+          "An idempotent conversation's Project is immutable",
           409,
         );
       }

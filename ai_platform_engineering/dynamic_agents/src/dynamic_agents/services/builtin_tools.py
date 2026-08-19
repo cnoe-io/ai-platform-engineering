@@ -200,7 +200,14 @@ def get_builtin_tool_definitions() -> list[BuiltinToolDefinition]:
         BuiltinToolDefinition(
             id="memory",
             name="Memory",
-            description="Mounts durable global, agent, and working-context Markdown memory",
+            description="Mounts durable global and agent memory; Project memory is automatic in Project chats",
+            enabled_by_default=False,
+            config_fields=[],
+        ),
+        BuiltinToolDefinition(
+            id="create_project",
+            name="Create Project",
+            description="Allows this agent to call create_project from a chat.",
             enabled_by_default=False,
             config_fields=[],
         ),

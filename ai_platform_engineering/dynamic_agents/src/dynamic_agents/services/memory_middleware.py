@@ -38,7 +38,7 @@ You may maintain durable memory only with `read_file`, `edit_file`, and `grep`.
 The writable paths listed above are the complete set available in this chat:
 - `/memories/global/AGENTS.md` for preferences useful across agents;
 - `/memories/agents/<agent_id>/AGENTS.md` for this agent's working knowledge;
-- `/memories/namespaces/<key>/AGENTS.md` for the active working context, when present.
+- `/memories/projects/<project_id>/AGENTS.md` for the active Project, when present.
 
 Use `edit_file`, not `write_file`: mounted files are pre-created. Every
 independent memory must have its own unique `## Title` section. Create a new

@@ -8,12 +8,12 @@ from dynamic_agents.services.memory_paths import (
     is_memory_path,
     memory_store_ns,
     mounted_sources,
-    namespace_source_path,
-    validate_namespace_key,
+    project_source,
+    validate_project_id,
 )
 
 
-def test_memory_namespace_is_structurally_unreachable_from_files_api() -> None:
+def test_memory_store_namespace_is_structurally_unreachable_from_files_api() -> None:
     namespace = memory_store_ns("8d74e124-3100-4c92-a3ec-62e5ac7bbc76")
 
     assert namespace == ("8d74e124-3100-4c92-a3ec-62e5ac7bbc76", "memory")
@@ -23,17 +23,17 @@ def test_memory_namespace_is_structurally_unreachable_from_files_api() -> None:
 
 
 @pytest.mark.parametrize("key", ["..", "a/b", "-leading", "A", "a" * 65, "with space"])
-def test_namespace_key_rejects_unsafe_or_noncanonical_values(key: str) -> None:
+def test_project_id_rejects_unsafe_or_noncanonical_values(key: str) -> None:
     with pytest.raises(ValueError):
-        validate_namespace_key(key)
+        validate_project_id(key)
 
 
 def test_mounted_sources_are_exact_and_paths_are_canonical() -> None:
     assert mounted_sources("agent-a") == [global_source(), agent_source("agent-a")]
-    assert mounted_sources("agent-a", "pod-1") == [
+    assert mounted_sources("agent-a", "project-a") == [
         global_source(),
         agent_source("agent-a"),
-        namespace_source_path("pod-1"),
+        project_source("project-a"),
     ]
-    assert all(is_memory_path(path) for path in mounted_sources("agent-a", "pod-1"))
-    assert not is_memory_path("/memories/namespaces/pod-2/notes.md")
+    assert all(is_memory_path(path) for path in mounted_sources("agent-a", "project-a"))
+    assert not is_memory_path("/memories/projects/project-b/notes.md")

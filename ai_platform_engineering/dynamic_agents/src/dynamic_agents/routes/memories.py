@@ -14,6 +14,7 @@ from dynamic_agents.models import UserContext
 from dynamic_agents.services.gridfs_store import MongoDBGridFSStore
 from dynamic_agents.services.memory_codec import (
     DuplicateMemoryTitleError,
+    MemoryFile,
     MemoryRecord,
     find_title_conflict,
     new_memory_id,
@@ -30,6 +31,7 @@ from dynamic_agents.services.memory_paths import (
     seed_content,
 )
 from dynamic_agents.services.mongo import MongoDBService, get_mongo_service
+from dynamic_agents.services.platform_projects import projects_enabled
 
 router = APIRouter(prefix="/memories", tags=["memories"])
 
@@ -87,6 +89,11 @@ def _storage_key(path: str) -> str:
     return path.removeprefix("/memories")
 
 
+def _require_available_scope(path: str, mongo: MongoDBService, settings: Settings) -> None:
+    if memory_scope_from_path(path) == "project" and not projects_enabled(mongo._db, settings):
+        raise HTTPException(status_code=404, detail="Project memory is not enabled on this platform")
+
+
 def _public_path(key: str) -> str:
     return f"/memories{key}"
 
@@ -114,6 +121,7 @@ def _serialize_file(path: str, text: str, updated_at: datetime | None, limit: in
         "text": text,
         "etag": _etag(text),
         "scope": memory_scope_from_path(path),
+        "metadata": dict(parsed.extra),
         "records": [record.as_dict() for record in parsed.records],
         "preamble": parsed.preamble,
         "char_count": len(text),
@@ -159,6 +167,8 @@ async def list_memories(
         path = _public_path(str(item.key))
         if not is_memory_path(path):
             continue
+        if memory_scope_from_path(path) == "project" and not projects_enabled(mongo._db, settings):
+            continue
         content = item.value.get("content", "")
         text = "\n".join(content) if isinstance(content, list) else str(content)
         serialized = _serialize_file(path, text, item.updated_at, settings.memory_max_file_chars)
@@ -181,6 +191,7 @@ async def put_memory_file(
     """Clear a memory file; non-empty raw source writes are forbidden."""
 
     key = _storage_key(body.path)
+    _require_available_scope(body.path, mongo, settings)
     if body.text.strip():
         raise HTTPException(
             status_code=403,
@@ -192,6 +203,16 @@ async def put_memory_file(
     current = _read_text(store, namespace, key)
     _require_matching_etag(current, body.etag, body.overwrite)
 
+    if memory_scope_from_path(body.path) == "project":
+        if current is None:
+            raise HTTPException(status_code=404, detail="Project memory file not found")
+        existing = parse(current, default_scope="project")
+        text = render(MemoryFile(scope="project", extra=dict(existing.extra)))
+        _write_text(store, namespace, key, text)
+        return {
+            "success": True,
+            "data": {"file": _serialize_file(body.path, text, None, settings.memory_max_file_chars)},
+        }
     if not body.mounted:
         store.delete(namespace, key)
         return {"success": True, "data": {"deleted": body.path}}
@@ -213,9 +234,12 @@ async def append_memory(
     """Append the common title/body form as a manual record."""
 
     key = _storage_key(body.path)
+    _require_available_scope(body.path, mongo, settings)
     store = _get_store(mongo, settings)
     namespace = memory_store_ns(memory_owner_key(user, settings))
     current = _read_text(store, namespace, key) or seed_content(body.path)
+    if memory_scope_from_path(body.path) == "project" and _read_text(store, namespace, key) is None:
+        raise HTTPException(status_code=404, detail="Project memory file not found")
     _require_matching_etag(current, body.etag)
     memory_file = parse(current, default_scope=memory_scope_from_path(body.path))
     now = utc_timestamp()
@@ -258,6 +282,7 @@ async def update_memory(
     """Update one record by stable id without replacing the whole file."""
 
     key = _storage_key(body.path)
+    _require_available_scope(body.path, mongo, settings)
     store = _get_store(mongo, settings)
     namespace = memory_store_ns(memory_owner_key(user, settings))
     current = _read_text(store, namespace, key)
@@ -313,6 +338,7 @@ async def delete_memory(
     namespace = memory_store_ns(memory_owner_key(user, settings))
     candidates = []
     if path:
+        _require_available_scope(path, mongo, settings)
         candidates.append((_storage_key(path), path))
     else:
         candidates.extend(
@@ -323,6 +349,8 @@ async def delete_memory(
     for key, public_path in candidates:
         if not is_memory_path(public_path):
             continue
+        if memory_scope_from_path(public_path) == "project" and not projects_enabled(mongo._db, settings):
+            continue
         current = _read_text(store, namespace, key)
         if current is None:
             continue
@@ -331,7 +359,7 @@ async def delete_memory(
             continue
         _require_matching_etag(current, etag)
         memory_file.records = [record for record in memory_file.records if record.memory_id != id]
-        if not memory_file.records and not mounted:
+        if not memory_file.records and not mounted and memory_scope_from_path(public_path) != "project":
             store.delete(namespace, key)
             return {"success": True, "data": {"deleted": id, "file_deleted": True}}
         text = render(memory_file)

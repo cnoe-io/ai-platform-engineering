@@ -107,21 +107,18 @@ def get_owned_schedule(
   return schedule
 
 
-def validate_memory_namespace(
-  agent_id: str,
-  memory_namespace: str | None,
+def validate_project(
+  _agent_id: str,
+  project_id: str | None,
   caller: CallerIdentity,
   settings: Settings,
 ) -> None:
-  """Fail closed unless Dynamic Agents confirms the caller can see the key."""
-  if memory_namespace is None:
+  """Fail closed unless Projects are enabled and the caller owns the Project."""
+  if project_id is None:
     return
-  if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", memory_namespace):
-    raise HTTPException(422, "memory_namespace must be a valid lowercase namespace key.")
-  url = (
-    f"{settings.caipe_api_url.rstrip('/')}/api/dynamic-agents/"
-    f"{agent_id}/memory-namespaces"
-  )
+  if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", project_id):
+    raise HTTPException(422, "project_id must be a valid lowercase Project ID.")
+  url = f"{settings.caipe_api_url.rstrip('/')}/api/user/projects"
   try:
     response = httpx.get(
       url,
@@ -129,23 +126,24 @@ def validate_memory_namespace(
       timeout=10.0,
     )
   except httpx.HTTPError as exc:
-    raise HTTPException(503, "Memory namespace validation is unavailable.") from exc
+    raise HTTPException(503, "Project validation is unavailable.") from exc
+  if response.status_code == 404:
+    raise HTTPException(422, "Projects are not enabled on this platform.")
   if response.status_code >= 400:
-    raise HTTPException(503, "Memory namespace validation is unavailable.")
+    raise HTTPException(503, "Project validation is unavailable.")
   try:
     payload = response.json()
   except ValueError as exc:
-    raise HTTPException(503, "Memory namespace validation is unavailable.") from exc
+    raise HTTPException(503, "Project validation is unavailable.") from exc
   data = payload.get("data") if isinstance(payload, dict) else None
   items = data.get("items", []) if isinstance(data, dict) else []
-  allow_custom = bool(data.get("allow_custom")) if isinstance(data, dict) else False
   available = {
-    str(item.get("key"))
+    str(item.get("id"))
     for item in items
-    if isinstance(item, dict) and item.get("key") is not None
+    if isinstance(item, dict) and item.get("id") is not None
   }
-  if memory_namespace not in available and not allow_custom:
-    raise HTTPException(422, "memory_namespace is not available for this agent.")
+  if project_id not in available:
+    raise HTTPException(422, "project_id is not available to this user.")
 
 
 @asynccontextmanager
@@ -227,7 +225,7 @@ def create_schedule(
     raise HTTPException(404, f"agent_id {body.agent_id!r} not found.")
   if body.edit_agent_id and not store.agent_exists(body.edit_agent_id):
     raise HTTPException(404, f"edit_agent_id {body.edit_agent_id!r} not found.")
-  validate_memory_namespace(body.agent_id, body.memory_namespace, caller, settings)
+  validate_project(body.agent_id, body.project_id, caller, settings)
 
   if store.count_for_owner(caller.sub, caller.email) >= settings.max_schedules_per_owner:
     raise HTTPException(
@@ -243,7 +241,7 @@ def create_schedule(
     "owner_sub": caller.sub,
     "owner_user_id": caller.email,
     "agent_id": body.agent_id,
-    "memory_namespace": body.memory_namespace,
+    "project_id": body.project_id,
     "edit_agent_id": body.edit_agent_id,
     "title": body.title,
     "message_template": body.message_template,
@@ -355,13 +353,13 @@ def patch_schedule(
   if "edit_agent_id" in patch and patch["edit_agent_id"] is not None:
     if not store.agent_exists(patch["edit_agent_id"]):
       raise HTTPException(404, f"edit_agent_id {patch['edit_agent_id']!r} not found.")
-  if "memory_namespace" in patch:
+  if "project_id" in patch:
     target_agent_id = str(patch.get("agent_id") or existing.get("agent_id") or "")
-    validate_memory_namespace(target_agent_id, patch["memory_namespace"], caller, settings)
-  elif "agent_id" in patch and existing.get("memory_namespace"):
-    validate_memory_namespace(
+    validate_project(target_agent_id, patch["project_id"], caller, settings)
+  elif "agent_id" in patch and existing.get("project_id"):
+    validate_project(
       str(patch["agent_id"]),
-      str(existing["memory_namespace"]),
+      str(existing["project_id"]),
       caller,
       settings,
     )

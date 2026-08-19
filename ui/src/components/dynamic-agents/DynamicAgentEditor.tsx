@@ -1928,6 +1928,7 @@ export function DynamicAgentEditor({
               <BuiltinToolsPicker
                 value={builtinTools}
                 onChange={setBuiltinTools}
+                allowedTools={allowedTools}
                 disabled={loading || !!readOnly}
               />
 

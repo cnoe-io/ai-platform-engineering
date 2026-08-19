@@ -63,6 +63,9 @@ class Settings(BaseSettings):
     # User memory is isolated in a dedicated, non-expiring bucket.
     memory_gridfs_bucket_name: str = "agent_memory"
     memory_max_file_chars: int = 8000
+    # Deployment default for the platform-wide Projects capability. An admin
+    # override in platform_config.projects.enabled takes precedence.
+    projects_enabled: bool = False
 
     # Runtime backend: "store" = GridFS-backed filesystem, "state" = in-checkpoint
     default_runtime_backend: str = "store"

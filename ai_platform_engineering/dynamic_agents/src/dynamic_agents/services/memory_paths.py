@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from typing import TYPE_CHECKING
+from urllib.parse import quote
 
 from dynamic_agents.config import Settings, get_settings
 
@@ -17,7 +18,10 @@ MEMORY_STORE_KIND = "memory"
 SEED_STUB = "_No memories saved here yet._"
 SEED_TEMPLATE = "<!-- caipe-memory:file v=1 scope={scope} -->\n" + SEED_STUB + "\n"
 
-_NAMESPACE_KEY_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+_PROJECT_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+_UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+)
 _STORE_COMPONENT_RE = re.compile(r"^[A-Za-z0-9._@+\-:~]+$")
 
 
@@ -52,20 +56,22 @@ def agent_source(agent_id: str) -> str:
     return f"{MEMORY_ROOT}/agents/{agent_id}/{MEMORY_FILENAME}"
 
 
-def namespace_source_path(key: str) -> str:
-    validate_namespace_key(key)
-    return f"{MEMORY_ROOT}/namespaces/{key}/{MEMORY_FILENAME}"
+def project_source(project_id: str) -> str:
+    validate_project_id(project_id)
+    return f"{MEMORY_ROOT}/projects/{project_id}/{MEMORY_FILENAME}"
 
 
-def validate_namespace_key(key: str) -> str:
-    """Validate a user-visible memory namespace key and return it unchanged."""
+def validate_project_id(project_id: str) -> str:
+    """Validate a generated Project ID and return it unchanged."""
 
-    if not isinstance(key, str) or not _NAMESPACE_KEY_RE.fullmatch(key):
+    if not isinstance(project_id, str) or not _PROJECT_ID_RE.fullmatch(project_id):
         raise ValueError(
-            "memory namespace keys must be 1-64 lowercase letters, digits, "
+            "project IDs must be 1-64 lowercase letters, digits, "
             "underscores, or hyphens, and must start with a letter or digit"
         )
-    return key
+    if _UUID_RE.fullmatch(project_id):
+        raise ValueError("project IDs must not use the conversation UUID format")
+    return project_id
 
 
 def is_memory_path(path: str) -> bool:
@@ -82,9 +88,9 @@ def is_memory_path(path: str) -> bool:
         except ValueError:
             return False
         return True
-    if parts[2] == "namespaces":
+    if parts[2] == "projects":
         try:
-            validate_namespace_key(parts[3])
+            validate_project_id(parts[3])
         except ValueError:
             return False
         return True
@@ -98,7 +104,7 @@ def memory_scope_from_path(path: str) -> str:
         return "global"
     if not is_memory_path(path):
         raise ValueError(f"Invalid memory path: {path}")
-    return "agent" if path.startswith(f"{MEMORY_ROOT}/agents/") else "namespace"
+    return "agent" if path.startswith(f"{MEMORY_ROOT}/agents/") else "project"
 
 
 def seed_content(path: str) -> str:
@@ -107,12 +113,23 @@ def seed_content(path: str) -> str:
     return SEED_TEMPLATE.format(scope=memory_scope_from_path(path))
 
 
-def mounted_sources(agent_id: str, namespace_key: str | None = None) -> list[str]:
+def project_seed_content(project_id: str, project_name: str) -> str:
+    """Return the canonical create-only Project memory seed."""
+
+    validate_project_id(project_id)
+    return (
+        "<!-- caipe-memory:file v=1 scope=project "
+        f"project_id={project_id} project_name={quote(project_name, safe='')} -->\n"
+        f"{SEED_STUB}\n"
+    )
+
+
+def mounted_sources(agent_id: str, project_id: str | None = None) -> list[str]:
     """Return the exact memory files mounted for one conversation."""
 
     sources = [global_source(), agent_source(agent_id)]
-    if namespace_key is not None:
-        sources.append(namespace_source_path(namespace_key))
+    if project_id is not None:
+        sources.append(project_source(project_id))
     return sources
 
 

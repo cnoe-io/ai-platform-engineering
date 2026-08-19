@@ -90,7 +90,7 @@ describe("CustomStreamAdapter", () => {
         agentId: "agent-1",
         clientContext: { activeTeam: "platform" },
         memoryEnabled: false,
-        memoryNamespace: "pod-a",
+        projectId: "pod-a",
       },
       cb,
     );
@@ -110,7 +110,7 @@ describe("CustomStreamAdapter", () => {
           agent_id: "agent-1",
           protocol: "custom",
           memory_enabled: false,
-          memory_namespace: "pod-a",
+          project_id: "pod-a",
           client_context: { activeTeam: "platform" },
         }),
       }),

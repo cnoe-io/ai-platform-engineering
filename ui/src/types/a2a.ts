@@ -40,7 +40,7 @@ export interface Conversation {
     share_link_enabled?: boolean;
   };
   /** Server-side metadata for integrations such as scheduled runs. */
-  metadata?: Record<string, unknown>;
+  metadata?: Record<string, unknown> & { project_id?: string };
 }
 
 // ═══════════════════════════════════════════════════════════════

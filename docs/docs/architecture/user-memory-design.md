@@ -1,179 +1,145 @@
-# User Memory Architecture
+# User Memory and Projects Architecture
 
 - **Status:** Implemented
-- **Last verified:** 2026-08-05
+- **Last verified:** 2026-08-19
 
-For the user and operator workflow, see [User Memory](../features/user-memory).
+For the user workflow, see [User Memory and Projects](../features/user-memory).
 
-## Design
+## Configuration boundaries
 
-CAIPE uses `deepagents==0.6.4` `MemoryMiddleware` with a policy subclass that
-reloads files every turn, repairs record metadata, enforces the file budget, and
-emits memory events. Memory is Markdown, routed through the agent filesystem,
-but stored separately from ordinary agent files.
+| Capability | Source of truth | Scope |
+| --- | --- | --- |
+| Projects available | `platform_config.projects.enabled`, falling back to `PROJECTS_ENABLED` | Whole platform |
+| Memory available | `builtin_tools.memory.enabled` | One agent |
+| Model may create a Project | `builtin_tools.create_project.enabled` | One agent, one tool |
+| Active Project | immutable `conversation.metadata.project_id` | One conversation |
+| Memory used on this turn | request `memory_enabled` | One turn |
+
+Project participation is not an agent capability. When Projects are enabled,
+all agents may be selected in a Project chat. The per-agent `create_project`
+setting grants only the model-visible creation tool. The user-facing sidebar
+creation API remains available independently.
+
+## Storage model
 
 ```mermaid
 flowchart LR
   UI[Chat / Manage Memory] --> BFF[CAIPE UI BFF]
-  BFF -->|Bearer + sub| DA[Dynamic Agents]
+  BFF --> DA[Dynamic Agents]
   DA --> MW[CaipeMemoryMiddleware]
-  MW --> CB[CompositeBackend]
-  CB --> AF[(agent_files)]
-  CB -->|/memories/*| MF[(agent_memory)]
+  MW --> MF[(agent_memory)]
+  DA --> AF[(agent_files)]
+  DA --> CH[(conversations + messages)]
 ```
 
-| Property | Ordinary files | Memory files |
+| Data | Identity | Retention |
 | --- | --- | --- |
-| GridFS bucket | `agent_files` | `agent_memory` |
-| Namespace | `(agent_id, conversation_id, "filesystem")` | `(sub, "memory")` |
-| TTL | Configured, normally 6 hours | `0` — no expiry |
-| Backend path | default route | `/memories/` route |
+| Memory | `(owner_subject, "memory")` plus canonical path | No expiry |
+| Unscoped files | `(agent_id, conversation_id, "filesystem")` | Configured TTL |
+| Project files | `(agent_id, project_id, "filesystem")` | No expiry |
+| Project chats | `owner_subject + metadata.project_id` | Conversation policy |
 
-The immutable Keycloak `sub` is the owner key. Email fallback is allowed only
-in debug mode. The BFF is a thin proxy; parsing and rendering live in one Python
-codec.
-
-## Mounted files and permissions
-
-Every memory-enabled root graph mounts exactly two or three files:
+The Project memory file is the authoritative catalog entry:
 
 ```text
-/memories/global/AGENTS.md
-/memories/agents/<current-agent>/AGENTS.md
-/memories/namespaces/<conversation-namespace>/AGENTS.md  # optional
+/memories/projects/<project_id>/AGENTS.md
 ```
 
-The graph grants read and write access to those exact paths, followed by a deny
-for `/memories/**`. Inactive namespaces, another agent's file, and every memory
-path in a subagent are denied. `ls`, `glob`, and `grep` results are permission
-filtered as well as direct reads and writes.
-
-Mounted files are seeded with a visible stub:
-
 ```markdown
-<!-- caipe-memory:file v=1 scope=global -->
+<!-- caipe-memory:file v=1 scope=project project_id=project_a project_name=Project%20A -->
 _No memories saved here yet._
 ```
 
-The text line matters: upstream middleware removes HTML comments and omits an
-otherwise empty file, which would hide the writable path from the model.
+There is no second Project metadata collection. A unique GridFS index on
+`metadata.namespace + metadata.key` makes create-only Project creation
+race-safe. The codec restores file-level Project metadata after model edits.
 
-## File format
+## Runtime scope
 
-Records are ordinary Markdown sections with an invisible metadata delimiter:
-
-```markdown
-<!-- caipe-memory:file v=1 scope=global -->
-## Prefer concise answers
-<!-- caipe-memory:rec v=1 id=mem_0a1b2c3d4e5f60718293 title=Prefer%20concise%20answers src=agent by=agent-abc created=2026-01-02T03%3A04%3A05Z updated=2026-02-03T04%3A05%3A06Z -->
-
-Keep responses under five bullets unless asked for detail.
-```
-
-Marker values are percent encoded. Bodies reversibly escape HTML-comment
-delimiters and backslashes, so headings, horizontal rules, fenced code, and
-comment-like text round-trip. The codec adopts unmarked `##` sections, mints
-stable IDs, repairs malformed or duplicate IDs, and rejects normalized-title
-collisions. Titles are unique within one file; records are never silently
-merged by title.
-
-The API preserves `memory_id`, source, creator, and timestamps. Unknown
-`category` metadata remains readable for compatibility; it is not a product
-field. There is no `enabled` field—delete removes a record.
-
-## Request lifecycle
+A memory-enabled unscoped chat mounts Global and Agent memory. A
+memory-enabled Project chat mounts Global, Agent, and exactly the selected
+Project. A memory-disabled agent mounts no memory, even in a Project chat, but
+the Project still scopes files and history. Exact allow rules precede a final
+`/memories/**` deny. Subagents retain the full memory deny.
 
 ```mermaid
 sequenceDiagram
   participant U as User
-  participant API as Chat API
-  participant MCP as Namespace MCP
+  participant B as UI BFF
+  participant C as Platform config
+  participant P as Project API
   participant R as Agent runtime
   participant M as Memory store
+  participant F as File store
+  participant H as Conversations
 
-  U->>API: Create conversation(memory_namespace?)
-  opt namespace selected
-    API->>MCP: Resolve visible namespaces as caller
-    MCP-->>API: authorized keys
-    API->>API: validate and persist immutable key
+  U->>B: Create conversation(project_id?)
+  B->>C: Resolve platform Projects setting
+  opt Project selected
+    B->>P: Validate owned Project
   end
-  U->>API: Start turn(memory_enabled, memory_namespace)
-  API->>R: authorized user + conversation metadata
-  R->>M: reload mounted files
-  M-->>R: Markdown
-  R->>R: parse, repair, inject
-  R-->>U: memory_injected IDs
-  opt model edits mounted file
-    R->>M: preflight, edit, canonicalize
-    R-->>U: memory_update IDs + action
+  B->>B: Persist immutable metadata.project_id
+  U->>R: Start turn(project_id)
+  R->>H: Verify request matches stored Project
+  alt Memory enabled for this turn
+    R->>M: Load Global + Agent (+ selected Project)
+    M-->>R: Titled records with stable IDs
+  else Memory disabled
+    R->>R: Inject no memory and reject memory writes
+  end
+  alt Project selected
+    R->>F: Use (agent_id, project_id, filesystem)
+    opt Prior context needed
+      R->>H: Query owner + active Project history
+    end
+  else No Project
+    R->>F: Use (agent_id, conversation_id, filesystem)
   end
 ```
 
-The chat toggle gates automatic memory loading, prompt injection, and memory
-writes for a turn. Memory is reloaded every enabled turn so an external edit or
-an earlier model edit is immediately visible. Scheduled `/invoke` runs use the
-same non-expiring memory store and may carry `memory_namespace`.
+The selected Project is independent of `memory_enabled`. Disabling memory for
+a turn suppresses memory injection and writes, while Project files and history
+remain scoped to the conversation's immutable Project.
 
-## Namespace authorization
+## Project tools
 
-Namespaces may be static, supplied by a caller-authorized MCP tool, or custom
-when `allow_custom` is enabled. Dynamic results are cached briefly and selected
-keys are revalidated at conversation creation.
+When Projects are enabled platform-wide, root agents receive `list_projects`.
+Agents with `builtin_tools.create_project.enabled` also receive `create_project`.
+Project chats additionally receive `list_project_chats`,
+`search_project_chats`, and `read_project_chat`.
 
-`namespace_scoped_tools` removes a configured argument from the tool schema and
-binds the trusted conversation key. A `require_namespace` tool is absent in an
-unscoped chat. This prevents prompt text or model output from selecting another
-working context.
+The runtime closure binds `owner_subject` and `project_id`; neither appears as a
+model-controlled tool argument. History results contain bounded metadata or
+user/assistant transcript text. System messages, reasoning, traces, and file
+contents are excluded. History is queried on demand rather than injected.
 
-## Concurrency
+The sidebar Project list is not part of runtime scope selection. It creates
+Projects and filters the History UI. Only the new-chat picker writes
+`conversation.metadata.project_id`.
 
-The management API reads structured records, the read-only `AGENTS.md` source,
-and an etag. Add, Edit, and Delete are structured operations. Non-empty
-whole-file writes are rejected.
+## File authorization
 
-```mermaid
-sequenceDiagram
-  participant E as Memory manager
-  participant A as Agent
-  participant S as Memory API / store
+Conversation-facing file endpoints accept `conversation_id + agent_id`, load
+the owned conversation, verify the agent participant, read immutable
+`metadata.project_id`, and derive the namespace. This replaces the assumption
+that namespace component two is always a conversation ID.
 
-  E->>S: GET file
-  S-->>E: records + read-only source + etag A
-  A->>S: edit file
-  E->>S: PATCH record ID + etag A
-  S-->>E: 409 changed while editing
-  E->>E: preserve structured edit fields
-  E->>S: Reload, then retry PATCH
-```
+Clearing or deleting one Project chat does not delete its shared Project
+workspace. Unscoped conversation cleanup may delete its isolated workspace.
 
-The API also provides append and delete-by-ID operations, implemented as
-server-side parse/modify/render operations. Add and Edit require a non-empty
-title and body. A normalized-title collision returns a conflict naming the
-existing record; the client offers to edit it or choose another title. The UI
-shows a read-only Source with Copy and Download. An empty write resets a
-mounted file to the stub; an unmounted file is deleted.
-This clear-only operation is the sole whole-file write. Each file is limited to
-8,000 characters. Existing over-budget data is never truncated automatically.
+## Structured memory integrity
 
-## Security controls
+Memory records are Markdown `##` sections with hidden stable IDs and
+provenance. Manage Memory performs etag-protected Add, Edit, and Delete
+operations. Source is read-only. Normalized duplicate titles return `409`
+instead of merging. Clearing a Project file preserves its immutable marker and
+placeholder.
 
-- All memory endpoints derive `(sub, "memory")` from authenticated context;
-  request bodies never choose an owner or store namespace.
-- The dedicated two-part namespace is structurally rejected by generic file
-  APIs, which require three parts.
-- Generic file endpoints resolve the conversation in namespace element 2 and
-  require its owner on list, read, write, file delete, and namespace delete.
-- Memory bodies and `memory_contents` are removed from tracing spans.
-- `format_file` refuses `/memories/` paths because it is bound to the ordinary
-  filesystem store.
-- Subagents receive an explicit `/memories/**` deny.
+Manual Add requires a title and body and stores both without AI rewriting.
+Agent edits are reconciled back into the same record IDs and must use a unique
+title for each new fact. Heading-less legacy content is promoted once to a
+`General memory` compatibility record; agent writes to that record are
+rejected so unrelated facts cannot accumulate there.
 
-## Streaming events
-
-| Event | Data | Meaning |
-| --- | --- | --- |
-| `memory_injected` | `memory_ids` | Mounted records were supplied to the root model |
-| `memory_update` | `memory_ids`, `action` | Records were created, updated, or deleted |
-
-`memory_context_used` is removed. The UI parser maps persisted legacy events to
-`memory_injected` so old transcripts retain their badge.
+Streaming continues to emit `memory_injected` and `memory_update` record IDs,
+which power the injected-memory and updated-memory UI actions.

@@ -54,6 +54,7 @@ describe("admin platform-config route", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     delete process.env.DEFAULT_AGENT_ID;
+    delete process.env.PROJECTS_ENABLED;
     mockWithAuth.mockImplementation((_request, handler) =>
       handler(_request, { email: "admin@example.com" }, { sub: "admin-sub", role: "admin" }),
     );
@@ -720,5 +721,49 @@ describe("admin platform-config route", () => {
     const getBody = await (await GET(request("/api/admin/platform-config"))).json();
 
     expect(getBody.data.remote_mcp_catalog.enabled_providers).toEqual(["amplitude", "linear"]);
+  });
+
+  it("returns the deployment Projects default when no admin override exists", async () => {
+    process.env.PROJECTS_ENABLED = "true";
+    mockGetCollection.mockResolvedValue({
+      findOne: jest.fn().mockResolvedValue({ _id: "platform_settings" }),
+      updateOne: jest.fn(),
+    });
+    const { GET } = await import("../route");
+
+    const body = await (await GET(request("/api/admin/platform-config?projects-default=true"))).json();
+
+    expect(body.data.projects).toEqual({ enabled: true });
+    expect(body.data.projects_source).toBe("env");
+  });
+
+  it("persists the platform-wide Projects switch", async () => {
+    const updateOne = jest.fn().mockResolvedValue({ acknowledged: true });
+    mockGetCollection.mockResolvedValue({
+      findOne: jest.fn().mockResolvedValue({ _id: "platform_settings" }),
+      updateOne,
+    });
+    const { PATCH } = await import("../route");
+
+    const response = await PATCH(
+      request("/api/admin/platform-config", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projects: { enabled: true } }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect((await response.json()).data).toMatchObject({
+      projects: { enabled: true },
+      projects_source: "db",
+    });
+    expect(updateOne).toHaveBeenCalledWith(
+      { _id: "platform_settings" },
+      expect.objectContaining({
+        $set: expect.objectContaining({ projects: { enabled: true } }),
+      }),
+      { upsert: true },
+    );
   });
 });

@@ -39,8 +39,8 @@ function mockFetch({
   },
 }: {
   agents?: Array<{ _id: string; name: string; description?: string }>;
-  config?: { success: boolean; data?: { default_agent_id?: string | null; source?: string; release_notes?: unknown } };
-  patch?: { success: boolean };
+  config?: { success: boolean; data?: { default_agent_id?: string | null; source?: string; release_notes?: unknown; projects?: { enabled?: boolean }; projects_source?: string } };
+  patch?: { success: boolean; data?: { projects?: { enabled?: boolean } } };
   preferences?: {
     platform_default_agent_id?: string | null;
     web_default_agent_id?: string | null;
@@ -114,6 +114,28 @@ describe('PlatformSettingsTab', () => {
     expect(
       await screen.findByRole('option', { name: 'No default agent' }),
     ).toBeInTheDocument();
+  });
+
+  it('lets an admin enable Projects platform-wide', async () => {
+    mockFetch({
+      config: { success: true, data: { default_agent_id: null, projects: { enabled: false } } },
+      patch: { success: true, data: { projects: { enabled: true } } },
+    });
+    render(<PlatformSettingsTab isAdmin />);
+
+    const toggle = await screen.findByRole('checkbox', { name: 'Enable Projects platform-wide' });
+    fireEvent.click(toggle);
+    fireEvent.click(screen.getByTestId('projects-enabled-save'));
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        '/api/admin/platform-config',
+        expect.objectContaining({
+          method: 'PATCH',
+          body: JSON.stringify({ projects: { enabled: true } }),
+        }),
+      );
+    });
   });
 
   it('selects the configured default dynamic agent and shows its description', async () => {

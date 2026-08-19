@@ -79,7 +79,7 @@ export class CustomStreamAdapter implements StreamAdapter {
       agent_id: params.agentId,
       protocol: "custom",
       memory_enabled: params.memoryEnabled ?? true,
-      memory_namespace: params.memoryNamespace,
+      project_id: params.projectId,
       ...(params.clientContext && { client_context: params.clientContext }),
       ...(params.files?.length && { files: params.files }),
     });
@@ -95,7 +95,7 @@ export class CustomStreamAdapter implements StreamAdapter {
       resume_data: params.resumeData,
       protocol: "custom",
       memory_enabled: params.memoryEnabled ?? true,
-      memory_namespace: params.memoryNamespace,
+      project_id: params.projectId,
       ...(params.clientContext && { client_context: params.clientContext }),
     });
 

@@ -41,7 +41,7 @@ class ScheduleVersion(BaseModel):
   changed_fields: list[str] = Field(default_factory=list)
   title: str | None = None
   agent_id: str
-  memory_namespace: str | None = None
+  project_id: str | None = None
   edit_agent_id: str | None = None
   message_template: str
   attributes: dict[str, Any] = Field(default_factory=dict)
@@ -88,9 +88,9 @@ class ScheduleCreate(BaseModel):
     ...,
     description="Dynamic agent _id (e.g. 'agent-weekly-report'). Must exist in dynamic_agents collection.",
   )
-  memory_namespace: str | None = Field(
+  project_id: str | None = Field(
     default=None,
-    description="Optional immutable memory working-context key for each scheduled chat run.",
+    description="Optional immutable memory Project ID for each scheduled chat run.",
   )
   title: str = Field(
     ...,
@@ -139,14 +139,14 @@ class ScheduleCreate(BaseModel):
       raise ValueError("edit_agent_id must be a non-empty string")
     return value
 
-  @field_validator("memory_namespace")
+  @field_validator("project_id")
   @classmethod
-  def memory_namespace_must_not_be_blank(cls, value: str | None) -> str | None:
+  def project_id_must_not_be_blank(cls, value: str | None) -> str | None:
     if value is None:
       return value
     value = value.strip()
     if not value:
-      raise ValueError("memory_namespace must be a non-empty string")
+      raise ValueError("project_id must be a non-empty string")
     return value
 
 
@@ -156,7 +156,7 @@ class SchedulePatch(BaseModel):
   model_config = ConfigDict(extra="forbid")
 
   agent_id: str | None = None
-  memory_namespace: str | None = None
+  project_id: str | None = None
   edit_agent_id: str | None = None
   enabled: bool | None = None
   cron: str | None = None
@@ -186,14 +186,14 @@ class SchedulePatch(BaseModel):
       raise ValueError("edit_agent_id must be a non-empty string")
     return value
 
-  @field_validator("memory_namespace")
+  @field_validator("project_id")
   @classmethod
-  def patch_memory_namespace_must_not_be_blank(cls, value: str | None) -> str | None:
+  def patch_project_id_must_not_be_blank(cls, value: str | None) -> str | None:
     if value is None:
       return value
     value = value.strip()
     if not value:
-      raise ValueError("memory_namespace must be a non-empty string")
+      raise ValueError("project_id must be a non-empty string")
     return value
 
 
@@ -206,7 +206,7 @@ class Schedule(BaseModel):
   owner_sub: str | None = None
   owner_user_id: str
   agent_id: str
-  memory_namespace: str | None = None
+  project_id: str | None = None
   edit_agent_id: str | None = None
   title: str | None = None
   message_template: str

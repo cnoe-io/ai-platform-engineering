@@ -43,6 +43,7 @@ from dynamic_agents.routes import (
     mcp_servers,
     memories,
     middleware,
+    projects,
 )
 from dynamic_agents.services.mongo import get_mongo_service, reset_mongo_service
 from dynamic_agents.services.runtime_cache import RuntimeCapacityError, RuntimeInitError, get_runtime_cache
@@ -110,6 +111,17 @@ async def lifespan(app: FastAPI):
         store = MongoDBGridFSStore(db=mongo._db, bucket_name=settings.gridfs_bucket_name)
         store.ensure_ttl_index()
         logger.info("GridFS TTL index ensured (per-document expireAt)")
+        memory_store = MongoDBGridFSStore(
+            db=mongo._db,
+            bucket_name=settings.memory_gridfs_bucket_name,
+            ttl_seconds=0,
+        )
+        try:
+            memory_store.ensure_identity_index()
+            logger.info("Memory GridFS namespace/key identity index ensured")
+        except Exception as exc:  # noqa: BLE001 - report legacy duplicates without hiding startup
+            logger.error("Could not ensure memory identity index: %s", exc)
+            raise
 
     yield
 
@@ -171,6 +183,7 @@ def create_app() -> FastAPI:
     app.include_router(conversations.router, prefix="/api/v1")
     app.include_router(files.router, prefix="/api/v1")
     app.include_router(memories.router, prefix="/api/v1")
+    app.include_router(projects.router, prefix="/api/v1")
     app.include_router(assistant.router, prefix="/api/v1")
     app.include_router(middleware.router, prefix="/api/v1")
 

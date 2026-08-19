@@ -25,6 +25,7 @@ envTtlMs,
 withJsonResponseCache,
 } from '@/lib/server-response-cache';
 import { NextRequest,NextResponse } from 'next/server';
+import { projectsEnabledFromEnvironment } from '@/lib/projects-config';
 
 const platformConfigCache = createJsonResponseCacheStore();
 
@@ -34,6 +35,7 @@ interface PlatformConfigDoc extends PlatformDefaultAgentDocument {
   release_notes?: unknown;
   discovery_cache_ttl_minutes?: unknown;
   remote_mcp_catalog?: unknown;
+  projects?: unknown;
 }
 
 export interface CustomMCPCatalogEntry {
@@ -156,6 +158,11 @@ function normalizeReleaseNotesConfig(input: unknown = {}) {
   };
 }
 
+function normalizeProjectsConfig(input: unknown, fallback = false) {
+  const source = isRecord(input) ? input : {};
+  return { enabled: typeof source.enabled === 'boolean' ? source.enabled : fallback };
+}
+
 export const GET = withErrorHandler(async (request: NextRequest) => {
   return withJsonResponseCache(request, platformConfigCache, () => getPlatformConfig(request), {
     ttlMs: envTtlMs('PLATFORM_CONFIG_CACHE_TTL_MS', 10_000),
@@ -200,6 +207,10 @@ async function getPlatformConfig(request: NextRequest) {
         slack_victorops_escalation_agent_id: victoropsAgentId ?? victoropsEnvFallback,
         slack_victorops_escalation_agent_source: victoropsAgentId ? 'db' : (victoropsEnvFallback ? 'env' : 'fallback'),
         release_notes: normalizeReleaseNotesConfig(doc?.release_notes),
+        projects: normalizeProjectsConfig(doc?.projects, projectsEnabledFromEnvironment()),
+        projects_source: isRecord(doc?.projects) && typeof doc.projects.enabled === 'boolean'
+          ? 'db'
+          : (process.env.PROJECTS_ENABLED ? 'env' : 'fallback'),
         discovery_cache_ttl_minutes: discoveryTtlMinutes,
         // Default (no config saved yet) is "disable all" — operators opt in
         // per provider rather than every built-in showing up unconfigured.
@@ -252,6 +263,13 @@ export const PATCH = withErrorHandler(async (request: NextRequest) => {
 
     if (body.release_notes) {
       update.release_notes = normalizeReleaseNotesConfig(body.release_notes);
+    }
+
+    if (Object.prototype.hasOwnProperty.call(body, 'projects')) {
+      if (!isRecord(body.projects) || typeof body.projects.enabled !== 'boolean') {
+        throw new ApiError('projects.enabled must be a boolean', 400, 'INVALID_PROJECTS_CONFIG');
+      }
+      update.projects = normalizeProjectsConfig(body.projects);
     }
 
     // Slack/Webex discovery cache TTL. Accept an integer minute count.
@@ -355,6 +373,7 @@ export const PATCH = withErrorHandler(async (request: NextRequest) => {
           ? { slack_victorops_escalation_agent_id: update.slack_victorops_escalation_agent_id }
           : {}),
         ...(update.release_notes ? { release_notes: update.release_notes } : {}),
+        ...(update.projects ? { projects: update.projects, projects_source: 'db' } : {}),
         ...(Object.prototype.hasOwnProperty.call(update, 'discovery_cache_ttl_minutes')
           ? { discovery_cache_ttl_minutes: update.discovery_cache_ttl_minutes }
           : {}),

@@ -6,7 +6,7 @@ patch, and delete schedules.
 
 ## Tools
 
-- `create_schedule(agent_id, title, message_template, cron, tz, memory_namespace?, attributes?, edit_agent_id?, http_timeout_seconds?)`
+- `create_schedule(agent_id, title, message_template, cron, tz, project_id?, attributes?, edit_agent_id?, http_timeout_seconds?)`
 - `list_schedules(agent_id?)`
 - `get_schedule(schedule_id)`
 - `update_schedule(schedule_id, [enabled|cron|tz|message_template|title|attributes|edit_agent_id|http_timeout_seconds])`

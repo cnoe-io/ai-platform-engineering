@@ -117,7 +117,7 @@ async function ensureScheduledConversation(
     trace_id: traceId,
     owner_user_id: owner.email,
     actor_client_id: schedulerActorClientId(),
-    memory_namespace: stringValue(body.memory_namespace),
+    project_id: stringValue(body.project_id),
   };
 
   const conversationUpdate: UpdateFilter<ScheduledConversation> = {
@@ -363,7 +363,7 @@ async function handleScheduledInvoke(
   body = {
     ...body,
     agent_id: scheduledRun.agentId,
-    memory_namespace: scheduledRun.memoryNamespace,
+    project_id: scheduledRun.projectId,
     owner_user_id: scheduledRun.email,
     client_context: {
       ...clientContext,

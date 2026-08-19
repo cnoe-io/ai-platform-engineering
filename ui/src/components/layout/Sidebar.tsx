@@ -15,6 +15,7 @@ import { getErrorMessage } from "@/lib/error-utils";
 import { getStorageMode } from "@/lib/storage-config";
 import { cn,formatDate,truncateText } from "@/lib/utils";
 import { useChatStore } from "@/store/chat-store";
+import { useProjectsEnabled } from "@/hooks/use-projects-enabled";
 import type { Conversation } from "@/types/a2a";
 import { getAgentId } from "@/types/a2a";
 import { AnimatePresence,motion } from "framer-motion";
@@ -27,6 +28,7 @@ ChevronRight,
 Database,
 HardDrive,
 History,
+FolderKanban,
 MessageCircleQuestion,
 MessageSquare,
 Pencil,
@@ -43,6 +45,7 @@ import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import {
   useEffect,
+  useCallback,
   useState,
   useTransition,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -107,9 +110,75 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
   const [editingTitle, setEditingTitle] = useState("");
   const [renameSavingId, setRenameSavingId] = useState<string | null>(null);
   const { toast } = useToast();
+  const projectsEnabled = useProjectsEnabled();
 
   // Agent name lookup for dynamic agent conversations
   const [agentNameMap, setAgentNameMap] = useState<Record<string, string>>({});
+  const [projectNameMap, setProjectNameMap] = useState<Record<string, string>>({});
+  const [projectFilter, setProjectFilter] = useState("");
+  const [creatingProject, setCreatingProject] = useState(false);
+  const [projectName, setProjectName] = useState("");
+  const [savingProject, setSavingProject] = useState(false);
+
+  const loadProjects = useCallback(async () => {
+    if (activeTab !== "chat" || !projectsEnabled) {
+      setProjectNameMap({});
+      setProjectFilter("");
+      return;
+    }
+    await fetch("/api/user/projects", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((payload) => {
+        const map: Record<string, string> = {};
+        for (const project of Array.isArray(payload.data?.items) ? payload.data.items : []) {
+          if (typeof project.id === "string" && typeof project.name === "string") {
+            map[project.id] = project.name;
+          }
+        }
+        setProjectNameMap(map);
+      })
+      .catch(() => setProjectNameMap({}));
+  }, [activeTab, projectsEnabled]);
+
+  useEffect(() => { void loadProjects(); }, [loadProjects]);
+
+  const handleCreateProject = useCallback(async () => {
+    const name = projectName.trim();
+    if (!name || savingProject) return;
+    setSavingProject(true);
+    try {
+      const response = await fetch("/api/user/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) {
+        const detail = payload.detail;
+        const message = typeof detail === "string"
+          ? detail
+          : detail?.message || payload.error || "Failed to create Project";
+        throw new Error(message);
+      }
+      const project = payload.data?.project as { id?: unknown; name?: unknown } | undefined;
+      if (typeof project?.id !== "string" || typeof project.name !== "string") {
+        throw new Error("Project was created but the response was invalid");
+      }
+      setProjectNameMap((current) => ({ ...current, [project.id as string]: project.name as string }));
+      setProjectFilter(project.id);
+      setProjectName("");
+      setCreatingProject(false);
+      toast(`Created Project “${project.name}”`, "success");
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Failed to create Project", "error");
+    } finally {
+      setSavingProject(false);
+    }
+  }, [projectName, savingProject, toast]);
+
+  const visibleConversations = projectFilter
+    ? conversations.filter((conversation) => conversation.metadata?.project_id === projectFilter)
+    : conversations;
 
   // Load conversations from server when sidebar mounts (MongoDB mode only)
   // Also re-sync when tab becomes visible (user switches back from another browser/tab)
@@ -393,13 +462,93 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
         </div>
       )}
 
+      {activeTab === "chat" && projectsEnabled && !collapsed && (
+        <div className="shrink-0 border-b border-border/50 px-3 pb-3">
+          <div className="flex items-center gap-2 py-2 text-xs uppercase tracking-wider text-muted-foreground">
+            <FolderKanban className="h-3 w-3" />
+            <span className="flex-1">Projects</span>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-5 w-5 hover:bg-muted"
+              onClick={() => setCreatingProject((value) => !value)}
+              aria-label="Create Project"
+            >
+              <Plus className="h-3 w-3" />
+            </Button>
+          </div>
+          {creatingProject && (
+            <div className="mb-2 flex gap-1">
+              <input
+                autoFocus
+                aria-label="Project name"
+                value={projectName}
+                onChange={(event) => setProjectName(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") void handleCreateProject();
+                  if (event.key === "Escape") setCreatingProject(false);
+                }}
+                placeholder="Project name"
+                maxLength={128}
+                className="h-7 min-w-0 flex-1 rounded border bg-background px-2 text-xs"
+              />
+              <Button
+                size="sm"
+                className="h-7 px-2 text-xs"
+                onClick={() => void handleCreateProject()}
+                disabled={!projectName.trim() || savingProject}
+              >
+                {savingProject ? <RefreshCw className="h-3 w-3 animate-spin" /> : "Create"}
+              </Button>
+            </div>
+          )}
+          {Object.keys(projectNameMap).length === 0 ? (
+            <p className="py-1 text-xs text-muted-foreground">No Projects yet</p>
+          ) : (
+            <div className="max-h-32 space-y-1 overflow-y-auto" aria-label="Projects">
+              {Object.entries(projectNameMap)
+                .sort(([, left], [, right]) => left.localeCompare(right))
+                .map(([id, name]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    aria-pressed={projectFilter === id}
+                    onClick={() => setProjectFilter(id)}
+                    className={cn(
+                      "flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs transition-colors",
+                      projectFilter === id
+                        ? "bg-primary/10 font-medium text-primary"
+                        : "text-foreground hover:bg-muted",
+                    )}
+                  >
+                    <FolderKanban className="h-3 w-3 shrink-0" />
+                    <span className="truncate">{name}</span>
+                  </button>
+                ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Chat History */}
       {activeTab === "chat" && (
         <div className="flex-1 overflow-hidden flex flex-col min-w-0">
           {!collapsed && (
             <div className="px-3 py-2 flex items-center gap-2 text-xs text-muted-foreground uppercase tracking-wider shrink-0">
               <History className="h-3 w-3" />
-              <span className="flex-1">History</span>
+              <span className="flex-1 truncate">
+                {projectFilter ? projectNameMap[projectFilter] || "Project" : "History"}
+              </span>
+              {projectFilter && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-1.5 text-[10px] normal-case tracking-normal"
+                  onClick={() => setProjectFilter("")}
+                >
+                  Back to all chats
+                </Button>
+              )}
               {storageMode === 'mongodb' && (
                 <TooltipProvider delayDuration={300}>
                   <Tooltip>
@@ -426,7 +575,7 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
           <ScrollArea className="flex-1 min-w-0">
             <div className="px-2 space-y-1 pb-4">
               <AnimatePresence mode="popLayout">
-                {conversations.map((conv, index) => {
+                {visibleConversations.map((conv, index) => {
                   const currentUserEmail = session?.user?.email?.trim().toLowerCase();
                   const ownerEmail = conv.owner_id?.trim().toLowerCase();
                   const viewerIsKnownOwner =
@@ -573,6 +722,14 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
                                     title={scheduleBadge.title}
                                   >
                                     {truncateText(scheduleBadge.label, sidebarWidth > 350 ? 24 : 18)}
+                                  </span>
+                                )}
+                                {typeof conv.metadata?.project_id === "string" && (
+                                  <span
+                                    className="shrink-0 max-w-[112px] truncate rounded border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium normal-case tracking-normal text-primary"
+                                    title={`Project: ${projectNameMap[conv.metadata.project_id] || conv.metadata.project_id}`}
+                                  >
+                                    {truncateText(projectNameMap[conv.metadata.project_id] || conv.metadata.project_id, 16)}
                                   </span>
                                 )}
                               </>

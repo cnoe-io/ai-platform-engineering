@@ -60,8 +60,8 @@ export interface StreamParams {
   files?: Array<{ mime_type: string; data: string; name: string }>;
   /** Whether memory should be injected and memory tools enabled for this chat run */
   memoryEnabled?: boolean;
-  /** Immutable memory working context selected when the conversation was created */
-  memoryNamespace?: string;
+  /** Immutable Project selected when the conversation was created */
+  projectId?: string;
 }
 
 // ═══════════════════════════════════════════════════════════════

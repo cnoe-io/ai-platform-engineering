@@ -15,18 +15,14 @@ BuiltinToolConfigField,
 BuiltinToolDefinition,
 BuiltinToolsConfig,
 GenericToolConfig,
-MCPServerConfig,
-MCPToolInfo,
-MemoryToolConfig,
-NamespaceScopedToolsConfig,
 } from "@/types/dynamic-agent";
-import { ChevronDown,ChevronRight,Globe,Info,Loader2,Play,Settings } from "lucide-react";
+import { ChevronDown,ChevronRight,Globe,Info,Loader2,Settings } from "lucide-react";
 import React from "react";
-import YAML from "yaml";
 
 interface BuiltinToolsPickerProps {
   value: BuiltinToolsConfig | undefined;
   onChange: (value: BuiltinToolsConfig) => void;
+  allowedTools: Record<string, string[] | boolean>;
   disabled?: boolean;
 }
 
@@ -94,11 +90,13 @@ function ToolConfig({
   definition,
   config,
   onChange,
+  allowedTools,
   disabled,
 }: {
   definition: BuiltinToolDefinition;
   config: GenericToolConfig | undefined;
   onChange: (config: GenericToolConfig) => void;
+  allowedTools: Record<string, string[] | boolean>;
   disabled?: boolean;
 }) {
   const [expanded, setExpanded] = React.useState(false);
@@ -204,375 +202,6 @@ function ToolConfig({
         </div>
       )}
 
-      {definition.id === "memory" && isEnabled && (
-        <MemoryToolSection
-          value={(config || { enabled: true }) as MemoryToolConfig}
-          onChange={(next) => onChange(next as unknown as GenericToolConfig)}
-          disabled={disabled}
-        />
-      )}
-    </div>
-  );
-}
-
-function schemaProperties(tool: MCPToolInfo): string[] {
-  const schema = tool.inputSchema ?? tool.input_schema;
-  if (!schema || typeof schema !== "object" || Array.isArray(schema)) return [];
-  const properties = (schema as { properties?: unknown }).properties;
-  return properties && typeof properties === "object" && !Array.isArray(properties)
-    ? Object.keys(properties)
-    : [];
-}
-
-export function suggestNamespaceBindings(
-  server: string,
-  tools: MCPToolInfo[],
-  bindArg: string,
-  sourceTool?: string,
-): NamespaceScopedToolsConfig[] {
-  const matches = tools
-    .filter((tool) => tool.name !== sourceTool && schemaProperties(tool).includes(bindArg))
-    .map((tool) => tool.name);
-  return matches.length > 0
-    ? [{ server, tools: matches, bind_arg: bindArg, require_namespace: true }]
-    : [];
-}
-
-function decodeSample(value: unknown): unknown {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
-  const result = (value as { result?: unknown }).result ?? value;
-  if (!result || typeof result !== "object" || Array.isArray(result)) return result;
-  const content = (result as { content?: unknown }).content;
-  if (!Array.isArray(content) || content.length !== 1) return result;
-  const text = (content[0] as { text?: unknown } | undefined)?.text;
-  if (typeof text !== "string") return result;
-  try {
-    return JSON.parse(text);
-  } catch {
-    return text;
-  }
-}
-
-function sampleLeafPaths(value: unknown, prefix = ""): string[] {
-  if (Array.isArray(value)) {
-    return value.length > 0 ? sampleLeafPaths(value[0], `${prefix}[]`) : [];
-  }
-  if (value && typeof value === "object") {
-    return Object.entries(value as Record<string, unknown>).flatMap(([key, child]) =>
-      sampleLeafPaths(child, prefix ? `${prefix}.${key}` : key)
-    );
-  }
-  return prefix ? [prefix] : [];
-}
-
-function MemoryToolSection({
-  value,
-  onChange,
-  disabled,
-}: {
-  value: MemoryToolConfig;
-  onChange: (value: MemoryToolConfig) => void;
-  disabled?: boolean;
-}) {
-  const [servers, setServers] = React.useState<MCPServerConfig[]>([]);
-  const [tools, setTools] = React.useState<MCPToolInfo[]>([]);
-  const [loadingTools, setLoadingTools] = React.useState(false);
-  const [argsText, setArgsText] = React.useState(() =>
-    JSON.stringify(value.namespace_source?.args || {}, null, 2)
-  );
-  const [sample, setSample] = React.useState<unknown>(null);
-  const [error, setError] = React.useState<string | null>(null);
-  const source = value.namespace_source;
-
-  React.useEffect(() => {
-    let cancelled = false;
-    void fetch("/api/mcp-servers?page_size=100")
-      .then((response) => response.json())
-      .then((payload) => {
-        if (!cancelled) setServers(Array.isArray(payload.data?.items) ? payload.data.items : []);
-      })
-      .catch(() => {
-        if (!cancelled) setServers([]);
-      });
-    return () => { cancelled = true; };
-  }, []);
-
-  const updateSource = (patch: Partial<NonNullable<MemoryToolConfig["namespace_source"]>>) => {
-    const next = {
-      server: source?.server || "",
-      tool: source?.tool || "",
-      args: source?.args || {},
-      key_path: source?.key_path || "",
-      label_path: source?.label_path || "",
-      ...patch,
-    };
-    onChange({ ...value, namespace_source: next });
-  };
-
-  const probe = async (serverId: string) => {
-    setLoadingTools(true);
-    setError(null);
-    setTools([]);
-    try {
-      const response = await fetch(`/api/mcp-servers/probe?id=${encodeURIComponent(serverId)}`, {
-        method: "POST",
-      });
-      const payload = await response.json();
-      if (!response.ok || !payload.success || payload.data?.success === false) {
-        throw new Error(payload.data?.error || payload.error || "Could not load tools");
-      }
-      setTools(Array.isArray(payload.data?.tools) ? payload.data.tools : []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not load tools");
-    } finally {
-      setLoadingTools(false);
-    }
-  };
-
-  const runSample = async () => {
-    if (!source?.server || !source.tool) return;
-    setError(null);
-    try {
-      const args = JSON.parse(argsText || "{}") as unknown;
-      if (!args || typeof args !== "object" || Array.isArray(args)) {
-        throw new Error("Arguments must be a JSON object");
-      }
-      const response = await fetch("/api/mcp-servers/test-tool", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ serverId: source.server, toolName: source.tool, params: args }),
-      });
-      const payload = await response.json();
-      if (!response.ok || !payload.success) throw new Error(payload.error || "Tool call failed");
-      setSample(decodeSample(payload.data));
-      updateSource({ args: args as Record<string, unknown> });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Tool call failed");
-    }
-  };
-
-  const bindArg = source?.key_path?.replace(/\[\]/g, "").split(".").at(-1) || "";
-  const suggested = source?.server && bindArg
-    ? suggestNamespaceBindings(source.server, tools, bindArg, source.tool)
-    : [];
-  const sourceBindings = new Map<string, boolean>();
-  for (const binding of value.namespace_scoped_tools || []) {
-    if (binding.server !== source?.server || binding.bind_arg !== bindArg) continue;
-    for (const toolName of binding.tools) {
-      sourceBindings.set(toolName, binding.require_namespace);
-    }
-  }
-  const selected = new Set(sourceBindings.keys());
-
-  const writeSourceBindings = (next: Map<string, boolean>) => {
-    const other = (value.namespace_scoped_tools || []).filter(
-      (item) => item.server !== source?.server || item.bind_arg !== bindArg,
-    );
-    onChange({
-      ...value,
-      namespace_scoped_tools: [
-        ...other,
-        ...Array.from(next, ([toolName, requireNamespace]) => ({
-          server: source?.server || "",
-          tools: [toolName],
-          bind_arg: bindArg,
-          require_namespace: requireNamespace,
-        })),
-      ],
-    });
-  };
-
-  const toggleSuggested = (toolName: string) => {
-    if (!source?.server || !bindArg) return;
-    const next = new Map(sourceBindings);
-    if (next.has(toolName)) next.delete(toolName); else next.set(toolName, true);
-    writeSourceBindings(next);
-  };
-
-  const toggleRequired = (toolName: string) => {
-    const next = new Map(sourceBindings);
-    next.set(toolName, !(next.get(toolName) ?? true));
-    writeSourceBindings(next);
-  };
-
-  return (
-    <div className="space-y-3 border-t bg-muted/20 px-3 py-3">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <p className="text-xs font-medium">Memory namespaces</p>
-          <p className="text-xs text-muted-foreground">Choose a list tool, sample its response, then select key and label fields.</p>
-        </div>
-        <label className="flex items-center gap-2 text-xs">
-          <input
-            type="checkbox"
-            checked={value.allow_custom ?? false}
-            onChange={(event) => onChange({ ...value, allow_custom: event.target.checked })}
-            disabled={disabled}
-          />
-          Allow custom
-        </label>
-      </div>
-
-      <div className="space-y-2 rounded-md border bg-background/50 p-2">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-xs font-medium">Static contexts</p>
-            <p className="text-xs text-muted-foreground">Optional contexts that do not come from the MCP list tool.</p>
-          </div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={disabled}
-            onClick={() => {
-              const namespaces = [...(value.namespaces || [])];
-              let index = namespaces.length + 1;
-              while (namespaces.some((item) => item.key === `context-${index}`)) index += 1;
-              namespaces.push({ key: `context-${index}`, label: `Context ${index}` });
-              onChange({ ...value, namespaces });
-            }}
-          >
-            Add static
-          </Button>
-        </div>
-        {(value.namespaces || []).map((namespace, index) => (
-          <div key={`${namespace.key}-${index}`} className="grid grid-cols-[1fr_1fr_auto] gap-2">
-            <Input
-              aria-label={`Static context ${index + 1} key`}
-              value={namespace.key}
-              disabled={disabled}
-              className="h-8 font-mono text-xs"
-              onChange={(event) => {
-                const namespaces = [...(value.namespaces || [])];
-                namespaces[index] = { ...namespace, key: event.target.value.toLowerCase() };
-                onChange({ ...value, namespaces });
-              }}
-            />
-            <Input
-              aria-label={`Static context ${index + 1} label`}
-              value={namespace.label}
-              disabled={disabled}
-              className="h-8 text-xs"
-              onChange={(event) => {
-                const namespaces = [...(value.namespaces || [])];
-                namespaces[index] = { ...namespace, label: event.target.value };
-                onChange({ ...value, namespaces });
-              }}
-            />
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              disabled={disabled}
-              onClick={() => onChange({
-                ...value,
-                namespaces: (value.namespaces || []).filter((_, itemIndex) => itemIndex !== index),
-              })}
-            >
-              Remove
-            </Button>
-          </div>
-        ))}
-      </div>
-
-      <div className="grid gap-2 sm:grid-cols-2">
-        <select
-          value={source?.server || ""}
-          disabled={disabled}
-          onChange={(event) => {
-            if (!event.target.value) {
-              onChange({ ...value, namespace_source: undefined });
-              setTools([]);
-              setSample(null);
-              return;
-            }
-            updateSource({ server: event.target.value, tool: "", key_path: "", label_path: "" });
-            setSample(null);
-            void probe(event.target.value);
-          }}
-          className="h-8 rounded-md border bg-background px-2 text-xs"
-        >
-          <option value="">Select MCP server…</option>
-          {servers.map((server) => <option key={server._id} value={server._id}>{server.name}</option>)}
-        </select>
-        <select
-          value={source?.tool || ""}
-          disabled={disabled || loadingTools || !source?.server}
-          onChange={(event) => updateSource({ tool: event.target.value })}
-          className="h-8 rounded-md border bg-background px-2 text-xs"
-        >
-          <option value="">{loadingTools ? "Loading tools…" : "Select list tool…"}</option>
-          {tools.map((tool) => <option key={tool.name} value={tool.name}>{tool.name}</option>)}
-        </select>
-      </div>
-
-      <div className="flex gap-2">
-        <Input
-          value={argsText}
-          onChange={(event) => setArgsText(event.target.value)}
-          aria-label="Namespace source arguments"
-          className="h-8 font-mono text-xs"
-        />
-        <Button type="button" variant="outline" size="sm" onClick={() => void runSample()} disabled={disabled || !source?.tool}>
-          <Play className="h-3 w-3" /> Sample
-        </Button>
-      </div>
-
-      {sample !== null && (
-        <div className="rounded-md border bg-background p-2">
-          <p className="mb-1 text-xs text-muted-foreground">Click once for the key, then for the label:</p>
-          <div className="flex flex-wrap gap-1">
-            {sampleLeafPaths(sample).map((path) => (
-              <Button
-                key={path}
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-7 font-mono text-xs"
-                onClick={() => updateSource(source?.key_path ? { label_path: path } : { key_path: path })}
-              >
-                {path}
-              </Button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div className="grid gap-2 sm:grid-cols-2">
-        <Input value={source?.key_path || ""} onChange={(event) => updateSource({ key_path: event.target.value })} placeholder="Key path, e.g. pods[].pod_id" className="h-8 font-mono text-xs" />
-        <Input value={source?.label_path || ""} onChange={(event) => updateSource({ label_path: event.target.value })} placeholder="Label path, e.g. pods[].pod_name" className="h-8 font-mono text-xs" />
-      </div>
-
-      {suggested.flatMap((group) => group.tools).length > 0 && (
-        <div>
-          <p className="mb-1 text-xs font-medium">Suggested trusted bindings for <code>{bindArg}</code></p>
-          <div className="space-y-1.5">
-            {suggested.flatMap((group) => group.tools).map((toolName) => (
-              <div key={toolName} className="flex items-center justify-between gap-4 text-xs">
-                <label className="flex items-center gap-1.5">
-                  <input type="checkbox" checked={selected.has(toolName)} onChange={() => toggleSuggested(toolName)} disabled={disabled} />
-                  {toolName}
-                </label>
-                <label className="flex items-center gap-1.5 text-muted-foreground">
-                  <input
-                    type="checkbox"
-                    checked={sourceBindings.get(toolName) ?? true}
-                    onChange={() => toggleRequired(toolName)}
-                    disabled={disabled || !selected.has(toolName)}
-                  />
-                  Require context
-                </label>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {error && <p className="text-xs text-red-500">{error}</p>}
-      <details>
-        <summary className="cursor-pointer text-xs text-muted-foreground">Generated YAML</summary>
-        <pre className="mt-1 overflow-auto rounded-md bg-background p-2 text-xs">{YAML.stringify({ builtin_tools: { memory: value } })}</pre>
-      </details>
     </div>
   );
 }
@@ -710,7 +339,7 @@ function ConfigField({
   return null;
 }
 
-export function BuiltinToolsPicker({ value, onChange, disabled }: BuiltinToolsPickerProps) {
+export function BuiltinToolsPicker({ value, onChange, allowedTools, disabled }: BuiltinToolsPickerProps) {
   const { definitions, loading, error } = useBuiltinToolDefinitions();
 
   // Track whether we've initialized defaults for the current definitions.
@@ -827,6 +456,7 @@ export function BuiltinToolsPicker({ value, onChange, disabled }: BuiltinToolsPi
             definition={definition}
             config={(value as Record<string, GenericToolConfig | undefined>)?.[definition.id]}
             onChange={(config) => handleToolChange(definition.id, config)}
+            allowedTools={allowedTools}
             disabled={disabled}
           />
         ))}

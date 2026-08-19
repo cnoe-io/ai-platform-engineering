@@ -29,6 +29,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { AuthGuard } from "@/components/auth-guard";
+import { ProjectPicker } from "@/components/chat/ProjectPicker";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -48,6 +49,7 @@ import { humanizeCron } from "@/lib/cron-humanize";
 import { getConfig } from "@/lib/config";
 import { resolveUsableChatAgentId } from "@/lib/chat-agent-selection";
 import { useChatStore } from "@/store/chat-store";
+import { useProjectsEnabled } from "@/hooks/use-projects-enabled";
 
 interface ScheduleRun {
   ts: string | null;
@@ -89,7 +91,7 @@ interface ScheduleVersion {
   changed_fields: string[];
   title: string | null;
   agent_id: string;
-  memory_namespace: string | null;
+  project_id: string | null;
   edit_agent_id: string | null;
   message_template: string;
   attributes: Record<string, unknown>;
@@ -124,7 +126,7 @@ type ScheduleHistoryEntry =
 interface ScheduleItem {
   schedule_id: string;
   agent_id: string;
-  memory_namespace: string | null;
+  project_id: string | null;
   edit_agent_id: string | null;
   agent_name: string;
   title: string | null;
@@ -492,6 +494,7 @@ async function resolveConfiguredScheduleEditorAgentId(): Promise<string | null> 
 
 export default function SchedulesPage() {
   const router = useRouter();
+  const projectsEnabled = useProjectsEnabled();
   const createConversation = useChatStore((state) => state.createConversation);
   const setPendingMessage = useChatStore((state) => state.setPendingMessage);
   const [items, setItems] = useState<ScheduleItem[]>([]);
@@ -506,7 +509,7 @@ export default function SchedulesPage() {
   const [editCron, setEditCron] = useState("");
   const [editTz, setEditTz] = useState("");
   const [editMessage, setEditMessage] = useState("");
-  const [editMemoryNamespace, setEditMemoryNamespace] = useState("");
+  const [editProjectId, setEditProjectId] = useState("");
   const [clockTick, setClockTick] = useState(() => Date.now());
   const [serverClock, setServerClock] = useState<{
     serverNowMs: number;
@@ -575,7 +578,7 @@ export default function SchedulesPage() {
     setEditCron(item.cron);
     setEditTz(item.tz);
     setEditMessage(item.message_template);
-    setEditMemoryNamespace(item.memory_namespace || "");
+    setEditProjectId(item.project_id || "");
   }, []);
 
   const toggleOneOffRuns = useCallback((scheduleId: string) => {
@@ -611,7 +614,7 @@ export default function SchedulesPage() {
     setEditCron(updated.cron);
     setEditTz(updated.tz);
     setEditMessage(updated.message_template);
-    setEditMemoryNamespace(updated.memory_namespace || "");
+    setEditProjectId(updated.project_id || "");
   }, []);
 
   const toggleSchedule = useCallback(async (item: ScheduleItem) => {
@@ -681,7 +684,7 @@ export default function SchedulesPage() {
         title?: string;
         attributes?: Record<string, unknown>;
         edit_agent_id?: string | null;
-        memory_namespace?: string | null;
+        project_id?: string | null;
       },
       failureMessage: string
     ) => {
@@ -721,14 +724,14 @@ export default function SchedulesPage() {
         cron: editCron,
         tz: editTz,
         message_template: editMessage,
-        memory_namespace: editMemoryNamespace.trim() || null,
+        project_id: editProjectId.trim() || null,
       },
       "Failed to update schedule"
     );
     if (saved) {
       setEditingItem(null);
     }
-  }, [editCron, editMemoryNamespace, editMessage, editTitle, editTz, editingItem, patchSchedule]);
+  }, [editCron, editProjectId, editMessage, editTitle, editTz, editingItem, patchSchedule]);
 
   const rollbackToVersion = useCallback(
     async (version: ScheduleVersion) => {
@@ -738,7 +741,7 @@ export default function SchedulesPage() {
         {
           ...(version.title ? { title: version.title } : {}),
           edit_agent_id: version.edit_agent_id,
-          memory_namespace: version.memory_namespace,
+          project_id: version.project_id,
           attributes: version.attributes,
           cron: version.cron,
           tz: version.tz,
@@ -950,19 +953,18 @@ export default function SchedulesPage() {
                           />
                         </div>
 
-                        <div className="space-y-2">
-                          <Label htmlFor="schedule-memory-namespace">Memory namespace</Label>
-                          <Input
-                            id="schedule-memory-namespace"
-                            value={editMemoryNamespace}
-                            onChange={(event) => setEditMemoryNamespace(event.target.value)}
-                            placeholder="No namespace"
-                            className="font-mono"
-                          />
-                          <p className="text-xs text-muted-foreground">
-                            Scheduled chats mount this working context. Clear it for an unscoped run.
-                          </p>
-                        </div>
+                        {projectsEnabled && (
+                          <div className="space-y-2">
+                            <Label>Project</Label>
+                            <ProjectPicker
+                              value={editProjectId || undefined}
+                              onChange={(value) => setEditProjectId(value || "")}
+                            />
+                            <p className="text-xs text-muted-foreground">
+                              Scheduled chats use the selected Project workspace and, when Memory is enabled, its memory. Choose No project for an unscoped run.
+                            </p>
+                          </div>
+                        )}
 
                         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                           <div className="text-xs text-muted-foreground">
@@ -1279,9 +1281,9 @@ export default function SchedulesPage() {
                                 <div className="text-xs text-muted-foreground">
                                   Timezone: {item.tz}
                                 </div>
-                                {item.memory_namespace && (
+                                {item.project_id && (
                                   <div className="text-xs text-muted-foreground">
-                                    Memory: {item.memory_namespace}
+                                    Project: {item.project_id}
                                   </div>
                                 )}
                                 <div className="text-xs text-muted-foreground">

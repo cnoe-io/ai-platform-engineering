@@ -3,15 +3,22 @@
 from __future__ import annotations
 
 from dynamic_agents.routes.agents import router
+from dynamic_agents.routes.projects import router as projects_router
 
 
 def test_dynamic_agents_service_does_not_ship_agent_crud_router() -> None:
     """The BFF owns agent configuration writes; DA only serves runtime routes."""
 
-    routes = {
+    agent_routes = {
         (method, route.path)
         for route in router.routes
         for method in (route.methods or set())
     }
+    project_routes = {
+        (method, route.path)
+        for route in projects_router.routes
+        for method in (route.methods or set())
+    }
 
-    assert routes == {("GET", "/agents/{agent_id}/memory-namespaces")}
+    assert agent_routes == set()
+    assert project_routes == {("GET", "/projects"), ("POST", "/projects")}

@@ -2,6 +2,9 @@
 
 **Branch**: `2026-08-05-memory-deepagents-refactor` | **Date**: 2026-08-05
 
+> Superseded for working-context behavior by
+> [Project Memory and Shared Workspaces](../2026-08-13-project-memory-shared-workspace/plan.md).
+
 ## Context
 
 User memory is hand-rolled: a Mongo `user_memories` collection, a `UserMemoryService` data layer,
@@ -44,7 +47,7 @@ Three memory scopes, encoded as file paths under one user-scoped store namespace
 |---|---|---|
 | 1 | Namespace is set at conversation creation and **immutable**; a button opens a new scoped chat, and using it is optional | It's a working context; switching mid-chat smears memory across two contexts and would force either a graph rebuild or a permission relaxation (the latter being a confidentiality leak) |
 | 1b | The new scoped chat carries **no prior messages** — only a `continued_from` link and the pod record from the triggering tool result | The reason for a new chat is that earlier turns were reasoned *without* the pod context; copying them drags that in along with other pods' tool results. The mounted namespace memory file is the continuity mechanism |
-| 2 | Namespaces sourced three ways: static `namespaces: [{key,label}]`, dynamic `namespace_source` (an MCP tool), or `allow_custom` | Real namespace sets are dynamic data owned by an MCP (e.g. pods), not YAML |
+| 2 | Namespaces come only from dynamic `namespace_source` MCP tools | Real namespace sets are dynamic, caller-authorized data owned by an MCP (e.g. pods), not YAML or arbitrary user input |
 | 3 | `namespace_scoped_tools` with `bind_arg` + `require_namespace` | The model must never supply the namespace identifier — see Security |
 | 4 | Delete all 5 memory tools; agent uses `edit_file`/`read_file`/`grep` | −232 lines and the point of adopting the library |
 | 5 | Owner key is the Keycloak **`sub`** | Email is mutable PII; `sub` is a UUID, which also removes deepagents' namespace-charset problem |
@@ -178,20 +181,18 @@ refused.
 
 ## Namespaces
 
-### Sources, all optional and combinable
+### Optional dynamic source
 
 ```yaml
 builtin_tools:
   memory:
     enabled: true
-    namespaces: [{ key: payments, label: Payments }]     # static
     namespace_source:                                    # dynamic, from an MCP tool
       server: pod_meeting
       tool: list_pods
       args: { reason: "populate memory namespace picker" }
       key_path: "pods[].pod_id"
       label_path: "pods[].pod_name"
-    allow_custom: false                                  # escape hatch
     namespace_scoped_tools:
       - server: pod_meeting
         tools: [find_prior_meeting_page, resolve_owners, do_final_task_check]
@@ -232,6 +233,11 @@ hand-written YAML:
 
 1. **Pick the list tool** from a dropdown of the server's tools, then call it once with the user's token and let the user click the id and label fields in the sample response — no path syntax to learn. Fallback to typing `key_path`/`label_path` if the server is unreachable or the tool needs args the user can't supply (MCPs rarely publish output schemas).
 2. **Confirm auto-suggested bindings.** Once the key field is known, scan every other tool's `inputSchema` for an arg of that name and pre-check it. Name matching does most of the work because MCPs are internally consistent about identifier names; the user unchecks exceptions (e.g. `get_pod`, which should inspect any pod). `require_namespace` is a per-tool checkbox defaulting on for bound tools.
+
+The optional section is collapsed by default. Its server picker contains only
+servers selected under MCP Tool Access. A missing configured source is retained
+and shown as a blocking validation error; the editor never silently enables,
+locks, or clears an MCP server.
 
 The generated YAML is shown before save — nothing is inferred silently, and it stays hand-editable.
 
@@ -302,7 +308,7 @@ Users never need to know markers exist — plain `## Heading` + body is adopted 
 16. **Delete** (~260 lines): `_wrap_context_provider_tools`, `_extract_tool_args`, `_decode_tool_result_content`, `_extract_display_name`, `_append_tool_memory`, `build_memory_prompt_message`, `_drain_memory_context_used_ids`, the memory-tools branch, the first-turn injection block, the `UserMemoryService` import.
 
 **5 — API + encoders**
-17. `models.py`: delete `MemoryContextProviderConfig`; `MemoryToolConfig` → `{enabled, namespaces, namespace_source, allow_custom, namespace_scoped_tools}`; `memory_namespace` on `ChatRequest`. Keep `context_providers` readable-and-ignored for one release.
+17. `models.py`: delete `MemoryContextProviderConfig`; `MemoryToolConfig` → `{enabled, namespace_source, namespace_scoped_tools}`; `memory_namespace` on `ChatRequest`. Keep `context_providers` readable-and-ignored for one release.
 18. `routes/chat.py`: `memory_namespace` on `ResumeStreamRequest`; fail-closed validation; thread through all 6 stream/resume call sites.
 19. `routes/memories.py` (~130): `GET /api/v1/memories` (all files + parsed records + etags), `PUT` (empty clear/delete only; reject non-empty text), `POST` (append), `PATCH` (record ID + title/body + etag), `DELETE ?id=&etag=`. Owner from `Depends(get_user_context)`, **never** the body; no endpoint accepts a store namespace. `StoreBackend` is unusable here (`get_store()` needs a graph run) — talk to `BaseStore` directly.
 20. `routes/agents.py`: `GET /{id}/memory-namespaces` resolving `namespace_source` via the user's bearer, short-TTL cached.

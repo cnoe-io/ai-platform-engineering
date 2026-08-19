@@ -206,32 +206,8 @@ export interface SleepToolConfig {
   max_seconds?: number;  // Maximum sleep duration in seconds (default: 300)
 }
 
-export interface MemoryNamespaceConfig {
-  key: string;
-  label: string;
-}
-
-export interface MemoryNamespaceSourceConfig {
-  server: string;
-  tool: string;
-  args?: Record<string, unknown>;
-  key_path: string;
-  label_path: string;
-}
-
-export interface NamespaceScopedToolsConfig {
-  server: string;
-  tools: string[];
-  bind_arg: string;
-  require_namespace: boolean;
-}
-
 export interface MemoryToolConfig {
   enabled: boolean;
-  namespaces?: MemoryNamespaceConfig[];
-  namespace_source?: MemoryNamespaceSourceConfig;
-  allow_custom?: boolean;
-  namespace_scoped_tools?: NamespaceScopedToolsConfig[];
 }
 
 /**
@@ -244,6 +220,7 @@ export interface BuiltinToolsConfig {
   user_info?: UserInfoToolConfig;
   sleep?: SleepToolConfig;
   memory?: MemoryToolConfig;
+  create_project?: { enabled: boolean };
   workflows?: string[] | null;  // Workflow config IDs the agent can trigger/monitor
   // Allow dynamic tool configs for future extensibility
   // Using Record type to avoid index signature conflicts with specific tool types
@@ -566,6 +543,7 @@ export interface ChatRequest {
   message: string;
   conversation_id: string;
   agent_id: string;
+  project_id?: string | null;
 }
 
 export interface ChatEvent {

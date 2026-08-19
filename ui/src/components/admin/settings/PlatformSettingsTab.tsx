@@ -20,7 +20,7 @@ import { UnlinkedServiceAccountModal } from "@/components/admin/UnlinkedServiceA
 import { UserDefaultAgentsPanel } from "@/components/settings/DefaultAgents/UserDefaultAgentsPanel";
 import { AgentPicker,type AgentPickerOption } from "@/components/ui/agent-picker";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
-import { AlertTriangle,Loader2,Shield } from "lucide-react";
+import { AlertTriangle,FolderKanban,Loader2,Shield } from "lucide-react";
 import { useEffect,useState } from "react";
 
 interface PlatformSettingsTabProps {
@@ -49,6 +49,12 @@ export function PlatformSettingsTab({ isAdmin, readOnly = false }: PlatformSetti
     useState<'success' | 'error' | null>(null);
   const [confirmAction, setConfirmAction] = useState<PendingAction | null>(null);
   const [anonymousModalOpen, setAnonymousModalOpen] = useState(false);
+  const [projectsEnabled, setProjectsEnabled] = useState(false);
+  const [savedProjectsEnabled, setSavedProjectsEnabled] = useState(false);
+  const [projectsSource, setProjectsSource] = useState<string>('fallback');
+  const [savingProjects, setSavingProjects] = useState(false);
+  const [projectsSaveResult, setProjectsSaveResult] =
+    useState<'success' | 'error' | null>(null);
 
   useEffect(() => {
     // Sequence: hit /api/dynamic-agents/available FIRST so its side-effect
@@ -79,6 +85,10 @@ export function PlatformSettingsTab({ isAdmin, readOnly = false }: PlatformSetti
         setSelectedScheduleEditorAgentId(scheduleEditorId);
         setSavedScheduleEditorAgentId(scheduleEditorId);
         setScheduleEditorSource(configRes.data.schedule_editor_agent_source || 'fallback');
+        const enabled = configRes.data.projects?.enabled === true;
+        setProjectsEnabled(enabled);
+        setSavedProjectsEnabled(enabled);
+        setProjectsSource(configRes.data.projects_source || 'fallback');
       }
       setLoadingConfig(false);
     })();
@@ -158,6 +168,34 @@ export function PlatformSettingsTab({ isAdmin, readOnly = false }: PlatformSetti
       setScheduleEditorSaveResult('error');
     } finally {
       setSavingScheduleEditor(false);
+    }
+  };
+
+  const handleSaveProjects = async () => {
+    if (!isAdmin || readOnly || projectsEnabled === savedProjectsEnabled) return;
+    setSavingProjects(true);
+    setProjectsSaveResult(null);
+    try {
+      const res = await fetch('/api/admin/platform-config', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projects: { enabled: projectsEnabled } }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        const enabled = data.data?.projects?.enabled === true;
+        setProjectsEnabled(enabled);
+        setSavedProjectsEnabled(enabled);
+        setProjectsSource('db');
+        setProjectsSaveResult('success');
+        setTimeout(() => setProjectsSaveResult(null), 3000);
+      } else {
+        setProjectsSaveResult('error');
+      }
+    } catch {
+      setProjectsSaveResult('error');
+    } finally {
+      setSavingProjects(false);
     }
   };
 
@@ -310,6 +348,63 @@ export function PlatformSettingsTab({ isAdmin, readOnly = false }: PlatformSetti
           )}
         </CardContent>
       </Card>
+
+      {isAdmin && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <FolderKanban className="h-5 w-5 text-muted-foreground" />
+              Projects
+              <AdminBadge />
+            </CardTitle>
+            <CardDescription>
+              Enable Projects across the platform for every agent and user.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {loadingConfig ? (
+              <div className="flex items-center justify-center py-6">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : (
+              <>
+                <label className="flex max-w-2xl items-start gap-3 rounded-md border p-3">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={projectsEnabled}
+                    onChange={(event) => setProjectsEnabled(event.target.checked)}
+                    disabled={readOnly}
+                    aria-label="Enable Projects platform-wide"
+                  />
+                  <span className="space-y-1">
+                    <span className="block text-sm font-medium">Enable Projects</span>
+                    <span className="block text-xs text-muted-foreground">
+                      Users can create and select Projects in the sidebar. Project chats share files,
+                      group history, and include Project memory whenever the selected agent has Memory enabled.
+                    </span>
+                  </span>
+                </label>
+                {projectsSource === 'env' && (
+                  <p className="text-xs text-muted-foreground">
+                    Currently using the deployment value (<code>PROJECTS_ENABLED</code>).
+                    Saving here creates a live platform override.
+                  </p>
+                )}
+                <SaveButton
+                  onSave={handleSaveProjects}
+                  saving={savingProjects}
+                  dirty={projectsEnabled !== savedProjectsEnabled}
+                  disabled={readOnly}
+                  result={projectsSaveResult}
+                  ariaLabel="Save Projects setting"
+                  testId="projects-enabled-save"
+                />
+              </>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {isAdmin && (
         <Card>

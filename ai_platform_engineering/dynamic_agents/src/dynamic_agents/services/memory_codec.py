@@ -351,6 +351,10 @@ def reconcile_after_agent_edit(
         changed_ids = []
 
     after.records = reconciled
+    # File-level identity is owned by the platform. In particular, an agent
+    # edit must never rename or retarget an immutable Project marker.
+    after.scope = before.scope
+    after.extra = dict(before.extra)
     after.needs_repair = False
     return after, list(dict.fromkeys(changed_ids)), action
 
