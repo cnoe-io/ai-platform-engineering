@@ -96,6 +96,29 @@
  */
 @variant dark (&:where(.dark, [data-theme="dark"], [data-theme="midnight"], [data-theme="nord"], [data-theme="tokyo"], [data-theme="cyberpunk"], [data-theme="tron"], [data-theme="matrix"]));
 
+/*
+ * next-themes cannot infer whether custom theme ids are light or dark. Keep
+ * native controls, scrollbars, and browser-painted surfaces aligned with the
+ * selected CAIPE palette instead of leaving a stale inline color-scheme from
+ * the previously selected theme.
+ */
+:root,
+:root:is(
+  [data-theme="dark"],
+  [data-theme="midnight"],
+  [data-theme="nord"],
+  [data-theme="tokyo"],
+  [data-theme="cyberpunk"],
+  [data-theme="tron"],
+  [data-theme="matrix"]
+) {
+  color-scheme: dark;
+}
+
+:root:is([data-theme="light"], [data-theme="legacy-light"]) {
+  color-scheme: light;
+}
+
 /* Preserve Next.js client transitions while giving immediate route feedback. */
 html[data-navigation-pending="true"],
 html[data-navigation-pending="true"] * {

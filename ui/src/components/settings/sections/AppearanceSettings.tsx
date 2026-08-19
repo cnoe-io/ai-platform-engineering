@@ -73,10 +73,12 @@ function ChoiceButton({
 
 export function AppearanceSettings(): React.ReactElement {
   const { setTheme } = useTheme();
-  const [preferences,setPreferences] = useState<AppearancePreferences>(() => ({
-    ...getDefaultAppearancePreferences(),
-    ...readCachedAppearancePreferences(),
-  }));
+  // Keep the server and first client render identical. next-themes applies the
+  // cached palette before paint; the settings controls adopt the cached values
+  // after hydration so React does not discard and repaint this subtree.
+  const [preferences,setPreferences] = useState<AppearancePreferences>(
+    getDefaultAppearancePreferences,
+  );
   const [loading,setLoading] = useState(true);
   const [loadError,setLoadError] = useState<string | null>(null);
 
@@ -88,12 +90,20 @@ export function AppearanceSettings(): React.ReactElement {
 
   useEffect(() => {
     let cancelled = false;
-    const cached = preferences;
+    const cached = {
+      ...getDefaultAppearancePreferences(),
+      ...readCachedAppearancePreferences(),
+    };
     const interactionSnapshot = snapshotAppearanceInteractions();
-    applyCachedAppearance(cached);
+    void (async () => {
+      // Yield past hydration before reflecting browser-only storage in React.
+      await Promise.resolve();
+      if (cancelled) return;
+      setPreferences(cached);
+      applyCachedAppearance(cached);
 
-    void apiClient.getSettings()
-      .then((settings) => {
+      try {
+        const settings = await apiClient.getSettings();
         if (cancelled) return;
         const serverPreferences = normalizeServerAppearancePreferences(
           settings.preferences as unknown as Record<string,unknown>,
@@ -107,8 +117,7 @@ export function AppearanceSettings(): React.ReactElement {
           applyCachedAppearance(server);
           return server;
         });
-      })
-      .catch((reason: unknown) => {
+      } catch (reason: unknown) {
         if (!cancelled) {
           setLoadError(
             reason instanceof Error
@@ -116,15 +125,15 @@ export function AppearanceSettings(): React.ReactElement {
               : "Using settings from this device because account preferences could not be loaded.",
           );
         }
-      })
-      .finally(() => {
+      } finally {
         if (!cancelled) setLoading(false);
-      });
+      }
+    })();
 
     return () => {
       cancelled = true;
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   const changeFontSize = (value: FontSize) => {
     markAppearanceInteraction("fontSize");

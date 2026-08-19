@@ -107,6 +107,7 @@ export default async function RootLayout({
           <ThemeProvider
             attribute="data-theme"
             defaultTheme={cfg.defaultTheme}
+            enableColorScheme={false}
             enableSystem
             disableTransitionOnChange
             themes={["light", "legacy-light", "dark", "midnight", "nord", "tokyo", "cyberpunk", "tron", "matrix"]}
