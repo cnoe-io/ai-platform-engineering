@@ -12,7 +12,7 @@ import { autonomousApi, AutonomousApiError } from "./api";
 import { isTaskOwnedByAgent } from "./taskOwnership";
 import { TaskFormDialog } from "./TaskFormDialog";
 import { DEFAULT_MINIMUM_SCHEDULE_INTERVAL_SECONDS } from "./formState";
-import type { AutonomousTask } from "./types";
+import type { AutonomousTask, TaskSaveResult } from "./types";
 
 export interface MyTasksAgent {
   id: string;
@@ -146,23 +146,43 @@ export function MyTasksPanel({ agents, currentUserEmail }: MyTasksPanelProps) {
     setDialogOpen(true);
   };
 
-  const handleSubmitTask = async (task: AutonomousTask) => {
+  const handleSubmitTask = async (task: AutonomousTask): Promise<TaskSaveResult> => {
     if (editingTask) {
-      const updated = await autonomousApi.updateTask(editingTask.id, task);
+      const saved = await autonomousApi.updateTask(editingTask.id, task);
+      const updated = saved.task;
       setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
       toast(`Task "${updated.name}" updated.`, "success");
+      return saved;
     } else {
       const created = await autonomousApi.createTask(task);
-      setTasks((prev) => [...prev, created]);
-      setLastCreatedId(created.id);
+      setTasks((prev) => [...prev, created.task]);
+      setLastCreatedId(created.task.id);
       // Reveal the section the new task landed in -- sections default to
       // collapsed, so otherwise a just-created task would be invisible.
-      const createdAgentId = created.dynamic_agent_id ?? dialogAgentId;
+      const createdAgentId = created.task.dynamic_agent_id ?? dialogAgentId;
       if (createdAgentId) {
         setExpandedAgentIds((prev) => new Set(prev).add(createdAgentId));
       }
-      toast(`Task "${created.name}" created.`, "success");
+      toast(`Task "${created.task.name}" created.`, "success");
+      return created;
     }
+  };
+
+  const handleSaveWebhookSecret = async (
+    task: AutonomousTask,
+    secret: string,
+  ): Promise<AutonomousTask> => {
+    if (task.trigger.type !== "webhook") {
+      throw new Error("Only webhook tasks have signing secrets.");
+    }
+    const saved = await autonomousApi.updateTask(task.id, {
+      ...task,
+      trigger: { ...task.trigger, secret },
+    });
+    const updated = saved.task;
+    setTasks((prev) => prev.map((existing) => (existing.id === updated.id ? updated : existing)));
+    toast("Signing secret saved securely.", "success");
+    return updated;
   };
 
   const handleDelete = async (task: AutonomousTask) => {
@@ -292,6 +312,7 @@ export function MyTasksPanel({ agents, currentUserEmail }: MyTasksPanelProps) {
           .map((t) => t.name)}
         minimumScheduleIntervalSeconds={minimumScheduleIntervalSeconds}
         onSubmit={handleSubmitTask}
+        onSaveWebhookSecret={handleSaveWebhookSecret}
       />
     </div>
   );

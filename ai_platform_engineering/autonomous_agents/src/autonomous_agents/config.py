@@ -112,6 +112,20 @@ class Settings(BaseSettings):
     # timestamp header. See README.md for the signing contract.
     webhook_replay_window_seconds: int = Field(default=0, ge=0)
 
+    # Application-level webhook overload protection. Each webhook task is a
+    # FIFO with exactly one active run. Queue item/byte ceilings bound memory;
+    # separate owner/global execution limits allow safe parallelism across
+    # different webhooks. Edge/WAF limiting remains the first DDoS boundary.
+    webhook_max_payload_bytes: int = Field(default=1_048_576, ge=1)
+    webhook_max_pending_per_task: int = Field(default=100, ge=1)
+    webhook_max_pending_per_owner: int = Field(default=500, ge=1)
+    webhook_max_pending_global: int = Field(default=5_000, ge=1)
+    webhook_max_pending_payload_bytes_global: int = Field(
+        default=67_108_864, ge=1
+    )
+    webhook_max_concurrent_per_owner: int = Field(default=20, ge=1)
+    webhook_max_concurrent_global: int = Field(default=100, ge=1)
+
     # Path to the YAML file describing webhook provider adapters
     # (signature header, scheme, algorithm, payload template, etc.).
     # ``None`` (the default) means use the bundled

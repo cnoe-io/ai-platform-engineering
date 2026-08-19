@@ -38,7 +38,7 @@ export const EMPTY_FORM: TaskFormState = {
   intervalSeconds: "",
   intervalMinutes: "",
   intervalHours: "",
-  webhookProvider: "generic_hmac",
+  webhookProvider: "github",
   webhookSecret: "",
   timeoutSeconds: "",
   maxRetries: "",
@@ -74,7 +74,7 @@ export function toFormState(task: AutonomousTask | null | undefined): TaskFormSt
     base.intervalMinutes = task.trigger.minutes == null ? "" : String(task.trigger.minutes);
     base.intervalHours = task.trigger.hours == null ? "" : String(task.trigger.hours);
   } else {
-    base.webhookProvider = task.trigger.provider ?? "generic_hmac";
+    base.webhookProvider = task.trigger.provider ?? "github";
     // Backend never echoes the secret on read paths -- only the
     // ``has_secret`` boolean comes back. Leave the form blank so the
     // operator must explicitly type a new value to *change* it.
@@ -142,12 +142,12 @@ export function fromFormState(
       hours: hours ?? null,
     };
   } else {
-    const provider = form.webhookProvider.trim() || "generic_hmac";
+    const provider = form.webhookProvider.trim() || "github";
     trigger = {
       type: "webhook",
       provider,
-      // Treat empty input as "no secret" rather than "empty secret" --
-      // the latter would be (correctly) rejected by HMAC validation.
+      // POST generates the initial credential. On edit, a value is present
+      // only when rotating a Slack/PagerDuty-issued secret; null preserves it.
       secret: form.webhookSecret.trim() ? form.webhookSecret.trim() : null,
     };
   }
@@ -208,6 +208,6 @@ export function summarizeTrigger(trigger: AutonomousTask["trigger"]): string {
     if (trigger.seconds) parts.push(`${trigger.seconds}s`);
     return parts.length > 0 ? `Every ${parts.join(" ")}` : "Interval (unset)";
   }
-  const provider = trigger.provider ?? "generic_hmac";
+  const provider = trigger.provider ?? "github";
   return trigger.has_secret ? `Webhook: ${provider} (signed)` : `Webhook: ${provider}`;
 }

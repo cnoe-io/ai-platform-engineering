@@ -61,6 +61,13 @@ helm show values oci://ghcr.io/cnoe-io/charts/autonomous-agents --version 0.4.10
 | config.MINIMUM_SCHEDULE_INTERVAL_SECONDS | string | `"1800"` |  |
 | config.MONGODB_DATABASE | string | `"caipe"` |  |
 | config.SUPERVISOR_URL | string | `""` |  |
+| config.WEBHOOK_MAX_CONCURRENT_GLOBAL | string | `"100"` |  |
+| config.WEBHOOK_MAX_CONCURRENT_PER_OWNER | string | `"20"` |  |
+| config.WEBHOOK_MAX_PENDING_GLOBAL | string | `"5000"` |  |
+| config.WEBHOOK_MAX_PENDING_PAYLOAD_BYTES_GLOBAL | string | `"67108864"` |  |
+| config.WEBHOOK_MAX_PENDING_PER_OWNER | string | `"500"` |  |
+| config.WEBHOOK_MAX_PENDING_PER_TASK | string | `"100"` |  |
+| config.WEBHOOK_MAX_PAYLOAD_BYTES | string | `"1048576"` |  |
 | dynamicAgentsAuth.clientId | string | `"caipe-platform"` |  |
 | dynamicAgentsAuth.clientSecretRef.key | string | `"OIDC_CLIENT_SECRET"` |  |
 | dynamicAgentsAuth.clientSecretRef.name | string | `""` |  |

@@ -146,11 +146,11 @@ describe("formState.fromFormState", () => {
     });
   });
 
-  it("maps webhook with blank secret to null", () => {
+  it("maps webhook with blank secret to null for server generation/preservation", () => {
     const result = fromFormState({ ...base, triggerType: "webhook", webhookSecret: "   " });
     expect(result).toEqual({
       task: expect.objectContaining({
-        trigger: { type: "webhook", provider: "generic_hmac", secret: null },
+        trigger: { type: "webhook", provider: "github", secret: null },
       }),
     });
   });
@@ -208,7 +208,7 @@ describe("formState.summarizeTrigger", () => {
   });
   it("summarises webhook with/without secret", () => {
     expect(summarizeTrigger({ type: "webhook", provider: "jira", has_secret: true })).toBe("Webhook: jira (signed)");
-    expect(summarizeTrigger({ type: "webhook", has_secret: false })).toBe("Webhook: generic_hmac");
+    expect(summarizeTrigger({ type: "webhook", has_secret: false })).toBe("Webhook: github");
   });
 });
 

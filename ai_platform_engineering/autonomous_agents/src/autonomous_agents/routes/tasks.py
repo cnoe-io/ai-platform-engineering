@@ -8,6 +8,7 @@ changes take effect without a service restart.
 
 import asyncio
 import logging
+import secrets
 
 from fastapi import APIRouter, HTTPException, Request, status
 
@@ -134,6 +135,16 @@ def _hide_unpublished_chat_links(runs: list[TaskRun]) -> list[TaskRun]:
 # Maximum runs returned by /tasks/{id}/runs.
 _MAX_TASK_RUNS = 500
 
+# Slack and PagerDuty issue their own signing secrets. Every other provider
+# supported by the task API uses the receiver-generated secret returned once
+# from POST /tasks so the caller can configure it at the sender.
+_PROVIDER_ISSUED_SECRET_PROVIDERS = {"slack", "pagerduty"}
+
+
+def _generate_webhook_secret() -> str:
+    """Return a high-entropy, URL-safe webhook signing secret."""
+    return secrets.token_urlsafe(32)
+
 
 def _serialize_trigger(task: TaskDefinition) -> dict:
     """Render a trigger to wire JSON, redacting any HMAC secret."""
@@ -247,6 +258,22 @@ async def create_task(payload: TaskCreate, request: Request) -> dict:
 
     task = payload.model_copy(update={"id": generate_task_id(payload.name)})
 
+    # The service, never the create payload, owns initial webhook credentials.
+    # This guarantees every newly-created webhook is signed and prevents a
+    # caller from accidentally creating an unsigned endpoint. GitHub/Jira use
+    # this value directly; Slack/PagerDuty temporarily reject deliveries with
+    # it until the provider-issued secret is saved through PUT.
+    generated_webhook_secret: str | None = None
+    if isinstance(task.trigger, WebhookTrigger):
+        generated_webhook_secret = _generate_webhook_secret()
+        task = task.model_copy(
+            update={
+                "trigger": task.trigger.model_copy(
+                    update={"secret": generated_webhook_secret}
+                )
+            }
+        )
+
     # last_ack is server-managed
     if task.last_ack is not None:
         task = task.model_copy(update={"last_ack": None})
@@ -339,7 +366,16 @@ async def create_task(payload: TaskCreate, request: Request) -> dict:
     schedule_preflight(created.id)
 
     logger.info(f"[{created.id}] Created via API")
-    return _serialize_task(created, next_run_iso_for(created.id))
+    response = _serialize_task(created, next_run_iso_for(created.id))
+    if generated_webhook_secret is not None and isinstance(
+        created.trigger, WebhookTrigger
+    ):
+        # One-time mutation response only. Provider-issued credentials are not
+        # exposed, but the empty setup object tells the UI to collect one.
+        response["webhook_setup"] = {}
+        if created.trigger.provider not in _PROVIDER_ISSUED_SECRET_PROVIDERS:
+            response["webhook_setup"]["secret"] = generated_webhook_secret
+    return response
 
 
 @router.put("/tasks/{task_id}", response_model=dict)
@@ -415,6 +451,22 @@ async def update_task(task_id: str, task: TaskDefinition, request: Request) -> d
         )
         task = task.model_copy(update={"trigger": preserved_trigger})
 
+    # A cron/interval -> webhook transition (or repair of an unsigned legacy
+    # webhook) needs the same safe initial credential as POST. The mutation
+    # response exposes receiver-generated credentials once so the UI can
+    # continue into setup; Slack/PagerDuty receive only the setup marker and
+    # replace this temporary, unguessable value with their provider-issued key.
+    generated_webhook_secret: str | None = None
+    if isinstance(task.trigger, WebhookTrigger) and task.trigger.secret is None:
+        generated_webhook_secret = _generate_webhook_secret()
+        task = task.model_copy(
+            update={
+                "trigger": task.trigger.model_copy(
+                    update={"secret": generated_webhook_secret}
+                )
+            }
+        )
+
     # When the update doesn't touch ack-relevant fields (prompt / agent /
     # llm_provider) preserve the existing ack so a simple "toggle enabled"
     # doesn't blank the badge while a fresh preflight is in flight.
@@ -450,7 +502,14 @@ async def update_task(task_id: str, task: TaskDefinition, request: Request) -> d
         schedule_preflight(updated.id)
 
     logger.info(f"[{updated.id}] Updated via API")
-    return _serialize_task(updated, next_run_iso_for(updated.id))
+    response = _serialize_task(updated, next_run_iso_for(updated.id))
+    if generated_webhook_secret is not None and isinstance(
+        updated.trigger, WebhookTrigger
+    ):
+        response["webhook_setup"] = {}
+        if updated.trigger.provider not in _PROVIDER_ISSUED_SECRET_PROVIDERS:
+            response["webhook_setup"]["secret"] = generated_webhook_secret
+    return response
 
 
 @router.delete("/tasks/{task_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -111,8 +111,8 @@ Runs when an external system POSTs to `/api/v1/hooks/{task_id}`.
 trigger:
   type: webhook
   path: "/hooks/pr-review"
-  provider: "generic_hmac"         # or github, slack, pagerduty, jira, webex
-  secret: "optional-hmac-secret"   # validates the provider-specific HMAC
+  provider: "github"               # UI also supports jira, slack, pagerduty
+  # The API generates and securely stores a required signing secret.
 ```
 
 ---
@@ -160,6 +160,13 @@ tasks:
 | `HOST` | `0.0.0.0` | Server bind host |
 | `PORT` | `8002` | Server port |
 | `WEBHOOK_SECRET` | `None` | Global HMAC secret for webhook validation |
+| `WEBHOOK_MAX_PAYLOAD_BYTES` | `1048576` | Maximum accepted webhook request body. Larger bodies are dropped with HTTP 413 before parsing. |
+| `WEBHOOK_MAX_PENDING_PER_TASK` | `100` | Maximum queued + running deliveries for one webhook task. Each task's FIFO still executes exactly one at a time. |
+| `WEBHOOK_MAX_PENDING_PER_OWNER` | `500` | Maximum queued + running webhook deliveries owned by one user. |
+| `WEBHOOK_MAX_PENDING_GLOBAL` | `5000` | Process-wide queued + running delivery ceiling. |
+| `WEBHOOK_MAX_PENDING_PAYLOAD_BYTES_GLOBAL` | `67108864` | Process-wide raw-payload byte budget across queued + running webhook deliveries. |
+| `WEBHOOK_MAX_CONCURRENT_PER_OWNER` | `20` | Execution concurrency across different webhook tasks owned by one user. |
+| `WEBHOOK_MAX_CONCURRENT_GLOBAL` | `100` | Execution concurrency across different webhook tasks. Same-task runs are always serialized. |
 | `CREDENTIAL_KMS_CMK_ID` | `None` | AWS KMS CMK id/ARN/alias used to envelope-encrypt per-task webhook secrets. Required when any task has its own HMAC secret. |
 | `CREDENTIAL_KMS_REGION` | AWS SDK default | AWS region for the KMS client. The pod also needs `kms:GenerateDataKey` and `kms:Decrypt`, normally through IRSA. |
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |

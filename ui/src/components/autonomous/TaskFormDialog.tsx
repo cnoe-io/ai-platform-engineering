@@ -15,16 +15,16 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 
-import type { AutonomousTask, TaskFormState, TriggerType } from "./types";
+import type { AutonomousTask, TaskFormState, TaskSaveResult, TriggerType } from "./types";
 import {
   DEFAULT_MINIMUM_SCHEDULE_INTERVAL_SECONDS,
   formatScheduleInterval,
   fromFormState,
   toFormState,
 } from "./formState";
+import { WebhookSetupStep } from "./WebhookSetupStep";
 
 const WEBHOOK_PROVIDER_OPTIONS = [
-  { value: "generic_hmac", label: "Generic HMAC" },
   { value: "github", label: "GitHub" },
   { value: "jira", label: "Jira" },
   { value: "slack", label: "Slack" },
@@ -49,7 +49,8 @@ interface TaskFormDialogProps {
    */
   existingNames?: string[];
   minimumScheduleIntervalSeconds?: number;
-  onSubmit: (task: AutonomousTask) => Promise<void>;
+  onSubmit: (task: AutonomousTask) => Promise<TaskSaveResult>;
+  onSaveWebhookSecret: (task: AutonomousTask, secret: string) => Promise<AutonomousTask>;
 }
 
 function seededFormState(
@@ -71,11 +72,16 @@ export function TaskFormDialog({
   existingNames = [],
   minimumScheduleIntervalSeconds = DEFAULT_MINIMUM_SCHEDULE_INTERVAL_SECONDS,
   onSubmit,
+  onSaveWebhookSecret,
 }: TaskFormDialogProps) {
   const isEdit = Boolean(task);
   const [form, setForm] = useState<TaskFormState>(() => seededFormState(task, initialAgentId));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [webhookSetup, setWebhookSetup] = useState<{
+    task: AutonomousTask;
+    generatedSecret?: string;
+  } | null>(null);
 
   // Reset whenever the dialog opens or the underlying task changes.
   // Without this, editing task A then opening "create" would inherit
@@ -85,6 +91,7 @@ export function TaskFormDialog({
       setForm(seededFormState(task, initialAgentId));
       setError(null);
       setSubmitting(false);
+      setWebhookSetup(null);
     }
   }, [open, task, initialAgentId]);
 
@@ -121,8 +128,12 @@ export function TaskFormDialog({
     }
     setSubmitting(true);
     try {
-      await onSubmit(result.task);
-      onOpenChange(false);
+      const saved = await onSubmit(result.task);
+      if (saved.task.trigger.type === "webhook" && (!isEdit || saved.webhookSetupRequired)) {
+        setWebhookSetup({ task: saved.task, generatedSecret: saved.webhookSetupSecret });
+      } else {
+        onOpenChange(false);
+      }
     } catch (err) {
       // Mirror the API client's error shape — `.message` already
       // carries the FastAPI ``detail`` string when available.
@@ -132,12 +143,16 @@ export function TaskFormDialog({
     }
   };
 
+  const webhookUrl = webhookSetup
+    ? `${typeof window === "undefined" ? "" : window.location.origin}/api/v1/hooks/${encodeURIComponent(webhookSetup.task.id)}`
+    : "";
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{isEdit ? "Edit task" : "New autonomous task"}</DialogTitle>
-          <DialogDescription>
+          <DialogTitle>{webhookSetup ? "Configure webhook" : isEdit ? "Edit task" : "New autonomous task"}</DialogTitle>
+          {!webhookSetup && <DialogDescription>
             Tasks are scheduled via the autonomous-agents service and dispatched to
             CAIPE supervisor over A2A. Cron and interval tasks fire automatically;{" "}
             {isEdit ? (
@@ -146,15 +161,23 @@ export function TaskFormDialog({
                 <code className="text-xs">/api/v1/hooks/{form.id}</code>.
               </>
             ) : (
-              <>
-                webhook tasks fire when a POST hits the hook URL shown on the task row
-                once it is created.
-              </>
+              <>webhook setup continues here after the task is created.</>
             )}
-          </DialogDescription>
+          </DialogDescription>}
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        {webhookSetup ? (
+          <WebhookSetupStep
+            task={webhookSetup.task}
+            generatedSecret={webhookSetup.generatedSecret}
+            webhookUrl={webhookUrl}
+            onSaveProviderSecret={async (secret) => {
+              const updated = await onSaveWebhookSecret(webhookSetup.task, secret);
+              setWebhookSetup((current) => current ? { ...current, task: updated } : current);
+            }}
+            onDone={() => onOpenChange(false)}
+          />
+        ) : <form onSubmit={handleSubmit} className="space-y-4">
           {/* Create mode has no ID field at all -- the server generates the id
               -- so Name takes the full width. Edit mode shows the id as
               read-only text because operators need it for the webhook URL. */}
@@ -300,7 +323,7 @@ export function TaskFormDialog({
             )}
 
             {form.triggerType === "webhook" && (
-              <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-3">
                 <div className="space-y-1">
                   <Label htmlFor="task-webhook-provider">Provider</Label>
                   <select
@@ -323,25 +346,31 @@ export function TaskFormDialog({
                     ))}
                   </select>
                 </div>
-                <div className="space-y-1">
-                  <Label htmlFor="task-webhook-secret">HMAC secret (optional)</Label>
-                  <Input
-                    id="task-webhook-secret"
-                    value={form.webhookSecret}
-                    onChange={(e) => update("webhookSecret", e.target.value)}
-                    type="password"
-                    placeholder={
-                      isEdit && task?.trigger.type === "webhook" && task.trigger.has_secret
-                        ? "secret already configured — type to replace"
-                        : "leave blank to accept unsigned payloads"
-                    }
-                  />
-                  {isEdit && task?.trigger.type === "webhook" && task.trigger.has_secret && (
-                    <p className="text-xs text-muted-foreground">
-                      The existing secret is hidden for security. Leave this field blank to keep it unchanged.
-                    </p>
-                  )}
-                </div>
+                {isEdit && ["slack", "pagerduty"].includes(form.webhookProvider) ? (
+                  <div className="space-y-1">
+                    <Label htmlFor="task-webhook-secret">
+                      {form.webhookProvider === "slack" ? "Slack" : "PagerDuty"} signing secret
+                    </Label>
+                    <Input
+                      id="task-webhook-secret"
+                      value={form.webhookSecret}
+                      onChange={(e) => update("webhookSecret", e.target.value)}
+                      type="password"
+                      placeholder="Paste a new provider-issued secret to rotate it"
+                    />
+                    {task?.trigger.type === "webhook" && task.trigger.has_secret && (
+                      <p className="text-xs text-muted-foreground">
+                        A signing secret is securely stored. Leave this blank to keep it unchanged.
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    {form.webhookProvider === "slack" || form.webhookProvider === "pagerduty"
+                      ? "After creation, paste the signing secret issued by this provider."
+                      : "A strong signing secret will be generated automatically and shown once after creation."}
+                  </p>
+                )}
               </div>
             )}
           </div>
@@ -398,7 +427,7 @@ export function TaskFormDialog({
               {submitting ? "Saving…" : isEdit ? "Save changes" : "Create task"}
             </Button>
           </DialogFooter>
-        </form>
+        </form>}
       </DialogContent>
     </Dialog>
   );
