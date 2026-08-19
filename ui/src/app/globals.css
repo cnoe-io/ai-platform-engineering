@@ -89,8 +89,12 @@
   --animate-reveal-ltr: revealLtr 0.25s ease-out forwards;
 }
 
-/* Dark mode via class or data-theme attribute */
-@variant dark (&:where(.dark, [data-theme]));
+/*
+ * Dark mode only applies to dark palettes. Matching a bare [data-theme]
+ * attribute also classified Light and Legacy Light as dark, so dark: utility
+ * classes fought the light palette whenever either light theme was selected.
+ */
+@variant dark (&:where(.dark, [data-theme="dark"], [data-theme="midnight"], [data-theme="nord"], [data-theme="tokyo"], [data-theme="cyberpunk"], [data-theme="tron"], [data-theme="matrix"]));
 
 /* Preserve Next.js client transitions while giving immediate route feedback. */
 html[data-navigation-pending="true"],

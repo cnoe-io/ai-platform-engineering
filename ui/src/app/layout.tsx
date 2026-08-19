@@ -108,7 +108,7 @@ export default async function RootLayout({
             attribute="data-theme"
             defaultTheme={cfg.defaultTheme}
             enableSystem
-            disableTransitionOnChange={false}
+            disableTransitionOnChange
             themes={["light", "legacy-light", "dark", "midnight", "nord", "tokyo", "cyberpunk", "tron", "matrix"]}
           >
             <ToastProvider>

@@ -105,7 +105,6 @@ export function AppearanceSettings(): React.ReactElement {
             interactionSnapshot,
           );
           applyCachedAppearance(server);
-          setTheme(server.theme);
           return server;
         });
       })
