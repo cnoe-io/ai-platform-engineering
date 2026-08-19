@@ -493,6 +493,8 @@ describe('Sidebar — Live Status Indicator', () => {
 
       render(<Sidebar {...defaultProps} />)
 
+      expect(screen.queryByText('Important Team 2 Meeting Prep')).not.toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: /Scheduled Runs/i }))
       expect(screen.getByText('Important Team 2 Meeting Prep')).toBeInTheDocument()
       expect(screen.queryByText('sched_ec7107dfab744ddd')).not.toBeInTheDocument()
     })
@@ -506,6 +508,7 @@ describe('Sidebar — Live Status Indicator', () => {
 
       render(<Sidebar {...defaultProps} />)
 
+      fireEvent.click(screen.getByRole('button', { name: /Scheduled Runs/i }))
       expect(screen.getByText('sched_ec7107dfab744ddd')).toBeInTheDocument()
     })
 
@@ -520,6 +523,8 @@ describe('Sidebar — Live Status Indicator', () => {
 
       render(<Sidebar {...defaultProps} />)
 
+      expect(screen.queryByText('Review open pull requests')).not.toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: /Autonomous Runs/i }))
       const badge = screen.getByText('Review open pull requests')
       expect(badge).toHaveClass(
         'border-violet-500/30',
@@ -542,7 +547,45 @@ describe('Sidebar — Live Status Indicator', () => {
 
       render(<Sidebar {...defaultProps} />)
 
+      fireEvent.click(screen.getByRole('button', { name: /Autonomous Runs/i }))
       expect(screen.getByText('Legacy task title')).toHaveClass('border-violet-500/30')
+    })
+
+    it('separates run conversations into collapsed sections above History', () => {
+      mockConversations = [
+        makeConv('conv-normal', 'Normal Chat'),
+        makeConv('conv-scheduled', 'Scheduled Chat', {
+          metadata: { schedule_id: 'sched-1', schedule_title: 'Nightly report' },
+        }),
+        makeConv('conv-autonomous', '[Autonomous] Review alerts', {
+          source: 'autonomous',
+          task_id: 'review-alerts',
+          metadata: { task_name: 'Review alerts' },
+        }),
+      ]
+
+      render(<Sidebar {...defaultProps} />)
+
+      const autonomous = screen.getByRole('button', { name: /Autonomous Runs/i })
+      const scheduled = screen.getByRole('button', { name: /Scheduled Runs/i })
+      const history = screen.getByTestId('conversation-section-history')
+
+      expect(autonomous).toHaveAttribute('aria-expanded', 'false')
+      expect(scheduled).toHaveAttribute('aria-expanded', 'false')
+      expect(screen.queryByText('Review alerts')).not.toBeInTheDocument()
+      expect(screen.queryByText('Nightly report')).not.toBeInTheDocument()
+      expect(screen.getByText('Normal Chat')).toBeInTheDocument()
+      expect(
+        autonomous.compareDocumentPosition(history) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy()
+      expect(
+        scheduled.compareDocumentPosition(history) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy()
+
+      fireEvent.click(autonomous)
+      expect(autonomous).toHaveAttribute('aria-expanded', 'true')
+      expect(screen.getByText('Review alerts')).toBeInTheDocument()
+      expect(screen.queryByText('Nightly report')).not.toBeInTheDocument()
     })
 
     it('does not show "Live" or "New response" for normal conversations', () => {

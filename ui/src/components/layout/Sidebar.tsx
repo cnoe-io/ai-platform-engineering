@@ -64,6 +64,22 @@ interface ConversationTitleBadge {
   title: string;
 }
 
+type ConversationSectionId = "autonomous" | "scheduled" | "history";
+
+type ConversationListItem =
+  | {
+      kind: "conversation";
+      conversation: Conversation;
+    }
+  | {
+      kind: "section";
+      id: ConversationSectionId;
+      label: string;
+      count: number;
+      expanded?: boolean;
+      onToggle?: () => void;
+    };
+
 function getAutonomousBadge(conv: Conversation): ConversationTitleBadge | null {
   if (conv.source !== "autonomous") return null;
 
@@ -111,6 +127,14 @@ function getScheduleBadge(conv: Conversation): ConversationTitleBadge | null {
   };
 }
 
+function getConversationRunKind(
+  conv: Conversation,
+): ConversationTitleBadge["kind"] | null {
+  if (getAutonomousBadge(conv)) return "autonomous";
+  if (getScheduleBadge(conv)) return "scheduled";
+  return null;
+}
+
 export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: SidebarProps) {
   const router = useRouter();
   const {
@@ -140,6 +164,8 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
   const [editingConversationId, setEditingConversationId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
   const [renameSavingId, setRenameSavingId] = useState<string | null>(null);
+  const [autonomousRunsExpanded, setAutonomousRunsExpanded] = useState(false);
+  const [scheduledRunsExpanded, setScheduledRunsExpanded] = useState(false);
   const { toast } = useToast();
 
   // Agent name lookup for dynamic agent conversations
@@ -350,6 +376,55 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
     }
   };
 
+  const autonomousConversations = conversations.filter(
+    (conversation) => getConversationRunKind(conversation) === "autonomous",
+  );
+  const scheduledConversations = conversations.filter(
+    (conversation) => getConversationRunKind(conversation) === "scheduled",
+  );
+  const historyConversations = conversations.filter(
+    (conversation) => getConversationRunKind(conversation) === null,
+  );
+  const conversationListItems: ConversationListItem[] = collapsed
+    ? conversations.map((conversation) => ({ kind: "conversation", conversation }))
+    : [
+        {
+          kind: "section",
+          id: "autonomous",
+          label: "Autonomous Runs",
+          count: autonomousConversations.length,
+          expanded: autonomousRunsExpanded,
+          onToggle: () => setAutonomousRunsExpanded((expanded) => !expanded),
+        },
+        ...(autonomousRunsExpanded
+          ? autonomousConversations.map(
+              (conversation): ConversationListItem => ({ kind: "conversation", conversation }),
+            )
+          : []),
+        {
+          kind: "section",
+          id: "scheduled",
+          label: "Scheduled Runs",
+          count: scheduledConversations.length,
+          expanded: scheduledRunsExpanded,
+          onToggle: () => setScheduledRunsExpanded((expanded) => !expanded),
+        },
+        ...(scheduledRunsExpanded
+          ? scheduledConversations.map(
+              (conversation): ConversationListItem => ({ kind: "conversation", conversation }),
+            )
+          : []),
+        {
+          kind: "section",
+          id: "history",
+          label: "History",
+          count: historyConversations.length,
+        },
+        ...historyConversations.map(
+          (conversation): ConversationListItem => ({ kind: "conversation", conversation }),
+        ),
+      ];
+
   return (
     <motion.div
       initial={false}
@@ -448,40 +523,80 @@ export function Sidebar({ activeTab, collapsed, onCollapse, onUseCaseSaved }: Si
       {/* Chat History */}
       {activeTab === "chat" && (
         <div className="flex-1 overflow-hidden flex flex-col min-w-0">
-          {!collapsed && (
-            <div className="px-3 py-2 flex items-center gap-2 text-xs text-muted-foreground uppercase tracking-wider shrink-0">
-              <History className="h-3 w-3" />
-              <span className="flex-1">History</span>
-              {storageMode === 'mongodb' && (
-                <TooltipProvider delayDuration={300}>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-5 w-5 hover:bg-muted"
-                        onClick={handleReloadConversations}
-                        disabled={isReloading}
-                      >
-                        <RefreshCw className={cn("h-3 w-3", isReloading && "animate-spin")} />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent side="right" sideOffset={4}>
-                      <p className="text-xs">Reload conversations</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              )}
-            </div>
-          )}
-
           <ScrollArea className="flex-1 min-w-0">
             <div className="px-2 space-y-1 pb-4">
               {isLoadingConversations && conversations.length === 0 ? (
                 <ConversationListSkeleton collapsed={collapsed} />
               ) : (
                 <AnimatePresence mode="popLayout">
-                  {conversations.map((conv, index) => {
+                  {conversationListItems.map((item, index) => {
+                  if (item.kind === "section") {
+                    const sectionHeader = (
+                      <>
+                        {item.onToggle ? (
+                          <ChevronRight
+                            className={cn(
+                              "h-3.5 w-3.5 shrink-0 transition-transform",
+                              item.expanded && "rotate-90",
+                            )}
+                          />
+                        ) : (
+                          <History className="h-3.5 w-3.5 shrink-0" />
+                        )}
+                        <span className="flex-1 text-left">{item.label}</span>
+                        <span className="text-[10px] tabular-nums text-muted-foreground/70">
+                          {item.count}
+                        </span>
+                      </>
+                    );
+
+                    return (
+                      <div
+                        key={`section-${item.id}`}
+                        className="flex items-center gap-1.5 px-1 pt-2 text-xs font-medium uppercase tracking-wider text-muted-foreground"
+                        data-testid={`conversation-section-${item.id}`}
+                      >
+                        {item.onToggle ? (
+                          <button
+                            type="button"
+                            className="flex min-w-0 flex-1 items-center gap-1.5 rounded px-1 py-1 text-left hover:bg-muted/50 hover:text-foreground"
+                            aria-expanded={item.expanded}
+                            onClick={item.onToggle}
+                          >
+                            {sectionHeader}
+                          </button>
+                        ) : (
+                          <div className="flex min-w-0 flex-1 items-center gap-1.5 px-1 py-1">
+                            {sectionHeader}
+                          </div>
+                        )}
+                        {item.id === "history" && storageMode === "mongodb" && (
+                          <TooltipProvider delayDuration={300}>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-5 w-5 hover:bg-muted"
+                                  onClick={handleReloadConversations}
+                                  disabled={isReloading}
+                                >
+                                  <RefreshCw
+                                    className={cn("h-3 w-3", isReloading && "animate-spin")}
+                                  />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent side="right" sideOffset={4}>
+                                <p className="text-xs">Reload conversations</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        )}
+                      </div>
+                    );
+                  }
+
+                  const conv = item.conversation;
                   const currentUserEmail = session?.user?.email?.trim().toLowerCase();
                   const ownerEmail = conv.owner_id?.trim().toLowerCase();
                   const viewerIsKnownOwner =
