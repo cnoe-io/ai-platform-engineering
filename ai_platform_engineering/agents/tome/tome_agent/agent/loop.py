@@ -388,22 +388,32 @@ def sources_for_connector(snapshot, connector) -> list[SourceItem]:
     return []
 
 
-async def log_pre_tool(input_data, _tool_use_id, _context):
+async def log_pre_tool(
+    input_data: dict[str, Any],
+    _tool_use_id: str | None,
+    _context: dict[str, Any],
+) -> dict[str, Any]:
     """Triggered right BEFORE the agent executes a tool.
 
-    Must be async: the SDK `await`s every hook callback, so a sync function
-    returning None raises `TypeError: object NoneType can't be used in 'await'`
-    on each tool call and eventually wedges the CLI's stream reader."""
+    The SDK awaits every hook callback and converts its mapping result for the
+    CLI. Returning None either breaks the await or the mapping conversion and
+    eventually wedges the CLI's stream reader."""
     log.info(
         f"🤖 Agent invoking tool: '{input_data.get('tool_name')}' | "
         f"Arguments: {input_data.get('tool_input')} | "
         f"Session ID: {_context.get('session_id')}"
     )
+    return {}
 
 
-async def log_post_tool(input_data, _tool_use_id, _context):
-    """Triggered right AFTER the tool finishes executing. Async for the same
-    reason as log_pre_tool — the SDK awaits the return value."""
+async def log_post_tool(
+    input_data: dict[str, Any],
+    _tool_use_id: str | None,
+    _context: dict[str, Any],
+) -> dict[str, Any]:
+    """Triggered right AFTER the tool finishes executing.
+
+    Async and mapping-returning for the same SDK contract as log_pre_tool."""
     # Truncate output if it's too massive for standard logs
     preview_result = str(input_data.get("result"))[:200]
     if len(str(input_data.get("result"))) > 200:
@@ -414,6 +424,7 @@ async def log_post_tool(input_data, _tool_use_id, _context):
         f"Status: {'Success' if not input_data.get('is_error') else 'Error'} | "
         f"Result Preview: {preview_result}"
     )
+    return {}
 
 
 def build_agent_options(
