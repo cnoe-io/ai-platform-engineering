@@ -384,6 +384,37 @@ flowchart LR
     Policy --> Metadata["Policy metadata and reconciliation state"]
 ```
 
+### Shared decision pipeline
+
+HTTP and gRPC terminate in different adapters, but neither transport owns policy
+semantics. Both produce the same canonical request and enter the same ordered
+pipeline:
+
+```mermaid
+flowchart LR
+    HTTPIn["HTTP / batch HTTP"] --> HTTPAdapter["HTTP adapter"]
+    GRPCIn["Envoy ext_authz gRPC"] --> GRPCAdapter["gRPC adapter"]
+
+    HTTPAdapter --> Canonical["Canonical decision request"]
+    GRPCAdapter --> Canonical
+    Canonical --> Bind["Bind verified subject"]
+    Bind --> Build["Build trusted context"]
+    Build --> Validate["Validate resource/action contract"]
+    Validate --> Select["Select server-owned policy binding"]
+    Select --> Provider["OpenFGA + native CEL provider"]
+    Provider --> Normalize["Normalize outcome and reason"]
+    Normalize --> Journal["Append one durable audit event"]
+    Journal --> Result["Return ALLOW or DENY"]
+
+    Identity["JWT / workload identity"] --> Bind
+    Catalog["Schema and resource catalog"] --> Build
+    Clock["Service clock"] --> Build
+    Descriptor["Active model descriptor"] --> Select
+```
+
+The adapter may translate an HTTP or Envoy response, but it cannot select a
+provider, weaken missing context, or turn an Authz deny into an allow.
+
 ## Parallel Migration Architecture
 
 `caipe-authz` is introduced beside today's BFF in-process engine and direct
@@ -407,6 +438,96 @@ flowchart LR
     MigrationAudit --> AuditService["CAIPE Audit Service"]
 
     Selected --> AllowDeny["Allow or deny request"]
+```
+
+### Rollout state machine
+
+The forward path is deliberately staged. Rollback transitions are explicit
+routing revisions, not per-request fallback:
+
+```mermaid
+stateDiagram-v2
+    [*] --> LEGACY
+    LEGACY --> SHADOW: deploy and compare
+    SHADOW --> CANARY: promotion gates pass
+    CANARY --> AUTHZ: bounded cohort is healthy
+    AUTHZ --> AUTHZ_ONLY: retention entry criteria pass
+
+    CANARY --> SHADOW: routing rollback
+    AUTHZ --> SHADOW: routing rollback
+    SHADOW --> LEGACY: disable comparison
+    AUTHZ_ONLY --> AUTHZ: rollback while legacy release is retained
+
+    AUTHZ_ONLY --> RETIRED: retention window and removal gate pass
+    RETIRED --> [*]
+```
+
+`RETIRED` means the applicable legacy implementation and compatibility flags
+may be removed in a separate change. It is not entered merely by selecting
+`AUTHZ_ONLY`.
+
+### Dual-evaluation sequence
+
+The router reads deployment-owned configuration and chooses exactly one
+authoritative result. Comparison cannot mutate either result:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant PEP as BFF or gateway PEP
+    participant Router as Migration router
+    participant Config as Routing revision
+    participant Legacy as Legacy evaluator
+    participant Authz as caipe-authz
+    participant Compare as Comparator
+    participant Audit as Audit outbox
+
+    PEP->>Router: Canonical authorization input
+    Router->>Config: Read mode, scope, cohort, revision
+    Config-->>Router: LEGACY / SHADOW / CANARY / AUTHZ / AUTHZ_ONLY
+
+    alt LEGACY
+        Router->>Legacy: Evaluate
+        Legacy-->>Router: Authoritative result
+    else SHADOW
+        par Authoritative evaluation
+            Router->>Legacy: Evaluate
+            Legacy-->>Router: Authoritative result
+        and Non-authoritative evaluation
+            Router->>Authz: Evaluate with bounded timeout
+            Authz-->>Router: Shadow result or error
+        end
+        Router->>Compare: Classify normalized difference
+        Compare->>Audit: Journal comparison event
+    else CANARY
+        Router->>Router: Select deterministic cohort
+        alt Subject is in canary
+            Router->>Authz: Evaluate authoritatively
+            Authz-->>Router: Authoritative result
+            Router->>Legacy: Evaluate for comparison
+            Legacy-->>Router: Comparison result
+        else Subject is outside canary
+            Router->>Legacy: Evaluate authoritatively
+            Legacy-->>Router: Authoritative result
+            Router->>Authz: Evaluate for comparison
+            Authz-->>Router: Comparison result
+        end
+        Router->>Compare: Classify normalized difference
+        Compare->>Audit: Journal comparison event
+    else AUTHZ
+        Router->>Authz: Evaluate authoritatively
+        Authz-->>Router: Authoritative result
+        Router->>Legacy: Evaluate for comparison
+        Legacy-->>Router: Comparison result
+        Router->>Compare: Classify normalized difference
+        Compare->>Audit: Journal comparison event
+    else AUTHZ_ONLY
+        Router->>Authz: Evaluate authoritatively
+        Authz-->>Router: Authoritative result
+        Note over Router,Legacy: Legacy is not invoked
+    end
+
+    Router-->>PEP: Exactly one authoritative result
 ```
 
 The migration router exists only at current enforcement boundaries:
@@ -564,6 +685,50 @@ The gRPC adapter extracts trusted request data from Envoy's `CheckRequest`, then
 calls the same internal decision function as HTTP. Transport adapters may map
 responses and headers, but cannot change provider semantics.
 
+### BFF HTTP request sequence
+
+The BFF remains the application policy enforcement point (PEP). It authenticates
+the session and controls whether legacy, shadow, or Authz is authoritative; the
+new service owns the normalized authorization decision:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant BFF as CAIPE BFF route
+    participant Router as BFF migration router
+    participant Authz as caipe-authz HTTP API
+    participant Context as Trusted resolvers
+    participant FGA as OpenFGA
+    participant Outbox as Durable audit outbox
+    participant Handler as Protected route handler
+
+    User->>BFF: Authenticated application request
+    BFF->>BFF: Verify session and derive route resource/action
+    BFF->>Router: Subject, action, resource, advisory inputs
+    Router->>Authz: POST /v1/decisions
+    Authz->>Authz: Bind verified service and user identity
+    Authz->>Context: Resolve trusted identity/resource context
+    Context-->>Authz: Bounded context plus schema/model revisions
+    Authz->>FGA: Check with explicit model ID and trusted context
+    FGA-->>Authz: Allowed or denied
+    Authz->>Outbox: Journal one normalized decision event
+    Authz-->>Router: Decision, reason, revisions, bounded diagnostics
+    Router-->>BFF: Authoritative result for current rollout mode
+
+    alt ALLOW
+        BFF->>Handler: Invoke protected operation
+        Handler-->>User: Application response
+    else DENY or AUTHZ_UNAVAILABLE
+        BFF-->>User: 403 or bounded retriable response
+        Note over BFF,Handler: Protected handler is not invoked
+    end
+```
+
+For a batch request, each item follows the same decision semantics and receives
+its own correlated outcome. Batch transport changes amortization, not policy
+composition or failure behavior.
+
 ### Policy provider contract
 
 The internal provider interface is intentionally smaller than the public Authz
@@ -702,6 +867,38 @@ The BFF queries Audit Service separately for history and joins records by
 revision. The Authz Service never depends on Audit Service to build the current
 graph.
 
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Admin as Administrator or auditor
+    participant UI as CAIPE graph and comparison UI
+    participant BFF as Admin BFF
+    participant Inspect as Authz inspection API
+    participant FGA as OpenFGA
+    participant Metadata as Policy metadata
+    participant Audit as Audit query API
+
+    Admin->>UI: Open authorization explorer
+    UI->>BFF: Request current graph plus selected history window
+    par Current authoritative state
+        BFF->>Inspect: GET bounded model/graph/relationships
+        Inspect->>Inspect: Authorize inspection request
+        Inspect->>FGA: Read current model and paginated tuples
+        Inspect->>Metadata: Read policy status and revisions
+        FGA-->>Inspect: Current relationships
+        Metadata-->>Inspect: Sanitized policy metadata
+        Inspect-->>BFF: Current graph with truncation metadata
+    and Historical evidence
+        BFF->>Audit: Query decisions, changes, comparisons, revisions
+        Audit-->>BFF: Paginated sanitized history
+    end
+    BFF->>BFF: Join by decision/operation/resource revision
+    BFF-->>UI: Current layers plus separate history overlays
+    UI-->>Admin: Render relationships, conditions, drift, and comparisons
+
+    Note over BFF,Audit: History annotates the graph but never defines current access
+```
+
 ### Visualization layers
 
 | Layer | Authoritative source | Shows |
@@ -838,6 +1035,54 @@ Authorization to save requires both:
 The evaluate endpoint performs a Check with synthetic arguments. It never
 invokes the MCP tool.
 
+### Policy authoring and reconciliation sequence
+
+The UI submits declarative template data. Only the Authz control plane can turn
+that data into a condition-aware tuple:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Admin as Administrator
+    participant UI as Security and Policy UI
+    participant BFF as Admin BFF
+    participant Authz as Authz policy API
+    participant Catalog as Resource schema catalog
+    participant Compiler as Typed policy compiler
+    participant Metadata as Policy metadata store
+    participant FGA as OpenFGA
+    participant Outbox as Durable audit outbox
+
+    Admin->>UI: Select subject, exact tool, template, field, and values
+    UI->>BFF: Save typed policy with expected revision
+    BFF->>Authz: Authenticated policy request
+    Authz->>Authz: Authorize actor for tool and target subject
+    Authz->>Catalog: Load sanitized schema and current hash
+    Catalog-->>Authz: Eligible fields, types, schema hash
+    Authz->>Compiler: Validate and canonicalize template instance
+    Compiler-->>Authz: Condition name, constants, expression hash
+    Authz->>Metadata: Persist RECONCILING revision
+    Authz->>FGA: Write conditional tuple with explicit model ID
+    Authz->>FGA: Read exact tuple back
+
+    alt Tuple and condition match
+        FGA-->>Authz: Verified tuple
+        Authz->>Metadata: Mark revision ACTIVE
+        Authz->>Outbox: Journal policy and relationship changes
+        Authz-->>BFF: Active policy revision
+        BFF-->>UI: Show ACTIVE
+    else Write or verification fails
+        Authz->>FGA: Restore prior tuple when updating
+        Authz->>Metadata: Mark RECONCILE_FAILED if not compensated
+        Authz->>Outbox: Journal failure and compensation outcome
+        Authz-->>BFF: Retriable reconciliation failure
+        BFF-->>UI: Show failure; never claim ACTIVE
+    end
+```
+
+The saved template values are policy constants. Request-time argument values do
+not enter this flow, and a policy save never invokes the protected MCP tool.
+
 ### Reconciliation ordering
 
 Create:
@@ -919,15 +1164,20 @@ sequenceDiagram
     participant Caller as Agent or local caller
     participant AGW as AgentGateway
     participant Authz as CAIPE Authorization Service
+    participant Catalog as Schema/context resolver
     participant FGA as OpenFGA
+    participant Outbox as Durable audit outbox
+    participant Worker as Audit delivery worker
     participant MCP as MCP server
     participant Audit as Audit service
 
     Caller->>AGW: tools/call with JWT, signed agent context, and arguments
-    AGW->>AGW: Verify JWT and route
-    AGW->>Authz: ext_authz CheckRequest
-    Authz->>Authz: Bind subject and verify agent context
-    Authz->>Authz: Parse and project eligible arguments
+    AGW->>AGW: Buffer bounded complete body and verify route
+    AGW->>Authz: ext_authz CheckRequest with observed request
+    Authz->>Authz: Verify JWT and bind signed agent context
+    Authz->>Catalog: Resolve exact tool schema and eligible fields
+    Catalog-->>Authz: Trusted current schema hash and projection contract
+    Authz->>Authz: Parse body and build typed argument maps
     Authz->>FGA: Check gateway and optional server access
     Authz->>FGA: Check caller can_call exact tool with context
     opt Dynamic agent context
@@ -935,15 +1185,26 @@ sequenceDiagram
         Authz->>FGA: Check agent can_call exact tool with context
     end
     alt Every required check allows
-        Authz->>Audit: Record allow, policy hash, and context field names
+        Authz->>Outbox: Journal allow, revisions, and field names
         Authz-->>AGW: ALLOW
         AGW->>MCP: Forward unchanged MCP request
+        MCP-->>AGW: Tool response
+        AGW-->>Caller: Tool response
     else Condition false, missing context, or PDP failure
-        Authz->>Audit: Record deny and reason without argument values
+        Authz->>Outbox: Journal deny and reason without values
         Authz-->>AGW: DENY
         AGW--xMCP: Block request
+        AGW-->>Caller: 403 authorization denied
     end
+    Worker->>Outbox: Read pending events
+    Worker->>Audit: Deliver idempotent event batch
+    Audit-->>Worker: Accepted event IDs
+    Worker->>Outbox: Mark delivered
 ```
+
+Remote Audit Service delivery happens after the local journal operation and is
+not on the decision latency path. If strict mode cannot journal an allow, Authz
+returns a deny before AgentGateway can forward the request.
 
 ### Exact tools and wildcards
 
@@ -977,6 +1238,37 @@ When a probe discovers a different schema hash:
 4. Require explicit revalidation before writing a new active tuple.
 
 The reconciler must not silently coerce a field from one type to another.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Probe as Tool catalog probe
+    participant Catalog as Schema catalog
+    participant Policy as Policy reconciler
+    participant Cache as Authz context cache
+    participant Authz as caipe-authz
+    participant FGA as OpenFGA
+    participant UI as Admin UI
+
+    Probe->>Catalog: Report sanitized input schema
+    Catalog->>Catalog: Canonicalize and compute schema hash
+    alt Hash matches active policy
+        Catalog-->>Policy: No affected policy
+    else Hash changed
+        Catalog->>Policy: Affected tool and field/type diff
+        Policy->>Policy: Mark policies STALE_SCHEMA
+        Policy->>Cache: Invalidate prior projection descriptor
+        UI->>Policy: Read policy status and sanitized diff
+        Policy-->>UI: STALE_SCHEMA; explicit revalidation required
+
+        Note over Authz,FGA: A protected request arrives before revalidation
+        Authz->>Cache: Resolve current projection descriptor
+        Cache-->>Authz: New hash or unavailable trusted hash
+        Authz->>FGA: Check using current/empty schema hash
+        FGA-->>Authz: Conditional relationship is false
+        Authz-->>Authz: Deny stale schema; do not coerce input
+    end
+```
 
 ## Authorization Model Versioning
 
@@ -1192,6 +1484,37 @@ Expression-policy rollback:
 - Re-enable an older model only if every referenced tuple remains compatible.
 
 Neither rollback may use the unsafe RBAC bypass.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Operator
+    participant Control as Deployment/policy control plane
+    participant Router as Migration router
+    participant Authz as caipe-authz
+    participant FGA as OpenFGA
+    participant Metadata as Policy metadata
+    participant Audit as Durable audit outbox
+
+    alt Routing rollback
+        Operator->>Control: Activate prior signed routing revision
+        Control->>Router: Publish SHADOW or LEGACY mode
+        Router->>Router: Atomically load revision
+        Router-->>Control: Active revision confirmed
+        Control->>Audit: Journal migration revision
+        Note over Router,FGA: No tuple or policy mutation occurs
+    else Expression-policy rollback
+        Operator->>Control: Disable targeted policy revision
+        Control->>Authz: Authenticated policy rollback
+        Authz->>FGA: Delete targeted conditional tuple
+        Authz->>FGA: Read exact tuple to verify deletion
+        FGA-->>Authz: Tuple absent
+        Authz->>Metadata: Mark policy DISABLED
+        Authz->>Audit: Journal policy and relationship changes
+        Authz-->>Control: Rollback completed
+        Note over Control,Router: Routing authority is unchanged
+    end
+```
 
 ## Implementation Touchpoints
 
