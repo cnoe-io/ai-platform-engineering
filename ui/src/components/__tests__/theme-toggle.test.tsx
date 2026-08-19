@@ -18,7 +18,7 @@ let mockTheme = "dark";
 let mockResolvedTheme = "dark";
 const mockSetTheme = jest.fn();
 
-jest.mock("next-themes", () => ({
+jest.mock("@/components/theme-provider", () => ({
   useTheme: () => ({
     theme: mockTheme,
     setTheme: mockSetTheme,

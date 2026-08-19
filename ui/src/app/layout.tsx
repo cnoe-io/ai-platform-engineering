@@ -86,6 +86,8 @@ export default async function RootLayout({
   // Build the XSS-safe JSON for client-side config injection.
   // Only client-safe values are included (no secrets).
   const configScript = getClientConfigScript();
+  const initialTheme = JSON.stringify(cfg.defaultTheme).replace(/</g,"\\u003c");
+  const themeScript = `(function(){try{var theme=localStorage.getItem("theme")||${initialTheme};if(theme==="system"){theme=window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";}document.documentElement.setAttribute("data-theme",theme);document.documentElement.style.removeProperty("color-scheme");}catch(_error){}})();`;
 
   return (
     <html lang="en" suppressHydrationWarning>
@@ -96,6 +98,11 @@ export default async function RootLayout({
             __html: `window.__APP_CONFIG__=${configScript};`,
           }}
           id="runtime-app-config"
+          strategy="beforeInteractive"
+        />
+        <Script
+          dangerouslySetInnerHTML={{ __html: themeScript }}
+          id="initial-appearance-theme"
           strategy="beforeInteractive"
         />
       </head>
