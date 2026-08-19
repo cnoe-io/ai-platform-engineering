@@ -264,6 +264,39 @@ test.describe("mocked routed Settings browser regression",() => {
     ).toEqual([]);
   });
 
+  test("keeps Legacy Light native surfaces light after switching from Dark and reloading",async ({ page }) => {
+    const state = createState();
+    await installSettingsCenterMocks(page,state);
+    const renderingErrors: string[] = [];
+    page.on("console",(message) => {
+      if (message.type() === "error") renderingErrors.push(message.text());
+    });
+    page.on("pageerror",(error) => renderingErrors.push(error.message));
+    const settings = await openSettings(page,"Appearance");
+
+    await settings.getByRole("button",{
+      name: "Legacy Light Original bright neutral palette",
+    }).click();
+
+    await expect(page.locator("html")).toHaveAttribute("data-theme","legacy-light");
+    await expect.poll(() => page.evaluate(() => (
+      getComputedStyle(document.documentElement).colorScheme
+    ))).toBe("light");
+    await expect.poll(() => state.settingsPreferenceWrites).toContainEqual({
+      theme: "legacy-light",
+    });
+
+    await page.reload({ waitUntil: "domcontentloaded" });
+
+    await expect(page.locator("html")).toHaveAttribute("data-theme","legacy-light");
+    await expect.poll(() => page.evaluate(() => (
+      getComputedStyle(document.documentElement).colorScheme
+    ))).toBe("light");
+    expect(
+      renderingErrors.filter((message) => /hydration|script tag while rendering/i.test(message)),
+    ).toEqual([]);
+  });
+
   test("shows preference explanations on hover without a dead documentation link",async ({ page }) => {
     const state = createState();
     await installSettingsCenterMocks(page,state);
