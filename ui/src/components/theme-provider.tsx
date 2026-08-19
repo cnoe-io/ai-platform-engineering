@@ -65,6 +65,15 @@ export function ThemeProvider({
   }, [defaultTheme,storageKey]);
 
   const resolvedTheme = theme === "system" ? systemTheme : theme;
+  const appliedTheme = forcedTheme ?? resolvedTheme;
+
+  useEffect(() => {
+    if (!appliedTheme) return;
+    const root = document.documentElement;
+    root.setAttribute("data-theme",appliedTheme);
+    root.style.removeProperty("color-scheme");
+  }, [appliedTheme]);
+
   const contextValue = useMemo<UseThemeProps>(() => ({
     forcedTheme,
     resolvedTheme,
@@ -79,7 +88,7 @@ export function ThemeProvider({
       {...props}
       defaultTheme={defaultTheme}
       enableSystem={enableSystem}
-      forcedTheme={forcedTheme ?? resolvedTheme}
+      forcedTheme={appliedTheme}
       storageKey={storageKey}
       themes={themes}
     >
