@@ -45,6 +45,12 @@ describe("RichCodeEditor — theme", () => {
     expect(lastCodeMirrorProps.theme).toBe("light");
   });
 
+  it("uses the light editor theme for Legacy Light", () => {
+    mockResolvedTheme = "legacy-light";
+    render(<RichCodeEditor value="" onChange={() => {}} />);
+    expect(lastCodeMirrorProps.theme).toBe("light");
+  });
+
   it("uses oneDark when resolvedTheme is dark", () => {
     mockResolvedTheme = "dark";
     render(<RichCodeEditor value="" onChange={() => {}} />);

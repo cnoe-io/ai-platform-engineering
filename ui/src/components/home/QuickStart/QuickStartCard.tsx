@@ -1,5 +1,6 @@
 "use client";
 
+import type { CSSProperties } from "react";
 import { NavigationProgressLink } from "@/components/layout/NavigationProgressLink";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -15,7 +16,8 @@ export function QuickStartCard({ card }: QuickStartCardProps) {
   return (
     <div
       data-testid={`quick-start-card-${card.id}`}
-      className="flex flex-col rounded-lg border border-border/50 bg-card/50 p-5"
+      className="home-quick-start-card flex flex-col rounded-lg border border-border/50 bg-card/50 p-5"
+      style={{ "--quick-start-accent": card.accentColor } as CSSProperties}
     >
       <div className="flex items-center gap-3">
         <div

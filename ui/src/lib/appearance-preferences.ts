@@ -17,7 +17,8 @@ export const FONT_FAMILIES = [
 
 export const COLOR_THEMES = [
   { id: "system",label: "System",description: "Match your device" },
-  { id: "light",label: "Light",description: "Bright and clean" },
+  { id: "light",label: "Improved Light",description: "Balanced tonal surfaces and brand color" },
+  { id: "legacy-light",label: "Legacy Light",description: "Original bright neutral palette" },
   { id: "dark",label: "Dark",description: "Easy on the eyes" },
   { id: "midnight",label: "Midnight",description: "Pure black for OLED" },
   { id: "nord",label: "Nord",description: "Muted arctic colors" },

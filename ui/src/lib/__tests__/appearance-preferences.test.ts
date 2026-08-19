@@ -26,6 +26,12 @@ describe("appearance preference hydration",() => {
     expect(readCachedAppearancePreferences()).toMatchObject({ theme: "nord" });
   });
 
+  it("recognizes the opt-in Legacy Light cache value",() => {
+    localStorage.setItem("theme","legacy-light");
+
+    expect(readCachedAppearancePreferences()).toMatchObject({ theme: "legacy-light" });
+  });
+
   it("does not overwrite a field changed after hydration started",() => {
     const snapshot = snapshotAppearanceInteractions();
     markAppearanceInteraction("fontSize");

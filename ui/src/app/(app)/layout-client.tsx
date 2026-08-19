@@ -34,7 +34,7 @@ export function AppLayoutClient({
       initialCollapsed={initialNavigationCollapsed}
     >
       <HeaderBreadcrumbSlotProvider>
-        <div className="flex h-dvh overflow-hidden bg-background noise-overlay">
+        <div className="app-shell-canvas flex h-dvh overflow-hidden bg-background noise-overlay">
           <ApplicationNavigationRail />
           <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
             <AppHeader />

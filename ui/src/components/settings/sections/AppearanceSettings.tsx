@@ -33,7 +33,8 @@ import { useEffect,useState } from "react";
 
 const THEME_SWATCHES: Record<ColorTheme,string> = {
   system: "bg-gray-400 border-gray-600",
-  light: "bg-white border-gray-200",
+  light: "border-teal-200 bg-gradient-to-br from-teal-50 via-sky-50 to-violet-100",
+  "legacy-light": "bg-white border-gray-200",
   dark: "bg-[#0a0b0f] border-[#1e2028]",
   midnight: "bg-black border-gray-800",
   nord: "bg-[#2e3440] border-[#3b4252]",

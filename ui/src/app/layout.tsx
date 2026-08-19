@@ -109,7 +109,7 @@ export default async function RootLayout({
             defaultTheme={cfg.defaultTheme}
             enableSystem
             disableTransitionOnChange={false}
-            themes={["light", "dark", "midnight", "nord", "tokyo", "cyberpunk", "tron", "matrix"]}
+            themes={["light", "legacy-light", "dark", "midnight", "nord", "tokyo", "cyberpunk", "tron", "matrix"]}
           >
             <ToastProvider>
               <ThemeInjector />
