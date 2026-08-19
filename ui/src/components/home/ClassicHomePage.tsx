@@ -5,7 +5,6 @@ import { HomeExperienceToggle } from "@/components/home/HomeExperienceToggle";
 import { InsightsWidget } from "@/components/home/InsightsWidget";
 import { RecentChats } from "@/components/home/RecentChats";
 import { SharedConversations } from "@/components/home/SharedConversations";
-import { WelcomeBanner } from "@/components/home/WelcomeBanner";
 import { getStorageMode } from "@/lib/storage-config";
 import { useHomeWidgetsStore } from "@/store/home-widgets-store";
 
@@ -19,14 +18,12 @@ export function ClassicHomePage() {
   const isMongoMode = getStorageMode() === "mongodb";
 
   return (
-    <div className="max-w-6xl mx-auto p-6 space-y-6">
+    <div className="space-y-6">
       <HomeExperienceToggle
         label="Try the new Home experience"
         onClick={() => setExperience("new")}
         testId="switch-to-new-home"
       />
-
-      <WelcomeBanner />
 
       <CapabilityCards />
 

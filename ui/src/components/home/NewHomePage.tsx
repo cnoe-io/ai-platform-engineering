@@ -54,7 +54,7 @@ export function NewHomePage() {
   const availableToAdd = useMemo(() => useHomeWidgetsStore.getState().availableToAdd(), [widgets]);
 
   return (
-    <div className="max-w-6xl mx-auto p-6 space-y-6">
+    <div className="space-y-6">
       <HomeExperienceToggle
         label="Go back to the previous Home experience"
         onClick={() => setExperience("classic")}
