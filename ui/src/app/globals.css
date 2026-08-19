@@ -227,7 +227,7 @@ html[data-navigation-pending="true"] * {
 
 /* ========================================
    LEGACY LIGHT THEME - Original bright palette
-   Available for comparison with Improved Light
+   Available for comparison with the current Light theme
    ======================================== */
 [data-theme="legacy-light"] {
   --background: 0 0% 99%;
@@ -857,7 +857,7 @@ pre code.hljs {
   pointer-events: none;
 }
 
-/* Improved Light uses a quiet tonal hierarchy inspired by semantic surface
+/* Light uses a quiet tonal hierarchy inspired by semantic surface
    roles. These selectors are intentionally scoped so Legacy Light and every
    dark theme keep their existing appearance. */
 [data-theme="light"] .app-shell-canvas {

@@ -129,7 +129,7 @@ describe("ThemeToggle", () => {
     });
     const trigger = screen.getAllByText("Dark")[0].closest("button");
     fireEvent.click(trigger!);
-    expect(screen.getByText("Improved Light")).toBeInTheDocument();
+    expect(screen.getByText("Light")).toBeInTheDocument();
     expect(screen.getByText("Legacy Light")).toBeInTheDocument();
     expect(screen.getByText("System")).toBeInTheDocument();
     expect(screen.getByText("Midnight")).toBeInTheDocument();
@@ -156,7 +156,7 @@ describe("ThemeToggle", () => {
       expect(screen.getByText("Dark")).toBeInTheDocument();
     });
     fireEvent.click(screen.getByText("Dark").closest("button")!);
-    fireEvent.click(screen.getByText("Improved Light"));
+    fireEvent.click(screen.getByText("Light"));
     expect(mockSetTheme).toHaveBeenCalledWith("light");
   });
 
@@ -176,7 +176,7 @@ describe("ThemeToggle", () => {
       expect(screen.getByText("Dark")).toBeInTheDocument();
     });
     fireEvent.click(screen.getByText("Dark").closest("button")!);
-    fireEvent.click(screen.getByText("Improved Light"));
+    fireEvent.click(screen.getByText("Light"));
     await waitFor(() => {
       expect(screen.queryByText("Theme Settings")).not.toBeInTheDocument();
     });
@@ -197,9 +197,9 @@ describe("ThemeToggle", () => {
     mockTheme = "light";
     render(<ThemeToggle />);
     await waitFor(() => {
-      expect(screen.getByText("Improved Light")).toBeInTheDocument();
+      expect(screen.getByText("Light")).toBeInTheDocument();
     });
-    fireEvent.click(screen.getByText("Improved Light").closest("button")!);
+    fireEvent.click(screen.getByText("Light").closest("button")!);
     expect(screen.getByText(/Current: Light mode/)).toBeInTheDocument();
   });
 
