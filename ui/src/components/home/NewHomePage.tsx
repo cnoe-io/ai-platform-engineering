@@ -4,8 +4,8 @@ import { HomeExperienceToggle } from "@/components/home/HomeExperienceToggle";
 import { HomeWidgetFrame } from "@/components/home/HomeWidgetFrame";
 import { HOME_WIDGET_COMPONENTS } from "@/components/home/widget-registry";
 import { Button } from "@/components/ui/button";
-import { Popover,PopoverContent,PopoverTrigger } from "@/components/ui/popover";
-import { useHomeWidgetsStore } from "@/store/home-widgets-store";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { getHomeWidgetDefinition, useHomeWidgetsStore } from "@/store/home-widgets-store";
 import {
   DndContext,
   KeyboardSensor,
@@ -17,11 +17,11 @@ import {
 } from "@dnd-kit/core";
 import {
   SortableContext,
+  rectSortingStrategy,
   sortableKeyboardCoordinates,
-  verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { computeReorder } from "@/lib/reorder";
-import { Plus } from "lucide-react";
+import { SlidersHorizontal } from "lucide-react";
 import { useMemo } from "react";
 
 export function NewHomePage() {
@@ -35,7 +35,7 @@ export function NewHomePage() {
   );
 
   const handleDragEnd = (event: DragEndEvent) => {
-    const { active,over } = event;
+    const { active, over } = event;
     if (!over) return;
     const next = computeReorder(widgets, String(active.id), String(over.id));
     if (next) reorderWidgets(next);
@@ -52,21 +52,26 @@ export function NewHomePage() {
   const availableToAdd = useMemo(() => useHomeWidgetsStore.getState().availableToAdd(), [widgets]);
 
   return (
-    <div className="space-y-6">
-      <HomeExperienceToggle
-        label="Classic Home"
-        ariaLabel="Switch to classic Home"
-        onClick={() => setExperience("classic")}
-        testId="switch-to-classic-home"
-      />
+    <div className="space-y-3">
+      <div className="flex min-h-7 items-center justify-end gap-1" data-testid="home-toolbar">
+        <HomeExperienceToggle
+          label="Classic Home"
+          ariaLabel="Switch to classic Home"
+          onClick={() => setExperience("classic")}
+          testId="switch-to-classic-home"
+        />
 
-      {availableToAdd.length > 0 && (
-        <div className="flex justify-end">
+        {availableToAdd.length > 0 && (
           <Popover>
             <PopoverTrigger asChild>
-              <Button variant="outline" size="sm" className="gap-1.5" data-testid="add-widget-trigger">
-                <Plus className="h-3.5 w-3.5" />
-                Add widget
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 gap-1 px-2 text-[11px] font-medium tracking-tight text-muted-foreground/70 hover:text-muted-foreground"
+                data-testid="add-widget-trigger"
+              >
+                <SlidersHorizontal className="h-3 w-3" />
+                Customize
               </Button>
             </PopoverTrigger>
             <PopoverContent side="bottom" align="end" className="w-56 p-1">
@@ -83,20 +88,27 @@ export function NewHomePage() {
               ))}
             </PopoverContent>
           </Popover>
-        </div>
-      )}
+        )}
+      </div>
 
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-        <SortableContext items={widgets} strategy={verticalListSortingStrategy}>
-          {widgets.map((widgetId) => {
-            const Widget = HOME_WIDGET_COMPONENTS[widgetId];
-            if (!Widget) return null;
-            return (
-              <HomeWidgetFrame key={widgetId} widgetId={widgetId}>
-                <Widget />
-              </HomeWidgetFrame>
-            );
-          })}
+        <SortableContext items={widgets} strategy={rectSortingStrategy}>
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2" data-testid="home-widget-grid">
+            {widgets.map((widgetId) => {
+              const Widget = HOME_WIDGET_COMPONENTS[widgetId];
+              if (!Widget) return null;
+              const definition = getHomeWidgetDefinition(widgetId);
+              return (
+                <HomeWidgetFrame
+                  key={widgetId}
+                  widgetId={widgetId}
+                  fullWidth={definition?.width !== "half"}
+                >
+                  <Widget />
+                </HomeWidgetFrame>
+              );
+            })}
+          </div>
         </SortableContext>
       </DndContext>
 

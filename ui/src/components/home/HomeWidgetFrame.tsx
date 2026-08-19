@@ -4,16 +4,17 @@ import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { useHomeWidgetsStore } from "@/store/home-widgets-store";
 import { cn } from "@/lib/utils";
-import { GripVertical,X } from "lucide-react";
+import { GripVertical, X } from "lucide-react";
 import type { ReactNode } from "react";
 
 interface HomeWidgetFrameProps {
   widgetId: string;
+  fullWidth?: boolean;
   children: ReactNode;
 }
 
 /** Wraps a Home page content widget with shared reorder and remove controls. */
-export function HomeWidgetFrame({ widgetId, children }: HomeWidgetFrameProps) {
+export function HomeWidgetFrame({ widgetId, fullWidth = false, children }: HomeWidgetFrameProps) {
   const removeWidget = useHomeWidgetsStore((s) => s.removeWidget);
   const { attributes,listeners,setNodeRef,setActivatorNodeRef,transform,transition,isDragging } =
     useSortable({ id: widgetId });
@@ -27,13 +28,14 @@ export function HomeWidgetFrame({ widgetId, children }: HomeWidgetFrameProps) {
     <div
       ref={setNodeRef}
       style={style}
-      className={cn("group/widget", isDragging && "relative z-10 opacity-70")}
+      className={cn(
+        "group/widget relative min-w-0",
+        fullWidth && "lg:col-span-2",
+        isDragging && "z-10 opacity-70",
+      )}
       data-testid={`home-widget-${widgetId}`}
     >
-      {/* Reserved header strip, not overlaid — several widgets (Recent Chats,
-          Insights) already put their own links in the top-right corner, so
-          these controls need their own row rather than floating on top. */}
-      <div className="mb-1 flex items-center justify-end gap-1">
+      <div className="pointer-events-none absolute right-1 top-1 z-20 flex items-center gap-1 opacity-0 transition-opacity group-focus-within/widget:opacity-100 group-hover/widget:opacity-100">
         <button
           ref={setActivatorNodeRef}
           type="button"
@@ -42,7 +44,7 @@ export function HomeWidgetFrame({ widgetId, children }: HomeWidgetFrameProps) {
           aria-label="Drag to reorder widget"
           title="Drag to reorder"
           data-testid={`home-widget-drag-${widgetId}`}
-          className="invisible flex h-6 w-6 cursor-grab items-center justify-center rounded-full border border-border/50 bg-card text-muted-foreground hover:text-foreground active:cursor-grabbing group-hover/widget:visible"
+          className="pointer-events-auto flex h-6 w-6 cursor-grab items-center justify-center rounded-full border border-border/60 bg-background/90 text-muted-foreground shadow-sm backdrop-blur-sm hover:text-foreground active:cursor-grabbing"
         >
           <GripVertical className="h-3.5 w-3.5" />
         </button>
@@ -52,7 +54,7 @@ export function HomeWidgetFrame({ widgetId, children }: HomeWidgetFrameProps) {
           aria-label="Remove widget"
           title="Remove widget"
           data-testid={`home-widget-remove-${widgetId}`}
-          className="invisible flex h-6 w-6 items-center justify-center rounded-full border border-border/50 bg-card text-muted-foreground hover:text-foreground group-hover/widget:visible"
+          className="pointer-events-auto flex h-6 w-6 items-center justify-center rounded-full border border-border/60 bg-background/90 text-muted-foreground shadow-sm backdrop-blur-sm hover:text-foreground"
         >
           <X className="h-3.5 w-3.5" />
         </button>

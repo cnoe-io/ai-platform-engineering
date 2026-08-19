@@ -14,18 +14,29 @@ export type HomeExperience = "new" | "classic";
 export interface HomeWidgetDefinition {
   id: string;
   label: string;
+  /** Controls the widget's width in the responsive customizable Home grid. */
+  width: "full" | "half";
   /** Only offered/rendered when the app is running against MongoDB. */
   requiresMongo?: boolean;
 }
 
 export const HOME_WIDGET_DEFINITIONS: HomeWidgetDefinition[] = [
-  { id: "heroComposer", label: "Ask CAIPE" },
-  { id: "quickStart", label: "Quick Start" },
-  { id: "shortcuts", label: "Shortcuts" },
-  { id: "recentChats", label: "Recent Chats" },
-  { id: "insights", label: "Your Insights", requiresMongo: true },
-  { id: "sharedConversations", label: "Shared Conversations", requiresMongo: true },
+  { id: "heroComposer", label: "Ask CAIPE", width: "full" },
+  { id: "quickStart", label: "Quick Start", width: "full" },
+  { id: "shortcuts", label: "Shortcuts", width: "full" },
+  { id: "recentChats", label: "Recent Chats", width: "half" },
+  { id: "insights", label: "Your Insights", width: "half", requiresMongo: true },
+  {
+    id: "sharedConversations",
+    label: "Shared Conversations",
+    width: "half",
+    requiresMongo: true,
+  },
 ];
+
+export function getHomeWidgetDefinition(id: string): HomeWidgetDefinition | undefined {
+  return HOME_WIDGET_DEFINITIONS.find((widget) => widget.id === id);
+}
 
 function normalizeWidgetIds(widgets: unknown[]): string[] {
   const validIds = new Set(HOME_WIDGET_DEFINITIONS.map((widget) => widget.id));

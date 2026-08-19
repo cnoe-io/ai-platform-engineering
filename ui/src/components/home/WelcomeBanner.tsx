@@ -1,6 +1,6 @@
 "use client";
 
-import { Settings,Sparkles } from "lucide-react";
+import { Settings, Sparkles } from "lucide-react";
 import { useSession } from "next-auth/react";
 
 interface WelcomeBannerProps {
@@ -20,15 +20,12 @@ export function WelcomeBanner({ onOpenPreferences }: WelcomeBannerProps = {}) {
     >
       <div className="relative z-10 flex min-h-8 items-center justify-between gap-3">
         <div
-          className="flex min-w-0 flex-1 items-center gap-3 overflow-hidden"
+          className="flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden"
           data-testid="welcome-banner-copy"
         >
           <Sparkles className="welcome-banner-sparkle h-4 w-4 shrink-0 text-white/80" />
-          <span className="shrink-0 whitespace-nowrap text-sm font-medium text-white/80">
-            {greeting}
-          </span>
           <h1 className="truncate whitespace-nowrap text-lg font-semibold leading-none text-white">
-            {displayName ? `Welcome back, ${displayName}` : "Welcome to CAIPE"}
+            {displayName ? `${greeting}, ${displayName}.` : `${greeting}.`}
           </h1>
         </div>
         {onOpenPreferences && (

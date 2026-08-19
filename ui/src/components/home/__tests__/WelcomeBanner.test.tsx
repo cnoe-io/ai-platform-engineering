@@ -3,7 +3,7 @@
  *
  * Tests:
  * - Renders personalized greeting with user's first name (from useSession)
- * - Renders generic greeting when no session/name
+ * - Renders a natural time-of-day greeting when no session/name
  * - Uses "Good morning" before noon
  * - Uses "Good afternoon" between noon and 5pm
  * - Uses "Good evening" after 5pm
@@ -51,24 +51,32 @@ describe('WelcomeBanner', () => {
   it('renders personalized greeting with first name', () => {
     mockSession = { data: { user: { name: 'Alice Johnson' } } }
     render(<WelcomeBanner />)
-    expect(screen.getByText('Welcome back, Alice')).toBeInTheDocument()
+    expect(screen.getByRole('heading')).toHaveTextContent(
+      /^(Good morning|Good afternoon|Good evening), Alice\.$/
+    )
   })
 
   it('renders personalized greeting for single name', () => {
     mockSession = { data: { user: { name: 'Bob' } } }
     render(<WelcomeBanner />)
-    expect(screen.getByText('Welcome back, Bob')).toBeInTheDocument()
+    expect(screen.getByRole('heading')).toHaveTextContent(
+      /^(Good morning|Good afternoon|Good evening), Bob\.$/
+    )
   })
 
   it('renders generic greeting when no session', () => {
     render(<WelcomeBanner />)
-    expect(screen.getByText('Welcome to CAIPE')).toBeInTheDocument()
+    expect(screen.getByRole('heading')).toHaveTextContent(
+      /^(Good morning|Good afternoon|Good evening)\.$/
+    )
   })
 
   it('renders generic greeting when name is null', () => {
     mockSession = { data: { user: { name: null } } }
     render(<WelcomeBanner />)
-    expect(screen.getByText('Welcome to CAIPE')).toBeInTheDocument()
+    expect(screen.getByRole('heading')).toHaveTextContent(
+      /^(Good morning|Good afternoon|Good evening)\.$/
+    )
   })
 
   it('renders the data-testid', () => {
@@ -91,13 +99,17 @@ describe('WelcomeBanner', () => {
     expect(screen.getByTestId('icon-sparkles')).toBeInTheDocument()
   })
 
-  it('keeps the greeting and welcome text in the same row', () => {
+  it('keeps the personalized greeting in one compact row', () => {
     mockSession = { data: { user: { name: 'Test User' } } }
     render(<WelcomeBanner />)
     const copy = screen.getByTestId('welcome-banner-copy')
-    expect(copy).toContainElement(screen.getByText('Welcome back, Test'))
+    expect(copy).toContainElement(screen.getByRole('heading'))
+    expect(screen.getByRole('heading')).toHaveTextContent(
+      /^(Good morning|Good afternoon|Good evening), Test\.$/
+    )
     expect(copy).toContainElement(screen.getByTestId('icon-sparkles'))
     expect(copy).toHaveClass('flex', 'items-center')
+    expect(screen.queryByText(/Welcome back/)).not.toBeInTheDocument()
   })
 
   it('uses compact padding and omits the previous question prompt', () => {
