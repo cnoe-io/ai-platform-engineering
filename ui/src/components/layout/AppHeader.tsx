@@ -10,6 +10,7 @@ import { NotificationBell } from "@/components/notifications/NotificationBell";
 import { SettingsPanel } from "@/components/settings-panel";
 import { UnsavedChangesDialog } from "@/components/shared/UnsavedChangesDialog";
 import { Button } from "@/components/ui/button";
+import { useHeaderBreadcrumbSlotRef } from "@/components/layout/HeaderBreadcrumbSlot";
 import { GithubIcon as Github } from "@/components/ui/icons";
 import {
 Popover,
@@ -37,6 +38,7 @@ import React from "react";
 export function AppHeader() {
   const pathname = usePathname();
   const router = useRouter();
+  const breadcrumbSlotRef = useHeaderBreadcrumbSlotRef();
   const { data: session } = useSession();
   const { isAdmin } = useAdminRole();
   const {
@@ -186,11 +188,16 @@ export function AppHeader() {
   const adminAlerts = adminOnlyAlerts;
   return (
     <>
-    <header className="relative z-50 flex h-14 shrink-0 items-center justify-between gap-2 bg-card/50 px-3 backdrop-blur-xl sm:px-4">
-      <div className="flex min-w-0 items-center gap-1">
+    <header className="relative z-50 flex h-14 shrink-0 items-center gap-2 bg-card/50 px-3 backdrop-blur-xl sm:px-4">
+      <div className="flex min-w-0 shrink-0 items-center gap-1">
         <ApplicationNavigationMenuButton />
         <MobileApplicationBrand />
       </div>
+
+      {/* Breadcrumb slot — pages (e.g. chat) portal their WorkspaceBreadcrumbs
+          in here so the crumb trail lives inside the header bar instead of
+          floating in its own row underneath it. */}
+      <div ref={breadcrumbSlotRef} className="flex min-w-0 flex-1 items-center" />
 
       {/* Status & Actions */}
       <div className="flex shrink-0 items-center gap-1.5">
