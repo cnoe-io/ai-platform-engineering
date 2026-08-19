@@ -12,7 +12,7 @@ interface HomeWidgetFrameProps {
   children: ReactNode;
 }
 
-/** Wraps an optional Home page widget with a drag handle (reorder) and a remove control. */
+/** Wraps a Home page content widget with shared reorder and remove controls. */
 export function HomeWidgetFrame({ widgetId, children }: HomeWidgetFrameProps) {
   const removeWidget = useHomeWidgetsStore((s) => s.removeWidget);
   const { attributes,listeners,setNodeRef,setActivatorNodeRef,transform,transition,isDragging } =

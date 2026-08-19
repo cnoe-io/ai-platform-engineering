@@ -1,9 +1,7 @@
 "use client";
 
-import { HeroComposer } from "@/components/home/HeroComposer";
 import { HomeExperienceToggle } from "@/components/home/HomeExperienceToggle";
 import { HomeWidgetFrame } from "@/components/home/HomeWidgetFrame";
-import { QuickStartSection } from "@/components/home/QuickStart/QuickStartSection";
 import { HOME_WIDGET_COMPONENTS } from "@/components/home/widget-registry";
 import { Button } from "@/components/ui/button";
 import { Popover,PopoverContent,PopoverTrigger } from "@/components/ui/popover";
@@ -60,10 +58,6 @@ export function NewHomePage() {
         onClick={() => setExperience("classic")}
         testId="switch-to-classic-home"
       />
-
-      <HeroComposer />
-
-      <QuickStartSection />
 
       {availableToAdd.length > 0 && (
         <div className="flex justify-end">

@@ -3,7 +3,11 @@ import { getStorageMode } from "@/lib/storage-config";
 import { create } from "zustand";
 
 const STORAGE_KEY = "caipe-home-widgets";
+const STORAGE_VERSION_KEY = "caipe-home-widgets-version";
 const EXPERIENCE_STORAGE_KEY = "caipe-home-experience";
+
+export const HOME_WIDGETS_SCHEMA_VERSION = 2;
+export const DEFAULT_HOME_WIDGETS = ["heroComposer", "quickStart"];
 
 export type HomeExperience = "new" | "classic";
 
@@ -15,29 +19,63 @@ export interface HomeWidgetDefinition {
 }
 
 export const HOME_WIDGET_DEFINITIONS: HomeWidgetDefinition[] = [
+  { id: "heroComposer", label: "Ask CAIPE" },
+  { id: "quickStart", label: "Quick Start" },
   { id: "shortcuts", label: "Shortcuts" },
   { id: "recentChats", label: "Recent Chats" },
   { id: "insights", label: "Your Insights", requiresMongo: true },
   { id: "sharedConversations", label: "Shared Conversations", requiresMongo: true },
 ];
 
-function readFromLocalStorage(): string[] {
-  if (typeof window === "undefined") return [];
+function normalizeWidgetIds(widgets: unknown[]): string[] {
+  const validIds = new Set(HOME_WIDGET_DEFINITIONS.map((widget) => widget.id));
+  return widgets.filter(
+    (id, index): id is string =>
+      typeof id === "string" && validIds.has(id) && widgets.indexOf(id) === index,
+  );
+}
+
+function migrateWidgetIds(widgets: unknown[], version: number | undefined): string[] {
+  const normalized = normalizeWidgetIds(widgets);
+  if (version !== undefined && version >= HOME_WIDGETS_SCHEMA_VERSION) return normalized;
+  return [...DEFAULT_HOME_WIDGETS, ...normalized.filter((id) => !DEFAULT_HOME_WIDGETS.includes(id))];
+}
+
+interface StoredWidgetState {
+  widgets: string[];
+  version: number | undefined;
+  hadSavedWidgets: boolean;
+}
+
+function readFromLocalStorage(): StoredWidgetState {
+  if (typeof window === "undefined") {
+    return { widgets: DEFAULT_HOME_WIDGETS, version: undefined, hadSavedWidgets: false };
+  }
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
+    const storedVersion = Number(localStorage.getItem(STORAGE_VERSION_KEY));
+    const version = Number.isFinite(storedVersion) && storedVersion > 0 ? storedVersion : undefined;
+    if (!raw) {
+      return { widgets: DEFAULT_HOME_WIDGETS, version, hadSavedWidgets: false };
+    }
     const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return [];
-    const validIds = new Set(HOME_WIDGET_DEFINITIONS.map((w) => w.id));
-    return parsed.filter((id): id is string => typeof id === "string" && validIds.has(id));
+    if (!Array.isArray(parsed)) {
+      return { widgets: DEFAULT_HOME_WIDGETS, version, hadSavedWidgets: false };
+    }
+    return {
+      widgets: migrateWidgetIds(parsed, version),
+      version,
+      hadSavedWidgets: true,
+    };
   } catch {
-    return [];
+    return { widgets: DEFAULT_HOME_WIDGETS, version: undefined, hadSavedWidgets: false };
   }
 }
 
 function writeToLocalStorage(widgets: string[]): void {
   if (typeof window === "undefined") return;
   localStorage.setItem(STORAGE_KEY, JSON.stringify(widgets));
+  localStorage.setItem(STORAGE_VERSION_KEY, String(HOME_WIDGETS_SCHEMA_VERSION));
 }
 
 function readExperienceFromLocalStorage(): HomeExperience {
@@ -52,7 +90,10 @@ function writeExperienceToLocalStorage(experience: HomeExperience): void {
 }
 
 async function persistHomeWidgets(widgets: string[]): Promise<void> {
-  await apiClient.updatePreferences({ home_widgets: widgets });
+  await apiClient.updatePreferences({
+    home_widgets: widgets,
+    home_widgets_version: HOME_WIDGETS_SCHEMA_VERSION,
+  });
 }
 
 async function persistHomeExperience(experience: HomeExperience): Promise<void> {
@@ -75,16 +116,16 @@ interface HomeWidgetsState {
 }
 
 export const useHomeWidgetsStore = create<HomeWidgetsState>((set, get) => ({
-  widgets: [],
+  widgets: DEFAULT_HOME_WIDGETS,
   experience: "new",
   initialized: false,
   touched: false,
 
   initialize: () => {
     if (get().initialized) return;
-    const widgets = readFromLocalStorage();
+    const localState = readFromLocalStorage();
     const experience = readExperienceFromLocalStorage();
-    set({ widgets, experience, initialized: true });
+    set({ widgets: localState.widgets, experience, initialized: true });
 
     apiClient
       .getSettings()
@@ -94,10 +135,23 @@ export const useHomeWidgetsStore = create<HomeWidgetsState>((set, get) => ({
 
         const serverWidgets = prefs?.home_widgets;
         if (Array.isArray(serverWidgets)) {
-          const validIds = new Set(HOME_WIDGET_DEFINITIONS.map((w) => w.id));
-          const filtered = serverWidgets.filter((id) => validIds.has(id));
-          writeToLocalStorage(filtered);
-          set({ widgets: filtered });
+          const serverVersion = prefs?.home_widgets_version;
+          const migrated = migrateWidgetIds(serverWidgets, serverVersion);
+          writeToLocalStorage(migrated);
+          set({ widgets: migrated });
+          if (serverVersion === undefined || serverVersion < HOME_WIDGETS_SCHEMA_VERSION) {
+            void persistHomeWidgets(migrated).catch((error: unknown) => {
+              console.warn("[home-widgets] Could not sync migrated widget preferences", error);
+            });
+          }
+        } else if (
+          localState.hadSavedWidgets &&
+          (localState.version === undefined || localState.version < HOME_WIDGETS_SCHEMA_VERSION)
+        ) {
+          writeToLocalStorage(localState.widgets);
+          void persistHomeWidgets(localState.widgets).catch((error: unknown) => {
+            console.warn("[home-widgets] Could not sync migrated local widget preferences", error);
+          });
         }
 
         const serverExperience = prefs?.home_experience;
