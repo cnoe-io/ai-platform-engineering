@@ -2,9 +2,9 @@
  * Unit tests for NewHomePage
  *
  * Tests:
- * - Always renders the hero composer, quick start section, and toggle link
+ * - Renders the toggle link and every enabled content block as a widget
  * - Clicking the toggle switches the experience back to "classic"
- * - No optional widgets render when none are enabled
+ * - No content widgets render when none are enabled
  * - Enabled widget ids render their registered component, wrapped for removal
  * - "Add widget" control lists only widgets not yet enabled
  * - Clicking an "Add widget" entry calls addWidget with that id
@@ -19,24 +19,19 @@ jest.mock('lucide-react', () => {
   return new Proxy({}, { get: (_t, prop: string) => stub(prop) })
 })
 
-jest.mock('@/components/home/HeroComposer', () => ({
-  HeroComposer: () => <div data-testid="hero-composer-stub" />,
-}))
-
-jest.mock('@/components/home/QuickStart/QuickStartSection', () => ({
-  QuickStartSection: () => <div data-testid="quick-start-section-stub" />,
-}))
-
 jest.mock('@/components/home/widget-registry', () => ({
   HOME_WIDGET_COMPONENTS: {
+    heroComposer: () => <div data-testid="widget-body-heroComposer" />,
+    quickStart: () => <div data-testid="widget-body-quickStart" />,
     shortcuts: () => <div data-testid="widget-body-shortcuts" />,
     recentChats: () => <div data-testid="widget-body-recentChats" />,
   },
 }))
 
 const mockAddWidget = jest.fn()
+const mockRemoveWidget = jest.fn()
 const mockSetExperience = jest.fn()
-let mockWidgets: string[] = []
+let mockWidgets: string[] = ['heroComposer', 'quickStart']
 let mockAvailableToAdd: Array<{ id: string; label: string }> = [
   { id: 'shortcuts', label: 'Shortcuts' },
   { id: 'recentChats', label: 'Recent Chats' },
@@ -48,6 +43,7 @@ function mockStoreStateBase() {
   return {
     widgets: mockWidgets,
     addWidget: mockAddWidget,
+    removeWidget: mockRemoveWidget,
     reorderWidgets: mockReorderWidgets,
     setExperience: mockSetExperience,
     availableToAdd: () => mockAvailableToAdd,
@@ -97,17 +93,21 @@ import { NewHomePage } from '../NewHomePage'
 describe('NewHomePage', () => {
   beforeEach(() => {
     jest.clearAllMocks()
-    mockWidgets = []
+    mockWidgets = ['heroComposer', 'quickStart']
     mockAvailableToAdd = [
       { id: 'shortcuts', label: 'Shortcuts' },
       { id: 'recentChats', label: 'Recent Chats' },
     ]
   })
 
-  it('always renders the hero composer and quick start section', () => {
+  it('renders the composer and quick start as removable, sortable widgets', () => {
     render(<NewHomePage />)
-    expect(screen.getByTestId('hero-composer-stub')).toBeInTheDocument()
-    expect(screen.getByTestId('quick-start-section-stub')).toBeInTheDocument()
+    expect(screen.getByTestId('home-widget-heroComposer')).toBeInTheDocument()
+    expect(screen.getByTestId('widget-body-heroComposer')).toBeInTheDocument()
+    expect(screen.getByTestId('home-widget-drag-heroComposer')).toBeInTheDocument()
+    expect(screen.getByTestId('home-widget-remove-heroComposer')).toBeInTheDocument()
+    expect(screen.getByTestId('home-widget-quickStart')).toBeInTheDocument()
+    expect(screen.getByTestId('widget-body-quickStart')).toBeInTheDocument()
   })
 
   it('renders "Powered by caipe.io" footer', () => {
@@ -122,9 +122,12 @@ describe('NewHomePage', () => {
     expect(mockSetExperience).toHaveBeenCalledWith('classic')
   })
 
-  describe('optional widgets', () => {
-    it('renders no optional widgets when none are enabled', () => {
+  describe('widgets', () => {
+    it('renders no content blocks when all widgets are disabled', () => {
+      mockWidgets = []
       render(<NewHomePage />)
+      expect(screen.queryByTestId('widget-body-heroComposer')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('widget-body-quickStart')).not.toBeInTheDocument()
       expect(screen.queryByTestId('widget-body-shortcuts')).not.toBeInTheDocument()
       expect(screen.queryByTestId('widget-body-recentChats')).not.toBeInTheDocument()
     })
@@ -136,6 +139,12 @@ describe('NewHomePage', () => {
       expect(screen.getByTestId('widget-body-shortcuts')).toBeInTheDocument()
       expect(screen.getByTestId('home-widget-recentChats')).toBeInTheDocument()
       expect(screen.getByTestId('widget-body-recentChats')).toBeInTheDocument()
+    })
+
+    it('removes any content widget through the shared frame control', () => {
+      render(<NewHomePage />)
+      fireEvent.click(screen.getByTestId('home-widget-remove-heroComposer'))
+      expect(mockRemoveWidget).toHaveBeenCalledWith('heroComposer')
     })
 
     it('renders enabled widgets in the order they were added', () => {

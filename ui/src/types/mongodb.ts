@@ -248,8 +248,10 @@ export interface UserSettings {
     releaseNotesNotificationsEnabled?: boolean;
     releaseNotesDismissedVersions?: string[];
     releaseNotesDismissedAnnouncementIds?: string[];
-    /** Ids of optional Home page widgets the user has added, in display order. */
+    /** Ids of Home page widgets the user has enabled, in display order. */
     home_widgets?: string[];
+    /** Schema version used to migrate widget defaults without undoing explicit removals. */
+    home_widgets_version?: number;
     /** Which Home page layout the user sees — the new default, or the previous fixed layout. */
     home_experience?: "new" | "classic";
   };
