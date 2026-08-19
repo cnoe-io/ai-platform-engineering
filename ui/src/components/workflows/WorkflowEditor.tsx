@@ -41,7 +41,7 @@ function useDynamicAgents() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch("/api/dynamic-agents");
+        const res = await fetch("/api/dynamic-agents/available");
         if (!res.ok) throw new Error("Failed to fetch agents");
         const data = await res.json();
         const list = Array.isArray(data)
