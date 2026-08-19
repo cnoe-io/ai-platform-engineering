@@ -2,6 +2,7 @@
 
 import { NavigationProgressLink } from "@/components/layout/NavigationProgressLink";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import type { QuickStartCard as QuickStartCardData } from "./quickStartCards";
 
 interface QuickStartCardProps {
@@ -17,7 +18,13 @@ export function QuickStartCard({ card }: QuickStartCardProps) {
       className="flex flex-col rounded-lg border border-border/50 bg-card/50 p-5"
     >
       <div className="flex items-center gap-3">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-sky-500 to-cyan-500 text-white">
+        <div
+          data-testid={`quick-start-icon-${card.id}`}
+          className={cn(
+            "flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br text-white shadow-sm",
+            card.iconClassName,
+          )}
+        >
           <Icon className="h-5 w-5" />
         </div>
         <h3 className="text-sm font-semibold text-foreground">{card.title}</h3>
