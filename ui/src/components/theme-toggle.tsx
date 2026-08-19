@@ -25,7 +25,7 @@ const themes = [
   },
   {
     value: "light",
-    label: "Improved Light",
+    label: "Light",
     icon: Sun,
     description: "Balanced tonal surfaces and brand color",
   },
