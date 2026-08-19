@@ -950,31 +950,32 @@ pre code.hljs {
   box-shadow: 0 0 12px color-mix(in srgb, var(--gradient-from) 20%, transparent);
 }
 
-/* Give the primary action field a clear, static focus without turning the
-   whole prompt block into another banner. */
+/* The composer is an interactive surface, so its emphasis follows the
+   semantic color theme. The independently selected brand gradient remains
+   reserved for the decorative prompt cue above it. */
 .home-composer-field {
   background: linear-gradient(
     140deg,
-    color-mix(in srgb, var(--gradient-from) 6%, hsl(var(--background))),
-    color-mix(in srgb, var(--gradient-to) 5%, hsl(var(--background)))
+    color-mix(in srgb, hsl(var(--primary)) 6%, hsl(var(--background))),
+    color-mix(in srgb, hsl(var(--primary)) 2%, hsl(var(--background)))
   );
-  border-color: color-mix(in srgb, var(--gradient-from) 45%, hsl(var(--border)));
+  border-color: color-mix(in srgb, hsl(var(--primary)) 45%, hsl(var(--border)));
   box-shadow:
-    0 0 0 3px color-mix(in srgb, var(--gradient-from) 8%, transparent),
-    0 12px 28px color-mix(in srgb, var(--gradient-to) 8%, transparent);
+    0 0 0 3px hsl(var(--ring) / 8%),
+    0 12px 28px hsl(var(--primary) / 8%);
 }
 
 [data-theme="light"] .home-composer-field {
   background: linear-gradient(
     140deg,
-    color-mix(in srgb, var(--gradient-from) 7%, hsl(var(--card))),
-    color-mix(in srgb, var(--gradient-to) 5%, hsl(var(--card)))
+    color-mix(in srgb, hsl(var(--primary)) 7%, hsl(var(--card))),
+    color-mix(in srgb, hsl(var(--primary)) 2%, hsl(var(--card)))
   );
-  border-color: color-mix(in srgb, var(--gradient-from) 48%, hsl(var(--border)));
+  border-color: color-mix(in srgb, hsl(var(--primary)) 48%, hsl(var(--border)));
   box-shadow:
     inset 0 1px rgb(255 255 255 / 72%),
-    0 0 0 3px color-mix(in srgb, var(--gradient-from) 8%, transparent),
-    0 12px 28px color-mix(in srgb, var(--gradient-to) 8%, transparent);
+    0 0 0 3px hsl(var(--ring) / 8%),
+    0 12px 28px hsl(var(--primary) / 8%);
 }
 
 [data-theme="light"] .home-quick-start-tabs {
@@ -1040,18 +1041,23 @@ pre code.hljs {
   --welcome-icon-border: rgb(255 255 255 / 20%);
   --welcome-action-surface: rgb(255 255 255 / 12%);
   --welcome-action-hover: rgb(255 255 255 / 20%);
+  /* Preserve the time-of-day sky while drawing a restrained tint from the
+     independently selected CAIPE accent gradient. */
+  --welcome-sky-tinted-start: color-mix(in srgb, var(--welcome-sky-start) 82%, var(--gradient-from));
+  --welcome-sky-tinted-mid: color-mix(in srgb, var(--welcome-sky-mid) 86%, var(--gradient-to));
+  --welcome-sky-tinted-end: color-mix(in srgb, var(--welcome-sky-end) 82%, var(--gradient-to));
   background:
     radial-gradient(circle at 88% 45%, var(--welcome-orb) 0%, transparent 25%),
     radial-gradient(ellipse at 36% -80%, rgb(255 255 255 / 18%) 0%, transparent 52%),
     linear-gradient(
       112deg,
-      var(--welcome-sky-start) 0%,
-      var(--welcome-sky-mid) 54%,
-      var(--welcome-sky-end) 100%
+      var(--welcome-sky-tinted-start) 0%,
+      var(--welcome-sky-tinted-mid) 54%,
+      var(--welcome-sky-tinted-end) 100%
     );
   border: 1px solid rgb(255 255 255 / 10%);
   box-shadow:
-    0 16px 40px color-mix(in srgb, var(--welcome-sky-mid) 15%, transparent),
+    0 16px 40px color-mix(in srgb, var(--welcome-sky-tinted-mid) 15%, transparent),
     inset 0 1px rgb(255 255 255 / 12%);
 }
 
