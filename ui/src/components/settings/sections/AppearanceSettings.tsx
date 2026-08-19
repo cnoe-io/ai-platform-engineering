@@ -8,6 +8,7 @@ import {
   FONT_FAMILIES,
   FONT_SIZES,
   applyCachedAppearance,
+  applyColorTheme,
   applyFontFamily,
   applyFontSize,
   applyGradientTheme,
@@ -152,6 +153,7 @@ export function AppearanceSettings(): React.ReactElement {
   const changeTheme = (value: ColorTheme) => {
     markAppearanceInteraction("theme");
     setPreferences((current) => ({ ...current,theme: value }));
+    applyColorTheme(value);
     setTheme(value);
     autoSave.enqueue("theme",value);
   };

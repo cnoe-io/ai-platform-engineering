@@ -165,8 +165,21 @@ export function applyGradientTheme(value: GradientTheme): void {
   localStorage.setItem(STORAGE_KEYS.gradientTheme,value);
 }
 
+export function applyColorTheme(value: ColorTheme): void {
+  const resolvedTheme = value === "system"
+    ? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
+    : value;
+  const root = document.documentElement;
+  root.setAttribute("data-theme",resolvedTheme);
+  // Palette CSS owns color-scheme for custom light and dark themes. Clear
+  // inline values left by older builds so native controls use that palette.
+  root.style.removeProperty("color-scheme");
+  localStorage.setItem("theme",value);
+}
+
 export function applyCachedAppearance(preferences: AppearancePreferences): void {
   applyFontFamily(preferences.fontFamily);
   applyFontSize(preferences.fontSize);
   applyGradientTheme(preferences.gradientTheme);
+  applyColorTheme(preferences.theme);
 }
