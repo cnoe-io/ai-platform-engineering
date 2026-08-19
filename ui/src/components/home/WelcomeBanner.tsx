@@ -1,21 +1,33 @@
 "use client";
 
-import { Settings, Sparkles } from "lucide-react";
+import { MoonStar, Settings, Sun, Sunrise, Sunset } from "lucide-react";
 import { useSession } from "next-auth/react";
 
 interface WelcomeBannerProps {
   onOpenPreferences?: () => void;
 }
 
+export type SunPhase = "dawn" | "day" | "sunset" | "night";
+
+const SUN_PHASE_ICONS = {
+  dawn: Sunrise,
+  day: Sun,
+  sunset: Sunset,
+  night: MoonStar,
+} satisfies Record<SunPhase, typeof Sun>;
+
 export function WelcomeBanner({ onOpenPreferences }: WelcomeBannerProps = {}) {
   const { data: session } = useSession();
   const userName = session?.user?.name;
   const greeting = getGreeting();
   const displayName = userName?.split(" ")[0] || userName;
+  const sunPhase = getSunPhase();
+  const SunPhaseIcon = SUN_PHASE_ICONS[sunPhase];
 
   return (
     <div
       className="welcome-banner relative isolate overflow-hidden rounded-xl px-5 py-3"
+      data-sun-phase={sunPhase}
       data-testid="welcome-banner"
     >
       <div className="relative z-10 flex min-h-8 items-center justify-between gap-3">
@@ -23,8 +35,10 @@ export function WelcomeBanner({ onOpenPreferences }: WelcomeBannerProps = {}) {
           className="flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden"
           data-testid="welcome-banner-copy"
         >
-          <Sparkles className="welcome-banner-sparkle h-4 w-4 shrink-0 text-white/80" />
-          <h1 className="truncate whitespace-nowrap text-lg font-semibold leading-none text-white">
+          <span className="welcome-banner-icon flex h-7 w-7 shrink-0 items-center justify-center rounded-full">
+            <SunPhaseIcon className="h-4 w-4" aria-hidden="true" />
+          </span>
+          <h1 className="welcome-banner-title truncate whitespace-nowrap text-lg font-semibold leading-none">
             {displayName ? `${greeting}, ${displayName}.` : `${greeting}.`}
           </h1>
         </div>
@@ -32,7 +46,7 @@ export function WelcomeBanner({ onOpenPreferences }: WelcomeBannerProps = {}) {
           <button
             onClick={onOpenPreferences}
             data-testid="preferences-shortcut"
-            className="flex shrink-0 items-center gap-1.5 rounded-lg bg-white/15 px-3 py-1.5 text-sm font-medium text-white backdrop-blur-sm transition-colors hover:bg-white/25"
+            className="welcome-banner-action flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium backdrop-blur-sm transition-colors"
           >
             <Settings className="h-3.5 w-3.5" />
             Preferences
@@ -45,9 +59,17 @@ export function WelcomeBanner({ onOpenPreferences }: WelcomeBannerProps = {}) {
 
 function getGreeting(): string {
   const hour = new Date().getHours();
-  if (hour < 12) return "Good morning";
-  if (hour < 17) return "Good afternoon";
+  if (hour >= 5 && hour < 12) return "Good morning";
+  if (hour >= 12 && hour < 17) return "Good afternoon";
   return "Good evening";
 }
 
-export { getGreeting };
+function getSunPhase(): SunPhase {
+  const hour = new Date().getHours();
+  if (hour >= 5 && hour < 9) return "dawn";
+  if (hour >= 9 && hour < 17) return "day";
+  if (hour >= 17 && hour < 20) return "sunset";
+  return "night";
+}
+
+export { getGreeting, getSunPhase };
