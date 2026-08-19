@@ -19,7 +19,7 @@ jest.mock("@/components/ui/button", () => ({
 
 jest.mock("@/components/ui/tooltip", () => ({
   Tooltip: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-  TooltipContent: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  TooltipContent: ({ children }: { children: React.ReactNode }) => <div role="tooltip">{children}</div>,
   TooltipProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   TooltipTrigger: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
@@ -52,6 +52,7 @@ import { NewChatButton } from "../NewChatButton";
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockFetch.mockReset();
   global.fetch = mockFetch;
   mockUpdateWebDefaultAgentId.mockResolvedValue(undefined);
 });
@@ -98,6 +99,34 @@ describe("NewChatButton", () => {
     expect(await screen.findByText("Platform Helper")).toBeInTheDocument();
     expect(await screen.findByLabelText("Execution harness: Amazon Bedrock AgentCore")).toBeInTheDocument();
     expect(mockFetch).toHaveBeenCalledWith("/api/dynamic-agents/agents/agent-default");
+  });
+
+  it("labels the collapsed action and reveals its default agent on hover", async () => {
+    mockResolveUsableChatAgent.mockResolvedValue({
+      id: "agent-default",
+      name: "Platform Helper",
+      source: "platform-default",
+    });
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        success: true,
+        data: { _id: "agent-default", name: "Platform Helper", execution_harness_id: "agentcore" },
+      }),
+    });
+
+    render(<NewChatButton collapsed={true} onNewChat={jest.fn()} />);
+
+    const button = await screen.findByRole("button", {
+      name: "New chat with Platform Helper",
+    });
+    fireEvent.mouseEnter(button);
+
+    expect(await screen.findByRole("tooltip")).toHaveTextContent("New chat");
+    expect(screen.getByRole("tooltip")).toHaveTextContent("Platform Helper");
+    expect(
+      screen.getByLabelText("Execution harness: Amazon Bedrock AgentCore"),
+    ).toBeInTheDocument();
   });
 
   it("prefers the user's web default over the platform default", async () => {
