@@ -199,12 +199,12 @@ html[data-navigation-pending="true"] * {
 }
 
 /* ========================================
-   LIGHT THEME - Clean & Professional
-   For bright environments
+   LIGHT THEME - Soft neutral canvas
+   Keeps white surfaces distinct without glare
    ======================================== */
 .light,
 [data-theme="light"] {
-  --background: 0 0% 99%;
+  --background: 220 20% 97%;
   --foreground: 224 71% 4%;
   --card: 0 0% 100%;
   --card-foreground: 224 71% 4%;
