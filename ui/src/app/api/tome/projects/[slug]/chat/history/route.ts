@@ -26,6 +26,7 @@ import {
   loadSessionById,
   setSdkSessionId,
 } from "@/lib/tome/chat-history-store";
+import { findActiveChatRun } from "@/lib/tome/chat-run-store";
 import type { ChatPart, ChatRole, ModelProvenance } from "@/types/tome";
 
 export const dynamic = "force-dynamic";
@@ -43,6 +44,7 @@ export const GET = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
   let messages: Awaited<ReturnType<typeof loadHistory>>["messages"] = [];
   let readOnly = false;
   let sessionOwner: string | null = null;
+  let activeRun: Awaited<ReturnType<typeof findActiveChatRun>> = null;
 
   if (requestedSessionId) {
     const loaded = await loadSessionById(requestedSessionId, tctx.projectId);
@@ -56,6 +58,13 @@ export const GET = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
       readOnly = true;
     }
   } else {
+    // Resolve the active run before loading messages. If it completes between
+    // these reads, either the final message is already in history or the run
+    // id still lets the browser replay its buffered events.
+    activeRun = await findActiveChatRun(
+      tctx.projectId,
+      userIdOf(tctx.user.email),
+    );
     const loaded = await loadHistory(tctx.projectId, userIdOf(tctx.user.email));
     session = loaded.session;
     messages = loaded.messages;
@@ -78,6 +87,9 @@ export const GET = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
     })),
     readOnly,
     sessionOwner,
+    activeRun: activeRun
+      ? { id: activeRun._id, sessionId: activeRun.session_id }
+      : null,
   });
 });
 

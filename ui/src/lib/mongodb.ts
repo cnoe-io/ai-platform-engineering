@@ -342,6 +342,11 @@ async function createIndexes(db: Db) {
     // TOME scheduled-ingest token health. One snapshot per credential owner
     // and provider; _id enforces uniqueness, while status supports admin triage.
     safeCreateIndex(db, 'tome_auto_ingest_credential_health', { status: 1, last_attempt_at: -1 }),
+
+    // TOME chat run replay buffers. Completed buffers are disposable; the
+    // durable transcript lives in tome_chat_messages.
+    safeCreateIndex(db, 'tome_chat_runs', { project_id: 1, user_id: 1, status: 1, created_at: -1 }),
+    safeCreateIndex(db, 'tome_chat_runs', { expires_at: 1 }, { expireAfterSeconds: 0 }),
   ]);
 
   console.log('✅ MongoDB indexes ensured');

@@ -85,6 +85,7 @@ export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }:
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
+  const [resumeRunId, setResumeRunId] = useState<string | null>(null);
   const [compacting, setCompacting] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [readOnlyView, setReadOnlyView] = useState(false);
@@ -162,7 +163,27 @@ export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }:
             modelProvenance: m.model_provenance ?? undefined,
           }),
         );
-        setMessages(msgs);
+        const activeRunId =
+          !viewSessionId &&
+          data.activeRun?.sessionId === data.session?.id &&
+          typeof data.activeRun?.id === "string"
+            ? data.activeRun.id
+            : null;
+        if (activeRunId) {
+          setMessages([
+            ...msgs,
+            {
+              id: newMessageId(),
+              role: "assistant",
+              parts: [],
+              pending: true,
+            },
+          ]);
+          setStreaming(true);
+          setResumeRunId(activeRunId);
+        } else {
+          setMessages(msgs);
+        }
       } finally {
         if (!cancelled) setLoadingHistory(false);
       }
@@ -172,48 +193,113 @@ export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }:
     };
   }, [slug, viewSessionId]);
 
-  // Persist a finished message to the tome-owned store (best-effort — chat
-  // still works if this fails). Threads the durable session id through and
-  // records the latest SDK session id on the assistant turn.
-  const persist = useCallback(
-    async (
-      role: Role,
-      parts: Part[],
-      content: string,
-      sdkId?: string | null,
-      model?: string | null,
-      modelProvenance?: ModelProvenance | null,
-    ) => {
-      try {
-        const res = await fetch(`/api/tome/projects/${slug}/chat/history`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            role,
-            content,
-            parts,
-            session_id: sessionIdRef.current,
-            sdk_session_id: sdkId ?? undefined,
-            model: model ?? undefined,
-            model_provenance: modelProvenance ?? undefined,
-          }),
-        });
-        if (res.ok) {
-          const sid = (await res.json().catch(() => null))?.data?.sessionId;
-          if (typeof sid === "string") {
-            sessionIdRef.current = sid;
-            setSessionId(sid);
+  // A full reload loses the browser's original fetch, but the server keeps
+  // consuming and buffering the upstream run. Replay from event 0 to rebuild
+  // the pending assistant turn, then follow it until the run is terminal.
+  useEffect(() => {
+    if (!resumeRunId) return;
+    const controller = new AbortController();
+
+    const patchPendingAssistant = (fn: (message: ChatMsg) => ChatMsg) => {
+      setMessages((current) => {
+        let index = -1;
+        for (let i = current.length - 1; i >= 0; i -= 1) {
+          if (current[i].role === "assistant" && current[i].pending) {
+            index = i;
+            break;
           }
         }
-      } catch {
-        /* best-effort persistence */
-      }
-    },
-    [slug],
-  );
+        if (index < 0) return current;
+        const copy = current.slice();
+        copy[index] = fn(copy[index]);
+        return copy;
+      });
+    };
 
-  const textOf = (parts: Part[]): string =>
-    parts.map((p) => (p.kind === "text" ? p.text : "")).join("");
+    void (async () => {
+      let turnModel: string | null = null;
+      let turnModelProvenance: ModelProvenance | null = null;
+      try {
+        const res = await fetch(
+          `/api/tome/projects/${slug}/chat/runs/${encodeURIComponent(resumeRunId)}`,
+          { signal: controller.signal },
+        );
+        if (!res.ok || !res.body) {
+          throw new Error(`Unable to resume chat (${res.status})`);
+        }
+        await consumeSse(res.body, {
+          onToken: (text) => {
+            patchPendingAssistant((message) => {
+              const parts = message.parts.slice();
+              const last = parts[parts.length - 1];
+              if (last?.kind === "text") {
+                parts[parts.length - 1] = { kind: "text", text: last.text + text };
+              } else {
+                parts.push({ kind: "text", text });
+              }
+              return { ...message, parts };
+            });
+          },
+          onTool: (label, path) => {
+            patchPendingAssistant((message) => ({
+              ...message,
+              parts: [...message.parts, { kind: "tool", label, path }],
+            }));
+          },
+          onSession: (id) => {
+            sessionRef.current = id;
+          },
+          onPageWritten: () => onPagesChanged?.(),
+          onError: (message) => {
+            patchPendingAssistant((pending) => ({
+              ...pending,
+              parts: pending.parts.some(
+                (part) => part.kind === "text" && part.text.trim(),
+              )
+                ? pending.parts
+                : [{ kind: "text", text: `⚠️ ${message}` }],
+            }));
+          },
+          onContextUsage: (data) => {
+            if (typeof data.percentage === "number") {
+              setContextUsage({ percentage: data.percentage });
+            }
+          },
+          onDone: (data) => {
+            turnModel = data.model ?? null;
+            turnModelProvenance = data.modelProvenance ?? null;
+          },
+        });
+        patchPendingAssistant((message) => ({
+          ...message,
+          pending: false,
+          model: turnModel ?? undefined,
+          modelProvenance: turnModelProvenance ?? undefined,
+        }));
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        patchPendingAssistant((message) => ({
+          ...message,
+          pending: false,
+          parts: message.parts.length
+            ? message.parts
+            : [
+                {
+                  kind: "text",
+                  text: `⚠️ ${String((error as Error)?.message ?? error)}`,
+                },
+              ],
+        }));
+      } finally {
+        if (!controller.signal.aborted) {
+          setStreaming(false);
+          setResumeRunId(null);
+        }
+      }
+    })();
+
+    return () => controller.abort();
+  }, [onPagesChanged, resumeRunId, slug]);
 
   // Thumbs up/down for a single turn (shared `MessageActions`/`FeedbackButton`).
   // Feedback itself is best-effort telemetry (Langfuse + Mongo `feedback`
@@ -317,13 +403,8 @@ export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }:
       { id: newMessageId(), role: "assistant", parts: [], pending: true },
     ]);
 
-    // Persist the user turn — this also creates the durable session on the very
-    // first message (so the assistant turn, persisted on completion, finds it).
-    void persist("user", [{ kind: "text", text }], text);
-
-    // Mirror the assistant parts locally: setMessages is async, so we keep a
-    // deterministic copy to persist once the turn completes.
-    const assistantParts: Part[] = [];
+    // Both turns are persisted server-side (see the `chat` route) so a
+    // navigation or dropped connection mid-stream can't lose the message.
 
     // Mutate the last (assistant) message in place as the stream arrives.
     const patchLast = (fn: (m: ChatMsg) => ChatMsg) =>
@@ -336,9 +417,6 @@ export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }:
     // Append a token to the trailing text part, or open a new one if the last
     // part was a tool — this is what keeps text/tool order intact.
     const appendToken = (t: string) => {
-      const lastLocal = assistantParts[assistantParts.length - 1];
-      if (lastLocal && lastLocal.kind === "text") lastLocal.text += t;
-      else assistantParts.push({ kind: "text", text: t });
       patchLast((m) => {
         const parts = m.parts.slice();
         const last = parts[parts.length - 1];
@@ -352,7 +430,6 @@ export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }:
     };
 
     const pushTool = (label: string, path?: string) => {
-      assistantParts.push({ kind: "tool", label, path });
       patchLast((m) => ({
         ...m,
         parts: [...m.parts, { kind: "tool", label, path }],
@@ -393,6 +470,15 @@ export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }:
         return;
       }
 
+      // The route persists both turns server-side; it hands back the durable
+      // session id (created on the very first message) so the client can keep
+      // pointing at it for reads/feedback grouping.
+      const persistedSessionId = res.headers.get("X-Tome-Session-Id");
+      if (persistedSessionId) {
+        sessionIdRef.current = persistedSessionId;
+        setSessionId(persistedSessionId);
+      }
+
       let turnModel: string | null = null;
       let turnModelProvenance: ModelProvenance | null = null;
       await consumeSse(res.body, {
@@ -417,23 +503,12 @@ export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }:
         model: turnModel ?? undefined,
         modelProvenance: turnModelProvenance ?? undefined,
       }));
-      // Persist the assistant turn + the latest SDK session id (resume hint).
-      if (assistantParts.length) {
-        void persist(
-          "assistant",
-          assistantParts,
-          textOf(assistantParts),
-          sessionRef.current,
-          turnModel,
-          turnModelProvenance,
-        );
-      }
     } catch (e) {
       pushErrorIfEmpty(String((e as Error)?.message ?? e));
     } finally {
       setStreaming(false);
     }
-  }, [input, streaming, compacting, slug, onPagesChanged, persist]);
+  }, [input, streaming, compacting, slug, onPagesChanged]);
 
   // Regenerate: re-sends the same prompt as a fresh turn (append, not
   // in-place replace — the SDK session already has the prior answer in its

@@ -28,6 +28,8 @@ export const TOME_COLLECTIONS = {
   CHAT_SESSIONS: "tome_chat_sessions",
   /** Chat messages within a session. */
   CHAT_MESSAGES: "tome_chat_messages",
+  /** Short-lived replay buffers for in-flight chat responses. */
+  CHAT_RUNS: "tome_chat_runs",
   /** Backlink index over `edges/*.md` pages, keyed by resolved target project. */
   EDGES_INDEX: "tome_edges_index",
   /** Search/roll-up index over issue, decision, and suggestion pages. */
@@ -312,6 +314,36 @@ export interface ChatMessage {
   model?: string;
   model_provenance?: ModelProvenance;
   created_at: Date;
+}
+
+export type ChatRunStatus = "starting" | "running" | "completed" | "failed";
+
+export interface ChatRunEvent {
+  /** Monotonic, one-based cursor used as the SSE Last-Event-ID. */
+  id: number;
+  /** Original upstream SSE frame without the trailing blank line. */
+  frame: string;
+}
+
+/**
+ * Short-lived server-owned chat stream. The durable transcript remains in
+ * `tome_chat_messages`; this record only lets a browser replay and follow an
+ * in-flight response after a reload.
+ */
+export interface ChatRun {
+  _id: string;
+  session_id: string;
+  project_id: string;
+  user_id: string;
+  status: ChatRunStatus;
+  events: ChatRunEvent[];
+  last_event_id: number;
+  created_at: Date;
+  updated_at: Date;
+  finished_at?: Date;
+  error?: string;
+  /** Mongo TTL cleanup; the transcript is retained separately. */
+  expires_at: Date;
 }
 
 /**
