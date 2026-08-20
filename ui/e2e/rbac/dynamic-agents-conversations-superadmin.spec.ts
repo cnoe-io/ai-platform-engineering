@@ -16,7 +16,7 @@ const adminSession = {
   canViewAdmin: true,
 };
 
-const agents = [
+const firstPageAgents = [
   {
     _id: "agent-incident",
     name: "Incident Commander",
@@ -29,11 +29,20 @@ const agents = [
       },
     },
   },
+  ...Array.from({ length: 99 }, (_, index) => ({
+    _id: `agent-example-${index + 1}`,
+    name: `Example Agent ${index + 1}`,
+  })),
+];
+
+const secondPageAgents = [
   {
     _id: "agent-finops",
     name: "FinOps Analyst",
   },
 ];
+
+const agents = [...firstPageAgents, ...secondPageAgents];
 
 const conversations = [
   {
@@ -100,12 +109,18 @@ function paginated(items: unknown[], total = items.length, page = 1, pageSize = 
 
 function installConversationRoutes(options: {
   denyConversations?: boolean;
+  onAgentRequest?: (url: URL) => void;
   onConversationRequest?: (url: URL) => void;
   onDeleteRequest?: (conversationId: string) => void;
 } = {}): MockRouteHandler {
   return async ({ route, path, method, url }) => {
     if (path === "/api/dynamic-agents" && method === "GET") {
-      await fulfillJson(route, paginated(agents, agents.length, 1, 100));
+      options.onAgentRequest?.(url);
+      const page = Number(url.searchParams.get("page") ?? "1");
+      await fulfillJson(
+        route,
+        paginated(page === 1 ? firstPageAgents : secondPageAgents, agents.length, page, 100),
+      );
       return true;
     }
 
@@ -198,10 +213,10 @@ test.describe("mocked RBAC Dynamic Agents workspace", () => {
     await expect(page.getByText("3 conversations found")).toBeVisible();
 
     await expect(page.getByText("Slack incident bridge")).toBeVisible();
-    await expect(page.getByText("Incident Commander")).toHaveCount(3);
+    await expect(page.getByText("Incident Commander")).toHaveCount(2);
     await expect(page.getByText("Slack", { exact: true })).toBeVisible();
     await expect(page.getByText("Web cost review")).toBeVisible();
-    await expect(page.getByText("FinOps Analyst")).toHaveCount(2);
+    await expect(page.getByText("FinOps Analyst")).toHaveCount(1);
     await expect(page.getByText("Archived audit trail")).toBeVisible();
     await expect(page.getByText("Archived", { exact: true })).toBeVisible();
     await expect(page.getByText("Showing 1–3 of 3")).toBeVisible();
@@ -288,6 +303,7 @@ test.describe("mocked RBAC Dynamic Agents workspace", () => {
   test("search, agent filter, refresh, and page size use the Conversations API parameters", async ({
     page,
   }) => {
+    const agentRequests: URL[] = [];
     const conversationRequests: URL[] = [];
 
     await installMockedRbacApp(page, {
@@ -296,6 +312,7 @@ test.describe("mocked RBAC Dynamic Agents workspace", () => {
       gates: { audit_logs: false, dynamic_agent_conversations: true },
       handlers: [
         installConversationRoutes({
+          onAgentRequest: (url) => agentRequests.push(new URL(url.toString())),
           onConversationRequest: (url) => conversationRequests.push(new URL(url.toString())),
         }),
       ],
@@ -310,9 +327,15 @@ test.describe("mocked RBAC Dynamic Agents workspace", () => {
     await expect(page.getByText("Web cost review")).toBeVisible();
     await expect(page.getByText("Slack incident bridge")).toHaveCount(0);
 
-    const agentSelect = page.getByLabel("Filter conversations by agent");
-    await agentSelect.selectOption("agent-finops");
+    const agentPicker = page.getByRole("button", { name: "Filter conversations by agent" });
+    await agentPicker.click();
+    await page.getByRole("textbox", { name: "Search agents..." }).fill("finops");
+    await page.getByRole("option", { name: /FinOps Analyst/ }).click();
     await expect(page.getByText("1 conversation found")).toBeVisible();
+    await expect(agentPicker).toContainText("FinOps Analyst");
+    await expect
+      .poll(() => agentRequests.some((request) => request.searchParams.get("page") === "2"))
+      .toBe(true);
 
     const rowsSelect = page.getByLabel("Rows per page");
     await rowsSelect.selectOption("20");
@@ -359,9 +382,18 @@ test.describe("mocked RBAC Dynamic Agents workspace", () => {
       session: adminSession,
       gates: { audit_logs: false, dynamic_agent_conversations: true },
       handlers: [
-        async ({ route, path, method }) => {
+        async ({ route, path, method, url }) => {
           if (path === "/api/dynamic-agents" && method === "GET") {
-            await fulfillJson(route, paginated(agents, agents.length, 1, 100));
+            const requestPage = Number(url.searchParams.get("page") ?? "1");
+            await fulfillJson(
+              route,
+              paginated(
+                requestPage === 1 ? firstPageAgents : secondPageAgents,
+                agents.length,
+                requestPage,
+                100,
+              ),
+            );
             return true;
           }
           if (path === "/api/dynamic-agents/conversations" && method === "GET") {

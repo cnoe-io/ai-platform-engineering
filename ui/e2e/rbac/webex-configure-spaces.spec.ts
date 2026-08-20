@@ -30,9 +30,17 @@ const teams = [
   { _id: "team-ops", slug: "ops", name: "Operations Team" },
 ];
 
-const agents = [
+const firstPageAgents = [
   { _id: "agent-sre", name: "SRE Agent" },
   { _id: "agent-kb", name: "KB Agent" },
+  ...Array.from({ length: 98 }, (_, index) => ({
+    _id: `agent-example-${index + 1}`,
+    name: `Example Agent ${index + 1}`,
+  })),
+];
+
+const secondPageAgents = [
+  { _id: "agent-personal-assistant", name: "Personal Assistant" },
 ];
 
 const webexBot = { id: "primary", name: "Primary bot", available: true };
@@ -50,6 +58,7 @@ type WebexConfigureState = {
   platformConfigPatches: unknown[];
   discoveryRequests: URL[];
   onboardingRequests: unknown[];
+  dynamicAgentRequests: URL[];
   configuredSpaces: Array<{
     bot_id: string;
     workspace_id: string;
@@ -106,6 +115,7 @@ function defaultState(): WebexConfigureState {
     platformConfigPatches: [],
     discoveryRequests: [],
     onboardingRequests: [],
+    dynamicAgentRequests: [],
     configuredSpaces: [
       {
         bot_id: webexBot.id,
@@ -230,7 +240,44 @@ function webexConfigureHandler(state: WebexConfigureState): MockRouteHandler {
     }
 
     if (path === "/api/dynamic-agents" && method === "GET") {
-      await fulfillJson(route, { success: true, data: { items: agents } });
+      state.dynamicAgentRequests.push(url);
+      const page = Number(url.searchParams.get("page") ?? "1");
+      await fulfillJson(route, {
+        success: true,
+        data: {
+          items: page === 1 ? firstPageAgents : secondPageAgents,
+          total: firstPageAgents.length + secondPageAgents.length,
+          page,
+          page_size: 100,
+          has_more: page === 1,
+        },
+      });
+      return true;
+    }
+
+    if (path === "/api/admin/webex/direct-users" && method === "GET") {
+      await fulfillJson(route, {
+        success: true,
+        data: {
+          users: [
+            {
+              keycloak_user_id: "user-1",
+              email: "user@example.com",
+              display_name: "Example User",
+              webex_user_id: null,
+              enabled: false,
+              configured: false,
+              inherited: false,
+              state: "not_allowed",
+              expected_webex_email: "user@example.com",
+              agent_id: "",
+            },
+          ],
+          bot_id: webexBot.id,
+          dm_access_mode: "allowlist",
+          default_agent_id: null,
+        },
+      });
       return true;
     }
 
@@ -535,5 +582,41 @@ test.describe("mocked Webex Configure spaces UI", () => {
       ]),
     );
     expect(JSON.stringify(state.onboardingRequests)).not.toContain("direct-sri");
+  });
+
+  test("searches page 2 agents in the Webex 1:1 routing picker", async ({
+    page,
+  }) => {
+    const state = await installWebexConfigureApp(page);
+    await gotoConfigureSpaces(page);
+
+    await page.getByRole("tab", { name: "1:1 Messages" }).click();
+    await page.getByRole("checkbox", {
+      name: "Allow direct messages for user@example.com",
+    }).check();
+    const picker = page.getByRole("button", {
+      name: "Agent for user@example.com",
+    });
+    await picker.click();
+    await page.getByRole("textbox", { name: "Search agents..." }).fill(
+      "personal assistant",
+    );
+    const matchingOptions = page.getByRole("listbox", {
+      name: "Agent for user@example.com",
+    }).getByRole("option");
+    await expect(matchingOptions).toHaveCount(1);
+    await expect(matchingOptions).toContainText("Personal Assistant");
+    await matchingOptions.click();
+    await expect(picker).toContainText("Personal Assistant");
+    await expect
+      .poll(() =>
+        state.dynamicAgentRequests.some(
+          (request) =>
+            request.searchParams.get("enabled_only") === "true" &&
+            request.searchParams.get("page") === "2" &&
+            request.searchParams.get("page_size") === "100",
+        ),
+      )
+      .toBe(true);
   });
 });
