@@ -17,8 +17,10 @@ import {
   Link2,
   ListChecks,
   Loader2,
+  Maximize2,
   MessageSquare,
   MessagesSquare,
+  Minimize2,
   Newspaper,
   Plus,
   RefreshCw,
@@ -290,6 +292,22 @@ export function TomeWiki({ slug }: { slug: string }) {
   const [importing, setImporting] = useState(false);
   const newPageInputRef = useRef<HTMLInputElement | null>(null);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
+  // Full-screen: the browser Fullscreen API on the wiki root (below AppHeader)
+  // hides the outer app chrome while keeping the wiki's own sidebar/header.
+  const wikiRootRef = useRef<HTMLDivElement | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  useEffect(() => {
+    const onChange = () => setIsFullscreen(document.fullscreenElement === wikiRootRef.current);
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
+  const toggleFullscreen = useCallback(() => {
+    if (document.fullscreenElement) {
+      void document.exitFullscreen();
+    } else {
+      void wikiRootRef.current?.requestFullscreen();
+    }
+  }, []);
 
   const load = useCallback(async () => {
     setError(null);
@@ -946,7 +964,10 @@ export function TomeWiki({ slug }: { slug: string }) {
 
   return (
     <TooltipProvider>
-      <div className="flex h-full min-h-[calc(100vh-4rem)] flex-col">
+      <div
+        ref={wikiRootRef}
+        className="flex h-full min-h-[calc(100vh-4rem)] flex-col bg-background"
+      >
         <header className="flex items-center gap-1 px-4 py-2 text-sm">
           {/* Back to the projects list. The project's own detail/apps page is
               skipped (it redirects into Tome); reach it via `?apps=1` if needed. */}
@@ -997,6 +1018,19 @@ export function TomeWiki({ slug }: { slug: string }) {
             </Tooltip>
             <EdgeGraphDialog slug={slug} />
             <McpConnectDialog />
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-auto gap-1.5 px-2 py-1"
+              onClick={toggleFullscreen}
+            >
+              {isFullscreen ? (
+                <Minimize2 className="h-3.5 w-3.5" />
+              ) : (
+                <Maximize2 className="h-3.5 w-3.5" />
+              )}
+              Toggle full screen
+            </Button>
           </div>
         </header>
 
