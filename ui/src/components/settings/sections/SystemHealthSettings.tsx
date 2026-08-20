@@ -25,6 +25,14 @@ export function SystemHealthSettings(): React.ReactElement {
 
   return (
     <div className="space-y-4">
+      <SettingsCard description="The running CAIPE UI build. Component release versions appear beside each health result below." title="Build information">
+        <dl className="grid gap-3 rounded-lg border border-border/70 p-4 text-sm sm:grid-cols-3">
+          <div><dt className="text-xs text-muted-foreground">Version</dt><dd className="mt-1 font-medium">{version}</dd></div>
+          <div><dt className="text-xs text-muted-foreground">Commit</dt><dd className="mt-1 truncate font-mono text-xs">{versionInfo?.gitCommit ?? "Unavailable"}</dd></div>
+          <div><dt className="text-xs text-muted-foreground">Built</dt><dd className="mt-1 text-xs">{versionInfo?.buildDate ?? "Unavailable"}</dd></div>
+        </dl>
+      </SettingsCard>
+
       <SettingsCard
         description="A quiet summary of shared platform availability. Detailed operational diagnostics remain in Admin."
         title={<span className="flex items-center gap-2"><Activity className="h-5 w-5 text-primary" />System health</span>}
@@ -70,13 +78,6 @@ export function SystemHealthSettings(): React.ReactElement {
         </div>
       </SettingsCard>
 
-      <SettingsCard description="The running CAIPE UI build. Component release versions appear beside each health result above." title="Build information">
-        <dl className="grid gap-3 rounded-lg border border-border/70 p-4 text-sm sm:grid-cols-3">
-          <div><dt className="text-xs text-muted-foreground">Version</dt><dd className="mt-1 font-medium">{version}</dd></div>
-          <div><dt className="text-xs text-muted-foreground">Commit</dt><dd className="mt-1 truncate font-mono text-xs">{versionInfo?.gitCommit ?? "Unavailable"}</dd></div>
-          <div><dt className="text-xs text-muted-foreground">Built</dt><dd className="mt-1 text-xs">{versionInfo?.buildDate ?? "Unavailable"}</dd></div>
-        </dl>
-      </SettingsCard>
     </div>
   );
 }
