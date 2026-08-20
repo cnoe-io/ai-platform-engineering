@@ -97,8 +97,9 @@ export function parseVidcastEmbed(content: string): VidcastParseResult {
     rawUrl = body;
   } else {
     const values = new Map<string, string>();
-    for (const line of body.split(/\r?\n/)) {
-      if (!line.trim()) continue;
+    for (const rawLine of body.split(/\r?\n/)) {
+      const line = rawLine.trim();
+      if (!line) continue;
       const field = line.match(/^([A-Za-z][A-Za-z0-9_-]*):\s*(.*)$/);
       if (!field) {
         return { ok: false, error: "Use only url: and title: fields in a Vidcast block." };

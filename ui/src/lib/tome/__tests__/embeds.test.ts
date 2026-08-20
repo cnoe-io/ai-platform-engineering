@@ -112,6 +112,27 @@ describe("TOME external embeds", () => {
         },
       });
     });
+
+    it("tolerates leading whitespace on continuation lines", () => {
+      expect(
+        parseTomeEmbed(
+          "arxiv",
+          ["url: https://arxiv.org/abs/1706.03762", "  title: Attention Is All You Need"].join(
+            "\n",
+          ),
+        ),
+      ).toEqual({
+        ok: true,
+        value: {
+          provider: "arxiv",
+          kind: "document",
+          src: "https://arxiv.org/pdf/1706.03762",
+          title: "Attention Is All You Need",
+          watchUrl: "https://arxiv.org/abs/1706.03762",
+          linkLabel: "Open on arXiv",
+        },
+      });
+    });
   });
 
   it("ignores unsupported fenced languages", () => {

@@ -119,6 +119,9 @@ describe("TOME editor media", () => {
       "href",
       `https://app.vidcast.io/share/${VIDEO_ID}`,
     );
+    expect(root.querySelector("button.tome-embed-remove")).toHaveAccessibleName(
+      "Remove Vidcast embed",
+    );
   });
 
   it("shows a safe error instead of previewing an untrusted Vidcast URL", () => {
@@ -135,6 +138,9 @@ describe("TOME editor media", () => {
     expect(alert).toHaveAttribute("role", "alert");
     expect(alert.textContent).toContain("app.vidcast.io");
     expect(alert.querySelector("iframe")).toBeNull();
+    expect(alert.querySelector("button.tome-embed-remove")).toHaveAccessibleName(
+      "Remove Vidcast embed",
+    );
   });
 
   it("renders YouTube through the privacy-enhanced player", () => {

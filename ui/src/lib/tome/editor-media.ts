@@ -19,6 +19,24 @@ function mermaidPreviewMarkup(svg: string): string {
   ].join("");
 }
 
+function embedRemoveButtonMarkup(label: string): string {
+  return [
+    '<div class="tome-embed-toolbar">',
+    `<button type="button" class="tome-embed-remove" aria-label="Remove ${label} embed">`,
+    '<span aria-hidden="true">✕</span>',
+    "<span>Remove embed</span>",
+    "</button>",
+    "</div>",
+  ].join("");
+}
+
+function embedProviderLabel(provider: string): string {
+  if (provider === "arxiv") return "arXiv";
+  if (provider === "youtube") return "YouTube";
+  if (provider === "vidcast") return "Vidcast";
+  return provider;
+}
+
 export function createEmbedPreview(embed: TomeEmbed): HTMLElement {
   const node = document.createElement("div");
   node.className = `tome-embed-preview tome-${embed.provider}-preview`;
@@ -33,6 +51,10 @@ export function createEmbedPreview(embed: TomeEmbed): HTMLElement {
   fallback.target = "_blank";
   fallback.rel = "noopener noreferrer";
   fallback.textContent = `${embed.linkLabel}: ${embed.title}`;
+  node.insertAdjacentHTML(
+    "beforeend",
+    embedRemoveButtonMarkup(embedProviderLabel(embed.provider)),
+  );
   node.append(frame, fallback);
   return node;
 }
@@ -41,7 +63,10 @@ export function createEmbedError(provider: string, message: string): HTMLElement
   const node = document.createElement("div");
   node.className = `tome-embed-error tome-${provider}-error`;
   node.setAttribute("role", "alert");
-  node.textContent = message;
+  node.insertAdjacentHTML("beforeend", embedRemoveButtonMarkup(embedProviderLabel(provider)));
+  const text = document.createElement("span");
+  text.textContent = message;
+  node.append(text);
   return node;
 }
 
@@ -57,12 +82,7 @@ export function renderTomeCodePreview(
   const normalizedLanguage = language.trim().toLowerCase();
   const embed = parseTomeEmbed(normalizedLanguage, content);
   if (embed) {
-    const providerLabel =
-      normalizedLanguage === "arxiv"
-        ? "arXiv"
-        : normalizedLanguage === "youtube"
-          ? "YouTube"
-          : "Vidcast";
+    const providerLabel = embedProviderLabel(normalizedLanguage);
     if (embed.ok === false) {
       applyPreview(
         createEmbedError(

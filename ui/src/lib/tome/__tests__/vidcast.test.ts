@@ -21,6 +21,24 @@ describe("TOME Vidcast embeds", () => {
     });
   });
 
+  it("tolerates leading whitespace on continuation lines", () => {
+    expect(
+      parseVidcastEmbed(
+        [
+          `url: https://app.vidcast.io/share/embed/${VIDEO_ID}`,
+          "  title: CAIPE Demo July 2026",
+        ].join("\n"),
+      ),
+    ).toEqual({
+      ok: true,
+      value: {
+        src: `https://app.vidcast.io/share/embed/${VIDEO_ID}`,
+        title: "CAIPE Demo July 2026",
+        watchUrl: `https://app.vidcast.io/share/${VIDEO_ID}`,
+      },
+    });
+  });
+
   it("accepts a share URL by itself and converts it to an embed URL", () => {
     expect(
       parseVidcastEmbed(
