@@ -236,6 +236,9 @@ class IngestRequest(BaseModel):
     report_id: UUID
     """Backend pre-creates the `Report` row so persist-hook callbacks can
     tag revisions with it. Agent never invents these IDs."""
+    actor_email: str | None = None
+    """The user who triggered this ingest run. Used to attribute page revisions
+    to the requesting person instead of a generic agent label."""
     credentials: dict[str, dict[str, str]] = Field(default_factory=dict)
     """Same wire shape as `ChatRequest.credentials`. The caller MUST resolve
     these synchronously before async dispatch — by the time `driveIngest`

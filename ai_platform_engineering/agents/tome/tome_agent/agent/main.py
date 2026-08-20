@@ -407,6 +407,7 @@ async def chat_endpoint(body: ChatRequest):
                 sdk_session_id=body.sdk_session_id,
                 snapshot=body.snapshot,
                 stable_pages=body.stable_pages,
+                actor_email=body.actor_email,
                 is_compact=body.is_compact,
             ):
                 yield _sse_format(event)
@@ -463,6 +464,7 @@ async def ingest_endpoint(body: IngestRequest):
                     is_greenfield=body.is_greenfield,
                     seed_stable_pages=body.seed_stable_pages,
                     report_id=body.report_id,
+                    actor_email=body.actor_email,
                     quick=body.mode == "quick" and not body.is_greenfield,
                     experiment=body.experiment,
                 ):

@@ -208,6 +208,8 @@ export interface IngestRun {
   /** OIDC sub of the triggering user; the worker re-resolves their forwarded
    *  OAuth credentials at dispatch time (the request session is long gone). */
   triggered_by_sub?: string;
+  /** Email of the triggering user; stored for revision attribution. */
+  triggered_by_email?: string;
   /** Params the worker uses to start a queued run; absent on the immediate path. */
   dispatch?: IngestDispatch;
   /** When the run was enqueued (queued runs); start time is `started_at`. */

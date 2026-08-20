@@ -126,6 +126,7 @@ async function createRunRecord(
   opts: {
     status: "running" | "queued";
     sub: string;
+    email?: string | null;
     dispatch: IngestDispatch;
     cascadeId?: string;
     cascadeRole?: "child" | "parent";
@@ -180,6 +181,7 @@ async function createRunRecord(
     log: [],
     started_at: now,
     triggered_by_sub: opts.sub || undefined,
+    triggered_by_email: opts.email || undefined,
     triggered_by: opts.triggeredBy ?? "manual",
     dispatch,
     cascade_id: opts.cascadeId,
@@ -357,6 +359,7 @@ async function prepareRun(
     connectorData,
     credentials,
     seedStablePages: isGreenfield && dispatch.seedStablePages === true,
+    actorEmail: run.triggered_by_email ?? null,
     childProjects,
     readableProjects: readableProjects.map((candidate) => ({
       project_id: String(candidate._id),
@@ -409,6 +412,7 @@ export async function startIngestRun(
   const { runId } = await createRunRecord(ctx.project, {
     status: "running",
     sub: sessionSub(ctx.session),
+    email: ctx.user.email ?? null,
     triggeredBy: opts.triggeredBy,
     dispatch: {
       endpoint: opts.agentEndpoint ?? "/ingest",
@@ -443,6 +447,7 @@ export async function enqueueRun(
   project: ProjectDocument & { _id: string },
   opts: {
     sub: string;
+    email?: string | null;
     dispatch: IngestDispatch;
     cascadeId?: string;
     cascadeRole?: "child" | "parent";
@@ -472,6 +477,7 @@ export async function enqueueBhagCascade(
   },
 ): Promise<{ cascadeId: string; parentRunId: string; childCount: number }> {
   const sub = sessionSub(ctx.session);
+  const email = ctx.user.email ?? null;
   const cascadeId = randomUUID();
   const children = await resolveBhagChildren(ctx.project.name);
   const areaSubCascadeIds: string[] = [];
@@ -491,6 +497,7 @@ export async function enqueueBhagCascade(
         if (!leafProject) continue;
         await enqueueRun(leafProject, {
           sub,
+          email,
           dispatch: { endpoint: "/ingest", seed: null },
           cascadeId: areaCascadeId,
           cascadeRole: "child",
@@ -498,6 +505,7 @@ export async function enqueueBhagCascade(
       }
       await enqueueRun(childProject, {
         sub,
+        email,
         dispatch: { endpoint: "/synthesize", seed: null },
         cascadeId: areaCascadeId,
         cascadeRole: "parent",
@@ -505,6 +513,7 @@ export async function enqueueBhagCascade(
     } else {
       await enqueueRun(childProject, {
         sub,
+        email,
         dispatch: { endpoint: "/ingest", seed: null },
         cascadeId,
         cascadeRole: "child",
@@ -514,6 +523,7 @@ export async function enqueueBhagCascade(
 
   const parentRunId = await enqueueRun(ctx.project, {
     sub,
+    email,
     dispatch: {
       endpoint: "/synthesize",
       seed: opts.seed ?? null,
