@@ -6,15 +6,13 @@ sidebar_position: 3
 
 CAIPE separates configuration from platform operations:
 
-- **Settings** opens as a dialog over the current page. It contains personal
-  preferences and the small set of platform-wide preferences available to
-  admins.
+- **Settings** is a routed workspace. It contains personal preferences and a
+  safe, signed-in-user view of shared system health.
 - **Admin** is a routed workspace for managing people, resources,
   integrations, operations, and security policy.
 
 Open Settings from **Profile picture → Settings**. The Appearance shortcut in
-the application header opens the same dialog directly at Appearance. Closing
-the dialog returns you to the page where you opened it.
+the application header opens the same workspace directly at Appearance.
 
 ## Settings map
 
@@ -23,15 +21,32 @@ the dialog returns you to the page where you opened it.
 - **Appearance** — theme, typography, and accent gradient.
 - **Chat & agents** — per-surface default agents and conversation behavior.
 - **Notifications** — personal release-note notifications.
+- **System health** — shared capability status and running build information.
 - **Account & access** — your identity, platform role, and teams.
 - **Developer** — debug preferences and session diagnostics.
 
-### Platform settings
+System Health deliberately omits probe targets and operational remediation.
+Admins can open **Admin → Operations → Health** for those details.
 
-Admins also see:
+## Platform health notifications
 
-- **Defaults** — fallback agent for people without a personal choice.
-- **Announcements** — platform-wide release announcements.
+Health messages and personal notifications share the durable
+`in_app_notifications` collection but remain distinct:
+
+- User and team messages keep their existing audiences.
+- Health messages use the global signed-in-user audience and carry a visible
+  **Platform** label.
+- Read state is per viewer; resolving a health incident is global.
+- Two consecutive failing audits open an incident by default. Two consecutive
+  healthy audits resolve it automatically.
+- An authorized admin can resolve an active notification after human review.
+  A continuing failure can reopen it after audit confirmation.
+
+The audit lease and per-component incident state are stored in MongoDB so
+multiple BFF replicas do not create duplicate messages. Thresholds can be
+adjusted with `PLATFORM_HEALTH_NOTIFICATION_FAILURE_THRESHOLD`,
+`PLATFORM_HEALTH_NOTIFICATION_RECOVERY_THRESHOLD`, and
+`PLATFORM_HEALTH_NOTIFICATION_AUDIT_INTERVAL_MS`.
 
 AI Review and access-before-sign-in policy remain in **Admin → Security &
 Policy** because they are governance and access-management workflows.

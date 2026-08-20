@@ -5,7 +5,7 @@ import { AutoSaveStatus } from "@/components/settings/shared/AutoSaveStatus";
 import { SettingsCard } from "@/components/settings/shared/SettingsCard";
 import { SettingsSwitch } from "@/components/settings/shared/SettingsSwitch";
 import { useKeyedAutoSave } from "@/hooks/use-keyed-auto-save";
-import { Bell,Loader2 } from "lucide-react";
+import { Activity,Bell,Loader2 } from "lucide-react";
 import { useEffect,useRef,useState } from "react";
 
 type NotificationKey = "release-notes";
@@ -74,44 +74,57 @@ export function NotificationsSettings(): React.ReactElement {
   };
 
   return (
-    <SettingsCard
-      description="Choose whether CAIPE announces a new release after you sign in."
-      title={<span className="flex items-center gap-2"><Bell className="h-5 w-5 text-primary" />Release notes</span>}
-    >
-      {loading ? (
-        <div className="flex items-center gap-2 py-4 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          Loading notification preferences…
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {loadError ? (
-            <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
-              {loadError}
-            </div>
-          ) : null}
-          <div className="flex items-center gap-4 rounded-lg border border-border/70 p-4">
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium">Notify me about new releases</p>
-              <p className="text-xs text-muted-foreground">
-                Turning this off hides the release-notes dialog at login. You can still open it here.
-              </p>
-              <AutoSaveStatus
-                className="mt-1"
-                onRetry={retry}
-                state={autoSave.stateFor("release-notes")}
+    <div className="space-y-4">
+      <SettingsCard
+        description="Choose whether CAIPE announces a new release after you sign in."
+        title={<span className="flex items-center gap-2"><Bell className="h-5 w-5 text-primary" />Release notes</span>}
+      >
+        {loading ? (
+          <div className="flex items-center gap-2 py-4 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading notification preferences…
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {loadError ? (
+              <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+                {loadError}
+              </div>
+            ) : null}
+            <div className="flex items-center gap-4 rounded-lg border border-border/70 p-4">
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium">Notify me about new releases</p>
+                <p className="text-xs text-muted-foreground">
+                  Turning this off hides the release-notes dialog at login. You can still open it here.
+                </p>
+                <AutoSaveStatus
+                  className="mt-1"
+                  onRetry={retry}
+                  state={autoSave.stateFor("release-notes")}
+                />
+              </div>
+              <SettingsSwitch
+                checked={enabled}
+                label="Notify me about new releases"
+                onCheckedChange={change}
+                testId="release-notes-user-pref-toggle"
               />
             </div>
-            <SettingsSwitch
-              checked={enabled}
-              label="Notify me about new releases"
-              onCheckedChange={change}
-              testId="release-notes-user-pref-toggle"
-            />
+            <ReleaseNotesPreview isAdmin={false} />
           </div>
-          <ReleaseNotesPreview isAdmin={false} />
+        )}
+      </SettingsCard>
+      <SettingsCard
+        description="Platform health events are shared globally and are not controlled by personal notification preferences."
+        title={<span className="flex items-center gap-2"><Activity className="h-5 w-5 text-primary" />Platform health</span>}
+      >
+        <div className="rounded-lg border border-border/70 p-4">
+          <p className="text-sm font-medium">Global service notifications</p>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+            CAIPE notifies everyone when a verified service degradation opens or resolves. Each message is labelled Platform; read state remains personal while resolution is global.
+          </p>
         </div>
-      )}
-    </SettingsCard>
+      </SettingsCard>
+    </div>
   );
 }

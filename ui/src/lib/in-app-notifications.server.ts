@@ -6,6 +6,9 @@ import { organizationObjectId } from "@/lib/rbac/organization";
 import type {
   InAppNotificationDocument,
   InAppNotificationPage,
+  InAppNotificationCategory,
+  InAppNotificationLifecycleStatus,
+  InAppNotificationResolutionType,
   InAppNotificationSeverity,
 } from "@/types/in-app-notification";
 
@@ -62,6 +65,7 @@ async function notificationAudienceQuery(subject: string): Promise<Record<string
         ? [{ recipient_team_slugs: { $in: teamSlugs } }]
         : []),
       ...(organizationAdmin ? [{ recipient_organization_admins: true }] : []),
+      { recipient_platform_users: true },
     ],
   };
 }
@@ -71,18 +75,25 @@ export async function createInAppNotification(input: {
   recipientUserSubjects?: string[];
   recipientTeamSlugs?: string[];
   recipientOrganizationAdmins?: boolean;
+  recipientPlatformUsers?: boolean;
   title: string;
   message: string;
   href?: string;
   severity?: InAppNotificationSeverity;
+  category?: InAppNotificationCategory;
+  sourceLabel?: string;
+  correlationKey?: string;
+  lifecycleStatus?: InAppNotificationLifecycleStatus;
 }): Promise<void> {
   const recipientUserSubjects = normalizedStrings(input.recipientUserSubjects ?? []);
   const recipientTeamSlugs = normalizedStrings(input.recipientTeamSlugs ?? []);
   const recipientOrganizationAdmins = input.recipientOrganizationAdmins === true;
+  const recipientPlatformUsers = input.recipientPlatformUsers === true;
   if (
     recipientUserSubjects.length === 0 &&
     recipientTeamSlugs.length === 0 &&
-    !recipientOrganizationAdmins
+    !recipientOrganizationAdmins &&
+    !recipientPlatformUsers
   ) return;
 
   const collection = await getCollection<InAppNotificationDocument>(
@@ -98,10 +109,15 @@ export async function createInAppNotification(input: {
         recipient_user_subjects: recipientUserSubjects,
         recipient_team_slugs: recipientTeamSlugs,
         recipient_organization_admins: recipientOrganizationAdmins,
+        recipient_platform_users: recipientPlatformUsers,
         title: input.title,
         message: input.message,
         ...(input.href ? { href: input.href } : {}),
         severity: input.severity ?? "info",
+        category: input.category ?? "general",
+        ...(input.sourceLabel ? { source_label: input.sourceLabel } : {}),
+        ...(input.correlationKey ? { correlation_key: input.correlationKey } : {}),
+        ...(input.lifecycleStatus ? { lifecycle_status: input.lifecycleStatus } : {}),
         created_at: now,
         updated_at: now,
         read_by_subjects: [],
@@ -109,6 +125,34 @@ export async function createInAppNotification(input: {
     } as never,
     { upsert: true },
   );
+}
+
+export async function resolveInAppNotification(input: {
+  eventKey: string;
+  resolvedAt: string;
+  resolvedBySubject?: string;
+  resolutionType: InAppNotificationResolutionType;
+  resolutionNote?: string;
+}): Promise<boolean> {
+  const collection = await getCollection<InAppNotificationDocument>(
+    NOTIFICATION_COLLECTION,
+  );
+  const result = await collection.updateOne(
+    { event_key: input.eventKey, archived_at: { $exists: false } } as never,
+    {
+      $set: {
+        lifecycle_status: "resolved",
+        resolved_at: input.resolvedAt,
+        resolution_type: input.resolutionType,
+        ...(input.resolvedBySubject
+          ? { resolved_by_subject: input.resolvedBySubject }
+          : {}),
+        ...(input.resolutionNote ? { resolution_note: input.resolutionNote } : {}),
+        updated_at: input.resolvedAt,
+      },
+    } as never,
+  );
+  return result.matchedCount > 0;
 }
 
 export async function archiveInAppNotifications(
@@ -158,6 +202,12 @@ export async function listInAppNotifications(
       message: row.message,
       ...(row.href ? { href: row.href } : {}),
       severity: row.severity,
+      category: row.category ?? "general",
+      ...(row.source_label ? { source_label: row.source_label } : {}),
+      ...(row.lifecycle_status
+        ? { lifecycle_status: row.lifecycle_status }
+        : {}),
+      ...(row.resolved_at ? { resolved_at: row.resolved_at } : {}),
       created_at: row.created_at,
       read: row.read_by_subjects.includes(subject),
     })),

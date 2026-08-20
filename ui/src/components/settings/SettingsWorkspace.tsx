@@ -11,6 +11,7 @@ import { AppearanceSettings } from "@/components/settings/sections/AppearanceSet
 import { ChatSettings } from "@/components/settings/sections/ChatSettings";
 import { DeveloperSettings } from "@/components/settings/sections/DeveloperSettings";
 import { NotificationsSettings } from "@/components/settings/sections/NotificationsSettings";
+import { SystemHealthSettings } from "@/components/settings/sections/SystemHealthSettings";
 
 function SettingsContent({ route }: { route: SettingsRouteDefinition }): React.ReactElement {
   switch (route.id) {
@@ -20,6 +21,8 @@ function SettingsContent({ route }: { route: SettingsRouteDefinition }): React.R
       return <ChatSettings />;
     case "notifications":
       return <NotificationsSettings />;
+    case "system-health":
+      return <SystemHealthSettings />;
     case "access":
       return <AccessSettings />;
     case "developer":

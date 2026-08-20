@@ -184,6 +184,8 @@ export function HealthTab() {
   const [webexStatus, setWebexStatus] = useState<WebexDirectoryStatus | null>(null);
   const [webexStatusError, setWebexStatusError] = useState<string | null>(null);
   const [selectedCapability, setSelectedCapability] = useState<PlatformHealthCapability | null>(null);
+  const [resolvingNotification,setResolvingNotification] = useState(false);
+  const [resolutionMessage,setResolutionMessage] = useState<string | null>(null);
 
   const loadSlackStatus = useCallback(async () => {
     try {
@@ -244,6 +246,27 @@ export function HealthTab() {
   const selectedCapabilityProbes = selectedCapability
     ? diagnosticsForCapability(selectedCapability.id, probes)
     : [];
+
+  const resolveNotification = useCallback(async () => {
+    if (!selectedCapability) return;
+    setResolvingNotification(true);
+    setResolutionMessage(null);
+    try {
+      const response = await fetch(`/api/admin/platform/health/notifications/${encodeURIComponent(selectedCapability.id)}`,{
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ note: "Reviewed and resolved by a platform administrator." }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Could not resolve the platform notification");
+      setResolutionMessage("Platform notification resolved for everyone.");
+      window.dispatchEvent(new Event("in-app-notifications:refresh"));
+    } catch (error) {
+      setResolutionMessage(error instanceof Error ? error.message : "Could not resolve the platform notification");
+    } finally {
+      setResolvingNotification(false);
+    }
+  },[selectedCapability]);
 
   return (
     <div className="space-y-4">
@@ -360,8 +383,14 @@ export function HealthTab() {
       <CapabilityDiagnosticsDialog
         capability={selectedCapability}
         probes={selectedCapabilityProbes}
+        onResolveNotification={resolveNotification}
+        resolvingNotification={resolvingNotification}
+        resolutionMessage={resolutionMessage}
         onOpenChange={(open) => {
-          if (!open) setSelectedCapability(null);
+          if (!open) {
+            setSelectedCapability(null);
+            setResolutionMessage(null);
+          }
         }}
       />
     </div>
@@ -455,10 +484,16 @@ function CapabilityDiagnosticsDialog({
   capability,
   probes,
   onOpenChange,
+  onResolveNotification,
+  resolvingNotification,
+  resolutionMessage,
 }: {
   capability: PlatformHealthCapability | null;
   probes: PlatformDiagnosticProbe[];
   onOpenChange: (open: boolean) => void;
+  onResolveNotification: () => void;
+  resolvingNotification: boolean;
+  resolutionMessage: string | null;
 }) {
   if (!capability) return null;
 
@@ -495,6 +530,18 @@ function CapabilityDiagnosticsDialog({
                 {cfg.label}
               </div>
             </div>
+            {capability.status === "degraded" || capability.status === "down" ? (
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-border/60 pt-3">
+                <p className="text-xs text-muted-foreground">
+                  Human resolution closes the shared Platform notification for every user. A continuing failure can reopen it after audit confirmation.
+                </p>
+                <Button disabled={resolvingNotification} onClick={onResolveNotification} size="sm" variant="outline">
+                  {resolvingNotification ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
+                  Resolve notification
+                </Button>
+              </div>
+            ) : null}
+            {resolutionMessage ? <p className="mt-2 text-xs text-muted-foreground">{resolutionMessage}</p> : null}
           </section>
 
           {probes.length > 0 ? (
