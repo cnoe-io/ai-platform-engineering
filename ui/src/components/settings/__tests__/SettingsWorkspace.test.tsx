@@ -7,6 +7,7 @@ import { render,screen } from "@testing-library/react";
 jest.mock("@/components/settings/sections/AppearanceSettings",() => ({ AppearanceSettings: () => <div>Appearance content</div> }));
 jest.mock("@/components/settings/sections/ChatSettings",() => ({ ChatSettings: () => <div>Chat content</div> }));
 jest.mock("@/components/settings/sections/NotificationsSettings",() => ({ NotificationsSettings: () => <div>Notifications content</div> }));
+jest.mock("@/components/settings/sections/SystemHealthSettings",() => ({ SystemHealthSettings: () => <div>System health content</div> }));
 jest.mock("@/components/settings/sections/AccessSettings",() => ({ AccessSettings: () => <div>Access content</div> }));
 jest.mock("@/components/settings/sections/DeveloperSettings",() => ({ DeveloperSettings: () => <div>Developer content</div> }));
 
@@ -28,5 +29,13 @@ describe("SettingsWorkspace",() => {
     expect(screen.queryByText("Appearance content")).not.toBeInTheDocument();
     expect(screen.queryByText("Defaults",{ exact: true })).not.toBeInTheDocument();
     expect(screen.queryByText("Announcements",{ exact: true })).not.toBeInTheDocument();
+  });
+
+  it("renders shared system health separately from personal notification preferences",() => {
+    render(<SettingsWorkspace activeRouteId="system-health" />);
+
+    expect(screen.getByText("System health content")).toBeInTheDocument();
+    expect(screen.getByRole("region",{ name: "System health settings" })).toBeInTheDocument();
+    expect(screen.queryByText("Notifications content")).not.toBeInTheDocument();
   });
 });

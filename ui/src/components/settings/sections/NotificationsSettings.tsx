@@ -15,7 +15,7 @@ import {
   requestBrowserNotificationPermission,
   type BrowserNotificationCapability,
 } from "@/lib/agent-completion-notifications";
-import { Bell,BellRing,ChevronsDownUp,ChevronsUpDown,Loader2,Volume2 } from "lucide-react";
+import { Activity,Bell,BellRing,ChevronsDownUp,ChevronsUpDown,Loader2,Volume2 } from "lucide-react";
 import { useEffect,useRef,useState } from "react";
 
 type NotificationKey = "release-notes" | "browser-completions" | "completion-chime";
@@ -377,6 +377,17 @@ export function NotificationsSettings(): React.ReactElement {
             />
           </div>
           <ReleaseNotesPreview isAdmin={false} />
+        </div>
+      </SettingsCard>
+      <SettingsCard
+        description="Platform health events are shared globally and are not controlled by personal notification preferences."
+        title={<span className="flex items-center gap-2"><Activity className="h-5 w-5 text-primary" />Platform health</span>}
+      >
+        <div className="rounded-lg border border-border/70 p-4">
+          <p className="text-sm font-medium">Global service notifications</p>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+            CAIPE notifies everyone when a verified service degradation opens or resolves. Each message is labelled Platform; read state remains personal while resolution is global.
+          </p>
         </div>
       </SettingsCard>
     </div>

@@ -7,6 +7,7 @@ import {
   postJson,
   type MockRouteHandler,
 } from "./_mocked-rbac";
+import { dismissReleaseUpgradeDialog } from "./_helpers";
 
 const ADMIN_SESSION = {
   email: "settings-admin@example.com",
@@ -93,6 +94,47 @@ async function installSettingsCenterMocks(
   isAdmin = false,
 ): Promise<void> {
   const handler: MockRouteHandler = async ({ method,path,route }) => {
+    if (path === "/api/version" && method === "GET") {
+      await fulfillJson(route,{
+        version: "0.5.67",
+        gitCommit: "abc1234",
+        buildDate: "2026-08-20T12:00:00.000Z",
+        packageVersion: "0.5.67",
+      });
+      return true;
+    }
+
+    if (path === "/api/platform/health" && method === "GET") {
+      await fulfillJson(route,{
+        status: "healthy",
+        checked_at: "2026-08-20T12:00:00.000Z",
+        summary: { total: 2,healthy: 2,degraded: 0,down: 0,disabled: 0 },
+        capabilities: [
+          {
+            id: "chat-runtime",
+            label: "Chat Runtime",
+            group: "runtime",
+            status: "healthy",
+            required: true,
+            description: "Chat runtime availability.",
+            detail: "Runtime reachable",
+            latency_ms: 12,
+          },
+          {
+            id: "authentication",
+            label: "Authentication",
+            group: "identity",
+            status: "healthy",
+            required: true,
+            description: "Authentication availability.",
+            detail: "SSO enabled",
+            latency_ms: null,
+          },
+        ],
+      });
+      return true;
+    }
+
     if (path === "/api/settings/preferences" && method === "PATCH") {
       const body = (await postJson(route)) as Record<string,unknown>;
       state.settingsPreferenceWrites.push(body);
@@ -211,12 +253,13 @@ async function switchThumbIsInsideTrack(toggle: Locator): Promise<boolean> {
 
 async function openSettings(
   page: Page,
-  section: "Appearance" | "Chat & agents" | "Notifications" = "Chat & agents",
+  section: "Appearance" | "Chat & agents" | "Notifications" | "System health" = "Chat & agents",
 ): Promise<Locator> {
   const route = {
     Appearance: "/settings/appearance",
     "Chat & agents": "/settings/chat-and-agents",
     Notifications: "/settings/notifications",
+    "System health": "/settings/system-health",
   }[section];
   await page.goto(route,{ waitUntil: "domcontentloaded" });
   await expect(page).toHaveURL(route);
@@ -231,6 +274,20 @@ test.describe("mocked routed Settings browser regression",() => {
       !mockedRbacEnabled(),
       "Set RUN_RBAC_REGRESSION=1 to run the mocked routed Settings regression.",
     );
+  });
+
+  test("shows the deployed version in the sidebar and shared health in Settings",async ({ page }) => {
+    const state = createState();
+    state.preferences.releaseNotesDismissedVersions = ["0.5.67"];
+    await installSettingsCenterMocks(page,state);
+    const settings = await openSettings(page,"System health");
+    await dismissReleaseUpgradeDialog(page);
+
+    await expect(page.getByTestId("application-version")).toContainText("v0.5.67");
+    await expect(settings.getByText("Healthy",{ exact: true }).first()).toBeVisible();
+    await expect(settings.getByText("Chat Runtime",{ exact: true })).toBeVisible();
+    await expect(settings.getByText("Authentication",{ exact: true })).toBeVisible();
+    await expect(settings.getByText("0.5.67",{ exact: true })).toBeVisible();
   });
 
   test("opens Appearance from the header without hydration errors or a duplicate dialog",async ({ page }) => {

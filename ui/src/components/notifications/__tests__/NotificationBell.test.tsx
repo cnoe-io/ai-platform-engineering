@@ -58,3 +58,31 @@ it("shows unread approval outcomes and marks one read when opened", async () => 
     expect.objectContaining({ method: "PATCH" }),
   ));
 });
+
+it("labels global platform incidents and their resolved lifecycle",async () => {
+  global.fetch = jest.fn(async () => ({
+    ok: true,
+    json: async () => ({
+      notifications: [{
+        id: "platform-primary",
+        title: "Chat Runtime recovered",
+        message: "A platform health audit confirmed recovery.",
+        href: "/settings/system-health",
+        severity: "success",
+        category: "platform_health",
+        source_label: "Platform",
+        lifecycle_status: "resolved",
+        created_at: "2026-08-20T10:00:00.000Z",
+        read: true,
+      }],
+      unread_count: 0,
+      pagination: { page: 1,page_size: 10,total: 1,total_pages: 1 },
+    }),
+  })) as jest.Mock;
+
+  render(<NotificationBell enabled />);
+  fireEvent.click(await screen.findByRole("button",{ name: "Notifications" }));
+
+  expect(await screen.findByText("Platform")).toBeInTheDocument();
+  expect(screen.getByText("Resolved")).toBeInTheDocument();
+});
