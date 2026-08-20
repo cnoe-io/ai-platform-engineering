@@ -19,9 +19,9 @@ import { Activity,Bell,BellRing,ChevronsDownUp,ChevronsUpDown,Loader2,Volume2 } 
 import { useEffect,useRef,useState } from "react";
 
 type NotificationKey = "release-notes" | "browser-completions" | "completion-chime" | "platform-health";
-type NotificationSection = "agent-completions" | "release-notes";
+type NotificationSection = "agent-completions" | "release-notes" | "platform-health";
 
-const NOTIFICATION_SECTIONS: NotificationSection[] = ["agent-completions","release-notes"];
+const NOTIFICATION_SECTIONS: NotificationSection[] = ["agent-completions","release-notes","platform-health"];
 
 interface NotificationPreferences {
   browserEnabled: boolean;
@@ -394,7 +394,10 @@ export function NotificationsSettings(): React.ReactElement {
         </div>
       </SettingsCard>
       <SettingsCard
+        collapsibleLabel="Platform health"
         description="Choose whether global platform incidents appear in your personal notification feed."
+        expanded={expandedSections.has("platform-health")}
+        onExpandedChange={(expanded) => setSectionExpanded("platform-health",expanded)}
         title={<span className="flex items-center gap-2"><Activity className="h-5 w-5 text-primary" />Platform health</span>}
       >
         <div className="flex items-center gap-4 rounded-lg border border-border/70 p-4">

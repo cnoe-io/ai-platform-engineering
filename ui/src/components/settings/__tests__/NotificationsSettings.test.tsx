@@ -51,3 +51,30 @@ it("loads and saves the personal platform health notification preference",async 
   await waitFor(() => expect(refreshListener).toHaveBeenCalled());
   window.removeEventListener("in-app-notifications:refresh",refreshListener);
 });
+
+it("expands and collapses notification sections individually or together",async () => {
+  jest.spyOn(global,"fetch").mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      success: true,
+      data: {
+        preferences: { releaseNotesNotificationsEnabled: true },
+        notifications: { platform_health: true },
+      },
+    }),
+  } as Response);
+
+  render(<NotificationsSettings />);
+  await screen.findByRole("switch",{ name: "Notify me about platform health" });
+
+  await userEvent.click(screen.getByRole("button",{ name: "Collapse Release notes" }));
+  expect(screen.queryByText("Release notes preview")).not.toBeInTheDocument();
+  expect(screen.getByRole("switch",{ name: "Notify me about platform health" })).toBeInTheDocument();
+
+  await userEvent.click(screen.getByRole("button",{ name: "Collapse all" }));
+  expect(screen.queryByRole("switch",{ name: "Notify me about platform health" })).not.toBeInTheDocument();
+
+  await userEvent.click(screen.getByRole("button",{ name: "Expand all" }));
+  expect(screen.getByText("Release notes preview")).toBeInTheDocument();
+  expect(screen.getByRole("switch",{ name: "Notify me about platform health" })).toBeInTheDocument();
+});
