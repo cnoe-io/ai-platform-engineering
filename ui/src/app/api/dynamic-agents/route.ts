@@ -68,6 +68,7 @@ const PLATFORM_DEFAULT_DELETE_ERROR =
 const COLLECTION_NAME = "dynamic_agents";
 const OPENFGA_RESOURCE_ID_PATTERN =
   /^[A-Za-z0-9][A-Za-z0-9._~@|*+=,/-]{0,191}$/;
+const EXECUTION_HARNESS_ID_PATTERN = /^[a-z][a-z0-9_]{1,63}$/;
 
 interface TeamOwnershipDoc {
   _id?: unknown;
@@ -212,6 +213,7 @@ function slugify(name: string): string {
 
 /** Mutable fields allowed in agent create/update requests. */
 const AGENT_MUTABLE_FIELDS = [
+  "execution_harness_id",
   "name",
   "description",
   "system_prompt",
@@ -276,6 +278,14 @@ function pickMutableFields(
 
 function normalizeString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function normalizeExecutionHarnessId(value: unknown): string {
+  const harnessId = normalizeString(value) || "dynamic_agents";
+  if (!EXECUTION_HARNESS_ID_PATTERN.test(harnessId)) {
+    throw new ApiError("Invalid execution harness ID", 400, "INVALID_HARNESS_ID");
+  }
+  return harnessId;
 }
 
 function hasRagToolAccess(value: unknown): boolean {
@@ -877,6 +887,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
   const now = new Date();
   const doc: DynamicAgentConfig = {
     _id: agentId,
+    execution_harness_id: normalizeExecutionHarnessId(body.execution_harness_id),
     name: body.name as string,
     description: (body.description as string) ?? "",
     system_prompt: body.system_prompt as string,
@@ -987,6 +998,11 @@ export const PUT = withErrorHandler(async (request: NextRequest) => {
 
   // Build update with explicit field allowlist
   const updateData = pickMutableFields(body);
+  if (Object.prototype.hasOwnProperty.call(body, "execution_harness_id")) {
+    updateData.execution_harness_id = normalizeExecutionHarnessId(
+      body.execution_harness_id,
+    );
+  }
   const datasourceSelectionChanged = Object.prototype.hasOwnProperty.call(
     body,
     "datasource_ids",

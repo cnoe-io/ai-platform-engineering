@@ -95,6 +95,9 @@ jest.mock('lucide-react', () => ({
   MessageSquare: (props: unknown) => <span data-testid="icon-message-square" {...props} />,
   MessageCircleQuestion: (props: unknown) => <span data-testid="icon-message-circle-question" {...props} />,
   Radio: (props: unknown) => <span data-testid="icon-radio" {...props} />,
+  Bot: (props: unknown) => <span data-testid="icon-bot" {...props} />,
+  Loader2: (props: unknown) => <span data-testid="icon-loader" {...props} />,
+  Cpu: (props: unknown) => <span data-testid="icon-cpu" {...props} />,
   History: (props: unknown) => <span data-testid="icon-history" {...props} />,
   Plus: (props: unknown) => <span data-testid="icon-plus" {...props} />,
   Archive: (props: unknown) => <span data-testid="icon-archive" {...props} />,
@@ -289,7 +292,7 @@ describe('Sidebar — Live Status Indicator', () => {
         resolveAgents({
           json: async () => ({
             success: true,
-            data: [{ _id: 'agent-1', name: 'Agent One' }],
+            data: [{ _id: 'agent-1', name: 'Agent One', execution_harness_id: 'agentcore' }],
           }),
         } as Response)
       })
@@ -298,6 +301,7 @@ describe('Sidebar — Live Status Indicator', () => {
         expect(screen.queryByTestId('agent-name-skeleton')).not.toBeInTheDocument()
       })
       expect(screen.getByText(/Agent One/)).toBeInTheDocument()
+      expect(screen.getByLabelText('Execution harness: Amazon Bedrock AgentCore')).toBeInTheDocument()
     })
   })
 
@@ -804,12 +808,13 @@ describe('Sidebar — Live Status Indicator', () => {
   // --------------------------------------------------------------------------
 
   describe('collapsed sidebar', () => {
-    it('does not render conversation titles when collapsed', () => {
+    it('keeps conversation identity available to the collapsed hover target', () => {
       mockConversations = [makeConv('conv-1', 'Hidden Title')]
 
       render(<Sidebar {...defaultProps} collapsed={true} />)
 
-      expect(screen.queryByText('Hidden Title')).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /Hidden Title/ })).toBeInTheDocument()
+      expect(screen.getByText('Hidden Title')).toBeInTheDocument()
     })
 
     it('does not render "Live" or "New response" text when collapsed', () => {
@@ -828,6 +833,28 @@ describe('Sidebar — Live Status Indicator', () => {
       render(<Sidebar {...defaultProps} collapsed={true} />)
 
       expect(screen.getByTestId('icon-radio')).toBeInTheDocument()
+    })
+
+    it('shows agent and harness identity in the collapsed conversation tooltip', async () => {
+      global.fetch = jest.fn().mockResolvedValue({
+        json: async () => ({
+          success: true,
+          data: [{ _id: 'agent-1', name: 'Example Agent', execution_harness_id: 'claude_agent_sdk' }],
+        }),
+      } as Response)
+      mockConversations = [
+        makeConv('conv-1', 'Review deployment', {
+          participants: [{ type: 'agent', id: 'agent-1' }],
+        }),
+      ]
+
+      render(<Sidebar {...defaultProps} collapsed={true} />)
+
+      expect(await screen.findByText('Example Agent')).toBeInTheDocument()
+      expect(screen.getByLabelText('Execution harness: Claude Agent SDK')).toBeInTheDocument()
+      expect(
+        screen.getByRole('button', { name: /Review deployment\. Example Agent/ }),
+      ).toBeInTheDocument()
     })
   })
 })

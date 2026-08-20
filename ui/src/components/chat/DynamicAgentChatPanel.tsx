@@ -1,10 +1,12 @@
 "use client";
 
 import { AgentAvatar } from "@/components/dynamic-agents/AgentAvatar";
+import { AgentHarnessBadge } from "@/components/chat/AgentHarnessBadge";
 import type { TaskItem } from "@/components/shared/timeline";
 import { MarkdownRenderer } from "@/components/shared/timeline";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/toast";
 import { Tooltip,TooltipContent,TooltipProvider,TooltipTrigger } from "@/components/ui/tooltip";
 import { useAgentTimeline } from "@/hooks/useDynamicAgentTimeline";
@@ -1713,6 +1715,33 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
 
   return (
     <div className="h-full w-full flex flex-col bg-background relative">
+      <div
+        className="flex min-h-14 shrink-0 items-center gap-3 bg-gradient-to-r from-primary/[0.06] via-background/70 to-background px-4 py-2"
+        aria-label={`Talking to ${agentName || agentId}`}
+      >
+        <AgentAvatar
+          agent={agent}
+          agentId={agentId}
+          rounded="rounded-lg"
+          size="h-9 w-9"
+          iconSize="h-4 w-4"
+          isLoading={!agent && !readOnly}
+        />
+        <div className="min-w-0 flex-1">
+          <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+            Talking to
+          </p>
+          <p className="truncate text-sm font-semibold" title={agentName || agentId}>
+            {agentName || agentId}
+          </p>
+        </div>
+        {agent ? (
+          <AgentHarnessBadge harnessId={agent.execution_harness_id} />
+        ) : (
+          <Skeleton className="h-6 w-24 rounded-full" />
+        )}
+      </div>
+
       {/* Messages Area */}
       <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
         <ScrollArea className="flex-1" viewportRef={scrollViewportRef}>
@@ -1878,6 +1907,7 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
                           showTimestamp={showTimestamps}
                           agentGradient={agentGradient}
                           agentCustomTheme={agentCustomTheme}
+                          agentId={agentId}
                           agentName={agentName}
                           turnEvents={turnEvents}
                           // Timeline props (only passed to latest message)
@@ -2353,6 +2383,7 @@ interface ChatMessageProps {
   showTimestamp?: boolean;
   agentGradient?: string | null;
   agentCustomTheme?: import("@/types/dynamic-agent").CustomThemeConfig | null;
+  agentId?: string;
   agentName?: string;
   turnEvents?: StreamEvent[];
   // Timeline props (for AgentTimeline)
@@ -2384,6 +2415,7 @@ const ChatMessage = React.memo(function ChatMessage({
   showTimestamp = false,
   agentGradient,
   agentCustomTheme,
+  agentId,
   agentName,
   turnEvents = [],
   // Timeline props
@@ -2445,6 +2477,7 @@ const ChatMessage = React.memo(function ChatMessage({
         </div>
       ) : (
         <AgentAvatar
+          agentId={agentId}
           gradientTheme={agentGradient}
           customThemeConfig={agentCustomTheme}
           rounded="rounded-xl"
