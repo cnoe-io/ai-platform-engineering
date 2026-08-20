@@ -28,6 +28,17 @@ the application header opens the same workspace directly at Appearance.
 System Health deliberately omits probe targets and operational remediation.
 Admins can open **Admin → Operations → Health** for those details.
 
+The sidebar footer is a compact health entry point:
+
+- Its dot uses the aggregate platform status: green for healthy, amber for
+  degraded, red for down, and muted while checking.
+- The footer version and dot both link to **Settings → System health**.
+- System Health shows the UI build and a release version for every listed
+  capability. `PLATFORM_COMPONENT_VERSION_<COMPONENT_ID>` overrides a specific
+  component; `CAIPE_RELEASE_VERSION` supplies the shared deployment fallback.
+- Docker Compose sets `CAIPE_RELEASE_VERSION` from `IMAGE_TAG` by default;
+  Helm uses the CAIPE UI image tag.
+
 ## Platform health notifications
 
 Health messages and personal notifications share the durable

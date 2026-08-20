@@ -53,9 +53,14 @@ export function SystemHealthSettings(): React.ReactElement {
                   <p className="text-sm font-medium">{capability.label}</p>
                   <p className="mt-1 text-xs text-muted-foreground">{capability.detail}</p>
                 </div>
-                <span className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
-                  <span className={cn("h-2 w-2 rounded-full",style.dot)} />{style.label}
-                </span>
+                <div className="shrink-0 text-right">
+                  <span className="flex items-center justify-end gap-2 text-xs text-muted-foreground">
+                    <span className={cn("h-2 w-2 rounded-full",style.dot)} />{style.label}
+                  </span>
+                  <p className="mt-1 font-mono text-[10px] text-muted-foreground/80">
+                    {capability.version ? `v${capability.version.replace(/^v/i, "")}` : "Version not reported"}
+                  </p>
+                </div>
               </div>
             );
           })}
@@ -65,7 +70,7 @@ export function SystemHealthSettings(): React.ReactElement {
         </div>
       </SettingsCard>
 
-      <SettingsCard description="The running CAIPE UI build." title="Build information">
+      <SettingsCard description="The running CAIPE UI build. Component release versions appear beside each health result above." title="Build information">
         <dl className="grid gap-3 rounded-lg border border-border/70 p-4 text-sm sm:grid-cols-3">
           <div><dt className="text-xs text-muted-foreground">Version</dt><dd className="mt-1 font-medium">{version}</dd></div>
           <div><dt className="text-xs text-muted-foreground">Commit</dt><dd className="mt-1 truncate font-mono text-xs">{versionInfo?.gitCommit ?? "Unavailable"}</dd></div>
