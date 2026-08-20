@@ -33,6 +33,11 @@ selection, and wire compatibility. Harness Engine remains the durable runtime
 reader and executor for explicitly selected non-default harnesses. Dynamic
 Agents remains the unchanged default runtime.
 
+![Harness Engine detailed system architecture](../../architecture/images/harness-engine-system-architecture.svg)
+
+The editable Excalidraw source is part of the main
+[CAIPE system architecture](https://github.com/cnoe-io/ai-platform-engineering/blob/main/docs/excalidraw/caipe-system-architecture.excalidraw).
+
 ## Harness Gateway boundary
 
 ```mermaid
@@ -118,6 +123,11 @@ brokers  <- normalized run context and scoped capabilities
 ```
 
 Provider SDK types stop inside the worker or remote-adapter boundary. LangGraph chunks are provider types and therefore never enter the control-plane coordinator or encoders.
+
+![Harness Engine high-level source graph](../../architecture/images/harness-engine-source-graph.svg)
+
+The editable source graph is
+[harness-engine-source-graph.excalidraw](https://github.com/cnoe-io/ai-platform-engineering/blob/main/docs/excalidraw/harness-engine-source-graph.excalidraw).
 
 ## Control plane and execution plane
 
