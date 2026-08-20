@@ -23,7 +23,10 @@ function teamSlugFromObject(value: string): string | null {
   return match?.[1]?.trim() || null;
 }
 
-async function notificationAudienceQuery(subject: string): Promise<Record<string, unknown>> {
+async function notificationAudienceQuery(
+  subject: string,
+  options: { includePlatformNotifications?: boolean } = {},
+): Promise<Record<string, unknown>> {
   let teamSlugs: string[] = [];
   let organizationAdmin = false;
   const [teamResult, adminResult] = await Promise.allSettled([
@@ -65,7 +68,9 @@ async function notificationAudienceQuery(subject: string): Promise<Record<string
         ? [{ recipient_team_slugs: { $in: teamSlugs } }]
         : []),
       ...(organizationAdmin ? [{ recipient_organization_admins: true }] : []),
-      { recipient_platform_users: true },
+      ...(options.includePlatformNotifications === false
+        ? []
+        : [{ recipient_platform_users: true }]),
     ],
   };
 }
@@ -172,12 +177,16 @@ export async function archiveInAppNotifications(
 
 export async function listInAppNotifications(
   subject: string,
-  options: { page?: number; pageSize?: number } = {},
+  options: {
+    page?: number;
+    pageSize?: number;
+    includePlatformNotifications?: boolean;
+  } = {},
 ): Promise<InAppNotificationPage> {
   const collection = await getCollection<InAppNotificationDocument>(
     NOTIFICATION_COLLECTION,
   );
-  const audience = await notificationAudienceQuery(subject);
+  const audience = await notificationAudienceQuery(subject, options);
   const requestedPage = Math.max(1, Math.floor(options.page ?? 1));
   const pageSize = Math.min(50, Math.max(1, Math.floor(options.pageSize ?? 10)));
   const [total, unreadCount] = await Promise.all([
@@ -224,11 +233,12 @@ export async function listInAppNotifications(
 export async function markInAppNotificationRead(
   subject: string,
   id: string,
+  options: { includePlatformNotifications?: boolean } = {},
 ): Promise<boolean> {
   const collection = await getCollection<InAppNotificationDocument>(
     NOTIFICATION_COLLECTION,
   );
-  const audience = await notificationAudienceQuery(subject);
+  const audience = await notificationAudienceQuery(subject, options);
   const result = await collection.updateOne(
     { $and: [{ _id: id }, audience] } as never,
     {
@@ -241,11 +251,12 @@ export async function markInAppNotificationRead(
 
 export async function markAllInAppNotificationsRead(
   subject: string,
+  options: { includePlatformNotifications?: boolean } = {},
 ): Promise<number> {
   const collection = await getCollection<InAppNotificationDocument>(
     NOTIFICATION_COLLECTION,
   );
-  const audience = await notificationAudienceQuery(subject);
+  const audience = await notificationAudienceQuery(subject, options);
   const result = await collection.updateMany(
     { $and: [audience, { read_by_subjects: { $ne: subject } }] } as never,
     {

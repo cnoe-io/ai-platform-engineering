@@ -139,6 +139,32 @@ it("creates a global Platform notification without changing personal audiences",
   );
 });
 
+it("excludes global Platform notifications when the viewer opted out",async () => {
+  const cursor = {
+    sort: jest.fn().mockReturnThis(),
+    skip: jest.fn().mockReturnThis(),
+    limit: jest.fn().mockReturnThis(),
+    toArray: jest.fn().mockResolvedValue([]),
+  };
+  const collection = {
+    countDocuments: jest.fn().mockResolvedValue(0),
+    find: jest.fn().mockReturnValue(cursor),
+  };
+  mockGetCollection.mockResolvedValue(collection);
+
+  await listInAppNotifications("requester-subject",{
+    includePlatformNotifications: false,
+  });
+
+  const audience = collection.countDocuments.mock.calls[0][0];
+  expect(audience.$or).not.toContainEqual({ recipient_platform_users: true });
+  expect(audience.$or).toEqual(expect.arrayContaining([
+    { recipient_user_subjects: "requester-subject" },
+    { recipient_team_slugs: { $in: ["reviewers"] } },
+    { recipient_organization_admins: true },
+  ]));
+});
+
 it("marks only a notification in the viewer's audience as read", async () => {
   const updateOne = jest.fn().mockResolvedValue({ matchedCount: 1 });
   mockGetCollection.mockResolvedValue({ updateOne });
