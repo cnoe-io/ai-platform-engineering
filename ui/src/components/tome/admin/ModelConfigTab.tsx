@@ -13,6 +13,7 @@ export const MODEL_ROLES = [
   { role: "chat", label: "Chat", description: "Answers questions and edits wiki pages." },
   { role: "synthesize", label: "Synthesize", description: "Rolls up child entity wikis." },
   { role: "compact", label: "Compact", description: "Tightens prose and fixes stale links." },
+  { role: "presentation", label: "Presentation", description: "Generates and revises wiki-grounded slide decks." },
 ] as const;
 
 export type ModelRole = (typeof MODEL_ROLES)[number]["role"];

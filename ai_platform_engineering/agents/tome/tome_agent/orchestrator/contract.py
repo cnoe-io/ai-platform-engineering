@@ -139,6 +139,58 @@ class ChatRequest(BaseModel):
     request's ContextVar — never written to disk or logs."""
 
 
+# ---------- agent inbound: /presentation ----------
+
+
+class PresentationSourcePage(BaseModel):
+    path: str = Field(min_length=1, max_length=500)
+    title: str = Field(min_length=1, max_length=500)
+    content: str = Field(max_length=500_000)
+
+
+class PresentationRequest(BaseModel):
+    snapshot: ProjectSnapshot
+    prompt: str = Field(min_length=1, max_length=100_000)
+    sources: list[PresentationSourcePage] = Field(min_length=1, max_length=100)
+    existing_deck: dict[str, Any] | None = None
+    revision_instruction: str | None = Field(default=None, max_length=10_000)
+    slide_id: str | None = Field(default=None, max_length=100)
+
+
+class PresentationResponse(BaseModel):
+    deck: dict[str, Any]
+    model: str
+    model_source: str
+
+
+class PresentationRequirementsSuggestion(BaseModel):
+    goal: str = Field(min_length=1, max_length=2_000)
+    key_message: str = Field(min_length=1, max_length=1_000)
+    audience: str = Field(min_length=1, max_length=1_000)
+    slide_count: int = Field(ge=3, le=30)
+    duration_minutes: int | None = Field(default=None, ge=1, le=180)
+    tone: Literal["executive", "conversational", "formal", "persuasive"]
+    technical_detail: Literal["low", "balanced", "high"]
+    required_sections: str = Field(min_length=1, max_length=3_000)
+    excluded_topics: str = Field(max_length=3_000)
+    visual_mode: Literal["diagrams", "graphics", "both", "none"]
+    visual_preferences: str = Field(min_length=1, max_length=2_000)
+    include_speaker_notes: bool = True
+
+
+class PresentationRequirementsRequest(BaseModel):
+    snapshot: ProjectSnapshot
+    sources: list[PresentationSourcePage] = Field(min_length=1, max_length=100)
+    current_requirements: dict[str, Any] = Field(default_factory=dict)
+    instruction: str = Field(default="", max_length=5_000)
+
+
+class PresentationRequirementsResponse(BaseModel):
+    requirements: PresentationRequirementsSuggestion
+    model: str
+    model_source: str
+
+
 # ---------- agent inbound: /ingest ----------
 
 

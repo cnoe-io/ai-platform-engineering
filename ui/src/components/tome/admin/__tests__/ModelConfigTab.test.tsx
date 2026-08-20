@@ -6,7 +6,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { ToastProvider } from "@/components/ui/toast";
-import { ModelConfigTab } from "../ModelConfigTab";
+import { MODEL_ROLES, ModelConfigTab } from "../ModelConfigTab";
 
 const fetchMock = jest.fn();
 global.fetch = fetchMock;
@@ -25,7 +25,8 @@ describe("ModelConfigTab", () => {
     render(<ToastProvider><ModelConfigTab /></ToastProvider>);
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
-    await waitFor(() => expect(screen.getAllByRole("combobox")).toHaveLength(5));
+    await waitFor(() => expect(screen.getAllByRole("combobox")).toHaveLength(MODEL_ROLES.length + 1));
+    expect(screen.getByRole("heading", { name: "Presentation" })).toBeInTheDocument();
     const ingestPicker = screen.getAllByRole("combobox")[1];
     await user.selectOptions(ingestPicker, "__custom__");
 

@@ -8,6 +8,10 @@ Endpoints:
   `IngestEventPayload`s. SDK ingest loop, snapshot-driven.
 - `POST /model-check` — body `ModelCheckRequest`, response `ModelCheckResponse`.
   Toolless one-shot smoke test for a candidate model id (admin UI Test button).
+- `POST /presentation` — source-grounded, toolless structured deck generation.
+- `POST /presentation/stream` — streamed deck generation followed by a validated deck.
+- `POST /presentation/requirements` — source-grounded presentation brief AI Assist.
+- `POST /presentation/requirements/stream` — streamed AI Assist output and validated brief.
 - `GET /healthz` — process is alive. Always 200 once the app has started.
 - `GET /readyz` — agent is ready to serve. 200 if the ttt config import
   succeeded and the snapshot endpoint is reachable; 503 otherwise.
@@ -42,6 +46,12 @@ from tome_agent.agent.chat import stream_chat
 from tome_agent.agent.compact import stream_compaction
 from tome_agent.agent.evaluator import evaluate_artifact, evaluator_prompt_contract
 from tome_agent.agent.ingestor import stream_ingest
+from tome_agent.agent.presentation import (
+    generate_presentation,
+    stream_presentation,
+    stream_presentation_requirements,
+    suggest_presentation_requirements,
+)
 from tome_agent.agent.synthesize import stream_synthesis
 from tome_agent.config import settings
 from tome_agent.metrics import (
@@ -61,6 +71,10 @@ from tome_agent.orchestrator.contract import (
     IngestRequest,
     ModelCheckRequest,
     ModelCheckResponse,
+    PresentationRequest,
+    PresentationRequirementsRequest,
+    PresentationRequirementsResponse,
+    PresentationResponse,
 )
 
 log = logging.getLogger("tome_agent.agent.main")
@@ -177,6 +191,160 @@ async def model_check_endpoint(body: ModelCheckRequest) -> ModelCheckResponse:
     return ModelCheckResponse(ok=False, error="No result from model")
 
 
+@app.post("/presentation", response_model=PresentationResponse)
+async def presentation_endpoint(body: PresentationRequest) -> PresentationResponse:
+    """Generate or revise a toolless, source-grounded presentation deck."""
+    if not _state.ready:
+        raise HTTPException(503, "agent not ready")
+    _state.in_flight_runs += 1
+    _state.last_activity_at = datetime.now(UTC)
+    run_start = run_started()
+    success = False
+    try:
+        result = await generate_presentation(body)
+        success = True
+        return result
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(502, str(exc)) from exc
+    finally:
+        _state.in_flight_runs = max(0, _state.in_flight_runs - 1)
+        _state.last_activity_at = datetime.now(UTC)
+        run_finished("presentation", run_start, success)
+
+
+@app.post("/presentation/stream")
+async def presentation_stream_endpoint(body: PresentationRequest) -> StreamingResponse:
+    """Stream raw deck JSON for visibility, then the validated editable deck."""
+    if not _state.ready:
+        raise HTTPException(503, "agent not ready")
+
+    async def gen() -> AsyncIterator[bytes]:
+        _state.in_flight_runs += 1
+        _state.last_activity_at = datetime.now(UTC)
+        run_start = run_started()
+        success = False
+        event_iterator = stream_presentation(body).__aiter__()
+        next_event: asyncio.Task[tuple[str, dict[str, object]]] | None = None
+        try:
+            action = "Revising" if body.existing_deck is not None else "Generating"
+            yield _sse_message(
+                "status",
+                {"message": f"{action} a deck from {len(body.sources)} wiki source(s)…"},
+            )
+            heartbeat_count = 0
+            next_event = asyncio.create_task(anext(event_iterator))
+            while True:
+                done, _ = await asyncio.wait({next_event}, timeout=10)
+                if not done:
+                    heartbeat_count += 1
+                    verb = "revising" if body.existing_deck is not None else "building"
+                    yield _sse_message(
+                        "status",
+                        {
+                            "message": (
+                                f"Still {verb} the deck… "
+                                f"({heartbeat_count * 10}s elapsed)"
+                            )
+                        },
+                    )
+                    continue
+                try:
+                    event_type, data = next_event.result()
+                except StopAsyncIteration:
+                    break
+                yield _sse_message(event_type, data)
+                if event_type == "complete":
+                    success = True
+                next_event = asyncio.create_task(anext(event_iterator))
+        except (TypeError, ValueError) as exc:
+            yield _sse_message("error", {"message": str(exc)})
+        finally:
+            if next_event is not None and not next_event.done():
+                next_event.cancel()
+                try:
+                    await next_event
+                except asyncio.CancelledError:
+                    pass
+            await event_iterator.aclose()
+            _state.in_flight_runs = max(0, _state.in_flight_runs - 1)
+            _state.last_activity_at = datetime.now(UTC)
+            run_finished("presentation", run_start, success)
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@app.post(
+    "/presentation/requirements",
+    response_model=PresentationRequirementsResponse,
+)
+async def presentation_requirements_endpoint(
+    body: PresentationRequirementsRequest,
+) -> PresentationRequirementsResponse:
+    """Use the presentation model to fill an editable brief from wiki sources."""
+    if not _state.ready:
+        raise HTTPException(503, "agent not ready")
+    _state.in_flight_runs += 1
+    _state.last_activity_at = datetime.now(UTC)
+    run_start = run_started()
+    success = False
+    try:
+        result = await suggest_presentation_requirements(body)
+        success = True
+        return result
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(502, str(exc)) from exc
+    finally:
+        _state.in_flight_runs = max(0, _state.in_flight_runs - 1)
+        _state.last_activity_at = datetime.now(UTC)
+        run_finished("presentation_requirements", run_start, success)
+
+
+@app.post("/presentation/requirements/stream")
+async def presentation_requirements_stream_endpoint(
+    body: PresentationRequirementsRequest,
+) -> StreamingResponse:
+    """Stream raw model text for visibility, then the validated editable brief."""
+    if not _state.ready:
+        raise HTTPException(503, "agent not ready")
+
+    async def gen() -> AsyncIterator[bytes]:
+        _state.in_flight_runs += 1
+        _state.last_activity_at = datetime.now(UTC)
+        run_start = run_started()
+        success = False
+        try:
+            yield _sse_message(
+                "status",
+                {"message": f"Reviewing {len(body.sources)} selected wiki source(s)…"},
+            )
+            async for event_type, data in stream_presentation_requirements(body):
+                yield _sse_message(event_type, data)
+                if event_type == "complete":
+                    success = True
+        except (TypeError, ValueError) as exc:
+            yield _sse_message("error", {"message": str(exc)})
+        finally:
+            _state.in_flight_runs = max(0, _state.in_flight_runs - 1)
+            _state.last_activity_at = datetime.now(UTC)
+            run_finished("presentation_requirements", run_start, success)
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
 @app.post("/evaluate", response_model=ArtifactEvaluationResponse)
 async def evaluate_endpoint(
     body: ArtifactEvaluationRequest,
@@ -209,6 +377,10 @@ def _sse_format(event: ChatEventPayload | IngestEventPayload) -> bytes:
     the JSON body."""
     payload = json.dumps(event.data)
     return f"event: {event.type}\ndata: {payload}\n\n".encode()
+
+
+def _sse_message(event_type: str, data: dict) -> bytes:
+    return f"event: {event_type}\ndata: {json.dumps(data)}\n\n".encode()
 
 
 @app.post("/chat")

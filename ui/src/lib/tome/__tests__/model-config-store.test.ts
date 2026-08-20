@@ -36,6 +36,9 @@ describe("scoped model config store", () => {
     expect(modelConfigId({ kind: "exact", id: "entity-1" }, "compact")).toBe(
       "exact:entity-1:compact",
     );
+    expect(modelConfigId({ kind: "global" }, "presentation")).toBe(
+      "global:*:presentation",
+    );
   });
 
   it("rejects an unknown scope instead of silently treating it as global", () => {

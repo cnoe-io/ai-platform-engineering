@@ -354,7 +354,7 @@ def fetch_model_config(
 ) -> dict[str, ModelResolution] | None:
     """Fetch exact/type/global resolution for one entity.
 
-    Roles: `ingest`, `chat`, `synthesize`, `compact`. Returns None on any
+    Roles: `ingest`, `chat`, `synthesize`, `compact`, `presentation`. Returns None on any
     error so the caller falls back to its env var / hardcoded constant —
     no agent surface hard-depends on this endpoint. Agent-token authed; no
     request scope."""

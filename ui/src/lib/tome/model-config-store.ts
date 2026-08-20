@@ -16,7 +16,7 @@ import type { ProjectType } from "@/types/projects";
 
 export const MODEL_CONFIG_COLLECTION = "tome_model_config";
 
-export const AGENT_ROLES = ["ingest", "chat", "synthesize", "compact"] as const;
+export const AGENT_ROLES = ["ingest", "chat", "synthesize", "compact", "presentation"] as const;
 export type AgentRole = (typeof AGENT_ROLES)[number];
 
 export const MODEL_SCOPE_KINDS = ["global", "type", "exact"] as const;

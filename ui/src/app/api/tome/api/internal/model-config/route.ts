@@ -2,7 +2,7 @@
 // Path matches agent/http_client.py fetch_model_config:
 //   {TTT_BACKEND_URL}/api/internal/model-config
 //
-// Each agent surface (ingest/chat/synthesize/compact) fetches this at run
+// Each agent surface (ingest/chat/synthesize/compact/presentation) fetches this at run
 // start to resolve which model to run. Falls back to its hardcoded Python
 // constant if this call fails, so no surface hard-depends on it.
 

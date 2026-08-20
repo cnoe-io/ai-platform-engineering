@@ -6,7 +6,7 @@ so all model work is delegated to this Python service over HTTP/SSE — the same
 pattern the platform uses for the supervisor and dynamic agents.
 
 It runs the **Claude Agent SDK** ingest + chat loops. The UI proxies
-`POST /chat`, `POST /ingest`, and `POST /evaluate` to it; the agent calls back to the UI's
+`POST /chat`, `POST /ingest`, `POST /presentation`, and `POST /evaluate` to it; the agent calls back to the UI's
 `/api/tome/api/internal/...` endpoints for the project snapshot, page bodies,
 and persistence. CAIPE Mongo is the system of record.
 
@@ -17,6 +17,10 @@ and persistence. CAIPE Mongo is the system of record.
 | POST | `/chat` | Chat turn → `text/event-stream` (`token`/`tool_call`/`tool_result`/`session`/`done`/`error`) |
 | POST | `/ingest` | Ingest run → `text/event-stream` (`log`/`tool_call`/`page_written`/`done`/`error`) |
 | POST | `/evaluate` | Blinded, structured claim and fidelity evaluation against frozen evidence |
+| POST | `/presentation` | Toolless generation or revision of a structured, source-grounded slide deck |
+| POST | `/presentation/stream` | SSE stream of deck generation followed by the validated editable deck |
+| POST | `/presentation/requirements/stream` | SSE stream of AI Assist output followed by a validated editable brief |
+| POST | `/model-check` | Toolless smoke test for an administrator-selected model id |
 | GET | `/healthz` · `/readyz` · `/metrics` | Liveness / readiness / metrics |
 
 ## Configuration (env)
@@ -28,14 +32,16 @@ and persistence. CAIPE Mongo is the system of record.
 | `TTT_AGENT_TOKEN` | Shared bearer for the internal callbacks (non-empty) |
 | `TTT_PROJECT_ROOT` | Working-copy dir for the agent's file tools (rehydrated each run) |
 | `TTT_AGENT_ROLE` | `editor` \| `viewer` |
-| `TTT_CHAT_MODEL` / `TTT_INGEST_MODEL` | Deployment fallback model ids when no exact/type/global setting exists |
+| `TTT_CHAT_MODEL` / `TTT_INGEST_MODEL` / `TTT_PRESENTATION_MODEL` | Deployment fallback model ids when no exact/type/global setting exists |
 | `ANTHROPIC_BASE_URL` / `ANTHROPIC_API_KEY` | Anthropic-style endpoint + key (a proxy may front Bedrock etc.) |
 | `GITHUB_TOKEN` / `CONFLUENCE_TOKEN` / `WEBEX_TOKEN` | Read-only source tokens for the connector MCPs (optional) |
 
 The endpoint, models, and credentials are config-driven — nothing host- or
 product-specific is hardcoded. Model resolution is exact entity, entity type,
-global, environment, then built-in fallback. `TTT_CHAT_MODEL` backs chat;
-`TTT_INGEST_MODEL` backs ingest, synthesis, and compaction.
+global, environment, then built-in fallback. `TTT_CHAT_MODEL` backs chat and
+is also the presentation fallback when `TTT_PRESENTATION_MODEL` is unset;
+`TTT_INGEST_MODEL` backs ingest, synthesis, and compaction;
+`TTT_PRESENTATION_MODEL` backs PowerPoint generation and revision.
 
 ## Experiment isolation
 

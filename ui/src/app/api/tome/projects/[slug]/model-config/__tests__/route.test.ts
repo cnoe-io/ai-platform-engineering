@@ -15,7 +15,7 @@ jest.mock("@/lib/tome/model-check", () => ({
   testTomeModel: (...args: unknown[]) => mockTestTomeModel(...args),
 }));
 jest.mock("@/lib/tome/model-config-store", () => ({
-  AGENT_ROLES: ["ingest", "chat", "synthesize", "compact"],
+  AGENT_ROLES: ["ingest", "chat", "synthesize", "compact", "presentation"],
   ModelConfigValidationFailure: class ModelConfigValidationFailure extends Error {},
   deleteModelConfig: jest.fn(),
   getScopeModelConfigs: (...args: unknown[]) => mockGetScopeModelConfigs(...args),
