@@ -71,6 +71,63 @@
     0px 2px 6px 2px rgba(0, 0, 0, 0.15), 0px 1px 2px 0px rgba(0, 0, 0, 0.3);
 }
 
+/* Crepe's vendor type scale (reset.css) runs large for a docs surface — e.g.
+   h1 at 42px/50px, body text at 16px/24px. Tone the whole scale and the
+   surrounding spacing down a notch; loads after the vendor stylesheet so
+   equal-specificity selectors win. */
+.milkdown .ProseMirror h1 {
+  font-size: 26px;
+  line-height: 34px;
+  margin-top: 22px;
+}
+
+.milkdown .ProseMirror h2 {
+  font-size: 22px;
+  line-height: 30px;
+  margin-top: 18px;
+}
+
+.milkdown .ProseMirror h3 {
+  font-size: 19px;
+  line-height: 26px;
+  margin-top: 16px;
+}
+
+.milkdown .ProseMirror h4 {
+  font-size: 17px;
+  line-height: 24px;
+  margin-top: 14px;
+}
+
+.milkdown .ProseMirror h5 {
+  font-size: 15px;
+  line-height: 22px;
+  margin-top: 12px;
+}
+
+.milkdown .ProseMirror h6 {
+  font-size: 13px;
+  line-height: 20px;
+  margin-top: 12px;
+}
+
+.milkdown .ProseMirror p {
+  font-size: 14px;
+  line-height: 21px;
+  padding: 2px 0;
+}
+
+.milkdown .ProseMirror .milkdown-table-block th,
+.milkdown .ProseMirror .milkdown-table-block td {
+  padding: 3px 10px;
+}
+
+.milkdown .ProseMirror .milkdown-table-block p {
+  font-size: 13px;
+  line-height: 19px;
+  padding: 0;
+}
+
 /* Milkdown renders raw HTML-comment nodes (`<!-- ... -->`) as visible text by
    default. Agent-only sourcing guidance seeded into a page body relies on
    these being invisible outside the admin template editor. */
