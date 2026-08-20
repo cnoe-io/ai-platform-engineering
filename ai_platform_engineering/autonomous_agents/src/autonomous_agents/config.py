@@ -61,6 +61,7 @@ class Settings(BaseSettings):
     dynamic_agents_oauth2_client_id: str | None = None
     dynamic_agents_oauth2_client_secret: str | None = None
     dynamic_agents_oauth2_scope: str | None = None
+    dynamic_agents_user_context_hmac_secret: str | None = None
 
     @field_validator(
         "dynamic_agents_timeout_seconds",
