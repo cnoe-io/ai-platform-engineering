@@ -17,9 +17,9 @@ public webhook receiver path.
 
 ```mermaid
 flowchart LR
-  User[User] --> UI[CAIPE UI / BFF]
+  User[User] --> UI[CAIPE UI]
   Admin[Organization admin] --> UI
-  UI -->|task CRUD and run history| API[Autonomous Agents API]
+  UI -->|manage tasks and view run history| API[Autonomous Agents API]
   Admin -->|team eligibility| FGA[OpenFGA]
   API <--> DB[(MongoDB)]
 
@@ -45,8 +45,9 @@ one pod:
 
 MongoDB is the source of truth for task definitions, run history, webhook
 delivery deduplication, and optional Chat history. At startup, the service
-loads all tasks from MongoDB into APScheduler or the webhook registry. Task
-CRUD updates those process-local runtimes without a restart.
+loads all tasks from MongoDB into APScheduler or the webhook registry. Creating,
+editing, disabling, or deleting a task updates those process-local runtimes
+without a restart.
 
 ## Access and enablement
 
@@ -281,7 +282,7 @@ Keep `replicaCount: 1` with the current implementation. The chart uses a
   interval tasks.
 - Webhook queues, concurrency counters, and the task registry are
   process-local, so replicas would not preserve per-task ordering globally.
-- Task CRUD updates only the replica that handled the request; another
+- Task changes update only the replica that handled the request; another
   replica's runtime registry could remain stale.
 - Accepted webhook work is not durable and is lost if the pod restarts.
 

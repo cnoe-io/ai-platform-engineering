@@ -14,22 +14,26 @@ While the CAIPE UI handles on-demand, chat-driven work, Autonomous Agents handle
 - Run an agent at a fixed **interval** (e.g. health check every 30 minutes)
 - Run an agent when an external system fires a **webhook** (e.g. GitHub PR opened)
 
-Tasks are managed through the CAIPE UI (persisted to MongoDB) or the service's
-REST API. MongoDB is required in the current production runtime.
+Tasks are managed through the CAIPE UI. Its authenticated server-side
+`/api/autonomous` route forwards requests to this cluster-internal service,
+which persists task definitions to MongoDB. MongoDB is required in the current
+runtime.
 
 ---
 
 ## Architecture
 
 ```text
-CAIPE UI / BFF ---- task CRUD ------> MongoDB
-       |                                  ^
-       v                                  |
-Autonomous Agents (one process / pod) ----+
+CAIPE UI --> authenticated /api/autonomous route --> Autonomous Agents
+                                                           |
+                                                           v
+                                                        MongoDB
+
+Autonomous Agents (one process / pod)
   |-- APScheduler (cron / interval) --+
   |-- webhook receiver                |--> Task Runner --> Dynamic Agents
   |     `-- process-local task FIFO ---+       (SSE, as task owner)
-  `-- run history / optional Chat publisher
+  `-- run history / optional Chat publisher --> MongoDB
 ```
 
 Task definitions live in MongoDB and are managed through the authenticated
@@ -410,12 +414,13 @@ Once running, the interactive API docs are at `http://localhost:8002/docs`.
 
 ## Adding a New Task
 
-Tasks are managed through the CAIPE UI's **Autonomous** page (backed by the
-authenticated `/api/autonomous` proxy) or by POSTing a `TaskDefinition` to
-`POST /api/v1/tasks`. The user must belong to an Autonomous-enabled team and
-must already have `can_use` access to the target agent. Organization admins
-manage team eligibility under **Admin → Security & Policy → Autonomous
-Enablement**; there is no per-agent enablement switch or task-oversight page.
+Tasks are managed through the CAIPE UI's **Autonomous** page. Its authenticated
+server-side `/api/autonomous` route forwards task creation to the service's
+cluster-internal `POST /api/v1/tasks` endpoint. The user must belong to an
+Autonomous-enabled team and must already have `can_use` access to the target
+agent. Organization admins manage team eligibility under **Admin → Security &
+Policy → Autonomous Enablement**; there is no per-agent enablement switch or
+task-oversight page.
 
 Each task must set a `dynamic_agent_id`; new definitions without one are
 rejected. The server generates an immutable task id. No service restart is

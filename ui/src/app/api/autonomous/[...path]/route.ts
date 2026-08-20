@@ -183,8 +183,16 @@ async function forward(
         const data = JSON.parse(text);
         return NextResponse.json(data, { status: response.status });
       } catch {
+        console.error(
+          `[Autonomous Proxy] ${method} ${targetUrl} returned non-JSON ` +
+            `(HTTP ${response.status}): ${text.slice(0, 500)}`,
+        );
         return NextResponse.json(
-          { error: 'Upstream returned non-JSON response', body: text.slice(0, 500) },
+          {
+            detail:
+              `Autonomous Agents service returned an invalid response ` +
+              `(HTTP ${response.status}). Check the service logs.`,
+          },
           { status: response.status },
         );
       }
