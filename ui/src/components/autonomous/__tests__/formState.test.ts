@@ -98,11 +98,11 @@ describe("formState.fromFormState", () => {
   });
 
   it("parses a valid cron task", () => {
-    const result = fromFormState({ ...base, triggerType: "cron", cronSchedule: "*/5 * * * *" });
+    const result = fromFormState({ ...base, triggerType: "cron", cronSchedule: "0 9 * * *" });
     expect(result).toEqual({
       task: expect.objectContaining({
         id: "my_task",
-        trigger: { type: "cron", schedule: "*/5 * * * *" },
+        trigger: { type: "cron", schedule: "0 9 * * *" },
       }),
     });
   });
@@ -128,11 +128,29 @@ describe("formState.fromFormState", () => {
     ).toEqual({ error: expect.stringMatching(/positive whole numbers/) });
   });
 
-  it("maps webhook with blank secret to null", () => {
+  it("rejects intervals below the default 30-minute minimum", () => {
+    expect(
+      fromFormState({ ...base, triggerType: "interval", intervalMinutes: "29" }),
+    ).toEqual({ error: "Interval must be at least 30 minutes." });
+  });
+
+  it("accepts the configured interval minimum", () => {
+    const result = fromFormState(
+      { ...base, triggerType: "interval", intervalMinutes: "10" },
+      600,
+    );
+    expect(result).toEqual({
+      task: expect.objectContaining({
+        trigger: { type: "interval", seconds: null, minutes: 10, hours: null },
+      }),
+    });
+  });
+
+  it("maps webhook with blank secret to null for server generation/preservation", () => {
     const result = fromFormState({ ...base, triggerType: "webhook", webhookSecret: "   " });
     expect(result).toEqual({
       task: expect.objectContaining({
-        trigger: { type: "webhook", provider: "generic_hmac", secret: null },
+        trigger: { type: "webhook", provider: "github", secret: null },
       }),
     });
   });
@@ -190,7 +208,7 @@ describe("formState.summarizeTrigger", () => {
   });
   it("summarises webhook with/without secret", () => {
     expect(summarizeTrigger({ type: "webhook", provider: "jira", has_secret: true })).toBe("Webhook: jira (signed)");
-    expect(summarizeTrigger({ type: "webhook", has_secret: false })).toBe("Webhook: generic_hmac");
+    expect(summarizeTrigger({ type: "webhook", has_secret: false })).toBe("Webhook: github");
   });
 });
 

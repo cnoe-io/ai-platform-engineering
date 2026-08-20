@@ -26,6 +26,7 @@ from autonomous_agents.models import (
     TaskDefinition,
     TaskRun,
     TaskStatus,
+    WebhookTrigger,
 )
 from autonomous_agents.services.chat_history import (
     ChatHistoryPublisher,
@@ -33,7 +34,7 @@ from autonomous_agents.services.chat_history import (
     conversation_id_for_task,
 )
 from autonomous_agents.services.dynamic_agents_client import (
-    DynamicAgentsScheduleRevokedError,
+    DynamicAgentsAuthorizationRevokedError,
     invoke_dynamic_agent_streaming,
 )
 from autonomous_agents.services.mongo import RunStore
@@ -102,6 +103,13 @@ def set_chat_history_publisher(publisher: ChatHistoryPublisher) -> None:
 def chat_history_publishing_enabled() -> bool:
     """Return whether autonomous runs are being published to UI chat history."""
     return get_chat_history_publisher().enabled
+
+
+def task_chat_history_publishing_enabled(task: TaskDefinition) -> bool:
+    """Return whether this task may create UI chat-history records."""
+    return chat_history_publishing_enabled() and not isinstance(
+        task.trigger, WebhookTrigger
+    )
 
 
 def get_webex_thread_map() -> WebexThreadMap | None:
@@ -302,9 +310,8 @@ async def execute_task(
     # but expose it on run history only when a UI chat record will be published.
     # Spec #099 FR-006 / AD-002: one chat thread per task, not per run.
     conversation_id = conversation_id_for_task(task.id)
-    published_conversation_id = (
-        conversation_id if chat_history_publishing_enabled() else None
-    )
+    publish_to_chat = task_chat_history_publishing_enabled(task)
+    published_conversation_id = conversation_id if publish_to_chat else None
     # Materialise the prompt the agent will actually see. For follow-up
     # runs we splice the operator reply into a clearly-labelled section
     # so the LLM treats it as new instructions rather than confusing it
@@ -392,17 +399,18 @@ async def execute_task(
             f"({len(events)} events, {len(response)} chars). "
             f"Preview: {response[:120]}..."
         )
-    except DynamicAgentsScheduleRevokedError as exc:
-        # The owner's autonomous grant (team eligibility or per-agent enablement)
-        # was revoked. Fail this run AND auto-pause the task so it stops firing
-        # until a team admin re-enables autonomous for the agent.
+    except DynamicAgentsAuthorizationRevokedError as exc:
+        # The owner lost team entitlement or access to the selected agent. Fail
+        # this run and auto-pause the task so it stops firing until access is
+        # restored and the owner explicitly re-enables it.
         error_text = (
             f"{exc} — autonomous execution was disabled for this task. "
-            "Ask a team admin to re-enable autonomous for this agent."
+            "Ask a platform admin to enable Autonomous for one of your teams, "
+            "or restore your access to this agent."
         )
         run.status = TaskStatus.FAILED
         run.error = error_text
-        logger.warning("[%s] Run %s denied (schedule revoked); auto-pausing task", task.id, run_id)
+        logger.warning("[%s] Run %s denied (authorization revoked); auto-pausing task", task.id, run_id)
         try:
             # Lazy import avoids a circular import (task_lifecycle imports task_runner).
             from autonomous_agents.services.task_lifecycle import get_task_store
@@ -433,17 +441,18 @@ async def execute_task(
         # delay the authoritative run-history record. The publisher
         # is a no-op when ``CHAT_HISTORY_PUBLISH_ENABLED`` is off so
         # this is essentially free in the default config.
-        await _publish_safely(
-            get_chat_history_publisher(),
-            run,
-            effective_task,
-            context,
-            response=response_text,
-            error=error_text,
-            # Surface the dynamic agent id as the routing label so the chat
-            # sidebar shows the same routing target as the autonomous tab.
-            agent=task.dynamic_agent_id,
-        )
+        if publish_to_chat:
+            await _publish_safely(
+                get_chat_history_publisher(),
+                run,
+                effective_task,
+                context,
+                response=response_text,
+                error=error_text,
+                # Surface the dynamic agent id as the routing label so the chat
+                # sidebar shows the same routing target as the autonomous tab.
+                agent=task.dynamic_agent_id,
+            )
         # Webex thread map: only worth scanning on a successful run --
         # a FAILED run usually didn't get far enough to call any
         # tools, and even when it did the message we'd record points

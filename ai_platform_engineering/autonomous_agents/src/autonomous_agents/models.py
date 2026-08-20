@@ -53,7 +53,14 @@ class IntervalTrigger(BaseModel):
 class WebhookTrigger(BaseModel):
     """Trigger for webhook-scheduled tasks"""
     type: Literal[TriggerType.WEBHOOK] = TriggerType.WEBHOOK
-    secret: str | None = Field(None, description="Optional HMAC secret for payload validation")
+    secret: str | None = Field(
+        None,
+        description=(
+            "HMAC secret for payload validation. The create route always generates "
+            "this value; None is accepted only so redacted update payloads can "
+            "preserve the already-stored secret."
+        ),
+    )
     provider: str = Field(
         default="generic_hmac",
         description=(

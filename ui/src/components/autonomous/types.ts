@@ -13,6 +13,10 @@ export type TriggerType = 'cron' | 'interval' | 'webhook';
 
 export type TaskStatus = 'pending' | 'running' | 'success' | 'failed' | 'skipped';
 
+export interface AutonomousRuntimeSettings {
+  minimum_schedule_interval_seconds: number;
+}
+
 export interface CronTrigger {
   type: 'cron';
   schedule: string;
@@ -35,12 +39,13 @@ export interface WebhookTrigger {
    */
   provider?: string | null;
   /**
-   * Optional HMAC secret. The backend NEVER echoes the secret on
+   * HMAC signing secret accepted on update when rotating a provider-issued
+   * Slack/PagerDuty credential. The backend NEVER echoes the stored secret on
    * read paths -- ``_serialize_trigger`` in ``routes/tasks.py``
    * strips the value and replaces it with ``has_secret`` (below) so
    * any UI/XSS leak only learns whether one is configured, not the
-   * value itself. Outbound writes (POST/PUT) MAY include this field
-   * to set or rotate the secret.
+   * value itself. POST ignores this field and generates an initial secret;
+   * PUT may include it to save or rotate a provider-issued secret.
    */
   secret?: string | null;
   /**
@@ -125,11 +130,18 @@ export interface AutonomousTask {
    */
   owner_id?: string | null;
   /**
-   * Owner's Keycloak subject (UUID). Stable across email changes, so the admin
-   * oversight view prefers it over ``owner_id`` when joining tasks to team
-   * members. May be absent for tasks created before it was exposed on the wire.
+   * Owner's Keycloak subject (UUID). Stable across email changes and used for
+   * authorization when available. May be absent for tasks created before it
+   * was exposed on the wire.
    */
   owner_sub?: string | null;
+}
+
+/** A mutation result kept separate so one-time secrets never enter task state. */
+export interface TaskSaveResult {
+  task: AutonomousTask;
+  webhookSetupRequired?: boolean;
+  webhookSetupSecret?: string;
 }
 
 export interface TaskRun {
@@ -213,6 +225,7 @@ export interface TaskFormState {
   intervalMinutes: string;
   intervalHours: string;
   webhookProvider: string;
+  /** Used only to rotate provider-issued Slack/PagerDuty secrets on edit. */
   webhookSecret: string;
   timeoutSeconds: string;
   maxRetries: string;

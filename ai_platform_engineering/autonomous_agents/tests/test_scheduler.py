@@ -624,13 +624,13 @@ class TestFollowUp:
         assert "Operator follow-up" in captured["prompt"]
         assert "extra context: it's a 500 not a 404" in captured["prompt"]
 
-    async def test_execute_task_followup_publishes_augmented_prompt_to_chat(
+    async def test_webhook_followup_is_never_published_to_chat(
         self,
         store: _DictRunStore,
         publisher: _RecordingPublisher,
         webhook_task: TaskDefinition,
     ):
-        """Chat history shows the Webex reply as a concise user-side prompt."""
+        """Webhook runs stay in Autonomous run history and never enter chat."""
         follow_up = FollowUpContext(
             parent_run_id="r-original",
             user_text="webex says this is still failing",
@@ -644,9 +644,7 @@ class TestFollowUp:
         ):
             await execute_task(webhook_task, context={}, follow_up=follow_up)
 
-        assert len(publisher.calls) == 1
-        published_prompt = publisher.calls[0]["prompt"]
-        assert published_prompt == "Webex Follow-up: webex says this is still failing"
+        assert publisher.calls == []
 
     async def test_execute_task_followup_does_not_mutate_task_definition(
         self, store: _DictRunStore, webhook_task: TaskDefinition
@@ -728,7 +726,7 @@ class TestHotReload:
     @pytest.mark.asyncio
     async def test_register_scheduler_task_adds_cron_job(self, _fresh_scheduler):
         """Cron task lands as an APScheduler job."""
-        register_scheduler_task(_job_task("cron-1", trigger=CronTrigger(schedule="*/5 * * * *")))
+        register_scheduler_task(_job_task("cron-1", trigger=CronTrigger(schedule="*/30 * * * *")))
 
         jobs = get_scheduler().get_jobs()
         assert [j.id for j in jobs] == ["cron-1"]
@@ -736,7 +734,7 @@ class TestHotReload:
     @pytest.mark.asyncio
     async def test_register_scheduler_task_adds_interval_job(self, _fresh_scheduler):
         """Interval task lands as an APScheduler job."""
-        register_scheduler_task(_job_task("int-1", trigger=IntervalTrigger(seconds=30)))
+        register_scheduler_task(_job_task("int-1", trigger=IntervalTrigger(minutes=30)))
 
         jobs = get_scheduler().get_jobs()
         assert [j.id for j in jobs] == ["int-1"]
@@ -771,7 +769,7 @@ class TestHotReload:
         register_scheduler_task(_job_task("t1", trigger=CronTrigger(schedule="0 9 * * *")))
         first_trigger = get_scheduler().get_job("t1").trigger
 
-        register_scheduler_task(_job_task("t1", trigger=IntervalTrigger(minutes=15)))
+        register_scheduler_task(_job_task("t1", trigger=IntervalTrigger(minutes=60)))
         second_trigger = get_scheduler().get_job("t1").trigger
 
         assert type(first_trigger).__name__ == "CronTrigger"
@@ -809,7 +807,7 @@ class TestHotReload:
         """Bulk register adds every cron/interval entry and leaves the scheduler running."""
         tasks = [
             _job_task("cron-1", trigger=CronTrigger(schedule="0 * * * *")),
-            _job_task("int-1", trigger=IntervalTrigger(minutes=5)),
+            _job_task("int-1", trigger=IntervalTrigger(minutes=30)),
             _job_task("hook-1", trigger=WebhookTrigger()),
             _job_task("dis-1", enabled=False),
         ]
@@ -819,6 +817,20 @@ class TestHotReload:
         scheduler = get_scheduler()
         assert {j.id for j in scheduler.get_jobs()} == {"cron-1", "int-1"}
         assert scheduler.running is True
+
+    @pytest.mark.asyncio
+    async def test_bulk_registration_skips_existing_task_below_frequency_floor(
+        self, _fresh_scheduler, caplog
+    ):
+        tasks = [
+            _job_task("safe", trigger=IntervalTrigger(minutes=30)),
+            _job_task("too-fast", trigger=IntervalTrigger(minutes=5)),
+        ]
+
+        register_scheduler_tasks(tasks)
+
+        assert {job.id for job in get_scheduler().get_jobs()} == {"safe"}
+        assert "Schedule rejected during startup" in caplog.text
 
     @pytest.mark.asyncio
     async def test_register_scheduler_task_detaches_existing_job_when_disabled(self, _fresh_scheduler):
@@ -851,15 +863,14 @@ class TestHotReload:
         assert scheduler.running is True
 
 
-class TestAutoPauseOnScheduleRevoke:
-    """A scheduled run denied with agent#schedule (owner's autonomous grant
-    revoked) fails the run AND auto-pauses the task"""
+class TestAutoPauseOnAuthorizationRevoke:
+    """A run denied after entitlement/access revocation auto-pauses the task."""
 
-    async def test_schedule_revoked_disables_task_and_fails_run(
+    async def test_authorization_revoked_disables_task_and_fails_run(
         self, store: _DictRunStore, task: TaskDefinition
     ):
         from autonomous_agents.services.dynamic_agents_client import (
-            DynamicAgentsScheduleRevokedError,
+            DynamicAgentsAuthorizationRevokedError,
         )
 
         updated: dict = {}
@@ -874,7 +885,7 @@ class TestAutoPauseOnScheduleRevoke:
             patch(
                 "autonomous_agents.services.task_runner.invoke_dynamic_agent_streaming",
                 new=AsyncMock(
-                    side_effect=DynamicAgentsScheduleRevokedError(
+                    side_effect=DynamicAgentsAuthorizationRevokedError(
                         "autonomous access revoked for agent 'agent-x'"
                     )
                 ),

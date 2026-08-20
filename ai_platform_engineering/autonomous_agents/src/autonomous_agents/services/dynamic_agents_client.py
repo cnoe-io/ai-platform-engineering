@@ -41,6 +41,7 @@ _service_token_cache: tuple[str, float] | None = None
 __all__ = [
     "DynamicAgentsClientError",
     "DynamicAgentsNotConfiguredError",
+    "DynamicAgentsAuthorizationRevokedError",
     "DynamicAgentsScheduleRevokedError",
     "invoke_dynamic_agent",
     "invoke_dynamic_agent_streaming",
@@ -48,8 +49,8 @@ __all__ = [
 ]
 
 
-def _is_schedule_revoked(status_code: int, body_text: str) -> bool:
-    """True when a 403 response carries the DA deny code ``agent#schedule``."""
+def _is_autonomous_authorization_revoked(status_code: int, body_text: str) -> bool:
+    """Return true when DA denies agent use or Autonomous entitlement."""
     if status_code != 403:
         return False
     try:
@@ -57,7 +58,12 @@ def _is_schedule_revoked(status_code: int, body_text: str) -> bool:
     except (ValueError, TypeError):
         return False
     detail = payload.get("detail") if isinstance(payload, dict) else None
-    return isinstance(detail, dict) and detail.get("code") == "agent#schedule"
+    return isinstance(detail, dict) and detail.get("code") in {
+        "agent#use",
+        "organization#automate",
+        # Backward compatibility during rolling upgrades.
+        "agent#schedule",
+    }
 
 
 def _build_prompt_with_context(prompt: str, context: dict[str, Any] | None) -> str:
@@ -90,10 +96,12 @@ class DynamicAgentsNotConfiguredError(DynamicAgentsClientError):
     """
 
 
-class DynamicAgentsScheduleRevokedError(DynamicAgentsClientError):
-    """Raised when DA denies a scheduled run with code ``agent#schedule`` — the
-    owner's autonomous grant (team eligibility or per-agent enablement) was
-    revoked. The scheduler auto-pauses the task on this."""
+class DynamicAgentsAuthorizationRevokedError(DynamicAgentsClientError):
+    """Raised when an unattended run loses agent access or team entitlement."""
+
+
+# Compatibility for callers importing the pre-entitlement class name.
+DynamicAgentsScheduleRevokedError = DynamicAgentsAuthorizationRevokedError
 
 
 # ----------------------------------------------------------------------
@@ -305,8 +313,8 @@ async def invoke_dynamic_agent(
             f"dynamic-agents service has no agent with id '{agent_id}' "
             f"(HTTP 404 from {url})."
         )
-    if _is_schedule_revoked(resp.status_code, resp.text):
-        raise DynamicAgentsScheduleRevokedError(
+    if _is_autonomous_authorization_revoked(resp.status_code, resp.text):
+        raise DynamicAgentsAuthorizationRevokedError(
             f"autonomous access revoked for agent '{agent_id}'"
         )
     if resp.status_code >= 400:
@@ -612,8 +620,8 @@ async def invoke_dynamic_agent_streaming(
                     )
                 if response.status_code >= 400:
                     await response.aread()
-                    if _is_schedule_revoked(response.status_code, response.text):
-                        raise DynamicAgentsScheduleRevokedError(
+                    if _is_autonomous_authorization_revoked(response.status_code, response.text):
+                        raise DynamicAgentsAuthorizationRevokedError(
                             f"autonomous access revoked for agent '{agent_id}'"
                         )
                     raise DynamicAgentsClientError(
