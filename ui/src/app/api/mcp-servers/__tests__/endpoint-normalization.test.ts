@@ -97,6 +97,7 @@ beforeEach(() => {
   // reads this via agentGatewayMcpEndpointUrl(), which is also exercised
   // by other test suites — set it here so test order doesn't matter.
   process.env.AGENT_GATEWAY_URL = "http://agentgateway:4000";
+  process.env.PRIVATE_RESOURCES_ENABLED = "true";
 
   mockGetAuthFromBearerOrSession.mockResolvedValue({ session, user });
   mockRequireResourcePermission.mockResolvedValue(undefined);
@@ -122,6 +123,44 @@ beforeEach(() => {
 });
 
 describe("POST /api/mcp-servers — endpoint normalisation", () => {
+  it("allows an organization admin to own and share with teams without explicit team tuples", async () => {
+    mockFindOne.mockResolvedValue(null);
+    mockInsertOne.mockResolvedValue({ acknowledged: true });
+    mockRequireResourcePermission.mockImplementation(async (
+      _session: unknown,
+      resource: { type: string; action: string },
+    ) => {
+      if (resource.type === "team") throw new Error("no direct team tuple");
+    });
+    const { POST } = await import("../route");
+
+    const response = await POST(
+      request("/api/mcp-servers", {
+        method: "POST",
+        body: JSON.stringify({
+          id: "team-tool",
+          name: "Team Tool",
+          transport: "http",
+          endpoint: "https://mcp.example.test/mcp",
+          visibility: "team",
+          owner_team_slug: "primary",
+          shared_with_teams: ["secondary"],
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    expect(mockInsertOne).toHaveBeenCalledWith(expect.objectContaining({
+      visibility: "team",
+      owner_team_slug: "primary",
+      shared_with_teams: ["secondary"],
+    }));
+    expect(mockRequireResourcePermission).not.toHaveBeenCalledWith(
+      session,
+      expect.objectContaining({ type: "team" }),
+    );
+  });
+
   it("rewrites a bare AgentGateway endpoint to /mcp/<server_id> on create", async () => {
     mockFindOne.mockResolvedValue(null);
     mockInsertOne.mockResolvedValue({ acknowledged: true });
@@ -261,6 +300,51 @@ describe("POST /api/mcp-servers — endpoint normalisation", () => {
 });
 
 describe("PUT /api/mcp-servers?id=<id> — endpoint normalisation", () => {
+  it("keeps an unclassified legacy server global when it is edited", async () => {
+    const existing = {
+      _id: "mcp-legacy",
+      name: "Legacy",
+      transport: "stdio",
+      command: "example-command",
+      config_driven: false,
+      owner_subject: "alice-sub",
+    };
+    mockFindOne.mockResolvedValue(existing);
+    mockFindOneAndUpdate.mockImplementation(async (_filter, update) => ({
+      ...existing,
+      ...(update as { $set: Record<string, unknown> }).$set,
+    }));
+    const { PUT } = await import("../route");
+
+    const response = await PUT(
+      request("/api/mcp-servers?id=mcp-legacy", {
+        method: "PUT",
+        body: JSON.stringify({ name: "Legacy renamed" }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockReconcileMcpServerRelationships).toHaveBeenCalledWith(
+      expect.objectContaining({
+        serverId: "mcp-legacy",
+        ownerSubject: "alice-sub",
+        personalOwnerAccess: false,
+        previousPersonalOwnerAccess: true,
+        globalOrganizationAccess: true,
+        previousGlobalOrganizationAccess: true,
+      }),
+      expect.any(Object),
+    );
+    expect(mockFindOneAndUpdate).toHaveBeenCalledWith(
+      { _id: "mcp-legacy" },
+      expect.objectContaining({
+        $set: expect.objectContaining({ visibility: "global" }),
+        $unset: expect.objectContaining({ owner_subject: "" }),
+      }),
+      { returnDocument: "after" },
+    );
+  });
+
   it("repairs a stale bare gateway endpoint when an admin re-saves the row", async () => {
     // Existing legacy row in Mongo with the broken bare endpoint.
     const existing = {
@@ -269,6 +353,8 @@ describe("PUT /api/mcp-servers?id=<id> — endpoint normalisation", () => {
       transport: "http",
       endpoint: "http://agentgateway:4000/mcp",
       config_driven: false,
+      visibility: "private",
+      owner_subject: "alice-sub",
     };
     mockFindOne.mockResolvedValue(existing);
     mockFindOneAndUpdate.mockImplementation(async (_filter, update) => ({
@@ -304,6 +390,8 @@ describe("PUT /api/mcp-servers?id=<id> — endpoint normalisation", () => {
       transport: "http",
       endpoint: "http://agentgateway:4000/mcp/mcp-jira",
       config_driven: false,
+      visibility: "private",
+      owner_subject: "alice-sub",
     };
     mockFindOne.mockResolvedValue(existing);
     mockFindOneAndUpdate.mockImplementation(async (_filter, update) => ({
@@ -335,6 +423,8 @@ describe("PUT /api/mcp-servers?id=<id> — endpoint normalisation", () => {
       transport: "http",
       endpoint: "http://agentgateway:4000/mcp/atlassian-confluence",
       config_driven: false,
+      visibility: "private",
+      owner_subject: "alice-sub",
     };
     mockFindOne.mockResolvedValue(existing);
     mockFindOneAndUpdate.mockImplementation(async (_filter, update) => ({

@@ -3,6 +3,7 @@
 ## Evaluations
 
 - [UI Performance Benchmark Results](ui-performance-benchmark-results.md)
+- [TOME Grounded Model Experiments](tome-grounded-model-experiments.md)
 
 ## Related Performance Docs
 

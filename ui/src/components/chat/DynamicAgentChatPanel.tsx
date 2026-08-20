@@ -1993,9 +1993,9 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
 
       {/* Input Area - Fixed bottom, doesn't scroll */}
       {readOnly ? (
-        <div className={`border-t border-border shrink-0 ${readOnlyReason === 'agent_deleted' || readOnlyReason === 'agent_disabled' ? 'bg-red-500/10' : 'bg-amber-500/10'}`}>
+        <div className={`border-t shrink-0 ${readOnlyReason === 'agent_deleted' || readOnlyReason === 'agent_disabled' ? 'border-orange-500/30 bg-orange-500/10' : 'border-border bg-amber-500/10'}`}>
           <div className="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between">
-            <div className={`flex items-center gap-2 ${readOnlyReason === 'agent_deleted' || readOnlyReason === 'agent_disabled' ? 'text-red-700 dark:text-red-400' : 'text-amber-700 dark:text-amber-400'}`}>
+            <div className={`flex items-center gap-2 ${readOnlyReason === 'agent_deleted' || readOnlyReason === 'agent_disabled' ? 'text-orange-700 dark:text-orange-400' : 'text-amber-700 dark:text-amber-400'}`}>
               <ShieldCheck className="h-4 w-4 shrink-0" />
               {readOnlyReason === 'admin_audit' ? (
                 <>
@@ -2005,12 +2005,12 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
               ) : readOnlyReason === 'agent_deleted' ? (
                 <>
                   <span className="text-sm font-medium">Agent No Longer Available</span>
-                  <span className="text-xs text-red-600 dark:text-red-500">— This agent has been deprecated or deleted. You can view the history but cannot send new messages.</span>
+                  <span className="text-xs text-orange-600 dark:text-orange-500">— This agent has been deprecated or deleted. You can view the history but cannot send new messages.</span>
                 </>
               ) : readOnlyReason === 'agent_disabled' ? (
                 <>
                   <span className="text-sm font-medium">Agent Disabled</span>
-                  <span className="text-xs text-red-600 dark:text-red-500">— This agent has been disabled by an administrator. You can view the history but cannot send new messages.</span>
+                  <span className="text-xs text-orange-600 dark:text-orange-500">— This agent has been disabled by an administrator. You can view the history but cannot send new messages.</span>
                 </>
               ) : (
                 <>
@@ -2043,7 +2043,7 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
                   <button
                     onClick={handleResumeWithChosenAgent}
                     disabled={!chosenAgentId}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-red-600/20 text-red-700 dark:text-red-300 hover:bg-red-600/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-orange-600/20 text-orange-700 dark:text-orange-300 hover:bg-orange-600/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     Resume
                   </button>
@@ -2058,7 +2058,7 @@ export function ChatPanel({ conversationId, readOnly, readOnlyReason, agentId, a
                 <>
                   <button
                     onClick={handleStartNewConversation}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-red-600/20 text-red-700 dark:text-red-300 hover:bg-red-600/30 transition-colors"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-orange-600/20 text-orange-700 dark:text-orange-300 hover:bg-orange-600/30 transition-colors"
                   >
                     Resume with default agent
                   </button>

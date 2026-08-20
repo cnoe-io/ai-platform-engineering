@@ -2,8 +2,8 @@
 
 import { useSession } from "next-auth/react";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowUpRight,
   Check,
@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { UnsavedChangesDialog } from "@/components/shared/UnsavedChangesDialog";
 import {
   Dialog,
   DialogContent,
@@ -39,12 +40,21 @@ import { UserEmailPicker } from "@/components/ui/user-email-picker";
 import { AutosavingSourcesEditor } from "@/components/projects/source-pickers/AutosavingSourcesEditor";
 import { useProjectSourceKinds } from "@/components/projects/source-pickers/useProjectSourceKinds";
 import { ChildProjectsPanel } from "@/components/tome/BhagProjectsPanel";
+import { EntityModelSettings } from "@/components/tome/EntityModelSettings";
 import { PanelHeader } from "@/components/tome/PanelHeader";
 import { TomeLoading } from "@/components/tome/TomeLoading";
 import { ViewOnlyTooltip } from "@/components/tome/ViewOnlyTooltip";
-import { normLabel } from "@/lib/projects/labels";
-import type { ProjectDocument, ProjectSources, ProjectType } from "@/types/projects";
+import type { AutoIngestConfig, ProjectDocument, ProjectSources, ProjectType } from "@/types/projects";
 import { dataStewardUserEmail, isSynthesizedType } from "@/types/projects";
+import {
+  DEFAULT_SCHEDULE,
+  cronToSchedule,
+  describeRelativeTime,
+  nextCronRun,
+  scheduleToCron,
+  type ScheduleFormState,
+} from "@/lib/tome/auto-ingest/schedule-presets";
+import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
 
 const BLAST_RADIUS_OPTIONS = [
   { value: "small", label: "Small and reversible (2-way)", hint: "The team runs on its own" },
@@ -61,6 +71,53 @@ const OPTIONALITY_OPTIONS = [
 
 const TAB_TRIGGER_CLASS =
   "rounded-none border-b-2 border-transparent px-1 pb-2 pt-1 text-sm font-medium data-[state=active]:bg-transparent data-[state=active]:shadow-none";
+
+interface ProjectSettingsSnapshot {
+  title: string;
+  description: string;
+  teamSlug: string;
+  selectedBhagSlug: string | null;
+  selectedAreaSlug: string;
+  stewardType: "user" | "team";
+  stewardEmail: string;
+  stewardTeamId: string;
+  feedEnabled: boolean;
+  blastRadius: "small" | "large" | "";
+  optionality: string[];
+  autoIngestEnabled: boolean;
+  autoIngestSchedule: ScheduleFormState;
+  autoIngestOwnerEmail: string;
+}
+
+function snapshotFromProject(project: ProjectDocument): ProjectSettingsSnapshot {
+  const kind = project.type ?? "project";
+  const initiatives = project.labels?.initiatives ?? [];
+  const areas = project.labels?.areas ?? [];
+  const teamSteward = typeof project.data_steward === "object"
+    && project.data_steward.type === "team";
+
+  return {
+    title: project.title,
+    description: project.description ?? "",
+    teamSlug: project.team_slug ?? "",
+    selectedBhagSlug: kind === "bhag" ? null : initiatives[0] ?? null,
+    selectedAreaSlug: kind === "project" ? areas[0] ?? "" : "",
+    stewardType: teamSteward ? "team" : "user",
+    stewardEmail: teamSteward ? "" : dataStewardUserEmail(project.data_steward),
+    stewardTeamId:
+      typeof project.data_steward === "object" && project.data_steward.type === "team"
+        ? project.data_steward.id
+        : "",
+    feedEnabled: project.sources_feed_enabled !== false,
+    blastRadius: (project.decision_blast_radius as "small" | "large" | "") ?? "",
+    optionality: project.optionality ?? [],
+    autoIngestEnabled: project.autoIngest?.enabled ?? false,
+    autoIngestSchedule: project.autoIngest?.cron
+      ? cronToSchedule(project.autoIngest.cron)
+      : DEFAULT_SCHEDULE,
+    autoIngestOwnerEmail: project.autoIngest?.credentialOwner?.email ?? "",
+  };
+}
 
 interface TomeRbacConfiguration {
   object: string;
@@ -108,6 +165,7 @@ export function ProjectSettingsPanel({
   onOpenIngest?: () => void;
 }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { kinds: sourceKinds, loading: sourceKindsLoading } = useProjectSourceKinds();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -121,7 +179,9 @@ export function ProjectSettingsPanel({
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [dangerOpen, setDangerOpen] = useState(false);
-  const [settingsTab, setSettingsTab] = useState("general");
+  const [settingsTab, setSettingsTab] = useState(
+    () => searchParams?.get("tab") || "general",
+  );
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -158,6 +218,24 @@ export function ProjectSettingsPanel({
   const [blastRadius, setBlastRadius] = useState<"small" | "large" | "">("");
   const [optionality, setOptionality] = useState<string[]>([]);
 
+  // Auto-ingest schedule (GH #437)
+  const [autoIngestEnabled, setAutoIngestEnabled] = useState(false);
+  const [autoIngestSchedule, setAutoIngestSchedule] = useState<ScheduleFormState>(DEFAULT_SCHEDULE);
+  const [autoIngestOwnerEmail, setAutoIngestOwnerEmail] = useState("");
+  const [autoIngestOwnerName, setAutoIngestOwnerName] = useState("");
+  const [autoIngestLastRun, setAutoIngestLastRun] = useState<AutoIngestConfig["lastRun"]>(undefined);
+  const [savedSnapshot, setSavedSnapshot] = useState<ProjectSettingsSnapshot | null>(null);
+  const [sourcesDirty, setSourcesDirty] = useState(false);
+  const [modelsDirty, setModelsDirty] = useState(false);
+  const nextAutoIngestRun = autoIngestEnabled
+    ? nextCronRun(scheduleToCron(autoIngestSchedule), new Date())
+    : null;
+  const nextRunLabel = nextAutoIngestRun
+    ? `Next run ${describeRelativeTime(nextAutoIngestRun, new Date())} (${String(
+        nextAutoIngestRun.getUTCHours(),
+      ).padStart(2, "0")}:${String(nextAutoIngestRun.getUTCMinutes()).padStart(2, "0")} UTC)`
+    : null;
+
   // Organization
   const [teams, setTeams] = useState<TeamPickerOption[]>([]);
   const [teamsLoading, setTeamsLoading] = useState(true);
@@ -168,8 +246,8 @@ export function ProjectSettingsPanel({
   // Area's parent is always a BHAG, and a Project cascades BHAG → Area.
   const [bhagOptions, setBhagOptions] = useState<{ name: string; slug: string }[]>([]);
   const [areaOptions, setAreaOptions] = useState<{ name: string; slug: string }[]>([]);
-  const [selectedBhagName, setSelectedBhagName] = useState<string | null>(null);
-  const [selectedAreaName, setSelectedAreaName] = useState<string>("");
+  const [selectedBhagSlug, setSelectedBhagSlug] = useState<string | null>(null);
+  const [selectedAreaSlug, setSelectedAreaSlug] = useState<string>("");
   // Read-only: entities tagged to *this* BHAG/Area (down-links).
   const [areasUnderBhag, setAreasUnderBhag] = useState<{ slug: string; name: string }[]>([]);
 
@@ -213,11 +291,11 @@ export function ProjectSettingsPanel({
         const initiatives = project.labels?.initiatives ?? [];
         const areas = project.labels?.areas ?? [];
         if (kind === "bhag") {
-          setSelectedBhagName(null);
-          setSelectedAreaName("");
+          setSelectedBhagSlug(null);
+          setSelectedAreaSlug("");
         } else {
-          setSelectedBhagName(initiatives[0] ?? null);
-          setSelectedAreaName(kind === "area" ? "" : areas[0] ?? "");
+          setSelectedBhagSlug(initiatives[0] ?? null);
+          setSelectedAreaSlug(kind === "area" ? "" : areas[0] ?? "");
         }
 
         setFeedEnabled(project.sources_feed_enabled !== false);
@@ -232,6 +310,16 @@ export function ProjectSettingsPanel({
         }
         setBlastRadius((project.decision_blast_radius as "small" | "large" | "") ?? "");
         setOptionality(project.optionality ?? []);
+        setAutoIngestEnabled(project.autoIngest?.enabled ?? false);
+        setAutoIngestSchedule(
+          project.autoIngest?.cron ? cronToSchedule(project.autoIngest.cron) : DEFAULT_SCHEDULE,
+        );
+        setAutoIngestOwnerEmail(project.autoIngest?.credentialOwner?.email ?? "");
+        setAutoIngestOwnerName(project.autoIngest?.credentialOwner?.name ?? "");
+        setAutoIngestLastRun(project.autoIngest?.lastRun);
+        setSavedSnapshot(snapshotFromProject(project));
+        setSourcesDirty(false);
+        setModelsDirty(false);
         setError(null);
       })
       .catch((e) => !cancelled && setError(e instanceof Error ? e.message : String(e)))
@@ -248,26 +336,32 @@ export function ProjectSettingsPanel({
   // not guaranteed to tag its own parent BHAG (a real, non-error state), and
   // an empty/mismatched lookup here must not clear a correct selection.
   useEffect(() => {
-    if (projectKind !== "project" || !selectedAreaName || selectedBhagName) return;
+    if (projectKind !== "project" || !selectedAreaSlug || selectedBhagSlug) return;
     let cancelled = false;
     fetch("/api/projects?type=area")
       .then((res) => (res.ok ? res.json() : null))
       .then((body) => {
         if (cancelled) return;
         const list = (body?.data?.projects ?? []) as ProjectDocument[];
-        const match = list.find((a) => normLabel(a.name ?? "") === normLabel(selectedAreaName));
+        const match = list.find((a) => a.slug === selectedAreaSlug);
         const fallback = match?.labels?.initiatives?.[0];
-        if (fallback) setSelectedBhagName(fallback);
+        if (fallback) {
+          setSelectedBhagSlug(fallback);
+          // This is hydration of the saved hierarchy, not a user edit.
+          setSavedSnapshot((current) => current
+            ? { ...current, selectedBhagSlug: fallback }
+            : current);
+        }
       })
       .catch(() => undefined);
     return () => {
       cancelled = true;
     };
     // Re-run once the saved Area hydrates (it starts empty) and again if the
-    // user picks a different Area; selectedBhagName is read but intentionally
+    // user picks a different Area; selectedBhagSlug is read but intentionally
     // excluded so setting it inside this effect doesn't cause a re-fetch loop.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectKind, selectedAreaName]);
+  }, [projectKind, selectedAreaSlug]);
 
   // Existing BHAGs, for the Parent BHAG picker (Area/Project). Areas tagged
   // to the currently-selected BHAG, for the Project's cascading Area picker.
@@ -275,66 +369,69 @@ export function ProjectSettingsPanel({
     fetch("/api/projects?type=bhag")
       .then((res) => (res.ok ? res.json() : null))
       .then((body) => {
-        const list = (body?.data?.projects ?? []) as { name: string; slug: string }[];
-        setBhagOptions(list.map((b) => ({ name: b.name, slug: b.slug })));
+        const list = (body?.data?.projects ?? []) as { title?: string; name?: string; slug: string }[];
+        setBhagOptions(list.map((b) => ({ name: b.title ?? b.name ?? b.slug, slug: b.slug })));
       })
       .catch(() => setBhagOptions([]));
   }, []);
 
   useEffect(() => {
-    if (!selectedBhagName || projectKind !== "project") {
+    if (!selectedBhagSlug || projectKind !== "project") {
       setAreaOptions([]);
       return;
     }
     let cancelled = false;
-    fetch(`/api/projects?type=area&initiative=${encodeURIComponent(selectedBhagName)}`)
+    fetch(`/api/projects?type=area&initiative=${encodeURIComponent(selectedBhagSlug)}`)
       .then((res) => (res.ok ? res.json() : null))
-      .then((body) => {
+      .then(async (body) => {
         if (cancelled) return;
-        const list = (body?.data?.projects ?? []) as { name: string; slug: string }[];
-        const options = list.map((a) => ({ name: a.name, slug: a.slug }));
+        const list = (body?.data?.projects ?? []) as { title?: string; name?: string; slug: string }[];
+        const options = list.map((a) => ({ name: a.title ?? a.name ?? a.slug, slug: a.slug }));
         // The project's own Area tag may not appear here — an Area is not
         // guaranteed to tag its parent BHAG back in its own labels (a real,
         // non-error state). Always include the current selection as an
-        // option so the <select> doesn't silently show as unselected.
-        if (
-          selectedAreaName &&
-          !options.some((o) => normLabel(o.name) === normLabel(selectedAreaName))
-        ) {
-          options.push({ name: selectedAreaName, slug: normLabel(selectedAreaName) });
+        // option, resolving its display title directly since the filtered
+        // list above may not contain it.
+        if (selectedAreaSlug && !options.some((o) => o.slug === selectedAreaSlug)) {
+          try {
+            const res = await fetch(`/api/projects/${encodeURIComponent(selectedAreaSlug)}`);
+            const areaBody = res.ok ? await res.json() : null;
+            const area = areaBody?.data?.project as { title?: string; name?: string } | undefined;
+            options.push({ name: area?.title ?? area?.name ?? selectedAreaSlug, slug: selectedAreaSlug });
+          } catch {
+            options.push({ name: selectedAreaSlug, slug: selectedAreaSlug });
+          }
         }
-        setAreaOptions(options);
+        if (!cancelled) setAreaOptions(options);
       })
       .catch(() => !cancelled && setAreaOptions([]));
     return () => {
       cancelled = true;
     };
-    // selectedAreaName intentionally excluded — this only widens the option
-    // list to include whatever the load effect already selected; it must not
-    // re-fetch on every keystroke as the user picks a different Area.
+    // selectedAreaSlug intentionally excluded — see comment above.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedBhagName, projectKind]);
+  }, [selectedBhagSlug, projectKind]);
 
   // Read-only: Areas tagged to this BHAG (down-link list), shown above the
   // existing `ChildProjectsPanel` (skip-level projects).
   useEffect(() => {
-    if (projectKind !== "bhag" || !projectName) {
+    if (projectKind !== "bhag") {
       setAreasUnderBhag([]);
       return;
     }
     let cancelled = false;
-    fetch(`/api/projects?type=area&initiative=${encodeURIComponent(projectName)}`)
+    fetch(`/api/projects?type=area&initiative=${encodeURIComponent(slug)}`)
       .then((res) => (res.ok ? res.json() : null))
       .then((body) => {
         if (cancelled) return;
-        const list = (body?.data?.projects ?? []) as { name: string; slug: string }[];
-        setAreasUnderBhag(list.map((a) => ({ slug: a.slug, name: a.name })));
+        const list = (body?.data?.projects ?? []) as { title?: string; name?: string; slug: string }[];
+        setAreasUnderBhag(list.map((a) => ({ slug: a.slug, name: a.title ?? a.name ?? a.slug })));
       })
       .catch(() => !cancelled && setAreasUnderBhag([]));
     return () => {
       cancelled = true;
     };
-  }, [projectKind, projectName]);
+  }, [projectKind, slug]);
 
   // Load assignable teams.
   useEffect(() => {
@@ -385,6 +482,111 @@ export function ProjectSettingsPanel({
     [teams, teamSlug],
   );
 
+  const currentSnapshot = useMemo<ProjectSettingsSnapshot>(() => ({
+    title,
+    description,
+    teamSlug,
+    selectedBhagSlug,
+    selectedAreaSlug,
+    stewardType,
+    stewardEmail,
+    stewardTeamId,
+    feedEnabled,
+    blastRadius,
+    optionality,
+    autoIngestEnabled,
+    autoIngestSchedule,
+    autoIngestOwnerEmail,
+  }), [
+    title,
+    description,
+    teamSlug,
+    selectedBhagSlug,
+    selectedAreaSlug,
+    stewardType,
+    stewardEmail,
+    stewardTeamId,
+    feedEnabled,
+    blastRadius,
+    optionality,
+    autoIngestEnabled,
+    autoIngestSchedule,
+    autoIngestOwnerEmail,
+  ]);
+  const formDirty = canEdit
+    && savedSnapshot !== null
+    && JSON.stringify(currentSnapshot) !== JSON.stringify(savedSnapshot);
+  const hasUnsavedChanges = formDirty || sourcesDirty || modelsDirty;
+  const {
+    setUnsaved,
+    pendingNavigationHref,
+    pendingDeferredAction,
+    requestNavigation,
+    cancelNavigation,
+    confirmNavigation,
+    confirmDeferredAction,
+  } = useUnsavedChangesStore();
+
+  useEffect(() => {
+    setUnsaved(hasUnsavedChanges);
+  }, [hasUnsavedChanges, setUnsaved]);
+
+  useEffect(() => () => setUnsaved(false), [setUnsaved]);
+
+  useEffect(() => {
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!hasUnsavedChanges) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [hasUnsavedChanges]);
+
+  // If an autosave completes while a navigation confirmation is open, finish
+  // the already-requested navigation without asking the user to discard data
+  // that is no longer dirty.
+  useEffect(() => {
+    if (hasUnsavedChanges) return;
+    if (pendingDeferredAction) {
+      confirmDeferredAction();
+      return;
+    }
+    if (pendingNavigationHref) {
+      const href = confirmNavigation();
+      if (href) router.push(href);
+    }
+  }, [
+    hasUnsavedChanges,
+    pendingDeferredAction,
+    pendingNavigationHref,
+    confirmDeferredAction,
+    confirmNavigation,
+    router,
+  ]);
+
+  const handleLinkClickCapture = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
+    if (!hasUnsavedChanges || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+      return;
+    }
+    const target = event.target instanceof Element ? event.target : null;
+    const anchor = target?.closest("a[href]") as HTMLAnchorElement | null;
+    if (!anchor || anchor.target === "_blank" || anchor.hasAttribute("download")) return;
+    const destination = new URL(anchor.href, window.location.href);
+    if (destination.origin !== window.location.origin) return;
+    const href = `${destination.pathname}${destination.search}${destination.hash}`;
+    const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    if (href === current) return;
+    event.preventDefault();
+    event.stopPropagation();
+    requestNavigation(href);
+  }, [hasUnsavedChanges, requestNavigation]);
+
+  const discardDeferredNavigation = useCallback(() => {
+    setUnsaved(false);
+    confirmDeferredAction();
+  }, [confirmDeferredAction, setUnsaved]);
+
   const save = useCallback(async () => {
     if (!canEdit) return;
 
@@ -414,6 +616,13 @@ export function ProjectSettingsPanel({
       if (!isSynthesized) {
         payload.sources_feed_enabled = feedEnabled;
       }
+      if (canEdit) {
+        payload.autoIngest = {
+          enabled: autoIngestEnabled,
+          cron: scheduleToCron(autoIngestSchedule),
+          credentialOwnerEmail: autoIngestOwnerEmail.trim() || null,
+        };
+      }
 
       // Hierarchy tagging, per type. A BHAG has no parent — send nothing.
       // A project tags both its BHAG and Area directly — never rely on the
@@ -422,11 +631,11 @@ export function ProjectSettingsPanel({
       // `initiatives` here would leave the project's BHAG link
       // undiscoverable whenever that's the case.
       if (projectKind === "area") {
-        payload.initiatives = selectedBhagName ? [selectedBhagName] : [];
+        payload.initiatives = selectedBhagSlug ? [selectedBhagSlug] : [];
         payload.areas = [];
       } else if (projectKind === "project") {
-        payload.initiatives = selectedBhagName ? [selectedBhagName] : [];
-        payload.areas = selectedBhagName && selectedAreaName ? [selectedAreaName] : [];
+        payload.initiatives = selectedBhagSlug ? [selectedBhagSlug] : [];
+        payload.areas = selectedBhagSlug && selectedAreaSlug ? [selectedAreaSlug] : [];
       }
 
       // Only send team_id when the team actually changed — avoids the
@@ -449,10 +658,10 @@ export function ProjectSettingsPanel({
       const initiatives = project.labels?.initiatives ?? [];
       const areas = project.labels?.areas ?? [];
       if (projectKind === "area") {
-        setSelectedBhagName(initiatives[0] ?? null);
+        setSelectedBhagSlug(initiatives[0] ?? null);
       } else if (projectKind === "project") {
-        setSelectedBhagName(initiatives[0] ?? null);
-        setSelectedAreaName(areas[0] ?? "");
+        setSelectedBhagSlug(initiatives[0] ?? null);
+        setSelectedAreaSlug(areas[0] ?? "");
       }
       if (typeof project.data_steward === "object" && project.data_steward.type === "team") {
         setStewardType("team");
@@ -466,6 +675,14 @@ export function ProjectSettingsPanel({
       setFeedEnabled(project.sources_feed_enabled !== false);
       setBlastRadius((project.decision_blast_radius as "small" | "large" | "") ?? "");
       setOptionality(project.optionality ?? []);
+      setAutoIngestEnabled(project.autoIngest?.enabled ?? false);
+      setAutoIngestSchedule(
+        project.autoIngest?.cron ? cronToSchedule(project.autoIngest.cron) : DEFAULT_SCHEDULE,
+      );
+      setAutoIngestOwnerEmail(project.autoIngest?.credentialOwner?.email ?? "");
+      setAutoIngestOwnerName(project.autoIngest?.credentialOwner?.name ?? "");
+      setAutoIngestLastRun(project.autoIngest?.lastRun);
+      setSavedSnapshot(snapshotFromProject(project));
       setSavedAt(true);
       onSaved?.(project);
       void loadFeedStatus();
@@ -480,8 +697,8 @@ export function ProjectSettingsPanel({
     description,
     projectKind,
     isSynthesized,
-    selectedBhagName,
-    selectedAreaName,
+    selectedBhagSlug,
+    selectedAreaSlug,
     sources,
     stewardEmail,
     stewardType,
@@ -491,6 +708,9 @@ export function ProjectSettingsPanel({
     feedEnabled,
     blastRadius,
     optionality,
+    autoIngestEnabled,
+    autoIngestSchedule,
+    autoIngestOwnerEmail,
     teamChanged,
     selectedTeamId,
     onSaved,
@@ -517,7 +737,7 @@ export function ProjectSettingsPanel({
   }
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col" onClickCapture={handleLinkClickCapture}>
       <ScrollArea className="flex-1">
         <div className="mx-auto max-w-4xl space-y-6 p-6">
           <PanelHeader
@@ -550,10 +770,7 @@ export function ProjectSettingsPanel({
                     General
                   </TabsTrigger>
                   <TabsTrigger value="organization" className={TAB_TRIGGER_CLASS}>
-                    Organization
-                  </TabsTrigger>
-                  <TabsTrigger value="slt" className={TAB_TRIGGER_CLASS}>
-                    SLT Configuration
+                    Access Config
                   </TabsTrigger>
                   {isSynthesized && (
                     <TabsTrigger value="projects" className={TAB_TRIGGER_CLASS}>
@@ -563,9 +780,20 @@ export function ProjectSettingsPanel({
                   <TabsTrigger value="sources" className={TAB_TRIGGER_CLASS}>
                     Sources
                   </TabsTrigger>
+                  <TabsTrigger value="models" className={TAB_TRIGGER_CLASS}>
+                    Models
+                  </TabsTrigger>
+                  {!isSynthesized && (
+                    <TabsTrigger value="auto-ingest" className={TAB_TRIGGER_CLASS}>
+                      Auto-ingest
+                    </TabsTrigger>
+                  )}
+                  <TabsTrigger value="slt" className={TAB_TRIGGER_CLASS}>
+                    Metadata
+                  </TabsTrigger>
                   {!isSynthesized && (
                     <TabsTrigger value="feed" className={TAB_TRIGGER_CLASS}>
-                      Source activity feed
+                      Activity Feed
                     </TabsTrigger>
                   )}
                 </TabsList>
@@ -746,15 +974,15 @@ export function ProjectSettingsPanel({
                   {projectKind === "area" && (
                     <Field label="Parent BHAG">
                       <select
-                        value={selectedBhagName ?? ""}
-                        onChange={(e) => setSelectedBhagName(e.target.value || null)}
+                        value={selectedBhagSlug ?? ""}
+                        onChange={(e) => setSelectedBhagSlug(e.target.value || null)}
                         className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
                       >
                         <option value="" disabled>
                           Select the BHAG this area belongs to…
                         </option>
                         {bhagOptions.map((b) => (
-                          <option key={b.slug} value={b.name}>
+                          <option key={b.slug} value={b.slug}>
                             {b.name}
                           </option>
                         ))}
@@ -765,34 +993,34 @@ export function ProjectSettingsPanel({
                     <>
                       <Field label="Parent BHAG" hint="Optional. Ladders this project up to a strategic goal.">
                         <select
-                          value={selectedBhagName ?? ""}
+                          value={selectedBhagSlug ?? ""}
                           onChange={(e) => {
-                            setSelectedBhagName(e.target.value || null);
-                            setSelectedAreaName("");
+                            setSelectedBhagSlug(e.target.value || null);
+                            setSelectedAreaSlug("");
                           }}
                           className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
                         >
                           <option value="">None</option>
                           {bhagOptions.map((b) => (
-                            <option key={b.slug} value={b.name}>
+                            <option key={b.slug} value={b.slug}>
                               {b.name}
                             </option>
                           ))}
                         </select>
                       </Field>
-                      {selectedBhagName && (
+                      {selectedBhagSlug && (
                         <Field
                           label="Parent Area"
-                          hint={`Optional. Groups this project under a mid-tier area of ${selectedBhagName}.`}
+                          hint={`Optional. Groups this project under a mid-tier area of ${bhagOptions.find((b) => b.slug === selectedBhagSlug)?.name ?? selectedBhagSlug}.`}
                         >
                           <select
-                            value={selectedAreaName}
-                            onChange={(e) => setSelectedAreaName(e.target.value)}
+                            value={selectedAreaSlug}
+                            onChange={(e) => setSelectedAreaSlug(e.target.value)}
                             className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
                           >
                             <option value="">No area — tag this BHAG directly</option>
                             {areaOptions.map((a) => (
-                              <option key={a.slug} value={a.name}>
+                              <option key={a.slug} value={a.slug}>
                                 {a.name}
                               </option>
                             ))}
@@ -906,7 +1134,8 @@ export function ProjectSettingsPanel({
                       </div>
                     )}
                     <ChildProjectsPanel
-                      bhagName={projectName}
+                      bhagSlug={slug}
+                      bhagLabel={projectName}
                       entityKind={projectKind === "area" ? "area" : "bhag"}
                       editable
                     />
@@ -914,7 +1143,7 @@ export function ProjectSettingsPanel({
                 </TabsContent>
               )}
 
-              <TabsContent value="sources" className="space-y-6 pt-6">
+              <TabsContent value="sources" forceMount className="space-y-6 pt-6 data-[state=inactive]:hidden">
                 <div className="space-y-6">
                   <div className="flex items-center justify-end">
                     <Link
@@ -947,6 +1176,7 @@ export function ProjectSettingsPanel({
                         value={sources}
                         onChange={setSources}
                         onSaved={onSaved}
+                        onDirtyChange={setSourcesDirty}
                       />
                       {onOpenIngest && (
                         <div className="flex flex-col gap-3 rounded-lg border border-primary/25 bg-primary/5 p-4 sm:flex-row sm:items-center sm:justify-between">
@@ -974,6 +1204,15 @@ export function ProjectSettingsPanel({
                     </>
                   )}
                 </div>
+              </TabsContent>
+
+              <TabsContent value="models" forceMount className="space-y-6 pt-6 data-[state=inactive]:hidden">
+                <EntityModelSettings
+                  slug={slug}
+                  entityType={projectKind}
+                  canEdit={canEdit}
+                  onDirtyChange={setModelsDirty}
+                />
               </TabsContent>
 
               {/* Source activity feed: a consumer of the data steward's connection
@@ -1006,6 +1245,182 @@ export function ProjectSettingsPanel({
                   </div>
                 </TabsContent>
               )}
+
+              {!isSynthesized && (
+                <TabsContent value="auto-ingest" className="space-y-6 pt-6">
+                  <div className="space-y-6">
+                    <Field label="Auto-ingest">
+                      <fieldset disabled={!canEdit} className="space-y-4 disabled:opacity-60">
+                        <p className="text-xs text-muted-foreground">
+                          Run ingest automatically on a schedule, on top of manual runs.
+                          {onOpenIngest && (
+                            <>
+                              {" "}
+                              Want to ingest now?{" "}
+                              <button
+                                type="button"
+                                onClick={onOpenIngest}
+                                className="font-medium text-primary underline-offset-2 hover:underline"
+                              >
+                                Click here
+                              </button>
+                              .
+                            </>
+                          )}
+                        </p>
+                        <label className="flex items-center gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={autoIngestEnabled}
+                            onChange={(e) => setAutoIngestEnabled(e.target.checked)}
+                            disabled={!canEdit}
+                          />
+                          Enable scheduled auto-ingest
+                        </label>
+
+                        {autoIngestEnabled && (
+                          <>
+                            <div className="grid grid-cols-3 gap-2">
+                              {(["daily", "weekly", "advanced"] as const).map((preset) => (
+                                <button
+                                  key={preset}
+                                  type="button"
+                                  disabled={!canEdit}
+                                  onClick={() =>
+                                    setAutoIngestSchedule((prev) => ({ ...prev, preset }))
+                                  }
+                                  className={`rounded-lg border px-3 py-2 text-sm font-medium capitalize ${
+                                    autoIngestSchedule.preset === preset
+                                      ? "border-primary bg-primary/10 text-primary"
+                                      : "border-border/60"
+                                  }`}
+                                >
+                                  {preset}
+                                </button>
+                              ))}
+                            </div>
+
+                            {autoIngestSchedule.preset !== "advanced" ? (
+                              <div className="flex flex-wrap items-center gap-2">
+                                {autoIngestSchedule.preset === "weekly" && (
+                                  <select
+                                    value={autoIngestSchedule.weekday}
+                                    disabled={!canEdit}
+                                    onChange={(e) =>
+                                      setAutoIngestSchedule((prev) => ({
+                                        ...prev,
+                                        weekday: Number(e.target.value),
+                                      }))
+                                    }
+                                    className="rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                                  >
+                                    {["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].map(
+                                      (name, idx) => (
+                                        <option key={name} value={idx}>
+                                          {name}
+                                        </option>
+                                      ),
+                                    )}
+                                  </select>
+                                )}
+                                <input
+                                  type="time"
+                                  disabled={!canEdit}
+                                  value={`${String(autoIngestSchedule.hour).padStart(2, "0")}:${String(
+                                    autoIngestSchedule.minute,
+                                  ).padStart(2, "0")}`}
+                                  onChange={(e) => {
+                                    const [h, m] = e.target.value.split(":").map(Number);
+                                    setAutoIngestSchedule((prev) => ({
+                                      ...prev,
+                                      hour: h ?? prev.hour,
+                                      minute: m ?? prev.minute,
+                                    }));
+                                  }}
+                                  className="rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                                />
+                                <div className="flex flex-col text-xs text-muted-foreground">
+                                  <span>your local time</span>
+                                  {nextRunLabel && <span>{nextRunLabel}</span>}
+                                </div>
+                              </div>
+                            ) : (
+                              <>
+                                <input
+                                  type="text"
+                                  placeholder="minute hour day-of-month month day-of-week (UTC)"
+                                  value={autoIngestSchedule.advancedCron}
+                                  disabled={!canEdit}
+                                  onChange={(e) =>
+                                    setAutoIngestSchedule((prev) => ({
+                                      ...prev,
+                                      advancedCron: e.target.value,
+                                    }))
+                                  }
+                                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/40"
+                                />
+                                {nextRunLabel && (
+                                  <p className="text-xs text-muted-foreground">{nextRunLabel}</p>
+                                )}
+                              </>
+                            )}
+
+                            <div>
+                              <p className="mb-1 text-sm font-medium">Runs as</p>
+                              <p className="mb-2 text-xs text-muted-foreground">
+                                Scheduled runs authenticate as this person, using their connected
+                                GitHub, Atlassian, and Webex accounts.
+                              </p>
+                              <div className="flex items-center gap-2">
+                                <div className="min-w-0 flex-1">
+                                  <UserEmailPicker
+                                    value={autoIngestOwnerEmail}
+                                    onChange={setAutoIngestOwnerEmail}
+                                    currentUserEmail={currentUserEmail}
+                                    disabled={!canEdit}
+                                  />
+                                </div>
+                                {canEdit && currentUserEmail && autoIngestOwnerEmail !== currentUserEmail && (
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="shrink-0"
+                                    onClick={() => setAutoIngestOwnerEmail(currentUserEmail)}
+                                  >
+                                    Use my credentials
+                                  </Button>
+                                )}
+                              </div>
+                              {!autoIngestOwnerEmail && (
+                                <p className="mt-1.5 flex items-center gap-1 text-xs text-amber-500">
+                                  <TriangleAlert className="h-3.5 w-3.5" /> Pick who this runs as.
+                                  The schedule won&apos;t fire until then.
+                                </p>
+                              )}
+                              {autoIngestOwnerEmail && autoIngestLastRun?.status === "failed" && (
+                                <p className="mt-1.5 flex items-start gap-1 text-xs text-destructive">
+                                  <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                                  Last scheduled run failed
+                                  {autoIngestLastRun.reason ? `: ${autoIngestLastRun.reason}` : ""}.
+                                  Reconfirm {autoIngestOwnerName || autoIngestOwnerEmail}&apos;s
+                                  credentials or pick someone else, then save.
+                                </p>
+                              )}
+                              {autoIngestLastRun?.status === "success" && (
+                                <p className="mt-1.5 flex items-center gap-1 text-xs text-emerald-500">
+                                  <Check className="h-3.5 w-3.5" /> Last scheduled run succeeded at{" "}
+                                  {new Date(autoIngestLastRun.at).toLocaleString()}.
+                                </p>
+                              )}
+                            </div>
+                          </>
+                        )}
+                      </fieldset>
+                    </Field>
+                  </div>
+                </TabsContent>
+              )}
             </Tabs>
           </fieldset>
         </div>
@@ -1027,6 +1442,16 @@ export function ProjectSettingsPanel({
           </Button>
         </ViewOnlyTooltip>
       </div>
+
+      <UnsavedChangesDialog
+        open={Boolean(pendingDeferredAction) && hasUnsavedChanges}
+        onDiscard={discardDeferredNavigation}
+        onCancel={cancelNavigation}
+        title="Discard unsaved settings?"
+        description="Your unsaved project settings will be lost if you leave now."
+        discardLabel="Discard and leave"
+        cancelLabel="Stay"
+      />
     </div>
   );
 }

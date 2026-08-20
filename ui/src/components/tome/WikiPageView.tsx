@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, Code, Loader2, X } from "lucide-react";
+import { ArrowLeftRight, ChevronDown, Code, Eye, Loader2, Pencil, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -102,6 +102,8 @@ export function WikiPageView({
 }: Props) {
   const [isEditing, setIsEditing] = useState(false);
   const [rawMode, setRawMode] = useState(false);
+  const [previewMode, setPreviewMode] = useState(false);
+  const [wideReading, setWideReading] = useState(false);
   const [rawDraft, setRawDraft] = useState("");
   const [saving, setSaving] = useState(false);
   const [editorEpoch, setEditorEpoch] = useState(0);
@@ -160,6 +162,7 @@ export function WikiPageView({
   useEffect(() => {
     setIsEditing(false);
     setRawMode(false);
+    setPreviewMode(false);
     setError(null);
     setRenaming(false);
   }, [path]);
@@ -220,6 +223,7 @@ export function WikiPageView({
     if (locked && isEditing) {
       setIsEditing(false);
       setRawMode(false);
+      setPreviewMode(false);
       setEditorEpoch((n) => n + 1);
     }
   }, [locked, isEditing]);
@@ -250,6 +254,7 @@ export function WikiPageView({
       await onWrite(path, md, `edit ${path}`);
       setIsEditing(false);
       setRawMode(false);
+      setPreviewMode(false);
       setEditorEpoch((n) => n + 1);
     } catch (e) {
       setError(String((e as Error)?.message ?? e));
@@ -261,6 +266,7 @@ export function WikiPageView({
   const handleCancel = useCallback(() => {
     setIsEditing(false);
     setRawMode(false);
+    setPreviewMode(false);
     setEditorEpoch((n) => n + 1);
   }, []);
 
@@ -276,6 +282,15 @@ export function WikiPageView({
     }
     setRawMode((v) => !v);
   }, [rawMode, rawDraft, richInitialBody]);
+
+  const handleTogglePreview = useCallback(() => {
+    if (!previewMode && rawMode) {
+      // Render the raw draft through Crepe without losing the textarea state.
+      setRichInitialBody(rawDraft);
+      setEditorEpoch((n) => n + 1);
+    }
+    setPreviewMode((current) => !current);
+  }, [previewMode, rawMode, rawDraft]);
 
   const handleChangeKind = useCallback(
     async (newKind: PageKind) => {
@@ -394,11 +409,31 @@ export function WikiPageView({
             <KindToggle currentKind={kind} onChange={handleChangeKind} />
           )}
           {!isEditing && (
-            <WikiExportMenu
-              slug={slug}
-              path={path}
-              triggerClassName="border border-border p-1.5"
-            />
+            <>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => setWideReading((v) => !v)}
+                    aria-pressed={wideReading}
+                    className={cn(
+                      "rounded-md border border-border p-1.5 transition-colors hover:bg-muted hover:text-foreground",
+                      wideReading ? "bg-muted text-foreground" : "text-muted-foreground",
+                    )}
+                  >
+                    <ArrowLeftRight className="h-3.5 w-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="text-xs">
+                  {wideReading ? "Narrow reading width" : "Wide reading width"}
+                </TooltipContent>
+              </Tooltip>
+              <WikiExportMenu
+                slug={slug}
+                path={path}
+                triggerClassName="border border-border p-1.5"
+              />
+            </>
           )}
           {isEditing ? (
             <div className="flex items-center divide-x divide-border rounded-md border border-border">
@@ -407,7 +442,7 @@ export function WikiPageView({
                   <button
                     type="button"
                     onClick={handleToggleRawMode}
-                    disabled={saving}
+                    disabled={saving || previewMode}
                     aria-pressed={rawMode}
                     className={cn(
                       "flex items-center gap-1 px-2.5 py-1 text-xs font-medium transition-colors first:rounded-l-md last:rounded-r-md",
@@ -424,6 +459,21 @@ export function WikiPageView({
                   {rawMode ? "Switch to rich editor" : "Edit raw markdown"}
                 </TooltipContent>
               </Tooltip>
+              <button
+                type="button"
+                onClick={handleTogglePreview}
+                disabled={saving}
+                aria-pressed={previewMode}
+                className={cn(
+                  "flex items-center gap-1 px-2.5 py-1 text-xs font-medium transition-colors",
+                  previewMode
+                    ? "bg-muted text-foreground"
+                    : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                )}
+              >
+                {previewMode ? <Pencil className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                {previewMode ? "Edit" : "Preview"}
+              </button>
               <button
                 type="button"
                 onClick={handleCancel}
@@ -489,7 +539,7 @@ export function WikiPageView({
         <>
           <GlossaryFields
             value={isEditing ? fmDraft : frontmatter}
-            editing={isEditing}
+            editing={isEditing && !previewMode}
             onChange={setFmDraft}
           />
           <div className="px-5 pt-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -502,7 +552,7 @@ export function WikiPageView({
         <>
           <EdgeFields
             value={isEditing ? fmDraft : frontmatter}
-            editing={isEditing}
+            editing={isEditing && !previewMode}
             onChange={setFmDraft}
           />
           <div className="px-5 pt-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -515,7 +565,7 @@ export function WikiPageView({
         <>
           <TrackedEntityFields
             value={isEditing ? fmDraft : frontmatter}
-            editing={isEditing}
+            editing={isEditing && !previewMode}
             onChange={setFmDraft}
           />
           <div className="px-5 pt-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -531,27 +581,29 @@ export function WikiPageView({
             "ring-2 ring-inset ring-amber-400/70 dark:ring-amber-700/60",
         )}
       >
-        {isEditing && rawMode ? (
-          <div className="milkdown-host h-full">
-            <textarea
-              className="raw-markdown-editor"
-              value={rawDraft}
-              onChange={(e) => setRawDraft(e.target.value)}
-              spellCheck={false}
-              aria-label="Raw markdown editor"
+        <div className={cn(!isEditing && wideReading && "wide-reading")}>
+          {isEditing && rawMode && !previewMode ? (
+            <div className="milkdown-host h-full">
+              <textarea
+                className="raw-markdown-editor"
+                value={rawDraft}
+                onChange={(e) => setRawDraft(e.target.value)}
+                spellCheck={false}
+                aria-label="Raw markdown editor"
+              />
+            </div>
+          ) : (
+            <CrepeEditor
+              key={`${slug}-${path}-${editorEpoch}`}
+              ref={editorRef}
+              initialMarkdown={isEditing ? richInitialBody : body}
+              readonly={!isEditing || previewMode}
+              onNavigate={onNavigate}
+              glossaryPreview={glossaryPreview}
+              hideHtmlComments
             />
-          </div>
-        ) : (
-          <CrepeEditor
-            key={`${slug}-${path}-${editorEpoch}`}
-            ref={editorRef}
-            initialMarkdown={isEditing ? richInitialBody : body}
-            readonly={!isEditing}
-            onNavigate={onNavigate}
-            glossaryPreview={glossaryPreview}
-            hideHtmlComments
-          />
-        )}
+          )}
+        </div>
       </ScrollArea>
     </div>
   );

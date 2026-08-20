@@ -9,6 +9,7 @@ import {
   Boxes,
   Check,
   CheckCircle2,
+  Clock,
   FolderKanban,
   Layers,
   ListChecks,
@@ -31,8 +32,18 @@ import { UserEmailPicker } from "@/components/ui/user-email-picker";
 import { ProviderLogo } from "@/components/credentials/provider-logo";
 import { SourcePicker } from "@/components/projects/source-pickers";
 import { getConfig } from "@/lib/config";
+import {
+  toHierarchyOptions,
+  type HierarchyOption,
+  type HierarchyProject,
+} from "@/lib/projects/hierarchy-options";
 import { cn } from "@/lib/utils";
 import { toWebexRoomSource } from "@/lib/projects/webex-room";
+import {
+  DEFAULT_SCHEDULE,
+  describeSchedule,
+  scheduleToCron,
+} from "@/lib/tome/auto-ingest/schedule-presets";
 import type {
   ConfluencePageScope,
   ProjectDocument,
@@ -88,9 +99,9 @@ interface WizardStepMeta {
   gradient: string;
   checklist?: string[];
   /** type = pick project/area/bhag; create = general info; slt = SLT governance
-   * fields; access = team/steward; integrations = apps/sources; review =
-   * confirm + commit. */
-  kind: "type" | "create" | "slt" | "access" | "integrations" | "review";
+   * fields; access = team/steward; integrations = apps/sources; auto-ingest =
+   * scheduled ingest opt-in; review = confirm + commit. */
+  kind: "type" | "create" | "slt" | "access" | "integrations" | "auto-ingest" | "review";
   source?: SourceKind;
 }
 
@@ -175,6 +186,17 @@ function buildWizardSteps(
         kind: "integrations",
       }
     : null;
+  const autoIngest: WizardStepMeta | null =
+    entityType === "project"
+      ? {
+          id: "auto-ingest",
+          title: "Auto-ingest",
+          subtitle: "Optional. Run ingest on a schedule.",
+          icon: Clock,
+          gradient: DEFAULT_GRADIENT,
+          kind: "auto-ingest",
+        }
+      : null;
   const review: WizardStepMeta = {
     id: "review",
     title: "Review & Create",
@@ -185,7 +207,7 @@ function buildWizardSteps(
   };
   const steps: (WizardStepMeta | null)[] = [type, create];
   if (entityType === "project") steps.push(slt);
-  steps.push(access, integrations, review);
+  steps.push(access, integrations, autoIngest, review);
   return steps.filter((s): s is WizardStepMeta => Boolean(s));
 }
 
@@ -205,16 +227,18 @@ export function ProjectOnboardingWizard({
   // Which integrations the user has enabled (id → on), seeded from the config's
   // `default_enabled`. Drives the Integrations step + which apps provision.
   const [enabled, setEnabled] = useState<Record<string, boolean>>({});
+  const [autoIngestOnboardEnabled, setAutoIngestOnboardEnabled] = useState(false);
+  const [autoIngestSchedule, setAutoIngestSchedule] = useState(DEFAULT_SCHEDULE);
   const [phaseIndex, setPhaseIndex] = useState(0);
   const [entityType, setEntityType] = useState<EntityType>("project");
   // Hierarchy tagging (replaces free-text initiatives/areas): the parent BHAG
   // this project/area is being tagged to, and — for a project with a BHAG
   // selected — either a parent Area under it, or "" for "no area" (skip-level,
   // tag the BHAG directly).
-  const [bhagOptions, setBhagOptions] = useState<{ name: string; slug: string }[]>([]);
-  const [areaOptions, setAreaOptions] = useState<{ name: string; slug: string }[]>([]);
-  const [selectedBhagName, setSelectedBhagName] = useState<string | null>(null);
-  const [selectedAreaName, setSelectedAreaName] = useState<string>("");
+  const [bhagOptions, setBhagOptions] = useState<HierarchyOption[]>([]);
+  const [areaOptions, setAreaOptions] = useState<HierarchyOption[]>([]);
+  const [selectedBhagSlug, setSelectedBhagSlug] = useState<string | null>(null);
+  const [selectedAreaSlug, setSelectedAreaSlug] = useState<string>("");
   const [projectName, setProjectName] = useState("");
   const [description, setDescription] = useState("");
   const [teamId, setTeamId] = useState("");
@@ -244,6 +268,14 @@ export function ProjectOnboardingWizard({
     const slug = getConfig("defaultTeamSlug");
     return slug ? teams.find((t) => t.slug === slug) ?? null : null;
   }, [teams]);
+  const selectedBhagLabel = selectedBhagSlug
+    ? bhagOptions.find((option) => option.slug === selectedBhagSlug)?.name ??
+      selectedBhagSlug
+    : null;
+  const selectedAreaLabel = selectedAreaSlug
+    ? areaOptions.find((option) => option.slug === selectedAreaSlug)?.name ??
+      selectedAreaSlug
+    : null;
 
   const wizardSteps = useMemo(
     () => buildWizardSteps(configSteps, entityType),
@@ -262,6 +294,7 @@ export function ProjectOnboardingWizard({
   const isSltPhase = phase.kind === "slt";
   const isAccessPhase = phase.kind === "access";
   const isIntegrationsPhase = phase.kind === "integrations";
+  const isAutoIngestPhase = phase.kind === "auto-ingest";
   const isReviewPhase = phase.kind === "review";
 
   useEffect(() => {
@@ -286,8 +319,8 @@ export function ProjectOnboardingWizard({
     fetch("/api/projects?type=bhag")
       .then((res) => (res.ok ? res.json() : null))
       .then((body) => {
-        const list = (body?.data?.projects ?? []) as { name: string; slug: string }[];
-        setBhagOptions(list.map((b) => ({ name: b.name, slug: b.slug })));
+        const list = (body?.data?.projects ?? []) as HierarchyProject[];
+        setBhagOptions(toHierarchyOptions(list));
       })
       .catch(() => setBhagOptions([]));
 
@@ -323,29 +356,29 @@ export function ProjectOnboardingWizard({
   // Areas tagged to the selected parent BHAG (project's cascading picker, or
   // just to keep the selection meaningful) — cleared when no BHAG is selected.
   useEffect(() => {
-    if (!selectedBhagName) {
+    if (!selectedBhagSlug) {
       setAreaOptions([]);
       return;
     }
     let cancelled = false;
-    fetch(`/api/projects?type=area&initiative=${encodeURIComponent(selectedBhagName)}`)
+    fetch(`/api/projects?type=area&initiative=${encodeURIComponent(selectedBhagSlug)}`)
       .then((res) => (res.ok ? res.json() : null))
       .then((body) => {
         if (cancelled) return;
-        const list = (body?.data?.projects ?? []) as { name: string; slug: string }[];
-        setAreaOptions(list.map((a) => ({ name: a.name, slug: a.slug })));
+        const list = (body?.data?.projects ?? []) as HierarchyProject[];
+        setAreaOptions(toHierarchyOptions(list));
       })
       .catch(() => !cancelled && setAreaOptions([]));
     return () => {
       cancelled = true;
     };
-  }, [selectedBhagName]);
+  }, [selectedBhagSlug]);
 
   const reset = useCallback(() => {
     setPhaseIndex(0);
     setEntityType("project");
-    setSelectedBhagName(null);
-    setSelectedAreaName("");
+    setSelectedBhagSlug(null);
+    setSelectedAreaSlug("");
     setProjectName("");
     setDescription("");
     setTeamId("");
@@ -421,7 +454,7 @@ export function ProjectOnboardingWizard({
       payload = {
         ...common,
         type: "area",
-        initiatives: selectedBhagName ? [selectedBhagName] : [],
+        initiatives: selectedBhagSlug ? [selectedBhagSlug] : [],
       };
     } else {
       payload = {
@@ -434,11 +467,11 @@ export function ProjectOnboardingWizard({
       // tag its parent BHAG in its own labels (a real, non-error state), so
       // dropping `initiatives` here would leave the project's BHAG link
       // undiscoverable whenever that's the case.
-      if (selectedBhagName && selectedAreaName) {
-        payload.initiatives = [selectedBhagName];
-        payload.areas = [selectedAreaName];
-      } else if (selectedBhagName && !selectedAreaName) {
-        payload.initiatives = [selectedBhagName];
+      if (selectedBhagSlug && selectedAreaSlug) {
+        payload.initiatives = [selectedBhagSlug];
+        payload.areas = [selectedAreaSlug];
+      } else if (selectedBhagSlug && !selectedAreaSlug) {
+        payload.initiatives = [selectedBhagSlug];
       }
     }
 
@@ -472,6 +505,24 @@ export function ProjectOnboardingWizard({
         }
       }
 
+      if (autoIngestOnboardEnabled && currentUserEmail) {
+        try {
+          await fetch(`/api/projects/${created.slug}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              autoIngest: {
+                enabled: true,
+                cron: scheduleToCron(autoIngestSchedule),
+                credentialOwnerEmail: currentUserEmail,
+              },
+            }),
+          });
+        } catch {
+          /* best-effort — configurable later in Settings */
+        }
+      }
+
       onComplete?.(created);
       // Land the user on the new project (keep the "Creating…" state until nav).
       window.location.href = `/projects/${created.slug}`;
@@ -493,7 +544,8 @@ export function ProjectOnboardingWizard({
       phase.kind === "create" ||
       phase.kind === "slt" ||
       phase.kind === "access" ||
-      phase.kind === "integrations"
+      phase.kind === "integrations" ||
+      phase.kind === "auto-ingest"
     ) {
       advanceFromCurrentStep();
       return;
@@ -504,7 +556,8 @@ export function ProjectOnboardingWizard({
   }
 
   const isPreCreate =
-    isTypePhase || isCreatePhase || isSltPhase || isAccessPhase || isIntegrationsPhase;
+    isTypePhase || isCreatePhase || isSltPhase || isAccessPhase || isIntegrationsPhase ||
+    isAutoIngestPhase;
 
   const primaryLabel = isPreCreate
     ? "Continue"
@@ -523,10 +576,10 @@ export function ProjectOnboardingWizard({
   const primaryDisabled =
     provisioning ||
     (isCreatePhase && !projectName.trim()) ||
-    (isCreatePhase && entityType === "area" && !selectedBhagName) ||
+    (isCreatePhase && entityType === "area" && !selectedBhagSlug) ||
     ((isAccessPhase || isReviewPhase) && (!projectName.trim() || !teamId)) ||
     ((isAccessPhase || isReviewPhase) && stewardType === "team" && !stewardTeamId) ||
-    (isReviewPhase && entityType === "area" && !selectedBhagName);
+    (isReviewPhase && entityType === "area" && !selectedBhagSlug);
 
   const stepSummary =
     entityConfigSteps.length > 0
@@ -698,15 +751,15 @@ export function ProjectOnboardingWizard({
                           Parent BHAG <span className="text-red-500">*</span>
                         </span>
                         <select
-                          value={selectedBhagName ?? ""}
-                          onChange={(e) => setSelectedBhagName(e.target.value || null)}
+                          value={selectedBhagSlug ?? ""}
+                          onChange={(e) => setSelectedBhagSlug(e.target.value || null)}
                           className="w-full rounded-xl border border-border/60 bg-muted/30 px-4 py-2.5 text-sm outline-none ring-primary/30 focus:border-primary focus:ring-2"
                         >
                           <option value="" disabled>
                             Select the BHAG this area belongs to…
                           </option>
                           {bhagOptions.map((b) => (
-                            <option key={b.slug} value={b.name}>
+                            <option key={b.slug} value={b.slug}>
                               {b.name}
                             </option>
                           ))}
@@ -720,16 +773,16 @@ export function ProjectOnboardingWizard({
                         <label className="block space-y-1.5">
                           <span className="text-sm font-medium">Parent BHAG</span>
                           <select
-                            value={selectedBhagName ?? ""}
+                            value={selectedBhagSlug ?? ""}
                             onChange={(e) => {
-                              setSelectedBhagName(e.target.value || null);
-                              setSelectedAreaName("");
+                              setSelectedBhagSlug(e.target.value || null);
+                              setSelectedAreaSlug("");
                             }}
                             className="w-full rounded-xl border border-border/60 bg-muted/30 px-4 py-2.5 text-sm outline-none ring-primary/30 focus:border-primary focus:ring-2"
                           >
                             <option value="">None</option>
                             {bhagOptions.map((b) => (
-                              <option key={b.slug} value={b.name}>
+                              <option key={b.slug} value={b.slug}>
                                 {b.name}
                               </option>
                             ))}
@@ -738,23 +791,24 @@ export function ProjectOnboardingWizard({
                             Optional. Ladders this project up to a strategic goal.
                           </span>
                         </label>
-                        {selectedBhagName ? (
+                        {selectedBhagSlug ? (
                           <label className="block space-y-1.5">
                             <span className="text-sm font-medium">Parent Area</span>
                             <select
-                              value={selectedAreaName}
-                              onChange={(e) => setSelectedAreaName(e.target.value)}
+                              value={selectedAreaSlug}
+                              onChange={(e) => setSelectedAreaSlug(e.target.value)}
                               className="w-full rounded-xl border border-border/60 bg-muted/30 px-4 py-2.5 text-sm outline-none ring-primary/30 focus:border-primary focus:ring-2"
                             >
                               <option value="">No area — tag this BHAG directly</option>
                               {areaOptions.map((a) => (
-                                <option key={a.slug} value={a.name}>
+                                <option key={a.slug} value={a.slug}>
                                   {a.name}
                                 </option>
                               ))}
                             </select>
                             <span className="text-xs text-muted-foreground">
-                              Optional. Groups this project under a mid-tier area of {selectedBhagName}.
+                              Optional. Groups this project under a mid-tier area of{" "}
+                              {selectedBhagLabel}.
                             </span>
                           </label>
                         ) : null}
@@ -1033,6 +1087,66 @@ export function ProjectOnboardingWizard({
                 </div>
               ) : null}
 
+              {isAutoIngestPhase ? (
+                <div className="space-y-4">
+                  <p className="text-sm text-muted-foreground">
+                    Run ingest automatically on a schedule, on top of manual runs. Fully
+                    optional, and editable anytime in Project Settings.
+                  </p>
+                  <div className="overflow-hidden rounded-xl border border-border/60 bg-card/30">
+                    <button
+                      type="button"
+                      onClick={() => setAutoIngestOnboardEnabled((prev) => !prev)}
+                      aria-pressed={autoIngestOnboardEnabled}
+                      className="group flex w-full items-center gap-3 p-4 text-left transition hover:bg-accent/30"
+                    >
+                      <span
+                        className={cn(
+                          "flex h-5 w-5 shrink-0 items-center justify-center rounded-md border transition",
+                          autoIngestOnboardEnabled
+                            ? "border-primary bg-primary text-primary-foreground"
+                            : "border-border",
+                        )}
+                      >
+                        {autoIngestOnboardEnabled ? <Check className="h-3.5 w-3.5" /> : null}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm font-medium">Enable auto-ingest</span>
+                      </span>
+                    </button>
+                    {autoIngestOnboardEnabled ? (
+                      <div className="space-y-2 border-t border-border/60 p-4">
+                        <div className="grid grid-cols-3 gap-2">
+                          {(["daily", "weekly"] as const).map((preset) => (
+                            <button
+                              key={preset}
+                              type="button"
+                              onClick={() =>
+                                setAutoIngestSchedule((prev) => ({ ...prev, preset }))
+                              }
+                              className={cn(
+                                "rounded-lg border px-3 py-2 text-sm font-medium capitalize",
+                                autoIngestSchedule.preset === preset
+                                  ? "border-primary bg-primary/10 text-primary"
+                                  : "border-border/60",
+                              )}
+                            >
+                              {preset}
+                            </button>
+                          ))}
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          {describeSchedule(autoIngestSchedule)}. Runs authenticate as{" "}
+                          <span className="font-medium">you</span>, using your connected
+                          GitHub/Atlassian/Webex accounts. Change who this runs as anytime in
+                          Settings.
+                        </p>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
+
               {isReviewPhase
                 ? (() => {
                     const repos = githubReposRaw
@@ -1044,13 +1158,13 @@ export function ProjectOnboardingWizard({
                       entityType === "bhag"
                         ? null
                         : entityType === "area"
-                          ? selectedBhagName
-                            ? `Under BHAG: ${selectedBhagName}`
+                          ? selectedBhagLabel
+                            ? `Under BHAG: ${selectedBhagLabel}`
                             : null
-                          : selectedBhagName && selectedAreaName
-                            ? `Tagged to Area: ${selectedAreaName} (under BHAG: ${selectedBhagName})`
-                            : selectedBhagName
-                              ? `Tagged directly to BHAG: ${selectedBhagName} (no area)`
+                          : selectedBhagLabel && selectedAreaLabel
+                            ? `Tagged to Area: ${selectedAreaLabel} (under BHAG: ${selectedBhagLabel})`
+                            : selectedBhagLabel
+                              ? `Tagged directly to BHAG: ${selectedBhagLabel} (no area)`
                               : "Not tagged to any BHAG/Area";
                     const team = teams.find(
                       (t) =>

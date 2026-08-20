@@ -37,20 +37,32 @@ services:
     environment:
       - NEXTAUTH_URL=https://tome-sri.dev.outshift.io
       - OIDC_ISSUER=https://tome-sri.dev.outshift.io/realms/caipe
+      - OIDC_IDP_HINT=${OIDC_IDP_HINT:-duo-sso}
       - TOME_MCP_OAUTH_ISSUER=https://tome-sri.dev.outshift.io/realms/caipe
       - CONFLUENCE_REDIRECT_URI=https://tome-sri.dev.outshift.io/api/credentials/oauth/atlassian/callback
       - INTERNAL_BASE_URL=http://localhost:3000
       - TOME_ENABLED=${TOME_ENABLED:-true}
+      - PRIVATE_RESOURCES_ENABLED=${PRIVATE_RESOURCES_ENABLED:-true}
+      - CAIPE_AGENT_CONTEXT_HMAC_SECRET=${CAIPE_AGENT_CONTEXT_HMAC_SECRET}
+      - TOME_AUTO_INGEST_ENABLED=${TOME_AUTO_INGEST_ENABLED:-true}
+      - TOME_AUTO_INGEST_CREDENTIAL_REFRESH_MS=${TOME_AUTO_INGEST_CREDENTIAL_REFRESH_MS:-300000}
       - TOME_AGENT_URL=http://tome-agent-tome:8766
       - TOME_AGENT_BACKEND_URL=http://caipe-ui:3000/api/tome
       - MYCELIUM_URL=http://mycelium-backend-tome:8000
       - TOME_INTERNAL_ORIGIN=http://caipe-ui:3000
+      - PROJECTS_ONBOARDING_CONFIG_PATH=/app/config/projects-onboarding.yaml
       - REPORT_PROBLEM_ROUTING=${REPORT_PROBLEM_ROUTING:-github}
       - GITHUB_TICKET_ENABLED=true
       - GITHUB_TICKET_REPO=${GITHUB_TICKET_REPO:-cisco-eti/ai-platform-engineering-mirror}
       - REPORT_PROBLEM_GITHUB_TOKEN=${REPORT_PROBLEM_GITHUB_TOKEN}
+    volumes:
+      - ./config/projects-onboarding.tome-sri.yaml:/app/config/projects-onboarding.yaml:ro
 
   keycloak:
+    # The persisted Tome SRI realm uses the experimental CIMD client policy.
+    # Keep a compatible image and enable the provider; otherwise every
+    # authorization and token request fails while loading client-id-uri.
+    image: quay.io/keycloak/keycloak:26.7.1
     environment:
       - KC_HOSTNAME=https://tome-sri.dev.outshift.io
       - KC_PROXY_HEADERS=xforwarded
@@ -58,9 +70,20 @@ services:
       - KC_HOSTNAME_BACKCHANNEL_DYNAMIC=true
     # Keep this environment overlay self-contained while the preview host may
     # run an older generated base Compose file during branch validation.
-    command: ["start-dev", "--import-realm", "--http-port", "7080", "--https-port", "7443", "--features=token-exchange,admin-fine-grained-authz:v1", "--spi-well-known--openid-configuration--openid-configuration-override=/opt/keycloak/conf/openid-configuration-override.json"]
+    command: ["start-dev", "--import-realm", "--http-port", "7080", "--https-port", "7443", "--features=cimd,token-exchange,admin-fine-grained-authz:v1", "--spi-well-known--openid-configuration--openid-configuration-override=/opt/keycloak/conf/openid-configuration-override.json"]
     volumes:
       - ./charts/ai-platform-engineering/charts/keycloak/openid-configuration-override.json:/opt/keycloak/conf/openid-configuration-override.json:ro
+
+  # Tome SRI is SSO-only. init-idp.sh makes the broker redirector required
+  # and disables the local username/password forms execution.
+  keycloak-init:
+    environment:
+      IDP_ALIAS: ${IDP_ALIAS:-duo-sso}
+      KEYCLOAK_FORCE_IDP_REDIRECT: "true"
+
+  openfga-authz-bridge:
+    environment:
+      - PRIVATE_RESOURCES_ENABLED=${PRIVATE_RESOURCES_ENABLED:-true}
 
   # langfuse-web also maps 3000:3000 — remap to 3001 to avoid collision with
   # caipe-ui. `ports` is a merge-by-union list in Compose, so a plain override

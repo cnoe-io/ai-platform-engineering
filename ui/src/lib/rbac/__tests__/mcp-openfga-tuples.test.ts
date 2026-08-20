@@ -336,6 +336,76 @@ describe("MCP OpenFGA tuple contract", () => {
         ]),
       );
     });
+
+    it("grants shared teams use access without management and revokes removed teams", () => {
+      const diff = buildMcpServerRelationshipTupleDiff({
+        serverId: "mcp-shared-search",
+        ownerSubject: "alice-sub",
+        nextSharedTeamSlugs: ["platform"],
+        previousSharedTeamSlugs: ["data"],
+      });
+
+      expect(diff.writes).toEqual(
+        expect.arrayContaining([
+          { user: "team:platform#member", relation: "reader", object: "mcp_server:mcp-shared-search" },
+          { user: "team:platform#member", relation: "user", object: "mcp_server:mcp-shared-search" },
+          { user: "team:platform#member", relation: "invoker", object: "mcp_server:mcp-shared-search" },
+        ]),
+      );
+      expect(diff.writes).not.toContainEqual({
+        user: "team:platform#admin",
+        relation: "manager",
+        object: "mcp_server:mcp-shared-search",
+      });
+      expect(diff.deletes).toEqual(
+        expect.arrayContaining([
+          { user: "team:data#member", relation: "reader", object: "mcp_server:mcp-shared-search" },
+          { user: "team:data#member", relation: "user", object: "mcp_server:mcp-shared-search" },
+          { user: "team:data#member", relation: "invoker", object: "mcp_server:mcp-shared-search" },
+        ]),
+      );
+      expect(diff.deletes).not.toContainEqual({
+        user: "team:data#admin",
+        relation: "manager",
+        object: "mcp_server:mcp-shared-search",
+      });
+    });
+
+    it("writes and revokes organization-member grants for global visibility", () => {
+      const global = buildMcpServerRelationshipTupleDiff({
+        serverId: "mcp-global-search",
+        ownerSubject: "alice-sub",
+        globalOrganizationAccess: true,
+      });
+      expect(global.writes).toEqual(
+        expect.arrayContaining([
+          { user: "organization:caipe#member", relation: "reader", object: "mcp_server:mcp-global-search" },
+          { user: "organization:caipe#member", relation: "user", object: "mcp_server:mcp-global-search" },
+        ]),
+      );
+      expect(global.writes).not.toContainEqual({
+        user: "organization:caipe#member",
+        relation: "invoker",
+        object: "mcp_server:mcp-global-search",
+      });
+      expect(global.deletes).toContainEqual({
+        user: "organization:caipe#member",
+        relation: "invoker",
+        object: "mcp_server:mcp-global-search",
+      });
+
+      const privateDiff = buildMcpServerRelationshipTupleDiff({
+        serverId: "mcp-global-search",
+        ownerSubject: "alice-sub",
+        globalOrganizationAccess: false,
+        previousGlobalOrganizationAccess: true,
+      });
+      expect(privateDiff.deletes).toEqual([
+        { user: "organization:caipe#member", relation: "reader", object: "mcp_server:mcp-global-search" },
+        { user: "organization:caipe#member", relation: "user", object: "mcp_server:mcp-global-search" },
+        { user: "organization:caipe#member", relation: "invoker", object: "mcp_server:mcp-global-search" },
+      ]);
+    });
   });
 
   describe("delete cleanup object inventory", () => {

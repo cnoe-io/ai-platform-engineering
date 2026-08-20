@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card,CardContent,CardDescription,CardHeader,CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { TeamPicker,type TeamPickerOption } from "@/components/ui/team-picker";
+import { TeamMultiPicker,TeamPicker,type TeamPickerOption } from "@/components/ui/team-picker";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Tooltip,
@@ -21,12 +21,15 @@ import {
   SUPPRESS_SECRET_LIKE_INPUT_PROPS,
 } from "@/lib/suppress-password-manager";
 import { normalizeCustomProviderCredentialSource } from "@/lib/mcp-credential-scope";
+import { getConfig } from "@/lib/config";
 import type {
 MCPCredentialSource,
 MCPServerConfig,
+MCPServerConfigWithPermissions,
 MCPServerConfigCreate,
 MCPServerConfigUpdate,
 TransportType,
+VisibilityType,
 } from "@/types/dynamic-agent";
 import { ArrowLeft,Info,Loader2,Plus,X } from "lucide-react";
 import React from "react";
@@ -39,7 +42,7 @@ export interface MCPServerInitialValues {
 }
 
 interface MCPServerEditorProps {
-  server: MCPServerConfig | null; // null = creating new
+  server: MCPServerConfig | MCPServerConfigWithPermissions | null; // null = creating new
   readOnly?: boolean;
   onSave: () => void;
   onCancel: () => void;
@@ -186,6 +189,11 @@ function normalizedCredentialSource(
 
 export function MCPServerEditor({ server, readOnly, onSave, onCancel, initialValues }: MCPServerEditorProps) {
   const isEditing = !!server;
+  const canManageServer = server && "permissions" in server
+    ? server.permissions.can_manage
+    : !readOnly;
+
+  const privateResourcesEnabled = getConfig("privateResourcesEnabled");
 
   // Form state
   const [id, setId] = React.useState(server?._id || "");
@@ -208,6 +216,18 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel, initialVal
   const [credentialSources, setCredentialSources] = React.useState<MCPCredentialSource[]>(
     normalizeCredentialSourcesForEditor(server?.credential_sources ?? initialValues?.credential_sources),
   );
+  const [visibility, setVisibility] = React.useState<VisibilityType>(
+    server
+      ? (server.visibility === "global"
+          ? "global"
+          : server.visibility === "private" || (!server.visibility && !server.owner_team_slug)
+            ? "private"
+            : "team")
+      : privateResourcesEnabled ? "private" : "team",
+  );
+  const [ownerTeamSlug, setOwnerTeamSlug] = React.useState(server?.owner_team_slug || "");
+  const [sharedTeamSlugs, setSharedTeamSlugs] = React.useState<string[]>(server?.shared_with_teams || []);
+  const [availableTeams, setAvailableTeams] = React.useState<TeamPickerOption[]>([]);
 
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -224,6 +244,27 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel, initialVal
     missingCredentials: string[];
   } | null>(null);
   const [credentialProbeLoading, setCredentialProbeLoading] = React.useState(false);
+
+  React.useEffect(() => {
+    if (visibility !== "team") return;
+    async function loadTeams(): Promise<void> {
+      try {
+        const response = await fetch("/api/dynamic-agents/teams");
+        const payload = await response.json();
+        if (!payload.success || !Array.isArray(payload.data)) return;
+        setAvailableTeams(payload.data
+          .filter((team: TeamPickerOption) => typeof team.slug === "string" && team.slug)
+          .map((team: TeamPickerOption) => ({
+            slug: team.slug,
+            name: team.name,
+            description: team.description,
+          })));
+      } catch {
+        setAvailableTeams([]);
+      }
+    }
+    void loadTeams();
+  }, [visibility]);
 
   // Arg input state
   const [newArg, setNewArg] = React.useState("");
@@ -463,17 +504,45 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel, initialVal
   };
 
   const handleProbeCredentials = async () => {
+    if (!server) {
+      setError("Save the MCP server before testing its AgentGateway connection");
+      return;
+    }
     setCredentialProbeLoading(true);
     setCredentialProbe(null);
     setError(null);
     try {
+      if (!canManageServer) {
+        const response = await fetch(
+          `/api/mcp-servers/probe?id=${encodeURIComponent(server._id)}`,
+          { method: "POST" },
+        );
+        const payload = (await response.json()) as {
+          success?: boolean;
+          data?: { success?: boolean };
+          error?: string;
+        };
+        if (!response.ok || payload.success === false || payload.data?.success !== true) {
+          throw new Error(payload.error || "Could not test connection");
+        }
+        setCredentialProbe({
+          ok: true,
+          status: response.status || 200,
+          credentialOrigins: [],
+          missingCredentials: [],
+        });
+        return;
+      }
       const normalizedSources = credentialSources
         .map((source) => normalizedCredentialSource(source, providerConnectionOptions))
         .filter((source): source is MCPCredentialSource => source !== null);
       const response = await fetch("/api/mcp-servers/credential-probe", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: endpoint, credential_sources: normalizedSources }),
+        body: JSON.stringify({
+          server_id: server._id,
+          credential_sources: normalizedSources,
+        }),
       });
       const payload = (await response.json()) as {
         success?: boolean;
@@ -542,6 +611,9 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel, initialVal
           // Always send credential_sources on update (including []) so the BFF can
           // clear previously saved bindings; omitting the field is a no-op.
           credential_sources: normalizedCredentialSources,
+          visibility,
+          owner_team_slug: visibility === "team" ? ownerTeamSlug.trim() : undefined,
+          shared_with_teams: visibility === "team" ? sharedTeamSlugs : [],
         };
 
         const response = await fetch(`/api/mcp-servers?id=${server._id}`, {
@@ -572,6 +644,9 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel, initialVal
           args: transport === "stdio" ? args : undefined,
           env: transport === "stdio" && Object.keys(env).length > 0 ? env : undefined,
           credential_sources: normalizedCredentialSources.length > 0 ? normalizedCredentialSources : undefined,
+          visibility,
+          owner_team_slug: visibility === "team" ? ownerTeamSlug.trim() : undefined,
+          shared_with_teams: visibility === "team" ? sharedTeamSlugs : [],
         };
 
         const response = await fetch("/api/mcp-servers", {
@@ -598,6 +673,7 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel, initialVal
     name.trim() &&
     (isEditing || id.trim() || deriveServerIdFromDisplayName(name)) &&
     (transport === "stdio" ? command.trim() : endpoint.trim()) &&
+    (visibility !== "team" || ownerTeamSlug.trim()) &&
     credentialSources.every((source) =>
       normalizedCredentialSource(source, providerConnectionOptions) !== null
     );
@@ -1021,6 +1097,7 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel, initialVal
                     >
                       <option value="secret_ref">Saved secret</option>
                       <option value="provider_connection">Connected app</option>
+                      <option value="caller_token">Caller token</option>
                     </select>
                     <select
                       aria-label="Credential target"
@@ -1167,44 +1244,62 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel, initialVal
             )}
           </div>
 
-          {/* Test Connection */}
-          {credentialSources.length > 0 && endpoint.trim() && (
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <Button
+          <div className="space-y-4 border-t border-border/60 pt-6">
+            <h3 className="text-sm font-medium">Access and Visibility</h3>
+            <div className="grid gap-3 sm:grid-cols-3">
+              {(["private", "team", "global"] as const)
+                .filter((option) => option !== "private" || privateResourcesEnabled || visibility === "private")
+                .map((option) => (
+                <button
+                  key={option}
                   type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={handleProbeCredentials}
-                  disabled={loading || readOnly || credentialProbeLoading || !endpoint.trim()}
+                  onClick={() => setVisibility(option)}
+                  disabled={loading || readOnly}
+                  className={`rounded-lg border p-3 text-left text-sm capitalize ${
+                    visibility === option ? "border-primary bg-primary/5" : "border-muted"
+                  }`}
                 >
-                  {credentialProbeLoading ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-                      Testing...
-                    </>
-                  ) : (
-                    "Test Connection"
-                  )}
-                </Button>
-                {credentialProbe && (() => {
-                  const hasMissing = credentialProbe.missingCredentials.length > 0;
-                  const fullyOk = credentialProbe.ok && !hasMissing;
-                  const colorClass = fullyOk
-                    ? "text-green-600 dark:text-green-400"
-                    : hasMissing
-                      ? "text-yellow-600 dark:text-yellow-400"
-                      : "text-destructive";
-                  const label = fullyOk
-                    ? `Connected (HTTP ${credentialProbe.status})`
-                    : hasMissing
-                      ? "Credentials not resolved"
-                      : credentialProbe.error
-                        ? credentialProbe.error
-                        : `Failed (HTTP ${credentialProbe.status})`;
-                  return <span className={`text-sm font-medium ${colorClass}`}>{label}</span>;
-                })()}
+                  {option}
+                  <span className="mt-1 block text-xs normal-case text-muted-foreground">
+                    {option === "private"
+                      ? "Only you and your private agents."
+                      : option === "team"
+                        ? "Owner team and shared teams."
+                        : "Every signed-in user."}
+                  </span>
+                </button>
+              ))}
+            </div>
+            {visibility === "team" && (
+              <div className="grid gap-4 pt-1 lg:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="mcp-owner-team">Owner team</Label>
+                  <TeamPicker
+                    id="mcp-owner-team"
+                    value={ownerTeamSlug}
+                    onChange={setOwnerTeamSlug}
+                    options={availableTeams}
+                    placeholder="Select an owner team"
+                    disabled={loading || readOnly}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Share with teams</Label>
+                  <TeamMultiPicker
+                    selected={sharedTeamSlugs}
+                    onChange={setSharedTeamSlugs}
+                    options={availableTeams.filter((team) => team.slug !== ownerTeamSlug)}
+                    placeholder="Select additional teams"
+                    disabled={loading || readOnly}
+                  />
+                </div>
               </div>
+            )}
+          </div>
+
+          {/* Test Connection details */}
+          {credentialProbe && (
+            <div className="space-y-2">
               {credentialProbe && credentialProbe.missingCredentials.length > 0 && (() => {
                 const providerSources = credentialSources.filter(
                   (s) => s.kind === "provider_connection" && s.provider,
@@ -1283,29 +1378,67 @@ export function MCPServerEditor({ server, readOnly, onSave, onCancel, initialVal
           </fieldset>
 
           {/* Actions */}
-          <div className="flex items-center justify-end gap-2 pt-4 border-t">
-            {readOnly && (
-              <span className="text-xs text-muted-foreground mr-auto">
-                Config-driven — managed by configuration file
-              </span>
-            )}
-            <Button type="button" variant="outline" onClick={onCancel} disabled={loading}>
-              {readOnly ? "Close" : "Cancel"}
-            </Button>
-            {!readOnly && (
-              <Button type="submit" disabled={loading || !isValid}>
-                {loading ? (
+          <div className="flex flex-col gap-3 pt-4 border-t sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="border-violet-400 bg-violet-500/15 text-foreground hover:border-violet-300 hover:bg-violet-500/25"
+                onClick={handleProbeCredentials}
+                disabled={loading || credentialProbeLoading || !endpoint.trim() || !server}
+                title={!server ? "Save this server before testing through AgentGateway" : undefined}
+              >
+                {credentialProbeLoading ? (
                   <>
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    {isEditing ? "Saving..." : "Creating..."}
+                    Testing...
                   </>
-                ) : isEditing ? (
-                  "Save Changes"
                 ) : (
-                  "Create Server"
+                  "Test Connection"
                 )}
               </Button>
-            )}
+              {credentialProbe && (() => {
+                const hasMissing = credentialProbe.missingCredentials.length > 0;
+                const fullyOk = credentialProbe.ok && !hasMissing;
+                const colorClass = fullyOk
+                  ? "text-green-600 dark:text-green-400"
+                  : hasMissing
+                    ? "text-yellow-600 dark:text-yellow-400"
+                    : "text-destructive";
+                const label = fullyOk
+                  ? `Connected (HTTP ${credentialProbe.status})`
+                  : hasMissing
+                    ? "Credentials not resolved"
+                    : credentialProbe.error
+                      ? credentialProbe.error
+                      : `Failed (HTTP ${credentialProbe.status})`;
+                return <span className={`text-sm font-medium ${colorClass}`}>{label}</span>;
+              })()}
+            </div>
+            <div className="flex items-center justify-end gap-2">
+              {readOnly && (
+                <span className="mr-2 text-xs text-muted-foreground">
+                  Config-driven — managed by configuration file
+                </span>
+              )}
+              <Button type="button" variant="outline" onClick={onCancel} disabled={loading}>
+                {readOnly ? "Close" : "Cancel"}
+              </Button>
+              {!readOnly && (
+                <Button type="submit" disabled={loading || !isValid}>
+                  {loading ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      {isEditing ? "Saving..." : "Creating..."}
+                    </>
+                  ) : isEditing ? (
+                    "Save Changes"
+                  ) : (
+                    "Create Server"
+                  )}
+                </Button>
+              )}
+            </div>
           </div>
         </form>
       </CardContent>

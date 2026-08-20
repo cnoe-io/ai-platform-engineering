@@ -4,6 +4,12 @@
 import { NextRequest } from "next/server";
 import fs from "fs";
 
+const mockGetCollection = jest.fn();
+
+jest.mock("@/lib/mongodb", () => ({
+  getCollection: (...args: unknown[]) => mockGetCollection(...args),
+}));
+
 const RAW_BASE = "https://raw.githubusercontent.com/cnoe-io/ai-platform-engineering/main/docs/releases";
 
 const LISTING = [
@@ -77,7 +83,14 @@ async function callGet(version: string) {
 }
 
 describe("/api/release-notes", () => {
-  afterEach(() => jest.restoreAllMocks());
+  beforeEach(() => jest.clearAllMocks());
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+    delete process.env.RELEASE_NOTES_GITHUB_TOKEN;
+    delete process.env.GITHUB_PERSONAL_ACCESS_TOKEN;
+    delete process.env.GITHUB_TOKEN;
+  });
 
   it("returns the exact curated notes with frontmatter and truncate marker stripped", async () => {
     const data = await callGet("0.5.4");
@@ -125,6 +138,122 @@ describe("/api/release-notes", () => {
       body: expect.stringContaining("Mirror-only update"),
       changelogUrl: expect.stringContaining("example/repository/compare"),
     });
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it("builds release notes from an explicitly configured GitHub commit range", async () => {
+    jest.resetModules();
+    process.env.RELEASE_NOTES_GITHUB_TOKEN = "test-token";
+    mockGetCollection.mockResolvedValue({
+      findOne: jest.fn().mockResolvedValue({
+        _id: "platform_settings",
+        release_notes: {
+          repository_url: "https://github.com/example/repository",
+          previous_commit: "1111111",
+          latest_commit: "3333333",
+        },
+      }),
+    });
+    global.fetch = jest.fn(async (_url: string | URL, init?: RequestInit) => ({
+      ok: true,
+      json: async () => ({
+        html_url: "https://github.com/example/repository/compare/1111111...3333333",
+        commits: [
+          {
+            sha: "2222222",
+            commit: {
+              message: "feat(ui): add a useful setting (#42)",
+              committer: { date: "2026-08-14T12:00:00Z" },
+            },
+          },
+          {
+            sha: "3333333",
+            commit: {
+              message: "fix(api): handle invalid input",
+              committer: { date: "2026-08-15T12:00:00Z" },
+            },
+          },
+        ],
+      }),
+      headers: init?.headers,
+    })) as unknown as typeof fetch;
+
+    const { GET } = await import("../route");
+    const params = new URLSearchParams({ version: "1.2.3", compare: "platform" });
+    const response = await GET(
+      new NextRequest(`http://localhost/api/release-notes?${params.toString()}`),
+    );
+    const data = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(data).toMatchObject({
+      requestedVersion: "1.2.3",
+      matchedVersion: "1.2.3",
+      source: "github-compare",
+      date: "2026-08-15",
+      changelogUrl: "https://github.com/example/repository/compare/1111111...3333333",
+    });
+    expect(data.body).toContain("## What's New");
+    expect(data.body).toContain("add a useful setting");
+    expect(data.body).toContain("## Bug Fixes");
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/repos/example/repository/compare/1111111...3333333"),
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: "Bearer test-token" }),
+      }),
+    );
+  });
+
+  it("uses the compose GitHub personal access token for private comparisons", async () => {
+    jest.resetModules();
+    process.env.GITHUB_PERSONAL_ACCESS_TOKEN = "compose-pat";
+    mockGetCollection.mockResolvedValue({
+      findOne: jest.fn().mockResolvedValue({
+        _id: "platform_settings",
+        release_notes: {
+          repository_url: "https://github.com/example/private-repository",
+          previous_commit: "1111111",
+          latest_commit: "2222222",
+        },
+      }),
+    });
+    global.fetch = jest.fn(async (_url: string | URL, init?: RequestInit) => ({
+      ok: true,
+      json: async () => ({
+        html_url: "https://github.com/example/private-repository/compare/1111111...2222222",
+        commits: [],
+      }),
+      headers: init?.headers,
+    })) as unknown as typeof fetch;
+
+    const { GET } = await import("../route");
+    const response = await GET(
+      new NextRequest("http://localhost/api/release-notes?version=1.2.3&compare=platform"),
+    );
+
+    expect(response.status).toBe(200);
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/repos/example/private-repository/compare/1111111...2222222"),
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: "Bearer compose-pat" }),
+      }),
+    );
+  });
+
+  it("rejects an incomplete stored GitHub compare configuration", async () => {
+    jest.resetModules();
+    mockGithub();
+    mockGetCollection.mockResolvedValue({
+      findOne: jest.fn().mockResolvedValue({
+        _id: "platform_settings",
+        release_notes: { previous_commit: "1111111" },
+      }),
+    });
+    const { GET } = await import("../route");
+    const res = await GET(
+      new NextRequest("http://localhost/api/release-notes?version=1.2.3&compare=platform"),
+    );
+    expect(res.status).toBe(400);
     expect(global.fetch).not.toHaveBeenCalled();
   });
 

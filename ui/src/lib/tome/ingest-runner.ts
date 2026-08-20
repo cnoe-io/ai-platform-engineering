@@ -43,6 +43,14 @@ import {
   isTomeAdminSubject,
   listReadableTomeProjects,
 } from "./access";
+import {
+  fallbackQualityPolicy,
+  getArtifactEvaluation,
+  resolveQualityPolicy,
+} from "./evaluation-store";
+import { canAutoPromoteOverdue } from "./rubric-evaluator";
+import { captureEvidenceBundle } from "./evidence-bundle";
+import { evaluateDraftQuality } from "./draft-quality";
 
 /** Load a project by its stable id (string or ObjectId), normalizing `_id` to string. */
 async function loadProjectById(
@@ -82,7 +90,7 @@ export function cancelRun(runId: string): void {
  * page edits (UI editor / PUT) are refused with 409 and can't race the agent's
  * rewrite. Best-effort — a failed flag flip must not fail/hang the ingest.
  */
-async function setProjectLocked(projectId: string, locked: boolean): Promise<void> {
+export async function setProjectLocked(projectId: string, locked: boolean): Promise<void> {
   try {
     const projects = await getCollection<ProjectDocument>("projects");
     const _id = (ObjectId.isValid(projectId)
@@ -123,6 +131,7 @@ async function createRunRecord(
     cascadeId?: string;
     cascadeRole?: "child" | "parent";
     blockedByCascadeIds?: string[];
+    triggeredBy?: "manual" | "auto";
   },
 ): Promise<{ runId: string; reportId: string; isGreenfield: boolean }> {
   const projectId = project._id;
@@ -136,6 +145,19 @@ async function createRunRecord(
     .next();
   const isGreenfield = !prior;
   const version = prior ? prior.version + 1 : 1;
+  const resolvedPolicy = await resolveQualityPolicy({
+    entityId: projectId,
+    entityType: project.type ?? "project",
+  });
+  const dispatch = {
+    ...opts.dispatch,
+    // An enforced gate always produces a draft. `skipReview` must never turn
+    // a missing/failed evaluation directly into a live wiki revision.
+    ...(resolvedPolicy.policy.mode === "enforce"
+      || (resolvedPolicy.policy.mode !== "off" && resolvedPolicy.policy.require_human_review)
+      ? { skipReview: false }
+      : {}),
+  };
 
   const now = new Date();
   const reportId = randomUUID();
@@ -160,11 +182,21 @@ async function createRunRecord(
     started_at: now,
     triggered_by_sub: opts.sub || undefined,
     triggered_by_email: opts.email || undefined,
-    dispatch: opts.dispatch,
+    triggered_by: opts.triggeredBy ?? "manual",
+    dispatch,
     cascade_id: opts.cascadeId,
     cascade_role: opts.cascadeRole,
     blocked_by_cascade_ids: opts.blockedByCascadeIds,
     queued_at: opts.status === "queued" ? now : undefined,
+    quality_policy_version: resolvedPolicy.policy.version,
+    quality_policy_scope: resolvedPolicy.source,
+    quality_policy_scope_id: resolvedPolicy.policy.scope_id,
+    quality_policy_mode: resolvedPolicy.policy.mode,
+    quality_require_human_review: resolvedPolicy.policy.require_human_review,
+    quality_allow_steward_override: resolvedPolicy.policy.allow_steward_override,
+    quality_evaluator_model: resolvedPolicy.policy.evaluator_model,
+    quality_rubric_policy: resolvedPolicy.policy.rubrics,
+    quality_entity_type: project.type ?? "project",
   };
   await runs.insertOne(run);
 
@@ -236,7 +268,7 @@ async function prepareRun(
   if (isGreenfield) {
     await seedGreenfieldStablePages(project, reportId, runId);
   }
-  await appendLog(runId, dispatchLine(isGreenfield));
+  await appendLog(runId, dispatchLine(isGreenfield, run.triggered_by));
 
   // The original request session is gone by now; re-resolve from the stored sub.
   const credentials = await resolveCredentialsForSub(run.triggered_by_sub ?? "");
@@ -274,6 +306,21 @@ async function prepareRun(
     : isArea
       ? await resolveAreaChildren(project.name)
       : [];
+  if (run.quality_policy_mode !== "off") {
+    const bundle = await captureEvidenceBundle({
+      project,
+      childProjects: childProjects.map((child) => ({
+        _id: child.project_id,
+        slug: child.slug,
+      })),
+      createdBy: run.triggered_by_sub ?? "tome-system",
+      seed: dispatch.seed,
+    });
+    await runs.updateOne(
+      { _id: runId },
+      { $set: { evidence_bundle_id: bundle._id, evidence_hash: bundle.content_hash } },
+    );
+  }
   const actorSub = run.triggered_by_sub ?? "";
   const actorIsAdmin = actorSub ? await isTomeAdminSubject(actorSub) : false;
   const readableProjects = await listReadableTomeProjects(actorSub || null, {
@@ -319,6 +366,7 @@ async function prepareRun(
       slug: candidate.slug,
       name: candidate.title || candidate.name,
     })),
+    triggeredBy: run.triggered_by,
   });
 
   return { projectId, reportId, req, endpoint };
@@ -352,6 +400,8 @@ export async function startIngestRun(
     agentEndpoint?: string;
     /** Bypass draft review: pages this run writes go straight to "live". */
     skipReview?: boolean;
+    /** "auto" = fired by the CRON scheduler, not a human clicking "Run ingest". */
+    triggeredBy?: "manual" | "auto";
   },
 ): Promise<{ runId: string }> {
   const projectId = ctx.projectId;
@@ -363,6 +413,7 @@ export async function startIngestRun(
     status: "running",
     sub: sessionSub(ctx.session),
     email: ctx.user.email ?? null,
+    triggeredBy: opts.triggeredBy,
     dispatch: {
       endpoint: opts.agentEndpoint ?? "/ingest",
       seed: opts.seed ?? null,
@@ -370,6 +421,7 @@ export async function startIngestRun(
       seedStablePages: opts.seedStablePages,
       webexMeetings: opts.webexMeetings,
       skipReview: opts.skipReview,
+      triggeredBy: opts.triggeredBy,
     },
   });
 
@@ -562,6 +614,7 @@ async function auditRunLifecycle(
         report_id: run.report_id ?? undefined,
         endpoint: run.dispatch?.endpoint ?? "/ingest",
         greenfield: run.greenfield,
+        triggered_by: run.triggered_by ?? "manual",
         cascade_id: run.cascade_id ?? undefined,
         cascade_role: run.cascade_role ?? undefined,
         ...extra,
@@ -570,7 +623,12 @@ async function auditRunLifecycle(
 
     if (project?.slug && isMyceliumConfigured()) {
       const mode = run.dispatch?.endpoint === "/synthesize" ? "bhag_rollup" : "ingest";
-      const label = mode === "bhag_rollup" ? "Synthesize" : "Ingest";
+      const label =
+        mode === "bhag_rollup"
+          ? "Synthesize"
+          : run.triggered_by === "auto"
+            ? "Scheduled auto-ingest"
+            : "Ingest";
       const status =
         action === "tome.ingest.started"
           ? "running"
@@ -598,7 +656,7 @@ async function auditRunLifecycle(
         sender_handle: "tome",
         content,
         kind: "ingest_event",
-        payload: { run_id: runId, mode, status },
+        payload: { run_id: runId, mode, status, triggered_by: run.triggered_by ?? "manual" },
         // Same id across started/succeeded/failed so the Feed collapses them
         // into one row instead of three, showing the latest status.
         correlation_id: runId,
@@ -648,12 +706,23 @@ async function setRunCompletionAccounting(
   runId: string,
   data: Record<string, unknown>,
 ): Promise<void> {
-  const update: Record<string, number> = {};
+  const update: Record<string, unknown> = {};
   if (typeof data.cost_usd === "number" && Number.isFinite(data.cost_usd) && data.cost_usd >= 0) {
     update.cost_usd = data.cost_usd;
   }
   if (typeof data.turns === "number" && Number.isFinite(data.turns) && data.turns >= 0) {
     update.turns = data.turns;
+  }
+  if (typeof data.model === "string" && data.model.trim()) {
+    update.model = data.model.trim();
+  }
+  if (
+    data.model_provenance &&
+    typeof data.model_provenance === "object" &&
+    typeof (data.model_provenance as Record<string, unknown>).model === "string" &&
+    typeof (data.model_provenance as Record<string, unknown>).source === "string"
+  ) {
+    update.model_provenance = data.model_provenance;
   }
   if (Object.keys(update).length === 0) return;
   const runs = await getTomeIngestRunsCollection();
@@ -715,6 +784,16 @@ async function driveIngest(
     const pages = await store.listPages(projectId, { includeDrafts: true });
     const summary = summaryFromOverview(pages);
     await reports.updateOne({ _id: reportId }, { $set: { summary } });
+    if (run?.quality_policy_mode !== "off") {
+      try {
+        await evaluateDraftQuality(runId, pages);
+      } catch (evaluationError) {
+        await appendLog(
+          runId,
+          `[--:--:--] ✗ quality evaluation failed: ${String((evaluationError as Error)?.message ?? evaluationError)}`,
+        );
+      }
+    }
 
     if (skipReview) {
       await runs.updateOne(
@@ -846,8 +925,25 @@ export async function promoteOverdueRuns(): Promise<number> {
   const overdue = await runs
     .find({ status: "awaiting_review", review_deadline: { $lt: new Date() } })
     .toArray();
+  let promoted = 0;
   for (const run of overdue) {
     try {
+      if (run.quality_policy_mode && run.quality_policy_mode !== "off") {
+        const evaluation = run.quality_evaluation_id
+          ? await getArtifactEvaluation(run.quality_evaluation_id)
+          : null;
+        const policy = {
+          ...fallbackQualityPolicy(),
+          mode: run.quality_policy_mode,
+          version: run.quality_policy_version ?? 0,
+          require_human_review: run.quality_require_human_review !== false,
+          allow_steward_override: run.quality_allow_steward_override === true,
+        };
+        // Required human reviews and enforced drafts with missing/failed
+        // evaluation stay pending after the deadline. A reaper must never
+        // become a back door around a quality policy.
+        if (!canAutoPromoteOverdue(policy, evaluation)) continue;
+      }
       const store = await getPageStore();
       if (run.report_id) await store.promoteDraftReport(run.project_id, run.report_id);
       await runs.updateOne(
@@ -864,11 +960,12 @@ export async function promoteOverdueRuns(): Promise<number> {
       await auditRunLifecycle(run._id!, "tome.ingest.finished", {
         review_outcome: "auto_promoted",
       });
+      promoted += 1;
     } catch (e) {
       console.warn(`promoteOverdueRuns: failed to promote run ${run._id}`, e);
     }
   }
-  return overdue.length;
+  return promoted;
 }
 
 /** Parse an SSE byte stream into typed ingest events (`event:`/`data:` frames). */

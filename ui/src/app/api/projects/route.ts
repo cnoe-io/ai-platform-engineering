@@ -354,7 +354,6 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     tome_authorization_version: 2,
     type: projectType,
     slug,
-    name: body.name.trim(),
     title: catalog.metadata.title,
     description,
     team_id: team._id,
@@ -438,7 +437,7 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     action: "tome.project.create",
     actor: tomeActorFromAuth({ user, session }),
     projectSlug: slug,
-    metadata: { type: projectType, name: doc.name, team_slug: teamSlug },
+    metadata: { type: projectType, name: doc.title, team_slug: teamSlug },
   });
 
   return successResponse(

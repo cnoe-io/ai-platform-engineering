@@ -20,7 +20,7 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { MarkdownRenderer } from "@/components/shared/timeline";
 import type { GlossaryResolver } from "@/lib/tome/tome-links";
-import type { ChatPart as Part } from "@/types/tome";
+import type { ChatPart as Part, ModelProvenance } from "@/types/tome";
 import { useAutoScroll } from "@/hooks/use-auto-scroll";
 
 /**
@@ -52,6 +52,9 @@ interface ChatMsg {
   system?: boolean;
   /** Thumbs up/down state for assistant turns (via shared `MessageActions`). */
   feedback?: Feedback;
+  /** Model id that produced this turn (assistant turns only), from the SSE `done` event. */
+  model?: string;
+  modelProvenance?: ModelProvenance;
 }
 
 const newMessageId = (): string =>
@@ -142,13 +145,21 @@ export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }:
           typeof data.sessionOwner === "string" ? data.sessionOwner : data.session?.userId ?? null,
         );
         const msgs: ChatMsg[] = (data.messages ?? []).map(
-          (m: { role: Role; content?: string; parts?: Part[] | null }) => ({
+          (m: {
+            role: Role;
+            content?: string;
+            parts?: Part[] | null;
+            model?: string | null;
+            model_provenance?: ModelProvenance | null;
+          }) => ({
             id: newMessageId(),
             role: m.role,
             parts:
               Array.isArray(m.parts) && m.parts.length
                 ? m.parts
                 : [{ kind: "text", text: m.content ?? "" }],
+            model: m.model ?? undefined,
+            modelProvenance: m.model_provenance ?? undefined,
           }),
         );
         setMessages(msgs);
@@ -170,6 +181,8 @@ export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }:
       parts: Part[],
       content: string,
       sdkId?: string | null,
+      model?: string | null,
+      modelProvenance?: ModelProvenance | null,
     ) => {
       try {
         const res = await fetch(`/api/tome/projects/${slug}/chat/history`, {
@@ -181,6 +194,8 @@ export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }:
             parts,
             session_id: sessionIdRef.current,
             sdk_session_id: sdkId ?? undefined,
+            model: model ?? undefined,
+            model_provenance: modelProvenance ?? undefined,
           }),
         });
         if (res.ok) {
@@ -378,6 +393,8 @@ export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }:
         return;
       }
 
+      let turnModel: string | null = null;
+      let turnModelProvenance: ModelProvenance | null = null;
       await consumeSse(res.body, {
         onToken: appendToken,
         onTool: pushTool,
@@ -389,8 +406,17 @@ export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }:
         onContextUsage: (data) => {
           if (typeof data.percentage === "number") setContextUsage({ percentage: data.percentage });
         },
+        onDone: (data) => {
+          turnModel = data.model ?? null;
+          turnModelProvenance = data.modelProvenance ?? null;
+        },
       });
-      patchLast((m) => ({ ...m, pending: false }));
+      patchLast((m) => ({
+        ...m,
+        pending: false,
+        model: turnModel ?? undefined,
+        modelProvenance: turnModelProvenance ?? undefined,
+      }));
       // Persist the assistant turn + the latest SDK session id (resume hint).
       if (assistantParts.length) {
         void persist(
@@ -398,6 +424,8 @@ export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }:
           assistantParts,
           textOf(assistantParts),
           sessionRef.current,
+          turnModel,
+          turnModelProvenance,
         );
       }
     } catch (e) {
@@ -706,23 +734,33 @@ function MessageRow({
           </div>
         )}
         {!msg.pending && hasText && (
-          <MessageActions
-            content={textOfParts(msg.parts)}
-            messageId={msg.id}
-            conversationId={conversationId}
-            feedbackSource="tome"
-            tomeProjectSlug={tomeProjectSlug}
-            tomeSessionId={tomeSessionId}
-            tomeUserQuestion={userQuestion ?? undefined}
-            tomeAssistantResponse={textOfParts(msg.parts)}
-            copyLabel="Copy response"
-            onRetry={onRetry}
-            retryLabel="Regenerate response"
-            disabled={retryDisabled}
-            showFeedback
-            feedback={msg.feedback}
-            onFeedbackChange={onFeedbackChange}
-          />
+          <div className="flex items-center gap-2">
+            <MessageActions
+              content={textOfParts(msg.parts)}
+              messageId={msg.id}
+              conversationId={conversationId}
+              feedbackSource="tome"
+              tomeProjectSlug={tomeProjectSlug}
+              tomeSessionId={tomeSessionId}
+              tomeUserQuestion={userQuestion ?? undefined}
+              tomeAssistantResponse={textOfParts(msg.parts)}
+              copyLabel="Copy response"
+              onRetry={onRetry}
+              retryLabel="Regenerate response"
+              disabled={retryDisabled}
+              showFeedback
+              feedback={msg.feedback}
+              onFeedbackChange={onFeedbackChange}
+            />
+            {msg.model && (
+              <span
+                className="font-mono text-[10px] text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100"
+                title={`Answered by ${msg.model}${msg.modelProvenance ? ` via ${msg.modelProvenance.source}` : ""}`}
+              >
+                {msg.model}
+              </span>
+            )}
+          </div>
         )}
       </div>
     </div>
@@ -877,6 +915,10 @@ interface SseHandlers {
     trigger?: string | null;
   }) => void;
   onContextUsage?: (data: { percentage?: number | null }) => void;
+  onDone?: (data: {
+    model?: string | null;
+    modelProvenance?: ModelProvenance | null;
+  }) => void;
 }
 
 async function consumeSse(
@@ -987,6 +1029,13 @@ function handleFrame(frame: string, h: SseHandlers): void {
       });
       break;
     case "done":
+      h.onDone?.({
+        model: typeof data.model === "string" ? data.model : null,
+        modelProvenance:
+          data.model_provenance && typeof data.model_provenance === "object"
+            ? (data.model_provenance as ModelProvenance)
+            : null,
+      });
       break;
   }
 }

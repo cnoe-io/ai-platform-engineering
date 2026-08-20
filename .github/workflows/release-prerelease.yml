@@ -1,5 +1,4 @@
 name: "[Release] Pre-release Build"
-description: "Create an rc/hotfix tag on a release/* branch and trigger a coordinated build of all containers and the Helm chart."
 
 # Usage:
 #   GitHub UI → Actions → "[Release] Pre-release Build" → Run workflow
@@ -57,7 +56,7 @@ jobs:
 
     steps:
       - name: 🔒 Harden runner
-        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
         with:
           egress-policy: audit
 
@@ -161,7 +160,7 @@ jobs:
           python-version: '3.13'
 
       - name: 📦 Install uv
-        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
 
       - name: ⚙️ Install yq
         env:
@@ -258,7 +257,6 @@ jobs:
           ## What happens next
 
           The tag push triggers these required CI workflows automatically:
-          - \`ci-caipe-ui\`
           - \`ci-dynamic-agents\`
           - \`ci-slack-bot\`
           - \`ci-webex-bot\`
@@ -266,6 +264,8 @@ jobs:
           - \`ci-mcp-sub-agent\`
           - \`ci-rag\`
           - \`ci-helm\` (also dispatched explicitly with \`force_build=true\`)
+
+          The mirror UI image is published by the coordinated Tome release workflow.
 
           > To force-rebuild every image fresh (bypass retag for unchanged components),
           > run each \`ci-*.yml\` manually via **workflow_dispatch** with
@@ -282,7 +282,7 @@ jobs:
 
     steps:
       - name: 🔒 Harden runner
-        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
         with:
           egress-policy: audit
 

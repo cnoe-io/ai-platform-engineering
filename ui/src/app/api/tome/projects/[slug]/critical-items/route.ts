@@ -4,7 +4,6 @@ import { NextRequest } from "next/server";
 
 import { successResponse, withErrorHandler } from "@/lib/api-middleware";
 import { getCollection } from "@/lib/mongodb";
-import { normLabel } from "@/lib/projects/labels";
 import { getPageStore } from "@/lib/tome/page-store";
 import { loadTomeProject } from "@/lib/tome/tome-api";
 import { filterReadableTomeProjects } from "@/lib/tome/access";
@@ -25,33 +24,24 @@ type ProjectRow = ProjectDocument & { _id: unknown };
 function rollupProjects(current: ProjectDocument, all: ProjectRow[]): ProjectRow[] {
   const bySlug = new Map(all.map((project) => [project.slug, project]));
   const selected = new Set<string>([current.slug]);
-  const currentName = normLabel(current.name || current.title || "");
+  const currentSlug = current.slug;
   if (current.type === "area") {
     for (const project of all) {
-      if ((project.labels?.areas ?? []).some((area) => normLabel(area) === currentName)) {
+      if ((project.labels?.areas ?? []).includes(currentSlug)) {
         selected.add(project.slug);
       }
     }
   } else if (current.type === "bhag") {
-    const areaNames = new Set<string>();
+    const areaSlugs = new Set<string>();
     for (const project of all) {
-      if (
-        project.type === "area" &&
-        (project.labels?.initiatives ?? []).some(
-          (initiative) => normLabel(initiative) === currentName,
-        )
-      ) {
+      if (project.type === "area" && (project.labels?.initiatives ?? []).includes(currentSlug)) {
         selected.add(project.slug);
-        areaNames.add(normLabel(project.name || project.title || ""));
+        areaSlugs.add(project.slug);
       }
     }
     for (const project of all) {
-      const directlyTagged = (project.labels?.initiatives ?? []).some(
-        (initiative) => normLabel(initiative) === currentName,
-      );
-      const inChildArea = (project.labels?.areas ?? []).some((area) =>
-        areaNames.has(normLabel(area)),
-      );
+      const directlyTagged = (project.labels?.initiatives ?? []).includes(currentSlug);
+      const inChildArea = (project.labels?.areas ?? []).some((area) => areaSlugs.has(area));
       if (directlyTagged || inChildArea) selected.add(project.slug);
     }
   }

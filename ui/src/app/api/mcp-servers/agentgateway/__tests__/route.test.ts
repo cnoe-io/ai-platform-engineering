@@ -8,6 +8,7 @@ const mockGetAuthFromBearerOrSession = jest.fn();
 const mockRequireResourcePermission = jest.fn();
 const mockGetCollection = jest.fn();
 const mockReconcileConfigDrivenMcpServerRelationships = jest.fn();
+const mockReconcileMcpServerRelationships = jest.fn();
 
 jest.mock("@/lib/api-middleware", () => {
   class ApiError extends Error {
@@ -39,6 +40,8 @@ jest.mock("@/lib/rbac/resource-authz", () => ({
 jest.mock("@/lib/rbac/openfga-owned-resources-reconcile", () => ({
   reconcileConfigDrivenMcpServerRelationships: (...args: unknown[]) =>
     mockReconcileConfigDrivenMcpServerRelationships(...args),
+  reconcileMcpServerRelationships: (...args: unknown[]) =>
+    mockReconcileMcpServerRelationships(...args),
 }));
 
 const agentGatewayConfig = {
@@ -75,6 +78,7 @@ beforeEach(() => {
   mockGetAuthFromBearerOrSession.mockResolvedValue({ session: { sub: "admin-sub", role: "admin" } });
   mockRequireResourcePermission.mockResolvedValue(undefined);
   mockReconcileConfigDrivenMcpServerRelationships.mockResolvedValue({ enabled: true, writes: 4, deletes: 0 });
+  mockReconcileMcpServerRelationships.mockResolvedValue({ enabled: true, writes: 4, deletes: 0 });
   global.fetch = jest.fn().mockResolvedValue({
     ok: true,
     json: async () => agentGatewayConfig,
@@ -295,6 +299,9 @@ describe("AgentGateway MCP server discovery API", () => {
       }),
       insertOne,
       updateOne,
+      findOne: jest.fn().mockImplementation(async ({ _id }: { _id: string }) =>
+        _id === "mcp-tome" ? null : { _id, source: "agentgateway" },
+      ),
     });
     const { POST } = await import("../sync/route");
 
@@ -333,6 +340,106 @@ describe("AgentGateway MCP server discovery API", () => {
     });
   });
 
+  it("does not rewrite credentials on an existing AgentGateway target", async () => {
+    const updateOne = jest.fn();
+    const existingTome = {
+      _id: "mcp-tome",
+      name: "Tome",
+      transport: "http",
+      endpoint: "http://agentgateway:4000/mcp",
+      enabled: true,
+      source: "agentgateway",
+      credential_sources: [
+        {
+          kind: "provider_connection",
+          name: "X-CAIPE-Provider-Token",
+          provider: "tome",
+          target: "header",
+        },
+      ],
+    };
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        binds: [{
+          listeners: [{
+            routes: [{
+              backends: [{
+                mcp: { targets: [{ name: "mcp-tome", mcp: { host: "https://example.test/api/tome/mcp" } }] },
+              }],
+            }],
+          }],
+        }],
+      }),
+    }) as unknown as typeof fetch;
+    mockGetCollection.mockResolvedValue({
+      find: jest.fn().mockReturnValue({ toArray: jest.fn().mockResolvedValue([existingTome]) }),
+      findOne: jest.fn().mockResolvedValue(existingTome),
+      insertOne: jest.fn(),
+      updateOne,
+    });
+    const { POST } = await import("../sync/route");
+
+    const response = await POST(
+      request("/api/mcp-servers/agentgateway/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: ["mcp-tome"] }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(updateOne).not.toHaveBeenCalled();
+    expect(existingTome.credential_sources).toEqual([
+      {
+        kind: "provider_connection",
+        name: "X-CAIPE-Provider-Token",
+        provider: "tome",
+        target: "header",
+      },
+    ]);
+  });
+
+  it("preserves an explicit global sharing policy during AgentGateway sync", async () => {
+    const existing = {
+      _id: "rag",
+      name: "RAG",
+      transport: "http",
+      endpoint: "http://agentgateway:4000/mcp",
+      enabled: true,
+      source: "agentgateway",
+      visibility: "global",
+      shared_with_teams: [],
+    };
+    mockGetCollection.mockResolvedValue({
+      find: jest.fn().mockReturnValue({
+        toArray: jest.fn().mockResolvedValue([existing]),
+      }),
+      findOne: jest.fn().mockResolvedValue(existing),
+      insertOne: jest.fn(),
+      updateOne: jest.fn(),
+    });
+    const { POST } = await import("../sync/route");
+
+    const response = await POST(
+      request("/api/mcp-servers/agentgateway/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: ["rag"] }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockReconcileMcpServerRelationships).toHaveBeenCalledWith(
+      expect.objectContaining({
+        serverId: "rag",
+        globalOrganizationAccess: true,
+        nextSharedTeamSlugs: [],
+      }),
+    );
+    expect(mockReconcileConfigDrivenMcpServerRelationships).not.toHaveBeenCalled();
+  });
+
   it("denies admin discovery when OpenFGA denies the AgentGateway object grant", async () => {
     mockRequireResourcePermission.mockRejectedValue(new Error("no discovery"));
     mockGetCollection.mockResolvedValue({
@@ -366,6 +473,11 @@ describe("AgentGateway MCP server discovery API", () => {
       }),
       insertOne,
       updateOne,
+      findOne: jest.fn().mockResolvedValue({
+        _id: "jira",
+        transport: "http",
+        endpoint: "http://mcp-jira:8000/mcp",
+      }),
     });
     mockReconcileConfigDrivenMcpServerRelationships.mockRejectedValueOnce(
       new Error("OpenFGA reconcile failed"),

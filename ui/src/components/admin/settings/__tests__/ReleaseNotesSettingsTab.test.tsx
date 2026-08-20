@@ -165,7 +165,7 @@ describe('ReleaseNotesSettingsTab', () => {
     expect(screen.queryByText('Release notes configuration')).not.toBeInTheDocument();
   });
 
-  it('saves only the enabled flag without changing the default agent', async () => {
+  it('saves the enabled flag with an empty optional compare range without changing the default agent', async () => {
     render(<ReleaseNotesSettingsTab isAdmin />);
 
     fireEvent.click(await screen.findByLabelText('Enable release notes notification'));
@@ -183,8 +183,59 @@ describe('ReleaseNotesSettingsTab', () => {
       ([url, init]) => url === '/api/admin/platform-config' && init?.method === 'PATCH',
     );
     expect(JSON.parse(patchCall[1].body)).toEqual({
-      release_notes: { enabled: false },
+      release_notes: {
+        enabled: false,
+        repository_url: null,
+        previous_commit: null,
+        latest_commit: null,
+      },
     });
     expect(JSON.parse(patchCall[1].body)).not.toHaveProperty('default_agent_id');
+  });
+
+  it('lets admins configure the GitHub commit range used for release notes', async () => {
+    render(<ReleaseNotesSettingsTab isAdmin />);
+
+    fireEvent.change(await screen.findByLabelText('Repository URL'), {
+      target: { value: 'https://github.com/example/repository' },
+    });
+    fireEvent.change(screen.getByLabelText('Previous upgraded commit'), {
+      target: { value: '1111111' },
+    });
+    fireEvent.change(screen.getByLabelText('Latest commit'), {
+      target: { value: '2222222' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save release notes settings' }));
+
+    await waitFor(() => {
+      const patchCall = (global.fetch as jest.Mock).mock.calls.find(
+        ([url, init]) => url === '/api/admin/platform-config' && init?.method === 'PATCH',
+      );
+      expect(JSON.parse(patchCall[1].body)).toEqual({
+        release_notes: {
+          enabled: true,
+          repository_url: 'https://github.com/example/repository',
+          previous_commit: '1111111',
+          latest_commit: '2222222',
+        },
+      });
+    });
+  });
+
+  it('requires all optional commit-diff fields before saving', async () => {
+    render(<ReleaseNotesSettingsTab isAdmin />);
+
+    fireEvent.change(await screen.findByLabelText('Previous upgraded commit'), {
+      target: { value: '1111111' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save release notes settings' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Set the repository URL and both commits',
+    );
+    expect(global.fetch).not.toHaveBeenCalledWith(
+      '/api/admin/platform-config',
+      expect.objectContaining({ method: 'PATCH' }),
+    );
   });
 });

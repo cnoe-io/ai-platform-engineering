@@ -6,7 +6,10 @@ buildAgentGatewayMcpDiscovery,
 toAgentGatewayMcpServerDocument,
 type AgentGatewayMcpDiscovery,
 } from "@/lib/rbac/agentgateway-mcp-discovery";
-import { reconcileConfigDrivenMcpServerRelationships } from "@/lib/rbac/openfga-owned-resources-reconcile";
+import {
+  reconcileConfigDrivenMcpServerRelationships,
+  reconcileMcpServerRelationships,
+} from "@/lib/rbac/openfga-owned-resources-reconcile";
 import { caipeOrgKey } from "@/lib/rbac/organization";
 import type { MCPServerConfig } from "@/types/dynamic-agent";
 
@@ -19,6 +22,32 @@ type AgentGatewayMigrationWarning = {
   existing_endpoint?: string;
   message: string;
 };
+
+async function reconcileAgentGatewayMcpServer(
+  serverId: string,
+  existing: MCPServerConfig | null,
+): Promise<void> {
+  if (existing?.visibility) {
+    await reconcileMcpServerRelationships({
+      serverId,
+      ownerSubject: existing.owner_subject,
+      ownerTeamSlug:
+        existing.visibility === "team" ? existing.owner_team_slug : null,
+      nextSharedTeamSlugs:
+        existing.visibility === "team" ? existing.shared_with_teams ?? [] : [],
+      globalOrganizationAccess: existing.visibility === "global",
+    });
+    return;
+  }
+
+  // Unclassified discovery records retain the legacy discover-only policy.
+  // Once an owner selects Private, Teams, or Global in the editor, that
+  // explicit policy becomes authoritative on every future AgentGateway sync.
+  await reconcileConfigDrivenMcpServerRelationships({
+    serverId,
+    organizationId: caipeOrgKey(),
+  });
+}
 
 export async function fetchAgentGatewayMcpDiscovery(): Promise<AgentGatewayMcpDiscovery> {
   const response = await fetch(agentGatewayAdminConfigUrl(), { method: "GET" });
@@ -56,10 +85,8 @@ export async function syncSelectedAgentGatewayMcpServers(ids?: string[]) {
   for (const target of discovery.targets) {
     if (!selectedIds.has(target.id)) continue;
     if (target.status === "existing") {
-      await reconcileConfigDrivenMcpServerRelationships({
-        serverId: target.id,
-        organizationId: caipeOrgKey(),
-      });
+      const existing = await collection.findOne({ _id: target.id } as never);
+      await reconcileAgentGatewayMcpServer(target.id, existing);
       refreshed.push(target.id);
       continue;
     }
@@ -67,13 +94,10 @@ export async function syncSelectedAgentGatewayMcpServers(ids?: string[]) {
       skipped.push({ id: target.id, reason: target.status });
       continue;
     }
-    await reconcileConfigDrivenMcpServerRelationships({
-      serverId: target.id,
-      organizationId: caipeOrgKey(),
-    });
+    const existing = await collection.findOne({ _id: target.id } as never);
+    await reconcileAgentGatewayMcpServer(target.id, existing);
     const doc = toAgentGatewayMcpServerDocument(target);
     if (target.status === "legacy") {
-      const existing = await collection.findOne({ _id: target.id } as never);
       const existingCredentialSources = existing?.credential_sources;
       if (Array.isArray(existingCredentialSources) && existingCredentialSources.length > 0) {
         doc.credential_sources = existingCredentialSources;

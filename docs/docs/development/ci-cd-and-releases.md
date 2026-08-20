@@ -94,7 +94,6 @@ The main image workflows are tag-driven:
 - `ci-dynamic-agents.yml`
 - `ci-mcp-sub-agent.yml`
 - `ci-rag.yml`
-- `ci-caipe-ui.yml`
 - `ci-audit-service.yml`
 - `ci-skill-scanner.yml`
 - `ci-slack-bot.yml`
@@ -103,6 +102,10 @@ The main image workflows are tag-driven:
 - `ci-openfga-authz-bridge.yml`
 
 Each workflow resolves the tag through `.github/actions/determine-release-tag/action.yml`.
+
+In the mirror, `ci-caipe-ui.yml` performs a single-platform image build as a
+pull-request check. The coordinated Tome release dispatches it to publish the
+multi-architecture UI image from the exact merge SHA.
 
 For prerelease tags with `N > 1`, workflows build only changed images and retag unchanged images from the previous tag. If the source image for retagging does not exist, the workflow falls back to a fresh build.
 

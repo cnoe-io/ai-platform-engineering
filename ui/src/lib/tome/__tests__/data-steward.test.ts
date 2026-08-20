@@ -15,6 +15,7 @@ const mockDeleteExactOpenFgaTuples = jest.fn();
 const mockReadOpenFgaTuples = jest.fn();
 const mockIsTomeAdmin = jest.fn();
 const mockCanReadTomeProject = jest.fn();
+const mockRepairTomeAuthorizationForProject = jest.fn();
 
 jest.mock("mongodb", () => ({
   ObjectId: class MockObjectId {
@@ -57,6 +58,11 @@ jest.mock("@/lib/rbac/tome-admin", () => ({
   isTomeAdmin: (...args: unknown[]) => mockIsTomeAdmin(...args),
 }));
 
+jest.mock("@/lib/tome/authorization-health", () => ({
+  repairTomeAuthorizationForProject: (...args: unknown[]) =>
+    mockRepairTomeAuthorizationForProject(...args),
+}));
+
 function project(
   type: ProjectDocument["type"] = "project",
   dataSteward?: ProjectDocument["data_steward"],
@@ -91,6 +97,7 @@ describe("Tome data-steward authorization", () => {
     jest.clearAllMocks();
     mockIsTomeAdmin.mockResolvedValue(false);
     mockCanReadTomeProject.mockResolvedValue(true);
+    mockRepairTomeAuthorizationForProject.mockResolvedValue(1);
     mockWriteOpenFgaTuples.mockResolvedValue({ enabled: true, writes: 1, deletes: 0 });
     mockDeleteExactOpenFgaTuples.mockResolvedValue({ enabled: true, writes: 0, deletes: 1 });
     mockReadOpenFgaTuples.mockImplementation(
@@ -201,29 +208,25 @@ describe("Tome data-steward authorization", () => {
     },
   );
 
-  it("repairs a stored team steward tuple before checking again", async () => {
+  it("runs caller-scoped repair before checking a denied team steward again", async () => {
     mockCheckOpenFgaTuple
       .mockResolvedValueOnce({ allowed: false })
       .mockResolvedValueOnce({ allowed: true });
     const stored = { type: "team" as const, id: "primary", name: "Primary Team" };
+    const stewardedProject = project("area", stored);
 
     await expect(
       getTomeProjectPermissions({
-        project: project("area", stored),
+        project: stewardedProject,
         user: { email: "member@example.com" },
         session: { sub: "member-sub" },
       }),
     ).resolves.toEqual({ canRead: true, canEdit: true, canManageSteward: false });
 
-    expect(mockWriteOpenFgaTuples).toHaveBeenCalledWith({
-      writes: [
-        {
-          user: "team:primary#member",
-          relation: "writer",
-          object: "document:tome/area/project-id",
-        },
-      ],
-      deletes: [],
+    expect(mockRepairTomeAuthorizationForProject).toHaveBeenCalledWith({
+      project: stewardedProject,
+      userSubject: "member-sub",
+      userEmail: "member@example.com",
     });
   });
 

@@ -173,6 +173,35 @@ export interface AgentIngestRequest {
   actor_email: string | null;
   /** Same as `AgentChatRequest.credentials`. */
   credentials: ForwardedCredentials;
+  /**
+   * "auto" = fired unattended by the CRON scheduler, no human triggered this
+   * run just now. The agent should treat `seed`/existing context as
+   * authoritative rather than expecting fresh human intent. Default "manual".
+   */
+  triggered_by: "manual" | "auto";
+  /** Frozen, isolated A/B execution context. Omitted for normal runs. */
+  experiment?: AgentExperimentRunContext;
+}
+
+export interface AgentExperimentRunContext {
+  experiment_id: string;
+  artifact_id: string;
+  evidence_bundle_id: string;
+  blind_label: string;
+  model: string;
+  turn_limit: number;
+  seed: number;
+  frozen_pages: Record<string, string>;
+  frozen_child_pages: Record<string, Record<string, string>>;
+  frozen_evidence: Array<{
+    canonical_uri: string;
+    content_hash: string;
+    content: string;
+  }>;
+  template_overrides: Record<string, Array<Record<string, unknown>>>;
+  evaluation_mode: "quick" | "deep" | "all_pages";
+  evaluation_page_paths: string[];
+  max_budget_usd?: number;
 }
 
 function toWebexRoomSnapshot(
@@ -396,8 +425,8 @@ export async function buildChatRequest(
   if (isSynthesizedType(ctx.project.type)) {
     snapshot.child_projects = (
       ctx.project.type === "area"
-        ? await resolveAreaChildren(ctx.project.name)
-        : await resolveBhagChildren(ctx.project.name)
+        ? await resolveAreaChildren(ctx.project.slug)
+        : await resolveBhagChildren(ctx.project.slug)
     ).filter((project) => readableSlugs.has(project.slug));
   }
   return {
@@ -437,6 +466,8 @@ export function buildIngestRequest(
     childProjects?: ChildProjectSnapshot[];
     /** OpenFGA-filtered cross-project catalog for agent read tools. */
     readableProjects?: ChildProjectSnapshot[];
+    /** "auto" = unattended CRON run; no fresh human intent behind `seed`. */
+    triggeredBy?: "manual" | "auto";
   },
 ): AgentIngestRequest {
   const snapshot = buildSnapshotFromProject(project);
@@ -457,5 +488,6 @@ export function buildIngestRequest(
     seed_stable_pages: opts.seedStablePages ?? false,
     actor_email: opts.actorEmail ?? null,
     credentials: opts.credentials ?? {},
+    triggered_by: opts.triggeredBy ?? "manual",
   };
 }

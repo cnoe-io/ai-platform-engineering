@@ -89,18 +89,24 @@ const EDITOR_ROUTES_WITH_HEADER_DIALOG = [
   "/dynamic-agents",
 ];
 
+function isOnTomeProjectSettings(
+  pathname: string | null | undefined,
+): boolean {
+  return Boolean(pathname && /^\/projects\/[^/]+\/tome\/settings(?:\/|$)/.test(pathname));
+}
+
 function isOnGuardedEditor(pathname: string | null | undefined): boolean {
   if (!pathname) return false;
-  return EDITOR_ROUTES_WITH_OWN_DISCARD_DIALOG.some((p) =>
-    pathname.startsWith(p),
-  );
+  return isOnTomeProjectSettings(pathname)
+    || EDITOR_ROUTES_WITH_OWN_DISCARD_DIALOG.some((p) => pathname.startsWith(p));
 }
 
 function isOnHeaderDialogEditor(
   pathname: string | null | undefined,
 ): boolean {
   if (!pathname) return false;
-  return EDITOR_ROUTES_WITH_HEADER_DIALOG.some((p) => pathname.startsWith(p));
+  return isOnTomeProjectSettings(pathname)
+    || EDITOR_ROUTES_WITH_HEADER_DIALOG.some((p) => pathname.startsWith(p));
 }
 
 function GuardedLink({
@@ -208,6 +214,7 @@ export function calculateVisibleHeaderNavItems({
 
 export function AppHeader() {
   const pathname = usePathname();
+  const router = useRouter();
   const shouldReduceMotion = useReducedMotion();
   const { data: session } = useSession();
   const { isAdmin } = useAdminRole();
@@ -245,9 +252,13 @@ export function AppHeader() {
     const href = confirmNavigation();
     if (href) {
       setUnsaved(false);
-      window.location.href = href;
+      // Keep confirmed navigation inside the Next.js app. A full-page
+      // window.location navigation fires beforeunload handlers and can show a
+      // second, browser-owned prompt after the user already confirmed in the
+      // app dialog.
+      router.push(href);
     }
-  }, [confirmNavigation, setUnsaved]);
+  }, [confirmNavigation, router, setUnsaved]);
 
   const handleCancel = React.useCallback(() => {
     cancelNavigation();
@@ -262,7 +273,6 @@ export function AppHeader() {
   // visibly does nothing in that race. Programmatic navigation + an
   // explicit close-after-push is deterministic.
   const [alertsPopoverOpen, setAlertsPopoverOpen] = React.useState(false);
-  const router = useRouter();
   const handleReportProblemClick = React.useCallback(async () => {
     if (config.reportProblemRouting === 'dynamic-agent' && config.reportProblemDynamicAgentId) {
       const newId = await createConversation(config.reportProblemDynamicAgentId);
@@ -569,7 +579,7 @@ export function AppHeader() {
     {
       key: "projects",
       href: "/projects",
-      label: "Projects",
+      label: "TOME",
       Icon: FolderKanban,
       activeTextClassName: "text-white",
       activeIndicatorClassName: "bg-indigo-600 shadow-sm",
@@ -1319,8 +1329,12 @@ export function AppHeader() {
         open={!!pendingNavigationHref}
         onDiscard={handleDiscard}
         onCancel={handleCancel}
-        title="Unsaved changes"
-        description="You have unsaved changes. They will be lost if you leave now."
+        title={isOnTomeProjectSettings(pathname) ? "Discard unsaved settings?" : "Unsaved changes"}
+        description={isOnTomeProjectSettings(pathname)
+          ? "Your unsaved project settings will be lost if you leave now."
+          : "You have unsaved changes. They will be lost if you leave now."}
+        discardLabel={isOnTomeProjectSettings(pathname) ? "Discard and leave" : undefined}
+        cancelLabel={isOnTomeProjectSettings(pathname) ? "Stay" : undefined}
       />
     )}
     {session && releasePrompt.releaseVersion && (

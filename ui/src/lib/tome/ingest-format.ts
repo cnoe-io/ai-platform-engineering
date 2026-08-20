@@ -67,9 +67,10 @@ export function formatIngestEvent(ev: IngestEvent): string {
       // Cost + the live context-window percentage are the trustworthy signals.
       const cost =
         typeof d.cost_usd === "number" ? `$${d.cost_usd.toFixed(4)}` : "?";
+      const model = typeof d.model === "string" && d.model ? `, model=${d.model}` : "";
       return `[${t}] ✓ agent finished (subtype=${String(d.subtype ?? "?")}, turns=${String(
         d.turns ?? "?",
-      )}, tool_calls=${String(d.tool_calls ?? "?")}, cost=${cost})`;
+      )}, tool_calls=${String(d.tool_calls ?? "?")}, cost=${cost}${model})`;
     }
     case "error":
       return `[${t}] ✗ ${String(d.message ?? "?")}`;
@@ -79,8 +80,9 @@ export function formatIngestEvent(ev: IngestEvent): string {
 }
 
 /** A start-of-run line written by the runner before the agent dispatches. */
-export function dispatchLine(isGreenfield: boolean): string {
-  return `[${hhmmss()}] ▶ agent ingest dispatched (mode=${isGreenfield ? "greenfield" : "incremental"})`;
+export function dispatchLine(isGreenfield: boolean, triggeredBy?: "manual" | "auto"): string {
+  const trigger = triggeredBy === "auto" ? ", trigger=auto" : "";
+  return `[${hhmmss()}] ▶ agent ingest dispatched (mode=${isGreenfield ? "greenfield" : "incremental"}${trigger})`;
 }
 
 /** Info line (· marker). */

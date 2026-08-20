@@ -68,6 +68,18 @@ import {
   type DropTeamKbOwnershipInputs,
 } from "./drop-team-kb-ownership";
 import { schemaAreasNeedingVersionBootstrap } from "./schema-bootstrap";
+import {
+  applyProjectLabelsToSlugMigration,
+  planProjectLabelsToSlugMigration,
+  PROJECT_LABELS_TO_SLUG_CONFIRMATION,
+  PROJECT_LABELS_TO_SLUG_MIGRATION_ID,
+} from "./project-labels-to-slug";
+import {
+  applyPrivateResourceVisibilityMigration,
+  planPrivateResourceVisibilityMigration,
+  PRIVATE_RESOURCE_VISIBILITY_CONFIRMATION,
+  PRIVATE_RESOURCE_VISIBILITY_MIGRATION_ID,
+} from "./private-resource-visibility";
 export {
   getUnclassifiedSchemaAreas,
   SCHEMA_AREA_CLASSIFICATIONS,
@@ -452,6 +464,21 @@ export const MIGRATION_DEFINITIONS: MigrationDefinition[] = [
     implemented: true,
   },
   {
+    id: PRIVATE_RESOURCE_VISIBILITY_MIGRATION_ID,
+    release: RELEASE_060,
+    schema_area: "private_resource_visibility",
+    from_version: 1,
+    to_version: 2,
+    kind: "explicit",
+    title: "Private-resource visibility classification",
+    description:
+      "Preserves legacy MCP servers as global, classifies credentials, and reconciles OpenFGA tuples before PRIVATE_RESOURCES_ENABLED is turned on.",
+    confirmation: PRIVATE_RESOURCE_VISIBILITY_CONFIRMATION,
+    required: false,
+    blocking: false,
+    implemented: true,
+  },
+  {
     id: TEAM_TOOL_WILDCARD_SLASH_MIGRATION_ID,
     release: RELEASE_058,
     schema_area: "team_resources",
@@ -575,6 +602,20 @@ export const MIGRATION_DEFINITIONS: MigrationDefinition[] = [
     dependencies: [KNOWLEDGE_BASE_SHARED_TEAM_GRANTS_MIGRATION_ID],
   },
   KEYCLOAK_RBAC_MIGRATION_DEFINITION,
+  {
+    id: PROJECT_LABELS_TO_SLUG_MIGRATION_ID,
+    release: RELEASE_060,
+    schema_area: "tome_projects",
+    from_version: 1,
+    to_version: 2,
+    kind: "explicit",
+    title: "Migrate project hierarchy labels from display names to slugs",
+    description:
+      "Rewrites `labels.initiatives` and `labels.areas` on project documents to store the stable slug of the referenced BHAG or Area, replacing the frozen display-name strings that caused renames to break child-resolution across all read paths. Also unsets the legacy `name` field (superseded by `title` + `slug`).",
+    confirmation: PROJECT_LABELS_TO_SLUG_CONFIRMATION,
+    required: true,
+    implemented: true,
+  },
   {
     id: USER_PREFERENCES_DEFAULT_AGENT_CLEANUP_MIGRATION_ID,
     release: RELEASE_060,
@@ -2991,6 +3032,9 @@ export async function planMigration(migrationId: string, now = new Date().toISOS
   if (migrationId === LEGACY_RUNTIME_CLEANUP_MIGRATION_ID) {
     return deriveLegacyRuntimeCleanupPlan(await loadLegacyRuntimeCleanupInputs());
   }
+  if (migrationId === PROJECT_LABELS_TO_SLUG_MIGRATION_ID) {
+    return planProjectLabelsToSlugMigration();
+  }
   if (migrationId === USER_PREFERENCES_DEFAULT_AGENT_CLEANUP_MIGRATION_ID) {
     return deriveUserPreferencesDefaultAgentCleanupPlan(
       await loadUserPreferencesDefaultAgentCleanupInputs(),
@@ -3067,6 +3111,9 @@ export async function planMigration(migrationId: string, now = new Date().toISOS
       "./agent-skill-openfga-reconcile"
     );
     return planAgentSkillOpenFgaReconcileMigration();
+  }
+  if (migrationId === PRIVATE_RESOURCE_VISIBILITY_MIGRATION_ID) {
+    return planPrivateResourceVisibilityMigration();
   }
   if (migrationId === TEAM_TOOL_WILDCARD_SLASH_MIGRATION_ID) {
     const { teams, toolTuples } = await loadTeamToolWildcardInputs();
@@ -3350,6 +3397,12 @@ export async function applyMigration(input: {
     return result;
   }
 
+  if (input.migrationId === PROJECT_LABELS_TO_SLUG_MIGRATION_ID) {
+    const result = await applyProjectLabelsToSlugMigration({ actor: input.actor, now });
+    await recordCompletedMigration({ definition, result, now, actor: input.actor });
+    return result;
+  }
+
   if (input.migrationId === USER_PREFERENCES_DEFAULT_AGENT_CLEANUP_MIGRATION_ID) {
     const userPreferences = await getCollection("user_preferences");
     const result = await applyUserPreferencesDefaultAgentCleanupMigration({
@@ -3373,6 +3426,12 @@ export async function applyMigration(input: {
       actor: input.actor,
       now,
     });
+    await recordCompletedMigration({ definition, result, now, actor: input.actor });
+    return result;
+  }
+
+  if (input.migrationId === PRIVATE_RESOURCE_VISIBILITY_MIGRATION_ID) {
+    const result = await applyPrivateResourceVisibilityMigration({ actor: input.actor, now });
     await recordCompletedMigration({ definition, result, now, actor: input.actor });
     return result;
   }

@@ -1,6 +1,12 @@
 "use client";
 
 import { cn } from "@/lib/utils";
+import { parseTomeEmbed } from "@/lib/tome/embeds";
+import {
+  createEmbedError,
+  createEmbedPreview,
+  hydrateEmbedPreviews,
+} from "@/lib/tome/editor-media";
 import {
   feedMessageRoute,
   parseFeedHref,
@@ -88,6 +94,15 @@ md.use(sharedMarkedOptions);
 md.use(
   markedShiki({
     async highlight(code, lang) {
+      // TOME embed fences are render directives, not programming languages.
+      // Preserve their original language before Shiki downgrades unknown
+      // languages to `text`; decorateExternalEmbeds() validates the payload
+      // and replaces this inert block with an allowlisted iframe later.
+      const embedLanguage = lang.trim().toLowerCase();
+      if (parseTomeEmbed(embedLanguage, code)) {
+        return `<pre data-language="${embedLanguage}"><code>${escapeHtml(code)}</code></pre>`;
+      }
+
       const hl = await getHighlighter();
       let language = lang || "text";
       if (!(language in bundledLanguages)) {
@@ -200,6 +215,27 @@ function decorateTables(root: HTMLElement) {
   }
 }
 
+function decorateExternalEmbeds(root: HTMLElement) {
+  const codeBlocks = root.querySelectorAll("pre");
+  for (const pre of codeBlocks) {
+    const code = pre.querySelector("code");
+    const language =
+      pre.getAttribute("data-language") ||
+      code?.className.match(/(?:^|\s)language-([A-Za-z0-9_-]+)/)?.[1] ||
+      "";
+    const parsed = parseTomeEmbed(language, code?.textContent ?? pre.textContent ?? "");
+    if (!parsed) continue;
+
+    const provider = language.trim().toLowerCase();
+    const providerLabel =
+      provider === "arxiv" ? "arXiv" : provider === "youtube" ? "YouTube" : "Vidcast";
+    const replacement = parsed.ok === true
+      ? createEmbedPreview(parsed.value)
+      : createEmbedError(provider, `Could not embed ${providerLabel}: ${parsed.error}`);
+    pre.replaceWith(replacement);
+  }
+}
+
 // ═══════════════════════════════════════════════════════════════
 // Click handler for copy buttons — uses event delegation on root
 // ═══════════════════════════════════════════════════════════════
@@ -277,6 +313,8 @@ interface MarkdownRendererProps {
   onInternalLink?: (path: string) => void;
   /** Resolve a glossary term slug to its definition for the hover card. */
   glossaryPreview?: GlossaryResolver;
+  /** Enable allowlisted Vidcast, YouTube, and arXiv fenced blocks. */
+  enableExternalEmbeds?: boolean;
 }
 
 /**
@@ -297,6 +335,7 @@ export function MarkdownRenderer({
   className,
   onInternalLink,
   glossaryPreview,
+  enableExternalEmbeds = false,
 }: MarkdownRendererProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const cleanupRef = useRef<(() => void) | null>(null);
@@ -340,6 +379,7 @@ export function MarkdownRenderer({
     const temp = document.createElement("div");
     temp.innerHTML = html;
     decorateLinks(temp);
+    if (enableExternalEmbeds) decorateExternalEmbeds(temp);
     decorateCopyButtons(temp);
     decorateTables(temp);
 
@@ -384,6 +424,7 @@ export function MarkdownRenderer({
         return node;
       },
     });
+    if (enableExternalEmbeds) hydrateEmbedPreviews(container);
 
     // Set up event delegation once
     if (!cleanupRef.current) {
@@ -503,7 +544,7 @@ export function MarkdownRenderer({
         hideCard();
       };
     }
-  }, []);
+  }, [enableExternalEmbeds]);
 
   // Parse + morph on content changes
   useEffect(() => {

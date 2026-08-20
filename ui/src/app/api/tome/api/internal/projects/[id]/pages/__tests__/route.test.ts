@@ -9,6 +9,9 @@ const mockResolveProject = jest.fn();
 const mockGetPageStore = jest.fn();
 const mockCheckOpenFgaTuple = jest.fn();
 const mockGetTomeIngestRunsCollection = jest.fn();
+const mockGetExperiment = jest.fn();
+const mockGetExperimentArtifact = jest.fn();
+const mockWriteExperimentArtifactPage = jest.fn();
 
 jest.mock("@/lib/tome/internal-api", () => ({
   requireAgentToken: (...args: unknown[]) => mockRequireAgentToken(...args),
@@ -30,6 +33,12 @@ jest.mock("@/lib/tome/access", () => ({
 
 jest.mock("@/lib/tome/mongo-collections", () => ({
   getTomeIngestRunsCollection: () => mockGetTomeIngestRunsCollection(),
+}));
+
+jest.mock("@/lib/tome/evaluation-store", () => ({
+  getExperiment: (...args: unknown[]) => mockGetExperiment(...args),
+  getExperimentArtifact: (...args: unknown[]) => mockGetExperimentArtifact(...args),
+  writeExperimentArtifactPage: (...args: unknown[]) => mockWriteExperimentArtifactPage(...args),
 }));
 
 const PROJECT = { _id: "proj-1", slug: "quantum", type: "project" };
@@ -65,6 +74,9 @@ describe("internal pages POST — FGA enforcement for chat-initiated writes", ()
     mockGetTomeIngestRunsCollection.mockResolvedValue({
       findOne: jest.fn().mockResolvedValue(null),
     });
+    mockGetExperiment.mockResolvedValue(null);
+    mockGetExperimentArtifact.mockResolvedValue(null);
+    mockWriteExperimentArtifactPage.mockResolvedValue(undefined);
   });
 
   it("returns 403 when no actor_sub and no report_id (chat write, identity missing)", async () => {
@@ -148,5 +160,64 @@ describe("internal pages POST — FGA enforcement for chat-initiated writes", ()
       "# Hello",
       expect.objectContaining({ status: "draft" }),
     );
+  });
+
+  it("isolates experiment writes from normal page revisions", async () => {
+    mockGetExperiment.mockResolvedValue({ _id: "experiment-1", project_id: "proj-1" });
+    mockGetExperimentArtifact.mockResolvedValue({
+      _id: "artifact-1",
+      experiment_id: "experiment-1",
+      project_id: "proj-1",
+    });
+    const mockWritePage = jest.fn();
+    mockGetPageStore.mockResolvedValue({ writePage: mockWritePage });
+
+    const { POST } = await import("../route");
+    const res = await POST(postRequest({
+      path: "overview.md",
+      body: "# Candidate only",
+      report_id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+      experiment_id: "experiment-1",
+      artifact_id: "artifact-1",
+    }), ctx());
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({ isolated: true });
+    expect(mockWriteExperimentArtifactPage).toHaveBeenCalledWith(
+      "artifact-1",
+      "overview.md",
+      "# Candidate only",
+    );
+    expect(mockWritePage).not.toHaveBeenCalled();
+  });
+
+  it("rejects quick-evaluation writes outside the selected pages", async () => {
+    mockGetExperiment.mockResolvedValue({
+      _id: "experiment-1",
+      project_id: "proj-1",
+      config: {
+        evaluation_mode: "quick",
+        evaluation_page_scope: { mode: "selected", paths: ["overview.md"] },
+      },
+    });
+    mockGetExperimentArtifact.mockResolvedValue({
+      _id: "artifact-1",
+      experiment_id: "experiment-1",
+      project_id: "proj-1",
+    });
+
+    const { POST } = await import("../route");
+    const res = await POST(postRequest({
+      path: "status.md",
+      body: "# Out of scope",
+      experiment_id: "experiment-1",
+      artifact_id: "artifact-1",
+    }), ctx());
+
+    expect(res.status).toBe(403);
+    await expect(res.json()).resolves.toMatchObject({
+      code: "QUICK_EVALUATION_PAGE_SCOPE",
+    });
+    expect(mockWriteExperimentArtifactPage).not.toHaveBeenCalled();
   });
 });

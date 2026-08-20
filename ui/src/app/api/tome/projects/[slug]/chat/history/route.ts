@@ -26,7 +26,7 @@ import {
   loadSessionById,
   setSdkSessionId,
 } from "@/lib/tome/chat-history-store";
-import type { ChatPart, ChatRole } from "@/types/tome";
+import type { ChatPart, ChatRole, ModelProvenance } from "@/types/tome";
 
 export const dynamic = "force-dynamic";
 
@@ -73,6 +73,8 @@ export const GET = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
       role: m.role,
       content: m.content,
       parts: m.parts ?? null,
+      model: m.model ?? null,
+      model_provenance: m.model_provenance ?? null,
     })),
     readOnly,
     sessionOwner,
@@ -89,6 +91,8 @@ export const POST = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
     parts?: ChatPart[];
     sdk_session_id?: string | null;
     session_id?: string | null;
+    model?: string;
+    model_provenance?: ModelProvenance;
   };
 
   if (body.role !== "user" && body.role !== "assistant") {
@@ -109,6 +113,10 @@ export const POST = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
     body.role,
     body.content,
     Array.isArray(body.parts) ? body.parts : undefined,
+    typeof body.model === "string" ? body.model : undefined,
+    body.model_provenance && typeof body.model_provenance === "object"
+      ? body.model_provenance
+      : undefined,
   );
 
   if (typeof body.sdk_session_id === "string" && body.sdk_session_id) {

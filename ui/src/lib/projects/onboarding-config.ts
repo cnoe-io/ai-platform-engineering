@@ -90,7 +90,7 @@ export interface ProjectOnboardingConfig {
 
 const DEFAULT_CONFIG: ProjectOnboardingConfig = {
   hero: {
-    title: "Projects for your teams",
+    title: "TOME: knowledge for your teams",
     description: "Onboarding steps are configured externally.",
   },
   steps: [],

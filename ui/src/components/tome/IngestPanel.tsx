@@ -32,8 +32,9 @@ import {
   parseConfluenceUrl,
 } from "@/lib/projects/confluence-source";
 import { preflightState, type PreflightSourceResult } from "@/lib/tome/preflight";
+import { describeRelativeTime, nextCronRun } from "@/lib/tome/auto-ingest/schedule-presets";
 import { cn } from "@/lib/utils";
-import type { ConfluencePageScope } from "@/types/projects";
+import type { AutoIngestConfig, ConfluencePageScope } from "@/types/projects";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -390,6 +391,7 @@ export function IngestPanel({
   const [preflight, setPreflight] = useState<PreflightSourceResult[] | null>(null);
   const [preflightLoading, setPreflightLoading] = useState(true);
   const [projectName, setProjectName] = useState("");
+  const [autoIngest, setAutoIngest] = useState<AutoIngestConfig | undefined>(undefined);
 
   // Greenfield seeding — opt-in. Off by default: stable pages stay human-owned
   // unless the user explicitly authorizes a best-effort agent draft.
@@ -442,7 +444,8 @@ export function IngestPanel({
       .then(([projJson, preflightJson]) => {
         if (cancelled) return;
         const proj = projJson?.data?.project ?? {};
-        setProjectName(proj.name ?? proj.title ?? "");
+        setProjectName(proj.slug ?? "");
+        setAutoIngest(proj.autoIngest);
         const s = proj.sources ?? {};
         setSourceRows(sourcesFromProject(s));
         setPreflight(preflightJson?.data?.sources ?? null);
@@ -774,7 +777,7 @@ export function IngestPanel({
                   <div className="mt-2">
                     {projectName ? (
                       <ChildProjectsPanel
-                        bhagName={projectName}
+                        bhagSlug={projectName}
                         entityKind={entityKind}
                         preflight
                         onCount={setBhagCount}
@@ -801,6 +804,24 @@ export function IngestPanel({
                       </span>
                     </span>
                   </label>
+                </div>
+              )}
+
+              {autoIngest?.enabled && (
+                <div className="flex items-center justify-between px-4 py-3 text-xs text-muted-foreground">
+                  <span>
+                    Auto-ingest:{" "}
+                    {(() => {
+                      const next = nextCronRun(autoIngest.cron, new Date());
+                      return next ? `next run ${describeRelativeTime(next, new Date())}` : "schedule configured";
+                    })()}
+                  </span>
+                  <a
+                    href={`/projects/${slug}/tome/settings?tab=auto-ingest`}
+                    className="flex items-center gap-1 hover:text-foreground"
+                  >
+                    Edit schedule <ExternalLink className="h-3 w-3" />
+                  </a>
                 </div>
               )}
 

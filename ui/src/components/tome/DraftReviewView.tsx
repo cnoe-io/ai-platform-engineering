@@ -7,6 +7,7 @@ import { CheckCircle2, Loader2, XCircle } from "lucide-react";
 
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
+import type { ArtifactEvaluation } from "@/types/tome-evaluation";
 
 /**
  * Per-page diff of what one ingest run changed. For a run awaiting review,
@@ -41,6 +42,13 @@ export function DraftReviewView({
   // fetched here so callers can just point this at any run id (a pending
   // draft or one long since terminal) without knowing its status upfront.
   const [reviewable, setReviewable] = useState(false);
+  const [qualityEvaluation, setQualityEvaluation] = useState<ArtifactEvaluation | null>(null);
+  const [qualityPolicy, setQualityPolicy] = useState<{
+    mode: "off" | "observe" | "enforce";
+    version: number | null;
+    allow_steward_override: boolean;
+  } | null>(null);
+  const [overrideReason, setOverrideReason] = useState("");
   const { resolvedTheme } = useTheme();
   const dark = resolvedTheme === "dark";
 
@@ -49,7 +57,11 @@ export function DraftReviewView({
     fetch(`/api/tome/projects/${slug}/ingests/${runId}`)
       .then((r) => r.json())
       .then((j) => {
-        if (!cancelled) setReviewable(j?.data?.status === "awaiting_review");
+        if (!cancelled) {
+          setReviewable(j?.data?.status === "awaiting_review");
+          setQualityEvaluation(j?.data?.quality_evaluation ?? null);
+          setQualityPolicy(j?.data?.quality_policy ?? null);
+        }
       })
       .catch(() => {
         if (!cancelled) setReviewable(false);
@@ -76,6 +88,10 @@ export function DraftReviewView({
     try {
       const res = await fetch(`/api/tome/projects/${slug}/ingests/${runId}/${action}`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(action === "approve" && overrideReason.trim()
+          ? { override_reason: overrideReason.trim() }
+          : {}),
       });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
@@ -90,6 +106,16 @@ export function DraftReviewView({
   };
 
   const selected = pages?.find((p) => p.path === selectedPath) ?? null;
+  const failedBlockingRubrics = qualityEvaluation?.rubrics.filter(
+    (rubric) => rubric.enabled && rubric.blocking && rubric.passed !== true,
+  ) ?? [];
+  const gateBlocked = qualityPolicy?.mode === "enforce" && (
+    !qualityEvaluation
+    || qualityEvaluation.status === "error"
+    || failedBlockingRubrics.length > 0
+    || qualityEvaluation.blocking_findings.length > 0
+  );
+  const overrideReady = qualityPolicy?.allow_steward_override && overrideReason.trim().length >= 10;
 
   return (
     <div className="flex h-full flex-col">
@@ -120,7 +146,7 @@ export function DraftReviewView({
             <button
               type="button"
               onClick={() => void resolve("approve")}
-              disabled={resolving !== null}
+              disabled={resolving !== null || (gateBlocked && !overrideReady)}
               className="flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-60"
             >
               {resolving === "approve" ? (
@@ -140,6 +166,69 @@ export function DraftReviewView({
       </div>
       {error && (
         <p className="border-b bg-destructive/10 px-5 py-2 text-sm text-destructive">{error}</p>
+      )}
+
+      {qualityPolicy && qualityPolicy.mode !== "off" && (
+        <div className="space-y-2 border-b px-5 py-3 text-xs">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-medium">Grounded quality</span>
+            <span className={qualityEvaluation?.status === "passed" ? "text-emerald-600" : "text-destructive"}>
+              {qualityEvaluation?.status ?? "not evaluated"}
+            </span>
+            <span className="text-muted-foreground">
+              {qualityPolicy.mode} policy · version {qualityPolicy.version ?? "—"}
+            </span>
+          </div>
+          {qualityEvaluation && (
+            <div className="grid gap-1 sm:grid-cols-2 lg:grid-cols-3">
+              {qualityEvaluation.rubrics.filter((rubric) => rubric.enabled).map((rubric) => (
+                <div key={rubric.id} className="flex justify-between gap-3 rounded bg-muted px-2 py-1">
+                  <span>{rubric.id.replaceAll("_", " ")}</span>
+                  <span>{rubric.passed === null ? "telemetry" : rubric.passed ? "pass" : "fail"}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {failedBlockingRubrics.flatMap((rubric) => rubric.findings).map((finding) => (
+            <p key={finding} className="text-destructive">{finding}</p>
+          ))}
+          {qualityEvaluation && qualityEvaluation.claims.length > 0 && (
+            <details>
+              <summary className="cursor-pointer font-medium">Claim findings ({qualityEvaluation.claims.length})</summary>
+              <div className="mt-2 max-h-52 space-y-2 overflow-auto">
+                {qualityEvaluation.claims.map((claim) => (
+                  <div key={claim.id} className="rounded border p-2">
+                    <p className="font-medium">{claim.classification} · {claim.page}{claim.section ? ` · ${claim.section}` : ""}</p>
+                    <p>&ldquo;{claim.exact_text}&rdquo;</p>
+                    <p className="text-muted-foreground">{claim.reason} · confidence {claim.confidence.toFixed(2)}{claim.abstained ? " · abstained" : ""}</p>
+                    {claim.citations.filter((citation) => /^https?:\/\//.test(citation)).map((citation) => (
+                      <a key={citation} href={citation} target="_blank" rel="noreferrer" className="block truncate text-primary underline">{citation}</a>
+                    ))}
+                    {claim.evidence.map((evidence) => (
+                      <p key={`${claim.id}-${evidence.evidence_item_id}`} className="truncate font-mono text-[10px] text-muted-foreground" title={evidence.canonical_uri}>
+                        Evidence: {evidence.canonical_uri} · sha256:{evidence.content_hash}
+                      </p>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            </details>
+          )}
+          {gateBlocked && qualityPolicy.allow_steward_override && canEdit && (
+            <label className="block font-medium">
+              Required override reason
+              <textarea
+                value={overrideReason}
+                onChange={(event) => setOverrideReason(event.target.value)}
+                placeholder="Explain why this failed evaluation is safe to promote…"
+                className="mt-1 min-h-16 w-full rounded-md border bg-background p-2 font-normal"
+              />
+            </label>
+          )}
+          {gateBlocked && !qualityPolicy.allow_steward_override && (
+            <p className="text-destructive">Promotion is blocked by the enforced quality policy.</p>
+          )}
+        </div>
       )}
 
       <div className="flex flex-1 overflow-hidden">

@@ -1,6 +1,10 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
+jest.mock("@/lib/config", () => ({
+  getConfig: (key: string) => key === "privateResourcesEnabled",
+}));
+
 import { MCPServerEditor } from "../MCPServerEditor";
 
 // assisted-by Codex Codex-sonnet-4-6
@@ -35,6 +39,12 @@ describe("MCPServerEditor credential sources", () => {
     global.fetch = jest.fn(async (url: string, init?: RequestInit) => {
       if (url === "/api/mcp-servers/agentgateway/discover") {
         return response({ targets: [] });
+      }
+      if (url === "/api/dynamic-agents/teams") {
+        return response([
+          { _id: "team-platform", slug: "platform", name: "Platform" },
+          { _id: "team-data", slug: "data", name: "Data" },
+        ]);
       }
       if (url === "/api/mcp-servers/endpoint-probe") {
         return response({
@@ -85,6 +95,33 @@ describe("MCPServerEditor credential sources", () => {
       }
       return response({});
     }) as jest.Mock;
+  });
+
+  it("places Private, Team, and Global access choices below Credentials and preserves global edit state", () => {
+    render(
+      <MCPServerEditor
+        server={{
+          _id: "global-tools",
+          name: "Global Tools",
+          transport: "http",
+          endpoint: "https://mcp.example.test/mcp",
+          visibility: "global",
+        }}
+        onSave={jest.fn()}
+        onCancel={jest.fn()}
+      />,
+    );
+
+    const credentialsHeading = screen.getByRole("heading", { name: "Credentials" });
+    const accessHeading = screen.getByRole("heading", { name: "Access and Visibility" });
+    expect(credentialsHeading.compareDocumentPosition(accessHeading)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(screen.getByRole("button", { name: /^private/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^team/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^global/i })).toHaveClass("border-primary");
+    expect(screen.queryByLabelText("Owner team")).not.toBeInTheDocument();
+    expect(screen.queryByText("Share with teams")).not.toBeInTheDocument();
   });
 
   it("creates header and environment secret refs from selectable secrets", async () => {
@@ -285,6 +322,209 @@ describe("MCPServerEditor credential sources", () => {
     expect(screen.getByLabelText(/upstream url|endpoint url/i)).toHaveValue("http://mcp-argocd:8000/mcp");
   });
 
+  it("preserves the managed caller-token credential when testing a connection", async () => {
+    (global.fetch as jest.Mock).mockImplementation(async (url: string) => {
+      if (url === "/api/mcp-servers/agentgateway/discover") {
+        return response({
+          targets: [{
+            id: "mcp-tome",
+            name: "Tome",
+            endpoint: "http://agentgateway:4000/mcp/mcp-tome",
+            target_endpoint: "https://example.test/api/tome/mcp",
+          }],
+        });
+      }
+      if (url === "/api/mcp-servers/credential-probe") {
+        return response({
+          ok: true,
+          status: 200,
+          credentialOrigins: [{ name: "X-CAIPE-Provider-Token", origin: "user_jwt" }],
+          missingCredentials: [],
+        });
+      }
+      if (
+        url === "/api/credentials/secrets" ||
+        url === "/api/credentials/connections" ||
+        url === "/api/credentials/oauth-connectors"
+      ) {
+        return response([]);
+      }
+      return response({});
+    });
+    const user = userEvent.setup();
+    render(
+      <MCPServerEditor
+        server={{
+          _id: "mcp-tome",
+          name: "Tome",
+          transport: "http",
+          endpoint: "http://agentgateway:4000/mcp/mcp-tome",
+          agentgateway_endpoint: "http://agentgateway:4000/mcp/mcp-tome",
+          agentgateway_target_endpoint: "https://example.test/api/tome/mcp",
+          source: "agentgateway",
+          credential_sources: [{
+            kind: "caller_token",
+            target: "header",
+            name: "X-CAIPE-Provider-Token",
+          }],
+          enabled: true,
+          created_at: "2026-08-15T00:00:00.000Z",
+          updated_at: "2026-08-15T00:00:00.000Z",
+        }}
+        onSave={jest.fn()}
+        onCancel={jest.fn()}
+      />,
+    );
+
+    expect(await screen.findByRole("option", { name: "Caller token" })).toBeInTheDocument();
+    expect(screen.getByLabelText(/credential kind/i)).toHaveValue("caller_token");
+    await user.click(screen.getByRole("button", { name: /test connection/i }));
+
+    await waitFor(() => {
+      const probeCall = (global.fetch as jest.Mock).mock.calls.find(
+        ([url]) => url === "/api/mcp-servers/credential-probe",
+      );
+      expect(probeCall).toBeDefined();
+      expect(JSON.parse(String(probeCall?.[1]?.body))).toEqual({
+        server_id: "mcp-tome",
+        credential_sources: [{
+          kind: "caller_token",
+          target: "header",
+          name: "X-CAIPE-Provider-Token",
+        }],
+      });
+    });
+  });
+
+  it("requires new servers to be saved before testing through AgentGateway", async () => {
+    const user = userEvent.setup();
+    render(<MCPServerEditor server={null} onSave={jest.fn()} onCancel={jest.fn()} />);
+
+    await user.type(screen.getByLabelText(/display name/i), "New MCP");
+    await user.type(screen.getByLabelText(/upstream url|endpoint url/i), "https://example.test/mcp");
+
+    expect(screen.getByRole("button", { name: /test connection/i }))
+      .toHaveAttribute("title", "Save this server before testing through AgentGateway");
+    expect(screen.getByRole("button", { name: /test connection/i })).toBeDisabled();
+  });
+
+  it("always shows Test Connection before the form actions and probes saved servers without credentials", async () => {
+    (global.fetch as jest.Mock).mockImplementation(async (url: string) => {
+      if (url === "/api/mcp-servers/credential-probe") {
+        return response({
+          ok: true,
+          status: 200,
+          credentialOrigins: [],
+          missingCredentials: [],
+        });
+      }
+      if (url === "/api/mcp-servers/agentgateway/discover") return response({ targets: [] });
+      if (url === "/api/dynamic-agents/teams") return response([]);
+      if (
+        url === "/api/credentials/secrets" ||
+        url === "/api/credentials/connections" ||
+        url === "/api/credentials/oauth-connectors"
+      ) {
+        return response([]);
+      }
+      return response({});
+    });
+    const user = userEvent.setup();
+    render(
+      <MCPServerEditor
+        server={{
+          _id: "mcp-example",
+          name: "Example MCP",
+          transport: "http",
+          endpoint: "http://agentgateway:4000/mcp/mcp-example",
+          source: "agentgateway",
+          credential_sources: [],
+        }}
+        onSave={jest.fn()}
+        onCancel={jest.fn()}
+      />,
+    );
+
+    const testConnection = screen.getByRole("button", { name: /test connection/i });
+    const cancel = screen.getByRole("button", { name: /^cancel$/i });
+    const save = screen.getByRole("button", { name: /save changes/i });
+    expect(testConnection).toBeEnabled();
+    expect(testConnection).toHaveClass("border-violet-400", "bg-violet-500/15", "text-foreground");
+    expect(testConnection.compareDocumentPosition(cancel)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(testConnection.compareDocumentPosition(save)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    const actionRow = testConnection.parentElement?.parentElement;
+    expect(actionRow?.firstElementChild).toBe(testConnection.parentElement);
+    expect(actionRow?.lastElementChild).toContainElement(cancel);
+    expect(actionRow?.lastElementChild).toContainElement(save);
+
+    await user.click(testConnection);
+    await waitFor(() => {
+      const probeCall = (global.fetch as jest.Mock).mock.calls.find(
+        ([url]) => url === "/api/mcp-servers/credential-probe",
+      );
+      expect(JSON.parse(String(probeCall?.[1]?.body))).toEqual({
+        server_id: "mcp-example",
+        credential_sources: [],
+      });
+    });
+    expect(await screen.findByText("Connected (HTTP 200)")).toBeInTheDocument();
+  });
+
+  it("tests read-only config-driven servers through the AgentGateway health probe", async () => {
+    (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url === "/api/mcp-servers/probe?id=argocd" && init?.method === "POST") {
+        return response({ success: true, tools: [{ name: "list_applications" }] });
+      }
+      if (url === "/api/mcp-servers/agentgateway/discover") return response({ targets: [] });
+      if (url === "/api/dynamic-agents/teams") return response([]);
+      if (
+        url === "/api/credentials/secrets" ||
+        url === "/api/credentials/connections" ||
+        url === "/api/credentials/oauth-connectors"
+      ) {
+        return response([]);
+      }
+      return response({});
+    });
+    const user = userEvent.setup();
+    render(
+      <MCPServerEditor
+        readOnly
+        server={{
+          _id: "argocd",
+          name: "ArgoCD",
+          transport: "http",
+          endpoint: "http://agentgateway:4000/mcp/argocd",
+          source: "agentgateway",
+          config_driven: true,
+          credential_sources: [],
+          permissions: { can_manage: false, can_invoke: false, can_discover: true },
+        }}
+        onSave={jest.fn()}
+        onCancel={jest.fn()}
+      />,
+    );
+
+    const testConnection = screen.getByRole("button", { name: /test connection/i });
+    const close = screen.getByRole("button", { name: /^close$/i });
+    const actionRow = testConnection.parentElement?.parentElement;
+    expect(actionRow?.firstElementChild).toBe(testConnection.parentElement);
+    expect(actionRow?.lastElementChild).toContainElement(close);
+
+    await user.click(testConnection);
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/mcp-servers/probe?id=argocd",
+        { method: "POST" },
+      );
+    });
+    expect(global.fetch).not.toHaveBeenCalledWith(
+      "/api/mcp-servers/credential-probe",
+      expect.anything(),
+    );
+    expect(await screen.findByText("Connected (HTTP 200)")).toBeInTheDocument();
+  });
+
   it("submits the picked AgentGateway upstream when creating a new server", async () => {
     (global.fetch as jest.Mock).mockImplementation(async (url: string, init?: RequestInit) => {
       if (url === "/api/mcp-servers/agentgateway/discover") {
@@ -370,6 +610,25 @@ describe("MCPServerEditor credential sources", () => {
     expect(screen.getByLabelText(/credential header/i)).toHaveValue("X-CAIPE-Provider-Token");
   });
 
+  it("saves explicit global MCP access from the editor", async () => {
+    const user = userEvent.setup();
+    render(<MCPServerEditor server={null} onSave={jest.fn()} onCancel={jest.fn()} />);
+
+    await user.type(screen.getByLabelText(/display name/i), "Shared Search");
+    await user.type(screen.getByLabelText(/upstream url|endpoint url/i), "https://mcp.example.com/mcp");
+    await user.click(screen.getByRole("button", { name: /Global Every signed-in user/i }));
+    await user.click(screen.getByRole("button", { name: /create server/i }));
+
+    await waitFor(() =>
+      expect(createBody()).toEqual(
+        expect.objectContaining({
+          visibility: "global",
+          shared_with_teams: [],
+        }),
+      ),
+    );
+  });
+
   it("sends an empty credential_sources array when all credentials are removed on edit", async () => {
     global.fetch = jest.fn(async (url: string, init?: RequestInit) => {
       if (url === "/api/mcp-servers/agentgateway/discover") {
@@ -392,6 +651,7 @@ describe("MCPServerEditor credential sources", () => {
           name: "Jira",
           transport: "http",
           endpoint: "http://agentgateway:4000/mcp/jira",
+          visibility: "private",
           credential_sources: [
             {
               kind: "provider_connection",

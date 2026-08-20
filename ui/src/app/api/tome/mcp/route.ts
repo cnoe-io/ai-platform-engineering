@@ -60,10 +60,22 @@ function selfOrigin(request: NextRequest): string {
 
 /** The origin a human should actually open — `request.url`'s origin is the
  *  internal Docker hostname the MCP forwarding hop sees, not the public URL.
- *  `NEXTAUTH_URL` is already the app's public-base-URL env var (used the same
- *  way for OAuth callbacks); reuse it rather than guessing from the request. */
+ *  Prefer Tome's explicit public override, then the app's public-base-URL env
+ *  var used for OAuth callbacks, rather than guessing from the request. */
 function publicOrigin(request: NextRequest): string {
-  return (process.env.NEXTAUTH_URL || selfOrigin(request)).replace(/\/$/, "");
+  return (
+    process.env.TOME_PUBLIC_ORIGIN ||
+    process.env.NEXTAUTH_URL ||
+    selfOrigin(request)
+  ).replace(/\/$/, "");
+}
+
+function tomeProjectUrl(request: NextRequest, slug: unknown): string {
+  return `${publicOrigin(request)}/projects/${encodeURIComponent(String(slug))}/tome`;
+}
+
+function tomeAutoIngestSettingsUrl(request: NextRequest, slug: unknown): string {
+  return `${tomeProjectUrl(request, slug)}/settings?tab=auto-ingest`;
 }
 
 /** Forward the caller's credentials so the target route re-authenticates as the
@@ -219,18 +231,58 @@ function parseTagsArg(value: unknown): string[] {
   return [];
 }
 
+/** Stable, MCP-facing auto-ingest projection. Keep storage-only identity
+ * fields (notably the Keycloak subject) out of tool results while making an
+ * unconfigured project explicit rather than indistinguishable from a filtered
+ * response. */
+function autoIngestView(project: any): Record<string, unknown> {
+  const config = project?.autoIngest;
+  if (!config || typeof config !== "object") {
+    return {
+      configured: false,
+      enabled: false,
+      cron: null,
+      credential_owner: null,
+      last_run: null,
+    };
+  }
+
+  const owner = config.credentialOwner;
+  const lastRun = config.lastRun;
+  return {
+    configured: true,
+    enabled: config.enabled === true,
+    cron: typeof config.cron === "string" ? config.cron : null,
+    credential_owner:
+      owner && typeof owner === "object"
+        ? { name: owner.name ?? null, email: owner.email ?? null }
+        : null,
+    last_run:
+      lastRun && typeof lastRun === "object"
+        ? {
+            at: lastRun.at ?? null,
+            status: lastRun.status ?? null,
+            run_id: lastRun.runId ?? null,
+            reason: lastRun.reason ?? null,
+          }
+        : null,
+  };
+}
+
 const TOOLS: ToolDef[] = [
   {
     name: "tome_list_projects",
     description:
-      "List Tome projects the authenticated user can access. Returns slug, name, and status for each.",
+      "List Tome projects the authenticated user can access. Returns slug, name, status, canonical Tome URL, and `auto_ingest` settings for each, including an explicit enabled flag.",
     inputSchema: schema({}),
-    handler: async (_req, fwd) => {
+    handler: async (request, fwd) => {
       const data = ensureOk(await fwd("GET", "/api/projects"), "list projects");
       const projects = (data?.projects ?? []).map((p: any) => ({
         slug: p.slug,
-        name: p.name ?? p.title,
+        name: p.title ?? p.name,
         status: p.status,
+        url: tomeProjectUrl(request, p.slug),
+        auto_ingest: autoIngestView(p),
       }));
       return toolText(JSON.stringify(projects, null, 2));
     },
@@ -238,9 +290,9 @@ const TOOLS: ToolDef[] = [
   {
     name: "tome_get_project",
     description:
-      "Get a single project's detail: name, status, attached sources (repos, Confluence URL, Webex rooms), and the BHAG(s) it's tagged to (its strategic goals). `project_slug` is required.",
+      "Get a single project's detail: name, status, canonical Tome URL, attached sources (repos, Confluence URL, Webex rooms), auto-ingest settings, and the BHAG(s) it's tagged to (its strategic goals). `project_slug` is required.",
     inputSchema: schema({ project_slug: STR }, ["project_slug"]),
-    handler: async (_req, fwd, args) => {
+    handler: async (request, fwd, args) => {
       const slug = String(args.project_slug);
       const data = ensureOk(await fwd("GET", `/api/projects/${encodeURIComponent(slug)}`), "get project");
       const p = data?.project ?? {};
@@ -248,12 +300,45 @@ const TOOLS: ToolDef[] = [
         JSON.stringify(
           {
             slug: p.slug,
-            name: p.name ?? p.title,
+            name: p.title ?? p.name,
             type: p.type ?? "project",
             status: p.status,
+            url: tomeProjectUrl(request, p.slug ?? slug),
             sources: p.sources,
+            auto_ingest: autoIngestView(p),
             // The BHAGs this project ladders up to (initiative tags).
             bhags: p.labels?.initiatives ?? [],
+          },
+          null,
+          2,
+        ),
+      );
+    },
+  },
+  {
+    name: "tome_get_auto_ingest",
+    description:
+      "Read a project's auto-ingest configuration and last-run state. Returns whether it is configured and enabled, its UTC cron schedule, credential-owner display identity, the most recent run result, and `settings_url`. This tool is read-only. If the user asks to enable, disable, schedule, or otherwise change auto-ingest, do not attempt a mutation: ask them to open `settings_url` and make the change in Tome Settings. `project_slug` is required.",
+    inputSchema: schema({ project_slug: STR }, ["project_slug"]),
+    handler: async (request, fwd, args) => {
+      const slug = encodeURIComponent(String(args.project_slug));
+      const data = ensureOk(
+        await fwd("GET", `/api/projects/${slug}`),
+        "get auto-ingest",
+      );
+      const project = data?.project ?? {};
+      return toolText(
+        JSON.stringify(
+          {
+            slug: project.slug ?? args.project_slug,
+            url: tomeProjectUrl(request, project.slug ?? args.project_slug),
+            settings_url: tomeAutoIngestSettingsUrl(
+              request,
+              project.slug ?? args.project_slug,
+            ),
+            auto_ingest: autoIngestView(project),
+            guidance:
+              "Auto-ingest settings are read-only in MCP. Ask the user to open settings_url to make changes in Tome Settings.",
           },
           null,
           2,
@@ -270,7 +355,7 @@ const TOOLS: ToolDef[] = [
       const data = ensureOk(await fwd("GET", "/api/projects?type=bhag"), "list bhags");
       const bhags = (data?.projects ?? []).map((b: any) => ({
         slug: b.slug,
-        name: b.name ?? b.title,
+        name: b.title ?? b.name,
         status: b.status,
       }));
       return toolText(JSON.stringify(bhags, null, 2));
@@ -288,8 +373,8 @@ const TOOLS: ToolDef[] = [
       if ((b.type ?? "project") !== "bhag") {
         return toolText(`"${b.slug ?? args.bhag_slug}" is not a BHAG (type=${b.type ?? "project"}).`, true);
       }
-      const name = b.name ?? b.title ?? "";
-      const encodedName = encodeURIComponent(name);
+      const displayName = b.title ?? b.name ?? "";
+      const encodedName = encodeURIComponent(b.slug);
       const [areaData, skipData] = await Promise.all([
         ensureOk(
           await fwd("GET", `/api/projects?type=area&initiative=${encodedName}`),
@@ -302,20 +387,20 @@ const TOOLS: ToolDef[] = [
       ]);
       const areas = (areaData?.projects ?? []).map((c: any) => ({
         slug: c.slug,
-        name: c.name ?? c.title,
+        name: c.title ?? c.name,
         status: c.status,
         kind: "area" as const,
       }));
       const skipProjects = (skipData?.projects ?? []).map((c: any) => ({
         slug: c.slug,
-        name: c.name ?? c.title,
+        name: c.title ?? c.name,
         status: c.status,
         kind: "project" as const,
       }));
       const children = [...areas, ...skipProjects];
       return toolText(
         JSON.stringify(
-          { slug: b.slug, name, status: b.status, child_projects: children },
+          { slug: b.slug, name: displayName, status: b.status, child_projects: children },
           null,
           2,
         ),
@@ -334,15 +419,13 @@ const TOOLS: ToolDef[] = [
       if ((b.type ?? "project") !== "bhag") {
         return toolText(`"${b.slug ?? args.bhag_slug}" is not a BHAG (type=${b.type ?? "project"}).`, true);
       }
-      const name = b.name ?? b.title ?? "";
-      const encodedName = encodeURIComponent(name);
       const [areaData, skipData] = await Promise.all([
         ensureOk(
-          await fwd("GET", `/api/projects?type=area&initiative=${encodedName}`),
+          await fwd("GET", `/api/projects?type=area&initiative=${encodeURIComponent(b.slug)}`),
           "list area children",
         ),
         ensureOk(
-          await fwd("GET", `/api/projects?initiative=${encodedName}`),
+          await fwd("GET", `/api/projects?initiative=${encodeURIComponent(b.slug)}`),
           "list skip-level projects",
         ),
       ]);
@@ -366,7 +449,7 @@ const TOOLS: ToolDef[] = [
       for (const area of areas) {
         // Fetch Area's own pages and its child projects
         const areaChildData = ensureOk(
-          await fwd("GET", `/api/projects?area=${encodeURIComponent(area.name ?? area.title ?? "")}`),
+          await fwd("GET", `/api/projects?area=${encodeURIComponent(area.slug)}`),
           "list area projects",
         );
         const areaProjects = (areaChildData?.projects ?? []) as any[];
@@ -374,7 +457,7 @@ const TOOLS: ToolDef[] = [
         for (const ap of areaProjects) {
           areaProjectContext.push({
             slug: ap.slug,
-            name: ap.name ?? ap.title,
+            name: ap.title ?? ap.name,
             status: ap.status,
             kind: "project",
             pages: await fetchPages(ap.slug),
@@ -382,7 +465,7 @@ const TOOLS: ToolDef[] = [
         }
         childContext.push({
           slug: area.slug,
-          name: area.name ?? area.title,
+          name: area.title ?? area.name,
           status: area.status,
           kind: "area",
           pages: await fetchPages(area.slug),
@@ -392,7 +475,7 @@ const TOOLS: ToolDef[] = [
       for (const c of skipProjects) {
         childContext.push({
           slug: c.slug,
-          name: c.name ?? c.title,
+          name: c.title ?? c.name,
           status: c.status,
           kind: "project",
           pages: await fetchPages(c.slug),
@@ -400,7 +483,7 @@ const TOOLS: ToolDef[] = [
       }
       return toolText(
         JSON.stringify(
-          { bhag: { slug: b.slug, name, pages: bhagPages }, children: childContext },
+          { bhag: { slug: b.slug, name: b.title ?? b.name, pages: bhagPages }, children: childContext },
           null,
           2,
         ),
@@ -416,7 +499,7 @@ const TOOLS: ToolDef[] = [
       const data = ensureOk(await fwd("GET", "/api/projects?type=area"), "list areas");
       const areas = (data?.projects ?? []).map((a: any) => ({
         slug: a.slug,
-        name: a.name ?? a.title,
+        name: a.title ?? a.name,
         status: a.status,
         initiatives: a.labels?.initiatives ?? [],
       }));
@@ -435,19 +518,18 @@ const TOOLS: ToolDef[] = [
       if (a.type !== "area") {
         return toolText(`"${a.slug ?? args.area_slug}" is not an Area (type=${a.type ?? "project"}).`, true);
       }
-      const name = a.name ?? a.title ?? "";
       const childData = ensureOk(
-        await fwd("GET", `/api/projects?area=${encodeURIComponent(name)}`),
+        await fwd("GET", `/api/projects?area=${encodeURIComponent(a.slug)}`),
         "list area child projects",
       );
       const children = (childData?.projects ?? []).map((c: any) => ({
         slug: c.slug,
-        name: c.name ?? c.title,
+        name: c.title ?? c.name,
         status: c.status,
       }));
       return toolText(
         JSON.stringify(
-          { slug: a.slug, name, status: a.status, initiatives: a.labels?.initiatives ?? [], child_projects: children },
+          { slug: a.slug, name: a.title ?? a.name, status: a.status, initiatives: a.labels?.initiatives ?? [], child_projects: children },
           null,
           2,
         ),
@@ -466,9 +548,8 @@ const TOOLS: ToolDef[] = [
       if (a.type !== "area") {
         return toolText(`"${a.slug ?? args.area_slug}" is not an Area (type=${a.type ?? "project"}).`, true);
       }
-      const name = a.name ?? a.title ?? "";
       const childData = ensureOk(
-        await fwd("GET", `/api/projects?area=${encodeURIComponent(name)}`),
+        await fwd("GET", `/api/projects?area=${encodeURIComponent(a.slug)}`),
         "list area child projects",
       );
       const children = (childData?.projects ?? []) as any[];
@@ -490,7 +571,7 @@ const TOOLS: ToolDef[] = [
       for (const c of children) {
         childContext.push({
           slug: c.slug,
-          name: c.name ?? c.title,
+          name: c.title ?? c.name,
           status: c.status,
           kind: "project",
           pages: await fetchPages(c.slug),
@@ -498,7 +579,7 @@ const TOOLS: ToolDef[] = [
       }
       return toolText(
         JSON.stringify(
-          { area: { slug: a.slug, name, pages: areaPages }, children: childContext },
+          { area: { slug: a.slug, name: a.title ?? a.name, pages: areaPages }, children: childContext },
           null,
           2,
         ),
@@ -1188,6 +1269,39 @@ const TOOLS: ToolDef[] = [
         `Created gist "${data?.gist?.title}" (id=${data?.gist?.id}), posted to the Feed.` +
           (url ? ` View it at ${url}` : ""),
       );
+    },
+  },
+  {
+    name: "tome_update_gist",
+    description:
+      "Edit an existing gist without creating a new Feed entry. `project_slug` and `gist_id` are required. Provide at least one of `title`, `body` (markdown), or `tags`; omitted fields are preserved, while an empty `tags` array clears all tags. Returns the updated gist and its app URL.",
+    inputSchema: schema(
+      {
+        project_slug: STR,
+        gist_id: STR,
+        title: STR,
+        body: STR,
+        tags: { type: "array", items: STR },
+      },
+      ["project_slug", "gist_id"],
+    ),
+    handler: async (request, fwd, args) => {
+      if (args.title === undefined && args.body === undefined && args.tags === undefined) {
+        return toolText("Provide at least one of `title`, `body`, or `tags`.", true);
+      }
+      const slug = encodeURIComponent(String(args.project_slug));
+      const id = encodeURIComponent(String(args.gist_id));
+      const update: Record<string, unknown> = {};
+      if (args.title !== undefined) update.title = String(args.title);
+      if (args.body !== undefined) update.body = String(args.body);
+      if (args.tags !== undefined) update.tags = parseTagsArg(args.tags);
+      const data = ensureOk(
+        await fwd("PATCH", `/api/tome/projects/${slug}/gists/${id}`, update),
+        "update gist",
+      );
+      const gist = data?.gist ?? {};
+      const url = gist.path ? `${publicOrigin(request)}${gist.path}` : undefined;
+      return toolText(JSON.stringify({ ...gist, url }, null, 2));
     },
   },
 ];

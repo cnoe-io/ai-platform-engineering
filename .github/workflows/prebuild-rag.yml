@@ -60,7 +60,7 @@ jobs:
 
       - name: Detect changed paths
         id: filter
-        uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4
+        uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
         with:
           base: ${{ inputs.base_sha || github.event.pull_request.base.sha }}
           ref: ${{ inputs.head_sha || github.event.pull_request.head.sha }}
@@ -129,7 +129,7 @@ jobs:
 
     steps:
       - name: 🔒 harden runner
-        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920  # v2.20.0
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c  # v2.21.0
         with:
           egress-policy: audit
 

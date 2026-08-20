@@ -86,7 +86,10 @@ interface McpServerDoc extends Document {
   name?: string;
   owner_subject?: string;
   owner_team_slug?: string | null;
+  shared_with_teams?: string[];
+  visibility?: string;
   config_driven?: boolean;
+  source?: string;
 }
 
 interface LlmModelDoc extends Document {
@@ -821,7 +824,12 @@ function firstMcpForMember(
   for (const server of inventory.mcpServers) {
     const serverId = normalizeObjectId(server);
     if (!isValidOpenFgaId(serverId)) continue;
-    if (server.config_driven !== false || (server.owner_team_slug && teamSet.has(server.owner_team_slug))) {
+    const teamAccess = [server.owner_team_slug, ...(server.shared_with_teams ?? [])]
+      .some((teamSlug) => Boolean(teamSlug && teamSet.has(teamSlug)));
+    const legacyDiscovery =
+      server.visibility === undefined &&
+      (server.config_driven !== false || server.source === "agentgateway");
+    if (server.visibility === "global" || legacyDiscovery || teamAccess) {
       return resource("mcp_server", serverId, server.name, "mcp_servers");
     }
   }

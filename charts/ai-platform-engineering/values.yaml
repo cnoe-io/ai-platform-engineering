@@ -803,6 +803,7 @@ caipe-ui:
     # Connections & Secrets credential store. Disabled by default. Use local-cmk
     # only for non-production testing; production must use aws-kms.
     CAIPE_CREDENTIALS_ENABLED: "false"
+    PRIVATE_RESOURCES_ENABLED: "false"
     CREDENTIAL_STORE_BACKEND: "mongodb-envelope"
     CREDENTIAL_KEY_PROVIDER: "local-cmk"
     CREDENTIAL_KMS_CMK_ID: ""
@@ -848,6 +849,8 @@ caipe-ui:
     TAGLINE: "Multi-Agent Workflow Automation"
     DESCRIPTION: "Where Humans and AI agents collaborate to deliver high quality outcomes."
     APP_NAME: "CAIPE"
+    # Catchall team pre-selected for new agents/projects when assignable.
+    DEFAULT_TEAM_SLUG: ""
     # Canonical Slack workspace namespace used by UI-managed Slack ReBAC/routes.
     SLACK_WORKSPACE_ALIAS: "CAIPE"
     # Slack bot internal admin API used by the Web UI BFF for route reload and
@@ -950,6 +953,10 @@ caipe-ui:
   #   token mode → IDENTITY_SYNC_OKTA_API_TOKEN
   #   oauth mode → IDENTITY_SYNC_OKTA_OAUTH_PRIVATE_KEY (PEM PKCS#8)
   existingSecret: ""
+  agentContext:
+    existingSecret:
+      name: ""
+      key: CAIPE_AGENT_CONTEXT_HMAC_SECRET
 
   # MongoDB configuration for CAIPE UI persistence (in-cluster; disable for BYO)
   mongodb:
@@ -1493,6 +1500,7 @@ openfga-authz-bridge:
     repository: ghcr.io/cnoe-io/openfga-authz-bridge
     tag: ""
     pullPolicy: IfNotPresent
+  imagePullSecrets: []
   openfga:
     httpUrl: ""
     storeName: caipe-openfga
@@ -1502,6 +1510,8 @@ openfga-authz-bridge:
     existingSecret:
       name: ""
       key: CAIPE_AGENT_CONTEXT_HMAC_SECRET
+  privateResources:
+    enabled: false
   tokenValidation:
     jwksUrl: ""
     issuer: ""

@@ -6,6 +6,7 @@
  */
 
 import { requireAgentUsePermission } from "@/lib/rbac/openfga-agent-authz";
+import { trustedInteractionFromRequest } from "@/lib/authz/trusted-interaction";
 import { NextRequest,NextResponse } from "next/server";
 import { requireConversationWriteAccess } from "../../_conversation-authz";
 import {
@@ -48,6 +49,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     tenantId: authResult.tenantId,
     traceparent: authResult.traceparent,
     isServiceAccount: authResult.isServiceAccount,
+    trustedContext: { interaction: trustedInteractionFromRequest(request) },
   });
   if (authzResponse) return authzResponse;
 

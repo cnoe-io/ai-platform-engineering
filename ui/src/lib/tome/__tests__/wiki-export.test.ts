@@ -96,6 +96,53 @@ describe("Tome wiki export", () => {
     expect(markdown).not.toContain("agent-only source guidance");
   });
 
+  it("exports external embeds as safe links while preserving portable Markdown", () => {
+    const id = "de4fc0eb-7146-4044-86a3-60c3cbd976a3";
+    const vidcastPages = {
+      "demo.md": [
+        "---",
+        "title: Demo",
+        "kind: stable",
+        "---",
+        "# Demo",
+        "",
+        "```vidcast",
+        `url: https://app.vidcast.io/share/embed/${id}`,
+        "title: Example walkthrough",
+        "```",
+        "",
+        "```youtube",
+        "url: https://youtu.be/M7lc1UVf-VE",
+        "title: Example video",
+        "```",
+        "",
+        "```arxiv",
+        "url: https://arxiv.org/abs/1706.03762",
+        "title: Example paper",
+        "```",
+      ].join("\n"),
+    };
+    const document = buildWikiExportDocument({
+      projectName: "Example Project",
+      pages: vidcastPages,
+      tree: buildTree(vidcastPages),
+    });
+
+    const html = renderWikiHtml(document);
+    const markdown = renderWikiMarkdown(document);
+
+    expect(html.match(/<aside class="embed-link">/g)).toHaveLength(3);
+    expect(html).toContain("Example walkthrough");
+    expect(html).toContain(`href="https://app.vidcast.io/share/${id}"`);
+    expect(html).toContain('href="https://www.youtube.com/watch?v=M7lc1UVf-VE"');
+    expect(html).toContain('href="https://arxiv.org/abs/1706.03762"');
+    expect(html).not.toContain("<iframe");
+    expect(markdown).toContain("```vidcast");
+    expect(markdown).toContain("```youtube");
+    expect(markdown).toContain("```arxiv");
+    expect(markdown).toContain(`url: https://app.vidcast.io/share/embed/${id}`);
+  });
+
   it("generates an actual PDF buffer", async () => {
     const document = buildWikiExportDocument({
       projectName: "Example Project",
@@ -110,6 +157,7 @@ describe("Tome wiki export", () => {
     const rawPdf = pdf.toString("latin1");
     expect(rawPdf).not.toContain("agent-only source guidance");
     expect(rawPdf).toContain("DejaVuSans");
+    expect(rawPdf).not.toContain("/BaseFont /Helvetica");
     expect(rawPdf.match(/\/Type \/Page\b/g)).toHaveLength(6);
   });
 });

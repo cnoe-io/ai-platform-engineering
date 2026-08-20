@@ -190,6 +190,14 @@ const sidebars: SidebarsConfig = {
           label: 'CI/CD & Releases',
         },
         {
+          type: 'category',
+          label: 'CAIPE Regression Suite',
+          items: [
+            { type: 'doc', id: 'development/caipe-regression-suite', label: 'Overview & Matrix' },
+            { type: 'doc', id: 'development/caipe-regression-screen-coverage', label: 'Screen & Negative Tests' },
+          ],
+        },
+        {
           type: 'doc',
           id: 'development/prebuild-flow',
           label: 'Prebuild Flow',

@@ -31,6 +31,7 @@ from claude_agent_sdk import (
     UserMessage,
 )
 
+from tome_agent.agent.http_client import ModelResolution
 from tome_agent.orchestrator.contract import IngestEventPayload
 
 log = logging.getLogger("tome_agent.agent.run_stream")
@@ -149,6 +150,8 @@ async def consume_agent_query(
     prompt: str,
     options,
     log_buf: list[IngestEventPayload],
+    *,
+    model_provenance: ModelResolution | None = None,
 ) -> AsyncIterator[IngestEventPayload]:
     """Run the SDK query and translate each message into IngestEventPayloads,
     draining `log_buf` (the persist hook's `page_written` events) as it goes.
@@ -344,6 +347,8 @@ async def consume_agent_query(
                         type="done",
                         data={
                             "subtype": message.subtype,
+                            "model": options.model,
+                            "model_provenance": dict(model_provenance or {}),
                             "turns": getattr(message, "num_turns", None),
                             "tool_calls": tool_call_count,
                             "cost_usd": getattr(message, "total_cost_usd", None),

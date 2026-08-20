@@ -10,6 +10,7 @@ snapshot-driven — no sqlite.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -28,6 +29,7 @@ from claude_agent_sdk import (
 from claude_agent_sdk.types import StreamEvent
 
 from tome_agent import prompts
+from tome_agent.agent import http_client
 from tome_agent.agent.connectors import REGISTRY
 from tome_agent.agent.loop import (
     build_agent_options,
@@ -44,7 +46,7 @@ MAX_TURNS = 20
 
 
 def _chat_model() -> str:
-    return os.environ.get("TTT_CHAT_MODEL", CHAT_MODEL_DEFAULT)
+    return http_client.resolve_model("chat", CHAT_MODEL_DEFAULT, ("TTT_CHAT_MODEL",))
 
 
 _READ_ONLY_NOTICE = """\
@@ -184,6 +186,11 @@ async def stream_chat(
         )
         return
 
+    models = await asyncio.to_thread(
+        http_client.fetch_model_config, snapshot.project_id, snapshot.project_type
+    )
+    http_client.set_model_overrides(models)
+
     prompt = "/compact" if is_compact else user_message
     system_prompt = build_system_prompt(snapshot, stable_pages)
 
@@ -193,11 +200,18 @@ async def stream_chat(
 
     author = f"{actor_email} via tome-agent-chat" if actor_email else "tome-agent-chat"
 
+    # Resolved once per turn so the `done` event reports the model that
+    # actually ran, even if an admin edit lands mid-turn.
+    model = _chat_model()
+    model_provenance = http_client.resolve_model_with_provenance(
+        "chat", CHAT_MODEL_DEFAULT, ("TTT_CHAT_MODEL",)
+    )
+
     def _options(resume: str | None) -> Any:
         return build_agent_options(
             snapshot=snapshot,
             system_prompt=system_prompt,
-            model=_chat_model(),
+            model=model,
             max_turns=MAX_TURNS,
             persist_author=author,
             report_id=None,
@@ -221,7 +235,7 @@ async def stream_chat(
                 async for message in client.receive_response():
                     if isinstance(message, ResultMessage):
                         state["result_seen"] = True
-                    async for event in _translate(message):
+                    async for event in _translate(message, model, model_provenance):
                         state["emitted"] = True
                         yield event
                 try:
@@ -301,7 +315,11 @@ async def stream_chat(
     yield ChatEventPayload(type="error", data={"message": f"{type(err).__name__}: {err}"})
 
 
-async def _translate(message: Any) -> AsyncIterator[ChatEventPayload]:
+async def _translate(
+    message: Any,
+    model: str,
+    model_provenance: http_client.ModelResolution,
+) -> AsyncIterator[ChatEventPayload]:
     if isinstance(message, StreamEvent):
         ev = message.event or {}
         ev_type = ev.get("type")
@@ -381,6 +399,8 @@ async def _translate(message: Any) -> AsyncIterator[ChatEventPayload]:
             data={
                 "session_id": message.session_id,
                 "subtype": message.subtype,
+                "model": model,
+                "model_provenance": dict(model_provenance),
                 "result": text,
                 "cost_usd": getattr(message, "total_cost_usd", None),
                 "num_turns": getattr(message, "num_turns", None),

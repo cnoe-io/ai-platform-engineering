@@ -10,6 +10,8 @@ Pins the self-heal contract (spec 2026-06-02-mcp-authz-resilience, US2):
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock
+
 from dynamic_agents.services import mcp_client
 from dynamic_agents.services.mcp_client import get_tools_with_resilience
 
@@ -108,3 +110,29 @@ async def test_transient_exhausts_budget(monkeypatch):
     assert failed == ["srv"]
     assert status["srv"] == "transient"
     assert state["calls"] == 3  # bounded by max_attempts
+
+
+async def test_default_budget_covers_gateway_upstream_readiness(monkeypatch):
+    state = _install_fake_client(
+        monkeypatch,
+        [
+            RuntimeError("HTTP 503 Service Unavailable from http://x"),
+            RuntimeError("HTTP 503 Service Unavailable from http://x"),
+            RuntimeError("HTTP 503 Service Unavailable from http://x"),
+            RuntimeError("HTTP 503 Service Unavailable from http://x"),
+            [_FakeTool("srv_do_thing")],
+        ],
+    )
+    sleep = AsyncMock()
+    monkeypatch.setattr(mcp_client.asyncio, "sleep", sleep)
+
+    tools, failed, errors, status = await get_tools_with_resilience(
+        {"srv": {"url": "http://x"}}
+    )
+
+    assert [tool.name for tool in tools] == ["srv_do_thing"]
+    assert failed == []
+    assert errors == {}
+    assert status == {}
+    assert state["calls"] == 5
+    assert sleep.await_count == 4

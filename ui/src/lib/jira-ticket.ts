@@ -4,6 +4,7 @@
  */
 
 import type { FeedbackContext } from "@/lib/ticket-client";
+import { buildUserFeedbackTitle } from "@/lib/feedback-ticket-title";
 
 export interface JiraTicketInput {
   description: string;
@@ -20,6 +21,12 @@ export interface JiraTicketResult {
   id: string;
   url: string;
   provider: "jira";
+}
+
+interface JiraUserSearchResult {
+  accountId?: string;
+  active?: boolean;
+  emailAddress?: string;
 }
 
 /** Convert plain text to Atlassian Document Format (ADF) for Jira REST v3. */
@@ -39,10 +46,12 @@ function toAdfDoc(text: string): object {
 }
 
 function buildSummary(input: JiraTicketInput): string {
-  const text = input.description.trim().replace(/\s+/g, " ");
-  const summary = text.length > 100 ? `${text.slice(0, 99)}…` : text;
-  const type = input.issueType ? `[${input.issueType}] ` : "";
-  return `[${input.area}] ${type}${summary}`;
+  const type = input.issueType ?? input.feedbackContext?.reason ?? "Feedback";
+  return buildUserFeedbackTitle({
+    description: input.description,
+    area: input.area,
+    type,
+  });
 }
 
 function buildDescriptionText(input: JiraTicketInput): string {
@@ -77,6 +86,63 @@ function buildDescriptionText(input: JiraTicketInput): string {
 function toJiraIssueType(issueType?: "Bug" | "Enhancement"): string {
   if (issueType === "Bug") return "[System] Problem";
   return "Task";
+}
+
+async function findJiraAccountIdByEmail(
+  baseUrl: string,
+  credentials: string,
+  userEmail: string,
+): Promise<string | undefined> {
+  const searchUrl = new URL(`${baseUrl.replace(/\/$/, "")}/rest/api/3/user/search`);
+  searchUrl.searchParams.set("query", userEmail);
+  searchUrl.searchParams.set("maxResults", "20");
+
+  const res = await fetch(searchUrl, {
+    headers: {
+      Authorization: `Basic ${credentials}`,
+      Accept: "application/json",
+    },
+  });
+  if (!res.ok) {
+    throw new Error(`Jira user lookup failed (${res.status})`);
+  }
+
+  const data = (await res.json()) as unknown;
+  if (!Array.isArray(data)) return undefined;
+
+  const normalizedEmail = userEmail.trim().toLowerCase();
+  const exactMatches = (data as JiraUserSearchResult[]).filter(
+    (user) =>
+      user.active !== false &&
+      typeof user.accountId === "string" &&
+      user.accountId.length > 0 &&
+      typeof user.emailAddress === "string" &&
+      user.emailAddress.trim().toLowerCase() === normalizedEmail,
+  );
+
+  return exactMatches.length === 1 ? exactMatches[0].accountId : undefined;
+}
+
+async function addJiraIssueWatcher(
+  baseUrl: string,
+  credentials: string,
+  issueKey: string,
+  accountId: string,
+): Promise<void> {
+  const apiUrl = `${baseUrl.replace(/\/$/, "")}/rest/api/3/issue/${encodeURIComponent(issueKey)}/watchers`;
+  const res = await fetch(apiUrl, {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${credentials}`,
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify(accountId),
+  });
+
+  if (!res.ok) {
+    throw new Error(`Jira watcher update failed (${res.status})`);
+  }
 }
 
 export async function createJiraTicket(
@@ -125,6 +191,26 @@ export async function createJiraTicket(
   }
 
   const data = (await res.json()) as { id: string; key: string };
+  const issueCreatedByGenericUser =
+    email.trim().toLowerCase() !== input.userEmail.trim().toLowerCase();
+  if (issueCreatedByGenericUser) {
+    try {
+      const reporterAccountId = await findJiraAccountIdByEmail(
+        baseUrl,
+        credentials,
+        input.userEmail,
+      );
+      if (reporterAccountId) {
+        await addJiraIssueWatcher(baseUrl, credentials, data.key, reporterAccountId);
+      }
+    } catch (error) {
+      console.warn(
+        `[jira-ticket] Could not add reporter ${input.userEmail} as a watcher on ${data.key}:`,
+        error,
+      );
+    }
+  }
+
   return {
     id: data.key,
     url: `${baseUrl.replace(/\/$/, "")}/browse/${data.key}`,

@@ -614,13 +614,16 @@ the migration tab by entering a reason. Overrides are stored in
 **Migration override active** until the schema catches up or the override expires.
 
 Release notes notifications are managed from **Admin → System → Settings →
-Release notes**. Admins can enable the notification, set the active release
-version, show a toast reminder, preview the dialog, and use **Show this on next
-login for every user** to bump the announcement revision. Dismissals are stored
-by announcement ID, so a new revision is shown again even when users dismissed a
-previous revision. Admins can optionally show an **Open Migration Assistant**
-action that deep-links to the Migrations tab; non-admins see feature notes only
-and can permanently dismiss the active announcement.
+Release notes**. Each user can opt out of the post-login dialog and reopen it on
+demand. Admins can disable the notification platform-wide.
+
+Admins can also configure an optional GitHub commit range with a repository URL,
+the previously upgraded commit, and the latest commit. All three values are
+required when this mode is used. The dialog groups the commits in that range into
+features, fixes, security, performance, documentation, and maintenance. Leave all
+three fields empty to retain the deployed-version release notes behavior. Private
+repositories require `RELEASE_NOTES_GITHUB_TOKEN` or `GITHUB_TOKEN` on the UI
+server with read access to the repository.
 
 ### Keycloak Invariants Panel
 

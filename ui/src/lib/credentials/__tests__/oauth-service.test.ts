@@ -903,9 +903,10 @@ describe("ProviderConnectionService", () => {
       tokenClient,
     });
 
-    const token = await service.refreshConnection("conn-1");
+    const token = await service.refreshConnection("conn-1", { includeDiagnostics: true });
 
     expect(token.accessToken).toBe("provider_connection:conn-1:access_token:value");
+    expect(token.refreshFailed).toBe(true);
     expect(tokenClient).toHaveBeenCalledTimes(1);
     expect(payloadStore.putSecret).not.toHaveBeenCalled();
   });

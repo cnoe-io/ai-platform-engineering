@@ -4,6 +4,7 @@ import { marked, type Token, type Tokens } from "marked";
 import PDFDocument from "pdfkit";
 
 import type { WikiExportDocument } from "@/lib/tome/wiki-export";
+import { parseTomeEmbed } from "@/lib/tome/embeds";
 
 const FONT_DIRECTORY = path.join(
   /* turbopackIgnore: true */ process.cwd(),
@@ -161,7 +162,15 @@ function renderTokens(doc: PDFKit.PDFDocument, tokens: Token[], depth = 0): void
           .text(inlineText(token.tokens), { lineGap: 2, paragraphGap: 5 });
         break;
       case "code":
-        renderCodeBlock(doc, token.text);
+        {
+          const embed = parseTomeEmbed(token.lang ?? "", token.text);
+          renderCodeBlock(
+            doc,
+            embed?.ok
+              ? `${embed.value.title}\n${embed.value.linkLabel}: ${embed.value.watchUrl}`
+              : token.text,
+          );
+        }
         break;
       case "blockquote": {
         const text = tokenText(token.tokens);
@@ -251,6 +260,10 @@ function collectPdf(doc: PDFKit.PDFDocument): Promise<Buffer> {
 export async function renderWikiPdf(document: WikiExportDocument): Promise<Buffer> {
   const doc = new PDFDocument({
     size: "A4",
+    // PDFKit otherwise initializes its built-in Helvetica font before custom
+    // fonts are registered. Next.js standalone images do not trace PDFKit's
+    // AFM data files, so use the bundled TrueType font from the first byte.
+    font: FONT_FILES[FONT_REGULAR],
     margins: { top: 52, right: 48, bottom: 54, left: 48 },
     bufferPages: true,
     info: {

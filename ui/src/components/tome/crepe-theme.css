@@ -71,6 +71,63 @@
     0px 2px 6px 2px rgba(0, 0, 0, 0.15), 0px 1px 2px 0px rgba(0, 0, 0, 0.3);
 }
 
+/* Crepe's vendor type scale (reset.css) runs large for a docs surface — e.g.
+   h1 at 42px/50px, body text at 16px/24px. Tone the whole scale and the
+   surrounding spacing down a notch; loads after the vendor stylesheet so
+   equal-specificity selectors win. */
+.milkdown .ProseMirror h1 {
+  font-size: 26px;
+  line-height: 34px;
+  margin-top: 22px;
+}
+
+.milkdown .ProseMirror h2 {
+  font-size: 22px;
+  line-height: 30px;
+  margin-top: 18px;
+}
+
+.milkdown .ProseMirror h3 {
+  font-size: 19px;
+  line-height: 26px;
+  margin-top: 16px;
+}
+
+.milkdown .ProseMirror h4 {
+  font-size: 17px;
+  line-height: 24px;
+  margin-top: 14px;
+}
+
+.milkdown .ProseMirror h5 {
+  font-size: 15px;
+  line-height: 22px;
+  margin-top: 12px;
+}
+
+.milkdown .ProseMirror h6 {
+  font-size: 13px;
+  line-height: 20px;
+  margin-top: 12px;
+}
+
+.milkdown .ProseMirror p {
+  font-size: 14px;
+  line-height: 21px;
+  padding: 2px 0;
+}
+
+.milkdown .ProseMirror .milkdown-table-block th,
+.milkdown .ProseMirror .milkdown-table-block td {
+  padding: 3px 10px;
+}
+
+.milkdown .ProseMirror .milkdown-table-block p {
+  font-size: 13px;
+  line-height: 19px;
+  padding: 0;
+}
+
 /* Milkdown renders raw HTML-comment nodes (`<!-- ... -->`) as visible text by
    default. Agent-only sourcing guidance seeded into a page body relies on
    these being invisible outside the admin template editor. */
@@ -211,4 +268,124 @@
   color: var(--crepe-color-error);
   padding: 0.75rem;
   white-space: pre-wrap;
+}
+
+/* External embed blocks are hydrated after Crepe sanitizes their inert
+   placeholders. The iframe itself is always created by trusted renderer code. */
+.tome-embed-preview {
+  position: relative;
+  display: grid;
+  gap: 0.625rem;
+}
+
+.tome-embed-frame {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.75rem;
+  background: hsl(var(--muted));
+}
+
+.tome-video-frame {
+  aspect-ratio: 16 / 9;
+}
+
+.tome-document-frame {
+  height: clamp(32rem, 70vh, 56rem);
+}
+
+.tome-embed-iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.tome-embed-link {
+  width: fit-content;
+  color: hsl(var(--primary));
+  font-size: 0.8125rem;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+.tome-embed-error {
+  border: 1px solid var(--crepe-color-error);
+  border-radius: 0.375rem;
+  color: var(--crepe-color-error);
+  padding: 0.75rem;
+  white-space: pre-wrap;
+}
+
+/* Remove controls for embeds/images: a labeled pill sitting above the block
+   (not overlapping the video/image/PDF), editing only. Crepe marks its
+   ProseMirror root non-editable in view mode, so hide there regardless of
+   whether the decoration effect already ran. */
+.tome-embed-toolbar {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.tome-embed-remove,
+.tome-image-remove {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: 9999px;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  padding: 0.3125rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1;
+  box-shadow: 0 1px 2px hsl(var(--background) / 0.3);
+  cursor: pointer;
+}
+
+.tome-embed-remove:hover,
+.tome-image-remove:hover {
+  background: hsl(var(--destructive));
+  border-color: hsl(var(--destructive));
+  color: hsl(var(--destructive-foreground));
+}
+
+.tome-embed-remove:focus-visible,
+.tome-image-remove:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+.milkdown-image-block {
+  position: relative;
+}
+
+.milkdown-image-block .tome-embed-toolbar {
+  margin-bottom: 0.375rem;
+}
+
+/* Read-only view: no remove controls, and Crepe's own Copy/Edit-Hide toolbar
+   (which can reveal the raw fenced markdown) shouldn't be reachable either —
+   selecting/revealing source content on a page that isn't in edit mode reads
+   as "editing" even though nothing can actually be typed. */
+.ProseMirror[contenteditable="false"] .tome-embed-remove,
+.ProseMirror[contenteditable="false"] .tome-image-remove,
+.ProseMirror[contenteditable="false"] .milkdown-code-block .tools {
+  display: none;
+}
+
+/* In edit mode, Crepe's Copy/Edit-Hide toolbar is opacity:0 until the block
+   is hovered. That hides the affordance a user needs to find the raw
+   markdown toggle, so keep it visible whenever the page itself is editable. */
+.ProseMirror[contenteditable="true"] .milkdown-code-block .language-button,
+.ProseMirror[contenteditable="true"] .milkdown-code-block .tools-button-group > button {
+  opacity: 1 !important;
+}
+
+@media (max-width: 40rem) {
+  .tome-document-frame {
+    height: 30rem;
+  }
 }

@@ -10,8 +10,9 @@
 import { NextRequest } from "next/server";
 
 import { ApiError, successResponse, withErrorHandler } from "@/lib/api-middleware";
-import { loadTomeProject, requireTomeEditor } from "@/lib/tome/tome-api";
+import { loadTomeProject } from "@/lib/tome/tome-api";
 import { auditTome, tomeActorFromAuth } from "@/lib/tome/audit";
+import { normalizeGistTags } from "@/lib/tome/gists";
 import { getTomeGistsCollection } from "@/lib/tome/mongo-collections";
 import { isMyceliumConfigured, postEvent } from "@/lib/tome/mycelium";
 import { randomUUID } from "crypto";
@@ -19,19 +20,6 @@ import { randomUUID } from "crypto";
 export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ slug: string }> };
-
-/** Trim, drop empties/dupes. No hierarchy, no casing rules — gists are
- *  deliberately lightweight, unlike wiki paths. */
-function normalizeTags(input: unknown): string[] {
-  if (!Array.isArray(input)) return [];
-  const seen = new Set<string>();
-  for (const t of input) {
-    if (typeof t !== "string") continue;
-    const trimmed = t.trim();
-    if (trimmed) seen.add(trimmed);
-  }
-  return [...seen];
-}
 
 export const GET = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
   const { slug } = await ctx.params;
@@ -52,6 +40,8 @@ export const GET = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
       body: g.body,
       author: g.author,
       created_at: g.created_at,
+      updated_at: g.updated_at,
+      updated_by: g.updated_by,
       tags: g.tags ?? [],
       path: `/projects/${slug}/tome/gists/${g._id}`,
     })),
@@ -61,7 +51,10 @@ export const GET = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
 export const POST = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
   const { slug } = await ctx.params;
   const tctx = await loadTomeProject(request, slug);
-  requireTomeEditor(tctx);
+
+  // Gists are project conversation, not curated wiki content. Any caller who
+  // can read the project may contribute one, matching the Feed's write model.
+  // Existing gist updates and deletes remain steward/admin-only.
 
   const body = (await request.json().catch(() => ({}))) as {
     title?: string;
@@ -76,7 +69,7 @@ export const POST = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
   }
 
   const gists = await getTomeGistsCollection();
-  const tags = normalizeTags(body.tags);
+  const tags = normalizeGistTags(body.tags);
   const gist = {
     _id: randomUUID(),
     project_id: tctx.projectId,

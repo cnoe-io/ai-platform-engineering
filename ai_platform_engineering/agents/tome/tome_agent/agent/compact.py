@@ -14,15 +14,20 @@ then drives this loop. Writes persist through the same hook as every other agent
 
 from __future__ import annotations
 
+import asyncio
 import logging
-import os
 from collections.abc import AsyncIterator
 from uuid import UUID
 
 from tome_agent import prompts
+from tome_agent.agent import http_client
 from tome_agent.agent.loop import build_agent_options, project_root
 from tome_agent.agent.run_stream import consume_agent_query, emit_log, now_iso
-from tome_agent.orchestrator.contract import IngestEventPayload, ProjectSnapshot
+from tome_agent.orchestrator.contract import (
+    ExperimentRunContext,
+    IngestEventPayload,
+    ProjectSnapshot,
+)
 
 log = logging.getLogger("tome_agent.agent.compact")
 
@@ -31,7 +36,11 @@ MAX_TURNS = 100
 
 
 def _compaction_model() -> str:
-    return os.environ.get("TTT_INGEST_MODEL", COMPACTION_MODEL_DEFAULT)
+    return http_client.resolve_model(
+        "compact",
+        COMPACTION_MODEL_DEFAULT,
+        ("TTT_INGEST_MODEL",),
+    )
 
 
 def _build_compaction_system_prompt(snapshot: ProjectSnapshot) -> str:
@@ -75,10 +84,26 @@ async def stream_compaction(
     seed: str | None,
     snapshot: ProjectSnapshot,
     report_id: UUID,
+    experiment: ExperimentRunContext | None = None,
 ) -> AsyncIterator[IngestEventPayload]:
     """Run a wiki compaction pass as a Claude Agent SDK loop. Yields IngestEvents
     the agent's HTTP handler writes to the SSE response."""
     log_buf: list[IngestEventPayload] = []
+    models = (
+        {
+            "compact": {
+                "model": experiment.model,
+                "source": "experiment",
+                "scope_kind": "exact",
+                "scope_id": experiment.experiment_id,
+            }
+        }
+        if experiment is not None
+        else await asyncio.to_thread(
+            http_client.fetch_model_config, snapshot.project_id, snapshot.project_type
+        )
+    )
+    http_client.set_model_overrides(models)
 
     async def on_write(page_path: str, byte_count: int) -> None:
         log_buf.append(
@@ -92,24 +117,61 @@ async def stream_compaction(
     # (read-only) so compaction can check its pages against the ground truth.
     child_read_dirs = [project_root(c.project_id) for c in (snapshot.child_projects or [])]
 
+    model_provenance = http_client.resolve_model_with_provenance(
+        "compact",
+        COMPACTION_MODEL_DEFAULT,
+        ("TTT_INGEST_MODEL",),
+    )
+    system_prompt = _build_compaction_system_prompt(snapshot)
+    if experiment is not None:
+        system_prompt += (
+            "\n\nFROZEN EXPERIMENT: use only the materialized workspace. "
+            "Live web, connector, Feed, and cross-project services are disabled."
+        )
+        if experiment.evaluation_mode == "quick":
+            targets = ", ".join(f"`{path}`" for path in experiment.evaluation_page_paths)
+            system_prompt += (
+                "\n\nQUICK PAGE EVALUATION: inspect and compact only "
+                f"{targets}. Do not Glob the full tree and do not edit any other page. "
+                "Stop as soon as those selected pages are complete."
+            )
     options = build_agent_options(
         snapshot=snapshot,
-        system_prompt=_build_compaction_system_prompt(snapshot),
-        model=_compaction_model(),
-        max_turns=MAX_TURNS,
+        system_prompt=system_prompt,
+        model=model_provenance["model"],
+        max_turns=experiment.turn_limit if experiment is not None else MAX_TURNS,
         persist_author="tome-compaction",
         report_id=report_id,
         on_write=on_write,
         extra_read_dirs=child_read_dirs,
+        offline=experiment is not None,
+        max_budget_usd=experiment.max_budget_usd if experiment is not None else None,
     )
 
-    prompt_parts = [
-        "Run a compaction pass over this wiki. Glob the page tree, then tighten the "
-        "prose of the dynamic pages and fix any stale tome:// links. Preserve all "
-        "facts, citations, and frontmatter. Leave stable/hidden/report pages alone "
-        "and add/remove no pages. If the wiki is already tight and its links "
-        "resolve, make no edits."
-    ]
+    if experiment is not None and experiment.evaluation_mode == "quick":
+        targets = ", ".join(f"`{path}`" for path in experiment.evaluation_page_paths)
+        prompt_parts = [
+            (
+                f"Compact only {targets}. Preserve facts, citations, frontmatter, and "
+                "page kind. Do not Glob the full tree or inspect/edit unrelated pages. "
+                "Stop when the selected pages are complete."
+            )
+        ]
+    else:
+        prompt_parts = [
+            (
+                "Run a compaction pass over this wiki. Glob the page tree, then tighten the "
+                "prose of the dynamic pages and fix any stale tome:// links. Preserve all "
+                "facts, citations, and frontmatter. Leave stable/hidden/report pages alone "
+                "and add/remove no pages. If the wiki is already tight and its links "
+                "resolve, make no edits."
+            )
+        ]
+    if experiment is not None:
+        prompt_parts.append(
+            "\n\nREPRODUCIBLE RUN IDENTITY: "
+            f"{experiment.experiment_id}; seed={experiment.seed}."
+        )
     if seed and seed.strip():
         prompt_parts.append(
             "\n\nUSER SEED INSTRUCTION (one-shot focus for this run):\n"
@@ -121,5 +183,7 @@ async def stream_compaction(
     if seed and seed.strip():
         yield emit_log(f"· seed: {seed.strip()[:200]}")
 
-    async for event in consume_agent_query(prompt, options, log_buf):
+    async for event in consume_agent_query(
+        prompt, options, log_buf, model_provenance=model_provenance
+    ):
         yield event

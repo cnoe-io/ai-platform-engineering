@@ -36,7 +36,7 @@ Additionally, the existing chart auto-bump workflow is designed for the main bra
 - Triggering release branch pipelines from pull requests (only direct pushes to release branches)
 - Promoting a release candidate to a final release (handled by the existing release-finalize workflow)
 - Creating or managing release branches themselves
-- Syncing changes from main to release branches (handled by the existing sync-release-branches workflow)
+- Syncing changes from main to release branches (performed manually when a release line needs a backport)
 - Backporting automation — committing the same fix to multiple branches is out of scope
 
 ---
@@ -156,7 +156,7 @@ A developer opens a pull request targeting `release/0.3.0` with a chart change. 
 
 ## Dependencies
 
-- Existing image-build CI workflows (`ci-a2a-sub-agent.yml`, `ci-mcp-sub-agent.yml`, `ci-a2a-rag.yml`, `ci-supervisor-agent.yml`, `ci-caipe-ui.yml`, `ci-slack-bot.yml`) that respond to any git tag — these provide the container image builds and require no modification.
+- Existing image-build CI workflows (`ci-a2a-sub-agent.yml`, `ci-mcp-sub-agent.yml`, `ci-a2a-rag.yml`, `ci-supervisor-agent.yml`, `ci-slack-bot.yml`) that respond to any git tag — these provide the container image builds and require no modification. The mirror UI image is published separately by the coordinated Tome release.
 - GHCR pre-release Helm registry (`oci://ghcr.io/.../pre-release-helm-charts`) — must be writable with the existing `GITHUB_TOKEN`.
 - `.github/agents.json` — agent list config consumed by the RC tag workflow.
 - GitHub Actions `GH_PAT` / `GITHUB_TOKEN` secrets — must have `contents: write` and `packages: write`.
@@ -165,5 +165,5 @@ A developer opens a pull request targeting `release/0.3.0` with a chart change. 
 
 - Release branches are always named `release/X.Y.Z` or `release/X.Y.Z-hotfix`. Other patterns (e.g., `release/feature-xyz`) are out of scope and will produce malformed tags that may be ignored.
 - The existing Helm charts (`rag-stack`, `ai-platform-engineering`) are the only charts requiring RC publication. New charts added under `charts/` will be picked up automatically by the change-detection logic.
-- Container image builds for release branch RC tags are handled by the existing CI workflows without modification, relying on their `tags: '**'` trigger.
+- Container image builds for release branch RC tags are handled by the existing tag-driven CI workflows. The mirror UI image is excluded and comes from the coordinated Tome release.
 - The pre-release Helm registry is not cleaned up automatically for release branch artifacts (unlike prebuild PRs where cleanup happens on PR close). Cleanup is a manual or scheduled operation.

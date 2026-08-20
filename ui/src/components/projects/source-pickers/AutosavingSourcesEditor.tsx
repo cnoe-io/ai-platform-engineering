@@ -27,12 +27,14 @@ export function AutosavingSourcesEditor({
   value,
   onChange,
   onSaved,
+  onDirtyChange,
 }: {
   slug: string;
   kinds: SourceKind[];
   value: ProjectSources;
   onChange: (next: ProjectSources) => void;
   onSaved?: (project: ProjectDocument) => void;
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const [status, setStatus] = useState<SaveStatus>("idle");
   const [saveError, setSaveError] = useState("");
@@ -67,10 +69,12 @@ export function AutosavingSourcesEditor({
         }
         if (version === versionRef.current) {
           setStatus("saved");
+          onDirtyChange?.(false);
           onSaved?.(body.data.project as ProjectDocument);
         }
       } catch (error) {
         if (version === versionRef.current) {
+          onDirtyChange?.(true);
           setSaveError(
             error instanceof Error ? error.message : String(error),
           );
@@ -78,12 +82,13 @@ export function AutosavingSourcesEditor({
         }
       }
     },
-    [onSaved, slug],
+    [onDirtyChange, onSaved, slug],
   );
 
   const queueSave = useCallback(
     (next: ProjectSources) => {
       onChange(next);
+      onDirtyChange?.(true);
       latestSourcesRef.current = next;
       versionRef.current += 1;
       const version = versionRef.current;
@@ -95,7 +100,7 @@ export function AutosavingSourcesEditor({
         void persist(next, version);
       }, AUTOSAVE_DELAY_MS);
     },
-    [onChange, persist],
+    [onChange, onDirtyChange, persist],
   );
 
   const flushPendingSave = useCallback(() => {

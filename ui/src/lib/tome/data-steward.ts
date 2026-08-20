@@ -95,36 +95,38 @@ export function tomeSessionSubject(session: unknown): string | null {
 /**
  * Returns true when `sub` is allowed to write pages for `project` — either
  * because they are a Tome admin (admin shortcut, no per-project tuple needed)
- * or because they hold `can_write` in OpenFGA. Fails-closed on errors.
+ * or because they hold `can_write` in OpenFGA. Falls back to the authorization
+ * self-repair pass (restores the steward/membership edge if missing) before
+ * checking once more. Fails-closed on errors.
  */
 export async function canWriteAs(
   sub: string,
-  project: Pick<ProjectDocument, "_id" | "slug" | "type" | "data_steward">,
+  project: ProjectDocument,
+  userEmail?: string | null,
 ): Promise<boolean> {
   if (await isTomeAdmin({ sub })) return true;
-  try {
-    const result = await checkOpenFgaTuple({
+  const check = async () =>
+    checkOpenFgaTuple({
       user: `user:${sub}`,
       relation: WRITE_RELATION,
       object: tomeDataObject(project),
     });
-    if (result.allowed) return true;
-    // Attempt self-repair: re-write the steward tuple if it exists in the DB
-    // but is missing from FGA, then check once more.
-    const steward = await resolveStoredDataSteward(project.data_steward).catch(() => null);
-    if (!steward) return false;
-    const repaired = await writeOpenFgaTuples({
-      writes: [dataStewardTuple(project, steward)],
-      deletes: [],
+  try {
+    if ((await check()).allowed) return true;
+    // Load lazily to avoid a module cycle: the reconciler uses the neutral
+    // steward identity helpers, while this permission path calls it only on a
+    // denied decision. It restores the document writer edge and, for a team
+    // steward, this caller's membership edge only when an active canonical
+    // membership-source row proves that relationship.
+    const { repairTomeAuthorizationForProject } = await import(
+      "@/lib/tome/authorization-health"
+    );
+    await repairTomeAuthorizationForProject({
+      project,
+      userSubject: sub,
+      userEmail,
     });
-    if (!repaired.enabled) return false;
-    return (
-      await checkOpenFgaTuple({
-        user: `user:${sub}`,
-        relation: WRITE_RELATION,
-        object: tomeDataObject(project),
-      })
-    ).allowed;
+    return (await check()).allowed;
   } catch {
     return false;
   }
@@ -132,8 +134,8 @@ export async function canWriteAs(
 
 /**
  * Resolve the one permission used by every Tome data mutation. The OpenFGA
- * decision is authoritative; stored steward metadata is used only to repair a
- * missing tuple before checking once more.
+ * decision is authoritative; stored steward and canonical membership metadata
+ * are used only to repair missing implied tuples before checking once more.
  */
 export async function getTomeProjectPermissions(
   input: TomePermissionInput,
@@ -151,7 +153,7 @@ export async function getTomeProjectPermissions(
 
   try {
     const canRead = await canReadTomeProject(sub, input.project);
-    const canEdit = await canWriteAs(sub, input.project);
+    const canEdit = await canWriteAs(sub, input.project, input.user.email);
     return { canRead: canRead || canEdit, canEdit, canManageSteward: false };
   } catch {
     return { canRead: false, canEdit: false, canManageSteward: false };

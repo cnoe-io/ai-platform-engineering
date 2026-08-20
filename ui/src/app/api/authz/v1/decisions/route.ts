@@ -9,6 +9,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { getAuthFromBearerOrSession } from "@/lib/api-middleware";
 import { authorize } from "@/lib/authz";
+import { trustedInteractionFromInternalHeaders } from "@/lib/authz/trusted-interaction";
 import {
   HttpAuthzError,
   decisionContext,
@@ -56,8 +57,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     await enforceSubjectBinding(caller, subject, ctx);
 
     const context = sanitizeAdvisoryContext(b.context);
+    const interaction = trustedInteractionFromInternalHeaders(request.headers);
     const result = await authorize(
-      { subject, resource, action, ...(context ? { context } : {}) },
+      {
+        subject,
+        resource,
+        action,
+        ...(context ? { context } : {}),
+        trustedContext: { interaction },
+      },
       ctx,
     );
 

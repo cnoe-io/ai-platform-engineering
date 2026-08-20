@@ -11,6 +11,8 @@
  *    (`@/lib/tome/page-store`); Mongo holds the index/metadata only.
  */
 
+import type { RubricPolicy } from "@/types/tome-evaluation";
+
 // ---------------------------------------------------------------------------
 // Collections (index/metadata only — NO `projects`; reuse CAIPE's)
 // ---------------------------------------------------------------------------
@@ -148,6 +150,15 @@ export type IngestRunStatus =
   | "succeeded"
   | "failed";
 
+/** Immutable record of how an effective model was selected for a run/turn. */
+export interface ModelProvenance {
+  model: string;
+  source: "exact" | "type" | "global" | "environment" | "fallback" | "experiment";
+  scope_kind?: "exact" | "type" | "global" | null;
+  scope_id?: string | null;
+  config_version?: number | null;
+}
+
 /** What the queue worker needs to actually start a queued run later. */
 export interface IngestDispatch {
   /** Agent endpoint: "/ingest" (source pull) or "/synthesize" (BHAG roll-up). */
@@ -162,6 +173,12 @@ export interface IngestDispatch {
    * completion, same as before the draft-review feature existed.
    */
   skipReview?: boolean;
+  /**
+   * "auto" = fired by the CRON scheduler with no human triggering it this
+   * run — the agent should treat `seed`/existing context as authoritative
+   * rather than expecting fresh human intent. Default "manual".
+   */
+  triggeredBy?: "manual" | "auto";
 }
 
 /** Lifecycle + streamed log for one ingest run. */
@@ -172,6 +189,8 @@ export interface IngestRun {
   status: IngestRunStatus;
   /** Whether this was the greenfield (first) ingest that seeds stable pages. */
   greenfield: boolean;
+  /** "auto" = fired unattended by the CRON scheduler. Default "manual". */
+  triggered_by?: "manual" | "auto";
   log: string[];
   error?: string;
   started_at: Date;
@@ -216,6 +235,11 @@ export interface IngestRun {
   cost_usd?: number;
   /** Agent-reported number of turns completed by the run. */
   turns?: number;
+  /** The model id this run actually ran on — admin-editable per role
+   * (Settings → Models), so this can differ run to run. */
+  model?: string;
+  /** Resolution source captured at execution time. */
+  model_provenance?: ModelProvenance;
   /**
    * Latest exact context-window occupancy, from the Claude Agent SDK's own
    * live accounting (the same figure the CLI's `/context` shows) — accounts
@@ -228,6 +252,19 @@ export interface IngestRun {
     max_tokens: number;
     model: string;
   };
+  /** Grounded-quality evaluation attached to a promoted experiment draft. */
+  quality_evaluation_id?: string;
+  quality_policy_version?: number;
+  quality_policy_scope?: "global" | "type" | "exact";
+  quality_policy_scope_id?: string | null;
+  quality_policy_mode?: "off" | "observe" | "enforce";
+  quality_require_human_review?: boolean;
+  quality_allow_steward_override?: boolean;
+  quality_evaluator_model?: string;
+  quality_rubric_policy?: RubricPolicy;
+  evidence_bundle_id?: string;
+  evidence_hash?: string;
+  quality_entity_type?: "project" | "area" | "bhag";
 }
 
 /** One in-flight run, as surfaced on the projects hub (GET /api/projects). */
@@ -270,6 +307,10 @@ export interface ChatMessage {
   content: string;
   /** Interleaved render model; absent on legacy/user rows (fall back to content). */
   parts?: ChatPart[];
+  /** The model id that produced this turn. Assistant rows only — admin-editable
+   * per role (Settings → Models), so this can differ turn to turn. */
+  model?: string;
+  model_provenance?: ModelProvenance;
   created_at: Date;
 }
 
@@ -287,6 +328,9 @@ export interface Gist {
   body: string;
   author: string; // email of the creator
   created_at: Date;
+  /** Last edit metadata; absent on gists created before editing was supported. */
+  updated_at?: Date;
+  updated_by?: string;
   /** Freeform labels for lightweight filtering — no hierarchy, unlike wiki paths. */
   tags?: string[];
 }

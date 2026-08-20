@@ -366,11 +366,14 @@ test.describe("Tome data-steward controls (mocked)", () => {
     expect(repairRequests).toBe(1);
   });
 
-  test("long hierarchy project onboarding succeeds without exposing OpenFGA internals", async ({
+  test("hierarchy onboarding displays title-only BHAGs and Areas and submits their slugs", async ({
     page,
   }) => {
     const parentName =
       "Example Strategic Goal With A Deliberately Long Neutral Name";
+    const parentSlug = "example-strategic-goal";
+    const areaName = "Example Product Area";
+    const areaSlug = "example-product-area";
     const projectName = `Example Project ${"Long Name ".repeat(15).trim()}`;
     const projectSlug = projectName
       .toLowerCase()
@@ -435,13 +438,23 @@ test.describe("Tome data-steward controls (mocked)", () => {
                     {
                       _id: "example-goal-id",
                       type: "bhag",
-                      slug: "example-strategic-goal",
-                      name: parentName,
+                      slug: parentSlug,
                       title: parentName,
                       labels: {},
                     },
                   ]
-                : [],
+                : type === "area" &&
+                    url.searchParams.get("initiative") === parentSlug
+                  ? [
+                      {
+                        _id: "example-area-id",
+                        type: "area",
+                        slug: areaSlug,
+                        title: areaName,
+                        labels: { initiatives: [parentSlug] },
+                      },
+                    ]
+                  : [],
             active_ingest_count: 0,
           },
         });
@@ -463,7 +476,7 @@ test.describe("Tome data-steward controls (mocked)", () => {
                 team_id: "example-team-id",
                 team_slug: "example-team",
                 team_name: "Example Team",
-                labels: { initiatives: [parentName] },
+                labels: { initiatives: [parentSlug], areas: [areaSlug] },
                 tags: [],
                 sources: {},
               },
@@ -487,7 +500,7 @@ test.describe("Tome data-steward controls (mocked)", () => {
               team_id: "example-team-id",
               team_slug: "example-team",
               team_name: "Example Team",
-              labels: { initiatives: [parentName] },
+              labels: { initiatives: [parentSlug], areas: [areaSlug] },
               tags: [],
               sources: {},
             },
@@ -529,6 +542,8 @@ test.describe("Tome data-steward controls (mocked)", () => {
     await page.getByRole("button", { name: "Continue" }).click();
     await page.getByLabel("Project name").fill(projectName);
     await page.getByLabel("Parent BHAG").selectOption({ label: parentName });
+    await expect(page.getByLabel("Parent Area")).toContainText(areaName);
+    await page.getByLabel("Parent Area").selectOption({ label: areaName });
     await page.getByRole("button", { name: "Continue" }).click();
     await expect(
       page.getByRole("heading", { name: "SLT Configuration" }),
@@ -539,6 +554,10 @@ test.describe("Tome data-steward controls (mocked)", () => {
     ).toBeVisible();
     await page.getByRole("combobox", { name: "Shared directly with team" }).click();
     await page.getByRole("option", { name: "Example Team" }).click();
+    await page.getByRole("button", { name: "Continue" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Auto-ingest" }),
+    ).toBeVisible();
     await page.getByRole("button", { name: "Continue" }).click();
     await expect(
       page.getByRole("heading", { name: "Review & Create" }),
@@ -555,7 +574,8 @@ test.describe("Tome data-steward controls (mocked)", () => {
     expect(createPayload).toMatchObject({
       name: projectName,
       team_id: "example-team",
-      initiatives: [parentName],
+      initiatives: [parentSlug],
+      areas: [areaSlug],
     });
     await expect(page.getByText(/OpenFGA tuple write failed/i)).toHaveCount(0);
     await page.waitForURL(`**/projects/${projectSlug}/tome`);
@@ -635,8 +655,8 @@ test.describe("Tome data-steward controls (mocked)", () => {
       }),
     ).toBeVisible();
 
-    await page.getByRole("tab", { name: "Organization" }).click();
-    const organizationPanel = page.getByRole("tabpanel", { name: "Organization" });
+    await page.getByRole("tab", { name: "Access Config" }).click();
+    const organizationPanel = page.getByRole("tabpanel", { name: "Access Config" });
     await expect(
       organizationPanel.getByText("Shared directly with", { exact: true }),
     ).toBeVisible();

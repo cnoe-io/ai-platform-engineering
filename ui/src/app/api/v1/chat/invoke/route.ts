@@ -8,6 +8,7 @@
 import { getCollection, isMongoDBConfigured } from "@/lib/mongodb";
 import { createAuthzTraceContext, type AuthzTraceContext } from "@/lib/rbac/authz-tracing";
 import { requireAgentUsePermission } from "@/lib/rbac/openfga-agent-authz";
+import { addTrustedInteractionToBody, trustedInteractionFromRequest } from "@/lib/authz/trusted-interaction";
 import {
   isSchedulerTokenConfigured,
   isSchedulerTokenValid,
@@ -392,6 +393,9 @@ async function handleScheduledInvoke(
     tenantId: "default",
     traceparent: traceContext.traceparent,
     isServiceAccount: false,
+    trustedContext: {
+      interaction: { source: "api", conversationKind: "unknown", verified: false },
+    },
   });
   if (authzResponse) return authzResponse;
 
@@ -471,6 +475,7 @@ export async function POST(request: NextRequest): Promise<Response> {
   if (authResult instanceof NextResponse) return authResult;
   authResult.traceparent = traceContext.traceparent;
 
+  const interaction = trustedInteractionFromRequest(request);
   const authzResponse = await requireAgentUsePermission({
     subject: authResult.subject,
     agentId: body.agent_id,
@@ -478,8 +483,10 @@ export async function POST(request: NextRequest): Promise<Response> {
     tenantId: authResult.tenantId,
     traceparent: traceContext.traceparent,
     isServiceAccount: authResult.isServiceAccount,
+    trustedContext: { interaction },
   });
   if (authzResponse) return authzResponse;
+  addTrustedInteractionToBody(body, interaction);
 
   const conversationAuthzResponse = await requireConversationWriteAccess(
     authResult,

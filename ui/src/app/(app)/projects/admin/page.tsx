@@ -1,15 +1,29 @@
 "use client";
 
 import { Suspense, useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { ArrowLeft } from "lucide-react";
 
+import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PageTemplateEditor } from "@/components/tome/PageTemplateEditor";
+import { ModelConfigTab } from "@/components/tome/admin/ModelConfigTab";
 import { TomeAdminsTab } from "@/components/tome/admin/TomeAdminsTab";
 import { TomeAnalyticsTab } from "@/components/tome/admin/TomeAnalyticsTab";
+import { TomeAuthorizationHealthTab } from "@/components/tome/admin/TomeAuthorizationHealthTab";
+import { AutoIngestCredentialHealthTab } from "@/components/tome/admin/AutoIngestCredentialHealthTab";
+import { ExperimentsTab } from "@/components/tome/admin/ExperimentsTab";
 import { useSubtabParam } from "@/hooks/use-subtab-param";
 
-const TOME_ADMIN_TABS = ["page-templates", "analytics", "admins"] as const;
+const TOME_ADMIN_TABS = [
+  "page-templates",
+  "models",
+  "experiments",
+  "analytics",
+  "authorization",
+  "admins",
+] as const;
 type TomeAdminTab = (typeof TOME_ADMIN_TABS)[number];
 
 export default function TomeAdminPage() {
@@ -26,6 +40,7 @@ export default function TomeAdminPage() {
 function TomeAdminPageContent() {
   const router = useRouter();
   const [checking, setChecking] = useState(true);
+  const [authorized, setAuthorized] = useState(false);
   const [activeTab, setActiveTab] = useSubtabParam<TomeAdminTab>(
     TOME_ADMIN_TABS,
     "page-templates",
@@ -36,7 +51,8 @@ function TomeAdminPageContent() {
     fetch("/api/tome/admin")
       .then((res) => res.json())
       .then((body) => {
-        if (!body.isTomeAdmin) router.replace("/projects");
+        if (body.isTomeAdmin) setAuthorized(true);
+        else router.replace("/projects");
       })
       .catch(() => router.replace("/projects"))
       .finally(() => setChecking(false));
@@ -50,19 +66,34 @@ function TomeAdminPageContent() {
     );
   }
 
+  // Keep privileged tab content unmounted while a denied redirect completes.
+  // The API is independently protected, but mounting here would still issue
+  // avoidable forbidden requests and surface error toasts to non-admins.
+  if (!authorized) return null;
+
   return (
     <section className="mx-auto max-w-5xl space-y-6 p-6">
-      <div>
-        <h1 className="text-2xl font-semibold">TOME Settings</h1>
-        <p className="text-sm text-muted-foreground">
-          Manage TOME configuration and administrators. Visible to TOME Admins only.
-        </p>
+      <div className="flex items-start gap-3">
+        <Button asChild variant="ghost" size="icon" className="mt-0.5 shrink-0" title="Back to TOME">
+          <Link href="/projects" aria-label="Back to TOME">
+            <ArrowLeft className="h-5 w-5" />
+          </Link>
+        </Button>
+        <div>
+          <h1 className="text-2xl font-semibold">TOME Settings</h1>
+          <p className="text-sm text-muted-foreground">
+            Manage TOME configuration and administrators. Visible to TOME Admins only.
+          </p>
+        </div>
       </div>
 
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as TomeAdminTab)} className="space-y-6">
-        <TabsList>
+        <TabsList className="h-auto flex-wrap gap-1">
           <TabsTrigger value="page-templates">Page Templates</TabsTrigger>
+          <TabsTrigger value="models">Models</TabsTrigger>
+          <TabsTrigger value="experiments">Model Evaluations</TabsTrigger>
           <TabsTrigger value="analytics">Analytics</TabsTrigger>
+          <TabsTrigger value="authorization">RBAC Health</TabsTrigger>
           <TabsTrigger value="admins">Admins</TabsTrigger>
         </TabsList>
 
@@ -74,8 +105,23 @@ function TomeAdminPageContent() {
           <PageTemplateEditor />
         </TabsContent>
 
+        <TabsContent value="models" className="mt-0 space-y-4">
+          <ModelConfigTab />
+        </TabsContent>
+
+        <TabsContent value="experiments" className="mt-0 space-y-4">
+          <ExperimentsTab />
+        </TabsContent>
+
         <TabsContent value="analytics" className="mt-0 space-y-4">
           <TomeAnalyticsTab />
+        </TabsContent>
+
+        <TabsContent value="authorization" className="mt-0 space-y-8">
+          <TomeAuthorizationHealthTab />
+          <div className="border-t border-border/60 pt-8">
+            <AutoIngestCredentialHealthTab />
+          </div>
         </TabsContent>
 
         <TabsContent value="admins" className="mt-0 space-y-4">

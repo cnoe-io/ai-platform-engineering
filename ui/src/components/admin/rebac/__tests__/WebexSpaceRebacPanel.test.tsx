@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 const mockToast = jest.fn();
 jest.mock("@/components/ui/toast", () => ({
@@ -746,9 +746,7 @@ it("onboards deployment users independently for the bot selected above the table
   expect(screen.queryByRole("combobox", { name: "Webex bot for user@example.com" })).not.toBeInTheDocument();
 
   fireEvent.click(screen.getByRole("checkbox", { name: "Allow direct messages for user@example.com" }));
-  fireEvent.change(screen.getByRole("combobox", { name: "Agent for user@example.com" }), {
-    target: { value: "incident-agent" },
-  });
+  await pickAgent("Agent for user@example.com", "incident-agent");
   fireEvent.click(screen.getByRole("button", { name: "Save 1:1 access for user@example.com" }));
 
   await waitFor(() => {
@@ -769,6 +767,57 @@ it("onboards deployment users independently for the bot selected above the table
     return parsed.pathname === "/api/admin/webex/direct-users" &&
       parsed.searchParams.get("bot_id") === "secondary";
   })).toBe(true));
+});
+
+it("loads every enabled-agent page and searches 1:1 routing options", async () => {
+  const baseFetch = fetchMock.getMockImplementation();
+  const firstPage = Array.from({ length: 100 }, (_, index) => ({
+    _id: `agent-${index + 1}`,
+    name: `Agent ${index + 1}`,
+  }));
+  fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+    const parsed = new URL(String(url), "http://localhost");
+    if (parsed.pathname === "/api/dynamic-agents") {
+      const page = Number(parsed.searchParams.get("page") ?? "1");
+      return response({
+        data: page === 1
+          ? { items: firstPage, has_more: true }
+          : {
+              items: [{ _id: "agent-personal-assistant", name: "Personal Assistant" }],
+              has_more: false,
+            },
+      });
+    }
+    return baseFetch?.(url, init) ?? response({});
+  });
+
+  render(<WebexSpaceRebacPanel />);
+
+  fireEvent.click(await screen.findByRole("tab", { name: "1:1 Messages" }));
+  fireEvent.click(await screen.findByRole("checkbox", {
+    name: "Allow direct messages for user@example.com",
+  }));
+  const agentPicker = await screen.findByRole("button", {
+    name: "Agent for user@example.com",
+  });
+
+  fireEvent.click(agentPicker);
+  const searchInput = await screen.findByRole("textbox", {
+    name: "Search agents...",
+  });
+  fireEvent.change(searchInput, { target: { value: "personal assistant" } });
+  const listbox = screen.getByRole("listbox", {
+    name: "Agent for user@example.com",
+  });
+  const matchingOptions = within(listbox).getAllByRole("option");
+  expect(matchingOptions).toHaveLength(1);
+  expect(matchingOptions[0]).toHaveTextContent("Personal Assistant");
+  fireEvent.click(matchingOptions[0]);
+  expect(agentPicker).toHaveTextContent("Personal Assistant");
+  expect(fetchMock).toHaveBeenCalledWith(
+    "/api/dynamic-agents?enabled_only=true&page=2&page_size=100",
+    { cache: "no-store" },
+  );
 });
 
 it("shows inherited defaults and allows overrides in all-users mode", async () => {
@@ -818,8 +867,8 @@ it("shows inherited defaults and allows overrides in all-users mode", async () =
     screen.getByLabelText("Allow direct messages for user@example.com"),
   ).toBeChecked();
   expect(screen.queryByRole("combobox", { name: "Team for user@example.com" })).not.toBeInTheDocument();
-  expect(screen.getByRole("combobox", { name: "Agent for user@example.com" })).toHaveValue(
-    "fallback-agent",
+  expect(screen.getByRole("button", { name: "Agent for user@example.com" })).toHaveTextContent(
+    "Fallback Agent",
   );
   expect(screen.getByText("inherited")).toBeInTheDocument();
   expect(

@@ -1,5 +1,5 @@
 import { ApiError } from "@/lib/api-error";
-import { authorize, authorizeMany, type Action, type Subject } from "@/lib/authz";
+import { authorize, authorizeMany, type Action, type Subject, type TrustedAuthorizeContext } from "@/lib/authz";
 import type { UniversalRebacResourceType } from "@/types/rbac-universal";
 
 import { type OpenFgaCheckResult, type OpenFgaTupleKey } from "./openfga";
@@ -57,6 +57,7 @@ export interface ResourcePermissionOptions {
    * OpenFGA checks).
    */
   bypassForOrgAdmin?: boolean;
+  trustedContext?: TrustedAuthorizeContext;
 }
 
 function isOrgAdminBypassKillSwitchEnabled(): boolean {
@@ -109,11 +110,16 @@ async function tupleAllowed(
   return result.allowed === true;
 }
 
-async function casAllowed(subject: Subject, target: ResourcePermissionTarget): Promise<boolean> {
+async function casAllowed(
+  subject: Subject,
+  target: ResourcePermissionTarget,
+  trustedContext?: TrustedAuthorizeContext,
+): Promise<boolean> {
   const result = await authorize({
     subject,
     resource: { type: target.type, id: target.id },
     action: resourcePermissionActionToCasAction(target.action),
+    trustedContext,
   });
   return result.decision === "ALLOW";
 }
@@ -127,7 +133,7 @@ async function resourceAllowed(
   if (options.check) {
     return tupleAllowed(subjectString, target, options.check);
   }
-  return casAllowed(casSubject, target);
+  return casAllowed(casSubject, target, options.trustedContext);
 }
 
 async function isOrgAdmin(
@@ -281,10 +287,10 @@ export async function requireSkillPermission(
 }
 
 /**
- * Per-agent OpenFGA gate for Dynamic Agent routes. Organization admins
- * (including Super Admins team members with `organization#admin`) may
- * read, write, manage, or delete any agent without a per-resource tuple;
- * everyone else is checked against `agent:<id>#can_*`.
+ * Per-agent OpenFGA gate for Dynamic Agent routes. Every caller, including
+ * organization admins, is checked against `agent:<id>#can_*`. Team/global
+ * agents grant organization admins a manager relationship during reconcile;
+ * private agents deliberately do not.
  */
 export async function requireAgentPermission(
   session: ResourceAuthzSession,
@@ -302,10 +308,6 @@ export async function requireAgentPermission(
       "session_expired",
       "sign_in",
     );
-  }
-
-  if (!isOrgAdminBypassKillSwitchEnabled() && (await isOrgAdmin(subject, casSubject, options))) {
-    return;
   }
 
   await requireResourcePermission(session, { type: "agent", id: agentId, action }, options);
@@ -350,6 +352,7 @@ export async function requireResourcePermission(
     subject: casSubject,
     resource: { type: target.type, id: target.id },
     action: resourcePermissionActionToCasAction(target.action),
+    trustedContext: options.trustedContext,
   });
   if (result.decision === "ALLOW") {
     return;
@@ -405,12 +408,10 @@ export async function filterResourcesByPermission<T>(
   if (resources.length === 0) return [];
 
   const ids = resources.map((resource) => target.id(resource));
-  const results = await authorizeMany(
-    casSubject,
-    resourcePermissionActionToCasAction(target.action),
-    target.type,
-    ids,
-  );
+  const action = resourcePermissionActionToCasAction(target.action);
+  const results = options.trustedContext
+    ? await authorizeMany(casSubject, action, target.type, ids, {}, options.trustedContext)
+    : await authorizeMany(casSubject, action, target.type, ids);
 
   return resources.filter((resource) => results.get(target.id(resource))?.decision === "ALLOW");
 }
@@ -463,13 +464,13 @@ export async function resolveMcpServerListPermissions(
   const uniqueIds = [...new Set(serverIds.filter((id) => id.trim().length > 0))];
   const [manageResults, invokeResults, discoverResults, repairResult] = await Promise.all([
     uniqueIds.length > 0
-      ? authorizeMany(casSubject, "manage", "mcp_server", uniqueIds)
+      ? authorizeMany(casSubject, "manage", "mcp_server", uniqueIds, {}, options.trustedContext)
       : Promise.resolve(new Map<string, Awaited<ReturnType<typeof authorize>>>()),
     uniqueIds.length > 0
-      ? authorizeMany(casSubject, "invoke", "mcp_server", uniqueIds)
+      ? authorizeMany(casSubject, "invoke", "mcp_server", uniqueIds, {}, options.trustedContext)
       : Promise.resolve(new Map<string, Awaited<ReturnType<typeof authorize>>>()),
     uniqueIds.length > 0
-      ? authorizeMany(casSubject, "discover", "mcp_server", uniqueIds)
+      ? authorizeMany(casSubject, "discover", "mcp_server", uniqueIds, {}, options.trustedContext)
       : Promise.resolve(new Map<string, Awaited<ReturnType<typeof authorize>>>()),
     resourceAllowed(subject, casSubject, { type: "mcp_server", id: "agentgateway", action: "admin" }, options),
   ]);
@@ -537,13 +538,13 @@ export async function resolveAgentListPermissions(
   const uniqueIds = [...new Set(agentIds.filter((id) => id.trim().length > 0))];
   const [manageResults, writeResults, discoverResults] = await Promise.all([
     uniqueIds.length > 0
-      ? authorizeMany(casSubject, "manage", "agent", uniqueIds)
+      ? authorizeMany(casSubject, "manage", "agent", uniqueIds, {}, options.trustedContext)
       : Promise.resolve(new Map<string, Awaited<ReturnType<typeof authorize>>>()),
     uniqueIds.length > 0
-      ? authorizeMany(casSubject, "write", "agent", uniqueIds)
+      ? authorizeMany(casSubject, "write", "agent", uniqueIds, {}, options.trustedContext)
       : Promise.resolve(new Map<string, Awaited<ReturnType<typeof authorize>>>()),
     uniqueIds.length > 0
-      ? authorizeMany(casSubject, "discover", "agent", uniqueIds)
+      ? authorizeMany(casSubject, "discover", "agent", uniqueIds, {}, options.trustedContext)
       : Promise.resolve(new Map<string, Awaited<ReturnType<typeof authorize>>>()),
   ]);
 

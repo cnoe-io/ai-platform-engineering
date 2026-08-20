@@ -22,7 +22,7 @@ import logging
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, TypedDict
 from uuid import UUID
 
 import httpx
@@ -57,10 +57,64 @@ _active_project_id: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "tome_active_project_id", default=None
 )
 
+_active_experiment: contextvars.ContextVar[tuple[str, str] | None] = (
+    contextvars.ContextVar("tome_active_experiment", default=None)
+)
+
 
 def set_active_project_id(project_id: str) -> None:
     """Scope this request's backend callbacks to `project_id`."""
     _active_project_id.set(project_id)
+
+
+def set_active_experiment(experiment_id: str | None, artifact_id: str | None) -> None:
+    """Route page callbacks to an isolated experiment artifact when set."""
+    if experiment_id and artifact_id:
+        _active_experiment.set((experiment_id, artifact_id))
+    else:
+        _active_experiment.set(None)
+
+
+# Per-run model-config override, fetched once at the start of each ingest/
+# chat/synthesize/compact run via `fetch_model_config()`. Task-local so
+# concurrent runs can't clobber each other; a run that never sets this
+# transparently falls back to the env var / hardcoded constant.
+class ModelResolution(TypedDict, total=False):
+    model: str
+    source: str
+    scope_kind: str | None
+    scope_id: str | None
+    config_version: int | None
+
+
+_model_overrides: contextvars.ContextVar[dict[str, ModelResolution] | None] = contextvars.ContextVar(
+    "tome_model_overrides", default=None
+)
+
+
+def set_model_overrides(by_role: dict[str, ModelResolution] | None) -> None:
+    """Install this run's admin-editable model config."""
+    _model_overrides.set(by_role or None)
+
+
+def resolve_model_with_provenance(
+    role: str,
+    default: str,
+    env_vars: tuple[str, ...] = (),
+) -> ModelResolution:
+    """Resolve configured -> environment -> built-in and retain its source."""
+    overrides = _model_overrides.get()
+    if overrides and role in overrides:
+        return overrides[role]
+    for env_var in env_vars:
+        value = os.environ.get(env_var, "").strip()
+        if value:
+            return {"model": value, "source": "environment", "scope_id": env_var}
+    return {"model": default, "source": "fallback"}
+
+
+def resolve_model(role: str, default: str, env_vars: tuple[str, ...] = ()) -> str:
+    return resolve_model_with_provenance(role, default, env_vars)["model"]
 
 
 # Per-request OAuth credentials forwarded from the caller. Keyed by provider
@@ -68,8 +122,8 @@ def set_active_project_id(project_id: str) -> None:
 # (`expires_in`, `cloud_id`, `site_url`). Task-local so concurrent requests for
 # different users in the same container can't see each other's tokens. Read by
 # `build_agent_options` to wire MCPs with the right token per provider.
-_active_credentials: contextvars.ContextVar[dict[str, dict[str, str]]] = (
-    contextvars.ContextVar("tome_active_credentials", default={})
+_active_credentials: contextvars.ContextVar[dict[str, dict[str, str]] | None] = (
+    contextvars.ContextVar("tome_active_credentials", default=None)
 )
 
 
@@ -79,7 +133,7 @@ def set_active_credentials(credentials: dict[str, dict[str, str]]) -> None:
 
 
 def get_active_credentials() -> dict[str, dict[str, str]]:
-    return _active_credentials.get()
+    return _active_credentials.get() or {}
 
 
 # The chatting user's email, when known. Task-local, same rationale as
@@ -163,6 +217,7 @@ async def write_page(
 ) -> None:
     pid = project_id or _project_id()
     url = f"{_backend_url()}/api/internal/projects/{pid}/pages"
+    active_experiment = _active_experiment.get()
     payload = WritePageRequest(
         path=page_path,
         body=body,
@@ -170,6 +225,8 @@ async def write_page(
         author=author,
         report_id=report_id,
         actor_sub=_active_actor_sub.get(),
+        experiment_id=active_experiment[0] if active_experiment else None,
+        artifact_id=active_experiment[1] if active_experiment else None,
     )
     async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
         resp = await client.post(
@@ -291,6 +348,53 @@ def fetch_page_templates() -> dict[str, list[dict[str, Any]]] | None:
     return by_scope or None
 
 
+def fetch_model_config(
+    entity_id: str,
+    entity_type: str,
+) -> dict[str, ModelResolution] | None:
+    """Fetch exact/type/global resolution for one entity.
+
+    Roles: `ingest`, `chat`, `synthesize`, `compact`, `presentation`. Returns None on any
+    error so the caller falls back to its env var / hardcoded constant —
+    no agent surface hard-depends on this endpoint. Agent-token authed; no
+    request scope."""
+    url = f"{_backend_url()}/api/internal/model-config"
+    try:
+        with httpx.Client(timeout=DEFAULT_TIMEOUT) as client:
+            resp = client.get(
+                url,
+                headers=_auth_headers(),
+                params={"entity_id": entity_id, "entity_type": entity_type},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+    except Exception:
+        log.warning("fetch_model_config failed; using env var / hardcoded default", exc_info=True)
+        return None
+    models = data.get("models") if isinstance(data, dict) else None
+    if not isinstance(models, list):
+        return None
+    by_role: dict[str, ModelResolution] = {}
+    for entry in models:
+        role = entry.get("role")
+        model = entry.get("model")
+        source = entry.get("source")
+        if (
+            isinstance(role, str)
+            and isinstance(model, str)
+            and model.strip()
+            and isinstance(source, str)
+        ):
+            by_role[role] = {
+                "model": model,
+                "source": source,
+                "scope_kind": entry.get("scope_kind"),
+                "scope_id": entry.get("scope_id"),
+                "config_version": entry.get("config_version"),
+            }
+    return by_role or None
+
+
 def fetch_all_pages_sync(project_id: str | None = None) -> dict[str, str]:
     """All current pages as `{path: markdown}` from the backend. Used to
     materialize a project's on-disk working copy (startup load, periodic sync,
@@ -365,9 +469,8 @@ async def stream_post(
     — this is here for symmetry and future use (e.g. fetching long
     documents in chunks)."""
     url = f"{_backend_url()}{path}"
-    async with httpx.AsyncClient(timeout=None) as client:
-        async with client.stream(
-            "POST", url, headers=_auth_headers(), json=json_body
-        ) as resp:
-            resp.raise_for_status()
-            yield resp
+    async with httpx.AsyncClient(timeout=None) as client, client.stream(
+        "POST", url, headers=_auth_headers(), json=json_body
+    ) as resp:
+        resp.raise_for_status()
+        yield resp

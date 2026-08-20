@@ -8,6 +8,7 @@ import { loadTomeProject, requireTomeEditor } from "@/lib/tome/tome-api";
 import { auditTome, tomeActorFromAuth } from "@/lib/tome/audit";
 import { getTomeIngestRunsCollection } from "@/lib/tome/mongo-collections";
 import { cancelRun } from "@/lib/tome/ingest-runner";
+import { getArtifactEvaluation } from "@/lib/tome/evaluation-store";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +24,9 @@ export const GET = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
     throw new ApiError("Ingest run not found", 404, "RUN_NOT_FOUND");
   }
 
+  const qualityEvaluation = run.quality_evaluation_id
+    ? await getArtifactEvaluation(run.quality_evaluation_id)
+    : null;
   return successResponse({
     id: String(run._id),
     status: run.status,
@@ -37,7 +41,20 @@ export const GET = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
     review_outcome: run.review_outcome ?? null,
     reviewed_by: run.reviewed_by ?? null,
     usage: run.usage ?? null,
+    model: run.model ?? null,
+    model_provenance: run.model_provenance ?? null,
     context_usage: run.context_usage ?? null,
+    quality_policy: run.quality_policy_mode
+      ? {
+          mode: run.quality_policy_mode,
+          version: run.quality_policy_version ?? null,
+          scope: run.quality_policy_scope ?? null,
+          scope_id: run.quality_policy_scope_id ?? null,
+          require_human_review: run.quality_require_human_review ?? false,
+          allow_steward_override: run.quality_allow_steward_override ?? false,
+        }
+      : null,
+    quality_evaluation: qualityEvaluation,
     log: (run.log ?? []).join("\n"),
   });
 });

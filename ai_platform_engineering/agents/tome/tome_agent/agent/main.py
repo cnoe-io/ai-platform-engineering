@@ -6,6 +6,12 @@ Endpoints:
   `ChatEventPayload`s. SDK chat loop, snapshot-driven.
 - `POST /ingest` — body `IngestRequest`, response `text/event-stream` of
   `IngestEventPayload`s. SDK ingest loop, snapshot-driven.
+- `POST /model-check` — body `ModelCheckRequest`, response `ModelCheckResponse`.
+  Toolless one-shot smoke test for a candidate model id (admin UI Test button).
+- `POST /presentation` — source-grounded, toolless structured deck generation.
+- `POST /presentation/stream` — streamed deck generation followed by a validated deck.
+- `POST /presentation/requirements` — source-grounded presentation brief AI Assist.
+- `POST /presentation/requirements/stream` — streamed AI Assist output and validated brief.
 - `GET /healthz` — process is alive. Always 200 once the app has started.
 - `GET /readyz` — agent is ready to serve. 200 if the ttt config import
   succeeded and the snapshot endpoint is reachable; 503 otherwise.
@@ -28,24 +34,47 @@ import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import Literal
 
+from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import StreamingResponse
 
 from tome_agent.agent import http_client, workspace
 from tome_agent.agent.chat import stream_chat
 from tome_agent.agent.compact import stream_compaction
+from tome_agent.agent.evaluator import evaluate_artifact, evaluator_prompt_contract
 from tome_agent.agent.ingestor import stream_ingest
+from tome_agent.agent.presentation import (
+    generate_presentation,
+    stream_presentation,
+    stream_presentation_requirements,
+    suggest_presentation_requirements,
+)
 from tome_agent.agent.synthesize import stream_synthesis
 from tome_agent.config import settings
-from tome_agent.metrics import PrometheusHTTPMiddleware, metrics, run_finished, run_started
+from tome_agent.metrics import (
+    PrometheusHTTPMiddleware,
+    metrics,
+    run_finished,
+    run_started,
+)
 from tome_agent.orchestrator.contract import (
+    ArtifactEvaluationRequest,
+    ArtifactEvaluationResponse,
     ChatEventPayload,
     ChatRequest,
+    EvaluatorPromptContract,
     HealthResponse,
     IngestEventPayload,
     IngestRequest,
+    ModelCheckRequest,
+    ModelCheckResponse,
+    PresentationRequest,
+    PresentationRequirementsRequest,
+    PresentationRequirementsResponse,
+    PresentationResponse,
 )
 
 log = logging.getLogger("tome_agent.agent.main")
@@ -61,9 +90,9 @@ class _AgentState:
     ready: bool = False
 
 
-_state = _AgentState(started_at=datetime.now(timezone.utc))
+_state = _AgentState(started_at=datetime.now(UTC))
 metrics.uptime_seconds.set_function(
-    lambda: (datetime.now(timezone.utc) - _state.started_at).total_seconds()
+    lambda: (datetime.now(UTC) - _state.started_at).total_seconds()
 )
 
 
@@ -129,6 +158,216 @@ def readyz() -> Response:
 # not a route handler — see tome_agent.metrics.PrometheusHTTPMiddleware.
 
 
+# ---------- model-check ----------
+
+
+@app.post("/model-check", response_model=ModelCheckResponse)
+async def model_check_endpoint(body: ModelCheckRequest) -> ModelCheckResponse:
+    """Smoke-test a candidate model id: the admin UI's model-config Test
+    button calls this (via the backend proxy) before an id is saved. No
+    project scope, no tools, no persist hook — a single toolless turn that
+    proves the id resolves through the container's ANTHROPIC_BASE_URL/auth,
+    the same path a real ingest/chat run would use."""
+    if not _state.ready:
+        raise HTTPException(503, "agent not ready")
+    options = ClaudeAgentOptions(
+        model=body.model,
+        max_turns=1,
+        allowed_tools=[],
+        system_prompt="Reply with the single word: ok",
+    )
+    try:
+        async for message in query(prompt="ping", options=options):
+            if isinstance(message, ResultMessage):
+                if getattr(message, "is_error", False):
+                    # The provider's actual rejection reason (e.g. "Invalid
+                    # model name") lands in `result`, not `errors` — the SDK
+                    # only populates the latter for a narrower error class.
+                    detail = getattr(message, "result", None) or message.subtype
+                    return ModelCheckResponse(ok=False, error=str(detail))
+                return ModelCheckResponse(ok=True)
+    except Exception as e:  # noqa: BLE001 — surfaced to the admin UI verbatim
+        return ModelCheckResponse(ok=False, error=f"{type(e).__name__}: {e}")
+    return ModelCheckResponse(ok=False, error="No result from model")
+
+
+@app.post("/presentation", response_model=PresentationResponse)
+async def presentation_endpoint(body: PresentationRequest) -> PresentationResponse:
+    """Generate or revise a toolless, source-grounded presentation deck."""
+    if not _state.ready:
+        raise HTTPException(503, "agent not ready")
+    _state.in_flight_runs += 1
+    _state.last_activity_at = datetime.now(UTC)
+    run_start = run_started()
+    success = False
+    try:
+        result = await generate_presentation(body)
+        success = True
+        return result
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(502, str(exc)) from exc
+    finally:
+        _state.in_flight_runs = max(0, _state.in_flight_runs - 1)
+        _state.last_activity_at = datetime.now(UTC)
+        run_finished("presentation", run_start, success)
+
+
+@app.post("/presentation/stream")
+async def presentation_stream_endpoint(body: PresentationRequest) -> StreamingResponse:
+    """Stream raw deck JSON for visibility, then the validated editable deck."""
+    if not _state.ready:
+        raise HTTPException(503, "agent not ready")
+
+    async def gen() -> AsyncIterator[bytes]:
+        _state.in_flight_runs += 1
+        _state.last_activity_at = datetime.now(UTC)
+        run_start = run_started()
+        success = False
+        event_iterator = stream_presentation(body).__aiter__()
+        next_event: asyncio.Task[tuple[str, dict[str, object]]] | None = None
+        try:
+            action = "Revising" if body.existing_deck is not None else "Generating"
+            yield _sse_message(
+                "status",
+                {"message": f"{action} a deck from {len(body.sources)} wiki source(s)…"},
+            )
+            heartbeat_count = 0
+            next_event = asyncio.create_task(anext(event_iterator))
+            while True:
+                done, _ = await asyncio.wait({next_event}, timeout=10)
+                if not done:
+                    heartbeat_count += 1
+                    verb = "revising" if body.existing_deck is not None else "building"
+                    yield _sse_message(
+                        "status",
+                        {
+                            "message": (
+                                f"Still {verb} the deck… "
+                                f"({heartbeat_count * 10}s elapsed)"
+                            )
+                        },
+                    )
+                    continue
+                try:
+                    event_type, data = next_event.result()
+                except StopAsyncIteration:
+                    break
+                yield _sse_message(event_type, data)
+                if event_type == "complete":
+                    success = True
+                next_event = asyncio.create_task(anext(event_iterator))
+        except (TypeError, ValueError) as exc:
+            yield _sse_message("error", {"message": str(exc)})
+        finally:
+            if next_event is not None and not next_event.done():
+                next_event.cancel()
+                try:
+                    await next_event
+                except asyncio.CancelledError:
+                    pass
+            await event_iterator.aclose()
+            _state.in_flight_runs = max(0, _state.in_flight_runs - 1)
+            _state.last_activity_at = datetime.now(UTC)
+            run_finished("presentation", run_start, success)
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@app.post(
+    "/presentation/requirements",
+    response_model=PresentationRequirementsResponse,
+)
+async def presentation_requirements_endpoint(
+    body: PresentationRequirementsRequest,
+) -> PresentationRequirementsResponse:
+    """Use the presentation model to fill an editable brief from wiki sources."""
+    if not _state.ready:
+        raise HTTPException(503, "agent not ready")
+    _state.in_flight_runs += 1
+    _state.last_activity_at = datetime.now(UTC)
+    run_start = run_started()
+    success = False
+    try:
+        result = await suggest_presentation_requirements(body)
+        success = True
+        return result
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(502, str(exc)) from exc
+    finally:
+        _state.in_flight_runs = max(0, _state.in_flight_runs - 1)
+        _state.last_activity_at = datetime.now(UTC)
+        run_finished("presentation_requirements", run_start, success)
+
+
+@app.post("/presentation/requirements/stream")
+async def presentation_requirements_stream_endpoint(
+    body: PresentationRequirementsRequest,
+) -> StreamingResponse:
+    """Stream raw model text for visibility, then the validated editable brief."""
+    if not _state.ready:
+        raise HTTPException(503, "agent not ready")
+
+    async def gen() -> AsyncIterator[bytes]:
+        _state.in_flight_runs += 1
+        _state.last_activity_at = datetime.now(UTC)
+        run_start = run_started()
+        success = False
+        try:
+            yield _sse_message(
+                "status",
+                {"message": f"Reviewing {len(body.sources)} selected wiki source(s)…"},
+            )
+            async for event_type, data in stream_presentation_requirements(body):
+                yield _sse_message(event_type, data)
+                if event_type == "complete":
+                    success = True
+        except (TypeError, ValueError) as exc:
+            yield _sse_message("error", {"message": str(exc)})
+        finally:
+            _state.in_flight_runs = max(0, _state.in_flight_runs - 1)
+            _state.last_activity_at = datetime.now(UTC)
+            run_finished("presentation_requirements", run_start, success)
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@app.post("/evaluate", response_model=ArtifactEvaluationResponse)
+async def evaluate_endpoint(
+    body: ArtifactEvaluationRequest,
+) -> ArtifactEvaluationResponse:
+    """Evaluate one blinded candidate only against its frozen evidence."""
+    if not _state.ready:
+        raise HTTPException(503, "agent not ready")
+    try:
+        return await evaluate_artifact(body)
+    except ValueError as exc:
+        raise HTTPException(502, str(exc)) from exc
+
+
+@app.get("/evaluate/prompt", response_model=EvaluatorPromptContract)
+async def evaluator_prompt_endpoint(
+    mode: Literal["quick", "deep"] = "deep",
+) -> EvaluatorPromptContract:
+    """Expose the versioned evaluator prompt contract for immutable run snapshots."""
+    if not _state.ready:
+        raise HTTPException(503, "agent not ready")
+    return evaluator_prompt_contract(mode)
+
+
 # ---------- chat ----------
 
 
@@ -138,6 +377,10 @@ def _sse_format(event: ChatEventPayload | IngestEventPayload) -> bytes:
     the JSON body."""
     payload = json.dumps(event.data)
     return f"event: {event.type}\ndata: {payload}\n\n".encode()
+
+
+def _sse_message(event_type: str, data: dict) -> bytes:
+    return f"event: {event_type}\ndata: {json.dumps(data)}\n\n".encode()
 
 
 @app.post("/chat")
@@ -155,7 +398,7 @@ async def chat_endpoint(body: ChatRequest):
         http_client.set_active_actor_email(body.actor_email)
         http_client.set_active_actor_sub(body.actor_sub)
         _state.in_flight_runs += 1
-        _state.last_activity_at = datetime.now(timezone.utc)
+        _state.last_activity_at = datetime.now(UTC)
         run_start = run_started()
         success = False
         try:
@@ -171,7 +414,7 @@ async def chat_endpoint(body: ChatRequest):
             success = True
         finally:
             _state.in_flight_runs = max(0, _state.in_flight_runs - 1)
-            _state.last_activity_at = datetime.now(timezone.utc)
+            _state.last_activity_at = datetime.now(UTC)
             run_finished("chat", run_start, success)
 
     return StreamingResponse(gen(), media_type="text/event-stream")
@@ -193,8 +436,12 @@ async def ingest_endpoint(body: IngestRequest):
         pid = body.snapshot.project_id
         http_client.set_active_project_id(pid)
         http_client.set_active_credentials(body.credentials)
+        http_client.set_active_experiment(
+            body.experiment.experiment_id if body.experiment else None,
+            body.experiment.artifact_id if body.experiment else None,
+        )
         _state.in_flight_runs += 1
-        _state.last_activity_at = datetime.now(timezone.utc)
+        _state.last_activity_at = datetime.now(UTC)
         run_start = run_started()
         success = False
         try:
@@ -203,7 +450,12 @@ async def ingest_endpoint(body: IngestRequest):
             # on-disk copy from the source of truth first so the ingest edits
             # the latest committed state.
             async with workspace.project_lock(pid):
-                await workspace.refresh_project(pid)
+                if body.experiment:
+                    await workspace.materialize_project_pages(
+                        pid, body.experiment.frozen_pages
+                    )
+                else:
+                    await workspace.refresh_project(pid)
                 async for event in stream_ingest(
                     run_id=body.run_id,
                     seed=body.seed,
@@ -214,12 +466,14 @@ async def ingest_endpoint(body: IngestRequest):
                     report_id=body.report_id,
                     actor_email=body.actor_email,
                     quick=body.mode == "quick" and not body.is_greenfield,
+                    experiment=body.experiment,
                 ):
                     yield _sse_format(event)
             success = True
         finally:
+            http_client.set_active_experiment(None, None)
             _state.in_flight_runs = max(0, _state.in_flight_runs - 1)
-            _state.last_activity_at = datetime.now(timezone.utc)
+            _state.last_activity_at = datetime.now(UTC)
             run_finished("ingest", run_start, success)
 
     return StreamingResponse(gen(), media_type="text/event-stream")
@@ -241,24 +495,35 @@ async def compact_endpoint(body: IngestRequest):
         pid = body.snapshot.project_id
         http_client.set_active_project_id(pid)
         http_client.set_active_credentials(body.credentials)
+        http_client.set_active_experiment(
+            body.experiment.experiment_id if body.experiment else None,
+            body.experiment.artifact_id if body.experiment else None,
+        )
         _state.in_flight_runs += 1
-        _state.last_activity_at = datetime.now(timezone.utc)
+        _state.last_activity_at = datetime.now(UTC)
         run_start = run_started()
         success = False
         try:
             async with workspace.project_lock(pid):
-                await workspace.refresh_project(pid)
+                if body.experiment:
+                    await workspace.materialize_project_pages(
+                        pid, body.experiment.frozen_pages
+                    )
+                else:
+                    await workspace.refresh_project(pid)
                 async for event in stream_compaction(
                     run_id=body.run_id,
                     seed=body.seed,
                     snapshot=body.snapshot,
                     report_id=body.report_id,
+                    experiment=body.experiment,
                 ):
                     yield _sse_format(event)
             success = True
         finally:
+            http_client.set_active_experiment(None, None)
             _state.in_flight_runs = max(0, _state.in_flight_runs - 1)
-            _state.last_activity_at = datetime.now(timezone.utc)
+            _state.last_activity_at = datetime.now(UTC)
             run_finished("compact", run_start, success)
 
     return StreamingResponse(gen(), media_type="text/event-stream")
@@ -277,19 +542,36 @@ async def synthesize_endpoint(body: IngestRequest):
         pid = body.snapshot.project_id
         http_client.set_active_project_id(pid)
         http_client.set_active_credentials(body.credentials)
+        http_client.set_active_experiment(
+            body.experiment.experiment_id if body.experiment else None,
+            body.experiment.artifact_id if body.experiment else None,
+        )
         _state.in_flight_runs += 1
-        _state.last_activity_at = datetime.now(timezone.utc)
+        _state.last_activity_at = datetime.now(UTC)
         run_start = run_started()
         success = False
         try:
             async with workspace.project_lock(pid):
-                await workspace.refresh_project(pid)
+                if body.experiment:
+                    await workspace.materialize_project_pages(
+                        pid, body.experiment.frozen_pages
+                    )
+                else:
+                    await workspace.refresh_project(pid)
                 # Refresh each child's on-disk wiki from the source of truth so
                 # the synthesis reads the latest committed state. Each under its
                 # own lock.
                 for child in body.snapshot.child_projects:
                     async with workspace.project_lock(child.project_id):
-                        await workspace.refresh_project(child.project_id)
+                        if body.experiment:
+                            await workspace.materialize_project_pages(
+                                child.project_id,
+                                body.experiment.frozen_child_pages.get(
+                                    child.project_id, {}
+                                ),
+                            )
+                        else:
+                            await workspace.refresh_project(child.project_id)
                 async for event in stream_synthesis(
                     run_id=body.run_id,
                     seed=body.seed,
@@ -298,12 +580,14 @@ async def synthesize_endpoint(body: IngestRequest):
                     is_greenfield=body.is_greenfield,
                     seed_stable_pages=body.seed_stable_pages,
                     report_id=body.report_id,
+                    experiment=body.experiment,
                 ):
                     yield _sse_format(event)
             success = True
         finally:
+            http_client.set_active_experiment(None, None)
             _state.in_flight_runs = max(0, _state.in_flight_runs - 1)
-            _state.last_activity_at = datetime.now(timezone.utc)
+            _state.last_activity_at = datetime.now(UTC)
             run_finished("synthesize", run_start, success)
 
     return StreamingResponse(gen(), media_type="text/event-stream")

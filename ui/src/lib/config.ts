@@ -48,6 +48,8 @@ export interface Config {
   credentialsEnabled: boolean;
   /** Whether the user-facing Credentials surface (nav + /credentials page) is enabled */
   userConnectionsEnabled: boolean;
+  /** Whether personal private agents, MCP servers, and credentials are enabled. */
+  privateResourcesEnabled: boolean;
   /** Main tagline displayed throughout the UI */
   tagline: string;
   /** Description text displayed throughout the UI */
@@ -71,10 +73,10 @@ export interface Config {
   /** Support email address for contact links */
   supportEmail: string;
   /**
-   * Team slug pre-selected (and pinned to the top) in the project-creation
-   * team picker — the deployment's catchall/default team (e.g. an
-   * everyone-gets-added-automatically team), so most users never have to
-   * search a long team list. Null = no default, picker starts empty.
+   * Team slug pre-selected in new agent and project owner pickers — the
+   * deployment's catchall/default team (e.g. an everyone-gets-added-
+   * automatically team), so most users never have to search a long team list.
+   * Null leaves owner selection empty so the user must choose a team.
    */
   defaultTeamSlug: string | null;
   /**
@@ -289,6 +291,7 @@ const DEFAULT_CONFIG: Config = {
   mongodbEnabled: false,
   credentialsEnabled: false,
   userConnectionsEnabled: false,
+  privateResourcesEnabled: false,
   tagline: DEFAULT_TAGLINE,
   description: DEFAULT_DESCRIPTION,
   appName: DEFAULT_APP_NAME,
@@ -463,6 +466,7 @@ export function getServerConfig(): Config {
   const userConnectionsEnabled =
     credentialsEnabled &&
     (userConnectionsRaw === undefined ? true : userConnectionsRaw === 'true');
+  const privateResourcesEnabled = enabledEnv('PRIVATE_RESOURCES_ENABLED');
   const userInfoToolEnabled = env('ENABLE_USER_INFO_TOOL') === 'true';
 
   // Enabled when an org URL is set AND we have credentials in EITHER mode:
@@ -519,6 +523,7 @@ export function getServerConfig(): Config {
     mongodbEnabled,
     credentialsEnabled,
     userConnectionsEnabled,
+    privateResourcesEnabled,
     tagline: env('TAGLINE') || DEFAULT_TAGLINE,
     description: env('DESCRIPTION') || DEFAULT_DESCRIPTION,
     appName: env('APP_NAME') || DEFAULT_APP_NAME,

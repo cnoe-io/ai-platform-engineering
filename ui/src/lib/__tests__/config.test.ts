@@ -70,7 +70,7 @@ describe('getServerConfig', () => {
         'ALLOW_DEV_ADMIN_WHEN_SSO_DISABLED', 'SHOW_POWERED_BY',
         'LOGO_STYLE', 'SPINNER_COLOR', 'TAGLINE', 'DESCRIPTION',
         'APP_NAME', 'LOGO_URL', 'GRADIENT_FROM', 'GRADIENT_TO',
-        'SUPPORT_EMAIL', 'FEEDBACK_ENABLED', 'AUDIT_LOGS_ENABLED',
+        'SUPPORT_EMAIL', 'DEFAULT_TEAM_SLUG', 'FEEDBACK_ENABLED', 'AUDIT_LOGS_ENABLED',
         'ACTION_AUDIT_ENABLED',
         'CAIPE_UNSAFE_RBAC_BYPASS',
         'DEFAULT_FONT_SIZE', 'DEFAULT_FONT_FAMILY',
@@ -105,6 +105,7 @@ describe('getServerConfig', () => {
       expect(cfg.spinnerColor).toBeNull();
       expect(cfg.showPoweredBy).toBe(true);
       expect(cfg.supportEmail).toBe('support@example.com');
+      expect(cfg.defaultTeamSlug).toBeNull();
       expect(cfg.allowDevAdminWhenSsoDisabled).toBe(false);
       expect(cfg.unsafeRbacBypassEnabled).toBe(false);
       expect(cfg.auditLogsEnabled).toBe(false);
@@ -161,6 +162,7 @@ describe('getServerConfig', () => {
         'userInfoToolEnabled',
         'oidcRequiredGroup',
         'oktaSyncEnabled',
+        'privateResourcesEnabled',
         'shipLoopEnabled', 'shipLoopAssistantEnabled', 'shipLoopResolvedArtifactLookbackHours',
         'tomeEnabled',
         'scheduleEditorAgentId',
@@ -283,6 +285,11 @@ describe('getServerConfig', () => {
     it('should read SUPPORT_EMAIL', () => {
       process.env.SUPPORT_EMAIL = 'admin@cisco.com';
       expect(getServerConfig().supportEmail).toBe('admin@cisco.com');
+    });
+
+    it('should read DEFAULT_TEAM_SLUG', () => {
+      process.env.DEFAULT_TEAM_SLUG = 'primary';
+      expect(getServerConfig().defaultTeamSlug).toBe('primary');
     });
 
     it('should read SPINNER_COLOR', () => {
@@ -926,6 +933,7 @@ describe('getClientConfigScript (XSS safety)', () => {
       'userInfoToolEnabled',
       'oidcRequiredGroup',
       'oktaSyncEnabled',
+      'privateResourcesEnabled',
       'shipLoopEnabled', 'shipLoopAssistantEnabled', 'shipLoopResolvedArtifactLookbackHours',
       'tomeEnabled',
       'scheduleEditorAgentId',

@@ -16,6 +16,7 @@ successResponse,
 withErrorHandler,
 } from "@/lib/api-middleware";
 import { getCollection } from "@/lib/mongodb";
+import { trustedInteractionFromRequest } from "@/lib/authz/trusted-interaction";
 import { filterResourcesByPermission } from "@/lib/rbac/resource-authz";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 import { NextResponse } from "next/server";
@@ -83,6 +84,8 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     type: "agent",
     action: "use",
     id: (agent) => String(agent._id),
+  }, {
+    trustedContext: { interaction: trustedInteractionFromRequest(request) },
   });
 
   const total = visible.length;

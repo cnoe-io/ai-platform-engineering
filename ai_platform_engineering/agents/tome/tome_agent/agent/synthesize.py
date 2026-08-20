@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 from collections.abc import AsyncIterator
 from typing import Any
 from uuid import UUID
@@ -30,7 +29,11 @@ from tome_agent.agent.loop import (
     sources_for_connector,
 )
 from tome_agent.agent.run_stream import consume_agent_query, emit_log, now_iso
-from tome_agent.orchestrator.contract import IngestEventPayload, ProjectSnapshot
+from tome_agent.orchestrator.contract import (
+    ExperimentRunContext,
+    IngestEventPayload,
+    ProjectSnapshot,
+)
 from tome_agent.reports import schema as report_schema
 
 log = logging.getLogger("tome_agent.agent.synthesize")
@@ -40,7 +43,11 @@ MAX_TURNS = 100
 
 
 def _synthesis_model() -> str:
-    return os.environ.get("TTT_INGEST_MODEL", SYNTHESIS_MODEL_DEFAULT)
+    return http_client.resolve_model(
+        "synthesize",
+        SYNTHESIS_MODEL_DEFAULT,
+        ("TTT_INGEST_MODEL",),
+    )
 
 
 def _build_synthesis_system_prompt(
@@ -211,13 +218,35 @@ async def stream_synthesis(
     is_greenfield: bool,
     report_id: UUID,
     seed_stable_pages: bool = False,
+    experiment: ExperimentRunContext | None = None,
 ) -> AsyncIterator[IngestEventPayload]:
     """Run a BHAG synthesis as a Claude Agent SDK loop. Yields IngestEvents the
     agent's HTTP handler writes to the SSE response."""
     log_buf: list[IngestEventPayload] = []
-    templates = await asyncio.to_thread(http_client.fetch_page_templates)
+    templates = (
+        experiment.template_overrides
+        if experiment is not None
+        else await asyncio.to_thread(http_client.fetch_page_templates)
+    )
     report_schema.set_template_overrides(templates)
-    connector_extras = await resolve_connector_extras(snapshot, connector_data)
+    models = (
+        {
+            "synthesize": {
+                "model": experiment.model,
+                "source": "experiment",
+                "scope_kind": "exact",
+                "scope_id": experiment.experiment_id,
+            }
+        }
+        if experiment is not None
+        else await asyncio.to_thread(
+            http_client.fetch_model_config, snapshot.project_id, snapshot.project_type
+        )
+    )
+    http_client.set_model_overrides(models)
+    connector_extras = (
+        {} if experiment is not None else await resolve_connector_extras(snapshot, connector_data)
+    )
 
     async def on_write(page_path: str, byte_count: int) -> None:
         log_buf.append(
@@ -230,39 +259,87 @@ async def stream_synthesis(
     # Widen the read fence to the child projects' on-disk wikis (read-only).
     child_read_dirs = [project_root(c.project_id) for c in (snapshot.child_projects or [])]
 
+    model_provenance = http_client.resolve_model_with_provenance(
+        "synthesize",
+        SYNTHESIS_MODEL_DEFAULT,
+        ("TTT_INGEST_MODEL",),
+    )
+    system_prompt = _build_synthesis_system_prompt(
+        snapshot,
+        is_greenfield,
+        seed_stable_pages,
+        connector_extras,
+    )
+    if experiment is not None:
+        manifest = "\n".join(
+            f"- {item.canonical_uri} sha256:{item.content_hash}"
+            for item in experiment.frozen_evidence
+        )
+        system_prompt += (
+            "\n\n---\n\nFROZEN EXPERIMENT EVIDENCE\n"
+            "This synthesis is offline. Read only the materialized frozen "
+            "workspace and child evidence; never call or infer live sources. "
+            "Use TBD/unknown/not found for evidence gaps. Manifest:\n"
+            f"{manifest or '- no non-page evidence items'}"
+        )
+        if experiment.evaluation_mode == "quick":
+            targets = ", ".join(f"`{path}`" for path in experiment.evaluation_page_paths)
+            system_prompt += (
+                "\n\nQUICK PAGE EVALUATION: synthesize only "
+                f"{targets}. Read only the frozen inputs needed for those pages, do not "
+                "edit any other page, and stop when the selected pages are complete."
+            )
     options = build_agent_options(
         snapshot=snapshot,
-        system_prompt=_build_synthesis_system_prompt(
-            snapshot,
-            is_greenfield,
-            seed_stable_pages,
-            connector_extras,
-        ),
-        model=_synthesis_model(),
-        max_turns=MAX_TURNS,
+        system_prompt=system_prompt,
+        model=model_provenance["model"],
+        max_turns=experiment.turn_limit if experiment is not None else MAX_TURNS,
         persist_author="ttt-synthesis",
         report_id=report_id,
         on_write=on_write,
         extra_read_dirs=child_read_dirs,
+        offline=experiment is not None,
+        max_budget_usd=experiment.max_budget_usd if experiment is not None else None,
     )
 
     entity_kind = "Area" if snapshot.project_type == "area" else "BHAG"
-    prompt_parts = [
-        (
-            f"Run a {'GREENFIELD' if is_greenfield else 'INCREMENTAL'} "
-            f'{entity_kind} synthesis for "{snapshot.name}". Begin by reading '
-            "your own existing wiki pages, then read the wikis of the child "
-            "projects at the paths listed in the system prompt, investigate the "
-            f"directly attached sources, and synthesize this {entity_kind}'s "
-            "pages. Ground everything in those inputs — do not invent."
+    if experiment is not None and experiment.evaluation_mode == "quick":
+        targets = ", ".join(f"`{path}`" for path in experiment.evaluation_page_paths)
+        prompt_parts = [
+            (
+                f'Synthesize only {targets} for "{snapshot.name}". Read only the frozen '
+                "project and child evidence needed for those pages. Do not inspect or edit "
+                "unrelated pages, and stop when the targets are complete. Ground every claim."
+            )
+        ]
+    else:
+        prompt_parts = [
+            (
+                f"Run a {'GREENFIELD' if is_greenfield else 'INCREMENTAL'} "
+                f'{entity_kind} synthesis for "{snapshot.name}". Begin by reading '
+                "your own existing wiki pages, then read the wikis of the child "
+                "projects at the paths listed in the system prompt, investigate the "
+                + (
+                    "frozen child and source evidence, and synthesize this "
+                    if experiment is not None
+                    else "directly attached sources, and synthesize this "
+                )
+                + f"{entity_kind}'s "
+                "pages. Ground everything in those inputs — do not invent."
+            )
+        ]
+    if experiment is not None:
+        prompt_parts.append(
+            "\n\nREPRODUCIBLE RUN IDENTITY: "
+            f"{experiment.experiment_id}; seed={experiment.seed}. "
+            "Use the seed only for stable ordering choices."
         )
-    ]
     if seed and seed.strip():
         prompt_parts.append(
             "\n\nUSER SEED INSTRUCTION (one-shot focus for this run):\n"
             f"{seed.strip()}"
         )
-    for connector in REGISTRY:
+    for connector in (() if experiment is not None else REGISTRY):
         extension = connector.prompt_extension(
             connector_extras.get(connector.slug)
         )
@@ -277,7 +354,7 @@ async def stream_synthesis(
         f"(mode={'greenfield' if is_greenfield else 'incremental'}, "
         f"projects={child_count}, model={_synthesis_model()})"
     )
-    for connector in REGISTRY:
+    for connector in (() if experiment is not None else REGISTRY):
         sources = sources_for_connector(snapshot, connector)
         for line in connector.log_lines(
             sources, connector_extras.get(connector.slug)
@@ -286,5 +363,7 @@ async def stream_synthesis(
     if seed and seed.strip():
         yield emit_log(f"· seed: {seed.strip()[:200]}")
 
-    async for event in consume_agent_query(prompt, options, log_buf):
+    async for event in consume_agent_query(
+        prompt, options, log_buf, model_provenance=model_provenance
+    ):
         yield event

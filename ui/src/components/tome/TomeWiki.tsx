@@ -17,8 +17,10 @@ import {
   Link2,
   ListChecks,
   Loader2,
+  Maximize2,
   MessageSquare,
   MessagesSquare,
+  Minimize2,
   Newspaper,
   Plus,
   RefreshCw,
@@ -75,6 +77,7 @@ import {
   TOME_IMPORT_ACCEPT,
 } from "@/lib/tome/document-import-formats";
 import { cn } from "@/lib/utils";
+import { useUnsavedChangesStore } from "@/store/unsaved-changes-store";
 import type { PageTreeNode } from "@/types/tome";
 import {
   dataStewardLabel,
@@ -218,13 +221,29 @@ export function TomeWiki({ slug }: { slug: string }) {
   }, [pathname, base]);
   // The active view is derived from the URL — Agent is the landing view.
   const view = useMemo(() => pathToView(segments), [segments]);
+  const {
+    hasUnsavedChanges,
+    requestNavigation,
+    requestDeferredAction,
+  } = useUnsavedChangesStore();
   const navigate = useCallback(
     (next: MainView) => {
       const url = viewToPath(slug, next);
-      if (url !== pathname) window.history.pushState(null, "", url);
+      if (url === pathname) return;
+      const action = () => window.history.pushState(null, "", url);
+      if (view.kind === "settings" && hasUnsavedChanges) {
+        requestDeferredAction(action);
+        return;
+      }
+      action();
     },
-    [slug, pathname],
+    [slug, pathname, view.kind, hasUnsavedChanges, requestDeferredAction],
   );
+  const interceptHrefNavigation = useCallback((href: string): boolean => {
+    if (view.kind !== "settings" || !hasUnsavedChanges) return false;
+    requestNavigation(href);
+    return true;
+  }, [hasUnsavedChanges, requestNavigation, view.kind]);
 
   const [data, setData] = useState<PagesResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -246,9 +265,9 @@ export function TomeWiki({ slug }: { slug: string }) {
   const [projectType, setProjectType] = useState<ProjectType>("project");
   const [initiatives, setInitiatives] = useState<string[]>([]);
   const [areaTags, setAreaTags] = useState<string[]>([]);
-  const [parentBhags, setParentBhags] = useState<{ slug: string; name: string }[]>([]);
+  const [parentBhags, setParentBhags] = useState<{ slug: string; name?: string; title?: string }[]>([]);
   const [parentAreas, setParentAreas] = useState<
-    { slug: string; name: string; parentBhagName?: string }[]
+    { slug: string; name?: string; title?: string; parentBhagSlug?: string }[]
   >([]);
   // Every BHAG entity (fetched once, unconditionally, for both this project's
   // direct BHAG tags AND resolving an Area's transitive parent BHAG below).
@@ -273,6 +292,22 @@ export function TomeWiki({ slug }: { slug: string }) {
   const [importing, setImporting] = useState(false);
   const newPageInputRef = useRef<HTMLInputElement | null>(null);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
+  // Full-screen: the browser Fullscreen API on the wiki root (below AppHeader)
+  // hides the outer app chrome while keeping the wiki's own sidebar/header.
+  const wikiRootRef = useRef<HTMLDivElement | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  useEffect(() => {
+    const onChange = () => setIsFullscreen(document.fullscreenElement === wikiRootRef.current);
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
+  const toggleFullscreen = useCallback(() => {
+    if (document.fullscreenElement) {
+      void document.exitFullscreen();
+    } else {
+      void wikiRootRef.current?.requestFullscreen();
+    }
+  }, []);
 
   const load = useCallback(async () => {
     setError(null);
@@ -350,7 +385,7 @@ export function TomeWiki({ slug }: { slug: string }) {
   const applyProjectMeta = useCallback((p: Partial<ProjectDocument> | null | undefined) => {
     if (!p) return;
     if (typeof p.title === "string" && p.title) setProjectTitle(p.title);
-    setProjectName(p.name ?? p.title ?? "");
+    setProjectName(p.slug);
     setProjectType(p.type ?? "project");
     setInitiatives(Array.isArray(p.labels?.initiatives) ? p.labels.initiatives : []);
     setAreaTags(Array.isArray(p.labels?.areas) ? p.labels.areas : []);
@@ -404,7 +439,7 @@ export function TomeWiki({ slug }: { slug: string }) {
   }, [slug, isBhag]);
 
   const bhagByLabelAll = useMemo(
-    () => new Map(allBhags.map((b) => [normLabel(b.name), b])),
+    () => new Map(allBhags.map((b) => [b.slug, b])),
     [allBhags],
   );
 
@@ -418,8 +453,8 @@ export function TomeWiki({ slug }: { slug: string }) {
       setParentBhags([]);
       return;
     }
-    const want = new Set(initiatives.map((i) => normLabel(i)));
-    setParentBhags(allBhags.filter((b) => want.has(normLabel(b.name))));
+    const want = new Set(initiatives);
+    setParentBhags(allBhags.filter((b) => want.has(b.slug)));
   }, [isBhag, initiatives, allBhags]);
 
   // Resolve this project's area tags to Area entities, mirroring the BHAG
@@ -440,14 +475,15 @@ export function TomeWiki({ slug }: { slug: string }) {
         if (cancelled) return;
         const all = (body?.data?.projects ?? []) as {
           slug: string;
-          name: string;
+          title?: string;
+          name?: string;
           labels?: { initiatives?: string[] };
         }[];
-        const want = new Set(areaTags.map((a) => normLabel(a)));
+        const want = new Set(areaTags);
         setParentAreas(
           all
-            .filter((a) => want.has(normLabel(a.name)))
-            .map((a) => ({ slug: a.slug, name: a.name, parentBhagName: a.labels?.initiatives?.[0] })),
+            .filter((a) => want.has(a.slug))
+            .map((a) => ({ slug: a.slug, name: a.title ?? a.name ?? a.slug, parentBhagSlug: a.labels?.initiatives?.[0] })),
         );
       })
       .catch(() => undefined);
@@ -460,17 +496,16 @@ export function TomeWiki({ slug }: { slug: string }) {
   // project doesn't ALSO tag directly (avoids a duplicate chip for legacy
   // data that tags both). Rendered as a distinct "via Area" chip below.
   const transitiveBhags = useMemo(() => {
-    const directNorm = new Set(initiatives.map((i) => normLabel(i)));
+    const directSlugs = new Set(initiatives);
     const seen = new Set<string>();
-    const out: { slug: string; name: string; viaAreaName: string }[] = [];
+    const out: { slug: string; name?: string; title?: string; viaAreaName: string }[] = [];
     for (const a of parentAreas) {
-      if (!a.parentBhagName) continue;
-      const key = normLabel(a.parentBhagName);
-      if (directNorm.has(key) || seen.has(key)) continue;
-      const b = bhagByLabelAll.get(key);
+      if (!a.parentBhagSlug) continue;
+      if (directSlugs.has(a.parentBhagSlug) || seen.has(a.parentBhagSlug)) continue;
+      const b = bhagByLabelAll.get(a.parentBhagSlug);
       if (b) {
-        out.push({ ...b, viaAreaName: a.name });
-        seen.add(key);
+        out.push({ ...b, viaAreaName: a.title ?? a.name ?? a.slug });
+        seen.add(a.parentBhagSlug);
       }
     }
     return out;
@@ -533,7 +568,7 @@ export function TomeWiki({ slug }: { slug: string }) {
         const withCounts = await Promise.all(
           areaList.map(async (a) => {
             try {
-              const r = await fetch(`/api/projects?area=${encodeURIComponent(a.name)}`);
+              const r = await fetch(`/api/projects?area=${encodeURIComponent(a.slug)}`);
               const b = r.ok ? await r.json() : null;
               const count = Array.isArray(b?.data?.projects) ? b.data.projects.length : 0;
               return { slug: a.slug, title: a.title || a.name, projectCount: count };
@@ -860,12 +895,12 @@ export function TomeWiki({ slug }: { slug: string }) {
 
   // Initiative tag (normalized) → its BHAG wiki entity, when one exists.
   const bhagByInitiative = useMemo(
-    () => new Map(parentBhags.map((b) => [normLabel(b.name), b])),
+    () => new Map(parentBhags.map((b) => [b.slug, b])),
     [parentBhags],
   );
-  // Area tag (normalized) → its Area wiki entity, when one exists.
+  // Area slug → its Area wiki entity, when one exists.
   const areaByLabel = useMemo(
-    () => new Map(parentAreas.map((a) => [normLabel(a.name), a])),
+    () => new Map(parentAreas.map((a) => [a.slug, a])),
     [parentAreas],
   );
 
@@ -876,10 +911,10 @@ export function TomeWiki({ slug }: { slug: string }) {
   const hierarchyCrumbs = useMemo<Crumb[]>(() => {
     const out: Crumb[] = [];
     if (isArea) {
-      const b = initiatives.length > 0 ? bhagByInitiative.get(normLabel(initiatives[0])) : undefined;
+      const b = initiatives.length > 0 ? bhagByInitiative.get(initiatives[0]) : undefined;
       if (b) {
         out.push({
-          label: b.name,
+          label: b.title ?? b.name ?? b.slug,
           href: `/projects/${b.slug}/tome`,
           icon: <Target className="h-3.5 w-3.5 shrink-0 text-primary" />,
           colorClass: "text-primary",
@@ -887,20 +922,20 @@ export function TomeWiki({ slug }: { slug: string }) {
       }
     } else if (!isBhag) {
       const directBhag =
-        initiatives.length > 0 ? bhagByInitiative.get(normLabel(initiatives[0])) : undefined;
+        initiatives.length > 0 ? bhagByInitiative.get(initiatives[0]) : undefined;
       const bhagCrumb = directBhag ?? transitiveBhags[0];
       if (bhagCrumb) {
         out.push({
-          label: bhagCrumb.name,
+          label: bhagCrumb.title ?? bhagCrumb.name ?? bhagCrumb.slug,
           href: `/projects/${bhagCrumb.slug}/tome`,
           icon: <Target className="h-3.5 w-3.5 shrink-0 text-primary" />,
           colorClass: "text-primary",
         });
       }
-      const areaEntity = areaTags.length > 0 ? areaByLabel.get(normLabel(areaTags[0])) : undefined;
+      const areaEntity = areaTags.length > 0 ? areaByLabel.get(areaTags[0]) : undefined;
       if (areaEntity) {
         out.push({
-          label: areaEntity.name,
+          label: areaEntity.title ?? areaEntity.name ?? areaEntity.slug,
           href: `/projects/${areaEntity.slug}/tome`,
           icon: <Layers className="h-3.5 w-3.5 shrink-0 text-sky-500" />,
           colorClass: "text-sky-600 dark:text-sky-400",
@@ -929,11 +964,19 @@ export function TomeWiki({ slug }: { slug: string }) {
 
   return (
     <TooltipProvider>
-      <div className="flex h-full min-h-[calc(100vh-4rem)] flex-col">
+      <div
+        ref={wikiRootRef}
+        className="flex h-full min-h-[calc(100vh-4rem)] flex-col bg-background"
+      >
         <header className="flex items-center gap-1 px-4 py-2 text-sm">
           {/* Back to the projects list. The project's own detail/apps page is
               skipped (it redirects into Tome); reach it via `?apps=1` if needed. */}
-          <Link href="/projects">
+          <Link
+            href="/projects"
+            onClick={(event) => {
+              if (interceptHrefNavigation("/projects")) event.preventDefault();
+            }}
+          >
             <Button variant="ghost" size="sm" className="h-auto gap-1.5 px-2 py-1">
               <ArrowLeft className="h-4 w-4" />
               Projects
@@ -941,6 +984,7 @@ export function TomeWiki({ slug }: { slug: string }) {
           </Link>
           <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
           <Breadcrumb
+            onBeforeNavigate={interceptHrefNavigation}
             items={[
               ...hierarchyCrumbs,
               {
@@ -974,6 +1018,19 @@ export function TomeWiki({ slug }: { slug: string }) {
             </Tooltip>
             <EdgeGraphDialog slug={slug} />
             <McpConnectDialog />
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-auto gap-1.5 px-2 py-1"
+              onClick={toggleFullscreen}
+            >
+              {isFullscreen ? (
+                <Minimize2 className="h-3.5 w-3.5" />
+              ) : (
+                <Maximize2 className="h-3.5 w-3.5" />
+              )}
+              Toggle full screen
+            </Button>
           </div>
         </header>
 

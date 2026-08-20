@@ -22,7 +22,11 @@ export interface RbacEnv {
 }
 
 export function rbacEnvOrSkip(
-  options: { requireNoAccess?: boolean; requireUserSub?: boolean } = {},
+  options: {
+    requireNoAccess?: boolean;
+    requireNoAccessSub?: boolean;
+    requireUserSub?: boolean;
+  } = {},
 ): RbacEnv {
   if (process.env.RUN_RBAC_E2E !== "1") {
     test.skip(true, "RUN_RBAC_E2E not set; skipping RBAC e2e harness.");
@@ -40,6 +44,7 @@ export function rbacEnvOrSkip(
     ...(options.requireNoAccess === true
       ? (["RBAC_NOACCESS_USER_EMAIL", "RBAC_NOACCESS_USER_PASSWORD"] as const)
       : []),
+    ...(options.requireNoAccessSub === true ? (["RBAC_NOACCESS_USER_SUB"] as const) : []),
   ] as const;
 
   const missing = required.filter((k) => !process.env[k]);

@@ -18,7 +18,6 @@ import {
   type PreflightResult,
   type PreflightState,
 } from "@/lib/tome/preflight";
-import { normLabel } from "@/lib/projects/labels";
 import type { ProjectDocument } from "@/types/projects";
 
 type ChildProject = ProjectDocument & {
@@ -50,14 +49,17 @@ async function mapLimit<T>(
  * synthesize the strategic view.
  */
 export function ChildProjectsPanel({
-  bhagName,
+  bhagSlug,
+  bhagLabel,
   entityKind = "bhag",
   preflight = false,
   editable = false,
   onCount,
 }: {
-  /** The parent entity's name (the label value children are tagged with). */
-  bhagName: string;
+  /** The parent entity's slug (stored in child labels). */
+  bhagSlug: string;
+  /** Display name for the parent entity, shown in UI copy. */
+  bhagLabel?: string;
   /** Which kind of synthesized entity this is — drives the label dimension
    * (`labels.initiatives` vs `labels.areas`) and copy. */
   entityKind?: "bhag" | "area";
@@ -84,7 +86,7 @@ export function ChildProjectsPanel({
   const [candidates, setCandidates] = useState<ChildProject[]>([]);
   const [mutating, setMutating] = useState(false);
 
-  // Children are tagged with the parent's name as an initiative/area label;
+  // Children are tagged with the parent's slug as an initiative/area label;
   // the list API filters by that dimension (OR within it) and excludes BHAGs.
   //
   // For a non-editable BHAG view (the synthesis preview), also include
@@ -97,31 +99,31 @@ export function ChildProjectsPanel({
     try {
       if (entityKind === "bhag" && !editable) {
         const [areaRes, directRes] = await Promise.all([
-          fetch(`/api/projects?type=area&initiative=${encodeURIComponent(bhagName)}`),
-          fetch(`/api/projects?initiative=${encodeURIComponent(bhagName)}`),
+          fetch(`/api/projects?type=area&initiative=${encodeURIComponent(bhagSlug)}`),
+          fetch(`/api/projects?initiative=${encodeURIComponent(bhagSlug)}`),
         ]);
         if (!areaRes.ok && !directRes.ok) throw new Error("Failed to load projects");
         const areasList = areaRes.ok
-          ? (((await areaRes.json()).data?.projects ?? []) as { name: string }[])
+          ? (((await areaRes.json()).data?.projects ?? []) as { slug: string; title?: string }[])
           : [];
         const directList = directRes.ok
           ? (((await directRes.json()).data?.projects ?? []) as ChildProject[])
           : [];
         const areaProjectLists = await Promise.all(
           areasList.map(async (a) => {
-            const r = await fetch(`/api/projects?area=${encodeURIComponent(a.name)}`);
-            if (!r.ok) return { areaName: a.name, list: [] as ChildProject[] };
+            const r = await fetch(`/api/projects?area=${encodeURIComponent(a.slug)}`);
+            if (!r.ok) return { areaLabel: a.title ?? a.slug, list: [] as ChildProject[] };
             const body = await r.json();
-            return { areaName: a.name, list: (body.data?.projects ?? []) as ChildProject[] };
+            return { areaLabel: a.title ?? a.slug, list: (body.data?.projects ?? []) as ChildProject[] };
           }),
         );
         const byId = new Map<string, ChildProject>();
         for (const p of directList) byId.set(String(p._id), p);
         const via: Record<string, string> = {};
-        for (const { areaName, list } of areaProjectLists) {
+        for (const { areaLabel, list } of areaProjectLists) {
           for (const p of list) {
             byId.set(String(p._id), p);
-            via[String(p._id)] = areaName;
+            via[String(p._id)] = areaLabel;
           }
         }
         const combined = [...byId.values()];
@@ -130,7 +132,7 @@ export function ChildProjectsPanel({
         onCount?.(combined.length);
         return;
       }
-      const res = await fetch(`/api/projects?${queryParam}=${encodeURIComponent(bhagName)}`);
+      const res = await fetch(`/api/projects?${queryParam}=${encodeURIComponent(bhagSlug)}`);
       const b = await res.json();
       if (!res.ok) throw new Error(b?.error ?? "Failed to load projects");
       const list = (b.data?.projects ?? []) as ChildProject[];
@@ -142,7 +144,7 @@ export function ChildProjectsPanel({
     } finally {
       setLoading(false);
     }
-  }, [bhagName, queryParam, onCount, entityKind, editable]);
+  }, [bhagSlug, queryParam, onCount, entityKind, editable]);
 
   // Projects not yet tagged to this entity (the add menu). `/api/projects`
   // excludes BHAGs/Areas by default.
@@ -153,14 +155,13 @@ export function ChildProjectsPanel({
       const b = await res.json();
       if (!res.ok) return;
       const all = (b.data?.projects ?? []) as ChildProject[];
-      const want = normLabel(bhagName);
       setCandidates(
-        all.filter((p) => !(p.labels?.[labelDim] ?? []).some((i) => normLabel(i) === want)),
+        all.filter((p) => !(p.labels?.[labelDim] ?? []).includes(bhagSlug)),
       );
     } catch {
       /* best-effort — the add menu just stays empty */
     }
-  }, [editable, bhagName, labelDim]);
+  }, [editable, bhagSlug, labelDim]);
 
   useEffect(() => {
     setLoading(true);
@@ -192,7 +193,7 @@ export function ChildProjectsPanel({
     setError(null);
     try {
       const current = target.labels?.[labelDim] ?? [];
-      await patchInitiatives(target.slug, labelDim, [...current, bhagName]);
+      await patchInitiatives(target.slug, labelDim, [...current, bhagSlug]);
       await Promise.all([loadTagged(), loadCandidates()]);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -204,15 +205,14 @@ export function ChildProjectsPanel({
   const removeProject = async (child: ChildProject) => {
     if (
       typeof window !== "undefined" &&
-      !window.confirm(`Remove "${child.title}" from the ${bhagName} ${entityLabel}?`)
+      !window.confirm(`Remove "${child.title}" from the ${bhagLabel ?? bhagSlug} ${entityLabel}?`)
     ) {
       return;
     }
     setMutating(true);
     setError(null);
     try {
-      const want = normLabel(bhagName);
-      const next = (child.labels?.[labelDim] ?? []).filter((i) => normLabel(i) !== want);
+      const next = (child.labels?.[labelDim] ?? []).filter((i) => i !== bhagSlug);
       await patchInitiatives(child.slug, labelDim, next);
       await Promise.all([loadTagged(), loadCandidates()]);
     } catch (e) {
@@ -298,7 +298,7 @@ export function ChildProjectsPanel({
             <FolderKanban className="mx-auto h-8 w-8 text-muted-foreground/40" />
             <p className="mt-2 text-sm font-medium">No projects tagged yet</p>
             <p className="mt-1 text-xs text-muted-foreground">
-              Add <span className="font-medium text-foreground">{bhagName}</span> under{" "}
+              Add <span className="font-medium text-foreground">{bhagLabel ?? bhagSlug}</span> under{" "}
               {entityKind === "area" ? "Areas" : "BHAG / Initiatives"} on a project to ladder it
               up to this {entityLabel}.
             </p>
@@ -322,7 +322,7 @@ export function ChildProjectsPanel({
                       type="button"
                       onClick={() => void removeProject(p)}
                       disabled={mutating}
-                      title={`Remove from ${bhagName} ${entityLabel}`}
+                      title={`Remove from ${bhagLabel ?? bhagSlug} ${entityLabel}`}
                       aria-label={`Remove ${p.title}`}
                       className="-mr-1 -mt-1 shrink-0 rounded p-1 text-muted-foreground/50 hover:bg-muted hover:text-destructive disabled:opacity-50"
                     >

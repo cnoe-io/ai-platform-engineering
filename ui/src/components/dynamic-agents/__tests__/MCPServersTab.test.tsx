@@ -48,7 +48,10 @@ describe("MCPServersTab AgentGateway repair", () => {
     jest.clearAllMocks();
     serverItems = [jiraServer];
     global.fetch = jest.fn((url: string, init?: RequestInit) => {
-      if (url === "/api/mcp-servers?page_size=100") {
+      if (
+        url === "/api/mcp-servers?page_size=100"
+        || url.startsWith("/api/mcp-servers?page_size=100&sort_by=")
+      ) {
         return Promise.resolve({
           json: async () => ({
             success: true,
@@ -62,28 +65,6 @@ describe("MCPServersTab AgentGateway repair", () => {
       if (url === "/api/mcp-servers?id=jira") {
         return Promise.resolve({
           json: async () => ({ success: true, data: jiraServer }),
-        } as Response);
-      }
-      if (url === "/api/mcp-servers/agentgateway/sync" && init?.method === "POST") {
-        return Promise.resolve({
-          json: async () => ({
-            success: true,
-            data: {
-              added: ["rag"],
-              skipped: [{ id: "jira", reason: "conflict" }],
-              summary: { added: 1, existing: 0, conflicts: 1, skipped: 1 },
-              migration_warnings: [
-                {
-                  id: "jira",
-                  endpoint: "http://agentgateway:4000/mcp",
-                  target_endpoint: "http://mcp-jira:8000/mcp",
-                  existing_endpoint: "http://legacy-jira:8000/mcp",
-                  message:
-                    "Legacy MCP server conflicts with AgentGateway target \"jira\". Remove or rename the legacy MCP server to let AgentGateway manage it.",
-                },
-              ],
-            },
-          }),
         } as Response);
       }
       if (url === "/api/mcp-servers/probe?id=jira" && init?.method === "POST") {
@@ -146,34 +127,21 @@ describe("MCPServersTab AgentGateway repair", () => {
     }) as unknown as typeof fetch;
   });
 
-  it("repairs AgentGateway MCP server registrations and shows migration conflicts", async () => {
+  it("does not expose the global AgentGateway repair action", async () => {
     render(<MCPServersTab />);
 
     await screen.findByText("Jira");
-    fireEvent.click(screen.getByRole("button", { name: /Repair AgentGateway/i }));
-
-    await waitFor(() => {
-      expect(global.fetch).toHaveBeenCalledWith(
-        "/api/mcp-servers/agentgateway/sync",
-        expect.objectContaining({
-          method: "POST",
-          body: JSON.stringify({}),
-        }),
-      );
-    });
-
-    // Message format changed to break down counts:
-    //   "Added 1, migrated 0, and refreshed 0 MCP server from AgentGateway."
-    expect(
-      await screen.findByText(/Added 1, migrated 0, and refreshed 0 MCP server/i),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(/1 legacy MCP server conflicts with AgentGateway targets/i),
-    ).toBeInTheDocument();
-    expect(screen.getByText(/Remove or rename the legacy MCP server/i)).toBeInTheDocument();
-    expect(screen.getAllByText("jira").length).toBeGreaterThan(0);
-    expect(screen.getByText(/Current: http:\/\/legacy-jira:8000\/mcp/i)).toBeInTheDocument();
-    expect(screen.getByText(/AgentGateway: http:\/\/mcp-jira:8000\/mcp/i)).toBeInTheDocument();
+    const description = screen.getByText(
+      "Configure Streamable HTTP MCP servers. AgentGateway authorizes every tool call before forwarding it upstream.",
+    );
+    expect(description).toHaveClass("max-w-3xl", "leading-relaxed");
+    expect(description.parentElement).toHaveClass("min-w-0");
+    expect(screen.getByRole("button", { name: "Refresh" }).parentElement).toHaveClass("shrink-0");
+    expect(screen.queryByRole("button", { name: /Repair AgentGateway/i })).not.toBeInTheDocument();
+    expect(global.fetch).not.toHaveBeenCalledWith(
+      "/api/mcp-servers/agentgateway/sync",
+      expect.anything(),
+    );
   });
 
   it("marks AgentGateway-registered MCP servers in the table", async () => {
@@ -184,6 +152,32 @@ describe("MCPServersTab AgentGateway repair", () => {
 
     expect(screen.getByText("AgentGateway")).toBeInTheDocument();
     expect(screen.getByText(/Target: http:\/\/rag-server:9446\/mcp/i)).toBeInTheDocument();
+  });
+
+  it.each([
+    ["Name", "name", "desc"],
+    ["Transport", "transport", "asc"],
+    ["Endpoint / Command", "endpoint", "asc"],
+    ["Status", "status", "asc"],
+  ])("sorts globally by %s", async (label, sortBy, sortOrder) => {
+    render(<MCPServersTab />);
+
+    await screen.findByText("Jira");
+    jest.mocked(global.fetch).mockClear();
+    fireEvent.click(screen.getByRole("button", {
+      name: `Sort by ${label} ${sortOrder === "asc" ? "ascending" : "descending"}`,
+    }));
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        `/api/mcp-servers?page_size=100&sort_by=${sortBy}&sort_order=${sortOrder}`,
+        { cache: "no-store" },
+      );
+    });
+    expect(await screen.findByRole("columnheader", { name: new RegExp(label) })).toHaveAttribute(
+      "aria-sort",
+      sortOrder === "asc" ? "ascending" : "descending",
+    );
   });
 
   it("opens a test modal and invokes a saved MCP tool", async () => {
@@ -384,7 +378,7 @@ describe("MCPServersTab AgentGateway repair", () => {
     jest.useRealTimers();
   });
 
-  it("hides repair, probe, test, and delete actions when row permissions deny them", async () => {
+  it("hides probe, test, and delete actions when row permissions deny them", async () => {
     serverItems = [
       {
         ...jiraServer,
@@ -423,11 +417,11 @@ describe("MCPServersTab AgentGateway repair", () => {
     expect(await screen.findByText("Add MCP Server")).toBeInTheDocument();
   });
 
-  it("shows repair, probe, test, and delete when list permissions allow them", async () => {
+  it("shows permitted row actions without exposing global AgentGateway repair", async () => {
     render(<MCPServersTab />);
 
     await screen.findByText("Jira");
-    expect(screen.getByRole("button", { name: /Repair AgentGateway/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Repair AgentGateway/i })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Probe tools for Jira/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /test mcp tools for jira/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Delete Jira/i })).toBeInTheDocument();

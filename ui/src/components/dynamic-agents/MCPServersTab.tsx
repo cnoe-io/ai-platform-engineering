@@ -18,7 +18,10 @@ import { toYaml } from "@/lib/yaml-serializer";
 import type { MCPServerConfigWithPermissions, MCPToolInfo } from "@/types/dynamic-agent";
 import {
 AlertCircle,
+ArrowDown,
+ArrowUp,
 CheckCircle2,
+ChevronsUpDown,
 Download,
 FlaskConical,
 Globe,
@@ -41,14 +44,13 @@ import { RemoteMCPCatalogDialog, type RemoteMCPTemplate } from "./RemoteMCPCatal
 export const MCP_SERVERS_REFRESH_INTERVAL_MS = 10_000;
 const MCP_SERVERS_LIST_URL = "/api/mcp-servers?page_size=100";
 
+type McpServerSortField = "name" | "transport" | "endpoint" | "status";
+type SortDirection = "asc" | "desc";
+
 const DEFAULT_ROW_PERMISSIONS = {
   can_manage: false,
   can_invoke: false,
   can_discover: false,
-} as const;
-
-const DEFAULT_LIST_CAPABILITIES = {
-  repair_agentgateway: false,
 } as const;
 
 interface ProbeResult {
@@ -59,14 +61,6 @@ interface ProbeResult {
 }
 
 type ToolHealthStatus = "healthy" | "degraded" | "checking" | "unknown" | "disabled";
-
-interface AgentGatewayMigrationWarning {
-  id: string;
-  endpoint: string;
-  target_endpoint?: string;
-  existing_endpoint?: string;
-  message: string;
-}
 
 interface FetchServersOptions {
   showLoading?: boolean;
@@ -202,7 +196,6 @@ export function MCPServersTab({
   onSelectedServerChange,
 }: MCPServersTabProps = {}) {
   const [servers, setServers] = React.useState<MCPServerConfigWithPermissions[]>([]);
-  const [listCapabilities, setListCapabilities] = React.useState(DEFAULT_LIST_CAPABILITIES);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [editingServer, setEditingServer] = React.useState<MCPServerConfigWithPermissions | null>(null);
@@ -214,16 +207,12 @@ export function MCPServersTab({
   const [showCatalog, setShowCatalog] = React.useState(false);
   const [catalogInitialValues, setCatalogInitialValues] = React.useState<MCPServerInitialValues | null>(null);
   const [probeResults, setProbeResults] = React.useState<Record<string, ProbeResult>>({});
-  const [agentGatewayMigrationWarnings, setAgentGatewayMigrationWarnings] = React.useState<
-    AgentGatewayMigrationWarning[]
-  >([]);
-  const [agentGatewaySyncing, setAgentGatewaySyncing] = React.useState(false);
-  const [agentGatewayMessage, setAgentGatewayMessage] = React.useState<string | null>(null);
-  const [agentGatewayError, setAgentGatewayError] = React.useState<string | null>(null);
   const [testingServer, setTestingServer] = React.useState<MCPServerConfigWithPermissions | null>(null);
   const [pendingDeleteServerId, setPendingDeleteServerId] = React.useState<string | null>(null);
   const [deletingServerId, setDeletingServerId] = React.useState<string | null>(null);
   const [rowActionErrors, setRowActionErrors] = React.useState<Record<string, string>>({});
+  const [sortBy, setSortBy] = React.useState<McpServerSortField>("name");
+  const [sortOrder, setSortOrder] = React.useState<SortDirection>("asc");
 
   const fetchServers = React.useCallback(async ({
     showLoading = true,
@@ -236,7 +225,10 @@ export function MCPServersTab({
       setError(null);
     }
     try {
-      const response = await fetch(MCP_SERVERS_LIST_URL, { cache: "no-store" });
+      const listUrl = sortBy === "name" && sortOrder === "asc"
+        ? MCP_SERVERS_LIST_URL
+        : `${MCP_SERVERS_LIST_URL}&sort_by=${sortBy}&sort_order=${sortOrder}`;
+      const response = await fetch(listUrl, { cache: "no-store" });
       const data = await response.json();
       if (data.success) {
         const items = (data.data.items || []) as MCPServerConfigWithPermissions[];
@@ -246,7 +238,6 @@ export function MCPServersTab({
             permissions: server.permissions ?? DEFAULT_ROW_PERMISSIONS,
           })),
         );
-        setListCapabilities(data.data.capabilities ?? DEFAULT_LIST_CAPABILITIES);
         setError(null);
       } else {
         if (!preserveListOnError) {
@@ -262,7 +253,7 @@ export function MCPServersTab({
         setLoading(false);
       }
     }
-  }, []);
+  }, [sortBy, sortOrder]);
 
   React.useEffect(() => {
     fetchServers();
@@ -349,6 +340,50 @@ export function MCPServersTab({
       return next;
     });
   }, []);
+
+  const handleSort = React.useCallback((field: McpServerSortField) => {
+    if (sortBy === field) {
+      setSortOrder((current) => current === "asc" ? "desc" : "asc");
+    } else {
+      setSortBy(field);
+      setSortOrder("asc");
+    }
+  }, [sortBy]);
+
+  const sortableHeader = (
+    field: McpServerSortField,
+    label: string,
+    className: string,
+  ) => {
+    const active = sortBy === field;
+    const nextDirection = active && sortOrder === "asc" ? "descending" : "ascending";
+    return (
+      <div
+        className={className}
+        role="columnheader"
+        aria-sort={active ? (sortOrder === "asc" ? "ascending" : "descending") : "none"}
+      >
+        <button
+          type="button"
+          className="inline-flex items-center gap-1 rounded-sm hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={() => handleSort(field)}
+          aria-label={`Sort by ${label} ${nextDirection}`}
+          title={`Sort by ${label} ${nextDirection}`}
+        >
+          <span>{label}</span>
+          {active ? (
+            sortOrder === "asc" ? (
+              <ArrowUp className="h-3.5 w-3.5" aria-hidden="true" />
+            ) : (
+              <ArrowDown className="h-3.5 w-3.5" aria-hidden="true" />
+            )
+          ) : (
+            <ChevronsUpDown className="h-3.5 w-3.5 opacity-50" aria-hidden="true" />
+          )}
+        </button>
+      </div>
+    );
+  };
 
   const handleDelete = async (serverId: string) => {
     setDeletingServerId(serverId);
@@ -460,38 +495,6 @@ export function MCPServersTab({
           error: errorMessage(err, "Probe failed"),
         },
       }));
-    }
-  };
-
-  const handleSyncAgentGateway = async () => {
-    setAgentGatewaySyncing(true);
-    setAgentGatewayError(null);
-    setAgentGatewayMessage(null);
-    setAgentGatewayMigrationWarnings([]);
-    try {
-      const response = await fetch("/api/mcp-servers/agentgateway/sync", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      });
-      const data = await response.json();
-      if (!data.success) {
-        throw new Error(data.error || "Failed to sync AgentGateway MCP servers");
-      }
-      const addedCount = data.data.added?.length || 0;
-      const migratedCount = data.data.migrated?.length || 0;
-      const refreshedCount = data.data.refreshed?.length || 0;
-      setAgentGatewayMessage(
-        `Added ${addedCount}, migrated ${migratedCount}, and refreshed ${refreshedCount} MCP server${
-          addedCount + migratedCount + refreshedCount === 1 ? "" : "s"
-        } from AgentGateway.`,
-      );
-      setAgentGatewayMigrationWarnings(data.data.migration_warnings || []);
-      await fetchServers();
-    } catch (err: unknown) {
-      setAgentGatewayError(errorMessage(err, "Failed to sync AgentGateway MCP servers"));
-    } finally {
-      setAgentGatewaySyncing(false);
     }
   };
 
@@ -632,30 +635,14 @@ export function MCPServersTab({
       />
     <Card>
       <CardHeader>
-        <div className="flex items-center justify-between">
-          <div>
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
+          <div className="min-w-0 space-y-1">
             <CardTitle>MCP Servers</CardTitle>
-            <CardDescription>
-              Configure MCP server connections. Streamable HTTP servers are routed through AgentGateway so each tool call can be authorized before it reaches the server.
+            <CardDescription className="max-w-3xl leading-relaxed">
+              Configure Streamable HTTP MCP servers. AgentGateway authorizes every tool call before forwarding it upstream.
             </CardDescription>
           </div>
-          <div className="flex items-center gap-2">
-            {listCapabilities.repair_agentgateway && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleSyncAgentGateway}
-                disabled={agentGatewaySyncing}
-                title="Admin repair: re-import built-in AgentGateway MCP routes and repair stale registrations"
-              >
-                {agentGatewaySyncing ? (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                ) : (
-                  <Globe className="h-4 w-4 mr-2" />
-                )}
-                Repair AgentGateway
-              </Button>
-            )}
+          <div className="flex shrink-0 flex-wrap items-center gap-2 lg:justify-self-end">
             <Button variant="outline" size="sm" onClick={() => fetchServers()} disabled={loading}>
               <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
               Refresh
@@ -668,56 +655,6 @@ export function MCPServersTab({
         </div>
       </CardHeader>
       <CardContent>
-        {agentGatewayError && (
-          <div className="mb-4 flex items-start gap-2 rounded-lg bg-destructive/10 border border-destructive/30 p-3">
-            <AlertCircle className="h-4 w-4 text-destructive mt-0.5 flex-shrink-0" />
-            <p className="text-sm text-destructive">{agentGatewayError}</p>
-          </div>
-        )}
-
-        {agentGatewayMessage && (
-          <div className="mb-4 flex items-start gap-2 rounded-lg bg-green-500/10 border border-green-500/30 p-3">
-            <CheckCircle2 className="h-4 w-4 text-green-500 mt-0.5 flex-shrink-0" />
-            <p className="text-sm text-green-700 dark:text-green-400">{agentGatewayMessage}</p>
-          </div>
-        )}
-
-        {agentGatewayMigrationWarnings.length > 0 && (
-          <div className="mb-6 rounded-lg border border-amber-500/30 bg-amber-500/10 p-4">
-            <div className="flex items-start gap-2">
-              <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
-              <div className="space-y-3">
-                <div>
-                  <h3 className="text-sm font-semibold text-amber-800 dark:text-amber-300">
-                    {agentGatewayMigrationWarnings.length} legacy MCP server
-                    {agentGatewayMigrationWarnings.length === 1 ? "" : "s"} conflict
-                    {agentGatewayMigrationWarnings.length === 1 ? "s" : ""} with AgentGateway targets.
-                  </h3>
-                  <p className="text-sm text-amber-700 dark:text-amber-400">
-                    Remove or rename the legacy MCP server to let AgentGateway manage it. Use the row actions below to
-                    delete the legacy entry after you confirm it is no longer needed.
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  {agentGatewayMigrationWarnings.map((warning) => (
-                    <div key={warning.id} className="rounded-md border border-amber-500/20 bg-background/70 p-3">
-                      <div className="font-mono text-xs font-semibold">{warning.id}</div>
-                      {warning.existing_endpoint && (
-                        <p className="text-xs text-muted-foreground">
-                          Current: {warning.existing_endpoint}
-                        </p>
-                      )}
-                      <p className="text-xs text-muted-foreground">
-                        AgentGateway: {warning.target_endpoint || warning.endpoint}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
         {loading ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -745,10 +682,10 @@ export function MCPServersTab({
           <div className="space-y-3">
             {/* Header */}
             <div className="grid grid-cols-12 gap-4 pb-2 border-b text-xs font-medium text-muted-foreground px-2">
-              <div className="col-span-3">Name</div>
-              <div className="col-span-2">Transport</div>
-              <div className="col-span-3">Endpoint / Command</div>
-              <div className="col-span-2">Status</div>
+              {sortableHeader("name", "Name", "col-span-3")}
+              {sortableHeader("transport", "Transport", "col-span-2")}
+              {sortableHeader("endpoint", "Endpoint / Command", "col-span-3")}
+              {sortableHeader("status", "Status", "col-span-2")}
               <div className="col-span-2 text-right">Actions</div>
             </div>
 

@@ -81,6 +81,11 @@ async function reconcileOwnedResource(
  * `team:<slug>` member usersets that opted into the all-MCP-servers wildcard,
  * read from the `tool:*` sentinel (the single source of truth now that the
  * `team.resources.tool_wildcard` flag is gone). Returns slugs only.
+ *
+ * `tool:*` is a full object (type "tool", id "*"), which OpenFGA's /read
+ * accepts fine with no `user` — server-side tuple_key filtering here was
+ * never the bug (the actual 400 came from a `user`-only filter elsewhere,
+ * see access.ts's readAllTuples).
  */
 async function listToolWildcardTeamSlugs(): Promise<string[]> {
   const slugs = new Set<string>();
@@ -255,13 +260,7 @@ export async function deleteAllMcpToolRelationshipTuples(
   }
 
   const object = `mcp_tool:${toolId}`;
-  const allTuples: OpenFgaTupleKey[] = [];
-  let continuationToken: string | undefined;
-  do {
-    const page = await readOpenFgaTuples({ tuple: { object }, continuationToken });
-    allTuples.push(...page.tuples.map((tuple) => tuple.key));
-    continuationToken = page.continuationToken;
-  } while (continuationToken);
+  const allTuples = await readAllTuplesForObjects([object]);
 
   const diff = {
     writes: [] as OpenFgaTupleKey[],
@@ -282,6 +281,12 @@ function mcpServerRelatedObjects(serverId: string): string[] {
   ];
 }
 
+/**
+ * Every tuple on `object`, exhausting pagination. `object` is always a full
+ * type:id (e.g. `mcp_server:<id>`), which OpenFGA's /read accepts with no
+ * `user` — this never needed the unfiltered-scan workaround (that was only
+ * required for the `user`-only filter fixed in access.ts's readAllTuples).
+ */
 async function readAllTuplesForObject(object: string): Promise<OpenFgaTupleKey[]> {
   const tuples: OpenFgaTupleKey[] = [];
   let continuationToken: string | undefined;
@@ -291,6 +296,14 @@ async function readAllTuplesForObject(object: string): Promise<OpenFgaTupleKey[]
     continuationToken = page.continuationToken;
   } while (continuationToken);
   return tuples;
+}
+
+/** Tuples targeting any of `objects` — one exact-object read per object, run
+ * concurrently, each exhausting its own pagination fully (no scan cap: a
+ * cleanup/delete path must never silently drop a stale grant). */
+async function readAllTuplesForObjects(objects: string[]): Promise<OpenFgaTupleKey[]> {
+  const perObject = await Promise.all(objects.map((object) => readAllTuplesForObject(object)));
+  return perObject.flat();
 }
 
 /**
@@ -305,10 +318,7 @@ export async function deleteAllMcpServerRelationshipTuples(
     throw new OpenFgaReconcileRequiredError();
   }
 
-  const deletes: OpenFgaTupleKey[] = [];
-  for (const object of mcpServerRelatedObjects(serverId)) {
-    deletes.push(...(await readAllTuplesForObject(object)));
-  }
+  const deletes = await readAllTuplesForObjects(mcpServerRelatedObjects(serverId));
 
   const diff = { writes: [] as OpenFgaTupleKey[], deletes: uniqueTuples(deletes) };
   assertReconciliationEnabled(diff);

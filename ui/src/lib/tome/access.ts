@@ -129,16 +129,21 @@ export function resolveTomeParentsFromCatalog(
 
   for (const candidate of catalog) {
     if (candidate.slug === project.slug) continue;
-    const candidateName = normLabel(candidate.name || candidate.title || "");
+    // Match by slug (post-migration convention) or by the candidate's legacy
+    // frozen name (any relationship tagged before project_labels_to_slug_v1
+    // ran, or never matched by it) — either can appear in a project's own
+    // labels.initiatives/labels.areas.
+    const candidateSlug = normLabel(candidate.slug);
+    const candidateName = candidate.name ? normLabel(candidate.name) : null;
     if (
       candidate.type === "bhag" &&
-      labels.bhags.has(candidateName)
+      (labels.bhags.has(candidateSlug) || (candidateName && labels.bhags.has(candidateName)))
     ) {
       parents.push(candidate);
     } else if (
       projectType(project) === "project" &&
       candidate.type === "area" &&
-      labels.areas.has(candidateName)
+      (labels.areas.has(candidateSlug) || (candidateName && labels.areas.has(candidateName)))
     ) {
       parents.push(candidate);
     }
@@ -166,6 +171,14 @@ async function desiredReadTuples(
   ];
 }
 
+// OpenFGA's /read requires the tuple_key's object to carry at least a type
+// (id may be empty), and rejects a filter where BOTH the object id and user
+// are empty. A full `object` (type:id, as tomeDataObject always produces) is
+// valid with no `user` at all, so object-scoped reads below keep using
+// server-side tuple_key filtering — no need to scan the whole store. The one
+// shape that actually breaks is a `user`-only filter with no object type at
+// all (see readAllTuples below), which is what produced the "OpenFGA tuple
+// read failed" 400 in practice.
 async function readAllObjectTuples(
   object: string,
   relation: string,
@@ -184,18 +197,39 @@ async function readAllObjectTuples(
   return tuples;
 }
 
+const TOME_DOCUMENT_TYPE = "document:";
+
+/**
+ * Tuples matching `tuple`. A `user`-only filter has no object type at all,
+ * which OpenFGA's /read rejects outright — every Tome object is a
+ * `document:...`, so a `user`-only caller gets an explicit `object:
+ * "document:"` type-only filter added (still narrows server-side; just
+ * doesn't over-constrain the id). Callers that already pass a full `object`
+ * (type:id) or a `user` alongside one are untouched.
+ */
 async function readAllTuples(
   tuple: Partial<OpenFgaTupleKey>,
 ): Promise<OpenFgaTupleKey[]> {
+  const filter =
+    tuple.object === undefined && tuple.user !== undefined
+      ? { ...tuple, object: TOME_DOCUMENT_TYPE }
+      : tuple;
   const tuples: OpenFgaTupleKey[] = [];
   let continuationToken: string | undefined;
   do {
     const result = await readOpenFgaTuples({
-      tuple,
+      tuple: filter,
       pageSize: 100,
       continuationToken,
     });
-    tuples.push(...result.tuples.map((stored) => stored.key));
+    tuples.push(
+      ...result.tuples
+        .map((stored) => stored.key)
+        // The type-only object filter above widens the server-side match to
+        // every document:* tuple for that user/relation; re-apply the
+        // caller's exact filter (if it specified an object) in memory.
+        .filter((key) => tuple.object === undefined || key.object === tuple.object),
+    );
     continuationToken = result.continuationToken;
   } while (continuationToken);
   return tuples;

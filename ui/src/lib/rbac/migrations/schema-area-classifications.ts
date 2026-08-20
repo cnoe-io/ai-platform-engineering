@@ -103,6 +103,11 @@ export const SCHEMA_AREA_CLASSIFICATIONS: Record<string, SchemaAreaClassificatio
     classification: "migration",
     description: "Organization membership migration target.",
   },
+  private_resource_visibility: {
+    classification: "migration",
+    description:
+      "Classifies legacy MCP server and credential records before private-resource context enforcement is enabled.",
+  },
   platform_config: {
     classification: "baseline_v1",
     description: "Platform settings records.",
@@ -171,6 +176,11 @@ export const SCHEMA_AREA_CLASSIFICATIONS: Record<string, SchemaAreaClassificatio
   teams: {
     classification: "baseline_v1",
     description: "Team records.",
+  },
+  tome_projects: {
+    classification: "migration",
+    description:
+      "Tome project/Area/BHAG records. `project_labels_to_slug_v1` rewrites `labels.initiatives`/`labels.areas` from display-name strings to stable slugs and unsets the legacy `name` field.",
   },
   turns: {
     classification: "baseline_v1",

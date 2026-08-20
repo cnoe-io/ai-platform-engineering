@@ -84,7 +84,7 @@ jobs:
           echo "Registry path: $REGISTRY_PATH"
 
       - name: 🔒 Harden runner
-        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
         with:
           egress-policy: audit
 
@@ -144,16 +144,6 @@ jobs:
         uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
         with:
           version: v3.14.0
-
-      - name: 🔑 Generate GitHub App token
-        id: app-token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
-        with:
-          app-id: ${{ secrets.CI_BUILD_APP_ID }}
-          private-key: ${{ secrets.CI_BUILD_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-          repositories: ${{ github.event.repository.name }}
-          permission-packages: write
 
       - name: Login to GHCR
         if: steps.detect.outputs.rag-stack-changed == 'true' || steps.detect.outputs.ai-platform-changed == 'true'

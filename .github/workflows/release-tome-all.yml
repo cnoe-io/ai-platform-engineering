@@ -1,18 +1,11 @@
-name: "[Release] Tome All Mirror Apps"
-description: "Tag and build caipe-ui, agentic-app-runtime, and tome-agent from the current branch HEAD (main or a release/* branch) in parallel."
+name: "[Release] Tome Images"
 
-# Usage:
-#   GitHub UI → Actions → "[Release] Tome All Mirror Apps" → Run workflow (choose branch: main or release/*)
-#   gh workflow run release-tome-all.yml --ref main
-#
-# Triggers release-caipe-ui, release-agentic-apps, and release-tome in parallel.
-# Each derives X.Y.Z from the nearest semver tag, and appends its own suffix +
-# a "main"/"release" branch tag + short SHA. All three image builds run
-# concurrently. Run from main for mainline builds, or from a release/*
-# branch (e.g. release/tome-mvp) to publish images tagged with "release"
-# instead of "main".
-
+# Build one coordinated, immutable image set for every commit merged to main.
+# Each component checks out the same source SHA and publishes the same Tome tag.
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch: {}
 
 permissions:
@@ -20,23 +13,131 @@ permissions:
   contents: read
 
 jobs:
-  release-caipe-ui:
-    name: Release caipe-ui
-    uses: ./.github/workflows/release-caipe-ui.yml
-    permissions:
-      contents: write
-      actions: write
+  prepare:
+    name: Prepare release
+    runs-on: ubuntu-latest
+    outputs:
+      source_sha: ${{ steps.release.outputs.source_sha }}
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
 
-  release-agentic-apps:
-    name: Release agentic-app-runtime
-    uses: ./.github/workflows/release-agentic-apps.yml
-    permissions:
-      contents: write
-      actions: write
+      - name: Require main
+        env:
+          RELEASE_REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+          if [[ "$RELEASE_REF" != "refs/heads/main" ]]; then
+            echo "Tome images can only be released from main (got $RELEASE_REF)."
+            exit 1
+          fi
 
-  release-tome:
-    name: Release tome-agent
-    uses: ./.github/workflows/release-tome.yml
-    permissions:
-      contents: write
-      actions: write
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          fetch-depth: 0
+
+      - name: Derive tag
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          base_version=$(grep -m1 '^version = ' pyproject.toml | cut -d'"' -f2 | sed -E 's/-dev\.[0-9]+$//')
+          source_sha=$(git rev-parse HEAD)
+          short_sha=$(git rev-parse --short=9 HEAD)
+          version="${base_version}-tome-${short_sha}"
+
+          echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Building Tome image set \`$version\` from \`$source_sha\`." >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    name: Build ${{ matrix.component }}
+    needs: prepare
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - component: caipe-ui
+            workflow: ci-caipe-ui.yml
+            force_build: "true"
+          - component: caipe-tome-agent
+            workflow: ci-tome-agent.yml
+            force_build: ""
+          - component: caipe-dynamic-agents
+            workflow: ci-dynamic-agents.yml
+            force_build: "true"
+          - component: openfga-authz-bridge
+            workflow: ci-openfga-authz-bridge.yml
+            force_build: ""
+          - component: caipe-agentic-app-runtime
+            workflow: ci-agentic-app-runtime.yml
+            force_build: ""
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+
+      - name: Dispatch and wait for build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORCE_BUILD: ${{ matrix.force_build }}
+          SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          WORKFLOW: ${{ matrix.workflow }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          command=(
+            gh workflow run "$WORKFLOW"
+            --repo "$GITHUB_REPOSITORY"
+            --ref main
+            -f "tag_version=$VERSION"
+            -f "source_sha=$SOURCE_SHA"
+          )
+          if [[ "$FORCE_BUILD" == "true" ]]; then
+            command+=(-f force_build=true)
+          fi
+
+          run_url=$("${command[@]}")
+          if [[ ! "$run_url" =~ /actions/runs/([0-9]+)$ ]]; then
+            echo "Could not identify child workflow run from: $run_url"
+            exit 1
+          fi
+
+          run_id="${BASH_REMATCH[1]}"
+          echo "Child workflow: $run_url" >> "$GITHUB_STEP_SUMMARY"
+          gh run watch "$run_id" --repo "$GITHUB_REPOSITORY" --exit-status
+
+  summary:
+    name: Release summary
+    if: always()
+    needs:
+      - prepare
+      - build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Write summary
+        env:
+          BUILD_RESULT: ${{ needs.build.result }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          {
+            echo "## Tome image set"
+            echo
+            echo "Build result: **$BUILD_RESULT**"
+            echo
+            echo "- \`ghcr.io/cisco-eti/caipe-ui:$VERSION\`"
+            echo "- \`ghcr.io/cisco-eti/caipe-tome-agent:$VERSION\`"
+            echo "- \`ghcr.io/cisco-eti/caipe-dynamic-agents:$VERSION\`"
+            echo "- \`ghcr.io/cisco-eti/openfga-authz-bridge:$VERSION\`"
+            echo "- \`ghcr.io/cisco-eti/caipe-agentic-app-runtime:$VERSION\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          [[ "$BUILD_RESULT" == "success" ]]

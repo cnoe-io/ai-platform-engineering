@@ -19,11 +19,11 @@ LegacyVisibilityType,
 SubAgentRef,
 VisibilityType,
 } from "@/types/dynamic-agent";
-import { AlertCircle,Bot,Globe,Loader2,Trash2,Users } from "lucide-react";
+import { AlertCircle,Bot,Globe,Loader2,Lock,Trash2,Users } from "lucide-react";
 import React from "react";
 import { AgentAvatar } from "./AgentAvatar";
 
-// Loose shape for items returned by /api/dynamic-agents (the BFF list endpoint).
+// Loose shape for items returned by /api/dynamic-agents/available.
 // We accept LegacyVisibilityType so docs that still carry visibility:"private"
 // (until the migration script rewrites them) can be normalized on read.
 interface RawAgentListItem {
@@ -84,6 +84,7 @@ function getSubagentCompatibility(
 }
 
 const VISIBILITY_ICONS: Record<VisibilityType, React.ReactNode> = {
+  private: <Lock className="h-3 w-3" />,
   team: <Users className="h-3 w-3" />,
   global: <Globe className="h-3 w-3" />,
 };
@@ -108,18 +109,19 @@ export function SubagentPicker({ agentId, value, onChange, disabled, parentVisib
     setLoading(true);
     setError(null);
     try {
-      // Use enabled_only=true to filter out disabled agents (important for admins)
-      const response = await fetch("/api/dynamic-agents?enabled_only=true");
+      const response = await fetch("/api/dynamic-agents/available");
       const data = await response.json();
-      if (data.success && data.data?.items) {
+      if (data.success && Array.isArray(data.data)) {
         setAvailableAgents(
-          data.data.items.map((agent: RawAgentListItem) => ({
+          data.data.map((agent: RawAgentListItem) => ({
             id: agent._id,
             name: agent.name,
             description: agent.description,
-            // Coerce any legacy 'private' read from the DB to 'team' so the
-            // picker can still render. Missing visibility defaults to 'team'.
-            visibility: agent.visibility === "global" ? "global" : "team",
+            // Preserve explicit private scope. Missing visibility keeps the
+            // legacy team default.
+            visibility: agent.visibility === "private"
+              ? "private"
+              : agent.visibility === "global" ? "global" : "team",
             gradient_theme: agent.ui?.gradient_theme,
             custom_theme_config: agent.ui?.custom_theme_config,
           }))

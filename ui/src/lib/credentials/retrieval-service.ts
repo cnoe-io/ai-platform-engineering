@@ -10,6 +10,7 @@ interface PayloadStore {
 type AuthorizeSecretUse = (
   session: ResourceAuthzSession,
   target: { type: "secret_ref"; id: string; action: "use" },
+  options?: { trustedContext?: import("@/lib/authz").TrustedAuthorizeContext },
 ) => Promise<void>;
 
 export interface CredentialRetrievalServiceOptions {
@@ -63,7 +64,12 @@ export class CredentialRetrievalService {
       expectedAudience: this.expectedAudience,
     });
     const { secretRef } = validateRetrieveBody(input.body);
-    await this.authorize(input.session, { type: "secret_ref", id: secretRef, action: "use" });
+    const { trustedInteractionFromInternalHeaders } = await import("@/lib/authz/trusted-interaction");
+    await this.authorize(
+      input.session,
+      { type: "secret_ref", id: secretRef, action: "use" },
+      { trustedContext: { interaction: trustedInteractionFromInternalHeaders(input.headers) } },
+    );
     return {
       secret_ref: secretRef,
       credential: await this.payloadStore.getSecret(secretRef),

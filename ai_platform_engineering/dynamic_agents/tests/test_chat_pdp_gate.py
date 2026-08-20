@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from fastapi import HTTPException
 
-from dynamic_agents.models import ChatRequest, DynamicAgentConfig, UserContext
+from dynamic_agents.models import ChatRequest, ClientContext, DynamicAgentConfig, UserContext
 from dynamic_agents.routes import chat
 
 
@@ -41,7 +41,7 @@ class _FakeRuntimeCache:
         return True
 
 
-async def _deny(agent_id: str) -> None:
+async def _deny(agent_id: str, _trusted_interaction: object | None = None) -> None:
     raise HTTPException(
         status_code=403,
         detail={
@@ -53,7 +53,7 @@ async def _deny(agent_id: str) -> None:
     )
 
 
-async def _unavailable(agent_id: str) -> None:
+async def _unavailable(agent_id: str, _trusted_interaction: object | None = None) -> None:
     raise HTTPException(
         status_code=503,
         detail={
@@ -65,7 +65,7 @@ async def _unavailable(agent_id: str) -> None:
     )
 
 
-async def _missing_bearer(agent_id: str) -> None:
+async def _missing_bearer(agent_id: str, _trusted_interaction: object | None = None) -> None:
     raise HTTPException(
         status_code=401,
         detail={
@@ -77,7 +77,7 @@ async def _missing_bearer(agent_id: str) -> None:
     )
 
 
-async def _invalid_bearer(agent_id: str) -> None:
+async def _invalid_bearer(agent_id: str, _trusted_interaction: object | None = None) -> None:
     raise HTTPException(
         status_code=401,
         detail={
@@ -147,6 +147,76 @@ async def test_start_route_preserves_authz_failure_shape(monkeypatch, authz, sta
     assert exc.value.detail["code"] == code
     assert exc.value.detail["reason"] == reason
     assert exc.value.detail["action"] == action
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("handler", "chat_request"),
+    [
+        (
+            chat.chat_start_stream,
+            ChatRequest(
+                message="hi",
+                conversation_id="conv-1",
+                agent_id="agent-1",
+                client_context=ClientContext(
+                    source="webui",
+                    _caipe_trusted_interaction="signed-payload",
+                    _caipe_trusted_interaction_signature="signed-hash",
+                ),
+            ),
+        ),
+        (
+            chat.chat_invoke,
+            ChatRequest(
+                message="hi",
+                conversation_id="conv-1",
+                agent_id="agent-1",
+                client_context=ClientContext(
+                    source="webui",
+                    _caipe_trusted_interaction="signed-payload",
+                    _caipe_trusted_interaction_signature="signed-hash",
+                ),
+            ),
+        ),
+        (
+            chat.chat_resume_stream,
+            chat.ResumeStreamRequest(
+                conversation_id="conv-1",
+                agent_id="agent-1",
+                resume_data="{}",
+                client_context={
+                    "source": "webui",
+                    "_caipe_trusted_interaction": "signed-payload",
+                    "_caipe_trusted_interaction_signature": "signed-hash",
+                },
+            ),
+        ),
+    ],
+)
+async def test_protected_routes_pass_internal_interaction_proof_to_authz(
+    monkeypatch, handler, chat_request
+):
+    captured: dict[str, object] = {}
+
+    async def capture(agent_id: str, trusted_interaction: object | None = None) -> None:
+        captured["agent_id"] = agent_id
+        captured["trusted_interaction"] = trusted_interaction
+        raise HTTPException(status_code=418, detail="captured")
+
+    monkeypatch.setattr(chat, "require_agent_use_permission", capture, raising=False)
+    with pytest.raises(HTTPException) as exc:
+        await handler(chat_request, _user(), _FakeMongo())
+
+    assert exc.value.status_code == 418
+    assert captured == {
+        "agent_id": "agent-1",
+        "trusted_interaction": {
+            "source": "webui",
+            "_caipe_trusted_interaction": "signed-payload",
+            "_caipe_trusted_interaction_signature": "signed-hash",
+        },
+    }
 
 
 @pytest.mark.asyncio

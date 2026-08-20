@@ -49,16 +49,19 @@ describe("AutosavingSourcesEditor", () => {
   });
 
   it("saves source selections after the debounce timeout", async () => {
+    const onDirtyChange = jest.fn();
     render(
       <AutosavingSourcesEditor
         slug="example"
         kinds={["confluence"]}
         value={{}}
         onChange={jest.fn()}
+        onDirtyChange={onDirtyChange}
       />,
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Select page root" }));
+    expect(onDirtyChange).toHaveBeenLastCalledWith(true);
     expect(screen.getByText("Source changes pending…")).toBeInTheDocument();
 
     await act(async () => {
@@ -68,6 +71,7 @@ describe("AutosavingSourcesEditor", () => {
     });
 
     expect(screen.getByText("Source selections saved")).toBeInTheDocument();
+    expect(onDirtyChange).toHaveBeenLastCalledWith(false);
     expect(global.fetch).toHaveBeenCalledWith("/api/projects/example", {
       method: "PATCH",
       headers: { "content-type": "application/json" },

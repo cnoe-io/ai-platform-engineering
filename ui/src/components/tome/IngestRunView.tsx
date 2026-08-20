@@ -7,6 +7,7 @@ import { ChevronLeft, Square } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { useAutoScroll } from "@/hooks/use-auto-scroll";
+import type { ModelProvenance } from "@/types/tome";
 
 /**
  * Live (and historical) ingest log — a Docker-style tail of one run. Polls the
@@ -29,6 +30,8 @@ interface RunDetail {
   report_id?: string | null;
   cascade_id?: string | null;
   cascade_role?: "child" | "parent" | null;
+  model?: string | null;
+  model_provenance?: ModelProvenance | null;
   context_usage?: {
     percentage: number;
     total_tokens: number;
@@ -254,6 +257,14 @@ function RunLogPane({
               title={ctxTitle}
             >
               · context window remaining: {Math.round(ctxPct)}%
+            </span>
+          )}
+          {run?.model && (
+            <span
+              className="hidden truncate font-mono text-[10px] text-neutral-500 lg:inline"
+              title={`Effective model: ${run.model} (${run.model_provenance?.source ?? "legacy / unknown source"})`}
+            >
+              · {run.model} · {run.model_provenance?.source ?? "legacy"}
             </span>
           )}
         </div>

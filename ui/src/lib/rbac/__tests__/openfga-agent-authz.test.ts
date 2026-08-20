@@ -16,6 +16,10 @@ jest.mock("../audit", () => ({
   logOpenFgaRebacAuditEvent: jest.fn(),
 }));
 
+jest.mock("@/lib/authz/domains/private-resource", () => ({
+  privateResourcePreCheck: jest.fn().mockResolvedValue(null),
+}));
+
 const mockCheckOpenFgaTuple = checkOpenFgaTuple as jest.MockedFunction<typeof checkOpenFgaTuple>;
 const mockListOpenFgaObjects = listOpenFgaObjects as jest.MockedFunction<
   typeof listOpenFgaObjects

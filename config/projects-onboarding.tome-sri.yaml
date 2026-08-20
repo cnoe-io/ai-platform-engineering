@@ -1,0 +1,30 @@
+hero:
+  title: Projects for your teams
+  description: >-
+    Create a project and attach the sources it draws from. Its Tome wiki is
+    built from the repos, spaces, and rooms you select here.
+
+steps:
+  - id: github_sources
+    title: GitHub
+    subtitle: Attach repositories the project ships from
+    icon: github
+    provider: source
+    source: github
+    default_enabled: true
+
+  - id: confluence_sources
+    title: Confluence
+    subtitle: Attach the space this project documents
+    icon: book-open
+    provider: source
+    source: confluence
+    default_enabled: false
+
+  - id: webex_sources
+    title: Webex
+    subtitle: Attach rooms the project uses for chat and meetings
+    icon: video
+    provider: source
+    source: webex
+    default_enabled: false

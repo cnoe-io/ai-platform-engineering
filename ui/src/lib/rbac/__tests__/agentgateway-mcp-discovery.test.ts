@@ -324,6 +324,16 @@ describe("AgentGateway MCP discovery", () => {
     ]);
   });
 
+  it("forwards the caller token to the Tome MCP target", () => {
+    expect(builtinCredentialSourcesFor("mcp-tome")).toEqual([
+      {
+        kind: "caller_token",
+        name: "X-CAIPE-Provider-Token",
+        target: "header",
+      },
+    ]);
+  });
+
   it("omits credential_sources for targets with no built-in mapping", () => {
     const target: AgentGatewayMcpDiscoveryTarget = {
       id: "argocd",

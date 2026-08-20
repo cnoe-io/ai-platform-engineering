@@ -9,6 +9,11 @@ from pathlib import Path
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _enable_private_resources(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PRIVATE_RESOURCES_ENABLED", "true")
+
+
 def _load_bridge_module():
     module_path = Path(__file__).resolve().parents[1] / "main.py"
     spec = importlib.util.spec_from_file_location("openfga_bridge_main", module_path)
@@ -24,6 +29,218 @@ def _unsigned_token(sub: str) -> str:
         return base64.urlsafe_b64encode(raw).decode().rstrip("=")
 
     return f"{encode({'alg': 'none', 'typ': 'JWT'})}.{encode({'sub': sub})}."
+
+
+def _interaction_headers(
+    bridge,
+    *,
+    secret: str,
+    now: int,
+    source: str = "slack",
+    conversation_kind: str = "direct",
+) -> dict[str, str]:
+    payload = {
+        "source": source,
+        "conversationKind": conversation_kind,
+        "iat": now,
+        "exp": now + 90,
+    }
+    encoded = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip("=")
+    signature = hmac.new(secret.encode(), encoded.encode(), hashlib.sha256).hexdigest()
+    return {
+        "x-caipe-trusted-interaction": encoded,
+        "x-caipe-trusted-interaction-signature": signature,
+    }
+
+
+def test_verified_direct_interaction(monkeypatch: pytest.MonkeyPatch) -> None:
+    bridge = _load_bridge_module()
+    monkeypatch.setattr(bridge, "AGENT_CONTEXT_HMAC_SECRET", "test-secret")
+    headers = _interaction_headers(bridge, secret="test-secret", now=1_750_000_000)
+    assert bridge._has_permitted_private_interaction(headers, now=1_750_000_001)
+
+
+def test_verified_web_interaction(monkeypatch: pytest.MonkeyPatch) -> None:
+    bridge = _load_bridge_module()
+    monkeypatch.setattr(bridge, "AGENT_CONTEXT_HMAC_SECRET", "test-secret")
+    headers = _interaction_headers(
+        bridge,
+        secret="test-secret",
+        now=1_750_000_000,
+        source="web",
+        conversation_kind="personal",
+    )
+    assert bridge._has_permitted_private_interaction(headers, now=1_750_000_001)
+
+
+def test_direct_interaction_rejects_forgery(monkeypatch: pytest.MonkeyPatch) -> None:
+    bridge = _load_bridge_module()
+    monkeypatch.setattr(bridge, "AGENT_CONTEXT_HMAC_SECRET", "test-secret")
+    headers = _interaction_headers(bridge, secret="wrong-secret", now=1_750_000_000)
+    assert not bridge._has_permitted_private_interaction(headers, now=1_750_000_001)
+
+
+def test_private_mcp_requires_owner_and_permitted_context(monkeypatch: pytest.MonkeyPatch) -> None:
+    bridge = _load_bridge_module()
+    monkeypatch.setattr(bridge, "_decode_verified_bearer_subject", lambda _header: "test-user")
+    monkeypatch.setattr(bridge, "AGENT_CONTEXT_HMAC_SECRET", "test-secret")
+    monkeypatch.setattr(bridge, "log_authz_decision", lambda **_event: None, raising=False)
+    monkeypatch.setattr(
+        bridge,
+        "_check_openfga",
+        lambda user, relation, obj: (user, relation, obj)
+        in {
+            ("user:test-user", "can_call", "mcp_gateway:list"),
+            ("user:test-user", "can_invoke", "mcp_server:private-example"),
+            ("user:test-user", "owner", "mcp_server:private-example"),
+        },
+    )
+
+    unsigned_request = bridge.build_check_request(
+        headers={"authorization": "Bearer valid-token"},
+        path="/mcp/private-example",
+        method="POST",
+    )
+    denied = bridge.OpenFgaAuthorizationService().Check(unsigned_request, None)
+    assert denied.status.code == bridge.PERMISSION_DENIED
+
+    now = int(time.time())
+    headers = {
+        "authorization": "Bearer valid-token",
+        **_interaction_headers(bridge, secret="test-secret", now=now),
+    }
+    signed_request = bridge.build_check_request(
+        headers=headers,
+        path="/mcp/private-example",
+        method="POST",
+    )
+    allowed = bridge.OpenFgaAuthorizationService().Check(signed_request, None)
+    assert allowed.status.code == bridge.OK
+
+
+def test_private_mcp_is_not_discoverable_by_unrelated_subject(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bridge = _load_bridge_module()
+    monkeypatch.setattr(bridge, "_decode_verified_bearer_subject", lambda _header: "other-user")
+    monkeypatch.setattr(bridge, "log_authz_decision", lambda **_event: None, raising=False)
+    monkeypatch.setattr(
+        bridge,
+        "_check_openfga",
+        lambda user, relation, obj: (user, relation, obj)
+        == ("user:other-user", "can_call", "mcp_gateway:list"),
+    )
+
+    request = bridge.build_check_request(
+        headers={"authorization": "Bearer valid-token"},
+        path="/mcp/private-example",
+        method="POST",
+    )
+    response = bridge.OpenFgaAuthorizationService().Check(request, None)
+
+    assert response.status.code == bridge.PERMISSION_DENIED
+    assert response.status.message == "caller cannot access MCP server"
+
+
+def test_private_mcp_cannot_be_reached_through_unrelated_agent_grants(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bridge = _load_bridge_module()
+    monkeypatch.setattr(bridge, "_decode_verified_bearer_subject", lambda _header: "other-user")
+    monkeypatch.setattr(bridge, "AGENT_CONTEXT_HMAC_SECRET", "test-secret")
+    monkeypatch.setattr(bridge, "log_authz_decision", lambda **_event: None, raising=False)
+    monkeypatch.setattr(
+        bridge,
+        "_check_openfga",
+        lambda user, relation, obj: (user, relation, obj)
+        in {
+            ("user:other-user", "can_call", "mcp_gateway:list"),
+            ("user:other-user", "can_use", "agent:agent-example"),
+            ("agent:agent-example", "can_call", "tool:private-example/search"),
+        },
+    )
+    context_header, signature = bridge.build_agent_context_header(
+        "agent-example",
+        secret="test-secret",
+    )
+    request = bridge.build_check_request(
+        headers={
+            "authorization": "Bearer valid-token",
+            "x-caipe-agent-context": context_header,
+            "x-caipe-agent-context-signature": signature,
+        },
+        path="/mcp/private-example",
+        method="POST",
+        body='{"jsonrpc":"2.0","method":"tools/call","params":{"name":"search"}}',
+    )
+
+    response = bridge.OpenFgaAuthorizationService().Check(request, None)
+
+    assert response.status.code == bridge.PERMISSION_DENIED
+    assert response.status.message == "caller cannot access MCP server"
+
+
+def test_private_mcp_service_account_owner_is_denied(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bridge = _load_bridge_module()
+    monkeypatch.setattr(bridge, "_decode_verified_bearer_subject", lambda _header: "sa-sub")
+    monkeypatch.setattr(
+        bridge,
+        "_decode_verified_bearer_claims",
+        lambda _header: {
+            "sub": "sa-sub",
+            "preferred_username": "service-account-example",
+        },
+    )
+    monkeypatch.setattr(bridge, "log_authz_decision", lambda **_event: None, raising=False)
+    monkeypatch.setattr(
+        bridge,
+        "_check_openfga",
+        lambda user, relation, obj: (user, relation, obj)
+        in {
+            ("service_account:sa-sub", "can_call", "mcp_gateway:list"),
+            ("service_account:sa-sub", "can_invoke", "mcp_server:private-example"),
+            ("service_account:sa-sub", "owner", "mcp_server:private-example"),
+        },
+    )
+    request = bridge.build_check_request(
+        headers={"authorization": "Bearer valid-token"},
+        path="/mcp/private-example",
+        method="POST",
+    )
+
+    response = bridge.OpenFgaAuthorizationService().Check(request, None)
+
+    assert response.status.code == bridge.PERMISSION_DENIED
+    assert response.status.message.startswith("private MCP servers")
+
+
+def test_subject_bypass_configuration_is_not_supported() -> None:
+    bridge = _load_bridge_module()
+    assert not hasattr(bridge, "BYPASS_SUBS")
+
+
+def test_private_enforcement_is_disabled_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("PRIVATE_RESOURCES_ENABLED")
+    bridge = _load_bridge_module()
+    checks: list[tuple[str, str, str]] = []
+    monkeypatch.setattr(bridge, "_decode_verified_bearer_subject", lambda _header: "test-user")
+    monkeypatch.setattr(bridge, "log_authz_decision", lambda **_event: None, raising=False)
+    monkeypatch.setattr(
+        bridge,
+        "_check_openfga",
+        lambda user, relation, obj: checks.append((user, relation, obj)) or True,
+    )
+    request = bridge.build_check_request(
+        headers={"authorization": "Bearer valid-token"},
+        path="/mcp/private-example",
+        method="POST",
+    )
+    response = bridge.OpenFgaAuthorizationService().Check(request, None)
+    assert response.status.code == bridge.OK
+    assert any(relation == "can_invoke" for _, relation, _ in checks)
+    assert any(relation == "owner" for _, relation, _ in checks)
 
 
 def test_uses_verified_bearer_subject(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -127,7 +344,6 @@ def test_metadata_only_request_reaches_openfga(monkeypatch: pytest.MonkeyPatch) 
 
     monkeypatch.setattr(bridge, "_check_openfga", _fake_check_openfga)
     monkeypatch.setattr(bridge, "log_authz_decision", lambda **_event: None, raising=False)
-    monkeypatch.setattr(bridge, "BYPASS_SUBS", frozenset())
     request = bridge.build_check_request(
         headers={"accept": "application/json"},
         path="/mcp",
@@ -165,7 +381,6 @@ def test_check_audits_openfga_allow(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     monkeypatch.setattr(bridge, "_check_openfga", lambda *_args: True)
     monkeypatch.setattr(bridge, "log_authz_decision", lambda **event: events.append(event), raising=False)
-    monkeypatch.setattr(bridge, "BYPASS_SUBS", frozenset())
 
     request = bridge.build_check_request(headers={"authorization": "Bearer valid-token"}, path="/mcp")
     request.attributes.request.http.id = "request-allow"
@@ -195,7 +410,6 @@ def test_check_audits_openfga_deny(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(bridge, "_decode_verified_bearer_subject", lambda _auth_header: "user-sub-123")
     monkeypatch.setattr(bridge, "_check_openfga", lambda *_args: False)
     monkeypatch.setattr(bridge, "log_authz_decision", lambda **event: events.append(event), raising=False)
-    monkeypatch.setattr(bridge, "BYPASS_SUBS", frozenset())
 
     request = bridge.build_check_request(headers={"authorization": "Bearer valid-token"}, path="/mcp")
     request.attributes.request.http.id = "request-deny"
@@ -235,7 +449,6 @@ def test_check_audits_openfga_error(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(bridge, "_decode_verified_bearer_subject", lambda _auth_header: "user-sub-123")
     monkeypatch.setattr(bridge, "_check_openfga", _raise_openfga_error)
     monkeypatch.setattr(bridge, "log_authz_decision", lambda **event: events.append(event), raising=False)
-    monkeypatch.setattr(bridge, "BYPASS_SUBS", frozenset())
 
     request = bridge.build_check_request(headers={"authorization": "Bearer valid-token"}, path="/mcp")
     request.attributes.request.http.id = "request-error"
@@ -265,7 +478,6 @@ def test_restricted_mcp_server_denies_caller_without_invoke_grant(
     monkeypatch.setattr(bridge, "_decode_verified_bearer_subject", lambda _auth_header: "user-sub-123")
     monkeypatch.setattr(bridge, "_check_openfga", _fake_check_openfga)
     monkeypatch.setattr(bridge, "log_authz_decision", lambda **event: events.append(event), raising=False)
-    monkeypatch.setattr(bridge, "BYPASS_SUBS", frozenset())
     monkeypatch.setattr(bridge, "RESTRICTED_MCP_SERVERS", frozenset({"scheduler"}))
 
     request = bridge.build_check_request(
@@ -305,7 +517,6 @@ def test_restricted_mcp_server_allows_caller_with_invoke_grant(
     monkeypatch.setattr(bridge, "_decode_verified_bearer_subject", lambda _auth_header: "admin-sub")
     monkeypatch.setattr(bridge, "_check_openfga", _fake_check_openfga)
     monkeypatch.setattr(bridge, "log_authz_decision", lambda **event: events.append(event), raising=False)
-    monkeypatch.setattr(bridge, "BYPASS_SUBS", frozenset())
     monkeypatch.setattr(bridge, "RESTRICTED_MCP_SERVERS", frozenset({"scheduler"}))
 
     request = bridge.build_check_request(
@@ -320,6 +531,7 @@ def test_restricted_mcp_server_allows_caller_with_invoke_grant(
     assert checks == [
         ("user:admin-sub", "can_call", "mcp_gateway:list"),
         ("user:admin-sub", "can_invoke", "mcp_server:scheduler"),
+        ("user:admin-sub", "owner", "mcp_server:scheduler"),
     ]
     assert any(event["reason_code"] == "OK_MCP_SERVER_INVOKE" for event in events)
 
@@ -336,12 +548,15 @@ def test_unrestricted_mcp_server_does_not_require_invoke_grant(
             "user:user-sub-123",
             "can_call",
             "mcp_gateway:list",
+        ) or (user, relation, obj) == (
+            "user:user-sub-123",
+            "can_discover",
+            "mcp_server:jira",
         )
 
     monkeypatch.setattr(bridge, "_decode_verified_bearer_subject", lambda _auth_header: "user-sub-123")
     monkeypatch.setattr(bridge, "_check_openfga", _fake_check_openfga)
     monkeypatch.setattr(bridge, "log_authz_decision", lambda **_event: None, raising=False)
-    monkeypatch.setattr(bridge, "BYPASS_SUBS", frozenset())
     monkeypatch.setattr(bridge, "RESTRICTED_MCP_SERVERS", frozenset({"scheduler"}))
 
     request = bridge.build_check_request(
@@ -353,7 +568,11 @@ def test_unrestricted_mcp_server_does_not_require_invoke_grant(
     response = bridge.OpenFgaAuthorizationService().Check(request, None)
 
     assert response.status.code == bridge.OK
-    assert checks == [("user:user-sub-123", "can_call", "mcp_gateway:list")]
+    assert checks == [
+        ("user:user-sub-123", "can_call", "mcp_gateway:list"),
+        ("user:user-sub-123", "can_invoke", "mcp_server:jira"),
+        ("user:user-sub-123", "can_discover", "mcp_server:jira"),
+    ]
 
 
 def test_tools_call_requires_user_agent_and_agent_tool_grants(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -364,6 +583,7 @@ def test_tools_call_requires_user_agent_and_agent_tool_grants(monkeypatch: pytes
         checks.append((user, relation, obj))
         return (user, relation, obj) in {
             ("user:user-sub-123", "can_call", "mcp_gateway:list"),
+            ("user:user-sub-123", "can_discover", "mcp_server:jira"),
             ("user:user-sub-123", "can_use", "agent:agent-test-april-2025"),
             ("agent:agent-test-april-2025", "can_call", "tool:jira/search"),
         }
@@ -371,7 +591,6 @@ def test_tools_call_requires_user_agent_and_agent_tool_grants(monkeypatch: pytes
     monkeypatch.setattr(bridge, "_decode_verified_bearer_subject", lambda _auth_header: "user-sub-123")
     monkeypatch.setattr(bridge, "_check_openfga", _fake_check_openfga)
     monkeypatch.setattr(bridge, "log_authz_decision", lambda **_event: None, raising=False)
-    monkeypatch.setattr(bridge, "BYPASS_SUBS", frozenset())
     monkeypatch.setattr(bridge, "AGENT_CONTEXT_HMAC_SECRET", "test-secret")
     context_header, signature = bridge.build_agent_context_header(
         "agent-test-april-2025",
@@ -393,6 +612,8 @@ def test_tools_call_requires_user_agent_and_agent_tool_grants(monkeypatch: pytes
     assert response.status.code == bridge.OK
     assert checks == [
         ("user:user-sub-123", "can_call", "mcp_gateway:list"),
+        ("user:user-sub-123", "can_invoke", "mcp_server:jira"),
+        ("user:user-sub-123", "can_discover", "mcp_server:jira"),
         ("user:user-sub-123", "can_use", "agent:agent-test-april-2025"),
         ("agent:agent-test-april-2025", "can_call", "tool:jira/search"),
     ]
@@ -404,13 +625,13 @@ def test_tools_call_denies_when_agent_tool_grant_is_missing(monkeypatch: pytest.
     def _fake_check_openfga(user: str, relation: str, obj: str):
         return (user, relation, obj) in {
             ("user:user-sub-123", "can_call", "mcp_gateway:list"),
+            ("user:user-sub-123", "can_discover", "mcp_server:jira"),
             ("user:user-sub-123", "can_use", "agent:agent-test-april-2025"),
         }
 
     monkeypatch.setattr(bridge, "_decode_verified_bearer_subject", lambda _auth_header: "user-sub-123")
     monkeypatch.setattr(bridge, "_check_openfga", _fake_check_openfga)
     monkeypatch.setattr(bridge, "log_authz_decision", lambda **_event: None, raising=False)
-    monkeypatch.setattr(bridge, "BYPASS_SUBS", frozenset())
     monkeypatch.setattr(bridge, "AGENT_CONTEXT_HMAC_SECRET", "test-secret")
     context_header, signature = bridge.build_agent_context_header(
         "agent-test-april-2025",
@@ -484,6 +705,7 @@ def test_caller_keyed_denies_user_with_agent_tool_but_no_caller_tool(
         # missing is the CALLER's own tool grant.
         return (user, relation, obj) in {
             ("user:user-sub-123", "can_call", "mcp_gateway:list"),
+            ("user:user-sub-123", "can_discover", "mcp_server:jira"),
             ("user:user-sub-123", "can_use", "agent:agent-test-april-2025"),
             ("agent:agent-test-april-2025", "can_call", "tool:jira/search"),
         }
@@ -492,7 +714,6 @@ def test_caller_keyed_denies_user_with_agent_tool_but_no_caller_tool(
     monkeypatch.setattr(bridge, "_decode_verified_bearer_claims", lambda _auth_header: {"sub": "user-sub-123"})
     monkeypatch.setattr(bridge, "_check_openfga", _fake_check_openfga)
     monkeypatch.setattr(bridge, "log_authz_decision", lambda **event: events.append(event), raising=False)
-    monkeypatch.setattr(bridge, "BYPASS_SUBS", frozenset())
     monkeypatch.setattr(bridge, "AGENT_CONTEXT_HMAC_SECRET", "test-secret")
     monkeypatch.setattr(bridge, "CALLER_TOOL_CHECK_ENABLED", True)
 
@@ -533,7 +754,6 @@ def test_caller_keyed_allows_service_account_with_both_grants(
     )
     monkeypatch.setattr(bridge, "_check_openfga", _fake_check_openfga)
     monkeypatch.setattr(bridge, "log_authz_decision", lambda **event: events.append(event), raising=False)
-    monkeypatch.setattr(bridge, "BYPASS_SUBS", frozenset())
     monkeypatch.setattr(bridge, "AGENT_CONTEXT_HMAC_SECRET", "test-secret")
     monkeypatch.setattr(bridge, "CALLER_TOOL_CHECK_ENABLED", True)
 
@@ -577,7 +797,6 @@ def test_caller_keyed_denies_service_account_without_caller_tool(
     )
     monkeypatch.setattr(bridge, "_check_openfga", _fake_check_openfga)
     monkeypatch.setattr(bridge, "log_authz_decision", lambda **_event: None, raising=False)
-    monkeypatch.setattr(bridge, "BYPASS_SUBS", frozenset())
     monkeypatch.setattr(bridge, "AGENT_CONTEXT_HMAC_SECRET", "test-secret")
     monkeypatch.setattr(bridge, "CALLER_TOOL_CHECK_ENABLED", True)
 
@@ -601,6 +820,7 @@ def test_caller_keyed_check_disabled_keeps_legacy_agent_only_behavior(
         checks.append((user, relation, obj))
         return (user, relation, obj) in {
             ("user:user-sub-123", "can_call", "mcp_gateway:list"),
+            ("user:user-sub-123", "can_discover", "mcp_server:jira"),
             ("user:user-sub-123", "can_use", "agent:agent-test-april-2025"),
             ("agent:agent-test-april-2025", "can_call", "tool:jira/search"),
         }
@@ -609,7 +829,6 @@ def test_caller_keyed_check_disabled_keeps_legacy_agent_only_behavior(
     monkeypatch.setattr(bridge, "_decode_verified_bearer_claims", lambda _auth_header: {"sub": "user-sub-123"})
     monkeypatch.setattr(bridge, "_check_openfga", _fake_check_openfga)
     monkeypatch.setattr(bridge, "log_authz_decision", lambda **_event: None, raising=False)
-    monkeypatch.setattr(bridge, "BYPASS_SUBS", frozenset())
     monkeypatch.setattr(bridge, "AGENT_CONTEXT_HMAC_SECRET", "test-secret")
     monkeypatch.setattr(bridge, "CALLER_TOOL_CHECK_ENABLED", False)
 
@@ -683,12 +902,14 @@ def test_local_agent_context_bypasses_agent_use_and_tool_checks(
 
     def _fake_check_openfga(user: str, relation: str, obj: str):
         checks.append((user, relation, obj))
-        return (user, relation, obj) == ("user:user-sub-123", "can_call", "mcp_gateway:list")
+        return (user, relation, obj) in {
+            ("user:user-sub-123", "can_call", "mcp_gateway:list"),
+            ("user:user-sub-123", "can_discover", "mcp_server:jira"),
+        }
 
     monkeypatch.setattr(bridge, "_decode_verified_bearer_subject", lambda _auth_header: "user-sub-123")
     monkeypatch.setattr(bridge, "_check_openfga", _fake_check_openfga)
     monkeypatch.setattr(bridge, "log_authz_decision", lambda **event: events.append(event), raising=False)
-    monkeypatch.setattr(bridge, "BYPASS_SUBS", frozenset())
     monkeypatch.setattr(bridge, "AGENT_CONTEXT_HMAC_SECRET", "test-secret")
     monkeypatch.setattr(bridge, "CALLER_TOOL_CHECK_ENABLED", False)
 
@@ -712,7 +933,11 @@ def test_local_agent_context_bypasses_agent_use_and_tool_checks(
 
     assert response.status.code == bridge.OK
     # No agent:<id> can_use/can_call checks were performed.
-    assert checks == [("user:user-sub-123", "can_call", "mcp_gateway:list")]
+    assert checks == [
+        ("user:user-sub-123", "can_call", "mcp_gateway:list"),
+        ("user:user-sub-123", "can_invoke", "mcp_server:jira"),
+        ("user:user-sub-123", "can_discover", "mcp_server:jira"),
+    ]
     local_allow = [e for e in events if e["reason_code"] == "OK_LOCAL_AGENT_CONTEXT"]
     assert len(local_allow) == 1
     # The audit event is scoped to the actual tool target (tool:<server>/<name>),
@@ -732,13 +957,15 @@ def test_local_agent_context_with_caller_check_denies_without_caller_tool(
 
     def _fake_check_openfga(user: str, relation: str, obj: str):
         # Only the coarse gateway gate is held; no tool:jira/search or wildcard.
-        return (user, relation, obj) == ("user:user-sub-123", "can_call", "mcp_gateway:list")
+        return (user, relation, obj) in {
+            ("user:user-sub-123", "can_call", "mcp_gateway:list"),
+            ("user:user-sub-123", "can_discover", "mcp_server:jira"),
+        }
 
     monkeypatch.setattr(bridge, "_decode_verified_bearer_subject", lambda _auth_header: "user-sub-123")
     monkeypatch.setattr(bridge, "_decode_verified_bearer_claims", lambda _auth_header: {"sub": "user-sub-123"})
     monkeypatch.setattr(bridge, "_check_openfga", _fake_check_openfga)
     monkeypatch.setattr(bridge, "log_authz_decision", lambda **event: events.append(event), raising=False)
-    monkeypatch.setattr(bridge, "BYPASS_SUBS", frozenset())
     monkeypatch.setattr(bridge, "AGENT_CONTEXT_HMAC_SECRET", "test-secret")
     monkeypatch.setattr(bridge, "CALLER_TOOL_CHECK_ENABLED", True)
 
@@ -763,6 +990,7 @@ def test_local_agent_context_with_caller_check_allows_with_exact_tool_grant(
     def _fake_check_openfga(user: str, relation: str, obj: str):
         return (user, relation, obj) in {
             ("user:user-sub-123", "can_call", "mcp_gateway:list"),
+            ("user:user-sub-123", "can_discover", "mcp_server:jira"),
             ("user:user-sub-123", "can_call", "tool:jira/search"),
         }
 
@@ -770,7 +998,6 @@ def test_local_agent_context_with_caller_check_allows_with_exact_tool_grant(
     monkeypatch.setattr(bridge, "_decode_verified_bearer_claims", lambda _auth_header: {"sub": "user-sub-123"})
     monkeypatch.setattr(bridge, "_check_openfga", _fake_check_openfga)
     monkeypatch.setattr(bridge, "log_authz_decision", lambda **event: events.append(event), raising=False)
-    monkeypatch.setattr(bridge, "BYPASS_SUBS", frozenset())
     monkeypatch.setattr(bridge, "AGENT_CONTEXT_HMAC_SECRET", "test-secret")
     monkeypatch.setattr(bridge, "CALLER_TOOL_CHECK_ENABLED", True)
 
@@ -799,6 +1026,7 @@ def test_local_agent_context_with_caller_check_allows_with_wildcard_tool_grant(
         # Exact tool:jira/search is deliberately withheld to force the wildcard path.
         return (user, relation, obj) in {
             ("user:user-sub-123", "can_call", "mcp_gateway:list"),
+            ("user:user-sub-123", "can_discover", "mcp_server:jira"),
             ("user:user-sub-123", "can_call", "tool:jira/*"),
         }
 
@@ -806,7 +1034,6 @@ def test_local_agent_context_with_caller_check_allows_with_wildcard_tool_grant(
     monkeypatch.setattr(bridge, "_decode_verified_bearer_claims", lambda _auth_header: {"sub": "user-sub-123"})
     monkeypatch.setattr(bridge, "_check_openfga", _fake_check_openfga)
     monkeypatch.setattr(bridge, "log_authz_decision", lambda **_event: None, raising=False)
-    monkeypatch.setattr(bridge, "BYPASS_SUBS", frozenset())
     monkeypatch.setattr(bridge, "AGENT_CONTEXT_HMAC_SECRET", "test-secret")
     monkeypatch.setattr(bridge, "CALLER_TOOL_CHECK_ENABLED", True)
 
@@ -827,13 +1054,13 @@ def test_missing_kind_defaults_to_dynamic_and_still_enforces_agent_checks(
     def _fake_check_openfga(user: str, relation: str, obj: str):
         return (user, relation, obj) in {
             ("user:user-sub-123", "can_call", "mcp_gateway:list"),
+            ("user:user-sub-123", "can_discover", "mcp_server:jira"),
             # Deliberately withhold can_use agent:<id> to prove it's still checked.
         }
 
     monkeypatch.setattr(bridge, "_decode_verified_bearer_subject", lambda _auth_header: "user-sub-123")
     monkeypatch.setattr(bridge, "_check_openfga", _fake_check_openfga)
     monkeypatch.setattr(bridge, "log_authz_decision", lambda **_event: None, raising=False)
-    monkeypatch.setattr(bridge, "BYPASS_SUBS", frozenset())
     monkeypatch.setattr(bridge, "AGENT_CONTEXT_HMAC_SECRET", "test-secret")
 
     issued_at = int(time.time())
@@ -869,10 +1096,13 @@ def test_agent_context_with_unknown_kind_is_rejected(monkeypatch: pytest.MonkeyP
     monkeypatch.setattr(
         bridge,
         "_check_openfga",
-        lambda user, relation, obj: (user, relation, obj) == ("user:user-sub-123", "can_call", "mcp_gateway:list"),
+        lambda user, relation, obj: (user, relation, obj)
+        in {
+            ("user:user-sub-123", "can_call", "mcp_gateway:list"),
+            ("user:user-sub-123", "can_discover", "mcp_server:jira"),
+        },
     )
     monkeypatch.setattr(bridge, "log_authz_decision", lambda **_event: None, raising=False)
-    monkeypatch.setattr(bridge, "BYPASS_SUBS", frozenset())
     monkeypatch.setattr(bridge, "AGENT_CONTEXT_HMAC_SECRET", "test-secret")
 
     issued_at = int(time.time())
@@ -912,10 +1142,13 @@ def test_agent_context_claiming_lifetime_over_kind_max_age_is_rejected(
     monkeypatch.setattr(
         bridge,
         "_check_openfga",
-        lambda user, relation, obj: (user, relation, obj) == ("user:user-sub-123", "can_call", "mcp_gateway:list"),
+        lambda user, relation, obj: (user, relation, obj)
+        in {
+            ("user:user-sub-123", "can_call", "mcp_gateway:list"),
+            ("user:user-sub-123", "can_discover", "mcp_server:jira"),
+        },
     )
     monkeypatch.setattr(bridge, "log_authz_decision", lambda **_event: None, raising=False)
-    monkeypatch.setattr(bridge, "BYPASS_SUBS", frozenset())
     monkeypatch.setattr(bridge, "AGENT_CONTEXT_HMAC_SECRET", "test-secret")
     monkeypatch.setattr(bridge, "AGENT_CONTEXT_LOCAL_MAX_AGE_SECONDS", 43200)
     monkeypatch.setattr(
@@ -973,7 +1206,6 @@ def test_check_namespaces_service_account_from_metadata(monkeypatch: pytest.Monk
     monkeypatch.setattr(bridge, "_decode_verified_bearer_claims", lambda _auth: None)
     monkeypatch.setattr(bridge, "_check_openfga", _fake_check_openfga)
     monkeypatch.setattr(bridge, "log_authz_decision", lambda **_event: None, raising=False)
-    monkeypatch.setattr(bridge, "BYPASS_SUBS", frozenset())
     monkeypatch.setattr(bridge, "AGENT_CONTEXT_HMAC_SECRET", "test-secret")
     monkeypatch.setattr(bridge, "CALLER_TOOL_CHECK_ENABLED", True)
 

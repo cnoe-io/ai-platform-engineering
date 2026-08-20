@@ -247,6 +247,7 @@ def build_mcp_connection_config(
     agent_gateway_url: str | None = None,
     auth_bearer: str | None = None,
     agent_id: str | None = None,
+    trusted_interaction: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Build connection config dict for MultiServerMCPClient.
 
@@ -261,6 +262,12 @@ def build_mcp_connection_config(
     headers: dict[str, str] = {}
     if auth_bearer:
         headers["Authorization"] = f"Bearer {auth_bearer}"
+    if trusted_interaction:
+        token = trusted_interaction.get("token", "")
+        signature = trusted_interaction.get("signature", "")
+        if token and signature:
+            headers["X-CAIPE-Trusted-Interaction"] = token
+            headers["X-CAIPE-Trusted-Interaction-Signature"] = signature
 
     # Spec 102 Phase 8 / T106: also attach the httpx_client_factory so the
     # per-request user JWT and signed agent context are injected on every
@@ -322,6 +329,7 @@ def build_mcp_connections(
     agent_gateway_url: str | None = None,
     auth_bearer: str | None = None,
     agent_id: str | None = None,
+    trusted_interaction: dict[str, str] | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Build MCP connections dict for MultiServerMCPClient.
 
@@ -358,6 +366,7 @@ def build_mcp_connections(
             agent_gateway_url=agent_gateway_url if use_gateway else None,
             auth_bearer=auth_bearer,
             agent_id=agent_id,
+            trusted_interaction=trusted_interaction,
         )
 
     return connections
@@ -913,10 +922,11 @@ async def _diagnose_endpoint_failure(endpoint: str) -> str:
 
 
 # Bounded retry policy for transient MCP tool-load failures (cold-start
-# ext_authz timeouts, mid-stream disconnects). Kept small so a healthy
-# enumeration is not slowed (success path does zero retries) and a permanent
-# failure / denial is not retried needlessly.
-_DEFAULT_LOAD_MAX_ATTEMPTS = 3
+# ext_authz timeouts, AgentGateway 5xx readiness, mid-stream disconnects).
+# Five attempts cover the route-visible/upstream-not-ready window observed
+# during coordinated rollouts while keeping the success path at one request;
+# permanent failures and authorization denials still fail immediately.
+_DEFAULT_LOAD_MAX_ATTEMPTS = 5
 _DEFAULT_LOAD_BASE_BACKOFF_S = 0.25
 
 
@@ -940,7 +950,7 @@ async def get_tools_with_resilience(
 
     Args:
         connections: Dict mapping server_id to connection config.
-        max_attempts: Max connect attempts per server (>=1). Default 3.
+        max_attempts: Max connect attempts per server (>=1). Default 5.
         base_backoff_s: Base backoff for exponential+jitter delay. Default 0.25s.
 
     Returns:

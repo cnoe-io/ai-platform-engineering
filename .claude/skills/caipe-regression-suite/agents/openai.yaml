@@ -1,0 +1,4 @@
+interface:
+  display_name: "CAIPE Regression Suite"
+  short_description: "Commit-aware production regression reports"
+  default_prompt: "Use $caipe-regression-suite to map release commits and run the approved production regressions with OpenFGA evidence, screenshots, cleanup, and reports."
