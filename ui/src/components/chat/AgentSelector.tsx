@@ -2,8 +2,9 @@
 
 import { AgentHarnessBadge } from "@/components/chat/AgentHarnessBadge";
 import { Tooltip,TooltipContent,TooltipProvider,TooltipTrigger } from "@/components/ui/tooltip";
+import { getHarnessPresentation } from "@/lib/agent-presentation";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
-import { Bot,Check,ChevronDown,Loader2,Lock } from "lucide-react";
+import { Bot,Check,ChevronDown,Loader2,Lock,Search } from "lucide-react";
 import React from "react";
 
 export interface AgentPickerProps {
@@ -32,6 +33,7 @@ export function AgentPicker({ selectedAgentId, onSelectAgent, disabled }: AgentP
   const [agents, setAgents] = React.useState<DynamicAgentConfig[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = React.useState("");
   const containerRef = React.useRef<HTMLDivElement>(null);
 
   // Fetch available agents
@@ -63,12 +65,14 @@ export function AgentPicker({ selectedAgentId, onSelectAgent, disabled }: AgentP
     const handleClickOutside = (e: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
         setOpen(false);
+        setSearchQuery("");
       }
     };
 
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         setOpen(false);
+        setSearchQuery("");
       }
     };
 
@@ -90,12 +94,37 @@ export function AgentPicker({ selectedAgentId, onSelectAgent, disabled }: AgentP
     }));
   }, [agents]);
 
+  const filteredOptions = React.useMemo(() => {
+    const normalizedQuery = searchQuery.trim().toLocaleLowerCase();
+    if (!normalizedQuery) return options;
+
+    return options.filter((option) => {
+      const harness = getHarnessPresentation(option.harnessId);
+      return [
+        option.name,
+        option.description,
+        option.harnessId,
+        harness.label,
+        harness.shortLabel,
+      ].some((value) => value?.toLocaleLowerCase().includes(normalizedQuery));
+    });
+  }, [options,searchQuery]);
+
   // Find currently selected option
   const selectedOption = options.find((opt) => opt.id === selectedAgentId) || options[0];
 
   const handleSelect = (optionId: string) => {
     onSelectAgent(optionId);
     setOpen(false);
+    setSearchQuery("");
+  };
+
+  const handleToggle = () => {
+    if (disabled) return;
+    setOpen((isOpen) => {
+      if (isOpen) setSearchQuery("");
+      return !isOpen;
+    });
   };
 
   // Don't show if no chat-capable agents are available.
@@ -116,7 +145,7 @@ export function AgentPicker({ selectedAgentId, onSelectAgent, disabled }: AgentP
                   ? `Choose agent. Current agent: ${selectedOption.name}`
                   : "Choose agent"
               }
-              onClick={() => !disabled && setOpen(!open)}
+              onClick={handleToggle}
               disabled={loading}
               className={`inline-flex items-center justify-center whitespace-nowrap text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input bg-background rounded-md px-3 gap-2 min-h-8 ${
                 disabled
@@ -157,16 +186,37 @@ export function AgentPicker({ selectedAgentId, onSelectAgent, disabled }: AgentP
       {/* Dropdown - only show when open and not disabled */}
       {open && !disabled && (
         <div
-          className="absolute top-full left-0 mt-2 z-50 w-72 p-1 max-h-80 overflow-y-auto rounded-lg bg-popover text-popover-foreground shadow-lg border border-border animate-in fade-in-0 zoom-in-95 slide-in-from-top-2"
+          className="absolute top-full left-0 mt-2 z-50 w-80 rounded-lg bg-popover text-popover-foreground shadow-lg border border-border animate-in fade-in-0 zoom-in-95 slide-in-from-top-2"
         >
-          <div className="space-y-1">
+          <div className="border-b border-border p-2">
             <p className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
               Choose an agent
             </p>
+            <label className="relative block">
+              <Search
+                className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
+                aria-hidden="true"
+              />
+              <input
+                type="search"
+                autoFocus
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder="Search agents or harnesses"
+                aria-label="Search agents or harnesses"
+                className="h-8 w-full rounded-md border border-input bg-background pl-8 pr-2 text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
+              />
+            </label>
+          </div>
+          <div className="max-h-64 space-y-1 overflow-y-auto p-1">
             {error ? (
               <p className="px-2 py-2 text-sm text-destructive">{error}</p>
+            ) : filteredOptions.length === 0 ? (
+              <p className="px-3 py-6 text-center text-sm text-muted-foreground">
+                No agents match your search.
+              </p>
             ) : (
-              options.map((option) => {
+              filteredOptions.map((option) => {
                 const isSelected = option.id === selectedOption?.id;
 
                 return (
