@@ -1,11 +1,12 @@
 "use client";
 
+import { AgentHarnessBadge } from "@/components/chat/AgentHarnessBadge";
 import { Tooltip,TooltipContent,TooltipProvider,TooltipTrigger } from "@/components/ui/tooltip";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
 import { Bot,Check,ChevronDown,Loader2,Lock } from "lucide-react";
 import React from "react";
 
-interface AgentSelectorProps {
+export interface AgentPickerProps {
   selectedAgentId?: string;
   onSelectAgent: (agentId: string) => void;
   disabled?: boolean;
@@ -15,9 +16,18 @@ interface AgentOption {
   id: string;
   name: string;
   description?: string;
+  harnessId?: string;
 }
 
-export function AgentSelector({ selectedAgentId, onSelectAgent, disabled }: AgentSelectorProps) {
+/**
+ * Harness-neutral picker for every chat-capable agent.
+ *
+ * The backing endpoint and document IDs intentionally remain unchanged so
+ * legacy Dynamic Agents continue to resolve exactly as before. Agents without
+ * an execution_harness_id are presented as the LangChain Deep Agents
+ * compatibility runtime.
+ */
+export function AgentPicker({ selectedAgentId, onSelectAgent, disabled }: AgentPickerProps) {
   const [open, setOpen] = React.useState(false);
   const [agents, setAgents] = React.useState<DynamicAgentConfig[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -76,6 +86,7 @@ export function AgentSelector({ selectedAgentId, onSelectAgent, disabled }: Agen
       id: agent._id,
       name: agent.name,
       description: agent.description,
+      harnessId: agent.execution_harness_id,
     }));
   }, [agents]);
 
@@ -87,7 +98,7 @@ export function AgentSelector({ selectedAgentId, onSelectAgent, disabled }: Agen
     setOpen(false);
   };
 
-  // Don't show if no dynamic agents available
+  // Don't show if no chat-capable agents are available.
   if (!loading && agents.length === 0) {
     return null;
   }
@@ -100,9 +111,14 @@ export function AgentSelector({ selectedAgentId, onSelectAgent, disabled }: Agen
           <TooltipTrigger asChild>
             <button
               type="button"
+              aria-label={
+                selectedOption
+                  ? `Choose agent. Current agent: ${selectedOption.name}`
+                  : "Choose agent"
+              }
               onClick={() => !disabled && setOpen(!open)}
               disabled={loading}
-              className={`inline-flex items-center justify-center whitespace-nowrap text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input bg-background rounded-md px-3 gap-2 h-8 ${
+              className={`inline-flex items-center justify-center whitespace-nowrap text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input bg-background rounded-md px-3 gap-2 min-h-8 ${
                 disabled
                   ? "cursor-default opacity-70"
                   : "hover:bg-accent hover:text-accent-foreground cursor-pointer"
@@ -114,6 +130,13 @@ export function AgentSelector({ selectedAgentId, onSelectAgent, disabled }: Agen
                 <>
                   <Bot className="h-4 w-4" />
                   <span className="max-w-[150px] truncate">{selectedOption?.name}</span>
+                  {selectedOption && (
+                    <AgentHarnessBadge
+                      compact
+                      harnessId={selectedOption.harnessId}
+                      className="hidden sm:inline-flex"
+                    />
+                  )}
                   {disabled ? (
                     <Lock className="h-3 w-3 opacity-50" />
                   ) : (
@@ -138,7 +161,7 @@ export function AgentSelector({ selectedAgentId, onSelectAgent, disabled }: Agen
         >
           <div className="space-y-1">
             <p className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
-              Select Agent
+              Choose an agent
             </p>
             {error ? (
               <p className="px-2 py-2 text-sm text-destructive">{error}</p>
@@ -166,7 +189,10 @@ export function AgentSelector({ selectedAgentId, onSelectAgent, disabled }: Agen
                       {isSelected && <Check className="h-2.5 w-2.5" />}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium">{option.name}</div>
+                      <div className="flex min-w-0 items-center justify-between gap-2">
+                        <div className="truncate text-sm font-medium">{option.name}</div>
+                        <AgentHarnessBadge compact harnessId={option.harnessId} />
+                      </div>
                       {option.description && (
                         <div className="text-xs text-muted-foreground line-clamp-2">
                           {option.description}
@@ -183,3 +209,9 @@ export function AgentSelector({ selectedAgentId, onSelectAgent, disabled }: Agen
     </div>
   );
 }
+
+/**
+ * Backward-compatible name used by existing Dynamic Agent chat surfaces.
+ * New surfaces should prefer AgentPicker.
+ */
+export const AgentSelector = AgentPicker;
