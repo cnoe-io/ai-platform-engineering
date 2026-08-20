@@ -1,0 +1,4 @@
+interface:
+  display_name: "GRID TAP"
+  short_description: "Commit-aware production release regression"
+  default_prompt: "Use $grid-tap to map the release commits, propose the production regression, and run the approved checks with OpenFGA evidence and screenshots."
