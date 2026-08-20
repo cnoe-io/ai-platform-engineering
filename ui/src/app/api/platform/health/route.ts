@@ -37,6 +37,7 @@ interface CapabilityResult {
   description: string;
   detail: string;
   latency_ms: number | null;
+  version: string | null;
 }
 
 interface AuditServiceStatusPayload {
@@ -84,6 +85,11 @@ function envValue(name: string): string | null {
 function envExplicitlyDisabled(name: string): boolean {
   const value = process.env[name]?.trim().toLowerCase();
   return value ? DISABLED_VALUES.has(value) : false;
+}
+
+function componentVersion(componentId: string): string | null {
+  const componentEnvName = `PLATFORM_COMPONENT_VERSION_${componentId.toUpperCase().replace(/-/g, "_")}`;
+  return envValue(componentEnvName) ?? envValue("CAIPE_RELEASE_VERSION");
 }
 
 function envPort(name: string, defaultPort: number): number {
@@ -137,6 +143,7 @@ function disabledCapability(input: {
     required: false,
     description: input.description,
     latency_ms: null,
+    version: componentVersion(input.id),
   };
 }
 
@@ -187,6 +194,7 @@ async function probeHttpCapability({
             description,
             detail: `${failureLabel} returned unhealthy status`,
             latency_ms: latencyMs,
+            version: componentVersion(id),
           };
         }
       }
@@ -199,6 +207,7 @@ async function probeHttpCapability({
         description,
         detail: healthyDetail,
         latency_ms: latencyMs,
+        version: componentVersion(id),
       };
     }
     return {
@@ -210,6 +219,7 @@ async function probeHttpCapability({
       description,
       detail: `${failureLabel} returned HTTP ${response.status}`,
       latency_ms: latencyMs,
+      version: componentVersion(id),
     };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : "request failed";
@@ -226,6 +236,7 @@ async function probeHttpCapability({
       description,
       detail,
       latency_ms: Date.now() - startedAt,
+      version: componentVersion(id),
     };
   } finally {
     clearTimeout(timeoutId);
@@ -810,6 +821,7 @@ async function probeAuditServiceCapability(auditBackend: string): Promise<Capabi
       description: "Collects and serves durable audit events.",
       detail: `AUDIT_LOG_BACKEND=${auditBackend} is unsupported by the UI; use service`,
       latency_ms: null,
+      version: componentVersion("audit-service"),
     };
   }
 
@@ -836,6 +848,7 @@ async function probeAuditServiceCapability(auditBackend: string): Promise<Capabi
         description: "Collects and serves durable audit events.",
         detail: `audit-service returned HTTP ${response.status}`,
         latency_ms: latencyMs,
+        version: componentVersion("audit-service"),
       };
     }
 
@@ -878,6 +891,7 @@ async function probeAuditServiceCapability(auditBackend: string): Promise<Capabi
           ? `${issues.join("; ")}; ${auditStatusDetail(payload)}`
           : auditStatusDetail(payload),
       latency_ms: latencyMs,
+      version: componentVersion("audit-service"),
     };
   } catch (error) {
     return {
@@ -889,6 +903,7 @@ async function probeAuditServiceCapability(auditBackend: string): Promise<Capabi
       description: "Collects and serves durable audit events.",
       detail: `audit-service failed: ${error instanceof Error ? error.message : "request failed"}`,
       latency_ms: Date.now() - startedAt,
+      version: componentVersion("audit-service"),
     };
   } finally {
     clearTimeout(timeoutId);
@@ -940,6 +955,7 @@ async function probeSlackIntegration(): Promise<CapabilityResult | null> {
     description: "Checks Slack integration availability.",
     detail: issues.length > 0 ? issues.join("; ") : "Slack ready",
     latency_ms: Date.now() - startedAt,
+    version: componentVersion("slack-integration"),
   };
 }
 
@@ -984,6 +1000,7 @@ async function probeWebexIntegration(): Promise<CapabilityResult | null> {
     description: "Checks Webex integration availability.",
     detail: issues.length > 0 ? issues.join("; ") : "Webex ready",
     latency_ms: Date.now() - startedAt,
+    version: componentVersion("webex-integration"),
   };
 }
 
@@ -1064,6 +1081,7 @@ async function getPlatformHealth(request: NextRequest): Promise<NextResponse> {
       description: "Reads the UI SSO configuration.",
       detail: config.ssoEnabled ? "SSO enabled" : "SSO disabled",
       latency_ms: null,
+      version: componentVersion("authentication"),
     } satisfies CapabilityResult),
     Promise.resolve({
       id: "metrics",
@@ -1074,6 +1092,7 @@ async function getPlatformHealth(request: NextRequest): Promise<NextResponse> {
       description: "Reads the UI Prometheus configuration.",
       detail: serverOnly.prometheusUrl ? "Prometheus configured" : "Prometheus not configured",
       latency_ms: null,
+      version: componentVersion("metrics"),
     } satisfies CapabilityResult),
     probeAuditServiceCapability(config.auditLogBackend),
     probeSlackIntegration(),
