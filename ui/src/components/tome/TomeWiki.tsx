@@ -1018,26 +1018,19 @@ export function TomeWiki({ slug }: { slug: string }) {
             </Tooltip>
             <EdgeGraphDialog slug={slug} />
             <McpConnectDialog />
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8 text-muted-foreground"
-                  onClick={toggleFullscreen}
-                  aria-label={isFullscreen ? "Exit full screen" : "Enter full screen"}
-                >
-                  {isFullscreen ? (
-                    <Minimize2 className="h-4 w-4" />
-                  ) : (
-                    <Maximize2 className="h-4 w-4" />
-                  )}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">
-                {isFullscreen ? "Exit full screen" : "Full screen"}
-              </TooltipContent>
-            </Tooltip>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-auto gap-1.5 px-2 py-1"
+              onClick={toggleFullscreen}
+            >
+              {isFullscreen ? (
+                <Minimize2 className="h-3.5 w-3.5" />
+              ) : (
+                <Maximize2 className="h-3.5 w-3.5" />
+              )}
+              Toggle full screen
+            </Button>
           </div>
         </header>
 
