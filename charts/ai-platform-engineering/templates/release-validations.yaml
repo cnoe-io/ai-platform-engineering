@@ -1,0 +1,6 @@
+{{/*
+Parent-chart install validation. Included in the manifest set so `helm template`
+evaluates fail() helpers without creating cluster resources.
+See cnoe-io/ai-platform-engineering#2252.
+*/}}
+{{- $_ := include "ai-platform-engineering.validate.openfgaDependencies" . -}}

@@ -19,7 +19,9 @@ data:
   # `SKILL_SCANNER_URL`. Plain literals pass through unchanged because `tpl`
   # is a no-op when the template body has no actions.
   {{- range $key, $value := .Values.config }}
+  {{- if not (eq (toString $value) "") }}
   {{ $key }}: {{ tpl ($value | toString) $ | quote }}
+  {{- end }}
   {{- end }}
   {{- /* R1 upstream fix (May 2026): when an operator wires up the
          Keycloak Admin REST client via keycloakAdminClient.secretName,
@@ -65,4 +67,23 @@ data:
   {{- if .Values.oktaSync.groupFilter }}
   IDENTITY_SYNC_OKTA_GROUP_FILTER: {{ .Values.oktaSync.groupFilter | quote }}
   {{- end }}
+  {{- end }}
+  {{- /* OpenFGA / Keycloak IdP identity sync — default OIDC group claim wiring
+         when login-time reconciliation is enabled. Operators may override any
+         key via caipe-ui.config. Mirror keycloak.idp into caipe-ui.keycloakIdp
+         when Keycloak brokers an upstream IdP (e.g. duo-sso). */ -}}
+  {{- $openfgaIntent := or (eq (toString (index .Values.config "OPENFGA_RECONCILE_ENABLED" | default "")) "true") (eq (toString (index .Values.config "IDENTITY_SYNC_LOGIN_CLAIMS_ENABLED" | default "")) "true") (index .Values.config "BOOTSTRAP_ADMIN_EMAILS" | default "") -}}
+  {{- if and $openfgaIntent (not (hasKey .Values.config "IDENTITY_SYNC_OIDC_CLAIM_PROVIDER_ID")) }}
+  IDENTITY_SYNC_OIDC_CLAIM_PROVIDER_ID: "oidc-claims"
+  {{- end }}
+  {{- if and $openfgaIntent (not (hasKey .Values.config "OIDC_GROUP_CLAIM")) }}
+  OIDC_GROUP_CLAIM: "members,groups"
+  {{- end }}
+  {{- $idp := .Values.keycloakIdp | default dict -}}
+  {{- if and $idp.enabled (not (hasKey .Values.config "OIDC_IDP_HINT")) }}
+  OIDC_IDP_HINT: {{ $idp.alias | default "duo-sso" | quote }}
+  {{- end }}
+  {{- $agwEnabled := dig "agentgateway" "enabled" false (.Values.global | default dict) -}}
+  {{- if and $agwEnabled (not (hasKey .Values.config "OIDC_EXTRA_AUDIENCES")) }}
+  OIDC_EXTRA_AUDIENCES: "caipe-platform"
   {{- end }}
