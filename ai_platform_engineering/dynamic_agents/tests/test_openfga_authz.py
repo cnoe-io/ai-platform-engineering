@@ -87,6 +87,32 @@ async def test_allows_agent_use_when_openfga_allows(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_allows_file_resource_permission_when_openfga_allows(monkeypatch):
+    from dynamic_agents.auth import openfga_authz
+
+    calls: list[tuple[str, str, str, str]] = []
+
+    async def fake_check(subject: str, resource_type: str, resource_id: str, relation: str) -> bool:
+        calls.append((subject, resource_type, resource_id, relation))
+        return True
+
+    monkeypatch.setattr(openfga_authz, "_check_resource_permission", fake_check)
+    token_ref = current_user_token.set(_fake_jwt({"sub": "user-primary"}))
+    try:
+        await openfga_authz.require_file_resource_permission(
+            "conversation",
+            "conversation-primary",
+            "can_read",
+        )
+    finally:
+        current_user_token.reset(token_ref)
+
+    assert calls == [
+        ("user:user-primary", "conversation", "conversation-primary", "can_read")
+    ]
+
+
+@pytest.mark.asyncio
 async def test_allows_agent_use_with_email_membership_fallback(monkeypatch):
     from dynamic_agents.auth import openfga_authz
 
