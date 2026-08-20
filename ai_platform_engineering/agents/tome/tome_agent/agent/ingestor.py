@@ -46,6 +46,22 @@ def _ingest_model() -> str:
     return http_client.resolve_model("ingest", INGEST_MODEL_DEFAULT, ("TTT_INGEST_MODEL",))
 
 
+def expected_template_pages(snapshot: ProjectSnapshot) -> dict[str, report_schema.PageSpec]:
+    """`{path: PageSpec}` for every page the live template config currently
+    expects for this project — top-level plus each attached source's
+    per-slug template, expanded. Shared by the incremental template-change
+    diff and the persist-hook binding stamp (#488)."""
+    per_source: dict[str, tuple[report_schema.PageSpec, ...]] = {}
+    for connector in REGISTRY:
+        sources = sources_for_connector(snapshot, connector)
+        if not sources:
+            continue
+        template = connector.page_template()
+        for source in sources:
+            per_source[f"{connector.source_prefix}/{source.slug}"] = template
+    return report_schema.expected_template_pages(report_schema.default_pages(), per_source)
+
+
 def _template_change_note(
     snapshot: ProjectSnapshot,
     existing_pages: dict[str, str],
@@ -57,19 +73,7 @@ def _template_change_note(
     the template, or "" when everything is in sync. Lets an incremental run
     act on template edits made since the last ingest instead of silently
     receiving the new page list."""
-    expected: dict[str, report_schema.PageSpec] = {
-        spec.path: spec for spec in report_schema.default_pages()
-    }
-    for connector in REGISTRY:
-        sources = sources_for_connector(snapshot, connector)
-        if not sources:
-            continue
-        template = connector.page_template()
-        for source in sources:
-            for spec in report_schema.expand_template(
-                f"{connector.source_prefix}/{source.slug}", template
-            ):
-                expected[spec.path] = spec
+    expected = expected_template_pages(snapshot)
 
     existing_kinds = report_schema.kinds_from_pages(existing_pages)
     missing = sorted(p for p in expected if p not in existing_pages)
@@ -397,12 +401,12 @@ async def stream_ingest(
     # Load the admin-editable page-template and model config for this run.
     # Sets task-local overrides the schema/model accessors prefer; falls back
     # to the hardcoded constants when the backend is unreachable.
-    templates = (
-        experiment.template_overrides
-        if experiment is not None
-        else await asyncio.to_thread(http_client.fetch_page_templates)
-    )
-    report_schema.set_template_overrides(templates)
+    if experiment is not None:
+        templates, template_versions = experiment.template_overrides, {}
+    else:
+        fetched = await asyncio.to_thread(http_client.fetch_page_templates)
+        templates, template_versions = fetched if fetched is not None else (None, {})
+    report_schema.set_template_overrides(templates, template_versions)
     models = (
         {
             "ingest": {
@@ -492,6 +496,7 @@ async def stream_ingest(
         on_write=on_write,
         offline=experiment is not None,
         max_budget_usd=experiment.max_budget_usd if experiment is not None else None,
+        expected_template_pages=expected_template_pages(snapshot),
     )
 
     if experiment is not None and experiment.evaluation_mode == "quick":

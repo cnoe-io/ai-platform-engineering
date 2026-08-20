@@ -22,7 +22,11 @@ from uuid import UUID
 from tome_agent import prompts
 from tome_agent.agent import http_client
 from tome_agent.agent.connectors import REGISTRY
-from tome_agent.agent.ingestor import format_full_template, resolve_connector_extras
+from tome_agent.agent.ingestor import (
+    expected_template_pages,
+    format_full_template,
+    resolve_connector_extras,
+)
 from tome_agent.agent.loop import (
     build_agent_options,
     project_root,
@@ -223,12 +227,12 @@ async def stream_synthesis(
     """Run a BHAG synthesis as a Claude Agent SDK loop. Yields IngestEvents the
     agent's HTTP handler writes to the SSE response."""
     log_buf: list[IngestEventPayload] = []
-    templates = (
-        experiment.template_overrides
-        if experiment is not None
-        else await asyncio.to_thread(http_client.fetch_page_templates)
-    )
-    report_schema.set_template_overrides(templates)
+    if experiment is not None:
+        templates, template_versions = experiment.template_overrides, {}
+    else:
+        fetched = await asyncio.to_thread(http_client.fetch_page_templates)
+        templates, template_versions = fetched if fetched is not None else (None, {})
+    report_schema.set_template_overrides(templates, template_versions)
     models = (
         {
             "synthesize": {
@@ -300,6 +304,7 @@ async def stream_synthesis(
         extra_read_dirs=child_read_dirs,
         offline=experiment is not None,
         max_budget_usd=experiment.max_budget_usd if experiment is not None else None,
+        expected_template_pages=expected_template_pages(snapshot),
     )
 
     entity_kind = "Area" if snapshot.project_type == "area" else "BHAG"
