@@ -4,12 +4,16 @@ import { ReleaseNotesPreview } from "@/components/settings/ReleaseNotesPreview";
 import { AutoSaveStatus } from "@/components/settings/shared/AutoSaveStatus";
 import { SettingsCard } from "@/components/settings/shared/SettingsCard";
 import { SettingsSwitch } from "@/components/settings/shared/SettingsSwitch";
+import { Button } from "@/components/ui/button";
 import { useKeyedAutoSave } from "@/hooks/use-keyed-auto-save";
-import { Activity,Bell,Loader2 } from "lucide-react";
+import { Activity,Bell,ChevronsDownUp,ChevronsUpDown,Loader2 } from "lucide-react";
 import { useEffect,useRef,useState } from "react";
 
 type NotificationKey = "release-notes" | "platform-health";
 type NotificationValues = Record<NotificationKey,boolean>;
+type NotificationSection = "release-notes" | "platform-health";
+
+const NOTIFICATION_SECTIONS: NotificationSection[] = ["release-notes","platform-health"];
 
 async function persistNotificationPreference(key: NotificationKey,value: boolean): Promise<void> {
   const releaseNotes = key === "release-notes";
@@ -38,6 +42,9 @@ export function NotificationsSettings(): React.ReactElement {
   });
   const [loading,setLoading] = useState(true);
   const [loadError,setLoadError] = useState<string | null>(null);
+  const [expandedSections,setExpandedSections] = useState<Set<NotificationSection>>(
+    () => new Set(NOTIFICATION_SECTIONS),
+  );
   const committedRef = useRef<NotificationValues>(values);
   const autoSave = useKeyedAutoSave<NotificationKey,boolean>({
     persist: persistNotificationPreference,
@@ -92,11 +99,44 @@ export function NotificationsSettings(): React.ReactElement {
     }
     autoSave.retry(key);
   };
+  const setSectionExpanded = (section: NotificationSection,expanded: boolean): void => {
+    setExpandedSections((current) => {
+      const next = new Set(current);
+      if (expanded) next.add(section);
+      else next.delete(section);
+      return next;
+    });
+  };
+  const allExpanded = expandedSections.size === NOTIFICATION_SECTIONS.length;
+  const allCollapsed = expandedSections.size === 0;
 
   return (
     <div className="space-y-4">
+      <div className="flex justify-end gap-2">
+        <Button
+          disabled={allExpanded}
+          onClick={() => setExpandedSections(new Set(NOTIFICATION_SECTIONS))}
+          size="sm"
+          type="button"
+          variant="ghost"
+        >
+          <ChevronsUpDown className="mr-2 h-4 w-4" />Expand all
+        </Button>
+        <Button
+          disabled={allCollapsed}
+          onClick={() => setExpandedSections(new Set())}
+          size="sm"
+          type="button"
+          variant="ghost"
+        >
+          <ChevronsDownUp className="mr-2 h-4 w-4" />Collapse all
+        </Button>
+      </div>
       <SettingsCard
+        collapsibleLabel="Release notes"
         description="Choose whether CAIPE announces a new release after you sign in."
+        expanded={expandedSections.has("release-notes")}
+        onExpandedChange={(expanded) => setSectionExpanded("release-notes",expanded)}
         title={<span className="flex items-center gap-2"><Bell className="h-5 w-5 text-primary" />Release notes</span>}
       >
         {loading ? (
@@ -135,7 +175,10 @@ export function NotificationsSettings(): React.ReactElement {
         )}
       </SettingsCard>
       <SettingsCard
+        collapsibleLabel="Platform health"
         description="Choose whether global platform incidents appear in your personal notification feed."
+        expanded={expandedSections.has("platform-health")}
+        onExpandedChange={(expanded) => setSectionExpanded("platform-health",expanded)}
         title={<span className="flex items-center gap-2"><Activity className="h-5 w-5 text-primary" />Platform health</span>}
       >
         {loading ? (
