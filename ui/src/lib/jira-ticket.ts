@@ -4,6 +4,7 @@
  */
 
 import type { FeedbackContext } from "@/lib/ticket-client";
+import { buildUserFeedbackTitle } from "@/lib/feedback-ticket-title";
 
 export interface JiraTicketInput {
   description: string;
@@ -45,10 +46,12 @@ function toAdfDoc(text: string): object {
 }
 
 function buildSummary(input: JiraTicketInput): string {
-  const text = input.description.trim().replace(/\s+/g, " ");
-  const summary = text.length > 100 ? `${text.slice(0, 99)}…` : text;
-  const type = input.issueType ? `[${input.issueType}] ` : "";
-  return `[${input.area}] ${type}${summary}`;
+  const type = input.issueType ?? input.feedbackContext?.reason ?? "Feedback";
+  return buildUserFeedbackTitle({
+    description: input.description,
+    area: input.area,
+    type,
+  });
 }
 
 function buildDescriptionText(input: JiraTicketInput): string {

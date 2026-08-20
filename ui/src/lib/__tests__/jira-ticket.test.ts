@@ -32,6 +32,9 @@ describe("jira-ticket", () => {
       const [, options] = (global.fetch as jest.Mock).mock.calls[0];
       const body = JSON.parse(options.body);
       expect(body.fields.issuetype.name).toBe("[System] Problem");
+      expect(body.fields.summary).toBe(
+        "[User Feedback][Chat][Bug]: Broken button",
+      );
     });
 
     it("maps issueType Enhancement to Task", async () => {
@@ -57,6 +60,9 @@ describe("jira-ticket", () => {
       const [, options] = (global.fetch as jest.Mock).mock.calls[0];
       const body = JSON.parse(options.body);
       expect(body.fields.issuetype.name).toBe("Task");
+      expect(body.fields.summary).toBe(
+        "[User Feedback][Chat][Enhancement]: Add dark mode",
+      );
     });
 
     it("throws with the Jira error message on failure", async () => {

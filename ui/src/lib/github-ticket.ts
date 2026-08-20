@@ -7,6 +7,7 @@ import { randomUUID } from "crypto";
 
 import { Octokit } from "@octokit/rest";
 
+import { buildUserFeedbackTitle } from "@/lib/feedback-ticket-title";
 import type { FeedbackContext } from "@/lib/ticket-client";
 
 export type TicketReportSource =
@@ -53,12 +54,6 @@ export function parseGitHubRepo(repo: string): { owner: string; repo: string } {
     throw new Error(`Invalid GITHUB_TICKET_REPO: "${repo}" (expected owner/repo)`);
   }
   return { owner: trimmed.slice(0, slash), repo: trimmed.slice(slash + 1) };
-}
-
-function truncate(text: string, max: number): string {
-  const t = text.trim();
-  if (t.length <= max) return t;
-  return `${t.slice(0, max - 1)}…`;
 }
 
 function isValidGitHubLogin(login: string): boolean {
@@ -141,21 +136,19 @@ async function resolveGitHubLoginByPublicEmail(
 }
 
 export function titleFor(input: GitHubTicketInput): string {
-  const prefix =
-    input.source === "tome-product" ? "[TOME Feedback]" : "[CAIPE Report]";
-  // Suppress the area tag when it's redundant with the TOME Feedback prefix.
-  const areaTag =
-    input.area && !(input.source === "tome-product" && input.area === "TOME")
-      ? `[${input.area}]`
-      : null;
-  const typeTag = input.issueType ? `[${input.issueType}]` : null;
-  const reasonTag = input.feedbackContext?.reason;
-  const summary = truncate(
-    input.description.replace(/\s+/g, " "),
-    72,
-  );
-  const tags = [areaTag, typeTag, reasonTag].filter(Boolean).join(" ");
-  return truncate(tags ? `${prefix} ${tags}: ${summary}` : `${prefix} ${summary}`, 240);
+  const area =
+    input.area ??
+    (input.source === "tome-product"
+      ? "TOME"
+      : input.source === "chat-feedback"
+        ? "Chat"
+        : "General");
+  const type = input.issueType ?? input.feedbackContext?.reason ?? "Feedback";
+  return buildUserFeedbackTitle({
+    description: input.description,
+    area,
+    type,
+  });
 }
 
 export function buildGitHubIssueBody(

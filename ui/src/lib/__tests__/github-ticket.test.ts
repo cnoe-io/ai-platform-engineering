@@ -101,14 +101,27 @@ describe("github-ticket", () => {
     expect(body).not.toContain("- GitHub:");
   });
 
-  it("titleFor prefixes TOME feedback with issue type, suppressing the redundant TOME area tag", () => {
-    expect(titleFor(baseInput)).toMatch(/^\[TOME Feedback\] \[Bug\]:/);
+  it("titleFor uses the user feedback, area, and type taxonomy for TOME feedback", () => {
+    expect(titleFor(baseInput)).toMatch(/^\[User Feedback\]\[TOME\]\[Bug\]:/);
   });
 
-  it("titleFor includes the area tag for non-TOME areas", () => {
+  it("titleFor uses the same taxonomy for header feedback", () => {
     expect(titleFor({ ...baseInput, source: "header", area: "Chat" })).toMatch(
-      /^\[CAIPE Report\] \[Chat\] \[Bug\]:/
+      /^\[User Feedback\]\[Chat\]\[Bug\]:/
     );
+  });
+
+  it("titleFor infers Chat and the feedback reason for the chat feedback shortcut", () => {
+    expect(titleFor({
+      ...baseInput,
+      source: "chat-feedback",
+      area: undefined,
+      issueType: undefined,
+      feedbackContext: {
+        feedbackType: "dislike",
+        reason: "Inaccurate",
+      },
+    })).toMatch(/^\[User Feedback\]\[Chat\]\[Inaccurate\]:/);
   });
 
   it("includes chat feedback block when provided", () => {
