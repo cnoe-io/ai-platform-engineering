@@ -8,32 +8,47 @@ import { useKeyedAutoSave } from "@/hooks/use-keyed-auto-save";
 import { Activity,Bell,Loader2 } from "lucide-react";
 import { useEffect,useRef,useState } from "react";
 
-type NotificationKey = "release-notes";
+type NotificationKey = "release-notes" | "platform-health";
+type NotificationValues = Record<NotificationKey,boolean>;
 
-async function persistReleaseNotesPreference(_: NotificationKey,value: boolean): Promise<void> {
-  const response = await fetch("/api/settings/preferences",{
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ releaseNotesNotificationsEnabled: value }),
-  });
+async function persistNotificationPreference(key: NotificationKey,value: boolean): Promise<void> {
+  const releaseNotes = key === "release-notes";
+  const response = await fetch(
+    releaseNotes ? "/api/settings/preferences" : "/api/settings/notifications",
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(
+        releaseNotes
+          ? { releaseNotesNotificationsEnabled: value }
+          : { platform_health: value },
+      ),
+    },
+  );
   const data = await response.json();
   if (!response.ok || !data.success) {
-    throw new Error(data.error || "Could not save the release-notes preference");
+    throw new Error(data.error || "Could not save the notification preference");
   }
 }
 
 export function NotificationsSettings(): React.ReactElement {
-  const [enabled,setEnabled] = useState(true);
+  const [values,setValues] = useState<NotificationValues>({
+    "release-notes": true,
+    "platform-health": true,
+  });
   const [loading,setLoading] = useState(true);
   const [loadError,setLoadError] = useState<string | null>(null);
-  const committedRef = useRef(true);
+  const committedRef = useRef<NotificationValues>(values);
   const autoSave = useKeyedAutoSave<NotificationKey,boolean>({
-    persist: persistReleaseNotesPreference,
-    onSuccess: (_,value) => {
-      committedRef.current = value;
+    persist: persistNotificationPreference,
+    onSuccess: (key,value) => {
+      committedRef.current = { ...committedRef.current,[key]: value };
+      if (key === "platform-health") {
+        window.dispatchEvent(new CustomEvent("in-app-notifications:refresh"));
+      }
     },
-    onError: () => {
-      setEnabled(committedRef.current);
+    onError: (key) => {
+      setValues((current) => ({ ...current,[key]: committedRef.current[key] }));
     },
   });
 
@@ -46,9 +61,12 @@ export function NotificationsSettings(): React.ReactElement {
           throw new Error(data.error || "Could not load notification preferences");
         }
         if (cancelled) return;
-        const value = data.data?.preferences?.releaseNotesNotificationsEnabled !== false;
-        committedRef.current = value;
-        setEnabled(value);
+        const nextValues: NotificationValues = {
+          "release-notes": data.data?.preferences?.releaseNotesNotificationsEnabled !== false,
+          "platform-health": data.data?.notifications?.platform_health !== false,
+        };
+        committedRef.current = nextValues;
+        setValues(nextValues);
       })
       .catch((reason: unknown) => {
         if (!cancelled) {
@@ -63,14 +81,16 @@ export function NotificationsSettings(): React.ReactElement {
     };
   }, []);
 
-  const change = (value: boolean) => {
-    setEnabled(value);
-    autoSave.enqueue("release-notes",value);
+  const change = (key: NotificationKey,value: boolean) => {
+    setValues((current) => ({ ...current,[key]: value }));
+    autoSave.enqueue(key,value);
   };
-  const retry = () => {
-    const pendingValue = autoSave.pendingValueFor("release-notes");
-    if (pendingValue !== undefined) setEnabled(pendingValue);
-    autoSave.retry("release-notes");
+  const retry = (key: NotificationKey) => {
+    const pendingValue = autoSave.pendingValueFor(key);
+    if (pendingValue !== undefined) {
+      setValues((current) => ({ ...current,[key]: pendingValue }));
+    }
+    autoSave.retry(key);
   };
 
   return (
@@ -99,14 +119,14 @@ export function NotificationsSettings(): React.ReactElement {
                 </p>
                 <AutoSaveStatus
                   className="mt-1"
-                  onRetry={retry}
+                  onRetry={() => retry("release-notes")}
                   state={autoSave.stateFor("release-notes")}
                 />
               </div>
               <SettingsSwitch
-                checked={enabled}
+                checked={values["release-notes"]}
                 label="Notify me about new releases"
-                onCheckedChange={change}
+                onCheckedChange={(value) => change("release-notes",value)}
                 testId="release-notes-user-pref-toggle"
               />
             </div>
@@ -115,15 +135,35 @@ export function NotificationsSettings(): React.ReactElement {
         )}
       </SettingsCard>
       <SettingsCard
-        description="Platform health events are shared globally and are not controlled by personal notification preferences."
+        description="Choose whether global platform incidents appear in your personal notification feed."
         title={<span className="flex items-center gap-2"><Activity className="h-5 w-5 text-primary" />Platform health</span>}
       >
-        <div className="rounded-lg border border-border/70 p-4">
-          <p className="text-sm font-medium">Global service notifications</p>
-          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-            CAIPE notifies everyone when a verified service degradation opens or resolves. Each message is labelled Platform; read state remains personal while resolution is global.
-          </p>
-        </div>
+        {loading ? (
+          <div className="flex items-center gap-2 py-4 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading notification preferences…
+          </div>
+        ) : (
+          <div className="flex items-center gap-4 rounded-lg border border-border/70 p-4">
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium">Notify me about platform health</p>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                Show verified service degradations and recoveries in your notification bell. Turning this off only hides Platform messages for you; health monitoring and the global incident lifecycle continue unchanged.
+              </p>
+              <AutoSaveStatus
+                className="mt-1"
+                onRetry={() => retry("platform-health")}
+                state={autoSave.stateFor("platform-health")}
+              />
+            </div>
+            <SettingsSwitch
+              checked={values["platform-health"]}
+              label="Notify me about platform health"
+              onCheckedChange={(value) => change("platform-health",value)}
+              testId="platform-health-user-pref-toggle"
+            />
+          </div>
+        )}
       </SettingsCard>
     </div>
   );

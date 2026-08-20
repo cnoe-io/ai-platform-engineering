@@ -47,6 +47,9 @@ Health messages and personal notifications share the durable
 - User and team messages keep their existing audiences.
 - Health messages use the global signed-in-user audience and carry a visible
   **Platform** label.
+- Each user can hide or restore Platform messages from **Settings →
+  Notifications**. This changes only that user's feed and unread count; it
+  does not alter the global incident or another user's feed.
 - Read state is per viewer; resolving a health incident is global.
 - Two consecutive failing audits open an incident by default. Two consecutive
   healthy audits resolve it automatically.
