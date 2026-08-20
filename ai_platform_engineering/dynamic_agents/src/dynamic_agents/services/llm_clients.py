@@ -192,6 +192,71 @@ class LLMConfigError(ValueError):
     """
 
 
+# Provider secret field -> env var LLMFactory actually reads (see
+# cnoe_agent_utils.llm_factory). Mirrors the fields the "Connect provider"
+# dialog collects and saves as `llm:<provider>:<field>` (see
+# ui/src/components/dynamic-agents/LLMProvidersTab.tsx PROVIDERS).
+_PROVIDER_SECRET_ENV_MAP: dict[str, dict[str, str]] = {
+    "openai": {"api_key": "OPENAI_API_KEY"},
+    "anthropic-claude": {"api_key": "ANTHROPIC_API_KEY"},
+    "azure-openai": {
+        "api_key": "AZURE_OPENAI_API_KEY",
+        "endpoint": "AZURE_OPENAI_ENDPOINT",
+        "api_version": "AZURE_OPENAI_API_VERSION",
+    },
+    "aws-bedrock": {
+        "access_key_id": "AWS_ACCESS_KEY_ID",
+        "secret_access_key": "AWS_SECRET_ACCESS_KEY",
+        "region": "AWS_REGION",
+    },
+    "google-genai": {"api_key": "GOOGLE_API_KEY"},
+}
+
+
+async def resolve_provider_credential_env(provider: str, credential_client: Any | None) -> dict[str, str]:
+    """Fetch UI-managed provider secrets for env vars not already set on this deployment.
+
+    The "Connect provider" dialog in the LLM Models tab saves credentials into the
+    shared credential secret store under `llm:<provider>:<field>`, but nothing
+    previously read them back — `LLMFactory` (and this module) only ever read plain
+    OS env vars, so a saved secret had no effect on whether the model actually
+    worked. This closes that gap by resolving those stored secrets into the same
+    env-var overrides `get_llm` already applies for the call duration, the same
+    way MCP server BYO secrets are resolved (`services/mcp_client.py`).
+
+    Deployment-level env vars always win: a field is only looked up here when its
+    env var isn't already set, so this never overrides an operator's explicit
+    configuration.
+    """
+    if credential_client is None:
+        return {}
+    normalized = provider.lower().replace("_", "-")
+    field_env_map = _PROVIDER_SECRET_ENV_MAP.get(normalized)
+    if not field_env_map:
+        return {}
+    missing = {field: env_var for field, env_var in field_env_map.items() if not os.getenv(env_var)}
+    if not missing:
+        return {}
+    try:
+        secret_ids_by_name = await credential_client.list_secret_ids_by_name()
+    except Exception as exc:  # noqa: BLE001 — credential store may be unavailable; fall through to no creds
+        logger.debug("Could not list stored LLM provider credentials: %s", exc)
+        return {}
+    resolved: dict[str, str] = {}
+    for field, env_var in missing.items():
+        secret_id = secret_ids_by_name.get(f"llm:{normalized}:{field}")
+        if not secret_id:
+            continue
+        try:
+            value = await credential_client.retrieve_secret(secret_id, intended_use="internal_service")
+        except Exception as exc:  # noqa: BLE001 — missing/unauthorized secret should not fail LLM init
+            logger.warning("Failed to retrieve stored credential for %s/%s: %s", normalized, field, exc)
+            continue
+        if value:
+            resolved[env_var] = value
+    return resolved
+
+
 def _resolve_llm_defaults(provider: str | None, model_id: str | None) -> tuple[str, str | None]:
     """Fill in provider/model from environment when an agent leaves them blank.
 
@@ -223,7 +288,7 @@ def _resolve_llm_defaults(provider: str | None, model_id: str | None) -> tuple[s
     return resolved_provider, resolved_model
 
 
-def get_llm(provider: str, model_id: str) -> BaseChatModel:
+def get_llm(provider: str, model_id: str, credential_env: dict[str, str] | None = None) -> BaseChatModel:
     """Get a LangChain chat model for the given provider and model.
 
     Injects shared transport clients (boto3/httpx) when LLM_CLIENT_SHARING=true,
@@ -236,6 +301,12 @@ def get_llm(provider: str, model_id: str) -> BaseChatModel:
     defaults (`LLM_PROVIDER` and provider-specific model vars). Raises
     `LLMConfigError` with an actionable message if neither agent nor env
     define a usable provider.
+
+    `credential_env` (see `resolve_provider_credential_env`) supplies
+    provider API keys/config resolved from the UI's "Connect provider"
+    secret store, applied as env-var overrides for the duration of this
+    call only — same mechanism as the Cloudflare/OpenAI-direct overrides
+    below.
     """
     from cnoe_agent_utils import LLMFactory
 
@@ -251,7 +322,17 @@ def get_llm(provider: str, model_id: str) -> BaseChatModel:
     # (and passing base_url again via kwargs collides with that). For providers
     # that need a different endpoint than the deployment-default OPENAI_ENDPOINT,
     # temporarily override the env vars it reads for the duration of this call.
-    env_overrides: dict[str, str] = {}
+    env_overrides: dict[str, str] = dict(credential_env or {})
+    # Credential-store values (unlike the provider-specific overrides added
+    # below) must be visible to the SHARE_CLIENTS branch further down, which
+    # reads os.getenv(...) directly to build shared bedrock/httpx clients —
+    # so they're applied to the environment immediately rather than only
+    # right before the LLMFactory call. `previous_env` accumulates the
+    # original value of every key touched here so the single `finally`
+    # block below can restore all of them, including ones added later
+    # (e.g. the cloudflare/openai_direct branches' OPENAI_* overrides).
+    previous_env: dict[str, str | None] = {k: os.environ.get(k) for k in env_overrides}
+    os.environ.update(env_overrides)
 
     if p == "cloudflare_workers_ai":
         # Routed through the local Portkey AI Gateway (~/Software/aigateway,
@@ -286,12 +367,13 @@ def get_llm(provider: str, model_id: str) -> BaseChatModel:
         # puts `stream: true` in the body even for a plain .invoke(), so it's
         # force-disabled on the instance right after construction below.
         kwargs["disable_streaming"] = True
-        # The LLM Models catalog's model_id can't contain "@" (UI validation:
-        # alphanumeric/dots/slashes/hyphens/underscores/colons only), so it
-        # can't hold the real Workers AI slug directly. The catalog entry's
-        # id is just a human-facing label for provider selection; the actual
-        # slug sent to Cloudflare always comes from CLOUDFLARE_WORKERS_AI_MODEL.
-        kwargs["model"] = os.getenv("CLOUDFLARE_WORKERS_AI_MODEL", "@cf/meta/llama-3.1-8b-instruct-fast")
+        # Prefer the model_id selected on the agent/catalog entry (a real Workers
+        # AI slug, e.g. "@cf/meta/llama-3.1-8b-instruct") so different agents can
+        # pick different Cloudflare models. Only fall back to the deployment-wide
+        # CLOUDFLARE_WORKERS_AI_MODEL env var when the agent leaves model_id blank.
+        kwargs["model"] = resolved_model or os.getenv(
+            "CLOUDFLARE_WORKERS_AI_MODEL", "@cf/meta/llama-3.1-8b-instruct-fast"
+        )
         env_overrides["OPENAI_ENDPOINT"] = endpoint
         env_overrides["OPENAI_API_KEY"] = os.getenv("CLOUDFLARE_API_TOKEN", "")
         factory_provider = "openai"
@@ -301,6 +383,7 @@ def get_llm(provider: str, model_id: str) -> BaseChatModel:
         # NVIDIA NIM or a local gateway via OPENAI_ENDPOINT).
         endpoint = "https://api.openai.com/v1"
         kwargs["http_client"] = _get_httpx_client(endpoint)
+        kwargs["http_async_client"] = _get_async_httpx_client(endpoint)
         kwargs.setdefault("model", os.getenv("OPENAI_DIRECT_MODEL_NAME", "gpt-4o-mini"))
         env_overrides["OPENAI_ENDPOINT"] = endpoint
         env_overrides["OPENAI_API_KEY"] = os.getenv("OPENAI_DIRECT_API_KEY", "")
@@ -318,7 +401,8 @@ def get_llm(provider: str, model_id: str) -> BaseChatModel:
             kwargs["http_client"] = _get_httpx_client(endpoint)
         # google-gemini / google-vertex-ai: no shared client needed
 
-    previous_env = {k: os.environ.get(k) for k in env_overrides}
+    for key in env_overrides:
+        previous_env.setdefault(key, os.environ.get(key))
     os.environ.update(env_overrides)
     try:
         llm = LLMFactory(provider=factory_provider).get_llm(**kwargs)
