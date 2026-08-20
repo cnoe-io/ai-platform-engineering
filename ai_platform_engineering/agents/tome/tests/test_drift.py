@@ -46,6 +46,16 @@ class ClassifyStructuralTest(TestCase):
         report = {p.path: p for p in drift.classify_structural(pages, self.expected)}
         self.assertEqual(report["my-notes.md"].status, "unbound")
 
+    def test_unbound_legacy_page_at_template_path_is_not_missing(self) -> None:
+        # Regression: a pre-#488 page sitting at the exact template path,
+        # with no template_scope frontmatter at all, must show as `unbound`
+        # only — not ALSO as `missing`, just because nothing carries the
+        # binding yet.
+        pages = {"architecture.md": "---\ntitle: Architecture\nkind: dynamic\n---\nbody\n"}
+        report = drift.classify_structural(pages, self.expected)
+        statuses = [p.status for p in report if p.path == "architecture.md"]
+        self.assertEqual(statuses, ["unbound"])
+
     def test_template_page_absent_from_disk_is_missing(self) -> None:
         report = drift.classify_structural({}, self.expected)
         statuses = {p.path: p.status for p in report}

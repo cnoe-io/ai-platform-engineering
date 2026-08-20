@@ -100,7 +100,12 @@ def classify_structural(
         binding = report_schema.template_binding_for(spec_path, expected)
         if binding is None:
             continue
-        if binding not in bound_by_binding:
+        # A page already sitting at the template's literal path is not
+        # missing even if it's unbound (pre-#488, never re-ingested) — it's
+        # reported as `unbound` by the per-page loop above. Only flag
+        # `missing` when no page carries the binding AND none occupies the
+        # expected path at all.
+        if binding not in bound_by_binding and spec_path not in existing_pages:
             missing.append(
                 PageDrift(
                     path=spec_path,

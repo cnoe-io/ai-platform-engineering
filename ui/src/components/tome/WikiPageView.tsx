@@ -30,6 +30,9 @@ import {
   FM_SOURCE_PATH,
   FM_SOURCE_REPO,
   FM_TARGET,
+  FM_TEMPLATE_PATH,
+  FM_TEMPLATE_SCOPE,
+  FM_TEMPLATE_VERSION,
   FM_TERM,
   FM_TITLE,
   isEdge,
@@ -149,6 +152,24 @@ export function WikiPageView({
   const isEdgeEntry = useMemo(() => isEdge(frontmatter), [frontmatter]);
   const isTrackedEntry = useMemo(() => isTrackedEntity(frontmatter), [frontmatter]);
   const isMirror = useMemo(() => isMirrorPage(frontmatter), [frontmatter]);
+
+  // Template binding (#488/#508): passive, zero-extra-fetch badge read
+  // straight off this page's own frontmatter (code-stamped by the ingest
+  // persist hook, never agent-authored). Only says whether/at-what-version
+  // this page is bound to a template; whether that version is stale and
+  // whether its content has drifted is the "Check for template drift"
+  // report (Templates tab), not repeated on every page load.
+  const templateBinding = useMemo(() => {
+    const scope = frontmatter[FM_TEMPLATE_SCOPE];
+    if (!scope || scope === "null") return null;
+    const templatePath = frontmatter[FM_TEMPLATE_PATH];
+    const version = frontmatter[FM_TEMPLATE_VERSION];
+    return {
+      scope: String(scope),
+      templatePath: templatePath ? String(templatePath) : null,
+      version: typeof version === "number" ? version : null,
+    };
+  }, [frontmatter]);
 
   // Editable copy of the frontmatter for structured (glossary/edge) entries.
   // Kept in sync with the page's frontmatter whenever we're not mid-edit (page
@@ -379,6 +400,32 @@ export function WikiPageView({
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Badge
+                variant="outline"
+                className={cn(
+                  "cursor-default text-[10px] font-medium normal-case",
+                  templateBinding
+                    ? "border-muted-foreground/30 text-muted-foreground"
+                    : "border-muted-foreground/20 text-muted-foreground/60",
+                )}
+              >
+                {templateBinding ? `template v${templateBinding.version ?? "?"}` : "not from a template"}
+              </Badge>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="max-w-64 whitespace-normal text-[11px]">
+              {templateBinding ? (
+                <>
+                  Seeded from the <code>{templateBinding.scope}</code> template&apos;s{" "}
+                  <code>{templateBinding.templatePath}</code> at version {templateBinding.version ?? "unknown"}.
+                  Run &quot;Check for template drift&quot; (Templates tab) to see whether it&apos;s current.
+                </>
+              ) : (
+                "This page isn't bound to a page template (a manual addition, or it hasn't been re-ingested since template binding shipped)."
+              )}
+            </TooltipContent>
+          </Tooltip>
           {isMirror && (
             <Tooltip>
               <TooltipTrigger asChild>

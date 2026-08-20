@@ -111,7 +111,7 @@ interface ChildProjectSnapshot {
 }
 
 /** ProjectSnapshot — mirrors contract.ProjectSnapshot. */
-interface ProjectSnapshot {
+export interface ProjectSnapshot {
   project_id: string;
   slug: string;
   name: string;

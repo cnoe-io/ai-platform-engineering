@@ -44,8 +44,9 @@ from fastapi.responses import StreamingResponse
 from tome_agent.agent import http_client, workspace
 from tome_agent.agent.chat import stream_chat
 from tome_agent.agent.compact import stream_compaction
+from tome_agent.agent.drift import build_drift_report
 from tome_agent.agent.evaluator import evaluate_artifact, evaluator_prompt_contract
-from tome_agent.agent.ingestor import stream_ingest
+from tome_agent.agent.ingestor import expected_template_pages, stream_ingest
 from tome_agent.agent.presentation import (
     generate_presentation,
     stream_presentation,
@@ -75,7 +76,10 @@ from tome_agent.orchestrator.contract import (
     PresentationRequirementsRequest,
     PresentationRequirementsResponse,
     PresentationResponse,
+    TemplateDriftRequest,
+    TemplateDriftResponse,
 )
+from tome_agent.reports import schema as report_schema
 
 log = logging.getLogger("tome_agent.agent.main")
 logging.basicConfig(level=settings.log_level)
@@ -189,6 +193,37 @@ async def model_check_endpoint(body: ModelCheckRequest) -> ModelCheckResponse:
     except Exception as e:  # noqa: BLE001 — surfaced to the admin UI verbatim
         return ModelCheckResponse(ok=False, error=f"{type(e).__name__}: {e}")
     return ModelCheckResponse(ok=False, error="No result from model")
+
+
+@app.post("/template-drift", response_model=TemplateDriftResponse)
+async def template_drift_endpoint(body: TemplateDriftRequest) -> TemplateDriftResponse:
+    """Check for template drift (#508): classify every page against the
+    live template config (#507). Synchronous, read-only — no persist hook,
+    no wiki tools, never writes anything. Content-level checks only run for
+    version-behind candidates (see `drift.check_content_drift`)."""
+    if not _state.ready:
+        raise HTTPException(503, "agent not ready")
+    fetched = await asyncio.to_thread(http_client.fetch_page_templates)
+    templates, versions = fetched if fetched is not None else (None, {})
+    report_schema.set_template_overrides(templates, versions)
+    expected = expected_template_pages(body.snapshot)
+    report = await build_drift_report(body.pages, expected, model=body.model)
+    return TemplateDriftResponse(
+        pages=[
+            {
+                "path": p.path,
+                "status": p.status,
+                "title": p.title,
+                "template_scope": p.template_scope,
+                "template_path": p.template_path,
+                "seeded_version": p.seeded_version,
+                "live_version": p.live_version,
+                "drifted": p.drifted,
+                "reason": p.reason,
+            }
+            for p in report
+        ]
+    )
 
 
 @app.post("/presentation", response_model=PresentationResponse)

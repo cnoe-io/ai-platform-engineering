@@ -897,6 +897,48 @@ def stamp_template_binding(
     return serialize_frontmatter(fm, body)
 
 
+def reconcile_template_bindings(
+    existing_pages: dict[str, str],
+    expected: dict[str, PageSpec],
+) -> dict[str, str]:
+    """Deterministically stamp `template_scope`/`template_path`/
+    `template_version` onto every page that has no `template_scope`
+    frontmatter at all yet (#488) — pure, no I/O. Returns only the pages
+    that changed, as `{path: new_markdown}`.
+
+    This exists because the persist hook only stamps a page when the agent
+    actually calls Edit/Write on it this run — reactive, not deterministic.
+    A page the agent decides needs no content change never gets touched, so
+    it would sit unbound indefinitely even though the binding is meant to
+    be code-owned end-to-end, the same way `.tome/pages/*.md` mirrors are
+    written directly by code regardless of what the agent does. Callers
+    (the ingest loop, the one-time backfill script) run this unconditionally
+    every time, exactly like `write_verbatim_pages`.
+
+    `template_version` is set to 0 (the baseline), not the scope's current
+    live version: this function has no way to know whether the page's
+    content actually reflects the current template, only that it now has
+    *a* binding. Assuming 0 means the next drift check surfaces real
+    version-behind/content drift rather than silently hiding it — see
+    `scripts/backfill_template_bindings.py`'s docstring for the same
+    reasoning applied to the one-time migration."""
+    changed: dict[str, str] = {}
+    for path, markdown in existing_pages.items():
+        fm, body = parse_frontmatter(markdown)
+        if FM_TEMPLATE_SCOPE in fm:
+            continue
+        binding = template_binding_for(path, expected)
+        if binding is None:
+            fm[FM_TEMPLATE_SCOPE] = None
+        else:
+            scope, template_path = binding
+            fm[FM_TEMPLATE_SCOPE] = scope
+            fm[FM_TEMPLATE_PATH] = template_path
+            fm[FM_TEMPLATE_VERSION] = 0
+        changed[path] = serialize_frontmatter(fm, body)
+    return changed
+
+
 def page_with_frontmatter(spec: PageSpec, body: str) -> str:
     fm: dict[str, object] = {
         "title": spec.title,
