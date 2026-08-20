@@ -61,6 +61,85 @@ function truncate(text: string, max: number): string {
   return `${t.slice(0, max - 1)}…`;
 }
 
+function isValidGitHubLogin(login: string): boolean {
+  return (
+    login.length <= 39 &&
+    !login.includes("--") &&
+    /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(login)
+  );
+}
+
+export function githubLoginCandidateFromEmail(email: string): string | undefined {
+  const parts = email.trim().split("@");
+  if (parts.length !== 2 || !parts[0] || !parts[1]) return undefined;
+
+  const login = parts[0].toLowerCase();
+  return isValidGitHubLogin(login) ? login : undefined;
+}
+
+async function githubLoginHasExactPublicEmail(
+  octokit: Octokit,
+  login: string,
+  normalizedEmail: string,
+): Promise<boolean> {
+  try {
+    const { data } = await octokit.users.getByUsername({ username: login });
+    return data.email?.trim().toLowerCase() === normalizedEmail;
+  } catch (error) {
+    if ((error as { status?: number })?.status !== 404) {
+      console.warn(
+        `[github-ticket] Could not inspect GitHub profile @${login}:`,
+        error,
+      );
+    }
+    return false;
+  }
+}
+
+async function resolveGitHubLoginByPublicEmail(
+  octokit: Octokit,
+  email: string,
+): Promise<string | undefined> {
+  const normalizedEmail = email.trim().toLowerCase();
+  if (!normalizedEmail.includes("@")) return undefined;
+
+  const localPartCandidate = githubLoginCandidateFromEmail(normalizedEmail);
+  if (
+    localPartCandidate &&
+    await githubLoginHasExactPublicEmail(octokit, localPartCandidate, normalizedEmail)
+  ) {
+    return localPartCandidate;
+  }
+
+  try {
+    const { data } = await octokit.search.users({
+      q: `${normalizedEmail} in:email`,
+      per_page: 10,
+    });
+    // Do not guess when GitHub truncated a broad or ambiguous result set.
+    if (data.total_count > data.items.length) return undefined;
+
+    const exactMatches: string[] = [];
+    for (const item of data.items) {
+      const login = item.login.toLowerCase();
+      if (
+        isValidGitHubLogin(login) &&
+        await githubLoginHasExactPublicEmail(octokit, login, normalizedEmail)
+      ) {
+        exactMatches.push(login);
+      }
+    }
+
+    return exactMatches.length === 1 ? exactMatches[0] : undefined;
+  } catch (error) {
+    console.warn(
+      `[github-ticket] Could not resolve a GitHub login for reporter ${normalizedEmail}:`,
+      error,
+    );
+    return undefined;
+  }
+}
+
 export function titleFor(input: GitHubTicketInput): string {
   const prefix =
     input.source === "tome-product" ? "[TOME Feedback]" : "[CAIPE Report]";
@@ -79,7 +158,10 @@ export function titleFor(input: GitHubTicketInput): string {
   return truncate(tags ? `${prefix} ${tags}: ${summary}` : `${prefix} ${summary}`, 240);
 }
 
-export function buildGitHubIssueBody(input: GitHubTicketInput): string {
+export function buildGitHubIssueBody(
+  input: GitHubTicketInput,
+  reporterGitHubLogin?: string,
+): string {
   const lines: string[] = [];
 
   if (input.source === "tome-product") {
@@ -116,8 +198,11 @@ export function buildGitHubIssueBody(input: GitHubTicketInput): string {
     "## Reporter",
     "",
     `- Email: ${input.userEmail}`,
-    `- Context URL: ${input.contextUrl}`,
   );
+  if (reporterGitHubLogin && isValidGitHubLogin(reporterGitHubLogin)) {
+    lines.push(`- GitHub: @${reporterGitHubLogin}`);
+  }
+  lines.push(`- Context URL: ${input.contextUrl}`);
 
   // Include the chat link if the context URL points to a chat conversation
   if (input.contextUrl?.includes("/chat/")) {
@@ -166,6 +251,31 @@ export async function createGitHubTicket(
   const { owner, repo } = parseGitHubRepo(repoFullName);
   const octokit = new Octokit({ auth: token });
 
+  const reporterLoginCandidate = await resolveGitHubLoginByPublicEmail(
+    octokit,
+    input.userEmail,
+  );
+  let reporterGitHubLogin: string | undefined;
+  if (reporterLoginCandidate) {
+    try {
+      // GitHub only lets users manage their own subscriptions. A verified
+      // mention subscribes the reporter without risking an unrelated account.
+      await octokit.repos.checkCollaborator({
+        owner,
+        repo,
+        username: reporterLoginCandidate,
+      });
+      reporterGitHubLogin = reporterLoginCandidate;
+    } catch (error) {
+      if ((error as { status?: number })?.status !== 404) {
+        console.warn(
+          `[github-ticket] Could not verify reporter @${reporterLoginCandidate} as a collaborator on ${repoFullName}:`,
+          error,
+        );
+      }
+    }
+  }
+
   const labels = [input.label];
   if (input.source === "tome-product") {
     labels.push("tome-feedback");
@@ -181,7 +291,7 @@ export async function createGitHubTicket(
     owner,
     repo,
     title: titleFor(input),
-    body: buildGitHubIssueBody(input),
+    body: buildGitHubIssueBody(input, reporterGitHubLogin),
     labels: [...new Set(labels.filter(Boolean))],
   });
 
