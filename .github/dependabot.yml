@@ -10,3 +10,7 @@ updates:
           - "github/*"
     schedule:
       interval: "weekly"
+    # The organization Actions policy allowlists the immutable v4.0.1 SHA.
+    # Newer pins cause GitHub to reject every referencing workflow at startup.
+    ignore:
+      - dependency-name: "dorny/paths-filter"
