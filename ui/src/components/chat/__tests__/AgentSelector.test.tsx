@@ -64,6 +64,25 @@ describe("AgentPicker", () => {
     expect(onSelectAgent).toHaveBeenCalledWith("provider-agent");
   });
 
+  it("searches by agent details and harness identity", async () => {
+    render(<AgentPicker selectedAgentId="legacy-agent" onSelectAgent={jest.fn()} />);
+
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Choose agent. Current agent: Legacy Agent",
+      }),
+    );
+
+    const search = screen.getByRole("searchbox", { name: "Search agents or harnesses" });
+    fireEvent.change(search, { target: { value: "AgentCore" } });
+
+    expect(screen.getByText("Provider Agent")).toBeInTheDocument();
+    expect(screen.queryByText("Existing Dynamic Agent")).not.toBeInTheDocument();
+
+    fireEvent.change(search, { target: { value: "not available" } });
+    expect(screen.getByText("No agents match your search.")).toBeInTheDocument();
+  });
+
   it("preserves the AgentSelector export used by existing chat surfaces", async () => {
     render(<AgentSelector onSelectAgent={jest.fn()} />);
 
