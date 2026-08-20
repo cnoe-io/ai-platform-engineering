@@ -20,6 +20,7 @@ import {
   requireRbacPermission,
 } from "@/lib/api-middleware";
 import type { RbacResource, RbacScope } from "@/lib/rbac/types";
+import { buildSignedUserContextHeaders } from "@/lib/server/user-context-signing";
 
 // ═══════════════════════════════════════════════════════════════
 // Auth helper
@@ -111,6 +112,15 @@ export async function authenticateRequest(
 
     const encoded = Buffer.from(JSON.stringify(userContext)).toString("base64");
     const bearerToken = (s?.accessToken as string | undefined) || undefined;
+    if (!bearerToken) {
+      throw new ApiError(
+        "Your session token is unavailable. Please sign in again.",
+        401,
+        "BEARER_REQUIRED",
+        "session_expired",
+        "sign_in",
+      );
+    }
     const subject = (s?.sub as string | undefined) || user.email;
     const tenantId = (s?.org as string | undefined) || "default";
     const isServiceAccount = (s?.isServiceAccount as boolean | undefined) === true;
@@ -202,7 +212,7 @@ export function buildBackendHeaders(
     "Content-Type": contentType,
   };
   if (authResult.userContextHeader) {
-    headers["X-User-Context"] = authResult.userContextHeader;
+    Object.assign(headers, buildSignedUserContextHeaders(authResult.userContextHeader));
   }
   if (authResult.bearerToken) {
     headers["Authorization"] = `Bearer ${authResult.bearerToken}`;

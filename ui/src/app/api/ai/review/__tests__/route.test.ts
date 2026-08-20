@@ -14,7 +14,7 @@
  * so a future refactor can't silently regress.
  */
 
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { NextRequest } from "next/server";
 
 const mockAuthenticateRequest = jest.fn();
@@ -88,11 +88,13 @@ beforeEach(() => {
   // Force the env-default model path so we don't need to mock Mongo.
   process.env.AI_ASSIST_MODEL_ID = "test-model";
   process.env.AI_ASSIST_MODEL_PROVIDER = "test-provider";
+  process.env.DA_USER_CONTEXT_HMAC_SECRET = "test-context-secret";
 });
 
 afterEach(() => {
   delete process.env.AI_ASSIST_MODEL_ID;
   delete process.env.AI_ASSIST_MODEL_PROVIDER;
+  delete process.env.DA_USER_CONTEXT_HMAC_SECRET;
 });
 
 describe("/api/ai/review POST — header forwarding to dynamic-agents", () => {
@@ -168,6 +170,10 @@ describe("/api/ai/review POST — header forwarding to dynamic-agents", () => {
     // validate the JWT and resolve the caller identity for the LLM call.
     expect(headers["Authorization"]).toBe("Bearer ADMIN_JWT_TOKEN");
     expect(headers["X-User-Context"]).toBe("BASE64_USER_CTX");
+    const signature = createHmac("sha256", "test-context-secret")
+      .update("BASE64_USER_CTX")
+      .digest("hex");
+    expect(headers["X-User-Context-Signature"]).toBe(`v1=${signature}`);
   });
 
   it("forwards traceparent when the auth layer surfaces one", async () => {
