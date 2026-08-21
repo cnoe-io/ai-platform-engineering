@@ -18,6 +18,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Tooltip,
   TooltipContent,
@@ -38,6 +44,7 @@ import {
   Database,
   Home,
   KeyRound,
+  Mail,
   Menu,
   MessageCircle,
   Shield,
@@ -54,6 +61,7 @@ import React from "react";
 
 interface ApplicationNavigationItem {
   disabled?: boolean;
+  disabledReason?: string;
   href: string;
   icon: LucideIcon;
   key: string;
@@ -230,6 +238,8 @@ function ApplicationNavigationContents({
       label: "Admin",
       icon: Shield,
       disabled: storageMode !== "mongodb",
+      disabledReason:
+        "Admin tools require persistent platform storage and are unavailable in this deployment.",
       utility: true,
     },
     {
@@ -290,7 +300,11 @@ function ApplicationNavigationContents({
                     transition={
                       shouldReduceMotion
                         ? { duration: 0 }
-                        : { type: "spring",stiffness: 420,damping: 32,mass: 0.75 }
+                        : {
+                            type: "tween",
+                            duration: 0.18,
+                            ease: [0.22, 1, 0.36, 1],
+                          }
                     }
                   />
                 ) : null}
@@ -309,7 +323,7 @@ function ApplicationNavigationContents({
             "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
             collapsed && "justify-center",
             item.disabled
-              ? "cursor-not-allowed text-muted-foreground opacity-50"
+              ? "cursor-help text-muted-foreground opacity-55"
               : active
                 ? "bg-muted/60 font-medium text-foreground"
                 : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
@@ -354,15 +368,41 @@ function ApplicationNavigationContents({
             });
           };
           const control = item.disabled ? (
-            <span
-              aria-disabled="true"
-              aria-label={`${item.label}: unavailable`}
-              className={className}
-              role="link"
-              tabIndex={0}
-            >
-              {contents}
-            </span>
+            <Popover className={cn("w-full", collapsed && "justify-center")}>
+              <PopoverTrigger asChild>
+                <button
+                  aria-disabled="true"
+                  aria-label={`${item.label}: unavailable`}
+                  className={className}
+                  type="button"
+                >
+                  {contents}
+                </button>
+              </PopoverTrigger>
+              <PopoverContent
+                align={collapsed ? "center" : "start"}
+                className="w-72 space-y-3 p-4"
+                side={collapsed ? "right" : "bottom"}
+                sideOffset={8}
+              >
+                <div className="space-y-1.5">
+                  <p className="text-sm font-semibold text-foreground">
+                    {item.label} unavailable
+                  </p>
+                  <p className="text-sm leading-5 text-muted-foreground">
+                    {item.disabledReason ?? "This destination is not available in this deployment."}
+                  </p>
+                </div>
+                <Button asChild size="sm" className="w-full">
+                  <a
+                    href={`mailto:${config.supportEmail}?subject=${encodeURIComponent(`${config.appName} access request`)}`}
+                  >
+                    <Mail aria-hidden="true" />
+                    Contact admin
+                  </a>
+                </Button>
+              </PopoverContent>
+            </Popover>
           ) : hasSectionNavigation && !collapsed ? (
             <button
               aria-controls={`${contextualNavigationId}-${item.key}`}
@@ -406,7 +446,9 @@ function ApplicationNavigationContents({
                 <Tooltip>
                   <TooltipTrigger asChild>{control}</TooltipTrigger>
                   <TooltipContent side="right" sideOffset={8}>
-                    {item.key === "home" ? "Homepage" : item.label}
+                    {item.disabled
+                      ? `${item.label} unavailable`
+                      : item.key === "home" ? "Homepage" : item.label}
                   </TooltipContent>
                 </Tooltip>
               ) : control}

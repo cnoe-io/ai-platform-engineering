@@ -171,6 +171,7 @@ jest.mock('@/lib/config', () => ({
     tagline: 'Test tagline',
     logoUrl: '/logo.svg',
     logoStyle: 'auto',
+    supportEmail: 'support@example.com',
     docsUrl: 'https://docs.example.com',
     githubUrl: 'https://github.com/example',
     ssoEnabled: true,
@@ -667,9 +668,20 @@ describe('AppHeader — application chrome', () => {
       mockStorageMode = 'localStorage'
       render(<AppHeader />)
       expect(screen.getByText('Admin')).toBeInTheDocument()
+      const disabledAdmin = within(applicationNavigation()).getByRole('button', {
+        name: 'Admin: unavailable',
+      })
+      expect(disabledAdmin).toHaveAttribute('aria-disabled', 'true')
+
+      fireEvent.click(disabledAdmin)
+      expect(screen.getByText('Admin unavailable')).toBeInTheDocument()
       expect(
-        within(applicationNavigation()).getByRole('link', { name: 'Admin: unavailable' }),
-      ).toHaveAttribute('aria-disabled', 'true')
+        screen.getByText(/Admin tools require persistent platform storage/),
+      ).toBeInTheDocument()
+      expect(screen.getByRole('link', { name: 'Contact admin' })).toHaveAttribute(
+        'href',
+        'mailto:support@example.com?subject=Test%20App%20access%20request',
+      )
     })
 
     it('marks Admin as current on a nested Admin route for an admin user', () => {
