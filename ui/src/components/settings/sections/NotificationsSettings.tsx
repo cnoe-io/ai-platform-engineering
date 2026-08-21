@@ -15,17 +15,34 @@ import {
   requestBrowserNotificationPermission,
   type BrowserNotificationCapability,
 } from "@/lib/agent-completion-notifications";
-import { Bell,BellRing,ChevronsDownUp,ChevronsUpDown,Loader2,Volume2 } from "lucide-react";
+import {
+  Activity,
+  Bell,
+  BellRing,
+  ChevronsDownUp,
+  ChevronsUpDown,
+  Loader2,
+  Volume2,
+} from "lucide-react";
 import { useEffect,useRef,useState } from "react";
 
-type NotificationKey = "release-notes" | "browser-completions" | "completion-chime";
-type NotificationSection = "agent-completions" | "release-notes";
+type NotificationKey =
+  | "release-notes"
+  | "browser-completions"
+  | "completion-chime"
+  | "platform-health";
+type NotificationSection = "agent-completions" | "release-notes" | "platform-health";
 
-const NOTIFICATION_SECTIONS: NotificationSection[] = ["agent-completions","release-notes"];
+const NOTIFICATION_SECTIONS: NotificationSection[] = [
+  "agent-completions",
+  "release-notes",
+  "platform-health",
+];
 
 interface NotificationPreferences {
   browserEnabled: boolean;
   chimeEnabled: boolean;
+  platformHealthEnabled: boolean;
   releaseNotesEnabled: boolean;
 }
 
@@ -41,7 +58,9 @@ async function persistNotificationPreference(key: NotificationKey,value: boolean
           ? { releaseNotesNotificationsEnabled: value }
           : key === "browser-completions"
             ? { agent_completion_browser_enabled: value }
-            : { agent_completion_chime_enabled: value },
+            : key === "completion-chime"
+              ? { agent_completion_chime_enabled: value }
+              : { platform_health: value },
       ),
     },
   );
@@ -68,6 +87,7 @@ export function NotificationsSettings(): React.ReactElement {
   const [preferences,setPreferences] = useState<NotificationPreferences>({
     browserEnabled: false,
     chimeEnabled: false,
+    platformHealthEnabled: true,
     releaseNotesEnabled: true,
   });
   const [capability,setCapability] = useState<BrowserNotificationCapability>(() => (
@@ -96,9 +116,13 @@ export function NotificationsSettings(): React.ReactElement {
         ...(key === "release-notes" ? { releaseNotesEnabled: value } : {}),
         ...(key === "browser-completions" ? { browserEnabled: value } : {}),
         ...(key === "completion-chime" ? { chimeEnabled: value } : {}),
+        ...(key === "platform-health" ? { platformHealthEnabled: value } : {}),
       };
       committedRef.current = next;
       cacheCompletionPreferences(next);
+      if (key === "platform-health") {
+        window.dispatchEvent(new CustomEvent("in-app-notifications:refresh"));
+      }
     },
     onError: (key) => {
       setPreferences((current) => {
@@ -112,6 +136,9 @@ export function NotificationsSettings(): React.ReactElement {
             : {}),
           ...(key === "completion-chime"
             ? { chimeEnabled: committedRef.current.chimeEnabled }
+            : {}),
+          ...(key === "platform-health"
+            ? { platformHealthEnabled: committedRef.current.platformHealthEnabled }
             : {}),
         };
         cacheCompletionPreferences(next);
@@ -132,6 +159,7 @@ export function NotificationsSettings(): React.ReactElement {
         const next = {
           browserEnabled: data.data?.notifications?.agent_completion_browser_enabled === true,
           chimeEnabled: data.data?.notifications?.agent_completion_chime_enabled === true,
+          platformHealthEnabled: data.data?.notifications?.platform_health !== false,
           releaseNotesEnabled: data.data?.preferences?.releaseNotesNotificationsEnabled !== false,
         };
         committedRef.current = next;
@@ -159,6 +187,7 @@ export function NotificationsSettings(): React.ReactElement {
         ...(key === "release-notes" ? { releaseNotesEnabled: value } : {}),
         ...(key === "browser-completions" ? { browserEnabled: value } : {}),
         ...(key === "completion-chime" ? { chimeEnabled: value } : {}),
+        ...(key === "platform-health" ? { platformHealthEnabled: value } : {}),
       };
       cacheCompletionPreferences(next);
       return next;
@@ -230,6 +259,7 @@ export function NotificationsSettings(): React.ReactElement {
         ...(key === "release-notes" ? { releaseNotesEnabled: pendingValue } : {}),
         ...(key === "browser-completions" ? { browserEnabled: pendingValue } : {}),
         ...(key === "completion-chime" ? { chimeEnabled: pendingValue } : {}),
+        ...(key === "platform-health" ? { platformHealthEnabled: pendingValue } : {}),
       }));
     }
     autoSave.retry(key);
@@ -343,7 +373,7 @@ export function NotificationsSettings(): React.ReactElement {
           </div>
 
           <p className="text-xs text-muted-foreground">
-            Alerts work while a CAIPE tab remains open. They are independent of the selected agent harness.
+            Alerts work while a CAIPE tab remains open. They are independent of the selected agent.
           </p>
         </div>
       </SettingsCard>
@@ -376,6 +406,34 @@ export function NotificationsSettings(): React.ReactElement {
             />
           </div>
           <ReleaseNotesPreview isAdmin={false} />
+        </div>
+      </SettingsCard>
+
+      <SettingsCard
+        collapsibleLabel="Platform health"
+        description="Choose whether global platform incidents appear in your personal notification feed."
+        expanded={expandedSections.has("platform-health")}
+        onExpandedChange={(expanded) => setSectionExpanded("platform-health",expanded)}
+        title={<span className="flex items-center gap-2"><Activity className="h-5 w-5 text-primary" />Platform health</span>}
+      >
+        <div className="flex items-center gap-4 rounded-lg border border-border/70 p-4">
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium">Notify me about platform health</p>
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+              Show verified service degradations and recoveries in your notification bell. Turning this off only hides Platform messages for you; health monitoring and the global incident lifecycle continue unchanged.
+            </p>
+            <AutoSaveStatus
+              className="mt-1"
+              onRetry={() => retry("platform-health")}
+              state={autoSave.stateFor("platform-health")}
+            />
+          </div>
+          <SettingsSwitch
+            checked={preferences.platformHealthEnabled}
+            label="Notify me about platform health"
+            onCheckedChange={(value) => setPreference("platform-health",value)}
+            testId="platform-health-user-pref-toggle"
+          />
         </div>
       </SettingsCard>
     </div>
