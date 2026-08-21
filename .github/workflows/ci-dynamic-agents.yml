@@ -165,7 +165,7 @@ jobs:
         with:
           ref: ${{ inputs.source_sha || github.sha }}
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
         with:
@@ -243,7 +243,7 @@ jobs:
           merge-multiple: true
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
@@ -372,7 +372,7 @@ jobs:
           ref: ${{ inputs.source_sha || github.sha }}
       - name: Set up Docker Buildx
         if: steps.retag-or-build.outputs.needs_build == 'true'
-        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
       - name: Log in to GitHub Container Registry
         if: steps.retag-or-build.outputs.needs_build == 'true'
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
