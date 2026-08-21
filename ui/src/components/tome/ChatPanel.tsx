@@ -22,6 +22,13 @@ import { MarkdownRenderer } from "@/components/shared/timeline";
 import type { GlossaryResolver } from "@/lib/tome/tome-links";
 import type { ChatPart as Part, ModelProvenance } from "@/types/tome";
 import { useAutoScroll } from "@/hooks/use-auto-scroll";
+import {
+  emptyTomeChatViewState,
+  tomeChatKey,
+  type TomeChatMessage as ChatMsg,
+  type TomeChatRole as Role,
+  useTomeChatStore,
+} from "@/store/tome-chat-store";
 
 /**
  * Tome chat — the primary surface of a project's tome. Talks to the tome chat
@@ -34,28 +41,9 @@ import { useAutoScroll } from "@/hooks/use-auto-scroll";
  * clear "not connected" message which renders inline — no throwaway UI.
  */
 
-type Role = "user" | "assistant";
-
 // A turn is an ordered list of parts in stream-arrival order (text deltas and
 // tool calls interleaved). The shape is shared with the persistence layer as
 // `ChatPart` (@/types/tome) so a reloaded transcript re-renders faithfully.
-
-interface ChatMsg {
-  /** Client-generated, stable for the life of the session — used as the
-   *  copy/feedback key (`MessageActions`). Not persisted; a reload gets a
-   *  fresh id, which is fine since feedback is a point-in-time action. */
-  id: string;
-  role: Role;
-  parts: Part[];
-  pending?: boolean;
-  /** Rendered as a centered system notice (e.g. "Context compacted"), not a chat bubble. */
-  system?: boolean;
-  /** Thumbs up/down state for assistant turns (via shared `MessageActions`). */
-  feedback?: Feedback;
-  /** Model id that produced this turn (assistant turns only), from the SSE `done` event. */
-  model?: string;
-  modelProvenance?: ModelProvenance;
-}
 
 const newMessageId = (): string =>
   typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -68,9 +56,10 @@ const UUID_RE =
 function isTomeSessionId(id: string | null | undefined): id is string {
   return typeof id === "string" && UUID_RE.test(id);
 }
-
 interface Props {
   slug: string;
+  /** Human-readable project name used by the global live-stream navigator. */
+  projectTitle?: string;
   /** Called when the agent reports it wrote a page, so the wiki can refresh. */
   onPagesChanged?: () => void;
   /** Open a wiki page (referenced by a tool chip) in the artifact pane. */
@@ -79,26 +68,44 @@ interface Props {
   glossaryPreview?: GlossaryResolver;
 }
 
-export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }: Props) {
+export function ChatPanel({
+  slug,
+  projectTitle,
+  onPagesChanged,
+  onOpenPage,
+  glossaryPreview,
+}: Props) {
   const searchParams = useSearchParams();
   const viewSessionId = searchParams.get("session");
-  const [messages, setMessages] = useState<ChatMsg[]>([]);
+  const chatKey = tomeChatKey(slug, viewSessionId);
+  const storedChat = useTomeChatStore((state) => state.chats[chatKey]);
+  const updateChat = useTomeChatStore((state) => state.updateChat);
+  const hydrateChat = useTomeChatStore((state) => state.hydrateChat);
+  const chat = storedChat ?? emptyTomeChatViewState();
+  const {
+    messages,
+    streaming,
+    compacting,
+    sessionId,
+    readOnly: readOnlyView,
+    sessionOwner,
+    contextUsage,
+    resumeRunId,
+  } = chat;
   const [input, setInput] = useState("");
-  const [streaming, setStreaming] = useState(false);
-  const [resumeRunId, setResumeRunId] = useState<string | null>(null);
-  const [compacting, setCompacting] = useState(false);
-  const [loadingHistory, setLoadingHistory] = useState(true);
-  const [readOnlyView, setReadOnlyView] = useState(false);
-  const [sessionOwner, setSessionOwner] = useState<string | null>(null);
-  const [contextUsage, setContextUsage] = useState<{ percentage: number } | null>(null);
+  const [loadingHistory, setLoadingHistory] = useState(!storedChat?.hydrated);
   const [confirmDialog, setConfirmDialog] = useState<"clear" | "compact" | null>(null);
-  // sdk_session_id (agent resume hint) + tome session _id (durable transcript).
-  const sessionRef = useRef<string | null>(null);
-  const sessionIdRef = useRef<string | null>(null);
-  // Mirrors sessionIdRef in state so it can be passed as a reactive prop
-  // (feedback/Langfuse grouping) — the ref itself doesn't trigger re-renders.
-  const [sessionId, setSessionId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+
+  const updateMessages = useCallback(
+    (updater: (messages: ChatMsg[]) => ChatMsg[]) => {
+      updateChat(chatKey, (current) => ({
+        ...current,
+        messages: updater(current.messages),
+      }));
+    },
+    [chatKey, updateChat],
+  );
 
   // Keep the transcript pinned to the latest turn, but only if the user
   // hasn't scrolled up to read earlier messages.
@@ -129,6 +136,14 @@ export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }:
   // tome session id and the SDK resume hint so the chat continues across reloads.
   useEffect(() => {
     let cancelled = false;
+    const cached = useTomeChatStore.getState().chats[chatKey];
+    if (cached?.hydrated) {
+      setLoadingHistory(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+    setLoadingHistory(true);
     (async () => {
       try {
         const historyUrl = viewSessionId
@@ -138,13 +153,6 @@ export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }:
         if (!res.ok) return;
         const data = (await res.json().catch(() => null))?.data;
         if (cancelled || !data) return;
-        sessionIdRef.current = data.session?.id ?? null;
-        sessionRef.current = data.session?.sdkSessionId ?? null;
-        setSessionId(sessionIdRef.current);
-        setReadOnlyView(Boolean(data.readOnly));
-        setSessionOwner(
-          typeof data.sessionOwner === "string" ? data.sessionOwner : data.session?.userId ?? null,
-        );
         const msgs: ChatMsg[] = (data.messages ?? []).map(
           (m: {
             role: Role;
@@ -169,21 +177,39 @@ export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }:
           typeof data.activeRun?.id === "string"
             ? data.activeRun.id
             : null;
-        if (activeRunId) {
-          setMessages([
-            ...msgs,
-            {
-              id: newMessageId(),
-              role: "assistant",
-              parts: [],
-              pending: true,
-            },
-          ]);
-          setStreaming(true);
-          setResumeRunId(activeRunId);
-        } else {
-          setMessages(msgs);
-        }
+        hydrateChat(chatKey, {
+          messages: activeRunId
+            ? [
+                ...msgs,
+                {
+                  id: newMessageId(),
+                  role: "assistant",
+                  parts: [],
+                  pending: true,
+                },
+              ]
+            : msgs,
+          streaming: Boolean(activeRunId),
+          compacting: false,
+          hydrated: true,
+          sessionId: data.session?.id ?? null,
+          sdkSessionId: data.session?.sdkSessionId ?? null,
+          readOnly: Boolean(data.readOnly),
+          sessionOwner:
+            typeof data.sessionOwner === "string"
+              ? data.sessionOwner
+              : data.session?.userId ?? null,
+          contextUsage: null,
+          resumeRunId: activeRunId,
+          ...(activeRunId
+            ? {
+                streamDestination: {
+                  href: `/projects/${slug}/tome`,
+                  label: projectTitle ?? slug,
+                },
+              }
+            : {}),
+        });
       } finally {
         if (!cancelled) setLoadingHistory(false);
       }
@@ -191,7 +217,7 @@ export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }:
     return () => {
       cancelled = true;
     };
-  }, [slug, viewSessionId]);
+  }, [chatKey, hydrateChat, projectTitle, slug, viewSessionId]);
 
   // A full reload loses the browser's original fetch, but the server keeps
   // consuming and buffering the upstream run. Replay from event 0 to rebuild
@@ -201,7 +227,7 @@ export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }:
     const controller = new AbortController();
 
     const patchPendingAssistant = (fn: (message: ChatMsg) => ChatMsg) => {
-      setMessages((current) => {
+      updateMessages((current) => {
         let index = -1;
         for (let i = current.length - 1; i >= 0; i -= 1) {
           if (current[i].role === "assistant" && current[i].pending) {
@@ -247,7 +273,10 @@ export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }:
             }));
           },
           onSession: (id) => {
-            sessionRef.current = id;
+            updateChat(chatKey, (current) => ({
+              ...current,
+              sdkSessionId: id,
+            }));
           },
           onPageWritten: () => onPagesChanged?.(),
           onError: (message) => {
@@ -262,7 +291,10 @@ export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }:
           },
           onContextUsage: (data) => {
             if (typeof data.percentage === "number") {
-              setContextUsage({ percentage: data.percentage });
+              updateChat(chatKey, (current) => ({
+                ...current,
+                contextUsage: { percentage: data.percentage! },
+              }));
             }
           },
           onDone: (data) => {
@@ -292,29 +324,34 @@ export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }:
         }));
       } finally {
         if (!controller.signal.aborted) {
-          setStreaming(false);
-          setResumeRunId(null);
+          updateChat(chatKey, (current) => ({
+            ...current,
+            streaming: false,
+            resumeRunId: null,
+          }));
         }
       }
     })();
 
     return () => controller.abort();
-  }, [onPagesChanged, resumeRunId, slug]);
+  }, [chatKey, onPagesChanged, resumeRunId, slug, updateChat, updateMessages]);
 
   // Thumbs up/down for a single turn (shared `MessageActions`/`FeedbackButton`).
   // Feedback itself is best-effort telemetry (Langfuse + Mongo `feedback`
   // collection) — it doesn't touch the tome-owned transcript/session state.
   const updateFeedback = useCallback((id: string, feedback: Feedback) => {
-    setMessages((msgs) =>
+    updateMessages((msgs) =>
       msgs.map((m) => (m.id === id ? { ...m, feedback } : m)),
     );
-  }, []);
+  }, [updateMessages]);
 
   // Clear: start a fresh session. Wipes the visible transcript and the SDK
   // resume hint together — a deliberate full reset, not just an internal
   // state fixup (old history stays in Mongo, just no longer "active").
   const handleClear = useCallback(async () => {
-    if (streaming || compacting) return;
+    const current = useTomeChatStore.getState().chats[chatKey];
+    if (current?.streaming || current?.compacting) return;
+    let nextSessionId: string | null = null;
     try {
       const res = await fetch(`/api/tome/projects/${slug}/chat/history`, {
         method: "DELETE",
@@ -322,32 +359,37 @@ export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }:
       const sid = res.ok
         ? (await res.json().catch(() => null))?.data?.sessionId
         : null;
-      sessionIdRef.current = typeof sid === "string" ? sid : null;
-      setSessionId(sessionIdRef.current);
+      nextSessionId = typeof sid === "string" ? sid : null;
     } finally {
-      sessionRef.current = null;
-      setMessages([]);
-      setContextUsage(null);
+      updateChat(chatKey, (chat) => ({
+        ...chat,
+        messages: [],
+        sessionId: nextSessionId,
+        sdkSessionId: null,
+        contextUsage: null,
+        resumeRunId: null,
+      }));
     }
-  }, [slug, streaming, compacting]);
+  }, [chatKey, slug, updateChat]);
 
   // Compact: trigger the SDK's own `/compact` against the current session.
   // No-op if there's no session yet (nothing to compact).
   const handleCompact = useCallback(async () => {
-    if (streaming || compacting || !sessionRef.current) return;
-    setCompacting(true);
+    const current = useTomeChatStore.getState().chats[chatKey];
+    if (current?.streaming || current?.compacting || !current?.sdkSessionId) return;
+    updateChat(chatKey, (chat) => ({ ...chat, compacting: true }));
     try {
       const res = await fetch(`/api/tome/projects/${slug}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          sdk_session_id: sessionRef.current,
+          sdk_session_id: current.sdkSessionId,
           is_compact: true,
         }),
       });
       if (!res.ok || !res.body) {
         const detail = await res.text().catch(() => "");
-        setMessages((m) => [
+        updateMessages((m) => [
           ...m,
           { id: newMessageId(), role: "assistant", system: true, parts: [{ kind: "text", text: `⚠️ Compact failed. ${detail.slice(0, 300)}` }] },
         ]);
@@ -362,13 +404,13 @@ export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }:
         onToken: () => {},
         onTool: () => {},
         onSession: (id) => {
-          sessionRef.current = id;
+          updateChat(chatKey, (chat) => ({ ...chat, sdkSessionId: id }));
         },
         onPageWritten: () => {},
         onError: (message) => {
           erroredMessage = message;
         },
-        // Not wired to setContextUsage: the post-compact snapshot reflects
+        // Not wired to contextUsage: the post-compact snapshot reflects
         // only the compacted transcript, not the wiki system prompt (rebuilt
         // fresh on the next real turn) — the next turn's own snapshot lands instead.
         onCompact: (data) => {
@@ -381,34 +423,44 @@ export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }:
           ? `Context compacted from ~${preTokens.toLocaleString()} tokens.`
           : "Context compacted."
         : `⚠️ Compact did not complete${erroredMessage ? `: ${erroredMessage}` : " (no confirmation from the agent)."}`;
-      setMessages((m) => [
+      updateMessages((m) => [
         ...m,
         { id: newMessageId(), role: "assistant", system: true, parts: [{ kind: "text", text }] },
       ]);
     } finally {
-      setCompacting(false);
+      updateChat(chatKey, (chat) => ({ ...chat, compacting: false }));
     }
-  }, [slug, streaming, compacting]);
+  }, [chatKey, slug, updateChat, updateMessages]);
 
   const send = useCallback(async (overrideText?: string) => {
     const text = (overrideText ?? input).trim();
+    const current = useTomeChatStore.getState().chats[chatKey] ?? emptyTomeChatViewState();
     // Also blocked while compacting: both calls resume the same sdk_session_id,
     // so a concurrent send would race the SDK's compaction turn.
-    if (!text || streaming || compacting) return;
+    if (!text || current.streaming || current.compacting || current.readOnly) return;
     if (overrideText === undefined) setInput("");
-    setStreaming(true);
-    setMessages((m) => [
-      ...m,
-      { id: newMessageId(), role: "user", parts: [{ kind: "text", text }] },
-      { id: newMessageId(), role: "assistant", parts: [], pending: true },
-    ]);
+    updateChat(chatKey, (chat) => ({
+      ...chat,
+      streaming: true,
+      streamDestination: {
+        href: `/projects/${slug}/tome`,
+        label: projectTitle ?? slug,
+      },
+      resumeRunId: null,
+      messages: [
+        ...chat.messages,
+        { id: newMessageId(), role: "user", parts: [{ kind: "text", text }] },
+        { id: newMessageId(), role: "assistant", parts: [], pending: true },
+      ],
+    }));
 
     // Both turns are persisted server-side (see the `chat` route) so a
     // navigation or dropped connection mid-stream can't lose the message.
 
     // Mutate the last (assistant) message in place as the stream arrives.
     const patchLast = (fn: (m: ChatMsg) => ChatMsg) =>
-      setMessages((msgs) => {
+      updateMessages((msgs) => {
+        if (msgs.length === 0) return msgs;
         const copy = msgs.slice();
         copy[copy.length - 1] = fn(copy[copy.length - 1]);
         return copy;
@@ -456,7 +508,7 @@ export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }:
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message: text,
-          sdk_session_id: sessionRef.current,
+          sdk_session_id: current.sdkSessionId,
         }),
       });
 
@@ -475,8 +527,10 @@ export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }:
       // pointing at it for reads/feedback grouping.
       const persistedSessionId = res.headers.get("X-Tome-Session-Id");
       if (persistedSessionId) {
-        sessionIdRef.current = persistedSessionId;
-        setSessionId(persistedSessionId);
+        updateChat(chatKey, (chat) => ({
+          ...chat,
+          sessionId: persistedSessionId,
+        }));
       }
 
       let turnModel: string | null = null;
@@ -485,12 +539,17 @@ export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }:
         onToken: appendToken,
         onTool: pushTool,
         onSession: (id) => {
-          sessionRef.current = id;
+          updateChat(chatKey, (chat) => ({ ...chat, sdkSessionId: id }));
         },
         onPageWritten: () => onPagesChanged?.(),
         onError: pushErrorIfEmpty,
         onContextUsage: (data) => {
-          if (typeof data.percentage === "number") setContextUsage({ percentage: data.percentage });
+          if (typeof data.percentage === "number") {
+            updateChat(chatKey, (chat) => ({
+              ...chat,
+              contextUsage: { percentage: data.percentage! },
+            }));
+          }
         },
         onDone: (data) => {
           turnModel = data.model ?? null;
@@ -506,9 +565,9 @@ export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }:
     } catch (e) {
       pushErrorIfEmpty(String((e as Error)?.message ?? e));
     } finally {
-      setStreaming(false);
+      updateChat(chatKey, (chat) => ({ ...chat, streaming: false }));
     }
-  }, [input, streaming, compacting, slug, onPagesChanged]);
+  }, [chatKey, input, onPagesChanged, projectTitle, slug, updateChat, updateMessages]);
 
   // Regenerate: re-sends the same prompt as a fresh turn (append, not
   // in-place replace — the SDK session already has the prior answer in its
@@ -516,10 +575,11 @@ export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }:
   // attempting a true rewrite of agent-side context).
   const handleRegenerate = useCallback(
     (text: string) => {
-      if (streaming || compacting) return;
+      const current = useTomeChatStore.getState().chats[chatKey];
+      if (current?.streaming || current?.compacting) return;
       void send(text);
     },
-    [streaming, compacting, send],
+    [chatKey, send],
   );
 
   return (
@@ -618,15 +678,15 @@ export function ChatPanel({ slug, onPagesChanged, onOpenPage, glossaryPreview }:
             }}
             minRows={1}
             maxRows={10}
-            disabled={readOnlyView || compacting}
-            placeholder={readOnlyView ? "Read-only session view" : compacting ? "Compacting…" : "Ask about this project…"}
+            disabled={readOnlyView || compacting || loadingHistory}
+            placeholder={readOnlyView ? "Read-only session view" : loadingHistory ? "Loading conversation…" : compacting ? "Compacting…" : "Ask about this project…"}
             className="flex-1 resize-none border-0 bg-transparent py-1 text-sm leading-relaxed outline-none ring-0 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60"
           />
           <Button
             size="icon"
             className="shrink-0 rounded-full"
             onClick={() => void send()}
-            disabled={readOnlyView || !input.trim() || streaming || compacting}
+            disabled={readOnlyView || loadingHistory || !input.trim() || streaming || compacting}
             title={compacting ? "Compacting…" : "Send"}
           >
             {streaming ? (

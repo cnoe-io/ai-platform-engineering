@@ -1478,6 +1478,7 @@ export function TomeWiki({ slug }: { slug: string }) {
                 <div className="min-w-0 flex-1">
                   <ChatPanel
                     slug={slug}
+                    projectTitle={projectTitle ?? undefined}
                     onPagesChanged={load}
                     onOpenPage={openArtifact}
                     glossaryPreview={glossaryPreview}
