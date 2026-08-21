@@ -5,6 +5,7 @@ import { AutoSaveStatus } from "@/components/settings/shared/AutoSaveStatus";
 import { SettingsCard } from "@/components/settings/shared/SettingsCard";
 import { SettingsSwitch } from "@/components/settings/shared/SettingsSwitch";
 import { Button } from "@/components/ui/button";
+import { useAdminRole } from "@/hooks/use-admin-role";
 import { useKeyedAutoSave } from "@/hooks/use-keyed-auto-save";
 import {
   cacheAgentCompletionPreferences,
@@ -84,6 +85,10 @@ function permissionDescription(capability: BrowserNotificationCapability): strin
 }
 
 export function NotificationsSettings(): React.ReactElement {
+  const { isAdmin } = useAdminRole();
+  const visibleSections: NotificationSection[] = isAdmin
+    ? NOTIFICATION_SECTIONS
+    : ["agent-completions","release-notes"];
   const [preferences,setPreferences] = useState<NotificationPreferences>({
     browserEnabled: false,
     chimeEnabled: false,
@@ -273,8 +278,9 @@ export function NotificationsSettings(): React.ReactElement {
       return next;
     });
   };
-  const allExpanded = expandedSections.size === NOTIFICATION_SECTIONS.length;
-  const allCollapsed = expandedSections.size === 0;
+  const expandedVisibleSections = visibleSections.filter((section) => expandedSections.has(section));
+  const allExpanded = expandedVisibleSections.length === visibleSections.length;
+  const allCollapsed = expandedVisibleSections.length === 0;
 
   if (loading) {
     return (
@@ -296,7 +302,7 @@ export function NotificationsSettings(): React.ReactElement {
       <div className="flex justify-end gap-2">
         <Button
           disabled={allExpanded}
-          onClick={() => setExpandedSections(new Set(NOTIFICATION_SECTIONS))}
+          onClick={() => setExpandedSections(new Set(visibleSections))}
           size="sm"
           type="button"
           variant="ghost"
@@ -409,8 +415,7 @@ export function NotificationsSettings(): React.ReactElement {
           <ReleaseNotesPreview isAdmin={false} />
         </div>
       </SettingsCard>
-
-      <SettingsCard
+      {isAdmin ? <SettingsCard
         collapsibleLabel="Platform health"
         description="Choose whether global platform incidents appear in your personal notification feed."
         expanded={expandedSections.has("platform-health")}
@@ -436,7 +441,7 @@ export function NotificationsSettings(): React.ReactElement {
             testId="platform-health-user-pref-toggle"
           />
         </div>
-      </SettingsCard>
+      </SettingsCard> : null}
     </div>
   );
 }
