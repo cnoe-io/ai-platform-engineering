@@ -34,6 +34,7 @@ import {
 import { useAdminRole } from "@/hooks/use-admin-role";
 import { useAutonomousCapability } from "@/hooks/use-autonomous-capability";
 import { useHydrated } from "@/hooks/use-hydrated";
+import { useKbTabGates } from "@/hooks/use-kb-tab-gates";
 import { config,getLogoFilterClass } from "@/lib/config";
 import { cn } from "@/lib/utils";
 import { resolveChatNavigationPath,useChatStore } from "@/store/chat-store";
@@ -145,6 +146,11 @@ function ApplicationNavigationContents({
   const { data: session } = useSession();
   const { isAdmin } = useAdminRole();
   const { canUseAutonomous } = useAutonomousCapability();
+  const {
+    gates: knowledgeGates,
+    loading: knowledgeGatesLoading,
+    orgAdminBypass: knowledgeAdminBypass,
+  } = useKbTabGates();
   const applicationNavigation = useApplicationNavigation();
   const {
     activeConversationId,
@@ -160,6 +166,13 @@ function ApplicationNavigationContents({
     [activeConversationId,conversations,hydrated],
   );
   const storageMode = config.storageMode;
+  const knowledgeHasExplicitCapability =
+    knowledgeGates.can_ingest === true || knowledgeGates.can_search === true;
+  const knowledgeUnavailable =
+    !knowledgeGatesLoading &&
+    !knowledgeAdminBypass &&
+    knowledgeGates.has_any_kb === false &&
+    !knowledgeHasExplicitCapability;
   const activeArea = activeAreaForPath(pathname);
   const registeredContextualNavigation =
     applicationNavigation?.registration?.areaKey === activeArea
@@ -205,6 +218,9 @@ function ApplicationNavigationContents({
       href: "/knowledge-bases/search",
       label: "Knowledge Bases",
       icon: Database,
+      disabled: knowledgeUnavailable,
+      disabledReason:
+        "You don't have Knowledge Base access yet. Ask an admin to grant your team permission.",
     },
     storageMode === "mongodb" && {
       key: "dynamic-agents",
