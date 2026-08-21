@@ -7,6 +7,7 @@ import {
   type PlatformCapabilityStatus,
 } from "@/hooks/use-platform-health-probes";
 import { useVersion } from "@/hooks/use-version";
+import { formatBuildIdentifier,formatComponentVersion } from "@/lib/build-identifier";
 import { cn } from "@/lib/utils";
 import { Activity,CheckCircle2,CircleSlash,RefreshCw,TriangleAlert,XCircle } from "lucide-react";
 
@@ -21,7 +22,11 @@ export function SystemHealthSettings(): React.ReactElement {
   const health = usePlatformHealthProbes({ diagnostics: false });
   const { versionInfo } = useVersion();
   const overall = health.status === "healthy" ? "Healthy" : health.status === "checking" ? "Checking" : health.status === "degraded" ? "Degraded" : "Unavailable";
-  const version = versionInfo?.version ?? versionInfo?.packageVersion ?? "Development";
+  const version = formatBuildIdentifier({
+    version: versionInfo?.version,
+    packageVersion: versionInfo?.packageVersion,
+    gitCommit: versionInfo?.gitCommit,
+  }) ?? "Development";
 
   return (
     <div className="space-y-4">
@@ -66,7 +71,7 @@ export function SystemHealthSettings(): React.ReactElement {
                     <span className={cn("h-2 w-2 rounded-full",style.dot)} />{style.label}
                   </span>
                   <p className="mt-1 font-mono text-[10px] text-muted-foreground/80">
-                    {capability.version ? `v${capability.version.replace(/^v/i, "")}` : "Version not reported"}
+                    {formatComponentVersion(capability.version) ?? "Version not reported"}
                   </p>
                 </div>
               </div>

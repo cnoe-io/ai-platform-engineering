@@ -52,3 +52,18 @@ it("shows a red status indicator when aggregate platform health is down",() => {
   const link = screen.getByLabelText("CAIPE v0.5.67, platform health down. Open System Health.");
   expect(link.querySelector("span[aria-hidden='true']")).toHaveClass("bg-red-500");
 });
+
+it("uses the commit SHA instead of prefixing a non-semantic version",() => {
+  mockUseVersion.mockReturnValue({
+    isLoading: false,
+    versionInfo: { version: "preview",packageVersion: "0.2.0",gitCommit: "6c5c6617a" },
+  });
+
+  render(<ApplicationVersion />);
+
+  expect(screen.getByText("6c5c661")).toBeInTheDocument();
+  expect(screen.queryByText("vpreview")).not.toBeInTheDocument();
+  expect(
+    screen.getByLabelText("CAIPE 6c5c661, platform health healthy. Open System Health."),
+  ).toHaveAttribute("href","/settings/system-health");
+});
