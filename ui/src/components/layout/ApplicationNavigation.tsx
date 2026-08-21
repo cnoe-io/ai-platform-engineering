@@ -444,7 +444,11 @@ function ApplicationNavigationContents({
             >
               {collapsed ? (
                 <Tooltip>
-                  <TooltipTrigger asChild>{control}</TooltipTrigger>
+                  <TooltipTrigger asChild>
+                    {item.disabled ? (
+                      <div className="flex w-full justify-center">{control}</div>
+                    ) : control}
+                  </TooltipTrigger>
                   <TooltipContent side="right" sideOffset={8}>
                     {item.disabled
                       ? `${item.label} unavailable`
