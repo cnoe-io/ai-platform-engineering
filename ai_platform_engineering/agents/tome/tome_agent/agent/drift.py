@@ -28,7 +28,6 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query
-from claude_agent_sdk.types import StreamEvent
 
 from tome_agent.agent import http_client
 from tome_agent.reports import schema as report_schema
@@ -189,65 +188,47 @@ def _batch_prompt(
 _CONTENT_CHECK_MAX_TURNS = 4  # schema-constrained output needs an SDK-managed follow-up turn
 
 
-async def _run_content_check(
-    prompt: str, model: str
-) -> AsyncIterator[dict[str, Any]]:
-    """Streams `{"type": "token", "text": ...}` for every raw text delta the
-    model emits (so a batch's ~10-30s doesn't sit silent), then a final
-    `{"type": "result", "verdicts": [...], "error": str | None}` — `error`
-    is a short, user-facing explanation of why no verdicts came back
-    (surfaced into each unaccounted-for page's `reason`, not just logged
-    server-side), or None on success."""
+async def _run_content_check(prompt: str, model: str) -> tuple[list[dict[str, Any]], str | None]:
+    """Returns `(verdicts, error)` — `error` is a short, user-facing
+    explanation of why no verdicts came back (surfaced into each
+    unaccounted-for page's `reason`, not just logged server-side), or None
+    on success."""
     options = ClaudeAgentOptions(
         model=model,
         max_turns=_CONTENT_CHECK_MAX_TURNS,
         allowed_tools=[],
         system_prompt=_CONTENT_CHECK_SYSTEM_PROMPT,
         output_format={"type": "json_schema", "schema": _content_check_schema()},
-        include_partial_messages=True,
     )
     result: ResultMessage | None = None
     try:
         async for message in query(prompt=prompt, options=options):
-            if isinstance(message, StreamEvent):
-                ev = message.event or {}
-                if ev.get("type") == "content_block_delta":
-                    delta = ev.get("delta") or {}
-                    if delta.get("type") == "text_delta" and delta.get("text"):
-                        yield {"type": "token", "text": delta["text"]}
-                continue
             if isinstance(message, ResultMessage):
                 result = message
                 break
     except Exception as exc:
         log.warning("drift content check raised", exc_info=True)
-        yield {"type": "result", "verdicts": [], "error": f"content check errored: {exc}"}
-        return
+        return [], f"content check errored: {exc}"
     if result is None:
-        yield {"type": "result", "verdicts": [], "error": "content check returned no result"}
-        return
+        return [], "content check returned no result"
     if getattr(result, "is_error", False):
         detail = str(getattr(result, "result", None) or getattr(result, "errors", None) or result.subtype)
         log.warning("drift content check failed: %s", detail)
-        yield {"type": "result", "verdicts": [], "error": f"content check failed: {detail}"}
-        return
+        return [], f"content check failed: {detail}"
     data = getattr(result, "structured_output", None)
     if not isinstance(data, dict):
         raw = getattr(result, "result", None)
         if not isinstance(raw, str):
-            yield {"type": "result", "verdicts": [], "error": "content check returned no structured output"}
-            return
+            return [], "content check returned no structured output"
         try:
             data = json.loads(raw)
         except ValueError:
             log.warning("drift content check returned non-JSON result", exc_info=True)
-            yield {"type": "result", "verdicts": [], "error": "content check returned a non-JSON result"}
-            return
+            return [], "content check returned a non-JSON result"
     verdicts = data.get("verdicts")
     if not isinstance(verdicts, list):
-        yield {"type": "result", "verdicts": [], "error": "content check response had no verdicts array"}
-        return
-    yield {"type": "result", "verdicts": verdicts, "error": None}
+        return [], "content check response had no verdicts array"
+    return verdicts, None
 
 
 async def _content_check_batches(
@@ -256,21 +237,18 @@ async def _content_check_batches(
     template_snapshot: dict[str, list[dict[str, Any]]],
     model: str | None,
     include_current: bool,
-) -> AsyncIterator[dict[str, Any]]:
+) -> AsyncIterator[list[PageDrift]]:
     """Mutate `drifted`/`reason` in place, one no-tools agent call per batch
-    of `_MAX_BATCH_PAGES`. Yields tagged events: `{"type": "token", "text":
-    ...}` for every raw text delta the model emits mid-batch (so a batch's
-    ~10-30s isn't silent), and `{"type": "batch", "pages": [...]}` once a
-    batch's verdicts land. Version staleness and content drift are
-    different axes — a `current` page (bound at the live template version)
-    can still have content that no longer satisfies the template's
-    guidance (a hand edit, a partial rewrite, guidance interpreted loosely
-    at seed time). By default only `version_behind` pages are checked (the
-    cheap, narrow case version staleness already flags); pass
-    `include_current=True` to also check every already-`current` bound
-    page — a full quality sweep, not gated on version at all. Never checks
-    `missing`/`unbound` pages (nothing to read). Yields nothing if there
-    are no candidates in scope."""
+    of `_MAX_BATCH_PAGES`, yielding each batch as it completes. Version
+    staleness and content drift are different axes — a `current` page
+    (bound at the live template version) can still have content that no
+    longer satisfies the template's guidance (a hand edit, a partial
+    rewrite, guidance interpreted loosely at seed time). By default only
+    `version_behind` pages are checked (the cheap, narrow case version
+    staleness already flags); pass `include_current=True` to also check
+    every already-`current` bound page — a full quality sweep, not gated
+    on version at all. Never checks `missing`/`unbound` pages (nothing to
+    read). Yields nothing if there are no candidates in scope."""
     behind = [
         c
         for c in candidates
@@ -290,13 +268,7 @@ async def _content_check_batches(
     for start in range(0, len(behind), _MAX_BATCH_PAGES):
         batch = behind[start : start + _MAX_BATCH_PAGES]
         prompt = _batch_prompt(batch, existing_pages, seed_lookup)
-        verdicts: list[dict[str, Any]] = []
-        error: str | None = None
-        async for event in _run_content_check(prompt, resolved_model):
-            if event["type"] == "token":
-                yield event
-            else:  # "result"
-                verdicts, error = event["verdicts"], event["error"]
+        verdicts, error = await _run_content_check(prompt, resolved_model)
         by_path = {v.get("path"): v for v in verdicts if isinstance(v, dict)}
         for candidate in batch:
             verdict = by_path.get(candidate.path)
@@ -306,7 +278,7 @@ async def _content_check_batches(
                 continue
             candidate.drifted = bool(verdict.get("drifted"))
             candidate.reason = str(verdict.get("reason") or "")
-        yield {"type": "batch", "pages": batch}
+        yield batch
 
 
 async def check_content_drift(
@@ -348,10 +320,10 @@ async def stream_drift_report(
     include_current: bool = False,
 ) -> AsyncIterator[dict[str, Any]]:
     """Structural classification is instant, so this only streams the
-    content-check phase: a `token` event for every raw text delta the model
-    emits (so the wait isn't silent even mid-batch), a `progress` event per
-    page as its batch completes, then a final `done` event with the full
-    report in the same shape `build_drift_report` returns."""
+    content-check phase: one `progress` event per page as its batch
+    completes (so a 22-page check surfaces results as they land instead of
+    one long silent wait), then a final `done` event with the full report
+    in the same shape `build_drift_report` returns."""
     report = classify_structural(existing_pages, expected)
     total = sum(
         1
@@ -359,17 +331,14 @@ async def stream_drift_report(
         if c.status == "version_behind" or (include_current and c.status == "current")
     )
     checked = 0
-    async for event in _content_check_batches(
+    async for batch in _content_check_batches(
         report,
         existing_pages,
         template_snapshot or report_schema.full_template_snapshot(),
         model,
         include_current,
     ):
-        if event["type"] == "token":
-            yield {"type": "token", "data": {"text": event["text"]}}
-            continue
-        for candidate in event["pages"]:
+        for candidate in batch:
             checked += 1
             yield {
                 "type": "progress",

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   BookOpen,
@@ -131,12 +131,8 @@ async function fetchDrift(
 
 type RunningTask =
   | { kind: "structural" }
-  | { kind: "content"; total: number; checked: number; lastPath: string | null; liveText: string }
+  | { kind: "content"; total: number; checked: number; lastPath: string | null }
   | { kind: "fixing"; count: number };
-
-// How much of the streamed text tail to keep on screen - just enough for a
-// single truncated line, not a growing transcript.
-const LIVE_TEXT_TAIL_CHARS = 200;
 
 function RunningBanner({ task }: { task: RunningTask }) {
   const label =
@@ -148,16 +144,9 @@ function RunningBanner({ task }: { task: RunningTask }) {
           }...`
         : `Fixing ${task.count} flagged page${task.count === 1 ? "" : "s"}...`;
   return (
-    <div className="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2.5 text-sm">
-      <div className="flex items-center gap-2">
-        <Loader2 className="h-4 w-4 shrink-0 animate-spin text-primary" />
-        <span className="truncate">{label}</span>
-      </div>
-      {task.kind === "content" && task.liveText && (
-        <p className="mt-1 truncate pl-6 font-mono text-xs text-muted-foreground">
-          {task.liveText}
-        </p>
-      )}
+    <div className="flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2.5 text-sm">
+      <Loader2 className="h-4 w-4 shrink-0 animate-spin text-primary" />
+      <span className="truncate">{label}</span>
     </div>
   );
 }
@@ -308,12 +297,9 @@ export function TemplatesPanel({ slug, onNavigate, onIngestStarted }: Props) {
     void checkStructural();
   }, [checkStructural]);
 
-  const liveTextRef = useRef("");
-
   const checkContent = useCallback(
     async (total: number) => {
-      liveTextRef.current = "";
-      setRunning({ kind: "content", total, checked: 0, lastPath: null, liveText: "" });
+      setRunning({ kind: "content", total, checked: 0, lastPath: null });
       setError(null);
       try {
         const res = await fetch(`/api/tome/projects/${slug}/template-drift/stream`, {
@@ -326,13 +312,7 @@ export function TemplatesPanel({ slug, onNavigate, onIngestStarted }: Props) {
           throw new Error(json?.error || `content check failed (${res.status})`);
         }
         await consumeDriftStream(res.body, (event) => {
-          if (event.type === "token") {
-            const text = typeof event.data.text === "string" ? event.data.text : "";
-            liveTextRef.current = (liveTextRef.current + text).slice(-LIVE_TEXT_TAIL_CHARS);
-            setRunning((prev) =>
-              prev?.kind === "content" ? { ...prev, liveText: liveTextRef.current } : prev,
-            );
-          } else if (event.type === "progress") {
+          if (event.type === "progress") {
             const checked = Number(event.data.checked) || 0;
             const evtTotal = Number(event.data.total) || total;
             setRunning({
@@ -340,7 +320,6 @@ export function TemplatesPanel({ slug, onNavigate, onIngestStarted }: Props) {
               total: evtTotal,
               checked,
               lastPath: typeof event.data.path === "string" ? event.data.path : null,
-              liveText: liveTextRef.current,
             });
             // Reflect this page's verdict immediately, before the final
             // `done` event - a 22-page check should feel like it's making
