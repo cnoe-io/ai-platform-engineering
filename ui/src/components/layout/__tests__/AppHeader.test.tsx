@@ -76,19 +76,22 @@ jest.mock('@/hooks/useAdminTabGates', () => ({
   }),
 }))
 
+let mockKbGates = {
+  search: true,
+  data_sources: true,
+  graph: true,
+  mcp_tools: true,
+  has_any_kb: true,
+  can_ingest: true,
+  can_search: true,
+}
+let mockKbGatesLoading = false
+let mockKbOrgAdminBypass = true
 jest.mock('@/hooks/use-kb-tab-gates', () => ({
   useKbTabGates: () => ({
-    gates: {
-      search: true,
-      data_sources: true,
-      graph: true,
-      mcp_tools: true,
-      has_any_kb: true,
-      can_ingest: true,
-      can_search: true,
-    },
-    loading: false,
-    orgAdminBypass: true,
+    gates: mockKbGates,
+    loading: mockKbGatesLoading,
+    orgAdminBypass: mockKbOrgAdminBypass,
   }),
 }))
 
@@ -396,6 +399,17 @@ describe('AppHeader — application chrome', () => {
     mockCanUseAutonomous = false
     mockAutonomousAgentsEnabled = true
     mockRagEnabled = false
+    mockKbGates = {
+      search: true,
+      data_sources: true,
+      graph: true,
+      mcp_tools: true,
+      has_any_kb: true,
+      can_ingest: true,
+      can_search: true,
+    }
+    mockKbGatesLoading = false
+    mockKbOrgAdminBypass = true
     mockEnvBadge = ''
     mockStreamingConversations = new Map()
     mockUnviewedConversations = new Set()
@@ -634,6 +648,38 @@ describe('AppHeader — application chrome', () => {
       mockRagEnabled = false
       rerender(<AppHeader />)
       expect(screen.queryByText('Knowledge Bases')).not.toBeInTheDocument()
+    })
+
+    it('disables Knowledge Bases and shows only the access disclaimer when unavailable', () => {
+      mockRagEnabled = true
+      mockKbOrgAdminBypass = false
+      mockKbGates = {
+        search: false,
+        data_sources: false,
+        graph: false,
+        mcp_tools: false,
+        has_any_kb: false,
+        can_ingest: false,
+        can_search: false,
+      }
+
+      render(<AppHeader />)
+
+      const unavailable = within(applicationNavigation()).getByRole('button', {
+        name: 'Knowledge Bases: unavailable',
+      })
+      expect(unavailable).toHaveAttribute('aria-disabled', 'true')
+      expect(
+        screen.queryByRole('navigation', { name: 'Knowledge Base sections' }),
+      ).not.toBeInTheDocument()
+
+      fireEvent.click(unavailable)
+      expect(screen.getByText('Knowledge Bases unavailable')).toBeInTheDocument()
+      expect(screen.getByText(/don't have Knowledge Base access yet/)).toBeInTheDocument()
+      expect(screen.getByRole('link', { name: 'Contact admin' })).toHaveAttribute(
+        'href',
+        'mailto:support@example.com?subject=Test%20App%20access%20request',
+      )
     })
 
     it('shows Agents in MongoDB mode even without AD group access', () => {
