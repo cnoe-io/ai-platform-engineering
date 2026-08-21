@@ -539,7 +539,7 @@ export function ApplicationNavigationRail(): React.ReactElement {
   return (
     <aside
       className={cn(
-        "hidden h-full shrink-0 flex-col border-r border-border/60 bg-background/70 backdrop-blur-xl xl:flex",
+        "app-navigation-surface hidden h-full shrink-0 flex-col border-r border-border/60 bg-background/70 backdrop-blur-xl xl:flex",
         collapsed ? "w-[4.25rem]" : "w-64",
       )}
     >
@@ -568,7 +568,7 @@ export function ApplicationNavigationDrawer(): React.ReactElement | null {
       onOpenChange={applicationNavigation.setMobileNavigationOpen}
       open={applicationNavigation.mobileNavigationOpen}
     >
-      <DialogContent className="left-0 top-0 flex h-dvh w-[min(20rem,90vw)] max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none border-y-0 border-l-0 p-0 sm:rounded-none">
+      <DialogContent className="app-navigation-surface left-0 top-0 flex h-dvh w-[min(20rem,90vw)] max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none border-y-0 border-l-0 p-0 sm:rounded-none">
         <DialogHeader className="sr-only">
           <DialogTitle>Navigation</DialogTitle>
           <DialogDescription>Choose a CAIPE destination.</DialogDescription>

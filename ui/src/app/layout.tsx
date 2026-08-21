@@ -85,6 +85,8 @@ export default async function RootLayout({
   // Build the XSS-safe JSON for client-side config injection.
   // Only client-safe values are included (no secrets).
   const configScript = getClientConfigScript();
+  const initialTheme = JSON.stringify(cfg.defaultTheme).replace(/</g,"\\u003c");
+  const themeScript = `(function(){try{var preference=localStorage.getItem("theme")||${initialTheme};var theme=preference;if(theme==="system"){theme=window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";}document.documentElement.setAttribute("data-theme-preference",preference);document.documentElement.setAttribute("data-theme",theme);document.documentElement.style.removeProperty("color-scheme");}catch(_error){}})();`;
 
   return (
     <html lang="en" suppressHydrationWarning>
@@ -97,6 +99,11 @@ export default async function RootLayout({
           id="runtime-app-config"
           strategy="beforeInteractive"
         />
+        <Script
+          dangerouslySetInnerHTML={{ __html: themeScript }}
+          id="initial-appearance-theme"
+          strategy="beforeInteractive"
+        />
       </head>
       <body
         className={`${inter.variable} ${sourceSans.variable} ${ibmPlex.variable} ${jetbrainsMono.variable} font-sans antialiased`}
@@ -107,9 +114,10 @@ export default async function RootLayout({
           <ThemeProvider
             attribute="data-theme"
             defaultTheme={cfg.defaultTheme}
+            enableColorScheme={false}
             enableSystem
-            disableTransitionOnChange={false}
-            themes={["light", "dark", "midnight", "nord", "tokyo", "cyberpunk", "tron", "matrix"]}
+            disableTransitionOnChange
+            themes={["light", "legacy-light", "dark", "midnight", "nord", "tokyo", "cyberpunk", "tron", "matrix"]}
           >
             <ToastProvider>
               <ThemeInjector />

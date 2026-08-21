@@ -18,7 +18,7 @@ let mockTheme = "dark";
 let mockResolvedTheme = "dark";
 const mockSetTheme = jest.fn();
 
-jest.mock("next-themes", () => ({
+jest.mock("@/components/theme-provider", () => ({
   useTheme: () => ({
     theme: mockTheme,
     setTheme: mockSetTheme,
@@ -122,7 +122,7 @@ describe("ThemeToggle", () => {
     expect(screen.getByText("Theme Settings")).toBeInTheDocument();
   });
 
-  it("displays all 9 theme options", async () => {
+  it("displays all 10 theme options", async () => {
     render(<ThemeToggle />);
     await waitFor(() => {
       expect(screen.getByText("Dark")).toBeInTheDocument();
@@ -130,6 +130,7 @@ describe("ThemeToggle", () => {
     const trigger = screen.getAllByText("Dark")[0].closest("button");
     fireEvent.click(trigger!);
     expect(screen.getByText("Light")).toBeInTheDocument();
+    expect(screen.getByText("Legacy Light")).toBeInTheDocument();
     expect(screen.getByText("System")).toBeInTheDocument();
     expect(screen.getByText("Midnight")).toBeInTheDocument();
     expect(screen.getByText("Nord")).toBeInTheDocument();
@@ -157,6 +158,16 @@ describe("ThemeToggle", () => {
     fireEvent.click(screen.getByText("Dark").closest("button")!);
     fireEvent.click(screen.getByText("Light"));
     expect(mockSetTheme).toHaveBeenCalledWith("light");
+  });
+
+  it("keeps the original light palette available as Legacy Light", async () => {
+    render(<ThemeToggle />);
+    await waitFor(() => {
+      expect(screen.getByText("Dark")).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByText("Dark").closest("button")!);
+    fireEvent.click(screen.getByText("Legacy Light"));
+    expect(mockSetTheme).toHaveBeenCalledWith("legacy-light");
   });
 
   it("closes dropdown after selection", async () => {
@@ -254,6 +265,16 @@ describe("ThemeQuickToggle", () => {
 
   it("toggles to dark when clicking in light mode", async () => {
     mockResolvedTheme = "light";
+    render(<ThemeQuickToggle />);
+    await waitFor(() => {
+      expect(screen.getByTestId("icon-moon")).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByTestId("icon-moon").closest("button")!);
+    expect(mockSetTheme).toHaveBeenCalledWith("dark");
+  });
+
+  it("treats Legacy Light as a light variant", async () => {
+    mockResolvedTheme = "legacy-light";
     render(<ThemeQuickToggle />);
     await waitFor(() => {
       expect(screen.getByTestId("icon-moon")).toBeInTheDocument();

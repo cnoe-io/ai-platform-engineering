@@ -17,7 +17,8 @@ export const FONT_FAMILIES = [
 
 export const COLOR_THEMES = [
   { id: "system",label: "System",description: "Match your device" },
-  { id: "light",label: "Light",description: "Bright and clean" },
+  { id: "light",label: "Light",description: "Balanced tonal surfaces and brand color" },
+  { id: "legacy-light",label: "Legacy Light",description: "Original bright neutral palette" },
   { id: "dark",label: "Dark",description: "Easy on the eyes" },
   { id: "midnight",label: "Midnight",description: "Pure black for OLED" },
   { id: "nord",label: "Nord",description: "Muted arctic colors" },
@@ -164,8 +165,21 @@ export function applyGradientTheme(value: GradientTheme): void {
   localStorage.setItem(STORAGE_KEYS.gradientTheme,value);
 }
 
+export function applyColorTheme(value: ColorTheme): void {
+  const resolvedTheme = value === "system"
+    ? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
+    : value;
+  const root = document.documentElement;
+  root.setAttribute("data-theme",resolvedTheme);
+  // Palette CSS owns color-scheme for custom light and dark themes. Clear
+  // inline values left by older builds so native controls use that palette.
+  root.style.removeProperty("color-scheme");
+  localStorage.setItem("theme",value);
+}
+
 export function applyCachedAppearance(preferences: AppearancePreferences): void {
   applyFontFamily(preferences.fontFamily);
   applyFontSize(preferences.fontSize);
   applyGradientTheme(preferences.gradientTheme);
+  applyColorTheme(preferences.theme);
 }
