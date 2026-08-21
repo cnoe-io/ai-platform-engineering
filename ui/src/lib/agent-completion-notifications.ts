@@ -94,6 +94,13 @@ async function getNotificationServiceWorker(): Promise<ServiceWorkerRegistration
   if (!notificationServiceWorkerPromise) {
     notificationServiceWorkerPromise = navigator.serviceWorker
       .register("/caipe-notification-sw.js",{ scope: "/" })
+      .then(async (registration) => {
+        // register() may resolve while a newly installed worker is still
+        // activating. showNotification() requires an active worker and can
+        // otherwise fail before falling back to the less reliable page API.
+        if (registration.active) return registration;
+        return navigator.serviceWorker.ready;
+      })
       .catch(() => null);
   }
   return notificationServiceWorkerPromise;
@@ -175,7 +182,12 @@ async function showBrowserNotification(alert: AgentCompletionAlert): Promise<boo
       messageId: alert.messageId,
     },
     icon: "/icon.ico",
-    tag: `caipe-agent-completion-${alert.conversationId}`,
+    // Each completed message must have its own identity. Reusing only the
+    // conversation ID lets Chrome silently replace the prior notification.
+    tag: `caipe-agent-completion-${alert.conversationId}-${alert.messageId}`,
+    renotify: true,
+    requireInteraction: true,
+    silent: false,
   };
 
   const registration = await getNotificationServiceWorker();
