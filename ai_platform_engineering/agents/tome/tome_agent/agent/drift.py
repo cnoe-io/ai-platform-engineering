@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -230,24 +231,24 @@ async def _run_content_check(prompt: str, model: str) -> tuple[list[dict[str, An
     return verdicts, None
 
 
-async def check_content_drift(
+async def _content_check_batches(
     candidates: list[PageDrift],
     existing_pages: dict[str, str],
     template_snapshot: dict[str, list[dict[str, Any]]],
-    model: str | None = None,
-    include_current: bool = False,
-) -> None:
-    """Mutate `drifted`/`reason` in place, via one no-tools agent call per
-    batch of `_MAX_BATCH_PAGES`. Version staleness and content drift are
-    different axes — a `current` page (bound at the live template version)
-    can still have content that no longer satisfies the template's
-    guidance (a hand edit, a partial rewrite, guidance interpreted loosely
-    at seed time). By default only `version_behind` pages are checked (the
-    cheap, narrow case version staleness already flags); pass
-    `include_current=True` to also check every already-`current` bound
-    page — a full quality sweep, not gated on version at all. Never checks
-    `missing`/`unbound` pages (nothing to read). No-op if there are no
-    candidates in scope."""
+    model: str | None,
+    include_current: bool,
+) -> AsyncIterator[list[PageDrift]]:
+    """Mutate `drifted`/`reason` in place, one no-tools agent call per batch
+    of `_MAX_BATCH_PAGES`, yielding each batch as it completes. Version
+    staleness and content drift are different axes — a `current` page
+    (bound at the live template version) can still have content that no
+    longer satisfies the template's guidance (a hand edit, a partial
+    rewrite, guidance interpreted loosely at seed time). By default only
+    `version_behind` pages are checked (the cheap, narrow case version
+    staleness already flags); pass `include_current=True` to also check
+    every already-`current` bound page — a full quality sweep, not gated
+    on version at all. Never checks `missing`/`unbound` pages (nothing to
+    read). Yields nothing if there are no candidates in scope."""
     behind = [
         c
         for c in candidates
@@ -277,6 +278,79 @@ async def check_content_drift(
                 continue
             candidate.drifted = bool(verdict.get("drifted"))
             candidate.reason = str(verdict.get("reason") or "")
+        yield batch
+
+
+async def check_content_drift(
+    candidates: list[PageDrift],
+    existing_pages: dict[str, str],
+    template_snapshot: dict[str, list[dict[str, Any]]],
+    model: str | None = None,
+    include_current: bool = False,
+) -> None:
+    """Non-streaming callers (ingest, synthesize): run every batch, discard
+    the per-batch yields — `candidates` is mutated in place either way."""
+    async for _ in _content_check_batches(
+        candidates, existing_pages, template_snapshot, model, include_current
+    ):
+        pass
+
+
+def page_drift_payload(p: PageDrift) -> dict[str, Any]:
+    """The wire shape shared by the sync `/template-drift` response and the
+    streaming `done` event's `pages` list."""
+    return {
+        "path": p.path,
+        "status": p.status,
+        "title": p.title,
+        "template_scope": p.template_scope,
+        "template_path": p.template_path,
+        "seeded_version": p.seeded_version,
+        "live_version": p.live_version,
+        "drifted": p.drifted,
+        "reason": p.reason,
+    }
+
+
+async def stream_drift_report(
+    existing_pages: dict[str, str],
+    expected: dict[str, report_schema.PageSpec],
+    template_snapshot: dict[str, list[dict[str, Any]]] | None = None,
+    model: str | None = None,
+    include_current: bool = False,
+) -> AsyncIterator[dict[str, Any]]:
+    """Structural classification is instant, so this only streams the
+    content-check phase: one `progress` event per page as its batch
+    completes (so a 22-page check surfaces results as they land instead of
+    one long silent wait), then a final `done` event with the full report
+    in the same shape `build_drift_report` returns."""
+    report = classify_structural(existing_pages, expected)
+    total = sum(
+        1
+        for c in report
+        if c.status == "version_behind" or (include_current and c.status == "current")
+    )
+    checked = 0
+    async for batch in _content_check_batches(
+        report,
+        existing_pages,
+        template_snapshot or report_schema.full_template_snapshot(),
+        model,
+        include_current,
+    ):
+        for candidate in batch:
+            checked += 1
+            yield {
+                "type": "progress",
+                "data": {
+                    "path": candidate.path,
+                    "drifted": candidate.drifted,
+                    "reason": candidate.reason,
+                    "checked": checked,
+                    "total": total,
+                },
+            }
+    yield {"type": "done", "data": {"pages": [page_drift_payload(p) for p in report]}}
 
 
 async def build_drift_report(

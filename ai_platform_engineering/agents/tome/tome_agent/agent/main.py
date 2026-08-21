@@ -44,6 +44,7 @@ from fastapi.responses import StreamingResponse
 from tome_agent.agent import http_client, workspace
 from tome_agent.agent.chat import stream_chat
 from tome_agent.agent.compact import stream_compaction
+from tome_agent.agent import drift
 from tome_agent.agent.drift import build_drift_report, classify_structural
 from tome_agent.agent.evaluator import evaluate_artifact, evaluator_prompt_contract
 from tome_agent.agent.ingestor import expected_template_pages, stream_ingest
@@ -216,22 +217,33 @@ async def template_drift_endpoint(body: TemplateDriftRequest) -> TemplateDriftRe
         )
     else:
         report = classify_structural(body.pages, expected)
-    return TemplateDriftResponse(
-        pages=[
-            {
-                "path": p.path,
-                "status": p.status,
-                "title": p.title,
-                "template_scope": p.template_scope,
-                "template_path": p.template_path,
-                "seeded_version": p.seeded_version,
-                "live_version": p.live_version,
-                "drifted": p.drifted,
-                "reason": p.reason,
-            }
-            for p in report
-        ]
-    )
+    return TemplateDriftResponse(pages=[drift.page_drift_payload(p) for p in report])
+
+
+@app.post("/template-drift/stream")
+async def template_drift_stream_endpoint(body: TemplateDriftRequest):
+    """Streaming counterpart to `/template-drift`, content-check only: the
+    structural pass is instant, so there's nothing to stream there. Emits
+    one `progress` event per page as its batch completes (a 22-page check
+    otherwise looks like nothing is happening for however long the whole
+    sweep takes), then a final `done` event with the full report."""
+    if not _state.ready:
+        raise HTTPException(503, "agent not ready")
+    fetched = await asyncio.to_thread(http_client.fetch_page_templates)
+    templates, versions = fetched if fetched is not None else (None, {})
+    report_schema.set_template_overrides(templates, versions)
+    expected = expected_template_pages(body.snapshot)
+
+    async def gen() -> AsyncIterator[bytes]:
+        async for event in drift.stream_drift_report(
+            body.pages,
+            expected,
+            model=body.model,
+            include_current=body.content_check_scope == "all_bound",
+        ):
+            yield _sse_message(event["type"], event["data"])
+
+    return StreamingResponse(gen(), media_type="text/event-stream")
 
 
 @app.post("/presentation", response_model=PresentationResponse)

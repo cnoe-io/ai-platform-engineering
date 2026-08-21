@@ -6,7 +6,6 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronRight,
-  FileQuestion,
   Loader2,
   Sparkles,
   Wrench,
@@ -87,6 +86,25 @@ function groupPages(pages: PageDrift[]): [string, PageDrift[]][] {
   });
 }
 
+function folderLabel(group: string, count: number): string {
+  if (group === TOP_LEVEL_GROUP) return `${count} untemplated file${count === 1 ? "" : "s"}`;
+  const basename = group.slice(group.lastIndexOf("/") + 1);
+  const noun = basename.endsWith("s") ? basename : `${basename} entr${count === 1 ? "y" : "ies"}`;
+  return `${count} ${noun}`;
+}
+
+/** "Not from a template" is a big, low-stakes bucket (glossaries, edge
+ * files, anything hand-authored) - a breakdown line instead of a stat
+ * card so it doesn't compete visually with what actually needs a look. */
+function unboundSummary(pages: PageDrift[]): string | null {
+  const unbound = pages.filter((p) => p.status === "unbound");
+  if (unbound.length === 0) return null;
+  const parts = groupPages(unbound).map(([group, group_pages]) => folderLabel(group, group_pages.length));
+  if (parts.length === 1) return `Also not from a template: ${parts[0]}.`;
+  const last = parts[parts.length - 1];
+  return `Also not from a template: ${parts.slice(0, -1).join(", ")}, and ${last}.`;
+}
+
 async function fetchDrift(
   slug: string,
   contentCheck: boolean,
@@ -106,7 +124,7 @@ async function fetchDrift(
 
 type RunningTask =
   | { kind: "structural" }
-  | { kind: "content"; count: number }
+  | { kind: "content"; total: number; checked: number; lastPath: string | null }
   | { kind: "fixing"; count: number };
 
 function RunningBanner({ task }: { task: RunningTask }) {
@@ -114,14 +132,58 @@ function RunningBanner({ task }: { task: RunningTask }) {
     task.kind === "structural"
       ? "Rescanning page versions against templates..."
       : task.kind === "content"
-        ? `Checking content on ${task.count} page${task.count === 1 ? "" : "s"} against their template's guidance...`
+        ? `Checking content: ${task.checked}/${task.total} page${task.total === 1 ? "" : "s"}${
+            task.lastPath ? ` (just checked ${task.lastPath})` : ""
+          }...`
         : `Fixing ${task.count} flagged page${task.count === 1 ? "" : "s"}...`;
   return (
     <div className="flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2.5 text-sm">
       <Loader2 className="h-4 w-4 shrink-0 animate-spin text-primary" />
-      <span>{label}</span>
+      <span className="truncate">{label}</span>
     </div>
   );
+}
+
+interface DriftStreamEvent {
+  type: string;
+  data: Record<string, unknown>;
+}
+
+function driftStreamEvent(frame: string): DriftStreamEvent | null {
+  let type = "message";
+  const dataLines: string[] = [];
+  for (const line of frame.split("\n")) {
+    if (line.startsWith("event:")) type = line.slice(6).trim();
+    if (line.startsWith("data:")) dataLines.push(line.slice(5).trim());
+  }
+  if (dataLines.length === 0) return null;
+  const data = JSON.parse(dataLines.join("\n")) as unknown;
+  return data && typeof data === "object" && !Array.isArray(data)
+    ? { type, data: data as Record<string, unknown> }
+    : null;
+}
+
+async function consumeDriftStream(
+  body: ReadableStream<Uint8Array>,
+  onEvent: (event: DriftStreamEvent) => void,
+): Promise<void> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    buffer += decoder.decode(value, { stream: !done });
+    let separator = buffer.indexOf("\n\n");
+    while (separator >= 0) {
+      const event = driftStreamEvent(buffer.slice(0, separator));
+      buffer = buffer.slice(separator + 2);
+      if (event) onEvent(event);
+      separator = buffer.indexOf("\n\n");
+    }
+    if (done) break;
+  }
+  const tail = driftStreamEvent(buffer);
+  if (tail) onEvent(tail);
 }
 
 /** Skeleton shaped like the real layout below (stat cards, findings,
@@ -228,13 +290,45 @@ export function TemplatesPanel({ slug, onNavigate, onIngestStarted }: Props) {
   }, [checkStructural]);
 
   const checkContent = useCallback(
-    async (count: number) => {
-      setRunning({ kind: "content", count });
+    async (total: number) => {
+      setRunning({ kind: "content", total, checked: 0, lastPath: null });
       setError(null);
       try {
-        const full = await fetchDrift(slug, true, "all_bound");
-        setReport(full);
-        setCheckedAt(new Date());
+        const res = await fetch(`/api/tome/projects/${slug}/template-drift/stream`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ contentCheckScope: "all_bound" }),
+        });
+        if (!res.ok || !res.body) {
+          const json = await res.json().catch(() => ({}));
+          throw new Error(json?.error || `content check failed (${res.status})`);
+        }
+        await consumeDriftStream(res.body, (event) => {
+          if (event.type === "progress") {
+            const checked = Number(event.data.checked) || 0;
+            const evtTotal = Number(event.data.total) || total;
+            setRunning({
+              kind: "content",
+              total: evtTotal,
+              checked,
+              lastPath: typeof event.data.path === "string" ? event.data.path : null,
+            });
+            // Reflect this page's verdict immediately, before the final
+            // `done` event - a 22-page check should feel like it's making
+            // progress, not stay frozen until the very end.
+            setReport((prev) =>
+              prev?.map((p) =>
+                p.path === event.data.path
+                  ? { ...p, drifted: event.data.drifted as boolean | null, reason: event.data.reason as string | null }
+                  : p,
+              ) ?? prev,
+            );
+          } else if (event.type === "done") {
+            const pages = event.data.pages as PageDrift[] | undefined;
+            if (pages) setReport(pages);
+            setCheckedAt(new Date());
+          }
+        });
       } catch (e) {
         setError(String((e as Error)?.message ?? e));
       } finally {
@@ -277,8 +371,8 @@ export function TemplatesPanel({ slug, onNavigate, onIngestStarted }: Props) {
   }, []);
 
   const attention = useMemo(() => report?.filter(needsAttention) ?? [], [report]);
-  const unbound = useMemo(() => report?.filter((p) => p.status === "unbound").length ?? 0, [report]);
   const current = useMemo(() => report?.filter((p) => p.status === "current").length ?? 0, [report]);
+  const unboundLine = useMemo(() => unboundSummary(report ?? []), [report]);
   const boundUnchecked = useMemo(
     () =>
       report?.filter(
@@ -313,18 +407,13 @@ export function TemplatesPanel({ slug, onNavigate, onIngestStarted }: Props) {
                 icon={<AlertTriangle className="h-3.5 w-3.5" />}
               />
               <StatCard
-                label="not from a template"
-                count={unbound}
-                tone="neutral"
-                icon={<FileQuestion className="h-3.5 w-3.5" />}
-              />
-              <StatCard
                 label="up to date"
                 count={current}
                 tone="good"
                 icon={<CheckCircle2 className="h-3.5 w-3.5" />}
               />
             </div>
+            {unboundLine && <p className="text-xs text-muted-foreground">{unboundLine}</p>}
             {checkedAt && (
               <p className="text-xs text-muted-foreground">
                 Last checked {checkedAt.toLocaleTimeString()}.
