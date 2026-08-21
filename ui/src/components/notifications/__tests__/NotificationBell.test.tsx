@@ -67,7 +67,7 @@ it("labels global platform incidents and their resolved lifecycle",async () => {
         id: "platform-primary",
         title: "Chat Runtime recovered",
         message: "A platform health audit confirmed recovery.",
-        href: "/settings/system-health",
+        href: "/admin/operations/health",
         severity: "success",
         category: "platform_health",
         source_label: "Platform",

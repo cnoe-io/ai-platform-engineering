@@ -1,5 +1,4 @@
 import {
-  Activity,
   Bell,
   Bot,
   Code2,
@@ -12,7 +11,6 @@ export type SettingsRouteId =
   | "appearance"
   | "chat"
   | "notifications"
-  | "system-health"
   | "access"
   | "developer";
 
@@ -49,14 +47,6 @@ export const PERSONAL_SETTINGS_ROUTES: SettingsRouteDefinition[] = [
     label: "Notifications",
     description: "Choose the updates you want to see.",
     icon: Bell,
-  },
-  {
-    id: "system-health",
-    href: "/settings/system-health",
-    segment: "system-health",
-    label: "System health",
-    description: "Platform availability, components, and build information.",
-    icon: Activity,
   },
   {
     id: "access",

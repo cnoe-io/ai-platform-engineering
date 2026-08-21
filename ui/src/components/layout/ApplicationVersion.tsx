@@ -8,6 +8,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useAdminRole } from "@/hooks/use-admin-role";
 import { usePlatformHealthProbes } from "@/hooks/use-platform-health-probes";
 import { useVersion } from "@/hooks/use-version";
 import { formatBuildIdentifier } from "@/lib/build-identifier";
@@ -18,6 +19,14 @@ export function ApplicationVersion({
 }: {
   collapsed?: boolean;
 }): React.ReactElement {
+  const { isAdmin,loading } = useAdminRole();
+
+  if (loading || !isAdmin) return <></>;
+
+  return <AdminApplicationVersion collapsed={collapsed} />;
+}
+
+function AdminApplicationVersion({ collapsed }: { collapsed: boolean }): React.ReactElement {
   const { versionInfo,isLoading } = useVersion();
   const health = usePlatformHealthProbes({ diagnostics: false });
   const version = formatBuildIdentifier({
@@ -34,7 +43,7 @@ export function ApplicationVersion({
           ? "down"
           : "checking";
   const versionLabel = version ? `CAIPE ${version}` : "CAIPE development build";
-  const label = `${versionLabel}, platform health ${healthLabel}. Open System Health.`;
+  const label = `${versionLabel}, platform health ${healthLabel}. Open Admin Health.`;
 
   const content = (
     <Link
@@ -44,7 +53,7 @@ export function ApplicationVersion({
         collapsed ? "h-8 w-8 justify-center" : "px-1 py-1.5",
       )}
       data-testid="application-version"
-      href="/settings/system-health"
+      href="/admin/operations/health"
     >
       <span
         aria-hidden="true"
