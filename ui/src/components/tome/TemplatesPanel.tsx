@@ -107,7 +107,7 @@ async function fetchDrift(
 
 type RunningTask =
   | { kind: "structural" }
-  | { kind: "content"; scope: "out_of_date" | "all_bound"; count: number }
+  | { kind: "content"; count: number }
   | { kind: "fixing"; count: number };
 
 function RunningBanner({ task }: { task: RunningTask }) {
@@ -115,7 +115,7 @@ function RunningBanner({ task }: { task: RunningTask }) {
     task.kind === "structural"
       ? "Rescanning page versions against templates..."
       : task.kind === "content"
-        ? `Checking content on ${task.count} page${task.count === 1 ? "" : "s"} against ${task.scope === "all_bound" ? "their" : "its"} template's guidance...`
+        ? `Checking content on ${task.count} page${task.count === 1 ? "" : "s"} against their template's guidance...`
         : `Fixing ${task.count} flagged page${task.count === 1 ? "" : "s"}...`;
   return (
     <div className="flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2.5 text-sm">
@@ -199,11 +199,11 @@ export function TemplatesPanel({ slug, onNavigate, onIngestStarted }: Props) {
   }, [checkStructural]);
 
   const checkContent = useCallback(
-    async (scope: "out_of_date" | "all_bound", count: number) => {
-      setRunning({ kind: "content", scope, count });
+    async (count: number) => {
+      setRunning({ kind: "content", count });
       setError(null);
       try {
-        const full = await fetchDrift(slug, true, scope);
+        const full = await fetchDrift(slug, true, "all_bound");
         setReport(full);
         setCheckedAt(new Date());
       } catch (e) {
@@ -250,10 +250,6 @@ export function TemplatesPanel({ slug, onNavigate, onIngestStarted }: Props) {
   const attention = useMemo(() => report?.filter(needsAttention) ?? [], [report]);
   const unbound = useMemo(() => report?.filter((p) => p.status === "unbound").length ?? 0, [report]);
   const current = useMemo(() => report?.filter((p) => p.status === "current").length ?? 0, [report]);
-  const oldVersionUnchecked = useMemo(
-    () => report?.filter((p) => p.status === "version_behind" && p.drifted == null) ?? [],
-    [report],
-  );
   const boundUnchecked = useMemo(
     () =>
       report?.filter(
@@ -343,39 +339,21 @@ export function TemplatesPanel({ slug, onNavigate, onIngestStarted }: Props) {
             <div className="space-y-2 rounded-lg border bg-muted/20 p-3">
               <p className="text-xs font-medium text-muted-foreground">Actions</p>
 
-              {oldVersionUnchecked.length > 0 && (
+              {boundUnchecked.length > 0 && (
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <p className="text-sm text-muted-foreground">
-                    Ask AI to compare {oldVersionUnchecked.length} old-version page
-                    {oldVersionUnchecked.length === 1 ? "" : "s"} against current template guidance.
+                    Ask AI to compare {boundUnchecked.length} template-bound page
+                    {boundUnchecked.length === 1 ? "" : "s"} against their template&rsquo;s current guidance
+                    &mdash; content can drift even on a page that&rsquo;s on the current version.
                   </p>
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={() => void checkContent("out_of_date", oldVersionUnchecked.length)}
+                    onClick={() => void checkContent(boundUnchecked.length)}
                     disabled={busy}
                   >
                     <Sparkles className="h-3.5 w-3.5" />
                     Check content
-                  </Button>
-                </div>
-              )}
-
-              {boundUnchecked.length > oldVersionUnchecked.length && (
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-sm text-muted-foreground">
-                    Same check, but also covers pages already on the current version
-                    (content can drift even without a version change) &mdash; {boundUnchecked.length} page
-                    {boundUnchecked.length === 1 ? "" : "s"} total.
-                  </p>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => void checkContent("all_bound", boundUnchecked.length)}
-                    disabled={busy}
-                  >
-                    <Sparkles className="h-3.5 w-3.5" />
-                    Check everything
                   </Button>
                 </div>
               )}
