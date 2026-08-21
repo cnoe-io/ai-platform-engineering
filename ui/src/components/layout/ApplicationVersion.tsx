@@ -10,13 +10,8 @@ import {
 } from "@/components/ui/tooltip";
 import { usePlatformHealthProbes } from "@/hooks/use-platform-health-probes";
 import { useVersion } from "@/hooks/use-version";
+import { formatBuildIdentifier } from "@/lib/build-identifier";
 import { cn } from "@/lib/utils";
-
-function displayVersion(version: string | undefined): string | null {
-  const normalized = version?.trim().replace(/^v/i, "");
-  if (!normalized || normalized === "unknown") return null;
-  return `v${normalized}`;
-}
 
 export function ApplicationVersion({
   collapsed = false,
@@ -25,7 +20,11 @@ export function ApplicationVersion({
 }): React.ReactElement {
   const { versionInfo,isLoading } = useVersion();
   const health = usePlatformHealthProbes({ diagnostics: false });
-  const version = displayVersion(versionInfo?.version ?? versionInfo?.packageVersion);
+  const version = formatBuildIdentifier({
+    version: versionInfo?.version,
+    packageVersion: versionInfo?.packageVersion,
+    gitCommit: versionInfo?.gitCommit,
+  });
   const healthLabel =
     health.status === "healthy"
       ? "healthy"
