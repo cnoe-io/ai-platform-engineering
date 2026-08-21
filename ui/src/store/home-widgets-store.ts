@@ -4,12 +4,10 @@ import { create } from "zustand";
 
 const STORAGE_KEY = "caipe-home-widgets";
 const STORAGE_VERSION_KEY = "caipe-home-widgets-version";
-const EXPERIENCE_STORAGE_KEY = "caipe-home-experience";
+const LEGACY_EXPERIENCE_STORAGE_KEY = "caipe-home-experience";
 
 export const HOME_WIDGETS_SCHEMA_VERSION = 2;
 export const DEFAULT_HOME_WIDGETS = ["heroComposer", "quickStart"];
-
-export type HomeExperience = "new" | "classic";
 
 export interface HomeWidgetDefinition {
   id: string;
@@ -89,15 +87,11 @@ function writeToLocalStorage(widgets: string[]): void {
   localStorage.setItem(STORAGE_VERSION_KEY, String(HOME_WIDGETS_SCHEMA_VERSION));
 }
 
-function readExperienceFromLocalStorage(): HomeExperience {
-  if (typeof window === "undefined") return "new";
-  const raw = localStorage.getItem(EXPERIENCE_STORAGE_KEY);
-  return raw === "classic" ? "classic" : "new";
-}
-
-function writeExperienceToLocalStorage(experience: HomeExperience): void {
-  if (typeof window === "undefined") return;
-  localStorage.setItem(EXPERIENCE_STORAGE_KEY, experience);
+function clearLegacyExperiencePreference(): boolean {
+  if (typeof window === "undefined") return false;
+  const wasClassic = localStorage.getItem(LEGACY_EXPERIENCE_STORAGE_KEY) === "classic";
+  localStorage.removeItem(LEGACY_EXPERIENCE_STORAGE_KEY);
+  return wasClassic;
 }
 
 async function persistHomeWidgets(widgets: string[]): Promise<void> {
@@ -107,13 +101,12 @@ async function persistHomeWidgets(widgets: string[]): Promise<void> {
   });
 }
 
-async function persistHomeExperience(experience: HomeExperience): Promise<void> {
-  await apiClient.updatePreferences({ home_experience: experience });
+async function retireClassicHomePreference(): Promise<void> {
+  await apiClient.updatePreferences({ home_experience: "new" });
 }
 
 interface HomeWidgetsState {
   widgets: string[];
-  experience: HomeExperience;
   initialized: boolean;
   touched: boolean;
 
@@ -121,22 +114,20 @@ interface HomeWidgetsState {
   addWidget: (id: string) => void;
   removeWidget: (id: string) => void;
   reorderWidgets: (order: string[]) => void;
-  setExperience: (experience: HomeExperience) => void;
   isEnabled: (id: string) => boolean;
   availableToAdd: () => HomeWidgetDefinition[];
 }
 
 export const useHomeWidgetsStore = create<HomeWidgetsState>((set, get) => ({
   widgets: DEFAULT_HOME_WIDGETS,
-  experience: "new",
   initialized: false,
   touched: false,
 
   initialize: () => {
     if (get().initialized) return;
     const localState = readFromLocalStorage();
-    const experience = readExperienceFromLocalStorage();
-    set({ widgets: localState.widgets, experience, initialized: true });
+    const hadLegacyClassicPreference = clearLegacyExperiencePreference();
+    set({ widgets: localState.widgets, initialized: true });
 
     apiClient
       .getSettings()
@@ -165,10 +156,10 @@ export const useHomeWidgetsStore = create<HomeWidgetsState>((set, get) => ({
           });
         }
 
-        const serverExperience = prefs?.home_experience;
-        if (serverExperience === "new" || serverExperience === "classic") {
-          writeExperienceToLocalStorage(serverExperience);
-          set({ experience: serverExperience });
+        if (hadLegacyClassicPreference || prefs?.home_experience === "classic") {
+          void retireClassicHomePreference().catch((error: unknown) => {
+            console.warn("[home-widgets] Could not retire the Classic Home preference", error);
+          });
         }
       })
       .catch((error: unknown) => {
@@ -208,14 +199,6 @@ export const useHomeWidgetsStore = create<HomeWidgetsState>((set, get) => ({
     set({ widgets: order, touched: true });
     void persistHomeWidgets(order).catch((error: unknown) => {
       console.warn("[home-widgets] Could not sync widget order", error);
-    });
-  },
-
-  setExperience: (experience: HomeExperience) => {
-    writeExperienceToLocalStorage(experience);
-    set({ experience, touched: true });
-    void persistHomeExperience(experience).catch((error: unknown) => {
-      console.warn(`[home-widgets] Could not sync experience choice`, error);
     });
   },
 

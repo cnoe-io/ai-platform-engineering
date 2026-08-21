@@ -1,18 +1,14 @@
 /**
  * Unit tests for the Home Page (app/(app)/page.tsx)
  *
- * The page itself is now a thin switcher between NewHomePage and
- * ClassicHomePage, keyed on the home-widgets-store's `experience` field.
- * Each layout has its own dedicated test file — here we only verify the
- * switch itself.
+ * The page always renders the customizable Home experience.
  *
  * Tests:
  * - AuthGuard: wraps page in AuthGuard
  * - Page structure: data-testid
  * - Calls home-widgets-store initialize() on mount
  * - Always renders the shared welcome banner
- * - Renders NewHomePage when experience is "new" (the default)
- * - Renders ClassicHomePage when experience is "classic"
+ * - Renders NewHomePage as the only Home experience
  */
 
 import React from 'react'
@@ -32,20 +28,15 @@ jest.mock('@/components/home/NewHomePage', () => ({
   NewHomePage: () => <div data-testid="new-home-page-stub" />,
 }))
 
-jest.mock('@/components/home/ClassicHomePage', () => ({
-  ClassicHomePage: () => <div data-testid="classic-home-page-stub" />,
-}))
-
 jest.mock('@/components/home/WelcomeBanner', () => ({
   WelcomeBanner: () => <div data-testid="welcome-banner" />,
 }))
 
 const mockInitialize = jest.fn()
-let mockExperience: 'new' | 'classic' = 'new'
 
 jest.mock('@/store/home-widgets-store', () => ({
   useHomeWidgetsStore: (selector: (state: unknown) => unknown) =>
-    selector({ experience: mockExperience, initialize: mockInitialize }),
+    selector({ initialize: mockInitialize }),
 }))
 
 import HomePage from '../page'
@@ -53,7 +44,6 @@ import HomePage from '../page'
 describe('HomePage', () => {
   beforeEach(() => {
     jest.clearAllMocks()
-    mockExperience = 'new'
   })
 
   it('wraps the page in AuthGuard', () => {
@@ -71,19 +61,9 @@ describe('HomePage', () => {
     expect(mockInitialize).toHaveBeenCalled()
   })
 
-  it('renders NewHomePage when experience is "new"', () => {
-    mockExperience = 'new'
+  it('renders the customizable Home experience', () => {
     render(<HomePage />)
     expect(screen.getByTestId('new-home-page-stub')).toBeInTheDocument()
     expect(screen.getByTestId('welcome-banner')).toBeInTheDocument()
-    expect(screen.queryByTestId('classic-home-page-stub')).not.toBeInTheDocument()
-  })
-
-  it('renders ClassicHomePage when experience is "classic"', () => {
-    mockExperience = 'classic'
-    render(<HomePage />)
-    expect(screen.getByTestId('classic-home-page-stub')).toBeInTheDocument()
-    expect(screen.getByTestId('welcome-banner')).toBeInTheDocument()
-    expect(screen.queryByTestId('new-home-page-stub')).not.toBeInTheDocument()
   })
 })

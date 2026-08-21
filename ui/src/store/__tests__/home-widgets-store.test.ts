@@ -34,7 +34,6 @@ describe("home widgets store",() => {
     mockStorageMode = "mongodb";
     useHomeWidgetsStore.setState({
       widgets: DEFAULT_HOME_WIDGETS,
-      experience: "new",
       initialized: false,
       touched: false,
     });
@@ -238,43 +237,25 @@ describe("home widgets store",() => {
     ]);
   });
 
-  describe("experience toggle",() => {
-    it("defaults to the new experience",() => {
-      expect(useHomeWidgetsStore.getState().experience).toBe("new");
-    });
-
-    it("setExperience switches to classic and persists it to localStorage",() => {
-      act(() => useHomeWidgetsStore.getState().setExperience("classic"));
-
-      expect(useHomeWidgetsStore.getState().experience).toBe("classic");
-      expect(localStorage.getItem("caipe-home-experience")).toBe("classic");
-    });
-
-    it("setExperience fires a best-effort sync to the server",() => {
-      updatePreferencesMock.mockResolvedValue({});
-      act(() => useHomeWidgetsStore.getState().setExperience("classic"));
-
-      expect(updatePreferencesMock).toHaveBeenCalledWith({ home_experience: "classic" });
-    });
-
-    it("initialize hydrates the experience from localStorage first",() => {
+  describe("Classic Home preference migration",() => {
+    it("removes the retired local Classic Home preference",() => {
       localStorage.setItem("caipe-home-experience", "classic");
       getSettingsMock.mockReturnValue(new Promise(() => {}));
 
       act(() => useHomeWidgetsStore.getState().initialize());
 
-      expect(useHomeWidgetsStore.getState().experience).toBe("classic");
+      expect(localStorage.getItem("caipe-home-experience")).toBeNull();
     });
 
-    it("initialize merges an untouched server experience choice",async () => {
+    it("migrates a saved server preference to the customizable Home",async () => {
       getSettingsMock.mockResolvedValue({ preferences: { home_experience: "classic" } });
+      updatePreferencesMock.mockResolvedValue({});
 
       act(() => useHomeWidgetsStore.getState().initialize());
 
       await waitFor(() => {
-        expect(useHomeWidgetsStore.getState().experience).toBe("classic");
+        expect(updatePreferencesMock).toHaveBeenCalledWith({ home_experience: "new" });
       });
-      expect(localStorage.getItem("caipe-home-experience")).toBe("classic");
     });
   });
 });

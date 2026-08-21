@@ -1,6 +1,5 @@
 "use client";
 
-import { HomeExperienceToggle } from "@/components/home/HomeExperienceToggle";
 import { HomeWidgetFrame } from "@/components/home/HomeWidgetFrame";
 import { HOME_WIDGET_COMPONENTS } from "@/components/home/widget-registry";
 import { Button } from "@/components/ui/button";
@@ -28,7 +27,6 @@ export function NewHomePage() {
   const widgets = useHomeWidgetsStore((s) => s.widgets);
   const addWidget = useHomeWidgetsStore((s) => s.addWidget);
   const reorderWidgets = useHomeWidgetsStore((s) => s.reorderWidgets);
-  const setExperience = useHomeWidgetsStore((s) => s.setExperience);
   const sensors = useSensors(
     useSensor(PointerSensor),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
@@ -54,13 +52,6 @@ export function NewHomePage() {
   return (
     <div className="space-y-3">
       <div className="flex min-h-7 items-center justify-end gap-1" data-testid="home-toolbar">
-        <HomeExperienceToggle
-          label="Classic Home"
-          ariaLabel="Switch to classic Home"
-          onClick={() => setExperience("classic")}
-          testId="switch-to-classic-home"
-        />
-
         {availableToAdd.length > 0 && (
           <Popover>
             <PopoverTrigger asChild>
