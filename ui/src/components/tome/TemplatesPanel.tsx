@@ -1,30 +1,36 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronDown, ChevronRight, Loader2, RefreshCw, ShieldQuestion, Wand2 } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  FileQuestion,
+  Loader2,
+  Sparkles,
+  Wrench,
+} from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { PanelShell } from "@/components/tome/PanelHeader";
 import { TomeLoading } from "@/components/tome/TomeLoading";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import type { PageDrift, PageDriftStatus } from "@/lib/tome/template-drift";
+import type { PageDrift } from "@/lib/tome/template-drift";
 import { cn } from "@/lib/utils";
 
 /**
  * "Check for template drift" (#508): its own tab, not folded into the
  * ingest panel.
  *
- * Two independent axes, never collapsed into one label:
- * - version (structural, free, always known): missing / not from a
- *   template / old version / up to date.
- * - content (only known once a check runs): not checked / content ok /
- *   drifted. A page can be up to date AND drifted — version staleness
- *   doesn't catch every way content can diverge from template guidance.
+ * The page is organized around what a user actually does here, in order:
+ * see what's wrong -> understand each problem -> fix it. Everything that's
+ * fine recedes; the full page-by-page tree is opt-in, not the default view.
  *
- * The structural pass runs automatically on open (free, no LLM); content
- * checks are explicit, separate actions since they're real model calls.
- * "Resolve" (#487) only ever acts on the report currently on screen.
+ * Version (structural, free, always known) and content (only known once a
+ * check runs) are different axes - a page can be on the current template
+ * version and still have drifted content - but that distinction shows up
+ * in each finding's own explanation, not as two badges on every row.
  */
 
 interface Props {
@@ -34,18 +40,6 @@ interface Props {
 }
 
 const TOP_LEVEL_GROUP = "Top-level";
-
-type FilterKey = "all" | "attention" | PageDriftStatus | "drifted";
-
-const FILTERS: { key: FilterKey; label: string }[] = [
-  { key: "all", label: "All" },
-  { key: "attention", label: "Needs attention" },
-  { key: "missing", label: "Missing" },
-  { key: "version_behind", label: "Old version" },
-  { key: "drifted", label: "Drifted" },
-  { key: "unbound", label: "Not from a template" },
-  { key: "current", label: "Up to date" },
-];
 
 function isDrifted(p: PageDrift): boolean {
   return p.drifted === true;
@@ -59,66 +53,19 @@ function needsAttention(p: PageDrift): boolean {
   return p.status === "version_behind" && p.drifted == null;
 }
 
-const VERSION_BADGE: Record<
-  PageDriftStatus,
-  { label: string; className: string; tooltip: string }
-> = {
-  missing: {
-    label: "Missing",
-    className: "bg-destructive/10 text-destructive border-transparent",
-    tooltip: "This page doesn't exist yet. The page template expects it, but nothing has created it.",
-  },
-  unbound: {
-    label: "Not from a template",
-    className: "bg-muted text-muted-foreground border-transparent",
-    tooltip:
-      "This page isn't seeded from a page template: either a manual addition, or it predates template binding and hasn't been re-ingested since.",
-  },
-  version_behind: {
-    label: "Old version",
-    className: "bg-amber-950/30 text-amber-400 border-transparent",
-    tooltip: "This page was bound to an older version of its template. The template has since been edited.",
-  },
-  current: {
-    label: "Up to date",
-    className: "bg-emerald-950/30 text-emerald-400 border-transparent",
-    tooltip: "This page is bound to the template's current version.",
-  },
-};
-
-function contentBadge(
-  p: PageDrift,
-  pending: boolean,
-): { label: string; className: string; tooltip: string } | null {
-  if (pending) {
-    return {
-      label: "checking",
-      className: "bg-muted text-muted-foreground border-transparent",
-      tooltip: "Checking this page's body against its template's current guidance.",
-    };
+/** Why this specific page is in the attention list, in plain language -
+ * the LLM's own drift explanation surfaces here, not three levels deep. */
+function findingExplanation(p: PageDrift): string {
+  if (p.status === "missing") {
+    return "Its template expects this page, but nothing has created it yet.";
   }
-  if (p.status === "missing" || p.status === "unbound") return null;
   if (p.drifted === true) {
-    return {
-      label: "Drifted",
-      className: "bg-amber-950/30 text-amber-400 border-transparent",
-      tooltip:
-        "A content check found this page's body no longer satisfies its template's current guidance, independent of whether its version is up to date.",
-    };
+    return p.reason
+      ? p.reason
+      : "A content check found this page no longer matches its template's current guidance.";
   }
-  if (p.drifted === false) {
-    return {
-      label: "Content ok",
-      className: "bg-emerald-950/30 text-emerald-400 border-transparent",
-      tooltip: "A content check confirmed this page's body still satisfies its template's current guidance.",
-    };
-  }
-  return {
-    label: "Not checked",
-    className: "bg-muted/50 text-muted-foreground/70 border-dashed",
-    tooltip:
-      "Content hasn't been checked yet. Being up to date on version doesn't guarantee the content itself still matches; run a content check to find out.",
-  };
+  // version_behind, not yet content-checked
+  return "Bound to an older version of its template. Content hasn't been checked yet, so it may or may not still match.";
 }
 
 function groupOf(path: string): string {
@@ -158,28 +105,83 @@ async function fetchDrift(
   return json.data.pages as PageDrift[];
 }
 
+type RunningTask =
+  | { kind: "structural" }
+  | { kind: "content"; scope: "out_of_date" | "all_bound"; count: number }
+  | { kind: "fixing"; count: number };
+
+function RunningBanner({ task }: { task: RunningTask }) {
+  const label =
+    task.kind === "structural"
+      ? "Rescanning page versions against templates..."
+      : task.kind === "content"
+        ? `Checking content on ${task.count} page${task.count === 1 ? "" : "s"} against ${task.scope === "all_bound" ? "their" : "its"} template's guidance...`
+        : `Fixing ${task.count} flagged page${task.count === 1 ? "" : "s"}...`;
+  return (
+    <div className="flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2.5 text-sm">
+      <Loader2 className="h-4 w-4 shrink-0 animate-spin text-primary" />
+      <span>{label}</span>
+    </div>
+  );
+}
+
+function StatCard({
+  label,
+  count,
+  tone,
+  icon,
+}: {
+  label: string;
+  count: number;
+  tone: "attention" | "neutral" | "good";
+  icon: React.ReactNode;
+}) {
+  return (
+    <div
+      className={cn(
+        "flex flex-1 items-center gap-2.5 rounded-lg border px-3 py-2.5",
+        tone === "attention" && count > 0
+          ? "border-amber-500/30 bg-amber-950/20"
+          : "border-border bg-muted/20",
+      )}
+    >
+      <div
+        className={cn(
+          "flex h-7 w-7 shrink-0 items-center justify-center rounded-full",
+          tone === "attention" && count > 0
+            ? "bg-amber-950/40 text-amber-400"
+            : tone === "good"
+              ? "bg-emerald-950/30 text-emerald-400"
+              : "bg-muted text-muted-foreground",
+        )}
+      >
+        {icon}
+      </div>
+      <div>
+        <div className="text-lg font-semibold leading-none">{count}</div>
+        <div className="text-xs text-muted-foreground">{label}</div>
+      </div>
+    </div>
+  );
+}
+
 export function TemplatesPanel({ slug, onNavigate, onIngestStarted }: Props) {
   const [checking, setChecking] = useState(false);
-  const [checkingContent, setCheckingContent] = useState(false);
-  const [contentCheckScope, setContentCheckScope] = useState<"out_of_date" | "all_bound" | null>(
-    null,
-  );
-  const [resolving, setResolving] = useState(false);
+  const [running, setRunning] = useState<RunningTask | null>(null);
   const [report, setReport] = useState<PageDrift[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [checkedAt, setCheckedAt] = useState<Date | null>(null);
-  const [filter, setFilter] = useState<FilterKey>("attention");
+  const [browseOpen, setBrowseOpen] = useState(false);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
 
   const checkStructural = useCallback(async () => {
     setChecking(true);
+    setRunning({ kind: "structural" });
     setError(null);
     try {
       const structural = await fetchDrift(slug, false);
       setReport(structural);
       setCheckedAt(new Date());
-      // Open only the groups that need a look; collapse the rest (e.g. a
-      // wiki with 40 glossary entries shouldn't dump all of them on screen).
       const quiet = groupPages(structural)
         .filter(([, pages]) => !pages.some(needsAttention))
         .map(([group]) => group);
@@ -188,6 +190,7 @@ export function TemplatesPanel({ slug, onNavigate, onIngestStarted }: Props) {
       setError(String((e as Error)?.message ?? e));
     } finally {
       setChecking(false);
+      setRunning(null);
     }
   }, [slug]);
 
@@ -196,9 +199,8 @@ export function TemplatesPanel({ slug, onNavigate, onIngestStarted }: Props) {
   }, [checkStructural]);
 
   const checkContent = useCallback(
-    async (scope: "out_of_date" | "all_bound") => {
-      setCheckingContent(true);
-      setContentCheckScope(scope);
+    async (scope: "out_of_date" | "all_bound", count: number) => {
+      setRunning({ kind: "content", scope, count });
       setError(null);
       try {
         const full = await fetchDrift(slug, true, scope);
@@ -207,16 +209,15 @@ export function TemplatesPanel({ slug, onNavigate, onIngestStarted }: Props) {
       } catch (e) {
         setError(String((e as Error)?.message ?? e));
       } finally {
-        setCheckingContent(false);
-        setContentCheckScope(null);
+        setRunning(null);
       }
     },
     [slug],
   );
 
-  const resolve = useCallback(async () => {
+  const resolve = useCallback(async (count: number) => {
     if (!report) return;
-    setResolving(true);
+    setRunning({ kind: "fixing", count });
     setError(null);
     try {
       const res = await fetch(`/api/tome/projects/${slug}/template-drift/resolve`, {
@@ -226,14 +227,14 @@ export function TemplatesPanel({ slug, onNavigate, onIngestStarted }: Props) {
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error(json?.error || `resolve failed (${res.status})`);
+        throw new Error(json?.error || `fix failed (${res.status})`);
       }
       if (json.data.runId) onIngestStarted(json.data.runId as string);
       else void checkStructural(); // nothing needed an ingest; just refresh
     } catch (e) {
       setError(String((e as Error)?.message ?? e));
     } finally {
-      setResolving(false);
+      setRunning(null);
     }
   }, [slug, report, onIngestStarted, checkStructural]);
 
@@ -246,204 +247,212 @@ export function TemplatesPanel({ slug, onNavigate, onIngestStarted }: Props) {
     });
   }, []);
 
-  const oldVersionUnchecked =
-    report?.filter((p) => p.status === "version_behind" && p.drifted == null) ?? [];
-  const boundUnchecked =
-    report?.filter(
-      (p) => (p.status === "version_behind" || p.status === "current") && p.drifted == null,
-    ) ?? [];
-  const attention = report?.filter(needsAttention) ?? [];
-  const visible = useMemo(() => {
-    if (!report) return [];
-    if (filter === "all") return report;
-    if (filter === "attention") return report.filter(needsAttention);
-    if (filter === "drifted") return report.filter(isDrifted);
-    return report.filter((p) => p.status === filter);
-  }, [report, filter]);
-  const groups = useMemo(() => groupPages(visible), [visible]);
+  const attention = useMemo(() => report?.filter(needsAttention) ?? [], [report]);
+  const unbound = useMemo(() => report?.filter((p) => p.status === "unbound").length ?? 0, [report]);
+  const current = useMemo(() => report?.filter((p) => p.status === "current").length ?? 0, [report]);
+  const oldVersionUnchecked = useMemo(
+    () => report?.filter((p) => p.status === "version_behind" && p.drifted == null) ?? [],
+    [report],
+  );
+  const boundUnchecked = useMemo(
+    () =>
+      report?.filter(
+        (p) => (p.status === "version_behind" || p.status === "current") && p.drifted == null,
+      ) ?? [],
+    [report],
+  );
+  const groups = useMemo(() => groupPages(report ?? []), [report]);
+
+  const busy = checking || running != null;
 
   return (
     <PanelShell
       title="Template drift"
       description="See which wiki pages are missing, on an old template version, or no longer match their template's guidance."
     >
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      {error && <p className="mb-3 text-sm text-destructive">{error}</p>}
 
       {checking && !report ? (
         <TomeLoading variant="list" rows={4} />
       ) : (
         report && (
-          <div className="space-y-3">
-            {/* Status + actions live together as their own row, separate
-                from the panel title. */}
-            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-muted/30 px-3 py-2">
-              <p className="text-sm text-muted-foreground">
-                {checkedAt && `Checked ${checkedAt.toLocaleTimeString()}. `}
-                {report.length} template-related page{report.length === 1 ? "" : "s"},{" "}
-                {attention.length} need attention.
+          <div className="space-y-4">
+            {running && <RunningBanner task={running} />}
+
+            {/* Status, at a glance - no reading required. */}
+            <div className="flex flex-wrap gap-2">
+              <StatCard
+                label="need attention"
+                count={attention.length}
+                tone="attention"
+                icon={<AlertTriangle className="h-3.5 w-3.5" />}
+              />
+              <StatCard
+                label="not from a template"
+                count={unbound}
+                tone="neutral"
+                icon={<FileQuestion className="h-3.5 w-3.5" />}
+              />
+              <StatCard
+                label="up to date"
+                count={current}
+                tone="good"
+                icon={<CheckCircle2 className="h-3.5 w-3.5" />}
+              />
+            </div>
+            {checkedAt && (
+              <p className="text-xs text-muted-foreground">
+                Last checked {checkedAt.toLocaleTimeString()}.
               </p>
-              <div className="flex flex-wrap items-center gap-2">
-                {oldVersionUnchecked.length > 0 && (
+            )}
+
+            {/* The actual work: what's wrong, explained, one card each. */}
+            {attention.length === 0 ? (
+              <div className="flex items-center gap-2 rounded-lg border border-emerald-500/20 bg-emerald-950/10 px-3 py-3 text-sm text-emerald-400">
+                <CheckCircle2 className="h-4 w-4 shrink-0" />
+                Nothing needs attention right now.
+              </div>
+            ) : (
+              <ul className="space-y-2">
+                {attention.map((p) => (
+                  <li
+                    key={p.path}
+                    className="rounded-lg border border-amber-500/20 bg-amber-950/10 px-3 py-2.5 text-sm"
+                  >
+                    <div className="flex flex-wrap items-baseline gap-1.5">
+                      {p.status === "missing" ? (
+                        <span className="font-mono font-medium">{p.path}</span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => onNavigate(p.path)}
+                          className="font-mono font-medium hover:underline"
+                        >
+                          {p.path}
+                        </button>
+                      )}
+                    </div>
+                    <p className="mt-1 text-muted-foreground">{findingExplanation(p)}</p>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {/* Actions: named for what happens, with the cost spelled out
+                so nobody clicks "Check" without knowing what it does. */}
+            <div className="space-y-2 rounded-lg border bg-muted/20 p-3">
+              <p className="text-xs font-medium text-muted-foreground">Actions</p>
+
+              {oldVersionUnchecked.length > 0 && (
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm text-muted-foreground">
+                    Ask AI to compare {oldVersionUnchecked.length} old-version page
+                    {oldVersionUnchecked.length === 1 ? "" : "s"} against current template guidance.
+                  </p>
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={() => void checkContent("out_of_date")}
-                    disabled={checkingContent || checking}
+                    onClick={() => void checkContent("out_of_date", oldVersionUnchecked.length)}
+                    disabled={busy}
                   >
-                    {checkingContent && contentCheckScope === "out_of_date" ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <ShieldQuestion className="h-3.5 w-3.5" />
-                    )}
-                    Check {oldVersionUnchecked.length} old-version page
-                    {oldVersionUnchecked.length === 1 ? "" : "s"}
+                    <Sparkles className="h-3.5 w-3.5" />
+                    Check content
                   </Button>
-                )}
-                {boundUnchecked.length > 0 && (
+                </div>
+              )}
+
+              {boundUnchecked.length > oldVersionUnchecked.length && (
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm text-muted-foreground">
+                    Same check, but also covers pages already on the current version
+                    (content can drift even without a version change) &mdash; {boundUnchecked.length} page
+                    {boundUnchecked.length === 1 ? "" : "s"} total.
+                  </p>
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={() => void checkContent("all_bound")}
-                    disabled={checkingContent || checking}
+                    onClick={() => void checkContent("all_bound", boundUnchecked.length)}
+                    disabled={busy}
                   >
-                    {checkingContent && contentCheckScope === "all_bound" ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <ShieldQuestion className="h-3.5 w-3.5" />
-                    )}
-                    Check all {boundUnchecked.length} templated page{boundUnchecked.length === 1 ? "" : "s"}
+                    <Sparkles className="h-3.5 w-3.5" />
+                    Check everything
+                  </Button>
+                </div>
+              )}
+
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm text-muted-foreground">
+                  {attention.length > 0
+                    ? `Create missing pages and re-ingest anything flagged above (${attention.length} page${attention.length === 1 ? "" : "s"}) so it matches its template.`
+                    : "Rescan page versions against templates. Free, no AI involved."}
+                </p>
+                {attention.length > 0 ? (
+                  <Button size="sm" onClick={() => void resolve(attention.length)} disabled={busy}>
+                    <Wrench className="h-3.5 w-3.5" />
+                    Fix flagged pages
+                  </Button>
+                ) : (
+                  <Button size="sm" variant="outline" onClick={() => void checkStructural()} disabled={busy}>
+                    <Wrench className="h-3.5 w-3.5" />
+                    Rescan
                   </Button>
                 )}
-                {attention.length > 0 && (
-                  <Button size="sm" onClick={() => void resolve()} disabled={resolving}>
-                    {resolving ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <Wand2 className="h-3.5 w-3.5" />
-                    )}
-                    Resolve
-                  </Button>
-                )}
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => void checkStructural()}
-                  disabled={checking}
-                >
-                  <RefreshCw className={cn("h-3.5 w-3.5", checking && "animate-spin")} />
-                  Recheck
-                </Button>
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-1.5">
-              {FILTERS.map((f) => {
-                const count =
-                  f.key === "all"
-                    ? report.length
-                    : f.key === "attention"
-                      ? attention.length
-                      : f.key === "drifted"
-                        ? report.filter(isDrifted).length
-                        : report.filter((p) => p.status === f.key).length;
-                return (
-                  <button
-                    key={f.key}
-                    type="button"
-                    onClick={() => setFilter(f.key)}
-                    className={cn(
-                      "flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition-colors",
-                      filter === f.key
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-muted text-muted-foreground hover:bg-muted/70",
-                    )}
-                  >
-                    {f.label}
-                    <Badge
-                      variant="outline"
-                      className={cn(
-                        "h-4 min-w-4 justify-center px-1 text-[10px] leading-none",
-                        filter === f.key ? "border-primary-foreground/40" : "border-transparent bg-background/60",
-                      )}
-                    >
-                      {count}
-                    </Badge>
-                  </button>
-                );
-              })}
-            </div>
-
-            {groups.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Nothing in this filter.</p>
-            ) : (
-              <div className="divide-y rounded-lg border">
-                {groups.map(([group, pages]) => {
-                  const collapsed = collapsedGroups.has(group);
-                  const groupAttention = pages.filter(needsAttention).length;
-                  return (
-                    <div key={group}>
-                      <button
-                        type="button"
-                        onClick={() => toggleGroup(group)}
-                        className="flex w-full items-center gap-1.5 bg-muted/20 px-3 py-1.5 text-left text-xs font-medium text-muted-foreground hover:bg-muted/40"
-                      >
-                        {collapsed ? (
-                          <ChevronRight className="h-3.5 w-3.5" />
-                        ) : (
-                          <ChevronDown className="h-3.5 w-3.5" />
-                        )}
-                        <span className="font-mono">{group}</span>
-                        <span>({pages.length})</span>
-                        {groupAttention > 0 && (
-                          <span className="ml-1 rounded-full bg-amber-950/30 px-1.5 py-0.5 text-[10px] text-amber-400">
-                            {groupAttention} need attention
-                          </span>
-                        )}
-                      </button>
-                      {!collapsed && (
-                        <ul className="divide-y">
-                          {pages.map((p) => {
-                            const pending =
-                              checkingContent &&
-                              p.drifted == null &&
-                              (p.status === "version_behind" ||
-                                (p.status === "current" && contentCheckScope === "all_bound"));
-                            const cBadge = contentBadge(p, pending);
-                            return (
+            {/* Everything else - opt-in, not part of the health-check flow. */}
+            <div className="rounded-lg border">
+              <button
+                type="button"
+                onClick={() => setBrowseOpen((v) => !v)}
+                className="flex w-full items-center gap-1.5 px-3 py-2 text-left text-sm font-medium text-muted-foreground hover:bg-muted/40"
+              >
+                {browseOpen ? (
+                  <ChevronDown className="h-3.5 w-3.5" />
+                ) : (
+                  <ChevronRight className="h-3.5 w-3.5" />
+                )}
+                Browse all {report.length} template-related pages
+              </button>
+              {browseOpen && (
+                <div className="divide-y border-t">
+                  {groups.map(([group, pages]) => {
+                    const collapsed = collapsedGroups.has(group);
+                    return (
+                      <div key={group}>
+                        <button
+                          type="button"
+                          onClick={() => toggleGroup(group)}
+                          className="flex w-full items-center gap-1.5 bg-muted/20 px-3 py-1.5 text-left text-xs font-medium text-muted-foreground hover:bg-muted/40"
+                        >
+                          {collapsed ? (
+                            <ChevronRight className="h-3.5 w-3.5" />
+                          ) : (
+                            <ChevronDown className="h-3.5 w-3.5" />
+                          )}
+                          <span className="font-mono">{group}</span>
+                          <span>({pages.length})</span>
+                        </button>
+                        {!collapsed && (
+                          <ul className="divide-y">
+                            {pages.map((p) => (
                               <li key={p.path} className="flex items-start gap-1.5 px-3 py-2 text-sm">
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <Badge
-                                      className={cn(
-                                        "mt-0.5 shrink-0 cursor-default text-[11px] font-medium normal-case",
-                                        VERSION_BADGE[p.status].className,
-                                      )}
-                                    >
-                                      {VERSION_BADGE[p.status].label}
-                                    </Badge>
-                                  </TooltipTrigger>
-                                  <TooltipContent side="bottom" className="max-w-64 whitespace-normal text-xs">
-                                    {VERSION_BADGE[p.status].tooltip}
-                                  </TooltipContent>
-                                </Tooltip>
-                                {cBadge && (
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <Badge
-                                        className={cn(
-                                          "mt-0.5 flex shrink-0 items-center gap-1 cursor-default text-[11px] font-medium normal-case",
-                                          cBadge.className,
-                                        )}
-                                      >
-                                        {pending && <Loader2 className="h-3 w-3 animate-spin" />}
-                                        {cBadge.label}
-                                      </Badge>
-                                    </TooltipTrigger>
-                                    <TooltipContent side="bottom" className="max-w-64 whitespace-normal text-xs">
-                                      {cBadge.tooltip}
-                                    </TooltipContent>
-                                  </Tooltip>
-                                )}
+                                <Badge
+                                  variant="outline"
+                                  className="mt-0.5 shrink-0 text-[11px] font-medium normal-case"
+                                >
+                                  {p.status === "missing"
+                                    ? "Missing"
+                                    : p.status === "unbound"
+                                      ? "Not from a template"
+                                      : p.status === "version_behind"
+                                        ? p.drifted === true
+                                          ? "Old version, drifted"
+                                          : "Old version"
+                                        : p.drifted === true
+                                          ? "Drifted"
+                                          : "Up to date"}
+                                </Badge>
                                 <span className="flex-1">
                                   {p.status === "missing" ? (
                                     <span className="font-mono text-muted-foreground">{p.path}</span>
@@ -463,15 +472,15 @@ export function TemplatesPanel({ slug, onNavigate, onIngestStarted }: Props) {
                                   )}
                                 </span>
                               </li>
-                            );
-                          })}
-                        </ul>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
         )
       )}
