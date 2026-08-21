@@ -115,16 +115,17 @@ describe("agent completion notifications",() => {
     expect(notifications[0]).toMatchObject({
       title: "Example agent finished",
       body: "Your response is ready.",
-      tag: "caipe-agent-completion-conversation-primary",
+      tag: "caipe-agent-completion-conversation-primary-message-primary",
     });
   });
 
   it("prefers persistent service-worker notification delivery",async () => {
     const showNotification = jest.fn(async () => undefined);
-    const register = jest.fn(async () => ({ showNotification }));
+    const registration = { active: {},showNotification };
+    const register = jest.fn(async () => registration);
     Object.defineProperty(navigator,"serviceWorker",{
       configurable: true,
-      value: { register },
+      value: { ready: Promise.resolve(registration),register },
     });
 
     const result = await deliverAgentCompletionAlert(
@@ -144,10 +145,38 @@ describe("agent completion notifications",() => {
       "Example agent finished",
       expect.objectContaining({
         body: "Your response is ready.",
-        tag: "caipe-agent-completion-conversation-primary",
+        renotify: true,
+        requireInteraction: true,
+        silent: false,
+        tag: "caipe-agent-completion-conversation-primary-message-primary",
       }),
     );
     expect(notifications).toHaveLength(0);
+  });
+
+  it("waits for a newly registered service worker to become active",async () => {
+    const showNotification = jest.fn(async () => undefined);
+    const installingRegistration = { active: null,showNotification };
+    const activeRegistration = { active: {},showNotification };
+    const register = jest.fn(async () => installingRegistration);
+    Object.defineProperty(navigator,"serviceWorker",{
+      configurable: true,
+      value: { ready: Promise.resolve(activeRegistration),register },
+    });
+
+    const result = await deliverAgentCompletionAlert(
+      {
+        agentName: "Example agent",
+        conversationId: "conversation-secondary",
+        messageId: "message-secondary",
+      },
+      {
+        preferences: { browserEnabled: true,chimeEnabled: false },
+      },
+    );
+
+    expect(result.notificationShown).toBe(true);
+    expect(showNotification).toHaveBeenCalledTimes(1);
   });
 
   it("does not interrupt a user who is already looking at CAIPE",async () => {
