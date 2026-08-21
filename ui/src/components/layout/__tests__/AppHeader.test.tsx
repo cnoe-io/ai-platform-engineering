@@ -318,7 +318,7 @@ import {
   useRegisterApplicationNavigation,
 } from '../ApplicationNavigationContext'
 
-function AdminNavigationFixture() {
+function AdminNavigationFixture({ version = 'users' }: { version?: string }) {
   useRegisterApplicationNavigation({
     areaKey: 'admin',
     content: (
@@ -326,7 +326,7 @@ function AdminNavigationFixture() {
         <Link data-navigation-leaf="true" href="/admin/people/users">Users</Link>
       </nav>
     ),
-    version: 'users',
+    version,
   })
   return null
 }
@@ -567,6 +567,22 @@ describe('AppHeader — application chrome', () => {
 
       expect(applicationButton('Admin')).toHaveAttribute('aria-expanded', 'false')
       expect(applicationButton('Knowledge Bases')).toHaveAttribute('aria-expanded', 'true')
+    })
+
+    it('keeps Admin expanded while its registered destination changes', () => {
+      mockStorageMode = 'mongodb'
+      mockIsAdmin = true
+      mockPathname = '/admin/people/users'
+
+      const { rerender } = render(<AdminNavigationFixture version="users" />)
+
+      const navigation = screen.getByRole('navigation', { name: 'Admin sections' })
+      expect(applicationButton('Admin')).toHaveAttribute('aria-expanded', 'true')
+
+      rerender(<AdminNavigationFixture version="skill-hubs" />)
+
+      expect(applicationButton('Admin')).toHaveAttribute('aria-expanded', 'true')
+      expect(screen.getByRole('navigation', { name: 'Admin sections' })).toBe(navigation)
     })
 
     it('opens inactive section navigation on hover and highlights only the current item', () => {
