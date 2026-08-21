@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
+  BookOpen,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
@@ -395,15 +396,6 @@ export function TemplatesPanel({ slug, onNavigate, onIngestStarted }: Props) {
     <PanelShell
       title="Template drift"
       description="See which wiki pages are missing, on an old template version, or no longer match their template's guidance."
-      action={
-        <button
-          type="button"
-          onClick={() => setTemplatesDialogOpen(true)}
-          className="text-sm text-muted-foreground underline-offset-2 hover:underline"
-        >
-          View current templates
-        </button>
-      }
     >
       <ViewTemplatesDialog open={templatesDialogOpen} onOpenChange={setTemplatesDialogOpen} />
       {error && <p className="mb-3 text-sm text-destructive">{error}</p>}
@@ -508,6 +500,16 @@ export function TemplatesPanel({ slug, onNavigate, onIngestStarted }: Props) {
                     Rescan
                   </Button>
                 )}
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-2">
+                <p className="text-sm text-muted-foreground">
+                  See the current page-template config every page above is checked against.
+                </p>
+                <Button size="sm" variant="ghost" onClick={() => setTemplatesDialogOpen(true)}>
+                  <BookOpen className="h-3.5 w-3.5" />
+                  View current templates
+                </Button>
               </div>
             </div>
 

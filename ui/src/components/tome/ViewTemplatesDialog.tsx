@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Loader2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import {
@@ -11,12 +11,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { cn } from "@/lib/utils";
 
 interface StoredPageSpec {
   path: string;
   kind: string;
   title: string;
   order: number;
+  body?: string;
   enabled?: boolean;
 }
 
@@ -34,6 +36,50 @@ const SCOPE_LABEL: Record<string, string> = {
   confluence: "Confluence spaces",
   webex: "Webex rooms",
 };
+
+function TemplatePageRow({ page }: { page: StoredPageSpec }) {
+  const [expanded, setExpanded] = useState(false);
+  const hasBody = Boolean(page.body?.trim());
+  return (
+    <li className="px-3 py-2 text-sm">
+      <button
+        type="button"
+        onClick={() => hasBody && setExpanded((v) => !v)}
+        className={cn(
+          "flex w-full items-start gap-2 text-left",
+          hasBody ? "cursor-pointer" : "cursor-default",
+        )}
+      >
+        {hasBody ? (
+          expanded ? (
+            <ChevronDown className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          ) : (
+            <ChevronRight className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          )
+        ) : (
+          <span className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+        )}
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-baseline gap-1.5">
+            <span className="font-medium">{page.title}</span>
+            <span className="font-mono text-xs text-muted-foreground">{page.path}</span>
+            {page.enabled === false && (
+              <Badge variant="outline" className="text-[10px] normal-case">
+                disabled
+              </Badge>
+            )}
+          </div>
+          <div className="text-xs text-muted-foreground">{page.kind}</div>
+        </div>
+      </button>
+      {expanded && hasBody && (
+        <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap rounded-md bg-muted/30 p-3 font-mono text-xs text-muted-foreground">
+          {page.body}
+        </pre>
+      )}
+    </li>
+  );
+}
 
 export function ViewTemplatesDialog({
   open,
@@ -72,7 +118,8 @@ export function ViewTemplatesDialog({
           <DialogTitle>Page templates</DialogTitle>
           <DialogDescription>
             The current page-template config every wiki is checked against. Defined by an admin
-            (Project settings &gt; Page templates); read-only here.
+            (Project settings &gt; Page templates); read-only here. Click a page to see its seed
+            content.
           </DialogDescription>
         </DialogHeader>
 
@@ -99,21 +146,7 @@ export function ViewTemplatesDialog({
                 </div>
                 <ul className="divide-y">
                   {t.pages.map((p) => (
-                    <li
-                      key={p.path}
-                      className="flex items-center gap-2 px-3 py-1.5 text-sm"
-                    >
-                      <Badge variant="outline" className="shrink-0 text-[11px] normal-case">
-                        {p.kind}
-                      </Badge>
-                      <span className="font-mono text-muted-foreground">{p.path}</span>
-                      <span className="flex-1 truncate">{p.title}</span>
-                      {p.enabled === false && (
-                        <Badge variant="outline" className="shrink-0 text-[11px] normal-case">
-                          disabled
-                        </Badge>
-                      )}
-                    </li>
+                    <TemplatePageRow key={p.path} page={p} />
                   ))}
                 </ul>
               </div>
