@@ -779,6 +779,8 @@ export function UserDetailModal({
                         </span>
                         {webexUserEmail ? (
                           <span className="text-xs text-muted-foreground">{webexUserEmail}</span>
+                        ) : webexUserId ? (
+                          <span className="font-mono text-xs text-muted-foreground">{webexUserId}</span>
                         ) : null}
                       </span>
                     ) : (
