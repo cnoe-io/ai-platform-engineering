@@ -5,8 +5,7 @@ import { BUILT_IN_OAUTH_CONNECTORS } from "@/lib/credentials/built-in-oauth-conn
 import { exchangeOAuthToken } from "@/lib/credentials/oauth-service-factory";
 import { oauthStateCookieName, parseOAuthStateCookie } from "@/lib/credentials/oauth-state";
 import { getWebexLinkAllowedOrgId, isWebexIdentityLinkingEnabled } from "@/lib/integration-config";
-import { mergeUserAttributes } from "@/lib/rbac/keycloak-admin";
-import { assertWebexIdNotLinkedToOtherUser } from "@/lib/rbac/webex-identity-link";
+import { claimWebexIdentity } from "@/lib/rbac/webex-identity-link";
 
 const WEBEX_LINK_PROVIDER_KEY = "webex-link";
 const SETTINGS_PATH = "/settings/account-and-access";
@@ -153,17 +152,15 @@ async function completeLink(request: NextRequest, ownerId: string): Promise<Next
     return errorRedirect(request, "WEBEX_ORG_MISMATCH");
   }
 
+  const webexEmail = person.emails?.[0]?.trim();
   try {
-    await assertWebexIdNotLinkedToOtherUser(person.id, ownerId);
+    await claimWebexIdentity(person.id, ownerId, {
+      webex_user_id: [person.id],
+      webex_user_email: webexEmail ? [webexEmail] : undefined,
+    });
   } catch {
     return errorRedirect(request, "WEBEX_ID_ALREADY_LINKED");
   }
-
-  const webexEmail = person.emails?.[0]?.trim();
-  await mergeUserAttributes(ownerId, {
-    webex_user_id: [person.id],
-    webex_user_email: webexEmail ? [webexEmail] : undefined,
-  });
 
   return settingsRedirect(request, { webex_link: "success" });
 }

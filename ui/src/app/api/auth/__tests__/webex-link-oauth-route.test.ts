@@ -233,6 +233,40 @@ describe("GET /api/auth/webex-link/callback", () => {
     expect(response.headers.get("set-cookie")).toContain("caipe_oauth_state_webex-link=;");
   });
 
+  it("rolls back and rejects when a concurrent grant wins the race after the initial check", async () => {
+    setConfigured();
+    const cookie = await startAndGetCookie();
+    const { oauthStateCookieName, parseOAuthStateCookie } = await import("@/lib/credentials/oauth-state");
+    const cookieValue = cookie.split(`${oauthStateCookieName("webex-link")}=`)[1];
+    const parsed = parseOAuthStateCookie(cookieValue);
+
+    global.fetch = mockFetchSequence({ personId: "person-42", personOrgId: "org-1" });
+    mockFindRealmUserIdByAttribute
+      .mockResolvedValueOnce(null) // pre-write check: no existing owner
+      .mockResolvedValueOnce("kc-user-2"); // post-write check: a concurrent grant won the race
+
+    const { GET } = await import("../webex-link/callback/route");
+    const response = await GET(
+      new NextRequest(
+        `http://localhost:3000/api/auth/webex-link/callback?code=code-1&state=${parsed.state}`,
+        { headers: { cookie } },
+      ),
+    );
+
+    expect(response.status).toBe(302);
+    const location = new URL(response.headers.get("location") ?? "");
+    expect(location.searchParams.get("webex_link")).toBe("error");
+    expect(location.searchParams.get("reason")).toBe("WEBEX_ID_ALREADY_LINKED");
+    expect(mockMergeUserAttributes).toHaveBeenCalledWith("kc-user-1", {
+      webex_user_id: ["person-42"],
+      webex_user_email: undefined,
+    });
+    expect(mockMergeUserAttributes).toHaveBeenCalledWith("kc-user-1", {
+      webex_user_id: undefined,
+      webex_user_email: undefined,
+    });
+  });
+
   it("captures the Webex account's email alongside the person id", async () => {
     setConfigured();
     const cookie = await startAndGetCookie();
