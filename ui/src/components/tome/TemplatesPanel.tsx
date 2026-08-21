@@ -499,7 +499,7 @@ export function TemplatesPanel({ slug, onNavigate, onIngestStarted }: Props) {
                     disabled={busy}
                   >
                     <Sparkles className="h-3.5 w-3.5" />
-                    Check content
+                    Start template drift agent
                   </Button>
                 </div>
               )}
