@@ -12,7 +12,6 @@ import {
   isSlackIntegrationEnabled,
   isWebexIntegrationEnabled,
 } from "@/lib/integration-config";
-import { getRequestOrigin } from "@/app/api/skills/_lib/request-origin";
 import {
   createJsonResponseCacheStore,
   envTtlMs,
@@ -1016,7 +1015,10 @@ export async function GET(request: NextRequest): Promise<Response> {
 async function getPlatformHealth(request: NextRequest): Promise<NextResponse> {
   const config = getServerConfig();
   const serverOnly = getServerOnlyConfig();
-  const selfBase = getRequestOrigin(request);
+  const dynamicAgentsUrl = trimTrailingSlash(config.dynamicAgentsUrl);
+  const ragServerUrl = trimTrailingSlash(
+    envValue("RAG_SERVER_URL") || envValue("NEXT_PUBLIC_RAG_URL") || "http://rag-server:9446",
+  );
   const includeDiagnostics = new URL(request.url).searchParams.get("diagnostics") === "1";
   const capabilityResults = await Promise.all([
     probeHttpCapability({
@@ -1035,7 +1037,7 @@ async function getPlatformHealth(request: NextRequest): Promise<NextResponse> {
           id: "dynamic-agents",
           label: "Dynamic Agents",
           group: "runtime",
-          target: `${selfBase}/api/dynamic-agents/health`,
+          target: `${dynamicAgentsUrl}/healthz`,
           required: true,
           description: "Checks Dynamic Agents when custom agent runtime is enabled.",
           healthyDetail: "Runtime reachable",
@@ -1057,7 +1059,7 @@ async function getPlatformHealth(request: NextRequest): Promise<NextResponse> {
           id: "knowledge-bases",
           label: "Knowledge Bases",
           group: "knowledge",
-          target: `${selfBase}/api/rag/healthz`,
+          target: `${ragServerUrl}/healthz`,
           required: false,
           description: "Checks the RAG API used by Knowledge Bases.",
           healthyDetail: "RAG API reachable",
