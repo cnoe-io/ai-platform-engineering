@@ -89,16 +89,21 @@ class CheckContentDriftTest(TestCase):
 
     def test_current_pages_are_not_checked_by_default(self) -> None:
         import asyncio
-        from unittest.mock import AsyncMock, patch
+        from unittest.mock import MagicMock, patch
+
+        async def fake_run_content_check(prompt, model):
+            return
+            yield  # pragma: no cover - makes this an async generator
 
         candidates = [drift.PageDrift(path="a.md", status="current")]
-        with patch.object(drift, "_run_content_check", new=AsyncMock(return_value=([], None))) as mocked:
+        mocked = MagicMock(side_effect=fake_run_content_check)
+        with patch.object(drift, "_run_content_check", new=mocked):
             asyncio.run(drift.check_content_drift(candidates, {}, {}, include_current=False))
         mocked.assert_not_called()
 
     def test_include_current_checks_already_current_pages_too(self) -> None:
         import asyncio
-        from unittest.mock import AsyncMock, patch
+        from unittest.mock import MagicMock, patch
 
         candidates = [
             drift.PageDrift(
@@ -106,7 +111,12 @@ class CheckContentDriftTest(TestCase):
             )
         ]
         verdicts = [{"path": "a.md", "drifted": True, "reason": "hand-edited, no longer matches guidance"}]
-        with patch.object(drift, "_run_content_check", new=AsyncMock(return_value=(verdicts, None))) as mocked:
+
+        async def fake_run_content_check(prompt, model):
+            yield {"type": "result", "verdicts": verdicts, "error": None}
+
+        mocked = MagicMock(side_effect=fake_run_content_check)
+        with patch.object(drift, "_run_content_check", new=mocked):
             asyncio.run(drift.check_content_drift(candidates, {"a.md": "body"}, {}, include_current=True))
         mocked.assert_called_once()
         self.assertTrue(candidates[0].drifted)

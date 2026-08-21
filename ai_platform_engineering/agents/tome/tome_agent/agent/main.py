@@ -224,9 +224,9 @@ async def template_drift_endpoint(body: TemplateDriftRequest) -> TemplateDriftRe
 async def template_drift_stream_endpoint(body: TemplateDriftRequest):
     """Streaming counterpart to `/template-drift`, content-check only: the
     structural pass is instant, so there's nothing to stream there. Emits
-    one `progress` event per page as its batch completes (a 22-page check
-    otherwise looks like nothing is happening for however long the whole
-    sweep takes), then a final `done` event with the full report."""
+    `token` events for the model's raw text output as each batch runs (so
+    the wait isn't silent even mid-batch), a `progress` event per page as
+    its batch completes, then a final `done` event with the full report."""
     if not _state.ready:
         raise HTTPException(503, "agent not ready")
     fetched = await asyncio.to_thread(http_client.fetch_page_templates)
