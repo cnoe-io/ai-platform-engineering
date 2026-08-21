@@ -15,7 +15,6 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { PanelShell } from "@/components/tome/PanelHeader";
-import { TomeLoading } from "@/components/tome/TomeLoading";
 import type { PageDrift } from "@/lib/tome/template-drift";
 import { cn } from "@/lib/utils";
 
@@ -121,6 +120,36 @@ function RunningBanner({ task }: { task: RunningTask }) {
     <div className="flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2.5 text-sm">
       <Loader2 className="h-4 w-4 shrink-0 animate-spin text-primary" />
       <span>{label}</span>
+    </div>
+  );
+}
+
+/** Skeleton shaped like the real layout below (stat cards, findings,
+ * actions) instead of a generic row list - so the loading state doesn't
+ * flash a different shape than what replaces it. */
+function TemplatesPanelSkeleton() {
+  return (
+    <div className="space-y-4" aria-hidden>
+      <div className="flex flex-wrap gap-2">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <div key={i} className="flex flex-1 items-center gap-2.5 rounded-lg border px-3 py-2.5">
+            <div className="h-7 w-7 shrink-0 animate-pulse rounded-full bg-muted" />
+            <div className="space-y-1.5">
+              <div className="h-5 w-6 animate-pulse rounded bg-muted" />
+              <div className="h-3 w-16 animate-pulse rounded bg-muted/70" />
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="space-y-2">
+        {Array.from({ length: 2 }).map((_, i) => (
+          <div key={i} className="space-y-2 rounded-lg border px-3 py-2.5">
+            <div className={cn("h-4 animate-pulse rounded bg-muted", i === 0 ? "w-1/3" : "w-1/4")} />
+            <div className="h-3 w-4/5 animate-pulse rounded bg-muted/70" />
+          </div>
+        ))}
+      </div>
+      <div className="h-14 animate-pulse rounded-lg border bg-muted/20" />
     </div>
   );
 }
@@ -269,7 +298,7 @@ export function TemplatesPanel({ slug, onNavigate, onIngestStarted }: Props) {
       {error && <p className="mb-3 text-sm text-destructive">{error}</p>}
 
       {checking && !report ? (
-        <TomeLoading variant="list" rows={4} />
+        <TemplatesPanelSkeleton />
       ) : (
         report && (
           <div className="space-y-4">
@@ -342,9 +371,7 @@ export function TemplatesPanel({ slug, onNavigate, onIngestStarted }: Props) {
               {boundUnchecked.length > 0 && (
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <p className="text-sm text-muted-foreground">
-                    Ask AI to compare {boundUnchecked.length} template-bound page
-                    {boundUnchecked.length === 1 ? "" : "s"} against their template&rsquo;s current guidance
-                    &mdash; content can drift even on a page that&rsquo;s on the current version.
+                    {`Ask AI to compare ${boundUnchecked.length} template-bound page${boundUnchecked.length === 1 ? "" : "s"} against their template's current guidance. Content can drift even on a page that's on the current version.`}
                   </p>
                   <Button
                     size="sm"
