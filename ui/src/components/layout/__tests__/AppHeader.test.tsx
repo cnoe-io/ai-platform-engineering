@@ -574,12 +574,16 @@ describe('AppHeader — application chrome', () => {
       mockIsAdmin = true
       mockPathname = '/admin/people/users'
 
-      const { rerender } = render(<AdminNavigationFixture version="users" />)
+      const { rerender } = render(
+        <AdminNavigationFixture key="users" version="users" />,
+      )
 
       const navigation = screen.getByRole('navigation', { name: 'Admin sections' })
       expect(applicationButton('Admin')).toHaveAttribute('aria-expanded', 'true')
 
-      rerender(<AdminNavigationFixture version="skill-hubs" />)
+      rerender(
+        <AdminNavigationFixture key="skill-hubs" version="skill-hubs" />,
+      )
 
       expect(applicationButton('Admin')).toHaveAttribute('aria-expanded', 'true')
       expect(screen.getByRole('navigation', { name: 'Admin sections' })).toBe(navigation)
