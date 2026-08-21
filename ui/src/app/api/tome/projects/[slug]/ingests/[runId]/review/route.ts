@@ -31,16 +31,23 @@ export const GET = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
       const history = await store.pageHistory(projectId, path);
       // Newest first. The run's own write: the newest revision for this report.
       const runRev = history.find((r) => r.report_id === run.report_id);
-      // What was on the wiki right before the run touched this path: the
-      // newest revision older than the run's write (any status — reading
-      // history, not gating a live read).
-      const runIdx = runRev ? history.indexOf(runRev) : -1;
-      const priorRev = history.slice(runIdx + 1)[0];
+      // Compare with what was actually visible immediately before this report
+      // first touched the path. A report may write the same page more than
+      // once, and revisions from rejected or still-pending reports were never
+      // live wiki content.
+      let oldestRunRevisionIdx = -1;
+      for (let idx = 0; idx < history.length; idx += 1) {
+        if (history[idx].report_id === run.report_id) oldestRunRevisionIdx = idx;
+      }
+      const priorLiveRev = history
+        .slice(oldestRunRevisionIdx + 1)
+        .find((revision) => revision.status === undefined || revision.status === "live");
+      const isNewPage = !priorLiveRev || Boolean(priorLiveRev.deleted);
       return {
         path,
-        oldBody: priorRev && !priorRev.deleted ? priorRev.markdown ?? "" : "",
+        oldBody: priorLiveRev && !priorLiveRev.deleted ? priorLiveRev.markdown ?? "" : "",
         newBody: runRev && !runRev.deleted ? runRev.markdown ?? "" : "",
-        isNewPage: !priorRev,
+        isNewPage,
       };
     }),
   );
