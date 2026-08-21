@@ -62,15 +62,16 @@ async function notificationAudienceQuery(
   }
   return {
     archived_at: { $exists: false },
+    ...(options.includePlatformNotifications === false
+      ? { category: { $ne: "platform_health" } }
+      : {}),
     $or: [
       { recipient_user_subjects: subject },
       ...(teamSlugs.length > 0
         ? [{ recipient_team_slugs: { $in: teamSlugs } }]
         : []),
       ...(organizationAdmin ? [{ recipient_organization_admins: true }] : []),
-      ...(options.includePlatformNotifications === false
-        ? []
-        : [{ recipient_platform_users: true }]),
+      { recipient_platform_users: true },
     ],
   };
 }

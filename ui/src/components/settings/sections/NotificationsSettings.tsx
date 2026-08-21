@@ -6,6 +6,7 @@ import { SettingsCard } from "@/components/settings/shared/SettingsCard";
 import { SettingsSwitch } from "@/components/settings/shared/SettingsSwitch";
 import { Button } from "@/components/ui/button";
 import { useKeyedAutoSave } from "@/hooks/use-keyed-auto-save";
+import { useAdminRole } from "@/hooks/use-admin-role";
 import { Activity,Bell,ChevronsDownUp,ChevronsUpDown,Loader2 } from "lucide-react";
 import { useEffect,useRef,useState } from "react";
 
@@ -36,6 +37,10 @@ async function persistNotificationPreference(key: NotificationKey,value: boolean
 }
 
 export function NotificationsSettings(): React.ReactElement {
+  const { isAdmin } = useAdminRole();
+  const visibleSections: NotificationSection[] = isAdmin
+    ? NOTIFICATION_SECTIONS
+    : ["release-notes"];
   const [values,setValues] = useState<NotificationValues>({
     "release-notes": true,
     "platform-health": true,
@@ -107,15 +112,16 @@ export function NotificationsSettings(): React.ReactElement {
       return next;
     });
   };
-  const allExpanded = expandedSections.size === NOTIFICATION_SECTIONS.length;
-  const allCollapsed = expandedSections.size === 0;
+  const expandedVisibleSections = visibleSections.filter((section) => expandedSections.has(section));
+  const allExpanded = expandedVisibleSections.length === visibleSections.length;
+  const allCollapsed = expandedVisibleSections.length === 0;
 
   return (
     <div className="space-y-4">
       <div className="flex justify-end gap-2">
         <Button
           disabled={allExpanded}
-          onClick={() => setExpandedSections(new Set(NOTIFICATION_SECTIONS))}
+          onClick={() => setExpandedSections(new Set(visibleSections))}
           size="sm"
           type="button"
           variant="ghost"
@@ -174,7 +180,7 @@ export function NotificationsSettings(): React.ReactElement {
           </div>
         )}
       </SettingsCard>
-      <SettingsCard
+      {isAdmin ? <SettingsCard
         collapsibleLabel="Platform health"
         description="Choose whether global platform incidents appear in your personal notification feed."
         expanded={expandedSections.has("platform-health")}
@@ -207,7 +213,7 @@ export function NotificationsSettings(): React.ReactElement {
             />
           </div>
         )}
-      </SettingsCard>
+      </SettingsCard> : null}
     </div>
   );
 }

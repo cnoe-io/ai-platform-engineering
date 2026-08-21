@@ -60,7 +60,7 @@ it("opens one global Platform incident only after consecutive failures",async ()
 
   expect(mockCreateNotification).toHaveBeenCalledTimes(1);
   expect(mockCreateNotification).toHaveBeenCalledWith(expect.objectContaining({
-    recipientPlatformUsers: true,
+    recipientOrganizationAdmins: true,
     sourceLabel: "Platform",
     category: "platform_health",
     lifecycleStatus: "active",
@@ -79,7 +79,7 @@ it("automatically resolves an incident after consecutive healthy audits",async (
     resolutionType: "automatic_audit",
   }));
   expect(mockCreateNotification).toHaveBeenLastCalledWith(expect.objectContaining({
-    recipientPlatformUsers: true,
+    recipientOrganizationAdmins: true,
     lifecycleStatus: "resolved",
     severity: "success",
     title: "Chat Runtime recovered",

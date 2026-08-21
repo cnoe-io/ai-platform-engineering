@@ -139,7 +139,7 @@ it("creates a global Platform notification without changing personal audiences",
   );
 });
 
-it("excludes global Platform notifications when the viewer opted out",async () => {
+it("excludes Platform health notifications when an admin viewer opted out",async () => {
   const cursor = {
     sort: jest.fn().mockReturnThis(),
     skip: jest.fn().mockReturnThis(),
@@ -157,11 +157,12 @@ it("excludes global Platform notifications when the viewer opted out",async () =
   });
 
   const audience = collection.countDocuments.mock.calls[0][0];
-  expect(audience.$or).not.toContainEqual({ recipient_platform_users: true });
+  expect(audience.category).toEqual({ $ne: "platform_health" });
   expect(audience.$or).toEqual(expect.arrayContaining([
     { recipient_user_subjects: "requester-subject" },
     { recipient_team_slugs: { $in: ["reviewers"] } },
     { recipient_organization_admins: true },
+    { recipient_platform_users: true },
   ]));
 });
 
