@@ -1,11 +1,15 @@
 /**
- * POST /api/v1/chat/stream/cancel — transparent proxy to Dynamic Agents.
+ * POST /api/v1/chat/stream/cancel — Harness Gateway cancellation entry point.
  *
  * Body: { conversation_id, agent_id }
  * Response: JSON { success, cancelled, agent_id, conversation_id }
  */
 
 import { requireAgentUsePermission } from "@/lib/rbac/openfga-agent-authz";
+import {
+cancelHarnessGatewayRun,
+resolveHarnessGatewayTarget,
+} from "@/lib/harness-gateway";
 import { NextRequest,NextResponse } from "next/server";
 import { requireConversationWriteAccess } from "../../_conversation-authz";
 import {
@@ -18,10 +22,6 @@ export async function POST(request: NextRequest): Promise<Response> {
   // Authenticate caller (session cookie or Bearer token)
   const authResult = await authenticateRequest(request);
   if (authResult instanceof NextResponse) return authResult;
-
-  // Check dynamic agents config
-  const daConfig = getDynamicAgentsConfig();
-  if (daConfig instanceof NextResponse) return daConfig;
 
   // Parse body
   let body: Record<string, unknown>;
@@ -57,7 +57,15 @@ export async function POST(request: NextRequest): Promise<Response> {
   );
   if (conversationAuthzResponse) return conversationAuthzResponse;
 
-  // Forward body as-is to DA backend (same path, same body format)
+  const target = await resolveHarnessGatewayTarget(String(body.agent_id));
+  if (target instanceof NextResponse) return target;
+  if (target.kind === "harness_engine") {
+    return cancelHarnessGatewayRun(body, authResult);
+  }
+
+  // Preserve the existing Dynamic Agents cancellation path.
+  const daConfig = getDynamicAgentsConfig();
+  if (daConfig instanceof NextResponse) return daConfig;
   const backendUrl = `${daConfig.dynamicAgentsUrl}/api/v1/chat/stream/cancel`;
 
   return proxyJSONRequest(

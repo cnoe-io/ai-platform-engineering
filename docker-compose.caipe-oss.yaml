@@ -1,7 +1,8 @@
 # Preview-only overlay for caipe-oss.outshift.io.
 #
-# The checked-out source is upstream CAIPE with the UX preview PRs applied.
-# Dynamic Agents remains the only chat runtime in this environment.
+# The checked-out source must be an upstream cnoe-io revision with the Harness
+# Engine change applied. Existing Dynamic Agents services remain unchanged;
+# Harness Engine runs beside them and is reached only through the UI BFF.
 #
 # Usage:
 #   COMPOSE_PROFILES="mcp-servers,caipe-ui-prod,rbac,dynamic-agents,rag,caipe-mongodb,web_ingestor" \
@@ -191,23 +192,62 @@ services:
       keycloak-ui-client-config:
         condition: service_completed_successfully
 
-  # Build only the UI from the UX integration branch. Every unchanged service
-  # continues to use the published upstream image declared by the base file.
+  harness-engine:
+    build:
+      context: .
+      dockerfile: ai_platform_engineering/harness_engine/build/Dockerfile
+    image: caipe-harness-engine:${HARNESS_ENGINE_IMAGE_TAG:-preview}
+    container_name: harness-engine
+    restart: unless-stopped
+    # Operator profiles use /workspace as their SDK working directory. This is
+    # intentionally ephemeral until the sandbox lease abstraction is wired to
+    # isolated pods.
+    tmpfs:
+      - /workspace:rw,nosuid,nodev,mode=1777,size=512m
+    environment:
+      HARNESS_ENGINE_INTERNAL_TOKEN: ${HARNESS_ENGINE_INTERNAL_TOKEN:?set HARNESS_ENGINE_INTERNAL_TOKEN}
+      HARNESS_ENGINE_STORAGE_BACKEND: mongodb
+      HARNESS_ENGINE_MONGODB_URI: ${HARNESS_ENGINE_MONGODB_URI:-mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-mongodb:27017/harness_engine?authSource=admin}
+      HARNESS_ENGINE_MONGODB_DATABASE: harness_engine
+      HARNESS_ENGINE_EVENT_RETENTION_SECONDS: ${HARNESS_ENGINE_EVENT_RETENTION_SECONDS:-86400}
+      HARNESS_ENGINE_AGENTCORE_RUNTIMES_JSON: ${HARNESS_ENGINE_AGENTCORE_RUNTIMES_JSON:-{}}
+      HARNESS_ENGINE_CLAUDE_SDK_PROFILES_JSON: ${HARNESS_ENGINE_CLAUDE_SDK_PROFILES_JSON:-{}}
+      AWS_REGION: ${AWS_REGION:-}
+      AWS_DEFAULT_REGION: ${AWS_REGION:-}
+      # Preview hosts use their EC2 instance profile. Do not copy ambient
+      # developer credentials or an Anthropic key into this container: either
+      # would override the Bedrock credential provider chain used by Claude SDK.
+      CLAUDE_CODE_USE_BEDROCK: ${CLAUDE_CODE_USE_BEDROCK:-}
+    depends_on:
+      caipe-mongodb:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8010/healthz', timeout=2)"
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 20s
+
+  # Build only the UI from this branch because it contains the additive
+  # Harness Engine editor and BFF routes. Every unchanged service continues to
+  # use the published upstream image declared by docker-compose.yaml.
   caipe-ui:
     build:
       context: .
       dockerfile: build/Dockerfile.caipe-ui
       target: runner
       args:
-        IMAGE_TAG: ${UX_PREVIEW_IMAGE_TAG:-preview}
+        IMAGE_TAG: ${HARNESS_ENGINE_IMAGE_TAG:-preview}
         GIT_COMMIT: ${GIT_COMMIT:-unknown}
         BUILD_DATE: ${BUILD_DATE:-}
         CAIPE_UI_FAST_BUILD: ${CAIPE_UI_FAST_BUILD:-true}
-    image: caipe-ui-ux-preview:${UX_PREVIEW_IMAGE_TAG:-preview}
+    image: caipe-ui-harness-preview:${HARNESS_ENGINE_IMAGE_TAG:-preview}
     # The base service imports every deployment variable from .env. Reset that
-    # broad import so retired preview settings (including Harness Engine) are
-    # not exposed to the UX-only UI process. Values below and in the base
-    # service remain explicitly substituted from --env-file.
+    # broad import so the demo exposes only explicitly configured values.
     env_file: !reset []
     environment:
       NEXTAUTH_URL: https://caipe-oss.outshift.io
@@ -225,8 +265,13 @@ services:
       KEYCLOAK_FORCE_IDP_REDIRECT: ${KEYCLOAK_FORCE_IDP_REDIRECT:-true}
       INTERNAL_BASE_URL: http://localhost:3000
       APP_CONFIG_PATH: /app/config/app-config.yaml
+      HARNESS_ENGINE_URL: http://harness-engine:8010
+      HARNESS_ENGINE_INTERNAL_TOKEN: ${HARNESS_ENGINE_INTERNAL_TOKEN:?set HARNESS_ENGINE_INTERNAL_TOKEN}
     volumes:
       - ./config/app-config.caipe-oss.yaml:/app/config/app-config.yaml:ro
+    depends_on:
+      harness-engine:
+        condition: service_healthy
 
   keycloak:
     environment:

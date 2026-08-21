@@ -192,6 +192,64 @@ routes:
         status: 403
         reason: pdp_denied
 
+  - id: ui-bff-post-api-harness-engine-runs-openfga-agent-use
+    surface: ui_bff
+    method: POST
+    path: /api/harness-engine/runs
+    authorization_system: openfga
+    resource: agent
+    scope: use
+    relation: can_use
+    object_type: agent
+    migration_status: migrated
+    notes: OpenFGA user:<sub> can_use agent:<agent_id> plus implicit-owner-or-explicit conversation write gate before starting a detached Harness Engine run.
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: pdp_denied
+      carol_kb_ingestor:
+        status: 403
+        reason: pdp_denied
+      dave_no_role:
+        status: 403
+        reason: pdp_denied
+      eve_dynamic_agent_user:
+        status: 200
+      frank_service_account:
+        status: 403
+        reason: pdp_denied
+
+  - id: ui-bff-post-api-harness-engine-sessions-clear-openfga-agent-use
+    surface: ui_bff
+    method: POST
+    path: /api/harness-engine/sessions/clear
+    authorization_system: openfga
+    resource: agent
+    scope: use
+    relation: can_use
+    object_type: agent
+    migration_status: migrated
+    notes: OpenFGA user:<sub> can_use agent:<agent_id> plus implicit-owner-or-explicit conversation write gate before clearing the caller's Harness Engine session binding.
+    expectations:
+      alice_admin:
+        status: 200
+      bob_chat_user:
+        status: 403
+        reason: pdp_denied
+      carol_kb_ingestor:
+        status: 403
+        reason: pdp_denied
+      dave_no_role:
+        status: 403
+        reason: pdp_denied
+      eve_dynamic_agent_user:
+        status: 200
+      frank_service_account:
+        status: 403
+        reason: pdp_denied
+
   # Spec 2026-05-11 identity-group ReBAC foundation entries. These routes are
   # added as pending until the corresponding user-story endpoints land.
   - id: ui-bff-get-api-admin-identity-group-sync-directory-sync-status

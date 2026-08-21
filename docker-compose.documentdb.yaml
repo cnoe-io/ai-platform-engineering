@@ -43,6 +43,14 @@ services:
       caipe-documentdb:
         condition: service_healthy
 
+  harness-engine:
+    environment:
+      HARNESS_ENGINE_MONGODB_URI: >-
+        mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-documentdb:10260/harness_engine?authSource=admin&tls=true&tlsAllowInvalidCertificates=true&retryWrites=false&directConnection=true
+    depends_on:
+      caipe-documentdb:
+        condition: service_healthy
+
   dynamic-agents:
     environment:
       <<: *documentdb-environment

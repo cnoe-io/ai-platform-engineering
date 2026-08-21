@@ -1,4 +1,4 @@
-# Environment-owned seed catalog for the caipe-oss UX preview.
+# Environment-owned seed catalog for the caipe-oss Harness Engine demo.
 # Provider credentials remain in the host .env and are never stored here.
 
 models:
