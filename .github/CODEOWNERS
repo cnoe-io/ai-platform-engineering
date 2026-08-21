@@ -1,16 +1,13 @@
-####################################################
-#
-# List of approvers for the Jira Agent project
-#
-#####################################################
-#
-# Learn about CODEOWNERS file format:
-#  https://help.github.com/en/articles/about-code-owners
-#
+# Default owners for the repository. More specific rules below take precedence.
+* @sriaradhyula @subbaksh @kevkantes @cisco-erilutz @artdroz
 
-# These owners will be the default owners for everything in
-# the repository. Unless a later match takes precedence,
-# the following users/teams will be requested for
-# review when someone opens a pull request.
-* @sriaradhyula
-ai_platform_engineering/integrations/slack_bot @kevkantes @ErikMLutz @dasein
+# Backend components
+/ai_platform_engineering/dynamic_agents/ @sriaradhyula @subbaksh @kevkantes @cisco-erilutz
+/ai_platform_engineering/knowledge_bases/rag/ @sriaradhyula @cisco-erilutz @kevkantes @subbaksh
+
+# Deployment
+/charts/ @sriaradhyula @suwhang-cisco
+
+# Chat integrations
+/ai_platform_engineering/integrations/slack_bot/ @cisco-erilutz @sriaradhyula @kevkantes
+/ai_platform_engineering/integrations/webex_bot/ @sriaradhyula @subbaksh @kevkantes
