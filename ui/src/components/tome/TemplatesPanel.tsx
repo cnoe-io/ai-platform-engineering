@@ -14,6 +14,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { PanelShell } from "@/components/tome/PanelHeader";
+import { ViewTemplatesDialog } from "@/components/tome/ViewTemplatesDialog";
 import type { PageDrift } from "@/lib/tome/template-drift";
 import { cn } from "@/lib/utils";
 
@@ -86,23 +87,28 @@ function groupPages(pages: PageDrift[]): [string, PageDrift[]][] {
   });
 }
 
-function folderLabel(group: string, count: number): string {
-  if (group === TOP_LEVEL_GROUP) return `${count} untemplated file${count === 1 ? "" : "s"}`;
-  const basename = group.slice(group.lastIndexOf("/") + 1);
-  const noun = basename.endsWith("s") ? basename : `${basename} entr${count === 1 ? "y" : "ies"}`;
-  return `${count} ${noun}`;
-}
-
 /** "Not from a template" is a big, low-stakes bucket (glossaries, edge
  * files, anything hand-authored) - a breakdown line instead of a stat
- * card so it doesn't compete visually with what actually needs a look. */
+ * card so it doesn't compete visually with what actually needs a look.
+ * Grouped as top-level files vs. child pages (folder names are context,
+ * not their own counted category - a wiki can have dozens of folders and
+ * nobody needs each one tallied separately). */
 function unboundSummary(pages: PageDrift[]): string | null {
   const unbound = pages.filter((p) => p.status === "unbound");
   if (unbound.length === 0) return null;
-  const parts = groupPages(unbound).map(([group, group_pages]) => folderLabel(group, group_pages.length));
-  if (parts.length === 1) return `Also not from a template: ${parts[0]}.`;
-  const last = parts[parts.length - 1];
-  return `Also not from a template: ${parts.slice(0, -1).join(", ")}, and ${last}.`;
+  const groups = groupPages(unbound);
+  const topLevel = groups.find(([group]) => group === TOP_LEVEL_GROUP)?.[1] ?? [];
+  const childGroups = groups.filter(([group]) => group !== TOP_LEVEL_GROUP);
+  const childCount = childGroups.reduce((sum, [, group_pages]) => sum + group_pages.length, 0);
+
+  const topLevelPart = topLevel.length > 0 ? `${topLevel.length} untemplated file${topLevel.length === 1 ? "" : "s"}` : null;
+  const childPart =
+    childCount > 0
+      ? `${childCount} child page${childCount === 1 ? "" : "s"} (${childGroups.map(([group]) => group.slice(group.lastIndexOf("/") + 1)).join(", ")})`
+      : null;
+
+  const parts = [topLevelPart, childPart].filter((p): p is string => p != null);
+  return `Also not from a template: ${parts.join(" and ")}.`;
 }
 
 async function fetchDrift(
@@ -263,6 +269,7 @@ export function TemplatesPanel({ slug, onNavigate, onIngestStarted }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [checkedAt, setCheckedAt] = useState<Date | null>(null);
   const [browseOpen, setBrowseOpen] = useState(false);
+  const [templatesDialogOpen, setTemplatesDialogOpen] = useState(false);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
 
   const checkStructural = useCallback(async () => {
@@ -388,7 +395,17 @@ export function TemplatesPanel({ slug, onNavigate, onIngestStarted }: Props) {
     <PanelShell
       title="Template drift"
       description="See which wiki pages are missing, on an old template version, or no longer match their template's guidance."
+      action={
+        <button
+          type="button"
+          onClick={() => setTemplatesDialogOpen(true)}
+          className="text-sm text-muted-foreground underline-offset-2 hover:underline"
+        >
+          View current templates
+        </button>
+      }
     >
+      <ViewTemplatesDialog open={templatesDialogOpen} onOpenChange={setTemplatesDialogOpen} />
       {error && <p className="mb-3 text-sm text-destructive">{error}</p>}
 
       {checking && !report ? (
