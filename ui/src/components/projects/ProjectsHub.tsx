@@ -1025,18 +1025,20 @@ export function ProjectsHub() {
   const activeIngests = projects.flatMap((p) => p.active_ingests ?? []);
 
   return (
-    <div className="mx-auto max-w-6xl space-y-10 p-6">
-      <section className="relative overflow-hidden rounded-3xl border border-primary/10 bg-gradient-to-br from-primary/10 via-background to-primary/5 p-8 md:p-12">
-        <div className="absolute right-0 top-0 h-72 w-72 rounded-full bg-primary/20 blur-3xl" />
-        <div className="relative grid gap-8 md:grid-cols-2 md:items-center">
-          <div className="space-y-4">
-            <h1 className="flex items-center gap-3 text-3xl font-bold tracking-tight md:text-4xl">
-              <FolderKanban className="h-8 w-8 shrink-0 text-primary md:h-9 md:w-9" />
+    <div className="mx-auto max-w-6xl space-y-8 p-6">
+      <section className="relative overflow-hidden rounded-2xl border border-primary/10 bg-gradient-to-br from-primary/10 via-background to-primary/5 p-5 md:p-6">
+        <div className="absolute right-0 top-0 h-48 w-48 rounded-full bg-primary/20 blur-3xl" />
+        <div className="relative grid gap-5 md:grid-cols-2 md:items-center">
+          <div className="space-y-2">
+            <h1 className="flex items-center gap-2.5 text-2xl font-bold tracking-tight md:text-3xl">
+              <FolderKanban className="h-7 w-7 shrink-0 text-primary md:h-8 md:w-8" />
               {hero.title}
             </h1>
-            <p className="max-w-lg text-muted-foreground">{hero.description}</p>
+            <p className="max-w-lg text-sm leading-6 text-muted-foreground">
+              {hero.description}
+            </p>
           </div>
-          <div className="flex flex-col items-stretch gap-3 md:items-end">
+          <div className="flex flex-col items-stretch gap-2 md:items-end">
             <ProjectOnboardingWizard
               onComplete={() => void load()}
               initialOpen={searchParams.get("onboard") === "1"}

@@ -591,17 +591,17 @@ export function ProjectOnboardingWizard({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="group relative overflow-hidden rounded-2xl border border-primary/20 bg-gradient-to-br from-primary/20 via-primary/10 to-primary/5 px-8 py-5 text-left shadow-lg transition hover:scale-[1.01] hover:shadow-xl"
+        className="group relative overflow-hidden rounded-xl border border-primary/20 bg-gradient-to-br from-primary/20 via-primary/10 to-primary/5 px-5 py-3 text-left shadow-md transition hover:scale-[1.01] hover:shadow-lg"
       >
-        <div className="relative flex items-center gap-4">
-          <div className="flex h-14 w-14 items-center justify-center rounded-xl gradient-primary-br text-white shadow-lg">
-            <Rocket className="h-7 w-7" />
+        <div className="relative flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg gradient-primary-br text-white shadow-md">
+            <Rocket className="h-5 w-5" />
           </div>
           <div>
-            <p className="text-lg font-semibold text-foreground">
+            <p className="font-semibold text-foreground">
               Launch project onboarding
             </p>
-            <p className="text-sm text-muted-foreground">{stepSummary}</p>
+            <p className="text-xs text-muted-foreground">{stepSummary}</p>
           </div>
         </div>
       </button>
