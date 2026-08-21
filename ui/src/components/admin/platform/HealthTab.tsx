@@ -15,6 +15,8 @@ import {
   type PlatformHealthCapability,
   type PlatformDiagnosticProbe,
 } from "@/hooks/use-platform-health-probes";
+import { useVersion } from "@/hooks/use-version";
+import { formatBuildIdentifier,formatComponentVersion } from "@/lib/build-identifier";
 import { cn } from "@/lib/utils";
 import {
   AlertTriangle,
@@ -165,6 +167,7 @@ function capabilityToUiStatus(status: PlatformHealthCapability["status"]): UiSta
 }
 
 export function HealthTab() {
+  const { versionInfo } = useVersion();
   const {
     capabilities,
     summary,
@@ -179,6 +182,11 @@ export function HealthTab() {
     platformStatus === "checking" ? "unknown" : platformStatus;
   const overallConfig = STATUS_CONFIG[systemStatus];
   const OverallIcon = overallConfig.icon;
+  const buildIdentifier = formatBuildIdentifier({
+    version: versionInfo?.version,
+    packageVersion: versionInfo?.packageVersion,
+    gitCommit: versionInfo?.gitCommit,
+  }) ?? "Development";
   const [slackStatus, setSlackStatus] = useState<SlackDirectoryStatus | null>(null);
   const [slackStatusError, setSlackStatusError] = useState<string | null>(null);
   const [webexStatus, setWebexStatus] = useState<WebexDirectoryStatus | null>(null);
@@ -270,6 +278,31 @@ export function HealthTab() {
 
   return (
     <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle>Build information</CardTitle>
+          <CardDescription>
+            Running CAIPE UI build. Component release versions appear beside each capability below.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <dl className="grid gap-3 rounded-lg border border-border/70 p-4 text-sm sm:grid-cols-3">
+            <div>
+              <dt className="text-xs text-muted-foreground">Version</dt>
+              <dd className="mt-1 font-medium">{buildIdentifier}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-muted-foreground">Commit</dt>
+              <dd className="mt-1 truncate font-mono text-xs">{versionInfo?.gitCommit ?? "Unavailable"}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-muted-foreground">Built</dt>
+              <dd className="mt-1 text-xs">{versionInfo?.buildDate ?? "Unavailable"}</dd>
+            </div>
+          </dl>
+        </CardContent>
+      </Card>
+
       <Card
         className={cn(
           "border-l-4",
@@ -422,6 +455,7 @@ function CapabilityRow({
   const status = capabilityToUiStatus(capability.status);
   const cfg = STATUS_CONFIG[status];
   const Icon = cfg.icon;
+  const version = formatComponentVersion(capability.version);
   const statusNote =
     capability.status === "down" && capability.required
       ? "Required capability unavailable; platform status is down."
@@ -467,9 +501,16 @@ function CapabilityRow({
           </p>
         ) : null}
       </div>
-      <div className="flex shrink-0 items-center gap-2">
-        <Icon className={cn("h-4 w-4", cfg.color)} />
-        <span className="text-sm">{cfg.label}</span>
+      <div className="flex shrink-0 items-center gap-3">
+        <div className="text-right">
+          <div className="flex items-center justify-end gap-2">
+            <Icon className={cn("h-4 w-4", cfg.color)} />
+            <span className="text-sm">{cfg.label}</span>
+          </div>
+          <p className="mt-1 font-mono text-[10px] text-muted-foreground/80">
+            {version ?? "Version not reported"}
+          </p>
+        </div>
         <ChevronRight className="h-4 w-4 text-muted-foreground" />
       </div>
     </button>
