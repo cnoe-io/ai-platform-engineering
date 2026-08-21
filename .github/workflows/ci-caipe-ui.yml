@@ -28,7 +28,9 @@ permissions:
   pull-requests: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  # Coordinated releases pass source_sha; isolate each immutable image set so
+  # rapid main pushes cannot replace another release's pending build.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || inputs.source_sha || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
