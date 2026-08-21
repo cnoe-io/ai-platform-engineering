@@ -26,19 +26,19 @@ export function WelcomeBanner({ onOpenPreferences }: WelcomeBannerProps = {}) {
 
   return (
     <div
-      className="welcome-banner relative isolate overflow-hidden rounded-xl px-5 py-3"
+      className="welcome-banner relative isolate overflow-hidden rounded-xl px-4 py-2"
       data-sun-phase={sunPhase}
       data-testid="welcome-banner"
     >
-      <div className="relative z-10 flex min-h-8 items-center justify-between gap-3">
+      <div className="relative z-10 flex min-h-7 items-center justify-between gap-3">
         <div
           className="flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden"
           data-testid="welcome-banner-copy"
         >
-          <span className="welcome-banner-icon flex h-7 w-7 shrink-0 items-center justify-center rounded-full">
-            <SunPhaseIcon className="h-4 w-4" aria-hidden="true" />
+          <span className="welcome-banner-icon flex h-6 w-6 shrink-0 items-center justify-center rounded-full">
+            <SunPhaseIcon className="h-3.5 w-3.5" aria-hidden="true" />
           </span>
-          <h1 className="welcome-banner-title truncate whitespace-nowrap text-lg font-semibold leading-none">
+          <h1 className="welcome-banner-title truncate whitespace-nowrap text-base font-medium leading-none">
             {displayName ? `${greeting}, ${displayName}.` : `${greeting}.`}
           </h1>
         </div>

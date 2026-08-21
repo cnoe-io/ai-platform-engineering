@@ -51,15 +51,15 @@ export function HeroComposer() {
   };
 
   return (
-    <div data-testid="hero-composer" className="home-hero-surface rounded-xl border border-border/50 bg-card/40 p-6">
-      <div className="flex items-center gap-2.5">
+    <div data-testid="hero-composer" className="home-hero-surface rounded-xl border border-primary/25 bg-card/60 p-6 shadow-sm">
+      <div className="flex items-center gap-3">
         <span
           aria-hidden="true"
-          className="home-composer-prompt-icon flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
+          className="home-composer-prompt-icon flex h-9 w-9 shrink-0 items-center justify-center rounded-lg"
         >
-          <Sparkles className="h-4 w-4" />
+          <Sparkles className="h-[18px] w-[18px]" />
         </span>
-        <h1 className="home-composer-prompt text-xl font-semibold tracking-tight text-foreground">
+        <h1 className="home-composer-prompt text-2xl font-semibold tracking-tight text-foreground">
           What would you like to do today?
         </h1>
       </div>

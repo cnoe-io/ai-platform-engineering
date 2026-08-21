@@ -125,7 +125,7 @@ describe('WelcomeBanner', () => {
 
   it('uses compact padding and omits the previous question prompt', () => {
     render(<WelcomeBanner />)
-    expect(screen.getByTestId('welcome-banner')).toHaveClass('px-5', 'py-3')
+    expect(screen.getByTestId('welcome-banner')).toHaveClass('px-4', 'py-2')
     expect(screen.queryByText('What do you want to get done today?')).not.toBeInTheDocument()
   })
 

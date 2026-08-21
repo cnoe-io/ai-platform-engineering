@@ -1057,8 +1057,8 @@ pre code.hljs {
     );
   border: 1px solid rgb(255 255 255 / 10%);
   box-shadow:
-    0 16px 40px color-mix(in srgb, var(--welcome-sky-tinted-mid) 15%, transparent),
-    inset 0 1px rgb(255 255 255 / 12%);
+    0 6px 18px color-mix(in srgb, var(--welcome-sky-tinted-mid) 9%, transparent),
+    inset 0 1px rgb(255 255 255 / 10%);
 }
 
 .welcome-banner::before {
@@ -1066,8 +1066,8 @@ pre code.hljs {
   position: absolute;
   top: 50%;
   right: 7%;
-  width: 7.5rem;
-  height: 7.5rem;
+  width: 5rem;
+  height: 5rem;
   transform: translateY(-50%);
   border-radius: 9999px;
   background: radial-gradient(
@@ -1076,7 +1076,7 @@ pre code.hljs {
     var(--welcome-orb) 6%,
     transparent 64%
   );
-  opacity: 0.68;
+  opacity: 0.42;
   pointer-events: none;
 }
 
@@ -1124,7 +1124,7 @@ pre code.hljs {
 
 .welcome-banner-title {
   color: var(--welcome-text);
-  text-shadow: 0 1px 12px rgb(5 11 30 / 24%);
+  text-shadow: 0 1px 8px rgb(5 11 30 / 18%);
 }
 
 .welcome-banner-icon {
@@ -1151,8 +1151,8 @@ pre code.hljs {
   --welcome-action-hover: rgb(255 255 255 / 58%);
   border-color: rgb(54 68 102 / 10%);
   box-shadow:
-    0 14px 34px color-mix(in srgb, var(--welcome-sky-mid) 12%, transparent),
-    inset 0 1px rgb(255 255 255 / 52%);
+    0 5px 16px color-mix(in srgb, var(--welcome-sky-mid) 8%, transparent),
+    inset 0 1px rgb(255 255 255 / 46%);
 }
 
 :is([data-theme="light"], [data-theme="legacy-light"]) .welcome-banner[data-sun-phase="dawn"] {
