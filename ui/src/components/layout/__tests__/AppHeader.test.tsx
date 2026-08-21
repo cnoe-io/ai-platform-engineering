@@ -171,6 +171,7 @@ jest.mock('@/lib/config', () => ({
     tagline: 'Test tagline',
     logoUrl: '/logo.svg',
     logoStyle: 'auto',
+    supportEmail: 'support@example.com',
     docsUrl: 'https://docs.example.com',
     githubUrl: 'https://github.com/example',
     ssoEnabled: true,
@@ -311,6 +312,7 @@ jest.mock('@/lib/utils', () => ({
 
 import { AppHeader } from '../AppHeader'
 import { ApplicationNavigationRail } from '../ApplicationNavigation'
+import { HeaderBreadcrumbSlotProvider } from '../HeaderBreadcrumbSlot'
 import {
   ApplicationNavigationProvider,
   useRegisterApplicationNavigation,
@@ -470,6 +472,37 @@ describe('AppHeader — application chrome', () => {
       expect(pill).not.toHaveAttribute('aria-current')
     })
 
+  })
+
+  describe('header breadcrumbs', () => {
+    it('provides a section breadcrumb for routes without a page-specific trail', () => {
+      mockPathname = '/skills/workspace/new'
+
+      render(
+        <HeaderBreadcrumbSlotProvider>
+          <AppHeader />
+        </HeaderBreadcrumbSlotProvider>,
+      )
+
+      const slot = screen.getByTestId('app-header-breadcrumb-slot')
+      const breadcrumb = within(slot).getByRole('navigation', { name: 'Breadcrumb' })
+      expect(within(breadcrumb).getByText('Home')).toHaveAttribute('href', '/')
+      expect(within(breadcrumb).getByText('Skills')).toHaveAttribute('href', '/skills')
+    })
+
+    it('does not repeat Home as a breadcrumb on the Home route', () => {
+      mockPathname = '/'
+
+      render(
+        <HeaderBreadcrumbSlotProvider>
+          <AppHeader />
+        </HeaderBreadcrumbSlotProvider>,
+      )
+
+      expect(
+        within(screen.getByTestId('app-header-breadcrumb-slot')).queryByRole('navigation'),
+      ).not.toBeInTheDocument()
+    })
   })
 
   describe('core tabs', () => {
@@ -635,9 +668,20 @@ describe('AppHeader — application chrome', () => {
       mockStorageMode = 'localStorage'
       render(<AppHeader />)
       expect(screen.getByText('Admin')).toBeInTheDocument()
+      const disabledAdmin = within(applicationNavigation()).getByRole('button', {
+        name: 'Admin: unavailable',
+      })
+      expect(disabledAdmin).toHaveAttribute('aria-disabled', 'true')
+
+      fireEvent.click(disabledAdmin)
+      expect(screen.getByText('Admin unavailable')).toBeInTheDocument()
       expect(
-        within(applicationNavigation()).getByRole('link', { name: 'Admin: unavailable' }),
-      ).toHaveAttribute('aria-disabled', 'true')
+        screen.getByText(/Admin tools require persistent platform storage/),
+      ).toBeInTheDocument()
+      expect(screen.getByRole('link', { name: 'Contact admin' })).toHaveAttribute(
+        'href',
+        'mailto:support@example.com?subject=Test%20App%20access%20request',
+      )
     })
 
     it('marks Admin as current on a nested Admin route for an admin user', () => {
