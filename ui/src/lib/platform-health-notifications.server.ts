@@ -165,7 +165,7 @@ async function openIncident(
   );
   await createInAppNotification({
     eventKey,
-    recipientPlatformUsers: true,
+    recipientOrganizationAdmins: true,
     title: incidentTitle(capability),
     message: capability.detail,
     href: "/admin/operations/health",
@@ -219,7 +219,7 @@ async function closeIncident(input: {
     : input.resolutionNote?.trim() || "Resolved by an authorized platform administrator.";
   await createInAppNotification({
     eventKey: `${input.state.active_event_key}:resolved`,
-    recipientPlatformUsers: true,
+    recipientOrganizationAdmins: true,
     title,
     message,
     href: "/admin/operations/health",
