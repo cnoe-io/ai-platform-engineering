@@ -162,6 +162,139 @@ describe("internal pages POST — FGA enforcement for chat-initiated writes", ()
     );
   });
 
+  it("publishes ingest writes live when project review is disabled", async () => {
+    const mockWritePage = jest.fn().mockResolvedValue(undefined);
+    mockResolveProject.mockResolvedValue({ ...PROJECT, review_mode: "none" });
+    mockGetPageStore.mockResolvedValue({ writePage: mockWritePage });
+    mockGetTomeIngestRunsCollection.mockResolvedValue({
+      findOne: jest.fn().mockResolvedValue({ dispatch: { skipReview: false } }),
+    });
+
+    const { POST } = await import("../route");
+    const res = await POST(
+      postRequest({
+        path: "charter.md",
+        body: "# Charter",
+        report_id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+      }),
+      ctx(),
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockWritePage).toHaveBeenCalledWith(
+      "proj-1",
+      "charter.md",
+      "# Charter",
+      expect.not.objectContaining({ status: "draft" }),
+    );
+  });
+
+  it("publishes dynamic pages live in stable-only mode", async () => {
+    const mockWritePage = jest.fn().mockResolvedValue(undefined);
+    mockResolveProject.mockResolvedValue({ ...PROJECT, review_mode: "stable_only" });
+    mockGetPageStore.mockResolvedValue({ writePage: mockWritePage });
+
+    const { POST } = await import("../route");
+    const res = await POST(
+      postRequest({
+        path: "updates/example.md",
+        body: "---\nkind: dynamic\n---\n# Update",
+        report_id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+      }),
+      ctx(),
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockWritePage).toHaveBeenCalledWith(
+      "proj-1",
+      "updates/example.md",
+      expect.any(String),
+      expect.not.objectContaining({ status: "draft" }),
+    );
+  });
+
+  it("drafts dynamic pages when all writes require review", async () => {
+    const mockWritePage = jest.fn().mockResolvedValue(undefined);
+    mockResolveProject.mockResolvedValue({ ...PROJECT, review_mode: "all" });
+    mockGetPageStore.mockResolvedValue({ writePage: mockWritePage });
+
+    const { POST } = await import("../route");
+    const res = await POST(
+      postRequest({
+        path: "updates/example.md",
+        body: "---\nkind: dynamic\n---\n# Update",
+        report_id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+      }),
+      ctx(),
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockWritePage).toHaveBeenCalledWith(
+      "proj-1",
+      "updates/example.md",
+      expect.any(String),
+      expect.objectContaining({ status: "draft" }),
+    );
+  });
+
+  it("lets an ingest's explicit skip-review override publish live", async () => {
+    const mockWritePage = jest.fn().mockResolvedValue(undefined);
+    mockResolveProject.mockResolvedValue({ ...PROJECT, review_mode: "all" });
+    mockGetPageStore.mockResolvedValue({ writePage: mockWritePage });
+    mockGetTomeIngestRunsCollection.mockResolvedValue({
+      findOne: jest.fn().mockResolvedValue({ dispatch: { skipReview: true } }),
+    });
+
+    const { POST } = await import("../route");
+    const res = await POST(
+      postRequest({
+        path: "charter.md",
+        body: "# Charter",
+        report_id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+      }),
+      ctx(),
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockWritePage).toHaveBeenCalledWith(
+      "proj-1",
+      "charter.md",
+      "# Charter",
+      expect.not.objectContaining({ status: "draft" }),
+    );
+  });
+
+  it("keeps enforced-quality ingest writes in draft despite no-review settings", async () => {
+    const mockWritePage = jest.fn().mockResolvedValue(undefined);
+    mockResolveProject.mockResolvedValue({ ...PROJECT, review_mode: "none" });
+    mockGetPageStore.mockResolvedValue({ writePage: mockWritePage });
+    mockGetTomeIngestRunsCollection.mockResolvedValue({
+      findOne: jest.fn().mockResolvedValue({
+        dispatch: { skipReview: true },
+        quality_policy_mode: "enforce",
+        quality_require_human_review: true,
+      }),
+    });
+
+    const { POST } = await import("../route");
+    const res = await POST(
+      postRequest({
+        path: "charter.md",
+        body: "# Charter",
+        report_id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+      }),
+      ctx(),
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockWritePage).toHaveBeenCalledWith(
+      "proj-1",
+      "charter.md",
+      "# Charter",
+      expect.objectContaining({ status: "draft" }),
+    );
+  });
+
   it("isolates experiment writes from normal page revisions", async () => {
     mockGetExperiment.mockResolvedValue({ _id: "experiment-1", project_id: "proj-1" });
     mockGetExperimentArtifact.mockResolvedValue({

@@ -44,7 +44,13 @@ import { EntityModelSettings } from "@/components/tome/EntityModelSettings";
 import { PanelHeader } from "@/components/tome/PanelHeader";
 import { TomeLoading } from "@/components/tome/TomeLoading";
 import { ViewOnlyTooltip } from "@/components/tome/ViewOnlyTooltip";
-import type { AutoIngestConfig, ProjectDocument, ProjectSources, ProjectType } from "@/types/projects";
+import type {
+  AutoIngestConfig,
+  ProjectDocument,
+  ProjectSources,
+  ProjectType,
+  TomeReviewMode,
+} from "@/types/projects";
 import { dataStewardUserEmail, isSynthesizedType } from "@/types/projects";
 import {
   DEFAULT_SCHEDULE,
@@ -60,6 +66,31 @@ const BLAST_RADIUS_OPTIONS = [
   { value: "small", label: "Small and reversible (2-way)", hint: "The team runs on its own" },
   { value: "large", label: "Large or permanent (1-way)", hint: "BHAG/SLT stays in the loop" },
 ] as const;
+
+type TomeReviewModeSelection = TomeReviewMode | "";
+
+const REVIEW_MODE_OPTIONS: {
+  value: TomeReviewModeSelection;
+  label: string;
+  hint: string;
+}[] = [
+  {
+    value: "",
+    label: "Use default",
+    hint: "Review stable pages only without storing an entity-specific override.",
+  },
+  {
+    value: "none",
+    label: "Auto-accept all",
+    hint: "Publish agent changes immediately, including scheduled auto-ingest.",
+  },
+  {
+    value: "stable_only",
+    label: "Stable pages only",
+    hint: "Only edits to stable pages (charter, roadmap, etc.) are held for review.",
+  },
+  { value: "all", label: "Review everything", hint: "Every agent-written change is held for review." },
+];
 
 const OPTIONALITY_OPTIONS = [
   "Open Source Community / Foundation",
@@ -84,6 +115,7 @@ interface ProjectSettingsSnapshot {
   feedEnabled: boolean;
   blastRadius: "small" | "large" | "";
   optionality: string[];
+  reviewMode: TomeReviewModeSelection;
   autoIngestEnabled: boolean;
   autoIngestSchedule: ScheduleFormState;
   autoIngestOwnerEmail: string;
@@ -111,6 +143,7 @@ function snapshotFromProject(project: ProjectDocument): ProjectSettingsSnapshot 
     feedEnabled: project.sources_feed_enabled !== false,
     blastRadius: (project.decision_blast_radius as "small" | "large" | "") ?? "",
     optionality: project.optionality ?? [],
+    reviewMode: project.review_mode ?? "",
     autoIngestEnabled: project.autoIngest?.enabled ?? false,
     autoIngestSchedule: project.autoIngest?.cron
       ? cronToSchedule(project.autoIngest.cron)
@@ -151,7 +184,8 @@ interface TomeRbacConfiguration {
  * `PATCH /api/projects/<slug>`. `onSaved` lets the host refresh anything
  * derived from the project (e.g. the breadcrumb title).
  *
- * Layout is tabbed (General / Organization / SLT / Projects / Sources / Feed)
+ * Layout is tabbed (General / Organization / Review / Metadata / Projects /
+ * Sources / Feed)
  * with a sticky save bar, so the (now longer) form stays navigable instead of
  * one long scroll of stacked cards.
  */
@@ -214,9 +248,10 @@ export function ProjectSettingsPanel({
     github_connected: boolean;
   } | null>(null);
 
-  // SLT governance fields
+  // Governance metadata
   const [blastRadius, setBlastRadius] = useState<"small" | "large" | "">("");
   const [optionality, setOptionality] = useState<string[]>([]);
+  const [reviewMode, setReviewMode] = useState<TomeReviewModeSelection>("");
 
   // Auto-ingest schedule (GH #437)
   const [autoIngestEnabled, setAutoIngestEnabled] = useState(false);
@@ -310,6 +345,7 @@ export function ProjectSettingsPanel({
         }
         setBlastRadius((project.decision_blast_radius as "small" | "large" | "") ?? "");
         setOptionality(project.optionality ?? []);
+        setReviewMode(project.review_mode ?? "");
         setAutoIngestEnabled(project.autoIngest?.enabled ?? false);
         setAutoIngestSchedule(
           project.autoIngest?.cron ? cronToSchedule(project.autoIngest.cron) : DEFAULT_SCHEDULE,
@@ -494,6 +530,7 @@ export function ProjectSettingsPanel({
     feedEnabled,
     blastRadius,
     optionality,
+    reviewMode,
     autoIngestEnabled,
     autoIngestSchedule,
     autoIngestOwnerEmail,
@@ -509,6 +546,7 @@ export function ProjectSettingsPanel({
     feedEnabled,
     blastRadius,
     optionality,
+    reviewMode,
     autoIngestEnabled,
     autoIngestSchedule,
     autoIngestOwnerEmail,
@@ -606,6 +644,7 @@ export function ProjectSettingsPanel({
         },
         decision_blast_radius: blastRadius || null,
         optionality: optionality.length ? optionality : [],
+        review_mode: reviewMode || null,
       };
       if (canManageSteward) {
         payload.data_steward =
@@ -675,6 +714,7 @@ export function ProjectSettingsPanel({
       setFeedEnabled(project.sources_feed_enabled !== false);
       setBlastRadius((project.decision_blast_radius as "small" | "large" | "") ?? "");
       setOptionality(project.optionality ?? []);
+      setReviewMode(project.review_mode ?? "");
       setAutoIngestEnabled(project.autoIngest?.enabled ?? false);
       setAutoIngestSchedule(
         project.autoIngest?.cron ? cronToSchedule(project.autoIngest.cron) : DEFAULT_SCHEDULE,
@@ -708,6 +748,7 @@ export function ProjectSettingsPanel({
     feedEnabled,
     blastRadius,
     optionality,
+    reviewMode,
     autoIngestEnabled,
     autoIngestSchedule,
     autoIngestOwnerEmail,
@@ -765,7 +806,10 @@ export function ProjectSettingsPanel({
           <fieldset disabled={!canEdit} className="contents">
             <Tabs value={settingsTab} onValueChange={setSettingsTab}>
               <div className="border-b border-border">
-                <TabsList className="h-auto gap-4 bg-transparent p-0" indicator="underline">
+                <TabsList
+                  className="h-auto w-full justify-start gap-4 overflow-x-auto bg-transparent p-0"
+                  indicator="underline"
+                >
                   <TabsTrigger value="general" className={TAB_TRIGGER_CLASS}>
                     General
                   </TabsTrigger>
@@ -788,6 +832,9 @@ export function ProjectSettingsPanel({
                       Auto-ingest
                     </TabsTrigger>
                   )}
+                  <TabsTrigger value="review" className={TAB_TRIGGER_CLASS}>
+                    Review
+                  </TabsTrigger>
                   <TabsTrigger value="slt" className={TAB_TRIGGER_CLASS}>
                     Metadata
                   </TabsTrigger>
@@ -1089,6 +1136,53 @@ export function ProjectSettingsPanel({
                           </button>
                         );
                       })}
+                    </div>
+                  </Field>
+                </div>
+              </TabsContent>
+
+              <TabsContent value="review" className="space-y-6 pt-6">
+                <div className="space-y-6">
+                  <p className="text-xs text-muted-foreground">
+                    This optional policy applies only to this {entityLabel}. If no override is
+                    selected, stable-page changes require review and dynamic-page changes publish
+                    immediately.
+                  </p>
+                  <Field
+                    label="Agent change review"
+                    hint={`Choose when agent-written changes for this ${entityLabel} require approval.`}
+                  >
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {REVIEW_MODE_OPTIONS.map((opt) => (
+                        <button
+                          key={opt.value || "default"}
+                          type="button"
+                          onClick={() => setReviewMode(opt.value)}
+                          className={[
+                            "rounded-lg border px-3 py-2.5 text-left transition",
+                            reviewMode === opt.value
+                              ? "border-primary bg-primary/10 ring-1 ring-primary"
+                              : "border-border/60 bg-muted/30 hover:border-primary/40 hover:bg-accent/30",
+                          ].join(" ")}
+                        >
+                          <span className="flex items-start gap-2">
+                            <span
+                              className={[
+                                "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border",
+                                reviewMode === opt.value ? "border-primary bg-primary" : "border-border",
+                              ].join(" ")}
+                            >
+                              {reviewMode === opt.value ? (
+                                <span className="h-1.5 w-1.5 rounded-full bg-white" />
+                              ) : null}
+                            </span>
+                            <span>
+                              <span className="block text-sm font-medium">{opt.label}</span>
+                              <span className="block text-xs text-muted-foreground">{opt.hint}</span>
+                            </span>
+                          </span>
+                        </button>
+                      ))}
                     </div>
                   </Field>
                 </div>

@@ -14,6 +14,8 @@ import {
   getExperimentArtifact,
   writeExperimentArtifactPage,
 } from "@/lib/tome/evaluation-store";
+import { parseFrontmatter, SPEC_BY_PATH } from "@/lib/tome/schema";
+import type { TomeReviewMode } from "@/types/projects";
 
 export const dynamic = "force-dynamic";
 
@@ -113,7 +115,12 @@ export const POST = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
     }
   }
 
-  const status = await draftStatusForReport(body.report_id ?? undefined);
+  const status = await draftStatusForWrite({
+    reportId: body.report_id ?? undefined,
+    reviewMode: project.review_mode,
+    path: body.path,
+    markdown: body.body,
+  });
 
   const store = await getPageStore();
   await store.writePage(project._id, body.path, body.body, {
@@ -125,20 +132,58 @@ export const POST = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
   return Response.json({ ok: true });
 });
 
+/** True if `path`/`markdown` resolve to `kind: stable` (or `hidden` — same
+ *  preserve-on-incremental semantics), same rule `buildTree` uses: explicit
+ *  frontmatter wins, else the page's template spec, else "stable". */
+function isStableWrite(path: string, markdown: string): boolean {
+  const [fm] = parseFrontmatter(markdown);
+  const rawKind = fm.kind;
+  if (typeof rawKind === "string") return rawKind === "stable" || rawKind === "hidden";
+  const spec = SPEC_BY_PATH.get(path);
+  return !spec || spec.kind === "stable" || spec.kind === "hidden";
+}
+
 /**
- * Draft-review is opt-out per run (`dispatch.skipReview`). Look up the run
- * that owns this report to decide whether the agent's write should land as a
- * "draft" (held for human review) or straight to "live". Missing/ambiguous
- * lookups default to "live" — never silently hide a write nobody asked to gate.
+ * Whether this write should land as a "draft" (held for human review) or
+ * straight to "live", combining three gates in precedence order:
+ *
+ * 1. Enforced quality policies always draft; lower-precedence settings cannot
+ *    publish before that gate is satisfied.
+ * 2. An ingest run's opt-out (`dispatch.skipReview`) — set on the run that
+ *    owns `reportId`, if any — bypasses project review.
+ * 3. The project's own `review_mode` setting (#291): `none` never drafts,
+ *    `all` always drafts, `stable_only` (the default) drafts only when the
+ *    write targets a stable/hidden page. Applies to every write path (chat,
+ *    MCP edit, ingest) since they all funnel through this one endpoint.
  */
-async function draftStatusForReport(
-  reportId: string | undefined,
-): Promise<"live" | "draft"> {
-  if (!reportId) return "live";
-  const runs = await getTomeIngestRunsCollection();
-  const run = await runs.findOne({ report_id: reportId });
-  if (!run) return "live";
-  return run.dispatch?.skipReview ? "live" : "draft";
+async function draftStatusForWrite(args: {
+  reportId: string | undefined;
+  reviewMode: TomeReviewMode | undefined;
+  path: string;
+  markdown: string;
+}): Promise<"live" | "draft"> {
+  if (args.reportId) {
+    const runs = await getTomeIngestRunsCollection();
+    const run = await runs.findOne({ report_id: args.reportId });
+    // Quality-policy enforcement is stronger than both the project setting
+    // and a caller's run-level opt-out. createRunRecord also forces
+    // skipReview=false for these runs; keep the write path independently
+    // defensive so an enforced evaluation can never publish directly live.
+    if (
+      run?.quality_policy_mode === "enforce" ||
+      (run?.quality_policy_mode !== undefined &&
+        run.quality_policy_mode !== "off" &&
+        run.quality_require_human_review)
+    ) {
+      return "draft";
+    }
+    if (run?.dispatch?.skipReview) return "live";
+  }
+
+  const mode = args.reviewMode ?? "stable_only";
+  if (mode === "none") return "live";
+  if (mode === "all") return "draft";
+  return isStableWrite(args.path, args.markdown) ? "draft" : "live";
 }
 
 // Tombstone a page (soft delete — appends a deleted revision). The agent's

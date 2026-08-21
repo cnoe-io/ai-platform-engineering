@@ -5,6 +5,7 @@
 import { NextRequest } from "next/server";
 
 const mockDeleteOne = jest.fn(async () => ({ deletedCount: 1 }));
+const mockUpdateOne = jest.fn(async () => ({ modifiedCount: 1 }));
 const mockFindOne = jest.fn();
 const mockFindBySlug = jest.fn();
 const mockGetTomeProjectPermissions = jest.fn();
@@ -37,6 +38,7 @@ jest.mock("@/lib/mongodb", () => ({
           findOne: mockFindOne,
           find: mockFindBySlug,
           deleteOne: mockDeleteOne,
+          updateOne: mockUpdateOne,
         },
   ),
 }));
@@ -48,6 +50,7 @@ jest.mock("@/lib/tome/data-steward", () => ({
   reconcileDataSteward: (...args: unknown[]) =>
     mockReconcileDataSteward(...args),
   resolveDataSteward: jest.fn(async () => null),
+  resolveStoredDataSteward: jest.fn(async () => null),
 }));
 
 jest.mock("@/lib/tome/access", () => ({
@@ -73,11 +76,19 @@ jest.mock("@/lib/tome/audit", () => ({
   })),
 }));
 
-import { DELETE, GET } from "../route";
+import { DELETE, GET, PATCH } from "../route";
 
 function request(slug: string): NextRequest {
   return new NextRequest(`http://example.test/api/projects/${slug}`, {
     method: "DELETE",
+  });
+}
+
+function patchRequest(slug: string, body: Record<string, unknown>): NextRequest {
+  return new NextRequest(`http://example.test/api/projects/${slug}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
   });
 }
 
@@ -179,5 +190,50 @@ describe("slug collision boundary", () => {
     });
     expect(mockGetTomeProjectPermissions).not.toHaveBeenCalled();
     expect(mockDeleteOne).not.toHaveBeenCalled();
+  });
+});
+
+describe("PATCH /api/projects/[slug] review policy", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockGetTomeProjectPermissions.mockResolvedValue({
+      canRead: true,
+      canEdit: true,
+      canManageSteward: true,
+    });
+  });
+
+  it("unsets the optional per-entity override when review_mode is null", async () => {
+    const project = {
+      _id: "area-id",
+      slug: "example-area",
+      name: "Example Area",
+      title: "Example Area",
+      type: "area",
+      team_id: "example-team-id",
+      team_slug: "example-team",
+      team_name: "Example Team",
+      review_mode: "none",
+    };
+    mockFindBySlug.mockReturnValue({
+      limit: jest.fn().mockReturnValue({
+        toArray: jest.fn().mockResolvedValue([project]),
+      }),
+    });
+    mockFindOne.mockResolvedValue({ ...project, review_mode: undefined });
+
+    const response = await PATCH(
+      patchRequest("example-area", { review_mode: null }),
+      { params: Promise.resolve({ slug: "example-area" }) },
+    );
+
+    expect(response.status).toBe(200);
+    expect(mockUpdateOne).toHaveBeenCalledWith(
+      { _id: "area-id" },
+      {
+        $set: { updated_at: expect.any(Date) },
+        $unset: { review_mode: "" },
+      },
+    );
   });
 });

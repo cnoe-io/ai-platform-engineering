@@ -41,6 +41,62 @@ const renderSettings = (props: React.ComponentProps<typeof ProjectSettingsPanel>
     </ToastProvider>,
   );
 
+function installEntitySettingsFetch(
+  type: "project" | "area" | "bhag",
+  initialReviewMode?: "none" | "stable_only" | "all",
+): { getPatchPayload: () => Record<string, unknown> | null } {
+  const slug = `example-${type}`;
+  let patchPayload: Record<string, unknown> | null = null;
+  const project = {
+    _id: `${type}-id`,
+    type,
+    slug,
+    name: `Example ${type}`,
+    title: `Example ${type}`,
+    description: "Example description",
+    team_id: "example-team-id",
+    team_slug: "example-team",
+    team_name: "Example Team",
+    labels: { areas: [], initiatives: [] },
+    sources: { repos: [], confluence_url: "" },
+    data_steward: { type: "user", id: "test-user", email: "test-user@example.com" },
+    review_mode: initialReviewMode,
+  };
+
+  (global.fetch as jest.Mock).mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url === `/api/projects/${slug}` && init?.method === "PATCH") {
+      patchPayload = JSON.parse(String(init.body)) as Record<string, unknown>;
+      return jsonResponse({
+        data: {
+          project: {
+            ...project,
+            review_mode: patchPayload.review_mode ?? undefined,
+          },
+        },
+      });
+    }
+    if (url === `/api/projects/${slug}`) {
+      return jsonResponse({
+        data: {
+          project,
+          permissions: { can_edit: true, can_manage_steward: false },
+        },
+      });
+    }
+    if (url === "/api/dynamic-agents/teams") {
+      return jsonResponse({
+        data: [{ _id: "example-team-id", slug: "example-team", name: "Example Team" }],
+      });
+    }
+    if (url.startsWith("/api/projects?")) return jsonResponse({ data: { projects: [] } });
+    if (url === `/api/tome/projects/${slug}/feed-status`) return jsonResponse({ data: null });
+    return jsonResponse({});
+  });
+
+  return { getPatchPayload: () => patchPayload };
+}
+
 describe("ProjectSettingsPanel hierarchy hydration", () => {
   beforeEach(() => {
     useUnsavedChangesStore.setState({
@@ -227,6 +283,37 @@ describe("ProjectSettingsPanel hierarchy hydration", () => {
     const beforeUnload = new Event("beforeunload", { cancelable: true });
     window.dispatchEvent(beforeUnload);
     expect(beforeUnload.defaultPrevented).toBe(false);
+  });
+
+  it.each(["project", "area", "bhag"] as const)(
+    "stores auto-accept as an optional per-%s review policy",
+    async (type) => {
+      const { getPatchPayload } = installEntitySettingsFetch(type);
+      renderSettings({ slug: `example-${type}` });
+
+      const reviewTab = await screen.findByRole("tab", { name: "Review" });
+      fireEvent.mouseDown(reviewTab, { button: 0, ctrlKey: false });
+      fireEvent.click(await screen.findByRole("button", { name: /Auto-accept all/i }));
+      fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+      await waitFor(() => {
+        expect(getPatchPayload()).toEqual(expect.objectContaining({ review_mode: "none" }));
+      });
+    },
+  );
+
+  it("clears the entity override when Use default is selected", async () => {
+    const { getPatchPayload } = installEntitySettingsFetch("project", "none");
+    renderSettings({ slug: "example-project" });
+
+    const reviewTab = await screen.findByRole("tab", { name: "Review" });
+    fireEvent.mouseDown(reviewTab, { button: 0, ctrlKey: false });
+    fireEvent.click(await screen.findByRole("button", { name: /Use default/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => {
+      expect(getPatchPayload()).toEqual(expect.objectContaining({ review_mode: null }));
+    });
   });
 
   it("keeps a project's own direct BHAG tag even when its tagged Area has no BHAG of its own", async () => {

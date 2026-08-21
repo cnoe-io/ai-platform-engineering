@@ -72,6 +72,10 @@ export type ProjectSource = "manual" | "backstage";
  */
 export type ProjectType = "project" | "bhag" | "area";
 
+/** How much draft/HITL review gates agent-written page changes. See
+ *  `ProjectDocument.review_mode`. */
+export type TomeReviewMode = "none" | "stable_only" | "all";
+
 export type DataStewardKind = "user" | "team";
 
 /**
@@ -283,6 +287,13 @@ export interface ProjectDocument {
   optionality?: string[];
   /** Per-project on/off for the source-activity feed. Undefined = on. */
   sources_feed_enabled?: boolean;
+  /**
+   * How much draft/HITL review gates agent-written page changes (chat, MCP
+   * edit, ingest): `none` = writes land live immediately; `stable_only` =
+   * only stable-page edits (charter, roadmap, etc.) are held for review;
+   * `all` = every agent write is held for review. Undefined = `stable_only`.
+   */
+  review_mode?: TomeReviewMode;
   /** CRON-scheduled auto-ingest configuration. Undefined = not opted in. */
   autoIngest?: AutoIngestConfig;
   created_at: Date;

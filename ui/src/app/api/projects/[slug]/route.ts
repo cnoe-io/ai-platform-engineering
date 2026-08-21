@@ -39,7 +39,7 @@ import {
   resolveDataSteward,
   resolveStoredDataSteward,
 } from "@/lib/tome/data-steward";
-import type { DataStewardInput, ProjectDocument } from "@/types/projects";
+import type { DataStewardInput, ProjectDocument, TomeReviewMode } from "@/types/projects";
 import type { Team } from "@/types/teams";
 
 /**
@@ -271,6 +271,8 @@ export const PATCH = withErrorHandler(
       data_steward?: DataStewardInput | null;
       /** Per-project source-feed on/off. */
       sources_feed_enabled?: boolean;
+      /** How much draft/HITL review gates agent-written page changes. */
+      review_mode?: TomeReviewMode | null;
       decision_blast_radius?: "small" | "large" | null;
       optionality?: string[];
       /**
@@ -356,6 +358,19 @@ export const PATCH = withErrorHandler(
     }
     if (typeof body.sources_feed_enabled === "boolean") {
       $set["sources_feed_enabled"] = body.sources_feed_enabled;
+    }
+    if ("review_mode" in body) {
+      if (body.review_mode === null) {
+        $unset["review_mode"] = "";
+      } else if (!["none", "stable_only", "all"].includes(body.review_mode)) {
+        throw new ApiError(
+          "`review_mode` must be one of: none, stable_only, all",
+          400,
+          "BAD_REQUEST",
+        );
+      } else {
+        $set["review_mode"] = body.review_mode;
+      }
     }
     if ("autoIngest" in body) {
       if (!body.autoIngest) {

@@ -51,6 +51,7 @@ import {
 import { canAutoPromoteOverdue } from "./rubric-evaluator";
 import { captureEvidenceBundle } from "./evidence-bundle";
 import { evaluateDraftQuality } from "./draft-quality";
+import { shouldAwaitIngestReview } from "./ingest-review";
 
 /** Load a project by its stable id (string or ObjectId), normalizing `_id` to string. */
 async function loadProjectById(
@@ -780,7 +781,6 @@ async function driveIngest(
     // summary before anything is promoted.
     const store = await getPageStore();
     const run = await runs.findOne({ _id: runId });
-    const skipReview = run?.dispatch?.skipReview === true;
     const pages = await store.listPages(projectId, { includeDrafts: true });
     const summary = summaryFromOverview(pages);
     await reports.updateOne({ _id: reportId }, { $set: { summary } });
@@ -795,7 +795,19 @@ async function driveIngest(
       }
     }
 
-    if (skipReview) {
+    // The run-level gate mirrors the page-level one (#291's review_mode):
+    // an admin's `dispatch.skipReview` for this run always wins, otherwise
+    // hold for review only if the writer (the internal pages route, per
+    // review_mode) actually drafted at least one page. A `stable_only`
+    // project with an incremental ingest that only touched dynamic pages
+    // writes everything live — there's nothing to review, so don't lock
+    // the wiki or show "awaiting review" for a run with zero drafts.
+    const awaitReview = shouldAwaitIngestReview({
+      skipReview: run?.dispatch?.skipReview === true,
+      draftPaths: await store.listDraftPaths(projectId, reportId),
+    });
+
+    if (!awaitReview) {
       await runs.updateOne(
         { _id: runId },
         { $set: { status: "succeeded", finished_at: new Date() } },
