@@ -1081,6 +1081,7 @@ describe('Admin Dashboard Page', () => {
         await screen.findByRole("heading", { level: 1, name: "Slack" }),
       ).toBeInTheDocument();
       const updatedNavigation = screen.getByRole("navigation", { name: "Admin sections" });
+      expect(updatedNavigation).toBe(navigation);
       await waitFor(() => {
         expect(
           within(updatedNavigation).getByRole("button", { name: "Teams & Users" }),
