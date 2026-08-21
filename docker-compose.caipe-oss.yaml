@@ -217,6 +217,11 @@ services:
       # the public issuer remains stable in browser-visible tokens.
       OIDC_DISCOVERY_URL: ${OIDC_DISCOVERY_URL:-http://keycloak:7080/realms/caipe}
       OIDC_IDP_HINT: ${OIDC_IDP_HINT:-duo-sso}
+      # Match the Tome validation flow: reconcile Duo group claims at login.
+      # Team creation stays policy-gated by the seeded wildcard sync rule.
+      OIDC_GROUP_CLAIM: members,groups
+      IDENTITY_SYNC_LOGIN_CLAIMS_ENABLED: "true"
+      IDENTITY_SYNC_LOGIN_AUTO_CREATE_TEAMS: "true"
       KEYCLOAK_FORCE_IDP_REDIRECT: ${KEYCLOAK_FORCE_IDP_REDIRECT:-true}
       INTERNAL_BASE_URL: http://localhost:3000
       APP_CONFIG_PATH: /app/config/app-config.yaml
