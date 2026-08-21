@@ -8,7 +8,6 @@ import { Button } from "@/components/ui/button";
 import { CopyButton } from "@/components/ui/copy-button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { MarkdownRenderer } from "@/components/shared/timeline";
 import { CrepeEditor, type CrepeEditorHandle } from "@/components/tome/CrepeEditor";
 import type { GistRecord } from "@/components/tome/GistEditorDialog";
 import { TomeLoading } from "@/components/tome/TomeLoading";
@@ -373,10 +372,10 @@ export function GistView({
             <div className="mt-6 text-sm">
               {editing ? (
                 previewMode ? (
-                  <MarkdownRenderer
-                    content={previewBody}
-                    variant="final"
-                    enableExternalEmbeds
+                  <CrepeEditor
+                    key={`${slug}-${id}-preview-${editorEpoch}`}
+                    initialMarkdown={previewBody}
+                    readonly
                   />
                 ) : rawMode ? (
                   <div className="milkdown-host min-h-[28rem]">
@@ -396,10 +395,10 @@ export function GistView({
                   />
                 )
               ) : (
-                <MarkdownRenderer
-                  content={gist.body}
-                  variant="final"
-                  enableExternalEmbeds
+                <CrepeEditor
+                  key={`${slug}-${id}-view-${editorEpoch}`}
+                  initialMarkdown={gist.body}
+                  readonly
                 />
               )}
             </div>

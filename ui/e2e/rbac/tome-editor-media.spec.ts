@@ -10,6 +10,7 @@ import {
 
 const SLUG = "example-project";
 const PAGE_PATH = "charter.md";
+const GIST_ID = "example-gist";
 const TINY_PNG_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
 
@@ -61,6 +62,22 @@ function mediaHandler(state: MediaState): MockRouteHandler {
       state.markdown = payload.markdown;
       state.writes.push({ markdown: payload.markdown, message: payload.message });
       await fulfillJson(route, { success: true, data: { path: PAGE_PATH } });
+      return true;
+    }
+    if (path === `/api/tome/projects/${SLUG}/gists/${GIST_ID}` && method === "GET") {
+      await fulfillJson(route, {
+        success: true,
+        data: {
+          gist: {
+            id: GIST_ID,
+            title: "Example architecture gist",
+            body: state.markdown,
+            author: "test-user",
+            created_at: "2026-08-21T12:00:00.000Z",
+            tags: ["architecture"],
+          },
+        },
+      });
       return true;
     }
     if (path === `/api/projects/${SLUG}` && method === "GET") {
@@ -167,6 +184,39 @@ test.describe("Tome editor media (mocked)", () => {
 
     await page.keyboard.press("Escape");
     await expect(lightbox).toBeHidden();
+  });
+
+  test("renders Mermaid fenced code in a gist read view", async ({ page }) => {
+    const state: MediaState = {
+      markdown: [
+        "# Example architecture",
+        "",
+        "```mermaid",
+        "flowchart LR",
+        "  Browser --> Grid",
+        "  Grid --> App",
+        "```",
+      ].join("\n"),
+      writes: [],
+    };
+    await installMockedRbacApp(page, {
+      session: { email: "steward@example.test", name: "Example Steward" },
+      handlers: [mediaHandler(state)],
+    });
+
+    await page.goto(`/projects/${SLUG}/tome/gists/${GIST_ID}`, {
+      waitUntil: "domcontentloaded",
+    });
+
+    await expect(page.getByRole("heading", { name: "Example architecture gist" })).toBeVisible();
+    const preview = page.locator(".milkdown-code-block .preview svg");
+    await expect(preview).toBeVisible();
+    await expect(preview).toHaveAttribute("aria-roledescription", "flowchart-v2");
+    await expect(page.locator(".tome-mermaid-error")).toHaveCount(0);
+    await expect(page.getByText("plain text", { exact: true })).toHaveCount(0);
+
+    await page.getByRole("button", { name: "Expand Mermaid diagram" }).click();
+    await expect(page.getByRole("dialog", { name: "Mermaid diagram" })).toBeVisible();
   });
 
   test("persists a pasted image through the page save and reload flow", async ({ page }) => {
