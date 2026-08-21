@@ -140,4 +140,33 @@ describe("AccessSettings", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("boom");
   });
+
+  it("disables the Relink button while an unlink request is in flight", async () => {
+    let resolveUnlink: (() => void) | undefined;
+    const mock = jest.fn(async (url: string) => {
+      if (typeof url === "string" && url.includes("/api/auth/webex-link/unlink")) {
+        await new Promise<void>((resolve) => {
+          resolveUnlink = resolve;
+        });
+        return { ok: true, status: 200, json: async () => ({ success: true, data: { unlinked: true } }) };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ ...BASE_POSTURE, webex_link_available: true, webex_linked: true }),
+      };
+    });
+    global.fetch = mock as unknown as typeof fetch;
+    render(<AccessSettings />);
+
+    const unlinkButton = await screen.findByRole("button", { name: "Unlink" });
+    const relinkButton = screen.getByRole("button", { name: "Relink" });
+    expect(relinkButton).not.toBeDisabled();
+
+    fireEvent.click(unlinkButton);
+    await waitFor(() => expect(relinkButton).toBeDisabled());
+
+    resolveUnlink?.();
+    await waitFor(() => expect(relinkButton).not.toBeDisabled());
+  });
 });

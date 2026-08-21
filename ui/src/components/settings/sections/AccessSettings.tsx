@@ -153,6 +153,7 @@ export function AccessSettings(): React.ReactElement {
                   <div className="flex items-center gap-1.5">
                     <Button
                       className="h-7 px-2 text-xs"
+                      disabled={unlinkingWebex}
                       onClick={() => { window.location.href = "/api/auth/webex-link/start"; }}
                       size="sm"
                       variant="outline"
