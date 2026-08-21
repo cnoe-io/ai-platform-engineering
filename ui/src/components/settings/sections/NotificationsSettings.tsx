@@ -197,6 +197,7 @@ export function NotificationsSettings(): React.ReactElement {
       {
         agentName: "Example agent",
         conversationId: "example",
+        href: "/settings/notifications",
         messageId: `test-${Date.now()}`,
       },
       {
