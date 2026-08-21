@@ -16,7 +16,7 @@ function latestAssistantMessage(messages: ChatMessage[]): ChatMessage | undefine
 
 /**
  * Observes the protocol-neutral chat store rather than any provider stream.
- * Dynamic Agents, AG-UI, and Harness Gateway runs all converge on this state.
+ * Dynamic Agents and AG-UI runs converge on this state.
  */
 export function AgentCompletionNotifier(): null {
   const conversations = useChatStore((state) => state.conversations);
