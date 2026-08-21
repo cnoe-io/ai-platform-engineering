@@ -211,6 +211,7 @@ services:
     env_file: !reset []
     environment:
       NEXTAUTH_URL: https://caipe-oss.outshift.io
+      MONGODB_DATABASE: ${MONGODB_DATABASE:-caipe}
       OIDC_ISSUER: https://caipe-oss.outshift.io/realms/caipe
       # NextAuth uses the internal URL for OIDC metadata and token exchange;
       # the public issuer remains stable in browser-visible tokens.
