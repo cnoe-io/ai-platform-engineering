@@ -456,12 +456,23 @@ function ApplicationNavigationContents({
                   </TooltipContent>
                 </Tooltip>
               ) : control}
-              {!collapsed && contextExpanded ? (
+              {!collapsed && hasSectionNavigation ? (
                 <div
-                  className="ml-3 border-l border-border/60 pb-3 pl-3 pt-2"
+                  aria-hidden={!contextExpanded}
+                  className={cn(
+                    "grid transition-[grid-template-rows,opacity] duration-200 ease-out motion-reduce:transition-none",
+                    contextExpanded
+                      ? "grid-rows-[1fr] opacity-100"
+                      : "pointer-events-none grid-rows-[0fr] opacity-0",
+                  )}
                   id={`${contextualNavigationId}-${item.key}`}
+                  inert={!contextExpanded}
                 >
-                  {contextualNavigation}
+                  <div className="min-h-0 overflow-hidden">
+                    <div className="ml-3 border-l border-border/60 pb-3 pl-3 pt-2">
+                      {contextualNavigation}
+                    </div>
+                  </div>
                 </div>
               ) : null}
             </div>
