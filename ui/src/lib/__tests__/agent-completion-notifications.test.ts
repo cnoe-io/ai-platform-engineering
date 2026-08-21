@@ -18,6 +18,7 @@ class MockNotification {
   static requestPermission = jest.fn(async () => MockNotification.permission);
   body?: string;
   close = jest.fn();
+  data?: unknown;
   onclick: (() => void) | null = null;
   tag?: string;
   title: string;
@@ -25,6 +26,7 @@ class MockNotification {
   constructor(title: string,options?: NotificationOptions) {
     this.title = title;
     this.body = options?.body;
+    this.data = options?.data;
     this.tag = options?.tag;
     notifications.push(this);
   }
@@ -116,6 +118,24 @@ describe("agent completion notifications",() => {
       title: "Example agent finished",
       body: "Your response is ready.",
       tag: "caipe-agent-completion-conversation-primary-message-primary",
+    });
+  });
+
+  it("uses an explicit internal destination for a test notification",async () => {
+    await deliverAgentCompletionAlert(
+      {
+        agentName: "Example agent",
+        conversationId: "example",
+        href: "/settings/notifications",
+        messageId: "message-test",
+      },
+      {
+        preferences: { browserEnabled: true,chimeEnabled: false },
+      },
+    );
+
+    expect(notifications[0]).toMatchObject({
+      data: expect.objectContaining({ href: "/settings/notifications" }),
     });
   });
 
