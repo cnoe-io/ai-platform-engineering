@@ -587,9 +587,17 @@ export function WorkspaceHierarchicalNavigationList({
   onNavigate,
 }: WorkspaceHierarchicalNavigationListProps): React.ReactElement {
   const navigationId = useId();
-  const [expandedCategoryIds,setExpandedCategoryIds] = useState<Set<string>>(
-    () => new Set([activeCategoryId]),
-  );
+  const [categoryDisclosure,setCategoryDisclosure] = useState(() => ({
+    activeCategoryId,
+    expandedCategoryIds: new Set(activeCategoryId ? [activeCategoryId] : []),
+  }));
+  if (categoryDisclosure.activeCategoryId !== activeCategoryId) {
+    setCategoryDisclosure({
+      activeCategoryId,
+      expandedCategoryIds: new Set(activeCategoryId ? [activeCategoryId] : []),
+    });
+  }
+  const expandedCategoryIds = categoryDisclosure.expandedCategoryIds;
 
   return (
     <TooltipProvider delayDuration={200}>
@@ -663,14 +671,14 @@ export function WorkspaceHierarchicalNavigationList({
               )}
               data-active={active || undefined}
               onClick={() => {
-                setExpandedCategoryIds((current) => {
-                  const next = new Set(current);
+                setCategoryDisclosure((current) => {
+                  const next = new Set(current.expandedCategoryIds);
                   if (next.has(category.id)) {
                     next.delete(category.id);
                   } else {
                     next.add(category.id);
                   }
-                  return next;
+                  return { ...current,expandedCategoryIds: next };
                 });
               }}
               type="button"
@@ -698,7 +706,7 @@ export function WorkspaceHierarchicalNavigationList({
             </button>
           );
           return (
-            <section className="space-y-2" key={category.id}>
+            <section key={category.id}>
               <Tooltip className="block w-full">
                 <TooltipTrigger asChild>{categoryControl}</TooltipTrigger>
                 <TooltipContent className="max-w-xs whitespace-normal" side="right" sideOffset={8}>
@@ -706,44 +714,53 @@ export function WorkspaceHierarchicalNavigationList({
                 </TooltipContent>
               </Tooltip>
 
-              {expanded ? (
-                <div
-                  className="ml-4 space-y-4 border-l border-border/70 pl-3"
-                  id={destinationsId}
-                >
-                  {category.groups.map((group) => {
-                    const headingId = `${navigationId}-${category.id}-${group.id}`;
-                    return (
-                      <section
-                        aria-labelledby={group.label ? headingId : undefined}
-                        className="space-y-1.5"
-                        key={group.id}
-                      >
-                        {group.label ? (
-                          <h2
-                            className="px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"
-                            id={headingId}
-                          >
-                            {group.label}
-                          </h2>
-                        ) : null}
-                        <div className="space-y-1">
-                          {group.items.map((item) => (
-                            <NavigationItem
-                              active={item.id === activeItemId}
-                              collapsed={false}
-                              density="compact"
-                              item={item}
-                              key={item.id}
-                              onNavigate={onNavigate}
-                            />
-                          ))}
-                        </div>
-                      </section>
-                    );
-                  })}
+              <div
+                aria-hidden={!expanded}
+                className={cn(
+                  "grid transition-[grid-template-rows,opacity] duration-200 ease-out motion-reduce:transition-none",
+                  expanded
+                    ? "grid-rows-[1fr] opacity-100"
+                    : "pointer-events-none grid-rows-[0fr] opacity-0",
+                )}
+                id={destinationsId}
+                inert={!expanded}
+              >
+                <div className="min-h-0 overflow-hidden">
+                  <div className="ml-4 space-y-4 border-l border-border/70 pb-1 pl-3 pt-2">
+                    {category.groups.map((group) => {
+                      const headingId = `${navigationId}-${category.id}-${group.id}`;
+                      return (
+                        <section
+                          aria-labelledby={group.label ? headingId : undefined}
+                          className="space-y-1.5"
+                          key={group.id}
+                        >
+                          {group.label ? (
+                            <h2
+                              className="px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"
+                              id={headingId}
+                            >
+                              {group.label}
+                            </h2>
+                          ) : null}
+                          <div className="space-y-1">
+                            {group.items.map((item) => (
+                              <NavigationItem
+                                active={item.id === activeItemId}
+                                collapsed={false}
+                                density="compact"
+                                item={item}
+                                key={item.id}
+                                onNavigate={onNavigate}
+                              />
+                            ))}
+                          </div>
+                        </section>
+                      );
+                    })}
+                  </div>
                 </div>
-              ) : null}
+              </div>
             </section>
           );
         })}
