@@ -2,8 +2,7 @@
  * Unit tests for NewHomePage
  *
  * Tests:
- * - Renders the toggle link and every enabled content block as a widget
- * - Clicking the toggle switches the experience back to "classic"
+ * - Renders every enabled content block as a widget
  * - No content widgets render when none are enabled
  * - Enabled widget ids render their registered component, wrapped for removal
  * - "Customize" control lists only widgets not yet enabled
@@ -31,7 +30,6 @@ jest.mock('@/components/home/widget-registry', () => ({
 
 const mockAddWidget = jest.fn()
 const mockRemoveWidget = jest.fn()
-const mockSetExperience = jest.fn()
 let mockWidgets: string[] = ['heroComposer', 'quickStart']
 let mockAvailableToAdd: Array<{ id: string; label: string }> = [
   { id: 'shortcuts', label: 'Shortcuts' },
@@ -46,7 +44,6 @@ function mockStoreStateBase() {
     addWidget: mockAddWidget,
     removeWidget: mockRemoveWidget,
     reorderWidgets: mockReorderWidgets,
-    setExperience: mockSetExperience,
     availableToAdd: () => mockAvailableToAdd,
   }
 }
@@ -124,18 +121,12 @@ describe('NewHomePage', () => {
     expect(link.closest('a')).toHaveAttribute('href', 'https://caipe.io')
   })
 
-  it('renders a toggle back to the classic experience', () => {
-    render(<NewHomePage />)
-    fireEvent.click(screen.getByTestId('switch-to-classic-home'))
-    expect(mockSetExperience).toHaveBeenCalledWith('classic')
-  })
-
-  it('keeps Classic Home and Customize in the same compact toolbar', () => {
+  it('keeps Customize in a compact toolbar without a Classic Home escape hatch', () => {
     render(<NewHomePage />)
     const toolbar = screen.getByTestId('home-toolbar')
-    expect(toolbar).toContainElement(screen.getByTestId('switch-to-classic-home'))
     expect(toolbar).toContainElement(screen.getByTestId('add-widget-trigger'))
     expect(screen.getByTestId('add-widget-trigger')).toHaveTextContent('Customize')
+    expect(screen.queryByText('Classic Home')).not.toBeInTheDocument()
   })
 
   describe('widgets', () => {
