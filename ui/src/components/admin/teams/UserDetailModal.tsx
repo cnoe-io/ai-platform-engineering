@@ -415,6 +415,7 @@ export function UserDetailModal({
 
   const slackUserId = user?.attributes?.slack_user_id?.[0]?.trim() ?? "";
   const webexUserId = user?.attributes?.webex_user_id?.[0]?.trim() ?? "";
+  const webexUserEmail = user?.attributes?.webex_user_email?.[0]?.trim() ?? "";
   const webexLinked = webexUserId.length > 0;
 
   const lastLoginLabel =
@@ -776,7 +777,9 @@ export function UserDetailModal({
                             </button>
                           )}
                         </span>
-                        <span className="font-mono text-xs text-muted-foreground">{webexUserId}</span>
+                        {webexUserEmail ? (
+                          <span className="text-xs text-muted-foreground">{webexUserEmail}</span>
+                        ) : null}
                       </span>
                     ) : (
                       <span className="inline-flex rounded-full bg-muted text-muted-foreground px-2 py-0.5 text-xs font-medium">
