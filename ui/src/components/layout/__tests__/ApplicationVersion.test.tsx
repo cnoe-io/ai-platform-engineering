@@ -72,12 +72,34 @@ it("uses the commit SHA instead of prefixing a non-semantic version",() => {
   ).toHaveAttribute("href","/admin/operations/health");
 });
 
-it("hides health and build information from non-admin users",() => {
+it("shows build information without health or navigation for non-admin users",() => {
   mockUseAdminRole.mockReturnValue({ isAdmin: false,loading: false });
+  mockUseVersion.mockReturnValue({
+    isLoading: false,
+    versionInfo: { version: "preview",packageVersion: "0.2.0",gitCommit: "6c5c6617a" },
+  });
 
   render(<ApplicationVersion />);
 
-  expect(screen.queryByTestId("application-version")).not.toBeInTheDocument();
-  expect(mockUseVersion).not.toHaveBeenCalled();
+  const identifier = screen.getByTestId("application-version");
+  expect(identifier).toHaveTextContent("6c5c661");
+  expect(identifier.closest("a")).toBeNull();
+  expect(identifier).toHaveAccessibleName("CAIPE 6c5c661");
+  expect(mockUsePlatformHealthProbes).not.toHaveBeenCalled();
+});
+
+it("keeps the non-admin collapsed build identifier non-clickable and accessible",() => {
+  mockUseAdminRole.mockReturnValue({ isAdmin: false,loading: false });
+  mockUseVersion.mockReturnValue({
+    isLoading: false,
+    versionInfo: { version: "0.5.67",gitCommit: "abc123456" },
+  });
+
+  render(<ApplicationVersion collapsed />);
+
+  const identifier = screen.getByLabelText("CAIPE v0.5.67");
+  expect(identifier).toHaveAttribute("tabindex","0");
+  expect(identifier.closest("a")).toBeNull();
+  expect(screen.queryByText("v0.5.67")).not.toBeInTheDocument();
   expect(mockUsePlatformHealthProbes).not.toHaveBeenCalled();
 });
