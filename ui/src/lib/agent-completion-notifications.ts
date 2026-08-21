@@ -175,7 +175,9 @@ async function showBrowserNotification(alert: AgentCompletionAlert): Promise<boo
 
   const agentLabel = alert.agentName?.trim() || "Agent";
   const title = `${agentLabel} finished`;
-  const options: NotificationOptions = {
+  // `renotify` is supported by Chromium's Notification API but is not yet
+  // included in every TypeScript DOM library version.
+  const options: NotificationOptions & { renotify?: boolean } = {
     body: "Your response is ready.",
     data: {
       conversationId: alert.conversationId,
