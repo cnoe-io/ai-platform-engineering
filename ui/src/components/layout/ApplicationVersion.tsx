@@ -1,5 +1,6 @@
 "use client";
 
+import { GitCommitHorizontal } from "lucide-react";
 import Link from "next/link";
 
 import {
@@ -20,20 +21,70 @@ export function ApplicationVersion({
   collapsed?: boolean;
 }): React.ReactElement {
   const { isAdmin,loading } = useAdminRole();
-
-  if (loading || !isAdmin) return <></>;
-
-  return <AdminApplicationVersion collapsed={collapsed} />;
-}
-
-function AdminApplicationVersion({ collapsed }: { collapsed: boolean }): React.ReactElement {
   const { versionInfo,isLoading } = useVersion();
-  const health = usePlatformHealthProbes({ diagnostics: false });
   const version = formatBuildIdentifier({
     version: versionInfo?.version,
     packageVersion: versionInfo?.packageVersion,
     gitCommit: versionInfo?.gitCommit,
   });
+
+  if (loading || !isAdmin) {
+    return <BuildIdentifier collapsed={collapsed} isLoading={isLoading} version={version} />;
+  }
+
+  return <AdminApplicationVersion collapsed={collapsed} isLoading={isLoading} version={version} />;
+}
+
+function BuildIdentifier({
+  collapsed,
+  isLoading,
+  version,
+}: {
+  collapsed: boolean;
+  isLoading: boolean;
+  version: string | null;
+}): React.ReactElement {
+  const versionLabel = version ? `CAIPE ${version}` : "CAIPE development build";
+  const label = isLoading ? "Loading CAIPE build information" : versionLabel;
+  const content = (
+    <div
+      aria-label={label}
+      className={cn(
+        "flex min-w-0 items-center gap-2 rounded-md text-xs text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        collapsed ? "h-8 w-8 justify-center" : "px-1 py-1.5",
+      )}
+      data-testid="application-version"
+      tabIndex={collapsed ? 0 : undefined}
+    >
+      <GitCommitHorizontal aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+      {!collapsed ? (
+        <span className="truncate font-medium">{isLoading ? "Loading…" : version ?? "Development"}</span>
+      ) : null}
+    </div>
+  );
+
+  if (!collapsed) return content;
+
+  return (
+    <TooltipProvider delayDuration={500}>
+      <Tooltip>
+        <TooltipTrigger asChild>{content}</TooltipTrigger>
+        <TooltipContent side="right" sideOffset={8}>{label}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
+function AdminApplicationVersion({
+  collapsed,
+  isLoading,
+  version,
+}: {
+  collapsed: boolean;
+  isLoading: boolean;
+  version: string | null;
+}): React.ReactElement {
+  const health = usePlatformHealthProbes({ diagnostics: false });
   const healthLabel =
     health.status === "healthy"
       ? "healthy"
