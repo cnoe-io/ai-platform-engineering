@@ -44,7 +44,7 @@ from fastapi.responses import StreamingResponse
 from tome_agent.agent import http_client, workspace
 from tome_agent.agent.chat import stream_chat
 from tome_agent.agent.compact import stream_compaction
-from tome_agent.agent.drift import build_drift_report
+from tome_agent.agent.drift import build_drift_report, classify_structural
 from tome_agent.agent.evaluator import evaluate_artifact, evaluator_prompt_contract
 from tome_agent.agent.ingestor import expected_template_pages, stream_ingest
 from tome_agent.agent.presentation import (
@@ -207,7 +207,15 @@ async def template_drift_endpoint(body: TemplateDriftRequest) -> TemplateDriftRe
     templates, versions = fetched if fetched is not None else (None, {})
     report_schema.set_template_overrides(templates, versions)
     expected = expected_template_pages(body.snapshot)
-    report = await build_drift_report(body.pages, expected, model=body.model)
+    if body.content_check:
+        report = await build_drift_report(
+            body.pages,
+            expected,
+            model=body.model,
+            include_current=body.content_check_scope == "all_bound",
+        )
+    else:
+        report = classify_structural(body.pages, expected)
     return TemplateDriftResponse(
         pages=[
             {

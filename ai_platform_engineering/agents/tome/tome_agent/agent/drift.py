@@ -187,7 +187,11 @@ def _batch_prompt(
 _CONTENT_CHECK_MAX_TURNS = 4  # schema-constrained output needs an SDK-managed follow-up turn
 
 
-async def _run_content_check(prompt: str, model: str) -> list[dict[str, Any]]:
+async def _run_content_check(prompt: str, model: str) -> tuple[list[dict[str, Any]], str | None]:
+    """Returns `(verdicts, error)` — `error` is a short, user-facing
+    explanation of why no verdicts came back (surfaced into each
+    unaccounted-for page's `reason`, not just logged server-side), or None
+    on success."""
     options = ClaudeAgentOptions(
         model=model,
         max_turns=_CONTENT_CHECK_MAX_TURNS,
@@ -196,25 +200,34 @@ async def _run_content_check(prompt: str, model: str) -> list[dict[str, Any]]:
         output_format={"type": "json_schema", "schema": _content_check_schema()},
     )
     result: ResultMessage | None = None
-    async for message in query(prompt=prompt, options=options):
-        if isinstance(message, ResultMessage):
-            result = message
-            break
-    if result is None or getattr(result, "is_error", False):
-        log.warning("drift content check failed: %s", getattr(result, "errors", None))
-        return []
+    try:
+        async for message in query(prompt=prompt, options=options):
+            if isinstance(message, ResultMessage):
+                result = message
+                break
+    except Exception as exc:
+        log.warning("drift content check raised", exc_info=True)
+        return [], f"content check errored: {exc}"
+    if result is None:
+        return [], "content check returned no result"
+    if getattr(result, "is_error", False):
+        detail = str(getattr(result, "result", None) or getattr(result, "errors", None) or result.subtype)
+        log.warning("drift content check failed: %s", detail)
+        return [], f"content check failed: {detail}"
     data = getattr(result, "structured_output", None)
     if not isinstance(data, dict):
         raw = getattr(result, "result", None)
         if not isinstance(raw, str):
-            return []
+            return [], "content check returned no structured output"
         try:
             data = json.loads(raw)
         except ValueError:
             log.warning("drift content check returned non-JSON result", exc_info=True)
-            return []
+            return [], "content check returned a non-JSON result"
     verdicts = data.get("verdicts")
-    return verdicts if isinstance(verdicts, list) else []
+    if not isinstance(verdicts, list):
+        return [], "content check response had no verdicts array"
+    return verdicts, None
 
 
 async def check_content_drift(
@@ -222,28 +235,45 @@ async def check_content_drift(
     existing_pages: dict[str, str],
     template_snapshot: dict[str, list[dict[str, Any]]],
     model: str | None = None,
+    include_current: bool = False,
 ) -> None:
-    """Mutate `drifted`/`reason` in place for every `version_behind` entry in
-    `candidates`, via one no-tools agent call per batch of `_MAX_BATCH_PAGES`.
-    No-op if there are no version-behind candidates — never spends a call on
-    pages that are already `current`/`missing`/`unbound`."""
-    behind = [c for c in candidates if c.status == "version_behind"]
+    """Mutate `drifted`/`reason` in place, via one no-tools agent call per
+    batch of `_MAX_BATCH_PAGES`. Version staleness and content drift are
+    different axes — a `current` page (bound at the live template version)
+    can still have content that no longer satisfies the template's
+    guidance (a hand edit, a partial rewrite, guidance interpreted loosely
+    at seed time). By default only `version_behind` pages are checked (the
+    cheap, narrow case version staleness already flags); pass
+    `include_current=True` to also check every already-`current` bound
+    page — a full quality sweep, not gated on version at all. Never checks
+    `missing`/`unbound` pages (nothing to read). No-op if there are no
+    candidates in scope."""
+    behind = [
+        c
+        for c in candidates
+        if c.status == "version_behind" or (include_current and c.status == "current")
+    ]
     if not behind:
         return
     seed_lookup = _seed_lookup(template_snapshot)
+    # Falls back to TTT_INGEST_MODEL, not just a dedicated TTT_DRIFT_CHECK_MODEL
+    # env var — deployments always configure the ingest model (it's required
+    # for ingest to work at all), but nobody's going to remember to also set a
+    # separate drift-check one. CONTENT_CHECK_MODEL_DEFAULT alone is a bare
+    # model id that most gateways (bedrock, etc.) reject outright.
     resolved_model = model or http_client.resolve_model(
-        "drift_check", CONTENT_CHECK_MODEL_DEFAULT, ("TTT_DRIFT_CHECK_MODEL",)
+        "drift_check", CONTENT_CHECK_MODEL_DEFAULT, ("TTT_DRIFT_CHECK_MODEL", "TTT_INGEST_MODEL")
     )
     for start in range(0, len(behind), _MAX_BATCH_PAGES):
         batch = behind[start : start + _MAX_BATCH_PAGES]
         prompt = _batch_prompt(batch, existing_pages, seed_lookup)
-        verdicts = await _run_content_check(prompt, resolved_model)
+        verdicts, error = await _run_content_check(prompt, resolved_model)
         by_path = {v.get("path"): v for v in verdicts if isinstance(v, dict)}
         for candidate in batch:
             verdict = by_path.get(candidate.path)
             if verdict is None:
                 candidate.drifted = None
-                candidate.reason = "content check returned no verdict for this page"
+                candidate.reason = error or "content check returned no verdict for this page"
                 continue
             candidate.drifted = bool(verdict.get("drifted"))
             candidate.reason = str(verdict.get("reason") or "")
@@ -254,13 +284,18 @@ async def build_drift_report(
     expected: dict[str, report_schema.PageSpec],
     template_snapshot: dict[str, list[dict[str, Any]]] | None = None,
     model: str | None = None,
+    include_current: bool = False,
 ) -> list[PageDrift]:
-    """Full report: structural classification, then the content check for
-    whatever comes back `version_behind`. Callers that already fetched live
-    template overrides for this run (ingest/synthesize) should pass the same
-    `template_snapshot` (`report_schema.full_template_snapshot()`); a
-    standalone caller (the future #508 "Check" action) can omit it and rely
-    on `report_schema.set_template_overrides` having been called first, or
+    """Full report: structural classification, then the content check.
+    `include_current=False` (default) checks only `version_behind` pages —
+    cheap, narrow. `include_current=True` checks every bound page
+    regardless of version, a full content-quality sweep (see
+    `check_content_drift`'s docstring for why version staleness alone
+    doesn't catch all content drift). Callers that already fetched live
+    template overrides for this run (ingest/synthesize) should pass the
+    same `template_snapshot` (`report_schema.full_template_snapshot()`); a
+    standalone caller (the #508 "Check" action) can omit it and rely on
+    `report_schema.set_template_overrides` having been called first, or
     accept the hardcoded-defaults fallback."""
     report = classify_structural(existing_pages, expected)
     await check_content_drift(
@@ -268,5 +303,6 @@ async def build_drift_report(
         existing_pages,
         template_snapshot or report_schema.full_template_snapshot(),
         model=model,
+        include_current=include_current,
     )
     return report

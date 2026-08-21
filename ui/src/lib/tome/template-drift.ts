@@ -19,7 +19,14 @@ export interface PageDrift {
 export async function checkTemplateDrift(
   snapshot: ProjectSnapshot,
   pages: Record<string, string>,
-  model?: string,
+  options?: {
+    model?: string;
+    contentCheck?: boolean;
+    /** "out_of_date" (default) checks only old-version pages. "all_bound"
+     * also checks already-up-to-date pages — version and content drift are
+     * different axes; a page can be up to date and still have drifted. */
+    contentCheckScope?: "out_of_date" | "all_bound";
+  },
 ): Promise<PageDrift[]> {
   if (!process.env.TOME_AGENT_URL) {
     throw new Error("TOME_AGENT_URL not configured");
@@ -29,7 +36,13 @@ export async function checkTemplateDrift(
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ snapshot, pages, model }),
+      body: JSON.stringify({
+        snapshot,
+        pages,
+        model: options?.model,
+        content_check: options?.contentCheck ?? true,
+        content_check_scope: options?.contentCheckScope ?? "out_of_date",
+      }),
     },
   );
   if (!response.ok) {

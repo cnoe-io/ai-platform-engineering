@@ -38,7 +38,15 @@ export const POST = withErrorHandler(async (request: NextRequest, ctx: Ctx) => {
     );
   }
 
+  const body = (await request.json().catch(() => ({}))) as {
+    contentCheck?: boolean;
+    contentCheckScope?: "out_of_date" | "all_bound";
+  };
+
   const snapshot = buildSnapshot(tctx);
-  const report = await checkTemplateDrift(snapshot, pages);
+  const report = await checkTemplateDrift(snapshot, pages, {
+    contentCheck: body.contentCheck ?? true,
+    contentCheckScope: body.contentCheckScope ?? "out_of_date",
+  });
   return successResponse({ pages: report });
 });

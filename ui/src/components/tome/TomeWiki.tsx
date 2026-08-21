@@ -1577,7 +1577,11 @@ export function TomeWiki({ slug }: { slug: string }) {
               </div>
             ) : view.kind === "templates" ? (
               <div className="min-w-0 flex-1 overflow-auto">
-                <TemplatesPanel slug={slug} onNavigate={(path) => navigate({ kind: "page", path })} />
+                <TemplatesPanel
+                  slug={slug}
+                  onNavigate={(path) => navigate({ kind: "page", path })}
+                  onIngestStarted={(runId) => navigate({ kind: "ingestRun", runId })}
+                />
               </div>
             ) : view.kind === "insights" ? (
               <div className="min-w-0 flex-1 overflow-auto">

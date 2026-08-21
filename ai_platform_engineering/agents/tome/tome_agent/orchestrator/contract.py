@@ -335,6 +335,19 @@ class TemplateDriftRequest(BaseModel):
     snapshot: ProjectSnapshot
     pages: dict[str, str]
     model: str | None = None
+    content_check: bool = True
+    """False skips the content-check agent call entirely, returning the
+    structural classification only (instant, no LLM). The ingest panel
+    calls this first for an immediate render, then re-calls with the
+    default `True` to fill in `drifted`/`reason`."""
+    content_check_scope: Literal["out_of_date", "all_bound"] = "out_of_date"
+    """`out_of_date` (default) content-checks only `version_behind` pages.
+    `all_bound` also checks already-`current` pages — version staleness
+    doesn't catch every way a page's content can drift from its template's
+    guidance, so this is the full quality sweep, gated behind an explicit
+    user choice rather than run by default (it's real LLM cost across
+    every templated page, not just the stale ones). Ignored when
+    `content_check` is False."""
 
 
 class PageDriftPayload(BaseModel):
