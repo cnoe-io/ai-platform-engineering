@@ -123,6 +123,27 @@ describe("NotificationsSettings",() => {
     );
   });
 
+  it("expands and collapses notification sections individually or together",async () => {
+    global.fetch = jest.fn(async () => jsonResponse({ success: true,data: {} }));
+    render(<NotificationsSettings />);
+
+    await screen.findByRole("switch",{ name: "Browser notifications for agent completions" });
+    fireEvent.click(screen.getByRole("button",{ name: "Collapse Agent completions" }));
+    expect(screen.queryByRole("switch",{
+      name: "Browser notifications for agent completions",
+    })).not.toBeInTheDocument();
+    expect(screen.getByRole("switch",{ name: "Notify me about new releases" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button",{ name: "Collapse all" }));
+    expect(screen.queryByRole("switch",{ name: "Notify me about new releases" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button",{ name: "Expand all" }));
+    expect(screen.getByRole("switch",{
+      name: "Browser notifications for agent completions",
+    })).toBeInTheDocument();
+    expect(screen.getByRole("switch",{ name: "Notify me about new releases" })).toBeInTheDocument();
+  });
+
   it("auto-saves the personal preference without a Save button",async () => {
     const fetchMock = jest.fn(async (input: RequestInfo | URL,init?: RequestInit) => {
       if (init?.method === "PATCH") return jsonResponse({ success: true,data: {} });

@@ -15,10 +15,13 @@ import {
   requestBrowserNotificationPermission,
   type BrowserNotificationCapability,
 } from "@/lib/agent-completion-notifications";
-import { Bell,BellRing,Loader2,Volume2 } from "lucide-react";
+import { Bell,BellRing,ChevronsDownUp,ChevronsUpDown,Loader2,Volume2 } from "lucide-react";
 import { useEffect,useRef,useState } from "react";
 
 type NotificationKey = "release-notes" | "browser-completions" | "completion-chime";
+type NotificationSection = "agent-completions" | "release-notes";
+
+const NOTIFICATION_SECTIONS: NotificationSection[] = ["agent-completions","release-notes"];
 
 interface NotificationPreferences {
   browserEnabled: boolean;
@@ -73,6 +76,9 @@ export function NotificationsSettings(): React.ReactElement {
   const [loading,setLoading] = useState(true);
   const [loadError,setLoadError] = useState<string | null>(null);
   const [testMessage,setTestMessage] = useState<string | null>(null);
+  const [expandedSections,setExpandedSections] = useState<Set<NotificationSection>>(
+    () => new Set(NOTIFICATION_SECTIONS),
+  );
   const committedRef = useRef(preferences);
 
   const cacheCompletionPreferences = (next: NotificationPreferences): void => {
@@ -228,6 +234,16 @@ export function NotificationsSettings(): React.ReactElement {
     }
     autoSave.retry(key);
   };
+  const setSectionExpanded = (section: NotificationSection,expanded: boolean): void => {
+    setExpandedSections((current) => {
+      const next = new Set(current);
+      if (expanded) next.add(section);
+      else next.delete(section);
+      return next;
+    });
+  };
+  const allExpanded = expandedSections.size === NOTIFICATION_SECTIONS.length;
+  const allCollapsed = expandedSections.size === 0;
 
   if (loading) {
     return (
@@ -246,8 +262,32 @@ export function NotificationsSettings(): React.ReactElement {
         </div>
       ) : null}
 
+      <div className="flex justify-end gap-2">
+        <Button
+          disabled={allExpanded}
+          onClick={() => setExpandedSections(new Set(NOTIFICATION_SECTIONS))}
+          size="sm"
+          type="button"
+          variant="ghost"
+        >
+          <ChevronsUpDown className="mr-2 h-4 w-4" />Expand all
+        </Button>
+        <Button
+          disabled={allCollapsed}
+          onClick={() => setExpandedSections(new Set())}
+          size="sm"
+          type="button"
+          variant="ghost"
+        >
+          <ChevronsDownUp className="mr-2 h-4 w-4" />Collapse all
+        </Button>
+      </div>
+
       <SettingsCard
+        collapsibleLabel="Agent completions"
         description="Get a quiet signal when a background agent turn finishes. No message content is included in the desktop alert."
+        expanded={expandedSections.has("agent-completions")}
+        onExpandedChange={(expanded) => setSectionExpanded("agent-completions",expanded)}
         title={<span className="flex items-center gap-2"><BellRing className="h-5 w-5 text-primary" />Agent completions</span>}
       >
         <div className="space-y-3">
@@ -309,7 +349,10 @@ export function NotificationsSettings(): React.ReactElement {
       </SettingsCard>
 
       <SettingsCard
+        collapsibleLabel="Release notes"
         description="Choose whether CAIPE announces a new release after you sign in."
+        expanded={expandedSections.has("release-notes")}
+        onExpandedChange={(expanded) => setSectionExpanded("release-notes",expanded)}
         title={<span className="flex items-center gap-2"><Bell className="h-5 w-5 text-primary" />Release notes</span>}
       >
         <div className="space-y-4">
