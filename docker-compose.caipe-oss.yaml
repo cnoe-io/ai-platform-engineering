@@ -204,6 +204,11 @@ services:
         BUILD_DATE: ${BUILD_DATE:-}
         CAIPE_UI_FAST_BUILD: ${CAIPE_UI_FAST_BUILD:-true}
     image: caipe-ui-ux-preview:${UX_PREVIEW_IMAGE_TAG:-preview}
+    # The base service imports every deployment variable from .env. Reset that
+    # broad import so retired preview settings (including Harness Engine) are
+    # not exposed to the UX-only UI process. Values below and in the base
+    # service remain explicitly substituted from --env-file.
+    env_file: !reset []
     environment:
       NEXTAUTH_URL: https://caipe-oss.outshift.io
       OIDC_ISSUER: https://caipe-oss.outshift.io/realms/caipe
