@@ -38,8 +38,11 @@ DriftStatus = Literal["missing", "unbound", "version_behind", "current"]
 
 CONTENT_CHECK_MODEL_DEFAULT = "claude-haiku-4-5"
 # Pages per content-check call — keeps any one call's prompt/output bounded
-# regardless of how many pages are behind at once.
-_MAX_BATCH_PAGES = 8
+# regardless of how many pages are behind at once. Kept small (rather than
+# the model's practical max) so the streaming endpoint's per-batch progress
+# event lands every ~10-15s instead of every 30-45s — a bigger batch is more
+# call-efficient but leaves the UI silent for uncomfortably long stretches.
+_MAX_BATCH_PAGES = 3
 
 
 @dataclass
