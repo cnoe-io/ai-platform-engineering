@@ -26,12 +26,13 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/components/ui/toast";
 import { useAdminRole } from "@/hooks/use-admin-role";
 import { resolveUsableChatAgentId } from "@/lib/chat-agent-selection";
+import { mapCatalogSkillToAgentSkill } from "@/lib/catalog-skill-mapping";
 import { getConfig } from "@/lib/config";
 import { pushWithNavigationProgress } from "@/lib/navigation-progress";
 import { cn } from "@/lib/utils";
 import { useAgentSkillsStore } from "@/store/agent-skills-store";
 import { useChatStore } from "@/store/chat-store";
-import type { AgentSkill,ScanOverride } from "@/types/agent-skill";
+import type { AgentSkill } from "@/types/agent-skill";
 import { AnimatePresence,motion } from "framer-motion";
 import {
 Activity,
@@ -580,61 +581,7 @@ export function SkillsGallery({
       if (!res.ok) return;
       const data = await res.json();
       if (!data?.skills) return;
-      const mapped: AgentSkill[] = data.skills.map(
-        (s: {
-          id: string;
-          name: string;
-          source: string;
-          source_id?: string | null;
-          description?: string;
-          metadata?: Record<string, unknown>;
-          visibility?: string;
-          content?: string | null;
-          scan_status?: "passed" | "flagged" | "unscanned";
-          scan_summary?: string;
-          scan_updated_at?: string;
-          scan_override?: ScanOverride;
-        }) => {
-          const isBuiltin =
-            s.source === "default" || Boolean(s.metadata?.is_system);
-          return {
-            id: `catalog-${s.id}`,
-            name: s.name,
-            description: s.description || "",
-            category: (s.metadata?.category as string) || "Custom",
-            tasks: [],
-            owner_id:
-              s.source === "agent_skills" && s.source_id
-                ? String(s.source_id)
-                : "",
-            is_system: isBuiltin,
-            is_quick_start: isBuiltin,
-            visibility:
-              (s.visibility as AgentSkill["visibility"]) ??
-              (s.metadata?.visibility as AgentSkill["visibility"]) ??
-              undefined,
-            created_at: new Date(),
-            updated_at: new Date(),
-            thumbnail: (s.metadata?.icon as string) || "Zap",
-            skill_content: s.content ?? undefined,
-            metadata: {
-              tags: (s.metadata?.tags as string[]) || [],
-              catalog_source: s.source,
-              catalog_source_id: s.source_id ?? null,
-              catalog_visibility: s.visibility,
-              hub_location: (s.metadata?.hub_location as string) || "",
-              hub_type: (s.metadata?.hub_type as string) || "",
-              hub_path: (s.metadata?.path as string) || "",
-            },
-            scan_status: s.scan_status,
-            scan_summary: s.scan_summary,
-            scan_updated_at: s.scan_updated_at
-              ? new Date(s.scan_updated_at)
-              : undefined,
-            scan_override: s.scan_override,
-          } as AgentSkill;
-        },
-      );
+      const mapped: AgentSkill[] = data.skills.map(mapCatalogSkillToAgentSkill);
       setCatalogSkills(mapped);
     } catch {
       // Silent — this fetch is best-effort; the agent_skills branch
