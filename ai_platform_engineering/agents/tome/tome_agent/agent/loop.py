@@ -28,6 +28,7 @@ from tome_agent.agent.connectors import REGISTRY
 from tome_agent.agent.connectors.base import SourceItem
 from tome_agent.agent.mcp_mycelium import build_mycelium_mcp
 from tome_agent.agent.mcp_tome import build_tome_mcp
+from tome_agent.reports import schema as report_schema
 
 log = logging.getLogger("tome_agent.agent.loop")
 
@@ -251,6 +252,7 @@ def make_persist_hook(
     project_dir: Path,
     project_id: str,
     on_write: Callable[[str, int], Any] | None = None,
+    expected_template_pages: dict[str, report_schema.PageSpec] | None = None,
 ):
     """PostToolUse hook that POSTs every Edit/Write of a file under
     `project_dir` to `ttt-backend/internal/projects/{project_id}/pages`.
@@ -262,7 +264,14 @@ def make_persist_hook(
 
     `report_id` tags the revision with the ingest run's Report (None for
     chat edits). `on_write(page_path, byte_count)` runs after a
-    successful POST — the ingest agent uses it to emit a log SSE event."""
+    successful POST — the ingest agent uses it to emit a log SSE event.
+
+    `expected_template_pages`, when given, is used to code-stamp each
+    written page's `template_scope`/`template_path`/`template_version`
+    frontmatter (#488) before it's persisted — overwriting whatever the
+    agent wrote for those three keys. None (chat/compact — no fresh
+    template fetch for this request) skips stamping entirely, leaving the
+    page's existing binding untouched."""
     pdir = project_dir.resolve()
 
     async def persist(input_data, _tool_use_id, _context):
@@ -284,6 +293,10 @@ def make_persist_hook(
         try:
             content = abs_path.read_text()
             page_path = str(rel).replace("\\", "/")
+            if expected_template_pages is not None:
+                content = report_schema.stamp_template_binding(
+                    page_path, content, expected_template_pages
+                )
             await http_client.write_page(
                 page_path=page_path,
                 body=content,
@@ -441,12 +454,22 @@ def build_agent_options(
     extra_read_dirs: list[Path] | None = None,
     offline: bool = False,
     max_budget_usd: float | None = None,
+    expected_template_pages: dict[str, Any] | None = None,
 ) -> ClaudeAgentOptions:
     """Compose ClaudeAgentOptions for chat and ingest in the agent
     container. MCP servers are scoped to the snapshot's sources.
 
     `extra_read_dirs` widens the read fence beyond cwd (writes stay confined to
-    cwd). Used by the BHAG synthesis agent to read its child projects' wikis."""
+    cwd). Used by the BHAG synthesis agent to read its child projects' wikis.
+
+    `expected_template_pages` is the `{path: PageSpec}` map (see
+    `ingestor.expected_template_pages`) the caller has already fetched live
+    template overrides for — pass it whenever the run has a fresh template
+    fetch (ingest, synthesize) so the persist hook can stamp each written
+    page's `template_scope`/`template_path`/`template_version` binding
+    (#488). Omit for chat/compact, where no fresh template fetch has run for
+    this request — those edits are left with whatever binding the page
+    already had."""
 
     agent_role = os.environ.get("TTT_AGENT_ROLE", "editor")
 
@@ -594,6 +617,7 @@ def build_agent_options(
                             project_dir=pdir,
                             project_id=project_id,
                             on_write=on_write,
+                            expected_template_pages=expected_template_pages,
                         )
                     ],
                 ),

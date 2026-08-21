@@ -46,30 +46,38 @@ def _ingest_model() -> str:
     return http_client.resolve_model("ingest", INGEST_MODEL_DEFAULT, ("TTT_INGEST_MODEL",))
 
 
-def _template_change_note(
-    snapshot: ProjectSnapshot,
-    existing_pages: dict[str, str],
-) -> str:
-    """Diff the current templates against pages already on disk.
-
-    Returns a prompt block listing templated pages that don't exist yet (a
-    template edit added them) and pages whose on-disk kind no longer matches
-    the template, or "" when everything is in sync. Lets an incremental run
-    act on template edits made since the last ingest instead of silently
-    receiving the new page list."""
-    expected: dict[str, report_schema.PageSpec] = {
-        spec.path: spec for spec in report_schema.default_pages()
-    }
+def expected_template_pages(snapshot: ProjectSnapshot) -> dict[str, report_schema.PageSpec]:
+    """`{path: PageSpec}` for every page the live template config currently
+    expects for this project — top-level plus each attached source's
+    per-slug template, expanded. Shared by the incremental template-change
+    diff and the persist-hook binding stamp (#488)."""
+    per_source: dict[str, tuple[report_schema.PageSpec, ...]] = {}
     for connector in REGISTRY:
         sources = sources_for_connector(snapshot, connector)
         if not sources:
             continue
         template = connector.page_template()
         for source in sources:
-            for spec in report_schema.expand_template(
-                f"{connector.source_prefix}/{source.slug}", template
-            ):
-                expected[spec.path] = spec
+            per_source[f"{connector.source_prefix}/{source.slug}"] = template
+    return report_schema.expected_template_pages(report_schema.default_pages(), per_source)
+
+
+def _template_change_note(
+    snapshot: ProjectSnapshot,
+    existing_pages: dict[str, str],
+) -> tuple[str, str | None]:
+    """Diff the current templates against pages already on disk.
+
+    Returns `(prompt_block, log_summary)`. `prompt_block` lists templated
+    pages that don't exist yet (a template edit added them) and pages whose
+    on-disk kind no longer matches the template, or "" when everything is
+    in sync — fed into the agent's system prompt so an incremental run acts
+    on template edits made since the last ingest instead of silently
+    receiving the new page list. `log_summary` is a short human-readable
+    line for the ingest log (None when nothing changed) — the agent seeing
+    this in its prompt is not the same as the person watching the run
+    knowing about it."""
+    expected = expected_template_pages(snapshot)
 
     existing_kinds = report_schema.kinds_from_pages(existing_pages)
     missing = sorted(p for p in expected if p not in existing_pages)
@@ -79,7 +87,7 @@ def _template_change_note(
         if p in existing_kinds and existing_kinds[p] != expected[p].kind
     )
     if not missing and not kind_changed:
-        return ""
+        return "", None
 
     lines = [
         (
@@ -98,7 +106,13 @@ def _template_change_note(
             f"- `{path}` kind changed {old_kind} → {new_kind} in the template. "
             f"Treat it as {new_kind} going forward."
         )
-    return "\n".join(lines) + "\n\n"
+    summary_parts = []
+    if missing:
+        summary_parts.append(f"{len(missing)} new page(s) from the template")
+    if kind_changed:
+        summary_parts.append(f"{len(kind_changed)} page kind change(s)")
+    summary = "template config changed since last ingest: " + ", ".join(summary_parts)
+    return "\n".join(lines) + "\n\n", summary
 
 
 def format_full_template(pages: list[dict[str, Any]]) -> str:
@@ -397,12 +411,12 @@ async def stream_ingest(
     # Load the admin-editable page-template and model config for this run.
     # Sets task-local overrides the schema/model accessors prefer; falls back
     # to the hardcoded constants when the backend is unreachable.
-    templates = (
-        experiment.template_overrides
-        if experiment is not None
-        else await asyncio.to_thread(http_client.fetch_page_templates)
-    )
-    report_schema.set_template_overrides(templates)
+    if experiment is not None:
+        templates, template_versions = experiment.template_overrides, {}
+    else:
+        fetched = await asyncio.to_thread(http_client.fetch_page_templates)
+        templates, template_versions = fetched if fetched is not None else (None, {})
+    report_schema.set_template_overrides(templates, template_versions)
     models = (
         {
             "ingest": {
@@ -423,6 +437,7 @@ async def stream_ingest(
     # kind changed, so the agent reconciles template edits made since the last
     # ingest. Greenfield writes everything anyway, so skip the diff there.
     template_note = ""
+    template_note_summary: str | None = None
     if not is_greenfield:
         try:
             existing = (
@@ -432,7 +447,7 @@ async def stream_ingest(
                     http_client.fetch_all_pages_sync, snapshot.project_id
                 )
             )
-            template_note = _template_change_note(snapshot, existing)
+            template_note, template_note_summary = _template_change_note(snapshot, existing)
         except Exception:
             log.warning("template-change diff skipped", exc_info=True)
 
@@ -482,6 +497,7 @@ async def stream_ingest(
             "TBD/unknown/not found. The immutable evidence manifest is:\n"
             f"{manifest or '- no non-page evidence items'}"
         )
+    expected_pages = expected_template_pages(snapshot)
     options = build_agent_options(
         snapshot=snapshot,
         system_prompt=system_prompt,
@@ -492,6 +508,7 @@ async def stream_ingest(
         on_write=on_write,
         offline=experiment is not None,
         max_budget_usd=experiment.max_budget_usd if experiment is not None else None,
+        expected_template_pages=expected_pages,
     )
 
     if experiment is not None and experiment.evaluation_mode == "quick":
@@ -544,8 +561,37 @@ async def stream_ingest(
             yield _emit_log(line)
     if seed and seed.strip():
         yield _emit_log(f"· seed: {seed.strip()[:200]}")
+    if template_note_summary:
+        yield _emit_log(f"· {template_note_summary}")
 
     async for event in consume_agent_query(
         prompt, options, log_buf, model_provenance=model_provenance
     ):
         yield event
+
+    # Deterministic, code-owned template-binding reconcile (#488): runs
+    # unconditionally on every run, the same pattern as write_verbatim_pages
+    # for `.tome/pages/*.md` mirrors. The persist hook only stamps a page
+    # when the agent actually calls Edit/Write on it this turn — reactive,
+    # not deterministic — so a page the agent decided needed no content
+    # change would otherwise sit unbound indefinitely. This closes that gap
+    # every time, not just when a one-time migration happens to run.
+    if experiment is None:
+        try:
+            final_pages = await asyncio.to_thread(
+                http_client.fetch_all_pages_sync, snapshot.project_id
+            )
+            changed = report_schema.reconcile_template_bindings(final_pages, expected_pages)
+            for path, new_markdown in changed.items():
+                await http_client.write_page(
+                    page_path=path,
+                    body=new_markdown,
+                    message="tome-agent: reconcile #488 template binding (metadata only)",
+                    author="tome-agent",
+                    report_id=report_id,
+                    project_id=snapshot.project_id,
+                )
+            if changed:
+                yield _emit_log(f"· reconciled template binding on {len(changed)} page(s)")
+        except Exception:
+            log.warning("template-binding reconcile skipped", exc_info=True)

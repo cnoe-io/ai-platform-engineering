@@ -22,7 +22,11 @@ from uuid import UUID
 from tome_agent import prompts
 from tome_agent.agent import http_client
 from tome_agent.agent.connectors import REGISTRY
-from tome_agent.agent.ingestor import format_full_template, resolve_connector_extras
+from tome_agent.agent.ingestor import (
+    expected_template_pages,
+    format_full_template,
+    resolve_connector_extras,
+)
 from tome_agent.agent.loop import (
     build_agent_options,
     project_root,
@@ -223,12 +227,12 @@ async def stream_synthesis(
     """Run a BHAG synthesis as a Claude Agent SDK loop. Yields IngestEvents the
     agent's HTTP handler writes to the SSE response."""
     log_buf: list[IngestEventPayload] = []
-    templates = (
-        experiment.template_overrides
-        if experiment is not None
-        else await asyncio.to_thread(http_client.fetch_page_templates)
-    )
-    report_schema.set_template_overrides(templates)
+    if experiment is not None:
+        templates, template_versions = experiment.template_overrides, {}
+    else:
+        fetched = await asyncio.to_thread(http_client.fetch_page_templates)
+        templates, template_versions = fetched if fetched is not None else (None, {})
+    report_schema.set_template_overrides(templates, template_versions)
     models = (
         {
             "synthesize": {
@@ -289,6 +293,7 @@ async def stream_synthesis(
                 f"{targets}. Read only the frozen inputs needed for those pages, do not "
                 "edit any other page, and stop when the selected pages are complete."
             )
+    expected_pages = expected_template_pages(snapshot)
     options = build_agent_options(
         snapshot=snapshot,
         system_prompt=system_prompt,
@@ -300,6 +305,7 @@ async def stream_synthesis(
         extra_read_dirs=child_read_dirs,
         offline=experiment is not None,
         max_budget_usd=experiment.max_budget_usd if experiment is not None else None,
+        expected_template_pages=expected_pages,
     )
 
     entity_kind = "Area" if snapshot.project_type == "area" else "BHAG"
@@ -367,3 +373,26 @@ async def stream_synthesis(
         prompt, options, log_buf, model_provenance=model_provenance
     ):
         yield event
+
+    # Deterministic, code-owned template-binding reconcile (#488) — see
+    # ingestor.stream_ingest's identical step for why this can't be left to
+    # the persist hook alone.
+    if experiment is None:
+        try:
+            final_pages = await asyncio.to_thread(
+                http_client.fetch_all_pages_sync, snapshot.project_id
+            )
+            changed = report_schema.reconcile_template_bindings(final_pages, expected_pages)
+            for path, new_markdown in changed.items():
+                await http_client.write_page(
+                    page_path=path,
+                    body=new_markdown,
+                    message="tome-agent: reconcile #488 template binding (metadata only)",
+                    author="tome-agent",
+                    report_id=report_id,
+                    project_id=snapshot.project_id,
+                )
+            if changed:
+                yield emit_log(f"· reconciled template binding on {len(changed)} page(s)")
+        except Exception:
+            log.warning("template-binding reconcile skipped", exc_info=True)

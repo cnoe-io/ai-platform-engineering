@@ -256,6 +256,14 @@ _raw_template_overrides: contextvars.ContextVar[dict[str, list[dict[str, Any]]] 
     contextvars.ContextVar("tome_raw_template_overrides", default=None)
 )
 
+# Per-scope `PageTemplateDoc.version` for the live config, set alongside
+# `_raw_template_overrides`. 0 (the default when unset) matches the store's
+# own "still shipped defaults, never admin-edited" semantics. Used to stamp
+# `template_version` onto pages at write time (see #488).
+_template_versions: contextvars.ContextVar[dict[str, int] | None] = (
+    contextvars.ContextVar("tome_template_versions", default=None)
+)
+
 
 def _spec_from_dict(raw: dict[str, Any]) -> PageSpec | None:
     """Parse one page dict from the config API into a PageSpec, or None if it
@@ -275,10 +283,14 @@ def _spec_from_dict(raw: dict[str, Any]) -> PageSpec | None:
     )
 
 
-def set_template_overrides(by_scope: dict[str, list[dict[str, Any]]] | None) -> None:
+def set_template_overrides(
+    by_scope: dict[str, list[dict[str, Any]]] | None,
+    versions: dict[str, int] | None = None,
+) -> None:
     """Install per-run template config fetched from the backend. Silently keeps
     the hardcoded fallback for any scope that is absent or fails to parse."""
     _raw_template_overrides.set(by_scope or None)
+    _template_versions.set(versions or None)
     if not by_scope:
         _template_overrides.set(None)
         return
@@ -358,12 +370,69 @@ def full_template_snapshot() -> dict[str, list[dict[str, Any]]]:
     return raw if raw is not None else _fallback_template_snapshot()
 
 
+def template_version_for(scope: str) -> int:
+    """The live `PageTemplateDoc.version` for `scope`, or 0 (never
+    admin-edited / no run has fetched live config) when unknown."""
+    versions = _template_versions.get()
+    return versions.get(scope, 0) if versions else 0
+
+
 def expand_template(prefix: str, template: tuple[PageSpec, ...]) -> tuple[PageSpec, ...]:
     """Materialize a per-source template under `<prefix>/`. Used to build the
     full page enumeration shown to the ingest agent."""
     return tuple(
         replace(spec, path=f"{prefix}/{spec.path}") for spec in template
     )
+
+
+# Connector `source_prefix` -> template scope. Mirrors the backend's
+# TEMPLATE_SCOPES; kept here (rather than on each Connector) since schema.py
+# has no connector import to avoid a cycle.
+SOURCE_PREFIX_SCOPE: dict[str, str] = {
+    "repos": SCOPE_GITHUB,
+    "confluence": SCOPE_CONFLUENCE,
+    "webex": SCOPE_WEBEX,
+}
+
+
+def expected_template_pages(
+    top_level: tuple[PageSpec, ...],
+    per_source: dict[str, tuple[PageSpec, ...]],
+) -> dict[str, PageSpec]:
+    """Build `{path: PageSpec}` for every page the live template config
+    currently expects to exist — top-level pages plus each `<prefix>/<slug>/`
+    per-source template, expanded. `per_source` is `{"<prefix>/<slug>": template}`
+    for each attached source. Shared by `_template_change_note` (drift-lite
+    today) and the persist-hook binding stamp (#488)."""
+    expected: dict[str, PageSpec] = {spec.path: spec for spec in top_level}
+    for prefix_slug, template in per_source.items():
+        for spec in expand_template(prefix_slug, template):
+            expected[spec.path] = spec
+    return expected
+
+
+def template_binding_for(
+    page_path: str, expected: dict[str, PageSpec]
+) -> tuple[str, str] | None:
+    """`(scope, template_path)` for `page_path` if it is a page the live
+    template config currently expects, else None (not a templated page —
+    e.g. a user-added page, or a per-source subpage the agent created that
+    isn't part of the seed template). `template_path` is scope-relative:
+    the top-level path unchanged, or the per-source path with the
+    `<prefix>/<slug>/` stripped."""
+    if page_path not in expected:
+        return None
+    if page_path in {p.path for p in default_pages()}:
+        return SCOPE_TOP_LEVEL, page_path
+    for prefix, scope in SOURCE_PREFIX_SCOPE.items():
+        marker = f"{prefix}/"
+        if not page_path.startswith(marker):
+            continue
+        rest = page_path[len(marker) :]
+        _, _, template_path = rest.partition("/")
+        if template_path:
+            return scope, template_path
+    return None
 
 
 # Seed body for hidden memory pages. Static: not LLM-generated. The agent
@@ -398,6 +467,17 @@ EMPTY_PAGE_PLACEHOLDER = "_(no content yet)_"
 FM_TITLE = "title"
 FM_KIND = "kind"
 FM_ORDER = "order"
+
+# Template binding (#488) — which template page (if any) this page was seeded
+# from, and at what version. Code-stamped only (`stamp_template_binding`,
+# called from the persist hook), never agent-authored: same reasoning as
+# `_verbatim_page_frontmatter` — structural/versioning metadata needs to be
+# ground truth for #507's drift detection to mean anything, not an LLM's
+# approximation of what it wrote. `template_scope: null` (explicit, not
+# absent) marks a page intentionally outside the template flow.
+FM_TEMPLATE_SCOPE = "template_scope"
+FM_TEMPLATE_PATH = "template_path"
+FM_TEMPLATE_VERSION = "template_version"
 
 # `type` marks a structured entry whose body is preceded by typed frontmatter
 # the UI renders as a form (e.g. glossary terms). Distinct from `kind` (the page
@@ -795,6 +875,70 @@ def serialize_frontmatter(fm: dict[str, object], body: str) -> str:
     return "\n".join(lines) + "\n" + body.lstrip("\n")
 
 
+def stamp_template_binding(
+    page_path: str, markdown: str, expected: dict[str, PageSpec]
+) -> str:
+    """Overwrite `template_scope`/`template_path`/`template_version` in
+    `markdown`'s frontmatter with the code-computed binding, discarding
+    whatever the agent wrote for these three keys (see #488). Call this on
+    every page write, right before persisting — never let the agent's own
+    output be the source of truth for the binding."""
+    fm, body = parse_frontmatter(markdown)
+    binding = template_binding_for(page_path, expected)
+    if binding is None:
+        fm[FM_TEMPLATE_SCOPE] = None
+        fm.pop(FM_TEMPLATE_PATH, None)
+        fm.pop(FM_TEMPLATE_VERSION, None)
+    else:
+        scope, template_path = binding
+        fm[FM_TEMPLATE_SCOPE] = scope
+        fm[FM_TEMPLATE_PATH] = template_path
+        fm[FM_TEMPLATE_VERSION] = template_version_for(scope)
+    return serialize_frontmatter(fm, body)
+
+
+def reconcile_template_bindings(
+    existing_pages: dict[str, str],
+    expected: dict[str, PageSpec],
+) -> dict[str, str]:
+    """Deterministically stamp `template_scope`/`template_path`/
+    `template_version` onto every page that has no `template_scope`
+    frontmatter at all yet (#488) — pure, no I/O. Returns only the pages
+    that changed, as `{path: new_markdown}`.
+
+    This exists because the persist hook only stamps a page when the agent
+    actually calls Edit/Write on it this run — reactive, not deterministic.
+    A page the agent decides needs no content change never gets touched, so
+    it would sit unbound indefinitely even though the binding is meant to
+    be code-owned end-to-end, the same way `.tome/pages/*.md` mirrors are
+    written directly by code regardless of what the agent does. Callers
+    (the ingest loop, the one-time backfill script) run this unconditionally
+    every time, exactly like `write_verbatim_pages`.
+
+    `template_version` is set to 0 (the baseline), not the scope's current
+    live version: this function has no way to know whether the page's
+    content actually reflects the current template, only that it now has
+    *a* binding. Assuming 0 means the next drift check surfaces real
+    version-behind/content drift rather than silently hiding it — see
+    `scripts/backfill_template_bindings.py`'s docstring for the same
+    reasoning applied to the one-time migration."""
+    changed: dict[str, str] = {}
+    for path, markdown in existing_pages.items():
+        fm, body = parse_frontmatter(markdown)
+        if FM_TEMPLATE_SCOPE in fm:
+            continue
+        binding = template_binding_for(path, expected)
+        if binding is None:
+            fm[FM_TEMPLATE_SCOPE] = None
+        else:
+            scope, template_path = binding
+            fm[FM_TEMPLATE_SCOPE] = scope
+            fm[FM_TEMPLATE_PATH] = template_path
+            fm[FM_TEMPLATE_VERSION] = 0
+        changed[path] = serialize_frontmatter(fm, body)
+    return changed
+
+
 def page_with_frontmatter(spec: PageSpec, body: str) -> str:
     fm: dict[str, object] = {
         "title": spec.title,
@@ -837,12 +981,16 @@ def _coerce(v: str) -> object:
         return [x.strip().strip("'\"") for x in inner.split(",")]
     if s.lower() in {"true", "false"}:
         return s.lower() == "true"
+    if s.lower() == "null":
+        return None
     if s.lstrip("-").isdigit():
         return int(s)
     return s.strip("'\"")
 
 
 def _dump(v: object) -> str:
+    if v is None:
+        return "null"
     if isinstance(v, list):
         return "[" + ", ".join(str(x) for x in v) + "]"
     if isinstance(v, bool):

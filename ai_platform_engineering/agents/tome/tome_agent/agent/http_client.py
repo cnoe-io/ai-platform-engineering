@@ -320,13 +320,16 @@ def fetch_all_projects() -> list[dict[str, str]]:
         return projects if isinstance(projects, list) else []
 
 
-def fetch_page_templates() -> dict[str, list[dict[str, Any]]] | None:
-    """Fetch the live page-template config as `{scope: [page, ...]}`.
+def fetch_page_templates() -> tuple[dict[str, list[dict[str, Any]]], dict[str, int]] | None:
+    """Fetch the live page-template config as `({scope: [page, ...]}, {scope: version})`.
 
     Scopes: `top-level`, `github`, `confluence`, `webex`. Each page is
-    `{path, kind, title, order, enabled, body}`. Returns None on any error so
-    the caller falls back to the hardcoded schema.py constants — ingest must
-    never hard-depend on this endpoint. Agent-token authed; no per-request scope."""
+    `{path, kind, title, order, enabled, body}`. `version` is the scope's
+    `PageTemplateDoc.version` (0 = still shipped defaults, never admin-edited)
+    — used to stamp `template_version` onto pages seeded/reconciled against
+    that scope (see #488). Returns None on any error so the caller falls back
+    to the hardcoded schema.py constants — ingest must never hard-depend on
+    this endpoint. Agent-token authed; no per-request scope."""
     url = f"{_backend_url()}/api/internal/page-templates"
     try:
         with httpx.Client(timeout=DEFAULT_TIMEOUT) as client:
@@ -340,12 +343,15 @@ def fetch_page_templates() -> dict[str, list[dict[str, Any]]] | None:
     if not isinstance(templates, list):
         return None
     by_scope: dict[str, list[dict[str, Any]]] = {}
+    versions: dict[str, int] = {}
     for entry in templates:
         scope = entry.get("scope")
         pages = entry.get("pages")
         if isinstance(scope, str) and isinstance(pages, list):
             by_scope[scope] = pages
-    return by_scope or None
+            version = entry.get("version")
+            versions[scope] = int(version) if isinstance(version, (int, float)) else 0
+    return (by_scope, versions) if by_scope else None
 
 
 def fetch_model_config(

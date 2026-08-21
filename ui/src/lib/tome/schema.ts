@@ -259,6 +259,14 @@ export const FM_ORDER = "order";
 // stable/dynamic/hidden/report).
 export const FM_TYPE = "type";
 
+// Template binding (#488) — code-stamped only (never agent-authored), see
+// tome_agent's persist hook. `template_scope: null` marks a page explicitly
+// outside the template flow (not "never checked"). Keep in sync with
+// reports/schema.py's FM_TEMPLATE_*.
+export const FM_TEMPLATE_SCOPE = "template_scope";
+export const FM_TEMPLATE_PATH = "template_path";
+export const FM_TEMPLATE_VERSION = "template_version";
+
 // ---------------------------------------------------------------------------
 // Glossary — a project-level collection of term entries, one file per term at
 // `glossary/<slug>.md`, each with `type: glossary` + typed frontmatter. Keep

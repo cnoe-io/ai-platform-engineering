@@ -14,6 +14,7 @@ import {
   FolderKanban,
   HelpCircle,
   Layers,
+  LayoutTemplate,
   Link2,
   ListChecks,
   Loader2,
@@ -62,6 +63,7 @@ import { BetaBadge } from "@/components/tome/BetaBadge";
 import { StandupView } from "@/components/tome/StandupView";
 import { CriticalItemsBoard } from "@/components/tome/CriticalItemsBoard";
 import { IngestPanel } from "@/components/tome/IngestPanel";
+import { TemplatesPanel } from "@/components/tome/TemplatesPanel";
 import { IngestRunView } from "@/components/tome/IngestRunView";
 import { DraftReviewView } from "@/components/tome/DraftReviewView";
 import { EngagementPanel } from "@/components/tome/EngagementPanel";
@@ -116,6 +118,7 @@ type MainView =
   | { kind: "gists" }
   | { kind: "gist"; id: string }
   | { kind: "settings" }
+  | { kind: "templates" }
   | { kind: "insights" }
   | { kind: "page"; path: string }
   | { kind: "pageHistory"; path: string }
@@ -147,6 +150,8 @@ function viewToPath(slug: string, view: MainView): string {
       return `${base}/gists/${encodeURIComponent(view.id)}`;
     case "settings":
       return `${base}/settings`;
+    case "templates":
+      return `${base}/templates`;
     case "insights":
       return `${base}/insights`;
     case "ingest":
@@ -178,6 +183,8 @@ function pathToView(segments: string[]): MainView {
       return rest[0] ? { kind: "gist", id: rest[0] } : { kind: "gists" };
     case "settings":
       return { kind: "settings" };
+    case "templates":
+      return { kind: "templates" };
     case "insights":
       return { kind: "insights" };
     case "ingest":
@@ -826,6 +833,8 @@ export function TomeWiki({ slug }: { slug: string }) {
         ];
       case "settings":
         return [{ label: "Settings" }];
+      case "templates":
+        return [{ label: "Templates" }];
       case "insights":
         return [{ label: "Insights" }];
       case "page": {
@@ -952,6 +961,7 @@ export function TomeWiki({ slug }: { slug: string }) {
     feed: view.kind === "feed",
     gists: view.kind === "gists" || view.kind === "gist",
     settings: view.kind === "settings",
+    templates: view.kind === "templates",
     insights: view.kind === "insights",
     ingest:
       view.kind === "ingest" || view.kind === "ingestRun" || view.kind === "draftReview",
@@ -1169,6 +1179,14 @@ export function TomeWiki({ slug }: { slug: string }) {
                     onClick={() => navigate({ kind: "insights" })}
                     tipTitle="Insights"
                     tipDescription="How this project's wiki and chat are being used: who's chatting, how much, and this project's own ingestion and wiki-size numbers."
+                  />
+                  <NavItem
+                    icon={<LayoutTemplate className="h-4 w-4" />}
+                    label="Templates"
+                    active={navActive.templates}
+                    onClick={() => navigate({ kind: "templates" })}
+                    tipTitle="Templates"
+                    tipDescription="Check whether this wiki's pages still match the current page-template config: which pages are missing, unbound, behind, or drifted. Read-only; resolving flagged pages happens through a normal ingest."
                   />
                   <NavItem
                     icon={<Settings className="h-4 w-4" />}
@@ -1555,6 +1573,14 @@ export function TomeWiki({ slug }: { slug: string }) {
                   slug={slug}
                   onSaved={applyProjectMeta}
                   onOpenIngest={() => navigate({ kind: "ingest" })}
+                />
+              </div>
+            ) : view.kind === "templates" ? (
+              <div className="min-w-0 flex-1 overflow-auto">
+                <TemplatesPanel
+                  slug={slug}
+                  onNavigate={(path) => navigate({ kind: "page", path })}
+                  onIngestStarted={(runId) => navigate({ kind: "ingestRun", runId })}
                 />
               </div>
             ) : view.kind === "insights" ? (

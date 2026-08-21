@@ -321,6 +321,51 @@ class ModelCheckResponse(BaseModel):
     error: str | None = None
 
 
+# ---------- agent /template-drift ----------
+
+
+class TemplateDriftRequest(BaseModel):
+    """POST /template-drift — the ingest panel's "Check for template drift"
+    action (#508). Synchronous (no SSE, no persist hook, no wiki tools):
+    the backend hands over the project's current pages and connector
+    snapshot; the agent classifies each page against the live template
+    config and returns a report. Never writes anything (#487 covers
+    resolving flagged pages, as a normal scoped ingest run)."""
+
+    snapshot: ProjectSnapshot
+    pages: dict[str, str]
+    model: str | None = None
+    content_check: bool = True
+    """False skips the content-check agent call entirely, returning the
+    structural classification only (instant, no LLM). The ingest panel
+    calls this first for an immediate render, then re-calls with the
+    default `True` to fill in `drifted`/`reason`."""
+    content_check_scope: Literal["out_of_date", "all_bound"] = "out_of_date"
+    """`out_of_date` (default) content-checks only `version_behind` pages.
+    `all_bound` also checks already-`current` pages — version staleness
+    doesn't catch every way a page's content can drift from its template's
+    guidance, so this is the full quality sweep, gated behind an explicit
+    user choice rather than run by default (it's real LLM cost across
+    every templated page, not just the stale ones). Ignored when
+    `content_check` is False."""
+
+
+class PageDriftPayload(BaseModel):
+    path: str
+    status: Literal["missing", "unbound", "version_behind", "current"]
+    title: str | None = None
+    template_scope: str | None = None
+    template_path: str | None = None
+    seeded_version: int | None = None
+    live_version: int | None = None
+    drifted: bool | None = None
+    reason: str | None = None
+
+
+class TemplateDriftResponse(BaseModel):
+    pages: list[PageDriftPayload]
+
+
 # ---------- agent /evaluate ----------
 
 
