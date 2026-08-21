@@ -6,6 +6,7 @@ export interface AgentCompletionPreferences {
 export interface AgentCompletionAlert {
   agentName?: string;
   conversationId: string;
+  href?: string;
   messageId: string;
 }
 
@@ -124,6 +125,12 @@ function getAudioContext(): AudioContext | null {
   return audioContext;
 }
 
+function notificationTargetPath(alert: AgentCompletionAlert): string {
+  const href = alert.href?.trim();
+  if (href?.startsWith("/") && !href.startsWith("//")) return href;
+  return `/chat/${encodeURIComponent(alert.conversationId)}`;
+}
+
 /**
  * Call from a click/key handler so browser autoplay policy allows a later
  * background completion chime.
@@ -181,6 +188,7 @@ async function showBrowserNotification(alert: AgentCompletionAlert): Promise<boo
     body: "Your response is ready.",
     data: {
       conversationId: alert.conversationId,
+      href: notificationTargetPath(alert),
       messageId: alert.messageId,
     },
     icon: "/icon.ico",
@@ -206,7 +214,7 @@ async function showBrowserNotification(alert: AgentCompletionAlert): Promise<boo
     const notification = new window.Notification(title,options);
     notification.onclick = () => {
       window.focus();
-      window.location.assign(`/chat/${encodeURIComponent(alert.conversationId)}`);
+      window.location.assign(notificationTargetPath(alert));
       notification.close();
     };
     return true;

@@ -3,10 +3,13 @@
 self.addEventListener("notificationclick",(event) => {
   event.notification.close();
 
+  const href = event.notification.data?.href;
   const conversationId = event.notification.data?.conversationId;
-  const targetPath = conversationId
-    ? `/chat/${encodeURIComponent(conversationId)}`
-    : "/chat";
+  const targetPath = typeof href === "string" && href.startsWith("/") && !href.startsWith("//")
+    ? href
+    : conversationId
+      ? `/chat/${encodeURIComponent(conversationId)}`
+      : "/chat";
 
   event.waitUntil((async () => {
     const windows = await self.clients.matchAll({
