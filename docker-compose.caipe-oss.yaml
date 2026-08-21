@@ -212,6 +212,11 @@ services:
     environment:
       NEXTAUTH_URL: https://caipe-oss.outshift.io
       OIDC_ISSUER: https://caipe-oss.outshift.io/realms/caipe
+      # NextAuth uses the internal URL for OIDC metadata and token exchange;
+      # the public issuer remains stable in browser-visible tokens.
+      OIDC_DISCOVERY_URL: ${OIDC_DISCOVERY_URL:-http://keycloak:7080/realms/caipe}
+      OIDC_IDP_HINT: ${OIDC_IDP_HINT:-duo-sso}
+      KEYCLOAK_FORCE_IDP_REDIRECT: ${KEYCLOAK_FORCE_IDP_REDIRECT:-true}
       INTERNAL_BASE_URL: http://localhost:3000
       APP_CONFIG_PATH: /app/config/app-config.yaml
     volumes:
