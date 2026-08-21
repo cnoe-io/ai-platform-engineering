@@ -3,6 +3,11 @@
 import userEvent from "@testing-library/user-event";
 import { render,screen,waitFor } from "@testing-library/react";
 
+let mockIsAdmin = true;
+jest.mock("@/hooks/use-admin-role",() => ({
+  useAdminRole: () => ({ isAdmin: mockIsAdmin }),
+}));
+
 jest.mock("@/components/settings/ReleaseNotesPreview",() => ({
   ReleaseNotesPreview: () => <div>Release notes preview</div>,
 }));
@@ -11,6 +16,27 @@ import { NotificationsSettings } from "@/components/settings/sections/Notificati
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockIsAdmin = true;
+});
+
+it("hides platform health notification controls from non-admin users",async () => {
+  mockIsAdmin = false;
+  jest.spyOn(global,"fetch").mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      success: true,
+      data: {
+        preferences: { releaseNotesNotificationsEnabled: true },
+        notifications: { platform_health: true },
+      },
+    }),
+  } as Response);
+
+  render(<NotificationsSettings />);
+
+  await screen.findByRole("switch",{ name: "Notify me about new releases" });
+  expect(screen.queryByText("Platform health")).not.toBeInTheDocument();
+  expect(screen.queryByRole("switch",{ name: "Notify me about platform health" })).not.toBeInTheDocument();
 });
 
 it("loads and saves the personal platform health notification preference",async () => {
