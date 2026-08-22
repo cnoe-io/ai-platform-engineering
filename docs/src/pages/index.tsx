@@ -169,15 +169,6 @@ const USE_CASES = [
     label: 'Cisco Outshift',
     external: true,
   },
-  {
-    title: 'CAIPE Hands-On Workshop',
-    description:
-      'Step-by-step labs covering single-agent design, multi-agent orchestration, RAG knowledge bases, and distributed tracing — learn by building.',
-    image: 'https://outshift-headless-cms-s3.s3.us-east-2.amazonaws.com/INSIDEOUTSHIFT_1.png',
-    href: '/docs/workshop/caipeintro',
-    label: 'CAIPE Labs',
-    external: false,
-  },
 ];
 
 const AGENTS = [
