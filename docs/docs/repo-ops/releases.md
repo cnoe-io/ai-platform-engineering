@@ -90,11 +90,13 @@ This checks and fixes:
 - Navbar version label
 
 > **Versioned docs are no longer committed.** Pushing a release tag runs the
-> `[Docs] Register Published Version` workflow, which adds the version to
-> `docs/published-versions.json` (applying the retention policy) and opens a tiny
-> auto-merging PR. The versioned snapshots are then materialised from release tags
-> at build time by `docs/scripts/generate-versioned-docs.js` during the GitHub
-> Pages deploy — nothing under `versioned_docs/` is stored in git.
+> `[Docs] Register Published Version` workflow, which records the final release
+> of each of the newest three minor lines in `docs/published-versions.json`.
+> Those three snapshots are materialised from release tags at build time by
+> `docs/scripts/generate-versioned-docs.js` during the GitHub Pages deploy —
+> nothing under `versioned_docs/` is stored in git. The newest snapshot is
+> labelled Latest; development docs remain at Next. Release posts and upgrade
+> guides remain available for every release.
 
 See [Skills → Overview](./skills/) for the full checklist.
 

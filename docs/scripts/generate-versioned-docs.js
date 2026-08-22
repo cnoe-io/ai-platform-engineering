@@ -3,12 +3,13 @@
  * Generate Docusaurus versioned docs at build time from git release tags.
  *
  * Instead of committing `versioned_docs/` snapshots into the repo, the published
- * versions are listed in `docs/published-versions.json` and materialised here, on
- * demand, by snapshotting each tag's `docs/` tree with the current Docusaurus
- * toolchain. The generated `versioned_docs/`, `versioned_sidebars/`,
+ * versions are listed in `docs/published-versions.json`. They are the final
+ * releases of the newest three minor lines and are materialised here, on demand,
+ * with the current Docusaurus toolchain. The generated `versioned_docs/`,
+ * `versioned_sidebars/`,
  * `versions.json` and `versions-config.json` are git-ignored.
  *
- * Mechanism (per published version X.Y.Z):
+ * Mechanism (per published release X.Y.Z):
  *   1. `git worktree add` a detached checkout at tag X.Y.Z.
  *   2. Reuse the current `docs/node_modules` (symlink) so the snapshot is produced
  *      with the toolchain that will actually build the site.
@@ -28,6 +29,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { execSync } = require('child_process');
+const { createVersionsConfig, normalizeVersions } = require('./versioned-docs-policy');
 
 const DOCS_DIR = path.join(__dirname, '..');
 const REPO_ROOT = path.resolve(DOCS_DIR, '..');
@@ -205,15 +207,6 @@ function sanitizeMdxBreakingPatterns(absFile) {
   return true;
 }
 
-function compareVersionsDesc(a, b) {
-  const pa = a.split('.').map(Number);
-  const pb = b.split('.').map(Number);
-  for (let i = 0; i < 3; i++) {
-    if ((pa[i] || 0) !== (pb[i] || 0)) return (pb[i] || 0) - (pa[i] || 0);
-  }
-  return 0;
-}
-
 // ---------------------------------------------------------------------------
 
 if (!fs.existsSync(PUBLISHED_JSON)) {
@@ -226,11 +219,11 @@ if (!fs.existsSync(NODE_MODULES)) {
   process.exit(1);
 }
 
-let versions = JSON.parse(fs.readFileSync(PUBLISHED_JSON, 'utf8'));
-versions = [...new Set(versions)].sort(compareVersionsDesc);
+const publishedVersions = normalizeVersions(JSON.parse(fs.readFileSync(PUBLISHED_JSON, 'utf8')));
+const versionsConfig = createVersionsConfig(publishedVersions);
 
-if (versions.length === 0) {
-  console.log('No published versions listed; nothing to generate. Building current docs only.');
+if (publishedVersions.length === 0) {
+  console.log('No published versions listed; building current docs only.');
 }
 
 // Start from a clean slate so stale generated versions never leak into a build.
@@ -242,7 +235,7 @@ fs.mkdirSync(VERSIONED_SIDEBARS_DIR, { recursive: true });
 const worktreeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'caipe-docs-versions-'));
 
 try {
-  for (const version of versions) {
+  for (const version of publishedVersions) {
     const tag = version;
 
     try {
@@ -294,24 +287,16 @@ try {
   fs.rmSync(worktreeRoot, { recursive: true, force: true });
 }
 
-// versions.json: newest first.
-fs.writeFileSync(VERSIONS_JSON, JSON.stringify(versions, null, 2) + '\n');
-
-// versions-config.json: latest at root path, others under their version path.
-const latest = versions[0];
-const versionsBlock = {
-  current: { label: 'main 🚧', path: 'next', badge: true },
-};
-if (latest) {
-  versionsBlock[latest] = { label: `${latest} (Latest)`, path: '', badge: false };
-  for (const v of versions.slice(1)) {
-    versionsBlock[v] = { label: v, path: v, badge: false };
-  }
-}
+// Published releases include the root-path latest snapshot and two older
+// minor-line snapshots. Current development docs remain at /next.
+fs.writeFileSync(VERSIONS_JSON, JSON.stringify(publishedVersions, null, 2) + '\n');
 
 fs.writeFileSync(
   VERSIONS_CONFIG_JSON,
-  JSON.stringify({ lastVersion: latest || 'current', versions: versionsBlock }, null, 2) + '\n'
+  JSON.stringify(versionsConfig, null, 2) + '\n'
 );
 
-console.log(`\nDone. Generated ${versions.length} version(s): ${versions.join(', ') || '(none)'}`);
+console.log(
+  `\nDone. Generated ${publishedVersions.length} version(s): ` +
+    `${publishedVersions.join(', ') || '(none)'}`
+);

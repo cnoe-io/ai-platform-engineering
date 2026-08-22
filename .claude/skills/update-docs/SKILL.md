@@ -20,8 +20,8 @@ Audit every documentation surface in `ai-platform-engineering` and fix what is o
 |---|---------|-------------|
 | 1 | **Release blog posts** | A git tag exists with no matching `docs/releases/` file |
 | 2 | **Homepage version string** | Helm `--version` in `docs/src/pages/index.tsx` doesn't match latest git tag |
-| 3 | **Docusaurus version config** | `lastVersion` in `docusaurus.config.ts` doesn't match latest git tag |
-| 4 | **Docusaurus version snapshot** | A tag exists but no `versioned_docs/version-X.Y.Z/` snapshot |
+| 3 | **Docusaurus version config** | The latest released snapshot is not at the root path, current docs are not labelled Next, or snapshots lack minor-only labels |
+| 4 | **Docusaurus version snapshots** | The final releases of the newest three minor series are not generated |
 | 5 | **Features page** | `docs/src/pages/features.tsx` tiles don't reflect new feature docs in `docs/docs/features/` |
 | 6 | **Agent docs** | A directory under `ai_platform_engineering/agents/` has no matching `docs/docs/agents/<name>.md` |
 | 7 | **Sidebar completeness** | A directory under `docs/docs/` is not referenced in `docs/sidebars.ts` |
@@ -53,8 +53,8 @@ git tag --sort=-version:refname | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$'
 # Existing release blog posts (extract version from filename)
 ls docs/releases/*.md 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | tr '-' '.'
 
-# Current lastVersion in docusaurus config
-grep 'lastVersion' docs/docusaurus.config.ts
+# Published release snapshots
+cat docs/published-versions.json
 
 # Current Helm version string on homepage
 grep -o "'--version [0-9.]*'" docs/src/pages/index.tsx ||
@@ -111,27 +111,28 @@ grep -n "$LATEST\|--version" docs/src/pages/index.tsx | head -5
 - If the Helm `--version` value ≠ `$LATEST` → **STALE**: update `HELM_CMD` constant and any hardcoded version strings in `index.tsx`.
 - Fix: replace every occurrence of the old version string with `$LATEST`.
 
-### Check 3 — Docusaurus `lastVersion`
+### Check 3 — Docusaurus version configuration
 
 ```bash
-grep 'lastVersion' docs/docusaurus.config.ts
+cat docs/published-versions.json
 ```
 
-- If `lastVersion` ≠ `$LATEST` → **STALE**: update `lastVersion` in `docs/docusaurus.config.ts`.
+- The entries must be the final releases of the newest three minor series.
+- The generated config must label the newest release as `X.Y (Latest)` at the
+  root path, older snapshots as `X.Y`, and current development docs as `Next`
+  at `/next`.
 
-### Check 4 — Versioned snapshot exists
+### Check 4 — Version snapshots exist
 
 ```bash
 ls docs/versioned_docs/
 ```
 
-- If `versioned_docs/version-$LATEST/` does not exist → **STALE**: run:
+- If any final newest-three-minor snapshot is missing, generate it with:
 
 ```bash
-cd docs && npm run docusaurus -- docs:version $LATEST
+node docs/scripts/generate-versioned-docs.js
 ```
-
-Then update `docusaurus.config.ts` to add the new version entry and set it as `lastVersion`.
 
 ### Check 5 — Features page vs feature docs
 
@@ -189,10 +190,12 @@ done
 ### Check 8 — Navbar version label
 
 ```bash
-grep "label.*Latest" docs/docusaurus.config.ts
+cat docs/versions-config.json
 ```
 
-- If the label says `X.Y.Z (Latest)` but `$LATEST` ≠ X.Y.Z → **STALE**: update the label.
+- If the generated latest release label is not `X.Y (Latest)`, or `current` is
+  not labelled `Next` at `/next` → **STALE**: fix
+  `docs/scripts/generate-versioned-docs.js`.
 
 ---
 
@@ -201,8 +204,8 @@ grep "label.*Latest" docs/docusaurus.config.ts
 Apply fixes in this order (each is independent):
 
 1. **Homepage version** — find-replace the old version string in `docs/src/pages/index.tsx`
-2. **Docusaurus config** — update `lastVersion` and the version label
-3. **Version snapshot** — run `npm run docusaurus -- docs:version $LATEST` if missing
+2. **Docusaurus config** — verify generated labels for the latest release, prior snapshots, and Next
+3. **Version snapshots** — run `node docs/scripts/generate-versioned-docs.js` if missing
 4. **Missing agent stubs** — scaffold from template for each uncovered agent
 5. **Sidebar gaps** — append missing dir entries to `docs/sidebars.ts`
 6. **Missing release posts** — delegate to `/release-docs` for each unposted tag
@@ -222,8 +225,8 @@ After all checks and fixes, produce a summary table:
 |-------|--------|--------------|
 | Release posts | ✅ / ⚠️ | Created N posts / N missing, run /release-docs for: X.Y.Z |
 | Homepage version | ✅ / ⚠️ | Updated X.Y.Z → A.B.C |
-| lastVersion config | ✅ / ⚠️ | Updated |
-| Version snapshot | ✅ / ⚠️ | Created versioned_docs/version-A.B.C |
+| Version configuration | ✅ / ⚠️ | Latest release, snapshot, and Next labels verified |
+| Version snapshots | ✅ / ⚠️ | Created versioned_docs/version-A.B.C |
 | Features page | ✅ / ⚠️ | N tiles match / N new features need tiles: [list] |
 | Agent docs | ✅ / ⚠️ | Scaffolded stubs for: [list] |
 | Sidebar | ✅ / ⚠️ | Added entries for: [list] |
