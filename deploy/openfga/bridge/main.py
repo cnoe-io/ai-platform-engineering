@@ -392,7 +392,7 @@ def _is_service_account_claims(payload: dict | None) -> bool:
 
     A token is a service account iff its `preferred_username` claim starts with
     `service-account-`. This MUST match the BFF (`jwt-validation.ts`) and the DA
-    backend (`openfga_authz.py`) so the same token namespaces identically at
+    backend (`authz.py`) so the same token namespaces identically at
     every enforcement layer.
     """
     if not payload:
