@@ -183,25 +183,16 @@ function ApplicationNavigationContents({
       && (registeredContextualNavigation
         || APPLICATION_SECTION_AREA_KEYS.has(activeArea)),
   );
-  const [expandedAreaKeys,setExpandedAreaKeys] = React.useState<Set<string>>(
-    () => new Set(),
-  );
-  const lastActiveAreaRef = React.useRef(activeArea);
-  const autoExpandedAreaRef = React.useRef<string | null>(null);
-
-  React.useEffect(() => {
-    if (lastActiveAreaRef.current !== activeArea) {
-      lastActiveAreaRef.current = activeArea;
-      autoExpandedAreaRef.current = null;
-    }
-    if (!activeArea || !activeHasSectionNavigation) {
-      setExpandedAreaKeys(new Set());
-      return;
-    }
-    if (autoExpandedAreaRef.current === activeArea) return;
-    autoExpandedAreaRef.current = activeArea;
-    setExpandedAreaKeys(new Set([activeArea]));
-  }, [activeArea,activeHasSectionNavigation]);
+  const [expansionPreference,setExpansionPreference] = React.useState<{
+    activeArea: string | null;
+    expandedArea: string | null;
+  }>({ activeArea: null,expandedArea: null });
+  const routeExpandedArea = activeHasSectionNavigation ? activeArea : null;
+  const hasUserExpansionPreference =
+    expansionPreference.activeArea === activeArea;
+  const expandedArea = hasUserExpansionPreference
+    ? expansionPreference.expandedArea
+    : routeExpandedArea;
 
   const items = [
     { key: "home",href: "/",label: "Home",icon: Home },
@@ -291,7 +282,7 @@ function ApplicationNavigationContents({
           const hasSectionNavigation =
             !item.disabled && Boolean(contextualNavigation);
           const contextExpanded =
-            hasSectionNavigation && expandedAreaKeys.has(item.key);
+            hasSectionNavigation && expandedArea === item.key;
           const chatBadge = item.key === "chat" ? (
             <ChatActivityBadge
               inputRequired={inputRequiredConversations.size}
@@ -378,10 +369,9 @@ function ApplicationNavigationContents({
           }
 
           const toggleContext = () => {
-            setExpandedAreaKeys((current) => {
-              return current.has(item.key)
-                ? new Set()
-                : new Set([item.key]);
+            setExpansionPreference({
+              activeArea,
+              expandedArea: contextExpanded ? null : item.key,
             });
           };
           const control = item.disabled ? (
@@ -477,7 +467,9 @@ function ApplicationNavigationContents({
                 <div
                   aria-hidden={!contextExpanded}
                   className={cn(
-                    "grid transition-[grid-template-rows,opacity] duration-200 ease-out motion-reduce:transition-none",
+                    "grid",
+                    hasUserExpansionPreference
+                      && "transition-[grid-template-rows,opacity] duration-200 ease-out motion-reduce:transition-none",
                     contextExpanded
                       ? "grid-rows-[1fr] opacity-100"
                       : "pointer-events-none grid-rows-[0fr] opacity-0",
