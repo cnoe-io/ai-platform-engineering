@@ -243,7 +243,6 @@ jobs:
 
             **Medium Priority:**
             - components/chat/ChatPanel.tsx - Main chat interface
-            - components/agent-builder/* - Agent builder UI
             - lib/mongodb.ts - MongoDB integration
 
             </details>
