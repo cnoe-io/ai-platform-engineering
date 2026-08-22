@@ -590,11 +590,13 @@ export function WorkspaceHierarchicalNavigationList({
   const [categoryDisclosure,setCategoryDisclosure] = useState(() => ({
     activeCategoryId,
     expandedCategoryIds: new Set(activeCategoryId ? [activeCategoryId] : []),
+    userInitiated: false,
   }));
   if (categoryDisclosure.activeCategoryId !== activeCategoryId) {
     setCategoryDisclosure({
       activeCategoryId,
       expandedCategoryIds: new Set(activeCategoryId ? [activeCategoryId] : []),
+      userInitiated: false,
     });
   }
   const expandedCategoryIds = categoryDisclosure.expandedCategoryIds;
@@ -678,7 +680,11 @@ export function WorkspaceHierarchicalNavigationList({
                   } else {
                     next.add(category.id);
                   }
-                  return { ...current,expandedCategoryIds: next };
+                  return {
+                    ...current,
+                    expandedCategoryIds: next,
+                    userInitiated: true,
+                  };
                 });
               }}
               type="button"
@@ -717,7 +723,9 @@ export function WorkspaceHierarchicalNavigationList({
               <div
                 aria-hidden={!expanded}
                 className={cn(
-                  "grid transition-[grid-template-rows,opacity] duration-200 ease-out motion-reduce:transition-none",
+                  "grid",
+                  categoryDisclosure.userInitiated
+                    && "transition-[grid-template-rows,opacity] duration-200 ease-out motion-reduce:transition-none",
                   expanded
                     ? "grid-rows-[1fr] opacity-100"
                     : "pointer-events-none grid-rows-[0fr] opacity-0",

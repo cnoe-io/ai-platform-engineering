@@ -324,10 +324,12 @@ jest.mock('@/lib/utils', () => ({
 import { AppHeader } from '../AppHeader'
 import { ApplicationNavigationRail } from '../ApplicationNavigation'
 import { HeaderBreadcrumbSlotProvider } from '../HeaderBreadcrumbSlot'
+import { WorkspaceHierarchicalNavigationList } from '../WorkspaceNavigation'
 import {
   ApplicationNavigationProvider,
   useRegisterApplicationNavigation,
 } from '../ApplicationNavigationContext'
+import { Database,Users } from 'lucide-react'
 
 function AdminNavigationFixture({ version = 'users' }: { version?: string }) {
   useRegisterApplicationNavigation({
@@ -616,6 +618,58 @@ describe('AppHeader — application chrome', () => {
 
       expect(applicationButton('Admin')).toHaveAttribute('aria-expanded', 'true')
       expect(screen.getByRole('navigation', { name: 'Admin sections' })).toBe(navigation)
+    })
+
+    it('animates manual category toggles but not route-driven category changes', () => {
+      const categories = [
+        {
+          id: 'people',
+          label: 'People group',
+          icon: Users,
+          groups: [{
+            id: 'people-items',
+            items: [{ id: 'users',label: 'Users',href: '/admin/people/users',icon: Users }],
+          }],
+        },
+        {
+          id: 'resources',
+          label: 'Resource group',
+          icon: Database,
+          groups: [{
+            id: 'resource-items',
+            items: [{
+              id: 'skill-hubs',
+              label: 'Skill Hubs',
+              href: '/admin/platform/skill-hubs',
+              icon: Database,
+            }],
+          }],
+        },
+      ]
+      const navigation = (activeCategoryId: string,activeItemId: string) => (
+        <WorkspaceHierarchicalNavigationList
+          activeCategoryId={activeCategoryId}
+          activeItemId={activeItemId}
+          categories={categories}
+          navigationLabel="Test admin sections"
+        />
+      )
+      const { rerender } = render(navigation('people','users'))
+      const resources = screen.getByRole('button', { name: 'Resource group' })
+      const resourcesPanel = document.getElementById(
+        resources.getAttribute('aria-controls')!,
+      )
+
+      expect(resourcesPanel).not.toHaveClass('transition-[grid-template-rows,opacity]')
+      fireEvent.click(resources)
+      expect(resourcesPanel).toHaveClass('transition-[grid-template-rows,opacity]')
+
+      rerender(navigation('resources','skill-hubs'))
+
+      expect(screen.getByRole('button', { name: 'People group' }))
+        .toHaveAttribute('aria-expanded', 'false')
+      expect(resources).toHaveAttribute('aria-expanded', 'true')
+      expect(resourcesPanel).not.toHaveClass('transition-[grid-template-rows,opacity]')
     })
 
     it('opens inactive section navigation on hover and highlights only the current item', () => {
