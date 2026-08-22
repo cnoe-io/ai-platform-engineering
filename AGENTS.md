@@ -4,8 +4,13 @@
 
 ```
 ai_platform_engineering/   # Python backend
-  agents/                  # Per-tool MCP servers (GitHub, ArgoCD, etc.)
+  mcp/                     # Per-tool MCP servers (GitHub, ArgoCD, etc.)
   dynamic_agents/          # Dynamic agents runtime (FastAPI, MongoDB, AG-UI/SSE)
+  integrations/            # Slack and Webex bot integrations
+  autonomous_agents/       # Scheduled and event-driven autonomous tasks
+  audit_service/           # Audit-event service
+  scheduler/               # Scheduler service
+  cron-runner/             # Cron job runner
   knowledge_bases/rag/     # RAG server, ingestors, graphrag, ontology
   skills_middleware/       # Skill scanning / catalog middleware
   utils/                   # Shared utilities
@@ -16,6 +21,26 @@ tests/                     # Repo-level + RBAC tests
 scripts/                   # Utility scripts
 charts/                    # Helm charts
 ```
+
+## Find the Canonical Implementation
+
+Start with the narrowest owning module; do not add a parallel implementation
+until you have checked the shared locations below.
+
+| Need | Start here | Reuse before adding new code |
+|---|---|---|
+| UI page or API route | `ui/src/app/` | `ui/src/components/`, `ui/src/lib/`, `ui/src/store/` |
+| UI component | `ui/src/components/` | `ui/src/components/ui/` and `ui/src/components/shared/`, then an existing component in the same feature area |
+| UI state or browser data | `ui/src/store/` | Existing store and `ui/src/lib/` helpers |
+| MCP integration | `ai_platform_engineering/mcp/<provider>/` | `ai_platform_engineering/mcp/common/` |
+| Slack or Webex behavior | `ai_platform_engineering/integrations/{slack_bot,webex_bot}/` | The BFF/API contract and shared auth utilities |
+| Dynamic/custom-agent runtime | `ai_platform_engineering/dynamic_agents/` | Its `src/` modules and tests |
+| RAG/ingestion | `ai_platform_engineering/knowledge_bases/rag/` | `common/`, `server/`, or `ingestors/` as applicable |
+| Authentication, authorization, or audit helpers | `ai_platform_engineering/utils/{auth,audit_backends}/`, `ui/src/lib/authz/`, `ui/src/lib/rbac/`, and `ui/src/lib/audit/` | Use the existing domain boundary; do not add direct OpenFGA checks outside an approved adapter |
+
+Tests live beside their component (`**/tests/`, `**/__tests__/`) unless they
+exercise a cross-component contract. Repository-wide checks are in `tests/`;
+RBAC integration and browser coverage is in `tests/rbac/` and `ui/e2e/rbac/`.
 
 Each component has its own environment variables - see `env.example` in `ui/` and READMEs in `ai_platform_engineering/knowledge_bases/rag/`.
 
@@ -84,6 +109,7 @@ Do not add Slack/Webex bots to that default path.
 - **Imports at top** - All imports must be at the top of the file, unless otherwise specified
 - **Type hints required** - Python functions should have type hints for parameters and return values
 - **Error handling** - Use specific exceptions, log errors with context, don't silently swallow exceptions
+- **Comments** - Explain current intent or an invariant. Do not add tool/model provenance or rely on historical spec IDs as the explanation.
 
 ## Test Data and Generic Examples
 
