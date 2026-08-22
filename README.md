@@ -2,7 +2,7 @@
 
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-green)](LICENSE)
 
-🚀 [Getting Started](https://caipe.io/docs/getting-started/quick-start) | 🎥 [Meeting Recordings](https://github.com/cnoe-io/agentic-ai/wiki/Meeting-Recordings) | 🏛️ [Governance](https://github.com/cnoe-io/governance/tree/main/sigs/agentic-ai) | 🗺️ [Roadmap](https://github.com/orgs/cnoe-io/projects/9)
+🚀 [Getting Started](https://caipe.io/docs/getting-started/quick-start) | 🎥 [Meeting Recordings](https://caipe.io/docs/community/meeting-recordings) | 🏛️ [Governance](https://github.com/caipe-io/governance) | 🗺️ [Roadmap](https://github.com/orgs/cnoe-io/projects/9)
 
 ## What is CAIPE?
 
@@ -16,12 +16,12 @@
 
 * **Every Monday**
   * 🕕 19:00–20:00 CET | 🕔 18:00–19:00 GMT (London) | 🕘 10:00–11:00 PST
-* 🔗 [Webex Meeting](https://go.webex.com/meet/cnoe) | 📅 [Google Calendar](https://calendar.google.com/calendar/u/0/embed?src=064a2adfce866ccb02e61663a09f99147f22f06374e7a8994066bdc81e066986@group.calendar.google.com&ctz=America/Los_Angeles) | 📥 [.ics Download](https://github.com/cnoe-io/ai-platform-engineering/raw/main/docs/docs/community/cnoe-sig-agentic-ai-community-meeting.ics)
+* 🔗 [Webex Meeting](https://go.webex.com/meet/cnoe) | 📅 [Google Calendar](https://calendar.google.com/calendar/u/0/embed?src=064a2adfce866ccb02e61663a09f99147f22f06374e7a8994066bdc81e066986@group.calendar.google.com&ctz=America/Los_Angeles) | 📥 [.ics Download](https://github.com/cnoe-io/ai-platform-engineering/raw/main/docs/docs/community/caipe-community-meeting.ics)
 
 ### 💬 Slack
 
 * Not in CNCF Slack? [Join here first](https://communityinviter.com/apps/cloud-native/cncf)
-* [Join #cnoe-sig-agentic-ai channel](https://cloud-native.slack.com/archives/C08N0AKR52S)
+* [Join the CAIPE community channel](https://cloud-native.slack.com/archives/C08N0AKR52S)
 
 ## [Project Documentation](https://caipe.io/)
 
@@ -56,4 +56,4 @@ Licensed under the [Apache-2.0 License](LICENSE).
 
 ---
 
-*Made with ❤️ by the [CNOE Contributors](https://cnoe.io/)*
+*Made with ❤️ by the [CAIPE contributors](https://caipe.io/community)*
