@@ -547,8 +547,11 @@ describe('AppHeader — application chrome', () => {
       expect(applicationButton('Agents')).toBeInTheDocument()
       const admin = applicationButton('Admin')
       expect(admin).toHaveAttribute('aria-expanded', 'true')
+      const adminPanel = document.getElementById(admin.getAttribute('aria-controls')!)
+      expect(adminPanel).not.toHaveClass('transition-[grid-template-rows,opacity]')
       expect(screen.getByRole('navigation', { name: 'Admin sections' })).toBeInTheDocument()
       fireEvent.click(admin)
+      expect(adminPanel).toHaveClass('transition-[grid-template-rows,opacity]')
       expect(screen.queryByRole('navigation', { name: 'Admin sections' })).not.toBeInTheDocument()
       fireEvent.click(admin)
       expect(screen.getByRole('navigation', { name: 'Admin sections' })).toBeInTheDocument()
@@ -580,7 +583,10 @@ describe('AppHeader — application chrome', () => {
       )
 
       expect(applicationButton('Admin')).toHaveAttribute('aria-expanded', 'false')
-      expect(applicationButton('Knowledge Bases')).toHaveAttribute('aria-expanded', 'true')
+      const knowledge = applicationButton('Knowledge Bases')
+      expect(knowledge).toHaveAttribute('aria-expanded', 'true')
+      const knowledgePanel = document.getElementById(knowledge.getAttribute('aria-controls')!)
+      expect(knowledgePanel).not.toHaveClass('transition-[grid-template-rows,opacity]')
     })
 
     it('keeps Admin expanded while its registered destination changes', () => {
