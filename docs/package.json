@@ -5,7 +5,7 @@
   "scripts": {
     "docusaurus": "docusaurus",
     "start": "docusaurus start",
-    "build": "docusaurus build",
+    "build": "npm run test:version-policy && docusaurus build",
     "swizzle": "docusaurus swizzle",
     "deploy": "docusaurus deploy",
     "clear": "docusaurus clear",
@@ -13,7 +13,8 @@
     "write-translations": "docusaurus write-translations",
     "write-heading-ids": "docusaurus write-heading-ids",
     "postinstall": "node scripts/patch-gray-matter-js-yaml.mjs && node scripts/patch-image-size-dos.mjs",
-    "typecheck": "tsc"
+    "typecheck": "tsc",
+    "test:version-policy": "node scripts/test-versioned-docs-policy.js"
   },
   "dependencies": {
     "@docusaurus/core": "3.9.2",

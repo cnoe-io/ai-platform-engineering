@@ -40,7 +40,7 @@ Audit and sync all documentation surfaces after a release or feature addition.
 |---|---|---|
 | 1 | Release blog posts | A git tag has no matching `docs/releases/` file |
 | 2 | Homepage version string | Helm `--version` in `index.tsx` is behind latest tag |
-| 3 | Published versions | A released tag is missing from `docs/published-versions.json` |
+| 3 | Published versions | A final release from the newest three minor lines is missing from `docs/published-versions.json` |
 | 4 | Features page tiles | New feature docs without a tile in `features.tsx` |
 | 5 | MCP docs | Packaged MCP integration without current docs |
 | 6 | Sidebar | Doc directory not in `sidebars.ts` |
