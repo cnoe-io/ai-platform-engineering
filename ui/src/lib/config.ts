@@ -185,6 +185,11 @@ export interface Config {
    * When ticketEnabled is false, the dialog still opens but cannot create tickets.
    */
   reportProblemEnabled: boolean;
+  /**
+   * Whether the compact "Provide Feedback" shortcut is shown in the app header.
+   * Disabled by default. Set PROVIDE_FEEDBACK_ENABLED=true to enable it.
+   */
+  provideFeedbackEnabled: boolean;
   /** Derived: true if either Jira or GitHub ticket creation is enabled */
   ticketEnabled: boolean;
   /** Derived: which provider to use ('jira' takes precedence when both enabled) */
@@ -271,6 +276,7 @@ const DEFAULT_CONFIG: Config = {
   schedulerAdminOnly: false,
   agentProtocol: 'agui',
   reportProblemEnabled: true,
+  provideFeedbackEnabled: false,
   jiraTicketEnabled: false,
   jiraTicketProject: null,
   jiraTicketLabel: 'caipe-reported',
@@ -406,6 +412,7 @@ export function getServerConfig(): Config {
   const agentProtocol: 'custom' | 'agui' = agentProtocolEnv === 'custom' ? 'custom' : 'agui';
 
   const reportProblemEnabled = env('REPORT_PROBLEM_ENABLED') !== 'false';
+  const provideFeedbackEnabled = env('PROVIDE_FEEDBACK_ENABLED') === 'true';
   const jiraTicketEnabled = env('JIRA_TICKET_ENABLED') === 'true';
   const jiraTicketProject = env('JIRA_TICKET_PROJECT') || null;
   const jiraTicketLabel = env('JIRA_TICKET_LABEL') || 'caipe-reported';
@@ -467,6 +474,7 @@ export function getServerConfig(): Config {
     schedulerAdminOnly: env('SCHEDULER_ADMIN_ONLY') === 'true',
     agentProtocol,
     reportProblemEnabled,
+    provideFeedbackEnabled,
     jiraTicketEnabled,
     jiraTicketProject,
     jiraTicketLabel,
