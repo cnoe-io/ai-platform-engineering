@@ -254,6 +254,9 @@ export interface UserSettings {
     in_app_enabled: boolean;
     conversation_shared: boolean;
     weekly_summary: boolean;
+    // Per-user visibility for globally owned platform health events. Turning
+    // this off never changes or resolves the underlying platform incident.
+    platform_health: boolean;
   };
   defaults: {
     default_model: string;
@@ -289,6 +292,7 @@ export const DEFAULT_USER_SETTINGS: Omit<
     in_app_enabled: true,
     conversation_shared: true,
     weekly_summary: false,
+    platform_health: true,
   },
   defaults: {
     default_model: "gpt-4o",
