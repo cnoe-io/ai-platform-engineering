@@ -9,6 +9,7 @@ import { ReleaseUpgradeDialog } from "@/components/release/ReleaseUpgradeDialog"
 import { NotificationBell } from "@/components/notifications/NotificationBell";
 import { SettingsPanel } from "@/components/settings-panel";
 import { UnsavedChangesDialog } from "@/components/shared/UnsavedChangesDialog";
+import { ReportProblemDialog } from "@/components/ticket/ReportProblemDialog";
 import { Button } from "@/components/ui/button";
 import { useHeaderBreadcrumbSlot } from "@/components/layout/HeaderBreadcrumbSlot";
 import {
@@ -34,6 +35,7 @@ import {
 AlertTriangle,
 BookOpen,
 ChevronRight,
+MessageSquareText,
 } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { usePathname,useRouter } from "next/navigation";
@@ -122,6 +124,7 @@ export function AppHeader() {
   // visibly does nothing in that race. Programmatic navigation + an
   // explicit close after navigation starts is deterministic.
   const [alertsPopoverOpen, setAlertsPopoverOpen] = React.useState(false);
+  const [feedbackDialogOpen, setFeedbackDialogOpen] = React.useState(false);
 
   // Debug logging for admin tab
   React.useEffect(() => {
@@ -415,6 +418,25 @@ export function AppHeader() {
             >
               {config.envBadge}
             </span>
+          ) : null}
+          {config.provideFeedbackEnabled ? (
+            <>
+              <Button
+                aria-label="Provide Feedback"
+                className="h-8 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+                onClick={() => setFeedbackDialogOpen(true)}
+                size="sm"
+                title="Provide Feedback"
+                variant="ghost"
+              >
+                <MessageSquareText className="h-3.5 w-3.5" />
+                <span className="hidden lg:inline">Provide Feedback</span>
+              </Button>
+              <ReportProblemDialog
+                open={feedbackDialogOpen}
+                onOpenChange={setFeedbackDialogOpen}
+              />
+            </>
           ) : null}
           <SettingsPanel />
           {config.docsUrl && (

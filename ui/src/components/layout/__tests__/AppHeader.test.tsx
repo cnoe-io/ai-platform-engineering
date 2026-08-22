@@ -117,6 +117,8 @@ jest.mock('@/store/chat-store', () => ({
 let mockStorageMode = 'mongodb'
 let mockRagEnabled = false
 let mockEnvBadge = ''
+const mockReportProblemEnabled = true
+let mockProvideFeedbackEnabled = false
 
 const mockReleasePrompt = {
   open: false,
@@ -191,6 +193,7 @@ jest.mock('@/lib/config', () => ({
     get storageMode() { return mockStorageMode },
     get ragEnabled() { return mockRagEnabled },
     get reportProblemEnabled() { return mockReportProblemEnabled },
+    get provideFeedbackEnabled() { return mockProvideFeedbackEnabled },
     get autonomousAgentsEnabled() { return mockAutonomousAgentsEnabled },
   },
   getConfig: jest.fn((key: string) => {
@@ -289,6 +292,11 @@ jest.mock('@/components/user-menu', () => ({
   UserMenu: () => (
     <div data-testid="user-menu" />
   ),
+}))
+
+jest.mock('@/components/ticket/ReportProblemDialog', () => ({
+  ReportProblemDialog: ({ open }: { open: boolean }) =>
+    open ? <div data-testid="provide-feedback-dialog">Provide Feedback Dialog</div> : null,
 }))
 
 jest.mock('@/components/settings-panel', () => ({
@@ -411,6 +419,7 @@ describe('AppHeader — application chrome', () => {
     mockKbGatesLoading = false
     mockKbOrgAdminBypass = true
     mockEnvBadge = ''
+    mockProvideFeedbackEnabled = false
     mockStreamingConversations = new Map()
     mockUnviewedConversations = new Set()
     mockInputRequiredConversations = new Set()
@@ -787,6 +796,20 @@ describe('AppHeader — application chrome', () => {
   })
 
   describe('right-side elements', () => {
+    it('hides the feedback shortcut when the feature flag is disabled', () => {
+      render(<AppHeader />)
+      expect(screen.queryByRole('button', { name: 'Provide Feedback' })).not.toBeInTheDocument()
+    })
+
+    it('opens the feedback dialog when the feature flag is enabled', () => {
+      mockProvideFeedbackEnabled = true
+      render(<AppHeader />)
+
+      fireEvent.click(screen.getByRole('button', { name: 'Provide Feedback' }))
+
+      expect(screen.getByTestId('provide-feedback-dialog')).toBeInTheDocument()
+    })
+
     it('renders UserMenu', () => {
       render(<AppHeader />)
       expect(screen.getByTestId('user-menu')).toBeInTheDocument()
