@@ -21,7 +21,6 @@ DOCKER_COMPOSE_BUILD_ENV := DOCKER_BUILDKIT=1 COMPOSE_PARALLEL_LIMIT=$(COMPOSE_P
 .PHONY: \
 	setup-venv start-venv clean-pyc clean-venv clean-build-artifacts clean \
 	uv-prep \
-	generate-agent-commands \
 	lint lint-fix test test-compose-generator test-compose-generator-coverage \
 	test-rag-unit test-rag-coverage test-rag-memory test-rag-scale validate lock-all help \
 	beads-gh-issues-sync beads-gh-issues-sync-run beads-list beads-ready beads-sync \
@@ -105,8 +104,7 @@ caipe-ui-e2e-rbac: ## Run mocked RBAC Playwright regression (dev server on :3000
 			--config=playwright.rbac.config.ts
 
 migrate-canonical-team-membership: ## Backfill team_membership_sources from legacy teams.members[] and $$unset the field. Dry-run by default; APPLY=1 to apply.
-	@# One-shot migration for spec 2026-05-26-canonical-team-membership.
-	@# See docs/docs/specs/2026-05-26-canonical-team-membership/mongodb-migration.md
+	@# See docs/docs/security/rbac/canonical-team-membership-migration.md
 	@# for the operator runbook (dry-run, apply, verify, roll back).
 	@APPLY_FLAG="$${APPLY:-false}"; \
 	if [ "$$APPLY_FLAG" = "1" ] || [ "$$APPLY_FLAG" = "true" ]; then \
@@ -216,22 +214,6 @@ docs-start: docs-dev ## Alias for docs-dev (start documentation development serv
 docs-serve: docs-build ## Serve documentation static site
 	@echo "Serving documentation static site..."
 	@cd docs && npm run serve
-
-## ========== Spec-Kit Agent Commands ==========
-
-SPECKIT_SRC := .specify/templates/commands
-CURSOR_DST  := .cursor/commands
-CLAUDE_DST  := .claude/commands
-
-generate-agent-commands: ## Generate .cursor and .claude command files from .specify/templates/commands
-	@echo "Generating agent command files from $(SPECKIT_SRC)..."
-	@mkdir -p $(CURSOR_DST) $(CLAUDE_DST)
-	@for src in $(SPECKIT_SRC)/*.md; do \
-		name=$$(basename "$$src" .md); \
-		cp "$$src" "$(CURSOR_DST)/speckit.$$name.md"; \
-		cp "$$src" "$(CLAUDE_DST)/speckit.$$name.md"; \
-	done
-	@echo "✓ Generated commands in $(CURSOR_DST)/ and $(CLAUDE_DST)/"
 
 ## ========== Lint ==========
 
@@ -498,7 +480,7 @@ scan-image: ## Scan a single image with grype (make scan-image IMG=ghcr.io/cnoe-
 	@grype "$(IMG)" --fail-on "$(GRYPE_SEVERITY)"
 
 ## ========== RBAC tests ==========
-# See docs/docs/specs/102-comprehensive-rbac-tests-and-completion/quickstart.md
+# See tests/rbac/README.md.
 
 # Profile selection. Override with E2E_PROFILES=...
 # All profiles live in docker-compose.dev.yaml — no separate e2e compose file.
