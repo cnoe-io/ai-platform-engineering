@@ -1,6 +1,7 @@
 "use client";
 
 import { useApplicationNavigation } from "@/components/layout/ApplicationNavigationContext";
+import { ApplicationVersion } from "@/components/layout/ApplicationVersion";
 import {
   APPLICATION_SECTION_AREA_KEYS,
   ApplicationSectionNavigation,
@@ -582,9 +583,10 @@ export function ApplicationNavigationRail(): React.ReactElement {
       <div
         className={cn(
           "flex shrink-0 items-center border-t border-border/50 pb-3 pt-2",
-          collapsed ? "flex-col justify-center gap-1 px-2" : "justify-end px-4",
+          collapsed ? "flex-col justify-center gap-1 px-2" : "justify-between gap-3 px-4",
         )}
       >
+        <ApplicationVersion collapsed={collapsed} />
         <WorkspaceRailToggle />
       </div>
     </aside>
@@ -608,6 +610,9 @@ export function ApplicationNavigationDrawer(): React.ReactElement | null {
         <ApplicationBrand collapsed={false} />
         <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4">
           <ApplicationNavigationContents collapsed={false} layoutScope="drawer" />
+        </div>
+        <div className="border-t border-border/50 px-4 py-3">
+          <ApplicationVersion />
         </div>
       </DialogContent>
     </Dialog>
