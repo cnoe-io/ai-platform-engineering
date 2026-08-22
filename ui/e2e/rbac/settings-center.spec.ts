@@ -7,7 +7,6 @@ import {
   postJson,
   type MockRouteHandler,
 } from "./_mocked-rbac";
-import { dismissReleaseUpgradeDialog } from "./_helpers";
 
 const ADMIN_SESSION = {
   email: "settings-admin@example.com",
@@ -71,7 +70,7 @@ function createState(): SettingsMockState {
       gradient_theme: "default",
       memory_enabled: "true",
       releaseNotesNotificationsEnabled: true,
-      releaseNotesDismissedVersions: ["playwright"],
+      releaseNotesDismissedVersions: ["0.5.67"],
       show_thinking_enabled: "true",
       show_timestamps_enabled: "false",
       theme: "dark",
@@ -253,13 +252,12 @@ async function switchThumbIsInsideTrack(toggle: Locator): Promise<boolean> {
 
 async function openSettings(
   page: Page,
-  section: "Appearance" | "Chat & agents" | "Notifications" | "System health" = "Chat & agents",
+  section: "Appearance" | "Chat & agents" | "Notifications" = "Chat & agents",
 ): Promise<Locator> {
   const route = {
     Appearance: "/settings/appearance",
     "Chat & agents": "/settings/chat-and-agents",
     Notifications: "/settings/notifications",
-    "System health": "/settings/system-health",
   }[section];
   await page.goto(route,{ waitUntil: "domcontentloaded" });
   await expect(page).toHaveURL(route);
@@ -276,18 +274,13 @@ test.describe("mocked routed Settings browser regression",() => {
     );
   });
 
-  test("shows the deployed version in the sidebar and shared health in Settings",async ({ page }) => {
+  test("removes user-facing version and health destinations from Settings",async ({ page }) => {
     const state = createState();
-    state.preferences.releaseNotesDismissedVersions = ["0.5.67"];
     await installSettingsCenterMocks(page,state);
-    const settings = await openSettings(page,"System health");
-    await dismissReleaseUpgradeDialog(page);
+    await openSettings(page,"Notifications");
 
-    await expect(page.getByTestId("application-version")).toContainText("v0.5.67");
-    await expect(settings.getByText("Healthy",{ exact: true }).first()).toBeVisible();
-    await expect(settings.getByText("Chat Runtime",{ exact: true })).toBeVisible();
-    await expect(settings.getByText("Authentication",{ exact: true })).toBeVisible();
-    await expect(settings.getByText("0.5.67",{ exact: true })).toBeVisible();
+    await expect(page.getByTestId("application-version")).toHaveCount(0);
+    await expect(page.getByRole("link",{ name: "System health" })).toHaveCount(0);
   });
 
   test("opens Appearance from the header without hydration errors or a duplicate dialog",async ({ page }) => {
