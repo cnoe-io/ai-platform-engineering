@@ -15,6 +15,8 @@
  *   3. If the tag already carries `versioned_docs/version-X.Y.Z`, reuse it;
  *      otherwise run `docusaurus docs:version X.Y.Z` inside the worktree.
  *   4. Copy `version-X.Y.Z/` + `version-X.Y.Z-sidebars.json` into the main tree.
+ *   5. Remove retired implementation plans and contributor-process pages so
+ *      they are not published or indexed as supported documentation.
  *
  * Usage (run from repo root or docs/, after `npm install` in docs/):
  *   node docs/scripts/generate-versioned-docs.js
@@ -72,7 +74,12 @@ function rewriteEscapingTarget(target, fileDirRepoRel, tag) {
   if (!rawPath) return null; // pure anchor
 
   const resolved = path.posix.normalize(path.posix.join('/', fileDirRepoRel, rawPath));
-  if (resolved === DOC_CONTENT_ROOT || resolved.startsWith(DOC_CONTENT_ROOT + '/')) {
+  const isRetiredDoc =
+    resolved.startsWith(`${DOC_CONTENT_ROOT}/specs/`) ||
+    resolved === `${DOC_CONTENT_ROOT}/development/spec-driven-development` ||
+    resolved === `${DOC_CONTENT_ROOT}/development/spec-driven-development.md` ||
+    resolved === `${DOC_CONTENT_ROOT}/development/spec-driven-development.mdx`;
+  if (!isRetiredDoc && (resolved === DOC_CONTENT_ROOT || resolved.startsWith(DOC_CONTENT_ROOT + '/'))) {
     return null; // stays inside the docs content tree → valid intra-docs link
   }
 
@@ -123,7 +130,6 @@ function sanitizeVersionLinks(versionDir, tag) {
           path.dirname(relWithinVersion).split(path.sep).join('/')
         );
         if (sanitizeFileLinks(abs, fileDirRepoRel, tag)) count += 1;
-        if (sanitizeMdxBreakingPatterns(abs)) count += 1;
       }
     }
   };
@@ -131,78 +137,39 @@ function sanitizeVersionLinks(versionDir, tag) {
   return count;
 }
 
-// ---------------------------------------------------------------------------
-// MDX sanitizer
-//
-// Frozen tag snapshots can contain markdown that compiled fine as plain MD but
-// breaks under MDX (e.g. nested backticks leaking `{objectType}` expressions).
-// Patch known offenders in-place after the version tree is copied.
-// ---------------------------------------------------------------------------
+const RETIRED_DOC_IDS = new Set(['development/spec-driven-development']);
 
-const MDX_MODULE_API_P2_BLOCK = `- Paginate FGA tuples for the resource object:
+function pruneSidebarItems(items) {
+  if (!Array.isArray(items)) return items;
+  return items
+    .filter((item) => {
+      if (typeof item === 'string') {
+        return !item.startsWith('specs/') && !RETIRED_DOC_IDS.has(item);
+      }
+      if (!item || typeof item !== 'object') return true;
+      if (item.label === 'Specifications') return false;
+      if (typeof item.id === 'string') {
+        return !item.id.startsWith('specs/') && !RETIRED_DOC_IDS.has(item.id);
+      }
+      return item.dirName !== 'specs';
+    })
+    .map((item) => {
+      if (!item || typeof item !== 'object' || !Array.isArray(item.items)) return item;
+      return { ...item, items: pruneSidebarItems(item.items) };
+    });
+}
 
-\`\`\`ts
-readOpenFgaTuples({
-  tuple: { object: objectType + ':' + objectId },
-})
-\`\`\`
+function pruneRetiredVersionDocs(versionDir, sidebarFile) {
+  fs.rmSync(path.join(versionDir, 'specs'), { recursive: true, force: true });
+  fs.rmSync(path.join(versionDir, 'development', 'spec-driven-development.md'), { force: true });
+  fs.rmSync(path.join(versionDir, 'development', 'spec-driven-development.mdx'), { force: true });
 
-- Collect slugs via \`extractTeamSlugsFromTuples\`.`;
-
-const MDX_MODULE_API_P3_BLOCK = `3. Call \`reconcileShareableResource\` with the descriptor fields (example below).
-4. Never persist to Mongo.
-
-\`\`\`ts
-reconcileShareableResource({
-  objectType: descriptor.objectType,
-  objectId,
-  creatorSubject: ownerSubject,
-  ownerSubject,
-  ownerTeamSlug,
-  previousOwnerTeamSlug,
-  nextSharedTeamSlugs,
-  previousSharedTeamSlugs,
-  memberRelations: descriptor.memberRelations,
-  sharedWithOrg,
-  previousSharedWithOrg,
-})
-\`\`\``;
-
-function sanitizeMdxBreakingPatterns(absFile) {
-  if (!absFile.endsWith('specs/2026-06-04-fga-projected-team-shares/contracts/module-api.md')) {
-    return false;
+  if (!fs.existsSync(sidebarFile)) return;
+  const sidebars = JSON.parse(fs.readFileSync(sidebarFile, 'utf8'));
+  for (const key of Object.keys(sidebars)) {
+    sidebars[key] = pruneSidebarItems(sidebars[key]);
   }
-
-  let content = fs.readFileSync(absFile, 'utf8');
-  const original = content;
-
-  // 0.5.9: nested backticks in a list item leak \`{objectType}\` into MDX.
-  content = content.replace(
-    /- Paginate `readOpenFgaTuples\(\{ tuple: \{ object: `\$\{objectType\}:\$\{objectId\}` \} \}\)`\.\r?\n- Collect slugs via `extractTeamSlugsFromTuples`\./,
-    MDX_MODULE_API_P2_BLOCK
-  );
-
-  // 0.5.10+: indented fenced block inside a list item is not always treated as code.
-  content = content.replace(
-    /- Paginate FGA tuples for the resource object:\r?\n\r?\n  ```ts\r?\n  readOpenFgaTuples\(\{ tuple: \{ object: `\$\{objectType\}:\$\{objectId\}` \} \}\)\r?\n  ```\r?\n\r?\n- Collect slugs via `extractTeamSlugsFromTuples`\./,
-    MDX_MODULE_API_P2_BLOCK
-  );
-
-  // 0.5.9: long inline reconcile call with \`{ objectType,\` shorthand.
-  content = content.replace(
-    /3\. Call `reconcileShareableResource\(\{ objectType, objectId, creatorSubject: ownerSubject, ownerSubject, ownerTeamSlug, previousOwnerTeamSlug, nextSharedTeamSlugs, previousSharedTeamSlugs, memberRelations: descriptor\.memberRelations, sharedWithOrg, previousSharedWithOrg \}\)`\.\r?\n4\. Never persist to Mongo\./,
-    MDX_MODULE_API_P3_BLOCK
-  );
-
-  // 0.5.10+: indented reconcile example inside numbered list.
-  content = content.replace(
-    /3\. Call `reconcileShareableResource` with the descriptor fields:\r?\n\r?\n   ```ts\r?\n   reconcileShareableResource\(\{\r?\n     objectType,\r?\n     objectId,\r?\n     creatorSubject: ownerSubject,\r?\n     ownerSubject,\r?\n     ownerTeamSlug,\r?\n     previousOwnerTeamSlug,\r?\n     nextSharedTeamSlugs,\r?\n     previousSharedTeamSlugs,\r?\n     memberRelations: descriptor\.memberRelations,\r?\n     sharedWithOrg,\r?\n     previousSharedWithOrg,\r?\n   \}\)\r?\n   ```\r?\n4\. Never persist to Mongo\./,
-    MDX_MODULE_API_P3_BLOCK
-  );
-
-  if (content === original) return false;
-  fs.writeFileSync(absFile, content);
-  return true;
+  fs.writeFileSync(sidebarFile, JSON.stringify(sidebars, null, 2) + '\n');
 }
 
 function compareVersionsDesc(a, b) {
@@ -281,9 +248,11 @@ try {
 
       const destVersionDir = path.join(VERSIONED_DOCS_DIR, `version-${tag}`);
       fs.cpSync(wtVersionedDir, destVersionDir, { recursive: true });
+      const destSidebarFile = path.join(VERSIONED_SIDEBARS_DIR, `version-${tag}-sidebars.json`);
       if (fs.existsSync(wtSidebarFile)) {
-        fs.cpSync(wtSidebarFile, path.join(VERSIONED_SIDEBARS_DIR, `version-${tag}-sidebars.json`));
+        fs.cpSync(wtSidebarFile, destSidebarFile);
       }
+      pruneRetiredVersionDocs(destVersionDir, destSidebarFile);
       const fixed = sanitizeVersionLinks(destVersionDir, tag);
       console.log(`    captured version-${tag}${fixed ? ` (rewrote source links in ${fixed} file(s))` : ''}`);
     } finally {
