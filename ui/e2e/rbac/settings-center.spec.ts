@@ -7,8 +7,6 @@ import {
   postJson,
   type MockRouteHandler,
 } from "./_mocked-rbac";
-import { dismissReleaseUpgradeDialog } from "./_helpers";
-
 const ADMIN_SESSION = {
   email: "settings-admin@example.com",
   name: "Example Settings Admin",
@@ -276,18 +274,15 @@ test.describe("mocked routed Settings browser regression",() => {
     );
   });
 
-  test("shows the deployed version in the sidebar and shared health in Settings",async ({ page }) => {
+  test("shows a neutral version without exposing a health destination",async ({ page }) => {
     const state = createState();
     state.preferences.releaseNotesDismissedVersions = ["0.5.67"];
     await installSettingsCenterMocks(page,state);
-    const settings = await openSettings(page,"System health");
-    await dismissReleaseUpgradeDialog(page);
+    await openSettings(page,"Notifications");
 
-    await expect(page.getByTestId("application-version")).toContainText("v0.5.67");
-    await expect(settings.getByText("Healthy",{ exact: true }).first()).toBeVisible();
-    await expect(settings.getByText("Chat Runtime",{ exact: true })).toBeVisible();
-    await expect(settings.getByText("Authentication",{ exact: true })).toBeVisible();
-    await expect(settings.getByText("0.5.67",{ exact: true })).toBeVisible();
+    await expect(page.getByTestId("application-version")).toContainText("Version: v0.5.67");
+    await expect(page.getByTestId("application-version")).not.toHaveAttribute("href");
+    await expect(page.getByRole("link",{ name: "System health" })).toHaveCount(0);
   });
 
   test("opens Appearance from the header without hydration errors or a duplicate dialog",async ({ page }) => {
