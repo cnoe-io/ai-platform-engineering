@@ -24,7 +24,6 @@ DOCKER_COMPOSE_BUILD_ENV := DOCKER_BUILDKIT=1 COMPOSE_PARALLEL_LIMIT=$(COMPOSE_P
 	generate-agent-commands \
 	lint lint-fix test test-compose-generator test-compose-generator-coverage \
 	test-rag-unit test-rag-coverage test-rag-memory test-rag-scale validate lock-all help \
-	beads-gh-issues-sync beads-gh-issues-sync-run beads-list beads-ready beads-sync \
 	caipe-ui caipe-ui-install caipe-ui-build caipe-ui-dev caipe-ui-tests caipe-ui-e2e-rbac \
 	build-caipe-ui run-caipe-ui-docker caipe-ui-docker-compose \
 	caipe-ui-hot caipe-ui-prod \
@@ -375,25 +374,6 @@ lock-all:
 			uv pip compile pyproject.toml --all-extras --prerelease; \
 		); \
 	done
-
-## ========== Beads Issue Tracking ==========
-
-beads-gh-issues-sync: ## Sync beads issues to GitHub Issues (dry-run by default)
-	@echo "Syncing beads to GitHub Issues..."
-	@./scripts/sync_beads_to_github.sh --dry-run
-
-beads-gh-issues-sync-run: ## Actually sync beads to GitHub Issues (creates issues)
-	@echo "Syncing beads to GitHub Issues (LIVE)..."
-	@./scripts/sync_beads_to_github.sh
-
-beads-list: ## List all beads issues
-	@bd list
-
-beads-ready: ## Show beads ready for work
-	@bd ready
-
-beads-sync: ## Sync beads with git
-	@bd sync
 
 ## ========== Release & Versioning ==========
 release: setup-venv  ## Bump version and create a release
