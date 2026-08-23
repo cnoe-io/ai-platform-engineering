@@ -339,7 +339,7 @@ export function ApplicationNavigationSearch({
 
   const trigger = (
     <button
-      aria-label={collapsed ? "Search" : undefined}
+      aria-label="Open command palette"
       className={cn(
         "group flex h-9 items-center rounded-lg border border-border/60 bg-background/45 text-muted-foreground outline-none transition-colors",
         "hover:border-border hover:bg-muted/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring",
