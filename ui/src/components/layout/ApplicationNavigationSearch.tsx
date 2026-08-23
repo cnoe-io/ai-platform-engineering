@@ -3,7 +3,6 @@
 import { GuardedNavigationLink } from "@/components/layout/GuardedNavigationLink";
 import {
   Dialog,
-  DialogClose,
   DialogContent,
   DialogDescription,
   DialogHeader,
@@ -21,7 +20,6 @@ import {
   LoaderCircle,
   MessageSquare,
   Search,
-  X,
   Zap,
   type LucideIcon,
 } from "lucide-react";
@@ -426,7 +424,7 @@ export function ApplicationNavigationSearch({
               type="search"
               value={query}
             />
-            <div className="flex shrink-0 items-center gap-2">
+            <div className="flex shrink-0 items-center">
               {resourcesLoading ? (
                 <LoaderCircle aria-label="Searching resources" className="h-4 w-4 animate-spin text-muted-foreground" />
               ) : (
@@ -434,12 +432,6 @@ export function ApplicationNavigationSearch({
                   Esc
                 </kbd>
               )}
-              <DialogClose
-                aria-label="Close command palette"
-                className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <X aria-hidden="true" className="h-4 w-4" />
-              </DialogClose>
             </div>
           </div>
 
