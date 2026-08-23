@@ -71,7 +71,8 @@ describe('HomePage', () => {
     render(<HomePage />)
     expect(screen.getByTestId('welcome-banner').parentElement).toHaveClass(
       'space-y-3',
-      '[@media(max-height:800px)]:space-y-1'
+      '[@media(max-height:800px)]:space-y-1',
+      '[@media(max-height:800px)]:pb-2'
     )
   })
 })
