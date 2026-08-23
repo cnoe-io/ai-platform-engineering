@@ -69,9 +69,15 @@ jest.mock('@/hooks/use-autonomous-capability', () => ({
   }),
 }))
 
+let mockAdminTabGates = {
+  dynamic_agent_conversations: false,
+  users: true,
+  teams: true,
+  skills: true,
+}
 jest.mock('@/hooks/useAdminTabGates', () => ({
   useAdminTabGates: () => ({
-    gates: { dynamic_agent_conversations: false },
+    gates: mockAdminTabGates,
     loading: false,
   }),
 }))
@@ -398,6 +404,12 @@ describe('AppHeader — application chrome', () => {
     mockPathname = '/chat'
     mockIsAdmin = false
     mockCanAccessDynamicAgents = false
+    mockAdminTabGates = {
+      dynamic_agent_conversations: false,
+      users: true,
+      teams: true,
+      skills: true,
+    }
     mockCanUseAutonomous = false
     mockAutonomousAgentsEnabled = true
     mockRagEnabled = false
@@ -609,6 +621,28 @@ describe('AppHeader — application chrome', () => {
 
       expect(applicationButton('Admin')).toHaveAttribute('aria-expanded', 'true')
       expect(screen.getByRole('navigation', { name: 'Admin sections' })).toBe(navigation)
+    })
+
+    it('keeps the routed Admin category expanded while page navigation is unavailable', () => {
+      mockStorageMode = 'mongodb'
+      mockIsAdmin = true
+      mockPathname = '/admin/people/users'
+
+      const { rerender } = render(<AppHeader />)
+
+      const admin = applicationButton('Admin')
+      expect(admin).toHaveAttribute('aria-expanded', 'true')
+      expect(screen.getByRole('button', { name: 'Teams & Users' }))
+        .toHaveAttribute('aria-expanded', 'true')
+
+      mockPathname = '/admin/platform/skill-hubs'
+      rerender(<AppHeader />)
+
+      expect(admin).toHaveAttribute('aria-expanded', 'true')
+      expect(screen.getByRole('button', { name: 'Resources' }))
+        .toHaveAttribute('aria-expanded', 'true')
+      expect(screen.getByRole('link', { name: 'Skill Hubs' }))
+        .toHaveAttribute('aria-current', 'page')
     })
 
     it('animates manual category toggles but not route-driven category changes', () => {
