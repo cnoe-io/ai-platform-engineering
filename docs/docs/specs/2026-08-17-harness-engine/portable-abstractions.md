@@ -95,10 +95,12 @@ Capability levels have precise meanings:
 | `unsupported` | The harness fundamentally cannot provide the behavior |
 | `unavailable` | The contract permits it, but this deployment/adapter has not connected it |
 
-Profiles separate operator policy from agent-author intent. For example, the
-AgentCore profile resolves to an ARN/qualifier/region, while the Claude profile
-resolves to an approved model, workspace root, and permission mode. The API and
-browser receive the alias and description only.
+Profiles separate operator policy from agent-author intent. An AgentCore
+profile either resolves to an operator-owned shared ARN or authorizes Harness
+Engine to create one AWS Harness per CAIPE agent using an approved execution
+role, model, and Region. A Claude profile resolves to an approved model,
+workspace root, and permission mode. The API and browser receive the alias and
+description only; provider identifiers and execution-role ARNs stay private.
 
 ## Adapter contract
 

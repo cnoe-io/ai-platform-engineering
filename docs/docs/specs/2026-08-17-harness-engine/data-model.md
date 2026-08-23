@@ -365,24 +365,57 @@ Rules:
 - Preserve schema versions and opaque state.
 - Existing CAIPE subagents use separate Harness Engine bindings through DelegationBroker, not embedded provider multi-agent state.
 
-### 9. AgentCore resource and session reference
+### 9. AgentCore agent resource binding
 
-Stored in `provider_resource_ref` and `provider_session_id`; no AWS credential is stored.
+Agent-owned AWS resources are stored in the private
+`harness_provider_resources` collection. This collection is never accepted from
+or returned to the browser. The portable blueprint stores only `profile_id`.
+
+```yaml
+agent_id: agent-example
+harness_id: agentcore
+profile_id: primary
+provider: aws_agentcore
+resource_type: harness
+resource_id: caipe_example-AbCdEf1234
+arn: arn:aws:bedrock-agentcore:us-west-2:000000000000:harness/caipe_example-AbCdEf1234
+region: us-west-2
+qualifier: DEFAULT
+configuration_fingerprint: 75c6d...
+status: ready
+ownership: agent
+created_at: 2026-08-17T00:00:01Z
+updated_at: 2026-08-17T00:00:01Z
+```
+
+Rules:
+
+- `agent_id` is unique: a CAIPE agent has at most one current agent-owned provider resource.
+- `per_agent` profiles contain the region and execution role in deployment configuration. The resource ARN is returned by AWS and persisted only after readiness.
+- `configuration_fingerprint` covers the operator-controlled role/model settings and portable system prompt mapped to AWS. A changed fingerprint triggers `UpdateHarness`; the same resource ID is retained.
+- `shared` profiles resolve their deployment-owned ARN directly and do not create a record in this collection.
+- Save conflicts compensate a resource created by the losing request. Switching away from an agent-owned resource releases it after the new agent version is committed.
+- Agent deletion releases the provider resource first and fails closed if AWS rejects deletion.
+- Provider resource documents contain identifiers but never AWS credentials or user bearer tokens.
+
+### 10. AgentCore session reference
+
+The conversation binding stores only the provider session identity and an
+immutable snapshot of the resolved agent resource:
 
 ```yaml
 provider_resource_ref:
   kind: agentcore_harness
   region: us-west-2
-  harness_arn: arn:aws:bedrock-agentcore:us-west-2:000000000000:harness/example
+  resource_id: caipe_example-AbCdEf1234
   endpoint: stable
-  harness_version: "7"
 provider_session_id: hse_<opaque-at-least-33-char-id>
 ```
 
 Rules:
 
 - Resource identity is immutable within an epoch.
-- The role/credential source is deployment configuration, not the document.
+- The role/credential source is deployment configuration, not the blueprint or session document.
 - Provider session IDs meet length/character rules and reveal no identity.
 - Clear increments the epoch and creates a new provider session; it does not claim to rewrite a managed remote history.
 

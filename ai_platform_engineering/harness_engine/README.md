@@ -99,7 +99,40 @@ Harness Engine variables use the `HARNESS_ENGINE_` prefix:
 - `HARNESS_ENGINE_INTERNAL_TOKEN`: required BFF-to-engine credential.
 - `HARNESS_ENGINE_STORAGE_BACKEND`: `mongodb` for durable/replayable production sessions; `memory` for tests and local development.
 - `HARNESS_ENGINE_MONGODB_URI` and `HARNESS_ENGINE_MONGODB_DATABASE`.
-- `HARNESS_ENGINE_AGENTCORE_RUNTIMES_JSON`: alias-to-operator-owned target map. Targets can be custom AgentCore Runtime ARNs or managed AgentCore Harness ARNs. Example: `{"primary":{"arn":"arn:aws:bedrock-agentcore:us-east-1:111122223333:harness/example-AbCdEf1234","qualifier":"DEFAULT","region":"us-east-1"}}`.
+- `HARNESS_ENGINE_AGENTCORE_RUNTIMES_JSON`: sanitized AgentCore profile map.
+  - Backward-compatible shared target: `{"primary":{"provisioning":"shared","arn":"arn:aws:bedrock-agentcore:us-east-1:111122223333:harness/example-AbCdEf1234","qualifier":"DEFAULT","region":"us-east-1"}}`.
+  - One AWS Harness per CAIPE agent: `{"primary":{"provisioning":"per_agent","execution_role_arn":"arn:aws:iam::111122223333:role/example-agentcore-role","region":"us-east-1","model_id":"global.anthropic.claude-sonnet-example"}}`.
+  In `per_agent` mode, Harness Engine creates and deletes the AWS Harness and
+  stores its ARN and provider-configuration fingerprint in the private
+  `harness_provider_resources` collection. Provider-relevant edits update the
+  same AWS Harness in place. Agent blueprints and browser responses contain
+  only the profile ID.
+- `HARNESS_ENGINE_AGENTCORE_PROVISION_TIMEOUT_SECONDS` and
+  `HARNESS_ENGINE_AGENTCORE_PROVISION_POLL_SECONDS`: readiness polling bounds
+  for per-agent Harness creation.
+
+The workload policy for `per_agent` profiles must include the Harness actions
+and their documented AgentCore dependencies: runtime/runtime-endpoint, memory,
+and workload-identity create/update/delete permissions in the configured
+account and Region. `iam:PassRole` must be restricted to the profile's execution
+role and `bedrock-agentcore.amazonaws.com`.
+
+Minimum lifecycle action groups:
+
+- create: `CreateHarness`, `CreateHarnessEndpoint`, `CreateAgentRuntime`,
+  `CreateAgentRuntimeEndpoint`, `CreateMemory`, `CreateWorkloadIdentity`, and
+  `TagResource`;
+- update: `UpdateHarness`, `UpdateHarnessEndpoint`, `UpdateAgentRuntime`,
+  `UpdateAgentRuntimeEndpoint`, and `UpdateMemory`;
+- inspect: `GetHarness`, `GetAgentRuntime`, `GetAgentRuntimeEndpoint`,
+  `GetMemory`, and `GetWorkloadIdentity`;
+- delete: `DeleteHarness`, `DeleteHarnessEndpoint`, `DeleteAgentRuntime`,
+  `DeleteAgentRuntimeEndpoint`, `DeleteMemory`, and `DeleteWorkloadIdentity`.
+
+Creation permissions use `Resource: *` with an `aws:RequestedRegion`
+condition because the provider resources do not exist yet. Existing-resource
+actions should be restricted to the deployment account/Region Harness,
+runtime, memory, and default workload-identity directory ARN patterns.
 - `HARNESS_ENGINE_CLAUDE_SDK_PROFILES_JSON`: alias-to-operator-owned Claude
   policy, for example `{"safe":{"model":"claude-example","cwd":"/workspace","permission_mode":"dontAsk"}}`.
 - `HARNESS_ENGINE_EVENT_RETENTION_SECONDS`: TTL for replay events.

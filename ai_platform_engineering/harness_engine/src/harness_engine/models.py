@@ -168,6 +168,25 @@ class AgentVersion(StrictModel):
     created_at: datetime = Field(default_factory=utc_now)
 
 
+class ProviderResource(StrictModel):
+    """Server-owned provider resource; never accepted in an agent blueprint."""
+
+    agent_id: str = Field(..., min_length=1, max_length=128)
+    harness_id: str
+    profile_id: str
+    provider: Literal["aws_agentcore"]
+    resource_type: Literal["harness"]
+    resource_id: str = Field(..., min_length=1, max_length=128)
+    arn: str = Field(..., min_length=20, max_length=2048)
+    region: str = Field(..., pattern=r"^[a-z]{2}(?:-gov)?-[a-z]+-\d$")
+    qualifier: str = Field("DEFAULT", min_length=1, max_length=64)
+    configuration_fingerprint: str = ""
+    status: Literal["ready"] = "ready"
+    ownership: Literal["agent"] = "agent"
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
 class SaveAgentRequest(StrictModel):
     blueprint: AgentBlueprint
     expected_revision: int | None = Field(None, ge=1)

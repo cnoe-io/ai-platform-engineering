@@ -24,7 +24,7 @@ async function authorize(request: NextRequest, agentId: string, write: boolean):
 async function proxy(
   request: NextRequest,
   context: Context,
-  method: "GET" | "PUT",
+  method: "GET" | "PUT" | "DELETE",
 ): Promise<Response> {
   const { agentId } = await context.params;
   try {
@@ -49,3 +49,5 @@ async function proxy(
 
 export const GET = (request: NextRequest, context: Context) => proxy(request, context, "GET");
 export const PUT = (request: NextRequest, context: Context) => proxy(request, context, "PUT");
+export const DELETE = (request: NextRequest, context: Context) =>
+  proxy(request, context, "DELETE");

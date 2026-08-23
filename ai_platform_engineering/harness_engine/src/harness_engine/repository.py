@@ -13,6 +13,7 @@ from harness_engine.models import (
     AgentBlueprint,
     AgentRecord,
     AgentVersion,
+    ProviderResource,
     RunEvent,
     RunRecord,
     RunStatus,
@@ -43,6 +44,14 @@ class RunRepository(Protocol):
         catalog_revision: str,
         expected_revision: int | None,
     ) -> tuple[AgentRecord, AgentVersion]: ...
+
+    async def delete_agent(self, agent_id: str) -> bool: ...
+
+    async def get_provider_resource(self, agent_id: str) -> ProviderResource | None: ...
+
+    async def save_provider_resource(self, resource: ProviderResource) -> ProviderResource: ...
+
+    async def delete_provider_resource(self, agent_id: str) -> bool: ...
 
     async def get_session(self, binding_id: str) -> SessionBinding | None: ...
 
@@ -84,6 +93,7 @@ class InMemoryRunRepository:
         self._agents: dict[str, AgentRecord] = {}
         self._versions: dict[tuple[str, int], AgentVersion] = {}
         self._sessions: dict[str, SessionBinding] = {}
+        self._provider_resources: dict[str, ProviderResource] = {}
         self._runs: dict[str, RunRecord] = {}
         self._events: dict[str, list[RunEvent]] = defaultdict(list)
         self._conditions: dict[str, asyncio.Condition] = defaultdict(asyncio.Condition)
@@ -142,6 +152,30 @@ class InMemoryRunRepository:
             self._versions[(record.agent_id, version_number)] = version
             self._agents[record.agent_id] = record
             return record.model_copy(deep=True), version.model_copy(deep=True)
+
+    async def delete_agent(self, agent_id: str) -> bool:
+        async with self._lock:
+            existed = self._agents.pop(agent_id, None) is not None
+            for key in [key for key in self._versions if key[0] == agent_id]:
+                del self._versions[key]
+            for key in [
+                key for key, session in self._sessions.items() if session.agent_id == agent_id
+            ]:
+                del self._sessions[key]
+            return existed
+
+    async def get_provider_resource(self, agent_id: str) -> ProviderResource | None:
+        resource = self._provider_resources.get(agent_id)
+        return resource.model_copy(deep=True) if resource else None
+
+    async def save_provider_resource(self, resource: ProviderResource) -> ProviderResource:
+        async with self._lock:
+            self._provider_resources[resource.agent_id] = resource
+            return resource.model_copy(deep=True)
+
+    async def delete_provider_resource(self, agent_id: str) -> bool:
+        async with self._lock:
+            return self._provider_resources.pop(agent_id, None) is not None
 
     async def get_session(self, binding_id: str) -> SessionBinding | None:
         session = self._sessions.get(binding_id)
@@ -277,6 +311,7 @@ class MongoRunRepository:
             self._db.harness_agent_versions.create_index(
                 [("agent_id", ASCENDING), ("version", ASCENDING)], unique=True
             )
+            self._db.harness_provider_resources.create_index("agent_id", unique=True)
             self._db.harness_sessions.create_index("binding_id", unique=True)
             self._db.harness_sessions.create_index(
                 [
@@ -315,6 +350,38 @@ class MongoRunRepository:
             {"_id": 0},
         )
         return AgentVersion.model_validate(doc) if doc else None
+
+    async def delete_agent(self, agent_id: str) -> bool:
+        def delete() -> bool:
+            result = self._db.harness_agents.delete_one({"agent_id": agent_id})
+            self._db.harness_agent_versions.delete_many({"agent_id": agent_id})
+            self._db.harness_sessions.delete_many({"agent_id": agent_id})
+            return result.deleted_count > 0
+
+        return await asyncio.to_thread(delete)
+
+    async def get_provider_resource(self, agent_id: str) -> ProviderResource | None:
+        doc = await asyncio.to_thread(
+            self._db.harness_provider_resources.find_one,
+            {"agent_id": agent_id},
+            {"_id": 0},
+        )
+        return ProviderResource.model_validate(doc) if doc else None
+
+    async def save_provider_resource(self, resource: ProviderResource) -> ProviderResource:
+        await asyncio.to_thread(
+            self._db.harness_provider_resources.replace_one,
+            {"agent_id": resource.agent_id},
+            resource.model_dump(mode="python"),
+            upsert=True,
+        )
+        return resource
+
+    async def delete_provider_resource(self, agent_id: str) -> bool:
+        result = await asyncio.to_thread(
+            self._db.harness_provider_resources.delete_one, {"agent_id": agent_id}
+        )
+        return result.deleted_count > 0
 
     async def save_agent(
         self,

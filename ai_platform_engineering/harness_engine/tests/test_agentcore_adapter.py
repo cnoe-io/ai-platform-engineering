@@ -9,11 +9,13 @@ from harness_engine.models import (
     AgentBlueprint,
     HarnessSelection,
     PromptDefinition,
+    ProviderResource,
     RenderedPrompt,
     RunContext,
     SessionBinding,
     TurnInput,
 )
+from harness_engine.repository import InMemoryRunRepository
 
 
 class StreamingBody:
@@ -152,3 +154,49 @@ async def test_agentcore_adapter_invokes_managed_harness() -> None:
     )
     assert call["runtimeUserId"] != "test-user"
     assert "Authorization" not in call
+
+
+async def test_agentcore_adapter_resolves_a_server_owned_per_agent_harness() -> None:
+    repository = InMemoryRunRepository()
+    await repository.save_provider_resource(
+        ProviderResource(
+            agent_id="agent-example",
+            harness_id="agentcore",
+            profile_id="primary",
+            provider="aws_agentcore",
+            resource_type="harness",
+            resource_id="example-harness-AbCdEf1234",
+            arn=(
+                "arn:aws:bedrock-agentcore:us-east-2:111122223333:"
+                "harness/example-harness-AbCdEf1234"
+            ),
+            region="us-east-2",
+        )
+    )
+    client = FakeManagedHarnessClient()
+    settings = Settings(
+        internal_token="test-internal-token-value",
+        agentcore_runtimes_json=json.dumps(
+            {
+                "primary": {
+                    "provisioning": "per_agent",
+                    "region": "us-east-2",
+                    "execution_role_arn": (
+                        "arn:aws:iam::111122223333:role/example-agentcore-role"
+                    ),
+                }
+            }
+        ),
+    )
+    adapter = AgentCoreAdapter(
+        settings,
+        clients={"us-east-2": client},
+        resource_repository=repository,
+    )
+
+    events = [event async for event in adapter.stream(context())]
+
+    assert [event.data.get("text") for event in events[:2]] == ["managed", " harness"]
+    assert client.calls[0]["harnessArn"].endswith(
+        ":harness/example-harness-AbCdEf1234"
+    )
