@@ -18,10 +18,9 @@ import {
   findSettingsRouteById,
   findSettingsRouteBySegment,
 } from "@/components/settings/settings-routes";
-import { useAdminRole } from "@/hooks/use-admin-role";
 import { useRAGHealth } from "@/hooks/use-rag-health";
-import { useAdminTabGates } from "@/hooks/useAdminTabGates";
 import { config } from "@/lib/config";
+import type { AdminTabGatesMap } from "@/lib/rbac/types";
 import { usePathname,useSearchParams } from "next/navigation";
 import type React from "react";
 
@@ -33,15 +32,18 @@ export const APPLICATION_SECTION_AREA_KEYS = new Set([
   "settings",
 ]);
 
-function DynamicAgentsApplicationNavigation(): React.ReactElement {
+function DynamicAgentsApplicationNavigation({
+  adminGates,
+}: {
+  adminGates: AdminTabGatesMap;
+}): React.ReactElement {
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const { gates } = useAdminTabGates();
   const groups = buildDynamicAgentNavigationGroups({
     destinationForTab: (tab: DynamicAgentNavigationTab) => ({
       href: `/dynamic-agents?tab=${tab}`,
     }),
-    showConversations: Boolean(gates.dynamic_agent_conversations),
+    showConversations: Boolean(adminGates.dynamic_agent_conversations),
   });
 
   return (
@@ -66,22 +68,28 @@ function KnowledgeApplicationNavigation(): React.ReactElement {
   );
 }
 
-function AdminApplicationNavigation(): React.ReactElement | null {
+function AdminApplicationNavigation({
+  adminGates,
+  adminGatesLoading,
+  isAdmin,
+}: {
+  adminGates: AdminTabGatesMap;
+  adminGatesLoading: boolean;
+  isAdmin: boolean;
+}): React.ReactElement | null {
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const { isAdmin } = useAdminRole();
-  const { gates,loading } = useAdminTabGates();
-  if (loading) return null;
+  if (adminGatesLoading) return null;
 
   const categories = filterAdminCategories({
-    ...gates,
+    ...adminGates,
     platform_settings: isAdmin,
-    feedback: Boolean(gates.feedback && config.feedbackEnabled),
-    audit_logs: Boolean(gates.audit_logs && config.auditLogsEnabled),
-    credentials: Boolean(gates.credentials && config.credentialsEnabled),
+    feedback: Boolean(adminGates.feedback && config.feedbackEnabled),
+    audit_logs: Boolean(adminGates.audit_logs && config.auditLogsEnabled),
+    credentials: Boolean(adminGates.credentials && config.credentialsEnabled),
     agents: isAdmin,
     mcp: isAdmin,
-    identity_sync: Boolean(gates.identity_group_sync && config.oktaSyncEnabled),
+    identity_sync: Boolean(adminGates.identity_group_sync && config.oktaSyncEnabled),
   });
   const visibleDestinations = categories.flatMap(
     (category) => category.destinations,
@@ -114,13 +122,19 @@ function SettingsApplicationNavigation(): React.ReactElement {
 }
 
 export function ApplicationSectionNavigation({
+  adminGates,
+  adminGatesLoading,
   areaKey,
+  isAdmin,
 }: {
+  adminGates: AdminTabGatesMap;
+  adminGatesLoading: boolean;
   areaKey: string;
+  isAdmin: boolean;
 }): React.ReactElement | null {
   if (areaKey === "knowledge") return <KnowledgeApplicationNavigation />;
   if (areaKey === "dynamic-agents") {
-    return <DynamicAgentsApplicationNavigation />;
+    return <DynamicAgentsApplicationNavigation adminGates={adminGates} />;
   }
   if (areaKey === "credentials") {
     return (
@@ -131,7 +145,15 @@ export function ApplicationSectionNavigation({
       />
     );
   }
-  if (areaKey === "admin") return <AdminApplicationNavigation />;
+  if (areaKey === "admin") {
+    return (
+      <AdminApplicationNavigation
+        adminGates={adminGates}
+        adminGatesLoading={adminGatesLoading}
+        isAdmin={isAdmin}
+      />
+    );
+  }
   if (areaKey === "settings") return <SettingsApplicationNavigation />;
   return null;
 }
