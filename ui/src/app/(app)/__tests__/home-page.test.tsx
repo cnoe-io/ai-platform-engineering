@@ -66,4 +66,12 @@ describe('HomePage', () => {
     expect(screen.getByTestId('new-home-page-stub')).toBeInTheDocument()
     expect(screen.getByTestId('welcome-banner')).toBeInTheDocument()
   })
+
+  it('reclaims inter-section space on short desktop viewports', () => {
+    render(<HomePage />)
+    expect(screen.getByTestId('welcome-banner').parentElement).toHaveClass(
+      'space-y-3',
+      '[@media(max-height:800px)]:space-y-1'
+    )
+  })
 })

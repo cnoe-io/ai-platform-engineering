@@ -123,13 +123,9 @@ describe('WelcomeBanner', () => {
     expect(screen.queryByText(/Welcome back/)).not.toBeInTheDocument()
   })
 
-  it('uses a taller default banner and compacts it for short viewports', () => {
+  it('uses a taller banner without restoring the previous question prompt', () => {
     render(<WelcomeBanner />)
-    expect(screen.getByTestId('welcome-banner')).toHaveClass(
-      'px-4',
-      'py-3',
-      '[@media(max-height:800px)]:py-2'
-    )
+    expect(screen.getByTestId('welcome-banner')).toHaveClass('px-4', 'py-3')
     expect(screen.queryByText('What do you want to get done today?')).not.toBeInTheDocument()
   })
 

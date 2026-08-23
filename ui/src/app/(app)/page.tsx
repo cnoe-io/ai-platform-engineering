@@ -17,7 +17,7 @@ export default function HomePage() {
   return (
     <AuthGuard>
       <ScrollArea className="flex-1" data-testid="home-page">
-        <div className="mx-auto max-w-6xl space-y-3 p-6 [@media(max-height:800px)]:p-4">
+        <div className="mx-auto max-w-6xl space-y-3 p-6 [@media(max-height:800px)]:space-y-1 [@media(max-height:800px)]:p-4">
           <WelcomeBanner />
           <NewHomePage />
         </div>

@@ -26,7 +26,7 @@ export function WelcomeBanner({ onOpenPreferences }: WelcomeBannerProps = {}) {
 
   return (
     <div
-      className="welcome-banner relative isolate overflow-hidden rounded-xl px-4 py-3 [@media(max-height:800px)]:py-2"
+      className="welcome-banner relative isolate overflow-hidden rounded-xl px-4 py-3"
       data-sun-phase={sunPhase}
       data-testid="welcome-banner"
     >
