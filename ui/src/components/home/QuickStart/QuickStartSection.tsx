@@ -7,7 +7,7 @@ import { QuickStartCard } from "./QuickStartCard";
 export function QuickStartSection() {
   return (
     <div data-testid="quick-start-section">
-      <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+      <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-muted-foreground [@media(max-height:800px)]:mb-2">
         Quick start
       </h2>
       <Tabs defaultValue={QUICK_START_TABS[0].id}>
@@ -23,10 +23,12 @@ export function QuickStartSection() {
         </TabsList>
         {QUICK_START_TABS.map((tab) => (
           <TabsContent key={tab.id} value={tab.id}>
-            <div className="home-quick-start-panel rounded-xl border border-border/50 p-4">
-              <h3 className="mb-4 text-base font-semibold text-foreground">{tab.label}</h3>
+            <div className="home-quick-start-panel rounded-xl border border-border/50 p-4 [@media(max-height:800px)]:p-3">
+              <h3 className="mb-4 text-base font-semibold text-foreground [@media(max-height:800px)]:mb-3">
+                {tab.label}
+              </h3>
               <div
-                className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5"
+                className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 [@media(max-height:800px)]:gap-2"
                 data-testid="quick-start-card-grid"
               >
                 {tab.cards.map((card) => (

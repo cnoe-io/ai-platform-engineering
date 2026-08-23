@@ -50,8 +50,11 @@ export function NewHomePage() {
   const availableToAdd = useMemo(() => useHomeWidgetsStore.getState().availableToAdd(), [widgets]);
 
   return (
-    <div className="space-y-3">
-      <div className="flex min-h-7 items-center justify-end gap-1" data-testid="home-toolbar">
+    <div className="space-y-3 [@media(max-height:800px)]:space-y-2">
+      <div
+        className="flex min-h-7 items-center justify-end gap-1 [@media(max-height:800px)]:min-h-6"
+        data-testid="home-toolbar"
+      >
         {availableToAdd.length > 0 && (
           <Popover>
             <PopoverTrigger asChild>
@@ -84,7 +87,10 @@ export function NewHomePage() {
 
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
         <SortableContext items={widgets} strategy={rectSortingStrategy}>
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2" data-testid="home-widget-grid">
+          <div
+            className="grid grid-cols-1 gap-4 lg:grid-cols-2 [@media(max-height:800px)]:gap-3"
+            data-testid="home-widget-grid"
+          >
             {widgets.map((widgetId) => {
               const Widget = HOME_WIDGET_COMPONENTS[widgetId];
               if (!Widget) return null;
@@ -103,7 +109,7 @@ export function NewHomePage() {
         </SortableContext>
       </DndContext>
 
-      <p className="text-center text-xs text-muted-foreground/50 pt-4 pb-2">
+      <p className="pb-2 pt-4 text-center text-xs text-muted-foreground/50 [@media(max-height:800px)]:pt-2">
         ⚡ Powered by{" "}
         <a
           href="https://caipe.io"
