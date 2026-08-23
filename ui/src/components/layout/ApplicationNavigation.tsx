@@ -1,17 +1,10 @@
 "use client";
 
-import { filterAdminCategories } from "@/components/admin/workspace/admin-routes";
-import { CREDENTIALS_GROUPS } from "@/components/credentials/navigation";
-import { buildDynamicAgentNavigationGroups } from "@/components/dynamic-agents/navigation";
 import { useApplicationNavigation } from "@/components/layout/ApplicationNavigationContext";
 import {
   APPLICATION_SECTION_AREA_KEYS,
   ApplicationSectionNavigation,
 } from "@/components/layout/ApplicationSectionNavigation";
-import {
-  ApplicationNavigationSearch,
-  type ApplicationNavigationSearchEntry,
-} from "@/components/layout/ApplicationNavigationSearch";
 import { GuardedNavigationLink } from "@/components/layout/GuardedNavigationLink";
 import {
   CollapsedNavigationFlyout,
@@ -41,9 +34,6 @@ import { useAdminRole } from "@/hooks/use-admin-role";
 import { useAutonomousCapability } from "@/hooks/use-autonomous-capability";
 import { useHydrated } from "@/hooks/use-hydrated";
 import { useKbTabGates } from "@/hooks/use-kb-tab-gates";
-import { useAdminTabGates } from "@/hooks/useAdminTabGates";
-import { KNOWLEDGE_NAV_ITEMS } from "@/components/rag/KnowledgeSidebar";
-import { PERSONAL_SETTINGS_ROUTES } from "@/components/settings/settings-routes";
 import { config,getLogoFilterClass } from "@/lib/config";
 import { cn } from "@/lib/utils";
 import { resolveChatNavigationPath,useChatStore } from "@/store/chat-store";
@@ -155,7 +145,6 @@ function ApplicationNavigationContents({
   const { data: session } = useSession();
   const { isAdmin } = useAdminRole();
   const { canUseAutonomous } = useAutonomousCapability();
-  const { gates: adminGates,loading: adminGatesLoading } = useAdminTabGates();
   const {
     gates: knowledgeGates,
     loading: knowledgeGatesLoading,
@@ -274,113 +263,18 @@ function ApplicationNavigationContents({
   const closeMobileNavigation = () =>
     applicationNavigation?.closeMobileNavigation();
 
-  const searchEntries: ApplicationNavigationSearchEntry[] = [
-    ...items
-      .filter((item) => !item.disabled)
-      .map((item) => ({
-        id: `page-${item.key}`,
-        label: item.label,
-        description: item.key === "chat" ? "Open your conversations" : undefined,
-        group: item.utility ? "Utilities" : "Pages",
-        href: item.href,
-        icon: item.icon,
-      })),
-    ...(config.ragEnabled && !knowledgeUnavailable
-      ? KNOWLEDGE_NAV_ITEMS
-        // Graph availability is determined by the live RAG health response.
-        // Keep it out of global search until that capability is known here.
-        .filter((item) => !item.requiresGraphRag)
-        .map((item) => ({
-          id: `knowledge-${item.id}`,
-          label: item.label,
-          description: item.description,
-          group: "Knowledge Bases",
-          href: item.href,
-          icon: item.icon,
-        }))
-      : []),
-    ...(storageMode === "mongodb" && config.dynamicAgentsEnabled
-      ? buildDynamicAgentNavigationGroups({
-        destinationForTab: (tab) => ({ href: `/dynamic-agents?tab=${tab}` }),
-        showConversations: Boolean(adminGates.dynamic_agent_conversations),
-      }).flatMap((group) => group.items).flatMap((item) => {
-        const candidates = item.children ?? [item];
-        return candidates.flatMap((candidate) => candidate.href ? [{
-          id: `agents-${candidate.id}`,
-          label: candidate.label,
-          description: candidate.description,
-          group: "Agents",
-          href: candidate.href,
-          icon: candidate.icon,
-        }] : []);
-      })
-      : []),
-    ...(storageMode === "mongodb" && config.userConnectionsEnabled
-      ? CREDENTIALS_GROUPS.flatMap((group) => group.items).flatMap((item) =>
-        item.href ? [{
-          id: `credentials-${item.id}`,
-          label: item.label,
-          description: item.description,
-          group: "Credentials",
-          href: item.href,
-          icon: item.icon,
-        }] : [],
-      )
-      : []),
-    ...PERSONAL_SETTINGS_ROUTES.map((route) => ({
-      id: `settings-${route.id}`,
-      label: route.label,
-      description: route.description,
-      group: "Settings",
-      href: route.href,
-      icon: route.icon,
-    })),
-    ...(!adminGatesLoading && storageMode === "mongodb"
-      ? filterAdminCategories({
-        ...adminGates,
-        platform_settings: isAdmin,
-        feedback: Boolean(adminGates.feedback && config.feedbackEnabled),
-        audit_logs: Boolean(adminGates.audit_logs && config.auditLogsEnabled),
-        credentials: Boolean(adminGates.credentials && config.credentialsEnabled),
-        agents: isAdmin,
-        mcp: isAdmin,
-        identity_sync: Boolean(adminGates.identity_group_sync && config.oktaSyncEnabled),
-      }).flatMap((category) => category.destinations.map((destination) => ({
-        id: `admin-${destination.id}`,
-        label: destination.label,
-        description: destination.description,
-        group: `Admin · ${category.label}`,
-        href: destination.href,
-        icon: destination.icon,
-      })))
-      : []),
-  ];
-
   return (
     <TooltipProvider delayDuration={200}>
       <nav
         aria-label="Application navigation"
         className="flex min-h-full flex-col gap-1"
       >
-        <ApplicationNavigationSearch
-          collapsed={collapsed}
-          enableShortcut={layoutScope === "rail"}
-          entries={searchEntries}
-          onNavigate={closeMobileNavigation}
-        />
         {items.map((item) => {
           const Icon = item.icon;
           const active = activeArea === item.key;
           const builtInSectionNavigation =
             APPLICATION_SECTION_AREA_KEYS.has(item.key)
-              ? (
-                <ApplicationSectionNavigation
-                  adminGates={adminGates}
-                  adminGatesLoading={adminGatesLoading}
-                  areaKey={item.key}
-                  isAdmin={isAdmin}
-                />
-              )
+              ? <ApplicationSectionNavigation areaKey={item.key} />
               : null;
           // Admin pages cross server-component route boundaries. Keep the
           // shell-owned navigation mounted so those transitions cannot replay
