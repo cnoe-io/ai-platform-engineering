@@ -14,6 +14,8 @@ jest.mock("@/components/layout/GuardedNavigationLink", () => ({
 jest.mock("@/components/ui/dialog", () => ({
   Dialog: ({ children,open }: { children: React.ReactNode; open: boolean }) =>
     open ? <>{children}</> : null,
+  DialogClose: ({ children,...props }: React.ButtonHTMLAttributes<HTMLButtonElement>) =>
+    <button {...props}>{children}</button>,
   DialogContent: ({ children,...props }: React.HTMLAttributes<HTMLDivElement>) =>
     <div {...props}>{children}</div>,
   DialogDescription: ({ children,...props }: React.HTMLAttributes<HTMLParagraphElement>) =>
@@ -86,8 +88,8 @@ describe("ApplicationNavigationSearch", () => {
     fireEvent.keyDown(window,{ key: "k",ctrlKey: true });
     const input = screen.getByRole("combobox", { name: "Search pages and resources" });
     expect(input).toBeInTheDocument();
-    expect(screen.getByTestId("application-navigation-search-header"))
-      .toHaveClass("pr-12");
+    expect(screen.getByRole("button", { name: "Close command palette" }))
+      .toBeInTheDocument();
 
     fireEvent.keyDown(input,{ key: "ArrowDown" });
     expect(screen.getByRole("option", { name: /Notifications/ }))

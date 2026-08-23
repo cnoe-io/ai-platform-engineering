@@ -3,6 +3,7 @@
 import { GuardedNavigationLink } from "@/components/layout/GuardedNavigationLink";
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
   DialogHeader,
@@ -20,6 +21,7 @@ import {
   LoaderCircle,
   MessageSquare,
   Search,
+  X,
   Zap,
   type LucideIcon,
 } from "lucide-react";
@@ -375,13 +377,13 @@ export function ApplicationNavigationSearch({
       </div>
 
       {open ? <Dialog open onOpenChange={updateOpen}>
-        <DialogContent className="max-w-xl gap-0 overflow-hidden p-0">
+        <DialogContent className="max-w-xl gap-0 overflow-hidden p-0 [&>button]:hidden">
           <DialogHeader className="sr-only">
             <DialogTitle>Search CAIPE</DialogTitle>
             <DialogDescription>Find a page or resource you can access.</DialogDescription>
           </DialogHeader>
           <div
-            className="flex items-center gap-3 border-b border-border/70 pl-4 pr-12"
+            className="flex items-center gap-3 border-b border-border/70 px-4"
             data-testid="application-navigation-search-header"
           >
             <Search aria-hidden="true" className="h-5 w-5 shrink-0 text-muted-foreground" />
@@ -424,13 +426,21 @@ export function ApplicationNavigationSearch({
               type="search"
               value={query}
             />
-            {resourcesLoading ? (
-              <LoaderCircle aria-label="Searching resources" className="h-4 w-4 animate-spin text-muted-foreground" />
-            ) : (
-              <kbd className="rounded border border-border/70 bg-muted px-1.5 py-1 text-[10px] font-medium text-muted-foreground">
-                Esc
-              </kbd>
-            )}
+            <div className="flex shrink-0 items-center gap-2">
+              {resourcesLoading ? (
+                <LoaderCircle aria-label="Searching resources" className="h-4 w-4 animate-spin text-muted-foreground" />
+              ) : (
+                <kbd className="rounded border border-border/70 bg-muted px-1.5 py-1 text-[10px] font-medium text-muted-foreground">
+                  Esc
+                </kbd>
+              )}
+              <DialogClose
+                aria-label="Close command palette"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <X aria-hidden="true" className="h-4 w-4" />
+              </DialogClose>
+            </div>
           </div>
 
           <div
