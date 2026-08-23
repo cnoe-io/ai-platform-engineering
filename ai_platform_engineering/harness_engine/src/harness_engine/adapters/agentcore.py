@@ -6,11 +6,12 @@ import asyncio
 import hashlib
 import json
 from collections.abc import AsyncIterator, Iterator
+from dataclasses import dataclass
 from typing import Any, Protocol
 
 import boto3
 
-from harness_engine.config import AgentCoreRuntimeTarget, Settings
+from harness_engine.config import Settings
 from harness_engine.models import (
     AdapterEvaluation,
     AgentBlueprint,
@@ -23,6 +24,7 @@ from harness_engine.models import (
     RunContext,
     ValidationIssue,
 )
+from harness_engine.repository import RunRepository
 from harness_engine.sessions import DeterministicProviderSessionManager, ProviderSessionManager
 
 
@@ -33,6 +35,17 @@ class AgentCoreDataClient(Protocol):
 
 
 _END = object()
+
+
+@dataclass(frozen=True)
+class AgentCoreInvocationTarget:
+    arn: str
+    qualifier: str
+    region: str | None
+
+    @property
+    def is_managed_harness(self) -> bool:
+        return ":harness/" in self.arn
 
 
 def _next_or_end(iterator: Iterator[Any]) -> Any:
@@ -50,10 +63,12 @@ class AgentCoreAdapter:
         settings: Settings,
         *,
         clients: dict[str, AgentCoreDataClient] | None = None,
+        resource_repository: RunRepository | None = None,
     ) -> None:
         self._settings = settings
         self._targets = settings.agentcore_targets()
         self._clients = clients or {}
+        self._resource_repository = resource_repository
         self._session_manager = DeterministicProviderSessionManager(
             "agentcore",
             prefix="harness-session-",
@@ -144,13 +159,35 @@ class AgentCoreAdapter:
             )
         return AdapterEvaluation(normalized_options={}, issues=issues)
 
-    def _target(self, alias: str) -> AgentCoreRuntimeTarget:
+    async def _target(
+        self, alias: str, agent_id: str
+    ) -> AgentCoreInvocationTarget:
         try:
-            return self._targets[alias]
+            configured = self._targets[alias]
         except KeyError as exc:
             raise ValueError(f'AgentCore runtime alias "{alias}" is not configured') from exc
 
-    def _client(self, target: AgentCoreRuntimeTarget) -> AgentCoreDataClient:
+        if configured.provisioning == "shared":
+            if not configured.arn:
+                raise RuntimeError("Shared AgentCore target has no ARN")
+            return AgentCoreInvocationTarget(
+                configured.arn, configured.qualifier, configured.region
+            )
+        if self._resource_repository is None:
+            raise RuntimeError("AgentCore per-agent resource repository is unavailable")
+        resource = await self._resource_repository.get_provider_resource(agent_id)
+        if (
+            resource is None
+            or resource.harness_id != "agentcore"
+            or resource.profile_id != alias
+            or resource.status != "ready"
+        ):
+            raise RuntimeError("AgentCore agent harness is not provisioned")
+        return AgentCoreInvocationTarget(
+            resource.arn, resource.qualifier, resource.region
+        )
+
+    def _client(self, target: AgentCoreInvocationTarget) -> AgentCoreDataClient:
         key = target.region or "default"
         if key not in self._clients:
             self._clients[key] = boto3.client(
@@ -161,7 +198,7 @@ class AgentCoreAdapter:
         return self._clients[key]
 
     async def stream(self, context: RunContext) -> AsyncIterator[CanonicalEventDraft]:
-        target = self._target(context.binding.profile_id)
+        target = await self._target(context.binding.profile_id, context.blueprint.id)
         if not context.binding.provider_session_id:
             raise RuntimeError("AgentCore session manager did not assign a runtime session ID")
         if target.is_managed_harness:
@@ -173,7 +210,7 @@ class AgentCoreAdapter:
             yield event
 
     async def _stream_managed_harness(
-        self, context: RunContext, target: AgentCoreRuntimeTarget
+        self, context: RunContext, target: AgentCoreInvocationTarget
     ) -> AsyncIterator[CanonicalEventDraft]:
         if not context.binding.provider_session_id:
             raise RuntimeError("AgentCore session manager did not assign a runtime session ID")
@@ -226,7 +263,7 @@ class AgentCoreAdapter:
                 yield CanonicalEventDraft(event_type="usage.updated", data={"usage": usage})
 
     async def _stream_custom_runtime(
-        self, context: RunContext, target: AgentCoreRuntimeTarget
+        self, context: RunContext, target: AgentCoreInvocationTarget
     ) -> AsyncIterator[CanonicalEventDraft]:
         if not context.binding.provider_session_id:
             raise RuntimeError("AgentCore session manager did not assign a runtime session ID")

@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import json
+from typing import Literal
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -16,8 +17,9 @@ class AgentCoreRuntimeTarget(BaseModel):
     Harness. The adapter selects the correct data-plane operation from the ARN.
     """
 
-    arn: str = Field(
-        ...,
+    provisioning: Literal["shared", "per_agent"] = "shared"
+    arn: str | None = Field(
+        None,
         min_length=20,
         pattern=(
             r"^arn:aws[a-z-]*:bedrock-agentcore:[a-z0-9-]+:\d{12}:"
@@ -26,10 +28,32 @@ class AgentCoreRuntimeTarget(BaseModel):
     )
     qualifier: str = Field("DEFAULT", min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_.-]+$")
     region: str | None = Field(None, pattern=r"^[a-z]{2}(?:-gov)?-[a-z]+-\d$")
+    execution_role_arn: str | None = Field(
+        None,
+        pattern=r"^arn:aws[a-z-]*:iam::\d{12}:role/[A-Za-z0-9+=,.@_/-]+$",
+    )
+    model_id: str | None = Field(None, min_length=1, max_length=256)
+    api_format: Literal["converse_stream", "responses", "chat_completions"] = (
+        "converse_stream"
+    )
+
+    @model_validator(mode="after")
+    def validate_mode(self) -> AgentCoreRuntimeTarget:
+        if self.provisioning == "shared" and not self.arn:
+            raise ValueError("shared AgentCore profiles require arn")
+        if self.provisioning == "per_agent" and (
+            not self.region or not self.execution_role_arn
+        ):
+            raise ValueError(
+                "per_agent AgentCore profiles require region and execution_role_arn"
+            )
+        return self
 
     @property
     def is_managed_harness(self) -> bool:
-        return ":harness/" in self.arn
+        return self.provisioning == "per_agent" or bool(
+            self.arn and ":harness/" in self.arn
+        )
 
 
 class ClaudeSDKProfile(BaseModel):
@@ -56,6 +80,8 @@ class Settings(BaseSettings):
     long_poll_seconds: float = Field(15.0, ge=0.1, le=30.0)
     agentcore_runtimes_json: str = "{}"
     agentcore_endpoint_url: str | None = None
+    agentcore_provision_timeout_seconds: float = Field(180.0, ge=1.0, le=900.0)
+    agentcore_provision_poll_seconds: float = Field(2.0, ge=0.1, le=10.0)
     claude_sdk_profiles_json: str = "{}"
 
     def agentcore_targets(self) -> dict[str, AgentCoreRuntimeTarget]:

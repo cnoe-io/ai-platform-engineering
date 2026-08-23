@@ -315,6 +315,16 @@ As an agent builder, I want the existing agent-creation wizard to adapt to the s
 - **FR-077**: Harness and agent identity MUST remain understandable without color through visible text, accessible labels, and tooltips. Live, input-required, and unread states MUST remain visually separate from agent identity.
 - **FR-078**: The browser tab title for an active agent conversation MUST include the selected agent's friendly name. Chat identity metadata MUST be resolvable for callers with `agent#use` even when a richer management/detail endpoint is unavailable to them.
 
+#### Provider resource lifecycle
+
+- **FR-079**: An AgentCore operator profile configured for `per_agent` provisioning MUST create exactly one managed Amazon Bedrock AgentCore Harness for each CAIPE agent selecting that profile.
+- **FR-080**: Provider resource IDs, ARNs, execution-role ARNs, regions, credentials, and lifecycle state MUST remain server-owned. The browser and portable `AgentBlueprint` MUST select only a sanitized operator profile ID.
+- **FR-081**: Provider creation MUST complete before the Harness Engine agent version becomes runnable. A failed create MUST fail the save, while optimistic-write conflicts and failed CAIPE creation MUST compensate any newly created provider resource.
+- **FR-082**: Deleting a non-default CAIPE agent MUST delete its agent-owned provider resource before removing agent metadata. Provider deletion failure MUST fail closed so that the resource remains discoverable and retryable.
+- **FR-083**: Existing `shared` AgentCore profiles MUST remain supported for migration and rollback. Harness Engine MUST never delete a shared operator-owned target.
+- **FR-084**: AgentCore provisioning credentials MUST be workload credentials with least-privilege control-plane actions and `iam:PassRole` limited to the configured execution role; user credentials MUST never be forwarded.
+- **FR-085**: Updating provider-relevant CAIPE agent configuration MUST update the existing agent-owned Harness in place, wait for `READY`, and persist a private configuration fingerprint; it MUST NOT create a second Harness.
+
 ### Non-Functional Requirements
 
 - **NFR-001**: The compatibility harness MUST add no more than 10% p95 latency to first response or total turn duration compared with the current Dynamic Agents runtime under the same workload.

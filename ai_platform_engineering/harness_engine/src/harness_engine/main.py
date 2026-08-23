@@ -28,6 +28,10 @@ from harness_engine.models import (
     SaveAgentRequest,
     ValidateAgentDraftRequest,
 )
+from harness_engine.provisioning import (
+    AgentCoreHarnessProvisioner,
+    ProviderProvisioningError,
+)
 from harness_engine.registry import HarnessNotFoundError, HarnessRegistry
 from harness_engine.repository import (
     InMemoryRunRepository,
@@ -51,13 +55,19 @@ def create_app(
     settings: Settings | None = None,
     repository: RunRepository | None = None,
     adapters: list[HarnessAdapter] | None = None,
+    agentcore_provisioner: AgentCoreHarnessProvisioner | None = None,
 ) -> FastAPI:
     resolved_settings = settings or Settings()
     resolved_repository = repository or _repository(resolved_settings)
     resolved_adapters = adapters or [
-        AgentCoreAdapter(resolved_settings),
+        AgentCoreAdapter(
+            resolved_settings, resource_repository=resolved_repository
+        ),
         ClaudeSDKAdapter(resolved_settings),
     ]
+    resolved_agentcore_provisioner = (
+        agentcore_provisioner or AgentCoreHarnessProvisioner(resolved_settings)
+    )
     registry = HarnessRegistry(resolved_adapters)
     session_manager = CAIPEAgentSessionManager(
         resolved_repository,
@@ -84,6 +94,7 @@ def create_app(
     app.state.registry = registry
     app.state.session_manager = session_manager
     app.state.coordinator = coordinator
+    app.state.agentcore_provisioner = resolved_agentcore_provisioner
 
     async def caller_subject(
         authorization: Annotated[str | None, Header()] = None,
@@ -160,6 +171,31 @@ def create_app(
             raise HTTPException(
                 status.HTTP_409_CONFLICT, "Agent draft changed after server validation"
             )
+        current_record = await resolved_repository.get_agent(agent_id)
+        if body.expected_revision is not None and (
+            current_record is None
+            or current_record.revision != body.expected_revision
+        ):
+            raise HTTPException(
+                status.HTTP_409_CONFLICT, "Harness agent revision conflict"
+            )
+        current_resource = await resolved_repository.get_provider_resource(agent_id)
+        prepared_resource = None
+        resource_created = False
+        if validation.normalized_blueprint.harness.id == "agentcore":
+            try:
+                prepared_resource, resource_created = (
+                    await resolved_agentcore_provisioner.ensure(
+                        validation.normalized_blueprint, current_resource
+                    )
+                )
+            except ProviderProvisioningError as exc:
+                raise HTTPException(
+                    status.HTTP_502_BAD_GATEWAY, str(exc)
+                ) from exc
+            if prepared_resource is not None:
+                await resolved_repository.save_provider_resource(prepared_resource)
+
         try:
             record, version = await resolved_repository.save_agent(
                 validation.normalized_blueprint,
@@ -168,8 +204,47 @@ def create_app(
                 body.expected_revision,
             )
         except RevisionConflictError as exc:
+            if prepared_resource is not None:
+                if resource_created:
+                    try:
+                        await resolved_agentcore_provisioner.delete(prepared_resource)
+                    except ProviderProvisioningError:
+                        pass
+                if current_resource is not None:
+                    await resolved_repository.save_provider_resource(current_resource)
+                else:
+                    await resolved_repository.delete_provider_resource(agent_id)
             raise HTTPException(status.HTTP_409_CONFLICT, "Harness agent revision conflict") from exc
+
+        if current_resource is not None and (
+            prepared_resource is None
+            or current_resource.arn != prepared_resource.arn
+        ):
+            try:
+                await resolved_agentcore_provisioner.delete(current_resource)
+            except ProviderProvisioningError:
+                # The saved agent no longer references this resource. A later
+                # reconciliation pass can retry cleanup without breaking save.
+                pass
+            if prepared_resource is None:
+                await resolved_repository.delete_provider_resource(agent_id)
         return {"success": True, "data": {"record": record, "version": version}}
+
+    @app.delete("/api/v1/agents/{agent_id}")
+    async def delete_agent(
+        agent_id: str, _: str = Depends(caller_subject)
+    ) -> dict[str, object]:
+        resource = await resolved_repository.get_provider_resource(agent_id)
+        if resource is not None:
+            try:
+                await resolved_agentcore_provisioner.delete(resource)
+            except ProviderProvisioningError as exc:
+                raise HTTPException(
+                    status.HTTP_502_BAD_GATEWAY, str(exc)
+                ) from exc
+            await resolved_repository.delete_provider_resource(agent_id)
+        deleted = await resolved_repository.delete_agent(agent_id)
+        return {"success": True, "data": {"deleted": deleted, "agent_id": agent_id}}
 
     @app.post("/api/v1/runs", status_code=status.HTTP_202_ACCEPTED)
     async def start_run(

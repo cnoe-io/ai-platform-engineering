@@ -184,7 +184,8 @@ The descriptor JSON Schema remains authoritative for values and bounds. The UI r
 Examples of safe options:
 
 - provider-approved reasoning/output modes;
-- operator-defined remote resource alias;
+- operator-defined provider profile alias; an AgentCore profile may select an
+  existing shared target or create a dedicated AWS Harness for this CAIPE agent;
 - portable session behavior allowed by policy;
 - bounded SDK features represented in the capability report.
 
@@ -193,6 +194,7 @@ Unsafe options excluded from the UI:
 - image, command, package, or module path;
 - Kubernetes template, pool, namespace, service account, volume, RuntimeClass, or network policy;
 - raw ARN/endpoint when an operator resource alias is required;
+- execution-role ARN, AWS Region, provider resource status, or lifecycle controls;
 - API key, bearer token, credential source, environment map, or filesystem path.
 
 #### Observability summary

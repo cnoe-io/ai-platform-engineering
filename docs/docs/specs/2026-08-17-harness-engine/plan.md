@@ -10,7 +10,7 @@
 
 ## Summary
 
-Build Harness Engine as an independent service and adopt it beside Dynamic Agents. The first vertical slice supports an operator-allowlisted Amazon Bedrock AgentCore runtime. No source file, route, database schema, stream, or execution behavior in `ai_platform_engineering/dynamic_agents/` changes.
+Build Harness Engine as an independent service and adopt it beside Dynamic Agents. The first vertical slice supports Amazon Bedrock AgentCore through either a legacy operator-owned shared target or a server-provisioned Harness per CAIPE agent. No source file, route, database schema, stream, or execution behavior in `ai_platform_engineering/dynamic_agents/` changes.
 
 The Next.js BFF remains horizontally stateless. Its existing chat endpoints now
 form the **Harness Gateway**: they resolve the BFF-owned
@@ -35,7 +35,7 @@ each adapter owns its native checkpoint/session representation
 **Target Platform**: Independent Linux control-plane container calling the managed AgentCore Runtime plane; local memory repository is test/development only
 **Project Type**: New backend service plus additive Next.js BFF routes and agent-editor overlay
 **Performance Goals**: Compatibility control-plane overhead within 10% excluding declared sandbox startup; canonical translation under 25 ms p95 per event batch; warm worker readiness under 5 seconds p95 and cold readiness under 30 seconds p95; no more than 20% control-plane memory growth
-**Constraints**: Zero Dynamic Agents implementation changes; fail closed before provider invocation; no arbitrary AgentCore ARN from browser/agent data; no user bearer propagation; no BFF affinity; no automatic fallback after side effects
+**Constraints**: Zero Dynamic Agents runtime changes; fail closed before provider invocation; no arbitrary AgentCore ARN or execution role from browser/agent data; no user bearer propagation; no BFF affinity; no automatic fallback after side effects
 **Scale/Scope**: AgentCore first; horizontally scaled BFF and Harness Engine readers over a shared Mongo event log; additional harnesses and sandbox workers follow the same boundary
 
 ## Constitution Check

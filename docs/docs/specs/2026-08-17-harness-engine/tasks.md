@@ -408,6 +408,7 @@ not complete or modify tasks targeting `ai_platform_engineering/dynamic_agents/`
 - [x] T144 Refactor the CAIPE editor and BFF to consume descriptors, render primitive JSON-Schema options, validate drafts server-side, and save independent blueprints.
 - [x] T145 Add AgentCore, Claude SDK, immutable-version/session, ownership, disconnect/replay, schema-driven UI, and BFF tests.
 - [x] T146 Document the portable contracts, session/thread/memory model, sandbox-pod target, UI contract, current limitations, and research in `portable-abstractions.md` and the component README.
+
 - [ ] T147 Move Harness Engine validation before the legacy Dynamic Agents write and provide atomic/recoverable dual-save coordination.
 - [ ] T148 Implement claim-exclusive Agent Sandbox pods, worker fencing, external checkpoint state, and tool/memory broker capability tokens for local SDK harnesses.
 - [x] T149 Implement `CAIPEAgentSessionManager` for binding identity, ownership, immutable version pinning, durable lookup, provider event persistence, clear, and epoch rotation.
@@ -417,3 +418,14 @@ not complete or modify tasks targeting `ai_platform_engineering/dynamic_agents/`
 - [x] T153 Add a persistent chat identity header plus harness badges and deterministic agent colors in history and new-chat selection while preserving live/input/unread states.
 - [x] T154 Add unit and component coverage for harness labels, deterministic themes, sidebar identity, and new-chat harness display.
 - [x] T155 Resolve chat identity through a use-authorized metadata fallback and include the friendly agent name in the browser tab title.
+
+## Phase 13: Per-agent AgentCore Harness Lifecycle
+
+- [x] T156 Extend sanitized AgentCore profiles with backward-compatible `shared` and operator-controlled `per_agent` modes.
+- [x] T157 Add the private `harness_provider_resources` persistence contract for server-owned AgentCore identifiers and lifecycle state.
+- [x] T158 Implement deterministic Harness naming/idempotency, `CreateHarness`/`UpdateHarness` readiness polling, reuse, failure sanitation, and `DeleteHarness` cleanup.
+- [x] T159 Resolve per-agent Harness ARNs from the private repository during invocation; never accept or return them in portable blueprints.
+- [x] T160 Add save conflict compensation and fail-closed provider deletion before BFF agent metadata removal.
+- [x] T161 Add provisioning, reuse, private-identifier, invocation-resolution, API deletion, and BFF deletion-order tests.
+- [x] T162 Configure least-privilege AgentCore control-plane, managed runtime endpoint/workload identity dependencies, and execution-role pass-through permissions in the preview deployment.
+- [ ] T163 Deploy to `caipe-oss`, create a neutral test agent, verify one new AWS Harness, execute multi-turn chat, delete the agent, and verify provider cleanup.

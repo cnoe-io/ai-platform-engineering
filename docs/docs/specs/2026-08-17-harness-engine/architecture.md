@@ -25,6 +25,7 @@ flowchart LR
     P2 --> LLM
     P3 --> LLM
     HE --> AC["Managed AgentCore Harness"]
+    HE -->|"per-agent create/get/delete"| ACCP["AgentCore control plane"]
 ```
 
 The Next.js BFF remains the configuration writer and hosts Harness Gateway.
@@ -75,6 +76,30 @@ flowchart LR
     B --> AV["Authorize + normalize + authoritative revalidation"]
     AV -->|"valid current fingerprint"| DB["MongoDB write + OpenFGA reconciliation"]
     AV -->|"invalid or stale"| P
+```
+
+For an AgentCore `per_agent` profile, authoritative validation is followed by
+a server-side provider lifecycle step. Harness Engine derives a safe AWS name,
+creates the Harness with an operator-configured execution role, waits for
+`READY`, persists the private agent-to-resource binding, and only then commits
+the runnable agent version. Later provider-relevant edits call `UpdateHarness`
+and wait for the same resource to return to `READY`. The ARN and role never enter the portable blueprint
+or browser response. Legacy `shared` profiles bypass provisioning and remain
+available for rollback.
+
+```mermaid
+flowchart LR
+    SAVE["Validated AgentCore save"] --> PROFILE["Resolve operator profile"]
+    PROFILE -->|"shared"| EXISTING["Use operator-owned target"]
+    PROFILE -->|"per_agent"| CREATE["CreateHarness"]
+    CREATE --> READY["Poll GetHarness to READY"]
+    PROFILE -->|"existing + changed"| UPDATE["UpdateHarness in place"]
+    UPDATE --> READY
+    READY --> BIND["Private provider-resource binding"]
+    BIND --> VERSION["Commit agent version"]
+    VERSION --> INVOKE["InvokeHarness using server binding"]
+    DELETE["Delete CAIPE agent"] --> RELEASE["DeleteHarness"]
+    RELEASE --> METADATA["Delete Harness Engine + BFF metadata"]
 ```
 
 Builder trust boundary:
