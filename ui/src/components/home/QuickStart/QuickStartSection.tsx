@@ -25,7 +25,10 @@ export function QuickStartSection() {
           <TabsContent key={tab.id} value={tab.id}>
             <div className="home-quick-start-panel rounded-xl border border-border/50 p-4">
               <h3 className="mb-4 text-base font-semibold text-foreground">{tab.label}</h3>
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+              <div
+                className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5"
+                data-testid="quick-start-card-grid"
+              >
                 {tab.cards.map((card) => (
                   <QuickStartCard key={card.id} card={card} />
                 ))}

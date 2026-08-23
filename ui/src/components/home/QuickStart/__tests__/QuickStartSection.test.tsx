@@ -55,6 +55,11 @@ describe('QuickStartSection', () => {
     expect(screen.getByTestId('quick-start-card-add-model')).toBeInTheDocument()
   })
 
+  it('keeps the five default actions in one desktop frame', () => {
+    render(<QuickStartSection />)
+    expect(screen.getByTestId('quick-start-card-grid')).toHaveClass('xl:grid-cols-5')
+  })
+
   it('uses a distinct icon accent for every Quick Start action', () => {
     const iconAccents = QUICK_START_TABS.flatMap((tab) =>
       tab.cards.map((card) => card.iconClassName),
