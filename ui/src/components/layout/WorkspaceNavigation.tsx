@@ -90,6 +90,8 @@ export function CollapsedNavigationFlyout({
 }: CollapsedNavigationFlyoutProps): React.ReactElement {
   const [open,setOpen] = useState(false);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const contentRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
 
   const cancelClose = () => {
     if (closeTimerRef.current) {
@@ -102,7 +104,15 @@ export function CollapsedNavigationFlyout({
   };
   const scheduleClose = () => {
     cancelClose();
-    closeTimerRef.current = setTimeout(() => setOpen(false),80);
+    closeTimerRef.current = setTimeout(() => {
+      const activeElement = document.activeElement;
+      if (
+        activeElement
+        && (contentRef.current?.contains(activeElement)
+          || triggerRef.current?.contains(activeElement))
+      ) return;
+      setOpen(false);
+    },80);
   };
 
   useEffect(() => () => cancelClose(),[]);
@@ -128,6 +138,7 @@ export function CollapsedNavigationFlyout({
             setOpen(true);
           }}
           onMouseLeave={scheduleClose}
+          ref={triggerRef}
           type="button"
         >
           <span
@@ -145,7 +156,7 @@ export function CollapsedNavigationFlyout({
       </PopoverTrigger>
       <PopoverContent
         align="start"
-        className="max-h-[calc(100dvh-1rem)] w-64 space-y-2 overflow-y-auto overscroll-contain p-2 duration-0"
+        className="max-h-[calc(100dvh-1rem)] w-64 overflow-y-auto overscroll-contain p-2 duration-0"
         onBlurCapture={(event) => {
           if (!event.currentTarget.contains(event.relatedTarget)) scheduleClose();
         }}
@@ -155,10 +166,12 @@ export function CollapsedNavigationFlyout({
         side="right"
         sideOffset={8}
       >
-        <div className="border-b border-border/70 px-2 pb-2 pt-1 text-sm font-semibold">
-          {label}
+        <div className="space-y-2" ref={contentRef}>
+          <div className="border-b border-border/70 px-2 pb-2 pt-1 text-sm font-semibold">
+            {label}
+          </div>
+          {open ? children(close) : null}
         </div>
-        {open ? children(close) : null}
       </PopoverContent>
     </Popover>
   );
