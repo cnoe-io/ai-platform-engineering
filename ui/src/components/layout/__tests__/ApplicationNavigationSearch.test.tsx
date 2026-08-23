@@ -80,6 +80,9 @@ describe("ApplicationNavigationSearch", () => {
       />,
     );
 
+    expect(screen.getByRole("button", { name: "Open command palette" }))
+      .toBeInTheDocument();
+
     fireEvent.keyDown(window,{ key: "k",ctrlKey: true });
     const input = screen.getByRole("combobox", { name: "Search pages and resources" });
     expect(input).toBeInTheDocument();
