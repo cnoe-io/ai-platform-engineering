@@ -272,12 +272,18 @@ function ApplicationNavigationContents({
         {items.map((item) => {
           const Icon = item.icon;
           const active = activeArea === item.key;
-          const contextualNavigation =
-            registeredContextualNavigation && active
+          const builtInSectionNavigation =
+            APPLICATION_SECTION_AREA_KEYS.has(item.key)
+              ? <ApplicationSectionNavigation areaKey={item.key} />
+              : null;
+          // Admin pages cross server-component route boundaries. Keep the
+          // shell-owned navigation mounted so those transitions cannot replay
+          // the disclosure animation while page registration is replaced.
+          const contextualNavigation = item.key === "admin"
+            ? builtInSectionNavigation
+            : registeredContextualNavigation && active
               ? registeredContextualNavigation
-              : APPLICATION_SECTION_AREA_KEYS.has(item.key)
-                ? <ApplicationSectionNavigation areaKey={item.key} />
-                : null;
+              : builtInSectionNavigation;
           const hasSectionNavigation =
             !item.disabled && Boolean(contextualNavigation);
           const contextExpanded =

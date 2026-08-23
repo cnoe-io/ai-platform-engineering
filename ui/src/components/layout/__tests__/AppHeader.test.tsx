@@ -623,6 +623,21 @@ describe('AppHeader — application chrome', () => {
       expect(screen.getByRole('navigation', { name: 'Admin sections' })).toBe(navigation)
     })
 
+    it('keeps the Admin navigation mounted through a page registration gap', () => {
+      mockStorageMode = 'mongodb'
+      mockIsAdmin = true
+      mockPathname = '/admin/people/users'
+
+      const { rerender } = render(<AdminNavigationFixture />)
+      const navigation = screen.getByRole('navigation', { name: 'Admin sections' })
+
+      rerender(<></>)
+
+      expect(applicationButton('Admin')).toHaveAttribute('aria-expanded', 'true')
+      expect(screen.getByRole('navigation', { name: 'Admin sections' }))
+        .toBe(navigation)
+    })
+
     it('keeps the routed Admin category expanded while page navigation is unavailable', () => {
       mockStorageMode = 'mongodb'
       mockIsAdmin = true
