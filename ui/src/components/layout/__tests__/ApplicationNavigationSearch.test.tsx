@@ -86,6 +86,8 @@ describe("ApplicationNavigationSearch", () => {
     fireEvent.keyDown(window,{ key: "k",ctrlKey: true });
     const input = screen.getByRole("combobox", { name: "Search pages and resources" });
     expect(input).toBeInTheDocument();
+    expect(screen.getByTestId("application-navigation-search-header"))
+      .toHaveClass("pr-12");
 
     fireEvent.keyDown(input,{ key: "ArrowDown" });
     expect(screen.getByRole("option", { name: /Notifications/ }))

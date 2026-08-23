@@ -380,7 +380,10 @@ export function ApplicationNavigationSearch({
             <DialogTitle>Search CAIPE</DialogTitle>
             <DialogDescription>Find a page or resource you can access.</DialogDescription>
           </DialogHeader>
-          <div className="flex items-center gap-3 border-b border-border/70 px-4">
+          <div
+            className="flex items-center gap-3 border-b border-border/70 pl-4 pr-12"
+            data-testid="application-navigation-search-header"
+          >
             <Search aria-hidden="true" className="h-5 w-5 shrink-0 text-muted-foreground" />
             <input
               aria-activedescendant={
