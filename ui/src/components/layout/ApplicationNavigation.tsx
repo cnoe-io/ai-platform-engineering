@@ -89,10 +89,12 @@ function activeAreaForPath(pathname: string | null): string | null {
 
 function ChatActivityBadge({
   inputRequired,
+  overlay,
   streaming,
   unviewed,
 }: {
   inputRequired: number;
+  overlay: boolean;
   streaming: number;
   unviewed: number;
 }): React.ReactElement | null {
@@ -110,7 +112,10 @@ function ChatActivityBadge({
         streaming ? "streaming" : inputRequired ? "need input" : "unviewed"
       }`}
       className={cn(
-        "absolute right-0.5 top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[9px] font-bold text-white",
+        "flex items-center justify-center rounded-full px-1 text-[9px] font-bold text-white",
+        overlay
+          ? "absolute -right-1.5 -top-1.5 h-4 min-w-4 ring-2 ring-background"
+          : "relative ml-auto h-5 min-w-5 shrink-0",
         color,
       )}
     >
@@ -291,6 +296,7 @@ function ApplicationNavigationContents({
           const chatBadge = item.key === "chat" ? (
             <ChatActivityBadge
               inputRequired={inputRequiredConversations.size}
+              overlay={collapsed}
               streaming={streamingConversations.size}
               unviewed={unviewedConversations.size}
             />
@@ -322,13 +328,14 @@ function ApplicationNavigationContents({
                   />
                 ) : null}
                 <Icon aria-hidden="true" className="relative z-10 h-3.5 w-3.5" />
-                {chatBadge}
+                {collapsed ? chatBadge : null}
               </span>
               {!collapsed ? (
                 <span className="min-w-0 flex-1 truncate text-sm font-medium">
                   {item.label}
                 </span>
               ) : null}
+              {!collapsed ? chatBadge : null}
             </>
           );
           const className = cn(

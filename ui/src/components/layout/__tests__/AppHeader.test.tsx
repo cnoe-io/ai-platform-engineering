@@ -946,6 +946,21 @@ describe('AppHeader — Chat tab notification dots', () => {
     const badge = chatLink.querySelector('.bg-emerald-500')
     expect(badge).toBeInTheDocument()
     expect(badge?.textContent).toBe('1')
+    expect(badge).toHaveClass('relative', 'ml-auto')
+    expect(badge).not.toHaveClass('absolute')
+  })
+
+  it('offsets the chat activity badge outside the icon in the collapsed rail', () => {
+    mockStreamingConversations = new Map([
+      ['conv-1', { conversationId: 'conv-1', messageId: 'msg-1', client: {} }],
+    ])
+
+    render(<AppHeader />)
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse sidebar' }))
+
+    const badge = applicationLink('Chat').querySelector('.bg-emerald-500')
+    expect(badge).toHaveClass('absolute', '-right-1.5', '-top-1.5', 'ring-2')
+    expect(badge).not.toHaveClass('ml-auto')
   })
 
   it('shows green badge with correct count for multiple streaming conversations', () => {
