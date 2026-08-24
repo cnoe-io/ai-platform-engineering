@@ -366,7 +366,6 @@ function ApplicationNavigationContents({
         className="flex min-h-full flex-col gap-1"
       >
         <ApplicationNavigationSearch
-          collapsed={collapsed}
           enableShortcut={layoutScope === "rail"}
           entries={searchEntries}
           onNavigate={closeMobileNavigation}
