@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1040" height="560" viewBox="0 0 1040 560" role="img" aria-labelledby="title description">
+  <title id="title">Autonomous tasks feature preview</title>
+  <desc id="description">Feature-gated preview of autonomous task oversight.</desc>
+  <defs>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#18c6b4"/>
+      <stop offset="1" stop-color="#8b5cf6"/>
+    </linearGradient>
+  </defs>
+  <rect width="1040" height="560" rx="24" fill="#090c14"/>
+  <rect x="36" y="34" width="968" height="492" rx="18" fill="#101522" stroke="#293247"/>
+  <text x="70" y="88" fill="#f8fafc" font-family="Inter,Arial,sans-serif" font-size="28" font-weight="700">Autonomous tasks</text>
+  <text x="70" y="119" fill="#93a4bd" font-family="Inter,Arial,sans-serif" font-size="16">Review owned work and govern eligible Dynamic Agents.</text>
+  <rect x="70" y="158" width="900" height="250" rx="16" fill="#0c111c" stroke="#263148"/>
+  <circle cx="180" cy="283" r="54" fill="#141c2a" stroke="url(#accent)" stroke-width="3"/>
+  <path d="M155 285h50m-36-20 12-12 12 12m-24 40 12 12 12-12" fill="none" stroke="#55d8cc" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="270" y="247" fill="#f8fafc" font-family="Inter,Arial,sans-serif" font-size="21" font-weight="650">Feature-gated workspace</text>
+  <text x="270" y="282" fill="#a5b4ca" font-family="Inter,Arial,sans-serif" font-size="15">Enable the autonomous service and grant access to eligible agents.</text>
+  <text x="270" y="313" fill="#a5b4ca" font-family="Inter,Arial,sans-serif" font-size="15">The task list remains scoped to the signed-in owner.</text>
+  <rect x="270" y="340" width="204" height="40" rx="20" fill="url(#accent)"/>
+  <text x="372" y="366" text-anchor="middle" fill="#071014" font-family="Inter,Arial,sans-serif" font-size="14" font-weight="700">Availability varies by deployment</text>
+  <text x="520" y="466" text-anchor="middle" fill="#7f8da3" font-family="Inter,Arial,sans-serif" font-size="13">Placeholder shown because this capability is disabled in the documentation capture environment.</text>
+</svg>

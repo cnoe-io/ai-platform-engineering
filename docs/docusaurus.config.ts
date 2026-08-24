@@ -21,7 +21,7 @@ const versionsConfig: VersionsConfig | null = fs.existsSync(versionsConfigPath)
 
 const config: Config = {
   title: 'CAIPE',
-  tagline: 'AI-powered Platform Engineering — deploy intelligent agents for your platform stack.',
+  tagline: 'The open-source AI platform for platform engineering.',
   favicon: 'img/favicon.ico',
 
   // Future flags, see https://docusaurus.io/docs/api/docusaurus-config#future

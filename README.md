@@ -1,4 +1,4 @@
-# 🤖 CAIPE: An Opensource Platform for AI Platform Engineering
+# 🤖 CAIPE: An Open-Source AI Platform for Platform Engineering
 
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-green)](LICENSE)
 
@@ -6,7 +6,14 @@
 
 ## What is CAIPE?
 
-**CAIPE** (pronounced like *cape* 🦸) is an open source **AI platform** for any size teams to build customizable AI agents and automated agentic workflows wherever your team operates — Web, Slack, Webex, event streams, and more — secured with strong human and non-human identity and access management..
+**CAIPE** (pronounced like *cape* 🦸) is an open-source AI platform for
+building, deploying, governing, and operating AI agents and agentic workflows
+for platform engineering.
+
+CAIPE provides a complete cloud-native AI platform combining agent creation,
+runtime execution, workflow automation, skills and MCP integrations, enterprise
+knowledge, persistent memory, identity and authorization, observability, and
+multi-channel user experiences.
 
 <div style="padding-bottom: 56.25%; position: relative; display: block; width: 100%">
 	<iframe src="https://app.vidcast.io/share/embed/e0033e26-46bf-4298-8c20-0a2fd1746073" width="100%" height="100%" title="CAIPE Demo" loading="lazy" allow="fullscreen *;autoplay *;clipboard-write *;" style="position: absolute; top:0; left: 0; border: solid; border-radius: 12px;"></iframe>

@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1040" height="560" viewBox="0 0 1040 560" role="img" aria-labelledby="title description">
+  <title id="title">Teams and users feature preview</title>
+  <desc id="description">Privacy-safe illustration of team and user administration.</desc>
+  <defs>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#18c6b4"/>
+      <stop offset="1" stop-color="#8b5cf6"/>
+    </linearGradient>
+  </defs>
+  <rect width="1040" height="560" rx="24" fill="#090c14"/>
+  <rect x="36" y="34" width="968" height="492" rx="18" fill="#101522" stroke="#293247"/>
+  <text x="70" y="88" fill="#f8fafc" font-family="Inter,Arial,sans-serif" font-size="28" font-weight="700">Teams &amp; Users</text>
+  <text x="70" y="119" fill="#93a4bd" font-family="Inter,Arial,sans-serif" font-size="16">Manage membership, roles, and shared platform resources.</text>
+  <rect x="70" y="154" width="900" height="58" rx="12" fill="#0c111c" stroke="#263148"/>
+  <text x="95" y="190" fill="#7f8da3" font-family="Inter,Arial,sans-serif" font-size="14">Search teams</text>
+  <rect x="820" y="164" width="130" height="38" rx="19" fill="url(#accent)"/>
+  <text x="885" y="188" text-anchor="middle" fill="#071014" font-family="Inter,Arial,sans-serif" font-size="14" font-weight="700">Create team</text>
+  <g font-family="Inter,Arial,sans-serif">
+    <rect x="70" y="236" width="430" height="118" rx="14" fill="#0c111c" stroke="#263148"/>
+    <circle cx="116" cy="282" r="22" fill="#142033" stroke="#18c6b4"/>
+    <circle cx="109" cy="277" r="6" fill="#55d8cc"/><circle cx="123" cy="277" r="6" fill="#55d8cc"/><path d="M99 296c2-10 12-13 17-6 5-7 15-4 17 6" fill="none" stroke="#55d8cc" stroke-width="2"/>
+    <text x="154" y="276" fill="#f8fafc" font-size="18" font-weight="600">Example team</text>
+    <text x="154" y="302" fill="#93a4bd" font-size="14">Members · Agents · MCP servers · Knowledge</text>
+    <text x="154" y="329" fill="#55d8cc" font-size="13">Managed through identity and authorization policy</text>
+    <rect x="540" y="236" width="430" height="118" rx="14" fill="#0c111c" stroke="#263148"/>
+    <circle cx="586" cy="282" r="22" fill="#142033" stroke="#8b5cf6"/>
+    <circle cx="586" cy="276" r="7" fill="#b69cff"/><path d="M574 299c2-15 22-15 24 0" fill="none" stroke="#b69cff" stroke-width="2"/>
+    <text x="624" y="276" fill="#f8fafc" font-size="18" font-weight="600">Example user</text>
+    <text x="624" y="302" fill="#93a4bd" font-size="14">Roles · Teams · Resource access</text>
+    <text x="624" y="329" fill="#b69cff" font-size="13">Resolved from the configured identity provider</text>
+  </g>
+  <rect x="70" y="388" width="900" height="82" rx="12" fill="#111827" stroke="#334155" stroke-dasharray="7 7"/>
+  <text x="520" y="421" text-anchor="middle" fill="#cbd5e1" font-family="Inter,Arial,sans-serif" font-size="15" font-weight="600">Privacy-safe documentation preview</text>
+  <text x="520" y="445" text-anchor="middle" fill="#7f8da3" font-family="Inter,Arial,sans-serif" font-size="13">Real directory groups, member names, and email addresses are intentionally omitted.</text>
+</svg>

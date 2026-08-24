@@ -26,6 +26,43 @@ const sidebars: SidebarsConfig = {
       ],
     },
     {
+      type: 'doc',
+      id: 'features/platform-capabilities',
+      label: 'Platform Capabilities',
+    },
+    {
+      type: 'category',
+      label: 'User Guide',
+      link: { type: 'doc', id: 'user-guide/index' },
+      items: [
+        { type: 'doc', id: 'user-guide/home', label: 'Home' },
+        { type: 'doc', id: 'user-guide/chat', label: 'Chat' },
+        { type: 'doc', id: 'user-guide/dynamic-agents', label: 'Dynamic Agents' },
+        { type: 'doc', id: 'user-guide/skills', label: 'Skills' },
+        { type: 'doc', id: 'user-guide/workflows', label: 'Workflows' },
+        { type: 'doc', id: 'user-guide/schedules', label: 'Schedules' },
+        { type: 'doc', id: 'user-guide/autonomous-tasks', label: 'Autonomous Tasks' },
+        { type: 'doc', id: 'user-guide/knowledge-bases', label: 'Knowledge Bases' },
+        { type: 'doc', id: 'user-guide/credentials', label: 'Credentials' },
+        { type: 'doc', id: 'user-guide/settings', label: 'Personal Settings' },
+      ],
+    },
+    {
+      type: 'category',
+      label: 'Administrator Guide',
+      link: { type: 'doc', id: 'admin-guide/index' },
+      items: [
+        { type: 'doc', id: 'admin-guide/teams-users', label: 'Teams & Users' },
+        { type: 'doc', id: 'admin-guide/platform-configuration', label: 'Platform Configuration' },
+        { type: 'doc', id: 'admin-guide/resources', label: 'Resources' },
+        { type: 'doc', id: 'admin-guide/integrations', label: 'Integrations' },
+        { type: 'doc', id: 'admin-guide/insights', label: 'Insights' },
+        { type: 'doc', id: 'admin-guide/operations', label: 'Metrics & Health' },
+        { type: 'doc', id: 'admin-guide/security-policy', label: 'Security & Policy' },
+        { type: 'doc', id: 'admin-guide/feature-availability', label: 'Feature Availability' },
+      ],
+    },
+    {
       type: 'category',
       label: 'Setup',
       items: [

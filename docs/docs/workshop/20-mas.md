@@ -201,7 +201,10 @@ This makes it easy to build systems where a planner agent delegates tasks to spe
 
 ### 4.1 What is CAIPE?
 
-**CAIPE (Community AI Platform Engineering)** is a Multi-Agent System that provides a secure, scalable, persona-driven reference implementation with built-in knowledge base retrieval. It streamlines platform operations, accelerates workflows, and fosters innovation for modern engineering teams.
+**CAIPE (Community AI Platform Engineering)** is an open-source AI platform for
+building, deploying, governing, and operating AI agents and agentic workflows
+for platform engineering. It combines multi-agent execution with knowledge,
+security, observability, and user experiences for modern engineering teams.
 
 <center><img src="images/mas_architecture.svg" alt="CAIPE Architecture" width="600" /></center>
 

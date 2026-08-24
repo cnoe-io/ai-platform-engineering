@@ -6,7 +6,7 @@ import Heading from '@theme/Heading';
 import styles from './index.module.css';
 
 const CURL_CMD = 'bash <(curl -fsSL https://raw.githubusercontent.com/cnoe-io/ai-platform-engineering/main/setup-caipe.sh)';
-const HELM_CMD = 'helm upgrade --install ai-platform-engineering \\\n    oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \\\n    --version 0.5.69 -f your-values.yaml';
+const HELM_CMD = 'helm upgrade --install ai-platform-engineering \\\n    oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \\\n    --version 0.6.0 -f your-values.yaml';
 const GIF_URL = 'https://github.com/cnoe-io/ai-platform-engineering/releases/download/0.4.8/caipe-setup.gif';
 
 function DemoGif() {
@@ -206,15 +206,15 @@ function HeroSection() {
           {/* Left: copy + CTAs */}
           <div className={styles.heroLeft}>
 <Heading as="h1" className={styles.heroTitle}>
-              Open source Platform for{' '}
-              <span className={styles.heroAccent}>AI Platform Engineering</span>
+              The Open-Source AI Platform for{' '}
+              <span className={styles.heroAccent}>Platform Engineering</span>
             </Heading>
             <p className={styles.heroSubtitle}>
-              CAIPE is an open source <strong>AI platform</strong> for any size teams to build
-              customizable AI agents and automated agentic
-              workflows wherever your team operates — Web, Slack, Webex, event
-              streams, and more — secured with <strong>strong human and non-human identity
-              and access management</strong>.
+              CAIPE is an open-source <strong>AI platform</strong> for building,
+              deploying, governing, and operating AI agents and agentic workflows
+              for platform engineering. It combines agent creation, runtime execution,
+              workflow automation, skills and MCP integrations, enterprise knowledge,
+              identity and authorization, observability, and multi-channel experiences.
             </p>
             <p className={styles.heroPronunciation}>
               💡 Pronounced like <strong>cape</strong> 🦸 — just as a cape empowers a superhero, CAIPE empowers teams with 🤖 agentic AI automation.
@@ -262,7 +262,7 @@ function HeroSection() {
                   <span className={styles.codePrompt}>$</span>{' '}
                   {'helm upgrade --install ai-platform-engineering \\'}{'\n'}
                   {'    oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \\'}{'\n'}
-                  {'    --version 0.5.69 -f your-values.yaml'}
+                  {'    --version 0.6.0 -f your-values.yaml'}
                 </code>
               </pre>
             </div>
@@ -417,7 +417,7 @@ function QuickStartSection() {
               <span className={styles.codePrompt}>$</span>{' '}
               {'helm upgrade --install ai-platform-engineering \\'}{'\n'}
               {'    oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \\'}{'\n'}
-              {'    --version 0.5.69 -f your-values.yaml'}
+              {'    --version 0.6.0 -f your-values.yaml'}
             </code>
           </pre>
         </div>
@@ -501,7 +501,7 @@ export default function Home() {
   return (
     <Layout
       title={siteConfig.title}
-      description="Open-source multi-agent system for AI-powered platform engineering. Automate deployments, incidents, runbooks, and more."
+      description="Open-source AI platform for building, deploying, governing, and operating AI agents and agentic workflows for platform engineering."
     >
       <main>
         <HeroSection />

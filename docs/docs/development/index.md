@@ -35,8 +35,8 @@ Before you begin, you should have:
 
 1. **[Understand spec-driven development](./spec-driven-development)** - How CAIPE uses spec-kit for feature development
 2. **[Set up your development environment](./development-environment)** - Install dependencies and configure your workspace
-3. **[Explore the template agent](./creating-an-agent#understanding-the-template)** - Understand the project structure
-4. **[Build your first agent](./creating-an-agent#step-1-clone-the-template)** - Follow the step-by-step guide
+3. **[Create an agent in the UI](./creating-an-agent#create-from-the-ui)** - Configure an agent without deploying a new service
+4. **[Seed an agent with Helm](./creating-an-agent#seed-with-helm)** - Manage an agent through deployment configuration
 5. **[Add an MCP server](./creating-mcp-server)** - Connect your agent to external APIs
 
 ## 📖 Additional Resources

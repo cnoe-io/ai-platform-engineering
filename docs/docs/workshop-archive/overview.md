@@ -24,7 +24,9 @@ Now, let’s start with a **quick intro to CAIPE** before the full mission check
 ## What is CAIPE (Community AI Platform Engineering)
 
 - [**Community AI Platform Engineering (CAIPE)**](https://caipe.io/) (pronounced as `cape`) is an open-source, Multi-Agentic AI System (MAS) supported by the [CNOE (Cloud Native Operational Excellence)](https://cnoe.io) forum.
-- CAIPE provides a secure, scalable, persona-driven reference implementation with built-in knowledge base retrieval that streamlines platform operations, accelerates workflows, and fosters innovation for modern engineering teams.
+- CAIPE provides a complete cloud-native AI platform with agent execution,
+  knowledge retrieval, security, observability, and multi-channel experiences
+  for modern engineering teams.
 - It integrates seamlessly with Internal Developer Portals like Backstage and developer environments such as VS Code, enabling frictionless adoption and extensibility.
 
 _CAIPE is empowered by a set of specialized sub-agents that integrate seamlessly with essential engineering tools. Below are some common platform agents leveraged by the MAS agent:_

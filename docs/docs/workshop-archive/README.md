@@ -36,7 +36,9 @@ Set up 🛰️ communication and 🌦️ weather monitoring systems to support l
 
 **[Community AI Platform Engineering (CAIPE)](https://caipe.io/)** (pronounced as `cape`) is an open-source, Multi-Agentic AI System (MAS) supported by the [CNOE (Cloud Native Operational Excellence)](https://cnoe.io) forum.
 
-CAIPE provides a secure, scalable, persona-driven reference implementation with built-in knowledge base retrieval that streamlines platform operations, accelerates workflows, and fosters innovation for modern engineering teams.
+CAIPE provides a complete cloud-native AI platform with agent execution,
+knowledge retrieval, security, observability, and multi-channel experiences for
+modern engineering teams.
 
 ### 🌟 Why "CAIPE"?
 

@@ -146,7 +146,7 @@ kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/st
 kubectl port-forward svc/argocd-server -n argocd 8080:443
 ```
 
-Open http://localhost:8080. Then deploy CAIPE via the Helm chart (as in Option A) or by defining an ArgoCD Application that points at the same chart (see [Helm setup – ArgoCD](/docs/getting-started/helm/setup#argocd)).
+Open http://localhost:8080. Then deploy CAIPE via the Helm chart (as in Option A) or by defining an Argo CD Application that points at the same chart (see [Helm setup](/docs/getting-started/helm/setup)).
 
 ---
 
