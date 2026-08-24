@@ -27,11 +27,13 @@ jest.mock("@/components/ui/dialog", () => ({
 jest.mock("@/components/ui/tooltip", () => ({
   Tooltip: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   TooltipContent: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  TooltipProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   TooltipTrigger: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
 import {
   ApplicationNavigationSearch,
+  ApplicationNavigationSearchTrigger,
   filterApplicationNavigationEntries,
   searchApplicationResources,
   type ApplicationNavigationSearchEntry,
@@ -72,15 +74,17 @@ describe("ApplicationNavigationSearch", () => {
   it("opens with Ctrl+K and supports arrow and Enter navigation", () => {
     const onNavigate = jest.fn();
     render(
-      <ApplicationNavigationSearch
-        collapsed={false}
-        enableShortcut
-        entries={entries}
-        onNavigate={onNavigate}
-      />,
+      <>
+        <ApplicationNavigationSearchTrigger />
+        <ApplicationNavigationSearch
+          enableShortcut
+          entries={entries}
+          onNavigate={onNavigate}
+        />
+      </>,
     );
 
-    expect(screen.getByRole("button", { name: "Open command palette" }))
+    expect(screen.getByRole("button", { name: /Search CAIPE/ }))
       .toBeInTheDocument();
 
     fireEvent.keyDown(window,{ key: "k",ctrlKey: true });
@@ -95,6 +99,20 @@ describe("ApplicationNavigationSearch", () => {
       .toHaveAttribute("aria-selected","true");
     fireEvent.keyDown(input,{ key: "Enter" });
     expect(onNavigate).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens from the global header trigger", () => {
+    render(
+      <>
+        <ApplicationNavigationSearchTrigger />
+        <ApplicationNavigationSearch enableShortcut entries={entries} />
+      </>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Search CAIPE/ }));
+
+    expect(screen.getByRole("combobox", { name: "Search pages and resources" }))
+      .toBeInTheDocument();
   });
 
   it("maps only results returned by the user-scoped resource APIs", async () => {

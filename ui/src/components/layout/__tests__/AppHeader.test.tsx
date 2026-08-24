@@ -449,15 +449,14 @@ describe('AppHeader — application chrome', () => {
       expect(screen.getByText('Home')).toBeInTheDocument()
     })
 
-    it('places global search above Home in the application rail', () => {
+    it('places global search in the application header instead of the rail', () => {
       render(<AppHeader />)
-      const search = within(applicationNavigation())
-        .getByTestId('application-navigation-search-trigger')
-      const home = getHomeNavPill()
-
       expect(
-        search.compareDocumentPosition(home) & Node.DOCUMENT_POSITION_FOLLOWING,
-      ).toBeTruthy()
+        within(applicationNavigation())
+          .queryByTestId('application-navigation-search-trigger'),
+      ).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /Search CAIPE/ }))
+        .toBeInTheDocument()
     })
 
     it('Home nav pill links to /', () => {
