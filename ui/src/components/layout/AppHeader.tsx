@@ -258,6 +258,12 @@ export function AppHeader() {
         ) : null}
       </div>
 
+      {config.globalSearchPlacement === "header-center" ? (
+        <div className="absolute left-1/2 hidden w-[min(34rem,42vw)] -translate-x-1/2 xl:block">
+          <ApplicationNavigationSearchTrigger variant="center" />
+        </div>
+      ) : null}
+
       {/* Status & Actions */}
       <div className="flex shrink-0 items-center gap-1.5">
         <div className="flex items-center gap-1.5">
@@ -412,7 +418,14 @@ export function AppHeader() {
 
         {/* Personalization, Links & User */}
         <div className="flex items-center gap-1">
-          <ApplicationNavigationSearchTrigger />
+          {config.globalSearchPlacement === "header-right" ? (
+            <ApplicationNavigationSearchTrigger />
+          ) : null}
+          {config.globalSearchPlacement === "header-center" ? (
+            <div className="xl:hidden">
+              <ApplicationNavigationSearchTrigger />
+            </div>
+          ) : null}
           {config.envBadge ? (
             <span
               className="mr-1 inline-flex shrink-0 items-center rounded-full border border-amber-500/40 bg-amber-500/15 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-400"

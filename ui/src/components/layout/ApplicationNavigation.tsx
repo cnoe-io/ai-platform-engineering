@@ -10,6 +10,7 @@ import {
 } from "@/components/layout/ApplicationSectionNavigation";
 import {
   ApplicationNavigationSearch,
+  ApplicationNavigationSearchTrigger,
   type ApplicationNavigationSearchEntry,
 } from "@/components/layout/ApplicationNavigationSearch";
 import { GuardedNavigationLink } from "@/components/layout/GuardedNavigationLink";
@@ -370,6 +371,12 @@ function ApplicationNavigationContents({
           entries={searchEntries}
           onNavigate={closeMobileNavigation}
         />
+        {config.globalSearchPlacement === "sidebar" ? (
+          <ApplicationNavigationSearchTrigger
+            collapsed={collapsed}
+            variant="sidebar"
+          />
+        ) : null}
         {items.map((item) => {
           const Icon = item.icon;
           const active = activeArea === item.key;
