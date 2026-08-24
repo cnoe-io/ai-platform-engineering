@@ -1338,6 +1338,25 @@ export function validateUUID(uuid: string): boolean {
 }
 
 /**
+ * Validate a conversation identifier accepted by the chat API.
+ *
+ * New conversations use UUIDs, but releases before server-owned ID generation
+ * also persisted opaque, URL-safe identifiers. Keep those records operable so
+ * users can read, rename, archive, or delete their existing history. The
+ * identifier is still used only as an exact MongoDB string match; authorization
+ * is enforced after the record is loaded.
+ */
+export function validateConversationId(id: string): boolean {
+  if (validateUUID(id)) return true;
+
+  // Legacy IDs are bounded URL-safe slugs. Excluding path separators, query
+  // delimiters, whitespace, and MongoDB operator characters keeps route
+  // handling unambiguous while accepting historical IDs such as
+  // "legacy-demo-conversation".
+  return /^[A-Za-z0-9](?:[A-Za-z0-9._:-]{0,126}[A-Za-z0-9])?$/.test(id);
+}
+
+/**
  * Parse and validate pagination parameters
  */
 export function getPaginationParams(request: NextRequest) {
