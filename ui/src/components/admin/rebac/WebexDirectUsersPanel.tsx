@@ -3,11 +3,13 @@
 import { Loader2, RefreshCw, RotateCcw, Save } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { AgentPicker, type AgentPickerOption } from "@/components/ui/agent-picker";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CAIPESpinner } from "@/components/ui/caipe-spinner";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
+import { loadAllDynamicAgents } from "@/lib/dynamic-agent-list";
 import type { DynamicAgentOption } from "./connector-admin-adapter";
 
 type DmAccessMode = "disabled" | "allowlist" | "all_users";
@@ -71,12 +73,10 @@ export function WebexDirectUsersPanel({ disabled = false }: { disabled?: boolean
     let active = true;
     void Promise.all([
       fetch("/api/admin/webex/bots", { cache: "no-store" }),
-      fetch("/api/dynamic-agents?enabled_only=true", { cache: "no-store" }),
-    ]).then(async ([botsResponse, agentsResponse]) => {
+      loadAllDynamicAgents<DynamicAgentOption>({ enabledOnly: true }),
+    ]).then(async ([botsResponse, nextAgents]) => {
       if (!botsResponse.ok) throw new Error(await responseError(botsResponse, "Failed to load Webex bots"));
-      if (!agentsResponse.ok) throw new Error(await responseError(agentsResponse, "Failed to load agents"));
       const botData = apiData<{ bots: BotOption[] }>(await botsResponse.json());
-      const agentData = apiData<{ items: DynamicAgentOption[] }>(await agentsResponse.json());
       if (!active) return;
       const nextBots = botData.bots ?? [];
       setBots(nextBots);
@@ -85,7 +85,7 @@ export function WebexDirectUsersPanel({ disabled = false }: { disabled?: boolean
           ? current
           : nextBots.find((bot) => bot.available)?.id ?? "",
       );
-      setAgents(agentData.items ?? []);
+      setAgents(nextAgents);
     }).catch((reason) => {
       if (active) {
         setError(reason instanceof Error ? reason.message : "Failed to load 1:1 settings");
@@ -124,6 +124,14 @@ export function WebexDirectUsersPanel({ disabled = false }: { disabled?: boolean
     if (!query) return rows;
     return rows.filter((row) => `${row.display_name} ${row.email}`.toLowerCase().includes(query));
   }, [rows, search]);
+
+  const agentOptions = useMemo(
+    () => agents.map<AgentPickerOption>((agent) => ({
+      value: agent._id,
+      label: agent.name || agent._id,
+    })),
+    [agents],
+  );
 
   const updateRow = (userId: string, patch: Partial<DirectUserRow>) => {
     setRows((current) => current.map((row) => row.keycloak_user_id === userId ? { ...row, ...patch } : row));
@@ -289,16 +297,16 @@ export function WebexDirectUsersPanel({ disabled = false }: { disabled?: boolean
                         <div className="mt-1 text-xs text-muted-foreground">{row.webex_user_id ? "Linked" : "Not linked yet"}</div>
                       </td>
                       <td className="px-3 py-2">
-                        <select
-                          className="h-8 min-w-56 rounded-md border bg-background px-2 text-sm"
+                        <AgentPicker
+                          ariaLabel={`Agent for ${row.email}`}
+                          triggerClassName="h-8 min-w-56 px-2 py-1 text-sm"
                           value={row.agent_id}
-                          onChange={(event) => updateRow(row.keycloak_user_id, { agent_id: event.target.value })}
+                          onChange={(agentId) => updateRow(row.keycloak_user_id, { agent_id: agentId })}
                           disabled={disabled || modeDisabled || saving || (!row.enabled && data?.dm_access_mode === "allowlist")}
-                          aria-label={`Agent for ${row.email}`}
-                        >
-                          <option value="">{data?.dm_access_mode === "all_users" ? "Deployment default" : "Select an agent"}</option>
-                          {agents.map((agent) => <option key={agent._id} value={agent._id}>{agent.name || agent._id}</option>)}
-                        </select>
+                          placeholder={data?.dm_access_mode === "all_users" ? "Deployment default" : "Select an agent"}
+                          searchPlaceholder="Search agents..."
+                          options={agentOptions}
+                        />
                       </td>
                       <td className="px-3 py-2">
                         <Badge variant={row.state === "denied" || row.state === "disabled" ? "outline" : "secondary"}>
