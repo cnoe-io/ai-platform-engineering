@@ -22,7 +22,7 @@ DOCKER_COMPOSE_BUILD_ENV := DOCKER_BUILDKIT=1 COMPOSE_PARALLEL_LIMIT=$(COMPOSE_P
 	setup-venv start-venv clean-pyc clean-venv clean-build-artifacts clean \
 	uv-prep \
 	generate-agent-commands \
-	lint lint-fix test test-compose-generator test-compose-generator-coverage \
+	lint lint-fix test \
 	test-rag-unit test-rag-coverage test-rag-memory test-rag-scale validate lock-all help \
 	caipe-ui caipe-ui-install caipe-ui-build caipe-ui-dev caipe-ui-tests caipe-ui-e2e-rbac \
 	build-caipe-ui run-caipe-ui-docker caipe-ui-docker-compose \
@@ -245,16 +245,6 @@ lint-fix: setup-venv ## Automatically fix linting issues using Ruff
 	@uv run python -m ruff check . --select E,F --ignore F403 --ignore E402 --line-length 320 --fix
 
 ## ========== Test ==========
-
-test-compose-generator: setup-venv ## Run unit tests for docker-compose generator
-	@echo "Running docker-compose generator tests..."
-	@. .venv/bin/activate && uv add pytest pyyaml --dev
-	@. .venv/bin/activate && uv run python -m pytest scripts/test_generate_docker_compose.py -v --tb=short
-
-test-compose-generator-coverage: setup-venv ## Run docker-compose generator tests with coverage
-	@echo "Running docker-compose generator tests with coverage..."
-	@. .venv/bin/activate && uv add pytest pytest-cov pyyaml --dev
-	@. .venv/bin/activate && uv run python -m pytest scripts/test_generate_docker_compose.py -v --cov=generate_docker_compose --cov-report=term-missing --cov-report=html
 
 test-core: setup-venv ## Run tests for the core/shared workspace (utils, dynamic_agents, etc.)
 	@echo "Running core workspace tests..."
