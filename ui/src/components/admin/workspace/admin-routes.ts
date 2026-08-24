@@ -117,8 +117,8 @@ export const ADMIN_CATEGORIES: AdminCategoryDefinition[] = [
       {
         id: "defaults",
         href: "/admin/configuration/defaults",
-        label: "Defaults",
-        description: "Set fallback behavior for people who have not made a personal choice.",
+        label: "General",
+        description: "Configure platform-wide interface behavior and defaults.",
         icon: SlidersHorizontal,
         gateKey: "platform_settings",
       },

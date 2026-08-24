@@ -65,6 +65,20 @@ function response(body: unknown,ok = true): Promise<Response> {
 }
 
 describe("ApplicationNavigationSearch", () => {
+  it("renders compact, sidebar, and centered triggers for one shared palette", () => {
+    const { rerender } = render(<ApplicationNavigationSearchTrigger />);
+    expect(screen.getByTestId("application-navigation-search-trigger-compact"))
+      .toBeInTheDocument();
+
+    rerender(<ApplicationNavigationSearchTrigger variant="sidebar" />);
+    expect(screen.getByTestId("application-navigation-search-trigger-sidebar"))
+      .toHaveTextContent("Search");
+
+    rerender(<ApplicationNavigationSearchTrigger variant="center" />);
+    expect(screen.getByTestId("application-navigation-search-trigger-center"))
+      .toHaveTextContent("Search CAIPE");
+  });
+
   it("matches navigation labels, groups, and descriptions", () => {
     expect(filterApplicationNavigationEntries(entries,"updates settings"))
       .toEqual([entries[1]]);

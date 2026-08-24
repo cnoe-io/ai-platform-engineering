@@ -29,6 +29,10 @@ normalizeRagDefaultSearchTeamSlug,
 RAG_TEAM_SLUG_PATTERN,
 } from '@/lib/rag-settings';
 import { normalizeRagIngestorLimits } from '@/lib/rag-ingestor-limits';
+import {
+DEFAULT_GLOBAL_SEARCH_PLACEMENT,
+normalizeGlobalSearchPlacement,
+} from '@/lib/global-search-placement';
 import { NextRequest,NextResponse } from 'next/server';
 
 const platformConfigCache = createJsonResponseCacheStore();
@@ -42,6 +46,7 @@ interface PlatformConfigDoc extends PlatformDefaultAgentDocument {
   remote_mcp_catalog?: unknown;
   rag_default_search_team_slug?: unknown;
   rag_ingestor_limits?: unknown;
+  global_search_placement?: unknown;
 }
 
 interface TeamConfigDoc {
@@ -204,6 +209,13 @@ async function getPlatformConfig(request: NextRequest) {
     const victoropsAgentId = normalizeVictoropsAgentId(doc?.slack_victorops_escalation_agent_id);
     const victoropsEnvFallback = process.env.SLACK_INTEGRATION_VICTOROPS_AGENT_ID || null;
     const ragIngestorLimits = normalizeRagIngestorLimits(doc?.rag_ingestor_limits);
+    const storedGlobalSearchPlacement = normalizeGlobalSearchPlacement(
+      doc?.global_search_placement,
+    );
+    const deploymentGlobalSearchPlacement = normalizeGlobalSearchPlacement(
+      process.env.GLOBAL_SEARCH_PLACEMENT ??
+        process.env.NEXT_PUBLIC_GLOBAL_SEARCH_PLACEMENT,
+    );
 
     return NextResponse.json({
       success: true,
@@ -217,6 +229,13 @@ async function getPlatformConfig(request: NextRequest) {
         slack_victorops_escalation_agent_id: victoropsAgentId ?? victoropsEnvFallback,
         slack_victorops_escalation_agent_source: victoropsAgentId ? 'db' : (victoropsEnvFallback ? 'env' : 'fallback'),
         release_notes: normalizeReleaseNotesConfig(doc?.release_notes),
+        global_search_placement:
+          storedGlobalSearchPlacement ??
+          deploymentGlobalSearchPlacement ??
+          DEFAULT_GLOBAL_SEARCH_PLACEMENT,
+        global_search_placement_source: storedGlobalSearchPlacement
+          ? 'db'
+          : (deploymentGlobalSearchPlacement ? 'env' : 'fallback'),
         slack_discovery_cache_ttl_minutes: slackDiscoveryTtlMinutes,
         webex_discovery_cache_ttl_minutes: webexDiscoveryTtlMinutes,
         // Default (no config saved yet) is "disable all" — operators opt in
@@ -275,6 +294,20 @@ export const PATCH = withErrorHandler(async (request: NextRequest) => {
 
     if (body.release_notes) {
       update.release_notes = normalizeReleaseNotesConfig(body.release_notes);
+    }
+
+    if (Object.prototype.hasOwnProperty.call(body, 'global_search_placement')) {
+      const nextGlobalSearchPlacement = normalizeGlobalSearchPlacement(
+        body.global_search_placement,
+      );
+      if (!nextGlobalSearchPlacement) {
+        throw new ApiError(
+          'global_search_placement must be sidebar, header-right, or header-center',
+          400,
+          'INVALID_GLOBAL_SEARCH_PLACEMENT',
+        );
+      }
+      update.global_search_placement = nextGlobalSearchPlacement;
     }
 
     // Slack and Webex discovery caches are configured independently.
@@ -426,6 +459,12 @@ export const PATCH = withErrorHandler(async (request: NextRequest) => {
           ? { slack_victorops_escalation_agent_id: update.slack_victorops_escalation_agent_id }
           : {}),
         ...(update.release_notes ? { release_notes: update.release_notes } : {}),
+        ...(Object.prototype.hasOwnProperty.call(update, 'global_search_placement')
+          ? {
+              global_search_placement: update.global_search_placement,
+              global_search_placement_source: 'db',
+            }
+          : {}),
         ...(Object.prototype.hasOwnProperty.call(update, 'slack_discovery_cache_ttl_minutes')
           ? { slack_discovery_cache_ttl_minutes: update.slack_discovery_cache_ttl_minutes }
           : {}),

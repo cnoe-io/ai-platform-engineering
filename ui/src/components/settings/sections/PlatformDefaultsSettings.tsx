@@ -13,11 +13,48 @@ import {
 } from "@/components/ui/dialog";
 import { AgentPicker,type AgentPickerOption } from "@/components/ui/agent-picker";
 import type { AutoSaveState } from "@/hooks/use-keyed-auto-save";
+import { publishGlobalSearchPlacement } from "@/hooks/use-global-search-placement";
+import { config } from "@/lib/config";
+import type { GlobalSearchPlacement } from "@/lib/global-search-placement";
 import type { DynamicAgentConfig } from "@/types/dynamic-agent";
-import { AlertTriangle,Bot,CalendarClock,Loader2 } from "lucide-react";
+import {
+  AlertTriangle,
+  Bot,
+  CalendarClock,
+  Loader2,
+  PanelLeft,
+  PanelTop,
+  Search,
+} from "lucide-react";
 import { useEffect,useState } from "react";
 
 type PendingAction = "set" | "clear";
+
+const SEARCH_PLACEMENT_OPTIONS: Array<{
+  description: string;
+  icon: typeof Search;
+  label: string;
+  value: GlobalSearchPlacement;
+}> = [
+  {
+    value: "sidebar",
+    label: "Left navigation",
+    description: "Show a full search control above Home.",
+    icon: PanelLeft,
+  },
+  {
+    value: "header-right",
+    label: "Top right",
+    description: "Show a compact search action with the header utilities.",
+    icon: Search,
+  },
+  {
+    value: "header-center",
+    label: "Top center",
+    description: "Show a prominent centered search bar on wide screens.",
+    icon: PanelTop,
+  },
+];
 
 export function PlatformDefaultsSettings({
   readOnly = false,
@@ -35,6 +72,14 @@ export function PlatformDefaultsSettings({
   const [savedScheduleEditorAgentId,setSavedScheduleEditorAgentId] = useState<string | null>(null);
   const [scheduleEditorSource,setScheduleEditorSource] = useState("fallback");
   const [scheduleEditorSaveState,setScheduleEditorSaveState] = useState<AutoSaveState>({ status: "idle" });
+  const [globalSearchPlacement,setGlobalSearchPlacement] = useState<GlobalSearchPlacement>(
+    config.globalSearchPlacement,
+  );
+  const [savedGlobalSearchPlacement,setSavedGlobalSearchPlacement] = useState<GlobalSearchPlacement>(
+    config.globalSearchPlacement,
+  );
+  const [globalSearchPlacementSource,setGlobalSearchPlacementSource] = useState("fallback");
+  const [globalSearchPlacementSaveState,setGlobalSearchPlacementSaveState] = useState<AutoSaveState>({ status: "idle" });
   const [confirmAction,setConfirmAction] = useState<PendingAction | null>(null);
 
   useEffect(() => {
@@ -63,6 +108,13 @@ export function PlatformDefaultsSettings({
         setSelectedScheduleEditorAgentId(scheduleEditorValue);
         setSavedScheduleEditorAgentId(scheduleEditorValue);
         setScheduleEditorSource(configData.data.schedule_editor_agent_source || "fallback");
+        const globalSearchValue = configData.data.global_search_placement ??
+          config.globalSearchPlacement;
+        setGlobalSearchPlacement(globalSearchValue);
+        setSavedGlobalSearchPlacement(globalSearchValue);
+        setGlobalSearchPlacementSource(
+          configData.data.global_search_placement_source || "fallback",
+        );
       } catch (reason) {
         if (!cancelled) {
           setLoadError(reason instanceof Error ? reason.message : "Could not load the platform default");
@@ -157,6 +209,39 @@ export function PlatformDefaultsSettings({
     }
   };
 
+  const selectGlobalSearchPlacement = async (
+    next: GlobalSearchPlacement,
+  ) => {
+    if (next === savedGlobalSearchPlacement) return;
+    setGlobalSearchPlacement(next);
+    setGlobalSearchPlacementSaveState({ status: "saving" });
+    try {
+      const response = await fetch("/api/admin/platform-config",{
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ global_search_placement: next }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || "Could not update the global search placement");
+      }
+      const saved = data.data?.global_search_placement ?? next;
+      setGlobalSearchPlacement(saved);
+      setSavedGlobalSearchPlacement(saved);
+      setGlobalSearchPlacementSource("db");
+      setGlobalSearchPlacementSaveState({ status: "saved" });
+      publishGlobalSearchPlacement(saved);
+    } catch (reason) {
+      setGlobalSearchPlacement(savedGlobalSearchPlacement);
+      setGlobalSearchPlacementSaveState({
+        status: "error",
+        error: reason instanceof Error
+          ? reason.message
+          : "Could not update the global search placement",
+      });
+    }
+  };
+
   const selectedAgent = agents.find((agent) => agent._id === selectedAgentId);
   const savedAgentMissing = Boolean(savedAgentId) && !agents.some((agent) => agent._id === savedAgentId);
   const missingSelectedOption = selectedAgentId && !agents.some((agent) => agent._id === selectedAgentId)
@@ -185,6 +270,62 @@ export function PlatformDefaultsSettings({
 
   return (
     <>
+      <SettingsCard
+        description="Choose where every user opens the shared global search. Cmd/Ctrl+K works in every placement."
+        title={<span className="flex items-center gap-2"><Search className="h-5 w-5 text-primary" />Global search placement</span>}
+      >
+        {loading ? (
+          <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading global search placement…
+          </div>
+        ) : loadError ? (
+          <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+            {loadError}
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {globalSearchPlacementSource === "env" ? (
+              <p className="text-xs text-muted-foreground">
+                Currently using <code>GLOBAL_SEARCH_PLACEMENT</code>. Choosing an option here overrides it platform-wide.
+              </p>
+            ) : null}
+            <div
+              aria-label="Global search placement"
+              className="grid gap-3 md:grid-cols-3"
+              role="radiogroup"
+            >
+              {SEARCH_PLACEMENT_OPTIONS.map((option) => {
+                const Icon = option.icon;
+                const selected = globalSearchPlacement === option.value;
+                return (
+                  <button
+                    aria-checked={selected}
+                    className={selected
+                      ? "rounded-lg border border-primary bg-primary/10 p-4 text-left ring-1 ring-primary"
+                      : "rounded-lg border border-border p-4 text-left transition-colors hover:bg-muted/50"}
+                    disabled={readOnly || globalSearchPlacementSaveState.status === "saving"}
+                    key={option.value}
+                    onClick={() => void selectGlobalSearchPlacement(option.value)}
+                    role="radio"
+                    type="button"
+                  >
+                    <span className="flex items-center gap-2 text-sm font-medium">
+                      <Icon className="h-4 w-4 text-primary" />
+                      {option.label}
+                    </span>
+                    <span className="mt-1 block text-xs leading-relaxed text-muted-foreground">
+                      {option.description}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            <AutoSaveStatus state={globalSearchPlacementSaveState} />
+          </div>
+        )}
+      </SettingsCard>
+
       <SettingsCard
         description="This fallback applies only when a person has not chosen a personal default agent."
         title={<span className="flex items-center gap-2"><Bot className="h-5 w-5 text-primary" />Platform default agent</span>}

@@ -185,6 +185,7 @@ jest.mock('@/lib/config', () => ({
     supportEmail: 'support@example.com',
     docsUrl: 'https://docs.example.com',
     githubUrl: 'https://github.com/example',
+    globalSearchPlacement: 'sidebar',
     ssoEnabled: true,
     get envBadge() { return mockEnvBadge },
     workflowsEnabled: false,
@@ -488,14 +489,12 @@ describe('AppHeader — application chrome', () => {
       expect(screen.getByText('Home')).toBeInTheDocument()
     })
 
-    it('places global search in the application header instead of the rail', () => {
+    it('places global search in the application rail by default', () => {
       render(<AppHeader />)
       expect(
         within(applicationNavigation())
-          .queryByTestId('application-navigation-search-trigger'),
-      ).not.toBeInTheDocument()
-      expect(screen.getByRole('button', { name: /Search CAIPE/ }))
-        .toBeInTheDocument()
+          .getByTestId('application-navigation-search-trigger-sidebar'),
+      ).toBeInTheDocument()
     })
 
     it('Home nav pill links to /', () => {

@@ -54,6 +54,8 @@ describe("admin platform-config route", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     delete process.env.DEFAULT_AGENT_ID;
+    delete process.env.GLOBAL_SEARCH_PLACEMENT;
+    delete process.env.NEXT_PUBLIC_GLOBAL_SEARCH_PLACEMENT;
     mockWithAuth.mockImplementation((_request, handler) =>
       handler(_request, { email: "admin@example.com" }, { sub: "admin-sub", role: "admin" }),
     );
@@ -121,6 +123,82 @@ describe("admin platform-config route", () => {
     expect(body.data.release_notes).toEqual({
       enabled: true,
     });
+  });
+
+  it("defaults global search to the left navigation", async () => {
+    mockGetCollection.mockResolvedValue({
+      findOne: jest.fn().mockResolvedValue({ _id: "platform_settings" }),
+      updateOne: jest.fn(),
+    });
+    const { GET } = await import("../route");
+
+    const body = await (await GET(request("/api/admin/platform-config"))).json();
+
+    expect(body.data.global_search_placement).toBe("sidebar");
+    expect(body.data.global_search_placement_source).toBe("fallback");
+  });
+
+  it("prefers the stored global search placement over deployment config", async () => {
+    process.env.GLOBAL_SEARCH_PLACEMENT = "header-right";
+    mockGetCollection.mockResolvedValue({
+      findOne: jest.fn().mockResolvedValue({
+        _id: "platform_settings",
+        global_search_placement: "header-center",
+      }),
+      updateOne: jest.fn(),
+    });
+    const { GET } = await import("../route");
+
+    const body = await (await GET(request("/api/admin/platform-config"))).json();
+
+    expect(body.data.global_search_placement).toBe("header-center");
+    expect(body.data.global_search_placement_source).toBe("db");
+  });
+
+  it("validates and persists the global search placement", async () => {
+    const updateOne = jest.fn().mockResolvedValue({ acknowledged: true });
+    mockGetCollection.mockResolvedValue({
+      findOne: jest.fn().mockResolvedValue({ _id: "platform_settings" }),
+      updateOne,
+    });
+    const { PATCH } = await import("../route");
+
+    const response = await PATCH(
+      request("/api/admin/platform-config", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ global_search_placement: "header-right" }),
+      }),
+    );
+    const body = await response.json();
+
+    expect(body.data).toMatchObject({
+      global_search_placement: "header-right",
+      global_search_placement_source: "db",
+    });
+    expect(updateOne).toHaveBeenCalledWith(
+      { _id: "platform_settings" },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          global_search_placement: "header-right",
+        }),
+      }),
+      { upsert: true },
+    );
+  });
+
+  it("rejects an unsupported global search placement", async () => {
+    const { PATCH } = await import("../route");
+
+    await expect(
+      PATCH(
+        request("/api/admin/platform-config", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ global_search_placement: "floating" }),
+        }),
+      ),
+    ).rejects.toMatchObject({ code: "INVALID_GLOBAL_SEARCH_PLACEMENT" });
   });
 
   it("requires admin and system_config manage access before updating platform config", async () => {

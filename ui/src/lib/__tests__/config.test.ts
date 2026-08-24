@@ -101,6 +101,7 @@ describe('getServerConfig', () => {
       expect(cfg.appName).toBe('CAIPE');
       expect(cfg.logoUrl).toBe('/logo.svg');
       expect(cfg.envBadge).toBe('');
+      expect(cfg.globalSearchPlacement).toBe('sidebar');
       expect(cfg.gradientFrom).toBe('hsl(173,80%,40%)');
       expect(cfg.gradientTo).toBe('hsl(270,75%,60%)');
       expect(cfg.logoStyle).toBe('default');
@@ -147,7 +148,7 @@ describe('getServerConfig', () => {
         'gradientFrom', 'gradientTo', 'logoStyle', 'spinnerColor',
         'showPoweredBy', 'supportEmail', 'allowDevAdminWhenSsoDisabled', 'unsafeRbacBypassEnabled',
         'storageMode', 'enabledIntegrationIcons', 'faviconUrl',
-        'docsUrl', 'sourceUrl', 'workflowRunnerEnabled', 'workflowsEnabled', 'dynamicAgentsEnabled', 'feedbackEnabled',
+        'docsUrl', 'sourceUrl', 'globalSearchPlacement', 'workflowRunnerEnabled', 'workflowsEnabled', 'dynamicAgentsEnabled', 'feedbackEnabled',
         'allowBuiltinSkillMutation',
         'auditLogsEnabled',
         'actionAuditEnabled',
@@ -316,6 +317,28 @@ describe('getServerConfig', () => {
   });
 
   // ---------- Ticket Integration ----------
+
+  describe('global search placement', () => {
+    beforeEach(() => clearEnv('GLOBAL_SEARCH_PLACEMENT'));
+
+    it.each(['sidebar', 'header-right', 'header-center'])(
+      'accepts %s',
+      (placement) => {
+        process.env.GLOBAL_SEARCH_PLACEMENT = placement;
+        expect(getServerConfig().globalSearchPlacement).toBe(placement);
+      },
+    );
+
+    it('falls back to sidebar for an unsupported value', () => {
+      process.env.GLOBAL_SEARCH_PLACEMENT = 'floating';
+      expect(getServerConfig().globalSearchPlacement).toBe('sidebar');
+    });
+
+    it('supports the legacy NEXT_PUBLIC prefix', () => {
+      process.env.NEXT_PUBLIC_GLOBAL_SEARCH_PLACEMENT = 'sidebar';
+      expect(getServerConfig().globalSearchPlacement).toBe('sidebar');
+    });
+  });
 
   describe('ticket integration env vars', () => {
     beforeEach(() => {
@@ -896,7 +919,7 @@ describe('getClientConfigScript (XSS safety)', () => {
       'gradientFrom', 'gradientTo', 'logoStyle', 'spinnerColor',
       'showPoweredBy', 'supportEmail', 'allowDevAdminWhenSsoDisabled', 'unsafeRbacBypassEnabled',
       'storageMode', 'enabledIntegrationIcons', 'faviconUrl',
-      'docsUrl', 'sourceUrl', 'workflowRunnerEnabled', 'workflowsEnabled', 'dynamicAgentsEnabled', 'feedbackEnabled',
+      'docsUrl', 'sourceUrl', 'globalSearchPlacement', 'workflowRunnerEnabled', 'workflowsEnabled', 'dynamicAgentsEnabled', 'feedbackEnabled',
       'allowBuiltinSkillMutation',
       'auditLogsEnabled',
       'actionAuditEnabled',

@@ -261,6 +261,8 @@ config:
   # Environment badge label shown next to the app name (e.g. "Dev", "Preview", "Staging", "Prod")
   # Leave empty to hide. Backward-compat: PREVIEW_MODE=true still works.
   ENV_BADGE: ""
+  # Global search trigger placement: sidebar, header-right, or header-center.
+  GLOBAL_SEARCH_PLACEMENT: "sidebar"
   # Workflow runner: set to "true" to show Run Workflow button and Multi-Step Workflows section
   WORKFLOW_RUNNER_ENABLED: "false"
   # Dynamic Agents service URL. Leave empty to use the chart default.

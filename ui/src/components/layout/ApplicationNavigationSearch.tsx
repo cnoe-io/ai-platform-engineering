@@ -70,8 +70,16 @@ function useCommandPaletteShortcut(): string {
   return shortcut;
 }
 
-export function ApplicationNavigationSearchTrigger(): React.ReactElement {
+export function ApplicationNavigationSearchTrigger({
+  collapsed = false,
+  variant = "compact",
+}: {
+  collapsed?: boolean;
+  variant?: "compact" | "sidebar" | "center";
+}): React.ReactElement {
   const shortcut = useCommandPaletteShortcut();
+  const center = variant === "center";
+  const sidebar = variant === "sidebar";
 
   return (
     <TooltipProvider delayDuration={200}>
@@ -80,17 +88,40 @@ export function ApplicationNavigationSearchTrigger(): React.ReactElement {
           <button
             aria-label={`Search CAIPE · ${shortcut}`}
             className={cn(
-              "flex h-8 items-center justify-center gap-1.5 rounded-md px-2 text-muted-foreground outline-none transition-colors",
+              "flex items-center text-muted-foreground outline-none transition-colors",
               "hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring",
+              variant === "compact" && "h-8 justify-center gap-1.5 rounded-md px-2",
+              center && "h-9 w-full justify-start gap-2 rounded-lg border border-border/70 bg-background/70 px-3 shadow-sm hover:border-border",
+              sidebar && cn(
+                "min-h-10 rounded-lg",
+                collapsed ? "w-full justify-center px-2" : "w-full justify-start gap-2 px-3",
+              ),
             )}
-            data-testid="application-navigation-search-trigger"
+            data-search-trigger-variant={variant}
+            data-testid={`application-navigation-search-trigger-${variant}`}
             onClick={() => window.dispatchEvent(new Event(OPEN_APPLICATION_SEARCH_EVENT))}
             type="button"
           >
             <Search aria-hidden="true" className="h-4 w-4 shrink-0" />
-            <kbd className="hidden rounded border border-border/70 bg-muted/70 px-1.5 py-0.5 text-[10px] font-medium leading-none text-muted-foreground lg:inline-block">
-              {shortcut}
-            </kbd>
+            {center ? (
+              <>
+                <span className="min-w-0 flex-1 truncate text-left text-sm">Search CAIPE</span>
+                <kbd className="rounded border border-border/70 bg-muted/70 px-1.5 py-0.5 text-[10px] font-medium leading-none text-muted-foreground">
+                  {shortcut}
+                </kbd>
+              </>
+            ) : sidebar && !collapsed ? (
+              <>
+                <span className="min-w-0 flex-1 truncate text-left text-sm">Search</span>
+                <kbd className="rounded border border-border/70 bg-muted/70 px-1.5 py-0.5 text-[10px] font-medium leading-none text-muted-foreground">
+                  {shortcut}
+                </kbd>
+              </>
+            ) : variant === "compact" ? (
+              <kbd className="hidden rounded border border-border/70 bg-muted/70 px-1.5 py-0.5 text-[10px] font-medium leading-none text-muted-foreground lg:inline-block">
+                {shortcut}
+              </kbd>
+            ) : null}
           </button>
         </TooltipTrigger>
         <TooltipContent side="bottom" sideOffset={8}>

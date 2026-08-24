@@ -23,6 +23,14 @@
  *   also checks NEXT_PUBLIC_ prefixed names for backward compatibility.
  */
 
+import {
+  DEFAULT_GLOBAL_SEARCH_PLACEMENT,
+  GLOBAL_SEARCH_PLACEMENTS,
+  type GlobalSearchPlacement,
+} from '@/lib/global-search-placement';
+
+export type { GlobalSearchPlacement } from '@/lib/global-search-placement';
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -90,6 +98,8 @@ export interface Config {
   docsUrl: string | null;
   /** Source code URL (hidden in header if not set) */
   sourceUrl: string | null;
+  /** Placement of the global search trigger. The palette and shortcut remain shared. */
+  globalSearchPlacement: GlobalSearchPlacement;
   /**
    * Whether the dedicated workflow runner is enabled.
     * When false (default), multi-step skills display as "Skill" badges instead of
@@ -223,7 +233,6 @@ const DEFAULT_FONT_SIZE = 'medium';
 const DEFAULT_FONT_FAMILY = 'inter';
 const DEFAULT_THEME = 'dark';
 const DEFAULT_GRADIENT_THEME = 'default';
-
 const VALID_FONT_SIZES = ['small', 'medium', 'large', 'x-large'];
 const VALID_FONT_FAMILIES = ['inter', 'source-sans', 'ibm-plex', 'system'];
 const VALID_THEMES = ['light', 'legacy-light', 'dark', 'system', 'midnight', 'nord', 'tokyo', 'cyberpunk', 'tron', 'matrix'];
@@ -257,6 +266,7 @@ const DEFAULT_CONFIG: Config = {
   faviconUrl: '/favicon.ico',
   docsUrl: null,
   sourceUrl: null,
+  globalSearchPlacement: DEFAULT_GLOBAL_SEARCH_PLACEMENT,
   workflowRunnerEnabled: false,
   workflowsEnabled: false,
   dynamicAgentsEnabled: false,
@@ -455,6 +465,11 @@ export function getServerConfig(): Config {
     faviconUrl: env('FAVICON_URL') || '/favicon.ico',
     docsUrl: env('DOCS_URL') || null,
     sourceUrl: env('SOURCE_URL') || null,
+    globalSearchPlacement: validated(
+      env('GLOBAL_SEARCH_PLACEMENT'),
+      [...GLOBAL_SEARCH_PLACEMENTS],
+      DEFAULT_GLOBAL_SEARCH_PLACEMENT,
+    ) as GlobalSearchPlacement,
     workflowRunnerEnabled,
     workflowsEnabled,
     dynamicAgentsEnabled,
