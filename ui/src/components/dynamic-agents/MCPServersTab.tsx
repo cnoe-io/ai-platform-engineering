@@ -2,7 +2,8 @@
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card,CardContent,CardHeader } from "@/components/ui/card";
+import { WorkspacePageActions } from "@/components/layout/WorkspacePageActions";
+import { Card,CardContent } from "@/components/ui/card";
 import {
 Dialog,
 DialogContent,
@@ -630,8 +631,7 @@ export function MCPServersTab({
         onSelect={handleCatalogSelect}
         onSelectCustom={() => setIsCreating(true)}
       />
-    <Card className="rounded-none border-0 bg-transparent shadow-none">
-      <CardHeader className="px-0 pb-5 pt-0">
+      <WorkspacePageActions>
         <div className="flex flex-wrap items-center justify-end gap-2">
             {listCapabilities.repair_agentgateway && (
               <Button
@@ -658,8 +658,9 @@ export function MCPServersTab({
               Add Server
             </Button>
         </div>
-      </CardHeader>
-      <CardContent className="px-0 pt-6">
+      </WorkspacePageActions>
+      <Card className="rounded-none border-0 bg-transparent shadow-none">
+        <CardContent className="px-0 pt-0">
         {agentGatewayError && (
           <div className="mb-4 flex items-start gap-2 rounded-lg bg-destructive/10 border border-destructive/30 p-3">
             <AlertCircle className="h-4 w-4 text-destructive mt-0.5 flex-shrink-0" />
@@ -1028,7 +1029,7 @@ export function MCPServersTab({
             })}
           </div>
         )}
-      </CardContent>
+        </CardContent>
       <MCPToolTestDialog
         server={testingServer}
         open={Boolean(testingServer)}
@@ -1036,7 +1037,7 @@ export function MCPServersTab({
           if (!open) setTestingServer(null);
         }}
       />
-    </Card>
+      </Card>
     </>
   );
 }

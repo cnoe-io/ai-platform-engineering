@@ -50,30 +50,6 @@ The direct uv entrypoint is also available:
 uv run mcp-litellm
 ```
 
-## Local Docker Compose Dev
-
-Set the shared LiteLLM token in the repo-root `.env` file:
-
-```bash
-LITELLM_API_KEY=<token>
-```
-
-Then run the local dev compose service from the repo root:
-
-```bash
-docker compose -f docker-compose/docker-compose.litellm.dev.yaml up --build
-```
-
-Use one of these MCP URLs depending on where the client runs:
-
-```text
-http://localhost:18080/mcp/
-http://mcp-litellm:8000/mcp/
-```
-
-Use `localhost` from your host machine. Use `mcp-litellm` from another service
-running in the same Docker Compose network.
-
 ## Helm Deployment
 
 The parent `ai-platform-engineering` chart can deploy this MCP server as a

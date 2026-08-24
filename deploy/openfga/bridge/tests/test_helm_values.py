@@ -41,6 +41,10 @@ def test_parent_chart_renders_bridge_token_validation_env() -> None:
             "openfga-authz-bridge.tokenValidation.audiences[1]=caipe-platform",
             "--set",
             "openfga-authz-bridge.audit.serviceUrl=http://audit-service:8010",
+            "--set",
+            "openfga-authz-bridge.organizationKey=example-org",
+            "--set",
+            "openfga-authz-bridge.restrictedMcpServers[0]=scheduler",
         ],
         check=True,
         cwd=_repo_root(),
@@ -56,6 +60,8 @@ def test_parent_chart_renders_bridge_token_validation_env() -> None:
     assert 'value: "RS256"' in rendered
     assert "name: AUDIT_SERVICE_URL" in rendered
     assert 'value: "http://audit-service:8010"' in rendered
+    assert "name: CAIPE_ORG_KEY" in rendered
+    assert 'value: "example-org"' in rendered
     assert "name: CAIPE_RESTRICTED_MCP_SERVERS" in rendered
     assert 'value: "scheduler"' in rendered
     assert "name: MONGODB_DATABASE" not in rendered

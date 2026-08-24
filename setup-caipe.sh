@@ -5893,7 +5893,7 @@ deploy_caipe() {
     --namespace caipe
     --version "$CAIPE_CHART_VERSION"
     # Keycloak's post-install hook (init-token-exchange) can't run until Keycloak
-    # finishes its cold boot. helm's default 5m timeout leaves almost no margin 
+    # finishes its cold boot. helm's default 5m timeout leaves almost no margin
     # and aborts the release mid-boot, so give the hook real headroom.
     --timeout 10m
     --set tags.caipe-ui=true

@@ -1,4 +1,181 @@
-## 0.5.67-dev.1-chart.1 (2026-08-06)
+## 0.5.69-dev.4 (2026-08-20)
+
+### Fix
+
+- **security**: resolve dependency vulnerabilities (#2415)
+
+### Refactor
+
+- **dynamic-agents**: use immutable prompt rendering (#2369)
+
+## 0.5.69-dev.2 (2026-08-20)
+
+## 0.5.69-dev.1 (2026-08-19)
+
+## 0.5.69 (2026-08-18)
+
+## 0.5.68-dev.8 (2026-08-18)
+
+## 0.5.68-dev.7 (2026-08-17)
+
+### Feat
+
+- **rag**: refactor knowledge bases (#2324)
+- **autonomous-agents**: restore Autonomous UI on the dynamic-agents architecture (Stage 2)
+- **autonomous**: gate feature surfaces behind flag
+- **webex**: enhance webhook registration logic for Webex bot
+- **webex**: further optimize Webex inbound bridge service for message tracking
+- **webex**: enhance Webex inbound bridge service for improved message tracking
+- **webex**: optimize Webex inbound bridge service for enhanced message tracking
+- **webex**: further enhance Webex inbound bridge service for message tracking
+- **webex**: refine Webex inbound bridge service for improved message tracking
+- **webex**: enhance Webex inbound bridge service functionality
+- **webex**: add Webex inbound bridge service
+- **webex**: improve Webex thread mapping for task execution
+- **webex**: enhance Webex thread mapping functionality
+- **webex**: implement Webex thread mapping for task runs
+- **autonomous**: add follow-up context handling for webhook tasks
+- **autonomous**: implement follow-up context for webhook tasks
+- **ui**: add agent dropdown selector in autonomous task form
+- **supervisor**: canonical webhook-task prompt templates (issue triage, PR review, push notify)
+- **supervisor**: create_autonomous_task returns callback_url + auto-generates webhook secret
+- **supervisor**: GitHub webhook management tools for chat-driven setup
+- **supervisor**: re-register autonomous-task management tools on unified deep_agent.py
+- **supervisor**: port autonomous-agents preflight handler to unified agent_executor.py
+- **ui**: chat-driven task creation from "+ New Chat" on Autonomous tab
+- **supervisor**: autonomous-task management tools (Phase 3)
+- **autonomous-agents+ui**: scheduled fires render full A2A timeline (Phase B)
+- **autonomous-agents+ui**: bidirectional autonomous chat (typed messages share supervisor context with scheduled fires)
+- **ui**: autonomous tab as real chat conversations (no Mongo required)
+- **ui+autonomous-agents**: pre-flight badge, per-task chat link, live next-run
+- **autonomous-agents**: per-task chat threads with typed message kinds
+- **autonomous-agents**: supervisor preflight ack on task create/update
+- **autonomous_agents**: pin sub-agent routing via in-band prompt directive (IMP-06)
+- **compose**: wire autonomous-agents service for one-command end-to-end testing
+- **autonomous_agents**: admin-gate the UI proxy and hide writes from view-only users (IMP-19)
+- **ui/autonomous**: deep-link run rows to chat conversations (IMP-18)
+- **autonomous_agents**: publish autonomous runs into UI chat history (IMP-13)
+- **autonomous_agents**: circuit breaker around supervisor A2A call (IMP-16) (#9)
+- **autonomous-agents**: harden webhook signing (global secret + replay window) (#7)
+- **autonomous-agents**: add UI tab for managing autonomous tasks (#6)
+- **autonomous-agents**: TaskStore + full CRUD + scheduler hot-reload + CORS hardening (#5)
+- **autonomous-agents**: per-task timeout and max_retries overrides
+- **autonomous-agents**: retry transient supervisor failures with exponential backoff
+- **autonomous-agents**: add MongoDB settings and run_store factory
+- **autonomous-agents**: add MongoRunStore implementation
+- **autonomous-agents**: add RunStore protocol with in-memory impl
+- **autonomous-agents**: fix lint, add uv.lock and README
+- starting new feature for cron autonomous agents
+
+### Fix
+
+- **autonomous-agents**: gate unpublished chat links
+- **autonomous-agents**: authenticate dynamic agent calls
+- address autonomous agents review feedback
+- **autonomous-ui**: remove duplicate Sparkles import from merge
+- **autonomous-agents**: enforce run-history ownership and add admin-only access gate
+- **lint**: remove unused import, variable, and bare f-string
+- **autonomous-agents**: follow-up route verifies signatures with global secret + github wire shape
+- **ui/autonomous**: preserve dynamic_agent_id on form round-trip
+- **autonomous-agents**: stream dynamic-agent runs so chat threads render the full breakdown
+- **compose**: make webex-bot env vars optional to allow startup without profile
+- **webex**: handle empty string secret in Webex signature verification
+- **autonomous**: ignore GitHub webhook pings
+- **ui**: finalize replayed autonomous timelines
+- **autonomous-agents**: tolerate empty CORS_ORIGINS from Docker env
+- **ui**: repair merge fallout for autonomous chat flows
+- **docker**: normalize caipe-ui entrypoint for Windows CRLF checkouts
+- **ui**: allow local autonomous admin access
+- **ui**: restore chat-store type safety
+- **ui**: scheduled-run chat messages render plan + tools timeline (replay)
+- **ui**: autonomous chat thread auto-appends new scheduled runs (15s poll)
+- **ui**: "All" sidebar view shows autonomous chats with AUTO badge
+- **autonomous-agents+ui**: runs failed with 'str' has no get; agent now optional; upcoming-runs stats bar
+- **supervisor**: harden prompt_config loader (utf-8, env override, dict guard)
+- **autonomous-agents**: use UUIDv5 contextId for supervisor A2A calls
+- **compose**: make autonomous-agents profile self-contained and harden prod
+- **autonomous_agents**: normalise+sanitise agent hint once, use everywhere
+- **autonomous-ui**: unblock MongoDB-promoted admins and clear stuck loading state
+- **autonomous_agents**: address PR #10 bot feedback — redact context, harden indexes, resilient startup
+- **autonomous-agents**: reject inf/NaN on TaskDefinition.timeout_seconds
+- **autonomous-agents**: construct motor client with UTC-aware datetimes
+- **autonomous-agents**: add started_at index for global run listing
+- **autonomous-agents**: preserve full per-task run history in /tasks/{id}/runs
+- **autonomous-agents**: isolate run-store failures from task execution
+- **autonomous-agents**: add pythonpath = ["src"] to pytest config
+- **autonomous-agents**: use Literal types for discriminated union triggers
+- **autonomous-agents**: address critical bugs and review feedback
+- **autonomous-agents**: address critical bugs and review feedback
+- **autonomous-agents**: use uv sync --locked in Dockerfile
+- **autonomous-agents**: add history fallback and blocking config to A2A client
+- **autonomous-agents**: address code review nits
+- **autonomous-agents**: address all critical and medium review feedback
+- **helm**: make chart docs generation portable (#2383)
+
+### Refactor
+
+- **ci**: use native architecture prebuilds (#2385)
+- **autonomous-agents**: route tasks through dynamic-agents, drop supervisor
+- **webex**: integrate Webex functionality into autonomous-agents service
+- **config**: modify Settings initialization to prevent dotenv interference
+- **config**: update Settings initialization to handle legacy cors_origins
+- **tests**: unify test file structures and clean up code
+- **webex_bot**: split app.py into focused modules
+- **ui**: enhance TaskFormDialog agent selection styling
+- **autonomous-agents**: centralize MongoDB and require it at startup
+- **autonomous-agents+ui**: autonomous chat IS regular chat (one A2A pipeline, full timeline)
+- **autonomous-agents**: multi-stage non-root Dockerfile + hardening docs (#8)
+- **autonomous-agents**: drop redundant run_id index and reword motor import
+- **autonomous-agents**: wire scheduler and tasks routes to RunStore
+
+### Perf
+
+- **autonomous-agents**: reuse a single httpx client across A2A retries
+
+## 0.5.68-dev.6 (2026-08-13)
+
+### Fix
+
+- **helm**: pin third-party MCP image versions (#2381)
+- **ui**: add workflows breadcrumbs (#2379)
+
+## 0.5.68-dev.5 (2026-08-12)
+
+### Fix
+
+- **ui**: prevent sidebar collapse flash (#2378)
+
+## 0.5.68-dev.4 (2026-08-12)
+
+### Feat
+
+- **ui**: unify application navigation and settings (#2235)
+
+## 0.5.68-dev.3 (2026-08-12)
+
+### Fix
+
+- **docs**: migrate canonical links to caipe.io (#2374)
+- **ci**: skip UI test comments for fork PRs (#2376)
+- **ui**: stop failed conversation deletes from silently reappearing (#2371)
+
+## 0.5.68-dev.2 (2026-08-12)
+
+### Fix
+
+- **auth**: enforce catalog credential boundaries (#2375)
+- **ci**: rag prebuild wrong the whole time
+- try again???
+- **docs**: show mobile navigation menu (#2364)
+- **docs**: make site responsive across viewports (#2362)
+- **docs**: publish site at caipe.io root (#2361)
+- ci-rag was wrong the entire time. this is great. this is life
+- **ci**: PR comment with prebuild images permission was broken...............
+- **skills**: repair zip import ownership and file access
+
+## 0.5.68-dev.1 (2026-08-08)
+
+## 0.5.68 (2026-08-06)
 
 ### Feat
 

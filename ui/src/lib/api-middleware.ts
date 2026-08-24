@@ -263,7 +263,7 @@ export function clearSessionAuthCacheForTests(): void {
   sessionAuthCache.clear();
 }
 
-function resolveKeycloakSubFromSession(session: { sub?: unknown; accessToken?: unknown }): string | null {
+export function resolveKeycloakSubFromSession(session: { sub?: unknown; accessToken?: unknown }): string | null {
   if (typeof session.sub === 'string' && session.sub.trim()) {
     return session.sub.trim();
   }
@@ -488,6 +488,18 @@ function resolveLegacyWithAuthRbacPolicy(request: NextRequest): RouteRbacPolicy 
   }
   if (pathname.startsWith('/api/catalog-api-keys')) {
     return { resource: 'skill', scope: 'configure' };
+  }
+  // Autonomous-agents proxy is intentionally per-user, NOT admin-gated (see
+  // app/api/autonomous/[...path]/route.ts): any chat-capable user may manage
+  // their OWN tasks — per-task ownership is enforced by the autonomous
+  // service (`_assert_task_access`) and per-agent authorization by
+  // dynamic-agents/CAS (`can_use` / `can_schedule`). Without this mapping the
+  // default below admin-gates every non-GET call, 403ing regular users before
+  // the request ever reaches the backend. The admin-only oversight surface
+  // (`/api/autonomous/oversight`) is unaffected — it does not use withAuth
+  // and enforces `admin_ui#view` itself.
+  if (pathname.startsWith('/api/autonomous')) {
+    return { resource: 'chat', scope: 'invoke' };
   }
 
   if (pathname.startsWith('/api/skills/seed')) {
@@ -801,6 +813,20 @@ function organizationRelationFor(resource: RbacResource, scope: RbacScope): stri
   if (resource === 'admin_ui') {
     return scope === 'view' || scope === 'audit.view' ? 'can_audit' : 'can_manage';
   }
+  if (resource === 'rag') {
+    // RAG has three independent organization-level gates. Keep the coarse
+    // route capability aligned with the operation; object-level source and
+    // collection checks are applied separately by the route handlers.
+    if (scope === 'query' || scope === 'invoke' || scope === 'kb.query') {
+      return 'can_search';
+    }
+    if (scope === 'ingest' || scope === 'create' || scope === 'kb.ingest') {
+      return 'can_ingest';
+    }
+    if (scope === 'view' || scope === 'read' || scope === 'use' || scope === 'tool.view') {
+      return 'can_use';
+    }
+  }
   if (resource === 'skill') {
     // Skills are a self-service member feature. Browsing/running AND authoring
     // (create/configure) plus minting the caller's own catalog API keys are
@@ -824,11 +850,11 @@ function organizationRelationFor(resource: RbacResource, scope: RbacScope): stri
 function resourceScopedTupleFor(
   resource: RbacResource,
   scope: RbacScope,
-  subject: string
+  principal: string,
 ): { user: string; relation: string; object: string } | null {
   if (resource === 'rag' && scope === 'admin') {
     return {
-      user: `user:${subject}`,
+      user: principal,
       relation: 'can_manage',
       object: 'admin_surface:rag_datasources',
     };
@@ -879,6 +905,7 @@ export async function requireRbacPermission(
     role?: string;
     user?: { email?: string };
     principalType?: SessionAuthSession['principalType'];
+    isServiceAccount?: boolean;
   },
   resource: RbacResource,
   scope: RbacScope,
@@ -886,6 +913,9 @@ export async function requireRbacPermission(
   const accessToken = session.accessToken;
   const email = session.user?.email;
   const subject = session.sub;
+  const principal = subject
+    ? `${session.isServiceAccount === true ? 'service_account' : 'user'}:${subject}`
+    : null;
 
   if (session.principalType === 'catalog_api_key' || session.principalType === 'skills_api_key') {
     throw new ApiError(
@@ -964,7 +994,9 @@ export async function requireRbacPermission(
     return;
   }
 
-  const resourceScopedTuple = subject ? resourceScopedTupleFor(resource, scope, subject) : null;
+  const resourceScopedTuple = principal
+    ? resourceScopedTupleFor(resource, scope, principal)
+    : null;
   if (resourceScopedTuple) {
     try {
       const result = await checkOpenFgaTuple(resourceScopedTuple);
@@ -1028,7 +1060,7 @@ export async function requireRbacPermission(
   const relation = organizationRelationFor(resource, scope);
   const object = organizationObjectId();
   const tuple = {
-    user: `user:${subject}`,
+    user: principal ?? 'user:unknown',
     relation,
     object,
   };
@@ -1494,7 +1526,7 @@ export async function requireConversationAccess(
   conversationId: string,
   userId: string,
   getCollectionFn: (name: string) => Promise<Collection<ConversationAccessDocument>>,
-  session?: { role?: string; sub?: string }
+  session?: { role?: string; sub?: string; canViewAdmin?: boolean }
 ): Promise<ConversationAccessResult> {
   const conversations = await getCollectionFn('conversations');
   const conversation = await conversations.findOne({ _id: conversationId });
@@ -1566,8 +1598,9 @@ export async function requireConversationAccess(
     };
   }
 
-  // Admins get read-only audit access to any conversation
-  if (session?.role === 'admin') {
+  // Admins and sessions explicitly allowed to view admin data get read-only
+  // audit access to any conversation.
+  if (session?.role === 'admin' || session?.canViewAdmin === true) {
     return { conversation, access_level: 'admin_audit' };
   }
 

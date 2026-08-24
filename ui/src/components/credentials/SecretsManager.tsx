@@ -6,6 +6,7 @@ import { Eye, EyeOff, Info, RefreshCw, Share2, Trash2, X } from "lucide-react";
 import React from "react";
 
 import { Button } from "@/components/ui/button";
+import { WorkspacePageActions } from "@/components/layout/WorkspacePageActions";
 
 import { principalLabel, SecretProtectionBadge } from "./SecretProtectionDetails";
 import { SecretSharingPanel } from "./SecretSharingPanel";
@@ -221,11 +222,11 @@ export function SecretsManager() {
 
   return (
     <section className="space-y-6">
-      <div className="flex justify-end">
+      <WorkspacePageActions>
         <Button type="button" onClick={() => setCreateOpen(true)}>
           Add Secret
         </Button>
-      </div>
+      </WorkspacePageActions>
 
       {createOpen && (
         <div

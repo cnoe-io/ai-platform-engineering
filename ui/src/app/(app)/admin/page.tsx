@@ -11,6 +11,7 @@ TopCreatorsCard,
 VisibilityBreakdown,
 } from "@/components/admin/insights/SkillMetricsCards";
 import { AsyncStatsCard } from "@/components/admin/insights/AsyncStatsCard";
+import { AutonomousOversightTab } from "@/components/admin/autonomous/AutonomousOversightTab";
 import { ReviewConfigsTab } from "@/components/admin/settings/ReviewConfigsTab";
 import {
   AdminNavigation,
@@ -35,11 +36,13 @@ import { WebexSpaceRebacPanel } from "@/components/admin/rebac/WebexSpaceRebacPa
 import { AuditLogsTab } from "@/components/admin/security/AuditLogsTab";
 import { KeycloakMigrationHealthPanel } from "@/components/admin/security/KeycloakMigrationHealthPanel";
 import { MigrationTab } from "@/components/admin/security/MigrationTab";
+import { PublicationApprovalQueue } from "@/components/admin/security/PublicationApprovalQueue";
 import { AccessExplorerTab } from "@/components/admin/security/AccessExplorerTab";
 import { RbacSelfCheckTab } from "@/components/admin/security/RbacSelfCheckTab";
 import { UnifiedAuditTab } from "@/components/admin/security/UnifiedAuditTab";
 import { ImportAgentsFromConfigCard } from "@/components/admin/settings/ImportAgentsFromConfigCard";
 import { MCPCatalogSettingsCard } from "@/components/admin/settings/MCPCatalogSettingsCard";
+import { RagSettingsTab } from "@/components/admin/settings/RagSettingsTab";
 import { CardPagination } from "@/components/admin/shared/CardPagination";
 import { DateRangeFilter,presetToRange,type DateRange,type DateRangePreset } from "@/components/admin/shared/DateRangeFilter";
 import { FeedbackTrendChart,type FeedbackTrendPoint } from "@/components/admin/shared/FeedbackTrendChart";
@@ -59,6 +62,10 @@ import { PlatformAccessSettings } from "@/components/settings/sections/PlatformA
 import { PlatformAnnouncementsSettings } from "@/components/settings/sections/PlatformAnnouncementsSettings";
 import { PlatformDefaultsSettings } from "@/components/settings/sections/PlatformDefaultsSettings";
 import { Button } from "@/components/ui/button";
+import {
+  BuiltInResourceHint,
+  builtInTeamHelpText,
+} from "@/components/ui/built-in-resource-hint";
 import { CAIPESpinner } from "@/components/ui/caipe-spinner";
 import { Card,CardContent,CardDescription,CardHeader,CardTitle } from "@/components/ui/card";
 import {
@@ -502,6 +509,8 @@ function AdminPage() {
       // Agents subtab (Import Agents from Config) is an admin-only action.
       agents: effectiveOrganizationAdmin,
       mcp: effectiveOrganizationAdmin,
+      autonomous: effectiveOrganizationAdmin && Boolean(getConfig('autonomousAgentsEnabled')),
+      rag: effectiveOrganizationAdmin,
       // Identity Sync tab: superadmin-only (reuses the identity_group_sync
       // OpenFGA surface) AND only when an IdP directory connector is enabled.
       identity_sync: Boolean(gates.identity_group_sync && getConfig('oktaSyncEnabled')),
@@ -1421,7 +1430,7 @@ function AdminPage() {
           <WorkspacePageHeader
             actions={(
               <>
-                {isAdmin ? (
+                {isAdmin && (
                   <button
                     type="button"
                     onClick={() => setSimulationDialogOpen(true)}
@@ -1438,11 +1447,6 @@ function AdminPage() {
                       'View as'
                     )}
                   </button>
-                ) : (
-                  <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/15 px-3 py-1 text-xs font-medium text-amber-600 dark:text-amber-400">
-                    <Eye className="h-3.5 w-3.5" />
-                    Read-Only
-                  </span>
                 )}
                 <CrawlConsoleHeaderPill />
               </>
@@ -1676,9 +1680,24 @@ function AdminPage() {
                 </TabsContent>
               )}
 
+              {tabGateValues.autonomous && (
+                <TabsContent value="autonomous" className="space-y-4">
+                  <AutonomousOversightTab />
+                </TabsContent>
+              )}
+
               {tabGateValues.mcp && (
                 <TabsContent value="mcp" className="space-y-4">
                   <MCPCatalogSettingsCard
+                    isAdmin={effectiveOrganizationAdmin}
+                    readOnly={isSimulationActive}
+                  />
+                </TabsContent>
+              )}
+
+              {tabGateValues.rag && (
+                <TabsContent value="rag" className="space-y-4">
+                  <RagSettingsTab
                     isAdmin={effectiveOrganizationAdmin}
                     readOnly={isSimulationActive}
                   />
@@ -1831,6 +1850,7 @@ function AdminPage() {
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {gridTeams.map((team) => {
+                      const builtInHelp = builtInTeamHelpText(team.slug);
                       return (
                       <Card key={team._id} className={cn(team.status === 'archived' && "opacity-60")}>
                         <CardHeader>
@@ -1838,6 +1858,9 @@ function AdminPage() {
                             <div>
                               <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                                 <CardTitle className="text-lg min-w-0 break-words">{team.name}</CardTitle>
+                                {builtInHelp && (
+                                  <BuiltInResourceHint text={builtInHelp} />
+                                )}
                                 {team.status === 'archived' && <ArchivedBadge />}
                                 {(team.idp_source_types?.length ?? 0) > 0 && (
                                   <IdpSyncedBadge sourceTypes={team.idp_source_types!} />
@@ -3104,6 +3127,12 @@ function AdminPage() {
                 </TabsContent>
               )}
 
+              {tabGateValues.approvals && (
+                <TabsContent value="approvals" className="space-y-4">
+                  <PublicationApprovalQueue readOnly={isSimulationActive} />
+                </TabsContent>
+              )}
+
               {tabGateValues.openfga && (
                 <TabsContent value="access-explorer" className="space-y-4">
                   <AccessExplorerTab isAdmin={canMutateAdminData} />
@@ -3145,6 +3174,7 @@ function AdminPage() {
         team={selectedTeam}
         mode={teamDialogMode}
         open={teamDetailsOpen}
+        canManageOrganization={canMutateAdminData}
         onOpenChange={setTeamDetailsOpen}
         onTeamUpdated={() => refreshAfterTeamMutation()}
         onTeamMutated={(updatedTeam) => {
