@@ -626,6 +626,12 @@ export function PublicationApprovalQueue({ readOnly = false }: PublicationApprov
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) {
+        if (response.status === 409 && body?.data?.conflict) {
+          const reason = body?.data?.request?.decision_note?.trim();
+          throw new Error(reason || "This request changed after it was submitted and could not be approved.", {
+            cause: "conflict",
+          });
+        }
         throw new Error(body?.error || body?.data?.error || `Could not ${decision} request`);
       }
       toast(decision === "approve" ? "Publication approved." : "Publication rejected.", "success");
@@ -635,6 +641,9 @@ export function PublicationApprovalQueue({ readOnly = false }: PublicationApprov
       await load();
     } catch (error) {
       toast(error instanceof Error ? error.message : `Could not ${decision} request`, "error", 6000);
+      if (error instanceof Error && error.cause === "conflict") {
+        await load();
+      }
     } finally {
       setActingId(null);
     }

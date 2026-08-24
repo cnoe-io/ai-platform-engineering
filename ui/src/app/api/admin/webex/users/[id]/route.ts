@@ -51,7 +51,7 @@ export const DELETE = withErrorHandler(
     const { session } = await getAuthFromBearerOrSession(request);
     await requireRbacPermission(session, "admin_ui", "admin");
 
-    await mergeUserAttributes(keycloakUserId, { webex_user_id: undefined });
+    await mergeUserAttributes(keycloakUserId, { webex_user_id: undefined, webex_user_email: undefined });
     return successResponse({ revoked: true, keycloak_user_id: keycloakUserId });
   }
 );
