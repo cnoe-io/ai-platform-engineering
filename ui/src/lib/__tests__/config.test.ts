@@ -613,7 +613,7 @@ describe('getServerConfig', () => {
       expect(getServerConfig().defaultTheme).toBe('dark');
     });
 
-    it.each(['light', 'dark', 'system', 'midnight', 'nord', 'tokyo', 'cyberpunk', 'tron', 'matrix'] as const)(
+    it.each(['light', 'legacy-light', 'dark', 'system', 'midnight', 'nord', 'tokyo', 'cyberpunk', 'tron', 'matrix'] as const)(
       'should accept valid value "%s"',
       (theme) => {
         process.env.DEFAULT_THEME = theme;

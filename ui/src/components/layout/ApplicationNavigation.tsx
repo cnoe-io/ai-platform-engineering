@@ -30,6 +30,7 @@ import { useHydrated } from "@/hooks/use-hydrated";
 import { config,getLogoFilterClass } from "@/lib/config";
 import { cn } from "@/lib/utils";
 import { resolveChatNavigationPath,useChatStore } from "@/store/chat-store";
+import { motion,useReducedMotion } from "framer-motion";
 import {
   Bot,
   CalendarClock,
@@ -117,12 +118,21 @@ function ChatActivityBadge({
 
 function ApplicationNavigationContents({
   collapsed,
+  layoutScope,
 }: {
   collapsed: boolean;
+  /**
+   * Distinguishes the rail's always-mounted instance from the mobile
+   * drawer's instance so their shared-layout active-item indicators
+   * (layoutId below) don't fight each other if both are ever mounted
+   * at once.
+   */
+  layoutScope: "rail" | "drawer";
 }): React.ReactElement {
   const contextualNavigationId = React.useId();
   const pathname = usePathname();
   const hydrated = useHydrated();
+  const shouldReduceMotion = useReducedMotion();
   const { data: session } = useSession();
   const { isAdmin } = useAdminRole();
   const { canUseAutonomous } = useAutonomousCapability();
@@ -266,13 +276,25 @@ function ApplicationNavigationContents({
             <>
               <span
                 className={cn(
-                  "relative flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors",
+                  "relative isolate flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors",
                   active
-                    ? "gradient-primary-br text-white shadow-sm"
+                    ? "text-white shadow-sm"
                     : "bg-muted text-muted-foreground group-hover:bg-background group-hover:text-foreground",
                 )}
               >
-                <Icon aria-hidden="true" className="h-3.5 w-3.5" />
+                {active ? (
+                  <motion.span
+                    aria-hidden="true"
+                    className="absolute inset-0 -z-10 rounded-lg gradient-primary-br shadow-sm"
+                    layoutId={`nav-active-icon-${layoutScope}`}
+                    transition={
+                      shouldReduceMotion
+                        ? { duration: 0 }
+                        : { type: "spring",stiffness: 420,damping: 32,mass: 0.75 }
+                    }
+                  />
+                ) : null}
+                <Icon aria-hidden="true" className="relative z-10 h-3.5 w-3.5" />
                 {chatBadge}
               </span>
               {!collapsed ? (
@@ -443,6 +465,11 @@ function ApplicationBrand({
               </span>
             ))}
           </span>
+          <Sparkles
+            aria-hidden="true"
+            className="brand-sparkle pointer-events-none absolute -right-3 -top-2 h-4 w-4"
+            strokeWidth={1.75}
+          />
         </span>
       ) : null}
     </GuardedNavigationLink>
@@ -466,13 +493,13 @@ export function ApplicationNavigationRail(): React.ReactElement {
   return (
     <aside
       className={cn(
-        "hidden h-full shrink-0 flex-col border-r border-border/60 bg-background/70 backdrop-blur-xl xl:flex",
+        "app-navigation-surface hidden h-full shrink-0 flex-col border-r border-border/60 bg-background/70 backdrop-blur-xl xl:flex",
         collapsed ? "w-[4.25rem]" : "w-64",
       )}
     >
       <ApplicationBrand collapsed={collapsed} />
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-4 pt-2">
-        <ApplicationNavigationContents collapsed={collapsed} />
+        <ApplicationNavigationContents collapsed={collapsed} layoutScope="rail" />
       </div>
       <div
         className={cn(
@@ -495,14 +522,14 @@ export function ApplicationNavigationDrawer(): React.ReactElement | null {
       onOpenChange={applicationNavigation.setMobileNavigationOpen}
       open={applicationNavigation.mobileNavigationOpen}
     >
-      <DialogContent className="left-0 top-0 flex h-dvh w-[min(20rem,90vw)] max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none border-y-0 border-l-0 p-0 sm:rounded-none">
+      <DialogContent className="app-navigation-surface left-0 top-0 flex h-dvh w-[min(20rem,90vw)] max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none border-y-0 border-l-0 p-0 sm:rounded-none">
         <DialogHeader className="sr-only">
           <DialogTitle>Navigation</DialogTitle>
           <DialogDescription>Choose a CAIPE destination.</DialogDescription>
         </DialogHeader>
         <ApplicationBrand collapsed={false} />
         <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4">
-          <ApplicationNavigationContents collapsed={false} />
+          <ApplicationNavigationContents collapsed={false} layoutScope="drawer" />
         </div>
       </DialogContent>
     </Dialog>
@@ -529,7 +556,7 @@ export function MobileApplicationBrand(): React.ReactElement {
   return (
     <GuardedNavigationLink
       aria-label={`${config.appName} home`}
-      className="flex min-w-0 items-center gap-2 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring xl:hidden"
+      className="brand-link flex min-w-0 items-center gap-2 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring xl:hidden"
       href="/"
     >
       <Image
@@ -541,8 +568,15 @@ export function MobileApplicationBrand(): React.ReactElement {
         unoptimized
         width={36}
       />
-      <span className="gradient-text hidden truncate text-lg font-bold sm:inline">
-        {config.appName}
+      <span className="brand-lockup relative hidden min-w-0 sm:inline-block">
+        <span className="gradient-text truncate text-lg font-bold">
+          {config.appName}
+        </span>
+        <Sparkles
+          aria-hidden="true"
+          className="brand-sparkle pointer-events-none absolute -right-2.5 -top-1.5 h-3.5 w-3.5"
+          strokeWidth={1.75}
+        />
       </span>
     </GuardedNavigationLink>
   );

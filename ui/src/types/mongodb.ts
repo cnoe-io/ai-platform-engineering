@@ -228,7 +228,7 @@ export interface UserSettings {
   _id?: ObjectId;
   user_id: string; // User email
   preferences: {
-    theme: 'light' | 'dark' | 'system' | 'midnight' | 'nord' | 'tokyo' | 'cyberpunk' | 'tron' | 'matrix';
+    theme: 'light' | 'legacy-light' | 'dark' | 'system' | 'midnight' | 'nord' | 'tokyo' | 'cyberpunk' | 'tron' | 'matrix';
     gradient_theme: 'default' | 'minimal' | 'professional' | 'ocean' | 'sunset' | 'cyberpunk' | 'tron' | 'matrix';
     font_family: 'inter' | 'source-sans' | 'ibm-plex' | 'system';
     font_size: 'small' | 'medium' | 'large' | 'x-large';
@@ -248,6 +248,12 @@ export interface UserSettings {
     releaseNotesNotificationsEnabled?: boolean;
     releaseNotesDismissedVersions?: string[];
     releaseNotesDismissedAnnouncementIds?: string[];
+    /** Ids of Home page widgets the user has enabled, in display order. */
+    home_widgets?: string[];
+    /** Schema version used to migrate widget defaults without undoing explicit removals. */
+    home_widgets_version?: number;
+    /** Which Home page layout the user sees — the new default, or the previous fixed layout. */
+    home_experience?: "new" | "classic";
   };
   notifications: {
     email_enabled: boolean;
