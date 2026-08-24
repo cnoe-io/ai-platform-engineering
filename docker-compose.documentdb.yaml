@@ -1,0 +1,118 @@
+# DocumentDB persistence override for the CAIPE OSS validation deployment.
+#
+# Keep this file after docker-compose.yaml and docker-compose.caipe-oss.yaml in
+# the Compose command. The bundled MongoDB service remains available as a
+# rollback source, while every CAIPE workload is directed to DocumentDB.
+
+x-documentdb-environment: &documentdb-environment
+  MONGODB_URI: >-
+    mongodb://${MONGODB_ROOT_USERNAME:-admin}:${MONGODB_ROOT_PASSWORD:-changeme}@caipe-documentdb:10260/${MONGODB_DATABASE:-caipe}?authSource=admin&tls=true&tlsAllowInvalidCertificates=true&retryWrites=false&directConnection=true
+
+services:
+  caipe-documentdb:
+    # v0.114 has a known two-hour connection regression. Keep the validation
+    # deployment on v0.113 until a release containing the upstream fix exists.
+    image: ghcr.io/documentdb/documentdb/documentdb-local:pg17-0.113.0
+    container_name: caipe-documentdb
+    restart: unless-stopped
+    environment:
+      USERNAME: ${MONGODB_ROOT_USERNAME:-admin}
+      PASSWORD: ${MONGODB_ROOT_PASSWORD:-changeme}
+      INIT_DATA: "false"
+      ENABLE_TELEMETRY: "false"
+      TLS_MODE: allowTLS
+    volumes:
+      - documentdb_data:/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          pg_isready -q -h 127.0.0.1 -p 9712 -U documentdb -d postgres &&
+          pgrep -f '^./target/release-with-symbols/documentdb_gateway ' >/dev/null
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 45s
+    profiles:
+      - caipe-mongodb
+
+  caipe-ui:
+    environment:
+      <<: *documentdb-environment
+    depends_on:
+      caipe-documentdb:
+        condition: service_healthy
+
+  dynamic-agents:
+    environment:
+      <<: *documentdb-environment
+    depends_on:
+      caipe-documentdb:
+        condition: service_healthy
+
+  web_ingestor:
+    environment:
+      <<: *documentdb-environment
+    depends_on:
+      caipe-documentdb:
+        condition: service_healthy
+
+  rag-server:
+    environment:
+      <<: *documentdb-environment
+    depends_on:
+      caipe-documentdb:
+        condition: service_healthy
+
+  mcp-argocd:
+    environment:
+      <<: *documentdb-environment
+
+  mcp-backstage:
+    environment:
+      <<: *documentdb-environment
+
+  mcp-confluence:
+    environment:
+      <<: *documentdb-environment
+
+  mcp-gitlab:
+    environment:
+      <<: *documentdb-environment
+
+  mcp-jira:
+    environment:
+      <<: *documentdb-environment
+
+  mcp-komodor:
+    environment:
+      <<: *documentdb-environment
+
+  mcp-netutils:
+    environment:
+      <<: *documentdb-environment
+
+  mcp-pagerduty:
+    environment:
+      <<: *documentdb-environment
+
+  mcp-slack:
+    environment:
+      <<: *documentdb-environment
+
+  mcp-splunk:
+    environment:
+      <<: *documentdb-environment
+
+  mcp-victorops:
+    environment:
+      <<: *documentdb-environment
+
+  mcp-webex:
+    environment:
+      <<: *documentdb-environment
+
+volumes:
+  documentdb_data:
+    external: true
+    name: caipe-oss_documentdb_data
