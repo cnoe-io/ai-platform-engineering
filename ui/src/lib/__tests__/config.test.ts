@@ -102,7 +102,7 @@ describe('getServerConfig', () => {
       expect(cfg.appName).toBe('CAIPE');
       expect(cfg.logoUrl).toBe('/logo.svg');
       expect(cfg.envBadge).toBe('');
-      expect(cfg.globalSearchPlacement).toBe('header-right');
+      expect(cfg.globalSearchPlacement).toBe('sidebar');
       expect(cfg.gradientFrom).toBe('hsl(173,80%,40%)');
       expect(cfg.gradientTo).toBe('hsl(270,75%,60%)');
       expect(cfg.logoStyle).toBe('default');
@@ -330,9 +330,9 @@ describe('getServerConfig', () => {
       },
     );
 
-    it('falls back to header-right for an unsupported value', () => {
+    it('falls back to sidebar for an unsupported value', () => {
       process.env.GLOBAL_SEARCH_PLACEMENT = 'floating';
-      expect(getServerConfig().globalSearchPlacement).toBe('header-right');
+      expect(getServerConfig().globalSearchPlacement).toBe('sidebar');
     });
 
     it('supports the legacy NEXT_PUBLIC prefix', () => {

@@ -25,6 +25,7 @@ PopoverTrigger,
 } from "@/components/ui/popover";
 import { UserMenu } from "@/components/user-menu";
 import { useAdminRole } from "@/hooks/use-admin-role";
+import { useGlobalSearchPlacement } from "@/hooks/use-global-search-placement";
 import { useKeycloakHealthSummary } from "@/hooks/use-keycloak-health-summary";
 import { useMigrationStatus } from "@/hooks/use-migration-status";
 import { useReleaseUpgradePrompt } from "@/hooks/use-release-upgrade-prompt";
@@ -82,6 +83,7 @@ export function getApplicationBreadcrumbs(
 }
 
 export function AppHeader() {
+  const globalSearchPlacement = useGlobalSearchPlacement();
   const pathname = usePathname();
   const router = useRouter();
   const breadcrumbSlot = useHeaderBreadcrumbSlot();
@@ -258,7 +260,7 @@ export function AppHeader() {
         ) : null}
       </div>
 
-      {config.globalSearchPlacement === "header-center" ? (
+      {globalSearchPlacement === "header-center" ? (
         <div className="absolute left-1/2 hidden w-[min(34rem,42vw)] -translate-x-1/2 xl:block">
           <ApplicationNavigationSearchTrigger variant="center" />
         </div>
@@ -418,10 +420,10 @@ export function AppHeader() {
 
         {/* Personalization, Links & User */}
         <div className="flex items-center gap-1">
-          {config.globalSearchPlacement === "header-right" ? (
+          {globalSearchPlacement === "header-right" ? (
             <ApplicationNavigationSearchTrigger />
           ) : null}
-          {config.globalSearchPlacement === "header-center" ? (
+          {globalSearchPlacement === "header-center" ? (
             <div className="xl:hidden">
               <ApplicationNavigationSearchTrigger />
             </div>

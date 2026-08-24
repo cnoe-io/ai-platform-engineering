@@ -895,7 +895,7 @@ caipe-ui:
     # Environment badge (e.g. "Dev", "Preview", "Staging", "Prod"; empty = hidden)
     ENV_BADGE: ""
     # Global search trigger placement: sidebar, header-right, or header-center.
-    GLOBAL_SEARCH_PLACEMENT: "header-right"
+    GLOBAL_SEARCH_PLACEMENT: "sidebar"
     # Header link URLs (leave empty/commented to hide)
     # DOCS_URL: "https://your-docs-site.com"
     # SOURCE_URL: "https://github.com/your-org/your-repo"

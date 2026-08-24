@@ -23,6 +23,14 @@
  *   also checks NEXT_PUBLIC_ prefixed names for backward compatibility.
  */
 
+import {
+  DEFAULT_GLOBAL_SEARCH_PLACEMENT,
+  GLOBAL_SEARCH_PLACEMENTS,
+  type GlobalSearchPlacement,
+} from '@/lib/global-search-placement';
+
+export type { GlobalSearchPlacement } from '@/lib/global-search-placement';
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -31,8 +39,6 @@
  * Client-safe configuration — only these fields are sent to the browser.
  * NEVER add secrets, credentials, or internal infrastructure details here.
  */
-export type GlobalSearchPlacement = 'sidebar' | 'header-right' | 'header-center';
-
 export interface Config {
   /** RAG Server URL for knowledge base operations */
   ragUrl: string;
@@ -227,13 +233,10 @@ const DEFAULT_FONT_SIZE = 'medium';
 const DEFAULT_FONT_FAMILY = 'inter';
 const DEFAULT_THEME = 'dark';
 const DEFAULT_GRADIENT_THEME = 'default';
-const DEFAULT_GLOBAL_SEARCH_PLACEMENT: GlobalSearchPlacement = 'header-right';
-
 const VALID_FONT_SIZES = ['small', 'medium', 'large', 'x-large'];
 const VALID_FONT_FAMILIES = ['inter', 'source-sans', 'ibm-plex', 'system'];
 const VALID_THEMES = ['light', 'legacy-light', 'dark', 'system', 'midnight', 'nord', 'tokyo', 'cyberpunk', 'tron', 'matrix'];
 const VALID_GRADIENT_THEMES = ['default', 'minimal', 'professional', 'ocean', 'sunset', 'cyberpunk', 'tron', 'matrix'];
-const VALID_GLOBAL_SEARCH_PLACEMENTS: GlobalSearchPlacement[] = ['sidebar', 'header-right', 'header-center'];
 
 /** Default config used as client fallback before the layout script executes. */
 const DEFAULT_CONFIG: Config = {
@@ -464,7 +467,7 @@ export function getServerConfig(): Config {
     sourceUrl: env('SOURCE_URL') || null,
     globalSearchPlacement: validated(
       env('GLOBAL_SEARCH_PLACEMENT'),
-      VALID_GLOBAL_SEARCH_PLACEMENTS,
+      [...GLOBAL_SEARCH_PLACEMENTS],
       DEFAULT_GLOBAL_SEARCH_PLACEMENT,
     ) as GlobalSearchPlacement,
     workflowRunnerEnabled,

@@ -13,11 +13,13 @@ const AGENTS = [
 
 function installFetchMock({
   defaultAgentId = null,
+  globalSearchPlacement = "sidebar",
   patchSuccess = true,
   scheduleEditorAgentId = null,
   source = "db",
 }: {
   defaultAgentId?: string | null;
+  globalSearchPlacement?: "sidebar" | "header-right" | "header-center";
   patchSuccess?: boolean;
   scheduleEditorAgentId?: string | null;
   source?: string;
@@ -34,6 +36,7 @@ function installFetchMock({
     if (path.includes("/api/admin/platform-config") && init?.method === "PATCH") {
       const body = JSON.parse(String(init.body)) as {
         default_agent_id?: string | null;
+        global_search_placement?: "sidebar" | "header-right" | "header-center";
         schedule_editor_agent_id?: string | null;
       };
       return {
@@ -46,6 +49,9 @@ function installFetchMock({
                 default_agent_id: Object.prototype.hasOwnProperty.call(body,"default_agent_id")
                   ? body.default_agent_id
                   : defaultAgentId,
+                global_search_placement:
+                  body.global_search_placement ?? globalSearchPlacement,
+                global_search_placement_source: "db",
                 schedule_editor_agent_id:
                   Object.prototype.hasOwnProperty.call(body,"schedule_editor_agent_id")
                     ? body.schedule_editor_agent_id
@@ -64,6 +70,8 @@ function installFetchMock({
           success: true,
           data: {
             default_agent_id: defaultAgentId,
+            global_search_placement: globalSearchPlacement,
+            global_search_placement_source: source,
             schedule_editor_agent_id: scheduleEditorAgentId,
             schedule_editor_agent_source: source,
             source,
@@ -109,6 +117,28 @@ describe("PlatformDefaultsSettings",() => {
       expect(schedulePicker).toHaveTextContent("Basic SRE");
     });
     expect(screen.queryByRole("button",{ name: /^save$/i })).not.toBeInTheDocument();
+  });
+
+  it("auto-saves a platform-wide global search placement",async () => {
+    const fetchMock = installFetchMock();
+    render(<PlatformDefaultsSettings />);
+
+    expect(
+      await screen.findByRole("radio",{ name: /Left navigation/i }),
+    ).toHaveAttribute("aria-checked","true");
+    fireEvent.click(screen.getByRole("radio",{ name: /Top center/i }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/admin/platform-config",
+        expect.objectContaining({
+          method: "PATCH",
+          body: JSON.stringify({ global_search_placement: "header-center" }),
+        }),
+      );
+      expect(screen.getByRole("radio",{ name: /Top center/i }))
+        .toHaveAttribute("aria-checked","true");
+    });
   });
 
   it("disables the platform agent picker in read-only simulation",async () => {
