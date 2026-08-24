@@ -1,5 +1,3 @@
-[[31mERROR[0m] - (starship::print): Under a 'dumb' terminal (TERM=dumb).
-[[31mERROR[0m] - (starship::print): Under a 'dumb' terminal (TERM=dumb).
 // MongoDB collection type definitions
 
 import type { StreamEvent } from "@/lib/streaming/types";
