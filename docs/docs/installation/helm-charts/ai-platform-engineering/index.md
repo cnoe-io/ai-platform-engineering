@@ -241,7 +241,6 @@ helm show values oci://ghcr.io/cnoe-io/charts/ai-platform-engineering --version 
 | global.externalSecrets.apiVersion | string | `"v1beta1"` |  |
 | global.externalSecrets.enabled | bool | `false` |  |
 | global.image | object | `{"channel":"","tag":""}` | Global image tag override. When set, overrides the default appVersion-based image tag for ALL subcharts (MCP servers, dynamic agents, UI, etc.) in a single place. Individual subchart `image.tag` values still take highest precedence. |
-| global.image.channel | string | `""` | Image repository channel for maintained CAIPE images. Empty means auto: rc/hotfix/dev chart appVersions use `pre-release/`, final release appVersions use the root published image repositories. Set to `pre-release` or `release` to force either repository channel. |
 | global.llmSecrets.create | bool | `false` |  |
 | global.llmSecrets.secretName | string | `"llm-secret"` |  |
 | global.mcp.vpa.controlledResources[0] | string | `"cpu"` |  |
