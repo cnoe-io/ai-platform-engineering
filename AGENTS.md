@@ -16,7 +16,7 @@ ai_platform_engineering/   # Python backend
   utils/                   # Shared utilities
 ui/                        # Next.js frontend
 docs/                      # Documentation site (Docusaurus)
-docker-compose/            # Docker configs for services
+docker-compose*.yaml       # Canonical Docker Compose configurations
 tests/                     # Repo-level + RBAC tests
 scripts/                   # Utility scripts
 charts/                    # Helm charts
