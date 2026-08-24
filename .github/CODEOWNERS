@@ -1,13 +1,13 @@
 # Default owners for the repository. More specific rules below take precedence.
-* @sriaradhyula @subbaksh @kevkantes @cisco-erilutz @artdroz
+* @caipe-io/caipe-maintainers
 
 # Backend components
-/ai_platform_engineering/dynamic_agents/ @sriaradhyula @subbaksh @kevkantes @cisco-erilutz
-/ai_platform_engineering/knowledge_bases/rag/ @sriaradhyula @cisco-erilutz @kevkantes @subbaksh
+/ai_platform_engineering/dynamic_agents/ @caipe-io/caipe-agents-maintainers
+/ai_platform_engineering/knowledge_bases/rag/ @caipe-io/caipe-kb-rag-maintainers
 
 # Deployment
-/charts/ @sriaradhyula @suwhang-cisco
+/charts/ @caipe-io/caipe-helm-maintainers
 
 # Chat integrations
-/ai_platform_engineering/integrations/slack_bot/ @cisco-erilutz @sriaradhyula @kevkantes
-/ai_platform_engineering/integrations/webex_bot/ @sriaradhyula @subbaksh @kevkantes
+/ai_platform_engineering/integrations/slack_bot/ @caipe-io/caipe-slackbot-maintainers
+/ai_platform_engineering/integrations/webex_bot/ @caipe-io/caipe-webexbot-maintainers
