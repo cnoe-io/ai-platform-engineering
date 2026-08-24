@@ -425,14 +425,14 @@ export function AppHeader() {
             <>
               <Button
                 aria-label="Provide Feedback"
-                className="h-8 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+                className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                data-testid="header-provide-feedback"
                 onClick={() => setFeedbackDialogOpen(true)}
-                size="sm"
+                size="icon"
                 title="Provide Feedback"
                 variant="ghost"
               >
-                <MessageSquareText className="h-3.5 w-3.5" />
-                <span className="hidden lg:inline">Provide Feedback</span>
+                <MessageSquareText aria-hidden="true" className="h-4 w-4" />
               </Button>
               <ReportProblemDialog
                 open={feedbackDialogOpen}

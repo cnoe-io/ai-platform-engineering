@@ -927,6 +927,10 @@ describe('AppHeader — application chrome', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Provide Feedback' }))
 
       expect(screen.getByTestId('provide-feedback-dialog')).toBeInTheDocument()
+      expect(screen.getByTestId('header-provide-feedback')).toHaveAttribute(
+        'title',
+        'Provide Feedback',
+      )
     })
 
     it('renders UserMenu', () => {
