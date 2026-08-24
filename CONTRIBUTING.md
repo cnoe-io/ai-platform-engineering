@@ -88,6 +88,21 @@ prebuild container images for the PR — for example
 Without the prefix the standard CI build runs instead, and no prebuild image is
 published.
 
+## Plan the Right Amount
+
+- For ordinary fixes and focused features, open or reference a GitHub Issue,
+  make the smallest coherent change, and submit a focused PR.
+- For a cross-cutting architecture or product change, start a GitHub Discussion
+  or Issue and add a short current design document or ADR under `docs/`. Record
+  the problem, the decision, the important tradeoffs, and the affected
+  components; avoid generated task-by-task plans.
+- Keep current architecture in `docs/docs/architecture/`, security architecture
+  in `docs/docs/security/`, and component details in the owning README.
+
+Historical implementation plans are available from Git tags and repository
+history. They are not current product documentation or required contribution
+artifacts.
+
 ## Local Checks
 
 Run the relevant checks before opening a PR. These are the same commands CI runs.
