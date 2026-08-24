@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Link from '@docusaurus/Link';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import Layout from '@theme/Layout';
@@ -83,9 +83,15 @@ const HOME_FEATURES = [
     to: '/features',
   },
   {
+    icon: '🧩',
+    title: 'Portable Agent Runtimes (Preview)',
+    description: 'Dynamic Agents stays compatible while Harness Engine adapters add Claude Agent SDK, AgentCore, and future runtimes.',
+    to: '/features',
+  },
+  {
     icon: '🎨',
     title: 'Rich Web UI',
-    description: 'Streaming chat, agent builder, skills gateway, and admin controls.',
+    description: 'Customizable Home, global search, streaming chat, agent builder, skills, schedules, and admin controls.',
     to: '/features',
   },
   {
@@ -115,7 +121,7 @@ const HOME_FEATURES = [
   {
     icon: '⚙️',
     title: 'Deterministic Workflows',
-    description: 'Multi-step dynamic-agent pipelines with persisted run history and artifacts.',
+    description: 'Build and schedule multi-step agent pipelines with persisted run history and artifacts.',
     to: '/features',
   },
   {
@@ -184,6 +190,29 @@ const AGENTS = [
   'ArgoCD', 'PagerDuty', 'GitHub', 'GitLab', 'Jira', 'Confluence',
   'Kubernetes', 'Slack', 'Webex', 'Splunk', 'VictorOps', 'Komodor',
   'Backstage', 'AWS', 'Weather',
+];
+
+const PRODUCT_TOUR_HIGHLIGHTS = [
+  {
+    icon: '⌘',
+    title: 'Find anything',
+    description: 'Search pages, agents, chats, skills, and actions from one command palette.',
+  },
+  {
+    icon: '🤖',
+    title: 'Choose the right agent',
+    description: 'Pick an agent from Home and see which execution harness powers it.',
+  },
+  {
+    icon: '⚙️',
+    title: 'Automate the work',
+    description: 'Build multi-agent workflows and schedule recurring jobs from the Web UI.',
+  },
+  {
+    icon: '🔔',
+    title: 'Stay in control',
+    description: 'Tune themes, accessibility, completion alerts, and platform notifications.',
+  },
 ];
 
 function HeroSection() {
@@ -455,23 +484,87 @@ function VisionSection() {
 }
 
 
-function VideoSection() {
+function ProductTourSection() {
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const syncPlayback = () => {
+      const video = videoRef.current;
+      if (!video) return;
+      if (reducedMotion.matches) {
+        video.pause();
+        video.currentTime = 0;
+      } else {
+        video.play().catch(() => {});
+      }
+    };
+    syncPlayback();
+    reducedMotion.addEventListener('change', syncPlayback);
+    return () => reducedMotion.removeEventListener('change', syncPlayback);
+  }, []);
+
   return (
-    <section className={styles.quickstart}>
-      <div className={styles.quickstartInner}>
-        <div className={styles.sectionHeader} style={{textAlign: 'left', marginBottom: '1.5rem'}}>
-          <p className={styles.sectionLabel}>See It In Action</p>
-          <Heading as="h2" className={styles.sectionTitle}>
-            Watch the demo
+    <section className={styles.productTour}>
+      <div className={styles.productTourInner}>
+        <div className={styles.productTourCopy}>
+          <p className={styles.sectionLabel}>Product preview</p>
+          <Heading as="h2" className={styles.productTourTitle}>
+            One place to build, run, and manage AI agents
           </Heading>
+          <p className={styles.productTourSubtitle}>
+            Explore the next CAIPE Web experience: a focused home, global search,
+            harness-aware agent selection, workflows, schedules, and configurable notifications.
+          </p>
+          <div className={styles.productTourHighlights}>
+            {PRODUCT_TOUR_HIGHLIGHTS.map((highlight) => (
+              <div key={highlight.title} className={styles.productTourHighlight}>
+                <span className={styles.productTourIcon} aria-hidden="true">{highlight.icon}</span>
+                <div>
+                  <strong>{highlight.title}</strong>
+                  <span>{highlight.description}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+          <p className={styles.productTourNote}>
+            Preview features may require an enabled integration or a newer CAIPE release.
+          </p>
+          <div className={styles.productTourActions}>
+            <Link className={styles.heroPrimary} to="/features">
+              Explore features →
+            </Link>
+            <Link
+              className={styles.heroSecondaryDark}
+              href="https://app.vidcast.io/share/embed/e0033e26-46bf-4298-8c20-0a2fd1746073"
+            >
+              Watch the full demo ▶
+            </Link>
+          </div>
         </div>
-        <div style={{position: 'relative', paddingBottom: '56.25%', height: 0, overflow: 'hidden', borderRadius: '12px'}}>
-          <iframe
-            src="https://app.vidcast.io/share/embed/e0033e26-46bf-4298-8c20-0a2fd1746073"
-            style={{position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', border: 0}}
-            allowFullScreen
-            title="CAIPE Demo"
-          />
+        <div className={styles.productTourMedia}>
+          <div className={styles.productTourChrome} aria-hidden="true">
+            <span />
+            <span />
+            <span />
+            <strong>CAIPE product tour</strong>
+          </div>
+          <video
+            ref={videoRef}
+            className={styles.productTourVideo}
+            autoPlay
+            loop
+            muted
+            playsInline
+            controls
+            preload="metadata"
+            poster="/media/caipe-product-tour-poster.jpg"
+            aria-label="CAIPE product preview showing Home, global search, agent selection, workflows, schedules, appearance, and notifications"
+          >
+            <source src="/media/caipe-product-tour.webm" type="video/webm" />
+            <source src="/media/caipe-product-tour.mp4" type="video/mp4" />
+            Your browser does not support embedded video. Use the full demo link instead.
+          </video>
         </div>
       </div>
     </section>
@@ -505,7 +598,7 @@ export default function Home() {
     >
       <main>
         <HeroSection />
-        <VideoSection />
+        <ProductTourSection />
         <InTheWildSection />
         <VisionSection />
         <FeaturesSection />

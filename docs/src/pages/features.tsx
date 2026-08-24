@@ -19,6 +19,17 @@ const FEATURES = [
     ],
   },
   {
+    title: 'Portable Agent Runtimes (Preview)',
+    icon: '🧩',
+    color: '#7c3aed',
+    items: [
+      'Harness Engine defines portable contracts for sessions, memory, tools, prompts, streaming, sandboxes, and multi-agent execution',
+      'Dynamic Agents remains the default LangChain Deep Agents runtime and keeps its existing API behavior',
+      'Provider adapters preview Claude Agent SDK and Amazon Bedrock AgentCore without coupling the Web UI to one runtime',
+      'Harness-aware agent selection keeps one Web, CLI, Slack, and Webex entry point as adapters reach feature parity',
+    ],
+  },
+  {
     title: 'Workflows',
     icon: '🔁',
     color: '#0d9488',
@@ -29,6 +40,7 @@ const FEATURES = [
       'Per-step error handling: abort, skip, or retry with configurable attempts',
       'MongoDB-backed workflow configs, run history, event timelines, and artifacts',
       'Custom agents can trigger and monitor approved workflows as built-in tools',
+      'Recurring schedules and external triggers run approved automations without an open browser session',
     ],
   },
   {
@@ -75,11 +87,13 @@ const FEATURES = [
     icon: '🎨',
     color: '#7c3aed',
     items: [
-      'Rich/Contextual Home Page',
+      'Customizable Home with Quick Start actions and an agent-aware prompt composer',
+      'Command K / Control K search across pages, agents, chats, skills, and actions',
       'Rich Chat Interface with live agent/tool status via streaming',
       'Share chat with teams · Archive/Delete chats',
       'Custom Agent Builder',
       'Skills Gateway — AI Assist, API access, security scanner, GitHub crawling',
+      'Theme, accessibility, browser completion alerts, and platform notifications',
     ],
   },
   {
@@ -98,7 +112,7 @@ const FEATURES = [
     icon: '💾',
     color: '#059669',
     items: [
-      'Chat persistence memory with multi-turn conversation',
+      'Thread persistence and multi-turn conversation history',
       'Fact extraction across chats for a user',
     ],
   },
