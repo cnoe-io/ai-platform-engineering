@@ -8,17 +8,17 @@ A Helm chart for Autonomous Agents - Standalone scheduler that fires tasks (cron
 
 | | |
 |---|---|
-| **Version** | `0.4.10-dev.1` |
+| **Version** | `0.6.0` |
 | **Type** | application |
 
 ## Quick Start
 
 ```bash
 # Add and install the chart
-helm install autonomous-agents oci://ghcr.io/cnoe-io/charts/autonomous-agents --version 0.4.10-dev.1
+helm install autonomous-agents oci://ghcr.io/cnoe-io/charts/autonomous-agents --version 0.6.0
 
 # Upgrade an existing release
-helm upgrade autonomous-agents oci://ghcr.io/cnoe-io/charts/autonomous-agents --version 0.4.10-dev.1
+helm upgrade autonomous-agents oci://ghcr.io/cnoe-io/charts/autonomous-agents --version 0.6.0
 ```
 
 ## Customizing Values
@@ -27,15 +27,15 @@ Override default values using `--set` flags or a custom values file:
 
 ```bash
 # Override individual values
-helm install autonomous-agents oci://ghcr.io/cnoe-io/charts/autonomous-agents --version 0.4.10-dev.1 \
+helm install autonomous-agents oci://ghcr.io/cnoe-io/charts/autonomous-agents --version 0.6.0 \
   --set replicaCount=2
 
 # Use a custom values file
-helm install autonomous-agents oci://ghcr.io/cnoe-io/charts/autonomous-agents --version 0.4.10-dev.1 \
+helm install autonomous-agents oci://ghcr.io/cnoe-io/charts/autonomous-agents --version 0.6.0 \
   -f custom-values.yaml
 
 # Show all configurable values
-helm show values oci://ghcr.io/cnoe-io/charts/autonomous-agents --version 0.4.10-dev.1
+helm show values oci://ghcr.io/cnoe-io/charts/autonomous-agents --version 0.6.0
 ```
 
 ## Reading the Values Table

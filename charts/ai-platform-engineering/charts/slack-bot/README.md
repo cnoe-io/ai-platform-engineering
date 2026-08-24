@@ -8,17 +8,17 @@ Slack bot integration for AI Platform Engineering using the CAIPE UI BFF
 
 | | |
 |---|---|
-| **Version** | `0.5.68` |
+| **Version** | `0.6.0` |
 | **Type** | application |
 
 ## Quick Start
 
 ```bash
 # Add and install the chart
-helm install slack-bot oci://ghcr.io/cnoe-io/charts/slack-bot --version 0.5.68
+helm install slack-bot oci://ghcr.io/cnoe-io/charts/slack-bot --version 0.6.0
 
 # Upgrade an existing release
-helm upgrade slack-bot oci://ghcr.io/cnoe-io/charts/slack-bot --version 0.5.68
+helm upgrade slack-bot oci://ghcr.io/cnoe-io/charts/slack-bot --version 0.6.0
 ```
 
 ## Customizing Values
@@ -27,15 +27,15 @@ Override default values using `--set` flags or a custom values file:
 
 ```bash
 # Override individual values
-helm install slack-bot oci://ghcr.io/cnoe-io/charts/slack-bot --version 0.5.68 \
+helm install slack-bot oci://ghcr.io/cnoe-io/charts/slack-bot --version 0.6.0 \
   --set replicaCount=2
 
 # Use a custom values file
-helm install slack-bot oci://ghcr.io/cnoe-io/charts/slack-bot --version 0.5.68 \
+helm install slack-bot oci://ghcr.io/cnoe-io/charts/slack-bot --version 0.6.0 \
   -f custom-values.yaml
 
 # Show all configurable values
-helm show values oci://ghcr.io/cnoe-io/charts/slack-bot --version 0.5.68
+helm show values oci://ghcr.io/cnoe-io/charts/slack-bot --version 0.6.0
 ```
 
 ## Reading the Values Table
@@ -80,6 +80,7 @@ helm show values oci://ghcr.io/cnoe-io/charts/slack-bot --version 0.5.68
 | securityContext.runAsUser | int | `1001` |  |
 | securityContext.seccompProfile.type | string | `"RuntimeDefault"` |  |
 | serviceAccount.annotations | object | `{}` |  |
+| serviceAccount.automount | bool | `false` |  |
 | serviceAccount.create | bool | `true` |  |
 | serviceAccount.name | string | `""` |  |
 | tolerations | list | `[]` |  |
