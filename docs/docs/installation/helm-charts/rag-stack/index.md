@@ -63,7 +63,7 @@ helm show values oci://ghcr.io/cnoe-io/charts/rag-stack --version 0.5.68
 | agent-ontology.enabled | bool | `true` |  |
 | agent-ontology.fullnameOverride | string | `"agent-ontology"` |  |
 | agent-ontology.image.pullPolicy | string | `"Always"` |  |
-| agent-ontology.image.repository | string | `"ghcr.io/cnoe-io/caipe-rag-agent-ontology"` |  |
+| agent-ontology.image.repository | string | `"ghcr.io/caipe-io/caipe-rag-agent-ontology"` |  |
 | agent-ontology.image.tag | string | `""` |  |
 | agent-ontology.livenessProbe.failureThreshold | int | `3` |  |
 | agent-ontology.livenessProbe.httpGet.path | string | `"/v1/graph/ontology/agent/status"` |  |
@@ -211,7 +211,7 @@ helm show values oci://ghcr.io/cnoe-io/charts/rag-stack --version 0.5.68
 | rag-server.envFrom | list | `[]` |  |
 | rag-server.fullnameOverride | string | `"rag-server"` |  |
 | rag-server.image.pullPolicy | string | `"Always"` |  |
-| rag-server.image.repository | string | `"ghcr.io/cnoe-io/caipe-rag-server"` |  |
+| rag-server.image.repository | string | `"ghcr.io/caipe-io/caipe-rag-server"` |  |
 | rag-server.image.tag | string | `""` |  |
 | rag-server.podAnnotations | object | `{}` |  |
 | rag-server.resources.limits.cpu | string | `"500m"` |  |

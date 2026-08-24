@@ -56,14 +56,15 @@ The parent `ai-platform-engineering` chart can deploy this MCP server as a
 standalone Kubernetes service. Enable it with Helm values, then point CAIPE UI
 at the in-cluster service.
 
-Dev or prebuild values:
+Use the canonical image repositories for every lifecycle. Select a temporary
+prebuild or released artifact with the tag only:
 
 ```yaml
 litellmMcp:
   enabled: true
   image:
-    repository: ghcr.io/cnoe-io/prebuild/mcp-litellm
-    tag: "<prebuild-tag>"
+    repository: ghcr.io/caipe-io/mcp-litellm
+    tag: "<prebuild-or-release-tag>"
   config:
     LITELLM_API_URL: "https://litellm.prod.outshift.ai"
     LITELLM_API_TIMEOUT: "120"
@@ -72,41 +73,8 @@ litellmMcp:
 
 dynamic-agents:
   image:
-    repository: ghcr.io/cnoe-io/prebuild/caipe-dynamic-agents
-    tag: "<prebuild-tag>"
-
-caipe-ui:
-  appConfig:
-    mcp_servers:
-      - id: litellm
-        name: LiteLLM
-        description: LiteLLM FinOps reporting tools
-        transport: http
-        endpoint: http://ai-platform-engineering-litellm-mcp:8000/mcp/
-        enabled: true
-```
-
-If the Helm release name is not `ai-platform-engineering`, update the endpoint
-host to match the rendered LiteLLM MCP Service name.
-
-Prod values use released images instead of prebuild images:
-
-```yaml
-litellmMcp:
-  enabled: true
-  image:
-    repository: ghcr.io/cnoe-io/mcp-litellm
-    tag: "<release-version>"
-  config:
-    LITELLM_API_URL: "https://litellm.prod.outshift.ai"
-    LITELLM_API_TIMEOUT: "120"
-    LITELLM_VERIFY_SSL: "true"
-  existingSecret: "litellm-mcp-secret"
-
-dynamic-agents:
-  image:
-    repository: ghcr.io/cnoe-io/caipe-dynamic-agents
-    tag: "<release-version>"
+    repository: ghcr.io/caipe-io/caipe-dynamic-agents
+    tag: "<prebuild-or-release-tag>"
 
 caipe-ui:
   appConfig:

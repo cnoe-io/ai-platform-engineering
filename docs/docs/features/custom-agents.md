@@ -18,7 +18,7 @@ Dynamic Agents is the chat runtime and agent-builder service.
 - MCP tool support: connect registered MCP servers over `stdio` or streamable `http`
 - Built-in tools include URL fetch, current datetime, user info, wait, and approved workflow execution
 - REST + SSE API for browser, bot, workflow, and service callers
-- Deploy via Helm: `oci://ghcr.io/cnoe-io/charts/dynamic-agents`
+- Deploy via Helm: `oci://ghcr.io/caipe-io/charts/dynamic-agents`
 
 ## Agent Builder UI
 

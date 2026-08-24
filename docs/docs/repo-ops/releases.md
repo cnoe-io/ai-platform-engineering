@@ -56,7 +56,7 @@ gh workflow run release-finalize.yml \
 
 This workflow:
 - Promotes `x.y.z-rc.N` → `x.y.z`
-- Publishes the Helm chart to `oci://ghcr.io/cnoe-io/charts/ai-platform-engineering`
+- Publishes the Helm chart to `oci://ghcr.io/caipe-io/charts/ai-platform-engineering`
 - Creates a GitHub Release with auto-generated notes
 
 ---

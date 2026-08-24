@@ -72,7 +72,7 @@ rag-server:
   enabled: true
   fullnameOverride: "rag-server"
   image:
-    repository: "ghcr.io/cnoe-io/caipe-rag-server"
+    repository: "ghcr.io/caipe-io/caipe-rag-server"
     # tag defaults to .Chart.AppVersion when not specified
     tag: ""
     pullPolicy: Always
@@ -128,7 +128,7 @@ agent-ontology:
   enabled: true
   fullnameOverride: "agent-ontology"
   image:
-    repository: "ghcr.io/cnoe-io/caipe-rag-agent-ontology"
+    repository: "ghcr.io/caipe-io/caipe-rag-agent-ontology"
     # tag defaults to .Chart.AppVersion when not specified
     tag: ""
     pullPolicy: "Always"

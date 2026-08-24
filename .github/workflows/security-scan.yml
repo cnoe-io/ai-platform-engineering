@@ -186,7 +186,7 @@ jobs:
         uses: anchore/scan-action@e1165082ffb1fe366ebaf02d8526e7c4989ea9d2 # v7.4.0
         id: scan
         with:
-          image: "ghcr.io/cnoe-io/${{ matrix.image }}:${{ steps.tag.outputs.tag }}"
+          image: "ghcr.io/caipe-io/${{ matrix.image }}:${{ steps.tag.outputs.tag }}"
           fail-build: false
           severity-cutoff: high
           output-format: sarif
