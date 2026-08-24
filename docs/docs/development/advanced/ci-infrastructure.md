@@ -16,26 +16,24 @@ automation on the same package reference from prebuild through final release.
 
 ```mermaid
 flowchart LR
-  PR[prebuild/* pull request] --> PREBUILD[prebuild-*.yml]
-  MAIN[main merge] --> TAG[auto-tag.yml]
-  RELEASE[release/* merge] --> TAG
-  HOTFIX[release/x.y.z-hotfix merge] --> TAG
+  SOURCE["1 · Source events<br/>prebuild PR · main · release/*"]
+  SELECTOR["2 · Lifecycle selector<br/>temporary · dev · rc · hotfix · final"]
+  PUBLISH["3 · Publish workflows<br/>prebuild-* · ci-* · ci-helm"]
+  GHCR["4 · Canonical public GHCR<br/>images · charts"]
+  CONSUMERS["5 · Consumers<br/>Compose · Helm · Argo CD"]
 
-  PREBUILD --> IMAGE[Image CI]
-  PREBUILD --> CHART[Helm CI]
-  TAG --> IMAGE
-  TAG --> CHART
+  SOURCE --> SELECTOR --> PUBLISH --> GHCR --> CONSUMERS
+```
 
-  IMAGE --> IPKG[ghcr.io/caipe-io/image-name]
-  CHART --> HPKG[ghcr.io/caipe-io/charts/chart-name]
+Prebuild cleanup is a separate lifecycle around the same canonical packages:
 
-  IPKG --> CONSUMERS[Compose, Helm, and Argo CD]
-  HPKG --> CONSUMERS
-
-  PR --> CLOSE[PR merged or closed]
-  CLOSE --> CLEANUP[prebuild-image-cleanup.yml]
-  CLEANUP --> IPKG
-  CLEANUP --> HPKG
+```mermaid
+flowchart LR
+  OPEN["PR opened or updated"] --> PUBLISHED["Temporary selectors published"]
+  PUBLISHED --> TESTED["Artifacts tested"]
+  TESTED --> CLOSED["PR merged or closed"]
+  CLOSED --> CLEANUP["Temporary selectors deleted"]
+  CLEANUP --> PACKAGE["Canonical packages remain"]
 ```
 
 ## Package Model
