@@ -34,7 +34,7 @@ on:
         default: ''
 
 env:
-  IMAGE_NAME: ${{ github.repository_owner }}/prebuild/caipe-slack-bot
+  IMAGE_NAME: ${{ github.repository_owner }}/caipe-slack-bot
 
 permissions:
   contents: write

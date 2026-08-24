@@ -20,12 +20,12 @@ Please ensure commits conform to the [Commit Guideline](https://www.conventional
 - [ ] Documentation
 - [ ] Other (please describe)
 
-## Pre-release Helm Charts (Optional)
+## Temporary Helm Charts (Optional)
 
-For chart changes, you can test pre-release versions before merging:
-- **Base repo contributors:** Create a branch starting with `prebuild/` for automatic pre-release builds
+For chart changes, you can test temporary versions before merging:
+- **Base repo contributors:** Create a branch starting with `prebuild/` for automatic prebuilds
 - **Fork contributors:** Ask a maintainer to add the `helm-prerelease` label
-- Pre-release charts are published to `ghcr.io/cnoe-io/pre-release-helm-charts`
+- Temporary charts are published to `ghcr.io/cnoe-io/charts` with PR-specific versions
 - Cleanup happens automatically when the PR closes or label is removed
 
 ## Checklist
