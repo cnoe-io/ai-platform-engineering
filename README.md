@@ -38,7 +38,7 @@ We’re excited to collaborate with you!
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=cnoe-io/ai-platform-engineering&type=Date)](https://www.star-history.com/#cnoe-io/ai-platform-engineering&Date)
+![CAIPE GitHub star history](.github/star-history.svg)
 
 ## Contributors
 
