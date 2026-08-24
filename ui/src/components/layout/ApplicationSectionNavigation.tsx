@@ -1,7 +1,10 @@
 "use client";
 
 import { AdminNavigation } from "@/components/admin/workspace/AdminNavigation";
-import { filterAdminCategories } from "@/components/admin/workspace/admin-routes";
+import {
+  filterAdminCategories,
+  findAdminDestinationByPath,
+} from "@/components/admin/workspace/admin-routes";
 import { CREDENTIALS_GROUPS } from "@/components/credentials/navigation";
 import {
   buildDynamicAgentNavigationGroups,
@@ -64,6 +67,8 @@ function KnowledgeApplicationNavigation(): React.ReactElement {
 }
 
 function AdminApplicationNavigation(): React.ReactElement | null {
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { isAdmin } = useAdminRole();
   const { gates,loading } = useAdminTabGates();
   if (loading) return null;
@@ -78,11 +83,21 @@ function AdminApplicationNavigation(): React.ReactElement | null {
     mcp: isAdmin,
     identity_sync: Boolean(gates.identity_group_sync && config.oktaSyncEnabled),
   });
+  const visibleDestinations = categories.flatMap(
+    (category) => category.destinations,
+  );
+  const requestedDestination = findAdminDestinationByPath(pathname);
+  const activeDestination = requestedDestination && visibleDestinations.some(
+    (destination) => destination.id === requestedDestination.id,
+  )
+    ? requestedDestination
+    : visibleDestinations[0];
 
   return categories.length > 0 ? (
     <AdminNavigation
+      activeDestination={activeDestination}
       categories={categories}
-      searchParams={new URLSearchParams()}
+      searchParams={new URLSearchParams(searchParams.toString())}
     />
   ) : null;
 }

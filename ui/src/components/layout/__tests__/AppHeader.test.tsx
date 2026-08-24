@@ -69,26 +69,35 @@ jest.mock('@/hooks/use-autonomous-capability', () => ({
   }),
 }))
 
+let mockAdminTabGates = {
+  dynamic_agent_conversations: false,
+  users: true,
+  teams: true,
+  skills: true,
+}
 jest.mock('@/hooks/useAdminTabGates', () => ({
   useAdminTabGates: () => ({
-    gates: { dynamic_agent_conversations: false },
+    gates: mockAdminTabGates,
     loading: false,
   }),
 }))
 
+let mockKbGates = {
+  search: true,
+  data_sources: true,
+  graph: true,
+  mcp_tools: true,
+  has_any_kb: true,
+  can_ingest: true,
+  can_search: true,
+}
+let mockKbGatesLoading = false
+let mockKbOrgAdminBypass = true
 jest.mock('@/hooks/use-kb-tab-gates', () => ({
   useKbTabGates: () => ({
-    gates: {
-      search: true,
-      data_sources: true,
-      graph: true,
-      mcp_tools: true,
-      has_any_kb: true,
-      can_ingest: true,
-      can_search: true,
-    },
-    loading: false,
-    orgAdminBypass: true,
+    gates: mockKbGates,
+    loading: mockKbGatesLoading,
+    orgAdminBypass: mockKbOrgAdminBypass,
   }),
 }))
 
@@ -171,6 +180,7 @@ jest.mock('@/lib/config', () => ({
     tagline: 'Test tagline',
     logoUrl: '/logo.svg',
     logoStyle: 'auto',
+    supportEmail: 'support@example.com',
     docsUrl: 'https://docs.example.com',
     githubUrl: 'https://github.com/example',
     ssoEnabled: true,
@@ -311,12 +321,15 @@ jest.mock('@/lib/utils', () => ({
 
 import { AppHeader } from '../AppHeader'
 import { ApplicationNavigationRail } from '../ApplicationNavigation'
+import { HeaderBreadcrumbSlotProvider } from '../HeaderBreadcrumbSlot'
+import { WorkspaceHierarchicalNavigationList } from '../WorkspaceNavigation'
 import {
   ApplicationNavigationProvider,
   useRegisterApplicationNavigation,
 } from '../ApplicationNavigationContext'
+import { Database,Users } from 'lucide-react'
 
-function AdminNavigationFixture() {
+function AdminNavigationFixture({ version = 'users' }: { version?: string }) {
   useRegisterApplicationNavigation({
     areaKey: 'admin',
     content: (
@@ -324,7 +337,7 @@ function AdminNavigationFixture() {
         <Link data-navigation-leaf="true" href="/admin/people/users">Users</Link>
       </nav>
     ),
-    version: 'users',
+    version,
   })
   return null
 }
@@ -391,9 +404,26 @@ describe('AppHeader — application chrome', () => {
     mockPathname = '/chat'
     mockIsAdmin = false
     mockCanAccessDynamicAgents = false
+    mockAdminTabGates = {
+      dynamic_agent_conversations: false,
+      users: true,
+      teams: true,
+      skills: true,
+    }
     mockCanUseAutonomous = false
     mockAutonomousAgentsEnabled = true
     mockRagEnabled = false
+    mockKbGates = {
+      search: true,
+      data_sources: true,
+      graph: true,
+      mcp_tools: true,
+      has_any_kb: true,
+      can_ingest: true,
+      can_search: true,
+    }
+    mockKbGatesLoading = false
+    mockKbOrgAdminBypass = true
     mockEnvBadge = ''
     mockStreamingConversations = new Map()
     mockUnviewedConversations = new Set()
@@ -472,6 +502,37 @@ describe('AppHeader — application chrome', () => {
 
   })
 
+  describe('header breadcrumbs', () => {
+    it('provides a section breadcrumb for routes without a page-specific trail', () => {
+      mockPathname = '/skills/workspace/new'
+
+      render(
+        <HeaderBreadcrumbSlotProvider>
+          <AppHeader />
+        </HeaderBreadcrumbSlotProvider>,
+      )
+
+      const slot = screen.getByTestId('app-header-breadcrumb-slot')
+      const breadcrumb = within(slot).getByRole('navigation', { name: 'Breadcrumb' })
+      expect(within(breadcrumb).getByText('Home')).toHaveAttribute('href', '/')
+      expect(within(breadcrumb).getByText('Skills')).toHaveAttribute('href', '/skills')
+    })
+
+    it('does not repeat Home as a breadcrumb on the Home route', () => {
+      mockPathname = '/'
+
+      render(
+        <HeaderBreadcrumbSlotProvider>
+          <AppHeader />
+        </HeaderBreadcrumbSlotProvider>,
+      )
+
+      expect(
+        within(screen.getByTestId('app-header-breadcrumb-slot')).queryByRole('navigation'),
+      ).not.toBeInTheDocument()
+    })
+  })
+
   describe('core tabs', () => {
     it('always shows Skills and Chat tabs', () => {
       render(<AppHeader />)
@@ -500,8 +561,11 @@ describe('AppHeader — application chrome', () => {
       expect(applicationButton('Agents')).toBeInTheDocument()
       const admin = applicationButton('Admin')
       expect(admin).toHaveAttribute('aria-expanded', 'true')
+      const adminPanel = document.getElementById(admin.getAttribute('aria-controls')!)
+      expect(adminPanel).not.toHaveClass('transition-[grid-template-rows,opacity]')
       expect(screen.getByRole('navigation', { name: 'Admin sections' })).toBeInTheDocument()
       fireEvent.click(admin)
+      expect(adminPanel).toHaveClass('transition-[grid-template-rows,opacity]')
       expect(screen.queryByRole('navigation', { name: 'Admin sections' })).not.toBeInTheDocument()
       fireEvent.click(admin)
       expect(screen.getByRole('navigation', { name: 'Admin sections' })).toBeInTheDocument()
@@ -533,7 +597,119 @@ describe('AppHeader — application chrome', () => {
       )
 
       expect(applicationButton('Admin')).toHaveAttribute('aria-expanded', 'false')
-      expect(applicationButton('Knowledge Bases')).toHaveAttribute('aria-expanded', 'true')
+      const knowledge = applicationButton('Knowledge Bases')
+      expect(knowledge).toHaveAttribute('aria-expanded', 'true')
+      const knowledgePanel = document.getElementById(knowledge.getAttribute('aria-controls')!)
+      expect(knowledgePanel).not.toHaveClass('transition-[grid-template-rows,opacity]')
+    })
+
+    it('keeps Admin expanded while its registered destination changes', () => {
+      mockStorageMode = 'mongodb'
+      mockIsAdmin = true
+      mockPathname = '/admin/people/users'
+
+      const { rerender } = render(
+        <AdminNavigationFixture key="users" version="users" />,
+      )
+
+      const navigation = screen.getByRole('navigation', { name: 'Admin sections' })
+      expect(applicationButton('Admin')).toHaveAttribute('aria-expanded', 'true')
+
+      rerender(
+        <AdminNavigationFixture key="skill-hubs" version="skill-hubs" />,
+      )
+
+      expect(applicationButton('Admin')).toHaveAttribute('aria-expanded', 'true')
+      expect(screen.getByRole('navigation', { name: 'Admin sections' })).toBe(navigation)
+    })
+
+    it('keeps the Admin navigation mounted through a page registration gap', () => {
+      mockStorageMode = 'mongodb'
+      mockIsAdmin = true
+      mockPathname = '/admin/people/users'
+
+      const { rerender } = render(<AdminNavigationFixture />)
+      const navigation = screen.getByRole('navigation', { name: 'Admin sections' })
+
+      rerender(<></>)
+
+      expect(applicationButton('Admin')).toHaveAttribute('aria-expanded', 'true')
+      expect(screen.getByRole('navigation', { name: 'Admin sections' }))
+        .toBe(navigation)
+    })
+
+    it('keeps the routed Admin category expanded while page navigation is unavailable', () => {
+      mockStorageMode = 'mongodb'
+      mockIsAdmin = true
+      mockPathname = '/admin/people/users'
+
+      const { rerender } = render(<AppHeader />)
+
+      const admin = applicationButton('Admin')
+      expect(admin).toHaveAttribute('aria-expanded', 'true')
+      expect(screen.getByRole('button', { name: 'Teams & Users' }))
+        .toHaveAttribute('aria-expanded', 'true')
+
+      mockPathname = '/admin/platform/skill-hubs'
+      rerender(<AppHeader />)
+
+      expect(admin).toHaveAttribute('aria-expanded', 'true')
+      expect(screen.getByRole('button', { name: 'Resources' }))
+        .toHaveAttribute('aria-expanded', 'true')
+      expect(screen.getByRole('link', { name: 'Skill Hubs' }))
+        .toHaveAttribute('aria-current', 'page')
+    })
+
+    it('animates manual category toggles but not route-driven category changes', () => {
+      const categories = [
+        {
+          id: 'people',
+          label: 'People group',
+          icon: Users,
+          groups: [{
+            id: 'people-items',
+            items: [{ id: 'users',label: 'Users',href: '/admin/people/users',icon: Users }],
+          }],
+        },
+        {
+          id: 'resources',
+          label: 'Resource group',
+          icon: Database,
+          groups: [{
+            id: 'resource-items',
+            items: [{
+              id: 'skill-hubs',
+              label: 'Skill Hubs',
+              href: '/admin/platform/skill-hubs',
+              icon: Database,
+            }],
+          }],
+        },
+      ]
+      const navigation = (activeCategoryId: string,activeItemId: string) => (
+        <WorkspaceHierarchicalNavigationList
+          activeCategoryId={activeCategoryId}
+          activeItemId={activeItemId}
+          categories={categories}
+          navigationLabel="Test admin sections"
+        />
+      )
+      const { rerender } = render(navigation('people','users'))
+      const resources = screen.getByRole('button', { name: 'Resource group' })
+      const resourcesPanel = document.getElementById(
+        resources.getAttribute('aria-controls')!,
+      )
+
+      expect(resourcesPanel).not.toHaveClass('transition-[grid-template-rows,opacity]')
+      fireEvent.click(resources)
+      expect(resourcesPanel).toHaveClass('transition-[grid-template-rows,opacity]')
+
+      rerender(navigation('resources','skill-hubs'))
+
+      expect(screen.getByRole('button', { name: 'People group' }))
+        .toHaveAttribute('aria-expanded', 'false')
+      expect(resources).toHaveAttribute('aria-expanded', 'true')
+      expect(resourcesPanel).not.toHaveClass('transition-[grid-template-rows,opacity]')
     })
 
     it('opens inactive section navigation on hover and highlights only the current item', () => {
@@ -581,6 +757,38 @@ describe('AppHeader — application chrome', () => {
       mockRagEnabled = false
       rerender(<AppHeader />)
       expect(screen.queryByText('Knowledge Bases')).not.toBeInTheDocument()
+    })
+
+    it('disables Knowledge Bases and shows only the access disclaimer when unavailable', () => {
+      mockRagEnabled = true
+      mockKbOrgAdminBypass = false
+      mockKbGates = {
+        search: false,
+        data_sources: false,
+        graph: false,
+        mcp_tools: false,
+        has_any_kb: false,
+        can_ingest: false,
+        can_search: false,
+      }
+
+      render(<AppHeader />)
+
+      const unavailable = within(applicationNavigation()).getByRole('button', {
+        name: 'Knowledge Bases: unavailable',
+      })
+      expect(unavailable).toHaveAttribute('aria-disabled', 'true')
+      expect(
+        screen.queryByRole('navigation', { name: 'Knowledge Base sections' }),
+      ).not.toBeInTheDocument()
+
+      fireEvent.click(unavailable)
+      expect(screen.getByText('Knowledge Bases unavailable')).toBeInTheDocument()
+      expect(screen.getByText(/don't have Knowledge Base access yet/)).toBeInTheDocument()
+      expect(screen.getByRole('link', { name: 'Contact admin' })).toHaveAttribute(
+        'href',
+        'mailto:support@example.com?subject=Test%20App%20access%20request',
+      )
     })
 
     it('shows Agents in MongoDB mode even without AD group access', () => {
@@ -635,9 +843,20 @@ describe('AppHeader — application chrome', () => {
       mockStorageMode = 'localStorage'
       render(<AppHeader />)
       expect(screen.getByText('Admin')).toBeInTheDocument()
+      const disabledAdmin = within(applicationNavigation()).getByRole('button', {
+        name: 'Admin: unavailable',
+      })
+      expect(disabledAdmin).toHaveAttribute('aria-disabled', 'true')
+
+      fireEvent.click(disabledAdmin)
+      expect(screen.getByText('Admin unavailable')).toBeInTheDocument()
       expect(
-        within(applicationNavigation()).getByRole('link', { name: 'Admin: unavailable' }),
-      ).toHaveAttribute('aria-disabled', 'true')
+        screen.getByText(/Admin tools require persistent platform storage/),
+      ).toBeInTheDocument()
+      expect(screen.getByRole('link', { name: 'Contact admin' })).toHaveAttribute(
+        'href',
+        'mailto:support@example.com?subject=Test%20App%20access%20request',
+      )
     })
 
     it('marks Admin as current on a nested Admin route for an admin user', () => {
