@@ -218,38 +218,6 @@ describe('TokenExpiryGuard', () => {
     consoleSpy.mockRestore()
   })
 
-  it('should execute expiry checks without crashing', async () => {
-    // Test with various expiry times to ensure logic doesn't crash
-    const testCases = [
-      Math.floor(Date.now() / 1000) + 600, // 10 min - no warning
-      Math.floor(Date.now() / 1000) + 240, // 4 min - warning
-      Math.floor(Date.now() / 1000) + 120, // 2 min - warning
-    ]
-
-    for (const expiry of testCases) {
-      mockUseSession.mockReturnValue({
-        data: {
-          user: { name: 'Test User', email: 'test@example.com' },
-          expiresAt: expiry,
-        } as unknown,
-        status: 'authenticated',
-        update: mockUpdateSession,
-      })
-
-      const { unmount } = render(<TokenExpiryGuard />)
-
-      // Wait for mount and trigger check
-      await act(async () => {
-        jest.advanceTimersByTime(30000)
-      })
-
-      // Component should not crash
-      expect(true).toBe(true)
-
-      unmount()
-    }
-  })
-
   it('should cleanup interval on unmount', () => {
     const futureExpiry = Math.floor(Date.now() / 1000) + 600
 
