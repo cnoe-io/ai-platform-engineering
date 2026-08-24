@@ -1,6 +1,7 @@
 import { ApiError } from "@/lib/api-middleware";
 import { authOptions } from "@/lib/auth-config";
-import { findRealmUserIdByAttribute,mergeUserAttributes } from "@/lib/rbac/keycloak-admin";
+import { mergeUserAttributes } from "@/lib/rbac/keycloak-admin";
+import { assertWebexIdNotLinkedToOtherUser } from "@/lib/rbac/webex-identity-link";
 import {
 consumeWebexLinkNonce,
 findValidWebexLinkNonce,
@@ -52,17 +53,6 @@ function buildNonceCallbackUrl(base: string, webexUserId: string, nonce: string)
   qs.set("webex_user_id", webexUserId);
   qs.set("nonce", nonce);
   return `${base}/api/auth/webex-link?${qs.toString()}`;
-}
-
-async function assertWebexIdNotLinkedToOtherUser(webexUserId: string, keycloakSub: string): Promise<void> {
-  const existingOwner = await findRealmUserIdByAttribute("webex_user_id", webexUserId);
-  if (existingOwner && existingOwner !== keycloakSub) {
-    throw new ApiError(
-      "This Webex account is already linked to a different enterprise user.",
-      409,
-      "WEBEX_ID_ALREADY_LINKED"
-    );
-  }
 }
 
 export async function GET(request: NextRequest) {

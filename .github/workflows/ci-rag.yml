@@ -53,7 +53,6 @@ jobs:
       should_build: ${{ steps.set-matrix.outputs.should_build }}
       should_retag: ${{ steps.set-matrix.outputs.should_retag }}
       tag_version: ${{ steps.version.outputs.tag_version }}
-      image_prefix: ${{ steps.set-matrix.outputs.image_prefix }}
       build_matrix: ${{ steps.set-matrix.outputs.build_matrix }}
       build_groups: ${{ steps.set-matrix.outputs.build_groups }}
       retag_matrix: ${{ steps.set-matrix.outputs.retag_matrix }}
@@ -166,12 +165,9 @@ jobs:
 
             let buildComponents = [];
             let retagComponents = [];
-            let imagePrefix = '';
-
             if (/-chart\.\d+$/.test(tag)) {
               console.log('📊 Chart-only tag: skipping image builds');
             } else {
-              if (/-(rc|hotfix)\.\d+$/.test(tag)) imagePrefix = 'pre-release/';
               const pre = tag.match(/-(dev|rc|hotfix)\.(\d+)$/);
               const preNum = pre ? parseInt(pre[2], 10) : 0;
 
@@ -207,7 +203,6 @@ jobs:
             core.setOutput('retag_matrix', JSON.stringify({ include: expand(retagComponents) }));
             core.setOutput('should_build', String(buildGroups.length > 0));
             core.setOutput('should_retag', String(retagComponents.length > 0));
-            core.setOutput('image_prefix', imagePrefix);
 
   # Build each component/variant natively per-platform (no QEMU emulation) and
   # push by digest only. merge-manifests (below) then stitches the per-arch
@@ -231,12 +226,12 @@ jobs:
     env:
       REGISTRY: ghcr.io
       # For slim variant, append -slim to image name suffix in tags (not the image name itself)
-      IMAGE_NAME: ${{ github.repository_owner }}/${{ needs.determine-changes.outputs.image_prefix }}caipe-rag-${{ matrix.component }}
+      IMAGE_NAME: ${{ github.repository_owner }}/caipe-rag-${{ matrix.component }}
       DOCKERFILE: ai_platform_engineering/knowledge_bases/rag/build/Dockerfile.${{ matrix.component }}
 
     steps:
       - name: 🔒 harden runner
-        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40  # v2.20.1
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c  # v2.21.0
         with:
           egress-policy: audit
 
@@ -282,7 +277,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
         with:
@@ -368,11 +363,11 @@ jobs:
 
     env:
       REGISTRY: ghcr.io
-      IMAGE_NAME: ${{ github.repository_owner }}/${{ needs.determine-changes.outputs.image_prefix }}caipe-rag-${{ matrix.component }}
+      IMAGE_NAME: ${{ github.repository_owner }}/caipe-rag-${{ matrix.component }}
 
     steps:
       - name: 🔒 harden runner
-        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40  # v2.20.1
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c  # v2.21.0
         with:
           egress-policy: audit
 
@@ -384,7 +379,7 @@ jobs:
           merge-multiple: true
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
@@ -434,12 +429,12 @@ jobs:
 
     env:
       REGISTRY: ghcr.io
-      IMAGE_NAME: ${{ github.repository_owner }}/${{ needs.determine-changes.outputs.image_prefix }}caipe-rag-${{ matrix.component }}
+      IMAGE_NAME: ${{ github.repository_owner }}/caipe-rag-${{ matrix.component }}
       DOCKERFILE: ai_platform_engineering/knowledge_bases/rag/build/Dockerfile.${{ matrix.component }}
 
     steps:
       - name: 🔒 Harden runner
-        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40  # v2.20.1
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c  # v2.21.0
         with:
           egress-policy: audit
 
@@ -567,7 +562,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
       - name: Set up Docker Buildx
         if: steps.retag-or-build.outputs.needs_build == 'true'
-        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
       - name: Log in to GitHub Container Registry
         if: steps.retag-or-build.outputs.needs_build == 'true'
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
