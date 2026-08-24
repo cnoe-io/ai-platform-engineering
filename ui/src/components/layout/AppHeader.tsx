@@ -4,6 +4,7 @@ import {
   ApplicationNavigationMenuButton,
   MobileApplicationBrand,
 } from "@/components/layout/ApplicationNavigation";
+import { ApplicationNavigationSearchTrigger } from "@/components/layout/ApplicationNavigationSearch";
 import { isOnHeaderDialogEditor } from "@/components/layout/GuardedNavigationLink";
 import { ReleaseUpgradeDialog } from "@/components/release/ReleaseUpgradeDialog";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
@@ -411,6 +412,7 @@ export function AppHeader() {
 
         {/* Personalization, Links & User */}
         <div className="flex items-center gap-1">
+          <ApplicationNavigationSearchTrigger />
           {config.envBadge ? (
             <span
               className="mr-1 inline-flex shrink-0 items-center rounded-full border border-amber-500/40 bg-amber-500/15 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-400"

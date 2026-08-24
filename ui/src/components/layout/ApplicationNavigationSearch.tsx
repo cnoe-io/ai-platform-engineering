@@ -11,6 +11,7 @@ import {
 import {
   Tooltip,
   TooltipContent,
+  TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
@@ -56,6 +57,49 @@ type FetchImplementation = (
   input: RequestInfo | URL,
   init?: RequestInit,
 ) => Promise<Response>;
+
+const OPEN_APPLICATION_SEARCH_EVENT = "caipe:open-application-search";
+
+function useCommandPaletteShortcut(): string {
+  const [shortcut,setShortcut] = React.useState("⌘/Ctrl K");
+
+  React.useEffect(() => {
+    setShortcut(/Mac|iPhone|iPad|iPod/i.test(navigator.userAgent) ? "⌘ K" : "Ctrl K");
+  }, []);
+
+  return shortcut;
+}
+
+export function ApplicationNavigationSearchTrigger(): React.ReactElement {
+  const shortcut = useCommandPaletteShortcut();
+
+  return (
+    <TooltipProvider delayDuration={200}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            aria-label={`Search CAIPE · ${shortcut}`}
+            className={cn(
+              "flex h-8 items-center justify-center gap-1.5 rounded-md px-2 text-muted-foreground outline-none transition-colors",
+              "hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring",
+            )}
+            data-testid="application-navigation-search-trigger"
+            onClick={() => window.dispatchEvent(new Event(OPEN_APPLICATION_SEARCH_EVENT))}
+            type="button"
+          >
+            <Search aria-hidden="true" className="h-4 w-4 shrink-0" />
+            <kbd className="hidden rounded border border-border/70 bg-muted/70 px-1.5 py-0.5 text-[10px] font-medium leading-none text-muted-foreground lg:inline-block">
+              {shortcut}
+            </kbd>
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="bottom" sideOffset={8}>
+          Search CAIPE · {shortcut}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
 
 export function filterApplicationNavigationEntries(
   entries: ApplicationNavigationSearchEntry[],
@@ -251,12 +295,10 @@ function SearchResult({
 }
 
 export function ApplicationNavigationSearch({
-  collapsed,
   enableShortcut,
   entries,
   onNavigate,
 }: {
-  collapsed: boolean;
   enableShortcut: boolean;
   entries: ApplicationNavigationSearchEntry[];
   onNavigate?: () => void;
@@ -266,7 +308,6 @@ export function ApplicationNavigationSearch({
   const [activeIndex,setActiveIndex] = React.useState(0);
   const [resourceEntries,setResourceEntries] = React.useState<ApplicationNavigationSearchEntry[]>([]);
   const [resourcesLoading,setResourcesLoading] = React.useState(false);
-  const [shortcut,setShortcut] = React.useState("⌘/Ctrl K");
   const resultsRef = React.useRef<HTMLDivElement>(null);
   const navigationEntries = React.useMemo(
     () => filterApplicationNavigationEntries(entries,query),
@@ -278,11 +319,8 @@ export function ApplicationNavigationSearch({
   );
 
   React.useEffect(() => {
-    setShortcut(/Mac|iPhone|iPad|iPod/i.test(navigator.userAgent) ? "⌘ K" : "Ctrl K");
-  }, []);
-
-  React.useEffect(() => {
     if (!enableShortcut) return undefined;
+    const handleOpen = () => setOpen(true);
     const handleShortcut = (event: KeyboardEvent) => {
       if (event.key.toLocaleLowerCase() !== "k" || (!event.metaKey && !event.ctrlKey)) {
         return;
@@ -290,8 +328,12 @@ export function ApplicationNavigationSearch({
       event.preventDefault();
       setOpen((current) => !current);
     };
+    window.addEventListener(OPEN_APPLICATION_SEARCH_EVENT,handleOpen);
     window.addEventListener("keydown",handleShortcut);
-    return () => window.removeEventListener("keydown",handleShortcut);
+    return () => {
+      window.removeEventListener(OPEN_APPLICATION_SEARCH_EVENT,handleOpen);
+      window.removeEventListener("keydown",handleShortcut);
+    };
   }, [enableShortcut]);
 
   React.useEffect(() => {
@@ -337,43 +379,8 @@ export function ApplicationNavigationSearch({
     onNavigate?.();
   };
 
-  const trigger = (
-    <button
-      aria-label="Open command palette"
-      className={cn(
-        "group flex h-9 items-center rounded-lg border border-border/60 bg-background/45 text-muted-foreground outline-none transition-colors",
-        "hover:border-border hover:bg-muted/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring",
-        collapsed ? "w-9 justify-center" : "w-full gap-2 px-2.5 text-left",
-      )}
-      data-testid="application-navigation-search-trigger"
-      onClick={() => setOpen(true)}
-      type="button"
-    >
-      <Search aria-hidden="true" className="h-4 w-4 shrink-0" />
-      {!collapsed ? (
-        <>
-          <span className="min-w-0 flex-1 truncate text-xs font-medium">Search</span>
-          <kbd className="rounded border border-border/70 bg-muted/70 px-1.5 py-0.5 text-[10px] font-medium leading-none text-muted-foreground">
-            {shortcut}
-          </kbd>
-        </>
-      ) : null}
-    </button>
-  );
-
   return (
     <>
-      <div className={cn("mb-2 flex",collapsed ? "justify-center" : "px-1")}>
-        {collapsed ? (
-          <Tooltip>
-            <TooltipTrigger asChild>{trigger}</TooltipTrigger>
-            <TooltipContent side="right" sideOffset={8}>
-              Search · {shortcut}
-            </TooltipContent>
-          </Tooltip>
-        ) : trigger}
-      </div>
-
       {open ? <Dialog open onOpenChange={updateOpen}>
         <DialogContent className="max-w-xl gap-0 overflow-hidden p-0 [&>button]:hidden">
           <DialogHeader className="sr-only">
