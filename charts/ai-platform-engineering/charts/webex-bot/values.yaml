@@ -1,7 +1,7 @@
 replicaCount: 1
 
 image:
-  repository: ghcr.io/cnoe-io/caipe-webex-bot
+  repository: ghcr.io/caipe-io/caipe-webex-bot
   tag: ""
   pullPolicy: Always
 

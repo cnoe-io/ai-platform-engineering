@@ -74,7 +74,7 @@ gh pr view <number> --json title,body,labels
 ### 2b — Helm values diff
 
 ```bash
-CHART=oci://ghcr.io/cnoe-io/charts/ai-platform-engineering
+CHART=oci://ghcr.io/caipe-io/charts/ai-platform-engineering
 helm show values "$CHART" --version <from> > /tmp/values-from.yaml
 helm show values "$CHART" --version <to>   > /tmp/values-to.yaml
 diff -u /tmp/values-from.yaml /tmp/values-to.yaml
@@ -217,7 +217,7 @@ global:
 
 ```bash
 helm upgrade ai-platform-engineering \
-  oci://ghcr.io/cnoe-io/charts/ai-platform-engineering \
+  oci://ghcr.io/caipe-io/charts/ai-platform-engineering \
   --version <to> \
   -f your-values.yaml
 ```

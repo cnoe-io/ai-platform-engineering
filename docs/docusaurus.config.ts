@@ -245,7 +245,7 @@ const config: Config = {
             },
             {
               label: 'Community Meeting',
-              href: 'https://github.com/cnoe-io/ai-platform-engineering#agentic-ai-sig-community',
+              href: 'https://caipe.io/community',
             },
             {
               label: 'Slack Channel',
@@ -256,8 +256,8 @@ const config: Config = {
               href: 'https://www.youtube.com/@cnoe-community',
             },
             {
-              label: 'CNOE Agentic AI SIG Governance',
-              href: 'https://github.com/cnoe-io/governance/tree/main/sigs/agentic-ai',
+              label: 'Governance',
+              href: 'https://github.com/caipe-io/governance',
             }
           ],
         },
@@ -273,8 +273,8 @@ const config: Config = {
               href: 'https://github.com/cnoe-io/cnoe-agent-utils',
             },
             {
-              label: 'CNOE.io',
-              href: 'https://cnoe.io',
+              label: 'CAIPE.io',
+              href: 'https://caipe.io',
             },
           ],
         },

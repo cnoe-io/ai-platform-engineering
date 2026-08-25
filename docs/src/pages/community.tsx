@@ -9,7 +9,7 @@ const CHANNELS = [
     icon: '💬',
     title: 'CNCF Slack',
     description: 'Chat with the community in real time.',
-    cta: 'Join #cnoe-sig-agentic-ai',
+    cta: 'Join the CAIPE community channel',
     href: 'https://cloud-native.slack.com/archives/C08N0AKR52S',
     note: 'Need a CNCF Slack invite?',
     noteHref: 'https://communityinviter.com/apps/cloud-native/cncf',
@@ -53,10 +53,10 @@ const CHANNELS = [
   },
   {
     icon: '🏛️',
-    title: 'SIG Governance',
-    description: 'CNOE Agentic AI SIG charter, roles, and decision-making process.',
+    title: 'Governance',
+    description: 'CAIPE project charter, roles, and decision-making process.',
     cta: 'Read governance docs',
-    href: 'https://github.com/cnoe-io/governance/tree/main/sigs/agentic-ai',
+    href: 'https://github.com/caipe-io/governance',
     note: null,
     noteHref: null,
   },
@@ -99,7 +99,7 @@ export default function CommunityPage() {
   return (
     <Layout
       title="Community · CAIPE"
-      description="Join the CNOE Agentic AI SIG community — weekly meetings, CNCF Slack, GitHub Discussions, and more."
+      description="Join the CAIPE community — weekly meetings, CNCF Slack, GitHub Discussions, and more."
     >
       <main>
         {/* Hero */}
@@ -110,8 +110,8 @@ export default function CommunityPage() {
             </Heading>
             <p className={styles.heroSubtitle}>
               CAIPE is built by and for platform engineers. Connect with the
-              CNOE Agentic AI SIG, share your deployments, contribute agents,
-              and help shape the roadmap.
+              community, share your deployments, contribute agents, and help
+              shape the roadmap.
             </p>
             <div className={styles.heroButtons}>
               <Link

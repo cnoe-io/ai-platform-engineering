@@ -243,7 +243,6 @@ jobs:
 
             **Medium Priority:**
             - components/chat/ChatPanel.tsx - Main chat interface
-            - components/agent-builder/* - Agent builder UI
             - lib/mongodb.ts - MongoDB integration
 
             </details>
@@ -302,11 +301,7 @@ jobs:
       contents: read
       packages: read
     container:
-      # assisted-by Codex Codex-sonnet-4-6
-      image: ghcr.io/cnoe-io/playwright:v1.61.0-noble
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
+      image: mcr.microsoft.com/playwright:v1.61.0-noble
 
     steps:
       - name: 🔒 Harden runner

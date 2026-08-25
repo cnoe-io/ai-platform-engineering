@@ -118,7 +118,7 @@ services:
       dockerfile: build/agents/Dockerfile.mcp
       args:
         - AGENT_NAME=backstage
-    image: ghcr.io/cnoe-io/mcp-backstage:${IMAGE_TAG:-localtag}
+    image: ghcr.io/caipe-io/mcp-backstage:${IMAGE_TAG:-localtag}
     container_name: mcp-backstage
     env_file: [.env]
     ports: ["18001:8000"]
@@ -145,7 +145,7 @@ services:
       dockerfile: build/agents/Dockerfile.mcp
       args:
         - AGENT_NAME=argocd
-    image: ghcr.io/cnoe-io/mcp-argocd:${IMAGE_TAG:-localtag}
+    image: ghcr.io/caipe-io/mcp-argocd:${IMAGE_TAG:-localtag}
     container_name: mcp-argocd
     env_file: [.env]
     ports: ["18002:8000"]
@@ -186,7 +186,7 @@ services:
       dockerfile: build/agents/Dockerfile.mcp
       args:
         - AGENT_NAME=jira
-    image: ghcr.io/cnoe-io/mcp-jira:${IMAGE_TAG:-localtag}
+    image: ghcr.io/caipe-io/mcp-jira:${IMAGE_TAG:-localtag}
     container_name: mcp-jira
     env_file: [.env]
     ports: ["18004:8000"]
@@ -229,7 +229,7 @@ services:
       dockerfile: build/agents/Dockerfile.mcp
       args:
         - AGENT_NAME=komodor
-    image: ghcr.io/cnoe-io/mcp-komodor:${IMAGE_TAG:-localtag}
+    image: ghcr.io/caipe-io/mcp-komodor:${IMAGE_TAG:-localtag}
     container_name: mcp-komodor
     env_file: [.env]
     ports: ["18005:8000"]
@@ -255,7 +255,7 @@ services:
       dockerfile: build/agents/Dockerfile.mcp
       args:
         - AGENT_NAME=pagerduty
-    image: ghcr.io/cnoe-io/mcp-pagerduty:${IMAGE_TAG:-localtag}
+    image: ghcr.io/caipe-io/mcp-pagerduty:${IMAGE_TAG:-localtag}
     container_name: mcp-pagerduty
     env_file: [.env]
     ports: ["18006:8000"]
@@ -309,7 +309,7 @@ services:
       dockerfile: build/agents/Dockerfile.mcp
       args:
         - AGENT_NAME=splunk
-    image: ghcr.io/cnoe-io/mcp-splunk:${IMAGE_TAG:-localtag}
+    image: ghcr.io/caipe-io/mcp-splunk:${IMAGE_TAG:-localtag}
     container_name: mcp-splunk
     env_file: [.env]
     ports: ["18008:8000"]
@@ -336,7 +336,7 @@ services:
       dockerfile: build/agents/Dockerfile.mcp
       args:
         - AGENT_NAME=webex
-    image: ghcr.io/cnoe-io/mcp-webex:${IMAGE_TAG:-localtag}
+    image: ghcr.io/caipe-io/mcp-webex:${IMAGE_TAG:-localtag}
     container_name: mcp-webex
     env_file: [.env]
     ports: ["18009:8000"]
@@ -363,7 +363,7 @@ services:
       dockerfile: build/agents/Dockerfile.mcp
       args:
         - AGENT_NAME=webex-meetings
-    image: ghcr.io/cnoe-io/mcp-webex-meetings:${IMAGE_TAG:-localtag}
+    image: ghcr.io/caipe-io/mcp-webex-meetings:${IMAGE_TAG:-localtag}
     container_name: mcp-webex-meetings
     env_file: [.env]
     ports: ["18013:8000"]
@@ -390,7 +390,7 @@ services:
       dockerfile: build/agents/Dockerfile.mcp
       args:
         - AGENT_NAME=victorops
-    image: ghcr.io/cnoe-io/mcp-victorops:${IMAGE_TAG:-localtag}
+    image: ghcr.io/caipe-io/mcp-victorops:${IMAGE_TAG:-localtag}
     container_name: mcp-victorops
     env_file: [.env]
     ports: ["18012:8000"]
@@ -417,7 +417,7 @@ services:
       args:
         - AGENT_NAME=netutils
         - INSTALL_NETUTILS=true
-    image: ghcr.io/cnoe-io/mcp-netutils:${IMAGE_TAG:-localtag}
+    image: ghcr.io/caipe-io/mcp-netutils:${IMAGE_TAG:-localtag}
     container_name: mcp-netutils
     env_file: [.env]
     ports: ["18011:8000"]
@@ -478,7 +478,7 @@ services:
         # Local prod-parity rebuilds skip Next's duplicate typecheck; run
         # `npm run lint` / targeted tests separately when validating changes.
         - CAIPE_UI_FAST_BUILD=${CAIPE_UI_FAST_BUILD:-true}
-    image: ghcr.io/cnoe-io/caipe-ui:${IMAGE_TAG:-localtag}-dev
+    image: ghcr.io/caipe-io/caipe-ui:${IMAGE_TAG:-localtag}-dev
     container_name: caipe-ui
     ports: ["3000:3000"]
     env_file:
@@ -739,7 +739,7 @@ services:
         # Local prod-parity rebuilds skip Next's duplicate typecheck; run
         # `npm run lint` / targeted tests separately when validating changes.
         - CAIPE_UI_FAST_BUILD=${CAIPE_UI_FAST_BUILD:-true}
-    image: ghcr.io/cnoe-io/caipe-ui-prod:${IMAGE_TAG:-localtag}
+    image: ghcr.io/caipe-io/caipe-ui:${IMAGE_TAG:-localtag}-prod
     container_name: caipe-ui-prod
     # Same host port as caipe-ui — these two services are mutually exclusive.
     # Keycloak's caipe-ui client only allow-lists http://localhost:3000/*.
@@ -905,7 +905,7 @@ services:
     build:
       context: .
       dockerfile: build/Dockerfile.audit-service
-    image: ghcr.io/cnoe-io/caipe-audit-service:${IMAGE_TAG:-localtag}
+    image: ghcr.io/caipe-io/caipe-audit-service:${IMAGE_TAG:-localtag}
     container_name: audit-service
     ports:
       - "127.0.0.1:${AUDIT_SERVICE_PORT:-8010}:8010"
@@ -966,7 +966,7 @@ services:
     build:
       context: ./ai_platform_engineering/dynamic_agents
       dockerfile: build/Dockerfile
-    image: ghcr.io/cnoe-io/caipe-dynamic-agents:${IMAGE_TAG:-localtag}
+    image: ghcr.io/caipe-io/caipe-dynamic-agents:${IMAGE_TAG:-localtag}
     container_name: dynamic-agents
     ports: ["8100:8001"]
     volumes:
@@ -1120,7 +1120,7 @@ services:
       # Dockerfile itself lives at the repo root under build/
       context: ./ai_platform_engineering/autonomous_agents
       dockerfile: ../../build/Dockerfile.autonomous-agents
-    image: ghcr.io/cnoe-io/caipe-autonomous-agents:${IMAGE_TAG:-localtag}
+    image: ghcr.io/caipe-io/caipe-autonomous-agents:${IMAGE_TAG:-localtag}
     container_name: autonomous-agents
     ports: ["8002:8002"]
     env_file: [.env]
@@ -1176,7 +1176,7 @@ services:
     build:
       context: ./ai_platform_engineering/knowledge_bases/rag
       dockerfile: ./build/Dockerfile.server
-    image: ghcr.io/cnoe-io/caipe-rag-server:${IMAGE_TAG:-localtag}
+    image: ghcr.io/caipe-io/caipe-rag-server:${IMAGE_TAG:-localtag}
     container_name: rag-server
     # Network alias preserves the legacy `rag_server` hostname for any client
     # that still has it hardcoded. AGW's hickory-dns resolver rejects DNS
@@ -1256,7 +1256,7 @@ services:
     build:
       context: ./ai_platform_engineering/knowledge_bases/rag
       dockerfile: ./build/Dockerfile.agent-ontology
-    image: ghcr.io/cnoe-io/caipe-rag-agent-ontology:${IMAGE_TAG:-localtag}
+    image: ghcr.io/caipe-io/caipe-rag-agent-ontology:${IMAGE_TAG:-localtag}
     container_name: agent_ontology
     volumes:
       - ./ai_platform_engineering/knowledge_bases/rag/agent_ontology/src/agent_ontology:/app/agent_ontology/src/agent_ontology
@@ -1290,7 +1290,7 @@ services:
     build:
       context: ./ai_platform_engineering/knowledge_bases/rag
       dockerfile: ./build/Dockerfile.ingestors
-    image: ghcr.io/cnoe-io/caipe-rag-ingestors:${IMAGE_TAG:-localtag}
+    image: ghcr.io/caipe-io/caipe-rag-ingestors:${IMAGE_TAG:-localtag}
     container_name: web-ingestor
     volumes:
       - ./ai_platform_engineering/knowledge_bases/rag/ingestors/src/ingestors:/app/ingestors/src/ingestors
@@ -1322,7 +1322,7 @@ services:
     build:
       context: ./ai_platform_engineering/knowledge_bases/rag
       dockerfile: ./build/Dockerfile.ingestors
-    image: ghcr.io/cnoe-io/caipe-rag-ingestors:${IMAGE_TAG:-localtag}
+    image: ghcr.io/caipe-io/caipe-rag-ingestors:${IMAGE_TAG:-localtag}
     container_name: backstage-ingestor
     volumes:
       - ./ai_platform_engineering/knowledge_bases/rag/ingestors/src/ingestors:/app/ingestors/src/ingestors
@@ -1349,7 +1349,7 @@ services:
     build:
       context: ./ai_platform_engineering/knowledge_bases/rag
       dockerfile: ./build/Dockerfile.ingestors
-    image: ghcr.io/cnoe-io/caipe-rag-ingestors:${IMAGE_TAG:-localtag}
+    image: ghcr.io/caipe-io/caipe-rag-ingestors:${IMAGE_TAG:-localtag}
     container_name: aws-ingestor
     volumes:
       - ./ai_platform_engineering/knowledge_bases/rag/ingestors/src/ingestors:/app/ingestors/src/ingestors
@@ -1383,7 +1383,7 @@ services:
     build:
       context: ./ai_platform_engineering/knowledge_bases/rag
       dockerfile: ./build/Dockerfile.ingestors
-    image: ghcr.io/cnoe-io/caipe-rag-ingestors:${IMAGE_TAG:-localtag}
+    image: ghcr.io/caipe-io/caipe-rag-ingestors:${IMAGE_TAG:-localtag}
     container_name: k8s-ingestor
     volumes:
       - ./ai_platform_engineering/knowledge_bases/rag/ingestors/src/ingestors:/app/ingestors/src/ingestors
@@ -1417,7 +1417,7 @@ services:
     build:
       context: ./ai_platform_engineering/knowledge_bases/rag
       dockerfile: ./build/Dockerfile.ingestors
-    image: ghcr.io/cnoe-io/caipe-rag-ingestors:${IMAGE_TAG:-localtag}
+    image: ghcr.io/caipe-io/caipe-rag-ingestors:${IMAGE_TAG:-localtag}
     container_name: slack-ingestor
     volumes:
       - ./ai_platform_engineering/knowledge_bases/rag/ingestors/src/ingestors:/app/ingestors/src/ingestors
@@ -1446,7 +1446,7 @@ services:
     build:
       context: ./ai_platform_engineering/knowledge_bases/rag
       dockerfile: ./build/Dockerfile.ingestors
-    image: ghcr.io/cnoe-io/caipe-rag-ingestors:${IMAGE_TAG:-localtag}
+    image: ghcr.io/caipe-io/caipe-rag-ingestors:${IMAGE_TAG:-localtag}
     container_name: webex-ingestor
     volumes:
       - ./ai_platform_engineering/knowledge_bases/rag/ingestors/src/ingestors:/app/ingestors/src/ingestors
@@ -1474,7 +1474,7 @@ services:
     build:
       context: ./ai_platform_engineering/knowledge_bases/rag
       dockerfile: ./build/Dockerfile.ingestors
-    image: ghcr.io/cnoe-io/caipe-rag-ingestors:${IMAGE_TAG:-localtag}
+    image: ghcr.io/caipe-io/caipe-rag-ingestors:${IMAGE_TAG:-localtag}
     container_name: argocd-ingestor
     volumes:
       - ./ai_platform_engineering/knowledge_bases/rag/ingestors/src/ingestors:/app/ingestors/src/ingestors
@@ -1501,7 +1501,7 @@ services:
     build:
       context: ./ai_platform_engineering/knowledge_bases/rag
       dockerfile: ./build/Dockerfile.ingestors
-    image: ghcr.io/cnoe-io/caipe-rag-ingestors:${IMAGE_TAG:-localtag}
+    image: ghcr.io/caipe-io/caipe-rag-ingestors:${IMAGE_TAG:-localtag}
     container_name: github-ingestor
     volumes:
       - ./ai_platform_engineering/knowledge_bases/rag/ingestors/src/ingestors:/app/ingestors/src/ingestors
@@ -1563,7 +1563,7 @@ services:
     build:
       context: ./ai_platform_engineering/knowledge_bases/rag
       dockerfile: ./build/Dockerfile.ingestors
-    image: ghcr.io/cnoe-io/caipe-rag-ingestors:${IMAGE_TAG:-localtag}
+    image: ghcr.io/caipe-io/caipe-rag-ingestors:${IMAGE_TAG:-localtag}
     container_name: confluence-ingestor
     volumes:
       - ./ai_platform_engineering/knowledge_bases/rag/ingestors/src/ingestors:/app/ingestors/src/ingestors
@@ -1890,7 +1890,7 @@ services:
     build:
       context: .
       dockerfile: build/Dockerfile.slack-bot
-    image: ghcr.io/cnoe-io/caipe-slack-bot:${IMAGE_TAG:-localtag}
+    image: ghcr.io/caipe-io/caipe-slack-bot:${IMAGE_TAG:-localtag}
     container_name: slack-bot
     volumes:
       - ./ai_platform_engineering/integrations/slack_bot:/app
@@ -1994,7 +1994,7 @@ services:
     build:
       context: .
       dockerfile: build/Dockerfile.webex-bot
-    image: ghcr.io/cnoe-io/caipe-webex-bot:${IMAGE_TAG:-localtag}
+    image: ghcr.io/caipe-io/caipe-webex-bot:${IMAGE_TAG:-localtag}
     container_name: webex-bot
     volumes:
       - ./ai_platform_engineering/integrations/webex_bot:/app/ai_platform_engineering/integrations/webex_bot
@@ -2406,7 +2406,7 @@ services:
     build:
       context: ./deploy/agentgateway
       dockerfile: Dockerfile.config-bridge
-    image: ghcr.io/cnoe-io/agentgateway-config-bridge:${IMAGE_TAG:-localtag}
+    image: ghcr.io/caipe-io/agentgateway-config-bridge:${IMAGE_TAG:-localtag}
     container_name: agentgateway-config-bridge
     restart: unless-stopped
     read_only: true
@@ -2519,7 +2519,7 @@ services:
         # Bumping requires verifying /scan-upload response shape vs
         # ui/src/lib/skill-scan.ts.
         - SKILL_SCANNER_VERSION=${SKILL_SCANNER_VERSION:-2.0.11}
-    image: ghcr.io/cnoe-io/skill-scanner:${IMAGE_TAG:-localtag}
+    image: ghcr.io/caipe-io/skill-scanner:${IMAGE_TAG:-localtag}
     container_name: skill-scanner
     # Bind to 127.0.0.1 only — the API has no auth and accepts arbitrary
     # ZIPs, so it must never be reachable from outside the host.
