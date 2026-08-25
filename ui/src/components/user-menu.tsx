@@ -10,6 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { useVersion } from "@/hooks/use-version";
 import { config } from "@/lib/config";
 import { cn } from "@/lib/utils";
 import { AnimatePresence,motion } from "framer-motion";
@@ -19,7 +20,7 @@ import Image from "next/image";
 import { NavigationProgressLink } from "@/components/layout/NavigationProgressLink";
 import { useCallback,useEffect,useRef,useState } from "react";
 
-const CHANGELOG_URL = "https://github.com/cnoe-io/ai-platform-engineering/blob/main/CHANGELOG.md";
+const RELEASES_URL = "https://caipe.io/releases";
 
 export function UserMenu(): React.ReactElement | null {
   const { data: session,status } = useSession();
@@ -31,6 +32,7 @@ export function UserMenu(): React.ReactElement | null {
   const [changelogError,setChangelogError] = useState<string | null>(null);
   const changelogFetched = useRef(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const { versionInfo } = useVersion();
 
   const fetchChangelog = useCallback(async () => {
     if (changelogFetched.current) return;
@@ -245,16 +247,18 @@ export function UserMenu(): React.ReactElement | null {
             <div className="flex items-center gap-3">
               <span className="gradient-primary-br rounded-xl p-2"><Info className="h-5 w-5 text-white" /></span>
               <div>
-                <DialogTitle>About — {config.appName}</DialogTitle>
-                <DialogDescription>{config.tagline}</DialogDescription>
+                <DialogTitle>About</DialogTitle>
+                <DialogDescription>
+                  {versionInfo ? `Version ${versionInfo.version}` : "Resolving version…"}
+                </DialogDescription>
               </div>
             </div>
           </DialogHeader>
           <div className="max-h-[60vh] overflow-y-auto p-6">
             <div className="mb-4 flex items-center justify-between gap-4">
               <h3 className="text-sm font-semibold">Recent changes</h3>
-              <a className="flex items-center gap-1 text-xs text-primary hover:underline" href={CHANGELOG_URL} rel="noopener noreferrer" target="_blank">
-                Full changelog <ExternalLink className="h-3 w-3" />
+              <a className="flex items-center gap-1 text-xs text-primary hover:underline" href={RELEASES_URL} rel="noopener noreferrer" target="_blank">
+                Release notes <ExternalLink className="h-3 w-3" />
               </a>
             </div>
             {changelogLoading ? (

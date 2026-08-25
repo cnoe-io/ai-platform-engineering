@@ -19,6 +19,35 @@ const versionsConfig: VersionsConfig | null = fs.existsSync(versionsConfigPath)
   ? (JSON.parse(fs.readFileSync(versionsConfigPath, 'utf8')) as VersionsConfig)
   : null;
 
+// Release notes are published one post per minor series (`release-0.5.x`), not per patch.
+// Every historical patch post and standalone migration guide had a live public URL, so
+// each one redirects to the series post that now covers it. Release notes also used to
+// live under `/blog/releases`; `/releases` is canonical, so both prefixes redirect.
+const patchSlugs = (minor: string, latest: number) =>
+  Array.from({length: latest + 1}, (_, patch) => `release-${minor}.${patch}`);
+
+// Pre-0.5 upgrade guides shipped as their own pages. The 0.4.x series post carries the
+// only guide still worth reading (0.3.x → 0.4.x), so they all land there.
+const legacyMigrationSlugs = [
+  'migration-0.2.41-to-0.3.2',
+  'migration-0.3.x-to-0.4.0',
+  ...Array.from({length: 8}, (_, i) => `migration-0.4.${i}-to-0.4.${i + 1}`),
+];
+
+const retiredReleaseSlugs: Record<string, string[]> = {
+  'release-0.4.x': ['release-0.3.2', ...patchSlugs('0.4', 18), ...legacyMigrationSlugs],
+  'release-0.5.x': [...patchSlugs('0.5', 69), 'release-0.5.52-upgrade-guide'],
+  'release-0.6.x': patchSlugs('0.6', 0),
+};
+
+const releaseRedirects = [
+  ...Object.entries(retiredReleaseSlugs).map(([series, slugs]) => ({
+    to: `/releases/${series}`,
+    from: slugs.flatMap((slug) => [`/releases/${slug}`, `/blog/releases/${slug}`]),
+  })),
+  {from: '/blog/releases', to: '/releases'},
+];
+
 const config: Config = {
   title: 'CAIPE',
   tagline: 'AI-powered Platform Engineering — deploy intelligent agents for your platform stack.',
@@ -74,29 +103,7 @@ const config: Config = {
           {from: '/knowledge_bases/graph_rag', to: '/docs/knowledge_bases/'},
           // /docs/index has no real page; redirect to Quick Start
           {from: '/docs/index', to: '/docs/getting-started/quick-start'},
-          // Old docs-based release notes → new blog posts
-          {from: '/releases/release-0.4.9', to: '/blog/releases/release-0.4.9'},
-          {from: '/releases/release-0.4.8', to: '/blog/releases/release-0.4.8'},
-          {from: '/releases/release-0.4.7', to: '/blog/releases/release-0.4.7'},
-          {from: '/releases/release-0.4.6', to: '/blog/releases/release-0.4.6'},
-          {from: '/releases/release-0.4.5', to: '/blog/releases/release-0.4.5'},
-          {from: '/releases/release-0.4.4', to: '/blog/releases/release-0.4.4'},
-          {from: '/releases/release-0.4.3', to: '/blog/releases/release-0.4.3'},
-          {from: '/releases/release-0.4.2', to: '/blog/releases/release-0.4.2'},
-          {from: '/releases/release-0.4.1', to: '/blog/releases/release-0.4.1'},
-          {from: '/releases/release-0.4.0', to: '/blog/releases/release-0.4.0'},
-          // Old migration guide docs → embedded in release blog posts
-          {from: '/releases/migration-0.4.7-to-0.4.8', to: '/blog/releases/release-0.4.8'},
-          {from: '/releases/migration-0.4.6-to-0.4.7', to: '/blog/releases/release-0.4.7'},
-          {from: '/releases/migration-0.4.5-to-0.4.6', to: '/blog/releases/release-0.4.6'},
-          {from: '/releases/migration-0.4.4-to-0.4.5', to: '/blog/releases/release-0.4.5'},
-          {from: '/releases/migration-0.4.3-to-0.4.4', to: '/blog/releases/release-0.4.4'},
-          {from: '/releases/migration-0.4.2-to-0.4.3', to: '/blog/releases/release-0.4.3'},
-          {from: '/releases/migration-0.4.1-to-0.4.2', to: '/blog/releases/release-0.4.2'},
-          {from: '/releases/migration-0.4.0-to-0.4.1', to: '/blog/releases/release-0.4.1'},
-          {from: '/releases/migration-0.3.x-to-0.4.0', to: '/blog/releases/release-0.4.0'},
-          {from: '/releases/migration-0.2.41-to-0.3.2', to: '/blog/releases/release-0.3.2'},
-          {from: '/releases', to: '/blog/releases'},
+          ...releaseRedirects,
         ],
       },
     ],
@@ -105,7 +112,7 @@ const config: Config = {
       {
         id: 'releases',
         path: 'releases',
-        routeBasePath: 'blog/releases',
+        routeBasePath: 'releases',
         blogTitle: 'Releases',
         blogDescription: 'CAIPE release notes and upgrade guides',
         showReadingTime: false,
@@ -184,7 +191,7 @@ const config: Config = {
         {to: '/features', label: 'Features', position: 'left'},
         {to: '/roadmap', label: 'Roadmap', position: 'left'},
         {to: '/community', label: 'Community', position: 'left'},
-        {to: '/blog/releases', label: 'Releases', position: 'left'},
+        {to: '/releases', label: 'Releases', position: 'left'},
         {to: '/blog', label: 'Blog', position: 'left'},
         {
           href: 'https://github.com/cnoe-io/ai-platform-engineering',
@@ -224,7 +231,7 @@ const config: Config = {
             },
             {
               label: 'Releases',
-              to: '/blog/releases',
+              to: '/releases',
             },
           ],
         },

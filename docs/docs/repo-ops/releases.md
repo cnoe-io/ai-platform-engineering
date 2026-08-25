@@ -72,7 +72,10 @@ To run manually:
 /release-docs
 ```
 
-The `/release-docs` skill produces `docs/releases/YYYY-MM-DD-release-x-y-z.md` with release notes and the upgrade guide inline.
+The `/release-docs` skill maintains one post per minor series,
+`docs/releases/YYYY-MM-DD-release-x-y-x.md`, with release notes and the upgrade guide
+inline. An `x.y.0` tag starts a new series post; a patch tag updates the existing one
+instead of adding a post.
 
 ---
 

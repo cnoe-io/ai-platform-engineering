@@ -20,7 +20,10 @@ Generate a combined release blog post for a new version.
 
 **Use when:** cutting a release or when someone asks "what changed in 0.4.x"
 
-**Produces:** `docs/releases/YYYY-MM-DD-release-X-Y-Z.md` — release notes narrative + upgrade guide in one file, picked up by the Docusaurus releases blog plugin.
+**Produces:** `docs/releases/YYYY-MM-DD-release-X-Y-x.md` — one post per minor series
+(`release-0.5.x`), containing the series narrative and upgrade guide, picked up by the
+Docusaurus releases plugin. A new `X.Y.0` tag starts a new post; patch releases are folded
+into the existing series post rather than getting one of their own.
 
 **Inputs:** to-version, from-version (auto-detected from git tags if omitted), optional `values.yaml` for personal impact analysis.
 
@@ -38,7 +41,7 @@ Audit and sync all documentation surfaces after a release or feature addition.
 
 | # | Surface | Stale when… |
 |---|---|---|
-| 1 | Release blog posts | A git tag has no matching `docs/releases/` file |
+| 1 | Release notes | An `X.Y.0` tag has no `docs/releases/` series post, or a series post omits later patches |
 | 2 | Homepage version string | Helm `--version` in `index.tsx` is behind latest tag |
 | 3 | Published versions | A released tag is missing from `docs/published-versions.json` |
 | 4 | Features page tiles | New feature docs without a tile in `features.tsx` |
