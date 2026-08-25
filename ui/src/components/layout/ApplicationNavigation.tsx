@@ -10,7 +10,6 @@ import {
 } from "@/components/layout/ApplicationSectionNavigation";
 import {
   ApplicationNavigationSearch,
-  ApplicationNavigationSearchTrigger,
   type ApplicationNavigationSearchEntry,
 } from "@/components/layout/ApplicationNavigationSearch";
 import { GuardedNavigationLink } from "@/components/layout/GuardedNavigationLink";

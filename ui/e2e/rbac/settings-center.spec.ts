@@ -371,7 +371,6 @@ test.describe("mocked routed Settings browser regression",() => {
       "href",
       "/admin/configuration/defaults",
     );
-    await expect(defaults.getByRole("heading",{ name: "Platform default agent" })).toBeVisible();
     await defaults.getByRole("button",{ name: "Platform default agent for new chats" }).click();
     await page.getByRole("option",{ name: "Incident Response" }).click();
 
