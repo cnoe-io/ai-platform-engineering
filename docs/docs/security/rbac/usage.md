@@ -14,6 +14,14 @@ COMPOSE_PROFILES='rbac,caipe-ui,caipe-mongodb' \
 docker compose -f docker-compose.dev.yaml ps keycloak
 ```
 
+## Conversation History Compatibility
+
+Chat API routes accept both UUID conversation IDs and bounded legacy opaque IDs.
+This keeps history created before server-owned UUID generation readable and
+manageable. The identifier is only used for an exact record lookup; the normal
+conversation authorization check still runs after the record is loaded for
+every read, update, archive, restore, bookmark, share, and message operation.
+
 Keycloak admin console: `http://localhost:7080/admin` (admin / admin)
 
 When the `rbac` profile is selected, `caipe-ui` has an optional `depends_on`
