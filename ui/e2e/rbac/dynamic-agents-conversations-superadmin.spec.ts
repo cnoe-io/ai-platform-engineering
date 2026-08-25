@@ -322,7 +322,7 @@ test.describe("mocked RBAC Dynamic Agents workspace", () => {
     await expect(page.getByText("3 conversations found")).toBeVisible();
 
     await page.getByPlaceholder("Search by ID, title, or owner...").fill("cost");
-    await page.getByRole("button", { name: "Search" }).click();
+    await page.getByRole("button", { exact: true, name: "Search" }).click();
     await expect(page.getByText("1 conversation found")).toBeVisible();
     await expect(page.getByText("Web cost review")).toBeVisible();
     await expect(page.getByText("Slack incident bridge")).toHaveCount(0);
