@@ -90,6 +90,7 @@ jobs:
     if: |
       needs.determine-changes.outputs.should_build == 'true' &&
       startsWith(inputs.head_ref || github.head_ref, 'prebuild/') &&
+      (github.event_name == 'workflow_call' || github.event.pull_request.head.repo.full_name == github.repository) &&
       github.event.action != 'closed'
     permissions:
       contents: write
@@ -241,6 +242,7 @@ jobs:
       needs.determine-changes.result == 'success' &&
       needs.determine-changes.outputs.should_build == 'true' &&
       startsWith(inputs.head_ref || github.head_ref, 'prebuild/') &&
+      (github.event_name == 'workflow_call' || github.event.pull_request.head.repo.full_name == github.repository) &&
       github.event.action != 'closed'
     permissions:
       contents: write
