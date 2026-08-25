@@ -18,6 +18,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Tooltip,
   TooltipContent,
@@ -27,6 +33,7 @@ import {
 import { useAdminRole } from "@/hooks/use-admin-role";
 import { useAutonomousCapability } from "@/hooks/use-autonomous-capability";
 import { useHydrated } from "@/hooks/use-hydrated";
+import { useKbTabGates } from "@/hooks/use-kb-tab-gates";
 import { config,getLogoFilterClass } from "@/lib/config";
 import { cn } from "@/lib/utils";
 import { resolveChatNavigationPath,useChatStore } from "@/store/chat-store";
@@ -38,6 +45,7 @@ import {
   Database,
   Home,
   KeyRound,
+  Mail,
   Menu,
   MessageCircle,
   Shield,
@@ -54,6 +62,7 @@ import React from "react";
 
 interface ApplicationNavigationItem {
   disabled?: boolean;
+  disabledReason?: string;
   href: string;
   icon: LucideIcon;
   key: string;
@@ -80,10 +89,12 @@ function activeAreaForPath(pathname: string | null): string | null {
 
 function ChatActivityBadge({
   inputRequired,
+  overlay,
   streaming,
   unviewed,
 }: {
   inputRequired: number;
+  overlay: boolean;
   streaming: number;
   unviewed: number;
 }): React.ReactElement | null {
@@ -101,7 +112,10 @@ function ChatActivityBadge({
         streaming ? "streaming" : inputRequired ? "need input" : "unviewed"
       }`}
       className={cn(
-        "absolute right-0.5 top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[9px] font-bold text-white",
+        "flex items-center justify-center rounded-full px-1 text-[9px] font-bold text-white",
+        overlay
+          ? "absolute -right-1.5 -top-1.5 h-4 min-w-4 ring-2 ring-background"
+          : "relative ml-auto h-5 min-w-5 shrink-0",
         color,
       )}
     >
@@ -136,6 +150,11 @@ function ApplicationNavigationContents({
   const { data: session } = useSession();
   const { isAdmin } = useAdminRole();
   const { canUseAutonomous } = useAutonomousCapability();
+  const {
+    gates: knowledgeGates,
+    loading: knowledgeGatesLoading,
+    orgAdminBypass: knowledgeAdminBypass,
+  } = useKbTabGates();
   const applicationNavigation = useApplicationNavigation();
   const {
     activeConversationId,
@@ -151,6 +170,13 @@ function ApplicationNavigationContents({
     [activeConversationId,conversations,hydrated],
   );
   const storageMode = config.storageMode;
+  const knowledgeHasExplicitCapability =
+    knowledgeGates.can_ingest === true || knowledgeGates.can_search === true;
+  const knowledgeUnavailable =
+    !knowledgeGatesLoading &&
+    !knowledgeAdminBypass &&
+    knowledgeGates.has_any_kb === false &&
+    !knowledgeHasExplicitCapability;
   const activeArea = activeAreaForPath(pathname);
   const registeredContextualNavigation =
     applicationNavigation?.registration?.areaKey === activeArea
@@ -161,25 +187,16 @@ function ApplicationNavigationContents({
       && (registeredContextualNavigation
         || APPLICATION_SECTION_AREA_KEYS.has(activeArea)),
   );
-  const [expandedAreaKeys,setExpandedAreaKeys] = React.useState<Set<string>>(
-    () => new Set(),
-  );
-  const lastActiveAreaRef = React.useRef(activeArea);
-  const autoExpandedAreaRef = React.useRef<string | null>(null);
-
-  React.useEffect(() => {
-    if (lastActiveAreaRef.current !== activeArea) {
-      lastActiveAreaRef.current = activeArea;
-      autoExpandedAreaRef.current = null;
-    }
-    if (!activeArea || !activeHasSectionNavigation) {
-      setExpandedAreaKeys(new Set());
-      return;
-    }
-    if (autoExpandedAreaRef.current === activeArea) return;
-    autoExpandedAreaRef.current = activeArea;
-    setExpandedAreaKeys(new Set([activeArea]));
-  }, [activeArea,activeHasSectionNavigation]);
+  const [expansionPreference,setExpansionPreference] = React.useState<{
+    activeArea: string | null;
+    expandedArea: string | null;
+  }>({ activeArea: null,expandedArea: null });
+  const routeExpandedArea = activeHasSectionNavigation ? activeArea : null;
+  const hasUserExpansionPreference =
+    expansionPreference.activeArea === activeArea;
+  const expandedArea = hasUserExpansionPreference
+    ? expansionPreference.expandedArea
+    : routeExpandedArea;
 
   const items = [
     { key: "home",href: "/",label: "Home",icon: Home },
@@ -196,6 +213,9 @@ function ApplicationNavigationContents({
       href: "/knowledge-bases/search",
       label: "Knowledge Bases",
       icon: Database,
+      disabled: knowledgeUnavailable,
+      disabledReason:
+        "You don't have Knowledge Base access yet. Ask an admin to grant your team permission.",
     },
     storageMode === "mongodb" && {
       key: "dynamic-agents",
@@ -230,6 +250,8 @@ function ApplicationNavigationContents({
       label: "Admin",
       icon: Shield,
       disabled: storageMode !== "mongodb",
+      disabledReason:
+        "Admin tools require persistent platform storage and are unavailable in this deployment.",
       utility: true,
     },
     {
@@ -255,19 +277,26 @@ function ApplicationNavigationContents({
         {items.map((item) => {
           const Icon = item.icon;
           const active = activeArea === item.key;
-          const contextualNavigation =
-            registeredContextualNavigation && active
+          const builtInSectionNavigation =
+            APPLICATION_SECTION_AREA_KEYS.has(item.key)
+              ? <ApplicationSectionNavigation areaKey={item.key} />
+              : null;
+          // Admin pages cross server-component route boundaries. Keep the
+          // shell-owned navigation mounted so those transitions cannot replay
+          // the disclosure animation while page registration is replaced.
+          const contextualNavigation = item.key === "admin"
+            ? builtInSectionNavigation
+            : registeredContextualNavigation && active
               ? registeredContextualNavigation
-              : APPLICATION_SECTION_AREA_KEYS.has(item.key)
-                ? <ApplicationSectionNavigation areaKey={item.key} />
-                : null;
+              : builtInSectionNavigation;
           const hasSectionNavigation =
             !item.disabled && Boolean(contextualNavigation);
           const contextExpanded =
-            hasSectionNavigation && expandedAreaKeys.has(item.key);
+            hasSectionNavigation && expandedArea === item.key;
           const chatBadge = item.key === "chat" ? (
             <ChatActivityBadge
               inputRequired={inputRequiredConversations.size}
+              overlay={collapsed}
               streaming={streamingConversations.size}
               unviewed={unviewedConversations.size}
             />
@@ -290,18 +319,23 @@ function ApplicationNavigationContents({
                     transition={
                       shouldReduceMotion
                         ? { duration: 0 }
-                        : { type: "spring",stiffness: 420,damping: 32,mass: 0.75 }
+                        : {
+                            type: "tween",
+                            duration: 0.18,
+                            ease: [0.22, 1, 0.36, 1],
+                          }
                     }
                   />
                 ) : null}
                 <Icon aria-hidden="true" className="relative z-10 h-3.5 w-3.5" />
-                {chatBadge}
+                {collapsed ? chatBadge : null}
               </span>
               {!collapsed ? (
                 <span className="min-w-0 flex-1 truncate text-sm font-medium">
                   {item.label}
                 </span>
               ) : null}
+              {!collapsed ? chatBadge : null}
             </>
           );
           const className = cn(
@@ -309,7 +343,7 @@ function ApplicationNavigationContents({
             "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
             collapsed && "justify-center",
             item.disabled
-              ? "cursor-not-allowed text-muted-foreground opacity-50"
+              ? "cursor-help text-muted-foreground opacity-55"
               : active
                 ? "bg-muted/60 font-medium text-foreground"
                 : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
@@ -347,22 +381,47 @@ function ApplicationNavigationContents({
           }
 
           const toggleContext = () => {
-            setExpandedAreaKeys((current) => {
-              return current.has(item.key)
-                ? new Set()
-                : new Set([item.key]);
+            setExpansionPreference({
+              activeArea,
+              expandedArea: contextExpanded ? null : item.key,
             });
           };
           const control = item.disabled ? (
-            <span
-              aria-disabled="true"
-              aria-label={`${item.label}: unavailable`}
-              className={className}
-              role="link"
-              tabIndex={0}
-            >
-              {contents}
-            </span>
+            <Popover className={cn("w-full", collapsed && "justify-center")}>
+              <PopoverTrigger asChild>
+                <button
+                  aria-disabled="true"
+                  aria-label={`${item.label}: unavailable`}
+                  className={className}
+                  type="button"
+                >
+                  {contents}
+                </button>
+              </PopoverTrigger>
+              <PopoverContent
+                align={collapsed ? "center" : "start"}
+                className="w-72 space-y-3 p-4"
+                side={collapsed ? "right" : "bottom"}
+                sideOffset={8}
+              >
+                <div className="space-y-1.5">
+                  <p className="text-sm font-semibold text-foreground">
+                    {item.label} unavailable
+                  </p>
+                  <p className="text-sm leading-5 text-muted-foreground">
+                    {item.disabledReason ?? "This destination is not available in this deployment."}
+                  </p>
+                </div>
+                <Button asChild size="sm" className="w-full">
+                  <a
+                    href={`mailto:${config.supportEmail}?subject=${encodeURIComponent(`${config.appName} access request`)}`}
+                  >
+                    <Mail aria-hidden="true" />
+                    Contact admin
+                  </a>
+                </Button>
+              </PopoverContent>
+            </Popover>
           ) : hasSectionNavigation && !collapsed ? (
             <button
               aria-controls={`${contextualNavigationId}-${item.key}`}
@@ -404,18 +463,37 @@ function ApplicationNavigationContents({
             >
               {collapsed ? (
                 <Tooltip>
-                  <TooltipTrigger asChild>{control}</TooltipTrigger>
+                  <TooltipTrigger asChild>
+                    {item.disabled ? (
+                      <div className="flex w-full justify-center">{control}</div>
+                    ) : control}
+                  </TooltipTrigger>
                   <TooltipContent side="right" sideOffset={8}>
-                    {item.key === "home" ? "Homepage" : item.label}
+                    {item.disabled
+                      ? `${item.label} unavailable`
+                      : item.key === "home" ? "Homepage" : item.label}
                   </TooltipContent>
                 </Tooltip>
               ) : control}
-              {!collapsed && contextExpanded ? (
+              {!collapsed && hasSectionNavigation ? (
                 <div
-                  className="ml-3 border-l border-border/60 pb-3 pl-3 pt-2"
+                  aria-hidden={!contextExpanded}
+                  className={cn(
+                    "grid",
+                    hasUserExpansionPreference
+                      && "transition-[grid-template-rows,opacity] duration-200 ease-out motion-reduce:transition-none",
+                    contextExpanded
+                      ? "grid-rows-[1fr] opacity-100"
+                      : "pointer-events-none grid-rows-[0fr] opacity-0",
+                  )}
                   id={`${contextualNavigationId}-${item.key}`}
+                  inert={!contextExpanded}
                 >
-                  {contextualNavigation}
+                  <div className="min-h-0 overflow-hidden">
+                    <div className="ml-3 border-l border-border/60 pb-3 pl-3 pt-2">
+                      {contextualNavigation}
+                    </div>
+                  </div>
                 </div>
               ) : null}
             </div>

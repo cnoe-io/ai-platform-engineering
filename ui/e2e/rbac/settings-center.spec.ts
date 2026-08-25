@@ -365,7 +365,9 @@ test.describe("mocked routed Settings browser regression",() => {
     const defaults = page.getByRole("main");
 
     await expect(defaults.getByRole("heading",{ level: 1,name: "Defaults" })).toBeVisible();
-    await expect(defaults.getByRole("link",{ name: "Platform configuration" })).toHaveAttribute(
+    await expect(
+      page.getByRole("navigation",{ name: "Admin sections" }).getByRole("link",{ name: "Defaults" }),
+    ).toHaveAttribute(
       "href",
       "/admin/configuration/defaults",
     );
