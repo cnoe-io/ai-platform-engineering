@@ -46,6 +46,22 @@ class CredentialExchangeClient:
             raise ValueError("credential service response did not include credential")
         return credential
 
+    async def list_secret_ids_by_name(self) -> dict[str, str]:
+        """List the caller's own secrets, keyed by friendly name -> internal id.
+
+        `/retrieve` takes the secret's internal id (`secret_ref`), not the
+        `name` it was created with, so callers that only know a secret's
+        conventional name (e.g. `llm:openai:api_key`, saved by the "Connect
+        provider" UI) need this lookup first.
+        """
+        data = await self._get("/secrets")
+        items = data if isinstance(data, list) else data.get("items", [])
+        return {
+            item["name"]: item["id"]
+            for item in items
+            if isinstance(item, dict) and isinstance(item.get("name"), str) and isinstance(item.get("id"), str)
+        }
+
     async def exchange_provider_connection(
         self,
         provider_connection_id: str,
@@ -90,6 +106,20 @@ class CredentialExchangeClient:
 
         async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as owned_client:
             response = await owned_client.post(f"{self._base_url}{path}", json=json_body, headers=self._headers())
+            response.raise_for_status()
+            payload = response.json()
+            return payload.get("data", payload)
+
+    async def _get(self, path: str) -> Any:
+        client = self._http_client
+        if client is not None:
+            response = await client.get(f"{self._base_url}{path}", headers=self._headers())
+            response.raise_for_status()
+            payload = response.json()
+            return payload.get("data", payload)
+
+        async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as owned_client:
+            response = await owned_client.get(f"{self._base_url}{path}", headers=self._headers())
             response.raise_for_status()
             payload = response.json()
             return payload.get("data", payload)

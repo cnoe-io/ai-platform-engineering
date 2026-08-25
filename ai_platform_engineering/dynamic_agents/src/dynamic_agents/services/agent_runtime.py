@@ -67,7 +67,7 @@ from dynamic_agents.services.builtin_tools import (
 )
 from dynamic_agents.services.credential_exchange import CredentialExchangeClient
 from dynamic_agents.services.gridfs_store import MongoDBGridFSStore
-from dynamic_agents.services.llm_clients import get_llm
+from dynamic_agents.services.llm_clients import get_llm, resolve_provider_credential_env
 from dynamic_agents.services.mcp_client import (
     McpCredentialUnavailableError,
     build_mcp_connections,
@@ -945,7 +945,10 @@ class AgentRuntime:
             f"[llm] Instantiating LLM for agent '{self.config.name}': "
             f"provider={self.config.model.provider}, model={self.config.model.id}"
         )
-        llm = get_llm(self.config.model.provider, self.config.model.id)
+        credential_env = await resolve_provider_credential_env(
+            self.config.model.provider, self._credential_exchange_client()
+        )
+        llm = get_llm(self.config.model.provider, self.config.model.id, credential_env=credential_env)
         logger.info(f"[llm] LLM instantiated for agent '{self.config.name}': type={type(llm).__name__}")
 
         # ─────────────────────────────────────────────────────────────────
@@ -1401,7 +1404,12 @@ class AgentRuntime:
             subagent_prompt = subagent_config.system_prompt
 
             # Instantiate subagent LLM (uses its own configured model)
-            subagent_llm = get_llm(subagent_config.model.provider, subagent_config.model.id)
+            subagent_credential_env = await resolve_provider_credential_env(
+                subagent_config.model.provider, self._credential_exchange_client()
+            )
+            subagent_llm = get_llm(
+                subagent_config.model.provider, subagent_config.model.id, credential_env=subagent_credential_env
+            )
 
             # Create SubAgent dict in deepagents format
             # Use agent_id as the name - this ensures namespace[0] from LangGraph

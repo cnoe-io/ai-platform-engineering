@@ -4,29 +4,18 @@ from __future__ import annotations
 
 from typing import Any
 
-from botocore.config import Config as BotocoreConfig
-from cnoe_agent_utils import LLMFactory
-
-
-def _provider_supports_botocore_config(provider: str) -> bool:
-    """Return whether LLMFactory should receive a Botocore ``config`` kwarg."""
-    normalized = provider.lower().replace("_", "-")
-    return normalized in {"aws-bedrock", "bedrock"}
+from dynamic_agents.services.llm_clients import get_llm as _get_llm
 
 
 def get_configured_llm(model_id: str, model_provider: str) -> Any:
     """Instantiate an LLM with provider-specific runtime options.
 
-    Dynamic Agents use extended Botocore timeouts for Bedrock so long-running
-    tool calls do not hit AWS read timeouts. That ``config`` kwarg is not valid
-    for OpenAI-compatible providers such as LiteLLM, so only attach it for the
-    Bedrock provider.
+    Delegates to `dynamic_agents.services.llm_clients.get_llm`, the single
+    entry point for LLM instantiation — it already applies Bedrock's extended
+    Botocore timeouts (via AWS_BEDROCK_READ_TIMEOUT/CONNECT_TIMEOUT, same
+    defaults previously hardcoded here) and translates gateway-routed
+    providers (cloudflare-workers-ai, openai-direct) that `LLMFactory` itself
+    doesn't know about. Calling `LLMFactory` directly here (as this used to)
+    bypassed that translation and 500'd for those providers.
     """
-    kwargs: dict[str, Any] = {}
-    if _provider_supports_botocore_config(model_provider):
-        kwargs["config"] = BotocoreConfig(read_timeout=300, connect_timeout=60)
-
-    return LLMFactory(provider=model_provider).get_llm(
-        model=model_id,
-        **kwargs,
-    )
+    return _get_llm(model_provider, model_id)

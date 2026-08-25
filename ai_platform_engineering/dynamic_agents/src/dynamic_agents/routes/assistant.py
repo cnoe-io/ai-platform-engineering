@@ -8,13 +8,13 @@ LLM call with a system prompt and user message.
 import logging
 from typing import Any
 
-from cnoe_agent_utils import LLMFactory
 from fastapi import APIRouter, Depends, HTTPException
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field, model_validator
 
 from dynamic_agents.auth.auth import UserContext, get_user_context
 from dynamic_agents.models import ModelConfig
+from dynamic_agents.services.llm_clients import get_llm
 
 logger = logging.getLogger(__name__)
 
@@ -82,9 +82,7 @@ async def suggest(
     )
 
     try:
-        llm = LLMFactory(provider=request.model.provider).get_llm(
-            model=request.model.id,
-        )
+        llm = get_llm(request.model.provider, request.model.id)
         result = await llm.ainvoke(
             [
                 SystemMessage(content=request.system_prompt),
