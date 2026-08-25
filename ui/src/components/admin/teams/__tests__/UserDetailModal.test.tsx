@@ -19,7 +19,11 @@ const userResponse = {
       lastName: "Aradhyula",
       enabled: true,
       createdAt: 0,
-      attributes: { slack_user_id: ["U123SLACK"], webex_user_id: ["person-abc"] },
+      attributes: {
+        slack_user_id: ["U123SLACK"],
+        webex_user_id: ["person-abc"],
+        webex_user_email: ["person-abc@example.com"],
+      },
       slackLinkStatus: "linked",
       realmRoles: [
         { id: "legacy-admin", name: "admin" },
@@ -260,7 +264,47 @@ describe("UserDetailModal", () => {
     expect(screen.queryByText("team-8")).not.toBeInTheDocument();
   });
 
-  it("shows Webex link status from webex_user_id attribute", async () => {
+  it("shows Webex link status and the linked account's email, not the raw Webex id", async () => {
+    render(
+      <UserDetailModal
+        userId="user-1"
+        onClose={jest.fn()}
+        onSaved={jest.fn()}
+      />
+    );
+
+    expect(await screen.findByText("person-abc@example.com")).toBeInTheDocument();
+    expect(screen.getByText("Webex")).toBeInTheDocument();
+    expect(screen.queryByText("person-abc")).not.toBeInTheDocument();
+  });
+
+  it("falls back to the raw Webex id when linked via the admin flow with no email captured", async () => {
+    const noEmailUser = {
+      ...userResponse,
+      data: {
+        ...userResponse.data,
+        user: {
+          ...userResponse.data.user,
+          attributes: {
+            ...userResponse.data.user.attributes,
+            webex_user_email: undefined,
+          },
+        },
+      },
+    };
+    (global.fetch as jest.Mock).mockImplementation((url: string) => {
+      if (url.includes("/api/admin/users/user-1/access")) {
+        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(accessResponse) });
+      }
+      if (url.includes("/api/admin/users/user-1")) {
+        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(noEmailUser) });
+      }
+      if (url.includes("/api/admin/teams")) {
+        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(teamsResponse) });
+      }
+      return Promise.resolve({ ok: false, status: 404, json: () => Promise.resolve({ success: false }) });
+    });
+
     render(
       <UserDetailModal
         userId="user-1"
@@ -270,7 +314,7 @@ describe("UserDetailModal", () => {
     );
 
     expect(await screen.findByText("person-abc")).toBeInTheDocument();
-    expect(screen.getByText("Webex")).toBeInTheDocument();
+    expect(screen.queryByText("person-abc@example.com")).not.toBeInTheDocument();
   });
 
   it("renders account and connector details without mutation controls in read-only mode", async () => {
@@ -327,7 +371,7 @@ describe("UserDetailModal", () => {
       />
     );
 
-    expect(await screen.findByText("person-abc")).toBeInTheDocument();
+    expect(await screen.findByText("person-abc@example.com")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /unlink webex/i }));
 
     await waitFor(() => {

@@ -26,7 +26,6 @@ jobs:
       should_build: ${{ steps.set-outputs.outputs.should_build }}
       should_retag: ${{ steps.set-outputs.outputs.should_retag }}
       tag_version: ${{ steps.version.outputs.tag_version }}
-      image_prefix: ${{ steps.set-outputs.outputs.image_prefix }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
@@ -64,7 +63,6 @@ jobs:
             echo "📊 Chart-only tag: skipping image builds"
             echo "should_build=false" >> $GITHUB_OUTPUT
             echo "should_retag=false" >> $GITHUB_OUTPUT
-            echo "image_prefix=" >> $GITHUB_OUTPUT
             exit 0
           fi
 
@@ -75,13 +73,6 @@ jobs:
           else
             IS_PRERELEASE="false"
             PRERELEASE_NUM=0
-          fi
-
-          # GHCR prefix: -rc.N and -hotfix.N go to pre-release/
-          if [[ "$TAG_VERSION" =~ -(rc|hotfix)\.[0-9]+ ]]; then
-            IMAGE_PREFIX="pre-release/"
-          else
-            IMAGE_PREFIX=""
           fi
 
           if [ -n "$TAG_VERSION" ]; then
@@ -104,8 +95,7 @@ jobs:
 
           echo "should_build=$SHOULD_BUILD" >> $GITHUB_OUTPUT
           echo "should_retag=$SHOULD_RETAG" >> $GITHUB_OUTPUT
-          echo "image_prefix=$IMAGE_PREFIX" >> $GITHUB_OUTPUT
-          echo "Outputs: build=$SHOULD_BUILD, retag=$SHOULD_RETAG, prefix=$IMAGE_PREFIX"
+          echo "Outputs: build=$SHOULD_BUILD, retag=$SHOULD_RETAG"
 
   build-and-push:
     runs-on: ubuntu-latest
@@ -117,7 +107,7 @@ jobs:
 
     env:
       REGISTRY: ghcr.io
-      IMAGE_NAME: ${{ github.repository_owner }}/${{ needs.determine-changes.outputs.image_prefix }}caipe-autonomous-agents
+      IMAGE_NAME: ${{ github.repository_owner }}/caipe-autonomous-agents
       DOCKERFILE: build/Dockerfile.autonomous-agents
 
     steps:
@@ -174,7 +164,7 @@ jobs:
 
     env:
       REGISTRY: ghcr.io
-      IMAGE_NAME: ${{ github.repository_owner }}/${{ needs.determine-changes.outputs.image_prefix }}caipe-autonomous-agents
+      IMAGE_NAME: ${{ github.repository_owner }}/caipe-autonomous-agents
       DOCKERFILE: build/Dockerfile.autonomous-agents
 
     steps:

@@ -133,7 +133,7 @@ helm show values oci://ghcr.io/cnoe-io/charts/caipe-ui --version 0.5.68
 | externalSecrets.secretStoreRef.name | string | `"vault"` |  |
 | fullnameOverride | string | `""` |  |
 | image.pullPolicy | string | `"Always"` |  |
-| image.repository | string | `"ghcr.io/cnoe-io/caipe-ui"` |  |
+| image.repository | string | `"ghcr.io/caipe-io/caipe-ui"` |  |
 | image.tag | string | `""` |  |
 | imagePullSecrets | list | `[]` |  |
 | ingress.annotations | object | `{}` |  |

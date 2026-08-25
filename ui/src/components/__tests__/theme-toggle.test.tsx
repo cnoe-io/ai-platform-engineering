@@ -100,11 +100,6 @@ describe("ThemeToggle", () => {
     mockResolvedTheme = "dark";
   });
 
-  it("renders without crashing", () => {
-    const { container } = render(<ThemeToggle />);
-    expect(container).toBeInTheDocument();
-  });
-
   it("shows current theme label after mount", async () => {
     render(<ThemeToggle />);
     await waitFor(() => {
@@ -230,11 +225,6 @@ describe("ThemeQuickToggle", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockResolvedTheme = "dark";
-  });
-
-  it("renders without crashing", () => {
-    const { container } = render(<ThemeQuickToggle />);
-    expect(container).toBeInTheDocument();
   });
 
   it("shows sun icon in dark mode", async () => {

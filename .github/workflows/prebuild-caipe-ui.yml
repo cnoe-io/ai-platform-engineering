@@ -34,7 +34,7 @@ on:
         type: string
         default: ''
 env:
-  IMAGE_NAME: ${{ github.repository_owner }}/prebuild/caipe-ui
+  IMAGE_NAME: ${{ github.repository_owner }}/caipe-ui
 
 permissions:
   contents: read
