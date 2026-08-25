@@ -104,6 +104,7 @@ describe("ApplicationNavigationSearch", () => {
     fireEvent.keyDown(window,{ key: "k",ctrlKey: true });
     const input = screen.getByRole("combobox", { name: "Search pages and resources" });
     expect(input).toBeInTheDocument();
+    expect(input).toHaveClass("focus-visible:ring-0","focus-visible:ring-offset-0");
     expect(screen.getByText("Esc")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Close command palette" }))
       .not.toBeInTheDocument();
