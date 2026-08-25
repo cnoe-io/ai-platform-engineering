@@ -8,17 +8,17 @@ A Helm chart for Dynamic Agents - Standalone agent builder service with MCP tool
 
 | | |
 |---|---|
-| **Version** | `0.5.68` |
+| **Version** | `0.6.0` |
 | **Type** | application |
 
 ## Quick Start
 
 ```bash
 # Add and install the chart
-helm install dynamic-agents oci://ghcr.io/cnoe-io/charts/dynamic-agents --version 0.5.68
+helm install dynamic-agents oci://ghcr.io/cnoe-io/charts/dynamic-agents --version 0.6.0
 
 # Upgrade an existing release
-helm upgrade dynamic-agents oci://ghcr.io/cnoe-io/charts/dynamic-agents --version 0.5.68
+helm upgrade dynamic-agents oci://ghcr.io/cnoe-io/charts/dynamic-agents --version 0.6.0
 ```
 
 ## Customizing Values
@@ -27,15 +27,15 @@ Override default values using `--set` flags or a custom values file:
 
 ```bash
 # Override individual values
-helm install dynamic-agents oci://ghcr.io/cnoe-io/charts/dynamic-agents --version 0.5.68 \
+helm install dynamic-agents oci://ghcr.io/cnoe-io/charts/dynamic-agents --version 0.6.0 \
   --set replicaCount=2
 
 # Use a custom values file
-helm install dynamic-agents oci://ghcr.io/cnoe-io/charts/dynamic-agents --version 0.5.68 \
+helm install dynamic-agents oci://ghcr.io/cnoe-io/charts/dynamic-agents --version 0.6.0 \
   -f custom-values.yaml
 
 # Show all configurable values
-helm show values oci://ghcr.io/cnoe-io/charts/dynamic-agents --version 0.5.68
+helm show values oci://ghcr.io/cnoe-io/charts/dynamic-agents --version 0.6.0
 ```
 
 ## Reading the Values Table
@@ -124,7 +124,7 @@ helm show values oci://ghcr.io/cnoe-io/charts/dynamic-agents --version 0.5.68
 | service.port | int | `8001` |  |
 | service.type | string | `"ClusterIP"` |  |
 | serviceAccount.annotations | object | `{}` |  |
-| serviceAccount.automount | bool | `true` |  |
+| serviceAccount.automount | bool | `false` |  |
 | serviceAccount.create | bool | `true` |  |
 | serviceAccount.name | string | `""` |  |
 | startupProbe.failureThreshold | int | `30` |  |
