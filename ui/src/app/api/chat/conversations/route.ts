@@ -242,8 +242,11 @@ export const GET = withErrorHandler(async (request: NextRequest) => {
     // Default ("All") view: include autonomous conversations alongside
     // regular human chats so the sidebar's "All" filter actually shows
     // both. Slack threads are still excluded because they have their
-    // own dedicated UI and were never wanted in this list.
-    query.$and.push({ source: { $nin: ['slack'] } });
+    // own dedicated UI, and `api` conversations are excluded because they
+    // were created by a direct API caller (e.g. the ask-forge CLI) with no
+    // UI transcript to show — they still count in insights/stats, which
+    // query `conversations`/`messages` directly without this filter.
+    query.$and.push({ source: { $nin: ['slack', 'api'] } });
   }
 
   // Get total count
@@ -398,6 +401,8 @@ export const POST = withErrorHandler(async (request: NextRequest) => {
     // Provenance: stamp the SA sub so the audit/reconcile step can find SA-created
     // conversations and verify/repair the writer grant. Only set for SA callers.
     ...(saSub ? { created_by_service_account: saSub } : {}),
+    // Caller-declared 'api' origin only — see CreateConversationRequest['source'].
+    ...(body.source === 'api' ? { source: 'api' as const } : {}),
     participants: buildParticipants(body.agent_id, ownerId),
     created_at: now,
     updated_at: now,
