@@ -1,7 +1,7 @@
 /**
  * Unit tests for the security-scanner gate in SkillsSelector.
  *
- * The agent-builder picker (Step 5 of the custom-agents wizard)
+ * The skills picker (Step 5 of the custom-agent wizard)
  * historically dropped `scan_status` when projecting CatalogSkill →
  * AgentSkill, which let users attach flagged skills to their custom
  * agents. Runtime execution enforces the same scan gate, so these tests
