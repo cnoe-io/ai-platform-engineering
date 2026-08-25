@@ -274,11 +274,14 @@ test.describe("mocked routed Settings browser regression",() => {
     );
   });
 
-  test("shows a neutral version without exposing a health destination",async ({ page }) => {
+  test("shows the version in About instead of the navigation footer",async ({ page }) => {
     const state = createState();
     await installSettingsCenterMocks(page,state);
     await openSettings(page,"Notifications");
 
+    await expect(page.getByTestId("application-version")).toHaveCount(0);
+    await page.getByRole("button",{ name: /user menu for/i }).click();
+    await page.getByRole("button",{ name: "About" }).click();
     await expect(page.getByTestId("application-version")).toContainText("Version: v0.5.67");
     await expect(page.getByTestId("application-version")).not.toHaveAttribute("href");
     await expect(page.getByRole("link",{ name: "System health" })).toHaveCount(0);
